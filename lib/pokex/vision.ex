@@ -29,4 +29,48 @@ defmodule Pokex.Vision do
   end
 
   defp sum_abs_diff(<<>>, <<>>, n, acc), do: acc / (3 * n)
+
+  @doc """
+  Locates the hostile creature inside the arena frame by clustering pure-red
+  pixels (the floating red name text). Species-agnostic. Returns frame PIXELS.
+  """
+  def find_hostile(%Frame{} = frame, opts \\ []) do
+    min_r = Keyword.get(opts, :min_r, 180)
+    max_g = Keyword.get(opts, :max_g, 80)
+    max_b = Keyword.get(opts, :max_b, 80)
+    min_pixels = Keyword.get(opts, :min_pixels, 8)
+
+    reds = red_pixels(frame.rgba, 0, frame.width, min_r, max_g, max_b, [])
+
+    if length(reds) < min_pixels do
+      :not_found
+    else
+      {best_bucket, _count} =
+        reds
+        |> Enum.frequencies_by(fn {x, y} -> {div(x, 16), div(y, 16)} end)
+        |> Enum.max_by(fn {_bucket, count} -> count end)
+
+      {bx, by} = best_bucket
+
+      cluster =
+        Enum.filter(reds, fn {x, y} ->
+          abs(div(x, 16) - bx) <= 1 and abs(div(y, 16) - by) <= 1
+        end)
+
+      count = length(cluster)
+      {sum_x, sum_y} = Enum.reduce(cluster, {0, 0}, fn {x, y}, {ax, ay} -> {ax + x, ay + y} end)
+      {:ok, {div(sum_x, count), div(sum_y, count)}}
+    end
+  end
+
+  defp red_pixels(<<r, g, b, _a, rest::binary>>, index, width, min_r, max_g, max_b, acc) do
+    acc =
+      if r >= min_r and g <= max_g and b <= max_b,
+        do: [{rem(index, width), div(index, width)} | acc],
+        else: acc
+
+    red_pixels(rest, index + 1, width, min_r, max_g, max_b, acc)
+  end
+
+  defp red_pixels(<<>>, _index, _width, _min_r, _max_g, _max_b, acc), do: acc
 end

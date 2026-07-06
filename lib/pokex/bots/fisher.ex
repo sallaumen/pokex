@@ -66,20 +66,21 @@ defmodule Pokex.Bots.Fisher do
   def handle_info(:tick, state) do
     previous = state.logic
 
-    logic =
+    {logic, actions} =
       case Sensors.impl().observe(Logic.needs(previous), state.calib, Settings.all()) do
         {:ok, observations} ->
-          {logic, actions} = Logic.step(previous, observations, now())
+          {stepped, actions} = Logic.step(previous, observations, now())
 
           case execute_all(actions, previous.config.humanize_max_ms) do
-            :ok -> logic
-            {:error, reason} -> elem(Logic.io_failed(logic, inspect(reason), now()), 0)
+            :ok -> {stepped, actions}
+            {:error, reason} -> {elem(Logic.io_failed(stepped, inspect(reason), now()), 0), []}
           end
 
         {:error, reason} ->
-          elem(Logic.io_failed(previous, inspect(reason), now()), 0)
+          {elem(Logic.io_failed(previous, inspect(reason), now()), 0), []}
       end
 
+    broadcast_activity(logic, actions)
     if logic.state != previous.state or logic.counters != previous.counters, do: broadcast(logic)
 
     state = %{state | logic: logic}
@@ -123,6 +124,48 @@ defmodule Pokex.Bots.Fisher do
 
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fisher, snapshot(logic)})
+
+  # A live, human-readable trace of what the bot is doing and WHERE it clicks —
+  # so a click landing on the map (walking) instead of the Battle tab is obvious.
+  defp broadcast_activity(logic, actions) do
+    case describe_activity(logic, actions) do
+      nil -> :ok
+      text -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fisher_log, text})
+    end
+  end
+
+  defp describe_activity(logic, actions) do
+    acts = actions |> Enum.map(&describe_action/1) |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
+
+    case {state_desc(logic), acts} do
+      {nil, ""} -> nil
+      {nil, a} -> a
+      {s, ""} -> s
+      {s, a} -> "#{s} → #{a}"
+    end
+  end
+
+  defp state_desc(%Logic{
+         state: :fighting,
+         targeted?: false,
+         pending_verify?: true,
+         select_idx: i
+       }),
+       do: "luta: linha #{i} travou?"
+
+  defp state_desc(%Logic{state: :fighting, targeted?: false, select_idx: i}),
+    do: "luta: mirando linha #{i}"
+
+  defp state_desc(%Logic{state: :fighting, targeted?: true}), do: "luta: atacando"
+  defp state_desc(%Logic{state: :looting}), do: "coletando loot"
+  defp state_desc(%Logic{state: :capturing}), do: "capturando"
+  defp state_desc(_), do: nil
+
+  defp describe_action({:press, key}), do: "tecla #{key}"
+  defp describe_action({:click, :left, {x, y}}), do: "clique esq (#{x},#{y})"
+  defp describe_action({:click, :right, {x, y}}), do: "clique dir (#{x},#{y})"
+  defp describe_action({:capture_sequence, {x, y}}), do: "pokébola (#{x},#{y})"
+  defp describe_action({:log, msg}), do: msg
 
   defp snapshot(nil), do: %{state: :idle, counters: %Logic{}.counters, error: nil}
   defp snapshot(logic), do: %{state: logic.state, counters: logic.counters, error: logic.error}

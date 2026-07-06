@@ -24,17 +24,21 @@ defmodule PokexWeb.PanelLive do
        errors: [],
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
-       auto_capture: Settings.get(:auto_capture)
+       auto_capture: Settings.get(:auto_capture),
+       logs: []
      )}
   end
 
   @impl true
   def handle_info({:fisher, snapshot}, socket), do: {:noreply, assign(socket, snap: snapshot)}
 
+  def handle_info({:fisher_log, text}, socket),
+    do: {:noreply, assign(socket, logs: Enum.take([text | socket.assigns.logs], 25))}
+
   @impl true
   def handle_event("start", _params, socket) do
     case Fisher.start_bot() do
-      :ok -> {:noreply, assign(socket, errors: [], snap: Fisher.status())}
+      :ok -> {:noreply, assign(socket, errors: [], logs: [], snap: Fisher.status())}
       {:error, messages} -> {:noreply, assign(socket, errors: messages)}
     end
   end
@@ -46,7 +50,7 @@ defmodule PokexWeb.PanelLive do
 
   def handle_event("test_combat", _params, socket) do
     case Fisher.start_combat() do
-      :ok -> {:noreply, assign(socket, errors: [], snap: Fisher.status())}
+      :ok -> {:noreply, assign(socket, errors: [], logs: [], snap: Fisher.status())}
       {:error, messages} -> {:noreply, assign(socket, errors: messages)}
     end
   end
@@ -127,7 +131,7 @@ defmodule PokexWeb.PanelLive do
               <button
                 class="btn btn-outline btn-warning gap-1.5"
                 phx-click="test_combat"
-                title="Só o combate: mira → ataca → loot → captura, uma vez"
+                title="Só o combate em loop: mira → ataca → loot → captura, repetindo"
               >
                 <.icon name="hero-bug-ant" class="size-4" /> Testar combate
               </button>
@@ -143,6 +147,23 @@ defmodule PokexWeb.PanelLive do
               <span>{message}</span>
             </li>
           </ul>
+        </section>
+
+        <section>
+          <h2 class="mb-2 px-1 text-xs font-semibold uppercase tracking-wide opacity-50">
+            O que ele está fazendo
+          </h2>
+          <div class="h-40 space-y-0.5 overflow-y-auto rounded-lg border border-base-content/10 bg-base-300 p-2 font-mono text-xs">
+            <p :if={@logs == []} class="opacity-40">
+              a atividade aparece aqui quando o bot roda (mostra onde ele clica)
+            </p>
+            <p
+              :for={{line, i} <- Enum.with_index(@logs)}
+              class={(i == 0 && "text-primary") || "opacity-70"}
+            >
+              {line}
+            </p>
+          </div>
         </section>
 
         <section>

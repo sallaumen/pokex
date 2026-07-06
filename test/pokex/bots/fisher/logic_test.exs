@@ -182,7 +182,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert l.select_idx == 0
   end
 
-  test "combat test ends at idle after capturing (not looping back to fishing)" do
+  test "combat test loops back to fighting after capturing (not into fishing)" do
     cfg = config() |> Map.put(:auto_capture, false)
 
     capturing = %Logic{
@@ -192,8 +192,10 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       last_hostile: {700, 350}
     }
 
-    {done, _} = Logic.step(capturing, cursor_obs(), 100)
-    assert done.state == :idle
+    {looped, _} = Logic.step(capturing, cursor_obs(), 100)
+    assert looped.state == :fighting
+    refute looped.targeted?
+    assert looped.select_idx == 0
   end
 
   describe "fighting/looting/capturing" do

@@ -160,7 +160,7 @@ defmodule Pokex.Bots.Fisher.Logic do
     rows = logic.config.battle_rows
 
     if logic.select_idx >= length(rows) do
-      {advance(%{logic | select_idx: 0}, next_after_cycle(logic), now),
+      {continue_combat(%{logic | select_idx: 0}, now),
        [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
     else
       {advance(%{logic | pending_verify?: true}, :fighting, now,
@@ -231,13 +231,28 @@ defmodule Pokex.Bots.Fisher.Logic do
         {logic, [{:log, "auto-captura desligada — sem pokébola"}]}
       end
 
-    {advance(logic, next_after_cycle(logic), now, wait: logic.config.wait_after_capture_ms),
-     actions}
+    {continue_combat(logic, now, wait: logic.config.wait_after_capture_ms), actions}
   end
 
-  # A combat-test run does one cycle and stops; a normal run loops back to fish.
-  defp next_after_cycle(%{combat_test?: true}), do: :idle
-  defp next_after_cycle(_), do: :equipping
+  # Normal run loops back to fishing; a combat-test run loops the fight itself
+  # (re-selects a target) so it can be watched over and over.
+  defp continue_combat(logic, now, opts \\ [])
+
+  defp continue_combat(%{combat_test?: true} = logic, now, opts) do
+    fresh = %{
+      logic
+      | targeted?: false,
+        select_idx: 0,
+        pending_verify?: false,
+        fight_tick: 0,
+        skill_idx: 0,
+        last_hostile: nil
+    }
+
+    advance(fresh, :fighting, now, opts)
+  end
+
+  defp continue_combat(logic, now, opts), do: advance(logic, :equipping, now, opts)
 
   defp corpse_point(%{last_hostile: nil}), do: nil
 

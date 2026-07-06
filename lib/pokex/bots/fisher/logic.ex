@@ -38,6 +38,7 @@ defmodule Pokex.Bots.Fisher.Logic do
   def needs(%__MODULE__{state: state}) when state in [:idle, :error], do: []
   def needs(%__MODULE__{state: :watching}), do: [:cursor, :glow]
   def needs(%__MODULE__{state: :assessing}), do: [:cursor, :wild]
+  def needs(%__MODULE__{state: :fighting, targeted?: false}), do: [:cursor, :wild_target]
 
   def needs(%__MODULE__{state: :fighting} = logic) do
     if scan_tick?(logic), do: [:cursor, :wild, :hostile], else: [:cursor, :wild]
@@ -103,8 +104,9 @@ defmodule Pokex.Bots.Fisher.Logic do
     {advance(logic, :equipping, now), [{:log, "nada fisgado — recomeçando"}]}
   end
 
-  defp do_step(%{state: :fighting, targeted?: false} = logic, _obs, _now) do
-    {%{logic | targeted?: true}, [{:click, :left, logic.config.battle_first_row}]}
+  defp do_step(%{state: :fighting, targeted?: false} = logic, obs, _now) do
+    target = Map.get(obs, :wild_target) || logic.config.battle_first_row
+    {%{logic | targeted?: true}, [{:click, :left, target}]}
   end
 
   defp do_step(%{state: :fighting} = logic, %{wild: false}, now) do

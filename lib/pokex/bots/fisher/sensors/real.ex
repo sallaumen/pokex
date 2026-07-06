@@ -31,6 +31,15 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
+  defp fetch(:wild_target, calib, _settings) do
+    with {:ok, frame} <- capture_frame(Calibration.battle_strip(calib), "wild_row.png") do
+      case Vision.find_wild_row(frame) do
+        {:ok, row_y} -> {:ok, Calibration.battle_row_point(calib, row_y)}
+        :not_found -> {:ok, nil}
+      end
+    end
+  end
+
   defp fetch(:hostile, calib, _settings) do
     with {:ok, frame} <- capture_frame(calib.arena_region, "arena.png") do
       case Vision.find_hostile(frame) do

@@ -71,6 +71,10 @@ defmodule Pokex.Calibration do
   def battle_first_row(%__MODULE__{battle_region: {x, y, w, _h}}),
     do: {x + div(w, 3), y + @first_row_y_offset}
 
+  @doc "Screen point to click a battle-list row `row_y` pixels down the strip."
+  def battle_row_point(%__MODULE__{battle_region: {x, y, w, _h}, scale: scale}, row_y),
+    do: {x + div(w, 3), y + round(row_y / scale)}
+
   def frame_to_screen(%__MODULE__{scale: scale}, {rx, ry, _w, _h}, {fx, fy}),
     do: {rx + round(fx / scale), ry + round(fy / scale)}
 

@@ -89,4 +89,35 @@ defmodule Pokex.Vision do
     do: count_pokeball_red(rest, n, min_count)
 
   defp count_pokeball_red(<<>>, _n, _min_count), do: false
+
+  @doc """
+  Y-offset (frame pixels) of the TOPMOST pokeball-icon row inside the battle
+  strip — i.e. the row of a WILD creature. Players' rows have no pokeball, so
+  this lets the bot target the wild pokemon amid other players in the list.
+  Returns `{:ok, y}` (band center) or `:not_found`.
+  """
+  def find_wild_row(%Frame{width: w, rgba: rgba}, opts \\ []) do
+    min_count = Keyword.get(opts, :min_count, 12)
+    band = Keyword.get(opts, :band, 16)
+
+    rgba
+    |> pokeball_row_counts(0, w, band, %{})
+    |> Enum.filter(fn {_row, count} -> count >= min_count end)
+    |> Enum.min_by(fn {row, _count} -> row end, fn -> nil end)
+    |> case do
+      nil -> :not_found
+      {row, _count} -> {:ok, row * band + div(band, 2)}
+    end
+  end
+
+  defp pokeball_row_counts(<<r, g, b, _a, rest::binary>>, index, width, band, acc)
+       when r >= 200 and g <= 60 and b <= 60 do
+    row = div(div(index, width), band)
+    pokeball_row_counts(rest, index + 1, width, band, Map.update(acc, row, 1, &(&1 + 1)))
+  end
+
+  defp pokeball_row_counts(<<_::32, rest::binary>>, index, width, band, acc),
+    do: pokeball_row_counts(rest, index + 1, width, band, acc)
+
+  defp pokeball_row_counts(<<>>, _index, _width, _band, acc), do: acc
 end

@@ -159,6 +159,17 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert actions == [{:click, :left, {1466, 138}}]
     end
 
+    test "first fighting tick clicks the wild_target row when the sensor found one" do
+      obs = cursor_obs() |> Map.put(:wild, true) |> Map.put(:wild_target, {1500, 200})
+      {l, actions} = Logic.step(advance_to_fighting(), obs, 3100)
+      assert l.targeted?
+      assert actions == [{:click, :left, {1500, 200}}]
+    end
+
+    test "needs :wild_target before a target is selected" do
+      assert Logic.needs(advance_to_fighting()) == [:cursor, :wild_target]
+    end
+
     test "subsequent ticks cycle skills and track hostile" do
       {l, _} = Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :wild, true), 3100)
 

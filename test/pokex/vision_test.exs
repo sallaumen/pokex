@@ -89,4 +89,29 @@ defmodule Pokex.VisionTest do
       refute Pokex.Vision.wild_present?(noisy)
     end
   end
+
+  describe "find_wild_row/2" do
+    import Pokex.FrameFixtures
+
+    test "returns the Y of the topmost pokeball row, skipping player rows" do
+      frame = uniform(30, 100, {30, 30, 30})
+
+      frame =
+        for x <- 10..17, y <- 40..45, reduce: frame do
+          acc -> put_px(acc, x, y, {230, 40, 40})
+        end
+
+      frame =
+        for x <- 10..17, y <- 70..75, reduce: frame do
+          acc -> put_px(acc, x, y, {230, 40, 40})
+        end
+
+      assert {:ok, y} = Pokex.Vision.find_wild_row(frame)
+      assert y in 32..47
+    end
+
+    test "not_found when no pokeball icon (only players in the list)" do
+      assert Pokex.Vision.find_wild_row(uniform(30, 100, {30, 30, 30})) == :not_found
+    end
+  end
 end

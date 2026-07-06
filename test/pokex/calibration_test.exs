@@ -35,5 +35,7 @@ defmodule Pokex.CalibrationTest do
     assert Calibration.battle_first_row(calib) == {1466, 138}
     # pixel (100, 50) dentro da arena com scale 2 → +50,+25 points do canto
     assert Calibration.frame_to_screen(calib, calib.arena_region, {100, 50}) == {610, 285}
+    # a wild row 100px down the strip → name column, scaled: {1380+86, 120+50}
+    assert Calibration.battle_row_point(calib, 100) == {1466, 170}
   end
 end

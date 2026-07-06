@@ -58,7 +58,9 @@ defmodule Pokex.Settings do
   def handle_call({:get, key}, _from, state),
     do: {:reply, Map.get(state.data, key, Map.get(@defaults, key)), state}
 
-  def handle_call(:all, _from, state), do: {:reply, state.data, state}
+  # Merge over @defaults so newly-added keys are present even for a process that
+  # started before them (hot reload) — otherwise Config.build hits nil arithmetic.
+  def handle_call(:all, _from, state), do: {:reply, Map.merge(@defaults, state.data), state}
 
   def handle_call({:put, key, value}, _from, state) do
     data = Map.put(state.data, key, value)

@@ -24,10 +24,11 @@ defmodule Pokex.Bots.Fisher.Config do
   ]
 
   def build(%Calibration{} = calib, settings) do
-    tile = settings[:tile_size]
+    tile = settings[:tile_size] || 32
     {wx, wy} = calib.water_point
     {fx, fy} = Calibration.battle_first_row(calib)
-    row_h = settings[:battle_row_height]
+    row_h = settings[:battle_row_height] || 30
+    max_rows = settings[:battle_max_rows] || 6
 
     settings
     |> Map.take(@setting_keys)
@@ -35,7 +36,7 @@ defmodule Pokex.Bots.Fisher.Config do
       water_point: calib.water_point,
       neutral_point: calib.neutral_point,
       battle_first_row: Calibration.battle_first_row(calib),
-      battle_rows: for(i <- 0..(settings[:battle_max_rows] - 1), do: {fx, fy + i * row_h}),
+      battle_rows: for(i <- 0..(max_rows - 1), do: {fx, fy + i * row_h}),
       fallback_points: [
         {wx, wy},
         {wx - tile, wy},

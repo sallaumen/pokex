@@ -24,7 +24,8 @@ defmodule Pokex.Settings do
     battle_row_height: 30,
     battle_max_rows: 6,
     wait_target_verify_ms: 250,
-    target_locked_min_pixels: 40
+    target_locked_min_pixels: 40,
+    humanize_max_ms: 1000
   }
 
   def defaults, do: @defaults

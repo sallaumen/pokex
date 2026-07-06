@@ -15,7 +15,8 @@ defmodule Pokex.Bots.FisherTest do
     wait_loot_ms: 5,
     wait_after_capture_ms: 5,
     glow_streak_needed: 1,
-    wait_target_verify_ms: 5
+    wait_target_verify_ms: 5,
+    humanize_max_ms: 0
   }
 
   setup %{tmp_dir: tmp} do

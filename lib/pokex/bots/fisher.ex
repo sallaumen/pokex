@@ -33,7 +33,7 @@ defmodule Pokex.Bots.Fisher do
          {:ok, calib} <- Calibration.load() do
       config = Config.build(calib, Settings.all())
       {logic, actions} = Logic.start(Logic.new(config), now())
-      execute_all(actions)
+      execute_all(actions, config.humanize_max_ms)
       broadcast(logic)
       {:reply, :ok, %{state | logic: logic, calib: calib} |> reschedule(0)}
     else
@@ -66,7 +66,7 @@ defmodule Pokex.Bots.Fisher do
         {:ok, observations} ->
           {logic, actions} = Logic.step(previous, observations, now())
 
-          case execute_all(actions) do
+          case execute_all(actions, previous.config.humanize_max_ms) do
             :ok -> logic
             {:error, reason} -> elem(Logic.io_failed(logic, inspect(reason), now()), 0)
           end
@@ -86,14 +86,26 @@ defmodule Pokex.Bots.Fisher do
     end
   end
 
-  defp execute_all(actions) do
+  defp execute_all(actions, max_ms) do
     Enum.reduce_while(actions, :ok, fn action, :ok ->
+      humanize(action, max_ms)
+
       case execute(action) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
+
+  # A random 0–max ms pause before each real input, so the cadence looks human
+  # instead of a metronome. Polling ticks emit no actions (only :log/empty), so
+  # this never slows glow detection — only presses/clicks are humanized.
+  defp humanize({:log, _}, _max), do: :ok
+
+  defp humanize(_action, max) when is_integer(max) and max > 0,
+    do: Process.sleep(:rand.uniform(max + 1) - 1)
+
+  defp humanize(_action, _max), do: :ok
 
   defp execute({:press, key}), do: Rig.impl().press(key)
   defp execute({:click, button, point}), do: Rig.impl().click(button, point)

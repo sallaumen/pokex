@@ -20,7 +20,8 @@ defmodule Pokex.Bots.Fisher.Config do
     :hostile_scan_every,
     :auto_capture,
     :glow_streak_needed,
-    :wait_target_verify_ms
+    :wait_target_verify_ms,
+    :humanize_max_ms
   ]
 
   def build(%Calibration{} = calib, settings) do

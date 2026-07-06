@@ -2,10 +2,12 @@ defmodule PokexWeb.DiagnosticsLive do
   use PokexWeb, :live_view
 
   alias Pokex.Rig
+  alias Pokex.{Calibration, Settings, Vision}
+  alias Pokex.Vision.Frame
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, msg: nil, capture_src: nil)}
+    {:ok, assign(socket, msg: nil, capture_src: nil, calibrated?: Calibration.exists?())}
   end
 
   @impl true
@@ -50,6 +52,57 @@ defmodule PokexWeb.DiagnosticsLive do
 
       :error ->
         {:noreply, assign(socket, msg: "coordenada inválida — use apenas números inteiros")}
+    end
+  end
+
+  def handle_event("glow_score", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, path} <- Rig.impl().capture(calib.glow_region, "diag_glow.png"),
+         {:ok, frame} <- Frame.from_png_file(path) do
+      baselines =
+        for p <- calib.glow_baselines, {:ok, f} <- [Frame.from_png_file(p)], do: f
+
+      score = Vision.glow_score(frame, baselines)
+      threshold = Settings.get(:glow_threshold) || calib.suggested_glow_threshold || 15.0
+
+      {:noreply,
+       assign(socket,
+         msg:
+           "brilho: score #{Float.round(score, 2)} | threshold #{threshold} | " <>
+             "brilhando? #{score > threshold}"
+       )}
+    else
+      error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
+    end
+  end
+
+  def handle_event("find_hostile", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, path} <- Rig.impl().capture(calib.arena_region, "diag_arena.png"),
+         {:ok, frame} <- Frame.from_png_file(path) do
+      msg =
+        case Vision.find_hostile(frame) do
+          {:ok, pixel} ->
+            "nome vermelho em #{inspect(Calibration.frame_to_screen(calib, calib.arena_region, pixel))} (points)"
+
+          :not_found ->
+            "nenhum nome vermelho na arena"
+        end
+
+      {:noreply, assign(socket, msg: msg)}
+    else
+      error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
+    end
+  end
+
+  def handle_event("wild_check", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, path} <- Rig.impl().capture(Calibration.battle_strip(calib), "diag_strip.png"),
+         {:ok, frame} <- Frame.from_png_file(path) do
+      present = Vision.wild_present?(frame, min_count: Settings.get(:wild_min_red_pixels))
+      {:noreply, assign(socket, msg: "pokébola: #{present}")}
+    else
+      error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
     end
   end
 
@@ -124,6 +177,15 @@ defmodule PokexWeb.DiagnosticsLive do
           <input name="y" value="400" class="input input-bordered w-24" />
           <button class="btn btn-warning">Testar em 2s</button>
         </form>
+      </section>
+
+      <section :if={@calibrated?} class="space-y-2">
+        <h2 class="font-semibold">Visão (usa a calibração salva)</h2>
+        <div class="flex gap-2">
+          <button class="btn" phx-click="glow_score">Score do brilho</button>
+          <button class="btn" phx-click="find_hostile">Procurar nome vermelho</button>
+          <button class="btn" phx-click="wild_check">Pokébola presente?</button>
+        </div>
       </section>
     </div>
     """

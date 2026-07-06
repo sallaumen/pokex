@@ -103,6 +103,67 @@ defmodule Pokex.Bots.Fisher.Logic do
     {advance(logic, :equipping, now), [{:log, "nada fisgado — recomeçando"}]}
   end
 
+  defp do_step(%{state: :fighting, targeted?: false} = logic, _obs, _now) do
+    {%{logic | targeted?: true}, [{:click, :left, logic.config.battle_first_row}]}
+  end
+
+  defp do_step(%{state: :fighting} = logic, %{wild: false}, now) do
+    logic = update_in(logic.counters.fights, &(&1 + 1))
+    {advance(%{logic | fallback_idx: 0}, :looting, now), []}
+  end
+
+  defp do_step(%{state: :fighting} = logic, obs, now) do
+    if timed_out?(logic, now, logic.config.fight_timeout_ms) do
+      fail(logic, now, "luta estourou o tempo")
+    else
+      logic = %{
+        logic
+        | last_hostile: Map.get(obs, :hostile) || logic.last_hostile,
+          fight_tick: logic.fight_tick + 1
+      }
+
+      key =
+        Enum.at(logic.config.skill_keys, rem(logic.skill_idx, length(logic.config.skill_keys)))
+
+      logic = %{logic | skill_idx: logic.skill_idx + 1}
+      {logic, [{:press, key}]}
+    end
+  end
+
+  defp do_step(%{state: :looting} = logic, _obs, now) do
+    corpse = corpse_point(logic)
+
+    cond do
+      corpse != nil ->
+        logic = update_in(logic.counters.loots, &(&1 + 1))
+
+        {advance(logic, :capturing, now, wait: logic.config.wait_loot_ms),
+         [{:click, :right, corpse}]}
+
+      logic.fallback_idx < length(logic.config.fallback_points) ->
+        point = Enum.at(logic.config.fallback_points, logic.fallback_idx)
+        {%{logic | fallback_idx: logic.fallback_idx + 1}, [{:click, :right, point}]}
+
+      true ->
+        logic = update_in(logic.counters.loots, &(&1 + 1))
+        {advance(logic, :capturing, now, wait: logic.config.wait_loot_ms), []}
+    end
+  end
+
+  defp do_step(%{state: :capturing} = logic, _obs, now) do
+    target = corpse_point(logic) || logic.config.water_point
+    logic = update_in(logic.counters.captures, &(&1 + 1))
+    logic = %{logic | failures: 0, last_hostile: nil}
+
+    {advance(logic, :equipping, now, wait: logic.config.wait_after_capture_ms),
+     [{:capture_sequence, target}]}
+  end
+
+  defp corpse_point(%{last_hostile: nil}), do: nil
+
+  defp corpse_point(%{last_hostile: {x, y}, config: config}),
+    do: {x, y + config.tile_size}
+
   # -- shared helpers ---------------------------------------------------------
 
   defp fail(%__MODULE__{} = logic, now, reason) do

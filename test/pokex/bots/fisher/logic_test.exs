@@ -130,4 +130,102 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert l.state == :error
     assert l.error =~ "boom"
   end
+
+  test "kill corner beats an active waiting_until" do
+    # focusing sets waiting_until = now + wait_focus_ms (150); stepping again at
+    # now < 150 would normally be a no-op wait — kill corner must still win.
+    focusing = advance_to(:focusing)
+    {equipping, _} = Logic.step(focusing, cursor_obs(), 0)
+    assert equipping.state == :equipping
+    assert equipping.waiting_until == 150
+
+    {killed, actions} = Logic.step(equipping, %{cursor: {3, 3}}, 50)
+    assert killed.state == :idle
+    assert [{:log, _}] = actions
+  end
+
+  describe "fighting/looting/capturing" do
+    def advance_to_fighting do
+      watching = advance_to(:watching)
+      {assessing, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 900)
+      {fighting, []} = Logic.step(assessing, Map.put(cursor_obs(), :wild, true), 3000)
+      fighting
+    end
+
+    test "first fighting tick targets via battle list" do
+      {l, actions} = Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :wild, true), 3100)
+      assert l.targeted?
+      assert actions == [{:click, :left, {1466, 138}}]
+    end
+
+    test "subsequent ticks cycle skills and track hostile" do
+      {l, _} = Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :wild, true), 3100)
+
+      obs = cursor_obs() |> Map.put(:wild, true) |> Map.put(:hostile, {700, 350})
+      {l, actions} = Logic.step(l, obs, 4100)
+      assert actions == [{:press, "1"}]
+      assert l.last_hostile == {700, 350}
+
+      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :wild, true), 5100)
+      assert actions == [{:press, "2"}]
+
+      {_l, actions} = Logic.step(l, Map.put(cursor_obs(), :wild, true), 6100)
+      assert actions == [{:press, "1"}]
+    end
+
+    test "death → loot at last hostile one tile below → capture there" do
+      {l, _} = Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :wild, true), 3100)
+      obs = cursor_obs() |> Map.put(:wild, true) |> Map.put(:hostile, {700, 350})
+      {l, _} = Logic.step(l, obs, 4100)
+
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :wild, false), 5100)
+      assert l.state == :looting
+      assert l.counters.fights == 1
+
+      {l, actions} = Logic.step(l, cursor_obs(), 5400)
+      assert actions == [{:click, :right, {700, 382}}]
+      assert l.state == :capturing
+      assert l.counters.loots == 1
+
+      {l, actions} = Logic.step(l, cursor_obs(), 6000)
+      assert actions == [{:capture_sequence, {700, 382}}]
+      assert l.state == :equipping
+      assert l.counters.captures == 1
+      assert l.failures == 0
+    end
+
+    test "unknown corpse position loots through fallbacks then captures at water" do
+      {l, _} = Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :wild, true), 3100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :wild, false), 4100)
+      assert l.state == :looting
+      assert l.last_hostile == nil
+
+      expected = [{800, 400}, {768, 400}, {832, 400}, {800, 368}, {800, 432}]
+
+      l =
+        for {point, i} <- Enum.with_index(expected), reduce: l do
+          acc ->
+            {acc, actions} = Logic.step(acc, cursor_obs(), 5000 + i * 300)
+            assert actions == [{:click, :right, point}]
+            acc
+        end
+
+      assert l.state == :looting
+      {l, actions} = Logic.step(l, cursor_obs(), 9000)
+      assert l.state == :capturing
+      assert actions == []
+
+      {l, actions} = Logic.step(l, cursor_obs(), 9400)
+      assert actions == [{:capture_sequence, {800, 400}}]
+      assert l.state == :equipping
+    end
+
+    test "fight timeout fails" do
+      fighting = advance_to_fighting()
+      {l, _} = Logic.step(fighting, Map.put(cursor_obs(), :wild, true), 3100)
+      {l, [{:log, _}]} = Logic.step(l, Map.put(cursor_obs(), :wild, true), 3000 + 90_001)
+      assert l.state == :equipping
+      assert l.failures == 1
+    end
+  end
 end

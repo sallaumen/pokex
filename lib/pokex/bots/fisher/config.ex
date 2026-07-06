@@ -18,7 +18,8 @@ defmodule Pokex.Bots.Fisher.Config do
     :fight_timeout_ms,
     :max_consecutive_failures,
     :hostile_scan_every,
-    :auto_capture
+    :auto_capture,
+    :glow_streak_needed
   ]
 
   def build(%Calibration{} = calib, settings) do

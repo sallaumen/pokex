@@ -17,7 +17,7 @@ defmodule PokexWeb.CalibrationLive do
     arena_b: "5/6 — Canto inferior-direito da arena.",
     neutral: "6/6 — Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
     baselines:
-      "Tudo marcado! Deixe a água visível SEM pesca ativa e clique em 'Capturar linhas de base'."
+      "Tudo marcado! Agora LANCE A LINHA na água (Shift+Z, depois clique na água) e, com ela ESPERANDO sem nada fisgado, clique em 'Capturar linhas de base'. Assim o bot aprende a água COM a linha — senão ele acha que é sempre brilho e fisga na hora."
   }
 
   @impl true

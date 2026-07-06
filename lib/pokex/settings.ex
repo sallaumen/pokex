@@ -19,7 +19,8 @@ defmodule Pokex.Settings do
     tile_size: 32,
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,
-    auto_capture: true
+    auto_capture: true,
+    glow_streak_needed: 2
   }
 
   def defaults, do: @defaults

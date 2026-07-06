@@ -22,7 +22,8 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       fight_timeout_ms: 90_000,
       max_consecutive_failures: 3,
       hostile_scan_every: 2,
-      auto_capture: true
+      auto_capture: true,
+      glow_streak_needed: 1
     }
   end
 
@@ -81,6 +82,25 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert actions == [{:press, "shift+z"}]
     assert l.counters.hooked == 1
     assert l.waiting_until == 900 + 1500
+  end
+
+  test "watching debounces glow: needs consecutive frames to hook" do
+    cfg = Map.put(config(), :glow_streak_needed, 2)
+    watching = %Logic{state: :watching, config: cfg, entered_at: 0}
+
+    {l, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 100)
+    assert l.state == :watching
+    assert actions == []
+    assert l.glow_streak == 1
+
+    {l, actions} = Logic.step(l, Map.put(cursor_obs(), :glow, true), 200)
+    assert l.state == :assessing
+    assert actions == [{:press, "shift+z"}]
+
+    # a lone glow frame followed by a gap resets the streak
+    {reset, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 100)
+    {reset, _} = Logic.step(reset, Map.put(cursor_obs(), :glow, false), 200)
+    assert reset.glow_streak == 0
   end
 
   test "watching times out back to casting" do

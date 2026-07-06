@@ -14,6 +14,7 @@ defmodule Pokex.Bots.Fisher.Logic do
             fight_tick: 0,
             targeted?: false,
             fallback_idx: 0,
+            glow_streak: 0,
             failures: 0,
             error: nil,
             counters: %{cycles: 0, hooked: 0, fights: 0, loots: 0, captures: 0, failures: 0}
@@ -79,15 +80,29 @@ defmodule Pokex.Bots.Fisher.Logic do
 
   defp do_step(%{state: :casting} = logic, _obs, now) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
-    {advance(logic, :watching, now), [{:click, :left, logic.config.water_point}]}
+
+    {advance(%{logic | glow_streak: 0}, :watching, now),
+     [{:click, :left, logic.config.water_point}]}
   end
 
+  # Require N consecutive glow frames so the line landing (a one-frame flash)
+  # doesn't fake a bite — only a sustained glow (the real bite) hooks.
   defp do_step(%{state: :watching} = logic, %{glow: true}, now) do
-    logic = update_in(logic.counters.hooked, &(&1 + 1))
-    {advance(logic, :assessing, now, wait: logic.config.wait_assess_ms), [{:press, "shift+z"}]}
+    streak = logic.glow_streak + 1
+
+    if streak >= logic.config.glow_streak_needed do
+      logic = update_in(logic.counters.hooked, &(&1 + 1))
+
+      {advance(%{logic | glow_streak: 0}, :assessing, now, wait: logic.config.wait_assess_ms),
+       [{:press, "shift+z"}]}
+    else
+      {%{logic | glow_streak: streak}, []}
+    end
   end
 
   defp do_step(%{state: :watching} = logic, _obs, now) do
+    logic = %{logic | glow_streak: 0}
+
     if timed_out?(logic, now, logic.config.watch_timeout_ms) do
       {advance(logic, :casting, now), [{:log, "sem brilho a tempo — arremessando de novo"}]}
     else

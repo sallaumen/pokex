@@ -21,4 +21,19 @@ defmodule PokexWeb.CapturesControllerTest do
     assert response(get(conn, ~p"/captures/nope.png"), 404)
     assert response(get(conn, ~p"/captures/#{"..%2Fcalibration.json"}"), 404)
   end
+
+  @tag :tmp_dir
+  test "a real ../ traversal name cannot escape the captures dir", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    # sentinel lives in home dir, one level ABOVE captures/ — must never be served
+    File.mkdir_p!(Pokex.Home.captures_dir())
+    File.write!(Path.join(Pokex.Home.dir(), "secret.png"), "TOPSECRET")
+
+    conn = PokexWeb.CapturesController.show(conn, %{"name" => "../secret.png"})
+
+    assert conn.status == 404
+    refute conn.resp_body == "TOPSECRET"
+  end
 end

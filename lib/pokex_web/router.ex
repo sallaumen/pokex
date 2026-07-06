@@ -18,6 +18,7 @@ defmodule PokexWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    get "/captures/:name", CapturesController, :show
   end
 
   # Other scopes may use custom stacks.

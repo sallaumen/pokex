@@ -24,6 +24,7 @@ defmodule PokexWeb.CalibrationLive do
   def mount(_params, _session, socket) do
     {:ok,
      assign(socket,
+       page_title: "Calibração",
        screen: nil,
        scale: nil,
        step: nil,
@@ -169,6 +170,23 @@ defmodule PokexWeb.CalibrationLive do
 
   defp region_from({x1, y1}, {x2, y2}), do: {min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)}
 
+  defp step_index(:water), do: 1
+  defp step_index(:battle_a), do: 2
+  defp step_index(:battle_b), do: 3
+  defp step_index(:arena_a), do: 4
+  defp step_index(:arena_b), do: 5
+  defp step_index(:neutral), do: 6
+  defp step_index(_), do: nil
+
+  defp step_pill_class(n, step) do
+    case step_index(step) do
+      nil -> "bg-base-300 opacity-50"
+      current when n < current -> "bg-success text-success-content"
+      current when n == current -> "bg-primary text-primary-content"
+      _ -> "bg-base-300 opacity-50"
+    end
+  end
+
   @impl true
   def render(assigns) do
     # module attributes are not available inside ~H as @foo (that reads
@@ -176,40 +194,83 @@ defmodule PokexWeb.CalibrationLive do
     assigns = assign(assigns, :instr, @instructions)
 
     ~H"""
-    <div class="p-4 space-y-4">
-      <h1 class="text-xl font-bold">Pokex — Calibração</h1>
-      <p class="text-sm opacity-70">
-        Deixe a janela do jogo visível e SEM o navegador na frente. Depois de calibrar,
-        não mova nem redimensione a janela do jogo (senão recalibre).
-      </p>
-      <p :if={@error} class="alert alert-error text-sm">{@error}</p>
+    <Layouts.app flash={@flash} current_page={:calibration}>
+      <div class="space-y-4">
+        <header>
+          <h1 class="text-xl font-bold">Calibração</h1>
+          <p class="mt-1 text-sm opacity-70">
+            Deixe a janela do jogo visível e SEM o navegador na frente. Depois de calibrar,
+            não mova nem redimensione a janela do jogo (senão recalibre).
+          </p>
+        </header>
 
-      <button class="btn btn-primary" phx-click="capture_screen">Capturar tela</button>
+        <p :if={@error} class="rounded-lg bg-error/15 px-3 py-2 text-sm text-error">{@error}</p>
 
-      <p :if={@step && @step != :baselines} class="alert alert-info text-sm">
-        {@instr[@step]}
-      </p>
+        <div
+          :if={is_nil(@screen)}
+          class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-6 text-center"
+        >
+          <.icon name="hero-camera" class="mx-auto size-8 opacity-60" />
+          <p class="text-sm opacity-70">
+            Capture a tela do jogo para começar a marcar os pontos.
+          </p>
+          <button class="btn btn-primary" phx-click="capture_screen">
+            <.icon name="hero-camera" class="size-4" /> Capturar tela
+          </button>
+        </div>
 
-      <div :if={@step == :baselines} class="space-y-2">
-        <p class="alert alert-info text-sm">{@instr.baselines}</p>
-        <button class="btn btn-primary" phx-click="capture_baselines">
-          Capturar linhas de base
-        </button>
-        <p class="text-sm">{@baselines_done}/10 capturadas</p>
+        <div :if={@screen} class="space-y-3">
+          <ol :if={step_index(@step)} class="flex items-center gap-1.5">
+            <li
+              :for={n <- 1..6}
+              class={[
+                "flex size-6 items-center justify-center rounded-full text-xs font-semibold",
+                step_pill_class(n, @step)
+              ]}
+            >
+              {n}
+            </li>
+          </ol>
+
+          <p
+            :if={@step && @step != :baselines}
+            class="rounded-lg bg-info/15 px-3 py-2 text-sm font-medium"
+          >
+            {@instr[@step]}
+          </p>
+
+          <div
+            :if={@step == :baselines}
+            class="space-y-3 rounded-xl border border-base-content/10 bg-base-200 p-4"
+          >
+            <p class="text-sm">{@instr.baselines}</p>
+            <button class="btn btn-primary" phx-click="capture_baselines">
+              Capturar linhas de base
+            </button>
+            <progress class="progress progress-primary w-full" value={@baselines_done} max="10" />
+            <p class="text-xs opacity-60">{@baselines_done}/10 capturadas</p>
+          </div>
+
+          <img
+            :if={@step in [:water, :battle_a, :battle_b, :arena_a, :arena_b, :neutral]}
+            id="calibration-screen"
+            phx-hook="ImgClick"
+            src={@screen.src}
+            class="w-full cursor-crosshair rounded-lg border border-base-content/20"
+          />
+        </div>
+
+        <div
+          :if={@done}
+          class="space-y-3 rounded-2xl border border-success/40 bg-success/10 p-6 text-center"
+        >
+          <.icon name="hero-check-circle" class="mx-auto size-8 text-success" />
+          <p class="font-semibold">Calibração salva!</p>
+          <p class="text-sm opacity-70">Threshold do brilho gravado. Pode ir para o painel.</p>
+          <.link navigate={~p"/"} class="btn btn-success btn-sm">Ir ao painel →</.link>
+        </div>
       </div>
-
-      <p :if={@done} class="alert alert-success">
-        Calibração salva! Threshold sugerido do brilho gravado. Pode fechar e ir ao painel.
-      </p>
-
-      <img
-        :if={@screen && @step in [:water, :battle_a, :battle_b, :arena_a, :arena_b, :neutral]}
-        id="calibration-screen"
-        phx-hook="ImgClick"
-        src={@screen.src}
-        class="w-full cursor-crosshair border"
-      />
-    </div>
+    </Layouts.app>
     """
   end
 end

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pokex",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd /Users/tavano/projects/pokex && exec mix phx.server"],
+      "port": 4004
+    }
+  ]
+}

@@ -17,10 +17,13 @@ defmodule PokexWeb.Router do
   scope "/", PokexWeb do
     pipe_through :browser
 
-    live "/", PanelLive
     get "/captures/:name", CapturesController, :show
-    live "/diagnostics", DiagnosticsLive
-    live "/calibration", CalibrationLive
+
+    live_session :pokex do
+      live "/", PanelLive
+      live "/diagnostics", DiagnosticsLive
+      live "/calibration", CalibrationLive
+    end
   end
 
   # Other scopes may use custom stacks.

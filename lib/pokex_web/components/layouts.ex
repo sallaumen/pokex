@@ -12,63 +12,94 @@ defmodule PokexWeb.Layouts do
   embed_templates "layouts/*"
 
   @doc """
-  Renders your app layout.
-
-  This function is typically invoked from every template,
-  and it often contains your application menu, sidebar,
-  or similar.
+  Renders the Pokex app shell: a persistent top nav (Painel / Calibração /
+  Diagnóstico) that wraps every page so the app is navigable from anywhere.
 
   ## Examples
 
-      <Layouts.app flash={@flash}>
+      <Layouts.app flash={@flash} current_page={:panel}>
         <h1>Content</h1>
       </Layouts.app>
 
   """
   attr :flash, :map, required: true, doc: "the map of flash messages"
 
-  attr :current_scope, :map,
+  attr :current_page, :atom,
     default: nil,
-    doc: "the current [scope](https://phoenix.hexdocs.pm/scopes.html)"
+    doc: "the active nav item: :panel | :calibration | :diagnostics"
 
   slot :inner_block, required: true
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
-        </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://phoenix.hexdocs.pm/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
-      </div>
-    </header>
+    <div class="min-h-dvh bg-base-300 text-base-content">
+      <header class="sticky top-0 z-40 border-b border-base-content/10 bg-base-200/90 backdrop-blur">
+        <nav class="mx-auto flex h-14 max-w-3xl items-center gap-2 px-3">
+          <.link navigate={~p"/"} class="flex items-center gap-2 pr-1 font-bold tracking-tight">
+            <span class="grid size-7 place-items-center rounded-lg bg-primary/20 text-primary">
+              <.icon name="hero-cpu-chip" class="size-4" />
+            </span>
+            <span class="hidden sm:inline">Pokex</span>
+          </.link>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
+          <div class="mx-auto flex items-center gap-1">
+            <.nav_link navigate={~p"/"} active={@current_page == :panel} icon="hero-play-circle">
+              Painel
+            </.nav_link>
+            <.nav_link
+              navigate={~p"/calibration"}
+              active={@current_page == :calibration}
+              icon="hero-viewfinder-circle"
+            >
+              Calibração
+            </.nav_link>
+            <.nav_link
+              navigate={~p"/diagnostics"}
+              active={@current_page == :diagnostics}
+              icon="hero-beaker"
+            >
+              Diagnóstico
+            </.nav_link>
+          </div>
+
+          <.theme_toggle />
+        </nav>
+      </header>
+
+      <main class="mx-auto max-w-3xl px-3 py-6">
         {render_slot(@inner_block)}
-      </div>
-    </main>
+      </main>
 
-    <.flash_group flash={@flash} />
+      <.flash_group flash={@flash} />
+    </div>
+    """
+  end
+
+  @doc """
+  A single top-nav item. Highlights when `active`, and shrinks to an icon on
+  narrow widths so the three items always fit.
+  """
+  attr :navigate, :string, required: true
+  attr :active, :boolean, default: false
+  attr :icon, :string, default: nil
+  slot :inner_block, required: true
+
+  def nav_link(assigns) do
+    ~H"""
+    <.link
+      navigate={@navigate}
+      aria-current={@active && "page"}
+      class={[
+        "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
+        if(@active,
+          do: "bg-primary text-primary-content",
+          else: "text-base-content/70 hover:bg-base-content/10 hover:text-base-content"
+        )
+      ]}
+    >
+      <.icon :if={@icon} name={@icon} class="size-4" />
+      <span class="hidden sm:inline">{render_slot(@inner_block)}</span>
+    </.link>
     """
   end
 

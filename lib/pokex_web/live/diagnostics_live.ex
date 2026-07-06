@@ -7,7 +7,13 @@ defmodule PokexWeb.DiagnosticsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, msg: nil, capture_src: nil, calibrated?: Calibration.exists?())}
+    {:ok,
+     assign(socket,
+       page_title: "Diagnóstico",
+       msg: nil,
+       capture_src: nil,
+       calibrated?: Calibration.exists?()
+     )}
   end
 
   @impl true
@@ -132,62 +138,100 @@ defmodule PokexWeb.DiagnosticsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="p-4 space-y-6 max-w-2xl">
-      <h1 class="text-xl font-bold">Pokex — Diagnóstico</h1>
-      <p :if={@msg} class="rounded bg-base-200 p-2 font-mono text-sm">{@msg}</p>
+    <Layouts.app flash={@flash} current_page={:diagnostics}>
+      <div class="space-y-4">
+        <header>
+          <h1 class="text-xl font-bold">Diagnóstico</h1>
+          <p class="mt-1 text-sm opacity-70">
+            Laboratório manual: teste cada ação e cada detecção olhando o jogo.
+            Nada aqui liga o bot — são disparos avulsos.
+          </p>
+        </header>
 
-      <section class="space-y-2">
-        <h2 class="font-semibold">Teclas (2s de atraso para você focar o jogo)</h2>
-        <div class="flex gap-2">
-          <button class="btn" phx-click="press" phx-value-combo="shift+z">Shift+Z</button>
-          <button class="btn" phx-click="press" phx-value-combo="1">Tecla 1</button>
-          <button class="btn" phx-click="press" phx-value-combo="2">Tecla 2</button>
+        <div class="flex min-h-10 items-center gap-2 rounded-lg border border-base-content/10 bg-base-300 px-3 py-2 font-mono text-sm">
+          <.icon name="hero-chevron-right" class="size-4 shrink-0 text-primary" />
+          <span :if={@msg}>{@msg}</span>
+          <span :if={is_nil(@msg)} class="opacity-40">resultado aparece aqui…</span>
         </div>
-      </section>
 
-      <section class="space-y-2">
-        <h2 class="font-semibold">Clique em coordenada (points de tela)</h2>
-        <form id="click-form" phx-submit="click" class="flex items-end gap-2">
-          <input name="x" value="800" class="input input-bordered w-24" />
-          <input name="y" value="400" class="input input-bordered w-24" />
-          <select name="button" class="select select-bordered">
-            <option value="left">left</option>
-            <option value="right">right</option>
-          </select>
-          <button class="btn">Clicar</button>
-        </form>
-      </section>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <section class="space-y-2 rounded-xl border border-base-content/10 bg-base-200 p-4">
+            <h2 class="text-sm font-semibold">
+              Teclas <span class="font-normal opacity-50">(2s para focar o jogo)</span>
+            </h2>
+            <div class="flex flex-wrap gap-2">
+              <button class="btn btn-sm" phx-click="press" phx-value-combo="shift+z">Shift+Z</button>
+              <button class="btn btn-sm" phx-click="press" phx-value-combo="1">Tecla 1</button>
+              <button class="btn btn-sm" phx-click="press" phx-value-combo="2">Tecla 2</button>
+            </div>
+          </section>
 
-      <section class="space-y-2">
-        <h2 class="font-semibold">Captura de região</h2>
-        <form id="capture-form" phx-submit="capture" class="flex items-end gap-2">
-          <input name="x" value="0" class="input input-bordered w-20" />
-          <input name="y" value="0" class="input input-bordered w-20" />
-          <input name="w" value="400" class="input input-bordered w-20" />
-          <input name="h" value="300" class="input input-bordered w-20" />
-          <button class="btn">Capturar</button>
-        </form>
-        <img :if={@capture_src} src={@capture_src} class="max-w-full border" />
-      </section>
+          <section class="space-y-2 rounded-xl border border-base-content/10 bg-base-200 p-4">
+            <h2 class="text-sm font-semibold">Clique em coordenada</h2>
+            <form id="click-form" phx-submit="click" class="flex flex-wrap items-end gap-2">
+              <input name="x" value="800" class="input input-bordered input-sm w-20" />
+              <input name="y" value="400" class="input input-bordered input-sm w-20" />
+              <select name="button" class="select select-bordered select-sm">
+                <option value="left">left</option>
+                <option value="right">right</option>
+              </select>
+              <button class="btn btn-sm">Clicar</button>
+            </form>
+          </section>
 
-      <section class="space-y-2">
-        <h2 class="font-semibold">Sequência de captura de pokémon (Shift+1 + clique)</h2>
-        <form id="seq-form" phx-submit="capture_seq" class="flex items-end gap-2">
-          <input name="x" value="800" class="input input-bordered w-24" />
-          <input name="y" value="400" class="input input-bordered w-24" />
-          <button class="btn btn-warning">Testar em 2s</button>
-        </form>
-      </section>
+          <section class="space-y-2 rounded-xl border border-base-content/10 bg-base-200 p-4">
+            <h2 class="text-sm font-semibold">Captura de região</h2>
+            <form id="capture-form" phx-submit="capture" class="flex flex-wrap items-end gap-2">
+              <input name="x" value="0" class="input input-bordered input-sm w-16" />
+              <input name="y" value="0" class="input input-bordered input-sm w-16" />
+              <input name="w" value="400" class="input input-bordered input-sm w-16" />
+              <input name="h" value="300" class="input input-bordered input-sm w-16" />
+              <button class="btn btn-sm">Capturar</button>
+            </form>
+            <img
+              :if={@capture_src}
+              src={@capture_src}
+              class="mt-2 max-w-full rounded border border-base-content/20"
+            />
+          </section>
 
-      <section :if={@calibrated?} class="space-y-2">
-        <h2 class="font-semibold">Visão (usa a calibração salva)</h2>
-        <div class="flex gap-2">
-          <button class="btn" phx-click="glow_score">Score do brilho</button>
-          <button class="btn" phx-click="find_hostile">Procurar nome vermelho</button>
-          <button class="btn" phx-click="wild_check">Pokébola presente?</button>
+          <section class="space-y-2 rounded-xl border border-base-content/10 bg-base-200 p-4">
+            <h2 class="text-sm font-semibold">
+              Sequência de captura <span class="font-normal opacity-50">(Shift+1 + clique)</span>
+            </h2>
+            <form id="seq-form" phx-submit="capture_seq" class="flex flex-wrap items-end gap-2">
+              <input name="x" value="800" class="input input-bordered input-sm w-20" />
+              <input name="y" value="400" class="input input-bordered input-sm w-20" />
+              <button class="btn btn-sm btn-warning">Testar em 2s</button>
+            </form>
+          </section>
         </div>
-      </section>
-    </div>
+
+        <section
+          :if={@calibrated?}
+          class="space-y-2 rounded-xl border border-base-content/10 bg-base-200 p-4"
+        >
+          <h2 class="text-sm font-semibold">
+            Visão <span class="font-normal opacity-50">(usa a calibração salva)</span>
+          </h2>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-sm" phx-click="glow_score">Score do brilho</button>
+            <button class="btn btn-sm" phx-click="find_hostile">Procurar nome vermelho</button>
+            <button class="btn btn-sm" phx-click="wild_check">Pokébola presente?</button>
+          </div>
+        </section>
+
+        <div
+          :if={not @calibrated?}
+          class="rounded-lg bg-base-200 px-3 py-2 text-xs opacity-70"
+        >
+          Os testes de visão aparecem depois que você <.link
+            navigate={~p"/calibration"}
+            class="link link-primary"
+          >calibrar</.link>.
+        </div>
+      </div>
+    </Layouts.app>
     """
   end
 end

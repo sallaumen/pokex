@@ -23,8 +23,9 @@ defmodule Pokex.Settings do
     glow_streak_needed: 2,
     battle_row_height: 30,
     battle_max_rows: 6,
-    wait_target_verify_ms: 250,
+    wait_target_verify_ms: 400,
     target_locked_min_pixels: 40,
+    target_lock_streak: 2,
     humanize_max_ms: 1000
   }
 

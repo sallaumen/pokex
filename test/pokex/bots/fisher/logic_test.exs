@@ -26,6 +26,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       glow_streak_needed: 1,
       wait_target_verify_ms: 5,
       target_locked_min_pixels: 40,
+      target_lock_streak: 1,
       battle_rows: [
         {1466, 138},
         {1466, 168},
@@ -250,6 +251,33 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       {l, actions} = Logic.step(l, cursor_obs(), 4000)
       assert l.state == :equipping
       assert [{:log, _}] = actions
+    end
+
+    test "target lock needs the red to PERSIST — a blink doesn't lock" do
+      cfg = config() |> Map.put(:target_lock_streak, 2)
+
+      verifying = %Logic{
+        state: :fighting,
+        config: cfg,
+        targeted?: false,
+        pending_verify?: true,
+        select_idx: 0
+      }
+
+      # first high check: not locked yet, keeps verifying
+      {still, []} = Logic.step(verifying, Map.put(cursor_obs(), :target_locked, 100), 100)
+      refute still.targeted?
+      assert still.pending_verify?
+      assert still.target_streak == 1
+
+      # red PERSISTED on the second check → locks
+      {locked, []} = Logic.step(still, Map.put(cursor_obs(), :target_locked, 100), 500)
+      assert locked.targeted?
+
+      # but if the red DROPPED (a blink that faded) → next row, no lock
+      {gone, []} = Logic.step(still, Map.put(cursor_obs(), :target_locked, 0), 500)
+      refute gone.targeted?
+      assert gone.select_idx == 1
     end
 
     test "subsequent ticks cycle skills and track hostile" do

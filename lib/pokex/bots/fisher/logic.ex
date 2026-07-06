@@ -15,6 +15,7 @@ defmodule Pokex.Bots.Fisher.Logic do
             targeted?: false,
             select_idx: 0,
             pending_verify?: false,
+            target_streak: 0,
             fallback_idx: 0,
             glow_streak: 0,
             combat_test?: false,
@@ -42,6 +43,7 @@ defmodule Pokex.Bots.Fisher.Logic do
          targeted?: false,
          select_idx: 0,
          pending_verify?: false,
+         target_streak: 0,
          fight_tick: 0,
          skill_idx: 0,
          last_hostile: nil,
@@ -142,6 +144,7 @@ defmodule Pokex.Bots.Fisher.Logic do
       | targeted?: false,
         select_idx: 0,
         pending_verify?: false,
+        target_streak: 0,
         fight_tick: 0,
         skill_idx: 0,
         last_hostile: nil
@@ -169,11 +172,24 @@ defmodule Pokex.Bots.Fisher.Logic do
     end
   end
 
-  defp do_step(%{state: :fighting, targeted?: false, pending_verify?: true} = logic, obs, _now) do
-    if Map.get(obs, :target_locked, 0) >= logic.config.target_locked_min_pixels do
-      {%{logic | targeted?: true, pending_verify?: false}, []}
-    else
-      {%{logic | select_idx: logic.select_idx + 1, pending_verify?: false}, []}
+  defp do_step(%{state: :fighting, targeted?: false, pending_verify?: true} = logic, obs, now) do
+    red = Map.get(obs, :target_locked, 0)
+
+    cond do
+      red < logic.config.target_locked_min_pixels ->
+        # no (more) red — a blink that already faded, or a non-target row → next row
+        {%{logic | select_idx: logic.select_idx + 1, pending_verify?: false, target_streak: 0},
+         []}
+
+      logic.target_streak + 1 >= logic.config.target_lock_streak ->
+        # red PERSISTED across enough checks → a real fixed border, target locked
+        {%{logic | targeted?: true, pending_verify?: false, target_streak: 0}, []}
+
+      true ->
+        # red is there, but check again after a beat — a blink shows once then vanishes
+        {advance(%{logic | target_streak: logic.target_streak + 1}, :fighting, now,
+           wait: logic.config.wait_target_verify_ms
+         ), []}
     end
   end
 
@@ -244,6 +260,7 @@ defmodule Pokex.Bots.Fisher.Logic do
       | targeted?: false,
         select_idx: 0,
         pending_verify?: false,
+        target_streak: 0,
         fight_tick: 0,
         skill_idx: 0,
         last_hostile: nil

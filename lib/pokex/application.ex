@@ -13,6 +13,7 @@ defmodule Pokex.Application do
       {Phoenix.PubSub, name: Pokex.PubSub},
       # Start a worker by calling: Pokex.Worker.start_link(arg)
       # {Pokex.Worker, arg},
+      Pokex.Settings,
       # Start to serve requests, typically the last entry
       PokexWeb.Endpoint
     ]

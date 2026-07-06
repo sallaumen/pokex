@@ -1,6 +1,7 @@
 import Config
 
 config :pokex, rig: Pokex.Rig.Fake
+config :pokex, settings_path: "tmp/settings_test.json"
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

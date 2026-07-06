@@ -4,6 +4,7 @@ config :pokex, rig: Pokex.Rig.Fake
 config :pokex, settings_path: "tmp/settings_test.json"
 config :pokex, sensors: Pokex.Bots.Fisher.Sensors.Fake
 config :pokex, home_dir: "tmp/test-home"
+config :pokex, baseline_gap_ms: 1
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

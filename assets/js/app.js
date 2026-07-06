@@ -26,10 +26,27 @@ import {hooks as colocatedHooks} from "phoenix-colocated/pokex"
 import topbar from "../vendor/topbar"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+
+const ImgClick = {
+  mounted() {
+    this.el.addEventListener("click", e => {
+      const rect = this.el.getBoundingClientRect()
+      this.pushEvent("img_click", {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+        cw: rect.width,
+        ch: rect.height,
+        nw: this.el.naturalWidth,
+        nh: this.el.naturalHeight,
+      })
+    })
+  },
+}
+
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, ImgClick},
 })
 
 // Show progress bar on live navigation and form submits

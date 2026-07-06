@@ -19,6 +19,7 @@ defmodule PokexWeb.Router do
 
     get "/", PageController, :home
     get "/captures/:name", CapturesController, :show
+    live "/diagnostics", DiagnosticsLive
   end
 
   # Other scopes may use custom stacks.

@@ -73,4 +73,41 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.suggested_glow_threshold == 12.0
     assert Enum.all?(calib.glow_baselines, &File.exists?/1)
   end
+
+  @tag :tmp_dir
+  test "review draws the saved regions over a fresh screenshot", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      arena_region: {20, 20, 60, 40},
+      neutral_point: {52, 36},
+      glow_baselines: [],
+      suggested_glow_threshold: 15.0
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} =
+      Pokex.Rig.Fake.start_link(%{
+        capture: [{:ok, probe}],
+        capture_screen: [{:ok, screen}]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    html = view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    assert html =~ "Áreas que o bot está usando"
+    assert html =~ "janela Battle"
+    # battle_region left = 70/100 = 70%; arena left = 20/100 = 20%
+    assert html =~ "left:70.0%"
+    assert html =~ "left:20.0%"
+  end
 end

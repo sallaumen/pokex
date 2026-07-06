@@ -23,7 +23,8 @@ defmodule PokexWeb.PanelLive do
        snap: Fisher.status(),
        errors: [],
        calibrated?: Calibration.exists?(),
-       threshold: Settings.get(:glow_threshold)
+       threshold: Settings.get(:glow_threshold),
+       auto_capture: Settings.get(:auto_capture)
      )}
   end
 
@@ -52,6 +53,12 @@ defmodule PokexWeb.PanelLive do
 
     Settings.put(:glow_threshold, value)
     {:noreply, assign(socket, threshold: value)}
+  end
+
+  def handle_event("toggle_capture", _params, socket) do
+    value = not Settings.get(:auto_capture)
+    Settings.put(:auto_capture, value)
+    {:noreply, assign(socket, auto_capture: value)}
   end
 
   defp counters, do: @counters
@@ -160,6 +167,21 @@ defmodule PokexWeb.PanelLive do
               <button class="btn btn-sm btn-primary">Salvar</button>
             </form>
           </div>
+
+          <label class="flex cursor-pointer items-center justify-between gap-3 border-t border-base-content/10 pt-4">
+            <span>
+              <span class="text-sm font-semibold">Auto-captura</span>
+              <span class="block text-xs opacity-60">
+                Joga a pokébola base (Shift+1) em todo pokémon pescado.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              class="toggle toggle-success"
+              checked={@auto_capture}
+              phx-click="toggle_capture"
+            />
+          </label>
 
           <div class="flex items-start gap-2 rounded-lg bg-base-300 px-3 py-2 text-xs">
             <.icon name="hero-hand-raised" class="mt-0.5 size-4 shrink-0 text-error" />

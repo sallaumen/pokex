@@ -152,11 +152,16 @@ defmodule Pokex.Bots.Fisher.Logic do
 
   defp do_step(%{state: :capturing} = logic, _obs, now) do
     target = corpse_point(logic) || logic.config.water_point
-    logic = update_in(logic.counters.captures, &(&1 + 1))
     logic = %{logic | failures: 0, last_hostile: nil}
 
-    {advance(logic, :equipping, now, wait: logic.config.wait_after_capture_ms),
-     [{:capture_sequence, target}]}
+    {logic, actions} =
+      if logic.config.auto_capture do
+        {update_in(logic.counters.captures, &(&1 + 1)), [{:capture_sequence, target}]}
+      else
+        {logic, [{:log, "auto-captura desligada — sem pokébola"}]}
+      end
+
+    {advance(logic, :equipping, now, wait: logic.config.wait_after_capture_ms), actions}
   end
 
   defp corpse_point(%{last_hostile: nil}), do: nil

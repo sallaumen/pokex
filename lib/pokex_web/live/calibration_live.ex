@@ -31,34 +31,41 @@ defmodule PokexWeb.CalibrationLive do
        draft: %{},
        baselines_done: 0,
        done: false,
+       calibrated?: Calibration.exists?(),
+       review: nil,
        error: nil
      )}
   end
 
   @impl true
   def handle_event("capture_screen", _params, socket) do
-    with {:ok, probe_path} <- Rig.impl().capture({0, 0, 100, 100}, "scale_probe.png"),
-         {:ok, {probe_px, _}} <- Frame.png_dimensions(probe_path),
-         {:ok, screen_path} <- Rig.impl().capture_screen(),
-         {:ok, {px_w, px_h}} <- Frame.png_dimensions(screen_path) do
-      scale = probe_px / 100
-
+    with {:ok, screen} <- grab_screen("scale_probe.png") do
       {:noreply,
        assign(socket,
-         scale: scale,
-         screen: %{
-           src: "/captures/#{Path.basename(screen_path)}?t=#{System.unique_integer([:positive])}",
-           w: round(px_w / scale),
-           h: round(px_h / scale)
-         },
+         scale: screen.scale,
+         screen: screen,
          step: :water,
          draft: %{},
          done: false,
+         review: nil,
          error: nil
        )}
     else
       error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
+  end
+
+  def handle_event("review", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, screen} <- grab_screen("review_probe.png") do
+      {:noreply, assign(socket, review: Map.put(screen, :calib, calib), error: nil)}
+    else
+      error -> {:noreply, assign(socket, error: "não deu pra revisar: #{inspect(error)}")}
+    end
+  end
+
+  def handle_event("close_review", _params, socket) do
+    {:noreply, assign(socket, review: nil)}
   end
 
   def handle_event(
@@ -124,7 +131,25 @@ defmodule PokexWeb.CalibrationLive do
     }
 
     Calibration.save(calib)
-    {:noreply, assign(socket, done: true, step: nil)}
+    {:noreply, assign(socket, done: true, step: nil, calibrated?: true)}
+  end
+
+  # Probe a 100x100 region for the Retina scale, then grab the full screen.
+  defp grab_screen(probe_name) do
+    with {:ok, probe_path} <- Rig.impl().capture({0, 0, 100, 100}, probe_name),
+         {:ok, {probe_px, _}} <- Frame.png_dimensions(probe_path),
+         {:ok, screen_path} <- Rig.impl().capture_screen(),
+         {:ok, {px_w, px_h}} <- Frame.png_dimensions(screen_path) do
+      scale = probe_px / 100
+
+      {:ok,
+       %{
+         src: "/captures/#{Path.basename(screen_path)}?t=#{System.unique_integer([:positive])}",
+         scale: scale,
+         w: round(px_w / scale),
+         h: round(px_h / scale)
+       }}
+    end
   end
 
   defp record_point(socket, point) do
@@ -187,6 +212,82 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  # Percentage-based positioning of a point/region over the full-screen image.
+  defp point_style({x, y}, %{w: w, h: h}), do: "left:#{x / w * 100}%;top:#{y / h * 100}%"
+
+  defp region_style({x, y, rw, rh}, %{w: w, h: h}),
+    do: "left:#{x / w * 100}%;top:#{y / h * 100}%;width:#{rw / w * 100}%;height:#{rh / h * 100}%"
+
+  attr :screen, :map, required: true
+  attr :water_point, :any, default: nil
+  attr :glow_region, :any, default: nil
+  attr :battle_region, :any, default: nil
+  attr :arena_region, :any, default: nil
+  attr :neutral_point, :any, default: nil
+
+  defp overlays(assigns) do
+    ~H"""
+    <div
+      :if={@glow_region}
+      class="absolute rounded border-2 border-info bg-info/10"
+      style={region_style(@glow_region, @screen)}
+    >
+      <span class="absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content">
+        brilho
+      </span>
+    </div>
+    <div
+      :if={@battle_region}
+      class="absolute rounded border-2 border-warning bg-warning/10"
+      style={region_style(@battle_region, @screen)}
+    >
+      <span class="absolute -top-4 left-0 rounded bg-warning px-1 text-[10px] font-bold text-warning-content">
+        Battle
+      </span>
+    </div>
+    <div
+      :if={@arena_region}
+      class="absolute rounded border-2 border-success bg-success/10"
+      style={region_style(@arena_region, @screen)}
+    >
+      <span class="absolute -top-4 left-0 rounded bg-success px-1 text-[10px] font-bold text-success-content">
+        arena
+      </span>
+    </div>
+    <div
+      :if={@water_point}
+      class="absolute -ml-1.5 -mt-1.5 size-3 rounded-full border-2 border-white bg-info shadow"
+      style={point_style(@water_point, @screen)}
+      title="água"
+    />
+    <div
+      :if={@neutral_point}
+      class="absolute -ml-1.5 -mt-1.5 size-3 rounded-full border-2 border-white bg-neutral shadow"
+      style={point_style(@neutral_point, @screen)}
+      title="neutro"
+    />
+    """
+  end
+
+  defp legend(assigns) do
+    ~H"""
+    <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-full bg-info" /> água + brilho
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-sm border-2 border-warning" /> janela Battle
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-sm border-2 border-success" /> arena
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-full bg-neutral" /> ponto neutro
+      </span>
+    </div>
+    """
+  end
+
   @impl true
   def render(assigns) do
     # module attributes are not available inside ~H as @foo (that reads
@@ -207,16 +308,43 @@ defmodule PokexWeb.CalibrationLive do
         <p :if={@error} class="rounded-lg bg-error/15 px-3 py-2 text-sm text-error">{@error}</p>
 
         <div
-          :if={is_nil(@screen)}
+          :if={@review}
+          class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-4"
+        >
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold">Áreas que o bot está usando</h2>
+            <button class="btn btn-ghost btn-xs" phx-click="close_review">Fechar</button>
+          </div>
+          <.legend />
+          <div class="relative overflow-hidden rounded-lg border border-base-content/20">
+            <img src={@review.src} class="w-full" />
+            <.overlays
+              screen={@review}
+              water_point={@review.calib.water_point}
+              glow_region={@review.calib.glow_region}
+              battle_region={@review.calib.battle_region}
+              arena_region={@review.calib.arena_region}
+              neutral_point={@review.calib.neutral_point}
+            />
+          </div>
+        </div>
+
+        <div
+          :if={is_nil(@screen) and is_nil(@review)}
           class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-6 text-center"
         >
           <.icon name="hero-camera" class="mx-auto size-8 opacity-60" />
           <p class="text-sm opacity-70">
             Capture a tela do jogo para começar a marcar os pontos.
           </p>
-          <button class="btn btn-primary" phx-click="capture_screen">
-            <.icon name="hero-camera" class="size-4" /> Capturar tela
-          </button>
+          <div class="flex flex-wrap justify-center gap-2">
+            <button class="btn btn-primary" phx-click="capture_screen">
+              <.icon name="hero-camera" class="size-4" /> Capturar tela
+            </button>
+            <button :if={@calibrated?} class="btn btn-ghost" phx-click="review">
+              <.icon name="hero-eye" class="size-4" /> Revisar áreas salvas
+            </button>
+          </div>
         </div>
 
         <div :if={@screen} class="space-y-3">
@@ -251,13 +379,27 @@ defmodule PokexWeb.CalibrationLive do
             <p class="text-xs opacity-60">{@baselines_done}/10 capturadas</p>
           </div>
 
-          <img
+          <.legend :if={@step in [:water, :battle_a, :battle_b, :arena_a, :arena_b, :neutral]} />
+
+          <div
             :if={@step in [:water, :battle_a, :battle_b, :arena_a, :arena_b, :neutral]}
-            id="calibration-screen"
-            phx-hook="ImgClick"
-            src={@screen.src}
-            class="w-full cursor-crosshair rounded-lg border border-base-content/20"
-          />
+            class="relative overflow-hidden rounded-lg border border-base-content/20"
+          >
+            <img
+              id="calibration-screen"
+              phx-hook="ImgClick"
+              src={@screen.src}
+              class="w-full cursor-crosshair"
+            />
+            <.overlays
+              screen={@screen}
+              water_point={@draft[:water_point]}
+              glow_region={@draft[:glow_region]}
+              battle_region={@draft[:battle_region]}
+              arena_region={@draft[:arena_region]}
+              neutral_point={@draft[:neutral_point]}
+            />
+          </div>
         </div>
 
         <div
@@ -267,7 +409,12 @@ defmodule PokexWeb.CalibrationLive do
           <.icon name="hero-check-circle" class="mx-auto size-8 text-success" />
           <p class="font-semibold">Calibração salva!</p>
           <p class="text-sm opacity-70">Threshold do brilho gravado. Pode ir para o painel.</p>
-          <.link navigate={~p"/"} class="btn btn-success btn-sm">Ir ao painel →</.link>
+          <div class="flex flex-wrap justify-center gap-2">
+            <button class="btn btn-ghost btn-sm" phx-click="review">
+              <.icon name="hero-eye" class="size-4" /> Revisar áreas
+            </button>
+            <.link navigate={~p"/"} class="btn btn-success btn-sm">Ir ao painel →</.link>
+          </div>
         </div>
       </div>
     </Layouts.app>

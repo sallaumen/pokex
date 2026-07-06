@@ -18,7 +18,8 @@ defmodule Pokex.Settings do
     max_consecutive_failures: 5,
     tile_size: 32,
     hostile_scan_every: 2,
-    wild_min_red_pixels: 12
+    wild_min_red_pixels: 12,
+    auto_capture: true
   }
 
   def defaults, do: @defaults
@@ -47,7 +48,11 @@ defmodule Pokex.Settings do
   end
 
   @impl true
-  def handle_call({:get, key}, _from, state), do: {:reply, Map.fetch!(state.data, key), state}
+  # Fall back to @defaults so a process that started before a new key was added
+  # (e.g. after a hot code reload) returns the default instead of crashing.
+  def handle_call({:get, key}, _from, state),
+    do: {:reply, Map.get(state.data, key, Map.get(@defaults, key)), state}
+
   def handle_call(:all, _from, state), do: {:reply, state.data, state}
 
   def handle_call({:put, key, value}, _from, state) do

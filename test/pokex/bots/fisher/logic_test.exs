@@ -21,7 +21,8 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       watch_timeout_ms: 30_000,
       fight_timeout_ms: 90_000,
       max_consecutive_failures: 3,
-      hostile_scan_every: 2
+      hostile_scan_every: 2,
+      auto_capture: true
     }
   end
 
@@ -191,6 +192,18 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert actions == [{:capture_sequence, {700, 382}}]
       assert l.state == :equipping
       assert l.counters.captures == 1
+      assert l.failures == 0
+    end
+
+    test "capturing with auto_capture disabled throws no pokeball" do
+      cfg = Map.put(config(), :auto_capture, false)
+      logic = %Logic{state: :capturing, config: cfg, last_hostile: {700, 350}}
+
+      {l, actions} = Logic.step(logic, cursor_obs(), 100)
+      assert l.state == :equipping
+      assert [{:log, _}] = actions
+      refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
+      assert l.counters.captures == 0
       assert l.failures == 0
     end
 

@@ -17,6 +17,7 @@ defmodule Pokex.Bots.Fisher.Logic do
             pending_verify?: false,
             fallback_idx: 0,
             glow_streak: 0,
+            combat_test?: false,
             failures: 0,
             error: nil,
             counters: %{cycles: 0, hooked: 0, fights: 0, loots: 0, captures: 0, failures: 0}
@@ -31,6 +32,25 @@ defmodule Pokex.Bots.Fisher.Logic do
   end
 
   def start(logic, _now), do: {logic, []}
+
+  @doc "Start straight in the combat sub-cycle (select→attack→loot→capture) once, then idle. For the /diagnostics combat test."
+  def start_combat(%__MODULE__{} = logic, now) do
+    {%{
+       logic
+       | state: :fighting,
+         combat_test?: true,
+         targeted?: false,
+         select_idx: 0,
+         pending_verify?: false,
+         fight_tick: 0,
+         skill_idx: 0,
+         last_hostile: nil,
+         entered_at: now,
+         waiting_until: nil,
+         failures: 0,
+         error: nil
+     }, []}
+  end
 
   def stop(logic), do: {%{logic | state: :idle, waiting_until: nil}, []}
 
@@ -140,7 +160,7 @@ defmodule Pokex.Bots.Fisher.Logic do
     rows = logic.config.battle_rows
 
     if logic.select_idx >= length(rows) do
-      {advance(%{logic | select_idx: 0}, :equipping, now),
+      {advance(%{logic | select_idx: 0}, next_after_cycle(logic), now),
        [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
     else
       {advance(%{logic | pending_verify?: true}, :fighting, now,
@@ -211,8 +231,13 @@ defmodule Pokex.Bots.Fisher.Logic do
         {logic, [{:log, "auto-captura desligada — sem pokébola"}]}
       end
 
-    {advance(logic, :equipping, now, wait: logic.config.wait_after_capture_ms), actions}
+    {advance(logic, next_after_cycle(logic), now, wait: logic.config.wait_after_capture_ms),
+     actions}
   end
+
+  # A combat-test run does one cycle and stops; a normal run loops back to fish.
+  defp next_after_cycle(%{combat_test?: true}), do: :idle
+  defp next_after_cycle(_), do: :equipping
 
   defp corpse_point(%{last_hostile: nil}), do: nil
 

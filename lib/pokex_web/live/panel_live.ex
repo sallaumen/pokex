@@ -44,6 +44,13 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, snap: Fisher.status())}
   end
 
+  def handle_event("test_combat", _params, socket) do
+    case Fisher.start_combat() do
+      :ok -> {:noreply, assign(socket, errors: [], snap: Fisher.status())}
+      {:error, messages} -> {:noreply, assign(socket, errors: messages)}
+    end
+  end
+
   def handle_event("save_threshold", %{"threshold" => raw}, socket) do
     value =
       case Float.parse(raw) do
@@ -110,12 +117,19 @@ defmodule PokexWeb.PanelLive do
                 <p class="font-mono text-xs opacity-50">{@snap.state}</p>
               </div>
             </div>
-            <div class="flex gap-2">
+            <div class="flex flex-wrap gap-2">
               <button class="btn btn-success gap-1.5" phx-click="start">
                 <.icon name="hero-play" class="size-4" /> Start
               </button>
               <button class="btn btn-outline btn-error gap-1.5" phx-click="stop">
                 <.icon name="hero-stop" class="size-4" /> Stop
+              </button>
+              <button
+                class="btn btn-outline btn-warning gap-1.5"
+                phx-click="test_combat"
+                title="Só o combate: mira → ataca → loot → captura, uma vez"
+              >
+                <.icon name="hero-bug-ant" class="size-4" /> Testar combate
               </button>
             </div>
           </div>

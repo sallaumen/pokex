@@ -21,6 +21,7 @@ defmodule Pokex.Bots.Fisher do
   end
 
   def start_bot(server \\ __MODULE__), do: GenServer.call(server, :start_bot)
+  def start_combat(server \\ __MODULE__), do: GenServer.call(server, :start_combat)
   def stop_bot(server \\ __MODULE__), do: GenServer.call(server, :stop_bot)
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
@@ -28,19 +29,8 @@ defmodule Pokex.Bots.Fisher do
   def init(_opts), do: {:ok, %{logic: nil, calib: nil, timer: nil}}
 
   @impl true
-  def handle_call(:start_bot, _from, state) do
-    with :ok <- Preflight.run(),
-         {:ok, calib} <- Calibration.load() do
-      config = Config.build(calib, Settings.all())
-      {logic, actions} = Logic.start(Logic.new(config), now())
-      execute_all(actions, config.humanize_max_ms)
-      broadcast(logic)
-      {:reply, :ok, %{state | logic: logic, calib: calib} |> reschedule(0)}
-    else
-      {:error, messages} when is_list(messages) -> {:reply, {:error, messages}, state}
-      {:error, other} -> {:reply, {:error, ["calibração ilegível: #{inspect(other)}"]}, state}
-    end
-  end
+  def handle_call(:start_bot, _from, state), do: begin(state, &Logic.start/2)
+  def handle_call(:start_combat, _from, state), do: begin(state, &Logic.start_combat/2)
 
   def handle_call(:stop_bot, _from, %{logic: nil} = state), do: {:reply, :ok, state}
 
@@ -51,6 +41,21 @@ defmodule Pokex.Bots.Fisher do
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state.logic), state}
+
+  # Shared preflight → load → build → start; differs only by the Logic starter.
+  defp begin(state, start_fun) do
+    with :ok <- Preflight.run(),
+         {:ok, calib} <- Calibration.load() do
+      config = Config.build(calib, Settings.all())
+      {logic, actions} = start_fun.(Logic.new(config), now())
+      execute_all(actions, config.humanize_max_ms)
+      broadcast(logic)
+      {:reply, :ok, %{state | logic: logic, calib: calib} |> reschedule(0)}
+    else
+      {:error, messages} when is_list(messages) -> {:reply, {:error, messages}, state}
+      {:error, other} -> {:reply, {:error, ["calibração ilegível: #{inspect(other)}"]}, state}
+    end
+  end
 
   @impl true
   def handle_info(:tick, %{logic: nil} = state), do: {:noreply, state}

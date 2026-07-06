@@ -174,6 +174,28 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert [{:log, _}] = actions
   end
 
+  test "start_combat begins in fighting selection, flagged as a combat test" do
+    {l, []} = Logic.start_combat(Logic.new(config()), 0)
+    assert l.state == :fighting
+    assert l.combat_test?
+    refute l.targeted?
+    assert l.select_idx == 0
+  end
+
+  test "combat test ends at idle after capturing (not looping back to fishing)" do
+    cfg = config() |> Map.put(:auto_capture, false)
+
+    capturing = %Logic{
+      state: :capturing,
+      config: cfg,
+      combat_test?: true,
+      last_hostile: {700, 350}
+    }
+
+    {done, _} = Logic.step(capturing, cursor_obs(), 100)
+    assert done.state == :idle
+  end
+
   describe "fighting/looting/capturing" do
     def advance_to_fighting do
       watching = advance_to(:watching)

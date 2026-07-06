@@ -73,4 +73,20 @@ defmodule Pokex.Vision do
   end
 
   defp red_pixels(<<>>, _index, _width, _min_r, _max_g, _max_b, acc), do: acc
+
+  @doc "True when the battle strip contains the red/white pokeball icon of a wild pokemon."
+  def wild_present?(%Frame{rgba: rgba}, opts \\ []) do
+    count_pokeball_red(rgba, 0, Keyword.get(opts, :min_count, 12))
+  end
+
+  defp count_pokeball_red(_rgba, n, min_count) when n >= min_count, do: true
+
+  defp count_pokeball_red(<<r, g, b, _a, rest::binary>>, n, min_count)
+       when r >= 200 and g <= 60 and b <= 60,
+       do: count_pokeball_red(rest, n + 1, min_count)
+
+  defp count_pokeball_red(<<_::32, rest::binary>>, n, min_count),
+    do: count_pokeball_red(rest, n, min_count)
+
+  defp count_pokeball_red(<<>>, _n, _min_count), do: false
 end

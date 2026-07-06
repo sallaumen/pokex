@@ -65,4 +65,28 @@ defmodule Pokex.VisionTest do
       assert Pokex.Vision.find_hostile(frame) == :not_found
     end
   end
+
+  describe "wild_present?/2" do
+    import Pokex.FrameFixtures
+
+    test "true when enough pokeball-red pixels exist" do
+      frame = uniform(30, 100, {30, 30, 30})
+
+      frame =
+        for x <- 10..17, y <- 20..23, reduce: frame do
+          acc -> put_px(acc, x, y, {230, 40, 40})
+        end
+
+      assert Pokex.Vision.wild_present?(frame)
+    end
+
+    test "false on empty strip or sparse noise" do
+      refute Pokex.Vision.wild_present?(uniform(30, 100, {30, 30, 30}))
+
+      noisy =
+        uniform(30, 100, {30, 30, 30}) |> put_px(1, 1, {255, 0, 0}) |> put_px(5, 50, {255, 0, 0})
+
+      refute Pokex.Vision.wild_present?(noisy)
+    end
+  end
 end

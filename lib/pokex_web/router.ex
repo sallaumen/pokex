@@ -17,7 +17,7 @@ defmodule PokexWeb.Router do
   scope "/", PokexWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", PanelLive
     get "/captures/:name", CapturesController, :show
     live "/diagnostics", DiagnosticsLive
     live "/calibration", CalibrationLive

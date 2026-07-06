@@ -89,6 +89,15 @@ defmodule Pokex.Vision do
     count_pokeball_red(rgba, 0, Keyword.get(opts, :min_count, 40))
   end
 
+  @doc "Total count of pokeball/selection-red pixels — for tuning thresholds in /diagnostics."
+  def red_count(%Frame{rgba: rgba}), do: red_count(rgba, 0)
+
+  defp red_count(<<r, g, b, _a, rest::binary>>, n) when r >= 200 and g <= 60 and b <= 60,
+    do: red_count(rest, n + 1)
+
+  defp red_count(<<_::32, rest::binary>>, n), do: red_count(rest, n)
+  defp red_count(<<>>, n), do: n
+
   defp count_pokeball_red(_rgba, n, min_count) when n >= min_count, do: true
 
   defp count_pokeball_red(<<r, g, b, _a, rest::binary>>, n, min_count)

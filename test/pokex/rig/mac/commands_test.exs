@@ -2,22 +2,26 @@ defmodule Pokex.Rig.Mac.CommandsTest do
   use ExUnit.Case, async: true
   alias Pokex.Rig.Mac.Commands
 
-  test "press with shift modifier" do
-    assert Commands.press("shift+z") == {"cliclick", ["kd:shift", "t:z", "ku:shift"]}
+  test "press sends a real keystroke with the modifier via System Events" do
+    assert Commands.press("shift+z") ==
+             {"osascript",
+              ["-e", ~s(tell application "System Events" to keystroke "z" using {shift down})]}
   end
 
-  test "press plain key" do
-    assert Commands.press("2") == {"cliclick", ["t:2"]}
+  test "press plain key has no modifier clause" do
+    assert Commands.press("2") ==
+             {"osascript", ["-e", ~s(tell application "System Events" to keystroke "2")]}
+  end
+
+  test "press maps ctrl to control down" do
+    assert Commands.press("ctrl+1") ==
+             {"osascript",
+              ["-e", ~s(tell application "System Events" to keystroke "1" using {control down})]}
   end
 
   test "left and right click" do
     assert Commands.click(:left, {812, 402}) == {"cliclick", ["c:812,402"]}
     assert Commands.click(:right, {10, 20}) == {"cliclick", ["rc:10,20"]}
-  end
-
-  test "capture sequence holds shift, presses 1, clicks" do
-    assert Commands.capture_sequence({100, 200}) ==
-             {"cliclick", ["kd:shift", "t:1", "c:100,200", "ku:shift"]}
   end
 
   test "cursor position command and parsing" do

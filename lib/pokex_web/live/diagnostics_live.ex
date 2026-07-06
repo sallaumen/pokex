@@ -105,8 +105,11 @@ defmodule PokexWeb.DiagnosticsLive do
     with {:ok, calib} <- Calibration.load(),
          {:ok, path} <- Rig.impl().capture(Calibration.battle_strip(calib), "diag_strip.png"),
          {:ok, frame} <- Frame.from_png_file(path) do
-      present = Vision.wild_present?(frame, min_count: Settings.get(:wild_min_red_pixels))
-      {:noreply, assign(socket, msg: "pokébola: #{present}")}
+      min = Settings.get(:wild_min_red_pixels)
+      present = Vision.wild_present?(frame, min_count: min)
+
+      {:noreply,
+       assign(socket, msg: "pokébola: #{present} — #{Vision.red_count(frame)} px (limiar #{min})")}
     else
       error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
     end
@@ -118,7 +121,11 @@ defmodule PokexWeb.DiagnosticsLive do
          {:ok, frame} <- Frame.from_png_file(path) do
       min = Settings.get(:target_locked_min_pixels)
       locked = Vision.target_locked?(frame, min_count: min)
-      {:noreply, assign(socket, msg: "alvo travado? #{locked} (limiar #{min} px vermelhos)")}
+
+      {:noreply,
+       assign(socket,
+         msg: "alvo travado? #{locked} — #{Vision.red_count(frame)} px (limiar #{min})"
+       )}
     else
       error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
     end

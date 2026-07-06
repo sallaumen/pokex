@@ -26,7 +26,8 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
 
   defp fetch(:wild, calib, settings) do
     with {:ok, frame} <- capture_frame(Calibration.battle_strip(calib), "battle.png") do
-      {:ok, Vision.wild_present?(frame, min_count: settings[:wild_min_red_pixels])}
+      min_count = settings[:wild_min_red_pixels] || 12
+      {:ok, Vision.wild_present?(frame, min_count: min_count)}
     end
   end
 

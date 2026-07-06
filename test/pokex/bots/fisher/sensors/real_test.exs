@@ -71,6 +71,26 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
+  test "wild detection falls back to default min_count when settings omit the key", %{
+    tmp_dir: tmp
+  } do
+    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+
+    strip_rows =
+      for y <- 0..99 do
+        for x <- 0..29 do
+          if x in 10..17 and y in 20..23, do: {230, 40, 40, 255}, else: {30, 30, 30, 255}
+        end
+      end
+
+    strip = Pokex.PngFixtures.write!(Path.join(tmp, "strip.png"), strip_rows)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, strip}]})
+
+    assert {:ok, %{wild: true}} =
+             Sensors.Real.observe([:wild], calib(tmp, baseline), %{})
+  end
+
+  @tag :tmp_dir
   test "propagates rig errors", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:error, :denied}]})

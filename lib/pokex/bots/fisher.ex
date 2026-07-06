@@ -1,0 +1,126 @@
+defmodule Pokex.Bots.Fisher do
+  @moduledoc """
+  Driver GenServer around the pure Logic: gathers observations, executes
+  actions through the Rig, schedules ticks, broadcasts snapshots on PubSub.
+  """
+  use GenServer
+  require Logger
+
+  alias Pokex.Bots.Fisher.{Config, Logic, Sensors}
+  alias Pokex.{Calibration, Preflight, Rig, Settings}
+
+  @topic "fisher"
+
+  def topic, do: @topic
+
+  def start_link(opts \\ []) do
+    case Keyword.get(opts, :name, __MODULE__) do
+      nil -> GenServer.start_link(__MODULE__, opts)
+      name -> GenServer.start_link(__MODULE__, opts, name: name)
+    end
+  end
+
+  def start_bot(server \\ __MODULE__), do: GenServer.call(server, :start_bot)
+  def stop_bot(server \\ __MODULE__), do: GenServer.call(server, :stop_bot)
+  def status(server \\ __MODULE__), do: GenServer.call(server, :status)
+
+  @impl true
+  def init(_opts), do: {:ok, %{logic: nil, calib: nil, timer: nil}}
+
+  @impl true
+  def handle_call(:start_bot, _from, state) do
+    with :ok <- Preflight.run(),
+         {:ok, calib} <- Calibration.load() do
+      config = Config.build(calib, Settings.all())
+      {logic, actions} = Logic.start(Logic.new(config), now())
+      execute_all(actions)
+      broadcast(logic)
+      {:reply, :ok, %{state | logic: logic, calib: calib} |> reschedule(0)}
+    else
+      {:error, messages} when is_list(messages) -> {:reply, {:error, messages}, state}
+      {:error, other} -> {:reply, {:error, ["calibração ilegível: #{inspect(other)}"]}, state}
+    end
+  end
+
+  def handle_call(:stop_bot, _from, %{logic: nil} = state), do: {:reply, :ok, state}
+
+  def handle_call(:stop_bot, _from, state) do
+    {logic, _actions} = Logic.stop(state.logic)
+    broadcast(logic)
+    {:reply, :ok, %{cancel_timer(state) | logic: logic}}
+  end
+
+  def handle_call(:status, _from, state), do: {:reply, snapshot(state.logic), state}
+
+  @impl true
+  def handle_info(:tick, %{logic: nil} = state), do: {:noreply, state}
+
+  def handle_info(:tick, %{logic: %Logic{state: s}} = state) when s in [:idle, :error],
+    do: {:noreply, state}
+
+  def handle_info(:tick, state) do
+    previous = state.logic
+
+    logic =
+      case Sensors.impl().observe(Logic.needs(previous), state.calib, Settings.all()) do
+        {:ok, observations} ->
+          {logic, actions} = Logic.step(previous, observations, now())
+
+          case execute_all(actions) do
+            :ok -> logic
+            {:error, reason} -> elem(Logic.io_failed(logic, inspect(reason), now()), 0)
+          end
+
+        {:error, reason} ->
+          elem(Logic.io_failed(previous, inspect(reason), now()), 0)
+      end
+
+    if logic.state != previous.state or logic.counters != previous.counters, do: broadcast(logic)
+
+    state = %{state | logic: logic}
+
+    if logic.state in [:idle, :error] do
+      {:noreply, cancel_timer(state)}
+    else
+      {:noreply, reschedule(state, Logic.tick_interval(logic))}
+    end
+  end
+
+  defp execute_all(actions) do
+    Enum.reduce_while(actions, :ok, fn action, :ok ->
+      case execute(action) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp execute({:press, key}), do: Rig.impl().press(key)
+  defp execute({:click, button, point}), do: Rig.impl().click(button, point)
+  defp execute({:capture_sequence, point}), do: Rig.impl().capture_sequence(point)
+
+  defp execute({:log, message}) do
+    Logger.info("fisher: #{message}")
+    :ok
+  end
+
+  defp broadcast(logic),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fisher, snapshot(logic)})
+
+  defp snapshot(nil), do: %{state: :idle, counters: %Logic{}.counters, error: nil}
+  defp snapshot(logic), do: %{state: logic.state, counters: logic.counters, error: logic.error}
+
+  defp now, do: System.monotonic_time(:millisecond)
+
+  defp reschedule(state, delay_ms) do
+    state = cancel_timer(state)
+    %{state | timer: Process.send_after(self(), :tick, delay_ms)}
+  end
+
+  defp cancel_timer(%{timer: nil} = state), do: state
+
+  defp cancel_timer(%{timer: timer} = state) do
+    Process.cancel_timer(timer)
+    %{state | timer: nil}
+  end
+end

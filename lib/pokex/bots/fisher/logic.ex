@@ -13,6 +13,8 @@ defmodule Pokex.Bots.Fisher.Logic do
             skill_idx: 0,
             fight_tick: 0,
             targeted?: false,
+            select_idx: 0,
+            pending_verify?: false,
             fallback_idx: 0,
             glow_streak: 0,
             failures: 0,
@@ -39,7 +41,11 @@ defmodule Pokex.Bots.Fisher.Logic do
   def needs(%__MODULE__{state: state}) when state in [:idle, :error], do: []
   def needs(%__MODULE__{state: :watching}), do: [:cursor, :glow]
   def needs(%__MODULE__{state: :assessing}), do: [:cursor, :wild]
-  def needs(%__MODULE__{state: :fighting, targeted?: false}), do: [:cursor, :wild_target]
+
+  def needs(%__MODULE__{state: :fighting, targeted?: false, pending_verify?: true}),
+    do: [:cursor, :target_locked]
+
+  def needs(%__MODULE__{state: :fighting, targeted?: false}), do: [:cursor]
 
   def needs(%__MODULE__{state: :fighting} = logic) do
     if scan_tick?(logic), do: [:cursor, :wild, :hostile], else: [:cursor, :wild]
@@ -111,7 +117,16 @@ defmodule Pokex.Bots.Fisher.Logic do
   end
 
   defp do_step(%{state: :assessing} = logic, %{wild: true}, now) do
-    logic = %{logic | targeted?: false, fight_tick: 0, skill_idx: 0, last_hostile: nil}
+    logic = %{
+      logic
+      | targeted?: false,
+        select_idx: 0,
+        pending_verify?: false,
+        fight_tick: 0,
+        skill_idx: 0,
+        last_hostile: nil
+    }
+
     {advance(logic, :fighting, now), []}
   end
 
@@ -119,9 +134,27 @@ defmodule Pokex.Bots.Fisher.Logic do
     {advance(logic, :equipping, now), [{:log, "nada fisgado — recomeçando"}]}
   end
 
-  defp do_step(%{state: :fighting, targeted?: false} = logic, obs, _now) do
-    target = Map.get(obs, :wild_target) || logic.config.battle_first_row
-    {%{logic | targeted?: true}, [{:click, :left, target}]}
+  # Target selection: click a Battle row, then verify a FIXED red border locked
+  # onto it. If it only blinked (own pokemon / player), try the next row down.
+  defp do_step(%{state: :fighting, targeted?: false, pending_verify?: false} = logic, _obs, now) do
+    rows = logic.config.battle_rows
+
+    if logic.select_idx >= length(rows) do
+      {advance(%{logic | select_idx: 0}, :equipping, now),
+       [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
+    else
+      {advance(%{logic | pending_verify?: true}, :fighting, now,
+         wait: logic.config.wait_target_verify_ms
+       ), [{:click, :left, Enum.at(rows, logic.select_idx)}]}
+    end
+  end
+
+  defp do_step(%{state: :fighting, targeted?: false, pending_verify?: true} = logic, obs, _now) do
+    if Map.get(obs, :target_locked) do
+      {%{logic | targeted?: true, pending_verify?: false}, []}
+    else
+      {%{logic | select_idx: logic.select_idx + 1, pending_verify?: false}, []}
+    end
   end
 
   defp do_step(%{state: :fighting} = logic, %{wild: false}, now) do

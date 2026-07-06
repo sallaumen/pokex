@@ -112,6 +112,18 @@ defmodule PokexWeb.DiagnosticsLive do
     end
   end
 
+  def handle_event("target_locked", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, path} <- Rig.impl().capture(calib.battle_region, "diag_target.png"),
+         {:ok, frame} <- Frame.from_png_file(path) do
+      min = Settings.get(:target_locked_min_pixels)
+      locked = Vision.target_locked?(frame, min_count: min)
+      {:noreply, assign(socket, msg: "alvo travado? #{locked} (limiar #{min} px vermelhos)")}
+    else
+      error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
+    end
+  end
+
   @impl true
   def handle_info({:delayed_press, combo}, socket) do
     {:noreply, assign(socket, msg: "press #{combo} → #{inspect(Rig.impl().press(combo))}")}
@@ -218,6 +230,7 @@ defmodule PokexWeb.DiagnosticsLive do
             <button class="btn btn-sm" phx-click="glow_score">Score do brilho</button>
             <button class="btn btn-sm" phx-click="find_hostile">Procurar nome vermelho</button>
             <button class="btn btn-sm" phx-click="wild_check">Pokébola presente?</button>
+            <button class="btn btn-sm" phx-click="target_locked">Alvo travado?</button>
           </div>
         </section>
 

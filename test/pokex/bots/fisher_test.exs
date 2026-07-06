@@ -14,7 +14,8 @@ defmodule Pokex.Bots.FisherTest do
     wait_assess_ms: 5,
     wait_loot_ms: 5,
     wait_after_capture_ms: 5,
-    glow_streak_needed: 1
+    glow_streak_needed: 1,
+    wait_target_verify_ms: 5
   }
 
   setup %{tmp_dir: tmp} do
@@ -44,6 +45,7 @@ defmodule Pokex.Bots.FisherTest do
       Sensors.Fake.start_link(%{
         glow: [false, true],
         wild: [true, true, true, false],
+        target_locked: [true],
         hostile: [{410, 320}]
       })
 

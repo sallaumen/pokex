@@ -114,4 +114,22 @@ defmodule Pokex.VisionTest do
       assert Pokex.Vision.find_wild_row(uniform(30, 100, {30, 30, 30})) == :not_found
     end
   end
+
+  describe "target_locked?/2" do
+    import Pokex.FrameFixtures
+
+    test "true when the red selection border is present (enough red)" do
+      frame =
+        for x <- 5..25, y <- 5..25, reduce: uniform(60, 60, {30, 30, 30}) do
+          acc -> put_px(acc, x, y, {230, 40, 40})
+        end
+
+      assert Pokex.Vision.target_locked?(frame)
+    end
+
+    test "false with only a little red (a blink or just names)" do
+      frame = uniform(60, 60, {30, 30, 30}) |> put_px(1, 1, {255, 0, 0})
+      refute Pokex.Vision.target_locked?(frame)
+    end
+  end
 end

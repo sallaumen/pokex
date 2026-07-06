@@ -79,6 +79,16 @@ defmodule Pokex.Vision do
     count_pokeball_red(rgba, 0, Keyword.get(opts, :min_count, 12))
   end
 
+  @doc """
+  True when a FIXED red selection border is present in the battle frame — i.e.
+  a target is locked (vs a blink, which is gone by the next frame). Heuristic:
+  counts bright-red pixels, which spike when the border appears around the
+  selected portrait. Tune `min_count` against the real game via /diagnostics.
+  """
+  def target_locked?(%Frame{rgba: rgba}, opts \\ []) do
+    count_pokeball_red(rgba, 0, Keyword.get(opts, :min_count, 40))
+  end
+
   defp count_pokeball_red(_rgba, n, min_count) when n >= min_count, do: true
 
   defp count_pokeball_red(<<r, g, b, _a, rest::binary>>, n, min_count)

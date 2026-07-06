@@ -23,7 +23,16 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       max_consecutive_failures: 3,
       hostile_scan_every: 2,
       auto_capture: true,
-      glow_streak_needed: 1
+      glow_streak_needed: 1,
+      wait_target_verify_ms: 5,
+      battle_rows: [
+        {1466, 138},
+        {1466, 168},
+        {1466, 198},
+        {1466, 228},
+        {1466, 258},
+        {1466, 288}
+      ]
     }
   end
 
@@ -173,25 +182,53 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       fighting
     end
 
-    test "first fighting tick targets via battle list" do
-      {l, actions} = Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :wild, true), 3100)
-      assert l.targeted?
+    def advance_to_attacking do
+      f = advance_to_fighting()
+      {f, _} = Logic.step(f, cursor_obs(), 3100)
+      {f, _} = Logic.step(f, Map.put(cursor_obs(), :target_locked, true), 3200)
+      f
+    end
+
+    test "selection: first tick clicks battle row 0 and waits to verify" do
+      {l, actions} = Logic.step(advance_to_fighting(), cursor_obs(), 3100)
+      refute l.targeted?
+      assert l.pending_verify?
       assert actions == [{:click, :left, {1466, 138}}]
+      assert Logic.needs(l) == [:cursor, :target_locked]
     end
 
-    test "first fighting tick clicks the wild_target row when the sensor found one" do
-      obs = cursor_obs() |> Map.put(:wild, true) |> Map.put(:wild_target, {1500, 200})
-      {l, actions} = Logic.step(advance_to_fighting(), obs, 3100)
+    test "selection: a fixed red border locks the target" do
+      {l, _} = Logic.step(advance_to_fighting(), cursor_obs(), 3100)
+      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :target_locked, true), 3200)
       assert l.targeted?
-      assert actions == [{:click, :left, {1500, 200}}]
+      assert actions == []
     end
 
-    test "needs :wild_target before a target is selected" do
-      assert Logic.needs(advance_to_fighting()) == [:cursor, :wild_target]
+    test "selection: only a blink (no lock) skips to the next row" do
+      {l, _} = Logic.step(advance_to_fighting(), cursor_obs(), 3100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, false), 3200)
+      refute l.targeted?
+      assert l.select_idx == 1
+
+      {_l, actions} = Logic.step(l, cursor_obs(), 3300)
+      assert actions == [{:click, :left, {1466, 168}}]
+    end
+
+    test "selection: no attackable row → recasts" do
+      l =
+        Enum.reduce(0..5, advance_to_fighting(), fn i, acc ->
+          {acc, _} = Logic.step(acc, cursor_obs(), 3100 + i * 100)
+          {acc, _} = Logic.step(acc, Map.put(cursor_obs(), :target_locked, false), 3150 + i * 100)
+          acc
+        end)
+
+      {l, actions} = Logic.step(l, cursor_obs(), 4000)
+      assert l.state == :equipping
+      assert [{:log, _}] = actions
     end
 
     test "subsequent ticks cycle skills and track hostile" do
-      {l, _} = Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :wild, true), 3100)
+      l = advance_to_attacking()
 
       obs = cursor_obs() |> Map.put(:wild, true) |> Map.put(:hostile, {700, 350})
       {l, actions} = Logic.step(l, obs, 4100)
@@ -206,7 +243,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     end
 
     test "death → loot at last hostile one tile below → capture there" do
-      {l, _} = Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :wild, true), 3100)
+      l = advance_to_attacking()
       obs = cursor_obs() |> Map.put(:wild, true) |> Map.put(:hostile, {700, 350})
       {l, _} = Logic.step(l, obs, 4100)
 
@@ -239,7 +276,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     end
 
     test "unknown corpse position loots through fallbacks then captures at water" do
-      {l, _} = Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :wild, true), 3100)
+      l = advance_to_attacking()
       {l, []} = Logic.step(l, Map.put(cursor_obs(), :wild, false), 4100)
       assert l.state == :looting
       assert l.last_hostile == nil
@@ -265,9 +302,8 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     end
 
     test "fight timeout fails" do
-      fighting = advance_to_fighting()
-      {l, _} = Logic.step(fighting, Map.put(cursor_obs(), :wild, true), 3100)
-      {l, [{:log, _}]} = Logic.step(l, Map.put(cursor_obs(), :wild, true), 3000 + 90_001)
+      l = advance_to_attacking()
+      {l, [{:log, _}]} = Logic.step(l, Map.put(cursor_obs(), :wild, true), 3100 + 90_001)
       assert l.state == :equipping
       assert l.failures == 1
     end

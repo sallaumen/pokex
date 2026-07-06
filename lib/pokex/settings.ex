@@ -20,7 +20,11 @@ defmodule Pokex.Settings do
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,
     auto_capture: true,
-    glow_streak_needed: 2
+    glow_streak_needed: 2,
+    battle_row_height: 30,
+    battle_max_rows: 6,
+    wait_target_verify_ms: 250,
+    target_locked_min_pixels: 40
   }
 
   def defaults, do: @defaults

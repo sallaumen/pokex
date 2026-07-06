@@ -19,12 +19,15 @@ defmodule Pokex.Bots.Fisher.Config do
     :max_consecutive_failures,
     :hostile_scan_every,
     :auto_capture,
-    :glow_streak_needed
+    :glow_streak_needed,
+    :wait_target_verify_ms
   ]
 
   def build(%Calibration{} = calib, settings) do
     tile = settings[:tile_size]
     {wx, wy} = calib.water_point
+    {fx, fy} = Calibration.battle_first_row(calib)
+    row_h = settings[:battle_row_height]
 
     settings
     |> Map.take(@setting_keys)
@@ -32,6 +35,7 @@ defmodule Pokex.Bots.Fisher.Config do
       water_point: calib.water_point,
       neutral_point: calib.neutral_point,
       battle_first_row: Calibration.battle_first_row(calib),
+      battle_rows: for(i <- 0..(settings[:battle_max_rows] - 1), do: {fx, fy + i * row_h}),
       fallback_points: [
         {wx, wy},
         {wx - tile, wy},

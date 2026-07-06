@@ -39,4 +39,16 @@ defmodule PokexWeb.DiagnosticsLiveTest do
     assert html =~ "/captures/diag.png"
     assert {:capture, {0, 0, 100, 80}, "diag.png"} in Pokex.Rig.Fake.calls()
   end
+
+  test "invalid coordinate shows an error instead of crashing", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+    html =
+      view
+      |> form("#click-form", %{"x" => "abc", "y" => "400", "button" => "left"})
+      |> render_submit()
+
+    assert html =~ "inválid"
+    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:click, _, _}, &1))
+  end
 end

@@ -15,25 +15,42 @@ defmodule PokexWeb.DiagnosticsLive do
   end
 
   def handle_event("click", %{"x" => x, "y" => y, "button" => button}, socket) do
-    button = String.to_existing_atom(button)
-    result = Rig.impl().click(button, {int(x), int(y)})
-    {:noreply, assign(socket, msg: "click #{button} → #{inspect(result)}")}
+    with {:ok, [x, y]} <- parse_ints([x, y]),
+         {:ok, btn} <- parse_button(button) do
+      result = Rig.impl().click(btn, {x, y})
+      {:noreply, assign(socket, msg: "click #{btn} → #{inspect(result)}")}
+    else
+      _ -> {:noreply, assign(socket, msg: "coordenada ou botão inválido")}
+    end
   end
 
   def handle_event("capture", %{"x" => x, "y" => y, "w" => w, "h" => h}, socket) do
-    case Rig.impl().capture({int(x), int(y), int(w), int(h)}, "diag.png") do
-      {:ok, path} ->
-        src = "/captures/#{Path.basename(path)}?t=#{System.unique_integer([:positive])}"
-        {:noreply, assign(socket, capture_src: src, msg: "capturado")}
+    case parse_ints([x, y, w, h]) do
+      {:ok, [x, y, w, h]} ->
+        case Rig.impl().capture({x, y, w, h}, "diag.png") do
+          {:ok, path} ->
+            src = "/captures/#{Path.basename(path)}?t=#{System.unique_integer([:positive])}"
+            {:noreply, assign(socket, capture_src: src, msg: "capturado")}
 
-      {:error, reason} ->
-        {:noreply, assign(socket, msg: "erro na captura: #{inspect(reason)}")}
+          {:error, reason} ->
+            {:noreply, assign(socket, msg: "erro na captura: #{inspect(reason)}")}
+        end
+
+      :error ->
+        {:noreply, assign(socket, msg: "coordenada inválida — use apenas números inteiros")}
     end
   end
 
   def handle_event("capture_seq", %{"x" => x, "y" => y}, socket) do
-    Process.send_after(self(), {:delayed_seq, {int(x), int(y)}}, 2_000)
-    {:noreply, assign(socket, msg: "Clique na janela do JOGO agora! Shift+1+clique em 2s...")}
+    case parse_ints([x, y]) do
+      {:ok, [x, y]} ->
+        Process.send_after(self(), {:delayed_seq, {x, y}}, 2_000)
+
+        {:noreply, assign(socket, msg: "Clique na janela do JOGO agora! Shift+1+clique em 2s...")}
+
+      :error ->
+        {:noreply, assign(socket, msg: "coordenada inválida — use apenas números inteiros")}
+    end
   end
 
   @impl true
@@ -46,7 +63,18 @@ defmodule PokexWeb.DiagnosticsLive do
      assign(socket, msg: "capture_sequence → #{inspect(Rig.impl().capture_sequence(point))}")}
   end
 
-  defp int(value), do: String.to_integer(String.trim(value))
+  defp parse_ints(values) do
+    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, acc} ->
+      case Integer.parse(String.trim(value)) do
+        {n, ""} -> {:cont, {:ok, acc ++ [n]}}
+        _ -> {:halt, :error}
+      end
+    end)
+  end
+
+  defp parse_button("left"), do: {:ok, :left}
+  defp parse_button("right"), do: {:ok, :right}
+  defp parse_button(_), do: :error
 
   @impl true
   def render(assigns) do

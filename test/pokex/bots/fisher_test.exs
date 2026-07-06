@@ -46,7 +46,7 @@ defmodule Pokex.Bots.FisherTest do
       Sensors.Fake.start_link(%{
         glow: [false, true],
         wild: [true, true, true, false],
-        target_locked: [true],
+        target_locked: [100],
         hostile: [{410, 320}]
       })
 

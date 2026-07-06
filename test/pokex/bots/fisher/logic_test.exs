@@ -25,6 +25,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       auto_capture: true,
       glow_streak_needed: 1,
       wait_target_verify_ms: 5,
+      target_locked_min_pixels: 40,
       battle_rows: [
         {1466, 138},
         {1466, 168},
@@ -209,7 +210,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     def advance_to_attacking do
       f = advance_to_fighting()
       {f, _} = Logic.step(f, cursor_obs(), 3100)
-      {f, _} = Logic.step(f, Map.put(cursor_obs(), :target_locked, true), 3200)
+      {f, _} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 100), 3200)
       f
     end
 
@@ -223,14 +224,14 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
     test "selection: a fixed red border locks the target" do
       {l, _} = Logic.step(advance_to_fighting(), cursor_obs(), 3100)
-      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :target_locked, true), 3200)
+      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 3200)
       assert l.targeted?
       assert actions == []
     end
 
     test "selection: only a blink (no lock) skips to the next row" do
       {l, _} = Logic.step(advance_to_fighting(), cursor_obs(), 3100)
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, false), 3200)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 3200)
       refute l.targeted?
       assert l.select_idx == 1
 
@@ -242,7 +243,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       l =
         Enum.reduce(0..5, advance_to_fighting(), fn i, acc ->
           {acc, _} = Logic.step(acc, cursor_obs(), 3100 + i * 100)
-          {acc, _} = Logic.step(acc, Map.put(cursor_obs(), :target_locked, false), 3150 + i * 100)
+          {acc, _} = Logic.step(acc, Map.put(cursor_obs(), :target_locked, 0), 3150 + i * 100)
           acc
         end)
 

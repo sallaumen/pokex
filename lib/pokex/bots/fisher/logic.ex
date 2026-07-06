@@ -170,7 +170,7 @@ defmodule Pokex.Bots.Fisher.Logic do
   end
 
   defp do_step(%{state: :fighting, targeted?: false, pending_verify?: true} = logic, obs, _now) do
-    if Map.get(obs, :target_locked) do
+    if Map.get(obs, :target_locked, 0) >= logic.config.target_locked_min_pixels do
       {%{logic | targeted?: true, pending_verify?: false}, []}
     else
       {%{logic | select_idx: logic.select_idx + 1, pending_verify?: false}, []}

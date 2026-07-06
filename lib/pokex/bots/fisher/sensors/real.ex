@@ -31,10 +31,11 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
-  defp fetch(:target_locked, calib, settings) do
+  defp fetch(:target_locked, calib, _settings) do
     with {:ok, frame} <- capture_frame(calib.battle_region, "target.png") do
-      min_count = settings[:target_locked_min_pixels] || 40
-      {:ok, Vision.target_locked?(frame, min_count: min_count)}
+      # Return the raw red-pixel count; Logic compares it to target_locked_min_pixels
+      # (so the threshold is tunable and the count is visible in the activity feed).
+      {:ok, Vision.red_count(frame)}
     end
   end
 

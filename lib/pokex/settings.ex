@@ -5,6 +5,11 @@ defmodule Pokex.Settings do
   @defaults %{
     rod_key: "v",
     skill_keys: ["1", "2", "3"],
+    # Global cast cooldown (ms) between ANY two skills. The game swallows skills
+    # fired faster than this (spamming many lands only one), so Skills paces to it:
+    # one skill per window, strongest first. ~1s is the typical value; tune to your
+    # server. Phase 2 (skill-bar image) will make firing exact per-skill cooldown.
+    skill_cast_ms: 1000,
     # No delays for now — everything runs as fast as the screen captures allow.
     # A tiny post-success pause (10–50ms) is all that stays, so the game has a
     # frame to register the previous input before the next one.
@@ -26,11 +31,11 @@ defmodule Pokex.Settings do
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,
     # Min cyan pixels for a BITE. The bite bubbles flash ON/OFF frame-to-frame
-    # (measured 2..1513 during one bite) but their PEAKS hit 1000-1500, while the
+    # (measured 2..1513 during one bite) but their PEAKS hit 1100-1500, while the
     # resting bait ring pulses higher than first thought — 800 still let resting
-    # frames through as false bites. 1000 clears the resting ceiling with margin;
+    # frames through as false bites. 1100 clears the resting ceiling with margin;
     # only a real bubble burst reaches it. Tunable via /diagnostics "Bolhas (ciano)".
-    glow_threshold: 1000,
+    glow_threshold: 1100,
     max_consecutive_failures: 5,
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,

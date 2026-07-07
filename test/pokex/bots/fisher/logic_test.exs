@@ -10,6 +10,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       player_point: {600, 300},
       rod_key: "v",
       skill_keys: ["1", "2"],
+      skill_cast_ms: 500,
       tile_px: 50,
       walk_step_ms: 5,
       loot_presses: 2,
@@ -575,6 +576,22 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
       {_l, actions} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 6100)
       assert actions == [{:press, "1"}]
+    end
+
+    test "skills are PACED to skill_cast_ms — a tick inside the window presses nothing" do
+      l = advance_to_attacking()
+      obs = Map.put(cursor_obs(), :battle_lock, lock(0, 100))
+
+      # first attacking tick fires the strongest skill immediately
+      {l, [{:press, "1"}]} = Logic.step(l, obs, 4100)
+
+      # a tick 200ms later is INSIDE the 500ms cast window → no press, still fighting
+      {l, []} = Logic.step(l, obs, 4300)
+      assert l.targeted?
+      assert l.state == :fighting
+
+      # once the window elapses (600ms > 500) → the next skill
+      {_l, [{:press, "2"}]} = Logic.step(l, obs, 4700)
     end
 
     test "a single blink of the border does NOT end the fight (debounce)" do

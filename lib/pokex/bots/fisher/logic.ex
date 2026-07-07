@@ -5,12 +5,14 @@ defmodule Pokex.Bots.Fisher.Logic do
   actions. Times are monotonic milliseconds supplied by the caller.
   """
 
+  alias Pokex.Bots.Fisher.Skills
+
   defstruct state: :idle,
             config: nil,
             entered_at: 0,
             waiting_until: nil,
             last_hostile: nil,
-            skill_idx: 0,
+            skills: nil,
             fight_tick: 0,
             targeted?: false,
             select_idx: 0,
@@ -56,7 +58,7 @@ defmodule Pokex.Bots.Fisher.Logic do
          verify_attempts: 0,
          lost_streak: 0,
          fight_tick: 0,
-         skill_idx: 0,
+         skills: nil,
          last_hostile: nil,
          walk_plan: [],
          walk_taken: [],
@@ -195,7 +197,7 @@ defmodule Pokex.Bots.Fisher.Logic do
         verify_attempts: 0,
         lost_streak: 0,
         fight_tick: 0,
-        skill_idx: 0,
+        skills: nil,
         last_hostile: nil,
         walk_plan: [],
         walk_taken: [],
@@ -323,10 +325,19 @@ defmodule Pokex.Bots.Fisher.Logic do
             lost_streak: 0
         }
 
-        key =
-          Enum.at(logic.config.skill_keys, rem(logic.skill_idx, length(logic.config.skill_keys)))
+        # Delegate skill choice + PACING to Skills: one skill per global cast
+        # window, strongest first. Auto-attack (the target click) keeps hitting on
+        # its own between casts; spamming a skill every tick just gets swallowed.
+        skills = logic.skills || Skills.new(logic.config.skill_keys)
+        {skills, decision} = Skills.decide(skills, now, logic.config.skill_cast_ms)
 
-        {%{logic | skill_idx: logic.skill_idx + 1}, [{:press, key}]}
+        actions =
+          case decision do
+            {:press, key} -> [{:press, key}]
+            :wait -> []
+          end
+
+        {%{logic | skills: skills}, actions}
 
       logic.lost_streak + 1 >= logic.config.target_lost_streak ->
         # committed band gone for enough checks → THIS target died. KILL-ALL: if
@@ -447,7 +458,7 @@ defmodule Pokex.Bots.Fisher.Logic do
         verify_attempts: 0,
         lost_streak: 0,
         fight_tick: 0,
-        skill_idx: 0,
+        skills: nil,
         last_hostile: nil,
         walk_plan: [],
         walk_taken: [],
@@ -471,7 +482,7 @@ defmodule Pokex.Bots.Fisher.Logic do
         verify_attempts: 0,
         lost_streak: 0,
         fight_tick: 0,
-        skill_idx: 0,
+        skills: nil,
         select_idx: logic.select_idx + 1
     }
   end
@@ -491,7 +502,7 @@ defmodule Pokex.Bots.Fisher.Logic do
         verify_attempts: 0,
         lost_streak: 0,
         fight_tick: 0,
-        skill_idx: 0
+        skills: nil
     }
   end
 

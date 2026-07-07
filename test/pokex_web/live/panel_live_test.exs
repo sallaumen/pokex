@@ -101,9 +101,75 @@ defmodule PokexWeb.PanelLiveTest do
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "matou o bicho"})
     render(view)
 
-    view |> element("button", "Exportar") |> render_click()
+    view |> element(~s(button[phx-click="export_events"])) |> render_click()
     assert render(view) =~ "eventos exportados"
     assert [_one] = Path.wildcard(Path.join([tmp, "exports", "events-*.log"]))
+  end
+
+  @tag :tmp_dir
+  test "screenshot + diagnostic-export controls appear when calibrated", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    save_calibration()
+
+    {:ok, view, _} = live(conn, ~p"/")
+    assert has_element?(view, ~s(button[phx-click="export_diagnostic"]))
+    assert has_element?(view, ~s(button[phx-value-region="battle"]))
+    assert has_element?(view, ~s(button[phx-value-region="screen"]))
+  end
+
+  @tag :tmp_dir
+  test "exporting the diagnostic renders the battle matrix and writes latest.json", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    save_calibration()
+
+    # Re-script the shared Fake so every captured region decodes to a real PNG,
+    # exercising the full path: capture → Frame → Vision → matrix → rendered grid.
+    Agent.stop(Pokex.Rig.Fake)
+
+    {:ok, _} =
+      Pokex.Rig.Fake.start_link(%{
+        capture: [
+          {:ok, png!(tmp, "g.png", 8, 8, {0, 180, 200})},
+          {:ok, png!(tmp, "b.png", 20, 12, {0, 200, 0})},
+          {:ok, png!(tmp, "s.png", 8, 12, {255, 0, 0})},
+          {:ok, png!(tmp, "a.png", 12, 12, {0, 0, 0})},
+          {:ok, png!(tmp, "p.png", 50, 50, {0, 0, 0})}
+        ],
+        capture_screen: [{:ok, png!(tmp, "scr.png", 60, 40, {0, 0, 0})}]
+      })
+
+    {:ok, view, _} = live(conn, ~p"/")
+    view |> element(~s(button[phx-click="export_diagnostic"])) |> render_click()
+
+    html = render(view)
+    assert html =~ "diagnóstico exportado"
+    assert html =~ "matriz do painel Batalha"
+    assert File.regular?(Path.join([tmp, "exports", "latest.json"]))
+  end
+
+  defp png!(dir, name, w, h, {r, g, b}) do
+    path = Path.join(dir, name)
+    row = for _ <- 1..w, do: {r, g, b, 255}
+    Pokex.PngFixtures.write!(path, for(_ <- 1..h, do: row))
+    path
+  end
+
+  defp save_calibration do
+    Pokex.Calibration.save(%Pokex.Calibration{
+      scale: 2.0,
+      screen_w: 1000,
+      screen_h: 700,
+      water_point: {400, 300},
+      glow_region: {368, 268, 64, 64},
+      battle_region: {700, 100, 260, 200},
+      arena_region: {200, 100, 400, 400},
+      neutral_point: {420, 350}
+    })
   end
 
   test "a panic broadcast idles both pills and is idempotent on repeat", %{conn: conn} do

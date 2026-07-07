@@ -2,7 +2,8 @@ defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.{BotSupervisor, Combat, Fishing}
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Diagnostics.Report
+  alias Pokex.{Calibration, Rig, Settings}
 
   @fishing_topic "fishing"
   @combat_topic "combat"
@@ -42,7 +43,12 @@ defmodule PokexWeb.PanelLive do
        logs: [],
        show_debug: false,
        export_src: nil,
-       export_msg: nil
+       export_msg: nil,
+       capture_src: nil,
+       capture_label: nil,
+       report: nil,
+       report_src: nil,
+       report_msg: nil
      )}
   end
 
@@ -194,7 +200,35 @@ defmodule PokexWeb.PanelLive do
          )}
 
       {:error, reason} ->
-        {:noreply, assign(socket, export_src: nil, export_msg: "erro ao exportar: #{inspect(reason)}")}
+        {:noreply,
+         assign(socket, export_src: nil, export_msg: "erro ao exportar: #{inspect(reason)}")}
+    end
+  end
+
+  # One-click screenshot of a calibrated region (or the whole screen), served
+  # via /captures/:name for inline preview + download.
+  def handle_event("shot", %{"region" => region}, socket) do
+    case capture_region(region) do
+      {:ok, src, label} -> {:noreply, assign(socket, capture_src: src, capture_label: label)}
+      {:error, msg} -> {:noreply, assign(socket, capture_src: nil, capture_label: msg)}
+    end
+  end
+
+  # Dump everything the bot sees (regions + pixel metrics + a colour matrix) to
+  # ~/.pokex/exports/ and render it inline, so Lucas can eyeball the matrix and
+  # hand Claude the JSON.
+  def handle_event("export_diagnostic", _params, socket) do
+    case Report.capture() do
+      {:ok, report, path} ->
+        {:noreply,
+         assign(socket,
+           report: report,
+           report_src: "/exports/#{Path.basename(path)}",
+           report_msg: "diagnóstico exportado"
+         )}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, report: nil, report_msg: "erro: #{inspect(reason)}")}
     end
   end
 
@@ -212,6 +246,41 @@ defmodule PokexWeb.PanelLive do
       error -> error
     end
   end
+
+  defp capture_region("screen") do
+    case Rig.impl().capture_screen() do
+      {:ok, path} -> {:ok, capture_src(path), "tela cheia"}
+      {:error, reason} -> {:error, "erro na captura: #{inspect(reason)}"}
+    end
+  end
+
+  defp capture_region(name) do
+    with {:ok, calib} <- Calibration.load(),
+         {region, label, file} <- region_spec(name, calib),
+         {:ok, path} <- Rig.impl().capture(region, file) do
+      {:ok, capture_src(path), label}
+    else
+      :error -> {:error, "região desconhecida"}
+      {:error, reason} -> {:error, "erro na captura: #{inspect(reason)}"}
+    end
+  end
+
+  defp region_spec("glow", calib), do: {calib.glow_region, "água (glow)", "shot_glow.png"}
+
+  defp region_spec("battle", calib),
+    do: {calib.battle_region, "painel Batalha", "shot_battle.png"}
+
+  defp region_spec("arena", calib), do: {calib.arena_region, "arena", "shot_arena.png"}
+  defp region_spec(_other, _calib), do: :error
+
+  defp capture_src(path),
+    do: "/captures/#{Path.basename(path)}?t=#{System.unique_integer([:positive])}"
+
+  # Nil-safe deep fetch into the report map (regions may carry :error instead of
+  # :metrics/:matrix when a capture fails), so the render never KeyErrors.
+  defp gi(map, path), do: get_in(map, path)
+
+  defp cell_style(%{rgb: [r, g, b]}), do: "background: rgb(#{r}, #{g}, #{b})"
 
   defp visible_logs(logs, show_debug), do: Enum.filter(logs, &(show_debug or &1.level == :macro))
   defp macro_count(logs), do: Enum.count(logs, &(&1.level == :macro))
@@ -399,6 +468,105 @@ defmodule PokexWeb.PanelLive do
               </div>
               <div class="mt-0.5 flex items-center justify-center gap-1 text-[11px] opacity-60">
                 <.icon name={icon} class="size-3" />{label}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          :if={@calibrated?}
+          class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold">Prints &amp; Diagnóstico</h2>
+            <button class="btn btn-sm btn-primary gap-1.5" phx-click="export_diagnostic">
+              <.icon name="hero-document-arrow-down" class="size-4" /> Exportar diagnóstico (JSON)
+            </button>
+          </div>
+          <p class="text-xs opacity-60">
+            Tira prints das áreas calibradas e gera um JSON com tudo que o bot enxerga
+            (pixels, contagens, matriz). Manda o JSON pro Claude diagnosticar sem precisar de foto.
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="screen">
+              📸 Tela cheia
+            </button>
+            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="glow">
+              📸 Água
+            </button>
+            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="battle">
+              📸 Batalha
+            </button>
+            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="arena">
+              📸 Arena
+            </button>
+          </div>
+
+          <figure :if={@capture_src} class="space-y-1">
+            <figcaption class="flex items-center gap-2 text-xs opacity-70">
+              <span>{@capture_label}</span>
+              <a href={@capture_src} download class="link link-primary">baixar</a>
+            </figcaption>
+            <img
+              src={@capture_src}
+              class="max-h-72 rounded border border-base-content/20 bg-base-300"
+            />
+          </figure>
+          <p :if={@capture_label && is_nil(@capture_src)} class="text-xs text-error">
+            {@capture_label}
+          </p>
+
+          <div
+            :if={@report}
+            class="space-y-3 rounded-xl border border-base-content/10 bg-base-300 p-3"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span class="font-semibold text-success">{@report_msg}</span>
+              <a :if={@report_src} href={@report_src} download class="link link-primary">
+                baixar JSON completo
+              </a>
+            </div>
+
+            <div class="grid gap-x-6 gap-y-1 font-mono text-[11px] sm:grid-cols-2">
+              <span>
+                🎣 bolhas: <b>{gi(@report, [:regions, :glow, :metrics, :bubble_count]) || "—"}</b>
+                · mordida? <b>{inspect(gi(@report, [:regions, :glow, :metrics, :bite?]))}</b>
+              </span>
+              <span>
+                ⚔️ tem bicho?
+                <b>{inspect(gi(@report, [:regions, :battle_body, :metrics, :has_creature?]))}</b>
+                · travado:
+                <b>{inspect(gi(@report, [:regions, :battle_body, :metrics, :locked_row]))}</b>
+              </span>
+              <span>
+                ⚔️ por linha:
+                <b>{inspect(gi(@report, [:regions, :battle_body, :metrics, :red_row_counts]))}</b>
+              </span>
+              <span>
+                ⚔️ pokébola?
+                <b>{inspect(gi(@report, [:regions, :battle_strip, :metrics, :wild_present?]))}</b>
+              </span>
+              <span>escala (probe): <b>{gi(@report, [:screen, :r_scale]) || "—"}×</b></span>
+              <span>tela: <b>{inspect(gi(@report, [:screen, :pixels]))}px</b></span>
+            </div>
+
+            <% matrix = gi(@report, [:regions, :battle_body, :matrix]) %>
+            <div :if={matrix}>
+              <p class="mb-1 text-[11px] opacity-70">
+                matriz do painel Batalha ({matrix.cols}×{matrix.rows}) — o que o bot vê
+                <span class="opacity-60">(verde = HP · vermelho = lock/alvo · ciano = bolha)</span>
+              </p>
+              <div
+                class="inline-grid gap-px rounded border border-base-content/20 bg-base-100 p-1"
+                style={"grid-template-columns: repeat(#{matrix.cols}, 10px)"}
+              >
+                <div
+                  :for={cell <- List.flatten(matrix.cells)}
+                  class="size-[10px]"
+                  style={cell_style(cell)}
+                  title={to_string(cell.class)}
+                >
+                </div>
               </div>
             </div>
           </div>

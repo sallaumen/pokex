@@ -16,6 +16,7 @@ defmodule Pokex.Bots.Fisher.Logic do
             select_idx: 0,
             pending_verify?: false,
             target_streak: 0,
+            lost_streak: 0,
             fallback_idx: 0,
             glow_streak: 0,
             combat_test?: false,
@@ -44,6 +45,7 @@ defmodule Pokex.Bots.Fisher.Logic do
          select_idx: 0,
          pending_verify?: false,
          target_streak: 0,
+         lost_streak: 0,
          fight_tick: 0,
          skill_idx: 0,
          last_hostile: nil,
@@ -69,8 +71,13 @@ defmodule Pokex.Bots.Fisher.Logic do
 
   def needs(%__MODULE__{state: :fighting, targeted?: false}), do: [:cursor]
 
+  # While attacking, the red target border IS the fight: keep re-reading it every
+  # tick so a vanished border (target dead/deselected) ends the fight. Sample the
+  # hostile's map position now and then to know where the corpse will drop.
   def needs(%__MODULE__{state: :fighting} = logic) do
-    if scan_tick?(logic), do: [:cursor, :wild, :hostile], else: [:cursor, :wild]
+    if scan_tick?(logic),
+      do: [:cursor, :target_locked, :hostile],
+      else: [:cursor, :target_locked]
   end
 
   def needs(_logic), do: [:cursor]
@@ -145,6 +152,7 @@ defmodule Pokex.Bots.Fisher.Logic do
         select_idx: 0,
         pending_verify?: false,
         target_streak: 0,
+        lost_streak: 0,
         fight_tick: 0,
         skill_idx: 0,
         last_hostile: nil
@@ -183,7 +191,7 @@ defmodule Pokex.Bots.Fisher.Logic do
 
       logic.target_streak + 1 >= logic.config.target_lock_streak ->
         # red PERSISTED across enough checks → a real fixed border, target locked
-        {%{logic | targeted?: true, pending_verify?: false, target_streak: 0}, []}
+        {%{logic | targeted?: true, pending_verify?: false, target_streak: 0, lost_streak: 0}, []}
 
       true ->
         # red is there, but check again after a beat — a blink shows once then vanishes
@@ -193,26 +201,38 @@ defmodule Pokex.Bots.Fisher.Logic do
     end
   end
 
-  defp do_step(%{state: :fighting} = logic, %{wild: false}, now) do
-    logic = update_in(logic.counters.fights, &(&1 + 1))
-    {advance(%{logic | fallback_idx: 0}, :looting, now), []}
-  end
+  # Attacking: commit to the LOCKED target. Every tick re-reads the red border —
+  # while it's there we keep hitting THIS one (never re-select). When it vanishes
+  # for enough consecutive checks, the target died/deselected → go loot. This is
+  # per-target, so area attacks don't fake a "fight over" (spec: real lock only).
+  defp do_step(%{state: :fighting, targeted?: true} = logic, obs, now) do
+    red = Map.get(obs, :target_locked, 0)
 
-  defp do_step(%{state: :fighting} = logic, obs, now) do
-    if timed_out?(logic, now, logic.config.fight_timeout_ms) do
-      fail(logic, now, "luta estourou o tempo")
-    else
-      logic = %{
-        logic
-        | last_hostile: Map.get(obs, :hostile) || logic.last_hostile,
-          fight_tick: logic.fight_tick + 1
-      }
+    cond do
+      timed_out?(logic, now, logic.config.fight_timeout_ms) ->
+        fail(logic, now, "luta estourou o tempo")
 
-      key =
-        Enum.at(logic.config.skill_keys, rem(logic.skill_idx, length(logic.config.skill_keys)))
+      red >= logic.config.target_locked_min_pixels ->
+        logic = %{
+          logic
+          | last_hostile: Map.get(obs, :hostile) || logic.last_hostile,
+            fight_tick: logic.fight_tick + 1,
+            lost_streak: 0
+        }
 
-      logic = %{logic | skill_idx: logic.skill_idx + 1}
-      {logic, [{:press, key}]}
+        key =
+          Enum.at(logic.config.skill_keys, rem(logic.skill_idx, length(logic.config.skill_keys)))
+
+        {%{logic | skill_idx: logic.skill_idx + 1}, [{:press, key}]}
+
+      logic.lost_streak + 1 >= logic.config.target_lost_streak ->
+        # border gone for enough checks → target is dead/gone → loot the corpse
+        logic = update_in(logic.counters.fights, &(&1 + 1))
+        {advance(%{logic | fallback_idx: 0, lost_streak: 0}, :looting, now), []}
+
+      true ->
+        # border blinked out once — could be a hit animation; wait a tick, re-check
+        {%{logic | lost_streak: logic.lost_streak + 1}, []}
     end
   end
 
@@ -261,6 +281,7 @@ defmodule Pokex.Bots.Fisher.Logic do
         select_idx: 0,
         pending_verify?: false,
         target_streak: 0,
+        lost_streak: 0,
         fight_tick: 0,
         skill_idx: 0,
         last_hostile: nil

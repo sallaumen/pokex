@@ -23,6 +23,7 @@ defmodule Pokex.Bots.Fisher.Config do
     :wait_target_verify_ms,
     :target_locked_min_pixels,
     :target_lock_streak,
+    :target_lost_streak,
     :humanize_max_ms
   ]
 

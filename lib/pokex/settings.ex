@@ -5,13 +5,13 @@ defmodule Pokex.Settings do
   @defaults %{
     skill_keys: ["1", "2", "3"],
     tick_ms_watching: 200,
-    tick_ms_fighting: 1000,
+    tick_ms_fighting: 700,
     tick_ms_default: 300,
     wait_focus_ms: 150,
     wait_after_equip_ms: 300,
     wait_assess_ms: 1500,
     wait_loot_ms: 400,
-    wait_after_capture_ms: 2000,
+    wait_after_capture_ms: 1200,
     watch_timeout_ms: 30_000,
     fight_timeout_ms: 90_000,
     glow_threshold: nil,
@@ -23,9 +23,10 @@ defmodule Pokex.Settings do
     glow_streak_needed: 2,
     battle_row_height: 30,
     battle_max_rows: 6,
-    wait_target_verify_ms: 400,
+    wait_target_verify_ms: 250,
     target_locked_min_pixels: 40,
     target_lock_streak: 2,
+    target_lost_streak: 2,
     humanize_max_ms: 1000
   }
 

@@ -27,6 +27,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       wait_target_verify_ms: 5,
       target_locked_min_pixels: 40,
       target_lock_streak: 1,
+      target_lost_streak: 1,
       battle_rows: [
         {1466, 138},
         {1466, 168},
@@ -280,27 +281,49 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert gone.select_idx == 1
     end
 
-    test "subsequent ticks cycle skills and track hostile" do
+    test "while the red border holds, keep hitting the SAME target (cycle skills)" do
       l = advance_to_attacking()
 
-      obs = cursor_obs() |> Map.put(:wild, true) |> Map.put(:hostile, {700, 350})
+      obs = cursor_obs() |> Map.put(:target_locked, 100) |> Map.put(:hostile, {700, 350})
       {l, actions} = Logic.step(l, obs, 4100)
       assert actions == [{:press, "1"}]
       assert l.last_hostile == {700, 350}
+      assert l.lost_streak == 0
 
-      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :wild, true), 5100)
+      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 5100)
       assert actions == [{:press, "2"}]
 
-      {_l, actions} = Logic.step(l, Map.put(cursor_obs(), :wild, true), 6100)
+      {_l, actions} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 6100)
       assert actions == [{:press, "1"}]
+    end
+
+    test "a single blink of the border does NOT end the fight (debounce)" do
+      cfg = config() |> Map.put(:target_lost_streak, 2)
+      l = %{advance_to_attacking() | config: cfg}
+
+      # border gone once → still fighting, just counts toward the loss
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 4100)
+      assert l.state == :fighting
+      assert l.targeted?
+      assert l.lost_streak == 1
+
+      # border back before the streak completes → resets, resumes attacking
+      {l, [{:press, _}]} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 5100)
+      assert l.lost_streak == 0
+
+      # gone twice in a row → target really died → loot
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 6100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 7100)
+      assert l.state == :looting
+      assert l.counters.fights == 1
     end
 
     test "death → loot at last hostile one tile below → capture there" do
       l = advance_to_attacking()
-      obs = cursor_obs() |> Map.put(:wild, true) |> Map.put(:hostile, {700, 350})
+      obs = cursor_obs() |> Map.put(:target_locked, 100) |> Map.put(:hostile, {700, 350})
       {l, _} = Logic.step(l, obs, 4100)
 
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :wild, false), 5100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 5100)
       assert l.state == :looting
       assert l.counters.fights == 1
 
@@ -330,7 +353,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
     test "unknown corpse position loots through fallbacks then captures at water" do
       l = advance_to_attacking()
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :wild, false), 4100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 4100)
       assert l.state == :looting
       assert l.last_hostile == nil
 
@@ -354,9 +377,9 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert l.state == :equipping
     end
 
-    test "fight timeout fails" do
+    test "fight timeout fails even with the border still up" do
       l = advance_to_attacking()
-      {l, [{:log, _}]} = Logic.step(l, Map.put(cursor_obs(), :wild, true), 3100 + 90_001)
+      {l, [{:log, _}]} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 3100 + 90_001)
       assert l.state == :equipping
       assert l.failures == 1
     end

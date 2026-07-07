@@ -46,8 +46,10 @@ defmodule Pokex.Bots.FisherTest do
     {:ok, _} =
       Sensors.Fake.start_link(%{
         glow: [false, true],
-        wild: [true, true, true, false],
-        target_locked: [100],
+        wild: [true],
+        # border holds for the lock + first hit, then vanishes (target died);
+        # two 0s satisfy the lost-streak debounce → loot → capture.
+        target_locked: [100, 100, 0, 0],
         hostile: [{410, 320}]
       })
 

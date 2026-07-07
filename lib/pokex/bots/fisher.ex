@@ -174,11 +174,17 @@ defmodule Pokex.Bots.Fisher do
     :ok
   end
 
-  # The glow sensor returns the RAW cyan count (for the live feed); Logic still
-  # decides on a boolean, so apply the bite threshold here before stepping. A Fake
-  # sensor may hand back a boolean directly — pass those straight through.
-  defp threshold_glow(%{glow: count} = obs, settings) when is_integer(count),
-    do: %{obs | glow: count > (settings[:glow_threshold] || 500)}
+  # The glow sensor returns the RAW cyan count (for the live feed); Logic decides
+  # on booleans, so derive them here before stepping: `glow` = a bite (over the
+  # bite threshold), `line?` = the bait ring is even in the water (over the much
+  # lower line_present_min). A Fake sensor may hand back a boolean — pass through.
+  defp threshold_glow(%{glow: count} = obs, settings) when is_integer(count) do
+    %{
+      obs
+      | glow: count > (settings[:glow_threshold] || 800),
+        line?: count > (settings[:line_present_min] || 40)
+    }
+  end
 
   defp threshold_glow(obs, _settings), do: obs
 

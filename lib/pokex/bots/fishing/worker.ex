@@ -88,11 +88,10 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp run_tick(state, previous) do
     settings = Settings.all()
 
-    {logic, actions, obs} =
+    {logic, actions, raw_obs} =
       case Sensors.impl().observe(Logic.needs(previous), state.calib, settings) do
         {:ok, observations} ->
-          obs = threshold_glow(observations, settings)
-          {stepped, actions} = Logic.step(previous, obs, now())
+          {stepped, actions} = Logic.step(previous, threshold_glow(observations, settings), now())
 
           logic =
             case submit(state.body, actions, humanize_max_for(previous)) do
@@ -100,13 +99,16 @@ defmodule Pokex.Bots.Fishing.Worker do
               {:error, reason} -> elem(Logic.io_failed(stepped, inspect(reason), now()), 0)
             end
 
-          {logic, actions, obs}
+          # feed gets the RAW observations (integer glow) so "vigiando" can show
+          # the live bubble count vs the threshold — the boolean-thresholded obs
+          # would hide it.
+          {logic, actions, observations}
 
         {:error, reason} ->
           {elem(Logic.io_failed(previous, inspect(reason), now()), 0), [], %{}}
       end
 
-    broadcast_activity(previous, obs, actions)
+    broadcast_activity(previous, raw_obs, actions)
     if logic.state != previous.state or logic.counters != previous.counters, do: broadcast(logic)
 
     state = %{state | logic: logic}
@@ -134,7 +136,12 @@ defmodule Pokex.Bots.Fishing.Worker do
   # to combat. The humanize delay is paced here, BEFORE the submit, so the
   # Body itself never sleeps (combat, running in its own process, is
   # unaffected).
-  defp submit([], _body, _window), do: :ok
+  # No actions this tick (e.g. watching with no bite) → do NOTHING: no humanize
+  # sleep, no Body round-trip. The old arg order (`submit([], _body, _window)`)
+  # never matched — `submit/3` is called `(body, actions, window)` — so the hook
+  # delay slept EVERY watch tick, sampling the bubbles too slowly to catch the
+  # flashing bite. This clause is the fix.
+  defp submit(_body, [], _window), do: :ok
 
   defp submit(body, actions, window) do
     humanize(actions, window)

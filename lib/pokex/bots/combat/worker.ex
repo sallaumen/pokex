@@ -113,8 +113,12 @@ defmodule Pokex.Bots.Combat.Worker do
 
   # Every action list is one atomic Body.perform at :high — combat preempts
   # fishing, and the whole sequence (e.g. select click + move-off) runs
-  # without an interleaved fishing action splitting it.
-  defp submit([], _body), do: :ok
+  # without an interleaved fishing action splitting it. No actions this tick
+  # (e.g. idle over an empty Battle list) → do nothing: skip the Body entirely,
+  # so an idle/scanning combat never churns the :high queue ahead of fishing.
+  # (The old `submit([], _body)` never matched — submit/2 is called `(body,
+  # actions)` — so every empty tick still round-tripped the Body at :high.)
+  defp submit(_body, []), do: :ok
   defp submit(body, actions), do: Body.perform(actions, :high, body)
 
   defp broadcast(logic),

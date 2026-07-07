@@ -15,6 +15,12 @@ defmodule Pokex.Home do
     path
   end
 
+  def exports_dir do
+    path = Path.join(dir(), "exports")
+    File.mkdir_p!(path)
+    path
+  end
+
   def calibration_file, do: Path.join(dir(), "calibration.json")
   def settings_file, do: Path.join(dir(), "settings.json")
 end

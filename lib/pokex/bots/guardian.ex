@@ -19,6 +19,11 @@ defmodule Pokex.Bots.Guardian do
 
   The poll loop must never crash on a bad cursor read: an `{:error, _}`
   reply (or any other unexpected shape) just reschedules the next poll.
+
+  Bound on the panic guarantee: panic is delivered promptly but is bounded
+  by whatever `Body` action is currently in flight — a worker blocked
+  mid-action is halted once that action returns (actions are short: one
+  osascript/cliclick).
   """
   use GenServer
   require Logger

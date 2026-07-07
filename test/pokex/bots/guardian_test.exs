@@ -18,7 +18,10 @@ defmodule Pokex.Bots.GuardianTest.FakeBody do
 end
 
 defmodule Pokex.Bots.GuardianTest do
-  use ExUnit.Case, async: true
+  # async: false — the "defaults" test terminates/restarts the shared
+  # app-wide Pokex.Bots.Guardian child, which would race any concurrent
+  # async test that reaches the real Guardian/Body.
+  use ExUnit.Case, async: false
 
   alias Pokex.Bots.Guardian
   alias Pokex.Bots.GuardianTest.FakeBody

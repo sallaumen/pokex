@@ -70,17 +70,30 @@ defmodule Pokex.Bots.Body do
 
   # Execute the sequence off the GenServer loop so a slow input never blocks the
   # cursor read (the panic path). Report back via {:done, ...}.
+  #
+  # This executor must be uncrashable: {:done, from, result} is the ONLY
+  # signal that dequeues the next sequence and unblocks the caller (who is
+  # parked in `perform/3` with an :infinity timeout). If a single action
+  # raises/throws/exits (e.g. Rig.Mac.Commands.press/1's Map.fetch!/2 on an
+  # unknown modifier from a mis-keyed config) and that isn't caught here, this
+  # spawned process dies silently, {:done} never arrives, the calling worker
+  # blocks forever, and the Body never processes anything queued behind it —
+  # including a :halt call, defeating the panic corner. So: always reply.
   defp run(actions, from) do
     server = self()
 
     spawn(fn ->
       result =
-        Enum.reduce_while(actions, :ok, fn action, :ok ->
-          case execute(action) do
-            :ok -> {:cont, :ok}
-            {:error, r} -> {:halt, {:error, r}}
-          end
-        end)
+        try do
+          Enum.reduce_while(actions, :ok, fn action, :ok ->
+            case execute(action) do
+              :ok -> {:cont, :ok}
+              {:error, r} -> {:halt, {:error, r}}
+            end
+          end)
+        catch
+          kind, reason -> {:error, {:crashed, kind, reason}}
+        end
 
       send(server, {:done, from, result})
     end)

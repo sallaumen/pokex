@@ -1,3 +1,36 @@
+defmodule Pokex.Bots.BodyTest.RaisingRig do
+  # Test-local Rig double whose press/1 raises for a specific combo, simulating
+  # Pokex.Rig.Mac.Commands.press/1's Map.fetch!/2 blowing up on a mis-keyed
+  # modifier (e.g. "super+1"). Everything else behaves like Pokex.Rig.Fake so
+  # the Body can still run a normal follow-up sequence through it.
+  @behaviour Pokex.Rig
+
+  def start_link, do: Agent.start_link(fn -> [] end, name: __MODULE__)
+
+  def log, do: __MODULE__ |> Agent.get(& &1) |> Enum.reverse()
+
+  @impl true
+  def press("boom"), do: raise(ArgumentError, "unknown modifier")
+
+  def press(combo) do
+    Agent.update(__MODULE__, &[combo | &1])
+    :ok
+  end
+
+  @impl true
+  def click(_button, _point), do: :ok
+  @impl true
+  def move(_point), do: :ok
+  @impl true
+  def capture_sequence(_point), do: :ok
+  @impl true
+  def capture(_region, filename), do: {:ok, filename}
+  @impl true
+  def capture_screen, do: {:ok, "screen.png"}
+  @impl true
+  def cursor_position, do: {:ok, {500, 500}}
+end
+
 defmodule Pokex.Bots.BodyTest.SlowRig do
   # Test-local Rig double: like Pokex.Rig.Fake, but press/1 blocks until
   # released (so a test can deterministically hold the Body busy instead of
@@ -128,5 +161,23 @@ defmodule Pokex.Bots.BodyTest do
 
   test "cursor reads without queueing behind input", %{body: body} do
     assert {:ok, {500, 500}} = Body.cursor(body)
+  end
+
+  @tag timeout: 2_000
+  test "a raising action reports {:error, :crashed, ...} instead of wedging the Body" do
+    previous_rig = Application.get_env(:pokex, :rig)
+    Application.put_env(:pokex, :rig, Pokex.Bots.BodyTest.RaisingRig)
+    on_exit(fn -> Application.put_env(:pokex, :rig, previous_rig) end)
+
+    {:ok, _} = Pokex.Bots.BodyTest.RaisingRig.start_link()
+    {:ok, body} = Body.start_link(name: :body_crash)
+
+    assert {:error, {:crashed, :error, %ArgumentError{}}} =
+             Body.perform([{:press, "boom"}], :normal, body)
+
+    # Prove the Body dequeued and stayed usable: a subsequent normal sequence
+    # still executes through the Rig.
+    assert :ok = Body.perform([{:press, "1"}], :normal, body)
+    assert Pokex.Bots.BodyTest.RaisingRig.log() == ["1"]
   end
 end

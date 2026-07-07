@@ -28,7 +28,10 @@ defmodule Pokex.Settings do
     glow_streak_needed: 2,
     battle_row_height: 30,
     battle_max_rows: 6,
-    wait_target_verify_ms: 20,
+    # After clicking a Battle row the game takes ~200ms to DRAW the red target
+    # ring; screenshot sooner and it reads 0px (no lock) and skips a valid target.
+    # This is the one pause that must stay — it waits for the game to respond.
+    wait_target_verify_ms: 250,
     target_locked_min_pixels: 40,
     target_lock_streak: 1,
     target_lost_streak: 2,

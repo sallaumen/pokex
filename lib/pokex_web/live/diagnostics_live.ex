@@ -14,6 +14,7 @@ defmodule PokexWeb.DiagnosticsLive do
        msg: nil,
        capture_src: nil,
        preview: nil,
+       xray: nil,
        calibrated?: Calibration.exists?()
      )}
   end
@@ -160,6 +161,54 @@ defmodule PokexWeb.DiagnosticsLive do
     end
   end
 
+  # Raio-X: capture the decisive evidence for the "all region reads = 0 but the
+  # overlay looks right" bug. If `screencapture -R` (region) and full-screen
+  # `screencapture` capture at DIFFERENT resolutions (Retina 1x vs 2x), the scale
+  # probe and the click coordinates disagree, so every absolute-coordinate region
+  # capture lands in the wrong place. Compare the -R probe scale to the full-screen
+  # scale, and SHOW the actual battle-body capture so we can see what the bot sees.
+  def handle_event("xray", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, probe_path} <- Rig.impl().capture({0, 0, 100, 100}, "xray_probe.png"),
+         {:ok, {probe_px, _}} <- Frame.png_dimensions(probe_path),
+         {:ok, screen_path} <- Rig.impl().capture_screen(),
+         {:ok, {full_px_w, full_px_h}} <- Frame.png_dimensions(screen_path),
+         body_region = Calibration.battle_body(calib),
+         {:ok, body_path} <- Rig.impl().capture(body_region, "xray_body.png"),
+         {:ok, {body_px_w, body_px_h}} <- Frame.png_dimensions(body_path),
+         {:ok, body_frame} <- Frame.from_png_file(body_path) do
+      r_scale = probe_px / 100
+      full_scale = if calib.screen_w in [nil, 0], do: nil, else: full_px_w / calib.screen_w
+
+      xray = %{
+        calib_scale: calib.scale,
+        screen_w: calib.screen_w,
+        screen_h: calib.screen_h,
+        probe_px: probe_px,
+        r_scale: r_scale,
+        full_px: {full_px_w, full_px_h},
+        full_scale: full_scale,
+        battle_region: calib.battle_region,
+        body_region: body_region,
+        body_px: {body_px_w, body_px_h},
+        body_reds: Vision.red_count(body_frame),
+        body_bars: Vision.hp_bar_rows(body_frame),
+        body_src: "/captures/#{Path.basename(body_path)}?t=#{System.unique_integer([:positive])}"
+      }
+
+      {verdict_kind, verdict_text} = xray_verdict(xray)
+      xray = Map.merge(xray, %{verdict_kind: verdict_kind, verdict_text: verdict_text})
+
+      {:noreply, assign(socket, xray: xray, msg: "raio-x capturado")}
+    else
+      error -> {:noreply, assign(socket, msg: "erro no raio-x: #{inspect(error)}")}
+    end
+  end
+
+  def handle_event("close_xray", _params, socket) do
+    {:noreply, assign(socket, xray: nil)}
+  end
+
   def handle_event("preview_regions", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
          {:ok, screen} <- grab_screen() do
@@ -205,6 +254,28 @@ defmodule PokexWeb.DiagnosticsLive do
        }}
     end
   end
+
+  # The one-line diagnosis from the raio-x numbers.
+  defp xray_verdict(%{r_scale: r, full_scale: f})
+       when is_number(r) and is_number(f) and abs(r - f) > 0.25 do
+    {:error,
+     "ESCALA INCONSISTENTE: o probe -R captura em #{fmt(r)}× e a tela cheia em #{fmt(f)}×. " <>
+       "Por isso TODA captura de região cai no lugar errado (lê 0) enquanto o overlay, que é " <>
+       "relativo, parece certo. Precisa recalibrar com a escala corrigida."}
+  end
+
+  defp xray_verdict(%{body_reds: 0}) do
+    {:error,
+     "A captura do painel Batalha não pegou NADA vermelho (0px), mesmo com bicho travado na " <>
+       "lista. A região está apontando pro lugar errado — provável coordenada/escala."}
+  end
+
+  defp xray_verdict(%{body_reds: reds}) do
+    {:ok, "Escala consistente e a captura do painel tem #{reds}px vermelhos — o problema é outro."}
+  end
+
+  defp fmt(n) when is_number(n), do: :erlang.float_to_binary(n / 1, decimals: 2)
+  defp fmt(other), do: to_string(other)
 
   defp parse_ints(values) do
     Enum.reduce_while(values, {:ok, []}, fn value, {:ok, acc} ->
@@ -304,9 +375,56 @@ defmodule PokexWeb.DiagnosticsLive do
             <button class="btn btn-sm" phx-click="wild_check">Pokébola presente?</button>
             <button class="btn btn-sm" phx-click="target_locked">Alvo travado?</button>
             <button class="btn btn-sm" phx-click="detect_rows">Detectar fileiras (HP)</button>
+            <button class="btn btn-sm btn-error" phx-click="xray">
+              <.icon name="hero-magnifying-glass" class="size-4" /> Raio-X (escala)
+            </button>
             <button class="btn btn-sm btn-primary" phx-click="preview_regions">
               <.icon name="hero-eye" class="size-4" /> Preview das áreas
             </button>
+          </div>
+        </section>
+
+        <section
+          :if={@xray}
+          class="space-y-3 rounded-xl border border-error/40 bg-base-200 p-4"
+        >
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold">Raio-X da escala/captura</h2>
+            <button class="btn btn-ghost btn-xs" phx-click="close_xray">Fechar</button>
+          </div>
+
+          <p class={[
+            "rounded-lg px-3 py-2 text-sm font-medium",
+            @xray.verdict_kind == :error && "bg-error/15 text-error",
+            @xray.verdict_kind == :ok && "bg-success/15 text-success"
+          ]}>
+            {@xray.verdict_text}
+          </p>
+
+          <div class="grid gap-x-6 gap-y-1 font-mono text-xs sm:grid-cols-2">
+            <span>escala salva (calib): <b>{fmt(@xray.calib_scale)}×</b></span>
+            <span>tela salva (points): <b>{@xray.screen_w}×{@xray.screen_h}</b></span>
+            <span>probe -R 100×100 → <b>{@xray.probe_px}px</b> (escala -R {fmt(@xray.r_scale)}×)</span>
+            <span>
+              tela cheia: <b>{elem(@xray.full_px, 0)}×{elem(@xray.full_px, 1)}px</b>
+              (escala {fmt(@xray.full_scale)}×)
+            </span>
+            <span>battle_region (points): <b>{inspect(@xray.battle_region)}</b></span>
+            <span>battle_body (points): <b>{inspect(@xray.body_region)}</b></span>
+            <span>
+              captura da Batalha: <b>{elem(@xray.body_px, 0)}×{elem(@xray.body_px, 1)}px</b>
+            </span>
+            <span>vermelho: <b>{@xray.body_reds}px</b> · barras HP: <b>{inspect(@xray.body_bars)}</b></span>
+          </div>
+
+          <div>
+            <p class="mb-1 text-xs opacity-70">
+              O que o bot capturou como painel Batalha (deveria mostrar a lista de bichos):
+            </p>
+            <img
+              src={@xray.body_src}
+              class="max-h-64 rounded border border-error/40 bg-base-300"
+            />
           </div>
         </section>
 

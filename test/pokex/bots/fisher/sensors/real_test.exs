@@ -23,13 +23,12 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
-  test "glow fires on frame-to-frame variation (the bubbles animate)", %{tmp_dir: tmp} do
+  test "glow fires when the region is full of bright-cyan bubble pixels", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
-    calm = Pokex.PngFixtures.write!(Path.join(tmp, "calm.png"), rows(8, 8, {0, 60, 120}))
-    bubbly = Pokex.PngFixtures.write!(Path.join(tmp, "bubbly.png"), rows(8, 8, {200, 220, 255}))
+    # 16x16 = 256 cyan pixels, well over the 60 default threshold
+    bubbly = Pokex.PngFixtures.write!(Path.join(tmp, "bubbly.png"), rows(16, 16, {100, 200, 220}))
 
-    # two DIFFERENT captures in a row → high variation → a bite
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, calm}, {:ok, bubbly}]})
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, bubbly}]})
 
     assert {:ok, %{glow: true, cursor: {500, 500}}} =
              Sensors.Real.observe(
@@ -40,11 +39,11 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
-  test "glow stays false on calm water (two identical captures)", %{tmp_dir: tmp} do
+  test "glow stays false on calm (dark-blue, low-green) water", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
-    calm = Pokex.PngFixtures.write!(Path.join(tmp, "calm.png"), rows(8, 8, {0, 60, 120}))
+    # dark blue water: green is too low to count as a cyan bubble
+    calm = Pokex.PngFixtures.write!(Path.join(tmp, "calm.png"), rows(16, 16, {30, 80, 150}))
 
-    # a single element sticks → both captures identical → zero variation
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, calm}]})
 
     assert {:ok, %{glow: false}} =

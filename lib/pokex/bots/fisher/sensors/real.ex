@@ -17,15 +17,13 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
 
   defp fetch(:cursor, _calib, _settings), do: Rig.impl().cursor_position()
 
-  # The bite shows as blue bubbles that ANIMATE around the bait, so two quick
-  # captures of the region differ sharply while calm water is near-identical.
-  # Frame-to-frame variation (mean pixel delta) — baseline-free, so it survives
-  # day/night lighting that broke the old snapshot comparison.
+  # The bite shows as bright-cyan bubble rings around the bait; calm water reads
+  # ~0 such pixels (measured in-game: bite ≈ 512, calm = 0). Count them directly —
+  # baseline-free, single-capture, robust to day/night lighting.
   defp fetch(:glow, calib, settings) do
-    with {:ok, a} <- capture_frame(calib.glow_region, "glow_a.png"),
-         {:ok, b} <- capture_frame(calib.glow_region, "glow_b.png") do
-      threshold = settings[:glow_threshold] || calib.suggested_glow_threshold || 8.0
-      {:ok, Vision.distance(a, b) > threshold}
+    with {:ok, frame} <- capture_frame(calib.glow_region, "glow.png") do
+      threshold = settings[:glow_threshold] || 60
+      {:ok, Vision.bubble_count(frame) > threshold}
     end
   end
 

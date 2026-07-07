@@ -21,6 +21,12 @@ defmodule Pokex.VisionTest do
     refute Vision.glow?(uniform(4, 4, {0, 82, 142}), baselines, 15.0)
   end
 
+  test "bubble_count counts bright-cyan bubble pixels, not dark water or the red bait" do
+    assert Vision.bubble_count(uniform(4, 4, {100, 200, 220})) == 16
+    assert Vision.bubble_count(uniform(4, 4, {30, 80, 150})) == 0
+    assert Vision.bubble_count(uniform(4, 4, {200, 60, 30})) == 0
+  end
+
   test "suggested_threshold has margin over natural variation, floor of 12" do
     quiet = [uniform(2, 2, {0, 60, 120}), uniform(2, 2, {0, 61, 121})]
     assert Vision.suggested_threshold(quiet) == 12.0

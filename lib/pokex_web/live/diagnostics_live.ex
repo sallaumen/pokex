@@ -62,21 +62,18 @@ defmodule PokexWeb.DiagnosticsLive do
   end
 
   def handle_event("glow_score", _params, socket) do
-    # Two quick captures → how much the region CHANGED. Cast the rod and click this
-    # while the blue bubbles show: the number spikes. Set the threshold just below.
+    # Cyan bubble pixels in the region. Cast the rod and click this while the blue
+    # bubbles show: the count spikes (in-game ~512 vs 0 calm). Set the threshold
+    # between them.
     with {:ok, calib} <- Calibration.load(),
-         {:ok, pa} <- Rig.impl().capture(calib.glow_region, "diag_glow_a.png"),
-         {:ok, fa} <- Frame.from_png_file(pa),
-         {:ok, pb} <- Rig.impl().capture(calib.glow_region, "diag_glow_b.png"),
-         {:ok, fb} <- Frame.from_png_file(pb) do
-      variation = Vision.distance(fa, fb)
-      threshold = Settings.get(:glow_threshold) || calib.suggested_glow_threshold || 8.0
+         {:ok, path} <- Rig.impl().capture(calib.glow_region, "diag_glow.png"),
+         {:ok, frame} <- Frame.from_png_file(path) do
+      count = Vision.bubble_count(frame)
+      threshold = Settings.get(:glow_threshold) || 60
 
       {:noreply,
        assign(socket,
-         msg:
-           "variação: #{Float.round(variation, 2)} | limiar #{threshold} | " <>
-             "mordida? #{variation > threshold}"
+         msg: "bolhas: #{count} px ciano | limiar #{threshold} | mordida? #{count > threshold}"
        )}
     else
       error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
@@ -235,7 +232,7 @@ defmodule PokexWeb.DiagnosticsLive do
             Visão <span class="font-normal opacity-50">(usa a calibração salva)</span>
           </h2>
           <div class="flex flex-wrap gap-2">
-            <button class="btn btn-sm" phx-click="glow_score">Variação (bolhas)</button>
+            <button class="btn btn-sm" phx-click="glow_score">Bolhas (ciano)</button>
             <button class="btn btn-sm" phx-click="find_hostile">Procurar nome vermelho</button>
             <button class="btn btn-sm" phx-click="wild_check">Pokébola presente?</button>
             <button class="btn btn-sm" phx-click="target_locked">Alvo travado?</button>

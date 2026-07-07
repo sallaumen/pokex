@@ -63,7 +63,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
         Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120, 255}))
 
       bright =
-        Pokex.PngFixtures.write!(Path.join(tmp, "bright.png"), rows(8, 8, {200, 220, 255, 255}))
+        Pokex.PngFixtures.write!(Path.join(tmp, "bright.png"), rows(16, 16, {200, 220, 255, 255}))
 
       Pokex.Calibration.save(%Pokex.Calibration{
         scale: 2.0,
@@ -82,18 +82,14 @@ defmodule PokexWeb.DiagnosticsLiveTest do
     end
 
     @tag :tmp_dir
-    test "glow score panel shows frame-to-frame variation", %{
-      conn: conn,
-      bright: bright,
-      calm: calm
-    } do
-      # two different captures in a row → high variation → a bite
+    test "glow panel counts the cyan bubble pixels", %{conn: conn, bright: bright} do
+      # a region full of bright-cyan pixels → over the bubble threshold → a bite
       Agent.update(Pokex.Rig.Fake, fn state ->
-        %{state | script: %{capture: [{:ok, calm}, {:ok, bright}]}}
+        %{state | script: %{capture: [{:ok, bright}]}}
       end)
 
       {:ok, view, _} = live(conn, ~p"/diagnostics")
-      view |> element("button", "Variação (bolhas)") |> render_click()
+      view |> element("button", "Bolhas (ciano)") |> render_click()
       assert render(view) =~ "mordida? true"
     end
 

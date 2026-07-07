@@ -74,6 +74,27 @@ defmodule Pokex.Vision do
 
   defp red_pixels(<<>>, _index, _width, _min_r, _max_g, _max_b, acc), do: acc
 
+  @doc """
+  Counts the bright-cyan pixels of the fishing "bite" bubbles — the light-cyan
+  rings that flash around the bait when a fish bites. Calm water is a darker,
+  low-green blue and reads ~0; a bite lights up hundreds of these pixels
+  (measured in-game: bite ≈ 512 px, calm ≈ 0). Lighting/species independent.
+  """
+  def bubble_count(%Frame{rgba: rgba}, opts \\ []) do
+    min_g = Keyword.get(opts, :min_g, 150)
+    min_b = Keyword.get(opts, :min_b, 150)
+    cyan_pixels(rgba, min_g, min_b, 0)
+  end
+
+  defp cyan_pixels(<<r, g, b, _a, rest::binary>>, min_g, min_b, n)
+       when g >= min_g and b >= min_b and r < g,
+       do: cyan_pixels(rest, min_g, min_b, n + 1)
+
+  defp cyan_pixels(<<_::32, rest::binary>>, min_g, min_b, n),
+    do: cyan_pixels(rest, min_g, min_b, n)
+
+  defp cyan_pixels(<<>>, _min_g, _min_b, n), do: n
+
   @doc "True when the battle strip contains the red/white pokeball icon of a wild pokemon."
   def wild_present?(%Frame{rgba: rgba}, opts \\ []) do
     count_pokeball_red(rgba, 0, Keyword.get(opts, :min_count, 12))

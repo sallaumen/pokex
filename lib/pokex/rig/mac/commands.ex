@@ -8,16 +8,39 @@ defmodule Pokex.Rig.Mac.Commands do
     "alt" => "option down"
   }
 
+  # macOS virtual key codes for the TOP-ROW number keys (1..0). Skills are bound
+  # to these; the numpad numbers are movement keys in the game, so pressing them
+  # walks the character. `keystroke "1"` can land on the numpad, so send the
+  # exact top-row key code instead.
+  @digit_keycodes %{
+    "1" => 18,
+    "2" => 19,
+    "3" => 20,
+    "4" => 21,
+    "5" => 23,
+    "6" => 22,
+    "7" => 26,
+    "8" => 28,
+    "9" => 25,
+    "0" => 29
+  }
+
   @doc """
-  A real keystroke via System Events. Games listen for key EVENTS (Shift+Z as a
-  hotkey), not typed text — `cliclick t:z` typed the character and dropped the
-  modifier, opening menus instead of equipping the rod.
+  A real keystroke via System Events. Games listen for key EVENTS (a hotkey),
+  not typed text. Digits go through `key code` (the top-row keys) so they're
+  never mistaken for the numpad (which moves the character); other keys use
+  `keystroke`. Modifiers are applied via `using {...}`.
   """
   def press(combo) do
     {mods, [key]} = combo |> String.split("+") |> Enum.split(-1)
 
-    {"osascript",
-     ["-e", ~s(tell application "System Events" to keystroke "#{key}"#{using(mods)})]}
+    action =
+      case Map.get(@digit_keycodes, key) do
+        nil -> ~s(keystroke "#{key}")
+        code -> "key code #{code}"
+      end
+
+    {"osascript", ["-e", ~s(tell application "System Events" to #{action}#{using(mods)})]}
   end
 
   defp using([]), do: ""

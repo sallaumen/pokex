@@ -2,21 +2,21 @@ defmodule Pokex.Rig.Mac.CommandsTest do
   use ExUnit.Case, async: true
   alias Pokex.Rig.Mac.Commands
 
-  test "press sends a real keystroke with the modifier via System Events" do
+  test "press sends a letter as a keystroke with the modifier" do
     assert Commands.press("shift+z") ==
              {"osascript",
               ["-e", ~s(tell application "System Events" to keystroke "z" using {shift down})]}
   end
 
-  test "press plain key has no modifier clause" do
+  test "press sends a digit as the TOP-ROW key code (not the numpad, which walks)" do
     assert Commands.press("2") ==
-             {"osascript", ["-e", ~s(tell application "System Events" to keystroke "2")]}
+             {"osascript", ["-e", ~s(tell application "System Events" to key code 19)]}
   end
 
-  test "press maps ctrl to control down" do
+  test "press keeps digits on the top row even with a modifier" do
     assert Commands.press("ctrl+1") ==
              {"osascript",
-              ["-e", ~s(tell application "System Events" to keystroke "1" using {control down})]}
+              ["-e", ~s(tell application "System Events" to key code 18 using {control down})]}
   end
 
   test "left and right click" do

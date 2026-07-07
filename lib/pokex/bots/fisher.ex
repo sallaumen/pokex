@@ -103,7 +103,7 @@ defmodule Pokex.Bots.Fisher do
           {stepped, actions} = Logic.step(previous, threshold_glow(observations, settings), now())
 
           logic =
-            case execute_all(actions, previous.config.humanize_max_ms) do
+            case execute_all(actions, humanize_max_for(previous)) do
               :ok -> stepped
               {:error, reason} -> elem(Logic.io_failed(stepped, inspect(reason), now()), 0)
             end
@@ -125,6 +125,12 @@ defmodule Pokex.Bots.Fisher do
       {:noreply, reschedule(state, Logic.tick_interval(logic))}
     end
   end
+
+  # Anti-bot: the fishing HOOK (the pull, emitted while watching) gets its own
+  # random delay so it isn't instant or on a fixed cadence; every other state uses
+  # the global humanize (0 by default), leaving combat's own timing untouched.
+  defp humanize_max_for(%Logic{state: :watching, config: c}), do: c.hook_delay_max_ms
+  defp humanize_max_for(%Logic{config: c}), do: c.humanize_max_ms
 
   defp execute_all(actions, max_ms) do
     Enum.reduce_while(actions, :ok, fn action, :ok ->

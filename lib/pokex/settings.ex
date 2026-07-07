@@ -33,10 +33,10 @@ defmodule Pokex.Settings do
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,
     auto_capture: true,
-    # A single bite-magnitude frame (> glow_threshold) hooks: nothing but a real
-    # bite ever clears 500, and the bite's cyan oscillates, so requiring consecutive
-    # frames would risk missing it to sampling aliasing.
-    glow_streak_needed: 1,
+    # CONSECUTIVE bite-magnitude frames (> glow_threshold) needed to hook. Measured
+    # in-game: resting oscillates 69-331 (below 500), a real bite spikes to 1225 and
+    # sustains — so 3 confirmations reject a lone stray spike but still catch a bite.
+    glow_streak_needed: 3,
     # Consecutive below-threshold (resting/splash level) frames before a cyan spike
     # counts as a bite. Guards against a splash that briefly clears glow_threshold.
     calm_streak_needed: 3,
@@ -75,7 +75,11 @@ defmodule Pokex.Settings do
     # for the whole fight. Two reads spaced wait_target_verify_ms filter the blink.
     target_lock_streak: 2,
     target_lost_streak: 2,
-    humanize_max_ms: 0
+    humanize_max_ms: 0,
+    # Anti-bot: once a bite is confirmed, wait a RANDOM 0..this ms before yanking
+    # the rod, so the pull is neither instant nor on a fixed cadence. Kept short so
+    # it still lands inside the bite window. Only the fishing hook is delayed.
+    hook_delay_max_ms: 450
   }
 
   def defaults, do: @defaults

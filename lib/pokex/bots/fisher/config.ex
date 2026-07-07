@@ -31,7 +31,8 @@ defmodule Pokex.Bots.Fisher.Config do
     :walk_step_ms,
     :loot_presses,
     :max_walk_tiles,
-    :humanize_max_ms
+    :humanize_max_ms,
+    :hook_delay_max_ms
   ]
 
   def build(%Calibration{} = calib, settings) do

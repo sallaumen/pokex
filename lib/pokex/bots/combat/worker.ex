@@ -99,8 +99,16 @@ defmodule Pokex.Bots.Combat.Worker do
           {elem(Logic.io_failed(previous, inspect(reason), now()), 0), [], %{}}
       end
 
-    broadcast_activity(previous, obs, actions)
-    if logic.state != previous.state or logic.counters != previous.counters, do: broadcast(logic)
+    # MACRO when the state or a counter changed (a lock, a kill, a loot, an
+    # error); every other tick — the per-row "linha N travou? Npx" reads — is
+    # routine DEBUG chatter, hidden by default in the panel feed.
+    level =
+      if logic.state != previous.state or logic.counters != previous.counters,
+        do: :macro,
+        else: :debug
+
+    broadcast_activity(previous, obs, actions, level)
+    if level == :macro, do: broadcast(logic)
 
     state = %{state | logic: logic}
 
@@ -124,10 +132,10 @@ defmodule Pokex.Bots.Combat.Worker do
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat, snapshot(logic)})
 
-  defp broadcast_activity(logic, obs, actions) do
+  defp broadcast_activity(logic, obs, actions, level) do
     case describe_activity(logic, obs, actions) do
       nil -> :ok
-      text -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat_log, text})
+      text -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat_log, level, text})
     end
   end
 

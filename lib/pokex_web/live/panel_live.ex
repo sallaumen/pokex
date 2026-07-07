@@ -39,7 +39,10 @@ defmodule PokexWeb.PanelLive do
        auto_capture: Settings.get(:auto_capture),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
        panicked?: false,
-       logs: []
+       logs: [],
+       show_debug: false,
+       export_src: nil,
+       export_msg: nil
      )}
   end
 
@@ -50,11 +53,20 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:combat, snapshot}, socket),
     do: {:noreply, assign(socket, combat: snapshot, panicked?: false)}
 
+  def handle_info({:fishing_log, level, text}, socket),
+    do: {:noreply, append_log(socket, %{level: level, source: "🎣", text: text})}
+
+  def handle_info({:combat_log, level, text}, socket),
+    do: {:noreply, append_log(socket, %{level: level, source: "⚔️", text: text})}
+
+  # Backward-compat: a worker still running an OLD build (mid hot-reload) may
+  # broadcast the pre-level 2-tuple form. Treat it as debug so the panel never
+  # crashes on the stale shape.
   def handle_info({:fishing_log, text}, socket),
-    do: {:noreply, append_log(socket, "🎣 " <> text)}
+    do: {:noreply, append_log(socket, %{level: :debug, source: "🎣", text: text})}
 
   def handle_info({:combat_log, text}, socket),
-    do: {:noreply, append_log(socket, "⚔️ " <> text)}
+    do: {:noreply, append_log(socket, %{level: :debug, source: "⚔️", text: text})}
 
   # The Guardian re-broadcasts {:panic} on EVERY poll tick (~10x/sec) while
   # the cursor stays in the kill corner — a human parked there wants the bot
@@ -68,13 +80,23 @@ defmodule PokexWeb.PanelLive do
     socket =
       socket
       |> assign(fishing: @idle_fishing, combat: @idle_combat, panicked?: true)
-      |> append_log("🛑 pânico: mouse no canto — tudo parado")
+      |> append_log(%{level: :macro, source: "🛑", text: "pânico: mouse no canto — tudo parado"})
 
     {:noreply, socket}
   end
 
-  defp append_log(socket, text),
-    do: assign(socket, logs: Enum.take([text | socket.assigns.logs], 25))
+  # Each log entry is a map {level, source, text, at}; the feed keeps the last
+  # 200 (newest first) so it stays light, and macro vs debug lets the UI hide
+  # the per-tick chatter by default. `at` is local (Mac) wall-clock HH:MM:SS.
+  defp append_log(socket, entry) do
+    entry = Map.put(entry, :at, timestamp())
+    assign(socket, logs: Enum.take([entry | socket.assigns.logs], 200))
+  end
+
+  defp timestamp do
+    {_, {h, m, s}} = :calendar.local_time()
+    :io_lib.format(~c"~2..0B:~2..0B:~2..0B", [h, m, s]) |> List.to_string()
+  end
 
   @impl true
   def handle_event("start", _params, socket) do
@@ -151,6 +173,51 @@ defmodule PokexWeb.PanelLive do
     Settings.put(:auto_capture, value)
     {:noreply, assign(socket, auto_capture: value)}
   end
+
+  def handle_event("toggle_debug", _params, socket),
+    do: {:noreply, assign(socket, show_debug: not socket.assigns.show_debug)}
+
+  def handle_event("clear_logs", _params, socket),
+    do: {:noreply, assign(socket, logs: [], export_src: nil, export_msg: nil)}
+
+  # Dump the current feed (oldest→newest) to ~/.pokex/exports/events-<ms>.log so
+  # Lucas can hand Claude the last events without screenshotting the panel.
+  def handle_event("export_events", _params, socket) do
+    logs = socket.assigns.logs
+
+    case export_events(logs) do
+      {:ok, name} ->
+        {:noreply,
+         assign(socket,
+           export_src: "/exports/#{name}",
+           export_msg: "#{length(logs)} eventos exportados"
+         )}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, export_src: nil, export_msg: "erro ao exportar: #{inspect(reason)}")}
+    end
+  end
+
+  defp export_events(logs) do
+    name = "events-#{System.system_time(:millisecond)}.log"
+    path = Path.join(Pokex.Home.exports_dir(), name)
+
+    body =
+      logs
+      |> Enum.reverse()
+      |> Enum.map_join("\n", fn e -> "#{e.at} #{e.source} [#{e.level}] #{e.text}" end)
+
+    case File.write(path, body <> "\n") do
+      :ok -> {:ok, name}
+      error -> error
+    end
+  end
+
+  defp visible_logs(logs, show_debug), do: Enum.filter(logs, &(show_debug or &1.level == :macro))
+  defp macro_count(logs), do: Enum.count(logs, &(&1.level == :macro))
+
+  defp log_class(:macro), do: "text-base-content"
+  defp log_class(_debug), do: "opacity-50"
 
   defp counters, do: @counters
 
@@ -276,21 +343,44 @@ defmodule PokexWeb.PanelLive do
         </section>
 
         <section>
-          <h2 class="mb-2 px-1 text-xs font-semibold uppercase tracking-wide opacity-50">
-            O que ele está fazendo
-          </h2>
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+            <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">
+              O que ele está fazendo
+            </h2>
+            <div class="flex flex-wrap items-center gap-2 text-[11px]">
+              <span class="opacity-50">{macro_count(@logs)} eventos · {length(@logs)} no total</span>
+              <label class="flex cursor-pointer items-center gap-1 opacity-70">
+                <input
+                  type="checkbox"
+                  class="toggle toggle-xs"
+                  checked={@show_debug}
+                  phx-click="toggle_debug"
+                /> debug
+              </label>
+              <button class="btn btn-ghost btn-xs" phx-click="export_events">
+                <.icon name="hero-arrow-down-tray" class="size-3" /> Exportar
+              </button>
+              <button class="btn btn-ghost btn-xs" phx-click="clear_logs">Limpar</button>
+            </div>
+          </div>
+          <p :if={@export_msg} class="mb-1 px-1 text-[11px] text-success">
+            {@export_msg}
+            <a :if={@export_src} href={@export_src} download class="link link-primary">baixar</a>
+          </p>
           <div
             id="activity-feed"
             class="h-40 space-y-0.5 overflow-y-auto rounded-lg border border-base-content/10 bg-base-300 p-2 font-mono text-xs"
           >
-            <p :if={@logs == []} class="opacity-40">
-              a atividade aparece aqui quando o bot roda (mostra onde ele clica)
+            <p :if={visible_logs(@logs, @show_debug) == []} class="opacity-40">
+              a atividade aparece aqui quando o bot roda (marque "debug" pra ver cada tick)
             </p>
             <p
-              :for={{line, i} <- Enum.with_index(@logs)}
-              class={(i == 0 && "text-primary") || "opacity-70"}
+              :for={entry <- visible_logs(@logs, @show_debug)}
+              class={["flex gap-1.5", log_class(entry.level)]}
             >
-              {line}
+              <span class="shrink-0 opacity-40">{entry.at}</span>
+              <span class="shrink-0">{entry.source}</span>
+              <span>{entry.text}</span>
             </p>
           </div>
         </section>

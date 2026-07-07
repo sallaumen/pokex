@@ -108,8 +108,16 @@ defmodule Pokex.Bots.Fishing.Worker do
           {elem(Logic.io_failed(previous, inspect(reason), now()), 0), [], %{}}
       end
 
-    broadcast_activity(previous, raw_obs, actions)
-    if logic.state != previous.state or logic.counters != previous.counters, do: broadcast(logic)
+    # A tick is MACRO when the state or a counter changed (a hook, a recast, an
+    # error) — the events worth keeping; every other tick is routine DEBUG
+    # chatter (per-frame bubble counts), hidden by default in the panel feed.
+    level =
+      if logic.state != previous.state or logic.counters != previous.counters,
+        do: :macro,
+        else: :debug
+
+    broadcast_activity(previous, raw_obs, actions, level)
+    if level == :macro, do: broadcast(logic)
 
     state = %{state | logic: logic}
 
@@ -160,7 +168,7 @@ defmodule Pokex.Bots.Fishing.Worker do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @topic,
-        {:fishing_log, "⏳ delay anti-bot #{delay}ms → #{describe_actions(actions)}"}
+        {:fishing_log, :debug, "⏳ delay anti-bot #{delay}ms → #{describe_actions(actions)}"}
       )
 
       Process.sleep(delay)
@@ -189,10 +197,10 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fishing, snapshot(logic)})
 
-  defp broadcast_activity(logic, obs, actions) do
+  defp broadcast_activity(logic, obs, actions, level) do
     case describe_activity(logic, obs, actions) do
       nil -> :ok
-      text -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fishing_log, text})
+      text -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fishing_log, level, text})
     end
   end
 

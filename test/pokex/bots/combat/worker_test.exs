@@ -99,7 +99,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     assert :ok = Worker.run(worker)
 
-    assert_receive {:combat_log, _}, 2_000
+    assert_receive {:combat_log, _level, _}, 2_000
     assert_receive {:normal_result, :ok}, 2_000
 
     calls = Pokex.Rig.Fake.calls()

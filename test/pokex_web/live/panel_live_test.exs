@@ -62,15 +62,48 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "lutando linha 2"
   end
 
-  test "fishing_log and combat_log append tagged entries to the activity feed", %{conn: conn} do
+  test "macro fishing_log and combat_log append to the activity feed", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, "lançando a linha"})
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, "mirando linha 0"})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, :macro, "lançando a linha"})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "mirando linha 0"})
 
     html = render(view)
     assert html =~ "lançando a linha"
     assert html =~ "mirando linha 0"
+  end
+
+  test "debug logs are hidden until the debug toggle is on", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, :debug, "vigiando: bolhas 3px"})
+    refute render(view) =~ "vigiando: bolhas 3px"
+
+    view |> element(~s(input[phx-click="toggle_debug"])) |> render_click()
+    assert render(view) =~ "vigiando: bolhas 3px"
+  end
+
+  test "tolerates a legacy 2-tuple log broadcast without crashing", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    # A worker on an old build mid hot-reload can still send the pre-level shape.
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, "stale build line"})
+    view |> element(~s(input[phx-click="toggle_debug"])) |> render_click()
+    assert render(view) =~ "stale build line"
+  end
+
+  @tag :tmp_dir
+  test "exports the recent events to a downloadable file", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "matou o bicho"})
+    render(view)
+
+    view |> element("button", "Exportar") |> render_click()
+    assert render(view) =~ "eventos exportados"
+    assert [_one] = Path.wildcard(Path.join([tmp, "exports", "events-*.log"]))
   end
 
   test "a panic broadcast idles both pills and is idempotent on repeat", %{conn: conn} do

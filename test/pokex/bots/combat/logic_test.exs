@@ -61,6 +61,32 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
   end
 
+  # Minor gap flagged in the Task 2 review: io_failed/3 was ported (as fail/3's
+  # public entry) but never exercised by the ported combat test suite. The
+  # driver (Combat.Worker) calls this when Body.perform/3 returns {:error, _}.
+  # Below max_consecutive_failures it must recover into :scanning (not :error),
+  # bumping counters.failures and failures, so the worker keeps ticking.
+  test "io_failed below max_consecutive_failures recovers into :scanning" do
+    logic = %{Logic.new(config()) | state: :fighting, failures: 0}
+    {l, [{:log, reason}]} = Logic.io_failed(logic, :boom, 100)
+
+    assert l.state == :scanning
+    assert l.failures == 1
+    assert l.counters.failures == 1
+    assert l.error == nil
+    assert reason == "boom"
+  end
+
+  test "io_failed at max_consecutive_failures stops into :error" do
+    cfg = Map.put(config(), :max_consecutive_failures, 2)
+    logic = %{Logic.new(cfg) | state: :fighting, failures: 1}
+    {l, [{:log, _}]} = Logic.io_failed(logic, :boom, 100)
+
+    assert l.state == :error
+    assert l.failures == 2
+    assert l.error =~ "boom"
+  end
+
   describe "fighting/looting/capturing" do
     def advance_to_fighting do
       {l, []} = Logic.start(Logic.new(config()), 0)

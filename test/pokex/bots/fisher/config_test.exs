@@ -24,7 +24,7 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.skill_keys == ["1", "2", "3"]
     assert config.watch_timeout_ms == 30_000
     assert config.hostile_scan_every == 2
-    assert config.target_verify_attempts == 3
+    assert config.target_verify_attempts == 2
     assert config.tile_px == 88
     assert config.walk_step_ms == 400
     assert config.loot_presses == 2

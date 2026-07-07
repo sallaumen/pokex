@@ -77,12 +77,19 @@ defmodule Pokex.Settings do
     # After clicking a Battle row the game takes ~200ms to DRAW the red target
     # ring; screenshot sooner and it reads 0px (no lock) and skips a valid target.
     # This is the one pause that must stay — it waits for the game to respond.
+    # SEARCH SPEED knob: each non-locking row costs wait_target_verify_ms ×
+    # target_verify_attempts before the scan moves on, so this + the next setting
+    # dominate how fast combat finds a target that's drifting among passing players.
+    # Kept at 250 (the ring-render floor) — dropping it lower risks reading the
+    # pre-ring frame; the faster win is fewer attempts (below).
     wait_target_verify_ms: 250,
     # Re-read the lock this many times after clicking a Battle row before deciding
     # it didn't lock: the red ring draws ~200ms after the click and the capture
     # adds 100-200ms, so a single read often sees a PRE-RING frame — advancing on
     # it clicks (= LURES) the next row while the first ring is still in flight.
-    target_verify_attempts: 3,
+    # Lowered 3→2 to search faster (2×200=400ms/row vs 3×250=750ms); raise it back
+    # toward 3 if the scan starts skipping real targets (missing the late ring).
+    target_verify_attempts: 2,
     # Screen pixels per game tile. MEASURED at 3440x1440, scale 1.0: the floor
     # texture autocorrelates at 44px (two plank rows per tile sprite) → tile = 88;
     # the character sprite (~88px) confirms it. Converts the corpse's screen

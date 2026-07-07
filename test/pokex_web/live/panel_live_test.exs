@@ -13,13 +13,21 @@ defmodule PokexWeb.PanelLiveTest do
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
     {:ok, view, html} = live(conn, ~p"/")
-    assert html =~ "idle"
+    assert html =~ "parado"
 
     view |> element("button", "Start") |> render_click()
     assert render(view) =~ "calibração"
   end
 
-  test "renders pubsub snapshots", %{conn: conn} do
+  test "renders both independent status pills on mount", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/")
+
+    assert html =~ "🎣"
+    assert html =~ "⚔️"
+    assert html =~ "parado"
+  end
+
+  test "a fishing broadcast updates only the fishing pill", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
     snapshot = %{
@@ -28,9 +36,79 @@ defmodule PokexWeb.PanelLiveTest do
       error: nil
     }
 
-    Phoenix.PubSub.broadcast(Pokex.PubSub, Pokex.Bots.Fisher.topic(), {:fisher, snapshot})
-    assert render(view) =~ "watching"
-    assert render(view) =~ ">3<"
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, snapshot})
+
+    html = render(view)
+    assert html =~ "vigiando"
+    assert html =~ ~r/tabular-nums">\s*3\s*</
+
+    # combat pill untouched — still parado
+    assert html =~ "parado"
+  end
+
+  test "a combat broadcast updates only the combat pill, including the locked row", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    snapshot = %{
+      state: :fighting,
+      counters: %{fights: 1, loots: 0, captures: 0, failures: 0},
+      error: nil,
+      locked_row: 2
+    }
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat, snapshot})
+
+    html = render(view)
+    assert html =~ "lutando linha 2"
+  end
+
+  test "fishing_log and combat_log append tagged entries to the activity feed", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, "lançando a linha"})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, "mirando linha 0"})
+
+    html = render(view)
+    assert html =~ "lançando a linha"
+    assert html =~ "mirando linha 0"
+  end
+
+  test "a panic broadcast idles both pills and is idempotent on repeat", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    # Get both pills into non-idle state first.
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "fishing",
+      {:fishing, %{state: :watching, counters: %{}, error: nil}}
+    )
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "combat",
+      {:combat, %{state: :scanning, counters: %{}, error: nil, locked_row: nil}}
+    )
+
+    assert render(view) =~ "vigiando"
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:panic, "kill corner"})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:panic, "kill corner"})
+
+    html = render(view)
+    refute html =~ "vigiando"
+    assert html =~ "parado"
+
+    logs_after_first = view |> element("#activity-feed") |> render()
+
+    # The Guardian re-broadcasts {:panic} on every poll tick while the cursor
+    # sits in the corner — a second (and third) panic must not duplicate log
+    # spam.
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:panic, "kill corner"})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:panic, "kill corner"})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:panic, "kill corner"})
+
+    logs_after_repeat = view |> element("#activity-feed") |> render()
+    assert logs_after_first == logs_after_repeat
   end
 
   test "saves glow threshold", %{conn: conn} do

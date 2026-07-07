@@ -172,8 +172,16 @@ defmodule Pokex.Bots.Combat.Worker do
   defp describe_action({:capture_sequence, {x, y}}), do: "pokébola (#{x},#{y})"
   defp describe_action({:log, msg}), do: msg
 
-  defp snapshot(nil), do: %{state: :idle, counters: %Logic{}.counters, error: nil}
-  defp snapshot(logic), do: %{state: logic.state, counters: logic.counters, error: logic.error}
+  defp snapshot(nil),
+    do: %{state: :idle, counters: %Logic{}.counters, error: nil, locked_row: nil}
+
+  defp snapshot(logic),
+    do: %{
+      state: logic.state,
+      counters: logic.counters,
+      error: logic.error,
+      locked_row: logic.locked_row
+    }
 
   defp now, do: System.monotonic_time(:millisecond)
 

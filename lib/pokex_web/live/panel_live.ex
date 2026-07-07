@@ -1,8 +1,11 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.Fisher
+  alias Pokex.Bots.{BotSupervisor, Combat}
   alias Pokex.{Calibration, Settings}
+
+  @fishing_topic "fishing"
+  @combat_topic "combat"
 
   @counters [
     {"Ciclos", :cycles, "hero-arrow-path"},
@@ -13,46 +16,100 @@ defmodule PokexWeb.PanelLive do
     {"Falhas", :failures, "hero-exclamation-triangle"}
   ]
 
+  @idle_fishing %{state: :idle, counters: %{}, error: nil}
+  @idle_combat %{state: :idle, counters: %{}, error: nil, locked_row: nil}
+
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Phoenix.PubSub.subscribe(Pokex.PubSub, Fisher.topic())
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
+    end
+
+    status = BotSupervisor.status()
 
     {:ok,
      assign(socket,
        page_title: "Painel",
-       snap: Fisher.status(),
+       fishing: status.fishing,
+       combat: status.combat,
        errors: [],
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
        auto_capture: Settings.get(:auto_capture),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
+       panicked?: false,
        logs: []
      )}
   end
 
   @impl true
-  def handle_info({:fisher, snapshot}, socket), do: {:noreply, assign(socket, snap: snapshot)}
+  def handle_info({:fishing, snapshot}, socket),
+    do: {:noreply, assign(socket, fishing: snapshot, panicked?: false)}
 
-  def handle_info({:fisher_log, text}, socket),
-    do: {:noreply, assign(socket, logs: Enum.take([text | socket.assigns.logs], 25))}
+  def handle_info({:combat, snapshot}, socket),
+    do: {:noreply, assign(socket, combat: snapshot, panicked?: false)}
+
+  def handle_info({:fishing_log, text}, socket),
+    do: {:noreply, append_log(socket, "🎣 " <> text)}
+
+  def handle_info({:combat_log, text}, socket),
+    do: {:noreply, append_log(socket, "⚔️ " <> text)}
+
+  # The Guardian re-broadcasts {:panic} on EVERY poll tick (~10x/sec) while
+  # the cursor stays in the kill corner — a human parked there wants the bot
+  # to STAY stopped, so this must stay idempotent: only the first panic (the
+  # transition) idles the pills and logs; repeats are a safe, silent no-op so
+  # the feed doesn't fill up with duplicate spam.
+  def handle_info({:panic, _reason}, %{assigns: %{panicked?: true}} = socket),
+    do: {:noreply, socket}
+
+  def handle_info({:panic, _reason}, socket) do
+    socket =
+      socket
+      |> assign(fishing: @idle_fishing, combat: @idle_combat, panicked?: true)
+      |> append_log("🛑 pânico: mouse no canto — tudo parado")
+
+    {:noreply, socket}
+  end
+
+  defp append_log(socket, text),
+    do: assign(socket, logs: Enum.take([text | socket.assigns.logs], 25))
 
   @impl true
   def handle_event("start", _params, socket) do
-    case Fisher.start_bot() do
-      :ok -> {:noreply, assign(socket, errors: [], logs: [], snap: Fisher.status())}
-      {:error, messages} -> {:noreply, assign(socket, errors: messages)}
+    case BotSupervisor.start_all() do
+      :ok ->
+        status = BotSupervisor.status()
+
+        {:noreply,
+         assign(socket,
+           errors: [],
+           logs: [],
+           panicked?: false,
+           fishing: status.fishing,
+           combat: status.combat
+         )}
+
+      {:error, messages} ->
+        {:noreply, assign(socket, errors: messages)}
     end
   end
 
   def handle_event("stop", _params, socket) do
-    Fisher.stop_bot()
-    {:noreply, assign(socket, snap: Fisher.status())}
+    BotSupervisor.stop_all()
+    status = BotSupervisor.status()
+    {:noreply, assign(socket, fishing: status.fishing, combat: status.combat)}
   end
 
   def handle_event("test_combat", _params, socket) do
-    case Fisher.start_combat() do
-      :ok -> {:noreply, assign(socket, errors: [], logs: [], snap: Fisher.status())}
-      {:error, messages} -> {:noreply, assign(socket, errors: messages)}
+    case Combat.Worker.run() do
+      :ok ->
+        {:noreply,
+         assign(socket, errors: [], logs: [], panicked?: false, combat: Combat.Worker.status())}
+
+      {:error, messages} ->
+        {:noreply, assign(socket, errors: messages)}
     end
   end
 
@@ -84,23 +141,45 @@ defmodule PokexWeb.PanelLive do
 
   defp counters, do: @counters
 
-  defp state_label(:idle), do: "Parado"
-  defp state_label(:focusing), do: "Focando o jogo"
-  defp state_label(:equipping), do: "Equipando a vara"
-  defp state_label(:casting), do: "Arremessando"
-  defp state_label(:watching), do: "Vigiando o brilho"
-  defp state_label(:assessing), do: "Avaliando a fisgada"
-  defp state_label(:fighting), do: "Em combate"
-  defp state_label(:walking_to_loot), do: "Andando até o loot"
-  defp state_label(:looting), do: "Coletando o item"
-  defp state_label(:capturing), do: "Capturando"
-  defp state_label(:walking_back), do: "Voltando ao ponto de pesca"
-  defp state_label(:error), do: "Erro — parado"
-  defp state_label(other), do: to_string(other)
+  # Fishing and combat only truly overlap on :failures — sum those; every
+  # other counter belongs to exactly one worker, so a plain merge is right
+  # for them.
+  defp merged_counters(fishing, combat) do
+    Map.merge(Map.new(fishing.counters || %{}), Map.new(combat.counters || %{}), fn
+      :failures, a, b -> a + b
+      _key, _a, b -> b
+    end)
+  end
 
-  defp state_dot(:idle), do: "bg-base-content/40"
-  defp state_dot(:error), do: "bg-error"
-  defp state_dot(_running), do: "bg-success motion-safe:animate-pulse"
+  # 🎣 Pesca: parado / arremessando (equipping, casting, focusing all read as
+  # the cast-prep phase) / vigiando (watching the glow) / erro.
+  defp fishing_label(:idle), do: "parado"
+  defp fishing_label(:focusing), do: "arremessando"
+  defp fishing_label(:equipping), do: "arremessando"
+  defp fishing_label(:casting), do: "arremessando"
+  defp fishing_label(:watching), do: "vigiando"
+  defp fishing_label(:error), do: "erro"
+  defp fishing_label(other), do: to_string(other)
+
+  # ⚔️ Batalha: parado / procurando / lutando linha N / coletando (loot +
+  # capture + the walks around them) / erro.
+  defp combat_label(:idle, _row), do: "parado"
+  defp combat_label(:scanning, _row), do: "procurando"
+  defp combat_label(:fighting, row) when is_integer(row), do: "lutando linha #{row}"
+  defp combat_label(:fighting, _row), do: "lutando"
+  defp combat_label(:walking_to_loot, _row), do: "coletando"
+  defp combat_label(:looting, _row), do: "coletando"
+  defp combat_label(:capturing, _row), do: "coletando"
+  defp combat_label(:walking_back, _row), do: "coletando"
+  defp combat_label(:error, _row), do: "erro"
+  defp combat_label(other, _row), do: to_string(other)
+
+  defp active?(:idle), do: false
+  defp active?(_state), do: true
+
+  defp pill_class(:error), do: "badge-error"
+  defp pill_class(:idle), do: "badge-ghost"
+  defp pill_class(_running), do: "badge-success"
 
   @impl true
   def render(assigns) do
@@ -121,17 +200,29 @@ defmodule PokexWeb.PanelLive do
           <.link navigate={~p"/calibration"} class="btn btn-warning btn-sm">Calibrar →</.link>
         </div>
 
-        <section
-          class="rounded-2xl border border-base-content/10 bg-base-200 p-5"
-          data-state={@snap.state}
-        >
+        <section class="rounded-2xl border border-base-content/10 bg-base-200 p-5">
           <div class="flex flex-wrap items-center justify-between gap-4">
-            <div class="flex items-center gap-3">
-              <span class={["size-3 rounded-full", state_dot(@snap.state)]} />
-              <div>
-                <p class="text-lg font-semibold leading-tight">{state_label(@snap.state)}</p>
-                <p class="font-mono text-xs opacity-50">{@snap.state}</p>
-              </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span
+                data-testid="fishing-pill"
+                data-state={@fishing.state}
+                class={["badge gap-1.5 badge-lg", pill_class(@fishing.state)]}
+              >
+                <span class={[
+                  "size-2 rounded-full bg-current",
+                  active?(@fishing.state) && "motion-safe:animate-pulse"
+                ]} /> 🎣 Pesca: {fishing_label(@fishing.state)}
+              </span>
+              <span
+                data-testid="combat-pill"
+                data-state={@combat.state}
+                class={["badge gap-1.5 badge-lg", pill_class(@combat.state)]}
+              >
+                <span class={[
+                  "size-2 rounded-full bg-current",
+                  active?(@combat.state) && "motion-safe:animate-pulse"
+                ]} /> ⚔️ Batalha: {combat_label(@combat.state, Map.get(@combat, :locked_row))}
+              </span>
             </div>
             <div class="flex flex-wrap gap-2">
               <button class="btn btn-success gap-1.5" phx-click="start">
@@ -150,8 +241,11 @@ defmodule PokexWeb.PanelLive do
             </div>
           </div>
 
-          <p :if={@snap.error} class="mt-3 rounded-lg bg-error/15 px-3 py-2 text-sm text-error">
-            {@snap.error}
+          <p :if={@fishing.error} class="mt-3 rounded-lg bg-error/15 px-3 py-2 text-sm text-error">
+            🎣 {@fishing.error}
+          </p>
+          <p :if={@combat.error} class="mt-3 rounded-lg bg-error/15 px-3 py-2 text-sm text-error">
+            ⚔️ {@combat.error}
           </p>
           <ul :if={@errors != []} class="mt-3 space-y-1 rounded-lg bg-warning/10 px-3 py-2 text-sm">
             <li :for={message <- @errors} class="flex items-start gap-2">
@@ -165,7 +259,10 @@ defmodule PokexWeb.PanelLive do
           <h2 class="mb-2 px-1 text-xs font-semibold uppercase tracking-wide opacity-50">
             O que ele está fazendo
           </h2>
-          <div class="h-40 space-y-0.5 overflow-y-auto rounded-lg border border-base-content/10 bg-base-300 p-2 font-mono text-xs">
+          <div
+            id="activity-feed"
+            class="h-40 space-y-0.5 overflow-y-auto rounded-lg border border-base-content/10 bg-base-300 p-2 font-mono text-xs"
+          >
             <p :if={@logs == []} class="opacity-40">
               a atividade aparece aqui quando o bot roda (mostra onde ele clica)
             </p>
@@ -187,7 +284,9 @@ defmodule PokexWeb.PanelLive do
               :for={{label, key, icon} <- counters()}
               class="rounded-xl border border-base-content/10 bg-base-200 p-3 text-center"
             >
-              <div class="text-2xl font-bold tabular-nums">{@snap.counters[key]}</div>
+              <div class="text-2xl font-bold tabular-nums">
+                {Map.get(merged_counters(@fishing, @combat), key, 0)}
+              </div>
               <div class="mt-0.5 flex items-center justify-center gap-1 text-[11px] opacity-60">
                 <.icon name={icon} class="size-3" />{label}
               </div>

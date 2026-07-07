@@ -15,6 +15,7 @@ defmodule Pokex.Application do
       # {Pokex.Worker, arg},
       Pokex.Settings,
       Pokex.Bots.Supervisor,
+      Pokex.Bots.BotSupervisor,
       # Start to serve requests, typically the last entry
       PokexWeb.Endpoint
     ]

@@ -25,8 +25,16 @@ defmodule Pokex.Bots.Body do
   def init(:ok), do: {:ok, %{busy?: false, high: :queue.new(), normal: :queue.new()}}
 
   # Cursor reads bypass the input queue (read-only, needed live for the panic corner).
+  # Guarded with a catch: the Guardian polls this on every tick for as long as
+  # the bot exists, and its contract (see Guardian's moduledoc) is that a bad
+  # read reschedules instead of crashing the poll loop — so a momentarily
+  # unreachable Rig (e.g. its process restarting) must come back as
+  # `{:error, _}`, not take the Body (and, transitively, the Guardian) down
+  # with it.
   @impl true
-  def handle_call(:cursor, _from, state), do: {:reply, Rig.impl().cursor_position(), state}
+  def handle_call(:cursor, _from, state) do
+    {:reply, safe_cursor_position(), state}
+  end
 
   def handle_call({:perform, actions, _priority}, from, %{busy?: false} = state) do
     run(actions, from)
@@ -76,6 +84,12 @@ defmodule Pokex.Bots.Body do
 
       send(server, {:done, from, result})
     end)
+  end
+
+  defp safe_cursor_position do
+    Rig.impl().cursor_position()
+  catch
+    kind, reason -> {:error, {kind, reason}}
   end
 
   defp execute({:press, key}), do: Rig.impl().press(key)

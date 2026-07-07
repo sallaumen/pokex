@@ -77,6 +77,12 @@ defmodule Pokex.Bots.GuardianTest do
   end
 
   test "defaults: registers as Pokex.Bots.Guardian, polls every 100ms against Pokex.Bots.Body" do
+    # Pokex.Application permanently runs a Guardian at this same default name
+    # (under BotSupervisor), so free the name for the duration of this test
+    # and hand it back to the supervisor afterwards.
+    :ok = Supervisor.terminate_child(Pokex.Bots.BotSupervisor, Pokex.Bots.Guardian)
+    on_exit(fn -> Supervisor.restart_child(Pokex.Bots.BotSupervisor, Pokex.Bots.Guardian) end)
+
     on_panic = fn -> :ok end
     {:ok, guardian} = Guardian.start_link(on_panic: on_panic)
 

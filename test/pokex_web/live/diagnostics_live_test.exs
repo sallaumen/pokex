@@ -15,7 +15,13 @@ defmodule PokexWeb.DiagnosticsLiveTest do
 
     send(view.pid, {:delayed_press, "v"})
     assert render(view) =~ "press v → :ok"
-    assert Pokex.Rig.Fake.calls() == [{:press, "v"}]
+
+    # Filter out {:cursor_position} — the app-wide Guardian polls the panic
+    # corner on its own timer against this same shared Rig.Fake, and its
+    # reads may land in this window. What this test actually asserts is that
+    # OUR delayed press ran.
+    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    assert calls == [{:press, "v"}]
   end
 
   test "click goes straight through", %{conn: conn} do
@@ -64,7 +70,10 @@ defmodule PokexWeb.DiagnosticsLiveTest do
       # test silently rode on whatever glow_threshold an earlier test file left
       # behind — passing or failing purely on run order. Restore the default after.
       Pokex.Settings.put(:glow_threshold, 15.0)
-      on_exit(fn -> Pokex.Settings.put(:glow_threshold, Pokex.Settings.defaults().glow_threshold) end)
+
+      on_exit(fn ->
+        Pokex.Settings.put(:glow_threshold, Pokex.Settings.defaults().glow_threshold)
+      end)
 
       baseline =
         Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120, 255}))

@@ -58,7 +58,13 @@ defmodule Pokex.Bots.BodyTest do
 
   test "executes an action sequence atomically through the Rig", %{body: body} do
     assert :ok = Body.perform([{:press, "1"}, {:move, {5, 5}}], :normal, body)
-    assert Pokex.Rig.Fake.calls() == [{:press, "1"}, {:move, {5, 5}}]
+
+    # Filter out {:cursor_position} — the app-wide Guardian polls the panic
+    # corner on its own timer against this same shared Rig.Fake, and its
+    # reads may land in this window. What this test actually asserts is that
+    # OUR sequence ran, in order, atomically.
+    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    assert calls == [{:press, "1"}, {:move, {5, 5}}]
   end
 
   @tag timeout: 2_000
@@ -81,9 +87,18 @@ defmodule Pokex.Bots.BodyTest do
     # though both are now waiting behind the occupier. Assert on the order
     # actions actually reached the Rig (SlowRig.log/0), not on which test
     # process's post-reply `send` the scheduler happens to run first.
-    spawn(fn -> Body.perform([{:press, "low"}], :normal, body); send(test, :low_done) end)
+    spawn(fn ->
+      Body.perform([{:press, "low"}], :normal, body)
+      send(test, :low_done)
+    end)
+
     wait_until_queued(body, :normal, 1)
-    spawn(fn -> Body.perform([{:press, "high"}], :high, body); send(test, :high_done) end)
+
+    spawn(fn ->
+      Body.perform([{:press, "high"}], :high, body)
+      send(test, :high_done)
+    end)
+
     wait_until_queued(body, :high, 1)
 
     SlowRig.release()

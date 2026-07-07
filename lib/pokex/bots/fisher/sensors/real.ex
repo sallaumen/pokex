@@ -42,18 +42,13 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
       # and the numbers stay visible in the activity feed.
       #
       # UNITS: battle_row_height/first_row_offset are POINTS; the frame is scale×
-      # pixels — so multiply by calib.scale. battle_row_height/battle_max_rows are
-      # only in the RAW settings map (config.ex strips them from logic.config), so
-      # the sensor is the one correct place to read them.
-      # The click for row i lands at battle_first_row + i*row_height (the row's
-      # CENTER), and the selection ring is drawn AROUND that point — measured on
-      # the real game the ring's red sits at the click Y, not below it. So CENTER
-      # each band on the click (shift the top up by half a band); a band that
-      # started at the click would split the ring across two rows and under-read
-      # the locked row (measured: 231px in-band vs 857px once centered).
-      scale = calib.scale
-      band = max(round((settings[:battle_row_height] || 30) * scale), 1)
-      top = round(Calibration.first_row_offset() * scale) - div(band, 2)
+      # pixels — so the geometry multiplies by calib.scale. battle_row_height/
+      # battle_max_rows are only in the RAW settings map (config.ex strips them
+      # from logic.config), so the sensor is the one correct place to read them.
+      # Calibration.row_band_geometry is the single source of truth for {top,
+      # band} (centered on the click point) — the same math the visual preview
+      # draws, so what you SEE is exactly what the lock samples.
+      {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height] || 30)
       rows = settings[:battle_max_rows] || 6
       {:ok, Vision.red_row_counts(frame, top: top, band: band, rows: rows)}
     end

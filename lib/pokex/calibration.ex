@@ -73,16 +73,54 @@ defmodule Pokex.Calibration do
   and names, where the red selection border/name appear. Used for target-lock
   detection so the player's own pokeball icon isn't counted as a lock.
   """
-  def battle_body(%__MODULE__{battle_region: {x, y, w, h}}), do: {x, y, w - @strip_width, h}
+  def battle_body(%__MODULE__{battle_region: region}), do: battle_body(region)
+  def battle_body({x, y, w, h}), do: {x, y, w - @strip_width, h}
 
   @doc "The player's screen position: the client keeps the character centered in the arena viewport."
-  def player_point(%__MODULE__{arena_region: {x, y, w, h}}), do: {x + div(w, 2), y + div(h, 2)}
+  def player_point(%__MODULE__{arena_region: region}), do: player_point(region)
+  def player_point({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
 
   def battle_first_row(%__MODULE__{battle_region: {x, y, w, _h}}),
     do: {x + div(w, 3), y + @first_row_y_offset}
 
   @doc "Frame-px offset from the battle region's top to the first row — the band origin for per-row lock reads."
   def first_row_offset, do: @first_row_y_offset
+
+  @doc """
+  Frame-pixel geometry of the per-row lock bands: `{top, band}` where band 0
+  begins at `top` and each band is `band` px tall. The band is CENTERED on the
+  row's click point (shifted up ½ band) because the selection ring is drawn
+  AROUND the click, not below it — a band starting at the click would split the
+  ring across two rows and under-read the locked one (measured: 231px vs 857px
+  once centered). Single source of truth for the lock sensor, the /diagnostics
+  read, AND the visual preview — so the red boxes drawn over the screenshot land
+  exactly where the bot samples.
+  """
+  def row_band_geometry(scale, row_height) do
+    band = max(round(row_height * scale), 1)
+    top = round(@first_row_y_offset * scale) - div(band, 2)
+    {top, band}
+  end
+
+  @doc """
+  Screen-POINT rectangles — one per battle row — covering the exact bands the
+  lock sensor reads, for the visual calibration preview. Derived from
+  `row_band_geometry/2` and `battle_body/1`, so the red overlay can never drift
+  from what the bot actually looks at; if the boxes miss the battle-list rows,
+  the calibration is off. Accepts a saved `%Calibration{}` or a raw
+  `battle_region` tuple + scale (to preview a draft mid-calibration).
+  """
+  def battle_row_bands(%__MODULE__{scale: scale, battle_region: region}, row_height, rows),
+    do: battle_row_bands(region, scale, row_height, rows)
+
+  def battle_row_bands(region, scale, row_height, rows) when is_tuple(region) do
+    {bx, by, bw, _bh} = battle_body(region)
+    {top, band} = row_band_geometry(scale, row_height)
+
+    for i <- 0..(rows - 1)//1 do
+      {bx, by + (top + i * band) / scale, bw, band / scale}
+    end
+  end
 
   @doc "Screen point to click a battle-list row `row_y` pixels down the strip."
   def battle_row_point(%__MODULE__{battle_region: {x, y, w, _h}, scale: scale}, row_y),

@@ -44,4 +44,31 @@ defmodule Pokex.CalibrationTest do
     # a wild row 100px down the strip → name column, scaled: {1380+86, 120+50}
     assert Calibration.battle_row_point(calib, 100) == {1466, 170}
   end
+
+  test "row_band_geometry centers the band on the click point" do
+    # scale 2, row_height 30 → band = 60; centered on the click at
+    # first_row_offset (18pt → 36px), so top = 36 - 30 = 6. This is the exact
+    # {top, band} the lock sensor feeds Vision.red_row_counts.
+    assert Calibration.row_band_geometry(2.0, 30) == {6, 60}
+    # scale 1 → band 30, top = 18 - 15 = 3
+    assert Calibration.row_band_geometry(1.0, 30) == {3, 30}
+    # band never collapses below 1px even at a tiny row height
+    assert Calibration.row_band_geometry(1.0, 0) == {18, 1}
+  end
+
+  test "battle_row_bands returns one screen-point rect per row, over the battle body" do
+    calib = sample()
+    # battle_body = {1380, 120, 230, 220}; scale 2, row_height 30, 3 rows.
+    # {top, band} = {6, 60}; band i frame-y top = 6 + i*60, ÷scale → screen-y,
+    # +body_y (120). Height = 60/2 = 30 pt. x/width = body x/width (points).
+    bands = Calibration.battle_row_bands(calib, 30, 3)
+    assert length(bands) == 3
+    assert Enum.at(bands, 0) == {1380, 120 + 6 / 2, 230, 30.0}
+    assert Enum.at(bands, 1) == {1380, 120 + 66 / 2, 230, 30.0}
+    assert Enum.at(bands, 2) == {1380, 120 + 126 / 2, 230, 30.0}
+
+    # a raw battle_region + scale gives the same geometry (for previewing a draft
+    # mid-calibration, before a %Calibration{} exists)
+    assert Calibration.battle_row_bands({1380, 120, 260, 220}, 2.0, 30, 3) == bands
+  end
 end

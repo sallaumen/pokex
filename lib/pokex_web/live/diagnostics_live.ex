@@ -118,10 +118,8 @@ defmodule PokexWeb.DiagnosticsLive do
          {:ok, path} <- Rig.impl().capture(Calibration.battle_body(calib), "diag_target.png"),
          {:ok, frame} <- Frame.from_png_file(path) do
       min = Settings.get(:target_locked_min_pixels)
-      scale = calib.scale
-      band = max(round(Settings.get(:battle_row_height) * scale), 1)
-      # center each band on the row's click point (see sensors/real.ex)
-      top = round(Calibration.first_row_offset() * scale) - div(band, 2)
+      # same {top, band} the live sensor uses — centered on the click point
+      {top, band} = Calibration.row_band_geometry(calib.scale, Settings.get(:battle_row_height))
       rows = Settings.get(:battle_max_rows)
       counts = Vision.red_row_counts(frame, top: top, band: band, rows: rows)
 

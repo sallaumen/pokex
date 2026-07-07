@@ -26,6 +26,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       hostile_scan_every: 2,
       auto_capture: true,
       glow_streak_needed: 1,
+      calm_streak_needed: 1,
       wait_target_verify_ms: 5,
       target_locked_min_pixels: 40,
       target_lock_streak: 1,
@@ -137,6 +138,92 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     {reset, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 100)
     {reset, _} = Logic.step(reset, Map.put(cursor_obs(), :glow, false), 200)
     assert reset.glow_streak == 0
+  end
+
+  test "watching: an oscillating cast splash never latches settled? and never hooks" do
+    cfg = config() |> Map.put(:calm_streak_needed, 2) |> Map.put(:glow_streak_needed, 2)
+
+    watching = %Logic{
+      state: :watching,
+      config: cfg,
+      entered_at: 0,
+      settled?: false,
+      calm_streak: 0,
+      glow_streak: 0
+    }
+
+    # splash oscillates crest/trough; each trough advances calm_streak to 1,
+    # each crest resets it to 0 → settled? can never reach the 2-consecutive gate.
+    seq = [true, false, true, false, true, true]
+
+    {final, _acts} =
+      Enum.reduce(Enum.with_index(seq), {watching, []}, fn {glow, i}, {l, _} ->
+        Logic.step(l, Map.put(cursor_obs(), :glow, glow), 100 + i * 100)
+      end)
+
+    assert final.state == :watching
+    refute final.settled?
+  end
+
+  test "watching: settles only after calm_streak_needed consecutive calm frames" do
+    cfg = Map.put(config(), :calm_streak_needed, 2)
+
+    watching = %Logic{
+      state: :watching,
+      config: cfg,
+      entered_at: 0,
+      settled?: false,
+      calm_streak: 0
+    }
+
+    {one, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 100)
+    refute one.settled?
+    assert one.calm_streak == 1
+
+    {two, []} = Logic.step(one, Map.put(cursor_obs(), :glow, false), 200)
+    assert two.settled?
+  end
+
+  test "watching: a splash crest resets the calm run before settling" do
+    cfg = Map.put(config(), :calm_streak_needed, 2)
+
+    watching = %Logic{
+      state: :watching,
+      config: cfg,
+      entered_at: 0,
+      settled?: false,
+      calm_streak: 0
+    }
+
+    {one, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 100)
+    assert one.calm_streak == 1
+
+    {crest, []} = Logic.step(one, Map.put(cursor_obs(), :glow, true), 200)
+    refute crest.settled?
+    assert crest.calm_streak == 0
+  end
+
+  test "watching: after settling, a bubble still hooks even much later" do
+    cfg = config() |> Map.put(:calm_streak_needed, 2) |> Map.put(:glow_streak_needed, 1)
+
+    watching = %Logic{
+      state: :watching,
+      config: cfg,
+      entered_at: 0,
+      settled?: false,
+      calm_streak: 0
+    }
+
+    {a, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 100)
+    {settled, []} = Logic.step(a, Map.put(cursor_obs(), :glow, false), 200)
+    assert settled.settled?
+
+    # a calm dip mid-watch keeps settled? true (clause c)
+    {still, []} = Logic.step(settled, Map.put(cursor_obs(), :glow, false), 15_000)
+    assert still.settled?
+
+    {hooked, [{:press, "v"}]} = Logic.step(still, Map.put(cursor_obs(), :glow, true), 15_100)
+    assert hooked.state == :assessing
   end
 
   test "watching times out back to casting" do

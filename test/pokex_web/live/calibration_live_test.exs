@@ -93,7 +93,9 @@ defmodule PokexWeb.CalibrationLiveTest do
     })
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
-    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
 
     {:ok, _} =
       Pokex.Rig.Fake.start_link(%{

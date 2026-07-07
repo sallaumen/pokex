@@ -19,6 +19,7 @@ defmodule Pokex.Bots.Fisher.Logic do
             lost_streak: 0,
             fallback_idx: 0,
             glow_streak: 0,
+            calm_streak: 0,
             settled?: false,
             combat_test?: false,
             failures: 0,
@@ -124,8 +125,10 @@ defmodule Pokex.Bots.Fisher.Logic do
 
     # Enter watching NOT settled: the cast splash also flashes cyan, so we must
     # first see the water go calm (splash gone) before a cyan spike counts as a
-    # real bite. The settle-wait skips the bulk of the splash up front.
-    {advance(%{logic | glow_streak: 0, settled?: false}, :watching, now,
+    # real bite. Settling now requires N CONSECUTIVE calm frames (not one), so an
+    # oscillating splash can't latch it. The settle-wait skips the bulk of the
+    # splash up front.
+    {advance(%{logic | glow_streak: 0, calm_streak: 0, settled?: false}, :watching, now,
        wait: logic.config.wait_cast_settle_ms
      ), [{:click, :left, logic.config.water_point}]}
   end
@@ -145,14 +148,24 @@ defmodule Pokex.Bots.Fisher.Logic do
     end
   end
 
-  # Cyan while NOT yet settled = the cast splash → ignore it, keep waiting.
+  # Cyan while NOT yet settled = a splash crest → ignore it AND reset the calm
+  # run, so an oscillating splash can never accumulate toward "settled".
   defp do_step(%{state: :watching, settled?: false} = logic, %{glow: true}, now) do
+    recast_if_timed_out(%{logic | glow_streak: 0, calm_streak: 0}, now)
+  end
+
+  # Calm frame while ALREADY settled → normal calm during the watch: keep
+  # settled, reset only the bite debounce.
+  defp do_step(%{state: :watching, settled?: true} = logic, _obs, now) do
     recast_if_timed_out(%{logic | glow_streak: 0}, now)
   end
 
-  # Calm water → the splash has subsided; from now on a cyan spike is a real bite.
-  defp do_step(%{state: :watching} = logic, _obs, now) do
-    recast_if_timed_out(%{logic | glow_streak: 0, settled?: true}, now)
+  # Calm frame while NOT yet settled → accumulate the consecutive-calm run;
+  # latch settled? only once it reaches calm_streak_needed (splash gone).
+  defp do_step(%{state: :watching, settled?: false} = logic, _obs, now) do
+    calm = logic.calm_streak + 1
+    settled? = calm >= logic.config.calm_streak_needed
+    recast_if_timed_out(%{logic | glow_streak: 0, calm_streak: calm, settled?: settled?}, now)
   end
 
   # A real bubble-bite ALWAYS yields a pokemon (there's no "caught nothing"), so

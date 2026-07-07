@@ -15,7 +15,9 @@ defmodule Pokex.Settings do
     wait_after_equip_ms: 30,
     # Let the cast SPLASH settle before watching, so the line landing isn't read
     # as a bite; then give the hooked pokemon time to teleport in before checking.
-    wait_cast_settle_ms: 600,
+    # Widened to fully outlast the ~1-1.5s splash so most ambiguous frames never
+    # even enter the sample stream (an independent second layer of defense).
+    wait_cast_settle_ms: 1600,
     wait_assess_ms: 700,
     wait_loot_ms: 30,
     wait_after_capture_ms: 50,
@@ -30,6 +32,11 @@ defmodule Pokex.Settings do
     wild_min_red_pixels: 12,
     auto_capture: true,
     glow_streak_needed: 2,
+    # The water must read calm for this many CONSECUTIVE glow frames before a cyan
+    # spike is treated as a real bite. An oscillating cast splash keeps interrupting
+    # this run (each crest resets it), while calm water (measured stable 0 for 80
+    # frames) satisfies it in a few hundred ms.
+    calm_streak_needed: 3,
     battle_row_height: 30,
     battle_max_rows: 6,
     # After clicking a Battle row the game takes ~200ms to DRAW the red target

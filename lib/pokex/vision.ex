@@ -113,11 +113,19 @@ defmodule Pokex.Vision do
   end
 
   @doc """
-  Per-row count of pure-red pixels inside the battle body, one entry per battle
+  Per-row count of TARGET-red pixels inside the battle body, one entry per battle
   row. Bands start at `top` (frame px) and are `band` (frame px) tall — pixels
-  above `top` (the header) and below the last band are ignored. Same pure-red
-  predicate as `red_count/1`. Lets the state machine attribute a lock to the row
-  it clicked, instead of trusting one aggregate over all rows.
+  above `top` (the header) and below the last band are ignored. Lets the state
+  machine attribute a lock to the row it clicked, instead of trusting one
+  aggregate over all rows.
+
+  The red predicate is LOOSER than the bright pokeball red: MEASURED on the real
+  game, a locked target's red NAME + selection ring are DARK red (~r 140-200, g/b
+  ~20-30) — red-dominant but well below the pokeball's r≥200, which made a clearly
+  locked target read ~0px. `r >= 130 and g <= 70 and b <= 70` catches the dark
+  target red while still rejecting white/gray names, green HP bars, and blue icons;
+  a non-fight row measures ~120px (one pokeball), so the 350 lock threshold still
+  separates cleanly.
   """
   @spec red_row_counts(Frame.t(), keyword) :: [non_neg_integer]
   def red_row_counts(%Frame{width: w, rgba: rgba}, opts) do
@@ -131,7 +139,7 @@ defmodule Pokex.Vision do
   # Clause order matters: the red-predicate clause MUST come before the catch-all
   # <<_::32, ...>> (which matches any 4 bytes). Mirrors pokeball_row_counts.
   defp red_band_counts(<<r, g, b, _a, rest::binary>>, index, width, top, band, rows, acc)
-       when r >= 200 and g <= 60 and b <= 60 do
+       when r >= 130 and g <= 70 and b <= 70 do
     y = div(index, width)
     row = if y >= top, do: div(y - top, band), else: -1
     acc = if row >= 0 and row < rows, do: Map.update(acc, row, 1, &(&1 + 1)), else: acc

@@ -124,6 +124,37 @@ defmodule Pokex.VisionTest do
   describe "red_row_counts/2 and locked_row/2" do
     import Pokex.FrameFixtures
 
+    test "red_row_counts catches the DARK red of a target name/ring, not just bright red" do
+      # MEASURED on the real game: a locked target's red NAME + ring are dark red
+      # ~(160,25,25) — red-dominant but BELOW the old r>=200 cutoff, so a clearly
+      # locked Horsea read ~0px. The lock predicate must catch r 130-200 too.
+      frame = uniform(60, 104, {20, 20, 20})
+
+      frame =
+        for x <- 0..40, y <- 52..70, reduce: frame do
+          acc -> put_px(acc, x, y, {160, 25, 25})
+        end
+
+      counts = Vision.red_row_counts(frame, top: 0, band: 52, rows: 2)
+      assert Enum.at(counts, 1) > 300
+      assert Enum.at(counts, 0) == 0
+    end
+
+    test "red_row_counts rejects white/gray names and green HP bars (not red-dominant)" do
+      frame = uniform(60, 52, {20, 20, 20})
+
+      frame =
+        for x <- 0..40, reduce: frame do
+          acc ->
+            acc
+            |> put_px(x, 10, {230, 230, 230})
+            |> put_px(x, 20, {130, 130, 130})
+            |> put_px(x, 30, {40, 200, 60})
+        end
+
+      assert Vision.red_row_counts(frame, top: 0, band: 52, rows: 1) == [0]
+    end
+
     test "red_row_counts splits red by band" do
       # 60 wide x 312 tall = 6 bands of 52 at top 0; paint a red block in band 2
       frame = uniform(60, 312, {20, 20, 20})

@@ -87,6 +87,79 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert l.error =~ "boom"
   end
 
+  describe "battle idle gate (battle_creatures?)" do
+    def scanning do
+      {l, []} = Logic.start(Logic.new(config()), 0)
+      l
+    end
+
+    test "battle_creatures?: false emits ZERO mouse actions and stays in :scanning (no click)" do
+      # The transition tick is allowed exactly one {:log, _} entry (see the next
+      # test) — but never a click/move/press: the idle gate must free the mouse
+      # for fishing on the very first tick it sees an empty Battle list.
+      {l, actions} =
+        Logic.step(scanning(), Map.put(cursor_obs(), :battle_creatures?, false), 100)
+
+      refute Enum.any?(actions, &match?({:click, _, _}, &1))
+      refute Enum.any?(actions, &match?({:move, _}, &1))
+      refute Enum.any?(actions, &match?({:press, _}, &1))
+      assert l.state == :scanning
+      refute l.targeted?
+
+      # a SECOND idle tick (past the transition) really is a hard [] — no log,
+      # no mouse actions of any kind whatsoever.
+      {l2, actions2} =
+        Logic.step(l, Map.put(cursor_obs(), :battle_creatures?, false), 200)
+
+      assert actions2 == []
+      assert l2.state == :scanning
+      refute l2.targeted?
+    end
+
+    test "the idle log fires exactly once on entering idle, then goes silent on later idle ticks" do
+      obs = Map.put(cursor_obs(), :battle_creatures?, false)
+
+      {l, actions} = Logic.step(scanning(), obs, 100)
+      assert actions == [{:log, "Battle vazia — combate parado (mouse livre pra pesca)"}]
+      assert l.scan_idle?
+
+      # second tick, still empty → no repeated log
+      {l, actions} = Logic.step(l, obs, 200)
+      assert actions == []
+      assert l.scan_idle?
+
+      # third tick, still empty → still silent
+      {_l, actions} = Logic.step(l, obs, 300)
+      assert actions == []
+    end
+
+    test "battle_creatures?: true behaves exactly like the key being absent (existing click behavior)" do
+      explicit_true = Map.put(cursor_obs(), :battle_creatures?, true)
+      key_absent = cursor_obs()
+
+      {l_true, actions_true} = Logic.step(scanning(), explicit_true, 100)
+      {l_absent, actions_absent} = Logic.step(scanning(), key_absent, 100)
+
+      assert actions_true == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
+      assert actions_absent == actions_true
+      assert l_true.pending_verify? == l_absent.pending_verify?
+      refute l_true.targeted?
+      refute l_absent.targeted?
+    end
+
+    test "recovering from idle (creature appears) clears scan_idle? and resumes clicking" do
+      idle_obs = Map.put(cursor_obs(), :battle_creatures?, false)
+      {l, [{:log, _}]} = Logic.step(scanning(), idle_obs, 100)
+      assert l.scan_idle?
+
+      present_obs = Map.put(cursor_obs(), :battle_creatures?, true)
+      {l, actions} = Logic.step(l, present_obs, 200)
+
+      refute l.scan_idle?
+      assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
+    end
+  end
+
   describe "fighting/looting/capturing" do
     def advance_to_fighting do
       {l, []} = Logic.start(Logic.new(config()), 0)
@@ -117,7 +190,7 @@ defmodule Pokex.Bots.Combat.LogicTest do
       refute l.targeted?
       assert l.pending_verify?
       assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
-      assert Logic.needs(l) == [:cursor, :battle_lock]
+      assert Logic.needs(l) == [:cursor, :battle_lock, :battle_creatures?]
     end
 
     test "selection: a fixed red border locks the target" do

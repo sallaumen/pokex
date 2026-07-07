@@ -54,6 +54,16 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
+  # Is there ANY creature in the Battle list right now? PURE VISION on a fresh
+  # screenshot — no clicking involved. Lets Combat.Logic stay IDLE (zero mouse
+  # actions) over an empty list instead of clicking a row every tick and
+  # starving the fishing bot of the shared mouse.
+  defp fetch(:battle_creatures?, calib, _settings) do
+    with {:ok, frame} <- capture_frame(Calibration.battle_body(calib), "battle_creatures.png") do
+      {:ok, Vision.battle_has_creature?(frame)}
+    end
+  end
+
   defp fetch(:hostile, calib, _settings) do
     with {:ok, frame} <- capture_frame(calib.arena_region, "arena.png") do
       case Vision.find_hostile(frame) do

@@ -205,7 +205,9 @@ defmodule Pokex.VisionTest do
       # three green bars (each ~5px tall, wide enough to clear min_run) at rows
       # centered on y 12, 64, 116
       frame =
-        for yrange <- [10..14, 62..66, 114..118], y <- yrange, x <- 0..40,
+        for yrange <- [10..14, 62..66, 114..118],
+            y <- yrange,
+            x <- 0..40,
             reduce: uniform(60, 160, {30, 30, 30}) do
           acc -> put_px(acc, x, y, {40, 200, 60})
         end
@@ -259,6 +261,58 @@ defmodule Pokex.VisionTest do
     test "false with only a little red (a blink or just names)" do
       frame = uniform(60, 60, {30, 30, 30}) |> put_px(1, 1, {255, 0, 0})
       refute Pokex.Vision.target_locked?(frame)
+    end
+  end
+
+  describe "battle_has_creature?/2" do
+    import Pokex.FrameFixtures
+
+    test "true when a scanline holds a consecutive GREEN-dominant run >= min_run" do
+      w = 40
+      # min_run defaults to max(div(w, 4), 4) = 10
+      frame =
+        for x <- 0..9, reduce: uniform(w, 20, {30, 30, 30}) do
+          acc -> put_px(acc, x, 10, {40, 200, 60})
+        end
+
+      assert Vision.battle_has_creature?(frame)
+    end
+
+    test "true when a scanline holds a consecutive RED-dominant run >= min_run" do
+      w = 40
+
+      frame =
+        for x <- 0..9, reduce: uniform(w, 20, {30, 30, 30}) do
+          acc -> put_px(acc, x, 10, {200, 30, 30})
+        end
+
+      assert Vision.battle_has_creature?(frame)
+    end
+
+    test "false on a dark background (well below thresholds)" do
+      refute Vision.battle_has_creature?(uniform(40, 20, {10, 10, 10}))
+    end
+
+    test "false on white/light pixels (names/text, not a bar)" do
+      w = 40
+
+      frame =
+        for x <- 0..(w - 1), reduce: uniform(w, 20, {30, 30, 30}) do
+          acc -> put_px(acc, x, 10, {230, 230, 230})
+        end
+
+      refute Vision.battle_has_creature?(frame)
+    end
+
+    test "false on speckle — isolated matching pixels that never form a run >= min_run" do
+      w = 40
+      # green every other pixel: longest consecutive run is 1, well under min_run (10)
+      frame =
+        for x <- 0..(w - 1)//2, reduce: uniform(w, 20, {30, 30, 30}) do
+          acc -> put_px(acc, x, 10, {40, 200, 60})
+        end
+
+      refute Vision.battle_has_creature?(frame)
     end
   end
 end

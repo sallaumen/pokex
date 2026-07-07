@@ -149,6 +149,52 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
+  test "battle_creatures? is true when the battle body holds a qualifying HP-bar run", %{
+    tmp_dir: tmp
+  } do
+    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+
+    # battle_body of the calib is {700,100,230,200}; at scale 2.0 the frame is
+    # 460×400. Paint a green HP-bar run wide enough to clear the default
+    # min_run (¼ of 460 = 115) on one scanline.
+    body_rows =
+      for y <- 0..399 do
+        for x <- 0..459 do
+          if y == 150 and x in 0..149, do: {40, 200, 60, 255}, else: {20, 20, 20, 255}
+        end
+      end
+
+    body = Pokex.PngFixtures.write!(Path.join(tmp, "body_creature.png"), body_rows)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}]})
+
+    assert {:ok, %{battle_creatures?: true}} =
+             Sensors.Real.observe(
+               [:battle_creatures?],
+               calib(tmp, baseline),
+               Pokex.Settings.defaults()
+             )
+  end
+
+  @tag :tmp_dir
+  test "battle_creatures? is false when the battle body has no qualifying HP-bar run", %{
+    tmp_dir: tmp
+  } do
+    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+
+    body =
+      Pokex.PngFixtures.write!(Path.join(tmp, "body_empty.png"), rows(460, 400, {20, 20, 20}))
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}]})
+
+    assert {:ok, %{battle_creatures?: false}} =
+             Sensors.Real.observe(
+               [:battle_creatures?],
+               calib(tmp, baseline),
+               Pokex.Settings.defaults()
+             )
+  end
+
+  @tag :tmp_dir
   test "propagates rig errors", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:error, :denied}]})

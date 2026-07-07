@@ -277,4 +277,46 @@ defmodule Pokex.Vision do
     {lo, hi} = Enum.min_max(ys)
     div(lo + hi, 2)
   end
+
+  @doc """
+  True when the battle body holds at least one creature, detected by its HP bar:
+  a horizontal scanline carrying a CONSECUTIVE run of >= `min_run` HP-bar-colored
+  pixels — GREEN (`g >= 120 and g >= r + 40 and g >= b + 40`, a healthy bar) OR RED
+  (`r >= 120 and r >= g + 40 and r >= b + 40`, a low-HP bar, or a red target
+  ring/name). The run must be CONTIGUOUS left-to-right on one scanline — unlike
+  `green_row_counts`/`red_band_counts` above, which tally ANY matching pixels
+  anywhere in the row, this resets its running count to zero on every
+  non-matching pixel (and at each row boundary), so thin speckle (isolated
+  matching pixels, or runs shorter than `min_run`) never trips it. Early-exits
+  `true` on the first qualifying scanline — a clearly-populated frame doesn't
+  need to be scanned to the end. Lets combat go IDLE (zero mouse actions) when
+  the Battle list is empty, instead of clicking a row over black space every
+  tick and starving the fishing bot of the shared mouse.
+
+  Options: `:min_run` (¼ of the frame width, min 4).
+  """
+  def battle_has_creature?(%Frame{width: w, rgba: rgba}, opts \\ []) do
+    min_run = Keyword.get(opts, :min_run, max(div(w, 4), 4))
+    bar_run_scan(rgba, 0, w, min_run, 0)
+  end
+
+  # Tracks a CONSECUTIVE run of HP-bar-colored pixels per scanline: the running
+  # count resets to 0 at every row boundary AND whenever a pixel fails the
+  # predicate (a true contiguous run, not a per-row total). Stops the moment a
+  # run reaches min_run.
+  defp bar_run_scan(<<>>, _index, _width, _min_run, _run), do: false
+
+  defp bar_run_scan(<<r, g, b, _a, rest::binary>>, index, width, min_run, run) do
+    run = if rem(index, width) == 0, do: 0, else: run
+    run = if hp_bar_px?(r, g, b), do: run + 1, else: 0
+
+    if run >= min_run,
+      do: true,
+      else: bar_run_scan(rest, index + 1, width, min_run, run)
+  end
+
+  defp hp_bar_px?(r, g, b) do
+    (g >= 120 and g >= r + 40 and g >= b + 40) or
+      (r >= 120 and r >= g + 40 and r >= b + 40)
+  end
 end

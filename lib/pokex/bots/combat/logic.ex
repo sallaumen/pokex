@@ -31,6 +31,7 @@ defmodule Pokex.Bots.Combat.Logic do
             walk_taken: [],
             loot_offset: nil,
             loot_presses_left: 0,
+            scan_idle?: false,
             failures: 0,
             error: nil,
             counters: %{fights: 0, loots: 0, captures: 0, failures: 0}
@@ -77,7 +78,7 @@ defmodule Pokex.Bots.Combat.Logic do
   # Both selection ticks read the lock: the pre-click tick so it can notice a
   # target that's ALREADY locked (and attack instead of clicking again, which
   # would deselect it), and the verify tick to confirm the click landed a lock.
-  def needs(%__MODULE__{state: :scanning}), do: [:cursor, :battle_lock]
+  def needs(%__MODULE__{state: :scanning}), do: [:cursor, :battle_lock, :battle_creatures?]
 
   # While attacking, the red target border IS the fight: keep re-reading the
   # per-row lock every tick so the committed row's vanished band (target dead)
@@ -123,6 +124,17 @@ defmodule Pokex.Bots.Combat.Logic do
     min = logic.config.target_locked_min_pixels
 
     cond do
+      # Empty Battle list → stay IDLE with ZERO mouse actions, so fishing keeps the
+      # shared mouse. Detected by a capture-only HP-bar read (no click), so combat
+      # never thrashes the mouse over black space. Log ONCE on entering idle.
+      not battle_creatures?(obs) ->
+        log =
+          if logic.scan_idle?,
+            do: [],
+            else: [{:log, "Battle vazia — combate parado (mouse livre pra pesca)"}]
+
+        {advance(%{logic | select_idx: 0, scan_idle?: true}, :scanning, now), log}
+
       # THIS row's ring is ALREADY up (this click's lock rendered late, or the row
       # is still selected) → attack it. Clicking again here would deselect it and
       # cancel the fight. Attributing strictly to select_idx's OWN band means a
@@ -136,14 +148,15 @@ defmodule Pokex.Bots.Combat.Logic do
                locked_row: logic.select_idx,
                target_streak: 0,
                lost_streak: 0,
-               verify_attempts: 0
+               verify_attempts: 0,
+               scan_idle?: false
            },
            :fighting,
            now
          ), []}
 
       logic.select_idx >= length(rows) ->
-        {%{logic | select_idx: 0} |> advance(:scanning, now),
+        {%{logic | select_idx: 0, scan_idle?: false} |> advance(:scanning, now),
          [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
 
       true ->
@@ -153,7 +166,13 @@ defmodule Pokex.Bots.Combat.Logic do
         # cursor left on the row reads as "not locked" and the bot skips a live
         # target — the "nenhum alvo atacável" bug. Moving away restores pure red.
         {advance(
-           %{logic | pending_verify?: true, verify_attempts: 0, target_streak: 0},
+           %{
+             logic
+             | pending_verify?: true,
+               verify_attempts: 0,
+               target_streak: 0,
+               scan_idle?: false
+           },
            :scanning,
            now,
            wait: logic.config.wait_target_verify_ms
@@ -493,5 +512,9 @@ defmodule Pokex.Bots.Combat.Logic do
 
   defp battle_lock(obs), do: Map.get(obs, :battle_lock, [])
   defp row_locked?(obs, idx, min), do: Enum.at(battle_lock(obs), idx, 0) >= min
+
+  # Default TRUE when the observation is absent (unit tests that don't set it) so
+  # existing scan/click behavior is unchanged; only an explicit false idles combat.
+  defp battle_creatures?(obs), do: Map.get(obs, :battle_creatures?, true)
   defp any_locked?(obs, min), do: Enum.any?(battle_lock(obs), &(&1 >= min))
 end

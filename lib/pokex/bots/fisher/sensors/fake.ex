@@ -9,7 +9,11 @@ defmodule Pokex.Bots.Fisher.Sensors.Fake do
     glow: false,
     wild: false,
     hostile: nil,
-    battle_lock: [0, 0, 0, 0, 0, 0]
+    battle_lock: [0, 0, 0, 0, 0, 0],
+    # Default TRUE (creature present) so existing scripts that never mention
+    # this key keep exercising the unchanged scan/click path, matching
+    # Combat.Logic's own "absent key => true" contract.
+    battle_creatures?: true
   }
 
   def start_link(script \\ %{}), do: Agent.start_link(fn -> Map.new(script) end, name: __MODULE__)

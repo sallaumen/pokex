@@ -8,6 +8,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       neutral_point: {860, 470},
       battle_first_row: {1466, 138},
       fallback_points: [{800, 400}, {768, 400}, {832, 400}, {800, 368}, {800, 432}],
+      rod_key: "v",
       skill_keys: ["1", "2"],
       tile_size: 32,
       tick_ms_watching: 200,
@@ -75,10 +76,10 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert {^l, []} = Logic.step(l, cursor_obs(), 100)
   end
 
-  test "equipping presses shift+z then casting clicks water" do
+  test "equipping presses the rod key then casting clicks water" do
     {l, actions} = Logic.step(advance_to(:equipping), cursor_obs(), 200)
     assert l.state == :casting
-    assert actions == [{:press, "shift+z"}]
+    assert actions == [{:press, "v"}]
 
     {l, actions} = Logic.step(l, cursor_obs(), 600)
     assert l.state == :watching
@@ -114,7 +115,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     # now a bubble is a real bite → hook
     {l, actions} = Logic.step(settled, Map.put(cursor_obs(), :glow, true), 900)
     assert l.state == :assessing
-    assert actions == [{:press, "shift+z"}]
+    assert actions == [{:press, "v"}]
     assert l.counters.hooked == 1
     assert l.waiting_until == 900 + 1500
   end
@@ -130,7 +131,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
     {l, actions} = Logic.step(l, Map.put(cursor_obs(), :glow, true), 200)
     assert l.state == :assessing
-    assert actions == [{:press, "shift+z"}]
+    assert actions == [{:press, "v"}]
 
     # a lone bubble frame followed by calm resets the streak
     {reset, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 100)

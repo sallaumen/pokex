@@ -66,7 +66,7 @@ defmodule Pokex.Bots.FisherTest do
     assert_receive {:fisher, %{counters: %{captures: 1}}}, 5_000
 
     calls = Pokex.Rig.Fake.calls()
-    assert {:press, "shift+z"} in calls
+    assert {:press, "v"} in calls
     assert {:click, :left, {400, 300}} in calls
     assert {:click, :left, {786, 118}} in calls
     assert {:press, "1"} in calls

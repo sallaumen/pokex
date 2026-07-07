@@ -3,6 +3,7 @@ defmodule Pokex.Settings do
   use GenServer
 
   @defaults %{
+    rod_key: "v",
     skill_keys: ["1", "2", "3"],
     # No delays for now — everything runs as fast as the screen captures allow.
     # A tiny post-success pause (10–50ms) is all that stays, so the game has a

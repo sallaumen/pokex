@@ -10,12 +10,12 @@ defmodule PokexWeb.DiagnosticsLiveTest do
   test "press is delayed then executed through the rig", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/diagnostics")
 
-    view |> element("button[phx-value-combo='shift+z']") |> render_click()
+    view |> element("button[phx-value-combo='v']") |> render_click()
     assert render(view) =~ "em 2s"
 
-    send(view.pid, {:delayed_press, "shift+z"})
-    assert render(view) =~ "press shift+z → :ok"
-    assert Pokex.Rig.Fake.calls() == [{:press, "shift+z"}]
+    send(view.pid, {:delayed_press, "v"})
+    assert render(view) =~ "press v → :ok"
+    assert Pokex.Rig.Fake.calls() == [{:press, "v"}]
   end
 
   test "click goes straight through", %{conn: conn} do

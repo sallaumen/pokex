@@ -177,7 +177,7 @@ defmodule PokexWeb.DiagnosticsLive do
               Teclas <span class="font-normal opacity-50">(2s para focar o jogo)</span>
             </h2>
             <div class="flex flex-wrap gap-2">
-              <button class="btn btn-sm" phx-click="press" phx-value-combo="shift+z">Shift+Z</button>
+              <button class="btn btn-sm" phx-click="press" phx-value-combo="v">Vara (V)</button>
               <button class="btn btn-sm" phx-click="press" phx-value-combo="1">Tecla 1</button>
               <button class="btn btn-sm" phx-click="press" phx-value-combo="2">Tecla 2</button>
             </div>

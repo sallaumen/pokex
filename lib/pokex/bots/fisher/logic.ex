@@ -115,7 +115,8 @@ defmodule Pokex.Bots.Fisher.Logic do
   end
 
   defp do_step(%{state: :equipping} = logic, _obs, now) do
-    {advance(logic, :casting, now, wait: logic.config.wait_after_equip_ms), [{:press, "shift+z"}]}
+    {advance(logic, :casting, now, wait: logic.config.wait_after_equip_ms),
+     [{:press, logic.config.rod_key}]}
   end
 
   defp do_step(%{state: :casting} = logic, _obs, now) do
@@ -138,7 +139,7 @@ defmodule Pokex.Bots.Fisher.Logic do
       logic = update_in(logic.counters.hooked, &(&1 + 1))
 
       {advance(%{logic | glow_streak: 0}, :assessing, now, wait: logic.config.wait_assess_ms),
-       [{:press, "shift+z"}]}
+       [{:press, logic.config.rod_key}]}
     else
       {%{logic | glow_streak: streak}, []}
     end

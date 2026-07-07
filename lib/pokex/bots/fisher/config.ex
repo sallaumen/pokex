@@ -4,6 +4,7 @@ defmodule Pokex.Bots.Fisher.Config do
   alias Pokex.Calibration
 
   @setting_keys [
+    :rod_key,
     :skill_keys,
     :tile_size,
     :tick_ms_watching,

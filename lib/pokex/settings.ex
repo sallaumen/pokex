@@ -78,10 +78,10 @@ defmodule Pokex.Settings do
     target_lock_streak: 2,
     target_lost_streak: 2,
     humanize_max_ms: 0,
-    # Anti-bot: once a bite is confirmed, wait a RANDOM 0..this ms before yanking
-    # the rod, so the pull is neither instant nor on a fixed cadence. Kept short so
-    # it still lands inside the bite window. Only the fishing hook is delayed.
-    hook_delay_max_ms: 450
+    # Anti-bot: wait a RANDOM 0..this ms before each CAST (the rod throw), so the
+    # bot doesn't fish on a fixed cadence. Only the cast is jittered — the hook
+    # pulls immediately once a bite is confirmed, so the bite window isn't missed.
+    cast_delay_max_ms: 450
   }
 
   def defaults, do: @defaults

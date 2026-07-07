@@ -115,6 +115,7 @@ defmodule Pokex.Bots.Fisher do
       end
 
     broadcast_activity(previous, obs, actions)
+    maybe_log_wait(previous, logic)
     if logic.state != previous.state or logic.counters != previous.counters, do: broadcast(logic)
 
     state = %{state | logic: logic}
@@ -143,13 +144,24 @@ defmodule Pokex.Bots.Fisher do
     end)
   end
 
-  # A random 0–max ms pause before each real input, so the cadence looks human
-  # instead of a metronome. Polling ticks emit no actions (only :log/empty), so
-  # this never slows glow detection — only presses/clicks are humanized.
+  # A random 0–max ms pause before a real input, so the cadence looks human
+  # instead of a metronome. When it actually delays (today only the fishing hook),
+  # it announces the pause + duration in the feed so the anti-bot wait is visible.
   defp humanize({:log, _}, _max), do: :ok
 
-  defp humanize(_action, max) when is_integer(max) and max > 0,
-    do: Process.sleep(:rand.uniform(max + 1) - 1)
+  defp humanize(action, max) when is_integer(max) and max > 0 do
+    delay = :rand.uniform(max + 1) - 1
+
+    if delay > 0 do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:fisher_log, "⏳ delay anti-bot #{delay}ms → #{describe_action(action)}"}
+      )
+    end
+
+    Process.sleep(delay)
+  end
 
   defp humanize(_action, _max), do: :ok
 
@@ -181,6 +193,29 @@ defmodule Pokex.Bots.Fisher do
       text -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fisher_log, text})
     end
   end
+
+  # When a state transition arms a meaningful pause, surface it in the feed with
+  # its REASON and duration — so lag/failed-input scenarios are visible: the user
+  # sees WHY and HOW LONG the bot is waiting, not just a silent stall.
+  defp maybe_log_wait(%Logic{state: s}, %Logic{state: s}), do: :ok
+
+  defp maybe_log_wait(_previous, %Logic{waiting_until: until, state: state})
+       when is_integer(until) do
+    ms = max(until - now(), 0)
+    reason = fishing_wait_reason(state)
+
+    if reason && ms >= 100 do
+      Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fisher_log, "⏳ #{reason} (#{ms}ms)"})
+    end
+
+    :ok
+  end
+
+  defp maybe_log_wait(_previous, _logic), do: :ok
+
+  defp fishing_wait_reason(:watching), do: "assentando a água pós-arremesso"
+  defp fishing_wait_reason(:assessing), do: "esperando o peixe teleportar"
+  defp fishing_wait_reason(_), do: nil
 
   defp describe_activity(logic, obs, actions) do
     acts = actions |> Enum.map(&describe_action/1) |> Enum.reject(&is_nil/1) |> Enum.join(" · ")

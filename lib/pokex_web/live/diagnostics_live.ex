@@ -69,7 +69,7 @@ defmodule PokexWeb.DiagnosticsLive do
          {:ok, path} <- Rig.impl().capture(calib.glow_region, "diag_glow.png"),
          {:ok, frame} <- Frame.from_png_file(path) do
       count = Vision.bubble_count(frame)
-      threshold = Settings.get(:glow_threshold) || 60
+      threshold = Settings.get(:glow_threshold) || 500
 
       {:noreply,
        assign(socket,

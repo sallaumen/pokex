@@ -25,8 +25,8 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   @tag :tmp_dir
   test "glow fires when the region is full of bright-cyan bubble pixels", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
-    # 16x16 = 256 cyan pixels, well over the 60 default threshold
-    bubbly = Pokex.PngFixtures.write!(Path.join(tmp, "bubbly.png"), rows(16, 16, {100, 200, 220}))
+    # 24x24 = 576 cyan pixels, over the 500 bite threshold
+    bubbly = Pokex.PngFixtures.write!(Path.join(tmp, "bubbly.png"), rows(24, 24, {100, 200, 220}))
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, bubbly}]})
 

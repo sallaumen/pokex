@@ -17,12 +17,14 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
 
   defp fetch(:cursor, _calib, _settings), do: Rig.impl().cursor_position()
 
-  # The bite shows as bright-cyan bubble rings around the bait; calm water reads
-  # ~0 such pixels (measured in-game: bite ≈ 512, calm = 0). Count them directly —
-  # baseline-free, single-capture, robust to day/night lighting.
+  # A bite is distinguished from the resting line by MAGNITUDE, not calm-vs-spike.
+  # Once cast, the bait's indicator ring pulses continuously (measured: cyan
+  # oscillates ~20-305, never 0) and the cast splash flashes ~250; a real BITE is
+  # far brighter (measured peaks 800-1022). So the threshold sits well above the
+  # resting pulse — only the big bubble burst clears it. Baseline-free, single-capture.
   defp fetch(:glow, calib, settings) do
     with {:ok, frame} <- capture_frame(calib.glow_region, "glow.png") do
-      threshold = settings[:glow_threshold] || 60
+      threshold = settings[:glow_threshold] || 500
       {:ok, Vision.bubble_count(frame) > threshold}
     end
   end

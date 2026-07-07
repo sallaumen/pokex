@@ -25,17 +25,21 @@ defmodule Pokex.Settings do
     # A locked target that hasn't died in this long isn't a real hostile (our own
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,
-    glow_threshold: nil,
+    # Min cyan pixels for a BITE. The bite is separated from the resting bait ring
+    # by magnitude: measured bite peaks 800-1022, resting pulse ≤ ~305, splash ~250.
+    # 500 sits safely between. Tunable via the /diagnostics "Bolhas (ciano)" readout.
+    glow_threshold: 500,
     max_consecutive_failures: 5,
     tile_size: 32,
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,
     auto_capture: true,
-    glow_streak_needed: 2,
-    # The water must read calm for this many CONSECUTIVE glow frames before a cyan
-    # spike is treated as a real bite. An oscillating cast splash keeps interrupting
-    # this run (each crest resets it), while calm water (measured stable 0 for 80
-    # frames) satisfies it in a few hundred ms.
+    # A single bite-magnitude frame (> glow_threshold) hooks: nothing but a real
+    # bite ever clears 500, and the bite's cyan oscillates, so requiring consecutive
+    # frames would risk missing it to sampling aliasing.
+    glow_streak_needed: 1,
+    # Consecutive below-threshold (resting/splash level) frames before a cyan spike
+    # counts as a bite. Guards against a splash that briefly clears glow_threshold.
     calm_streak_needed: 3,
     battle_row_height: 30,
     battle_max_rows: 6,

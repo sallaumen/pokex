@@ -63,7 +63,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
         Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120, 255}))
 
       bright =
-        Pokex.PngFixtures.write!(Path.join(tmp, "bright.png"), rows(16, 16, {200, 220, 255, 255}))
+        Pokex.PngFixtures.write!(Path.join(tmp, "bright.png"), rows(24, 24, {200, 220, 255, 255}))
 
       Pokex.Calibration.save(%Pokex.Calibration{
         scale: 2.0,

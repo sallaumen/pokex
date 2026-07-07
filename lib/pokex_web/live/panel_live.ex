@@ -25,6 +25,7 @@ defmodule PokexWeb.PanelLive do
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
        auto_capture: Settings.get(:auto_capture),
+       skill_order: Enum.join(Settings.get(:skill_keys), " "),
        logs: []
      )}
   end
@@ -64,6 +65,15 @@ defmodule PokexWeb.PanelLive do
 
     Settings.put(:glow_threshold, value)
     {:noreply, assign(socket, threshold: value)}
+  end
+
+  def handle_event("save_skills", %{"skills" => raw}, socket) do
+    # Priority order, strongest first. The attack loop cycles these in order; a
+    # skill on cooldown is a harmless no-op in the game, so the ready ones fire.
+    keys = String.split(raw, ~r/[\s,]+/, trim: true)
+    keys = if keys == [], do: Settings.get(:skill_keys), else: keys
+    Settings.put(:skill_keys, keys)
+    {:noreply, assign(socket, skill_order: Enum.join(keys, " "))}
   end
 
   def handle_event("toggle_capture", _params, socket) do
@@ -200,6 +210,23 @@ defmodule PokexWeb.PanelLive do
                 value={@threshold}
                 placeholder="sugerido"
                 class="input input-bordered input-sm w-28"
+              />
+              <button class="btn btn-sm btn-primary">Salvar</button>
+            </form>
+          </div>
+
+          <div class="border-t border-base-content/10 pt-4">
+            <h2 class="text-sm font-semibold">Ordem das skills</h2>
+            <p class="text-xs opacity-60">
+              Prioridade de ataque, as mais fortes primeiro. Ele percorre nesta ordem;
+              skill em cooldown o jogo ignora. Ex.: <code class="font-mono">7 6 5 4 3 2 1</code>.
+            </p>
+            <form id="skills-form" phx-submit="save_skills" class="mt-2 flex items-center gap-2">
+              <input
+                name="skills"
+                value={@skill_order}
+                placeholder="1 2 3"
+                class="input input-bordered input-sm w-40"
               />
               <button class="btn btn-sm btn-primary">Salvar</button>
             </form>

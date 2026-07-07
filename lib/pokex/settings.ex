@@ -42,12 +42,6 @@ defmodule Pokex.Settings do
     # Consecutive below-threshold (resting/splash level) frames before a cyan spike
     # counts as a bite. Guards against a splash that briefly clears glow_threshold.
     calm_streak_needed: 3,
-    # Auto-recovery from a dropped equip/cast press: with the line in the water the
-    # bait ring reads 69+ cyan; with NO line the region is just navy water (~0-2).
-    # line_present_min splits them; after line_absent_needed frames with no ring the
-    # cast never landed, so re-focus + re-cast instead of spinning the 30s timeout.
-    line_present_min: 40,
-    line_absent_needed: 8,
     battle_row_height: 30,
     battle_max_rows: 6,
     # After clicking a Battle row the game takes ~200ms to DRAW the red target

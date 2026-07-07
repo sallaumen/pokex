@@ -30,7 +30,6 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       auto_capture: true,
       glow_streak_needed: 1,
       calm_streak_needed: 1,
-      line_absent_needed: 3,
       wait_target_verify_ms: 5,
       target_locked_min_pixels: 40,
       target_lock_streak: 1,
@@ -195,40 +194,6 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
     {two, []} = Logic.step(one, Map.put(cursor_obs(), :glow, false), 200)
     assert two.settled?
-  end
-
-  test "watching: re-casts when the line never landed (no bait ring for N frames)" do
-    cfg = Map.put(config(), :line_absent_needed, 3)
-    # settled, calm — but line?: false means NO bait ring (a dropped equip/cast)
-    watching = %Logic{state: :watching, config: cfg, entered_at: 0, settled?: true}
-    absent = %{cursor: {500, 500}, glow: false, line?: false}
-
-    {a, []} = Logic.step(watching, absent, 100)
-    assert a.state == :watching
-    assert a.absent_streak == 1
-
-    {b, []} = Logic.step(a, absent, 200)
-    assert b.absent_streak == 2
-
-    {c, [{:log, msg}]} = Logic.step(b, absent, 300)
-    assert c.state == :focusing
-    assert msg =~ "sem isca"
-  end
-
-  test "watching: a frame with the bait ring resets the line-absent run" do
-    cfg = Map.put(config(), :line_absent_needed, 3)
-
-    watching = %Logic{
-      state: :watching,
-      config: cfg,
-      entered_at: 0,
-      settled?: true,
-      absent_streak: 2
-    }
-
-    {l, []} = Logic.step(watching, %{cursor: {500, 500}, glow: false, line?: true}, 100)
-    assert l.state == :watching
-    assert l.absent_streak == 0
   end
 
   test "watching: a splash crest resets the calm run before settling" do

@@ -21,7 +21,6 @@ defmodule Pokex.Bots.Fisher.Logic do
             lost_streak: 0,
             glow_streak: 0,
             calm_streak: 0,
-            absent_streak: 0,
             settled?: false,
             walk_plan: [],
             walk_taken: [],
@@ -141,15 +140,13 @@ defmodule Pokex.Bots.Fisher.Logic do
     # real bite. Settling now requires N CONSECUTIVE calm frames (not one), so an
     # oscillating splash can't latch it. The settle-wait skips the bulk of the
     # splash up front.
-    {advance(
-       %{logic | glow_streak: 0, calm_streak: 0, absent_streak: 0, settled?: false},
-       :watching,
-       now, wait: logic.config.wait_cast_settle_ms), [{:click, :left, logic.config.water_point}]}
+    {advance(%{logic | glow_streak: 0, calm_streak: 0, settled?: false}, :watching, now,
+       wait: logic.config.wait_cast_settle_ms
+     ), [{:click, :left, logic.config.water_point}]}
   end
 
   # Bubbles AND the water already settled (splash gone) → a real bite. Require N
-  # consecutive frames so a lone flicker doesn't hook. A bite means the line IS in
-  # the water, so the line-absent counter resets.
+  # consecutive frames so a lone flicker doesn't hook.
   defp do_step(%{state: :watching, settled?: true} = logic, %{glow: true}, now) do
     streak = logic.glow_streak + 1
 
@@ -159,28 +156,28 @@ defmodule Pokex.Bots.Fisher.Logic do
       {advance(%{logic | glow_streak: 0}, :assessing, now, wait: logic.config.wait_assess_ms),
        [{:press, logic.config.rod_key}]}
     else
-      {%{logic | glow_streak: streak, absent_streak: 0}, []}
+      {%{logic | glow_streak: streak}, []}
     end
   end
 
   # Cyan while NOT yet settled = a splash crest → ignore it AND reset the calm
   # run, so an oscillating splash can never accumulate toward "settled".
   defp do_step(%{state: :watching, settled?: false} = logic, %{glow: true}, now) do
-    recast_if_timed_out(%{logic | glow_streak: 0, calm_streak: 0, absent_streak: 0}, now)
+    recast_if_timed_out(%{logic | glow_streak: 0, calm_streak: 0}, now)
   end
 
-  # Calm frame while ALREADY settled → keep settled, reset the bite debounce, and
-  # let watch_calm check whether the line is even in the water.
-  defp do_step(%{state: :watching, settled?: true} = logic, obs, now) do
-    watch_calm(%{logic | glow_streak: 0}, obs, now)
+  # Calm frame while ALREADY settled → normal calm during the watch: keep
+  # settled, reset only the bite debounce.
+  defp do_step(%{state: :watching, settled?: true} = logic, _obs, now) do
+    recast_if_timed_out(%{logic | glow_streak: 0}, now)
   end
 
-  # Calm frame while NOT yet settled → accumulate the consecutive-calm run to latch
-  # settled?, and let watch_calm track line-present.
-  defp do_step(%{state: :watching, settled?: false} = logic, obs, now) do
+  # Calm frame while NOT yet settled → accumulate the consecutive-calm run;
+  # latch settled? only once it reaches calm_streak_needed (splash gone).
+  defp do_step(%{state: :watching, settled?: false} = logic, _obs, now) do
     calm = logic.calm_streak + 1
     settled? = calm >= logic.config.calm_streak_needed
-    watch_calm(%{logic | glow_streak: 0, calm_streak: calm, settled?: settled?}, obs, now)
+    recast_if_timed_out(%{logic | glow_streak: 0, calm_streak: calm, settled?: settled?}, now)
   end
 
   # A real bubble-bite ALWAYS yields a pokemon (there's no "caught nothing"), so
@@ -558,27 +555,6 @@ defmodule Pokex.Bots.Fisher.Logic do
   defp advance(logic, state, now, opts \\ []) do
     wait = Keyword.get(opts, :wait)
     %{logic | state: state, entered_at: now, waiting_until: wait && now + wait}
-  end
-
-  # A calm watch frame. `line?` (from the driver) is false when the region shows
-  # NO bait ring at all (count below line_present_min) — i.e. the line isn't in
-  # the water because the equip/cast press was dropped by a lag. If that persists
-  # for line_absent_needed frames, re-focus and re-cast early instead of spinning
-  # the whole 30s watch_timeout doing nothing. Any frame with the ring (or a bite)
-  # resets the run. Absent from obs (Fake sensor) ⇒ assume present, no-op.
-  defp watch_calm(logic, obs, now) do
-    if Map.get(obs, :line?, true) do
-      recast_if_timed_out(%{logic | absent_streak: 0}, now)
-    else
-      absent = logic.absent_streak + 1
-
-      if absent >= logic.config.line_absent_needed do
-        {advance(%{logic | absent_streak: 0}, :focusing, now),
-         [{:log, "sem isca na água (#{absent}x) — re-arremessando"}]}
-      else
-        recast_if_timed_out(%{logic | absent_streak: absent}, now)
-      end
-    end
   end
 
   defp recast_if_timed_out(logic, now) do

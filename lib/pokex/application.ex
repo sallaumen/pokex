@@ -14,7 +14,6 @@ defmodule Pokex.Application do
       # Start a worker by calling: Pokex.Worker.start_link(arg)
       # {Pokex.Worker, arg},
       Pokex.Settings,
-      Pokex.Bots.Supervisor,
       Pokex.Bots.BotSupervisor,
       # Start to serve requests, typically the last entry
       PokexWeb.Endpoint

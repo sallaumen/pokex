@@ -5,9 +5,9 @@ defmodule Pokex.Bots.BotSupervisor do
   All four children start idle — nothing moves the mouse until `start_all/0`
   is called.
 
-  `start_all/0` / `stop_all/0` / `status/0` fan out to the two workers, the
-  same shape the UI already gets from today's `Fisher` (`:ok | {:error,
-  messages}`), so callers don't need to special-case which bot is behind it.
+  `start_all/0` / `stop_all/0` / `status/0` fan out to the two workers with a
+  uniform shape (`:ok | {:error, messages}`), so callers don't need to
+  special-case which bot is behind it.
 
   Registers its children under fixed default names (`Pokex.Bots.Body`,
   `Pokex.Bots.Guardian`, `Pokex.Bots.Fishing.Worker`,

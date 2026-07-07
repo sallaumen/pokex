@@ -18,6 +18,7 @@ defmodule PokexWeb.Router do
     pipe_through :browser
 
     get "/captures/:name", CapturesController, :show
+    get "/exports/:name", ExportsController, :show
 
     live_session :pokex do
       live "/", PanelLive

@@ -1,0 +1,89 @@
+defmodule Pokex.Bots.GuardianTest.FakeBody do
+  # Minimal Body double: only implements what Guardian consumes (cursor/1),
+  # scripted with a fixed reply. Scoped to this test file.
+  use GenServer
+
+  def start_link(reply), do: GenServer.start_link(__MODULE__, reply)
+
+  def set_reply(server, reply), do: GenServer.call(server, {:set_reply, reply})
+
+  def cursor(server), do: GenServer.call(server, :cursor)
+
+  @impl true
+  def init(reply), do: {:ok, reply}
+
+  @impl true
+  def handle_call(:cursor, _from, reply), do: {:reply, reply, reply}
+  def handle_call({:set_reply, reply}, _from, _state), do: {:reply, :ok, reply}
+end
+
+defmodule Pokex.Bots.GuardianTest do
+  use ExUnit.Case, async: true
+
+  alias Pokex.Bots.Guardian
+  alias Pokex.Bots.GuardianTest.FakeBody
+
+  setup do
+    test = self()
+    on_panic = fn -> send(test, :panicked) end
+    %{on_panic: on_panic}
+  end
+
+  test "a cursor in the kill corner triggers on_panic", %{on_panic: on_panic} do
+    {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
+
+    {:ok, _guardian} =
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+    assert_receive :panicked, 500
+  end
+
+  test "a safe cursor position never triggers on_panic", %{on_panic: on_panic} do
+    {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
+
+    {:ok, _guardian} =
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+    refute_receive :panicked, 100
+  end
+
+  test "an error reading the cursor reschedules without firing", %{on_panic: on_panic} do
+    {:ok, body} = FakeBody.start_link({:error, :not_ready})
+
+    {:ok, _guardian} =
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+    refute_receive :panicked, 100
+
+    # once the body starts reporting the corner, the still-running poll loop
+    # catches it — proving the earlier error rescheduled instead of crashing
+    # the loop or wedging it.
+    FakeBody.set_reply(body, {:ok, {0, 0}})
+    assert_receive :panicked, 500
+  end
+
+  test "broadcasts {:panic, \"kill corner\"} on both the fishing and combat topics" do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "fishing")
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
+    on_panic = fn -> :ok end
+
+    {:ok, _guardian} =
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+    assert_receive {:panic, "kill corner"}, 500
+    assert_receive {:panic, "kill corner"}, 500
+  end
+
+  test "defaults: registers as Pokex.Bots.Guardian, polls every 100ms against Pokex.Bots.Body" do
+    on_panic = fn -> :ok end
+    {:ok, guardian} = Guardian.start_link(on_panic: on_panic)
+
+    assert Process.whereis(Pokex.Bots.Guardian) == guardian
+
+    state = :sys.get_state(guardian)
+    assert state.poll_ms == 100
+    assert state.body == Pokex.Bots.Body
+  end
+end

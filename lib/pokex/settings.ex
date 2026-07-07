@@ -26,10 +26,11 @@ defmodule Pokex.Settings do
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,
     # Min cyan pixels for a BITE. The bite bubbles flash ON/OFF frame-to-frame
-    # (measured 2..1513 during one bite) but their PEAKS hit 700-1500, while the
-    # resting bait ring never exceeds ~480. 800 sits above the resting ceiling, so
-    # only a real bubble burst clears it. Tunable via /diagnostics "Bolhas (ciano)".
-    glow_threshold: 800,
+    # (measured 2..1513 during one bite) but their PEAKS hit 1000-1500, while the
+    # resting bait ring pulses higher than first thought — 800 still let resting
+    # frames through as false bites. 1000 clears the resting ceiling with margin;
+    # only a real bubble burst reaches it. Tunable via /diagnostics "Bolhas (ciano)".
+    glow_threshold: 1000,
     max_consecutive_failures: 5,
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,

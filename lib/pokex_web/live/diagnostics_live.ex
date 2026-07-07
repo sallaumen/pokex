@@ -153,8 +153,8 @@ defmodule PokexWeb.DiagnosticsLive do
       {:noreply,
        assign(socket,
          msg:
-           "barras de HP (frame-y): #{inspect(detected)} · bandas calibradas (centro): " <>
-             "#{inspect(calibrated)} — se não baterem, a Battle está torta"
+           "barras de HP (frame-y): #{inspect(detected, charlists: :as_lists)} · bandas " <>
+             "calibradas (centro): #{inspect(calibrated)} — se não baterem, a Battle está torta"
        )}
     else
       error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
@@ -414,7 +414,10 @@ defmodule PokexWeb.DiagnosticsLive do
             <span>
               captura da Batalha: <b>{elem(@xray.body_px, 0)}×{elem(@xray.body_px, 1)}px</b>
             </span>
-            <span>vermelho: <b>{@xray.body_reds}px</b> · barras HP: <b>{inspect(@xray.body_bars)}</b></span>
+            <span>
+              vermelho: <b>{@xray.body_reds}px</b>
+              · barras HP: <b>{inspect(@xray.body_bars, charlists: :as_lists)}</b>
+            </span>
           </div>
 
           <div>

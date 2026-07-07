@@ -48,7 +48,7 @@ defmodule Pokex.Bots.Fisher do
          {:ok, calib} <- Calibration.load() do
       config = Config.build(calib, Settings.all())
       {logic, actions} = start_fun.(Logic.new(config), now())
-      execute_all(actions, config.humanize_max_ms)
+      execute_all(actions, {0, config.humanize_max_ms})
       broadcast(logic)
       {:reply, :ok, %{state | logic: logic, calib: calib} |> reschedule(0)}
     else
@@ -127,16 +127,21 @@ defmodule Pokex.Bots.Fisher do
     end
   end
 
-  # Anti-bot: the CAST (the rod throw, emitted while casting) gets its own random
-  # delay so casts aren't on a fixed cadence; the hook itself pulls immediately so
-  # the bite window isn't missed, and every other state uses the global humanize
-  # (0 by default), leaving combat's own timing untouched.
-  defp humanize_max_for(%Logic{state: :casting, config: c}), do: c.cast_delay_max_ms
-  defp humanize_max_for(%Logic{config: c}), do: c.humanize_max_ms
+  # Anti-bot delay windows {min, max} ms per state. The CAST gets a 0..max jitter
+  # so casts aren't on a fixed cadence; the HOOK gets a min..max wait before the
+  # pull (the bubbles flash until we pull, so a human 0.5-1s reaction is safe and
+  # non-robotic); every other state uses the global humanize (0), leaving combat's
+  # own timing untouched.
+  defp humanize_max_for(%Logic{state: :casting, config: c}), do: {0, c.cast_delay_max_ms}
 
-  defp execute_all(actions, max_ms) do
+  defp humanize_max_for(%Logic{state: :watching, config: c}),
+    do: {c.hook_delay_min_ms, c.hook_delay_max_ms}
+
+  defp humanize_max_for(%Logic{config: c}), do: {0, c.humanize_max_ms}
+
+  defp execute_all(actions, window) do
     Enum.reduce_while(actions, :ok, fn action, :ok ->
-      humanize(action, max_ms)
+      humanize(action, window)
 
       case execute(action) do
         :ok -> {:cont, :ok}
@@ -145,13 +150,14 @@ defmodule Pokex.Bots.Fisher do
     end)
   end
 
-  # A random 0–max ms pause before a real input, so the cadence looks human
-  # instead of a metronome. When it actually delays (today only the cast throw),
-  # it announces the pause + duration in the feed so the anti-bot wait is visible.
-  defp humanize({:log, _}, _max), do: :ok
+  # A random min..max ms pause before a real input, so the cadence looks human
+  # instead of a metronome. When it actually delays (cast jitter or hook wait), it
+  # announces the pause + duration in the feed so the anti-bot wait is visible.
+  defp humanize({:log, _}, _window), do: :ok
 
-  defp humanize(action, max) when is_integer(max) and max > 0 do
-    delay = :rand.uniform(max + 1) - 1
+  defp humanize(action, {lo, hi}) when hi > 0 do
+    lo = lo |> max(0) |> min(hi)
+    delay = lo + :rand.uniform(hi - lo + 1) - 1
 
     if delay > 0 do
       Phoenix.PubSub.broadcast(
@@ -164,7 +170,7 @@ defmodule Pokex.Bots.Fisher do
     Process.sleep(delay)
   end
 
-  defp humanize(_action, _max), do: :ok
+  defp humanize(_action, _window), do: :ok
 
   defp execute({:press, key}), do: Rig.impl().press(key)
   defp execute({:click, button, point}), do: Rig.impl().click(button, point)

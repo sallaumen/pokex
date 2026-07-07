@@ -78,10 +78,15 @@ defmodule Pokex.Settings do
     target_lock_streak: 2,
     target_lost_streak: 2,
     humanize_max_ms: 0,
-    # Anti-bot: wait a RANDOM 0..this ms before each CAST (the rod throw), so the
-    # bot doesn't fish on a fixed cadence. Only the cast is jittered — the hook
-    # pulls immediately once a bite is confirmed, so the bite window isn't missed.
-    cast_delay_max_ms: 450
+    # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the
+    # bot doesn't fish on a perfectly fixed cadence.
+    cast_delay_max_ms: 450,
+    # Anti-bot: once a bite is confirmed, wait a RANDOM hook_delay_min..max ms
+    # before pulling. The bubbles keep flashing until we pull — the bite window
+    # NEVER closes — so a human-like 0.5-1s reaction is safe AND avoids a robotic
+    # instant yank.
+    hook_delay_min_ms: 500,
+    hook_delay_max_ms: 1000
   }
 
   def defaults, do: @defaults

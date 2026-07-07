@@ -21,7 +21,10 @@ defmodule Pokex.Bots.FisherTest do
     target_lock_streak: 1,
     tile_px: 32,
     walk_step_ms: 5,
-    humanize_max_ms: 0
+    humanize_max_ms: 0,
+    cast_delay_max_ms: 0,
+    hook_delay_min_ms: 0,
+    hook_delay_max_ms: 0
   }
 
   setup %{tmp_dir: tmp} do

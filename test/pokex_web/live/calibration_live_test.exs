@@ -111,5 +111,12 @@ defmodule PokexWeb.CalibrationLiveTest do
     # battle_region left = 70/100 = 70%; arena left = 20/100 = 20%
     assert html =~ "left:70.0%"
     assert html =~ "left:20.0%"
+
+    # the per-row lock bands (red) and the player marker are the new, diagnostic
+    # overlays — each battle row gets an L<i> band, and the player point is drawn
+    assert html =~ "bandas do lock"
+    assert html =~ "L0"
+    assert html =~ "L5"
+    assert html =~ ~s(title="player")
   end
 end

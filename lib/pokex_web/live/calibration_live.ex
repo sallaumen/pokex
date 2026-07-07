@@ -1,8 +1,10 @@
 defmodule PokexWeb.CalibrationLive do
   use PokexWeb, :live_view
 
-  alias Pokex.{Calibration, Home, Rig, Vision}
+  alias Pokex.{Calibration, Home, Rig, Settings, Vision}
   alias Pokex.Vision.Frame
+
+  import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
 
   @baseline_count 10
   @glow_half 32
@@ -33,7 +35,9 @@ defmodule PokexWeb.CalibrationLive do
        done: false,
        calibrated?: Calibration.exists?(),
        review: nil,
-       error: nil
+       error: nil,
+       row_height: Settings.get(:battle_row_height),
+       max_rows: Settings.get(:battle_max_rows)
      )}
   end
 
@@ -212,81 +216,15 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  # Percentage-based positioning of a point/region over the full-screen image.
-  defp point_style({x, y}, %{w: w, h: h}), do: "left:#{x / w * 100}%;top:#{y / h * 100}%"
+  # Preview bands over the draft battle_region as the user marks it, so drift is
+  # visible before saving. Empty until the battle corners are placed.
+  defp draft_bands(%{battle_region: region}, scale, row_height, rows),
+    do: Calibration.battle_row_bands(region, scale, row_height, rows)
 
-  defp region_style({x, y, rw, rh}, %{w: w, h: h}),
-    do: "left:#{x / w * 100}%;top:#{y / h * 100}%;width:#{rw / w * 100}%;height:#{rh / h * 100}%"
+  defp draft_bands(_draft, _scale, _row_height, _rows), do: []
 
-  attr :screen, :map, required: true
-  attr :water_point, :any, default: nil
-  attr :glow_region, :any, default: nil
-  attr :battle_region, :any, default: nil
-  attr :arena_region, :any, default: nil
-  attr :neutral_point, :any, default: nil
-
-  defp overlays(assigns) do
-    ~H"""
-    <div
-      :if={@glow_region}
-      class="absolute rounded border-2 border-info bg-info/10"
-      style={region_style(@glow_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content">
-        brilho
-      </span>
-    </div>
-    <div
-      :if={@battle_region}
-      class="absolute rounded border-2 border-warning bg-warning/10"
-      style={region_style(@battle_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-warning px-1 text-[10px] font-bold text-warning-content">
-        Battle
-      </span>
-    </div>
-    <div
-      :if={@arena_region}
-      class="absolute rounded border-2 border-success bg-success/10"
-      style={region_style(@arena_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-success px-1 text-[10px] font-bold text-success-content">
-        arena
-      </span>
-    </div>
-    <div
-      :if={@water_point}
-      class="absolute -ml-1.5 -mt-1.5 size-3 rounded-full border-2 border-white bg-info shadow"
-      style={point_style(@water_point, @screen)}
-      title="água"
-    />
-    <div
-      :if={@neutral_point}
-      class="absolute -ml-1.5 -mt-1.5 size-3 rounded-full border-2 border-white bg-neutral shadow"
-      style={point_style(@neutral_point, @screen)}
-      title="neutro"
-    />
-    """
-  end
-
-  defp legend(assigns) do
-    ~H"""
-    <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-      <span class="flex items-center gap-1">
-        <span class="size-2.5 rounded-full bg-info" /> água + brilho
-      </span>
-      <span class="flex items-center gap-1">
-        <span class="size-2.5 rounded-sm border-2 border-warning" /> janela Battle
-      </span>
-      <span class="flex items-center gap-1">
-        <span class="size-2.5 rounded-sm border-2 border-success" /> arena
-      </span>
-      <span class="flex items-center gap-1">
-        <span class="size-2.5 rounded-full bg-neutral" /> ponto neutro
-      </span>
-    </div>
-    """
-  end
+  defp draft_player(%{arena_region: region}), do: Calibration.player_point(region)
+  defp draft_player(_draft), do: nil
 
   @impl true
   def render(assigns) do
@@ -325,6 +263,8 @@ defmodule PokexWeb.CalibrationLive do
               battle_region={@review.calib.battle_region}
               arena_region={@review.calib.arena_region}
               neutral_point={@review.calib.neutral_point}
+              player_point={Calibration.player_point(@review.calib)}
+              bands={Calibration.battle_row_bands(@review.calib, @row_height, @max_rows)}
             />
           </div>
         </div>
@@ -398,6 +338,8 @@ defmodule PokexWeb.CalibrationLive do
               battle_region={@draft[:battle_region]}
               arena_region={@draft[:arena_region]}
               neutral_point={@draft[:neutral_point]}
+              player_point={draft_player(@draft)}
+              bands={draft_bands(@draft, @scale, @row_height, @max_rows)}
             />
           </div>
         </div>

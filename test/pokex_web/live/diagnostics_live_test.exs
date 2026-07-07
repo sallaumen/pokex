@@ -59,6 +59,13 @@ defmodule PokexWeb.DiagnosticsLiveTest do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
+      # Pin the bite threshold below the 576-px bright fixture so "mordida? true"
+      # is deterministic. Settings is a shared named GenServer, so without this the
+      # test silently rode on whatever glow_threshold an earlier test file left
+      # behind — passing or failing purely on run order. Restore the default after.
+      Pokex.Settings.put(:glow_threshold, 15.0)
+      on_exit(fn -> Pokex.Settings.put(:glow_threshold, Pokex.Settings.defaults().glow_threshold) end)
+
       baseline =
         Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120, 255}))
 

@@ -4,6 +4,7 @@ defmodule PokexWeb.DiagnosticsLive do
   alias Pokex.Rig
   alias Pokex.{Calibration, Settings, Vision}
   alias Pokex.Vision.Frame
+  alias PokexWeb.CalibrationOverlay
 
   @impl true
   def mount(_params, _session, socket) do
@@ -12,6 +13,7 @@ defmodule PokexWeb.DiagnosticsLive do
        page_title: "Diagnóstico",
        msg: nil,
        capture_src: nil,
+       preview: nil,
        calibrated?: Calibration.exists?()
      )}
   end
@@ -138,6 +140,23 @@ defmodule PokexWeb.DiagnosticsLive do
     end
   end
 
+  def handle_event("preview_regions", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, screen} <- grab_screen() do
+      {:noreply,
+       assign(socket,
+         preview: Map.put(screen, :calib, calib),
+         msg: "preview das áreas calibradas — vermelho = bandas do lock (L0…)"
+       )}
+    else
+      error -> {:noreply, assign(socket, msg: "erro no preview: #{inspect(error)}")}
+    end
+  end
+
+  def handle_event("close_preview", _params, socket) do
+    {:noreply, assign(socket, preview: nil)}
+  end
+
   @impl true
   def handle_info({:delayed_press, combo}, socket) do
     {:noreply, assign(socket, msg: "press #{combo} → #{inspect(Rig.impl().press(combo))}")}
@@ -146,6 +165,25 @@ defmodule PokexWeb.DiagnosticsLive do
   def handle_info({:delayed_seq, point}, socket) do
     {:noreply,
      assign(socket, msg: "capture_sequence → #{inspect(Rig.impl().capture_sequence(point))}")}
+  end
+
+  # Probe a 100x100 region for the Retina scale, then grab the full screen — same
+  # recipe as CalibrationLive, so the preview lines up 1:1 with the saved points.
+  defp grab_screen do
+    with {:ok, probe_path} <- Rig.impl().capture({0, 0, 100, 100}, "diag_scale_probe.png"),
+         {:ok, {probe_px, _}} <- Frame.png_dimensions(probe_path),
+         {:ok, screen_path} <- Rig.impl().capture_screen(),
+         {:ok, {px_w, px_h}} <- Frame.png_dimensions(screen_path) do
+      scale = probe_px / 100
+
+      {:ok,
+       %{
+         src: "/captures/#{Path.basename(screen_path)}?t=#{System.unique_integer([:positive])}",
+         scale: scale,
+         w: round(px_w / scale),
+         h: round(px_h / scale)
+       }}
+    end
   end
 
   defp parse_ints(values) do
@@ -245,6 +283,35 @@ defmodule PokexWeb.DiagnosticsLive do
             <button class="btn btn-sm" phx-click="find_hostile">Procurar nome vermelho</button>
             <button class="btn btn-sm" phx-click="wild_check">Pokébola presente?</button>
             <button class="btn btn-sm" phx-click="target_locked">Alvo travado?</button>
+            <button class="btn btn-sm btn-primary" phx-click="preview_regions">
+              <.icon name="hero-eye" class="size-4" /> Preview das áreas
+            </button>
+          </div>
+        </section>
+
+        <section
+          :if={@preview}
+          class="space-y-3 rounded-xl border border-base-content/10 bg-base-200 p-4"
+        >
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold">
+              Áreas calibradas <span class="font-normal opacity-50">(vermelho = bandas do lock)</span>
+            </h2>
+            <button class="btn btn-ghost btn-xs" phx-click="close_preview">Fechar</button>
+          </div>
+          <CalibrationOverlay.legend />
+          <div class="relative overflow-hidden rounded-lg border border-base-content/20">
+            <img src={@preview.src} class="w-full" />
+            <CalibrationOverlay.overlays
+              screen={@preview}
+              water_point={@preview.calib.water_point}
+              glow_region={@preview.calib.glow_region}
+              battle_region={@preview.calib.battle_region}
+              arena_region={@preview.calib.arena_region}
+              neutral_point={@preview.calib.neutral_point}
+              player_point={Calibration.player_point(@preview.calib)}
+              bands={Calibration.battle_row_bands(@preview.calib, Settings.get(:battle_row_height), Settings.get(:battle_max_rows))}
+            />
           </div>
         </section>
 

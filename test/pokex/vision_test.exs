@@ -167,6 +167,52 @@ defmodule Pokex.VisionTest do
     end
   end
 
+  describe "hp_bar_rows/2" do
+    import Pokex.FrameFixtures
+
+    test "returns the center Y of each green HP bar, top to bottom" do
+      # three green bars (each ~5px tall, wide enough to clear min_run) at rows
+      # centered on y 12, 64, 116
+      frame =
+        for yrange <- [10..14, 62..66, 114..118], y <- yrange, x <- 0..40,
+            reduce: uniform(60, 160, {30, 30, 30}) do
+          acc -> put_px(acc, x, y, {40, 200, 60})
+        end
+
+      assert Vision.hp_bar_rows(frame) == [12, 64, 116]
+    end
+
+    test "ignores green runs narrower than min_run (sprite speckle, not a bar)" do
+      frame =
+        for x <- 0..5, reduce: uniform(60, 60, {30, 30, 30}) do
+          acc -> put_px(acc, x, 20, {40, 200, 60})
+        end
+
+      assert Vision.hp_bar_rows(frame) == []
+    end
+
+    test "a bright bar that isn't GREEN-dominant is not an HP bar" do
+      # grayish-white (g barely over r/b) and teal (g not over b by the margin)
+      # both fail — only a true green HP bar counts
+      gray =
+        for x <- 0..40, y <- 10..14, reduce: uniform(60, 40, {30, 30, 30}) do
+          acc -> put_px(acc, x, y, {200, 210, 200})
+        end
+
+      teal =
+        for x <- 0..40, y <- 10..14, reduce: uniform(60, 40, {30, 30, 30}) do
+          acc -> put_px(acc, x, y, {40, 200, 200})
+        end
+
+      assert Vision.hp_bar_rows(gray) == []
+      assert Vision.hp_bar_rows(teal) == []
+    end
+
+    test "no bars → empty list" do
+      assert Vision.hp_bar_rows(uniform(60, 60, {30, 30, 30})) == []
+    end
+  end
+
   describe "target_locked?/2" do
     import Pokex.FrameFixtures
 

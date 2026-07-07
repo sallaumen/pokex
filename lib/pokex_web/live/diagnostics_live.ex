@@ -140,6 +140,26 @@ defmodule PokexWeb.DiagnosticsLive do
     end
   end
 
+  def handle_event("detect_rows", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, path} <- Rig.impl().capture(Calibration.battle_body(calib), "diag_rows.png"),
+         {:ok, frame} <- Frame.from_png_file(path) do
+      detected = Vision.hp_bar_rows(frame)
+      {top, band} = Calibration.row_band_geometry(calib.scale, Settings.get(:battle_row_height))
+      rows = Settings.get(:battle_max_rows)
+      calibrated = for i <- 0..(rows - 1)//1, do: top + i * band + div(band, 2)
+
+      {:noreply,
+       assign(socket,
+         msg:
+           "barras de HP (frame-y): #{inspect(detected)} · bandas calibradas (centro): " <>
+             "#{inspect(calibrated)} — se não baterem, a Battle está torta"
+       )}
+    else
+      error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
+    end
+  end
+
   def handle_event("preview_regions", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
          {:ok, screen} <- grab_screen() do
@@ -283,6 +303,7 @@ defmodule PokexWeb.DiagnosticsLive do
             <button class="btn btn-sm" phx-click="find_hostile">Procurar nome vermelho</button>
             <button class="btn btn-sm" phx-click="wild_check">Pokébola presente?</button>
             <button class="btn btn-sm" phx-click="target_locked">Alvo travado?</button>
+            <button class="btn btn-sm" phx-click="detect_rows">Detectar fileiras (HP)</button>
             <button class="btn btn-sm btn-primary" phx-click="preview_regions">
               <.icon name="hero-eye" class="size-4" /> Preview das áreas
             </button>

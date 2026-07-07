@@ -210,4 +210,63 @@ defmodule Pokex.Vision do
     do: pokeball_row_counts(rest, index + 1, width, band, acc)
 
   defp pokeball_row_counts(<<>>, _index, _width, _band, acc), do: acc
+
+  @doc """
+  Center Y (frame pixels, top→bottom) of each battle-list HP bar. Every creature
+  row in the PXG battle list carries a thin horizontal HP bar; detecting the bars
+  gives the EXACT vertical position of every row, so the lock bands can be
+  anchored to real landmarks instead of a hand-marked offset that drifts.
+
+  A bar is a scanline with at least `min_run` GREEN pixels
+  (`g >= min_g and g >= r + margin and g >= b + margin` — green-DOMINANT, so
+  neither grayish sprites nor teal water pass); consecutive green scanlines
+  (a bar is ~5px tall) within `gap` px collapse into one bar and we return the
+  middle of each cluster. Low-HP bars turn red — ambiguous with the lock ring —
+  so this reads the green/healthy bars; call it on a fresh battle list.
+
+  Options: `:min_g` (120), `:margin` (40), `:min_run` (¼ of the frame width,
+  min 4), `:gap` (6).
+  """
+  def hp_bar_rows(%Frame{width: w, height: h, rgba: rgba}, opts \\ []) do
+    min_g = Keyword.get(opts, :min_g, 120)
+    margin = Keyword.get(opts, :margin, 40)
+    min_run = Keyword.get(opts, :min_run, max(div(w, 4), 4))
+    gap = Keyword.get(opts, :gap, 6)
+
+    counts = green_row_counts(rgba, 0, w, min_g, margin, %{})
+
+    0..(h - 1)//1
+    |> Enum.filter(fn y -> Map.get(counts, y, 0) >= min_run end)
+    |> cluster(gap)
+    |> Enum.map(&cluster_center/1)
+  end
+
+  # Clause order matters: the green-predicate clause MUST precede the catch-all.
+  defp green_row_counts(<<r, g, b, _a, rest::binary>>, index, width, min_g, margin, acc)
+       when g >= min_g and g >= r + margin and g >= b + margin do
+    y = div(index, width)
+    green_row_counts(rest, index + 1, width, min_g, margin, Map.update(acc, y, 1, &(&1 + 1)))
+  end
+
+  defp green_row_counts(<<_::32, rest::binary>>, index, width, min_g, margin, acc),
+    do: green_row_counts(rest, index + 1, width, min_g, margin, acc)
+
+  defp green_row_counts(<<>>, _index, _width, _min_g, _margin, acc), do: acc
+
+  # Group an ascending list of Ys, merging neighbours within `gap` into one run.
+  defp cluster([], _gap), do: []
+
+  defp cluster([first | rest], gap) do
+    {done, current} =
+      Enum.reduce(rest, {[], [first]}, fn y, {done, [prev | _] = cur} ->
+        if y - prev <= gap, do: {done, [y | cur]}, else: {[cur | done], [y]}
+      end)
+
+    [current | done] |> Enum.reverse() |> Enum.map(&Enum.reverse/1)
+  end
+
+  defp cluster_center(ys) do
+    {lo, hi} = Enum.min_max(ys)
+    div(lo + hi, 2)
+  end
 end

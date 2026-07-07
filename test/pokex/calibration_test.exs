@@ -31,6 +31,8 @@ defmodule Pokex.CalibrationTest do
   test "derived regions and conversion" do
     calib = sample()
     assert Calibration.battle_strip(calib) == {1610, 120, 30, 220}
+    # body = battle region minus the rightmost pokeball column (30px)
+    assert Calibration.battle_body(calib) == {1380, 120, 230, 220}
     assert Calibration.battle_strip({1380, 120, 260, 220}) == {1610, 120, 30, 220}
     assert Calibration.battle_first_row(calib) == {1466, 138}
     # pixel (100, 50) dentro da arena com scale 2 → +50,+25 points do canto

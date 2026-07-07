@@ -68,6 +68,13 @@ defmodule Pokex.Calibration do
   def battle_strip(%__MODULE__{battle_region: region}), do: battle_strip(region)
   def battle_strip({x, y, w, h}), do: {x + w - @strip_width, y, @strip_width, h}
 
+  @doc """
+  The battle region WITHOUT the rightmost pokeball-icon column — the portraits
+  and names, where the red selection border/name appear. Used for target-lock
+  detection so the player's own pokeball icon isn't counted as a lock.
+  """
+  def battle_body(%__MODULE__{battle_region: {x, y, w, h}}), do: {x, y, w - @strip_width, h}
+
   def battle_first_row(%__MODULE__{battle_region: {x, y, w, _h}}),
     do: {x + div(w, 3), y + @first_row_y_offset}
 

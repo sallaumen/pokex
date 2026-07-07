@@ -117,7 +117,7 @@ defmodule PokexWeb.DiagnosticsLive do
 
   def handle_event("target_locked", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
-         {:ok, path} <- Rig.impl().capture(calib.battle_region, "diag_target.png"),
+         {:ok, path} <- Rig.impl().capture(Calibration.battle_body(calib), "diag_target.png"),
          {:ok, frame} <- Frame.from_png_file(path) do
       min = Settings.get(:target_locked_min_pixels)
       locked = Vision.target_locked?(frame, min_count: min)

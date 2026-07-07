@@ -111,11 +111,13 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
 
     # battle_body of the calib is {700,100,230,200}; at scale 2.0 the frame is
-    # 460×400. band = 30*2 = 60, top = 18*2 = 36. Band 1 spans frame-y [96,156).
+    # 460×400. band = 30*2 = 60; the top is CENTERED on the click point, so
+    # top = 18*2 - 60/2 = 6, and band 1 spans frame-y [66,126). Paint the ring's
+    # red squarely inside band 1.
     body_rows =
       for y <- 0..399 do
         for x <- 0..459 do
-          if x in 0..200 and y in 100..150, do: {230, 40, 40, 255}, else: {20, 20, 20, 255}
+          if x in 0..200 and y in 70..120, do: {230, 40, 40, 255}, else: {20, 20, 20, 255}
         end
       end
 

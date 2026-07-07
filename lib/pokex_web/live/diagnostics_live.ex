@@ -120,7 +120,8 @@ defmodule PokexWeb.DiagnosticsLive do
       min = Settings.get(:target_locked_min_pixels)
       scale = calib.scale
       band = max(round(Settings.get(:battle_row_height) * scale), 1)
-      top = round(Calibration.first_row_offset() * scale)
+      # center each band on the row's click point (see sensors/real.ex)
+      top = round(Calibration.first_row_offset() * scale) - div(band, 2)
       rows = Settings.get(:battle_max_rows)
       counts = Vision.red_row_counts(frame, top: top, band: band, rows: rows)
 

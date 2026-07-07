@@ -45,9 +45,15 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
       # pixels — so multiply by calib.scale. battle_row_height/battle_max_rows are
       # only in the RAW settings map (config.ex strips them from logic.config), so
       # the sensor is the one correct place to read them.
+      # The click for row i lands at battle_first_row + i*row_height (the row's
+      # CENTER), and the selection ring is drawn AROUND that point — measured on
+      # the real game the ring's red sits at the click Y, not below it. So CENTER
+      # each band on the click (shift the top up by half a band); a band that
+      # started at the click would split the ring across two rows and under-read
+      # the locked row (measured: 231px in-band vs 857px once centered).
       scale = calib.scale
       band = max(round((settings[:battle_row_height] || 30) * scale), 1)
-      top = round(Calibration.first_row_offset() * scale)
+      top = round(Calibration.first_row_offset() * scale) - div(band, 2)
       rows = settings[:battle_max_rows] || 6
       {:ok, Vision.red_row_counts(frame, top: top, band: band, rows: rows)}
     end

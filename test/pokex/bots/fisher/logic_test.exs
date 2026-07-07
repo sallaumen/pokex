@@ -383,6 +383,55 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert actions == [{:click, :left, {1466, 168}}]
     end
 
+    test "background red (wild names/red sprites, no fight) never fakes a lock" do
+      # measured: unlocked baseline reads ~40-150 red px (Magikarp names/sprites),
+      # a REAL ring reads 600-900 — the threshold must sit between them
+      cfg = Map.put(config(), :target_locked_min_pixels, 350)
+      f = %{advance_to_fighting() | config: cfg}
+
+      # pre-click read sees only the baseline → NOT a fight: goes clicking rows
+      {l, actions} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 150), 3100)
+      refute l.targeted?
+      assert actions == [{:click, :left, {1466, 138}}]
+
+      # verify reads the same baseline noise → row did not lock
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 150), 3200)
+      refute l.targeted?
+    end
+
+    test "clicking our OWN pokemon blinks red once — persistence filters it out" do
+      # blink: one ring-magnitude read that fades before the second check;
+      # a real lock persists. target_lock_streak 2 = two consecutive high reads.
+      cfg =
+        config()
+        |> Map.put(:target_locked_min_pixels, 350)
+        |> Map.put(:target_lock_streak, 2)
+        |> Map.put(:target_verify_attempts, 3)
+
+      f = %{advance_to_fighting() | config: cfg}
+      {l, _} = Logic.step(f, cursor_obs(), 3100)
+
+      # first verify read catches the blink at full ring magnitude
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 600), 3200)
+      refute l.targeted?
+      assert l.target_streak == 1
+
+      # blink faded → consecutive-high broken; retries then gives the row up
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 3500)
+      refute l.targeted?
+      assert l.target_streak == 0
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 3800)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 4100)
+      refute l.targeted?
+      assert l.select_idx == 1
+
+      # a REAL ring persists across both reads → locks
+      {l, _} = Logic.step(l, cursor_obs(), 4200)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 620), 4500)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 610), 4800)
+      assert l.targeted?
+    end
+
     test "selection: no attackable row → recasts" do
       l =
         Enum.reduce(0..5, advance_to_fighting(), fn i, acc ->

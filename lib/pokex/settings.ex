@@ -66,8 +66,14 @@ defmodule Pokex.Settings do
     # A corpse offset beyond this many tiles per axis is a bad hostile read →
     # treat the corpse as unknown and loot in place instead of marching off.
     max_walk_tiles: 7,
-    target_locked_min_pixels: 40,
-    target_lock_streak: 1,
+    # A real lock ring reads 600-900 red px in the battle body; the UNLOCKED
+    # baseline (wild red NAMES + reddish sprites like Magikarp, with no fight at
+    # all) measures ~40-150. The old threshold of 40 sat ON the baseline, so the
+    # bot "fought" nobody. 350 splits the two populations cleanly.
+    target_locked_min_pixels: 350,
+    # Clicking our OWN pokemon blinks red briefly then fades; a real lock stays
+    # for the whole fight. Two reads spaced wait_target_verify_ms filter the blink.
+    target_lock_streak: 2,
     target_lost_streak: 2,
     humanize_max_ms: 0
   }

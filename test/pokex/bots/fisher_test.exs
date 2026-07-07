@@ -53,7 +53,7 @@ defmodule Pokex.Bots.FisherTest do
         wild: [true],
         # nothing locked before the click (0), the click lands the ring (100), one
         # hit holds it (100), then it vanishes (0,0 → dead) → loot → capture.
-        target_locked: [0, 100, 100, 0, 0],
+        target_locked: [0, 600, 600, 0, 0],
         hostile: [{410, 320}]
       })
 

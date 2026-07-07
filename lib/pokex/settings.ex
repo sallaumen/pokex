@@ -60,7 +60,11 @@ defmodule Pokex.Settings do
         Application.get_env(:pokex, :settings_path) ||
         Pokex.Home.settings_file()
 
-    {:ok, %{path: path, data: Map.merge(@defaults, load(path))}}
+    # Store ONLY the user's explicit overrides — never a full snapshot of the
+    # defaults. Otherwise a settings.json written by an older build would freeze
+    # every key at its old value and silently override new code defaults. get/all
+    # fall back to @defaults for anything not overridden here.
+    {:ok, %{path: path, data: load(path)}}
   end
 
   @impl true

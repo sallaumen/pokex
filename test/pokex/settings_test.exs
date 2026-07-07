@@ -27,4 +27,17 @@ defmodule Pokex.SettingsTest do
     assert Settings.get(:tile_size, server) == 48
     assert Settings.all(server) |> Map.has_key?(:hacker) == false
   end
+
+  @tag :tmp_dir
+  test "a partial file overrides only its keys — the rest track current defaults", %{tmp_dir: tmp} do
+    # A file that only pins tile_size must NOT freeze every other key at whatever
+    # value an older build wrote; unlisted keys follow the code's @defaults.
+    path = Path.join(tmp, "settings.json")
+    File.write!(path, ~s({"tile_size": 99}))
+    {:ok, server} = Settings.start_link(name: nil, path: path)
+
+    assert Settings.get(:tile_size, server) == 99
+    assert Settings.get(:tick_ms_fighting, server) == Settings.defaults().tick_ms_fighting
+    assert Settings.get(:humanize_max_ms, server) == Settings.defaults().humanize_max_ms
+  end
 end

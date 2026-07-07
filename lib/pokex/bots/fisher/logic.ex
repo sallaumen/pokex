@@ -66,10 +66,10 @@ defmodule Pokex.Bots.Fisher.Logic do
   def needs(%__MODULE__{state: :watching}), do: [:cursor, :glow]
   def needs(%__MODULE__{state: :assessing}), do: [:cursor, :wild]
 
-  def needs(%__MODULE__{state: :fighting, targeted?: false, pending_verify?: true}),
-    do: [:cursor, :target_locked]
-
-  def needs(%__MODULE__{state: :fighting, targeted?: false}), do: [:cursor]
+  # Both selection ticks read the lock: the pre-click tick so it can notice a
+  # target that's ALREADY locked (and attack instead of clicking again, which
+  # would deselect it), and the verify tick to confirm the click landed a lock.
+  def needs(%__MODULE__{state: :fighting, targeted?: false}), do: [:cursor, :target_locked]
 
   # While attacking, the red target border IS the fight: keep re-reading it every
   # tick so a vanished border (target dead/deselected) ends the fight. Sample the
@@ -171,16 +171,25 @@ defmodule Pokex.Bots.Fisher.Logic do
 
   # Target selection: click a Battle row, then verify a FIXED red border locked
   # onto it. If it only blinked (own pokemon / player), try the next row down.
-  defp do_step(%{state: :fighting, targeted?: false, pending_verify?: false} = logic, _obs, now) do
+  defp do_step(%{state: :fighting, targeted?: false, pending_verify?: false} = logic, obs, now) do
     rows = logic.config.battle_rows
 
-    if logic.select_idx >= length(rows) do
-      {continue_combat(%{logic | select_idx: 0}, now),
-       [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
-    else
-      {advance(%{logic | pending_verify?: true}, :fighting, now,
-         wait: logic.config.wait_target_verify_ms
-       ), [{:click, :left, Enum.at(rows, logic.select_idx)}]}
+    cond do
+      # A red ring is ALREADY up (this click's lock rendered late, or a target is
+      # still selected) → attack it. Clicking again here would deselect it and
+      # cancel the fight — the exact "starts then un-starts" bug.
+      Map.get(obs, :target_locked, 0) >= logic.config.target_locked_min_pixels ->
+        {advance(%{logic | targeted?: true, target_streak: 0, lost_streak: 0}, :fighting, now),
+         []}
+
+      logic.select_idx >= length(rows) ->
+        {continue_combat(%{logic | select_idx: 0}, now),
+         [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
+
+      true ->
+        {advance(%{logic | pending_verify?: true}, :fighting, now,
+           wait: logic.config.wait_target_verify_ms
+         ), [{:click, :left, Enum.at(rows, logic.select_idx)}]}
     end
   end
 

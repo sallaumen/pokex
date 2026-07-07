@@ -216,6 +216,17 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       f
     end
 
+    test "selection re-checks the lock FIRST: an already-locked target is attacked, not re-clicked" do
+      # a red ring already up when we're about to click → attack it, no click
+      # (a second click on a selected row deselects it and cancels the fight)
+      {l, actions} =
+        Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :target_locked, 100), 3100)
+
+      assert l.targeted?
+      refute l.pending_verify?
+      assert actions == []
+    end
+
     test "selection: first tick clicks battle row 0 and waits to verify" do
       {l, actions} = Logic.step(advance_to_fighting(), cursor_obs(), 3100)
       refute l.targeted?

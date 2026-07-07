@@ -76,7 +76,12 @@ defmodule PokexWeb.PanelLiveTest do
   test "debug logs are hidden until the debug toggle is on", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, :debug, "vigiando: bolhas 3px"})
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "fishing",
+      {:fishing_log, :debug, "vigiando: bolhas 3px"}
+    )
+
     refute render(view) =~ "vigiando: bolhas 3px"
 
     view |> element(~s(input[phx-click="toggle_debug"])) |> render_click()
@@ -107,7 +112,10 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   @tag :tmp_dir
-  test "screenshot + diagnostic-export controls appear when calibrated", %{conn: conn, tmp_dir: tmp} do
+  test "screenshot + diagnostic-export controls appear when calibrated", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
     save_calibration()
@@ -215,5 +223,27 @@ defmodule PokexWeb.PanelLiveTest do
     view |> form("#threshold-form", %{"threshold" => "21.5"}) |> render_submit()
     assert Pokex.Settings.get(:glow_threshold) == 21.5
     Pokex.Settings.put(:glow_threshold, nil)
+  end
+
+  test "saves combat timing knobs and ignores blanks", %{conn: conn} do
+    keys = [:skill_cast_ms, :target_verify_attempts, :wait_target_verify_ms, :fight_timeout_ms]
+    originals = Map.new(keys, &{&1, Pokex.Settings.get(&1)})
+    on_exit(fn -> Enum.each(originals, fn {k, v} -> Pokex.Settings.put(k, v) end) end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view
+    |> form("#timing-form", %{
+      "skill_cast_ms" => "700",
+      "target_verify_attempts" => "",
+      "wait_target_verify_ms" => "300",
+      "fight_timeout_ms" => "5000"
+    })
+    |> render_submit()
+
+    assert Pokex.Settings.get(:skill_cast_ms) == 700
+    assert Pokex.Settings.get(:wait_target_verify_ms) == 300
+    # blank left the current value untouched
+    assert Pokex.Settings.get(:target_verify_attempts) == originals.target_verify_attempts
   end
 end

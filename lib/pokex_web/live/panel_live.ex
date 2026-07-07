@@ -20,6 +20,18 @@ defmodule PokexWeb.PanelLive do
   @idle_fishing %{state: :idle, counters: %{}, error: nil}
   @idle_combat %{state: :idle, counters: %{}, error: nil, locked_row: nil}
 
+  # Combat timing knobs Lucas tunes live to speed up search + kills. Config is
+  # built once at Start/Testar, so these apply on the NEXT run (noted in the UI).
+  @timing_fields [
+    {:skill_cast_ms, "Cadência das skills (ms)",
+     "menor = mata mais rápido; abaixo do cooldown real o jogo ignora"},
+    {:target_verify_attempts, "Tentativas por linha",
+     "leituras do anel antes de pular a linha — menor = busca mais rápida"},
+    {:wait_target_verify_ms, "Espera do anel (ms)",
+     "tempo pro anel vermelho aparecer depois do clique"},
+    {:fight_timeout_ms, "Timeout de alvo (ms)", "desiste de um alvo que não morre nesse tempo"}
+  ]
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -48,8 +60,13 @@ defmodule PokexWeb.PanelLive do
        capture_label: nil,
        report: nil,
        report_src: nil,
-       report_msg: nil
+       report_msg: nil,
+       timing: timing_settings()
      )}
+  end
+
+  defp timing_settings do
+    Map.new(@timing_fields, fn {key, _label, _hint} -> {key, Settings.get(key)} end)
   end
 
   @impl true
@@ -174,6 +191,24 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, skill_order: Enum.join(keys, " "))}
   end
 
+  # Persist the combat timing knobs; blanks/invalid keep the current value. They
+  # apply on the next Start/Testar (config is frozen at run start).
+  def handle_event("save_timing", params, socket) do
+    timing =
+      Enum.reduce(@timing_fields, socket.assigns.timing, fn {key, _label, _hint}, acc ->
+        case parse_non_neg(params[to_string(key)]) do
+          {:ok, n} ->
+            Settings.put(key, n)
+            Map.put(acc, key, n)
+
+          :error ->
+            acc
+        end
+      end)
+
+    {:noreply, assign(socket, timing: timing)}
+  end
+
   def handle_event("toggle_capture", _params, socket) do
     value = not Settings.get(:auto_capture)
     Settings.put(:auto_capture, value)
@@ -276,6 +311,15 @@ defmodule PokexWeb.PanelLive do
   defp capture_src(path),
     do: "/captures/#{Path.basename(path)}?t=#{System.unique_integer([:positive])}"
 
+  defp parse_non_neg(nil), do: :error
+
+  defp parse_non_neg(raw) do
+    case Integer.parse(String.trim(raw)) do
+      {n, _} when n >= 0 -> {:ok, n}
+      _ -> :error
+    end
+  end
+
   # Nil-safe deep fetch into the report map (regions may carry :error instead of
   # :metrics/:matrix when a capture fails), so the render never KeyErrors.
   defp gi(map, path), do: get_in(map, path)
@@ -289,6 +333,7 @@ defmodule PokexWeb.PanelLive do
   defp log_class(_debug), do: "opacity-50"
 
   defp counters, do: @counters
+  defp timing_fields, do: @timing_fields
 
   # Fishing and combat only truly overlap on :failures — sum those; every
   # other counter belongs to exactly one worker, so a plain merge is right
@@ -606,6 +651,29 @@ defmodule PokexWeb.PanelLive do
                 class="input input-bordered input-sm w-40"
               />
               <button class="btn btn-sm btn-primary">Salvar</button>
+            </form>
+          </div>
+
+          <div class="border-t border-base-content/10 pt-4">
+            <h2 class="text-sm font-semibold">Timing do combate (calibragem)</h2>
+            <p class="text-xs opacity-60">
+              Ajuste fino da velocidade de busca e de morte. Aplica no próximo <span class="font-medium">Start</span>/<span class="font-medium">Testar</span>.
+            </p>
+            <form id="timing-form" phx-submit="save_timing" class="mt-2 grid gap-3 sm:grid-cols-2">
+              <label :for={{key, label, hint} <- timing_fields()} class="block text-xs">
+                <span class="font-medium">{label}</span>
+                <input
+                  type="number"
+                  min="0"
+                  name={key}
+                  value={@timing[key]}
+                  class="input input-bordered input-sm mt-1 w-full"
+                />
+                <span class="mt-0.5 block opacity-50">{hint}</span>
+              </label>
+              <div class="sm:col-span-2">
+                <button class="btn btn-sm btn-primary">Salvar timing</button>
+              </div>
             </form>
           </div>
 

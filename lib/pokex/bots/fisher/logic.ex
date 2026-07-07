@@ -64,7 +64,7 @@ defmodule Pokex.Bots.Fisher.Logic do
 
   def needs(%__MODULE__{state: state}) when state in [:idle, :error], do: []
   def needs(%__MODULE__{state: :watching}), do: [:cursor, :glow]
-  def needs(%__MODULE__{state: :assessing}), do: [:cursor, :wild]
+  def needs(%__MODULE__{state: :assessing}), do: [:cursor]
 
   # Both selection ticks read the lock: the pre-click tick so it can notice a
   # target that's ALREADY locked (and attack instead of clicking again, which
@@ -151,7 +151,11 @@ defmodule Pokex.Bots.Fisher.Logic do
     end
   end
 
-  defp do_step(%{state: :assessing} = logic, %{wild: true}, now) do
+  # A real bubble-bite ALWAYS yields a pokemon (there's no "caught nothing"), so
+  # once we've hooked we trust the catch and go straight to combat — no fragile
+  # battle-list re-check. The wait before this let the pokemon teleport in;
+  # combat recasts on its own in the rare case nothing is actually there.
+  defp do_step(%{state: :assessing} = logic, _obs, now) do
     logic = %{
       logic
       | targeted?: false,
@@ -165,10 +169,6 @@ defmodule Pokex.Bots.Fisher.Logic do
     }
 
     {advance(logic, :fighting, now), []}
-  end
-
-  defp do_step(%{state: :assessing} = logic, _obs, now) do
-    {advance(logic, :equipping, now), [{:log, "nada fisgado — recomeçando"}]}
   end
 
   # Target selection: click a Battle row, then verify a FIXED red border locked

@@ -134,16 +134,14 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert [{:log, _}] = actions
   end
 
-  test "assessing: wild goes to fighting, nothing goes back to equipping" do
+  test "assessing trusts the bite and always goes to fighting" do
     watching = advance_to(:watching)
     {assessing, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 900)
 
-    {fighting, []} = Logic.step(assessing, Map.put(cursor_obs(), :wild, true), 3000)
+    {fighting, []} = Logic.step(assessing, cursor_obs(), 3000)
     assert fighting.state == :fighting
     refute fighting.targeted?
-
-    {recast, [{:log, _}]} = Logic.step(assessing, Map.put(cursor_obs(), :wild, false), 3000)
-    assert recast.state == :equipping
+    assert fighting.select_idx == 0
   end
 
   test "kill corner stops from any active state" do
@@ -217,7 +215,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     def advance_to_fighting do
       watching = advance_to(:watching)
       {assessing, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 900)
-      {fighting, []} = Logic.step(assessing, Map.put(cursor_obs(), :wild, true), 3000)
+      {fighting, []} = Logic.step(assessing, cursor_obs(), 3000)
       fighting
     end
 

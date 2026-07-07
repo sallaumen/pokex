@@ -25,18 +25,20 @@ defmodule Pokex.Settings do
     # A locked target that hasn't died in this long isn't a real hostile (our own
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,
-    # Min cyan pixels for a BITE. The bite is separated from the resting bait ring
-    # by magnitude: measured bite peaks 800-1022, resting pulse ≤ ~305, splash ~250.
-    # 500 sits safely between. Tunable via the /diagnostics "Bolhas (ciano)" readout.
-    glow_threshold: 500,
+    # Min cyan pixels for a BITE. The bite bubbles flash ON/OFF frame-to-frame
+    # (measured 2..1513 during one bite) but their PEAKS hit 700-1500, while the
+    # resting bait ring never exceeds ~480. 800 sits above the resting ceiling, so
+    # only a real bubble burst clears it. Tunable via /diagnostics "Bolhas (ciano)".
+    glow_threshold: 800,
     max_consecutive_failures: 5,
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,
     auto_capture: true,
-    # CONSECUTIVE bite-magnitude frames (> glow_threshold) needed to hook. Measured
-    # in-game: resting oscillates 69-331 (below 500), a real bite spikes to 1225 and
-    # sustains — so 3 confirmations reject a lone stray spike but still catch a bite.
-    glow_streak_needed: 3,
+    # A SINGLE bite-magnitude frame (> glow_threshold) hooks. The bite oscillates
+    # hard (2..1513), so requiring CONSECUTIVE frames never confirms — but one frame
+    # over 800 is unambiguous (nothing else reaches it) and the post-hook anti-bot
+    # delay covers the "too instant" concern, so first detection = caught.
+    glow_streak_needed: 1,
     # Consecutive below-threshold (resting/splash level) frames before a cyan spike
     # counts as a bite. Guards against a splash that briefly clears glow_threshold.
     calm_streak_needed: 3,

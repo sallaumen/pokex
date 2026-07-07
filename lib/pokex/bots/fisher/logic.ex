@@ -82,6 +82,10 @@ defmodule Pokex.Bots.Fisher.Logic do
 
   def needs(_logic), do: [:cursor]
 
+  @doc "True while in a post-action pause: the driver skips sensing (no screen capture) until it ends."
+  def waiting?(%__MODULE__{waiting_until: nil}, _now), do: false
+  def waiting?(%__MODULE__{waiting_until: until}, now), do: now < until
+
   def tick_interval(%__MODULE__{state: :watching, config: c}), do: c.tick_ms_watching
   def tick_interval(%__MODULE__{state: :fighting, config: c}), do: c.tick_ms_fighting
   def tick_interval(%__MODULE__{config: c}), do: c.tick_ms_default
@@ -190,8 +194,13 @@ defmodule Pokex.Bots.Fisher.Logic do
          []}
 
       logic.target_streak + 1 >= logic.config.target_lock_streak ->
-        # red PERSISTED across enough checks → a real fixed border, target locked
-        {%{logic | targeted?: true, pending_verify?: false, target_streak: 0, lost_streak: 0}, []}
+        # red PERSISTED → a real fixed border, target locked. Reset entered_at so
+        # the fight timeout measures the attack itself (a lock that never kills → bail).
+        {advance(
+           %{logic | targeted?: true, pending_verify?: false, target_streak: 0, lost_streak: 0},
+           :fighting,
+           now
+         ), []}
 
       true ->
         # red is there, but check again after a beat — a blink shows once then vanishes
@@ -210,7 +219,10 @@ defmodule Pokex.Bots.Fisher.Logic do
 
     cond do
       timed_out?(logic, now, logic.config.fight_timeout_ms) ->
-        fail(logic, now, "luta estourou o tempo")
+        # locked this long with no kill → not a real hostile (our own pokemon) or
+        # hopelessly tanky → drop THIS one and move on to the next battle row.
+        {advance(next_target(logic), :fighting, now),
+         [{:log, "alvo não caiu a tempo — próxima linha"}]}
 
       red >= logic.config.target_locked_min_pixels ->
         logic = %{
@@ -291,6 +303,20 @@ defmodule Pokex.Bots.Fisher.Logic do
   end
 
   defp continue_combat(logic, now, opts), do: advance(logic, :equipping, now, opts)
+
+  # Abandon the current lock and reset to selecting the NEXT battle row down.
+  defp next_target(logic) do
+    %{
+      logic
+      | targeted?: false,
+        pending_verify?: false,
+        target_streak: 0,
+        lost_streak: 0,
+        fight_tick: 0,
+        skill_idx: 0,
+        select_idx: logic.select_idx + 1
+    }
+  end
 
   defp corpse_point(%{last_hostile: nil}), do: nil
 

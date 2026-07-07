@@ -4,16 +4,21 @@ defmodule Pokex.Settings do
 
   @defaults %{
     skill_keys: ["1", "2", "3"],
-    tick_ms_watching: 200,
-    tick_ms_fighting: 700,
-    tick_ms_default: 300,
-    wait_focus_ms: 150,
-    wait_after_equip_ms: 300,
-    wait_assess_ms: 1500,
-    wait_loot_ms: 400,
-    wait_after_capture_ms: 1200,
+    # No delays for now — everything runs as fast as the screen captures allow.
+    # A tiny post-success pause (10–50ms) is all that stays, so the game has a
+    # frame to register the previous input before the next one.
+    tick_ms_watching: 100,
+    tick_ms_fighting: 150,
+    tick_ms_default: 80,
+    wait_focus_ms: 20,
+    wait_after_equip_ms: 30,
+    wait_assess_ms: 200,
+    wait_loot_ms: 30,
+    wait_after_capture_ms: 50,
     watch_timeout_ms: 30_000,
-    fight_timeout_ms: 90_000,
+    # A locked target that hasn't died in this long isn't a real hostile (our own
+    # pokemon) or is hopelessly tanky → drop it and try the next battle row.
+    fight_timeout_ms: 6000,
     glow_threshold: nil,
     max_consecutive_failures: 5,
     tile_size: 32,
@@ -23,11 +28,11 @@ defmodule Pokex.Settings do
     glow_streak_needed: 2,
     battle_row_height: 30,
     battle_max_rows: 6,
-    wait_target_verify_ms: 250,
+    wait_target_verify_ms: 20,
     target_locked_min_pixels: 40,
-    target_lock_streak: 2,
+    target_lock_streak: 1,
     target_lost_streak: 2,
-    humanize_max_ms: 1000
+    humanize_max_ms: 0
   }
 
   def defaults, do: @defaults

@@ -377,11 +377,17 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert l.state == :equipping
     end
 
-    test "fight timeout fails even with the border still up" do
+    test "a lock that never dies is abandoned for the next row (not a failure)" do
       l = advance_to_attacking()
-      {l, [{:log, _}]} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 3100 + 90_001)
-      assert l.state == :equipping
-      assert l.failures == 1
+      assert l.select_idx == 0
+
+      # border still up, but the target never died within fight_timeout_ms →
+      # give up THIS row and move to the next one, without counting a failure.
+      {l, [{:log, _}]} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 3200 + 90_001)
+      assert l.state == :fighting
+      refute l.targeted?
+      assert l.select_idx == 1
+      assert l.failures == 0
     end
   end
 end

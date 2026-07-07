@@ -7,7 +7,7 @@ defmodule Pokex.SettingsTest do
     path = Path.join(tmp, "settings.json")
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
-    assert Settings.get(:tick_ms_watching, server) == 200
+    assert Settings.get(:tick_ms_watching, server) == 100
     assert Settings.get(:skill_keys, server) == ["1", "2", "3"]
 
     :ok = Settings.put(:glow_threshold, 22.5, server)

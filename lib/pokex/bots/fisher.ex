@@ -66,6 +66,17 @@ defmodule Pokex.Bots.Fisher do
   def handle_info(:tick, state) do
     previous = state.logic
 
+    # In a post-action pause there's nothing to decide — don't screen-capture,
+    # just let the pause elapse. This is what keeps it from "checking everything
+    # all the time": sensing happens only when the machine is ready to act.
+    if Logic.waiting?(previous, now()) do
+      {:noreply, reschedule(state, Logic.tick_interval(previous))}
+    else
+      run_tick(state, previous)
+    end
+  end
+
+  defp run_tick(state, previous) do
     {logic, actions, obs} =
       case Sensors.impl().observe(Logic.needs(previous), state.calib, Settings.all()) do
         {:ok, observations} ->

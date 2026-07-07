@@ -3,8 +3,9 @@ defmodule Pokex.Bots.Fishing.Worker do
   Driver GenServer around the pure Fishing.Logic: senses the glow, steps the
   state machine, and submits every resulting action list to the shared Body at
   `:normal` priority (fishing yields to combat). Broadcasts snapshots on
-  PubSub. Does NOT check the panic corner (a later Guardian owns that) and
-  does NOT touch combat.
+  PubSub. Does NOT own/duplicate panic-corner polling itself (a later
+  Guardian will centralize that) — but the kill corner is still honored every
+  active tick via `Fishing.Logic.step/3`. Does NOT touch combat.
 
   Paces its own inputs with an anti-bot humanize delay (a random cast-jitter
   before a CAST, a random hook-delay in WATCHING) applied here, BEFORE
@@ -73,9 +74,10 @@ defmodule Pokex.Bots.Fishing.Worker do
   def handle_info(:tick, state) do
     previous = state.logic
 
-    # In a post-action pause there's nothing to sense — skip the capture (and
-    # the panic corner, which is the Guardian's concern here, not ours) and
-    # just wait out the pause.
+    # In a post-action pause there's nothing to sense — skip the capture (so
+    # the kill corner isn't polled THIS tick either; Fishing.Logic.step/3 is
+    # what checks it, on every active tick once sensing resumes) and just
+    # wait out the pause.
     if Logic.waiting?(previous, now()) do
       {:noreply, reschedule(state, Logic.tick_interval(previous))}
     else

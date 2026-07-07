@@ -1,8 +1,58 @@
+defmodule Pokex.Bots.Fishing.WorkerTest.SlowRig do
+  # Test-local Rig double: like Pokex.Rig.Fake, but click/2 blocks until
+  # released (so the test can deterministically hold the Body busy instead of
+  # racing a sleep against near-instant fake calls) and every call is logged
+  # in arrival order. Execution order into the Rig is what actually proves
+  # priority was honored. Scoped to this test file only; does not touch the
+  # shared Pokex.Rig.Fake used elsewhere.
+  @behaviour Pokex.Rig
+
+  def start_link, do: Agent.start_link(fn -> %{held?: true, log: []} end, name: __MODULE__)
+
+  def release, do: Agent.update(__MODULE__, &%{&1 | held?: false})
+
+  def log, do: __MODULE__ |> Agent.get(& &1.log) |> Enum.reverse()
+
+  @impl true
+  def click(button, point) do
+    wait_release()
+    Agent.update(__MODULE__, &%{&1 | log: [{:click, button, point} | &1.log]})
+    :ok
+  end
+
+  defp wait_release do
+    if Agent.get(__MODULE__, & &1.held?) do
+      Process.sleep(1)
+      wait_release()
+    else
+      :ok
+    end
+  end
+
+  @impl true
+  def press(combo) do
+    Agent.update(__MODULE__, &%{&1 | log: [{:press, combo} | &1.log]})
+    :ok
+  end
+
+  @impl true
+  def move(_point), do: :ok
+  @impl true
+  def capture_sequence(_point), do: :ok
+  @impl true
+  def capture(_region, filename), do: {:ok, filename}
+  @impl true
+  def capture_screen, do: {:ok, "screen.png"}
+  @impl true
+  def cursor_position, do: {:ok, {500, 500}}
+end
+
 defmodule Pokex.Bots.Fishing.WorkerTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Fishing.Worker
   alias Pokex.Bots.Fisher.Sensors
+  alias Pokex.Bots.Fishing.WorkerTest.SlowRig
   alias Pokex.{Calibration, Settings}
 
   @fast %{
@@ -93,27 +143,102 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "the cast is submitted to the Body at :normal priority", %{worker: worker} do
-    # Occupy the shared Body with a queued :high action first, so the fishing
-    # cast provably waits behind it (proves :normal routing).
+  @tag timeout: 5_000
+  test "the fishing action yields to a competing :high action on the Body", %{worker: _worker} do
+    # This test guards against the worker submitting its fishing action at
+    # :high (or otherwise skipping the queue): with a single competitor, a
+    # single dequeue would pass regardless of priority, so we hold the Body
+    # busy with a BLOCKING action, wait until BOTH a competing :high action
+    # AND the fishing :normal action are genuinely queued behind it, only
+    # THEN release, and assert the :high action reached the Rig before the
+    # fishing click did. If the worker used :high, ordering would flip (or
+    # tie/race), and this assertion would fail.
+    previous_rig = Application.get_env(:pokex, :rig)
+    Application.put_env(:pokex, :rig, SlowRig)
+    on_exit(fn -> Application.put_env(:pokex, :rig, previous_rig) end)
+
+    {:ok, _} = SlowRig.start_link()
+    body = :fishing_worker_priority_test_body
+    {:ok, _} = Pokex.Bots.Body.start_link(name: body)
+    worker = start_supervised!({Worker, name: nil, body: body}, id: :priority_worker)
+
     test = self()
 
+    # Occupy the Body with a click that blocks until SlowRig.release/0, so
+    # everything queued below provably queues instead of racing a fast fake.
     spawn(fn ->
       send(
         test,
-        {:high_result,
-         Pokex.Bots.Body.perform([{:press, "occupy"}], :high, :fishing_worker_test_body)}
+        {:occupy_result, Pokex.Bots.Body.perform([{:click, :left, {1, 1}}], :normal, body)}
       )
     end)
 
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    assert :ok = Worker.run(worker)
+    wait_until_busy(body)
 
+    spawn(fn ->
+      send(test, {:high_result, Pokex.Bots.Body.perform([{:click, :left, {9, 9}}], :high, body)})
+    end)
+
+    wait_until_queued(body, :high, 1)
+
+    # Worker.run/1 blocks (its handle_call submits to the busy Body and waits
+    # for the reply), so it must be spawned like the occupier/high callers
+    # above — otherwise this call itself would time out before the fishing
+    # action ever reaches the Body's queue.
+    spawn(fn -> send(test, {:run_result, Worker.run(worker)}) end)
+    wait_until_queued(body, :normal, 1)
+
+    SlowRig.release()
+
+    assert_receive {:occupy_result, :ok}, 2_000
     assert_receive {:high_result, :ok}, 2_000
-    assert_receive {:fishing_log, _}, 2_000
+    assert_receive {:run_result, :ok}, 2_000
 
-    calls = Pokex.Rig.Fake.calls()
-    assert {:click, :left, {420, 350}} in calls
+    # Worker.run/1's own reply only covers Logic.start/2's (empty) initial
+    # submit — the real fishing click ({:click, :left, neutral_point}) is
+    # fired later from the first :tick, asynchronously. Poll for it.
+    fishing_click = {:click, :left, {420, 350}}
+    log = wait_for_click(fishing_click)
+
+    high_idx = Enum.find_index(log, &(&1 == {:click, :left, {9, 9}}))
+    fishing_idx = Enum.find_index(log, &(&1 == fishing_click))
+
+    assert high_idx != nil and fishing_idx != nil
+    assert high_idx < fishing_idx
+  end
+
+  defp wait_for_click(click, deadline \\ System.monotonic_time(:millisecond) + 2_000) do
+    log = SlowRig.log()
+
+    cond do
+      click in log ->
+        log
+
+      System.monotonic_time(:millisecond) > deadline ->
+        log
+
+      true ->
+        Process.sleep(1)
+        wait_for_click(click, deadline)
+    end
+  end
+
+  defp wait_until_busy(body) do
+    if :sys.get_state(body).busy? do
+      :ok
+    else
+      Process.sleep(1)
+      wait_until_busy(body)
+    end
+  end
+
+  defp wait_until_queued(body, key, count) do
+    if :queue.len(Map.fetch!(:sys.get_state(body), key)) >= count do
+      :ok
+    else
+      Process.sleep(1)
+      wait_until_queued(body, key, count)
+    end
   end
 
   @tag :tmp_dir

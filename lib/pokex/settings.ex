@@ -27,6 +27,17 @@ defmodule Pokex.Settings do
     wait_loot_ms: 30,
     wait_after_capture_ms: 50,
     watch_timeout_ms: 30_000,
+    # Auto-recovery: consecutive watch frames with NO bite bubble (glow below
+    # glow_threshold) before we assume the cast failed — a dropped rod press or a
+    # click that never put a line in the water — and re-throw. At tick_ms_watching
+    # (100ms) this is ~12s. A REAL bite (or a building one) clears glow_threshold
+    # and RESETS the streak, so an active bite is never cut short; only dead water
+    # counts up. Can't go much lower: at night a resting line waiting for a slow
+    # bite ALSO reads ~0, so a tiny value would recast good lines mid-wait
+    # ("patinando à toa"). Watch the "N/M sem bolha" counter in the feed and tune
+    # live via /diagnostics if 12s feels too slow (dropped rod) or too eager (spot
+    # with slow bites).
+    watch_dead_streak_needed: 120,
     # A locked target that hasn't died in this long isn't a real hostile (our own
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,

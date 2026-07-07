@@ -17,6 +17,9 @@ defmodule Pokex.Rig.Fake do
   def click(button, point), do: record({:click, button, point}, :click, :ok)
 
   @impl true
+  def move(point), do: record({:move, point}, :move, :ok)
+
+  @impl true
   def capture_sequence(point), do: record({:capture_sequence, point}, :capture_sequence, :ok)
 
   @impl true

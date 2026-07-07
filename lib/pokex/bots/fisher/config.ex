@@ -17,6 +17,7 @@ defmodule Pokex.Bots.Fisher.Config do
     :wait_loot_ms,
     :wait_after_capture_ms,
     :watch_timeout_ms,
+    :watch_dead_streak_needed,
     :fight_timeout_ms,
     :max_consecutive_failures,
     :hostile_scan_every,

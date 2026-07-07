@@ -23,6 +23,7 @@ defmodule Pokex.Bots.Fisher.Logic do
             lost_streak: 0,
             glow_streak: 0,
             calm_streak: 0,
+            dead_streak: 0,
             settled?: false,
             walk_plan: [],
             walk_taken: [],
@@ -142,9 +143,10 @@ defmodule Pokex.Bots.Fisher.Logic do
     # real bite. Settling now requires N CONSECUTIVE calm frames (not one), so an
     # oscillating splash can't latch it. The settle-wait skips the bulk of the
     # splash up front.
-    {advance(%{logic | glow_streak: 0, calm_streak: 0, settled?: false}, :watching, now,
-       wait: logic.config.wait_cast_settle_ms
-     ), [{:click, :left, logic.config.water_point}]}
+    {advance(
+       %{logic | glow_streak: 0, calm_streak: 0, dead_streak: 0, settled?: false},
+       :watching,
+       now, wait: logic.config.wait_cast_settle_ms), [{:click, :left, logic.config.water_point}]}
   end
 
   # Bubbles AND the water already settled (splash gone) → a real bite. Require N
@@ -158,28 +160,41 @@ defmodule Pokex.Bots.Fisher.Logic do
       {advance(%{logic | glow_streak: 0}, :assessing, now, wait: logic.config.wait_assess_ms),
        [{:press, logic.config.rod_key}]}
     else
-      {%{logic | glow_streak: streak}, []}
+      # a bite signal, even mid-debounce, means the line is live → clear dead_streak
+      {%{logic | glow_streak: streak, dead_streak: 0}, []}
     end
   end
 
   # Cyan while NOT yet settled = a splash crest → ignore it AND reset the calm
-  # run, so an oscillating splash can never accumulate toward "settled".
+  # run, so an oscillating splash can never accumulate toward "settled". Bubble
+  # activity is a live line, so the dead-frame streak resets too.
   defp do_step(%{state: :watching, settled?: false} = logic, %{glow: true}, now) do
-    recast_if_timed_out(%{logic | glow_streak: 0, calm_streak: 0}, now)
+    recast_if_dead(%{logic | glow_streak: 0, calm_streak: 0, dead_streak: 0}, now)
   end
 
   # Calm frame while ALREADY settled → normal calm during the watch: keep
-  # settled, reset only the bite debounce.
+  # settled, reset only the bite debounce. No bubble → count a dead frame.
   defp do_step(%{state: :watching, settled?: true} = logic, _obs, now) do
-    recast_if_timed_out(%{logic | glow_streak: 0}, now)
+    recast_if_dead(%{logic | glow_streak: 0, dead_streak: logic.dead_streak + 1}, now)
   end
 
   # Calm frame while NOT yet settled → accumulate the consecutive-calm run;
-  # latch settled? only once it reaches calm_streak_needed (splash gone).
+  # latch settled? only once it reaches calm_streak_needed (splash gone). Still no
+  # bubble → count a dead frame toward the recast backstop.
   defp do_step(%{state: :watching, settled?: false} = logic, _obs, now) do
     calm = logic.calm_streak + 1
     settled? = calm >= logic.config.calm_streak_needed
-    recast_if_timed_out(%{logic | glow_streak: 0, calm_streak: calm, settled?: settled?}, now)
+
+    recast_if_dead(
+      %{
+        logic
+        | glow_streak: 0,
+          calm_streak: calm,
+          settled?: settled?,
+          dead_streak: logic.dead_streak + 1
+      },
+      now
+    )
   end
 
   # A real bubble-bite ALWAYS yields a pokemon (there's no "caught nothing"), so
@@ -239,12 +254,21 @@ defmodule Pokex.Bots.Fisher.Logic do
          [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
 
       true ->
+        # Click the row (this SELECTS + starts attacking), then slide the cursor OFF
+        # to the neutral point. The game paints a selected row PINK while the cursor
+        # hovers it and RED when it doesn't; the lock reader only knows red, so a
+        # cursor left on the row reads as "not locked" and the bot skips a live
+        # target — the "nenhum alvo atacável" bug. Moving away restores pure red.
         {advance(
            %{logic | pending_verify?: true, verify_attempts: 0, target_streak: 0},
            :fighting,
            now,
            wait: logic.config.wait_target_verify_ms
-         ), [{:click, :left, Enum.at(rows, logic.select_idx)}]}
+         ),
+         [
+           {:click, :left, Enum.at(rows, logic.select_idx)},
+           {:move, logic.config.neutral_point}
+         ]}
     end
   end
 
@@ -568,11 +592,25 @@ defmodule Pokex.Bots.Fisher.Logic do
     %{logic | state: state, entered_at: now, waiting_until: wait && now + wait}
   end
 
-  defp recast_if_timed_out(logic, now) do
-    if timed_out?(logic, now, logic.config.watch_timeout_ms) do
-      {advance(logic, :casting, now), [{:log, "sem bolha a tempo — arremessando de novo"}]}
-    else
-      {logic, []}
+  # Auto-recovery when the water shows no bite for too long — a dropped rod press
+  # or a cast that never put a line in the water leaves us watching empty water,
+  # reading 0 forever. Re-throw when EITHER the consecutive no-bubble streak hits
+  # watch_dead_streak_needed (the fast path) OR the absolute watch_timeout_ms
+  # elapses (backstop). Recasting routes through :equipping so the rod is RE-ARMED
+  # (press the rod key) and RE-THROWN — a bare re-click of the water can't recover
+  # a cast whose rod was never used. A real/building bite resets dead_streak (see
+  # the glow:true clauses), so an active bite is never cut short.
+  defp recast_if_dead(logic, now) do
+    cond do
+      logic.dead_streak >= logic.config.watch_dead_streak_needed ->
+        {advance(logic, :equipping, now),
+         [{:log, "sem bolha por #{logic.dead_streak} frames — re-lançando a vara"}]}
+
+      timed_out?(logic, now, logic.config.watch_timeout_ms) ->
+        {advance(logic, :equipping, now), [{:log, "sem bolha a tempo — re-lançando a vara"}]}
+
+      true ->
+        {logic, []}
     end
   end
 

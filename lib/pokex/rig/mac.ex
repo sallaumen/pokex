@@ -13,6 +13,9 @@ defmodule Pokex.Rig.Mac do
   def click(button, point), do: run(Commands.click(button, point))
 
   @impl true
+  def move(point), do: run(Commands.move(point))
+
+  @impl true
   # Arm the base pokeball (Shift+1) as a real hotkey, then click the target.
   def capture_sequence(point) do
     with :ok <- press("shift+1") do

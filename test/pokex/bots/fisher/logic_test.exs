@@ -25,6 +25,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       wait_loot_ms: 400,
       wait_after_capture_ms: 2000,
       watch_timeout_ms: 30_000,
+      watch_dead_streak_needed: 10,
       fight_timeout_ms: 90_000,
       max_consecutive_failures: 3,
       hostile_scan_every: 2,
@@ -239,11 +240,49 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert hooked.state == :assessing
   end
 
-  test "watching times out back to casting" do
+  test "watching recasts (via equipping) after the absolute watch timeout" do
+    # a single frame past watch_timeout_ms trips the backstop even before the
+    # dead-frame streak fills; recovery re-arms the rod (routes through :equipping).
     watching = advance_to(:watching)
     {l, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 600 + 30_001)
-    assert l.state == :casting
+    assert l.state == :equipping
     assert [{:log, _}] = actions
+  end
+
+  test "watching recasts via equipping after watch_dead_streak_needed no-bubble frames" do
+    # config() sets watch_dead_streak_needed: 10; feed 10 consecutive no-bite
+    # frames with the clock well under watch_timeout_ms so ONLY the dead-frame
+    # path can fire. Recovery re-arms the rod (press v) rather than just re-click.
+    watching = advance_to(:watching)
+
+    {result, actions} =
+      Enum.reduce(1..10, {watching, []}, fn i, {l, _} ->
+        Logic.step(l, Map.put(cursor_obs(), :glow, false), 700 + i * 100)
+      end)
+
+    assert result.state == :equipping
+    assert [{:log, msg}] = actions
+    assert msg =~ "re-lançando"
+  end
+
+  test "a bubble frame resets the dead-frame streak — a live line is never recast mid-bite" do
+    # already settled and part-way to the dead threshold; a bite-magnitude frame
+    # (needs 2 to hook here) doesn't hook yet but must clear the dead streak, so a
+    # slow-but-live bite can never trip the recast.
+    cfg = Map.put(config(), :glow_streak_needed, 2)
+
+    watching = %Logic{
+      state: :watching,
+      config: cfg,
+      entered_at: 0,
+      settled?: true,
+      dead_streak: 9
+    }
+
+    {live, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 100)
+    assert live.state == :watching
+    assert live.dead_streak == 0
+    assert live.glow_streak == 1
   end
 
   test "assessing trusts the bite and always goes to fighting" do
@@ -369,7 +408,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       {l, actions} = Logic.step(advance_to_fighting(), cursor_obs(), 3100)
       refute l.targeted?
       assert l.pending_verify?
-      assert actions == [{:click, :left, {1466, 138}}]
+      assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
       assert Logic.needs(l) == [:cursor, :battle_lock]
     end
 
@@ -388,7 +427,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert l.select_idx == 1
 
       {_l, actions} = Logic.step(l, cursor_obs(), 3300)
-      assert actions == [{:click, :left, {1466, 168}}]
+      assert actions == [{:click, :left, {1466, 168}}, {:move, {860, 470}}]
     end
 
     test "background red (wild names/red sprites, no fight) never fakes a lock" do
@@ -400,7 +439,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       # pre-click read sees only the baseline → NOT a fight: goes clicking rows
       {l, actions} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 150)), 3100)
       refute l.targeted?
-      assert actions == [{:click, :left, {1466, 138}}]
+      assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
 
       # verify reads the same baseline noise → row did not lock
       {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 150)), 3200)
@@ -490,7 +529,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       cfg = Map.put(config(), :target_verify_attempts, 3)
       f = %{advance_to_fighting() | config: cfg}
 
-      {f, [{:click, :left, {1466, 138}}]} = Logic.step(f, cursor_obs(), 3100)
+      {f, [{:click, :left, {1466, 138}}, {:move, {860, 470}}]} = Logic.step(f, cursor_obs(), 3100)
       assert f.pending_verify?
 
       # pre-ring frame (ring renders ~200ms after the click) → re-read the SAME row
@@ -517,7 +556,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       cfg = Map.put(config(), :target_verify_attempts, 3)
       f = %{advance_to_fighting() | config: cfg}
 
-      {f, [{:click, :left, {1466, 138}}]} = Logic.step(f, cursor_obs(), 3100)
+      {f, [{:click, :left, {1466, 138}}, {:move, {860, 470}}]} = Logic.step(f, cursor_obs(), 3100)
 
       {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 3200)
       assert f.select_idx == 0
@@ -533,7 +572,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert f.waiting_until == nil
 
       # next click gets a fresh attempts budget
-      {f, [{:click, :left, {1466, 168}}]} = Logic.step(f, cursor_obs(), 3500)
+      {f, [{:click, :left, {1466, 168}}, {:move, {860, 470}}]} = Logic.step(f, cursor_obs(), 3500)
       assert f.pending_verify?
       assert f.verify_attempts == 0
     end
@@ -766,7 +805,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       cfg = Map.put(config(), :target_verify_attempts, 3)
       f = %{advance_to_fighting() | config: cfg}
 
-      {f, [{:click, :left, {1466, 138}}]} = Logic.step(f, cursor_obs(), 3100)
+      {f, [{:click, :left, {1466, 138}}, {:move, {860, 470}}]} = Logic.step(f, cursor_obs(), 3100)
 
       # row 1 lights up (a neighbor's ring), row 0 stays dark across every verify —
       # the machine must NEVER commit row 0 to a row-1 ring, and NEVER click again.
@@ -793,7 +832,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
       refute l.targeted?
       assert l.locked_row == nil
-      assert actions == [{:click, :left, {1466, 138}}]
+      assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
     end
 
     # -- KILL-ALL loop (both modes) -----------------------------------------
@@ -812,12 +851,12 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert l.counters.fights == 1
 
       # selection re-scans: row 0 is now empty → verify miss walks toward row 1
-      {l, [{:click, :left, {1466, 138}}]} = Logic.step(l, cursor_obs(), 4200)
+      {l, [{:click, :left, {1466, 138}}, {:move, {860, 470}}]} = Logic.step(l, cursor_obs(), 4200)
       {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 4300)
       assert l.select_idx == 1
 
       # row 1 locks → commit mob 2
-      {l, [{:click, :left, {1466, 168}}]} = Logic.step(l, cursor_obs(), 4400)
+      {l, [{:click, :left, {1466, 168}}, {:move, {860, 470}}]} = Logic.step(l, cursor_obs(), 4400)
       {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(1, 610)), 4500)
       assert l.targeted?
       assert l.locked_row == 1
@@ -848,9 +887,9 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert l.counters.loots == 0
 
       # commit + kill mob 2, strip clear → loot chain runs ONCE
-      {l, [{:click, :left, {1466, 138}}]} = Logic.step(l, cursor_obs(), 4200)
+      {l, [{:click, :left, {1466, 138}}, {:move, {860, 470}}]} = Logic.step(l, cursor_obs(), 4200)
       {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 4300)
-      {l, [{:click, :left, {1466, 168}}]} = Logic.step(l, cursor_obs(), 4400)
+      {l, [{:click, :left, {1466, 168}}, {:move, {860, 470}}]} = Logic.step(l, cursor_obs(), 4400)
       {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(1, 610)), 4500)
       assert l.targeted?
 

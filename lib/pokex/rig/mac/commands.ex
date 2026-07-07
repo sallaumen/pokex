@@ -55,6 +55,11 @@ defmodule Pokex.Rig.Mac.Commands do
   def click(:left, {x, y}), do: {"cliclick", ["c:#{x},#{y}"]}
   def click(:right, {x, y}), do: {"cliclick", ["rc:#{x},#{y}"]}
 
+  # Move the pointer WITHOUT clicking (cliclick "m:"). Used to slide the cursor off
+  # a just-clicked Battle row: the game paints a selected row PINK while hovered and
+  # RED when not — and the lock reader only knows red, so the cursor must leave.
+  def move({x, y}), do: {"cliclick", ["m:#{x},#{y}"]}
+
   def cursor_position, do: {"cliclick", ["p"]}
 
   def capture({x, y, w, h}, path),

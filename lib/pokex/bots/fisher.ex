@@ -174,6 +174,7 @@ defmodule Pokex.Bots.Fisher do
 
   defp execute({:press, key}), do: Rig.impl().press(key)
   defp execute({:click, button, point}), do: Rig.impl().click(button, point)
+  defp execute({:move, point}), do: Rig.impl().move(point)
   defp execute({:capture_sequence, point}), do: Rig.impl().capture_sequence(point)
 
   defp execute({:log, message}) do
@@ -261,10 +262,10 @@ defmodule Pokex.Bots.Fisher do
 
   # Live fishing telemetry: the raw cyan bubble count every watch tick, so the
   # bite (800+) vs resting pulse (≤305) is visible in the feed while it waits.
-  defp state_desc(%Logic{state: :watching, settled?: settled}, obs) do
+  defp state_desc(%Logic{state: :watching, settled?: settled, dead_streak: dead} = logic, obs) do
     case Map.get(obs, :glow) do
       n when is_integer(n) ->
-        "vigiando: bolhas #{n}px (limiar #{Settings.get(:glow_threshold)}) — assentado? #{settled}"
+        "vigiando: bolhas #{n}px (limiar #{Settings.get(:glow_threshold)}) — assentado? #{settled} — #{dead}/#{logic.config.watch_dead_streak_needed} sem bolha"
 
       _ ->
         "vigiando"
@@ -276,6 +277,7 @@ defmodule Pokex.Bots.Fisher do
   defp describe_action({:press, key}), do: "tecla #{key}"
   defp describe_action({:click, :left, {x, y}}), do: "clique esq (#{x},#{y})"
   defp describe_action({:click, :right, {x, y}}), do: "clique dir (#{x},#{y})"
+  defp describe_action({:move, {x, y}}), do: "mover mouse (#{x},#{y})"
   defp describe_action({:capture_sequence, {x, y}}), do: "pokébola (#{x},#{y})"
   defp describe_action({:log, msg}), do: msg
 

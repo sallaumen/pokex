@@ -19,6 +19,29 @@ defmodule Pokex.Rig.Mac.CommandsTest do
               ["-e", ~s(tell application "System Events" to key code 18 using {control down})]}
   end
 
+  test "press sends named keys (arrows/space) as key codes, not typed letters" do
+    assert Commands.press("up") ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key code 126)]}
+
+    assert Commands.press("down") ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key code 125)]}
+
+    assert Commands.press("left") ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key code 123)]}
+
+    assert Commands.press("right") ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key code 124)]}
+
+    assert Commands.press("space") ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key code 49)]}
+  end
+
+  test "named keys compose with modifiers like digits do" do
+    assert Commands.press("shift+space") ==
+             {"osascript",
+              ["-e", ~s(tell application "System Events" to key code 49 using {shift down})]}
+  end
+
   test "left and right click" do
     assert Commands.click(:left, {812, 402}) == {"cliclick", ["c:812,402"]}
     assert Commands.click(:right, {10, 20}) == {"cliclick", ["rc:10,20"]}

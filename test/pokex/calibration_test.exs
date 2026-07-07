@@ -35,6 +35,8 @@ defmodule Pokex.CalibrationTest do
     assert Calibration.battle_body(calib) == {1380, 120, 230, 220}
     assert Calibration.battle_strip({1380, 120, 260, 220}) == {1610, 120, 30, 220}
     assert Calibration.battle_first_row(calib) == {1466, 138}
+    # the client keeps the player centered in the arena viewport
+    assert Calibration.player_point(calib) == {840, 470}
     # pixel (100, 50) dentro da arena com scale 2 → +50,+25 points do canto
     assert Calibration.frame_to_screen(calib, calib.arena_region, {100, 50}) == {610, 285}
     # a wild row 100px down the strip → name column, scaled: {1380+86, 120+50}

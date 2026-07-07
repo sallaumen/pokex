@@ -81,8 +81,10 @@ defmodule PokexWeb.PanelLive do
   defp state_label(:watching), do: "Vigiando o brilho"
   defp state_label(:assessing), do: "Avaliando a fisgada"
   defp state_label(:fighting), do: "Em combate"
+  defp state_label(:walking_to_loot), do: "Andando até o loot"
   defp state_label(:looting), do: "Coletando o item"
   defp state_label(:capturing), do: "Capturando"
+  defp state_label(:walking_back), do: "Voltando ao ponto de pesca"
   defp state_label(:error), do: "Erro — parado"
   defp state_label(other), do: to_string(other)
 

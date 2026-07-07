@@ -16,11 +16,15 @@ defmodule Pokex.Bots.Fisher.Logic do
             select_idx: 0,
             pending_verify?: false,
             target_streak: 0,
+            verify_attempts: 0,
             lost_streak: 0,
-            fallback_idx: 0,
             glow_streak: 0,
             calm_streak: 0,
             settled?: false,
+            walk_plan: [],
+            walk_taken: [],
+            loot_offset: nil,
+            loot_presses_left: 0,
             combat_test?: false,
             failures: 0,
             error: nil,
@@ -47,10 +51,15 @@ defmodule Pokex.Bots.Fisher.Logic do
          select_idx: 0,
          pending_verify?: false,
          target_streak: 0,
+         verify_attempts: 0,
          lost_streak: 0,
          fight_tick: 0,
          skill_idx: 0,
          last_hostile: nil,
+         walk_plan: [],
+         walk_taken: [],
+         loot_offset: nil,
+         loot_presses_left: 0,
          entered_at: now,
          waiting_until: nil,
          failures: 0,
@@ -179,10 +188,15 @@ defmodule Pokex.Bots.Fisher.Logic do
         select_idx: 0,
         pending_verify?: false,
         target_streak: 0,
+        verify_attempts: 0,
         lost_streak: 0,
         fight_tick: 0,
         skill_idx: 0,
-        last_hostile: nil
+        last_hostile: nil,
+        walk_plan: [],
+        walk_taken: [],
+        loot_offset: nil,
+        loot_presses_left: 0
     }
 
     {advance(logic, :fighting, now), []}
@@ -198,15 +212,21 @@ defmodule Pokex.Bots.Fisher.Logic do
       # still selected) → attack it. Clicking again here would deselect it and
       # cancel the fight — the exact "starts then un-starts" bug.
       Map.get(obs, :target_locked, 0) >= logic.config.target_locked_min_pixels ->
-        {advance(%{logic | targeted?: true, target_streak: 0, lost_streak: 0}, :fighting, now),
-         []}
+        {advance(
+           %{logic | targeted?: true, target_streak: 0, lost_streak: 0, verify_attempts: 0},
+           :fighting,
+           now
+         ), []}
 
       logic.select_idx >= length(rows) ->
         {continue_combat(%{logic | select_idx: 0}, now),
          [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
 
       true ->
-        {advance(%{logic | pending_verify?: true}, :fighting, now,
+        {advance(
+           %{logic | pending_verify?: true, verify_attempts: 0, target_streak: 0},
+           :fighting,
+           now,
            wait: logic.config.wait_target_verify_ms
          ), [{:click, :left, Enum.at(rows, logic.select_idx)}]}
     end
@@ -214,27 +234,50 @@ defmodule Pokex.Bots.Fisher.Logic do
 
   defp do_step(%{state: :fighting, targeted?: false, pending_verify?: true} = logic, obs, now) do
     red = Map.get(obs, :target_locked, 0)
+    locked? = red >= logic.config.target_locked_min_pixels
 
     cond do
-      red < logic.config.target_locked_min_pixels ->
-        # no (more) red — a blink that already faded, or a non-target row → next row
-        {%{logic | select_idx: logic.select_idx + 1, pending_verify?: false, target_streak: 0},
-         []}
-
-      logic.target_streak + 1 >= logic.config.target_lock_streak ->
+      locked? and logic.target_streak + 1 >= logic.config.target_lock_streak ->
         # red PERSISTED → a real fixed border, target locked. Reset entered_at so
         # the fight timeout measures the attack itself (a lock that never kills → bail).
         {advance(
-           %{logic | targeted?: true, pending_verify?: false, target_streak: 0, lost_streak: 0},
+           %{
+             logic
+             | targeted?: true,
+               pending_verify?: false,
+               target_streak: 0,
+               verify_attempts: 0,
+               lost_streak: 0
+           },
            :fighting,
            now
          ), []}
 
-      true ->
+      locked? ->
         # red is there, but check again after a beat — a blink shows once then vanishes
         {advance(%{logic | target_streak: logic.target_streak + 1}, :fighting, now,
            wait: logic.config.wait_target_verify_ms
          ), []}
+
+      logic.verify_attempts + 1 < logic.config.target_verify_attempts ->
+        # pre-ring frame: the ring renders ~200ms after the click + capture latency —
+        # re-read the SAME row; clicking the next row now would LURE a second monster
+        {advance(
+           %{logic | verify_attempts: logic.verify_attempts + 1, target_streak: 0},
+           :fighting,
+           now,
+           wait: logic.config.wait_target_verify_ms
+         ), []}
+
+      true ->
+        # every verify attempt read below threshold — this row really didn't lock → next row
+        {%{
+           logic
+           | select_idx: logic.select_idx + 1,
+             pending_verify?: false,
+             target_streak: 0,
+             verify_attempts: 0
+         }, []}
     end
   end
 
@@ -266,9 +309,24 @@ defmodule Pokex.Bots.Fisher.Logic do
         {%{logic | skill_idx: logic.skill_idx + 1}, [{:press, key}]}
 
       logic.lost_streak + 1 >= logic.config.target_lost_streak ->
-        # border gone for enough checks → target is dead/gone → loot the corpse
+        # border gone for enough checks → target is dead → walk to the corpse.
+        # The plan is computed ONCE here: the player is always screen-centered
+        # and the world scrolls, so last_hostile goes stale the moment we move.
         logic = update_in(logic.counters.fights, &(&1 + 1))
-        {advance(%{logic | fallback_idx: 0, lost_streak: 0}, :looting, now), []}
+        {plan, offset} = plan_walk(logic)
+
+        {advance(
+           %{
+             logic
+             | lost_streak: 0,
+               walk_plan: plan,
+               walk_taken: [],
+               loot_offset: offset,
+               loot_presses_left: logic.config.loot_presses
+           },
+           :walking_to_loot,
+           now
+         ), []}
 
       true ->
         # border blinked out once — could be a hit animation; wait a tick, re-check
@@ -276,28 +334,40 @@ defmodule Pokex.Bots.Fisher.Logic do
     end
   end
 
+  # One arrow press per tick, each SPACED by walk_step_ms — rapid back-to-back
+  # movement inputs bug the pokemon out and he doesn't move at all. Every
+  # executed step is prepended to walk_taken so the walk-back is an exact retrace.
+  defp do_step(%{state: :walking_to_loot, walk_plan: [dir | rest]} = logic, _obs, now) do
+    {advance(
+       %{logic | walk_plan: rest, walk_taken: [dir | logic.walk_taken]},
+       :walking_to_loot,
+       now,
+       wait: logic.config.walk_step_ms
+     ), [{:press, dir}]}
+  end
+
+  defp do_step(%{state: :walking_to_loot, walk_plan: []} = logic, _obs, now) do
+    {advance(logic, :looting, now), []}
+  end
+
+  # SPACE picks up the loot of any ADJACENT corpse — no aiming needed. A couple
+  # of spaced presses covers a slow corpse-drop animation.
+  defp do_step(%{state: :looting, loot_presses_left: n} = logic, _obs, now) when n > 0 do
+    {advance(%{logic | loot_presses_left: n - 1}, :looting, now, wait: logic.config.wait_loot_ms),
+     [{:press, "space"}]}
+  end
+
   defp do_step(%{state: :looting} = logic, _obs, now) do
-    corpse = corpse_point(logic)
-
-    cond do
-      corpse != nil ->
-        logic = update_in(logic.counters.loots, &(&1 + 1))
-
-        {advance(logic, :capturing, now, wait: logic.config.wait_loot_ms),
-         [{:click, :right, corpse}]}
-
-      logic.fallback_idx < length(logic.config.fallback_points) ->
-        point = Enum.at(logic.config.fallback_points, logic.fallback_idx)
-        {%{logic | fallback_idx: logic.fallback_idx + 1}, [{:click, :right, point}]}
-
-      true ->
-        logic = update_in(logic.counters.loots, &(&1 + 1))
-        {advance(logic, :capturing, now, wait: logic.config.wait_loot_ms), []}
-    end
+    logic = update_in(logic.counters.loots, &(&1 + 1))
+    {advance(logic, :capturing, now), []}
   end
 
   defp do_step(%{state: :capturing} = logic, _obs, now) do
-    target = corpse_point(logic) || logic.config.water_point
+    # We stopped adjacent to the corpse: click one tile toward it (or one tile
+    # below the player when the corpse position was unknown).
+    {ox, oy} = logic.loot_offset || {0, 1}
+    {px, py} = logic.config.player_point
+    target = {px + ox * logic.config.tile_px, py + oy * logic.config.tile_px}
     logic = %{logic | failures: 0, last_hostile: nil}
 
     {logic, actions} =
@@ -307,7 +377,29 @@ defmodule Pokex.Bots.Fisher.Logic do
         {logic, [{:log, "auto-captura desligada — sem pokébola"}]}
       end
 
-    {continue_combat(logic, now, wait: logic.config.wait_after_capture_ms), actions}
+    # walk_taken is most-recent-first, so mapping to opposites IS the exact
+    # retrace back to the fishing spot (arrow presses are 1 tile regardless of
+    # a slightly-wrong tile_px, so the return can never drift).
+    {advance(
+       %{
+         logic
+         | walk_plan: Enum.map(logic.walk_taken, &opposite/1),
+           walk_taken: [],
+           loot_offset: nil
+       },
+       :walking_back,
+       now,
+       wait: logic.config.wait_after_capture_ms
+     ), actions}
+  end
+
+  defp do_step(%{state: :walking_back, walk_plan: [dir | rest]} = logic, _obs, now) do
+    {advance(%{logic | walk_plan: rest}, :walking_back, now, wait: logic.config.walk_step_ms),
+     [{:press, dir}]}
+  end
+
+  defp do_step(%{state: :walking_back, walk_plan: []} = logic, _obs, now) do
+    {continue_combat(logic, now), []}
   end
 
   # Normal run loops back to fishing; a combat-test run loops the fight itself
@@ -321,10 +413,15 @@ defmodule Pokex.Bots.Fisher.Logic do
         select_idx: 0,
         pending_verify?: false,
         target_streak: 0,
+        verify_attempts: 0,
         lost_streak: 0,
         fight_tick: 0,
         skill_idx: 0,
-        last_hostile: nil
+        last_hostile: nil,
+        walk_plan: [],
+        walk_taken: [],
+        loot_offset: nil,
+        loot_presses_left: 0
     }
 
     advance(fresh, :fighting, now, opts)
@@ -339,6 +436,7 @@ defmodule Pokex.Bots.Fisher.Logic do
       | targeted?: false,
         pending_verify?: false,
         target_streak: 0,
+        verify_attempts: 0,
         lost_streak: 0,
         fight_tick: 0,
         skill_idx: 0,
@@ -346,10 +444,42 @@ defmodule Pokex.Bots.Fisher.Logic do
     }
   end
 
+  # The hostile point is the floating red NAME; the body lies one tile below it.
   defp corpse_point(%{last_hostile: nil}), do: nil
 
   defp corpse_point(%{last_hostile: {x, y}, config: config}),
-    do: {x, y + config.tile_size}
+    do: {x, y + config.tile_px}
+
+  # Turn the corpse's screen offset into an arrow-key plan, computed ONCE at
+  # fight end (the player is always screen-centered; the world scrolls, so the
+  # plan can't be re-derived mid-walk from the stale last_hostile). Stops
+  # ADJACENT to the corpse (one step short per axis) — SPACE loots from there.
+  defp plan_walk(%{last_hostile: nil}), do: {[], nil}
+
+  defp plan_walk(%{config: config} = logic) do
+    {cx, cy} = corpse_point(logic)
+    {px, py} = config.player_point
+    dx = round((cx - px) / config.tile_px)
+    dy = round((cy - py) / config.tile_px)
+
+    if abs(dx) > config.max_walk_tiles or abs(dy) > config.max_walk_tiles do
+      # a corpse that far is a bad hostile read → loot in place
+      {[], nil}
+    else
+      plan =
+        List.duplicate(if(dx > 0, do: "right", else: "left"), max(abs(dx) - 1, 0)) ++
+          List.duplicate(if(dy > 0, do: "down", else: "up"), max(abs(dy) - 1, 0))
+
+      {plan, {clamp_unit(dx), clamp_unit(dy)}}
+    end
+  end
+
+  defp clamp_unit(d), do: d |> max(-1) |> min(1)
+
+  defp opposite("up"), do: "down"
+  defp opposite("down"), do: "up"
+  defp opposite("left"), do: "right"
+  defp opposite("right"), do: "left"
 
   # -- shared helpers ---------------------------------------------------------
 

@@ -6,7 +6,6 @@ defmodule Pokex.Bots.Fisher.Config do
   @setting_keys [
     :rod_key,
     :skill_keys,
-    :tile_size,
     :tick_ms_watching,
     :tick_ms_fighting,
     :tick_ms_default,
@@ -24,15 +23,18 @@ defmodule Pokex.Bots.Fisher.Config do
     :glow_streak_needed,
     :calm_streak_needed,
     :wait_target_verify_ms,
+    :target_verify_attempts,
     :target_locked_min_pixels,
     :target_lock_streak,
     :target_lost_streak,
+    :tile_px,
+    :walk_step_ms,
+    :loot_presses,
+    :max_walk_tiles,
     :humanize_max_ms
   ]
 
   def build(%Calibration{} = calib, settings) do
-    tile = settings[:tile_size] || 32
-    {wx, wy} = calib.water_point
     {fx, fy} = Calibration.battle_first_row(calib)
     row_h = settings[:battle_row_height] || 30
     max_rows = settings[:battle_max_rows] || 6
@@ -42,15 +44,9 @@ defmodule Pokex.Bots.Fisher.Config do
     |> Map.merge(%{
       water_point: calib.water_point,
       neutral_point: calib.neutral_point,
+      player_point: Calibration.player_point(calib),
       battle_first_row: Calibration.battle_first_row(calib),
-      battle_rows: for(i <- 0..(max_rows - 1), do: {fx, fy + i * row_h}),
-      fallback_points: [
-        {wx, wy},
-        {wx - tile, wy},
-        {wx + tile, wy},
-        {wx, wy - tile},
-        {wx, wy + tile}
-      ]
+      battle_rows: for(i <- 0..(max_rows - 1), do: {fx, fy + i * row_h})
     })
   end
 end

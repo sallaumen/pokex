@@ -30,7 +30,6 @@ defmodule Pokex.Settings do
     # 500 sits safely between. Tunable via the /diagnostics "Bolhas (ciano)" readout.
     glow_threshold: 500,
     max_consecutive_failures: 5,
-    tile_size: 32,
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,
     auto_capture: true,
@@ -47,6 +46,26 @@ defmodule Pokex.Settings do
     # ring; screenshot sooner and it reads 0px (no lock) and skips a valid target.
     # This is the one pause that must stay — it waits for the game to respond.
     wait_target_verify_ms: 250,
+    # Re-read the lock this many times after clicking a Battle row before deciding
+    # it didn't lock: the red ring draws ~200ms after the click and the capture
+    # adds 100-200ms, so a single read often sees a PRE-RING frame — advancing on
+    # it clicks (= LURES) the next row while the first ring is still in flight.
+    target_verify_attempts: 3,
+    # Screen pixels per game tile. MEASURED at 3440x1440, scale 1.0: the floor
+    # texture autocorrelates at 44px (two plank rows per tile sprite) → tile = 88;
+    # the character sprite (~88px) confirms it. Converts the corpse's screen
+    # offset into arrow-key steps, the capture click point, and the corpse's
+    # body position one tile below its floating name.
+    tile_px: 88,
+    # The character walks fast (~200ms/tile measured on video), but instant
+    # back-to-back movement inputs bug out and he doesn't move at all — so every
+    # step press is spaced by this conservative pause.
+    walk_step_ms: 400,
+    # SPACE loots any ADJACENT corpse (no aiming); press a couple of times to be safe.
+    loot_presses: 2,
+    # A corpse offset beyond this many tiles per axis is a bad hostile read →
+    # treat the corpse as unknown and loot in place instead of marching off.
+    max_walk_tiles: 7,
     target_locked_min_pixels: 40,
     target_lock_streak: 1,
     target_lost_streak: 2,

@@ -75,6 +75,9 @@ defmodule Pokex.Calibration do
   """
   def battle_body(%__MODULE__{battle_region: {x, y, w, h}}), do: {x, y, w - @strip_width, h}
 
+  @doc "The player's screen position: the client keeps the character centered in the arena viewport."
+  def player_point(%__MODULE__{arena_region: {x, y, w, h}}), do: {x + div(w, 2), y + div(h, 2)}
+
   def battle_first_row(%__MODULE__{battle_region: {x, y, w, _h}}),
     do: {x + div(w, 3), y + @first_row_y_offset}
 

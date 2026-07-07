@@ -20,10 +20,16 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.water_point == {800, 400}
     assert config.neutral_point == {860, 470}
     assert config.battle_first_row == {1466, 138}
-    assert config.fallback_points == [{800, 400}, {768, 400}, {832, 400}, {800, 368}, {800, 432}]
+    assert config.player_point == {840, 470}
     assert config.skill_keys == ["1", "2", "3"]
     assert config.watch_timeout_ms == 30_000
     assert config.hostile_scan_every == 2
+    assert config.target_verify_attempts == 3
+    assert config.tile_px == 88
+    assert config.walk_step_ms == 400
+    assert config.loot_presses == 2
+    assert config.max_walk_tiles == 7
+    refute Map.has_key?(config, :fallback_points)
 
     assert config.battle_rows == [
              {1466, 138},
@@ -47,10 +53,10 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
       neutral_point: {860, 470}
     }
 
-    # a partial map — no battle_max_rows / battle_row_height / tile_size
+    # a partial map — no battle_max_rows / battle_row_height / tile_px
     config = Config.build(calib, %{skill_keys: ["1"]})
 
     assert length(config.battle_rows) == 6
-    assert config.fallback_points |> hd() == {800, 400}
+    assert config.player_point == {840, 470}
   end
 end

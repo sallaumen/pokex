@@ -1,7 +1,7 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.{BotSupervisor, Combat}
+  alias Pokex.Bots.{BotSupervisor, Combat, Fishing}
   alias Pokex.{Calibration, Settings}
 
   @fishing_topic "fishing"
@@ -107,6 +107,19 @@ defmodule PokexWeb.PanelLive do
       :ok ->
         {:noreply,
          assign(socket, errors: [], logs: [], panicked?: false, combat: Combat.Worker.status())}
+
+      {:error, messages} ->
+        {:noreply, assign(socket, errors: messages)}
+    end
+  end
+
+  # Run ONLY the fishing worker — combat stays idle, so you can watch the fishing
+  # loop alone (cast → watch → hook → repeat) without the mouse being shared.
+  def handle_event("test_fishing", _params, socket) do
+    case Fishing.Worker.run() do
+      :ok ->
+        {:noreply,
+         assign(socket, errors: [], logs: [], panicked?: false, fishing: Fishing.Worker.status())}
 
       {:error, messages} ->
         {:noreply, assign(socket, errors: messages)}
@@ -237,6 +250,13 @@ defmodule PokexWeb.PanelLive do
                 title="Só o combate em loop: mira → ataca → loot → captura, repetindo"
               >
                 <.icon name="hero-bug-ant" class="size-4" /> Testar combate
+              </button>
+              <button
+                class="btn btn-outline btn-info gap-1.5"
+                phx-click="test_fishing"
+                title="Só a pesca em loop: arremessa → vigia → fisga, repetindo (combate parado)"
+              >
+                <.icon name="hero-bug-ant" class="size-4" /> Testar pesca
               </button>
             </div>
           </div>

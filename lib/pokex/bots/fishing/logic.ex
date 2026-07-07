@@ -89,7 +89,9 @@ defmodule Pokex.Bots.Fishing.Logic do
     {advance(
        %{logic | glow_streak: 0, calm_streak: 0, dead_streak: 0, settled?: false},
        :watching,
-       now, wait: logic.config.wait_cast_settle_ms), [{:click, :left, logic.config.water_point}]}
+       now,
+       wait: logic.config.wait_cast_settle_ms
+     ), [{:click, :left, logic.config.water_point}]}
   end
 
   # Bubbles AND the water already settled (splash gone) → a real bite. Require N
@@ -118,16 +120,18 @@ defmodule Pokex.Bots.Fishing.Logic do
     recast_if_dead(%{logic | glow_streak: 0, calm_streak: 0, dead_streak: 0}, now)
   end
 
-  # Calm frame while ALREADY settled → normal calm during the watch: keep
-  # settled, reset only the bite debounce. No bubble → count a dead frame.
-  defp do_step(%{state: :watching, settled?: true} = logic, _obs, now) do
-    recast_if_dead(%{logic | glow_streak: 0, dead_streak: logic.dead_streak + 1}, now)
+  # No bite while ALREADY settled → normal watch: keep settled, reset the bite
+  # debounce. The dead-frame streak only climbs on NEAR-EMPTY water (see
+  # next_dead_streak) — a line pulsing below the bite threshold still counts as
+  # present and resets it.
+  defp do_step(%{state: :watching, settled?: true} = logic, obs, now) do
+    recast_if_dead(%{logic | glow_streak: 0, dead_streak: next_dead_streak(logic, obs)}, now)
   end
 
-  # Calm frame while NOT yet settled → accumulate the consecutive-calm run;
-  # latch settled? only once it reaches calm_streak_needed (splash gone). Still no
-  # bubble → count a dead frame toward the recast backstop.
-  defp do_step(%{state: :watching, settled?: false} = logic, _obs, now) do
+  # No bite while NOT yet settled → accumulate the consecutive-calm run; latch
+  # settled? only once it reaches calm_streak_needed (splash gone). The dead-frame
+  # streak follows line presence, not calm (see next_dead_streak).
+  defp do_step(%{state: :watching, settled?: false} = logic, obs, now) do
     calm = logic.calm_streak + 1
     settled? = calm >= logic.config.calm_streak_needed
 
@@ -137,7 +141,7 @@ defmodule Pokex.Bots.Fishing.Logic do
         | glow_streak: 0,
           calm_streak: calm,
           settled?: settled?,
-          dead_streak: logic.dead_streak + 1
+          dead_streak: next_dead_streak(logic, obs)
       },
       now
     )
@@ -189,6 +193,18 @@ defmodule Pokex.Bots.Fishing.Logic do
         {logic, []}
     end
   end
+
+  # A no-bite frame only counts toward the dead-frame streak when the water is
+  # NEAR-EMPTY (no line? flag = bubble px below line_present_min_px). A cast line
+  # resting between bites still pulses well above that floor, so it reads line? and
+  # RESETS the streak — a live line is never recast. Only genuinely empty water (a
+  # dropped rod / a cast that never landed, reading ~0) counts up toward re-throw.
+  defp next_dead_streak(logic, obs) do
+    if line_present?(obs), do: 0, else: logic.dead_streak + 1
+  end
+
+  defp line_present?(%{line?: present?}), do: present?
+  defp line_present?(_obs), do: false
 
   defp timed_out?(logic, now, ms), do: now - logic.entered_at > ms
 

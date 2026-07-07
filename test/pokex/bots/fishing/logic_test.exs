@@ -258,6 +258,26 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert live.glow_streak == 1
   end
 
+  test "a present line pulsing below the bite threshold holds the dead streak (only empty water counts)" do
+    # line? true = the cast line is in the water (pulsing between bites) but below
+    # the bite threshold → NOT a dead frame: a resting line keeps fishing forever.
+    watching = %Logic{
+      state: :watching,
+      config: config(),
+      entered_at: 0,
+      settled?: true,
+      dead_streak: 7
+    }
+
+    {held, []} = Logic.step(watching, %{cursor: {500, 500}, glow: false, line?: true}, 100)
+    assert held.state == :watching
+    assert held.dead_streak == 0
+
+    # line? false = near-empty water (dropped rod) → this one DOES count up
+    {climb, []} = Logic.step(held, %{cursor: {500, 500}, glow: false, line?: false}, 200)
+    assert climb.dead_streak == 1
+  end
+
   test "kill corner stops from any active state" do
     {l, actions} = Logic.step(advance_to(:watching), %{cursor: {5, 5}, glow: true}, 700)
     assert l.state == :idle

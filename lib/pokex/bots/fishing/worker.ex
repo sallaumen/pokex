@@ -165,12 +165,17 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp describe_actions(actions),
     do: actions |> Enum.map(&describe_action/1) |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
 
-  # The glow sensor returns the RAW cyan count (for the live feed); Logic
-  # still decides on a boolean, so apply the bite threshold here before
-  # stepping. A Fake sensor may hand back a boolean directly — pass those
-  # straight through.
-  defp threshold_glow(%{glow: count} = obs, settings) when is_integer(count),
-    do: %{obs | glow: count > (settings[:glow_threshold] || 500)}
+  # The glow sensor returns the RAW cyan count (for the live feed); Logic decides
+  # on booleans, so apply the thresholds here before stepping: `glow` = a BITE
+  # (raw over glow_threshold), `line?` = the line is PRESENT in the water (raw at
+  # or above line_present_min_px, i.e. a resting line pulsing between bites vs
+  # near-empty water). A Fake sensor may hand back a boolean directly — pass those
+  # straight through (no line? key → treated as absent by the Logic).
+  defp threshold_glow(%{glow: count} = obs, settings) when is_integer(count) do
+    obs
+    |> Map.put(:glow, count > (settings[:glow_threshold] || 500))
+    |> Map.put(:line?, count >= (settings[:line_present_min_px] || 100))
+  end
 
   defp threshold_glow(obs, _settings), do: obs
 

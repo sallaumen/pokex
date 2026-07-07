@@ -30,14 +30,13 @@ defmodule Pokex.Settings do
     # Auto-recovery: consecutive watch frames with NO bite bubble (glow below
     # glow_threshold) before we assume the cast failed — a dropped rod press or a
     # click that never put a line in the water — and re-throw. At tick_ms_watching
-    # (100ms) this is ~12s. A REAL bite (or a building one) clears glow_threshold
-    # and RESETS the streak, so an active bite is never cut short; only dead water
-    # counts up. Can't go much lower: at night a resting line waiting for a slow
-    # bite ALSO reads ~0, so a tiny value would recast good lines mid-wait
-    # ("patinando à toa"). Watch the "N/M sem bolha" counter in the feed and tune
-    # live via /diagnostics if 12s feels too slow (dropped rod) or too eager (spot
-    # with slow bites).
-    watch_dead_streak_needed: 120,
+    # (100ms) 20 frames is ~2s: fast recovery from a dropped cast (tuned live and
+    # confirmed good). A REAL bite (or a building one) clears glow_threshold and
+    # RESETS the streak, so an active bite is never cut short; only dead water
+    # counts up. If a spot's bites are slow enough that good lines get recast
+    # mid-wait, raise this — watch the "N/M sem bolha" counter in the feed and tune
+    # via /diagnostics.
+    watch_dead_streak_needed: 20,
     # A locked target that hasn't died in this long isn't a real hostile (our own
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,
@@ -47,6 +46,13 @@ defmodule Pokex.Settings do
     # frames through as false bites. 1100 clears the resting ceiling with margin;
     # only a real bubble burst reaches it. Tunable via /diagnostics "Bolhas (ciano)".
     glow_threshold: 1100,
+    # Min cyan pixels for the LINE to count as present in the water (below the bite
+    # threshold). A cast line resting and waiting for a bite still pulses well above
+    # this — measured 108..759px between bites — while genuinely empty water (a
+    # dropped rod press / a cast that never landed) reads ~0. So a frame below this
+    # floor is the ONLY thing that counts toward the dead-frame recast; any pulse at
+    # or above it resets the streak, keeping a live line fishing indefinitely.
+    line_present_min_px: 100,
     max_consecutive_failures: 5,
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,

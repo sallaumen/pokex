@@ -84,4 +84,21 @@ defmodule Pokex.Bots.FisherTest do
     assert {:error, [msg]} = Fisher.start_bot(fisher)
     assert msg =~ "calibração"
   end
+
+  @tag :tmp_dir
+  test "panic corner stops the bot even during a post-action pause", %{fisher: fisher} do
+    # a longer focus pause guarantees a wait-tick (cursor-only, no sensing) runs,
+    # which is exactly the window where the old code ignored the panic corner.
+    Settings.put(:wait_focus_ms, 300)
+    # emergency: mouse parked in the top-left corner
+    Agent.update(Pokex.Rig.Fake, fn s ->
+      %{s | script: Map.put(s.script, :cursor_position, [{:ok, {5, 5}}])}
+    end)
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Fisher.topic())
+    assert :ok = Fisher.start_bot(fisher)
+
+    assert_receive {:fisher, %{state: :idle}}, 3_000
+    assert Fisher.status(fisher).state == :idle
+  end
 end

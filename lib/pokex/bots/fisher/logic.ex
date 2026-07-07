@@ -386,7 +386,11 @@ defmodule Pokex.Bots.Fisher.Logic do
 
   defp timed_out?(logic, now, ms), do: now - logic.entered_at > ms
 
-  defp kill_corner?(%{cursor: {x, y}}) when x <= 10 and y <= 10, do: true
+  @doc "True when the cursor point sits in the top-left panic corner (mouse-to-corner = emergency stop)."
+  def in_kill_corner?({x, y}) when x <= 10 and y <= 10, do: true
+  def in_kill_corner?(_), do: false
+
+  defp kill_corner?(%{cursor: cursor}), do: in_kill_corner?(cursor)
   defp kill_corner?(_obs), do: false
 
   defp scan_tick?(%__MODULE__{fight_tick: tick, config: c}),

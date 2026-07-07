@@ -66,13 +66,31 @@ defmodule Pokex.Bots.Fisher do
   def handle_info(:tick, state) do
     previous = state.logic
 
-    # In a post-action pause there's nothing to decide — don't screen-capture,
-    # just let the pause elapse. This is what keeps it from "checking everything
-    # all the time": sensing happens only when the machine is ready to act.
+    # In a post-action pause there's nothing to SENSE — no screen capture. But the
+    # panic corner must stay live: a screencapture-free cursor read still runs so
+    # mouse-to-corner stops the bot during the long waits (settle, assess, capture)
+    # — exactly when the user is most likely to grab the mouse.
     if Logic.waiting?(previous, now()) do
-      {:noreply, reschedule(state, Logic.tick_interval(previous))}
+      wait_tick(state, previous)
     else
       run_tick(state, previous)
+    end
+  end
+
+  defp wait_tick(state, previous) do
+    case Rig.impl().cursor_position() do
+      {:ok, cursor} ->
+        if Logic.in_kill_corner?(cursor) do
+          {logic, _} = Logic.stop(previous)
+          broadcast(logic)
+          Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fisher_log, "kill corner — parado"})
+          {:noreply, cancel_timer(%{state | logic: logic})}
+        else
+          {:noreply, reschedule(state, Logic.tick_interval(previous))}
+        end
+
+      _ ->
+        {:noreply, reschedule(state, Logic.tick_interval(previous))}
     end
   end
 

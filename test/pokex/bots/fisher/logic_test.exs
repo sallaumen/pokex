@@ -15,6 +15,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       tick_ms_default: 300,
       wait_focus_ms: 150,
       wait_after_equip_ms: 300,
+      wait_cast_settle_ms: nil,
       wait_assess_ms: 1500,
       wait_loot_ms: 400,
       wait_after_capture_ms: 2000,
@@ -83,6 +84,17 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert l.state == :watching
     assert actions == [{:click, :left, {800, 400}}]
     assert l.counters.cycles == 1
+  end
+
+  test "casting waits out the cast splash before watching" do
+    cfg = Map.put(config(), :wait_cast_settle_ms, 500)
+    {l, _} = Logic.step(%{advance_to(:equipping) | config: cfg}, cursor_obs(), 200)
+    {l, actions} = Logic.step(l, cursor_obs(), 600)
+    assert l.state == :watching
+    assert actions == [{:click, :left, {800, 400}}]
+    # a settle window is armed, so the splash isn't read as a bite
+    assert l.waiting_until == 600 + 500
+    assert {^l, []} = Logic.step(l, Map.put(cursor_obs(), :glow, true), 700)
   end
 
   test "watching: no glow keeps watching, glow hooks and assesses" do

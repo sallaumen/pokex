@@ -11,6 +11,7 @@ defmodule Pokex.Bots.Fisher.Config do
     :tick_ms_default,
     :wait_focus_ms,
     :wait_after_equip_ms,
+    :wait_cast_settle_ms,
     :wait_assess_ms,
     :wait_loot_ms,
     :wait_after_capture_ms,

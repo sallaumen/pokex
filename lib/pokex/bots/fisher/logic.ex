@@ -120,7 +120,9 @@ defmodule Pokex.Bots.Fisher.Logic do
   defp do_step(%{state: :casting} = logic, _obs, now) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
 
-    {advance(%{logic | glow_streak: 0}, :watching, now),
+    # Settle-wait before watching so the cast splash (a one-off ripple) subsides
+    # and only the real, sustained bubble animation is read as a bite.
+    {advance(%{logic | glow_streak: 0}, :watching, now, wait: logic.config.wait_cast_settle_ms),
      [{:click, :left, logic.config.water_point}]}
   end
 

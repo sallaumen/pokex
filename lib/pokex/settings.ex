@@ -12,7 +12,10 @@ defmodule Pokex.Settings do
     tick_ms_default: 80,
     wait_focus_ms: 20,
     wait_after_equip_ms: 30,
-    wait_assess_ms: 200,
+    # Let the cast SPLASH settle before watching, so the line landing isn't read
+    # as a bite; then give the hooked pokemon time to teleport in before checking.
+    wait_cast_settle_ms: 600,
+    wait_assess_ms: 700,
     wait_loot_ms: 30,
     wait_after_capture_ms: 50,
     watch_timeout_ms: 30_000,

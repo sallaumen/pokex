@@ -17,10 +17,15 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
 
   defp fetch(:cursor, _calib, _settings), do: Rig.impl().cursor_position()
 
+  # The bite shows as blue bubbles that ANIMATE around the bait, so two quick
+  # captures of the region differ sharply while calm water is near-identical.
+  # Frame-to-frame variation (mean pixel delta) — baseline-free, so it survives
+  # day/night lighting that broke the old snapshot comparison.
   defp fetch(:glow, calib, settings) do
-    with {:ok, frame} <- capture_frame(calib.glow_region, "glow.png") do
-      threshold = settings[:glow_threshold] || calib.suggested_glow_threshold || 15.0
-      {:ok, Vision.glow_score(frame, baselines(calib)) > threshold}
+    with {:ok, a} <- capture_frame(calib.glow_region, "glow_a.png"),
+         {:ok, b} <- capture_frame(calib.glow_region, "glow_b.png") do
+      threshold = settings[:glow_threshold] || calib.suggested_glow_threshold || 8.0
+      {:ok, Vision.distance(a, b) > threshold}
     end
   end
 
@@ -51,22 +56,6 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   defp capture_frame(region, filename) do
     with {:ok, path} <- Rig.impl().capture(region, filename) do
       Frame.from_png_file(path)
-    end
-  end
-
-  defp baselines(calib) do
-    key = {:pokex_glow_baselines, calib.glow_baselines}
-
-    case :persistent_term.get(key, nil) do
-      nil ->
-        frames =
-          for path <- calib.glow_baselines, {:ok, frame} <- [Frame.from_png_file(path)], do: frame
-
-        :persistent_term.put(key, frames)
-        frames
-
-      frames ->
-        frames
     end
   end
 end

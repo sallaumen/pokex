@@ -23,15 +23,32 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
-  test "glow observation compares capture against baselines", %{tmp_dir: tmp} do
+  test "glow fires on frame-to-frame variation (the bubbles animate)", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
-    bright = Pokex.PngFixtures.write!(Path.join(tmp, "bright.png"), rows(8, 8, {200, 220, 255}))
+    calm = Pokex.PngFixtures.write!(Path.join(tmp, "calm.png"), rows(8, 8, {0, 60, 120}))
+    bubbly = Pokex.PngFixtures.write!(Path.join(tmp, "bubbly.png"), rows(8, 8, {200, 220, 255}))
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, bright}]})
-    calib = calib(tmp, baseline)
+    # two DIFFERENT captures in a row → high variation → a bite
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, calm}, {:ok, bubbly}]})
 
     assert {:ok, %{glow: true, cursor: {500, 500}}} =
-             Sensors.Real.observe([:cursor, :glow], calib, Pokex.Settings.defaults())
+             Sensors.Real.observe(
+               [:cursor, :glow],
+               calib(tmp, baseline),
+               Pokex.Settings.defaults()
+             )
+  end
+
+  @tag :tmp_dir
+  test "glow stays false on calm water (two identical captures)", %{tmp_dir: tmp} do
+    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+    calm = Pokex.PngFixtures.write!(Path.join(tmp, "calm.png"), rows(8, 8, {0, 60, 120}))
+
+    # a single element sticks → both captures identical → zero variation
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, calm}]})
+
+    assert {:ok, %{glow: false}} =
+             Sensors.Real.observe([:glow], calib(tmp, baseline), Pokex.Settings.defaults())
   end
 
   @tag :tmp_dir

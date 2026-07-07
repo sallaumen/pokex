@@ -78,18 +78,23 @@ defmodule PokexWeb.DiagnosticsLiveTest do
         suggested_glow_threshold: 15.0
       })
 
-      %{bright: bright}
+      %{bright: bright, calm: baseline}
     end
 
     @tag :tmp_dir
-    test "glow score panel", %{conn: conn, bright: bright} do
+    test "glow score panel shows frame-to-frame variation", %{
+      conn: conn,
+      bright: bright,
+      calm: calm
+    } do
+      # two different captures in a row → high variation → a bite
       Agent.update(Pokex.Rig.Fake, fn state ->
-        %{state | script: %{capture: [{:ok, bright}]}}
+        %{state | script: %{capture: [{:ok, calm}, {:ok, bright}]}}
       end)
 
       {:ok, view, _} = live(conn, ~p"/diagnostics")
-      view |> element("button", "Score do brilho") |> render_click()
-      assert render(view) =~ "brilhando? true"
+      view |> element("button", "Variação (bolhas)") |> render_click()
+      assert render(view) =~ "mordida? true"
     end
 
     @tag :tmp_dir

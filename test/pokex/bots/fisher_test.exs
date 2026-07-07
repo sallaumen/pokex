@@ -11,6 +11,7 @@ defmodule Pokex.Bots.FisherTest do
     tick_ms_default: 20,
     wait_focus_ms: 5,
     wait_after_equip_ms: 5,
+    wait_cast_settle_ms: 5,
     wait_assess_ms: 5,
     wait_loot_ms: 5,
     wait_after_capture_ms: 5,

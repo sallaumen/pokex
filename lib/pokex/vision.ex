@@ -319,4 +319,89 @@ defmodule Pokex.Vision do
     (g >= 120 and g >= r + 40 and g >= b + 40) or
       (r >= 120 and r >= g + 40 and r >= b + 40)
   end
+
+  # Salience ranks for downsample/2: a cell is tagged with the HIGHEST-ranked
+  # pixel class present anywhere inside it, so a thin HP bar or lock ring in an
+  # otherwise-dark cell still surfaces instead of being averaged into gray.
+  @rank_dark 0
+  @rank_other 1
+  @rank_cyan 2
+  @rank_hp_green 3
+  @rank_lock_red 4
+  @rank_pokeball_red 5
+
+  @doc """
+  Downsamples a Frame into a coarse `cols`×`rows` grid — a compact, human/AI-readable
+  "what the bot sees" map for the JSON diagnostics dump and an on-screen colour grid.
+
+  Each cell carries the AVERAGE `{r, g, b}` over its source pixels (a colour swatch)
+  and a `class` — the single most SALIENT pixel class present anywhere in the cell:
+  `:pokeball_red` > `:lock_red` > `:hp_green` > `:cyan` > `:other` > `:dark`, reusing
+  the same colour predicates the live detectors use. Presence-wins (not average-then-
+  classify) so a thin HP bar / lock ring inside an otherwise-dark cell is not diluted
+  into gray.
+
+  Options: `:cols` (default 24, clamped to `[1, width]`) and `:rows` (default keeps the
+  frame's aspect ratio, clamped to `[1, height]`).
+
+  Returns `%{cols, rows, cell_w, cell_h, cells}` where `cells` is a row-major list of
+  rows (top→bottom), each a list of `%{r, g, b, class}` (left→right).
+  """
+  def downsample(%Frame{width: w, height: h, rgba: rgba}, opts \\ []) do
+    cols = opts |> Keyword.get(:cols, 24) |> clamp(1, w)
+    rows = opts |> Keyword.get(:rows, max(div(h * cols, w), 1)) |> clamp(1, h)
+    cell_w = max(div(w, cols), 1)
+    cell_h = max(div(h, rows), 1)
+
+    acc = downsample_acc(rgba, 0, w, cols, rows, cell_w, cell_h, %{})
+
+    cells =
+      for r <- 0..(rows - 1)//1 do
+        for c <- 0..(cols - 1)//1 do
+          {sr, sg, sb, n, rank} = Map.get(acc, {r, c}, {0, 0, 0, 0, @rank_dark})
+          n = max(n, 1)
+          %{r: div(sr, n), g: div(sg, n), b: div(sb, n), class: rank_to_class(rank)}
+        end
+      end
+
+    %{cols: cols, rows: rows, cell_w: cell_w, cell_h: cell_h, cells: cells}
+  end
+
+  defp clamp(v, lo, hi), do: v |> max(lo) |> min(hi)
+
+  defp downsample_acc(<<r, g, b, _a, rest::binary>>, i, w, cols, rows, cw, ch, acc) do
+    c = min(div(rem(i, w), cw), cols - 1)
+    rr = min(div(div(i, w), ch), rows - 1)
+    rank = pixel_rank(r, g, b)
+
+    acc =
+      Map.update(acc, {rr, c}, {r, g, b, 1, rank}, fn {sr, sg, sb, n, mx} ->
+        {sr + r, sg + g, sb + b, n + 1, max(mx, rank)}
+      end)
+
+    downsample_acc(rest, i + 1, w, cols, rows, cw, ch, acc)
+  end
+
+  defp downsample_acc(<<>>, _i, _w, _cols, _rows, _cw, _ch, acc), do: acc
+
+  # Same colour families as the detectors above: pokeball/bright red (red_count),
+  # dark target red (red_row_counts), green HP bar (hp_bar_px?), teal bubble
+  # (bubble_count). Near-black is `:dark`; anything else is `:other`.
+  defp pixel_rank(r, g, b) do
+    cond do
+      r >= 200 and g <= 60 and b <= 60 -> @rank_pokeball_red
+      r >= 130 and g <= 70 and b <= 70 -> @rank_lock_red
+      g >= 120 and g >= r + 40 and g >= b + 40 -> @rank_hp_green
+      g > r and b > r and 5 * g >= 3 * b and g + b >= 60 -> @rank_cyan
+      r + g + b <= 60 -> @rank_dark
+      true -> @rank_other
+    end
+  end
+
+  defp rank_to_class(@rank_pokeball_red), do: :pokeball_red
+  defp rank_to_class(@rank_lock_red), do: :lock_red
+  defp rank_to_class(@rank_hp_green), do: :hp_green
+  defp rank_to_class(@rank_cyan), do: :cyan
+  defp rank_to_class(@rank_other), do: :other
+  defp rank_to_class(@rank_dark), do: :dark
 end

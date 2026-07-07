@@ -43,7 +43,14 @@ defmodule Pokex.Settings do
     # Consecutive below-threshold (resting/splash level) frames before a cyan spike
     # counts as a bite. Guards against a splash that briefly clears glow_threshold.
     calm_streak_needed: 3,
-    battle_row_height: 30,
+    # Height (points) of ONE battle-list row = the vertical spacing between rows.
+    # MEASURED live via hp_bar_rows: HP bars at frame-y 42 and 95 → ~53px apart
+    # (matches the documented 52-53px rows). The old 30 compressed the click grid
+    # (config.battle_rows = first_row + i*row_height) to ~half the real spacing, so
+    # row-N clicks landed BETWEEN real rows / on row N-1 — the bot clicked, missed
+    # the creature, and "kept searching". Drives BOTH the row click points and the
+    # per-row lock read bands, so they now line up with the real rows.
+    battle_row_height: 52,
     battle_max_rows: 6,
     # After clicking a Battle row the game takes ~200ms to DRAW the red target
     # ring; screenshot sooner and it reads 0px (no lock) and skips a valid target.

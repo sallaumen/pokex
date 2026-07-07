@@ -31,13 +31,15 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.max_walk_tiles == 7
     refute Map.has_key?(config, :fallback_points)
 
+    # rows spaced by battle_row_height (52 pts, the measured real row spacing):
+    # first row at y=138 (120 + first_row_offset 18), then +52 each.
     assert config.battle_rows == [
              {1466, 138},
-             {1466, 168},
-             {1466, 198},
-             {1466, 228},
-             {1466, 258},
-             {1466, 288}
+             {1466, 190},
+             {1466, 242},
+             {1466, 294},
+             {1466, 346},
+             {1466, 398}
            ]
   end
 

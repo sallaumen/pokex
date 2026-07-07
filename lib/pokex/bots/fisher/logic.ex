@@ -19,6 +19,7 @@ defmodule Pokex.Bots.Fisher.Logic do
             lost_streak: 0,
             fallback_idx: 0,
             glow_streak: 0,
+            settled?: false,
             combat_test?: false,
             failures: 0,
             error: nil,
@@ -120,15 +121,17 @@ defmodule Pokex.Bots.Fisher.Logic do
   defp do_step(%{state: :casting} = logic, _obs, now) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
 
-    # Settle-wait before watching so the cast splash (a one-off ripple) subsides
-    # and only the real, sustained bubble animation is read as a bite.
-    {advance(%{logic | glow_streak: 0}, :watching, now, wait: logic.config.wait_cast_settle_ms),
-     [{:click, :left, logic.config.water_point}]}
+    # Enter watching NOT settled: the cast splash also flashes cyan, so we must
+    # first see the water go calm (splash gone) before a cyan spike counts as a
+    # real bite. The settle-wait skips the bulk of the splash up front.
+    {advance(%{logic | glow_streak: 0, settled?: false}, :watching, now,
+       wait: logic.config.wait_cast_settle_ms
+     ), [{:click, :left, logic.config.water_point}]}
   end
 
-  # Require N consecutive glow frames so the line landing (a one-frame flash)
-  # doesn't fake a bite — only a sustained glow (the real bite) hooks.
-  defp do_step(%{state: :watching} = logic, %{glow: true}, now) do
+  # Bubbles AND the water already settled (splash gone) → a real bite. Require N
+  # consecutive frames so a lone flicker doesn't hook.
+  defp do_step(%{state: :watching, settled?: true} = logic, %{glow: true}, now) do
     streak = logic.glow_streak + 1
 
     if streak >= logic.config.glow_streak_needed do
@@ -141,14 +144,14 @@ defmodule Pokex.Bots.Fisher.Logic do
     end
   end
 
-  defp do_step(%{state: :watching} = logic, _obs, now) do
-    logic = %{logic | glow_streak: 0}
+  # Cyan while NOT yet settled = the cast splash → ignore it, keep waiting.
+  defp do_step(%{state: :watching, settled?: false} = logic, %{glow: true}, now) do
+    recast_if_timed_out(%{logic | glow_streak: 0}, now)
+  end
 
-    if timed_out?(logic, now, logic.config.watch_timeout_ms) do
-      {advance(logic, :casting, now), [{:log, "sem brilho a tempo — arremessando de novo"}]}
-    else
-      {logic, []}
-    end
+  # Calm water → the splash has subsided; from now on a cyan spike is a real bite.
+  defp do_step(%{state: :watching} = logic, _obs, now) do
+    recast_if_timed_out(%{logic | glow_streak: 0, settled?: true}, now)
   end
 
   # A real bubble-bite ALWAYS yields a pokemon (there's no "caught nothing"), so
@@ -357,6 +360,14 @@ defmodule Pokex.Bots.Fisher.Logic do
   defp advance(logic, state, now, opts \\ []) do
     wait = Keyword.get(opts, :wait)
     %{logic | state: state, entered_at: now, waiting_until: wait && now + wait}
+  end
+
+  defp recast_if_timed_out(logic, now) do
+    if timed_out?(logic, now, logic.config.watch_timeout_ms) do
+      {advance(logic, :casting, now), [{:log, "sem bolha a tempo — arremessando de novo"}]}
+    else
+      {logic, []}
+    end
   end
 
   defp timed_out?(logic, now, ms), do: now - logic.entered_at > ms

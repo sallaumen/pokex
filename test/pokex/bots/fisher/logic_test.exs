@@ -97,20 +97,31 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert {^l, []} = Logic.step(l, Map.put(cursor_obs(), :glow, true), 700)
   end
 
-  test "watching: no glow keeps watching, glow hooks and assesses" do
+  test "watching: settle on calm water first, THEN a bubble hooks and assesses" do
     watching = advance_to(:watching)
-    assert {^watching, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 700)
+    refute watching.settled?
 
-    {l, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 900)
+    # cyan BEFORE settling = the cast splash → ignored, stays watching
+    {still, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 650)
+    assert still.state == :watching
+    refute still.settled?
+
+    # calm water → settled (splash gone)
+    {settled, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 700)
+    assert settled.state == :watching
+    assert settled.settled?
+
+    # now a bubble is a real bite → hook
+    {l, actions} = Logic.step(settled, Map.put(cursor_obs(), :glow, true), 900)
     assert l.state == :assessing
     assert actions == [{:press, "shift+z"}]
     assert l.counters.hooked == 1
     assert l.waiting_until == 900 + 1500
   end
 
-  test "watching debounces glow: needs consecutive frames to hook" do
+  test "watching debounces the bite: needs consecutive bubble frames to hook" do
     cfg = Map.put(config(), :glow_streak_needed, 2)
-    watching = %Logic{state: :watching, config: cfg, entered_at: 0}
+    watching = %Logic{state: :watching, config: cfg, entered_at: 0, settled?: true}
 
     {l, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 100)
     assert l.state == :watching
@@ -121,7 +132,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     assert l.state == :assessing
     assert actions == [{:press, "shift+z"}]
 
-    # a lone glow frame followed by a gap resets the streak
+    # a lone bubble frame followed by calm resets the streak
     {reset, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 100)
     {reset, _} = Logic.step(reset, Map.put(cursor_obs(), :glow, false), 200)
     assert reset.glow_streak == 0
@@ -136,7 +147,8 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
   test "assessing trusts the bite and always goes to fighting" do
     watching = advance_to(:watching)
-    {assessing, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 900)
+    {settled, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 800)
+    {assessing, _} = Logic.step(settled, Map.put(cursor_obs(), :glow, true), 900)
 
     {fighting, []} = Logic.step(assessing, cursor_obs(), 3000)
     assert fighting.state == :fighting
@@ -214,7 +226,8 @@ defmodule Pokex.Bots.Fisher.LogicTest do
   describe "fighting/looting/capturing" do
     def advance_to_fighting do
       watching = advance_to(:watching)
-      {assessing, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 900)
+      {settled, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 800)
+      {assessing, _} = Logic.step(settled, Map.put(cursor_obs(), :glow, true), 900)
       {fighting, []} = Logic.step(assessing, cursor_obs(), 3000)
       fighting
     end

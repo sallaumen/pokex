@@ -23,14 +23,14 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
-  test "glow fires when the region is full of bright-cyan bubble pixels", %{tmp_dir: tmp} do
+  test "glow returns the raw cyan bubble count (driver applies the threshold)", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
-    # 24x24 = 576 cyan pixels, over the 500 bite threshold
+    # 24x24 = 576 cyan pixels
     bubbly = Pokex.PngFixtures.write!(Path.join(tmp, "bubbly.png"), rows(24, 24, {100, 200, 220}))
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, bubbly}]})
 
-    assert {:ok, %{glow: true, cursor: {500, 500}}} =
+    assert {:ok, %{glow: 576, cursor: {500, 500}}} =
              Sensors.Real.observe(
                [:cursor, :glow],
                calib(tmp, baseline),
@@ -39,14 +39,14 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
-  test "glow stays false on calm (dark-blue, low-green) water", %{tmp_dir: tmp} do
+  test "glow reads ~0 on calm (dark-blue, low-green) water", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
     # dark blue water: green is too low to count as a cyan bubble
     calm = Pokex.PngFixtures.write!(Path.join(tmp, "calm.png"), rows(16, 16, {30, 80, 150}))
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, calm}]})
 
-    assert {:ok, %{glow: false}} =
+    assert {:ok, %{glow: 0}} =
              Sensors.Real.observe([:glow], calib(tmp, baseline), Pokex.Settings.defaults())
   end
 

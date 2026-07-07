@@ -95,10 +95,12 @@ defmodule Pokex.Bots.Fisher do
   end
 
   defp run_tick(state, previous) do
+    settings = Settings.all()
+
     {logic, actions, obs} =
-      case Sensors.impl().observe(Logic.needs(previous), state.calib, Settings.all()) do
+      case Sensors.impl().observe(Logic.needs(previous), state.calib, settings) do
         {:ok, observations} ->
-          {stepped, actions} = Logic.step(previous, observations, now())
+          {stepped, actions} = Logic.step(previous, threshold_glow(observations, settings), now())
 
           logic =
             case execute_all(actions, previous.config.humanize_max_ms) do
@@ -154,6 +156,14 @@ defmodule Pokex.Bots.Fisher do
     :ok
   end
 
+  # The glow sensor returns the RAW cyan count (for the live feed); Logic still
+  # decides on a boolean, so apply the bite threshold here before stepping. A Fake
+  # sensor may hand back a boolean directly — pass those straight through.
+  defp threshold_glow(%{glow: count} = obs, settings) when is_integer(count),
+    do: %{obs | glow: count > (settings[:glow_threshold] || 500)}
+
+  defp threshold_glow(obs, _settings), do: obs
+
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fisher, snapshot(logic)})
 
@@ -191,8 +201,28 @@ defmodule Pokex.Bots.Fisher do
     do:
       "luta: atacando — alvo #{Map.get(obs, :target_locked, 0)}px (mín #{logic.config.target_locked_min_pixels})"
 
-  defp state_desc(%Logic{state: :looting}, _obs), do: "coletando loot"
+  defp state_desc(%Logic{state: :walking_to_loot, walk_plan: plan}, _obs),
+    do: "andando até o loot (#{length(plan)} passos restantes)"
+
+  defp state_desc(%Logic{state: :looting}, _obs), do: "coletando loot (espaço)"
+
+  defp state_desc(%Logic{state: :walking_back, walk_plan: plan}, _obs),
+    do: "voltando ao ponto de pesca (#{length(plan)} passos restantes)"
+
   defp state_desc(%Logic{state: :capturing}, _obs), do: "capturando"
+
+  # Live fishing telemetry: the raw cyan bubble count every watch tick, so the
+  # bite (800+) vs resting pulse (≤305) is visible in the feed while it waits.
+  defp state_desc(%Logic{state: :watching, settled?: settled}, obs) do
+    case Map.get(obs, :glow) do
+      n when is_integer(n) ->
+        "vigiando: bolhas #{n}px (limiar #{Settings.get(:glow_threshold)}) — assentado? #{settled}"
+
+      _ ->
+        "vigiando"
+    end
+  end
+
   defp state_desc(_, _obs), do: nil
 
   defp describe_action({:press, key}), do: "tecla #{key}"

@@ -1,5 +1,22 @@
 # Plano: Auto-calibração + preview visual
 
+## Status (2026-07-07)
+- **Fase 1 — preview visual: FEITA** (`88c4f11`, `7f36770`). A matemática das
+  bandas virou fonte única em `Calibration.row_band_geometry/2` +
+  `battle_row_bands/3` (o sensor e o preview leem a MESMA fórmula). As bandas
+  por-fileira (L0…Ln) e o ponto do player são desenhados em **vermelho** sobre o
+  screenshot, na `/calibration` (Revisar) e na `/diagnostics` (Preview das áreas),
+  via componente compartilhado `PokexWeb.CalibrationOverlay`.
+- **Fase 2 — detectar fileiras por HP: função PRONTA, falta validar ao vivo**
+  (`6bdae46`). `Vision.hp_bar_rows/2` acha o Y exato de cada barra de HP verde.
+  Ainda NÃO ligada ao sensor — primeiro o botão **"Detectar fileiras (HP)"** na
+  `/diagnostics` imprime os Ys detectados AO LADO dos centros das bandas
+  calibradas, pra medir o drift antes de confiar. **Próximo passo depende do
+  Lucas rodar isso no jogo** e confirmar que as barras batem.
+- **Fases 3-4 — auto player/água + botão Auto-calibrar: PENDENTES**, e de
+  propósito: dependem de medir pixels ao vivo (limiares de verde/azul), então não
+  serão chutadas às cegas. Fazer depois que a Fase 2 for validada no jogo real.
+
 ## Problema
 A calibração é manual (o usuário clica os cantos de cada região). Qualquer
 desvio de alguns px desloca a `battle_region` → as bandas por-fileira não caem

@@ -233,14 +233,14 @@ defmodule Pokex.Bots.Fisher do
          obs
        ),
        do:
-         "luta: linha #{i} travou? #{Map.get(obs, :target_locked, 0)}px (limiar #{logic.config.target_locked_min_pixels})"
+         "luta: linha #{i} travou? #{Enum.at(Map.get(obs, :battle_lock, []), i, 0)}px (limiar #{logic.config.target_locked_min_pixels})"
 
   defp state_desc(%Logic{state: :fighting, targeted?: false, select_idx: i}, _obs),
     do: "luta: mirando linha #{i}"
 
-  defp state_desc(%Logic{state: :fighting, targeted?: true} = logic, obs),
+  defp state_desc(%Logic{state: :fighting, targeted?: true, locked_row: row} = logic, obs),
     do:
-      "luta: atacando — alvo #{Map.get(obs, :target_locked, 0)}px (mín #{logic.config.target_locked_min_pixels})"
+      "luta: atacando linha #{row} — #{Enum.at(Map.get(obs, :battle_lock, []), row, 0)}px (mín #{logic.config.target_locked_min_pixels})"
 
   defp state_desc(%Logic{state: :walking_to_loot, walk_plan: plan}, _obs),
     do: "andando até o loot (#{length(plan)} passos restantes)"

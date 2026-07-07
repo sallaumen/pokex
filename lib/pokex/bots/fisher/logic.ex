@@ -14,6 +14,7 @@ defmodule Pokex.Bots.Fisher.Logic do
             fight_tick: 0,
             targeted?: false,
             select_idx: 0,
+            locked_row: nil,
             pending_verify?: false,
             target_streak: 0,
             verify_attempts: 0,
@@ -49,6 +50,7 @@ defmodule Pokex.Bots.Fisher.Logic do
          combat_test?: true,
          targeted?: false,
          select_idx: 0,
+         locked_row: nil,
          pending_verify?: false,
          target_streak: 0,
          verify_attempts: 0,
@@ -80,15 +82,16 @@ defmodule Pokex.Bots.Fisher.Logic do
   # Both selection ticks read the lock: the pre-click tick so it can notice a
   # target that's ALREADY locked (and attack instead of clicking again, which
   # would deselect it), and the verify tick to confirm the click landed a lock.
-  def needs(%__MODULE__{state: :fighting, targeted?: false}), do: [:cursor, :target_locked]
+  def needs(%__MODULE__{state: :fighting, targeted?: false}), do: [:cursor, :battle_lock]
 
-  # While attacking, the red target border IS the fight: keep re-reading it every
-  # tick so a vanished border (target dead/deselected) ends the fight. Sample the
-  # hostile's map position now and then to know where the corpse will drop.
+  # While attacking, the red target border IS the fight: keep re-reading the
+  # per-row lock every tick so the committed row's vanished band (target dead)
+  # ends the fight. Sample the hostile's map position now and then to know where
+  # the corpse will drop.
   def needs(%__MODULE__{state: :fighting} = logic) do
     if scan_tick?(logic),
-      do: [:cursor, :target_locked, :hostile],
-      else: [:cursor, :target_locked]
+      do: [:cursor, :battle_lock, :hostile],
+      else: [:cursor, :battle_lock]
   end
 
   def needs(_logic), do: [:cursor]
@@ -186,6 +189,7 @@ defmodule Pokex.Bots.Fisher.Logic do
       logic
       | targeted?: false,
         select_idx: 0,
+        locked_row: nil,
         pending_verify?: false,
         target_streak: 0,
         verify_attempts: 0,
@@ -206,14 +210,24 @@ defmodule Pokex.Bots.Fisher.Logic do
   # onto it. If it only blinked (own pokemon / player), try the next row down.
   defp do_step(%{state: :fighting, targeted?: false, pending_verify?: false} = logic, obs, now) do
     rows = logic.config.battle_rows
+    min = logic.config.target_locked_min_pixels
 
     cond do
-      # A red ring is ALREADY up (this click's lock rendered late, or a target is
-      # still selected) → attack it. Clicking again here would deselect it and
-      # cancel the fight — the exact "starts then un-starts" bug.
-      Map.get(obs, :target_locked, 0) >= logic.config.target_locked_min_pixels ->
+      # THIS row's ring is ALREADY up (this click's lock rendered late, or the row
+      # is still selected) → attack it. Clicking again here would deselect it and
+      # cancel the fight. Attributing strictly to select_idx's OWN band means a
+      # sibling row's ring can no longer short-circuit us onto the wrong row (the
+      # double-lure fix); a foreign lock just falls through and we click select_idx.
+      row_locked?(obs, logic.select_idx, min) ->
         {advance(
-           %{logic | targeted?: true, target_streak: 0, lost_streak: 0, verify_attempts: 0},
+           %{
+             logic
+             | targeted?: true,
+               locked_row: logic.select_idx,
+               target_streak: 0,
+               lost_streak: 0,
+               verify_attempts: 0
+           },
            :fighting,
            now
          ), []}
@@ -233,18 +247,21 @@ defmodule Pokex.Bots.Fisher.Logic do
   end
 
   defp do_step(%{state: :fighting, targeted?: false, pending_verify?: true} = logic, obs, now) do
-    red = Map.get(obs, :target_locked, 0)
-    locked? = red >= logic.config.target_locked_min_pixels
+    # Read select_idx's OWN band, NOT the aggregate — a neighbor's late ring can no
+    # longer satisfy locked? and mis-commit the wrong row ("marked row 2, was row 1").
+    locked? = row_locked?(obs, logic.select_idx, logic.config.target_locked_min_pixels)
 
     cond do
       locked? and logic.target_streak + 1 >= logic.config.target_lock_streak ->
-        # red PERSISTED → a real fixed border, target locked. Reset entered_at so
-        # the fight timeout measures the attack itself (a lock that never kills → bail).
+        # red PERSISTED on THIS row → a real fixed border, target locked. Reset
+        # entered_at so the fight timeout measures the attack itself (a lock that
+        # never kills → bail). Commit locked_row to the row we verified.
         {advance(
            %{
              logic
              | targeted?: true,
                pending_verify?: false,
+               locked_row: logic.select_idx,
                target_streak: 0,
                verify_attempts: 0,
                lost_streak: 0
@@ -286,7 +303,10 @@ defmodule Pokex.Bots.Fisher.Logic do
   # for enough consecutive checks, the target died/deselected → go loot. This is
   # per-target, so area attacks don't fake a "fight over" (spec: real lock only).
   defp do_step(%{state: :fighting, targeted?: true} = logic, obs, now) do
-    red = Map.get(obs, :target_locked, 0)
+    min = logic.config.target_locked_min_pixels
+    # Read the COMMITTED row's OWN band — a sibling's ring in another row no longer
+    # masks this target's death, and death is attributed to the row we're on.
+    alive? = row_locked?(obs, logic.locked_row, min)
 
     cond do
       timed_out?(logic, now, logic.config.fight_timeout_ms) ->
@@ -295,7 +315,7 @@ defmodule Pokex.Bots.Fisher.Logic do
         {advance(next_target(logic), :fighting, now),
          [{:log, "alvo não caiu a tempo — próxima linha"}]}
 
-      red >= logic.config.target_locked_min_pixels ->
+      alive? ->
         logic = %{
           logic
           | last_hostile: Map.get(obs, :hostile) || logic.last_hostile,
@@ -309,24 +329,34 @@ defmodule Pokex.Bots.Fisher.Logic do
         {%{logic | skill_idx: logic.skill_idx + 1}, [{:press, key}]}
 
       logic.lost_streak + 1 >= logic.config.target_lost_streak ->
-        # border gone for enough checks → target is dead → walk to the corpse.
-        # The plan is computed ONCE here: the player is always screen-centered
-        # and the world scrolls, so last_hostile goes stale the moment we move.
+        # committed band gone for enough checks → THIS target died. KILL-ALL: if
+        # ANY other row still locks, more hooked mobs are alive → re-select the next
+        # survivor and DO NOT loot yet (leaving them would keep attacking the player).
+        # Only when the strip is clear do we run the existing loot chain.
         logic = update_in(logic.counters.fights, &(&1 + 1))
-        {plan, offset} = plan_walk(logic)
 
-        {advance(
-           %{
-             logic
-             | lost_streak: 0,
-               walk_plan: plan,
-               walk_taken: [],
-               loot_offset: offset,
-               loot_presses_left: logic.config.loot_presses
-           },
-           :walking_to_loot,
-           now
-         ), []}
+        if any_locked?(obs, min) do
+          {advance(reselect(logic), :fighting, now),
+           [{:log, "alvo caiu — próximo alvo na Battle"}]}
+        else
+          # The plan is computed ONCE here: the player is always screen-centered
+          # and the world scrolls, so last_hostile goes stale the moment we move.
+          {plan, offset} = plan_walk(logic)
+
+          {advance(
+             %{
+               logic
+               | lost_streak: 0,
+                 locked_row: nil,
+                 walk_plan: plan,
+                 walk_taken: [],
+                 loot_offset: offset,
+                 loot_presses_left: logic.config.loot_presses
+             },
+             :walking_to_loot,
+             now
+           ), []}
+        end
 
       true ->
         # border blinked out once — could be a hit animation; wait a tick, re-check
@@ -411,6 +441,7 @@ defmodule Pokex.Bots.Fisher.Logic do
       logic
       | targeted?: false,
         select_idx: 0,
+        locked_row: nil,
         pending_verify?: false,
         target_streak: 0,
         verify_attempts: 0,
@@ -434,6 +465,7 @@ defmodule Pokex.Bots.Fisher.Logic do
     %{
       logic
       | targeted?: false,
+        locked_row: nil,
         pending_verify?: false,
         target_streak: 0,
         verify_attempts: 0,
@@ -441,6 +473,25 @@ defmodule Pokex.Bots.Fisher.Logic do
         fight_tick: 0,
         skill_idx: 0,
         select_idx: logic.select_idx + 1
+    }
+  end
+
+  # After a kill, re-scan from row 0 for the NEXT survivor. Distinct from
+  # next_target/1 (which does select_idx+1): fished corpses vanish and the battle
+  # list re-packs upward, so a live mob may now sit at row 0. The per-row verify
+  # won't double-click (it reads select_idx's own band), so re-scanning is safe.
+  defp reselect(logic) do
+    %{
+      logic
+      | targeted?: false,
+        pending_verify?: false,
+        locked_row: nil,
+        select_idx: 0,
+        target_streak: 0,
+        verify_attempts: 0,
+        lost_streak: 0,
+        fight_tick: 0,
+        skill_idx: 0
     }
   end
 
@@ -525,4 +576,10 @@ defmodule Pokex.Bots.Fisher.Logic do
 
   defp scan_tick?(%__MODULE__{fight_tick: tick, config: c}),
     do: rem(tick, max(c.hostile_scan_every, 1)) == 0
+
+  # -- per-row lock reads -----------------------------------------------------
+
+  defp battle_lock(obs), do: Map.get(obs, :battle_lock, [])
+  defp row_locked?(obs, idx, min), do: Enum.at(battle_lock(obs), idx, 0) >= min
+  defp any_locked?(obs, min), do: Enum.any?(battle_lock(obs), &(&1 >= min))
 end

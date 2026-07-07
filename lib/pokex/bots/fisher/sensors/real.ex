@@ -35,11 +35,21 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
-  defp fetch(:target_locked, calib, _settings) do
+  defp fetch(:battle_lock, calib, settings) do
     with {:ok, frame} <- capture_frame(Calibration.battle_body(calib), "target.png") do
-      # Return the raw red-pixel count; Logic compares it to target_locked_min_pixels
-      # (so the threshold is tunable and the count is visible in the activity feed).
-      {:ok, Vision.red_count(frame)}
+      # Return the RAW per-row red-pixel list (one entry per battle row); Logic
+      # applies target_locked_min_pixels per band, so the threshold stays tunable
+      # and the numbers stay visible in the activity feed.
+      #
+      # UNITS: battle_row_height/first_row_offset are POINTS; the frame is scale×
+      # pixels — so multiply by calib.scale. battle_row_height/battle_max_rows are
+      # only in the RAW settings map (config.ex strips them from logic.config), so
+      # the sensor is the one correct place to read them.
+      scale = calib.scale
+      band = max(round((settings[:battle_row_height] || 30) * scale), 1)
+      top = round(Calibration.first_row_offset() * scale)
+      rows = settings[:battle_max_rows] || 6
+      {:ok, Vision.red_row_counts(frame, top: top, band: band, rows: rows)}
     end
   end
 

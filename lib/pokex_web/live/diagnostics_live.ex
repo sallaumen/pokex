@@ -118,11 +118,21 @@ defmodule PokexWeb.DiagnosticsLive do
          {:ok, path} <- Rig.impl().capture(Calibration.battle_body(calib), "diag_target.png"),
          {:ok, frame} <- Frame.from_png_file(path) do
       min = Settings.get(:target_locked_min_pixels)
-      locked = Vision.target_locked?(frame, min_count: min)
+      scale = calib.scale
+      band = max(round(Settings.get(:battle_row_height) * scale), 1)
+      top = round(Calibration.first_row_offset() * scale)
+      rows = Settings.get(:battle_max_rows)
+      counts = Vision.red_row_counts(frame, top: top, band: band, rows: rows)
+
+      picked =
+        case Vision.locked_row(counts, min) do
+          {:ok, i} -> "linha #{i}"
+          :none -> "nenhuma"
+        end
 
       {:noreply,
        assign(socket,
-         msg: "alvo travado? #{locked} — #{Vision.red_count(frame)} px (limiar #{min})"
+         msg: "por linha: #{inspect(counts)} — travada: #{picked} (limiar #{min})"
        )}
     else
       error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}

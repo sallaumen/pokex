@@ -121,6 +121,52 @@ defmodule Pokex.VisionTest do
     end
   end
 
+  describe "red_row_counts/2 and locked_row/2" do
+    import Pokex.FrameFixtures
+
+    test "red_row_counts splits red by band" do
+      # 60 wide x 312 tall = 6 bands of 52 at top 0; paint a red block in band 2
+      frame = uniform(60, 312, {20, 20, 20})
+
+      frame =
+        for x <- 0..30, y <- 104..135, reduce: frame do
+          acc -> put_px(acc, x, y, {230, 40, 40})
+        end
+
+      counts = Vision.red_row_counts(frame, top: 0, band: 52, rows: 6)
+      assert length(counts) == 6
+      assert Enum.at(counts, 2) == 31 * 32
+      assert Enum.at(counts, 0) == 0
+      assert Enum.at(counts, 1) == 0
+      assert Enum.at(counts, 3) == 0
+    end
+
+    test "locked_row picks the loudest band over threshold" do
+      assert Vision.locked_row([80, 0, 610, 0, 90, 0], 350) == {:ok, 2}
+    end
+
+    test "locked_row is :none when no band reaches min" do
+      assert Vision.locked_row([80, 80, 150, 0, 0, 0], 350) == :none
+    end
+
+    test "locked_row ties break to the lowest index" do
+      assert Vision.locked_row([0, 610, 0, 610, 0, 0], 350) == {:ok, 1}
+    end
+
+    test "red_row_counts respects the top offset (header ignored)" do
+      # paint red ABOVE the first band's top → not attributed to any band
+      frame = uniform(60, 200, {20, 20, 20})
+
+      frame =
+        for x <- 0..30, y <- 0..15, reduce: frame do
+          acc -> put_px(acc, x, y, {230, 40, 40})
+        end
+
+      counts = Vision.red_row_counts(frame, top: 18, band: 52, rows: 6)
+      assert Enum.all?(counts, &(&1 == 0))
+    end
+  end
+
   describe "target_locked?/2" do
     import Pokex.FrameFixtures
 

@@ -4,7 +4,13 @@ defmodule Pokex.Bots.Fisher.Sensors.Fake do
 
   use Agent
 
-  @defaults %{cursor: {500, 500}, glow: false, wild: false, hostile: nil, target_locked: 0}
+  @defaults %{
+    cursor: {500, 500},
+    glow: false,
+    wild: false,
+    hostile: nil,
+    battle_lock: [0, 0, 0, 0, 0, 0]
+  }
 
   def start_link(script \\ %{}), do: Agent.start_link(fn -> Map.new(script) end, name: __MODULE__)
 

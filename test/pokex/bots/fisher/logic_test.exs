@@ -51,6 +51,11 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
   def cursor_obs, do: %{cursor: {500, 500}}
 
+  # A rows-length battle_lock list with `px` red in `row`, 0 elsewhere (6 rows to
+  # match config()). `lock(list)` passes an explicit per-row list through.
+  def lock(row, px), do: for(i <- 0..5, do: if(i == row, do: px, else: 0))
+  def lock(list) when is_list(list), do: list
+
   def advance_to(:focusing), do: elem(Logic.start(Logic.new(config()), 0), 0)
 
   def advance_to(:equipping) do
@@ -343,7 +348,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
     def advance_to_attacking do
       f = advance_to_fighting()
       {f, _} = Logic.step(f, cursor_obs(), 3100)
-      {f, _} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 100), 3200)
+      {f, _} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 3200)
       f
     end
 
@@ -351,10 +356,11 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       # a red ring already up when we're about to click → attack it, no click
       # (a second click on a selected row deselects it and cancels the fight)
       {l, actions} =
-        Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :target_locked, 100), 3100)
+        Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 3100)
 
       assert l.targeted?
       refute l.pending_verify?
+      assert l.locked_row == 0
       assert actions == []
     end
 
@@ -363,19 +369,20 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       refute l.targeted?
       assert l.pending_verify?
       assert actions == [{:click, :left, {1466, 138}}]
-      assert Logic.needs(l) == [:cursor, :target_locked]
+      assert Logic.needs(l) == [:cursor, :battle_lock]
     end
 
     test "selection: a fixed red border locks the target" do
       {l, _} = Logic.step(advance_to_fighting(), cursor_obs(), 3100)
-      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 3200)
+      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 3200)
       assert l.targeted?
+      assert l.locked_row == 0
       assert actions == []
     end
 
     test "selection: only a blink (no lock) skips to the next row" do
       {l, _} = Logic.step(advance_to_fighting(), cursor_obs(), 3100)
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 3200)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 3200)
       refute l.targeted?
       assert l.select_idx == 1
 
@@ -390,12 +397,12 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       f = %{advance_to_fighting() | config: cfg}
 
       # pre-click read sees only the baseline → NOT a fight: goes clicking rows
-      {l, actions} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 150), 3100)
+      {l, actions} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 150)), 3100)
       refute l.targeted?
       assert actions == [{:click, :left, {1466, 138}}]
 
       # verify reads the same baseline noise → row did not lock
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 150), 3200)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 150)), 3200)
       refute l.targeted?
     end
 
@@ -412,31 +419,36 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       {l, _} = Logic.step(f, cursor_obs(), 3100)
 
       # first verify read catches the blink at full ring magnitude
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 600), 3200)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 600)), 3200)
       refute l.targeted?
       assert l.target_streak == 1
 
       # blink faded → consecutive-high broken; retries then gives the row up
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 3500)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 3500)
       refute l.targeted?
       assert l.target_streak == 0
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 3800)
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 4100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 3800)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 4100)
       refute l.targeted?
       assert l.select_idx == 1
 
-      # a REAL ring persists across both reads → locks
+      # a REAL ring persists across both reads → locks. select_idx is now 1, so
+      # the ring must light row 1's band.
       {l, _} = Logic.step(l, cursor_obs(), 4200)
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 620), 4500)
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 610), 4800)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(1, 620)), 4500)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(1, 610)), 4800)
       assert l.targeted?
+      assert l.locked_row == 1
     end
 
     test "selection: no attackable row → recasts" do
       l =
         Enum.reduce(0..5, advance_to_fighting(), fn i, acc ->
           {acc, _} = Logic.step(acc, cursor_obs(), 3100 + i * 100)
-          {acc, _} = Logic.step(acc, Map.put(cursor_obs(), :target_locked, 0), 3150 + i * 100)
+
+          {acc, _} =
+            Logic.step(acc, Map.put(cursor_obs(), :battle_lock, lock(i, 0)), 3150 + i * 100)
+
           acc
         end)
 
@@ -457,17 +469,18 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       }
 
       # first high check: not locked yet, keeps verifying
-      {still, []} = Logic.step(verifying, Map.put(cursor_obs(), :target_locked, 100), 100)
+      {still, []} = Logic.step(verifying, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 100)
       refute still.targeted?
       assert still.pending_verify?
       assert still.target_streak == 1
 
       # red PERSISTED on the second check → locks
-      {locked, []} = Logic.step(still, Map.put(cursor_obs(), :target_locked, 100), 500)
+      {locked, []} = Logic.step(still, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 500)
       assert locked.targeted?
+      assert locked.locked_row == 0
 
       # but if the red DROPPED (a blink that faded) → next row, no lock
-      {gone, []} = Logic.step(still, Map.put(cursor_obs(), :target_locked, 0), 500)
+      {gone, []} = Logic.step(still, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 500)
       refute gone.targeted?
       assert gone.select_idx == 1
     end
@@ -480,22 +493,23 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       assert f.pending_verify?
 
       # pre-ring frame (ring renders ~200ms after the click) → re-read the SAME row
-      {f, []} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 0), 3200)
+      {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 3200)
       assert f.pending_verify?
       assert f.select_idx == 0
       assert f.verify_attempts == 1
       assert f.waiting_until == 3205
 
-      {f, []} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 0), 3300)
+      {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 3300)
       assert f.verify_attempts == 2
       assert f.select_idx == 0
 
       # the ring finally drew → attack row 0; NO intermediate click ever happened
-      {f, []} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 906), 3400)
+      {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 906)), 3400)
       assert f.targeted?
       refute f.pending_verify?
       assert f.verify_attempts == 0
       assert f.select_idx == 0
+      assert f.locked_row == 0
     end
 
     test "verify: a row that never locks (0,0,0) advances only after 3 reads" do
@@ -504,14 +518,14 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
       {f, [{:click, :left, {1466, 138}}]} = Logic.step(f, cursor_obs(), 3100)
 
-      {f, []} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 0), 3200)
+      {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 3200)
       assert f.select_idx == 0
 
-      {f, []} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 0), 3300)
+      {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 3300)
       assert f.select_idx == 0
 
       # third below-threshold read exhausts the budget → NOW advance to row 1
-      {f, []} = Logic.step(f, Map.put(cursor_obs(), :target_locked, 0), 3400)
+      {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 3400)
       refute f.pending_verify?
       assert f.select_idx == 1
       assert f.verify_attempts == 0
@@ -535,31 +549,31 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       }
 
       # a miss consumes an attempt
-      {l, []} = Logic.step(verifying, Map.put(cursor_obs(), :target_locked, 0), 100)
+      {l, []} = Logic.step(verifying, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 100)
       assert l.verify_attempts == 1
 
       # a red read feeds the lock streak and consumes NO attempt
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 200)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 200)
       assert l.target_streak == 1
       refute l.targeted?
 
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 300)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 300)
       assert l.targeted?
     end
 
     test "while the red border holds, keep hitting the SAME target (cycle skills)" do
       l = advance_to_attacking()
 
-      obs = cursor_obs() |> Map.put(:target_locked, 100) |> Map.put(:hostile, {700, 350})
+      obs = cursor_obs() |> Map.put(:battle_lock, lock(0, 100)) |> Map.put(:hostile, {700, 350})
       {l, actions} = Logic.step(l, obs, 4100)
       assert actions == [{:press, "1"}]
       assert l.last_hostile == {700, 350}
       assert l.lost_streak == 0
 
-      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 5100)
+      {l, actions} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 5100)
       assert actions == [{:press, "2"}]
 
-      {_l, actions} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 6100)
+      {_l, actions} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 6100)
       assert actions == [{:press, "1"}]
     end
 
@@ -568,31 +582,31 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       l = %{advance_to_attacking() | config: cfg}
 
       # border gone once → still fighting, just counts toward the loss
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 4100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 4100)
       assert l.state == :fighting
       assert l.targeted?
       assert l.lost_streak == 1
 
       # border back before the streak completes → resets, resumes attacking
-      {l, [{:press, _}]} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 5100)
+      {l, [{:press, _}]} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 5100)
       assert l.lost_streak == 0
 
-      # gone twice in a row → target really died → go collect the corpse
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 6100)
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 7100)
+      # gone twice in a row → target really died, strip clear → go collect the corpse
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 6100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 7100)
       assert l.state == :walking_to_loot
       assert l.counters.fights == 1
     end
 
     test "death → walks to the corpse, space-loots, captures adjacent, walks back" do
       l = advance_to_attacking()
-      obs = cursor_obs() |> Map.put(:target_locked, 100) |> Map.put(:hostile, {700, 350})
+      obs = cursor_obs() |> Map.put(:battle_lock, lock(0, 100)) |> Map.put(:hostile, {700, 350})
       {l, _} = Logic.step(l, obs, 4100)
 
-      # target died → plan the walk ONCE from the corpse's screen offset:
+      # target died (strip now clear) → plan the walk ONCE from the corpse offset:
       # corpse {700,400} (hostile + tile_px below), player {600,300}, tile_px 50 →
       # dx=2, dy=2 → stop ADJACENT (one step short per axis) = ["right","down"]
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 5100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 5100)
       assert l.state == :walking_to_loot
       assert l.counters.fights == 1
       assert l.walk_plan == ["right", "down"]
@@ -653,7 +667,7 @@ defmodule Pokex.Bots.Fisher.LogicTest do
       l = advance_to_attacking()
       assert l.last_hostile == nil
 
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 4100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 4100)
       assert l.state == :walking_to_loot
       assert l.walk_plan == []
       assert l.loot_offset == nil
@@ -679,11 +693,11 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
     test "a corpse farther than max_walk_tiles is treated as unknown (bad read)" do
       l = advance_to_attacking()
-      obs = cursor_obs() |> Map.put(:target_locked, 100) |> Map.put(:hostile, {1200, 300})
+      obs = cursor_obs() |> Map.put(:battle_lock, lock(0, 100)) |> Map.put(:hostile, {1200, 300})
       {l, _} = Logic.step(l, obs, 4100)
 
       # dx = round((1200 - 600) / 50) = 12 > max_walk_tiles 7 → loot in place
-      {l, []} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 0), 5100)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 5100)
       assert l.state == :walking_to_loot
       assert l.walk_plan == []
       assert l.loot_offset == nil
@@ -702,11 +716,151 @@ defmodule Pokex.Bots.Fisher.LogicTest do
 
       # border still up, but the target never died within fight_timeout_ms →
       # give up THIS row and move to the next one, without counting a failure.
-      {l, [{:log, _}]} = Logic.step(l, Map.put(cursor_obs(), :target_locked, 100), 3200 + 90_001)
+      {l, [{:log, _}]} =
+        Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 100)), 3200 + 90_001)
+
       assert l.state == :fighting
       refute l.targeted?
       assert l.select_idx == 1
+      assert l.locked_row == nil
       assert l.failures == 0
+    end
+
+    # -- per-row attribution (the bug fixes) --------------------------------
+
+    test "attacking reads only the COMMITTED row's band — a sibling ring never fakes 'alive'" do
+      l = advance_to_attacking()
+      assert l.locked_row == 0
+
+      # committed row 0 is dark (dead) but row 3 is blazing → the committed target
+      # is DEAD; the aggregate would have wrongly kept 'attacking'. target_lost_streak
+      # is 1, and row 3 still locks → KILL-ALL reselects for the survivor.
+      {l, [{:log, _}]} =
+        Logic.step(l, Map.put(cursor_obs(), :battle_lock, [0, 0, 0, 700, 0, 0]), 4100)
+
+      assert l.state == :fighting
+      refute l.targeted?
+      assert l.select_idx == 0
+      assert l.locked_row == nil
+      assert l.counters.fights == 1
+    end
+
+    test "a neighbor's late ring during verify does NOT commit the wrong row" do
+      cfg = Map.put(config(), :target_verify_attempts, 3)
+      f = %{advance_to_fighting() | config: cfg}
+
+      {f, [{:click, :left, {1466, 138}}]} = Logic.step(f, cursor_obs(), 3100)
+
+      # row 1 lights up (a neighbor's ring), row 0 stays dark across every verify —
+      # the machine must NEVER commit row 0 to a row-1 ring, and NEVER click again.
+      {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(1, 906)), 3200)
+      refute f.targeted?
+      assert f.select_idx == 0
+
+      {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(1, 906)), 3300)
+      refute f.targeted?
+      assert f.select_idx == 0
+
+      # budget exhausted → move to row 1; no second attackable click was ever emitted
+      {f, []} = Logic.step(f, Map.put(cursor_obs(), :battle_lock, lock(1, 906)), 3400)
+      refute f.targeted?
+      assert f.select_idx == 1
+    end
+
+    test "selection never clicks a second attackable row while another row is locked" do
+      # row 2 is already locked (a live prior selection) but select_idx is 0 —
+      # the pre-click clause attributes to select_idx, so it clicks row 0, NOT
+      # commits row 2. Clicking a fresh attackable row would aggro a 2nd monster.
+      {l, actions} =
+        Logic.step(advance_to_fighting(), Map.put(cursor_obs(), :battle_lock, lock(2, 600)), 3100)
+
+      refute l.targeted?
+      assert l.locked_row == nil
+      assert actions == [{:click, :left, {1466, 138}}]
+    end
+
+    # -- KILL-ALL loop (both modes) -----------------------------------------
+
+    test "after a kill, if another row still locks, re-selects the next target (normal mode)" do
+      l = advance_to_attacking()
+
+      # mob 1 (row 0) dies but row 1 still locks → reselect, DO NOT loot yet
+      {l, [{:log, _}]} =
+        Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(1, 610)), 4100)
+
+      assert l.state == :fighting
+      refute l.targeted?
+      assert l.select_idx == 0
+      assert l.locked_row == nil
+      assert l.counters.fights == 1
+
+      # selection re-scans: row 0 is now empty → verify miss walks toward row 1
+      {l, [{:click, :left, {1466, 138}}]} = Logic.step(l, cursor_obs(), 4200)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 4300)
+      assert l.select_idx == 1
+
+      # row 1 locks → commit mob 2
+      {l, [{:click, :left, {1466, 168}}]} = Logic.step(l, cursor_obs(), 4400)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(1, 610)), 4500)
+      assert l.targeted?
+      assert l.locked_row == 1
+
+      # mob 2 dies and the strip is now CLEAR → finally loot
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 5500)
+      assert l.state == :walking_to_loot
+      assert l.counters.fights == 2
+    end
+
+    test "kill-all stops when the strip is clear on the death tick (loots straight away)" do
+      l = advance_to_attacking()
+
+      # committed row 0 dies with NO other row locked → straight to loot, no reselect
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 4100)
+      assert l.state == :walking_to_loot
+      assert l.counters.fights == 1
+    end
+
+    test "combat_test mode also kills all before looting, then loops to :fighting once" do
+      cfg = Map.put(config(), :auto_capture, false)
+      l = %{advance_to_attacking() | combat_test?: true, config: cfg}
+
+      # mob 1 dies, row 1 still locks → reselect (no loot)
+      {l, [{:log, _}]} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(1, 610)), 4100)
+      assert l.state == :fighting
+      assert l.counters.fights == 1
+      assert l.counters.loots == 0
+
+      # commit + kill mob 2, strip clear → loot chain runs ONCE
+      {l, [{:click, :left, {1466, 138}}]} = Logic.step(l, cursor_obs(), 4200)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 4300)
+      {l, [{:click, :left, {1466, 168}}]} = Logic.step(l, cursor_obs(), 4400)
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(1, 610)), 4500)
+      assert l.targeted?
+
+      {l, []} = Logic.step(l, Map.put(cursor_obs(), :battle_lock, lock(0, 0)), 5500)
+      assert l.state == :walking_to_loot
+      assert l.counters.fights == 2
+
+      # unknown corpse (last_hostile nil) → loot in place → capture → walk_back empty.
+      # wait_loot_ms is 400, so each space press is spaced past that window.
+      {l, []} = Logic.step(l, cursor_obs(), 5600)
+      assert l.state == :looting
+      {l, [{:press, "space"}]} = Logic.step(l, cursor_obs(), 5700)
+      {l, [{:press, "space"}]} = Logic.step(l, cursor_obs(), 6200)
+      {l, []} = Logic.step(l, cursor_obs(), 6700)
+      assert l.state == :capturing
+      assert l.counters.loots == 1
+
+      {l, [{:log, _}]} = Logic.step(l, cursor_obs(), 7200)
+      assert l.state == :walking_back
+
+      # walk_back is empty (loot in place) → combat_test loops back to fighting, ONCE.
+      # wait_after_capture_ms is 2000, so the loop step is past that window.
+      {looped, []} = Logic.step(l, cursor_obs(), 9300)
+      assert looped.state == :fighting
+      refute looped.targeted?
+      assert looped.select_idx == 0
+      assert looped.counters.loots == 1
     end
   end
 end

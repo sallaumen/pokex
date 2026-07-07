@@ -107,6 +107,46 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
+  test "battle_lock reads per-row red bands (points × scale)", %{tmp_dir: tmp} do
+    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+
+    # battle_body of the calib is {700,100,230,200}; at scale 2.0 the frame is
+    # 460×400. band = 30*2 = 60, top = 18*2 = 36. Band 1 spans frame-y [96,156).
+    body_rows =
+      for y <- 0..399 do
+        for x <- 0..459 do
+          if x in 0..200 and y in 100..150, do: {230, 40, 40, 255}, else: {20, 20, 20, 255}
+        end
+      end
+
+    body = Pokex.PngFixtures.write!(Path.join(tmp, "body.png"), body_rows)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}]})
+
+    assert {:ok, %{battle_lock: counts}} =
+             Sensors.Real.observe([:battle_lock], calib(tmp, baseline), Pokex.Settings.defaults())
+
+    assert length(counts) == 6
+    assert Enum.at(counts, 1) > 0
+    assert Enum.at(counts, 0) == 0
+    assert Enum.at(counts, 2) == 0
+    assert Enum.all?(Enum.drop(counts, 2), &(&1 == 0))
+  end
+
+  @tag :tmp_dir
+  test "battle_lock falls back to default band/rows when settings omit the keys", %{tmp_dir: tmp} do
+    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+    body = Pokex.PngFixtures.write!(Path.join(tmp, "body.png"), rows(20, 20, {20, 20, 20}))
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}]})
+
+    # empty settings → band/rows fall back to defaults 30/6, list length still 6
+    assert {:ok, %{battle_lock: counts}} =
+             Sensors.Real.observe([:battle_lock], calib(tmp, baseline), %{})
+
+    assert length(counts) == 6
+    assert Enum.all?(counts, &(&1 == 0))
+  end
+
+  @tag :tmp_dir
   test "propagates rig errors", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:error, :denied}]})

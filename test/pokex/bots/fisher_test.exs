@@ -51,9 +51,16 @@ defmodule Pokex.Bots.FisherTest do
       Sensors.Fake.start_link(%{
         glow: [false, true],
         wild: [true],
-        # nothing locked before the click (0), the click lands the ring (100), one
-        # hit holds it (100), then it vanishes (0,0 → dead) → loot → capture.
-        target_locked: [0, 600, 600, 0, 0],
+        # per-row lock list: nothing locked before the click, the click lands the
+        # ring on row 0, one hit holds row 0, then row 0 vanishes with the strip
+        # CLEAR (no survivor) → dead → loot → capture.
+        battle_lock: [
+          [0, 0, 0, 0, 0, 0],
+          [600, 0, 0, 0, 0, 0],
+          [600, 0, 0, 0, 0, 0],
+          [0, 0, 0, 0, 0, 0],
+          [0, 0, 0, 0, 0, 0]
+        ],
         hostile: [{410, 320}]
       })
 

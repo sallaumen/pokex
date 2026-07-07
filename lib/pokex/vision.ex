@@ -112,6 +112,54 @@ defmodule Pokex.Vision do
     count_pokeball_red(rgba, 0, Keyword.get(opts, :min_count, 40))
   end
 
+  @doc """
+  Per-row count of pure-red pixels inside the battle body, one entry per battle
+  row. Bands start at `top` (frame px) and are `band` (frame px) tall — pixels
+  above `top` (the header) and below the last band are ignored. Same pure-red
+  predicate as `red_count/1`. Lets the state machine attribute a lock to the row
+  it clicked, instead of trusting one aggregate over all rows.
+  """
+  @spec red_row_counts(Frame.t(), keyword) :: [non_neg_integer]
+  def red_row_counts(%Frame{width: w, rgba: rgba}, opts) do
+    top = Keyword.fetch!(opts, :top)
+    band = Keyword.fetch!(opts, :band)
+    rows = Keyword.fetch!(opts, :rows)
+    counts = red_band_counts(rgba, 0, w, top, band, rows, %{})
+    for i <- 0..(rows - 1), do: Map.get(counts, i, 0)
+  end
+
+  # Clause order matters: the red-predicate clause MUST come before the catch-all
+  # <<_::32, ...>> (which matches any 4 bytes). Mirrors pokeball_row_counts.
+  defp red_band_counts(<<r, g, b, _a, rest::binary>>, index, width, top, band, rows, acc)
+       when r >= 200 and g <= 60 and b <= 60 do
+    y = div(index, width)
+    row = if y >= top, do: div(y - top, band), else: -1
+    acc = if row >= 0 and row < rows, do: Map.update(acc, row, 1, &(&1 + 1)), else: acc
+    red_band_counts(rest, index + 1, width, top, band, rows, acc)
+  end
+
+  defp red_band_counts(<<_::32, rest::binary>>, index, width, top, band, rows, acc),
+    do: red_band_counts(rest, index + 1, width, top, band, rows, acc)
+
+  defp red_band_counts(<<>>, _index, _width, _top, _band, _rows, acc), do: acc
+
+  @doc """
+  The single locked battle row: the loudest band whose red count reaches
+  `min_pixels`, or `:none` if none do. Argmax (not any-over-threshold) is robust
+  when a sibling row briefly grazes the threshold. Ties break to the lowest index.
+  """
+  @spec locked_row([non_neg_integer], non_neg_integer) :: {:ok, non_neg_integer} | :none
+  def locked_row(counts, min_pixels) do
+    counts
+    |> Enum.with_index()
+    |> Enum.filter(fn {c, _i} -> c >= min_pixels end)
+    |> Enum.max_by(fn {c, _i} -> c end, fn -> nil end)
+    |> case do
+      nil -> :none
+      {_c, i} -> {:ok, i}
+    end
+  end
+
   @doc "Total count of pokeball/selection-red pixels — for tuning thresholds in /diagnostics."
   def red_count(%Frame{rgba: rgba}), do: red_count(rgba, 0)
 

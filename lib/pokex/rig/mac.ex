@@ -16,10 +16,12 @@ defmodule Pokex.Rig.Mac do
   def move(point), do: run(Commands.move(point))
 
   @impl true
-  # Arm the base pokeball (F1) as a real hotkey, then click the target.
+  # Move the cursor onto the target, then press F1 — the in-game pokeball hotkey throws at the
+  # CURSOR position, so no click is needed (Lucas rebound it this way). Order matters: position
+  # first, then throw.
   def capture_sequence(point) do
-    with :ok <- press("f1") do
-      click(:left, point)
+    with :ok <- move(point) do
+      press("f1")
     end
   end
 

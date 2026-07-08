@@ -31,6 +31,8 @@ defmodule Pokex.Bots.Fisher.Config do
     :walk_step_ms,
     :loot_presses,
     :max_walk_tiles,
+    :capture_aim_up_px,
+    :capture_aim_left_px,
     :humanize_max_ms,
     :cast_delay_max_ms,
     :hook_delay_min_ms,

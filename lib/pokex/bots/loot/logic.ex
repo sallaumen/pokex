@@ -106,11 +106,14 @@ defmodule Pokex.Bots.Loot.Logic do
   end
 
   defp do_step(%{state: :capturing} = logic, _obs, now) do
-    # We stopped adjacent to the corpse: click one tile toward it (or one tile below the
-    # player when the corpse position was unknown).
+    # We stopped adjacent to the corpse: aim one tile toward it (or one tile below the player
+    # when the corpse position was unknown). The tile-centre is the sprite's LOWER edge, so nudge
+    # the throw UP and LEFT onto the body (the pokeball lands at the cursor — see Rig.capture_sequence).
     {ox, oy} = logic.loot_offset || {0, 1}
     {px, py} = logic.config.player_point
-    target = {px + ox * logic.config.tile_px, py + oy * logic.config.tile_px}
+    up = Map.get(logic.config, :capture_aim_up_px, 0)
+    left = Map.get(logic.config, :capture_aim_left_px, 0)
+    target = {px + ox * logic.config.tile_px - left, py + oy * logic.config.tile_px - up}
     logic = %{logic | failures: 0}
 
     {logic, actions} =

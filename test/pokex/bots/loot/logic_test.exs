@@ -94,4 +94,12 @@ defmodule Pokex.Bots.Loot.LogicTest do
     refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
     assert l.counters.captures == 0
   end
+
+  test "the pokéball throw is nudged UP and LEFT onto the sprite body (aim correction)" do
+    cfg = config() |> Map.put(:capture_aim_up_px, 30) |> Map.put(:capture_aim_left_px, 12)
+    # offset {1,1}: tile-centre {600+50, 300+50} = {650,350}; nudge left 12, up 30 → {638,320}.
+    logic = %Logic{state: :capturing, config: cfg, loot_offset: {1, 1}}
+
+    {_l, [{:capture_sequence, {638, 320}}]} = Logic.step(logic, obs(), 100)
+  end
 end

@@ -24,9 +24,8 @@ defmodule PokexWeb.PanelLive do
   # Combat timing knobs Lucas tunes live to speed up search + kills. Config is
   # built once at Start/Testar, so these apply on the NEXT run (noted in the UI).
   @timing_fields [
-    {:skill_cast_ms, "Cadência das skills (ms)",
-     "menor = mata mais rápido; abaixo do cooldown real o jogo ignora"},
-    {:tick_ms_fighting, "Ritmo da luta (ms)", "de quanto em quanto tempo ele reavalia a luta"},
+    {:tick_ms_fighting, "Ritmo da luta (ms)",
+     "de quanto em quanto tempo ele reavalia a luta e tenta a próxima skill"},
     {:target_lost_streak, "Confirmações de morte",
      "quantas leituras sem inimigo até considerar o alvo morto"},
     {:fight_timeout_ms, "Timeout de alvo (ms)", "desiste de um alvo que não morre nesse tempo"}

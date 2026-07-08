@@ -285,7 +285,7 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   test "saves combat timing knobs and ignores blanks", %{conn: conn} do
-    keys = [:skill_cast_ms, :target_lost_streak, :tick_ms_fighting, :fight_timeout_ms]
+    keys = [:tick_ms_fighting, :target_lost_streak, :fight_timeout_ms]
     originals = Map.new(keys, &{&1, Pokex.Settings.get(&1)})
     on_exit(fn -> Enum.each(originals, fn {k, v} -> Pokex.Settings.put(k, v) end) end)
 
@@ -293,15 +293,14 @@ defmodule PokexWeb.PanelLiveTest do
 
     view
     |> form("#timing-form", %{
-      "skill_cast_ms" => "700",
-      "target_lost_streak" => "",
       "tick_ms_fighting" => "120",
+      "target_lost_streak" => "",
       "fight_timeout_ms" => "5000"
     })
     |> render_submit()
 
-    assert Pokex.Settings.get(:skill_cast_ms) == 700
     assert Pokex.Settings.get(:tick_ms_fighting) == 120
+    assert Pokex.Settings.get(:fight_timeout_ms) == 5000
     # blank left the current value untouched
     assert Pokex.Settings.get(:target_lost_streak) == originals.target_lost_streak
   end

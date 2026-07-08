@@ -5,13 +5,6 @@ defmodule Pokex.Settings do
   @defaults %{
     rod_key: "v",
     skill_keys: ["1", "2", "3"],
-    # KILL-SPEED knob: the cast cooldown (ms) Skills paces to — one skill per
-    # window, strongest first. The game swallows skills fired faster than its real
-    # global cooldown (spamming many lands only one), so setting this ABOVE the real
-    # cooldown just slows your kills; setting it AT the cooldown is optimal. Lowered
-    # 1000→600 to kill faster; if skills feel wasted/spammy, raise it toward the real
-    # cooldown. Phase 2 (skill-bar image) will fire exact per-skill cooldowns instead.
-    skill_cast_ms: 600,
     # --- Skill-bar cooldown tracking (SkillBar reads the hotbar per-process) ---
     # Number of skill slots on the hotbar (left→right = hotkeys "1".."N").
     skill_bar_count: 7,

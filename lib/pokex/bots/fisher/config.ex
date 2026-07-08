@@ -6,7 +6,6 @@ defmodule Pokex.Bots.Fisher.Config do
   @setting_keys [
     :rod_key,
     :skill_keys,
-    :skill_cast_ms,
     :tick_ms_watching,
     :tick_ms_fighting,
     :tick_ms_default,

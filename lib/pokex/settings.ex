@@ -48,16 +48,17 @@ defmodule Pokex.Settings do
     wait_loot_ms: 30,
     wait_after_capture_ms: 50,
     watch_timeout_ms: 30_000,
-    # Auto-recovery: consecutive watch frames with NO bite bubble (glow below
-    # glow_threshold) before we assume the cast failed — a dropped rod press or a
-    # click that never put a line in the water — and re-throw. At tick_ms_watching
-    # (100ms) 20 frames is ~2s: fast recovery from a dropped cast (tuned live and
-    # confirmed good). A REAL bite (or a building one) clears glow_threshold and
-    # RESETS the streak, so an active bite is never cut short; only dead water
-    # counts up. If a spot's bites are slow enough that good lines get recast
-    # mid-wait, raise this — watch the "N/M sem bolha" counter in the feed and tune
-    # via /diagnostics.
-    watch_dead_streak_needed: 20,
+    # Auto-recovery: consecutive NEAR-EMPTY-water frames (bubble px below
+    # line_present_min_px — no line in the water) before we assume the cast FAILED
+    # (a dropped rod press, or the game itself just not casting, which happens even
+    # when Lucas fishes by hand) and re-throw. Lowered 20→4 (Lucas): a resting line
+    # pulses 108-759px, ALWAYS above the 100 floor, so a real line reads `line?` and
+    # resets this every frame — only genuinely empty water climbs it. At
+    # tick_ms_watching (100ms) 4 frames is ~0.4s: catch a failed cast almost
+    # immediately instead of waiting ~2s. A REAL/building bite also resets it (see
+    # the glow clauses), so a live line is never cut short. Raise it if good lines
+    # get recast mid-wait — watch the "N/M sem bolha" counter in the feed.
+    watch_dead_streak_needed: 4,
     # A locked target that hasn't died in this long isn't a real hostile (our own
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,
@@ -131,6 +132,13 @@ defmodule Pokex.Settings do
     # all) measures ~40-150. The old threshold of 40 sat ON the baseline, so the
     # bot "fought" nobody. 350 splits the two populations cleanly.
     target_locked_min_pixels: 350,
+    # SEARCH SPEED: a Battle row reading fewer than this many red px has no name/
+    # creature to lock onto (an empty slot below the last creature) — skip it WITHOUT
+    # clicking (clicking black space just moves the mouse for nothing and deselects the
+    # current target). MEASURED: empty rows read 0, a creature's red name reads 9-22+,
+    # so 5 splits them safely (the enemy always has a red name → never skipped). Set to
+    # 0 to disable (click every row, the old behavior).
+    scan_min_red_to_click: 5,
     # Clicking our OWN pokemon blinks red briefly then fades; a real lock stays
     # for the whole fight. Two reads spaced wait_target_verify_ms filter the blink.
     target_lock_streak: 2,

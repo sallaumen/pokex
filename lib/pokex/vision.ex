@@ -404,33 +404,53 @@ defmodule Pokex.Vision do
   @doc """
   Per-slot skill-bar state: splits the frame into `count` equal-width vertical slots
   (the skill hotbar) and returns a detailed map per slot — average `brightness`
-  (`max(r,g,b)`), average `saturation` (`max-min`), and a `state`.
+  (`max(r,g,b)`), average `saturation` (`max-min`), the `vivid_pct` of the slot, and a
+  `state`.
 
-  A READY skill shows a bright, saturated icon; a skill on COOLDOWN is darkened by a
-  dim overlay with a small white countdown number. The overlay kills the icon's colour,
-  so `saturation` is the primary signal: a slot is `:ready` when it is bright ENOUGH or
-  saturated ENOUGH, and `:cooldown` only when it is BOTH dark AND grey. This keeps a
-  dark-but-colourful ready icon (e.g. a green one) from being misread as cooldown.
+  A READY skill shows a colourful icon; a skill on COOLDOWN is darkened by a dim grey
+  overlay with a small white countdown number. The AVERAGE brightness/saturation can't
+  separate them when the ready icon is a SMALL bright symbol on a dark ground (e.g. skill
+  3's green glyph on black): the average washes the colour out, so both read low and the
+  icon is misread as cooldown forever. So the primary signal is `vivid_pct` — the % of
+  pixels that are strongly COLOURED (per-pixel saturation ≥ @vivid_sat and brightness ≥
+  @vivid_bright). A ready icon has a chunk of vivid pixels (the coloured glyph); the
+  cooldown overlay greys everything and the white number is colourless, so vivid_pct ≈ 0.
+  A slot is `:ready` when it is bright ENOUGH (avg) OR saturated ENOUGH (avg) OR has enough
+  VIVID pixels; `:cooldown` only when all three fail.
 
-  Both thresholds are tunable (measured live from the diagnostic dump, which exports
-  these per-slot numbers). Options: `:count` (7), `:min_brightness` (140),
-  `:min_saturation` (40). Returns `[%{brightness, saturation, state}]`, left→right.
+  All three thresholds are tunable (measured live from the diagnostic dump, which exports
+  these per-slot numbers). Options: `:count` (7), `:min_brightness` (140), `:min_saturation`
+  (40), `:min_vivid_pct` (6). Returns `[%{brightness, saturation, vivid_pct, state}]`, left→right.
   """
+  # A pixel counts as "vivid" (part of a live coloured icon, not the grey cooldown overlay
+  # or its white number) when it is both strongly saturated and not near-black.
+  @vivid_sat 60
+  @vivid_bright 60
+
   def skill_slots(%Frame{width: w, rgba: rgba}, opts \\ []) do
-    count = opts |> Keyword.get(:count, 7) |> clamp(1, w)
-    min_b = Keyword.get(opts, :min_brightness, 140)
-    min_s = Keyword.get(opts, :min_saturation, 40)
+    count = (Keyword.get(opts, :count) || 7) |> clamp(1, w)
+    # `|| default` (not Keyword's default) so a nil setting value — a caller passing a partial
+    # settings map — still yields a number instead of crashing the `>=` comparison.
+    min_b = Keyword.get(opts, :min_brightness) || 140
+    min_s = Keyword.get(opts, :min_saturation) || 40
+    min_vivid = Keyword.get(opts, :min_vivid_pct) || 6
     slot_w = max(div(w, count), 1)
 
     acc = skill_slot_acc(rgba, 0, w, count, slot_w, %{})
 
     for i <- 0..(count - 1)//1 do
-      {sb, ss, n} = Map.get(acc, i, {0, 0, 0})
+      {sb, ss, vivid, n} = Map.get(acc, i, {0, 0, 0, 0})
       n = max(n, 1)
       brightness = div(sb, n)
       saturation = div(ss, n)
-      state = if brightness >= min_b or saturation >= min_s, do: :ready, else: :cooldown
-      %{brightness: brightness, saturation: saturation, state: state}
+      vivid_pct = div(vivid * 100, n)
+
+      state =
+        if brightness >= min_b or saturation >= min_s or vivid_pct >= min_vivid,
+          do: :ready,
+          else: :cooldown
+
+      %{brightness: brightness, saturation: saturation, vivid_pct: vivid_pct, state: state}
     end
   end
 
@@ -442,9 +462,12 @@ defmodule Pokex.Vision do
     slot = min(div(rem(i, w), slot_w), count - 1)
     bright = max(r, max(g, b))
     sat = bright - min(r, min(g, b))
+    vivid = if sat >= @vivid_sat and bright >= @vivid_bright, do: 1, else: 0
 
     acc =
-      Map.update(acc, slot, {bright, sat, 1}, fn {sb, ss, n} -> {sb + bright, ss + sat, n + 1} end)
+      Map.update(acc, slot, {bright, sat, vivid, 1}, fn {sb, ss, sv, n} ->
+        {sb + bright, ss + sat, sv + vivid, n + 1}
+      end)
 
     skill_slot_acc(rest, i + 1, w, count, slot_w, acc)
   end

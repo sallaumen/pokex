@@ -17,6 +17,13 @@ defmodule Pokex.Settings do
     # more reliable signal: the overlay greys the icon regardless of the number.
     skill_ready_min_brightness: 90,
     skill_ready_min_saturation: 25,
+    # A slot also reads :ready when at least this % of its pixels are strongly COLOURED
+    # (the coloured glyph of a usable icon). This is what saves a dark-but-colourful ready
+    # icon — e.g. skill 3's green symbol on black — whose AVERAGE brightness/saturation are
+    # both low (so it was misread as cooldown forever). The cooldown overlay greys the icon
+    # and the white countdown number is colourless, so a real cooldown reads ~0% vivid. RAISE
+    # it if a greyed cooldown ever reads ready; LOWER it if a small coloured icon reads cooldown.
+    skill_ready_min_vivid_pct: 6,
     # Fishing gate (toggle in the panel): when true, a bite is HELD (line stays in
     # the water, bubbles keep flashing) and the rod is only pulled once every skill
     # in hook_skill_keys is ready — so you only reel in a fish you can actually kill.

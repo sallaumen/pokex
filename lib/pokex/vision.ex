@@ -208,6 +208,33 @@ defmodule Pokex.Vision do
     end
   end
 
+  @doc """
+  Center Y (frame pixels) of EVERY pokeball-icon row in the battle strip. The pokeball marks
+  the PLAYER'S OWN active pokemon (corrected 2026-07-08 from live video — enemies have HP bars
+  but NO pokeball), so these are the OWN-pokemon rows: combat subtracts them from the HP-bar
+  rows to get the attackable enemy rows. Returns ALL of them, at raw scanline resolution
+  (band 1) then clustered, so a caller can bucket each into its real row band. A pokeball is a
+  scanline with >= `min_count` bright-red px; consecutive such scanlines within `gap` px
+  collapse into one icon and we return the middle.
+
+  Read it on the STRIP (`Calibration.battle_strip/1`), never the body — `battle_body/1` crops
+  the pokeball column off, so this returns `[]` on a body frame.
+
+  Options: `:min_count` (12), `:gap` (6).
+  """
+  def pokeball_row_positions(%Frame{width: w, rgba: rgba}, opts \\ []) do
+    min_count = Keyword.get(opts, :min_count, 12)
+    gap = Keyword.get(opts, :gap, 6)
+
+    rgba
+    |> pokeball_row_counts(0, w, 1, %{})
+    |> Enum.filter(fn {_y, count} -> count >= min_count end)
+    |> Enum.map(fn {y, _count} -> y end)
+    |> Enum.sort()
+    |> cluster(gap)
+    |> Enum.map(&cluster_center/1)
+  end
+
   defp pokeball_row_counts(<<r, g, b, _a, rest::binary>>, index, width, band, acc)
        when r >= 200 and g <= 60 and b <= 60 do
     row = div(div(index, width), band)
@@ -318,6 +345,55 @@ defmodule Pokex.Vision do
   defp hp_bar_px?(r, g, b) do
     (g >= 120 and g >= r + 40 and g >= b + 40) or
       (r >= 120 and r >= g + 40 and r >= b + 40)
+  end
+
+  @doc """
+  Center Y (frame pixels, top→bottom) of every HP bar in the battle body. Every creature
+  row (your own pokemon, players, the wild target) carries a thin horizontal HP bar, so
+  the bar positions give the VERTICAL location of every occupied row WITHOUT clicking.
+  Crucially, the bar is present BEFORE any click — unlike the red lock ring, which only
+  appears AFTER selecting a row — so combat can bound its scan to the rows that actually
+  hold a creature and stop clicking empty black rows.
+
+  A bar is a scanline carrying a CONTIGUOUS run of >= `min_run` HP-bar px — GREEN
+  (healthy) OR RED (low-HP), so a damaged creature still counts (unlike `hp_bar_rows/2`,
+  which reads green only). The run must be contiguous (not a per-row total), which rejects
+  thin speckle and red NAME text (sparse) while a solid bar passes. Consecutive bar
+  scanlines within `gap` px (a bar is ~5px tall) collapse into one bar and we return the
+  middle of each cluster.
+
+  Options: `:min_run` (¼ of the frame width, min 4), `:gap` (6).
+  """
+  def hp_bar_row_positions(%Frame{width: w, rgba: rgba}, opts \\ []) do
+    min_run = Keyword.get(opts, :min_run, max(div(w, 4), 4))
+    gap = Keyword.get(opts, :gap, 6)
+
+    rgba
+    |> bar_run_rows(0, w, min_run, 0, [])
+    |> Enum.reverse()
+    |> cluster(gap)
+    |> Enum.map(&cluster_center/1)
+  end
+
+  @doc """
+  How many distinct HP bars the battle body holds — the CREATURE COUNT, derived from
+  `hp_bar_row_positions/2`. Kept for /diagnostics; combat itself bounds its scan by the
+  bar POSITIONS (deepest occupied row), not this bare count.
+  """
+  def hp_bar_count(%Frame{} = frame, opts \\ []), do: length(hp_bar_row_positions(frame, opts))
+
+  # Like bar_run_scan/5 but COLLECTS every scanline (row y) that reaches a qualifying
+  # contiguous run, instead of early-exiting on the first — so distinct bars can be
+  # located. Adds a row once, when its run first hits min_run (the head-guard blocks a
+  # re-add if the same row has a second run).
+  defp bar_run_rows(<<>>, _index, _width, _min_run, _run, acc), do: acc
+
+  defp bar_run_rows(<<r, g, b, _a, rest::binary>>, index, width, min_run, run, acc) do
+    run = if rem(index, width) == 0, do: 0, else: run
+    run = if hp_bar_px?(r, g, b), do: run + 1, else: 0
+    y = div(index, width)
+    acc = if run == min_run and (acc == [] or hd(acc) != y), do: [y | acc], else: acc
+    bar_run_rows(rest, index + 1, width, min_run, run, acc)
   end
 
   @doc """

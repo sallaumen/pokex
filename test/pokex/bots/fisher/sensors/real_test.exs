@@ -148,50 +148,80 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     assert Enum.all?(counts, &(&1 == 0))
   end
 
-  @tag :tmp_dir
-  test "battle_creatures? is true when the battle body holds a qualifying HP-bar run", %{
-    tmp_dir: tmp
-  } do
-    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+  # enemy_rows captures the BODY (HP bars) then the STRIP (own-pokemon pokeball) — two calls.
+  # The Fake rig pops one queued PNG per capture, so a distinct strip PNG lets a fixture put
+  # the pokeball ONLY in the strip column (where it really lives), never the body. Geometry:
+  # the calib battle_region is {700,100,260,200}; body {700,100,230,200} → 460×400 at scale
+  # 2.0, strip {930,100,30,200} → 60×400. Both share the region y-origin/height, so ONE band
+  # geometry buckets both: with battle_row_height 52 the bands are {top -16, height 104} (row
+  # i spans frame-y [-16+i·104, -16+(i+1)·104)) → row0 [-16,88) row1 [88,192) row2 [192,296)
+  # row3 [296,400). An ENEMY is an HP-bar row that is NOT a pokeball (own-pokemon) row.
+  defp empty_frame(tmp, name, w),
+    do: Pokex.PngFixtures.write!(Path.join(tmp, name), rows(w, 400, {20, 20, 20}))
 
-    # battle_body of the calib is {700,100,230,200}; at scale 2.0 the frame is
-    # 460×400. Paint a green HP-bar run wide enough to clear the default
-    # min_run (¼ of 460 = 115) on one scanline.
-    body_rows =
-      for y <- 0..399 do
-        for x <- 0..459 do
-          if y == 150 and x in 0..149, do: {40, 200, 60, 255}, else: {20, 20, 20, 255}
-        end
+  defp hp_bar_at(ys), do: bars(ys, 0..149, {40, 200, 60, 255})
+  defp pokeball_at(ys), do: bars(ys, 0..19, {230, 40, 40, 255})
+
+  defp bars(ys, xrange, color) do
+    for y <- 0..399 do
+      for x <- 0..459 do
+        if y in ys and x in xrange, do: color, else: {20, 20, 20, 255}
       end
-
-    body = Pokex.PngFixtures.write!(Path.join(tmp, "body_creature.png"), body_rows)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}]})
-
-    assert {:ok, %{battle_creatures?: true}} =
-             Sensors.Real.observe(
-               [:battle_creatures?],
-               calib(tmp, baseline),
-               Pokex.Settings.defaults()
-             )
+    end
   end
 
   @tag :tmp_dir
-  test "battle_creatures? is false when the battle body has no qualifying HP-bar run", %{
+  test "enemy_rows = HP-bar rows MINUS the own-pokemon pokeball rows", %{tmp_dir: tmp} do
+    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+
+    # Three creatures with HP bars at rows 0 (y40), 1 (y120), 3 (y340). The pokeball in the
+    # strip sits at row 0 (y40) → that's the player's own pokemon → enemy_rows = [1, 3].
+    body = Pokex.PngFixtures.write!(Path.join(tmp, "body.png"), hp_bar_at([40, 120, 340]))
+    strip = Pokex.PngFixtures.write!(Path.join(tmp, "strip.png"), pokeball_at([40]))
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}, {:ok, strip}]})
+
+    assert {:ok, %{enemy_rows: [1, 3]}} =
+             Sensors.Real.observe([:enemy_rows], calib(tmp, baseline), Pokex.Settings.defaults())
+  end
+
+  @tag :tmp_dir
+  test "the own pokemon (its pokeball row) is NEVER an enemy, even with a full HP bar", %{
     tmp_dir: tmp
   } do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
 
-    body =
-      Pokex.PngFixtures.write!(Path.join(tmp, "body_empty.png"), rows(460, 400, {20, 20, 20}))
+    # Only the player's own pokemon is in the list: HP bar at row 1 (y120), pokeball at the
+    # same row 1 → subtracting leaves no enemy → []. This is the bug guard: never attack self.
+    body = Pokex.PngFixtures.write!(Path.join(tmp, "body.png"), hp_bar_at([120]))
+    strip = Pokex.PngFixtures.write!(Path.join(tmp, "strip.png"), pokeball_at([120]))
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}, {:ok, strip}]})
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}]})
+    assert {:ok, %{enemy_rows: []}} =
+             Sensors.Real.observe([:enemy_rows], calib(tmp, baseline), Pokex.Settings.defaults())
+  end
 
-    assert {:ok, %{battle_creatures?: false}} =
-             Sensors.Real.observe(
-               [:battle_creatures?],
-               calib(tmp, baseline),
-               Pokex.Settings.defaults()
-             )
+  @tag :tmp_dir
+  test "with no pokeball at all, every HP-bar row is an enemy (all attackable)", %{tmp_dir: tmp} do
+    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+
+    # HP bars at rows 1 (y120) and 2 (y240), empty strip (no own pokemon visible) → both attack.
+    body = Pokex.PngFixtures.write!(Path.join(tmp, "body.png"), hp_bar_at([120, 240]))
+    strip = empty_frame(tmp, "strip_empty.png", 60)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}, {:ok, strip}]})
+
+    assert {:ok, %{enemy_rows: [1, 2]}} =
+             Sensors.Real.observe([:enemy_rows], calib(tmp, baseline), Pokex.Settings.defaults())
+  end
+
+  @tag :tmp_dir
+  test "enemy_rows is [] when the battle list is empty", %{tmp_dir: tmp} do
+    baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
+    body = empty_frame(tmp, "body_empty.png", 460)
+    strip = empty_frame(tmp, "strip_empty.png", 60)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}, {:ok, strip}]})
+
+    assert {:ok, %{enemy_rows: []}} =
+             Sensors.Real.observe([:enemy_rows], calib(tmp, baseline), Pokex.Settings.defaults())
   end
 
   @tag :tmp_dir

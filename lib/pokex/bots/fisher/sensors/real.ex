@@ -55,13 +55,24 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
-  # Is there ANY creature in the Battle list right now? PURE VISION on a fresh
-  # screenshot — no clicking involved. Lets Combat.Logic stay IDLE (zero mouse
-  # actions) over an empty list instead of clicking a row every tick and
-  # starving the fishing bot of the shared mouse.
-  defp fetch(:battle_creatures?, calib, _settings) do
-    with {:ok, frame} <- capture_frame(Calibration.battle_body(calib), "battle_creatures.png") do
-      {:ok, Vision.battle_has_creature?(frame)}
+  # The attackable ENEMY rows (0-based, topmost first) — the rows Combat clicks. PURE VISION
+  # on a fresh screenshot, no clicking. An enemy is a row with an HP bar (BODY) and NO pokeball
+  # (STRIP): the pokeball marks the player's OWN active pokemon, so subtracting the pokeball
+  # rows from the HP-bar rows drops your own pokemon and leaves the wilds/others to attack.
+  # battle_body/1 crops the pokeball column off, so HP bars come from the body and pokeballs
+  # from the strip; both share the region's y-origin/height, so ONE band geometry (the same the
+  # lock sensor uses) buckets both into the same rows. [] lets Combat.Logic stay IDLE (zero
+  # mouse) when there's nothing to fight, freeing the shared mouse for fishing.
+  defp fetch(:enemy_rows, calib, settings) do
+    with {:ok, body} <- capture_frame(Calibration.battle_body(calib), "battle_creatures.png"),
+         {:ok, strip} <- capture_frame(Calibration.battle_strip(calib), "battle_own.png") do
+      {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height] || 30)
+      rows = settings[:battle_max_rows] || 6
+
+      creatures = body |> Vision.hp_bar_row_positions() |> rows_of(top, band, rows)
+      own = strip |> Vision.pokeball_row_positions() |> rows_of(top, band, rows)
+
+      {:ok, Enum.sort(creatures -- own)}
     end
   end
 
@@ -89,6 +100,17 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   defp fetch(:ready_skills, calib, settings) do
     {:ok, SkillBar.ready_keys(SkillBar.read(calib, settings))}
   end
+
+  # Bucket a list of frame-Ys into the distinct 0-based battle rows they fall in.
+  defp rows_of(ys, top, band, rows) do
+    ys |> Enum.map(&row_index(&1, top, band, rows)) |> Enum.uniq()
+  end
+
+  # Bucket a frame-Y into a 0-based battle-row index using the SAME band geometry as the
+  # lock sensor, clamped into [0, rows-1] so a bar landing just outside the calibrated
+  # strip still anchors to the nearest real row rather than vanishing (band >= 1 always,
+  # so this never divides by zero).
+  defp row_index(y, top, band, rows), do: max(0, min(div(y - top, band), rows - 1))
 
   defp capture_frame(region, filename) do
     with {:ok, path} <- Rig.impl().capture(region, filename) do

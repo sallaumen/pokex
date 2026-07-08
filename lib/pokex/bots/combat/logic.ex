@@ -21,11 +21,8 @@ defmodule Pokex.Bots.Combat.Logic do
             skills: nil,
             fight_tick: 0,
             targeted?: false,
-            select_idx: 0,
             locked_row: nil,
-            pending_verify?: false,
-            target_streak: 0,
-            verify_attempts: 0,
+            enemy_count: 0,
             lost_streak: 0,
             walk_plan: [],
             walk_taken: [],
@@ -45,11 +42,7 @@ defmodule Pokex.Bots.Combat.Logic do
        logic
        | state: :scanning,
          targeted?: false,
-         select_idx: 0,
          locked_row: nil,
-         pending_verify?: false,
-         target_streak: 0,
-         verify_attempts: 0,
          lost_streak: 0,
          fight_tick: 0,
          skills: nil,
@@ -68,23 +61,13 @@ defmodule Pokex.Bots.Combat.Logic do
   def start(logic, _now), do: {logic, []}
 
   @doc """
-  External wake-up: a fish was just hooked, so a new attackable pokemon is about to
-  land near the TOP of the Battle list. If we're SCANNING (searching or idle over an
-  empty list), restart the scan from row 0 and clear any in-flight verify wait so the
-  driver can look IMMEDIATELY, instead of finishing a lower / stale pass or waiting out
-  an idle poll. A no-op while fighting/looting/walking — never abandons a live fight.
+  External wake-up: a fish was just hooked, so a new attackable pokemon is about to land in
+  the Battle list. If we're SCANNING (searching or idle over an empty list), clear the idle
+  latch and any pending wait so the driver looks IMMEDIATELY instead of waiting out an idle
+  poll. A no-op while fighting/looting/walking — never abandons a live fight.
   """
   def rescan(%__MODULE__{state: :scanning} = logic, now) do
-    %{
-      logic
-      | select_idx: 0,
-        pending_verify?: false,
-        verify_attempts: 0,
-        target_streak: 0,
-        scan_idle?: false,
-        waiting_until: nil,
-        entered_at: now
-    }
+    %{logic | scan_idle?: false, waiting_until: nil, entered_at: now}
   end
 
   def rescan(logic, _now), do: logic
@@ -97,22 +80,21 @@ defmodule Pokex.Bots.Combat.Logic do
 
   def needs(%__MODULE__{state: state}, _now) when state in [:idle, :error], do: []
 
-  # Both selection ticks read the lock: the pre-click tick so it can notice a
-  # target that's ALREADY locked (and attack instead of clicking again, which
-  # would deselect it), and the verify tick to confirm the click landed a lock.
+  # Scanning reads the ENEMY rows directly (HP bar + no own-pokemon pokeball) — no lock ring,
+  # no per-row click-verify. One capture-pair (body + strip) tells us exactly which rows to
+  # attack, so combat clicks the enemy on the FIRST tick it sees one instead of walking the
+  # cursor down the list.
   def needs(%__MODULE__{state: :scanning}, _now),
-    do: [:cursor, :battle_lock, :battle_creatures?]
+    do: [:cursor, :enemy_rows]
 
-  # While attacking, the red target border IS the fight: keep re-reading the
-  # per-row lock EVERY tick so the committed row's vanished band (target dead)
-  # ends the fight; sample :hostile now and then for the corpse position. But read
-  # :ready_skills ONLY when a skill is actually about to fire — otherwise 3 of every
-  # 4 fighting ticks (150ms tick vs 600ms cast) would capture the skill bar for a
-  # reading Skills.decide ignores (it's paced), an extra screen-read per tick that
-  # drags the whole fight (slower kills + slower lock detection). On a non-firing
-  # tick the value is unused anyway, so skipping the capture changes nothing but speed.
+  # While attacking, re-read the enemy rows EVERY tick: when our target's row leaves the enemy
+  # set the target died (→ loot when the list is clear, or re-select the next survivor). Sample
+  # :hostile now and then for the corpse position. Read :ready_skills ONLY when a skill is
+  # actually about to fire — otherwise the paced ticks between casts would each capture the
+  # skill bar for a reading Skills.decide ignores, an extra screen-read per tick that drags the
+  # whole fight. On a non-firing tick the value is unused, so skipping the capture only helps.
   def needs(%__MODULE__{state: :fighting} = logic, now) do
-    base = [:cursor, :battle_lock]
+    base = [:cursor, :enemy_rows]
     base = if scan_tick?(logic), do: base ++ [:hostile], else: base
     if skill_ready_to_fire?(logic, now), do: base ++ [:ready_skills], else: base
   end
@@ -152,181 +134,66 @@ defmodule Pokex.Bots.Combat.Logic do
     end
   end
 
-  # Target selection: click a Battle row, then verify a FIXED red border locked
-  # onto it. If it only blinked (own pokemon / player), try the next row down.
-  defp do_step(%{state: :scanning, targeted?: false, pending_verify?: false} = logic, obs, now) do
-    rows = logic.config.battle_rows
-    min = logic.config.target_locked_min_pixels
-
-    cond do
-      # Empty Battle list → stay IDLE with ZERO mouse actions, so fishing keeps the
-      # shared mouse. Detected by a capture-only HP-bar read (no click), so combat
-      # never thrashes the mouse over black space. Log ONCE on entering idle.
-      not battle_creatures?(obs) ->
+  # Find an enemy and attack it — directly. `enemy_rows` already excludes the player's own
+  # pokemon (the pokeball row), so any enemy row is safe to click. No red-ring verify, no
+  # per-row walk: click the TOPMOST enemy once, slide the cursor off, and commit to fighting
+  # on the SAME tick. The first skill fires on the next (fighting) tick, which reads the ready
+  # skills. Nothing to fight → stay IDLE with ZERO mouse actions so fishing keeps the shared
+  # mouse; log ONCE on entering idle.
+  defp do_step(%{state: :scanning, targeted?: false} = logic, obs, now) do
+    case enemy_rows(obs) do
+      [] ->
         log =
           if logic.scan_idle?,
             do: [],
-            else: [{:log, "Battle vazia — combate parado (mouse livre pra pesca)"}]
+            else: [{:log, "Battle sem inimigos — combate parado (mouse livre pra pesca)"}]
 
-        {advance(%{logic | select_idx: 0, scan_idle?: true}, :scanning, now), log}
+        {advance(%{logic | scan_idle?: true, locked_row: nil}, :scanning, now), log}
 
-      # THIS row's ring is ALREADY up (this click's lock rendered late, or the row
-      # is still selected) → attack it. Clicking again here would deselect it and
-      # cancel the fight. Attributing strictly to select_idx's OWN band means a
-      # sibling row's ring can no longer short-circuit us onto the wrong row (the
-      # double-lure fix); a foreign lock just falls through and we click select_idx.
-      row_locked?(obs, logic.select_idx, min) ->
+      [target | _] = enemies ->
         {advance(
            %{
              logic
              | targeted?: true,
-               locked_row: logic.select_idx,
-               target_streak: 0,
+               locked_row: target,
+               enemy_count: length(enemies),
                lost_streak: 0,
-               verify_attempts: 0,
+               fight_tick: 0,
+               skills: nil,
                scan_idle?: false
            },
            :fighting,
            now
-         ), []}
-
-      logic.select_idx >= length(rows) ->
-        {%{logic | select_idx: 0, scan_idle?: false} |> advance(:scanning, now),
-         [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
-
-      true ->
-        # Click the row (this SELECTS + starts attacking), then slide the cursor OFF
-        # to the neutral point. The game paints a selected row PINK while the cursor
-        # hovers it and RED when it doesn't; the lock reader only knows red, so a
-        # cursor left on the row reads as "not locked" and the bot skips a live
-        # target — the "nenhum alvo atacável" bug. Moving away restores pure red.
-        {advance(
-           %{
-             logic
-             | pending_verify?: true,
-               verify_attempts: 0,
-               target_streak: 0,
-               scan_idle?: false
-           },
-           :scanning,
-           now,
-           wait: logic.config.wait_target_verify_ms
          ),
          [
-           {:click, :left, Enum.at(rows, logic.select_idx)},
+           {:click, :left, Enum.at(logic.config.battle_rows, target)},
            {:move, logic.config.neutral_point}
          ]}
     end
   end
 
-  defp do_step(%{state: :scanning, targeted?: false, pending_verify?: true} = logic, obs, now) do
-    # Read select_idx's OWN band, NOT the aggregate — a neighbor's late ring can no
-    # longer satisfy locked? and mis-commit the wrong row ("marked row 2, was row 1").
-    locked? = row_locked?(obs, logic.select_idx, logic.config.target_locked_min_pixels)
-
-    cond do
-      locked? and logic.target_streak + 1 >= logic.config.target_lock_streak ->
-        # red PERSISTED on THIS row → a real fixed border, target locked. Reset
-        # entered_at so the fight timeout measures the attack itself (a lock that
-        # never kills → bail). Commit locked_row to the row we verified.
-        {advance(
-           %{
-             logic
-             | targeted?: true,
-               pending_verify?: false,
-               locked_row: logic.select_idx,
-               target_streak: 0,
-               verify_attempts: 0,
-               lost_streak: 0
-           },
-           :fighting,
-           now
-         ), []}
-
-      locked? ->
-        # red is there, but check again after a beat — a blink shows once then vanishes
-        {advance(%{logic | target_streak: logic.target_streak + 1}, :scanning, now,
-           wait: logic.config.wait_target_verify_ms
-         ), []}
-
-      logic.verify_attempts + 1 < logic.config.target_verify_attempts ->
-        # pre-ring frame: the ring renders ~200ms after the click + capture latency —
-        # re-read the SAME row; clicking the next row now would LURE a second monster
-        {advance(
-           %{logic | verify_attempts: logic.verify_attempts + 1, target_streak: 0},
-           :scanning,
-           now,
-           wait: logic.config.wait_target_verify_ms
-         ), []}
-
-      true ->
-        # every verify attempt read below threshold — this row really didn't lock → next row
-        {%{
-           logic
-           | select_idx: logic.select_idx + 1,
-             pending_verify?: false,
-             target_streak: 0,
-             verify_attempts: 0
-         }, []}
-    end
-  end
-
-  # Attacking: commit to the LOCKED target. Every tick re-reads the red border —
-  # while it's there we keep hitting THIS one (never re-select). When it vanishes
-  # for enough consecutive checks, the target died/deselected → go loot. This is
-  # per-target, so area attacks don't fake a "fight over" (spec: real lock only).
+  # Attacking: keep hitting the enemy. Every tick re-reads `enemy_rows`. While the enemy set is
+  # steady we fire the strongest READY skill (paced by the global cast window). A DROP in the
+  # count means a kill: if enemies remain we bounce back to :scanning, which re-clicks the
+  # topmost survivor FRESH next tick (a fresh click after the target's death can't toggle-
+  # deselect a live selection, and the survivor may have re-packed into our old row index); when
+  # the list is empty the strip is clear → loot. A short streak filters a 1-frame HP-bar blink.
   defp do_step(%{state: :fighting, targeted?: true} = logic, obs, now) do
-    min = logic.config.target_locked_min_pixels
-    # Read the COMMITTED row's OWN band — a sibling's ring in another row no longer
-    # masks this target's death, and death is attributed to the row we're on.
-    alive? = row_locked?(obs, logic.locked_row, min)
+    enemies = enemy_rows(obs)
 
     cond do
       timed_out?(logic, now, logic.config.fight_timeout_ms) ->
-        # locked this long with no kill → not a real hostile (our own pokemon) or
-        # hopelessly tanky → drop THIS one and move on to the next battle row.
-        {advance(next_target(logic), :scanning, now),
-         [{:log, "alvo não caiu a tempo — próxima linha"}]}
+        # attacking this long with no kill → stuck (bad read / hopelessly tanky) → rescan.
+        {advance(reselect(logic), :scanning, now),
+         [{:log, "alvo não caiu a tempo — revarredura"}]}
 
-      alive? ->
-        logic = %{
-          logic
-          | last_hostile: Map.get(obs, :hostile) || logic.last_hostile,
-            fight_tick: logic.fight_tick + 1,
-            lost_streak: 0
-        }
-
-        # Delegate skill choice + PACING to Skills: one skill per global cast
-        # window. With a skill-bar reading (:ready_skills) it fires the highest-priority
-        # READY skill and skips cooldowns, so no window is wasted on a swallowed press;
-        # with no reading (nil) it falls back to blind priority-rotation. Auto-attack
-        # keeps hitting between casts.
-        skills = logic.skills || Skills.new(logic.config.skill_keys)
-
-        {skills, decision} =
-          Skills.decide(skills, now, logic.config.skill_cast_ms, Map.get(obs, :ready_skills))
-
-        actions =
-          case decision do
-            {:press, key} -> [{:press, key}]
-            :wait -> []
-          end
-
-        {%{logic | skills: skills}, actions}
-
-      logic.lost_streak + 1 >= logic.config.target_lost_streak ->
-        # committed band gone for enough checks → THIS target died. KILL-ALL: if
-        # ANY other row still locks, more hooked mobs are alive → re-select the next
-        # survivor and DO NOT loot yet (leaving them would keep attacking the player).
-        # Only when the strip is clear do we run the existing loot chain.
-        logic = update_in(logic.counters.fights, &(&1 + 1))
-
-        if any_locked?(obs, min) do
-          {advance(reselect(logic), :scanning, now),
-           [{:log, "alvo caiu — próximo alvo na Battle"}]}
-        else
-          # The plan is computed ONCE here: the player is always screen-centered
-          # and the world scrolls, so last_hostile goes stale the moment we move.
+      enemies == [] ->
+        # no enemy left — confirm for target_lost_streak ticks (a dead creature's HP bar can
+        # blink out for one frame), then the strip is clear → loot.
+        if logic.lost_streak + 1 >= logic.config.target_lost_streak do
+          logic = update_in(logic.counters.fights, &(&1 + 1))
+          # Plan computed ONCE: the player is always screen-centered and the world scrolls,
+          # so last_hostile goes stale the moment we move.
           {plan, offset} = plan_walk(logic)
 
           {advance(
@@ -342,11 +209,42 @@ defmodule Pokex.Bots.Combat.Logic do
              :walking_to_loot,
              now
            ), []}
+        else
+          {%{logic | lost_streak: logic.lost_streak + 1}, []}
         end
 
+      length(enemies) < logic.enemy_count ->
+        # an enemy died but others remain → count the kill and re-scan for the next survivor.
+        logic = update_in(logic.counters.fights, &(&1 + 1))
+
+        {advance(reselect(logic), :scanning, now),
+         [{:log, "alvo caiu — próximo inimigo na Battle"}]}
+
       true ->
-        # border blinked out once — could be a hit animation; wait a tick, re-check
-        {%{logic | lost_streak: logic.lost_streak + 1}, []}
+        # enemy set steady → keep attacking the current target. Fire the strongest ready skill;
+        # Skills paces one press per cast window and (with a :ready_skills reading) skips
+        # cooldowns so no window is wasted, blind priority-rotation otherwise. Track the count so
+        # a later drop is still detected even if a new enemy appeared in the meantime.
+        logic = %{
+          logic
+          | last_hostile: Map.get(obs, :hostile) || logic.last_hostile,
+            fight_tick: logic.fight_tick + 1,
+            lost_streak: 0,
+            enemy_count: length(enemies)
+        }
+
+        skills = logic.skills || Skills.new(logic.config.skill_keys)
+
+        {skills, decision} =
+          Skills.decide(skills, now, logic.config.skill_cast_ms, Map.get(obs, :ready_skills))
+
+        actions =
+          case decision do
+            {:press, key} -> [{:press, key}]
+            :wait -> []
+          end
+
+        {%{logic | skills: skills}, actions}
     end
   end
 
@@ -424,11 +322,8 @@ defmodule Pokex.Bots.Combat.Logic do
     fresh = %{
       logic
       | targeted?: false,
-        select_idx: 0,
         locked_row: nil,
-        pending_verify?: false,
-        target_streak: 0,
-        verify_attempts: 0,
+        enemy_count: 0,
         lost_streak: 0,
         fight_tick: 0,
         skills: nil,
@@ -442,35 +337,15 @@ defmodule Pokex.Bots.Combat.Logic do
     advance(fresh, :scanning, now, opts)
   end
 
-  # Abandon the current lock and reset to selecting the NEXT battle row down.
-  defp next_target(logic) do
-    %{
-      logic
-      | targeted?: false,
-        locked_row: nil,
-        pending_verify?: false,
-        target_streak: 0,
-        verify_attempts: 0,
-        lost_streak: 0,
-        fight_tick: 0,
-        skills: nil,
-        select_idx: logic.select_idx + 1
-    }
-  end
-
-  # After a kill, re-scan from row 0 for the NEXT survivor. Distinct from
-  # next_target/1 (which does select_idx+1): fished corpses vanish and the battle
-  # list re-packs upward, so a live mob may now sit at row 0. The per-row verify
-  # won't double-click (it reads select_idx's own band), so re-scanning is safe.
+  # Drop the current target and re-scan the Battle list from the top for the next enemy —
+  # after a kill the list re-packs upward, so a survivor may now sit higher. Scanning reads
+  # `enemy_rows` fresh (own pokemon already excluded), so re-selecting is safe.
   defp reselect(logic) do
     %{
       logic
       | targeted?: false,
-        pending_verify?: false,
         locked_row: nil,
-        select_idx: 0,
-        target_streak: 0,
-        verify_attempts: 0,
+        enemy_count: 0,
         lost_streak: 0,
         fight_tick: 0,
         skills: nil
@@ -547,13 +422,9 @@ defmodule Pokex.Bots.Combat.Logic do
   defp scan_tick?(%__MODULE__{fight_tick: tick, config: c}),
     do: rem(tick, max(c.hostile_scan_every, 1)) == 0
 
-  # -- per-row lock reads -----------------------------------------------------
+  # -- enemy rows -------------------------------------------------------------
 
-  defp battle_lock(obs), do: Map.get(obs, :battle_lock, [])
-  defp row_locked?(obs, idx, min), do: Enum.at(battle_lock(obs), idx, 0) >= min
-
-  # Default TRUE when the observation is absent (unit tests that don't set it) so
-  # existing scan/click behavior is unchanged; only an explicit false idles combat.
-  defp battle_creatures?(obs), do: Map.get(obs, :battle_creatures?, true)
-  defp any_locked?(obs, min), do: Enum.any?(battle_lock(obs), &(&1 >= min))
+  # The attackable rows the sensor found (HP bar present, own-pokemon pokeball absent),
+  # topmost first. Absent → [] (no enemy → idle), so a unit obs that omits the key idles.
+  defp enemy_rows(obs), do: Map.get(obs, :enemy_rows, [])
 end

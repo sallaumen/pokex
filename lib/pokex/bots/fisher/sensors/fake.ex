@@ -10,10 +10,9 @@ defmodule Pokex.Bots.Fisher.Sensors.Fake do
     wild: false,
     hostile: nil,
     battle_lock: [0, 0, 0, 0, 0, 0],
-    # Default TRUE (creature present) so existing scripts that never mention
-    # this key keep exercising the unchanged scan/click path, matching
-    # Combat.Logic's own "absent key => true" contract.
-    battle_creatures?: true,
+    # Default [] (no enemy) so combat scripts that never mention this key idle; a test that
+    # wants a fight scripts the attackable rows, e.g. enemy_rows: [[0], [0], []].
+    enemy_rows: [],
     # Default TRUE (kill-skills ready) so fishing scripts that don't mention
     # cooldowns hook exactly as before — the gate is opt-in via require_cooldowns.
     cooldowns_ready?: true,

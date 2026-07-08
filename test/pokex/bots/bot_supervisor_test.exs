@@ -19,9 +19,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     glow_streak_needed: 1,
     glow_threshold: 500,
     max_consecutive_failures: 5,
-    wait_target_verify_ms: 5,
-    target_lock_streak: 1000,
-    target_verify_attempts: 1000,
     tile_px: 32,
     walk_step_ms: 5,
     wait_loot_ms: 5,
@@ -55,14 +52,13 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
     {:ok, _} = Pokex.Rig.Fake.start_link()
 
-    # glow never crosses threshold (stays "watching" forever, never idles) and
-    # battle_lock never locks (stays "scanning" forever) — so both workers
-    # report a stable non-idle state right after start_all/0, instead of the
-    # test racing a full fish/fight cycle back down to :idle.
+    # glow never crosses threshold (stays "watching" forever, never idles) and the Battle list
+    # has no enemy (combat stays in :scanning, idle-scanning) — so both workers report a stable
+    # non-idle state right after start_all/0, instead of the test racing a full cycle to :idle.
     {:ok, _} =
       Sensors.Fake.start_link(%{
         glow: [50],
-        battle_lock: [[0, 0, 0, 0, 0, 0]],
+        enemy_rows: [[]],
         hostile: [{410, 320}]
       })
 

@@ -8,9 +8,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   @fast %{
     tick_ms_fighting: 20,
     tick_ms_default: 20,
-    wait_target_verify_ms: 5,
-    target_lock_streak: 1,
-    target_verify_attempts: 1,
+    target_lost_streak: 1,
     tile_px: 32,
     walk_step_ms: 5,
     wait_loot_ms: 5,
@@ -46,15 +44,9 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     {:ok, _} =
       Sensors.Fake.start_link(%{
-        # click row 0, lock persists one attack tick, then vanishes with the
-        # strip clear (no survivor) → dead → loot → capture.
-        battle_lock: [
-          [0, 0, 0, 0, 0, 0],
-          [600, 0, 0, 0, 0, 0],
-          [600, 0, 0, 0, 0, 0],
-          [0, 0, 0, 0, 0, 0],
-          [0, 0, 0, 0, 0, 0]
-        ],
+        # enemy at row 0 for two ticks (click + attack), then it dies (no enemy left) →
+        # with target_lost_streak 1 the strip is clear → loot → capture.
+        enemy_rows: [[0], [0], []],
         hostile: [{410, 320}]
       })
 

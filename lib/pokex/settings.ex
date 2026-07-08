@@ -96,22 +96,6 @@ defmodule Pokex.Settings do
     # per-row lock read bands, so they now line up with the real rows.
     battle_row_height: 52,
     battle_max_rows: 6,
-    # After clicking a Battle row the game takes ~200ms to DRAW the red target
-    # ring; screenshot sooner and it reads 0px (no lock) and skips a valid target.
-    # This is the one pause that must stay — it waits for the game to respond.
-    # SEARCH SPEED knob: each non-locking row costs wait_target_verify_ms ×
-    # target_verify_attempts before the scan moves on, so this + the next setting
-    # dominate how fast combat finds a target that's drifting among passing players.
-    # Kept at 250 (the ring-render floor) — dropping it lower risks reading the
-    # pre-ring frame; the faster win is fewer attempts (below).
-    wait_target_verify_ms: 250,
-    # Re-read the lock this many times after clicking a Battle row before deciding
-    # it didn't lock: the red ring draws ~200ms after the click and the capture
-    # adds 100-200ms, so a single read often sees a PRE-RING frame — advancing on
-    # it clicks (= LURES) the next row while the first ring is still in flight.
-    # Lowered 3→2 to search faster (2×200=400ms/row vs 3×250=750ms); raise it back
-    # toward 3 if the scan starts skipping real targets (missing the late ring).
-    target_verify_attempts: 2,
     # Screen pixels per game tile. MEASURED at 3440x1440, scale 1.0: the floor
     # texture autocorrelates at 44px (two plank rows per tile sprite) → tile = 88;
     # the character sprite (~88px) confirms it. Converts the corpse's screen
@@ -127,14 +111,12 @@ defmodule Pokex.Settings do
     # A corpse offset beyond this many tiles per axis is a bad hostile read →
     # treat the corpse as unknown and loot in place instead of marching off.
     max_walk_tiles: 7,
-    # A real lock ring reads 600-900 red px in the battle body; the UNLOCKED
-    # baseline (wild red NAMES + reddish sprites like Magikarp, with no fight at
-    # all) measures ~40-150. The old threshold of 40 sat ON the baseline, so the
-    # bot "fought" nobody. 350 splits the two populations cleanly.
+    # /diagnostics still shows the per-row red target-ring read for manual inspection; this
+    # is the threshold it uses (a real ring is 600-900 red px, the unlocked baseline ~40-150).
+    # Combat itself no longer reads the ring — it targets by HP bar + pokeball (enemy_rows).
     target_locked_min_pixels: 350,
-    # Clicking our OWN pokemon blinks red briefly then fades; a real lock stays
-    # for the whole fight. Two reads spaced wait_target_verify_ms filter the blink.
-    target_lock_streak: 2,
+    # Consecutive ticks the enemy must be GONE from the Battle list before the fight is
+    # declared over — filters a 1-frame HP-bar blink on a hit/death animation.
     target_lost_streak: 2,
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the

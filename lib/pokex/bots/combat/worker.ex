@@ -171,20 +171,15 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   end
 
-  defp state_desc(
-         %Logic{state: :scanning, targeted?: false, pending_verify?: true, select_idx: i} =
-           logic,
-         obs
-       ),
-       do:
-         "combate: linha #{i} travou? #{Enum.at(Map.get(obs, :battle_lock, []), i, 0)}px (limiar #{logic.config.target_locked_min_pixels})"
+  defp state_desc(%Logic{state: :scanning, targeted?: false}, obs) do
+    case Map.get(obs, :enemy_rows, []) do
+      [] -> "combate: sem inimigos (parado)"
+      rows -> "combate: inimigo na(s) linha(s) #{Enum.join(rows, ",")}"
+    end
+  end
 
-  defp state_desc(%Logic{state: :scanning, targeted?: false, select_idx: i}, _obs),
-    do: "combate: mirando linha #{i}"
-
-  defp state_desc(%Logic{state: :fighting, targeted?: true, locked_row: row} = logic, obs),
-    do:
-      "combate: atacando linha #{row} — #{Enum.at(Map.get(obs, :battle_lock, []), row, 0)}px (mín #{logic.config.target_locked_min_pixels})"
+  defp state_desc(%Logic{state: :fighting, targeted?: true, locked_row: row}, _obs),
+    do: "combate: atacando linha #{row}"
 
   defp state_desc(%Logic{state: :walking_to_loot, walk_plan: plan}, _obs),
     do: "andando até o loot (#{length(plan)} passos restantes)"

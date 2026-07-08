@@ -315,4 +315,95 @@ defmodule Pokex.VisionTest do
       refute Vision.battle_has_creature?(frame)
     end
   end
+
+  describe "hp_bar_count/2" do
+    import Pokex.FrameFixtures
+
+    test "counts distinct HP bars, GREEN or RED (a low-HP creature still counts)" do
+      frame =
+        for {yrange, color} <- [{10..14, {40, 200, 60}}, {62..66, {200, 40, 40}}],
+            y <- yrange,
+            x <- 0..40,
+            reduce: uniform(60, 120, {30, 30, 30}) do
+          acc -> put_px(acc, x, y, color)
+        end
+
+      assert Vision.hp_bar_count(frame) == 2
+    end
+
+    test "no bars → 0 (empty rows have no HP bar, unlike a post-click lock ring)" do
+      assert Vision.hp_bar_count(uniform(60, 60, {30, 30, 30})) == 0
+    end
+
+    test "thin speckle / a sparse red name is not a bar" do
+      frame =
+        for x <- 0..5, reduce: uniform(60, 60, {30, 30, 30}) do
+          acc -> put_px(acc, x, 20, {200, 40, 40})
+        end
+
+      assert Vision.hp_bar_count(frame) == 0
+    end
+  end
+
+  describe "hp_bar_row_positions/2" do
+    import Pokex.FrameFixtures
+
+    test "returns the CENTER y of each HP bar, GREEN or RED, top→bottom" do
+      frame =
+        for {yrange, color} <- [{10..14, {40, 200, 60}}, {62..66, {200, 40, 40}}],
+            y <- yrange,
+            x <- 0..40,
+            reduce: uniform(60, 120, {30, 30, 30}) do
+          acc -> put_px(acc, x, y, color)
+        end
+
+      # 10..14 → center 12, 62..66 → center 64; this is what battle_bottom buckets into rows.
+      assert Vision.hp_bar_row_positions(frame) == [12, 64]
+    end
+
+    test "no bars → [] (empty rows carry no HP bar)" do
+      assert Vision.hp_bar_row_positions(uniform(60, 60, {30, 30, 30})) == []
+    end
+
+    test "a run shorter than min_run (speckle / sparse red name) yields no position" do
+      frame =
+        for x <- 0..5, reduce: uniform(60, 60, {30, 30, 30}) do
+          acc -> put_px(acc, x, 20, {200, 40, 40})
+        end
+
+      assert Vision.hp_bar_row_positions(frame) == []
+    end
+  end
+
+  describe "pokeball_row_positions/2 (own-pokemon rows)" do
+    import Pokex.FrameFixtures
+
+    test "returns the CENTER y of EVERY pokeball icon (all wilds, not just the topmost)" do
+      frame =
+        for yrange <- [8..13, 40..45],
+            y <- yrange,
+            x <- 0..15,
+            reduce: uniform(30, 60, {20, 20, 20}) do
+          acc -> put_px(acc, x, y, {230, 40, 40})
+        end
+
+      # 8..13 → center 10, 40..45 → center 42; battle_bottom buckets these into rows and
+      # takes the deepest, so the DEEPEST wild's pokeball is never lost (find_wild_row keeps
+      # only the topmost).
+      assert Vision.pokeball_row_positions(frame) == [10, 42]
+    end
+
+    test "no pokeball → []" do
+      assert Vision.pokeball_row_positions(uniform(30, 60, {20, 20, 20})) == []
+    end
+
+    test "a run shorter than min_count (stray red pixel) is not a pokeball" do
+      frame =
+        for x <- 0..3, reduce: uniform(30, 60, {20, 20, 20}) do
+          acc -> put_px(acc, x, 20, {230, 40, 40})
+        end
+
+      assert Vision.pokeball_row_positions(frame) == []
+    end
+  end
 end

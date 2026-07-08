@@ -25,10 +25,9 @@ defmodule PokexWeb.PanelLive do
   @timing_fields [
     {:skill_cast_ms, "Cadência das skills (ms)",
      "menor = mata mais rápido; abaixo do cooldown real o jogo ignora"},
-    {:target_verify_attempts, "Tentativas por linha",
-     "leituras do anel antes de pular a linha — menor = busca mais rápida"},
-    {:wait_target_verify_ms, "Espera do anel (ms)",
-     "tempo pro anel vermelho aparecer depois do clique"},
+    {:tick_ms_fighting, "Ritmo da luta (ms)", "de quanto em quanto tempo ele reavalia a luta"},
+    {:target_lost_streak, "Confirmações de morte",
+     "quantas leituras sem inimigo até considerar o alvo morto"},
     {:fight_timeout_ms, "Timeout de alvo (ms)", "desiste de um alvo que não morre nesse tempo"}
   ]
 

@@ -16,10 +16,14 @@ defmodule Pokex.Settings do
     # Number of skill slots on the hotbar (left→right = hotkeys "1".."N").
     skill_bar_count: 7,
     # A slot reads :ready when its average brightness OR saturation clears these;
-    # :cooldown only when BOTH are below (dark + grey overlay). Measure the live
-    # per-slot numbers via the diagnostic dump and tune these two.
-    skill_ready_min_brightness: 140,
-    skill_ready_min_saturation: 40,
+    # :cooldown only when BOTH are below (dark + grey overlay). MEASURED on Lucas's
+    # real bar (2026-07-08 diagnostic): ready icons sit at brightness 97-131 /
+    # saturation 37-70, while a cooldown slot (darkened + white countdown) reads
+    # 48 / 8 — so 90 and 25 split the two populations cleanly with margin either way
+    # (the old 140/40 misread the dimmer pink icon as cooldown). Saturation is the
+    # more reliable signal: the overlay greys the icon regardless of the number.
+    skill_ready_min_brightness: 90,
+    skill_ready_min_saturation: 25,
     # Fishing gate (toggle in the panel): when true, a bite is HELD (line stays in
     # the water, bubbles keep flashing) and the rod is only pulled once every skill
     # in hook_skill_keys is ready — so you only reel in a fish you can actually kill.

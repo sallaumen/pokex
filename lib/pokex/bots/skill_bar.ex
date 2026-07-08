@@ -36,11 +36,25 @@ defmodule Pokex.Bots.SkillBar do
   def states(slots), do: Enum.map(slots, & &1.state)
 
   @doc """
-  Are ALL of `keys` (hotbar strings like `"4"`) ready? FAIL-OPEN: `true` when there's no
-  reading, so `require_cooldowns` never softlocks fishing on a missing/uncalibrated bar.
+  Are ALL of `keys` (hotbar strings like `"4"`) ready? FAIL-OPEN on two fronts, so the
+  fishing gate can NEVER softlock a held bite:
+    * `nil` slots (no reading / uncalibrated bar) → `true`;
+    * a key that isn't a readable hotbar slot — a non-digit ("e", "f1") or a digit past
+      the bar's slot count — is UNTRACKABLE, so we don't block on it (its cooldown is
+      unknowable). Only in-range digit keys actually gate.
   """
   def all_ready?(nil, _keys), do: true
-  def all_ready?(slots, keys), do: Enum.all?(keys, &(slot_state(slots, &1) == :ready))
+
+  def all_ready?(slots, keys) do
+    count = length(slots)
+
+    Enum.all?(keys, fn key ->
+      case slot_index(key, count) do
+        nil -> true
+        i -> match?(%{state: :ready}, Enum.at(slots, i))
+      end
+    end)
+  end
 
   @doc """
   The ready hotbar keys in ascending slot order, or `nil` when there's NO reading —
@@ -51,13 +65,11 @@ defmodule Pokex.Bots.SkillBar do
   def ready_keys(slots),
     do: for({%{state: :ready}, i} <- Enum.with_index(slots), do: to_string(i + 1))
 
-  defp slot_state(slots, key) do
+  # 0-based slot index for a hotbar key, or nil if it isn't a digit in 1..count.
+  defp slot_index(key, count) do
     case Integer.parse(to_string(key)) do
-      {n, _} -> slots |> Enum.at(n - 1) |> slot_or_cooldown()
-      :error -> :cooldown
+      {n, ""} when n >= 1 and n <= count -> n - 1
+      _ -> nil
     end
   end
-
-  defp slot_or_cooldown(%{state: state}), do: state
-  defp slot_or_cooldown(_), do: :cooldown
 end

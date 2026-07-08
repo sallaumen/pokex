@@ -41,6 +41,17 @@ defmodule Pokex.Bots.SkillBarTest do
   end
 
   @tag :tmp_dir
+  test "an untrackable hook key (non-digit / out of range) can't softlock — fails open" do
+    slots = SkillBar.read(calib({0, 0, 14, 1}), @settings)
+
+    # "9" is past the 7 slots and "e" isn't a digit → untrackable → ignored, NOT held
+    assert SkillBar.all_ready?(slots, ["4", "5", "9"]) == true
+    assert SkillBar.all_ready?(slots, ["4", "5", "e"]) == true
+    # a valid in-range cooldown key still gates
+    assert SkillBar.all_ready?(slots, ["4", "7"]) == false
+  end
+
+  @tag :tmp_dir
   test "no skill_bar_region → nil read; fishing fails OPEN, combat falls back to blind" do
     assert SkillBar.read(calib(nil), @settings) == nil
     assert SkillBar.states(nil) == nil

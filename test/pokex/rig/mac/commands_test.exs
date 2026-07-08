@@ -42,6 +42,15 @@ defmodule Pokex.Rig.Mac.CommandsTest do
               ["-e", ~s(tell application "System Events" to key code 49 using {shift down})]}
   end
 
+  test "function keys send the real key code, not the typed letters (case-insensitive)" do
+    # `keystroke "f1"` would TYPE f then 1 — F-keys need the key EVENT (F1 = 122).
+    assert Commands.press("f1") ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key code 122)]}
+
+    assert Commands.press("F1") ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key code 122)]}
+  end
+
   test "left and right click" do
     assert Commands.click(:left, {812, 402}) == {"cliclick", ["c:812,402"]}
     assert Commands.click(:right, {10, 20}) == {"cliclick", ["rc:10,20"]}

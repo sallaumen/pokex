@@ -24,6 +24,7 @@ defmodule PokexWeb.Router do
       live "/", PanelLive
       live "/diagnostics", DiagnosticsLive
       live "/calibration", CalibrationLive
+      live "/fishing-lab", FishingLabLive
     end
   end
 

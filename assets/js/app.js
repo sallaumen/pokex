@@ -24,6 +24,7 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/pokex"
 import topbar from "../vendor/topbar"
+import FishingLab from "./fishing_lab"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 
@@ -46,7 +47,7 @@ const ImgClick = {
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, ImgClick},
+  hooks: {...colocatedHooks, ImgClick, FishingLab},
 })
 
 // Show progress bar on live navigation and form submits
@@ -97,4 +98,3 @@ if (process.env.NODE_ENV === "development") {
     window.liveReloader = reloader
   })
 }
-

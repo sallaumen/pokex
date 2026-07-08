@@ -26,8 +26,27 @@ defmodule Pokex.Rig.Mac.Commands do
   }
 
   # macOS virtual key codes for NAMED keys. `keystroke "up"` would TYPE the
-  # letters u-p into the game; movement/loot need the real key EVENT.
-  @named_keycodes %{"up" => 126, "down" => 125, "left" => 123, "right" => 124, "space" => 49}
+  # letters u-p into the game; movement/loot/function keys need the real key EVENT
+  # (`keystroke "f1"` types the characters f-1, it does NOT press the F1 key).
+  @named_keycodes %{
+    "up" => 126,
+    "down" => 125,
+    "left" => 123,
+    "right" => 124,
+    "space" => 49,
+    "f1" => 122,
+    "f2" => 120,
+    "f3" => 99,
+    "f4" => 118,
+    "f5" => 96,
+    "f6" => 97,
+    "f7" => 98,
+    "f8" => 100,
+    "f9" => 101,
+    "f10" => 109,
+    "f11" => 103,
+    "f12" => 111
+  }
 
   @doc """
   A real keystroke via System Events. Games listen for key EVENTS (a hotkey),
@@ -39,7 +58,7 @@ defmodule Pokex.Rig.Mac.Commands do
     {mods, [key]} = combo |> String.split("+") |> Enum.split(-1)
 
     action =
-      case Map.get(@digit_keycodes, key) || Map.get(@named_keycodes, key) do
+      case Map.get(@digit_keycodes, key) || Map.get(@named_keycodes, String.downcase(key)) do
         nil -> ~s(keystroke "#{key}")
         code -> "key code #{code}"
       end

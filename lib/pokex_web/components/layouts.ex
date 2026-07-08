@@ -13,7 +13,8 @@ defmodule PokexWeb.Layouts do
 
   @doc """
   Renders the Pokex app shell: a persistent top nav (Painel / Calibração /
-  Diagnóstico) that wraps every page so the app is navigable from anywhere.
+  Diagnóstico / Laboratorio) that wraps every page so the app is navigable from
+  anywhere.
 
   ## Examples
 
@@ -26,7 +27,7 @@ defmodule PokexWeb.Layouts do
 
   attr :current_page, :atom,
     default: nil,
-    doc: "the active nav item: :panel | :calibration | :diagnostics"
+    doc: "the active nav item: :panel | :calibration | :diagnostics | :fishing_lab"
 
   slot :inner_block, required: true
 
@@ -59,6 +60,13 @@ defmodule PokexWeb.Layouts do
               icon="hero-beaker"
             >
               Diagnóstico
+            </.nav_link>
+            <.nav_link
+              navigate={~p"/fishing-lab"}
+              active={@current_page == :fishing_lab}
+              icon="hero-sparkles"
+            >
+              Laboratório
             </.nav_link>
           </div>
 

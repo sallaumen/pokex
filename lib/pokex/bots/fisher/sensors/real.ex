@@ -106,8 +106,14 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
       body = Frame.crop(frame, {0, 0, frame.width - strip_px, frame.height})
       strip = Frame.crop(frame, {frame.width - strip_px, 0, strip_px, frame.height})
 
+      min_pokeball = settings[:pokeball_min_red_px] || 5
       creatures = body |> Vision.hp_bar_row_positions() |> rows_of(top, band, rows)
-      own = strip |> Vision.pokeball_row_positions() |> rows_of(top, band, rows)
+
+      own =
+        strip
+        |> Vision.pokeball_row_positions(min_count: min_pokeball)
+        |> rows_of(top, band, rows)
+
       red = Vision.red_row_counts(body, top: top, band: band, rows: rows)
 
       {:ok, %{enemies: Enum.sort(creatures -- own), red: red}}

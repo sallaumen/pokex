@@ -89,6 +89,12 @@ defmodule Pokex.Settings do
     # per-row lock read bands, so they now line up with the real rows.
     battle_row_height: 52,
     battle_max_rows: 6,
+    # Min bright-red (r>=200,g<=60,b<=60) px on a scanline of the rightmost strip for it to count
+    # as the OWN-pokemon pokeball (so that row is EXCLUDED from attack candidates). MEASURED on
+    # Lucas's real Mareep (2026-07-09): the icon is a small ~7-px red blob per scanline, so the
+    # old 12 never matched and his own pokemon got clicked as an enemy. 5 catches it with margin;
+    # RAISE it if a red enemy element in the strip ever gets mistaken for a pokeball.
+    pokeball_min_red_px: 5,
     # Screen pixels per game tile. MEASURED at 3440x1440, scale 1.0: the floor
     # texture autocorrelates at 44px (two plank rows per tile sprite) → tile = 88;
     # the character sprite (~88px) confirms it. Converts the corpse's screen

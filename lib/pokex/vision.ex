@@ -220,10 +220,15 @@ defmodule Pokex.Vision do
   Read it on the STRIP (`Calibration.battle_strip/1`), never the body — `battle_body/1` crops
   the pokeball column off, so this returns `[]` on a body frame.
 
-  Options: `:min_count` (12), `:gap` (6).
+  `min_count` default 5: MEASURED on Lucas's real screen (2026-07-09) the pokeball icon is a
+  small ~7-px-wide red blob per scanline, so the old 12 never matched — his own Mareep looked
+  attackable and got clicked. 5 catches the 4-7 px the icon actually has while staying above the
+  ~0 red an empty enemy strip carries. Tune via the `pokeball_min_red_px` setting.
+
+  Options: `:min_count` (5), `:gap` (6).
   """
   def pokeball_row_positions(%Frame{width: w, rgba: rgba}, opts \\ []) do
-    min_count = Keyword.get(opts, :min_count, 12)
+    min_count = Keyword.get(opts, :min_count, 5)
     gap = Keyword.get(opts, :gap, 6)
 
     rgba

@@ -83,34 +83,22 @@ defmodule Pokex.Bots.Combat.Logic do
 
   def needs(%__MODULE__{state: state}, _now) when state in [:idle, :error], do: []
 
-  # Scanning and confirming both read :battle (candidate rows + per-row lock ring) from ONE
-  # screenshot: scanning to pick a candidate to click, confirming to watch for the ring that
-  # proves the click started a real battle (a passing player's pokemon looks attackable but
-  # engages nothing → no ring).
-  def needs(%__MODULE__{state: state}, _now) when state in [:scanning, :confirming],
-    do: [:cursor, :battle]
+  # Scanning just needs the candidate rows + ring (one screenshot).
+  def needs(%__MODULE__{state: :scanning}, _now), do: [:cursor, :battle]
 
-  # While attacking, re-read :battle EVERY tick: the lock ring on our row IS the fight — while
-  # it holds we keep hitting, when it's gone the target died → loot. Sample :hostile now and
-  # then for the corpse position. Read :ready_skills ONLY when a skill is actually about to fire
-  # — otherwise the paced ticks between casts would each capture the skill bar for a reading
-  # Skills.decide ignores, an extra screen-read that drags the fight; on a non-firing tick the
-  # value is unused, so skipping it only helps.
-  def needs(%__MODULE__{state: :fighting} = logic, now) do
-    base = [:cursor, :battle]
-    base = if scan_tick?(logic), do: base ++ [:hostile], else: base
-    if skill_ready_to_fire?(logic, now), do: base ++ [:ready_skills], else: base
+  # Confirming AND fighting fire a skill every tick, VERIFIED against the skill bar (the game
+  # drops inputs, so we press the highest-priority READY key and re-read the bar next tick to
+  # see if it landed — the bar is the confirmation). So both read :ready_skills EVERY tick, not
+  # on a pacing clock. :battle carries the lock ring (confirmation the battle started, and the
+  # target-still-alive read); fighting also samples :hostile now and then for the corpse point.
+  def needs(%__MODULE__{state: :confirming}, _now), do: [:cursor, :battle, :ready_skills]
+
+  def needs(%__MODULE__{state: :fighting} = logic, _now) do
+    base = [:cursor, :battle, :ready_skills]
+    if scan_tick?(logic), do: base ++ [:hostile], else: base
   end
 
   def needs(_logic, _now), do: [:cursor]
-
-  # True when the skill pacing window has elapsed (or no skill has fired yet) — i.e.
-  # the next fighting tick will actually cast, so it's worth reading the skill bar.
-  defp skill_ready_to_fire?(%__MODULE__{skills: nil}, _now), do: true
-  defp skill_ready_to_fire?(%__MODULE__{skills: %Skills{last_cast_at: nil}}, _now), do: true
-
-  defp skill_ready_to_fire?(%__MODULE__{skills: %Skills{last_cast_at: last}} = logic, now),
-    do: now - last >= logic.config.skill_cast_ms
 
   @doc "True while in a post-action pause: the driver skips sensing (no screen capture) until it ends."
   def waiting?(%__MODULE__{waiting_until: nil}, _now), do: false
@@ -172,14 +160,14 @@ defmodule Pokex.Bots.Combat.Logic do
   end
 
   # Confirm the click started a battle AND attack at the same time — don't wait for the ring to
-  # start hitting. Every tick: watch the clicked row for the red lock ring, and meanwhile fire
-  # the strongest skill (BLIND rotation — no skill-bar capture, so the first hit lands ~one tick
-  # after the click instead of after the whole confirm; this is where the fight was losing ~half
-  # a second). Ring up → a real target → keep hitting it in :fighting (carry the rotation so the
-  # cast pacing stays continuous). No ring within battle_confirm_ms → the click engaged nothing
-  # (a passing player's pokemon has an HP bar but no pokeball, so it looked attackable but started
-  # no battle) → mark the row tried and pick the next candidate; the blind presses did nothing on
-  # a non-target. The window also filters the brief red BLINK from clicking your own pokemon.
+  # start hitting. Every tick: watch the clicked row for the red lock ring, and meanwhile press
+  # the highest-priority READY skill (verified against the bar, same as fighting — so the first
+  # hit lands ~one tick after the click instead of after the whole confirm). Ring up → a real
+  # target → keep hitting it in :fighting. No ring within battle_confirm_ms → the click engaged
+  # nothing (a passing player's pokemon has an HP bar but no pokeball, so it looked attackable
+  # but started no battle) → mark the row tried and pick the next candidate; the presses did
+  # nothing on a non-target. The window also filters the brief red BLINK from clicking your own
+  # pokemon.
   defp do_step(%{state: :confirming, locked_row: row} = logic, obs, now) do
     cond do
       ring?(obs, row, logic.config.target_locked_min_pixels) ->
@@ -190,23 +178,11 @@ defmodule Pokex.Bots.Combat.Logic do
          ), []}
 
       now - logic.entered_at > logic.config.battle_confirm_ms ->
-        {advance(
-           %{logic | locked_row: nil, skills: nil, tried: [row | logic.tried]},
-           :scanning,
-           now
-         ), [{:log, "linha #{row} não entrou em batalha — próximo candidato"}]}
+        {advance(%{logic | locked_row: nil, tried: [row | logic.tried]}, :scanning, now),
+         [{:log, "linha #{row} não entrou em batalha — próximo candidato"}]}
 
       true ->
-        skills = logic.skills || Skills.new(logic.config.skill_keys)
-        {skills, decision} = Skills.decide(skills, now, logic.config.skill_cast_ms, nil)
-
-        actions =
-          case decision do
-            {:press, key} -> [{:press, key}]
-            :wait -> []
-          end
-
-        {%{logic | skills: skills}, actions}
+        {logic, press_ready_skill(logic, obs)}
     end
   end
 
@@ -231,18 +207,7 @@ defmodule Pokex.Bots.Combat.Logic do
             lost_streak: 0
         }
 
-        skills = logic.skills || Skills.new(logic.config.skill_keys)
-
-        {skills, decision} =
-          Skills.decide(skills, now, logic.config.skill_cast_ms, Map.get(obs, :ready_skills))
-
-        actions =
-          case decision do
-            {:press, key} -> [{:press, key}]
-            :wait -> []
-          end
-
-        {%{logic | skills: skills}, actions}
+        {logic, press_ready_skill(logic, obs)}
 
       logic.lost_streak + 1 >= logic.config.target_lost_streak ->
         # ring gone for enough checks → target dead/deselected → count the fight, go loot.
@@ -447,6 +412,18 @@ defmodule Pokex.Bots.Combat.Logic do
     do: rem(tick, max(c.hostile_scan_every, 1)) == 0
 
   # -- battle view ------------------------------------------------------------
+
+  # Press the highest-priority READY skill this tick (or nothing if none is ready). The bar is
+  # re-read every tick, so a press the game DROPPED leaves the skill ready → it's pressed again;
+  # one that actually fired drops off the ready list → the next tick advances to the next skill.
+  # This absorbs PokeXGames' unreliable inputs (spam-until-the-bar-confirms) instead of firing
+  # once on a clock and hoping it landed.
+  defp press_ready_skill(logic, obs) do
+    case Skills.pick(logic.config.skill_keys, Map.get(obs, :ready_skills)) do
+      nil -> []
+      key -> [{:press, key}]
+    end
+  end
 
   # Candidate enemy rows (HP bar, no own-pokemon pokeball), topmost first. Absent → [] (idle).
   defp candidates(obs), do: (obs[:battle] || %{})[:enemies] || []

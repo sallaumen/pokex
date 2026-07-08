@@ -172,14 +172,19 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   defp state_desc(%Logic{state: :scanning, targeted?: false}, obs) do
-    case Map.get(obs, :enemy_rows, []) do
+    case candidates(obs) do
       [] -> "combate: sem inimigos (parado)"
-      rows -> "combate: inimigo na(s) linha(s) #{Enum.join(rows, ",")}"
+      rows -> "combate: candidato(s) na(s) linha(s) #{Enum.join(rows, ",")}"
     end
   end
 
-  defp state_desc(%Logic{state: :fighting, targeted?: true, locked_row: row}, _obs),
-    do: "combate: atacando linha #{row}"
+  defp state_desc(%Logic{state: :confirming, locked_row: row} = logic, obs),
+    do:
+      "combate: confirmando linha #{row} — anel #{ring_px(obs, row)}px (mín #{logic.config.target_locked_min_pixels})"
+
+  defp state_desc(%Logic{state: :fighting, targeted?: true, locked_row: row} = logic, obs),
+    do:
+      "combate: atacando linha #{row} — anel #{ring_px(obs, row)}px (mín #{logic.config.target_locked_min_pixels})"
 
   defp state_desc(%Logic{state: :walking_to_loot, walk_plan: plan}, _obs),
     do: "andando até o loot (#{length(plan)} passos restantes)"
@@ -192,6 +197,9 @@ defmodule Pokex.Bots.Combat.Worker do
   defp state_desc(%Logic{state: :capturing}, _obs), do: "capturando"
 
   defp state_desc(_, _obs), do: nil
+
+  defp candidates(obs), do: (obs[:battle] || %{})[:enemies] || []
+  defp ring_px(obs, row), do: Enum.at((obs[:battle] || %{})[:red] || [], row, 0)
 
   defp describe_action({:press, key}), do: "tecla #{key}"
   defp describe_action({:click, :left, {x, y}}), do: "clique esq (#{x},#{y})"

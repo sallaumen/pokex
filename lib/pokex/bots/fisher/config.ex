@@ -27,6 +27,7 @@ defmodule Pokex.Bots.Fisher.Config do
     :require_cooldowns,
     :target_locked_min_pixels,
     :target_lost_streak,
+    :battle_confirm_ms,
     :tile_px,
     :walk_step_ms,
     :loot_presses,

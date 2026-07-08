@@ -118,6 +118,12 @@ defmodule Pokex.Settings do
     # Consecutive ticks the enemy must be GONE from the Battle list before the fight is
     # declared over — filters a 1-frame HP-bar blink on a hit/death animation.
     target_lost_streak: 2,
+    # After clicking a candidate row, how long to wait for the red target RING to appear before
+    # deciding the click started no real battle. A passing player's pokemon has an HP bar and no
+    # pokeball, so it looks attackable — but clicking it engages nothing (no ring). The ring
+    # renders ~200ms + capture latency; 500 gives a couple of reads to catch it, then combat
+    # marks the row and tries the next candidate instead of fake-fighting nothing.
+    battle_confirm_ms: 500,
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the
     # bot doesn't fish on a perfectly fixed cadence.

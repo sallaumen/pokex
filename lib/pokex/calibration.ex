@@ -74,6 +74,9 @@ defmodule Pokex.Calibration do
   def battle_strip(%__MODULE__{battle_region: region}), do: battle_strip(region)
   def battle_strip({x, y, w, h}), do: {x + w - @strip_width, y, @strip_width, h}
 
+  @doc "Width (POINTS) of the rightmost pokeball-icon strip cropped off the battle body."
+  def strip_width, do: @strip_width
+
   @doc """
   The battle region WITHOUT the rightmost pokeball-icon column — the portraits
   and names, where the red selection border/name appear. Used for target-lock

@@ -44,9 +44,14 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     {:ok, _} =
       Sensors.Fake.start_link(%{
-        # enemy at row 0 for two ticks (click + attack), then it dies (no enemy left) →
-        # with target_lost_streak 1 the strip is clear → loot → capture.
-        enemy_rows: [[0], [0], []],
+        # candidate at row 0 → click (confirming); the ring lights row 0 → confirmed → fight →
+        # fire a skill; then the ring drops (target dead, target_lost_streak 1) → loot → capture.
+        battle: [
+          %{enemies: [0], red: [0, 0, 0, 0, 0, 0]},
+          %{enemies: [0], red: [600, 0, 0, 0, 0, 0]},
+          %{enemies: [0], red: [600, 0, 0, 0, 0, 0]},
+          %{enemies: [0], red: [0, 0, 0, 0, 0, 0]}
+        ],
         hostile: [{410, 320}]
       })
 

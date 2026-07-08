@@ -22,7 +22,8 @@ defmodule Pokex.Bots.Combat.Logic do
             fight_tick: 0,
             targeted?: false,
             locked_row: nil,
-            enemy_count: 0,
+            tried: [],
+            tried_for: nil,
             lost_streak: 0,
             walk_plan: [],
             walk_taken: [],
@@ -43,6 +44,8 @@ defmodule Pokex.Bots.Combat.Logic do
        | state: :scanning,
          targeted?: false,
          locked_row: nil,
+         tried: [],
+         tried_for: nil,
          lost_streak: 0,
          fight_tick: 0,
          skills: nil,
@@ -80,21 +83,21 @@ defmodule Pokex.Bots.Combat.Logic do
 
   def needs(%__MODULE__{state: state}, _now) when state in [:idle, :error], do: []
 
-  # Scanning reads the ENEMY rows directly (HP bar + no own-pokemon pokeball) — no lock ring,
-  # no per-row click-verify. One capture-pair (body + strip) tells us exactly which rows to
-  # attack, so combat clicks the enemy on the FIRST tick it sees one instead of walking the
-  # cursor down the list.
-  def needs(%__MODULE__{state: :scanning}, _now),
-    do: [:cursor, :enemy_rows]
+  # Scanning and confirming both read :battle (candidate rows + per-row lock ring) from ONE
+  # screenshot: scanning to pick a candidate to click, confirming to watch for the ring that
+  # proves the click started a real battle (a passing player's pokemon looks attackable but
+  # engages nothing → no ring).
+  def needs(%__MODULE__{state: state}, _now) when state in [:scanning, :confirming],
+    do: [:cursor, :battle]
 
-  # While attacking, re-read the enemy rows EVERY tick: when our target's row leaves the enemy
-  # set the target died (→ loot when the list is clear, or re-select the next survivor). Sample
-  # :hostile now and then for the corpse position. Read :ready_skills ONLY when a skill is
-  # actually about to fire — otherwise the paced ticks between casts would each capture the
-  # skill bar for a reading Skills.decide ignores, an extra screen-read per tick that drags the
-  # whole fight. On a non-firing tick the value is unused, so skipping the capture only helps.
+  # While attacking, re-read :battle EVERY tick: the lock ring on our row IS the fight — while
+  # it holds we keep hitting, when it's gone the target died → loot. Sample :hostile now and
+  # then for the corpse position. Read :ready_skills ONLY when a skill is actually about to fire
+  # — otherwise the paced ticks between casts would each capture the skill bar for a reading
+  # Skills.decide ignores, an extra screen-read that drags the fight; on a non-firing tick the
+  # value is unused, so skipping it only helps.
   def needs(%__MODULE__{state: :fighting} = logic, now) do
-    base = [:cursor, :enemy_rows]
+    base = [:cursor, :battle]
     base = if scan_tick?(logic), do: base ++ [:hostile], else: base
     if skill_ready_to_fire?(logic, now), do: base ++ [:ready_skills], else: base
   end
@@ -113,7 +116,9 @@ defmodule Pokex.Bots.Combat.Logic do
   def waiting?(%__MODULE__{waiting_until: nil}, _now), do: false
   def waiting?(%__MODULE__{waiting_until: until}, now), do: now < until
 
-  def tick_interval(%__MODULE__{state: :fighting, config: c}), do: c.tick_ms_fighting
+  def tick_interval(%__MODULE__{state: state, config: c}) when state in [:fighting, :confirming],
+    do: c.tick_ms_fighting
+
   def tick_interval(%__MODULE__{config: c}), do: c.tick_ms_default
 
   # -- stepping ---------------------------------------------------------------
@@ -134,37 +139,31 @@ defmodule Pokex.Bots.Combat.Logic do
     end
   end
 
-  # Find an enemy and attack it — directly. `enemy_rows` already excludes the player's own
-  # pokemon (the pokeball row), so any enemy row is safe to click. No red-ring verify, no
-  # per-row walk: click the TOPMOST enemy once, slide the cursor off, and commit to fighting
-  # on the SAME tick. The first skill fires on the next (fighting) tick, which reads the ready
-  # skills. Nothing to fight → stay IDLE with ZERO mouse actions so fishing keeps the shared
-  # mouse; log ONCE on entering idle.
+  # Find a CANDIDATE enemy (HP bar, no own-pokemon pokeball) and click it — but don't commit to
+  # fighting yet. `candidates` excludes your own pokemon; the click still needs the lock ring to
+  # PROVE a real battle started (a passing player's pokemon has an HP bar and no pokeball, so it
+  # looks attackable, but clicking it engages nothing). Pick the topmost candidate we haven't
+  # already tried-and-failed this pass, click it, slide the cursor off → :confirming. No untried
+  # candidate (empty list, or every one a dud) → stay IDLE with ZERO mouse actions so fishing
+  # keeps the shared mouse; log ONCE on entering idle.
   defp do_step(%{state: :scanning, targeted?: false} = logic, obs, now) do
-    case enemy_rows(obs) do
+    cands = candidates(obs)
+    # a changed candidate set is a fresh pass → forget which rows we tried last time.
+    logic = if cands == logic.tried_for, do: logic, else: %{logic | tried: [], tried_for: cands}
+
+    case cands -- logic.tried do
       [] ->
         log =
           if logic.scan_idle?,
             do: [],
-            else: [{:log, "Battle sem inimigos — combate parado (mouse livre pra pesca)"}]
+            else: [
+              {:log, "Battle sem inimigos atacáveis — combate parado (mouse livre pra pesca)"}
+            ]
 
         {advance(%{logic | scan_idle?: true, locked_row: nil}, :scanning, now), log}
 
-      [target | _] = enemies ->
-        {advance(
-           %{
-             logic
-             | targeted?: true,
-               locked_row: target,
-               enemy_count: length(enemies),
-               lost_streak: 0,
-               fight_tick: 0,
-               skills: nil,
-               scan_idle?: false
-           },
-           :fighting,
-           now
-         ),
+      [target | _] ->
+        {advance(%{logic | locked_row: target, scan_idle?: false}, :confirming, now),
          [
            {:click, :left, Enum.at(logic.config.battle_rows, target)},
            {:move, logic.config.neutral_point}
@@ -172,14 +171,43 @@ defmodule Pokex.Bots.Combat.Logic do
     end
   end
 
-  # Attacking: keep hitting the enemy. Every tick re-reads `enemy_rows`. While the enemy set is
-  # steady we fire the strongest READY skill (paced by the global cast window). A DROP in the
-  # count means a kill: if enemies remain we bounce back to :scanning, which re-clicks the
-  # topmost survivor FRESH next tick (a fresh click after the target's death can't toggle-
-  # deselect a live selection, and the survivor may have re-packed into our old row index); when
-  # the list is empty the strip is clear → loot. A short streak filters a 1-frame HP-bar blink.
+  # Confirm the click actually started a battle: watch the clicked row for the red lock ring.
+  # Ring up → a real target locked → fight it. No ring within battle_confirm_ms → the click
+  # engaged nothing (a player's pokemon / not attackable) → mark this row tried and go pick the
+  # next candidate. The confirm window also filters the brief red BLINK from clicking your own
+  # pokemon (it fades before the first ~tick-later read, while a real ring persists).
+  defp do_step(%{state: :confirming, locked_row: row} = logic, obs, now) do
+    cond do
+      ring?(obs, row, logic.config.target_locked_min_pixels) ->
+        {advance(
+           %{
+             logic
+             | targeted?: true,
+               fight_tick: 0,
+               skills: nil,
+               lost_streak: 0,
+               tried: [],
+               tried_for: nil
+           },
+           :fighting,
+           now
+         ), []}
+
+      now - logic.entered_at > logic.config.battle_confirm_ms ->
+        {advance(%{logic | locked_row: nil, tried: [row | logic.tried]}, :scanning, now),
+         [{:log, "linha #{row} não entrou em batalha — próximo candidato"}]}
+
+      true ->
+        {logic, []}
+    end
+  end
+
+  # Attacking: the lock ring on our row IS the fight. Every tick re-reads it — while it holds we
+  # fire the strongest READY skill (paced by the global cast window). When it's gone for
+  # target_lost_streak ticks (a debounce against a 1-frame blink) the target died/deselected →
+  # count the kill and go loot the corpse; continue_combat then re-scans for the next enemy.
   defp do_step(%{state: :fighting, targeted?: true} = logic, obs, now) do
-    enemies = enemy_rows(obs)
+    min = logic.config.target_locked_min_pixels
 
     cond do
       timed_out?(logic, now, logic.config.fight_timeout_ms) ->
@@ -187,50 +215,12 @@ defmodule Pokex.Bots.Combat.Logic do
         {advance(reselect(logic), :scanning, now),
          [{:log, "alvo não caiu a tempo — revarredura"}]}
 
-      enemies == [] ->
-        # no enemy left — confirm for target_lost_streak ticks (a dead creature's HP bar can
-        # blink out for one frame), then the strip is clear → loot.
-        if logic.lost_streak + 1 >= logic.config.target_lost_streak do
-          logic = update_in(logic.counters.fights, &(&1 + 1))
-          # Plan computed ONCE: the player is always screen-centered and the world scrolls,
-          # so last_hostile goes stale the moment we move.
-          {plan, offset} = plan_walk(logic)
-
-          {advance(
-             %{
-               logic
-               | lost_streak: 0,
-                 locked_row: nil,
-                 walk_plan: plan,
-                 walk_taken: [],
-                 loot_offset: offset,
-                 loot_presses_left: logic.config.loot_presses
-             },
-             :walking_to_loot,
-             now
-           ), []}
-        else
-          {%{logic | lost_streak: logic.lost_streak + 1}, []}
-        end
-
-      length(enemies) < logic.enemy_count ->
-        # an enemy died but others remain → count the kill and re-scan for the next survivor.
-        logic = update_in(logic.counters.fights, &(&1 + 1))
-
-        {advance(reselect(logic), :scanning, now),
-         [{:log, "alvo caiu — próximo inimigo na Battle"}]}
-
-      true ->
-        # enemy set steady → keep attacking the current target. Fire the strongest ready skill;
-        # Skills paces one press per cast window and (with a :ready_skills reading) skips
-        # cooldowns so no window is wasted, blind priority-rotation otherwise. Track the count so
-        # a later drop is still detected even if a new enemy appeared in the meantime.
+      ring?(obs, logic.locked_row, min) ->
         logic = %{
           logic
           | last_hostile: Map.get(obs, :hostile) || logic.last_hostile,
             fight_tick: logic.fight_tick + 1,
-            lost_streak: 0,
-            enemy_count: length(enemies)
+            lost_streak: 0
         }
 
         skills = logic.skills || Skills.new(logic.config.skill_keys)
@@ -245,6 +235,30 @@ defmodule Pokex.Bots.Combat.Logic do
           end
 
         {%{logic | skills: skills}, actions}
+
+      logic.lost_streak + 1 >= logic.config.target_lost_streak ->
+        # ring gone for enough checks → target dead/deselected → count the fight, go loot.
+        logic = update_in(logic.counters.fights, &(&1 + 1))
+        # Plan computed ONCE: the player is always screen-centered and the world scrolls, so
+        # last_hostile goes stale the moment we move.
+        {plan, offset} = plan_walk(logic)
+
+        {advance(
+           %{
+             logic
+             | lost_streak: 0,
+               locked_row: nil,
+               walk_plan: plan,
+               walk_taken: [],
+               loot_offset: offset,
+               loot_presses_left: logic.config.loot_presses
+           },
+           :walking_to_loot,
+           now
+         ), []}
+
+      true ->
+        {%{logic | lost_streak: logic.lost_streak + 1}, []}
     end
   end
 
@@ -323,7 +337,8 @@ defmodule Pokex.Bots.Combat.Logic do
       logic
       | targeted?: false,
         locked_row: nil,
-        enemy_count: 0,
+        tried: [],
+        tried_for: nil,
         lost_streak: 0,
         fight_tick: 0,
         skills: nil,
@@ -345,7 +360,8 @@ defmodule Pokex.Bots.Combat.Logic do
       logic
       | targeted?: false,
         locked_row: nil,
-        enemy_count: 0,
+        tried: [],
+        tried_for: nil,
         lost_streak: 0,
         fight_tick: 0,
         skills: nil
@@ -422,9 +438,14 @@ defmodule Pokex.Bots.Combat.Logic do
   defp scan_tick?(%__MODULE__{fight_tick: tick, config: c}),
     do: rem(tick, max(c.hostile_scan_every, 1)) == 0
 
-  # -- enemy rows -------------------------------------------------------------
+  # -- battle view ------------------------------------------------------------
 
-  # The attackable rows the sensor found (HP bar present, own-pokemon pokeball absent),
-  # topmost first. Absent → [] (no enemy → idle), so a unit obs that omits the key idles.
-  defp enemy_rows(obs), do: Map.get(obs, :enemy_rows, [])
+  # Candidate enemy rows (HP bar, no own-pokemon pokeball), topmost first. Absent → [] (idle).
+  defp candidates(obs), do: (obs[:battle] || %{})[:enemies] || []
+
+  # Is the red lock ring up on `row` (>= min px)? nil row / absent reading → false.
+  defp ring?(_obs, nil, _min), do: false
+
+  defp ring?(obs, row, min),
+    do: Enum.at((obs[:battle] || %{})[:red] || [], row, 0) >= min
 end

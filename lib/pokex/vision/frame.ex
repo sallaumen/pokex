@@ -37,6 +37,22 @@ defmodule Pokex.Vision.Frame do
     {r, g, b}
   end
 
+  @doc """
+  Crop a sub-rectangle `{x, y, w, h}` (pixels) into a new Frame. Lets ONE screenshot of the
+  whole battle region be sliced in memory into the body (HP bars + lock ring) and the
+  rightmost pokeball strip — one `screencapture` per tick instead of two.
+  """
+  def crop(%__MODULE__{width: fw, rgba: rgba}, {x, y, w, h}) do
+    row_bytes = w * 4
+
+    data =
+      for j <- 0..(h - 1)//1, into: <<>> do
+        binary_part(rgba, ((y + j) * fw + x) * 4, row_bytes)
+      end
+
+    %__MODULE__{width: w, height: h, rgba: data}
+  end
+
   def png_dimensions(path) do
     case File.read(path) do
       {:ok, <<137, "PNG", 13, 10, 26, 10, _len::32, "IHDR", w::32, h::32, _::binary>>} ->

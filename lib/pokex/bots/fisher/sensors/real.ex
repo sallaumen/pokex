@@ -55,25 +55,21 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
-  # The attackable ENEMY rows (0-based, topmost first) — the rows Combat clicks. PURE VISION
-  # on a fresh screenshot, no clicking. An enemy is a row with an HP bar (BODY) and NO pokeball
-  # (STRIP): the pokeball marks the player's OWN active pokemon, so subtracting the pokeball
-  # rows from the HP-bar rows drops your own pokemon and leaves the wilds/others to attack.
-  # battle_body/1 crops the pokeball column off, so HP bars come from the body and pokeballs
-  # from the strip; both share the region's y-origin/height, so ONE band geometry (the same the
-  # lock sensor uses) buckets both into the same rows. [] lets Combat.Logic stay IDLE (zero
-  # mouse) when there's nothing to fight, freeing the shared mouse for fishing.
+  # The full battle view Combat needs, from ONE screenshot of the whole battle_region sliced in
+  # memory into the body (HP bars + lock ring) and the rightmost pokeball strip. One
+  # screencapture per tick (not two), and body+strip come from the SAME instant (no tear).
+  # Returns %{enemies: [rows, topmost first], red: [per-row red px]}:
+  #   - enemies = HP-bar rows (body) MINUS own-pokemon pokeball rows (strip). The pokeball marks
+  #     YOUR pokemon, so subtracting it leaves the wilds/others. These are only CANDIDATES: a
+  #     passing player's pokemon has an HP bar and NO pokeball, so it looks attackable — but
+  #     clicking it starts no real battle. Combat must CONFIRM the click via the lock ring.
+  #   - red = per-row red-pixel counts (the lock-ring signal); Combat treats a row over
+  #     target_locked_min_pixels as a confirmed active battle.
+  defp fetch(:battle, calib, settings), do: battle_view(calib, settings)
+
+  # Just the candidate rows (same capture+slice), for callers that don't need the ring.
   defp fetch(:enemy_rows, calib, settings) do
-    with {:ok, body} <- capture_frame(Calibration.battle_body(calib), "battle_creatures.png"),
-         {:ok, strip} <- capture_frame(Calibration.battle_strip(calib), "battle_own.png") do
-      {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height] || 30)
-      rows = settings[:battle_max_rows] || 6
-
-      creatures = body |> Vision.hp_bar_row_positions() |> rows_of(top, band, rows)
-      own = strip |> Vision.pokeball_row_positions() |> rows_of(top, band, rows)
-
-      {:ok, Enum.sort(creatures -- own)}
-    end
+    with {:ok, view} <- battle_view(calib, settings), do: {:ok, view.enemies}
   end
 
   defp fetch(:hostile, calib, _settings) do
@@ -99,6 +95,23 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   # there's no skill-bar reading → combat falls back to blind rotation.
   defp fetch(:ready_skills, calib, settings) do
     {:ok, SkillBar.ready_keys(SkillBar.read(calib, settings))}
+  end
+
+  defp battle_view(calib, settings) do
+    with {:ok, frame} <- capture_frame(calib.battle_region, "battle.png") do
+      {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height] || 30)
+      rows = settings[:battle_max_rows] || 6
+      strip_px = round(Calibration.strip_width() * calib.scale)
+
+      body = Frame.crop(frame, {0, 0, frame.width - strip_px, frame.height})
+      strip = Frame.crop(frame, {frame.width - strip_px, 0, strip_px, frame.height})
+
+      creatures = body |> Vision.hp_bar_row_positions() |> rows_of(top, band, rows)
+      own = strip |> Vision.pokeball_row_positions() |> rows_of(top, band, rows)
+      red = Vision.red_row_counts(body, top: top, band: band, rows: rows)
+
+      {:ok, %{enemies: Enum.sort(creatures -- own), red: red}}
+    end
   end
 
   # Bucket a list of frame-Ys into the distinct 0-based battle rows they fall in.

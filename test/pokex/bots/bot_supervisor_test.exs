@@ -53,12 +53,12 @@ defmodule Pokex.Bots.BotSupervisorTest do
     {:ok, _} = Pokex.Rig.Fake.start_link()
 
     # glow never crosses threshold (stays "watching" forever, never idles) and the Battle list
-    # has no enemy (combat stays in :scanning, idle-scanning) — so both workers report a stable
-    # non-idle state right after start_all/0, instead of the test racing a full cycle to :idle.
+    # has no candidate (combat stays in :scanning, idle-scanning) — so both workers report a
+    # stable non-idle state right after start_all/0, instead of racing a full cycle to :idle.
     {:ok, _} =
       Sensors.Fake.start_link(%{
         glow: [50],
-        enemy_rows: [[]],
+        battle: [%{enemies: [], red: [0, 0, 0, 0, 0, 0]}],
         hostile: [{410, 320}]
       })
 

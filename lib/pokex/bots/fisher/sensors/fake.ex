@@ -10,9 +10,10 @@ defmodule Pokex.Bots.Fisher.Sensors.Fake do
     wild: false,
     hostile: nil,
     battle_lock: [0, 0, 0, 0, 0, 0],
-    # Default [] (no enemy) so combat scripts that never mention this key idle; a test that
-    # wants a fight scripts the attackable rows, e.g. enemy_rows: [[0], [0], []].
-    enemy_rows: [],
+    # Default: no enemy, no ring — combat idles. A test scripts a fight with
+    # battle: [%{enemies: [0], red: [0,...]}, %{enemies: [0], red: [600,0,...]}, ...]
+    # (candidate at row 0, then the ring lights row 0 → confirmed → fight).
+    battle: %{enemies: [], red: [0, 0, 0, 0, 0, 0]},
     # Default TRUE (kill-skills ready) so fishing scripts that don't mention
     # cooldowns hook exactly as before — the gate is opt-in via require_cooldowns.
     cooldowns_ready?: true,

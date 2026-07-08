@@ -68,6 +68,14 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "a catch event before running is a safe no-op", %{worker: worker} do
+    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.catch_topic(), {:fish_caught})
+    # the status call round-trips through the same mailbox, proving it processed the
+    # event and is still alive + idle.
+    assert Worker.status(worker).state == :idle
+  end
+
+  @tag :tmp_dir
   test "runs the full combat cycle: scan, lock, fight, loot, capture", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 

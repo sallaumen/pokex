@@ -144,6 +144,14 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "announces the catch so combat searches immediately", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.catch_topic())
+    assert :ok = Worker.run(worker)
+    # the scripted glow spikes over threshold → a hook → the catch event fires
+    assert_receive {:fish_caught}, 5_000
+  end
+
+  @tag :tmp_dir
   @tag timeout: 5_000
   test "the fishing action yields to a competing :high action on the Body", %{worker: _worker} do
     # This test guards against the worker submitting its fishing action at

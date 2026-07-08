@@ -32,8 +32,17 @@ defmodule Pokex.Bots.Combat.Worker do
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
+  # A fish being hooked is announced on this topic (fire-and-forget, one-way). When
+  # combat is searching, it reacts by restarting the scan at the top NOW — the fresh
+  # catch lands near the top of the Battle list.
+  @catch_topic "fishing:caught"
+  def catch_topic, do: @catch_topic
+
   @impl true
-  def init(body), do: {:ok, %{logic: nil, calib: nil, body: body, timer: nil}}
+  def init(body) do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, @catch_topic)
+    {:ok, %{logic: nil, calib: nil, body: body, timer: nil}}
+  end
 
   @impl true
   def handle_call(:run, _from, state) do
@@ -77,6 +86,18 @@ defmodule Pokex.Bots.Combat.Worker do
     else
       run_tick(state, previous)
     end
+  end
+
+  # Fishing hooked a fish → if we're searching, restart the scan at the top and look
+  # NOW (Logic.rescan is a no-op while fighting/looting, so a live fight is untouched).
+  def handle_info({:fish_caught}, %{logic: nil} = state), do: {:noreply, state}
+
+  def handle_info({:fish_caught}, state) do
+    logic = Logic.rescan(state.logic, now())
+
+    if logic == state.logic,
+      do: {:noreply, state},
+      else: {:noreply, reschedule(%{state | logic: logic}, 0)}
   end
 
   defp run_tick(state, previous) do

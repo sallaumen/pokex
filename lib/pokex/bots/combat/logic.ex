@@ -67,6 +67,28 @@ defmodule Pokex.Bots.Combat.Logic do
 
   def start(logic, _now), do: {logic, []}
 
+  @doc """
+  External wake-up: a fish was just hooked, so a new attackable pokemon is about to
+  land near the TOP of the Battle list. If we're SCANNING (searching or idle over an
+  empty list), restart the scan from row 0 and clear any in-flight verify wait so the
+  driver can look IMMEDIATELY, instead of finishing a lower / stale pass or waiting out
+  an idle poll. A no-op while fighting/looting/walking — never abandons a live fight.
+  """
+  def rescan(%__MODULE__{state: :scanning} = logic, now) do
+    %{
+      logic
+      | select_idx: 0,
+        pending_verify?: false,
+        verify_attempts: 0,
+        target_streak: 0,
+        scan_idle?: false,
+        waiting_until: nil,
+        entered_at: now
+    }
+  end
+
+  def rescan(logic, _now), do: logic
+
   def stop(logic), do: {%{logic | state: :idle, waiting_until: nil}, []}
 
   def io_failed(logic, reason, now), do: fail(logic, now, reason)

@@ -119,6 +119,16 @@ defmodule Pokex.Bots.Fishing.Worker do
     broadcast_activity(previous, raw_obs, actions, level)
     if level == :macro, do: broadcast(logic)
 
+    # Just hooked a fish → it'll land near the top of the Battle list. Tell combat to
+    # search NOW (one-way, fire-and-forget; combat only reacts if it's searching).
+    if logic.counters.hooked > previous.counters.hooked do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        Pokex.Bots.Combat.Worker.catch_topic(),
+        {:fish_caught}
+      )
+    end
+
     state = %{state | logic: logic}
 
     if logic.state in [:idle, :error] do

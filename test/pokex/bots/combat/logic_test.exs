@@ -54,6 +54,30 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert l.select_idx == 0
   end
 
+  test "rescan restarts the scan at row 0 when scanning; no-op while fighting" do
+    mid_scan = %Logic{
+      state: :scanning,
+      config: config(),
+      select_idx: 3,
+      pending_verify?: true,
+      verify_attempts: 2,
+      target_streak: 1,
+      scan_idle?: true,
+      waiting_until: 999
+    }
+
+    reset = Logic.rescan(mid_scan, 500)
+    assert reset.select_idx == 0
+    refute reset.pending_verify?
+    assert reset.verify_attempts == 0
+    refute reset.scan_idle?
+    assert reset.waiting_until == nil
+
+    # a live fight is never abandoned
+    fighting = %Logic{state: :fighting, config: config(), targeted?: true, locked_row: 2}
+    assert Logic.rescan(fighting, 500) == fighting
+  end
+
   test "scanning clicks battle row 0 and moves the cursor off to verify" do
     logic = %Logic{state: :scanning, config: config(), select_idx: 0}
     {l, actions} = Logic.step(logic, cursor_obs(), 100)

@@ -93,16 +93,16 @@ defmodule Pokex.Bots.Combat.LogicTest do
 
   # -- driver hints -----------------------------------------------------------
 
-  test "scanning reads :battle; confirming also reads the skill bar (it fires while confirming)" do
+  test "scanning and confirming read :battle only — combat cycles skills blind (no bar capture)" do
     assert Logic.needs(scanning(), 100) == [:cursor, :battle]
     confirming = %Logic{state: :confirming, config: config(), locked_row: 0}
-    assert Logic.needs(confirming, 100) == [:cursor, :battle, :ready_skills]
+    assert Logic.needs(confirming, 100) == [:cursor, :battle]
   end
 
-  test "fighting reads the skill bar EVERY tick — the bar is how a press is verified" do
+  test "fighting never reads the skill bar (one capture per tick, the ring)" do
     base = %Logic{state: :fighting, targeted?: true, config: config()}
-    assert :ready_skills in Logic.needs(base, 1000)
-    assert :ready_skills in Logic.needs(base, 2000)
+    refute :ready_skills in Logic.needs(base, 1000)
+    assert :battle in Logic.needs(base, 1000)
   end
 
   # -- scanning: idle gate ----------------------------------------------------
@@ -236,40 +236,28 @@ defmodule Pokex.Bots.Combat.LogicTest do
       assert l.state == :fighting
     end
 
-    test "while the ring holds, keep hitting the highest-priority READY skill" do
+    test "while the ring holds, CYCLE the skills in order (1, 2, 1, ...) — no bar needed" do
       l = advance_to_attacking()
+      obs = battle_obs([0], ring(0)) |> Map.put(:hostile, {700, 350})
 
-      obs = fn ready ->
-        battle_obs([0], ring(0)) |> Map.put(:ready_skills, ready) |> Map.put(:hostile, {700, 350})
-      end
-
-      # both ready → the strongest, "1"
-      {l, [{:press, "1"}]} = Logic.step(l, obs.(["1", "2"]), 1000)
+      {l, [{:press, "1"}]} = Logic.step(l, obs, 1000)
       assert l.last_hostile == {700, 350}
       assert l.lost_streak == 0
 
-      # "1" is on cooldown now (fired), only "2" ready → fire "2"
-      {l, [{:press, "2"}]} = Logic.step(l, obs.(["2"]), 2000)
-      # "1" back up → fire "1" again (highest priority)
-      {_l, [{:press, "1"}]} = Logic.step(l, obs.(["1", "2"]), 3000)
+      {l, [{:press, "2"}]} = Logic.step(l, battle_obs([0], ring(0)), 2000)
+      {_l, [{:press, "1"}]} = Logic.step(l, battle_obs([0], ring(0)), 3000)
     end
 
-    test "the verify loop: re-press the SAME skill until the bar shows it fired, then advance" do
+    test "cycling NEVER stalls: it advances every tick even with no skill-bar reading at all" do
+      # the old verify loop got stuck re-pressing the same key when the bar read came back empty;
+      # cycling walks the order regardless, so a dropped input just comes back around next loop.
       l = advance_to_attacking()
-      obs = fn ready -> battle_obs([0], ring(0)) |> Map.put(:ready_skills, ready) end
+      obs = battle_obs([0], ring(0))
 
-      # "1" ready → press "1"
-      {l, [{:press, "1"}]} = Logic.step(l, obs.(["1", "2"]), 1000)
-      # the game DROPPED the press — "1" is STILL ready → press "1" AGAIN (not "2")
-      {l, [{:press, "1"}]} = Logic.step(l, obs.(["1", "2"]), 1100)
-      # "1" finally landed (off the ready list, on cooldown) → advance to "2"
-      {_l, [{:press, "2"}]} = Logic.step(l, obs.(["2"]), 1200)
-    end
-
-    test "fires the highest-priority READY skill when the skill bar is read" do
-      l = advance_to_attacking()
-      obs = battle_obs([0], ring(0)) |> Map.put(:ready_skills, ["2"])
-      {_l, [{:press, "2"}]} = Logic.step(l, obs, 1000)
+      {l, [{:press, "1"}]} = Logic.step(l, obs, 1000)
+      {l, [{:press, "2"}]} = Logic.step(l, obs, 1100)
+      {l, [{:press, "1"}]} = Logic.step(l, obs, 1200)
+      {_l, [{:press, "2"}]} = Logic.step(l, obs, 1300)
     end
 
     test "a single ring blink does NOT end the fight (debounce), two in a row → loot" do

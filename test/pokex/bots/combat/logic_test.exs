@@ -173,20 +173,36 @@ defmodule Pokex.Bots.Combat.LogicTest do
       assert l.locked_row == 0
     end
 
+    test "attacks WHILE confirming — the first skill fires before the ring, then confirms" do
+      {l, _} = Logic.step(scanning(), battle_obs([0]), 100)
+      assert l.state == :confirming
+
+      # no ring yet, inside the window → fire the strongest skill NOW (don't wait for the ring)
+      {l, [{:press, "1"}]} = Logic.step(l, battle_obs([0]), 200)
+      assert l.state == :confirming
+      assert l.skills.last_cast_at == 200
+
+      # the ring shows up → commit to fighting, CARRYING the rotation so pacing stays continuous
+      {l, []} = Logic.step(l, battle_obs([0], ring(0)), 300)
+      assert l.state == :fighting
+      assert l.skills.last_cast_at == 200
+    end
+
     test "no ring within battle_confirm_ms → the click engaged nothing → try the next candidate" do
       # candidate row 0 is a passing player's pokemon: clicked, but never rings.
       {l, _} = Logic.step(scanning(), battle_obs([0, 1]), 100)
       assert l.state == :confirming and l.locked_row == 0
 
-      # still no ring, but inside the window → keep waiting (no state change, no actions)
-      {l, []} = Logic.step(l, battle_obs([0, 1]), 300)
+      # inside the window, still no ring → keep ATTACKING (blind skill) while waiting
+      {l, [{:press, "1"}]} = Logic.step(l, battle_obs([0, 1]), 300)
       assert l.state == :confirming
 
-      # window elapsed with no ring → mark row 0 tried, back to scanning
+      # window elapsed with no ring → mark row 0 tried, back to scanning (rotation reset)
       {l, [{:log, msg}]} = Logic.step(l, battle_obs([0, 1]), 700)
       assert l.state == :scanning
       assert msg =~ "não entrou em batalha"
       assert l.tried == [0]
+      assert l.skills == nil
 
       # scanning now SKIPS the tried row 0 and clicks the next candidate, row 1
       {l, actions} = Logic.step(l, battle_obs([0, 1]), 750)

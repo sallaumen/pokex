@@ -171,34 +171,42 @@ defmodule Pokex.Bots.Combat.Logic do
     end
   end
 
-  # Confirm the click actually started a battle: watch the clicked row for the red lock ring.
-  # Ring up → a real target locked → fight it. No ring within battle_confirm_ms → the click
-  # engaged nothing (a player's pokemon / not attackable) → mark this row tried and go pick the
-  # next candidate. The confirm window also filters the brief red BLINK from clicking your own
-  # pokemon (it fades before the first ~tick-later read, while a real ring persists).
+  # Confirm the click started a battle AND attack at the same time — don't wait for the ring to
+  # start hitting. Every tick: watch the clicked row for the red lock ring, and meanwhile fire
+  # the strongest skill (BLIND rotation — no skill-bar capture, so the first hit lands ~one tick
+  # after the click instead of after the whole confirm; this is where the fight was losing ~half
+  # a second). Ring up → a real target → keep hitting it in :fighting (carry the rotation so the
+  # cast pacing stays continuous). No ring within battle_confirm_ms → the click engaged nothing
+  # (a passing player's pokemon has an HP bar but no pokeball, so it looked attackable but started
+  # no battle) → mark the row tried and pick the next candidate; the blind presses did nothing on
+  # a non-target. The window also filters the brief red BLINK from clicking your own pokemon.
   defp do_step(%{state: :confirming, locked_row: row} = logic, obs, now) do
     cond do
       ring?(obs, row, logic.config.target_locked_min_pixels) ->
         {advance(
-           %{
-             logic
-             | targeted?: true,
-               fight_tick: 0,
-               skills: nil,
-               lost_streak: 0,
-               tried: [],
-               tried_for: nil
-           },
+           %{logic | targeted?: true, fight_tick: 0, lost_streak: 0, tried: [], tried_for: nil},
            :fighting,
            now
          ), []}
 
       now - logic.entered_at > logic.config.battle_confirm_ms ->
-        {advance(%{logic | locked_row: nil, tried: [row | logic.tried]}, :scanning, now),
-         [{:log, "linha #{row} não entrou em batalha — próximo candidato"}]}
+        {advance(
+           %{logic | locked_row: nil, skills: nil, tried: [row | logic.tried]},
+           :scanning,
+           now
+         ), [{:log, "linha #{row} não entrou em batalha — próximo candidato"}]}
 
       true ->
-        {logic, []}
+        skills = logic.skills || Skills.new(logic.config.skill_keys)
+        {skills, decision} = Skills.decide(skills, now, logic.config.skill_cast_ms, nil)
+
+        actions =
+          case decision do
+            {:press, key} -> [{:press, key}]
+            :wait -> []
+          end
+
+        {%{logic | skills: skills}, actions}
     end
   end
 

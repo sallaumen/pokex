@@ -62,10 +62,15 @@ defmodule Pokex.Rig.Mac.Commands do
 
   def cursor_position, do: {"cliclick", ["p"]}
 
+  # `-m` = capture ONLY the main display. MEASURED on Lucas's multi-monitor Mac (2026-07-09):
+  # without it, `screencapture` syncs every display and takes ~1.7-2.9s PER call (even a 1×1
+  # region), which — at 2 captures per fighting tick — made skills fire ~5s apart. With `-m` the
+  # exact same region comes back in ~0.2-0.35s (byte-identical output). The game must be on the
+  # main display anyway (see calibration), so this is pure speedup.
   def capture({x, y, w, h}, path),
-    do: {"screencapture", ["-x", "-R", "#{x},#{y},#{w},#{h}", path]}
+    do: {"screencapture", ["-x", "-m", "-R", "#{x},#{y},#{w},#{h}", path]}
 
-  def capture_screen(path), do: {"screencapture", ["-x", path]}
+  def capture_screen(path), do: {"screencapture", ["-x", "-m", path]}
 
   def parse_point(output) do
     case Regex.run(~r/(\d+),(\d+)/, output) do

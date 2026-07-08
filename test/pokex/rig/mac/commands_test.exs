@@ -54,10 +54,10 @@ defmodule Pokex.Rig.Mac.CommandsTest do
     assert Commands.parse_point("garbage") == :error
   end
 
-  test "screen region capture" do
+  test "screen region capture (main display only, for speed)" do
     assert Commands.capture({10, 20, 30, 40}, "/tmp/x.png") ==
-             {"screencapture", ["-x", "-R", "10,20,30,40", "/tmp/x.png"]}
+             {"screencapture", ["-x", "-m", "-R", "10,20,30,40", "/tmp/x.png"]}
 
-    assert Commands.capture_screen("/tmp/s.png") == {"screencapture", ["-x", "/tmp/s.png"]}
+    assert Commands.capture_screen("/tmp/s.png") == {"screencapture", ["-x", "-m", "/tmp/s.png"]}
   end
 end

@@ -86,8 +86,8 @@ defmodule Pokex.Bots.Combat.Logic do
   # the corpse will drop.
   def needs(%__MODULE__{state: :fighting} = logic) do
     if scan_tick?(logic),
-      do: [:cursor, :battle_lock, :hostile],
-      else: [:cursor, :battle_lock]
+      do: [:cursor, :battle_lock, :hostile, :ready_skills],
+      else: [:cursor, :battle_lock, :ready_skills]
   end
 
   def needs(_logic), do: [:cursor]
@@ -262,10 +262,14 @@ defmodule Pokex.Bots.Combat.Logic do
         }
 
         # Delegate skill choice + PACING to Skills: one skill per global cast
-        # window, strongest first. Auto-attack (the target click) keeps hitting on
-        # its own between casts; spamming a skill every tick just gets swallowed.
+        # window. With a skill-bar reading (:ready_skills) it fires the highest-priority
+        # READY skill and skips cooldowns, so no window is wasted on a swallowed press;
+        # with no reading (nil) it falls back to blind priority-rotation. Auto-attack
+        # keeps hitting between casts.
         skills = logic.skills || Skills.new(logic.config.skill_keys)
-        {skills, decision} = Skills.decide(skills, now, logic.config.skill_cast_ms)
+
+        {skills, decision} =
+          Skills.decide(skills, now, logic.config.skill_cast_ms, Map.get(obs, :ready_skills))
 
         actions =
           case decision do

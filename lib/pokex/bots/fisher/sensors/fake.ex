@@ -16,7 +16,10 @@ defmodule Pokex.Bots.Fisher.Sensors.Fake do
     battle_creatures?: true,
     # Default TRUE (kill-skills ready) so fishing scripts that don't mention
     # cooldowns hook exactly as before — the gate is opt-in via require_cooldowns.
-    cooldowns_ready?: true
+    cooldowns_ready?: true,
+    # Default nil (no skill-bar reading) so combat scripts that don't mention it use
+    # the unchanged blind skill rotation.
+    ready_skills: nil
   }
 
   def start_link(script \\ %{}), do: Agent.start_link(fn -> Map.new(script) end, name: __MODULE__)

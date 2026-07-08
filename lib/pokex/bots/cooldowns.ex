@@ -47,10 +47,14 @@ defmodule Pokex.Bots.Cooldowns do
     end
   end
 
-  @doc "The ready hotbar keys in ascending slot order (`[]` when there's no reading)."
-  def ready_keys(server \\ __MODULE__) do
+  @doc """
+  The ready hotbar keys in ascending slot order, or `nil` when there's NO reading
+  (skill bar not calibrated / poller down). Combat treats `nil` as "fall back to blind
+  rotation" so it never stops using skills on a missing/uncalibrated skill bar.
+  """
+  def ready_skills(server \\ __MODULE__) do
     case snapshot(server).states do
-      nil -> []
+      nil -> nil
       states -> for {:ready, i} <- Enum.with_index(states), do: to_string(i + 1)
     end
   end

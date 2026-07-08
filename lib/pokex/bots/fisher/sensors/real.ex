@@ -82,6 +82,12 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     {:ok, Pokex.Bots.Cooldowns.all_ready?(keys)}
   end
 
+  # The ready hotbar keys for combat to fire (highest-priority ready first). nil when
+  # there's no skill-bar reading → combat falls back to blind rotation.
+  defp fetch(:ready_skills, _calib, _settings) do
+    {:ok, Pokex.Bots.Cooldowns.ready_skills()}
+  end
+
   defp capture_frame(region, filename) do
     with {:ok, path} <- Rig.impl().capture(region, filename) do
       Frame.from_png_file(path)

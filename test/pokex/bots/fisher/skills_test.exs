@@ -37,4 +37,37 @@ defmodule Pokex.Bots.Fisher.SkillsTest do
     {s, {:press, "1"}} = Skills.decide(s, 0, nil)
     {_s, {:press, "1"}} = Skills.decide(s, 1, nil)
   end
+
+  describe "decide/4 (cooldown-aware)" do
+    test "nil readiness → blind rotation, same as decide/3" do
+      s = Skills.new(["7", "6", "5"])
+      {s, {:press, "7"}} = Skills.decide(s, 0, 100, nil)
+      {_s, {:press, "6"}} = Skills.decide(s, 100, 100, nil)
+    end
+
+    test "fires the highest-priority READY skill, skipping cooldowns" do
+      s = Skills.new(["7", "6", "5", "4"])
+      # 7 and 6 on cooldown → fire 5 (the highest-priority ready one)
+      {s, action} = Skills.decide(s, 0, 100, ["5", "4"])
+      assert action == {:press, "5"}
+      # next window: 7 is ready again → fire 7
+      {_s, action} = Skills.decide(s, 100, 100, ["7", "5"])
+      assert action == {:press, "7"}
+    end
+
+    test "none of the rotation ready → waits, no wasted press, retries immediately" do
+      s = Skills.new(["7", "6"])
+      assert {^s, :wait} = Skills.decide(s, 0, 100, ["1", "2"])
+      # nothing cast → no pacing accrues → a skill fires the instant it's ready
+      {_s, {:press, "7"}} = Skills.decide(s, 1, 100, ["7"])
+    end
+
+    test "pacing still applies with a reading" do
+      s = Skills.new(["7", "6"])
+      {s, {:press, "7"}} = Skills.decide(s, 0, 800, ["7", "6"])
+      # within the cast window → wait even though 6 is ready
+      assert {^s, :wait} = Skills.decide(s, 500, 800, ["6"])
+      {_s, {:press, "6"}} = Skills.decide(s, 900, 800, ["6"])
+    end
+  end
 end

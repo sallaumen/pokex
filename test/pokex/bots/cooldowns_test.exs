@@ -38,7 +38,7 @@ defmodule Pokex.Bots.CooldownsTest do
     assert_receive {:cooldowns, %{states: states}}, 1_000
     assert states == [:ready, :ready, :ready, :ready, :ready, :ready, :cooldown]
 
-    assert Cooldowns.ready_keys(cd) == ["1", "2", "3", "4", "5", "6"]
+    assert Cooldowns.ready_skills(cd) == ["1", "2", "3", "4", "5", "6"]
     assert Cooldowns.all_ready?(["4", "5", "6"], cd) == true
     # skill 7 is on cooldown → not all ready
     assert Cooldowns.all_ready?(["4", "5", "6", "7"], cd) == false
@@ -54,12 +54,13 @@ defmodule Pokex.Bots.CooldownsTest do
     # not run yet → no reading
     assert Cooldowns.snapshot(cd).states == nil
     assert Cooldowns.all_ready?(["4", "5"], cd) == true
-    assert Cooldowns.ready_keys(cd) == []
+    # nil (not []) so combat falls back to blind rotation, never "no skills ready"
+    assert Cooldowns.ready_skills(cd) == nil
   end
 
   @tag :tmp_dir
   test "a query against a dead poller returns the fail-open default, no crash" do
     assert Cooldowns.all_ready?(["1"], :nonexistent_cooldowns) == true
-    assert Cooldowns.ready_keys(:nonexistent_cooldowns) == []
+    assert Cooldowns.ready_skills(:nonexistent_cooldowns) == nil
   end
 end

@@ -62,6 +62,17 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "lutando linha 2"
   end
 
+  test "a loot broadcast updates the loot pill and its loots/captures counters", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    snapshot = %{state: :looting, counters: %{loots: 3, captures: 2, failures: 0}, error: nil}
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "loot", {:loot, snapshot})
+
+    # the loot pill reflects the worker's state, and its counters drive the Loots/Capturas tallies
+    assert render(view) =~ "coletando"
+    assert has_element?(view, "[data-testid=loot-pill][data-state=looting]")
+  end
+
   test "macro fishing_log and combat_log append to the activity feed", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 

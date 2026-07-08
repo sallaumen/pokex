@@ -7,6 +7,7 @@ defmodule PokexWeb.PanelLive do
 
   @fishing_topic "fishing"
   @combat_topic "combat"
+  @loot_topic "loot"
 
   @counters [
     {"Ciclos", :cycles, "hero-arrow-path"},
@@ -36,6 +37,7 @@ defmodule PokexWeb.PanelLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, @loot_topic)
     end
 
     status = BotSupervisor.status()
@@ -45,6 +47,7 @@ defmodule PokexWeb.PanelLive do
        page_title: "Painel",
        fishing: status.fishing,
        combat: status.combat,
+       loot: status.loot,
        errors: [],
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
@@ -77,6 +80,9 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:combat, snapshot}, socket),
     do: {:noreply, assign(socket, combat: snapshot, panicked?: false)}
+
+  def handle_info({:loot, snapshot}, socket),
+    do: {:noreply, assign(socket, loot: snapshot)}
 
   def handle_info({:fishing_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🎣", text: text})}
@@ -135,7 +141,8 @@ defmodule PokexWeb.PanelLive do
            logs: [],
            panicked?: false,
            fishing: status.fishing,
-           combat: status.combat
+           combat: status.combat,
+           loot: status.loot
          )}
 
       {:error, messages} ->
@@ -146,7 +153,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("stop", _params, socket) do
     BotSupervisor.stop_all()
     status = BotSupervisor.status()
-    {:noreply, assign(socket, fishing: status.fishing, combat: status.combat)}
+    {:noreply, assign(socket, fishing: status.fishing, combat: status.combat, loot: status.loot)}
   end
 
   def handle_event("test_combat", _params, socket) do
@@ -372,10 +379,16 @@ defmodule PokexWeb.PanelLive do
   # Fishing and combat only truly overlap on :failures — sum those; every
   # other counter belongs to exactly one worker, so a plain merge is right
   # for them.
-  defp merged_counters(fishing, combat) do
-    Map.merge(Map.new(fishing.counters || %{}), Map.new(combat.counters || %{}), fn
-      :failures, a, b -> a + b
-      _key, _a, b -> b
+  defp merged_counters(fishing, combat, loot) do
+    # loots/captures now come from the Loot.Worker (combat's are always 0 since the extraction),
+    # fights from combat, hooked from fishing; failures sum across all three.
+    [fishing, combat, loot]
+    |> Enum.map(&Map.new(&1.counters || %{}))
+    |> Enum.reduce(%{}, fn m, acc ->
+      Map.merge(acc, m, fn
+        :failures, a, b -> a + b
+        _key, _a, b -> b
+      end)
     end)
   end
 
@@ -389,24 +402,35 @@ defmodule PokexWeb.PanelLive do
   defp fishing_label(:error), do: "erro"
   defp fishing_label(other), do: to_string(other)
 
-  # ⚔️ Batalha: parado / procurando / lutando linha N / coletando (loot +
-  # capture + the walks around them) / erro.
+  # ⚔️ Batalha: parado / procurando / confirmando linha N / lutando linha N / erro. Loot is a
+  # separate worker now (see loot_label/1).
   defp combat_label(:idle, _row), do: "parado"
   defp combat_label(:scanning, _row), do: "procurando"
+  defp combat_label(:confirming, row) when is_integer(row), do: "confirmando linha #{row}"
+  defp combat_label(:confirming, _row), do: "confirmando"
   defp combat_label(:fighting, row) when is_integer(row), do: "lutando linha #{row}"
   defp combat_label(:fighting, _row), do: "lutando"
-  defp combat_label(:walking_to_loot, _row), do: "coletando"
-  defp combat_label(:looting, _row), do: "coletando"
-  defp combat_label(:capturing, _row), do: "coletando"
-  defp combat_label(:walking_back, _row), do: "coletando"
   defp combat_label(:error, _row), do: "erro"
   defp combat_label(other, _row), do: to_string(other)
 
+  # 🎒 Loot: parado (desligado) / aguardando (ligado pelo Start, esperando um kill) / coletando
+  # (walk → loot → capture → walk-back) / erro.
+  defp loot_label(:off), do: "parado"
+  defp loot_label(:ready), do: "aguardando"
+  defp loot_label(:walking_to_loot), do: "andando até o corpo"
+  defp loot_label(:looting), do: "coletando (espaço)"
+  defp loot_label(:capturing), do: "pokébola"
+  defp loot_label(:walking_back), do: "voltando"
+  defp loot_label(:error), do: "erro"
+  defp loot_label(other), do: to_string(other)
+
   defp active?(:idle), do: false
+  defp active?(:off), do: false
   defp active?(_state), do: true
 
   defp pill_class(:error), do: "badge-error"
   defp pill_class(:idle), do: "badge-ghost"
+  defp pill_class(:off), do: "badge-ghost"
   defp pill_class(_running), do: "badge-success"
 
   @impl true
@@ -450,6 +474,16 @@ defmodule PokexWeb.PanelLive do
                   "size-2 rounded-full bg-current",
                   active?(@combat.state) && "motion-safe:animate-pulse"
                 ]} /> ⚔️ Batalha: {combat_label(@combat.state, Map.get(@combat, :locked_row))}
+              </span>
+              <span
+                data-testid="loot-pill"
+                data-state={@loot.state}
+                class={["badge gap-1.5 badge-lg", pill_class(@loot.state)]}
+              >
+                <span class={[
+                  "size-2 rounded-full bg-current",
+                  active?(@loot.state) && "motion-safe:animate-pulse"
+                ]} /> 🎒 Loot: {loot_label(@loot.state)}
               </span>
             </div>
             <div class="flex flex-wrap gap-2">
@@ -543,7 +577,7 @@ defmodule PokexWeb.PanelLive do
               class="rounded-xl border border-base-content/10 bg-base-200 p-3 text-center"
             >
               <div class="text-2xl font-bold tabular-nums">
-                {Map.get(merged_counters(@fishing, @combat), key, 0)}
+                {Map.get(merged_counters(@fishing, @combat, @loot), key, 0)}
               </div>
               <div class="mt-0.5 flex items-center justify-center gap-1 text-[11px] opacity-60">
                 <.icon name={icon} class="size-3" />{label}

@@ -4,11 +4,11 @@ defmodule Pokex.Bots.Combat.Logic do
   effects: the driver gathers observations, calls step/3, and executes the
   returned actions. Times are monotonic milliseconds supplied by the caller.
 
-  Starts by SCANNING the battle list for an attackable row; when a lock is
-  found it attacks, and once the strip is clear after a kill it loots,
-  captures, walks back, and loops to scanning again to check for more
-  enemies. Contains no fishing logic — a row that never locks stays in
-  `:scanning` (idle-loop) rather than recasting.
+  Scans the battle list for a CANDIDATE (HP bar, no own-pokemon pokeball), clicks it, and
+  CONFIRMS a real battle via the lock ring before attacking; when the ring vanishes the target
+  died → it bumps `counters.fights` and re-scans for the next enemy IMMEDIATELY. Loot/capture/
+  walk-back is NOT here — the driver broadcasts the kill and the `Loot.Worker` handles the
+  corpse in parallel, so combat never stops attacking to loot. Contains no fishing logic.
   """
 
   alias Pokex.Bots.Fisher.Skills
@@ -25,10 +25,6 @@ defmodule Pokex.Bots.Combat.Logic do
             tried: [],
             tried_for: nil,
             lost_streak: 0,
-            walk_plan: [],
-            walk_taken: [],
-            loot_offset: nil,
-            loot_presses_left: 0,
             scan_idle?: false,
             failures: 0,
             error: nil,
@@ -50,10 +46,6 @@ defmodule Pokex.Bots.Combat.Logic do
          fight_tick: 0,
          skills: nil,
          last_hostile: nil,
-         walk_plan: [],
-         walk_taken: [],
-         loot_offset: nil,
-         loot_presses_left: 0,
          entered_at: now,
          waiting_until: nil,
          failures: 0,
@@ -210,119 +202,15 @@ defmodule Pokex.Bots.Combat.Logic do
         {logic, press_ready_skill(logic, obs)}
 
       logic.lost_streak + 1 >= logic.config.target_lost_streak ->
-        # ring gone for enough checks → target dead/deselected → count the fight, go loot.
-        logic = update_in(logic.counters.fights, &(&1 + 1))
-        # Plan computed ONCE: the player is always screen-centered and the world scrolls, so
-        # last_hostile goes stale the moment we move.
-        {plan, offset} = plan_walk(logic)
-
-        {advance(
-           %{
-             logic
-             | lost_streak: 0,
-               locked_row: nil,
-               walk_plan: plan,
-               walk_taken: [],
-               loot_offset: offset,
-               loot_presses_left: logic.config.loot_presses
-           },
-           :walking_to_loot,
-           now
-         ), []}
+        # ring gone for enough checks → target dead/deselected → count the kill and re-scan for
+        # the next enemy IMMEDIATELY (never stop attacking to loot). The corpse is handed to the
+        # Loot.Worker: Combat.Worker broadcasts {:kill, last_hostile} on this counter bump, and
+        # last_hostile is preserved through reselect so the event carries the corpse point.
+        {advance(reselect(update_in(logic.counters.fights, &(&1 + 1))), :scanning, now), []}
 
       true ->
         {%{logic | lost_streak: logic.lost_streak + 1}, []}
     end
-  end
-
-  # One arrow press per tick, each SPACED by walk_step_ms — rapid back-to-back
-  # movement inputs bug the pokemon out and he doesn't move at all. Every
-  # executed step is prepended to walk_taken so the walk-back is an exact retrace.
-  defp do_step(%{state: :walking_to_loot, walk_plan: [dir | rest]} = logic, _obs, now) do
-    {advance(
-       %{logic | walk_plan: rest, walk_taken: [dir | logic.walk_taken]},
-       :walking_to_loot,
-       now,
-       wait: logic.config.walk_step_ms
-     ), [{:press, dir}]}
-  end
-
-  defp do_step(%{state: :walking_to_loot, walk_plan: []} = logic, _obs, now) do
-    {advance(logic, :looting, now), []}
-  end
-
-  # SPACE picks up the loot of any ADJACENT corpse — no aiming needed. A couple
-  # of spaced presses covers a slow corpse-drop animation.
-  defp do_step(%{state: :looting, loot_presses_left: n} = logic, _obs, now) when n > 0 do
-    {advance(%{logic | loot_presses_left: n - 1}, :looting, now, wait: logic.config.wait_loot_ms),
-     [{:press, "space"}]}
-  end
-
-  defp do_step(%{state: :looting} = logic, _obs, now) do
-    logic = update_in(logic.counters.loots, &(&1 + 1))
-    {advance(logic, :capturing, now), []}
-  end
-
-  defp do_step(%{state: :capturing} = logic, _obs, now) do
-    # We stopped adjacent to the corpse: click one tile toward it (or one tile
-    # below the player when the corpse position was unknown).
-    {ox, oy} = logic.loot_offset || {0, 1}
-    {px, py} = logic.config.player_point
-    target = {px + ox * logic.config.tile_px, py + oy * logic.config.tile_px}
-    logic = %{logic | failures: 0, last_hostile: nil}
-
-    {logic, actions} =
-      if logic.config.auto_capture do
-        {update_in(logic.counters.captures, &(&1 + 1)), [{:capture_sequence, target}]}
-      else
-        {logic, [{:log, "auto-captura desligada — sem pokébola"}]}
-      end
-
-    # walk_taken is most-recent-first, so mapping to opposites IS the exact
-    # retrace back to the fight spot (arrow presses are 1 tile regardless of
-    # a slightly-wrong tile_px, so the return can never drift).
-    {advance(
-       %{
-         logic
-         | walk_plan: Enum.map(logic.walk_taken, &opposite/1),
-           walk_taken: [],
-           loot_offset: nil
-       },
-       :walking_back,
-       now,
-       wait: logic.config.wait_after_capture_ms
-     ), actions}
-  end
-
-  defp do_step(%{state: :walking_back, walk_plan: [dir | rest]} = logic, _obs, now) do
-    {advance(%{logic | walk_plan: rest}, :walking_back, now, wait: logic.config.walk_step_ms),
-     [{:press, dir}]}
-  end
-
-  defp do_step(%{state: :walking_back, walk_plan: []} = logic, _obs, now) do
-    {continue_combat(logic, now), []}
-  end
-
-  # Always loop back to scanning: re-check the battle list for more enemies.
-  # This module contains ZERO fishing logic — recasting is the driver's concern.
-  defp continue_combat(logic, now, opts \\ []) do
-    fresh = %{
-      logic
-      | targeted?: false,
-        locked_row: nil,
-        tried: [],
-        tried_for: nil,
-        lost_streak: 0,
-        fight_tick: 0,
-        skills: nil,
-        last_hostile: nil,
-        walk_plan: [],
-        walk_taken: [],
-        loot_offset: nil,
-        loot_presses_left: 0
-    }
-
-    advance(fresh, :scanning, now, opts)
   end
 
   # Drop the current target and re-scan the Battle list from the top for the next enemy —
@@ -340,43 +228,6 @@ defmodule Pokex.Bots.Combat.Logic do
         skills: nil
     }
   end
-
-  # The hostile point is the floating red NAME; the body lies one tile below it.
-  defp corpse_point(%{last_hostile: nil}), do: nil
-
-  defp corpse_point(%{last_hostile: {x, y}, config: config}),
-    do: {x, y + config.tile_px}
-
-  # Turn the corpse's screen offset into an arrow-key plan, computed ONCE at
-  # fight end (the player is always screen-centered; the world scrolls, so the
-  # plan can't be re-derived mid-walk from the stale last_hostile). Stops
-  # ADJACENT to the corpse (one step short per axis) — SPACE loots from there.
-  defp plan_walk(%{last_hostile: nil}), do: {[], nil}
-
-  defp plan_walk(%{config: config} = logic) do
-    {cx, cy} = corpse_point(logic)
-    {px, py} = config.player_point
-    dx = round((cx - px) / config.tile_px)
-    dy = round((cy - py) / config.tile_px)
-
-    if abs(dx) > config.max_walk_tiles or abs(dy) > config.max_walk_tiles do
-      # a corpse that far is a bad hostile read → loot in place
-      {[], nil}
-    else
-      plan =
-        List.duplicate(if(dx > 0, do: "right", else: "left"), max(abs(dx) - 1, 0)) ++
-          List.duplicate(if(dy > 0, do: "down", else: "up"), max(abs(dy) - 1, 0))
-
-      {plan, {clamp_unit(dx), clamp_unit(dy)}}
-    end
-  end
-
-  defp clamp_unit(d), do: d |> max(-1) |> min(1)
-
-  defp opposite("up"), do: "down"
-  defp opposite("down"), do: "up"
-  defp opposite("left"), do: "right"
-  defp opposite("right"), do: "left"
 
   # -- shared helpers ---------------------------------------------------------
 

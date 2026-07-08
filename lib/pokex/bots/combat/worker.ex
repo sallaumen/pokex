@@ -131,6 +131,11 @@ defmodule Pokex.Bots.Combat.Worker do
     broadcast_activity(previous, obs, actions, level)
     if level == :macro, do: broadcast(logic)
 
+    # A kill (fights bumped) hands the corpse to the Loot.Worker (one-way, fire-and-forget);
+    # combat itself keeps scanning/attacking. last_hostile is the corpse's floating-name point.
+    if logic.counters.fights > previous.counters.fights,
+      do: broadcast_kill(logic.last_hostile)
+
     state = %{state | logic: logic}
 
     if logic.state in [:idle, :error] do
@@ -152,6 +157,14 @@ defmodule Pokex.Bots.Combat.Worker do
 
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat, snapshot(logic)})
+
+  defp broadcast_kill(corpse),
+    do:
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        Pokex.Bots.Loot.Worker.kill_topic(),
+        {:kill, corpse}
+      )
 
   defp broadcast_activity(logic, obs, actions, level) do
     case describe_activity(logic, obs, actions) do
@@ -185,16 +198,6 @@ defmodule Pokex.Bots.Combat.Worker do
   defp state_desc(%Logic{state: :fighting, targeted?: true, locked_row: row} = logic, obs),
     do:
       "combate: atacando linha #{row} — anel #{ring_px(obs, row)}px (mín #{logic.config.target_locked_min_pixels})"
-
-  defp state_desc(%Logic{state: :walking_to_loot, walk_plan: plan}, _obs),
-    do: "andando até o loot (#{length(plan)} passos restantes)"
-
-  defp state_desc(%Logic{state: :looting}, _obs), do: "coletando loot (espaço)"
-
-  defp state_desc(%Logic{state: :walking_back, walk_plan: plan}, _obs),
-    do: "voltando ao ponto de combate (#{length(plan)} passos restantes)"
-
-  defp state_desc(%Logic{state: :capturing}, _obs), do: "capturando"
 
   defp state_desc(_, _obs), do: nil
 

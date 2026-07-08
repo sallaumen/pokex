@@ -41,19 +41,29 @@ defmodule Pokex.Bots.Loot.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "a kill event before running is a safe no-op", %{worker: worker} do
+  test "a kill event before running is a safe no-op (off, not armed)", %{worker: worker} do
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill, {410, 320}})
-    assert Worker.status(worker).state == :idle
+    assert Worker.status(worker).state == :off
   end
 
   @tag :tmp_dir
-  test "a {:kill, corpse} runs the full walk→loot→capture→walk-back cycle", %{worker: worker} do
+  test "run arms the worker → :ready (on, waiting for a kill)", %{worker: worker} do
+    assert Worker.status(worker).state == :off
+    assert :ok = Worker.run(worker)
+    assert Worker.status(worker).state == :ready
+  end
+
+  @tag :tmp_dir
+  test "a {:kill, corpse} runs the full walk→loot→capture→walk-back cycle, then :ready", %{
+    worker: worker
+  } do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     assert :ok = Worker.run(worker)
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill, {410, 320}})
 
-    assert_receive {:loot, %{state: :idle, counters: %{loots: 1, captures: 1}}}, 5_000
+    # back to :ready (armed, idle) — not :off — after the cycle
+    assert_receive {:loot, %{state: :ready, counters: %{loots: 1, captures: 1}}}, 5_000
 
     calls = Pokex.Rig.Fake.calls()
     assert {:press, "space"} in calls
@@ -72,15 +82,15 @@ defmodule Pokex.Bots.Loot.WorkerTest do
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill, {410, 320}})
 
     # exactly one cycle runs → captures stays at 1, never 2
-    assert_receive {:loot, %{state: :idle, counters: %{captures: 1}}}, 5_000
+    assert_receive {:loot, %{state: :ready, counters: %{captures: 1}}}, 5_000
     refute_receive {:loot, %{counters: %{captures: 2}}}, 300
   end
 
   @tag :tmp_dir
-  test "halt stops the worker (idle)", %{worker: worker} do
+  test "halt turns the worker off", %{worker: worker} do
     assert :ok = Worker.run(worker)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill, {410, 320}})
     assert :ok = Worker.halt(worker)
-    assert Worker.status(worker).state == :idle
+    assert Worker.status(worker).state == :off
   end
 end

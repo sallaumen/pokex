@@ -289,10 +289,10 @@ defmodule Pokex.Bots.Combat.LogicTest do
       {l, [{:press, _}]} = Logic.step(l, battle_obs([0], ring(0)), 2000)
       assert l.lost_streak == 0
 
-      # gone twice in a row → target dead → loot
+      # gone twice in a row → target dead → hand off to loot and re-scan for the next enemy
       {l, []} = Logic.step(l, battle_obs([0]), 3000)
       {l, []} = Logic.step(l, battle_obs([0]), 4000)
-      assert l.state == :walking_to_loot
+      assert l.state == :scanning
       assert l.counters.fights == 1
     end
 
@@ -305,99 +305,34 @@ defmodule Pokex.Bots.Combat.LogicTest do
     end
   end
 
-  # -- loot / capture / walk (model-independent chain) ------------------------
+  # -- kill hand-off (loot now lives in Loot.Worker) --------------------------
 
-  describe "loot / capture / walk-back" do
-    test "kill (ring gone) → walk to corpse, space-loot, capture, walk back, loop to scanning" do
+  describe "kill hand-off" do
+    test "a kill returns to :scanning, counts the fight, and PRESERVES last_hostile for the event" do
       l = advance_to_attacking()
       obs = battle_obs([0], ring(0)) |> Map.put(:hostile, {700, 350})
       {l, _} = Logic.step(l, obs, 1000)
       assert l.last_hostile == {700, 350}
 
-      # ring gone → target dead → plan the walk ONCE: corpse {700,400}, player {600,300},
-      # tile_px 50 → dx=2, dy=2 → stop ADJACENT = ["right","down"]
-      {l, []} = Logic.step(l, battle_obs([0]), 2000)
-      assert l.state == :walking_to_loot
-      assert l.counters.fights == 1
-      assert l.walk_plan == ["right", "down"]
-      assert l.loot_offset == {1, 1}
-
-      {l, [{:press, "right"}]} = Logic.step(l, cursor_obs(), 2100)
-      {l, [{:press, "down"}]} = Logic.step(l, cursor_obs(), 2200)
-      {l, []} = Logic.step(l, cursor_obs(), 2300)
-      assert l.state == :looting
-
-      {l, [{:press, "space"}]} = Logic.step(l, cursor_obs(), 2400)
-      {l, [{:press, "space"}]} = Logic.step(l, cursor_obs(), 2900)
-      {l, []} = Logic.step(l, cursor_obs(), 3400)
-      assert l.state == :capturing
-      assert l.counters.loots == 1
-
-      {l, [{:capture_sequence, {650, 350}}]} = Logic.step(l, cursor_obs(), 3900)
-      assert l.state == :walking_back
-      assert l.walk_plan == ["up", "left"]
-      assert l.counters.captures == 1
-
-      {l, [{:press, "up"}]} = Logic.step(l, cursor_obs(), 6000)
-      {l, [{:press, "left"}]} = Logic.step(l, cursor_obs(), 6100)
-
-      {l, []} = Logic.step(l, cursor_obs(), 6200)
+      # ring gone (target_lost_streak 1) → target dead → back to scanning for the next enemy.
+      # The worker reads counters.fights + last_hostile to broadcast {:kill, {700, 350}}.
+      {l, actions} = Logic.step(l, battle_obs([0]), 2000)
       assert l.state == :scanning
       refute l.targeted?
-    end
-
-    test "capturing with auto_capture disabled throws no pokeball" do
-      cfg = Map.put(config(), :auto_capture, false)
-      logic = %Logic{state: :capturing, config: cfg, loot_offset: {0, 1}}
-
-      {l, actions} = Logic.step(logic, cursor_obs(), 100)
-      assert l.state == :walking_back
-      assert [{:log, _}] = actions
+      assert l.counters.fights == 1
+      assert l.last_hostile == {700, 350}
+      # combat emits no loot/walk actions anymore
+      refute Enum.any?(actions, &match?({:press, "space"}, &1))
       refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
-
-      {l, []} = Logic.step(l, cursor_obs(), 2200)
-      assert l.state == :scanning
     end
 
-    test "unknown corpse: space-loots in place, captures one tile below, no walking" do
+    test "a kill with an unknown corpse (last_hostile nil) still just re-scans" do
       l = advance_to_attacking()
       assert l.last_hostile == nil
 
       {l, []} = Logic.step(l, battle_obs([0]), 1000)
-      assert l.state == :walking_to_loot
-      assert l.walk_plan == []
-      assert l.loot_offset == nil
-
-      {l, []} = Logic.step(l, cursor_obs(), 1100)
-      assert l.state == :looting
-      {l, [{:press, "space"}]} = Logic.step(l, cursor_obs(), 1200)
-      {l, [{:press, "space"}]} = Logic.step(l, cursor_obs(), 1700)
-      {l, []} = Logic.step(l, cursor_obs(), 2200)
-      assert l.state == :capturing
-
-      {l, [{:capture_sequence, {600, 350}}]} = Logic.step(l, cursor_obs(), 2700)
-      assert l.state == :walking_back
-      assert l.walk_plan == []
-
-      {l, []} = Logic.step(l, cursor_obs(), 4900)
       assert l.state == :scanning
-    end
-
-    test "a corpse farther than max_walk_tiles is treated as unknown (bad read)" do
-      l = advance_to_attacking()
-      obs = battle_obs([0], ring(0)) |> Map.put(:hostile, {1200, 300})
-      {l, _} = Logic.step(l, obs, 1000)
-
-      {l, []} = Logic.step(l, battle_obs([0]), 2000)
-      assert l.state == :walking_to_loot
-      assert l.walk_plan == []
-      assert l.loot_offset == nil
-    end
-
-    test "kill corner aborts a walk in progress" do
-      walking = %Logic{state: :walking_to_loot, config: config(), walk_plan: ["right", "down"]}
-      {l, [{:log, _}]} = Logic.step(walking, %{cursor: {5, 5}}, 100)
-      assert l.state == :idle
+      assert l.counters.fights == 1
     end
   end
 end

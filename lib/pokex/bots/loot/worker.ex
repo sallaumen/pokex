@@ -43,7 +43,7 @@ defmodule Pokex.Bots.Loot.Worker do
   @impl true
   def init(body) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
-    {:ok, %{logic: nil, calib: nil, body: body, timer: nil}}
+    {:ok, %{logic: nil, calib: nil, body: body, timer: nil, running?: false}}
   end
 
   @impl true
@@ -51,24 +51,26 @@ defmodule Pokex.Bots.Loot.Worker do
     case Calibration.load() do
       {:ok, calib} ->
         config = Config.build(calib, Settings.all())
-        logic = Logic.new(config)
-        broadcast(logic)
-        {:reply, :ok, %{state | logic: logic, calib: calib}}
+        new_state = %{state | logic: Logic.new(config), calib: calib, running?: true}
+        broadcast(new_state)
+        {:reply, :ok, new_state}
 
       {:error, other} ->
         {:reply, {:error, ["calibração ilegível: #{inspect(other)}"]}, state}
     end
   end
 
-  def handle_call(:halt, _from, %{logic: nil} = state), do: {:reply, :ok, state}
+  def handle_call(:halt, _from, %{logic: nil} = state),
+    do: {:reply, :ok, %{state | running?: false}}
 
   def handle_call(:halt, _from, state) do
     {logic, _} = Logic.stop(state.logic)
-    broadcast(logic)
-    {:reply, :ok, %{cancel_timer(state) | logic: logic}}
+    new_state = %{cancel_timer(state) | logic: logic, running?: false}
+    broadcast(new_state)
+    {:reply, :ok, new_state}
   end
 
-  def handle_call(:status, _from, state), do: {:reply, snapshot(state.logic), state}
+  def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
 
   # Not running yet → ignore kills.
   @impl true
@@ -81,8 +83,9 @@ defmodule Pokex.Bots.Loot.Worker do
     else
       {logic, actions} = Logic.start(state.logic, corpse, now())
       logic = submit_step(state.body, logic, actions)
-      broadcast(logic)
-      {:noreply, reschedule(%{state | logic: logic}, 0)}
+      new_state = %{state | logic: logic}
+      broadcast(new_state)
+      {:noreply, reschedule(new_state, 0)}
     end
   end
 
@@ -99,11 +102,10 @@ defmodule Pokex.Bots.Loot.Worker do
     else
       {stepped, actions} = Logic.step(previous, %{}, now())
       logic = submit_step(state.body, stepped, actions)
+      state = %{state | logic: logic}
 
       if logic.state != previous.state or logic.counters != previous.counters,
-        do: broadcast(logic)
-
-      state = %{state | logic: logic}
+        do: broadcast(state)
 
       if Logic.busy?(logic),
         do: {:noreply, reschedule(state, Logic.tick_interval(logic))},
@@ -125,14 +127,24 @@ defmodule Pokex.Bots.Loot.Worker do
   defp submit(_body, []), do: :ok
   defp submit(body, actions), do: Body.perform(actions, :high, body)
 
-  defp broadcast(logic),
-    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:loot, snapshot(logic)})
+  defp broadcast(state),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:loot, snapshot(state)})
 
-  defp snapshot(nil),
-    do: %{state: :idle, counters: %Logic{}.counters, error: nil}
+  # Display state for the panel: :off (not started), :ready (armed by Start, idle, waiting for a
+  # kill), or the live loot state (:walking_to_loot/:looting/:capturing/:walking_back) while a
+  # corpse is handled. `run` sets running? so :ready is distinguishable from a stopped :off.
+  defp snapshot(%{logic: nil}), do: %{state: :off, counters: %Logic{}.counters, error: nil}
 
-  defp snapshot(logic),
-    do: %{state: logic.state, counters: logic.counters, error: logic.error}
+  defp snapshot(%{logic: logic, running?: running?}) do
+    state =
+      cond do
+        Logic.busy?(logic) -> logic.state
+        running? -> :ready
+        true -> :off
+      end
+
+    %{state: state, counters: logic.counters, error: logic.error}
+  end
 
   defp now, do: System.monotonic_time(:millisecond)
 

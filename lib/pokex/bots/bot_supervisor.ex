@@ -19,14 +19,15 @@ defmodule Pokex.Bots.BotSupervisor do
   """
   use Supervisor
 
-  alias Pokex.Bots.{Body, Combat, Fishing, Guardian}
+  alias Pokex.Bots.{Body, Combat, Fishing, Guardian, Loot}
 
   def start_link(opts \\ []) do
     body = Keyword.get(opts, :body, Body)
     guardian = Keyword.get(opts, :guardian, Guardian)
     fishing = Keyword.get(opts, :fishing, Fishing.Worker)
     combat = Keyword.get(opts, :combat, Combat.Worker)
-    state = %{body: body, guardian: guardian, fishing: fishing, combat: combat}
+    loot = Keyword.get(opts, :loot, Loot.Worker)
+    state = %{body: body, guardian: guardian, fishing: fishing, combat: combat, loot: loot}
 
     case Keyword.get(opts, :name, __MODULE__) do
       nil -> Supervisor.start_link(__MODULE__, state)
@@ -35,8 +36,8 @@ defmodule Pokex.Bots.BotSupervisor do
   end
 
   @impl true
-  def init(%{body: body, guardian: guardian, fishing: fishing, combat: combat}) do
-    on_panic = fn -> stop_all(fishing, combat) end
+  def init(%{body: body, guardian: guardian, fishing: fishing, combat: combat, loot: loot}) do
+    on_panic = fn -> stop_all(fishing, combat, loot) end
 
     children = [
       Supervisor.child_spec({Body, name: body}, id: body),
@@ -44,39 +45,49 @@ defmodule Pokex.Bots.BotSupervisor do
         id: guardian
       ),
       Supervisor.child_spec({Fishing.Worker, name: fishing, body: body}, id: fishing),
-      Supervisor.child_spec({Combat.Worker, name: combat, body: body}, id: combat)
+      Supervisor.child_spec({Combat.Worker, name: combat, body: body}, id: combat),
+      Supervisor.child_spec({Loot.Worker, name: loot, body: body}, id: loot)
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
   end
 
   @doc """
-  Starts both workers. If fishing fails preflight/calibration, combat is
-  never started. If fishing starts but combat then fails, fishing is halted
-  again so a failed `start_all/0` never leaves exactly one bot running.
+  Starts the workers in order (fishing → combat → loot). If any fails
+  preflight/calibration the ones after it never start, and everything is halted again, so a
+  failed `start_all/0` never leaves a partial set running. Loot is event-driven (idle until a
+  kill), so its `run` just readies it.
   """
-  @spec start_all(GenServer.server(), GenServer.server()) :: :ok | {:error, [String.t()]}
-  def start_all(fishing \\ Fishing.Worker, combat \\ Combat.Worker) do
+  @spec start_all(GenServer.server(), GenServer.server(), GenServer.server()) ::
+          :ok | {:error, [String.t()]}
+  def start_all(fishing \\ Fishing.Worker, combat \\ Combat.Worker, loot \\ Loot.Worker) do
     with :ok <- Fishing.Worker.run(fishing),
-         :ok <- Combat.Worker.run(combat) do
+         :ok <- Combat.Worker.run(combat),
+         :ok <- Loot.Worker.run(loot) do
       :ok
     else
       {:error, _messages} = error ->
-        stop_all(fishing, combat)
+        stop_all(fishing, combat, loot)
         error
     end
   end
 
-  @doc "Halts both workers. Safe to call repeatedly — halting an idle worker is a no-op."
-  @spec stop_all(GenServer.server(), GenServer.server()) :: :ok
-  def stop_all(fishing \\ Fishing.Worker, combat \\ Combat.Worker) do
+  @doc "Halts all workers. Safe to call repeatedly — halting an idle worker is a no-op."
+  @spec stop_all(GenServer.server(), GenServer.server(), GenServer.server()) :: :ok
+  def stop_all(fishing \\ Fishing.Worker, combat \\ Combat.Worker, loot \\ Loot.Worker) do
     Fishing.Worker.halt(fishing)
     Combat.Worker.halt(combat)
+    Loot.Worker.halt(loot)
     :ok
   end
 
-  @spec status(GenServer.server(), GenServer.server()) :: %{fishing: map, combat: map}
-  def status(fishing \\ Fishing.Worker, combat \\ Combat.Worker) do
-    %{fishing: Fishing.Worker.status(fishing), combat: Combat.Worker.status(combat)}
+  @spec status(GenServer.server(), GenServer.server(), GenServer.server()) ::
+          %{fishing: map, combat: map, loot: map}
+  def status(fishing \\ Fishing.Worker, combat \\ Combat.Worker, loot \\ Loot.Worker) do
+    %{
+      fishing: Fishing.Worker.status(fishing),
+      combat: Combat.Worker.status(combat),
+      loot: Loot.Worker.status(loot)
+    }
   end
 end

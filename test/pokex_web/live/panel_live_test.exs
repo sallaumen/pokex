@@ -167,6 +167,37 @@ defmodule PokexWeb.PanelLiveTest do
     path
   end
 
+  test "toggles require_cooldowns and saves the hook skills", %{conn: conn} do
+    req = Pokex.Settings.get(:require_cooldowns)
+    keys = Pokex.Settings.get(:hook_skill_keys)
+
+    on_exit(fn ->
+      Pokex.Settings.put(:require_cooldowns, req)
+      Pokex.Settings.put(:hook_skill_keys, keys)
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view |> element(~s(input[phx-click="toggle_require_cooldowns"])) |> render_click()
+    refute Pokex.Settings.get(:require_cooldowns) == req
+
+    view |> form("#hook-skills-form", %{"hook_skills" => "5 6 7"}) |> render_submit()
+    assert Pokex.Settings.get(:hook_skill_keys) == ["5", "6", "7"]
+  end
+
+  test "a cooldowns broadcast lights the skill pills", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+    assert render(view) =~ "sem leitura"
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      Pokex.Bots.Cooldowns.topic(),
+      {:cooldowns, %{states: [:ready, :cooldown], slots: []}}
+    )
+
+    refute render(view) =~ "sem leitura"
+  end
+
   defp save_calibration do
     Pokex.Calibration.save(%Pokex.Calibration{
       scale: 2.0,

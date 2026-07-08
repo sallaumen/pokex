@@ -90,10 +90,46 @@ defmodule Pokex.Diagnostics.Report do
         arena:
           region_report(rig, calib.arena_region, "diag_arena.png", &arena_metrics(&1, calib),
             matrix: [cols: 24]
-          )
+          ),
+        skill_bar: skill_bar_report(rig, calib, settings)
       },
       screen: screen_report(rig)
     }
+  end
+
+  # The skill hotbar with the per-slot brightness/saturation/state — the numbers to
+  # tune skill_ready_min_brightness/saturation against. `calibrated?: false` when the
+  # skill bar hasn't been calibrated yet.
+  defp skill_bar_report(_rig, %Calibration{skill_bar_region: nil}, _settings),
+    do: %{calibrated?: false}
+
+  defp skill_bar_report(rig, %Calibration{skill_bar_region: region}, settings) do
+    case capture_frame(rig, region, "diag_skill_bar.png") do
+      {:ok, frame, image} ->
+        slots =
+          Vision.skill_slots(frame,
+            count: settings[:skill_bar_count],
+            min_brightness: settings[:skill_ready_min_brightness],
+            min_saturation: settings[:skill_ready_min_saturation]
+          )
+
+        %{
+          calibrated?: true,
+          region: Tuple.to_list(region),
+          image: image,
+          width: frame.width,
+          height: frame.height,
+          thresholds: %{
+            min_brightness: settings[:skill_ready_min_brightness],
+            min_saturation: settings[:skill_ready_min_saturation]
+          },
+          states: Enum.map(slots, & &1.state),
+          slots: slots
+        }
+
+      {:error, reason} ->
+        %{calibrated?: true, region: Tuple.to_list(region), error: inspect(reason)}
+    end
   end
 
   # --- per-region capture + metrics ------------------------------------------

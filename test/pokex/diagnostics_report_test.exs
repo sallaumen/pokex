@@ -82,6 +82,9 @@ defmodule Pokex.Diagnostics.ReportTest do
     # Arena: black fixture → no hostile name.
     assert report.regions.arena.metrics.find_hostile == nil
 
+    # Skill bar: not calibrated in this fixture → flagged, no capture attempted.
+    assert report.regions.skill_bar == %{calibrated?: false}
+
     # Screen: dimensions + scale probe.
     assert report.screen.pixels == [60, 40]
     assert report.screen.r_scale == 0.5

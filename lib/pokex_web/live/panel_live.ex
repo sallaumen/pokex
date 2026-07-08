@@ -37,6 +37,7 @@ defmodule PokexWeb.PanelLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Cooldowns.topic())
     end
 
     status = BotSupervisor.status()
@@ -61,7 +62,10 @@ defmodule PokexWeb.PanelLive do
        report: nil,
        report_src: nil,
        report_msg: nil,
-       timing: timing_settings()
+       timing: timing_settings(),
+       cooldowns: Cooldowns.snapshot(),
+       require_cooldowns: Settings.get(:require_cooldowns),
+       hook_skills: Enum.join(Settings.get(:hook_skill_keys), " ")
      )}
   end
 
@@ -81,6 +85,9 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:combat_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "⚔️", text: text})}
+
+  def handle_info({:cooldowns, snapshot}, socket),
+    do: {:noreply, assign(socket, cooldowns: Map.put(snapshot, :running?, true))}
 
   # Backward-compat: a worker still running an OLD build (mid hot-reload) may
   # broadcast the pre-level 2-tuple form. Treat it as debug so the panel never
@@ -221,6 +228,19 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, auto_capture: value)}
   end
 
+  def handle_event("toggle_require_cooldowns", _params, socket) do
+    value = not Settings.get(:require_cooldowns)
+    Settings.put(:require_cooldowns, value)
+    {:noreply, assign(socket, require_cooldowns: value)}
+  end
+
+  def handle_event("save_hook_skills", %{"hook_skills" => raw}, socket) do
+    keys = String.split(raw, ~r/[\s,]+/, trim: true)
+    keys = if keys == [], do: Settings.get(:hook_skill_keys), else: keys
+    Settings.put(:hook_skill_keys, keys)
+    {:noreply, assign(socket, hook_skills: Enum.join(keys, " "))}
+  end
+
   def handle_event("toggle_debug", _params, socket),
     do: {:noreply, assign(socket, show_debug: not socket.assigns.show_debug)}
 
@@ -312,6 +332,11 @@ defmodule PokexWeb.PanelLive do
     do: {calib.battle_region, "painel Batalha", "shot_battle.png"}
 
   defp region_spec("arena", calib), do: {calib.arena_region, "arena", "shot_arena.png"}
+  defp region_spec("skills", %{skill_bar_region: nil}), do: :error
+
+  defp region_spec("skills", calib),
+    do: {calib.skill_bar_region, "barra de skills", "shot_skills.png"}
+
   defp region_spec(_other, _calib), do: :error
 
   defp capture_src(path),
@@ -337,6 +362,9 @@ defmodule PokexWeb.PanelLive do
 
   defp log_class(:macro), do: "text-base-content"
   defp log_class(_debug), do: "opacity-50"
+
+  defp cooldown_pill_class(:ready), do: "badge-success"
+  defp cooldown_pill_class(_cooldown), do: "badge-ghost opacity-50"
 
   defp counters, do: @counters
   defp timing_fields, do: @timing_fields
@@ -551,6 +579,9 @@ defmodule PokexWeb.PanelLive do
             <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="arena">
               📸 Arena
             </button>
+            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="skills">
+              📸 Skills
+            </button>
           </div>
 
           <figure :if={@capture_src} class="space-y-1">
@@ -620,6 +651,59 @@ defmodule PokexWeb.PanelLive do
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold">Cooldowns das skills</h2>
+            <div class="flex flex-wrap items-center gap-1">
+              <span
+                :for={{state, i} <- Enum.with_index(@cooldowns.states || [])}
+                class={["badge badge-sm", cooldown_pill_class(state)]}
+                title={to_string(state)}
+              >
+                {i + 1}
+              </span>
+              <span :if={is_nil(@cooldowns.states)} class="text-xs opacity-50">
+                sem leitura — calibre a barra de skills e dê Start/Testar
+              </span>
+            </div>
+          </div>
+
+          <label class="flex cursor-pointer items-center justify-between gap-3">
+            <span>
+              <span class="text-sm font-semibold">Só pescar quando dá pra matar</span>
+              <span class="block text-xs opacity-60">
+                Segura a fisga e só puxa a vara quando as skills abaixo estiverem prontas.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              class="toggle toggle-success"
+              checked={@require_cooldowns}
+              phx-click="toggle_require_cooldowns"
+            />
+          </label>
+
+          <div class="border-t border-base-content/10 pt-3">
+            <h3 class="text-xs font-semibold opacity-70">Skills necessárias pra matar</h3>
+            <p class="text-xs opacity-60">
+              Todas precisam estar prontas antes de puxar. Ex.: <code class="font-mono">4 5 6 7</code>.
+            </p>
+            <form
+              id="hook-skills-form"
+              phx-submit="save_hook_skills"
+              class="mt-2 flex items-center gap-2"
+            >
+              <input
+                name="hook_skills"
+                value={@hook_skills}
+                placeholder="4 5 6 7"
+                class="input input-bordered input-sm w-40"
+              />
+              <button class="btn btn-sm btn-primary">Salvar</button>
+            </form>
           </div>
         </section>
 

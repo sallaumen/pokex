@@ -143,16 +143,15 @@ defmodule Pokex.Bots.Combat.Logic do
         {advance(%{logic | scan_idle?: true, locked_row: nil}, :scanning, now), log}
 
       [target | _] ->
-        # Click the candidate, slide the cursor off, and fire the FIRST skill in the SAME action
-        # — the click selects the target, so the skill lands on it with no extra tick of latency.
-        # (If it's a dud/player the press does nothing, and cycling recovers next tick.)
-        {logic, press} = press_next_skill(%{logic | locked_row: target, scan_idle?: false})
-
-        {advance(logic, :confirming, now),
+        # Click the candidate and slide the cursor off — NOTHING else in this action. Lucas: a
+        # skill pressed in the SAME action as the select-click makes the game DROP the click (the
+        # selection never registers). So the first skill waits for the NEXT tick (confirming),
+        # once the click has landed.
+        {advance(%{logic | locked_row: target, scan_idle?: false}, :confirming, now),
          [
            {:click, :left, Enum.at(logic.config.battle_rows, target)},
            {:move, logic.config.neutral_point}
-         ] ++ press}
+         ]}
     end
   end
 

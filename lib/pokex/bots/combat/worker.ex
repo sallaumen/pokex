@@ -145,15 +145,32 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   end
 
-  # Every action list is one atomic Body.perform at :high — combat preempts
-  # fishing, and the whole sequence (e.g. select click + move-off) runs
-  # without an interleaved fishing action splitting it. No actions this tick
-  # (e.g. idle over an empty Battle list) → do nothing: skip the Body entirely,
-  # so an idle/scanning combat never churns the :high queue ahead of fishing.
-  # (The old `submit([], _body)` never matched — submit/2 is called `(body,
-  # actions)` — so every empty tick still round-tripped the Body at :high.)
+  # Split combat's actions by input device (Lucas's rule: keyboard can run in PARALLEL, the
+  # mouse can't). SKILL presses fire-and-forget on their own tasks, BYPASSING the Body — so a
+  # skill key never waits behind a fishing cast that's holding the shared Body (that "fila" made
+  # skills lag whole seconds). Each is tapped a few times because the game drops single taps.
+  # MOUSE actions (the select-click + move-off) still go through the Body at :high, serialized
+  # against fishing and run atomically. Nothing this tick → skip the Body entirely so an idle
+  # combat never churns the :high queue ahead of fishing.
   defp submit(_body, []), do: :ok
-  defp submit(body, actions), do: Body.perform(actions, :high, body)
+
+  defp submit(body, actions) do
+    {skills, rest} = Enum.split_with(actions, &match?({:press, _}, &1))
+
+    Enum.each(skills, fn {:press, key} -> spawn(fn -> tap_skill(key) end) end)
+
+    if rest == [], do: :ok, else: Body.perform(rest, :high, body)
+  end
+
+  # Tap the skill key a few times (the game silently drops single presses; the real osascript
+  # latency spreads the taps over ~half a second, hitting different game frames). Best-effort:
+  # a dropped skill is harmless and the rotation retries it next loop.
+  defp tap_skill(key) do
+    rig = Pokex.Rig.impl()
+    rig.press(key)
+    rig.press(key)
+    rig.press(key)
+  end
 
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat, snapshot(logic)})

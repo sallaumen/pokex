@@ -140,12 +140,11 @@ defmodule Pokex.Bots.Combat.LogicTest do
   # -- scanning → confirming → fighting ---------------------------------------
 
   describe "click a candidate, then CONFIRM the battle via the ring" do
-    test "scanning clicks the topmost candidate, fires the first skill, and moves to :confirming" do
+    test "scanning clicks the topmost candidate and moves to :confirming — NO skill in that action" do
       {l, actions} = Logic.step(scanning(), battle_obs([0]), 100)
 
-      # the first skill goes out in the SAME action as the click — no tick of latency
-      assert Enum.take(actions, 2) == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
-      assert {:press, "1"} in actions
+      # ONLY the click + move: a skill in the same action makes the game drop the select-click
+      assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
       assert l.state == :confirming
       assert l.locked_row == 0
       refute l.targeted?
@@ -153,33 +152,31 @@ defmodule Pokex.Bots.Combat.LogicTest do
 
     test "picks the topmost candidate when several are attackable" do
       {l, actions} = Logic.step(scanning(), battle_obs([2, 4]), 100)
-      assert Enum.take(actions, 2) == [{:click, :left, {1466, 198}}, {:move, {860, 470}}]
-      assert {:press, "1"} in actions
+      assert actions == [{:click, :left, {1466, 198}}, {:move, {860, 470}}]
       assert l.locked_row == 2
     end
 
-    test "the ring confirms a real battle → :fighting, and that tick still fires a skill" do
+    test "the ring confirms a real battle → :fighting, and that tick fires the first skill" do
       {l, _} = Logic.step(scanning(), battle_obs([0]), 100)
       assert l.state == :confirming
 
-      # the click fired "1"; the ring-confirm tick fires the NEXT ("2") — no wasted tick
-      {l, [{:press, "2"}]} = Logic.step(l, battle_obs([0], ring(0)), 150)
+      # first skill fires on the confirm tick — one tick AFTER the click, so the click landed
+      {l, [{:press, "1"}]} = Logic.step(l, battle_obs([0], ring(0)), 150)
       assert l.state == :fighting
       assert l.targeted?
       assert l.locked_row == 0
     end
 
-    test "attacks from the click through confirming, cycling skills each tick" do
-      # the click fires "1"
+    test "attacks through confirming, cycling skills each tick" do
       {l, _} = Logic.step(scanning(), battle_obs([0]), 100)
       assert l.state == :confirming
 
-      # no ring yet → next skill "2"
-      {l, [{:press, "2"}]} = Logic.step(l, battle_obs([0]), 200)
+      # no ring yet → fire the first skill "1"
+      {l, [{:press, "1"}]} = Logic.step(l, battle_obs([0]), 200)
       assert l.state == :confirming
 
-      # the ring shows → commit to fighting AND fire the next skill "1"
-      {l, [{:press, "1"}]} = Logic.step(l, battle_obs([0], ring(0)), 300)
+      # the ring shows → commit to fighting AND fire the next skill "2"
+      {l, [{:press, "2"}]} = Logic.step(l, battle_obs([0], ring(0)), 300)
       assert l.state == :fighting
     end
 
@@ -188,8 +185,8 @@ defmodule Pokex.Bots.Combat.LogicTest do
       {l, _} = Logic.step(scanning(), battle_obs([0, 1]), 100)
       assert l.state == :confirming and l.locked_row == 0
 
-      # inside the window, still no ring → keep ATTACKING (cycle to "2") while waiting
-      {l, [{:press, "2"}]} = Logic.step(l, battle_obs([0, 1]), 300)
+      # inside the window, no ring → keep ATTACKING (fire "1") while waiting
+      {l, [{:press, "1"}]} = Logic.step(l, battle_obs([0, 1]), 300)
       assert l.state == :confirming
 
       # window elapsed with no ring → mark row 0 tried, back to scanning (bail fires no skill)
@@ -198,11 +195,11 @@ defmodule Pokex.Bots.Combat.LogicTest do
       assert msg =~ "não entrou em batalha"
       assert l.tried == [0]
 
-      # scanning now SKIPS the tried row 0 and clicks the next candidate, row 1 (+ a skill)
+      # scanning now SKIPS the tried row 0 and clicks the next candidate, row 1 (click+move only)
       {l, actions} = Logic.step(l, battle_obs([0, 1]), 750)
       assert l.state == :confirming
       assert l.locked_row == 1
-      assert Enum.take(actions, 2) == [{:click, :left, {1466, 168}}, {:move, {860, 470}}]
+      assert actions == [{:click, :left, {1466, 168}}, {:move, {860, 470}}]
     end
 
     test "when every candidate is a dud (no ring), combat goes idle instead of fake-fighting" do
@@ -235,22 +232,22 @@ defmodule Pokex.Bots.Combat.LogicTest do
   # -- fighting ---------------------------------------------------------------
 
   describe "fighting (ring-based)" do
-    test "the first fighting tick fires the strongest skill immediately" do
+    test "the first fighting tick continues the rotation (confirm fired 1, fighting fires 2)" do
       {l, actions} = Logic.step(advance_to_attacking(), battle_obs([0], ring(0)), 300)
-      assert actions == [{:press, "1"}]
+      assert actions == [{:press, "2"}]
       assert l.state == :fighting
     end
 
-    test "while the ring holds, CYCLE the skills in order (1, 2, 1, ...) — no bar needed" do
+    test "while the ring holds, CYCLE the skills in order — no bar needed" do
       l = advance_to_attacking()
       obs = battle_obs([0], ring(0)) |> Map.put(:hostile, {700, 350})
 
-      {l, [{:press, "1"}]} = Logic.step(l, obs, 1000)
+      {l, [{:press, "2"}]} = Logic.step(l, obs, 1000)
       assert l.last_hostile == {700, 350}
       assert l.lost_streak == 0
 
-      {l, [{:press, "2"}]} = Logic.step(l, battle_obs([0], ring(0)), 2000)
-      {_l, [{:press, "1"}]} = Logic.step(l, battle_obs([0], ring(0)), 3000)
+      {l, [{:press, "1"}]} = Logic.step(l, battle_obs([0], ring(0)), 2000)
+      {_l, [{:press, "2"}]} = Logic.step(l, battle_obs([0], ring(0)), 3000)
     end
 
     test "cycling NEVER stalls: it advances every tick even with no skill-bar reading at all" do
@@ -259,10 +256,10 @@ defmodule Pokex.Bots.Combat.LogicTest do
       l = advance_to_attacking()
       obs = battle_obs([0], ring(0))
 
-      {l, [{:press, "1"}]} = Logic.step(l, obs, 1000)
-      {l, [{:press, "2"}]} = Logic.step(l, obs, 1100)
-      {l, [{:press, "1"}]} = Logic.step(l, obs, 1200)
-      {_l, [{:press, "2"}]} = Logic.step(l, obs, 1300)
+      {l, [{:press, "2"}]} = Logic.step(l, obs, 1000)
+      {l, [{:press, "1"}]} = Logic.step(l, obs, 1100)
+      {l, [{:press, "2"}]} = Logic.step(l, obs, 1200)
+      {_l, [{:press, "1"}]} = Logic.step(l, obs, 1300)
     end
 
     test "a single ring blink does NOT end the fight (debounce), two in a row → loot" do

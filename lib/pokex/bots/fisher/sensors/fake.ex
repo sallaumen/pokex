@@ -13,7 +13,10 @@ defmodule Pokex.Bots.Fisher.Sensors.Fake do
     # Default TRUE (creature present) so existing scripts that never mention
     # this key keep exercising the unchanged scan/click path, matching
     # Combat.Logic's own "absent key => true" contract.
-    battle_creatures?: true
+    battle_creatures?: true,
+    # Default TRUE (kill-skills ready) so fishing scripts that don't mention
+    # cooldowns hook exactly as before — the gate is opt-in via require_cooldowns.
+    cooldowns_ready?: true
   }
 
   def start_link(script \\ %{}), do: Agent.start_link(fn -> Map.new(script) end, name: __MODULE__)

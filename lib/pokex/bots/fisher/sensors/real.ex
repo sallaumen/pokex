@@ -73,6 +73,15 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
+  # Are the kill-skills ready? Read from the shared Cooldowns store (which does the
+  # skill-bar capture on its own timer) rather than capturing here every watch tick.
+  # Fail-open (all_ready? returns true with no reading) so require_cooldowns can't
+  # softlock fishing.
+  defp fetch(:cooldowns_ready?, _calib, settings) do
+    keys = settings[:hook_skill_keys] || settings[:skill_keys] || []
+    {:ok, Pokex.Bots.Cooldowns.all_ready?(keys)}
+  end
+
   defp capture_frame(region, filename) do
     with {:ok, path} <- Rig.impl().capture(region, filename) do
       Frame.from_png_file(path)

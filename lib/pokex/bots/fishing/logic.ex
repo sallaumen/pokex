@@ -18,6 +18,9 @@ defmodule Pokex.Bots.Fishing.Logic do
             calm_streak: 0,
             dead_streak: 0,
             settled?: false,
+            # true while a confirmed bite is being HELD because require_cooldowns is on
+            # and the kill-skills aren't ready yet — used only to announce the hold once.
+            holding?: false,
             failures: 0,
             error: nil,
             counters: %{cycles: 0, hooked: 0, failures: 0}
@@ -40,7 +43,7 @@ defmodule Pokex.Bots.Fishing.Logic do
   # -- driver hints ----------------------------------------------------------
 
   def needs(%__MODULE__{state: state}) when state in [:idle, :error], do: []
-  def needs(%__MODULE__{state: :watching}), do: [:cursor, :glow]
+  def needs(%__MODULE__{state: :watching}), do: [:cursor, :glow, :cooldowns_ready?]
   def needs(_logic), do: [:cursor]
 
   @doc "True while in a post-action pause: the driver skips sensing (no screen capture) until it ends."
@@ -87,7 +90,14 @@ defmodule Pokex.Bots.Fishing.Logic do
     # oscillating splash can't latch it. The settle-wait skips the bulk of the
     # splash up front.
     {advance(
-       %{logic | glow_streak: 0, calm_streak: 0, dead_streak: 0, settled?: false},
+       %{
+         logic
+         | glow_streak: 0,
+           calm_streak: 0,
+           dead_streak: 0,
+           settled?: false,
+           holding?: false
+       },
        :watching,
        now,
        wait: logic.config.wait_cast_settle_ms
@@ -99,17 +109,28 @@ defmodule Pokex.Bots.Fishing.Logic do
   # a pokemon (there's no "caught nothing"), so once hooked we trust the catch
   # and loop straight back to :casting — no combat here. The hooked fish lands
   # on the battle list on its own; Combat.Logic picks it up independently.
-  defp do_step(%{state: :watching, settled?: true} = logic, %{glow: true}, now) do
+  defp do_step(%{state: :watching, settled?: true} = logic, %{glow: true} = obs, now) do
     streak = logic.glow_streak + 1
 
-    if streak >= logic.config.glow_streak_needed do
-      logic = update_in(logic.counters.hooked, &(&1 + 1))
+    cond do
+      streak < logic.config.glow_streak_needed ->
+        # a bite signal, even mid-debounce, means the line is live → clear dead_streak
+        {%{logic | glow_streak: streak, dead_streak: 0, holding?: false}, []}
 
-      {advance(%{logic | glow_streak: 0}, :casting, now, wait: logic.config.wait_assess_ms),
-       [{:press, logic.config.rod_key}]}
-    else
-      # a bite signal, even mid-debounce, means the line is live → clear dead_streak
-      {%{logic | glow_streak: streak, dead_streak: 0}, []}
+      hold_for_cooldowns?(logic, obs) ->
+        # Bite confirmed, but require_cooldowns is on and the kill-skills aren't ready
+        # → HOLD the fish: keep the line live and the bite debounce saturated, DON'T
+        # press the rod and DON'T count a hook (the bubbles keep flashing until we
+        # pull, so the bite window never closes). Announce the hold ONCE, not per frame.
+        log = if logic.holding?, do: [], else: [{:log, "🔒 fisga segurada — skills em cooldown"}]
+        {%{logic | glow_streak: streak, dead_streak: 0, holding?: true}, log}
+
+      true ->
+        logic = update_in(logic.counters.hooked, &(&1 + 1))
+
+        {advance(%{logic | glow_streak: 0, holding?: false}, :casting, now,
+           wait: logic.config.wait_assess_ms
+         ), [{:press, logic.config.rod_key}]}
     end
   end
 
@@ -125,7 +146,10 @@ defmodule Pokex.Bots.Fishing.Logic do
   # next_dead_streak) — a line pulsing below the bite threshold still counts as
   # present and resets it.
   defp do_step(%{state: :watching, settled?: true} = logic, obs, now) do
-    recast_if_dead(%{logic | glow_streak: 0, dead_streak: next_dead_streak(logic, obs)}, now)
+    recast_if_dead(
+      %{logic | glow_streak: 0, holding?: false, dead_streak: next_dead_streak(logic, obs)},
+      now
+    )
   end
 
   # No bite while NOT yet settled → accumulate the consecutive-calm run; latch
@@ -205,6 +229,17 @@ defmodule Pokex.Bots.Fishing.Logic do
 
   defp line_present?(%{line?: present?}), do: present?
   defp line_present?(_obs), do: false
+
+  # The fishing→combat cooldown gate: hold the fish when require_cooldowns is on and
+  # the kill-skills aren't ready. cooldowns_ready? defaults to true (fail-open) so a
+  # missing observation never softlocks fishing.
+  defp hold_for_cooldowns?(logic, obs),
+    do: require_cooldowns?(logic) and not cooldowns_ready?(obs)
+
+  defp require_cooldowns?(logic), do: Map.get(logic.config, :require_cooldowns, false)
+
+  defp cooldowns_ready?(%{cooldowns_ready?: ready?}), do: ready?
+  defp cooldowns_ready?(_obs), do: true
 
   defp timed_out?(logic, now, ms), do: now - logic.entered_at > ms
 

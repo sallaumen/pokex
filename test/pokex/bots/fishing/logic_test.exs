@@ -286,8 +286,57 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
   test "needs per state" do
     assert Logic.needs(advance_to(:focusing)) == [:cursor]
-    assert Logic.needs(advance_to(:watching)) == [:cursor, :glow]
+    assert Logic.needs(advance_to(:watching)) == [:cursor, :glow, :cooldowns_ready?]
     assert Logic.needs(%Logic{state: :idle}) == []
+  end
+
+  describe "cooldown gate (require_cooldowns)" do
+    defp settled(require_cooldowns) do
+      cfg = Map.put(config(), :require_cooldowns, require_cooldowns)
+      %Logic{state: :watching, settled?: true, config: cfg}
+    end
+
+    defp bite(ready?), do: cursor_obs() |> Map.put(:glow, true) |> Map.put(:cooldowns_ready?, ready?)
+
+    test "gate OFF: hooks normally even when the skills aren't ready" do
+      {l, actions} = Logic.step(settled(false), bite(false), 1000)
+      assert actions == [{:press, "v"}]
+      assert l.counters.hooked == 1
+    end
+
+    test "gate ON + skills not ready: HOLDS the fish (no rod press, no hook)" do
+      {l, actions} = Logic.step(settled(true), bite(false), 1000)
+
+      assert l.state == :watching
+      assert l.counters.hooked == 0
+      assert l.holding?
+      refute Enum.any?(actions, &match?({:press, _}, &1))
+      assert actions == [{:log, "🔒 fisga segurada — skills em cooldown"}]
+    end
+
+    test "gate ON + skills ready: hooks" do
+      {l, actions} = Logic.step(settled(true), bite(true), 1000)
+      assert actions == [{:press, "v"}]
+      assert l.counters.hooked == 1
+      refute l.holding?
+    end
+
+    test "the hold is announced once, then stays silent while held" do
+      {held1, a1} = Logic.step(settled(true), bite(false), 1000)
+      assert a1 == [{:log, "🔒 fisga segurada — skills em cooldown"}]
+
+      {held2, a2} = Logic.step(held1, bite(false), 1100)
+      assert a2 == []
+      assert held2.holding?
+    end
+
+    test "a held fish is pulled the instant the skills come ready" do
+      {held, _} = Logic.step(settled(true), bite(false), 1000)
+      {l, actions} = Logic.step(held, bite(true), 1100)
+      assert actions == [{:press, "v"}]
+      assert l.counters.hooked == 1
+      refute l.holding?
+    end
   end
 
   test "tick_interval per state" do

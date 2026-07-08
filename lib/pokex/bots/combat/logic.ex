@@ -73,24 +73,37 @@ defmodule Pokex.Bots.Combat.Logic do
 
   # -- driver hints ----------------------------------------------------------
 
-  def needs(%__MODULE__{state: state}) when state in [:idle, :error], do: []
+  def needs(%__MODULE__{state: state}, _now) when state in [:idle, :error], do: []
 
   # Both selection ticks read the lock: the pre-click tick so it can notice a
   # target that's ALREADY locked (and attack instead of clicking again, which
   # would deselect it), and the verify tick to confirm the click landed a lock.
-  def needs(%__MODULE__{state: :scanning}), do: [:cursor, :battle_lock, :battle_creatures?]
+  def needs(%__MODULE__{state: :scanning}, _now),
+    do: [:cursor, :battle_lock, :battle_creatures?]
 
   # While attacking, the red target border IS the fight: keep re-reading the
-  # per-row lock every tick so the committed row's vanished band (target dead)
-  # ends the fight. Sample the hostile's map position now and then to know where
-  # the corpse will drop.
-  def needs(%__MODULE__{state: :fighting} = logic) do
-    if scan_tick?(logic),
-      do: [:cursor, :battle_lock, :hostile, :ready_skills],
-      else: [:cursor, :battle_lock, :ready_skills]
+  # per-row lock EVERY tick so the committed row's vanished band (target dead)
+  # ends the fight; sample :hostile now and then for the corpse position. But read
+  # :ready_skills ONLY when a skill is actually about to fire — otherwise 3 of every
+  # 4 fighting ticks (150ms tick vs 600ms cast) would capture the skill bar for a
+  # reading Skills.decide ignores (it's paced), an extra screen-read per tick that
+  # drags the whole fight (slower kills + slower lock detection). On a non-firing
+  # tick the value is unused anyway, so skipping the capture changes nothing but speed.
+  def needs(%__MODULE__{state: :fighting} = logic, now) do
+    base = [:cursor, :battle_lock]
+    base = if scan_tick?(logic), do: base ++ [:hostile], else: base
+    if skill_ready_to_fire?(logic, now), do: base ++ [:ready_skills], else: base
   end
 
-  def needs(_logic), do: [:cursor]
+  def needs(_logic, _now), do: [:cursor]
+
+  # True when the skill pacing window has elapsed (or no skill has fired yet) — i.e.
+  # the next fighting tick will actually cast, so it's worth reading the skill bar.
+  defp skill_ready_to_fire?(%__MODULE__{skills: nil}, _now), do: true
+  defp skill_ready_to_fire?(%__MODULE__{skills: %Skills{last_cast_at: nil}}, _now), do: true
+
+  defp skill_ready_to_fire?(%__MODULE__{skills: %Skills{last_cast_at: last}} = logic, now),
+    do: now - last >= logic.config.skill_cast_ms
 
   @doc "True while in a post-action pause: the driver skips sensing (no screen capture) until it ends."
   def waiting?(%__MODULE__{waiting_until: nil}, _now), do: false
@@ -158,6 +171,13 @@ defmodule Pokex.Bots.Combat.Logic do
       logic.select_idx >= length(rows) ->
         {%{logic | select_idx: 0, scan_idle?: false} |> advance(:scanning, now),
          [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
+
+      # This row reads ~no red — no name/creature to lock (an empty slot below the
+      # last creature). Skip it WITHOUT clicking: clicking black space just moves the
+      # mouse for nothing and deselects the current target. The enemy always has a red
+      # name (≥9px) so it's never skipped. Guarded on the config knob (0 = never skip).
+      row_red(obs, logic.select_idx) < Map.get(logic.config, :scan_min_red_to_click, 0) ->
+        {%{logic | select_idx: logic.select_idx + 1, scan_idle?: false}, []}
 
       true ->
         # Click the row (this SELECTS + starts attacking), then slide the cursor OFF
@@ -516,6 +536,7 @@ defmodule Pokex.Bots.Combat.Logic do
 
   defp battle_lock(obs), do: Map.get(obs, :battle_lock, [])
   defp row_locked?(obs, idx, min), do: Enum.at(battle_lock(obs), idx, 0) >= min
+  defp row_red(obs, idx), do: Enum.at(battle_lock(obs), idx, 0)
 
   # Default TRUE when the observation is absent (unit tests that don't set it) so
   # existing scan/click behavior is unchanged; only an explicit false idles combat.

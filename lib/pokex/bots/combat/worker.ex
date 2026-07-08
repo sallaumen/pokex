@@ -83,7 +83,7 @@ defmodule Pokex.Bots.Combat.Worker do
     settings = Settings.all()
 
     {logic, actions, obs} =
-      case Sensors.impl().observe(Logic.needs(previous), state.calib, settings) do
+      case Sensors.impl().observe(Logic.needs(previous, now()), state.calib, settings) do
         {:ok, observations} ->
           {stepped, actions} = Logic.step(previous, observations, now())
 

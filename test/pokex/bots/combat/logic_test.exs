@@ -61,6 +61,21 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
   end
 
+  test "scanning SKIPS an empty row (≈no red) without clicking it" do
+    cfg = Map.put(config(), :scan_min_red_to_click, 5)
+    logic = %Logic{state: :scanning, config: cfg, select_idx: 0}
+    # row 0 is empty (0 red), row 1 has a creature → skip row 0, no click, no verify
+    obs =
+      cursor_obs()
+      |> Map.put(:battle_lock, [0, 100, 0, 0, 0, 0])
+      |> Map.put(:battle_creatures?, true)
+
+    {l, actions} = Logic.step(logic, obs, 100)
+    assert l.select_idx == 1
+    assert actions == []
+    refute l.pending_verify?
+  end
+
   # Minor gap flagged in the Task 2 review: io_failed/3 was ported (as fail/3's
   # public entry) but never exercised by the ported combat test suite. The
   # driver (Combat.Worker) calls this when Body.perform/3 returns {:error, _}.
@@ -190,7 +205,20 @@ defmodule Pokex.Bots.Combat.LogicTest do
       refute l.targeted?
       assert l.pending_verify?
       assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
-      assert Logic.needs(l) == [:cursor, :battle_lock, :battle_creatures?]
+      assert Logic.needs(l, 100) == [:cursor, :battle_lock, :battle_creatures?]
+    end
+
+    test "fighting reads :ready_skills only when a skill is about to fire" do
+      base = %Logic{state: :fighting, targeted?: true, config: config()}
+
+      # no skill fired yet → the next tick will cast → read the skill bar
+      assert :ready_skills in Logic.needs(%{base | skills: nil}, 1000)
+
+      # just fired, still inside the pacing window → skip the (unused) skill-bar read
+      fired = %{base | skills: %Pokex.Bots.Fisher.Skills{order: ["1"], last_cast_at: 1000}}
+      refute :ready_skills in Logic.needs(fired, 1000 + 100)
+      # window elapsed (>= skill_cast_ms 500) → read again to fire the ready skill
+      assert :ready_skills in Logic.needs(fired, 1000 + 500)
     end
 
     test "selection: a fixed red border locks the target" do

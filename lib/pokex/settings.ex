@@ -12,7 +12,7 @@ defmodule Pokex.Settings do
     # 1000→600 to kill faster; if skills feel wasted/spammy, raise it toward the real
     # cooldown. Phase 2 (skill-bar image) will fire exact per-skill cooldowns instead.
     skill_cast_ms: 600,
-    # --- Skill-bar cooldown tracking (the Cooldowns poller reads the skill hotbar) ---
+    # --- Skill-bar cooldown tracking (SkillBar reads the hotbar per-process) ---
     # Number of skill slots on the hotbar (left→right = hotkeys "1".."N").
     skill_bar_count: 7,
     # A slot reads :ready when its average brightness OR saturation clears these;
@@ -20,8 +20,6 @@ defmodule Pokex.Settings do
     # per-slot numbers via the diagnostic dump and tune these two.
     skill_ready_min_brightness: 140,
     skill_ready_min_saturation: 40,
-    # How often the Cooldowns GenServer re-reads the skill bar.
-    cooldown_poll_ms: 500,
     # Fishing gate (toggle in the panel): when true, a bite is HELD (line stays in
     # the water, bubbles keep flashing) and the rod is only pulled once every skill
     # in hook_skill_keys is ready — so you only reel in a fish you can actually kill.

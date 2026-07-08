@@ -36,7 +36,11 @@ defmodule Pokex.VisionSkillStatesTest do
 
     test "thresholds are tunable" do
       # force everything to :cooldown with impossible thresholds
-      states = bar([{200, 200, 0}, {20, 20, 20}], 2) |> Vision.skill_slots(count: 2, min_brightness: 999, min_saturation: 999) |> Enum.map(& &1.state)
+      states =
+        bar([{200, 200, 0}, {20, 20, 20}], 2)
+        |> Vision.skill_slots(count: 2, min_brightness: 999, min_saturation: 999)
+        |> Enum.map(& &1.state)
+
       assert states == [:cooldown, :cooldown]
     end
   end

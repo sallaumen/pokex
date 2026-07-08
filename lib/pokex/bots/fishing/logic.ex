@@ -43,7 +43,15 @@ defmodule Pokex.Bots.Fishing.Logic do
   # -- driver hints ----------------------------------------------------------
 
   def needs(%__MODULE__{state: state}) when state in [:idle, :error], do: []
-  def needs(%__MODULE__{state: :watching}), do: [:cursor, :glow, :cooldowns_ready?]
+
+  # Only ask for the (capture-costly) cooldown reading when the gate is actually on —
+  # otherwise fishing never touches the skill bar.
+  def needs(%__MODULE__{state: :watching, config: config}) do
+    if Map.get(config, :require_cooldowns, false),
+      do: [:cursor, :glow, :cooldowns_ready?],
+      else: [:cursor, :glow]
+  end
+
   def needs(_logic), do: [:cursor]
 
   @doc "True while in a post-action pause: the driver skips sensing (no screen capture) until it ends."
@@ -122,8 +130,14 @@ defmodule Pokex.Bots.Fishing.Logic do
         # → HOLD the fish: keep the line live and the bite debounce saturated, DON'T
         # press the rod and DON'T count a hook (the bubbles keep flashing until we
         # pull, so the bite window never closes). Announce the hold ONCE, not per frame.
+        #
+        # A real bite OSCILLATES across the threshold (raw 2..1513), so a hold is a run
+        # of peaks (this clause) interleaved with troughs (the settled/no-glow clause).
+        # REFRESH entered_at on every peak so the watch_timeout_ms backstop measures
+        # time-since-last-bite, not time-since-cast — otherwise a >30s hold (hook skills
+        # are ~40s) would trip the timeout on a trough frame and abandon a live fish.
         log = if logic.holding?, do: [], else: [{:log, "🔒 fisga segurada — skills em cooldown"}]
-        {%{logic | glow_streak: streak, dead_streak: 0, holding?: true}, log}
+        {%{logic | glow_streak: streak, dead_streak: 0, holding?: true, entered_at: now}, log}
 
       true ->
         logic = update_in(logic.counters.hooked, &(&1 + 1))
@@ -146,10 +160,13 @@ defmodule Pokex.Bots.Fishing.Logic do
   # next_dead_streak) — a line pulsing below the bite threshold still counts as
   # present and resets it.
   defp do_step(%{state: :watching, settled?: true} = logic, obs, now) do
-    recast_if_dead(
-      %{logic | glow_streak: 0, holding?: false, dead_streak: next_dead_streak(logic, obs)},
-      now
-    )
+    # PRESERVE holding? here (don't reset it): a trough between bite peaks must not
+    # clear the hold, or the next peak re-announces "🔒 fisga segurada" every frame.
+    # holding? is cleared only on a real hook or a fresh cast. dead_streak stays 0
+    # while the line pulses (line? true) and entered_at was refreshed on the last
+    # peak, so recast_if_dead is a no-op during a genuine hold and only recovers if
+    # the bite truly dies.
+    recast_if_dead(%{logic | glow_streak: 0, dead_streak: next_dead_streak(logic, obs)}, now)
   end
 
   # No bite while NOT yet settled → accumulate the consecutive-calm run; latch

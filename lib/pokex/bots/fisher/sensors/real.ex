@@ -3,6 +3,7 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   @behaviour Pokex.Bots.Fisher.Sensors
 
   alias Pokex.{Calibration, Rig, Vision}
+  alias Pokex.Bots.SkillBar
   alias Pokex.Vision.Frame
 
   @impl true
@@ -73,19 +74,20 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
-  # Are the kill-skills ready? Read from the shared Cooldowns store (which does the
-  # skill-bar capture on its own timer) rather than capturing here every watch tick.
-  # Fail-open (all_ready? returns true with no reading) so require_cooldowns can't
-  # softlock fishing.
-  defp fetch(:cooldowns_ready?, _calib, settings) do
+  # Are the kill-skills ready? This process reads the skill bar itself (one capture,
+  # a pure SkillBar.read) — no shared process, nothing to block on. Fail-open (true
+  # with no reading) so require_cooldowns can't softlock fishing. Fishing only asks
+  # for this key when the gate is on (see Fishing.Logic.needs/1), so with the gate
+  # off there's no extra capture at all.
+  defp fetch(:cooldowns_ready?, calib, settings) do
     keys = settings[:hook_skill_keys] || settings[:skill_keys] || []
-    {:ok, Pokex.Bots.Cooldowns.all_ready?(keys)}
+    {:ok, SkillBar.all_ready?(SkillBar.read(calib, settings), keys)}
   end
 
   # The ready hotbar keys for combat to fire (highest-priority ready first). nil when
   # there's no skill-bar reading → combat falls back to blind rotation.
-  defp fetch(:ready_skills, _calib, _settings) do
-    {:ok, Pokex.Bots.Cooldowns.ready_skills()}
+  defp fetch(:ready_skills, calib, settings) do
+    {:ok, SkillBar.ready_keys(SkillBar.read(calib, settings))}
   end
 
   defp capture_frame(region, filename) do

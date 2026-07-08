@@ -286,8 +286,14 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
   test "needs per state" do
     assert Logic.needs(advance_to(:focusing)) == [:cursor]
-    assert Logic.needs(advance_to(:watching)) == [:cursor, :glow, :cooldowns_ready?]
+    # gate off (default) → no skill-bar read
+    assert Logic.needs(advance_to(:watching)) == [:cursor, :glow]
     assert Logic.needs(%Logic{state: :idle}) == []
+  end
+
+  test "watching asks for the cooldown reading only when the gate is on" do
+    gate_on = %Logic{state: :watching, config: Map.put(config(), :require_cooldowns, true)}
+    assert Logic.needs(gate_on) == [:cursor, :glow, :cooldowns_ready?]
   end
 
   describe "cooldown gate (require_cooldowns)" do
@@ -296,7 +302,11 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       %Logic{state: :watching, settled?: true, config: cfg}
     end
 
-    defp bite(ready?), do: cursor_obs() |> Map.put(:glow, true) |> Map.put(:cooldowns_ready?, ready?)
+    defp bite(ready?),
+      do: cursor_obs() |> Map.put(:glow, true) |> Map.put(:cooldowns_ready?, ready?)
+
+    # a below-threshold trough between bite peaks: glow false, line still present
+    defp trough, do: cursor_obs() |> Map.put(:glow, false) |> Map.put(:line?, true)
 
     test "gate OFF: hooks normally even when the skills aren't ready" do
       {l, actions} = Logic.step(settled(false), bite(false), 1000)
@@ -336,6 +346,39 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       assert actions == [{:press, "v"}]
       assert l.counters.hooked == 1
       refute l.holding?
+    end
+
+    test "a held bite survives oscillation troughs — no re-log, no recast" do
+      cfg = config() |> Map.put(:require_cooldowns, true) |> Map.put(:watch_timeout_ms, 100)
+      w = %Logic{state: :watching, settled?: true, config: cfg, entered_at: 0}
+
+      {w, a1} = Logic.step(w, bite(false), 1000)
+      assert w.holding? and w.entered_at == 1000
+      assert a1 == [{:log, "🔒 fisga segurada — skills em cooldown"}]
+
+      # a below-threshold trough: keeps holding, no recast, and NO repeated log
+      {w, a2} = Logic.step(w, trough(), 1050)
+      assert w.state == :watching and w.holding?
+      assert a2 == []
+
+      # the next peak: still holding → silent, entered_at refreshed
+      {w, a3} = Logic.step(w, bite(false), 1100)
+      assert w.holding? and w.entered_at == 1100
+      assert a3 == []
+    end
+
+    test "a held bite is NOT abandoned by the watch timeout (entered_at refreshes on peaks)" do
+      cfg = config() |> Map.put(:require_cooldowns, true) |> Map.put(:watch_timeout_ms, 100)
+      w = %Logic{state: :watching, settled?: true, config: cfg, entered_at: 0}
+
+      {w, _} = Logic.step(w, bite(false), 1000)
+      # a peak 90ms later refreshes entered_at → 1090 (still holding)
+      {w, _} = Logic.step(w, bite(false), 1090)
+      # a trough 90ms after THAT peak is within the 100ms window → not timed out
+      # (with the old time-since-cast timeout this would have recast at ~1100)
+      {w, actions} = Logic.step(w, trough(), 1180)
+      assert w.state == :watching
+      assert actions == []
     end
   end
 

@@ -361,7 +361,10 @@ defmodule Pokex.Vision do
     slot = min(div(rem(i, w), slot_w), count - 1)
     bright = max(r, max(g, b))
     sat = bright - min(r, min(g, b))
-    acc = Map.update(acc, slot, {bright, sat, 1}, fn {sb, ss, n} -> {sb + bright, ss + sat, n + 1} end)
+
+    acc =
+      Map.update(acc, slot, {bright, sat, 1}, fn {sb, ss, n} -> {sb + bright, ss + sat, n + 1} end)
+
     skill_slot_acc(rest, i + 1, w, count, slot_w, acc)
   end
 

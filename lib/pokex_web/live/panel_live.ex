@@ -1,7 +1,7 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.{BotSupervisor, Combat, Cooldowns, Fishing}
+  alias Pokex.Bots.{BotSupervisor, Combat, Fishing, SkillBar}
   alias Pokex.Diagnostics.Report
   alias Pokex.{Calibration, Rig, Settings}
 
@@ -37,7 +37,6 @@ defmodule PokexWeb.PanelLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
-      Phoenix.PubSub.subscribe(Pokex.PubSub, Cooldowns.topic())
     end
 
     status = BotSupervisor.status()
@@ -63,7 +62,7 @@ defmodule PokexWeb.PanelLive do
        report_src: nil,
        report_msg: nil,
        timing: timing_settings(),
-       cooldowns: Cooldowns.snapshot(),
+       cooldowns_states: nil,
        require_cooldowns: Settings.get(:require_cooldowns),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " ")
      )}
@@ -85,9 +84,6 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:combat_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "⚔️", text: text})}
-
-  def handle_info({:cooldowns, snapshot}, socket),
-    do: {:noreply, assign(socket, cooldowns: Map.put(snapshot, :running?, true))}
 
   # Backward-compat: a worker still running an OLD build (mid hot-reload) may
   # broadcast the pre-level 2-tuple form. Treat it as debug so the panel never
@@ -155,9 +151,6 @@ defmodule PokexWeb.PanelLive do
   end
 
   def handle_event("test_combat", _params, socket) do
-    # combat fires only READY skills → the cooldown poller must run alongside it.
-    Cooldowns.run()
-
     case Combat.Worker.run() do
       :ok ->
         {:noreply,
@@ -171,9 +164,6 @@ defmodule PokexWeb.PanelLive do
   # Run ONLY the fishing worker — combat stays idle, so you can watch the fishing
   # loop alone (cast → watch → hook → repeat) without the mouse being shared.
   def handle_event("test_fishing", _params, socket) do
-    # so "só pescar com cooldown pronto" works when testing fishing alone.
-    Cooldowns.run()
-
     case Fishing.Worker.run() do
       :ok ->
         {:noreply,
@@ -232,6 +222,17 @@ defmodule PokexWeb.PanelLive do
     value = not Settings.get(:require_cooldowns)
     Settings.put(:require_cooldowns, value)
     {:noreply, assign(socket, require_cooldowns: value)}
+  end
+
+  # One-shot skill-bar read for the display (no loop, no shared process).
+  def handle_event("read_cooldowns", _params, socket) do
+    states =
+      case Calibration.load() do
+        {:ok, calib} -> SkillBar.states(SkillBar.read(calib, Settings.all()))
+        _ -> nil
+      end
+
+    {:noreply, assign(socket, cooldowns_states: states)}
   end
 
   def handle_event("save_hook_skills", %{"hook_skills" => raw}, socket) do
@@ -657,17 +658,22 @@ defmodule PokexWeb.PanelLive do
         <section class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h2 class="text-sm font-semibold">Cooldowns das skills</h2>
-            <div class="flex flex-wrap items-center gap-1">
-              <span
-                :for={{state, i} <- Enum.with_index(@cooldowns.states || [])}
-                class={["badge badge-sm", cooldown_pill_class(state)]}
-                title={to_string(state)}
-              >
-                {i + 1}
-              </span>
-              <span :if={is_nil(@cooldowns.states)} class="text-xs opacity-50">
-                sem leitura — calibre a barra de skills e dê Start/Testar
-              </span>
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="flex flex-wrap items-center gap-1">
+                <span
+                  :for={{state, i} <- Enum.with_index(@cooldowns_states || [])}
+                  class={["badge badge-sm", cooldown_pill_class(state)]}
+                  title={to_string(state)}
+                >
+                  {i + 1}
+                </span>
+                <span :if={is_nil(@cooldowns_states)} class="text-xs opacity-50">
+                  clique "Ler" (a barra de skills precisa estar calibrada)
+                </span>
+              </div>
+              <button class="btn btn-ghost btn-xs" phx-click="read_cooldowns">
+                <.icon name="hero-arrow-path" class="size-3" /> Ler
+              </button>
             </div>
           </div>
 

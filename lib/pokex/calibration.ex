@@ -15,7 +15,7 @@ defmodule Pokex.Calibration do
     :arena_region,
     :neutral_point,
     # Optional (nil until calibrated separately): the skill hotbar strip, read by
-    # Cooldowns to track which skills are ready. Added without disturbing the main
+    # SkillBar to track which skills are ready. Added without disturbing the main
     # 6-step wizard so an existing calibration keeps working.
     :skill_bar_region,
     :battle_baseline,

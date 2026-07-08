@@ -19,22 +19,14 @@ defmodule Pokex.Bots.BotSupervisor do
   """
   use Supervisor
 
-  alias Pokex.Bots.{Body, Combat, Cooldowns, Fishing, Guardian}
+  alias Pokex.Bots.{Body, Combat, Fishing, Guardian}
 
   def start_link(opts \\ []) do
     body = Keyword.get(opts, :body, Body)
     guardian = Keyword.get(opts, :guardian, Guardian)
     fishing = Keyword.get(opts, :fishing, Fishing.Worker)
     combat = Keyword.get(opts, :combat, Combat.Worker)
-    cooldowns = Keyword.get(opts, :cooldowns, Cooldowns)
-
-    state = %{
-      body: body,
-      guardian: guardian,
-      fishing: fishing,
-      combat: combat,
-      cooldowns: cooldowns
-    }
+    state = %{body: body, guardian: guardian, fishing: fishing, combat: combat}
 
     case Keyword.get(opts, :name, __MODULE__) do
       nil -> Supervisor.start_link(__MODULE__, state)
@@ -43,21 +35,14 @@ defmodule Pokex.Bots.BotSupervisor do
   end
 
   @impl true
-  def init(%{
-        body: body,
-        guardian: guardian,
-        fishing: fishing,
-        combat: combat,
-        cooldowns: cooldowns
-      }) do
-    on_panic = fn -> stop_all(fishing, combat, cooldowns) end
+  def init(%{body: body, guardian: guardian, fishing: fishing, combat: combat}) do
+    on_panic = fn -> stop_all(fishing, combat) end
 
     children = [
       Supervisor.child_spec({Body, name: body}, id: body),
       Supervisor.child_spec({Guardian, name: guardian, on_panic: on_panic, body: body},
         id: guardian
       ),
-      Supervisor.child_spec({Cooldowns, name: cooldowns}, id: cooldowns),
       Supervisor.child_spec({Fishing.Worker, name: fishing, body: body}, id: fishing),
       Supervisor.child_spec({Combat.Worker, name: combat, body: body}, id: combat)
     ]
@@ -70,30 +55,23 @@ defmodule Pokex.Bots.BotSupervisor do
   never started. If fishing starts but combat then fails, fishing is halted
   again so a failed `start_all/0` never leaves exactly one bot running.
   """
-  @spec start_all(GenServer.server(), GenServer.server(), GenServer.server()) ::
-          :ok | {:error, [String.t()]}
-  def start_all(fishing \\ Fishing.Worker, combat \\ Combat.Worker, cooldowns \\ Cooldowns) do
-    # Start the cooldown poller first (it never fails preflight — it only reads the
-    # screen) so combat can fire ready skills and fishing can gate on readiness the
-    # moment they run.
-    Cooldowns.run(cooldowns)
-
+  @spec start_all(GenServer.server(), GenServer.server()) :: :ok | {:error, [String.t()]}
+  def start_all(fishing \\ Fishing.Worker, combat \\ Combat.Worker) do
     with :ok <- Fishing.Worker.run(fishing),
          :ok <- Combat.Worker.run(combat) do
       :ok
     else
       {:error, _messages} = error ->
-        stop_all(fishing, combat, cooldowns)
+        stop_all(fishing, combat)
         error
     end
   end
 
-  @doc "Halts both workers + the cooldown poller. Safe to call repeatedly."
-  @spec stop_all(GenServer.server(), GenServer.server(), GenServer.server()) :: :ok
-  def stop_all(fishing \\ Fishing.Worker, combat \\ Combat.Worker, cooldowns \\ Cooldowns) do
+  @doc "Halts both workers. Safe to call repeatedly — halting an idle worker is a no-op."
+  @spec stop_all(GenServer.server(), GenServer.server()) :: :ok
+  def stop_all(fishing \\ Fishing.Worker, combat \\ Combat.Worker) do
     Fishing.Worker.halt(fishing)
     Combat.Worker.halt(combat)
-    Cooldowns.halt(cooldowns)
     :ok
   end
 

@@ -271,7 +271,8 @@ defmodule PokexWeb.DiagnosticsLive do
   end
 
   defp xray_verdict(%{body_reds: reds}) do
-    {:ok, "Escala consistente e a captura do painel tem #{reds}px vermelhos — o problema é outro."}
+    {:ok,
+     "Escala consistente e a captura do painel tem #{reds}px vermelhos — o problema é outro."}
   end
 
   defp fmt(n) when is_number(n), do: :erlang.float_to_binary(n / 1, decimals: 2)
@@ -452,7 +453,13 @@ defmodule PokexWeb.DiagnosticsLive do
               arena_region={@preview.calib.arena_region}
               neutral_point={@preview.calib.neutral_point}
               player_point={Calibration.player_point(@preview.calib)}
-              bands={Calibration.battle_row_bands(@preview.calib, Settings.get(:battle_row_height), Settings.get(:battle_max_rows))}
+              bands={
+                Calibration.battle_row_bands(
+                  @preview.calib,
+                  Settings.get(:battle_row_height),
+                  Settings.get(:battle_max_rows)
+                )
+              }
             />
           </div>
         </section>

@@ -185,17 +185,34 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:hook_skill_keys) == ["5", "6", "7"]
   end
 
-  test "a cooldowns broadcast lights the skill pills", %{conn: conn} do
+  @tag :tmp_dir
+  test "the 'Ler' button reads the skill bar on demand", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    row = List.duplicate({200, 200, 0, 255}, 12) ++ List.duplicate({20, 20, 20, 255}, 2)
+    bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), [row])
+    Agent.stop(Pokex.Rig.Fake)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, bar}]})
+
+    Pokex.Calibration.save(%Pokex.Calibration{
+      scale: 1.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      arena_region: {20, 20, 60, 40},
+      neutral_point: {52, 36},
+      skill_bar_region: {0, 0, 14, 1}
+    })
+
     {:ok, view, _} = live(conn, ~p"/")
-    assert render(view) =~ "sem leitura"
+    assert render(view) =~ "precisa estar calibrada"
 
-    Phoenix.PubSub.broadcast(
-      Pokex.PubSub,
-      Pokex.Bots.Cooldowns.topic(),
-      {:cooldowns, %{states: [:ready, :cooldown], slots: []}}
-    )
-
-    refute render(view) =~ "sem leitura"
+    view |> element(~s(button[phx-click="read_cooldowns"])) |> render_click()
+    # reading done → the hint is replaced by the per-slot pills
+    refute render(view) =~ "precisa estar calibrada"
   end
 
   defp save_calibration do

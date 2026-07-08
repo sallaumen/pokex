@@ -413,8 +413,10 @@ defmodule PokexWeb.PanelLive do
   defp combat_label(:error, _row), do: "erro"
   defp combat_label(other, _row), do: to_string(other)
 
-  # 🎒 Loot: parado / coletando (walk → loot → capture → walk-back) / erro.
-  defp loot_label(:idle), do: "parado"
+  # 🎒 Loot: parado (desligado) / aguardando (ligado pelo Start, esperando um kill) / coletando
+  # (walk → loot → capture → walk-back) / erro.
+  defp loot_label(:off), do: "parado"
+  defp loot_label(:ready), do: "aguardando"
   defp loot_label(:walking_to_loot), do: "andando até o corpo"
   defp loot_label(:looting), do: "coletando (espaço)"
   defp loot_label(:capturing), do: "pokébola"
@@ -423,10 +425,12 @@ defmodule PokexWeb.PanelLive do
   defp loot_label(other), do: to_string(other)
 
   defp active?(:idle), do: false
+  defp active?(:off), do: false
   defp active?(_state), do: true
 
   defp pill_class(:error), do: "badge-error"
   defp pill_class(:idle), do: "badge-ghost"
+  defp pill_class(:off), do: "badge-ghost"
   defp pill_class(_running), do: "badge-success"
 
   @impl true

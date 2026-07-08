@@ -93,8 +93,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
     status = BotSupervisor.status(fishing, combat, loot)
     assert status.fishing.state != :idle
     assert status.combat.state != :idle
-    # loot is event-driven — ready but idle until combat announces a kill
-    assert status.loot.state == :idle
+    # loot is armed by start_all — :ready (on), waiting for a kill
+    assert status.loot.state == :ready
   end
 
   @tag :tmp_dir
@@ -107,7 +107,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     status = BotSupervisor.status(fishing, combat, loot)
     assert status.fishing.state == :idle
     assert status.combat.state == :idle
-    assert status.loot.state == :idle
+    assert status.loot.state == :off
 
     # A second stop_all/0 while already idle must be a safe no-op — this is
     # exactly what the Guardian does on every poll tick while the cursor
@@ -117,7 +117,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     status = BotSupervisor.status(fishing, combat, loot)
     assert status.fishing.state == :idle
     assert status.combat.state == :idle
-    assert status.loot.state == :idle
+    assert status.loot.state == :off
   end
 
   @tag :tmp_dir
@@ -132,6 +132,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     status = BotSupervisor.status(fishing, combat, loot)
     assert status.fishing.state == :idle
     assert status.combat.state == :idle
-    assert status.loot.state == :idle
+    assert status.loot.state == :off
   end
 end

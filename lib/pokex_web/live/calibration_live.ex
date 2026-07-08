@@ -19,7 +19,11 @@ defmodule PokexWeb.CalibrationLive do
     arena_b: "5/6 — Canto inferior-direito da arena.",
     neutral: "6/6 — Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
     baselines:
-      "Tudo marcado! Agora LANCE A LINHA na água (Shift+Z, depois clique na água) e, com ela ESPERANDO sem nada fisgado, clique em 'Capturar linhas de base'. Assim o bot aprende a água COM a linha — senão ele acha que é sempre brilho e fisga na hora."
+      "Tudo marcado! Agora LANCE A LINHA na água (Shift+Z, depois clique na água) e, com ela ESPERANDO sem nada fisgado, clique em 'Capturar linhas de base'. Assim o bot aprende a água COM a linha — senão ele acha que é sempre brilho e fisga na hora.",
+    skill_a:
+      "Barra de skills 1/2 — Clique no canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1).",
+    skill_b:
+      "Barra de skills 2/2 — Canto INFERIOR-DIREITO da barra (depois do último slot). NÃO inclua o cadeado/pokébola à direita."
   }
 
   @impl true
@@ -36,6 +40,7 @@ defmodule PokexWeb.CalibrationLive do
        calibrated?: Calibration.exists?(),
        review: nil,
        error: nil,
+       skillbar_msg: nil,
        row_height: Settings.get(:battle_row_height),
        max_rows: Settings.get(:battle_max_rows)
      )}
@@ -53,6 +58,27 @@ defmodule PokexWeb.CalibrationLive do
          done: false,
          review: nil,
          error: nil
+       )}
+    else
+      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    end
+  end
+
+  # Standalone 2-click skill-bar calibration — merges skill_bar_region into the
+  # EXISTING calibration without touching the other regions or re-running the
+  # 6-step wizard. Only offered once the base calibration exists.
+  def handle_event("calibrate_skillbar", _params, socket) do
+    with {:ok, screen} <- grab_screen("skillbar_probe.png") do
+      {:noreply,
+       assign(socket,
+         scale: screen.scale,
+         screen: screen,
+         step: :skill_a,
+         draft: %{},
+         done: false,
+         review: nil,
+         error: nil,
+         skillbar_msg: nil
        )}
     else
       error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
@@ -192,6 +218,33 @@ defmodule PokexWeb.CalibrationLive do
       :neutral ->
         assign(socket, draft: Map.put(draft, :neutral_point, point), step: :baselines)
 
+      :skill_a ->
+        assign(socket, draft: Map.put(draft, :skill_a, point), step: :skill_b)
+
+      :skill_b ->
+        region = region_from(draft.skill_a, point)
+
+        case Calibration.load() do
+          {:ok, calib} ->
+            Calibration.save(%{calib | skill_bar_region: region})
+
+            assign(socket,
+              draft: %{},
+              step: nil,
+              screen: nil,
+              calibrated?: true,
+              skillbar_msg:
+                "Barra de skills salva: #{inspect(region)}. Confira em 'Exportar diagnóstico' no painel."
+            )
+
+          {:error, reason} ->
+            assign(socket,
+              step: nil,
+              screen: nil,
+              error: "não deu pra salvar a barra: #{inspect(reason)}"
+            )
+        end
+
       _ ->
         socket
     end
@@ -244,6 +297,9 @@ defmodule PokexWeb.CalibrationLive do
         </header>
 
         <p :if={@error} class="rounded-lg bg-error/15 px-3 py-2 text-sm text-error">{@error}</p>
+        <p :if={@skillbar_msg} class="rounded-lg bg-success/15 px-3 py-2 text-sm text-success">
+          {@skillbar_msg}
+        </p>
 
         <div
           :if={@review}
@@ -284,7 +340,13 @@ defmodule PokexWeb.CalibrationLive do
             <button :if={@calibrated?} class="btn btn-ghost" phx-click="review">
               <.icon name="hero-eye" class="size-4" /> Revisar áreas salvas
             </button>
+            <button :if={@calibrated?} class="btn btn-ghost" phx-click="calibrate_skillbar">
+              <.icon name="hero-bolt" class="size-4" /> Calibrar barra de skills
+            </button>
           </div>
+          <p :if={@calibrated?} class="text-xs opacity-60">
+            A barra de skills é opcional — só é usada pra rastrear cooldowns (pescar só quando dá pra matar).
+          </p>
         </div>
 
         <div :if={@screen} class="space-y-3">
@@ -319,10 +381,23 @@ defmodule PokexWeb.CalibrationLive do
             <p class="text-xs opacity-60">{@baselines_done}/10 capturadas</p>
           </div>
 
-          <.legend :if={@step in [:water, :battle_a, :battle_b, :arena_a, :arena_b, :neutral]} />
+          <.legend :if={
+            @step in [:water, :battle_a, :battle_b, :arena_a, :arena_b, :neutral, :skill_a, :skill_b]
+          } />
 
           <div
-            :if={@step in [:water, :battle_a, :battle_b, :arena_a, :arena_b, :neutral]}
+            :if={
+              @step in [
+                :water,
+                :battle_a,
+                :battle_b,
+                :arena_a,
+                :arena_b,
+                :neutral,
+                :skill_a,
+                :skill_b
+              ]
+            }
             class="relative overflow-hidden rounded-lg border border-base-content/20"
           >
             <img

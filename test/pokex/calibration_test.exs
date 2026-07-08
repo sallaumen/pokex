@@ -28,6 +28,20 @@ defmodule Pokex.CalibrationTest do
     assert loaded == sample()
   end
 
+  @tag :tmp_dir
+  test "save/load round-trips skill_bar_region, nil for older files", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "calibration.json")
+
+    Calibration.save(%{sample() | skill_bar_region: {10, 20, 300, 60}}, path)
+    assert {:ok, loaded} = Calibration.load(path)
+    assert loaded.skill_bar_region == {10, 20, 300, 60}
+
+    # an old file (no skill_bar_region key) loads as nil, not a crash
+    Calibration.save(sample(), path)
+    assert {:ok, old} = Calibration.load(path)
+    assert old.skill_bar_region == nil
+  end
+
   test "derived regions and conversion" do
     calib = sample()
     assert Calibration.battle_strip(calib) == {1610, 120, 30, 220}

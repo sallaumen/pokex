@@ -24,6 +24,7 @@ defmodule Pokex.Bots.Fisher.Config do
     :auto_capture,
     :glow_streak_needed,
     :calm_streak_needed,
+    :require_cooldowns,
     :wait_target_verify_ms,
     :target_verify_attempts,
     :target_locked_min_pixels,

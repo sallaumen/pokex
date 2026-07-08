@@ -14,6 +14,10 @@ defmodule Pokex.Calibration do
     :battle_region,
     :arena_region,
     :neutral_point,
+    # Optional (nil until calibrated separately): the skill hotbar strip, read by
+    # Cooldowns to track which skills are ready. Added without disturbing the main
+    # 6-step wizard so an existing calibration keeps working.
+    :skill_bar_region,
     :battle_baseline,
     :suggested_glow_threshold,
     glow_baselines: []
@@ -37,6 +41,7 @@ defmodule Pokex.Calibration do
       "battle_region" => Tuple.to_list(calib.battle_region),
       "arena_region" => Tuple.to_list(calib.arena_region),
       "neutral_point" => Tuple.to_list(calib.neutral_point),
+      "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
       "glow_baselines" => calib.glow_baselines,
       "battle_baseline" => calib.battle_baseline,
       "suggested_glow_threshold" => calib.suggested_glow_threshold
@@ -58,6 +63,7 @@ defmodule Pokex.Calibration do
          battle_region: to_tuple(map["battle_region"]),
          arena_region: to_tuple(map["arena_region"]),
          neutral_point: to_tuple(map["neutral_point"]),
+         skill_bar_region: to_tuple(map["skill_bar_region"]),
          glow_baselines: map["glow_baselines"] || [],
          battle_baseline: map["battle_baseline"],
          suggested_glow_threshold: map["suggested_glow_threshold"]
@@ -129,5 +135,6 @@ defmodule Pokex.Calibration do
   def frame_to_screen(%__MODULE__{scale: scale}, {rx, ry, _w, _h}, {fx, fy}),
     do: {rx + round(fx / scale), ry + round(fy / scale)}
 
+  defp to_tuple(nil), do: nil
   defp to_tuple(list), do: List.to_tuple(list)
 end

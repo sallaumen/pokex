@@ -119,4 +119,60 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert html =~ "L5"
     assert html =~ ~s(title="player")
   end
+
+  @tag :tmp_dir
+  test "standalone skill-bar calibration merges skill_bar_region into the saved calibration", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      arena_region: {20, 20, 60, 40},
+      neutral_point: {52, 36},
+      glow_baselines: [],
+      suggested_glow_threshold: 15.0
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} =
+      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration")
+    view |> element("button", "Calibrar barra de skills") |> render_click()
+    assert render(view) =~ "Barra de skills 1/2"
+
+    click = fn x, y ->
+      render_hook(view, "img_click", %{
+        "x" => x,
+        "y" => y,
+        "cw" => 50.0,
+        "ch" => 37.5,
+        "nw" => 200.0,
+        "nh" => 150.0
+      })
+    end
+
+    # skill_a → {20, 20}
+    click.(10.0, 10.0)
+    assert render(view) =~ "Barra de skills 2/2"
+    # skill_b → {80, 60}
+    click.(40.0, 30.0)
+
+    assert render(view) =~ "Barra de skills salva"
+    assert {:ok, calib} = Calibration.load()
+    assert calib.skill_bar_region == {20, 20, 60, 40}
+    # the rest of the calibration is untouched
+    assert calib.water_point == {50, 30}
+    assert calib.battle_region == {70, 10, 20, 30}
+  end
 end

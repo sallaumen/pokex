@@ -78,19 +78,26 @@ defmodule Pokex.Bots.BotSupervisorTest do
     guardian = :"#{tag}_guardian"
     fishing = :"#{tag}_fishing"
     combat = :"#{tag}_combat"
+    cooldowns = :"#{tag}_cooldowns"
 
     start_supervised!(
-      {BotSupervisor, name: nil, body: body, guardian: guardian, fishing: fishing, combat: combat}
+      {BotSupervisor,
+       name: nil,
+       body: body,
+       guardian: guardian,
+       fishing: fishing,
+       combat: combat,
+       cooldowns: cooldowns}
     )
 
-    {fishing, combat}
+    {fishing, combat, cooldowns}
   end
 
   @tag :tmp_dir
   test "start_all/0 runs both workers, reflected in status/0" do
-    {fishing, combat} = start_isolated_supervisor(:start_all_test)
+    {fishing, combat, cooldowns} = start_isolated_supervisor(:start_all_test)
 
-    assert :ok = BotSupervisor.start_all(fishing, combat)
+    assert :ok = BotSupervisor.start_all(fishing, combat, cooldowns)
 
     status = BotSupervisor.status(fishing, combat)
     assert status.fishing.state != :idle
@@ -99,10 +106,10 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
   @tag :tmp_dir
   test "stop_all/0 idles both workers and is idempotent on a second call" do
-    {fishing, combat} = start_isolated_supervisor(:stop_all_test)
+    {fishing, combat, cooldowns} = start_isolated_supervisor(:stop_all_test)
 
-    assert :ok = BotSupervisor.start_all(fishing, combat)
-    assert :ok = BotSupervisor.stop_all(fishing, combat)
+    assert :ok = BotSupervisor.start_all(fishing, combat, cooldowns)
+    assert :ok = BotSupervisor.stop_all(fishing, combat, cooldowns)
 
     status = BotSupervisor.status(fishing, combat)
     assert status.fishing.state == :idle
@@ -111,7 +118,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     # A second stop_all/0 while already idle must be a safe no-op — this is
     # exactly what the Guardian does on every poll tick while the cursor
     # sits in the panic corner.
-    assert :ok = BotSupervisor.stop_all(fishing, combat)
+    assert :ok = BotSupervisor.stop_all(fishing, combat, cooldowns)
 
     status = BotSupervisor.status(fishing, combat)
     assert status.fishing.state == :idle
@@ -122,9 +129,9 @@ defmodule Pokex.Bots.BotSupervisorTest do
   test "start_all/0 surfaces a preflight/calibration error instead of starting either worker" do
     File.rm!(Pokex.Home.calibration_file())
 
-    {fishing, combat} = start_isolated_supervisor(:error_test)
+    {fishing, combat, cooldowns} = start_isolated_supervisor(:error_test)
 
-    assert {:error, [msg]} = BotSupervisor.start_all(fishing, combat)
+    assert {:error, [msg]} = BotSupervisor.start_all(fishing, combat, cooldowns)
     assert msg =~ "calibração"
 
     status = BotSupervisor.status(fishing, combat)

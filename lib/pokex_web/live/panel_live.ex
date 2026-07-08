@@ -1,7 +1,7 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.{BotSupervisor, Combat, Fishing}
+  alias Pokex.Bots.{BotSupervisor, Combat, Cooldowns, Fishing}
   alias Pokex.Diagnostics.Report
   alias Pokex.{Calibration, Rig, Settings}
 
@@ -148,6 +148,9 @@ defmodule PokexWeb.PanelLive do
   end
 
   def handle_event("test_combat", _params, socket) do
+    # combat fires only READY skills → the cooldown poller must run alongside it.
+    Cooldowns.run()
+
     case Combat.Worker.run() do
       :ok ->
         {:noreply,
@@ -161,6 +164,9 @@ defmodule PokexWeb.PanelLive do
   # Run ONLY the fishing worker — combat stays idle, so you can watch the fishing
   # loop alone (cast → watch → hook → repeat) without the mouse being shared.
   def handle_event("test_fishing", _params, socket) do
+    # so "só pescar com cooldown pronto" works when testing fishing alone.
+    Cooldowns.run()
+
     case Fishing.Worker.run() do
       :ok ->
         {:noreply,

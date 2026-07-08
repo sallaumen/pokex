@@ -84,13 +84,12 @@ defmodule Pokex.Bots.Fishing.Logic do
      [{:click, :left, logic.config.neutral_point}]}
   end
 
-  # The cast is ONE ATOMIC Body sequence: move the cursor to the water, arm the rod
-  # (press the rod key), a short game-response wait, then click the water to throw.
-  # It MUST be atomic — the game applies the armed rod to the NEXT click, so if it
-  # were split (arm in one perform, throw in another) a combat click could slip in
-  # between at :high priority and cast the rod onto the battle panel instead of the
-  # water (the "usando a vara no campo de batalha" bug). Keeping it in a single
-  # perform means no competing action can land between the arm and the throw.
+  # The cast is ONE ATOMIC Body sequence: move the cursor to the water, a short pause so the
+  # game registers the cursor there, then press the rod key. The rod is bound to Quick Cast, so
+  # pressing it throws AT THE CURSOR — no click needed (Lucas). It MUST still be atomic: if the
+  # move and the press were split across performs, a combat action at :high could move the cursor
+  # between them, casting the rod onto the battle panel instead of the water (the "usando a vara
+  # no campo de batalha" bug). One perform means nothing can land between positioning and casting.
   defp do_step(%{state: :casting} = logic, _obs, now) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
 
@@ -114,9 +113,8 @@ defmodule Pokex.Bots.Fishing.Logic do
      ),
      [
        {:move, logic.config.water_point},
-       {:press, logic.config.rod_key},
        {:wait, logic.config.wait_after_equip_ms},
-       {:click, :left, logic.config.water_point}
+       {:press, logic.config.rod_key}
      ]}
   end
 

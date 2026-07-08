@@ -120,9 +120,12 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
 
     calls = Pokex.Rig.Fake.calls()
+    # focus clicks the neutral point; the cast MOVES to the water and presses the rod
+    # (Quick Cast — no water click anymore)
     assert {:click, :left, {420, 350}} in calls
+    assert {:move, {400, 300}} in calls
     assert {:press, "v"} in calls
-    assert {:click, :left, {400, 300}} in calls
+    refute {:click, :left, {400, 300}} in calls
 
     assert :ok = Worker.halt(worker)
     assert Worker.status(worker).state == :idle

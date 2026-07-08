@@ -143,11 +143,16 @@ defmodule Pokex.Bots.Combat.Logic do
         {advance(%{logic | scan_idle?: true, locked_row: nil}, :scanning, now), log}
 
       [target | _] ->
-        {advance(%{logic | locked_row: target, scan_idle?: false}, :confirming, now),
+        # Click the candidate, slide the cursor off, and fire the FIRST skill in the SAME action
+        # — the click selects the target, so the skill lands on it with no extra tick of latency.
+        # (If it's a dud/player the press does nothing, and cycling recovers next tick.)
+        {logic, press} = press_next_skill(%{logic | locked_row: target, scan_idle?: false})
+
+        {advance(logic, :confirming, now),
          [
            {:click, :left, Enum.at(logic.config.battle_rows, target)},
            {:move, logic.config.neutral_point}
-         ]}
+         ] ++ press}
     end
   end
 
@@ -162,11 +167,15 @@ defmodule Pokex.Bots.Combat.Logic do
   defp do_step(%{state: :confirming, locked_row: row} = logic, obs, now) do
     cond do
       ring?(obs, row, logic.config.target_locked_min_pixels) ->
+        # ring up → real battle → keep hitting AND fire this tick's skill too (don't waste the
+        # confirming→fighting tick on nothing — that's a whole capture-tick of lost attack).
+        {logic, press} = press_next_skill(logic)
+
         {advance(
            %{logic | targeted?: true, fight_tick: 0, lost_streak: 0, tried: [], tried_for: nil},
            :fighting,
            now
-         ), []}
+         ), press}
 
       now - logic.entered_at > logic.config.battle_confirm_ms ->
         {advance(%{logic | locked_row: nil, tried: [row | logic.tried]}, :scanning, now),

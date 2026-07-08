@@ -51,16 +51,15 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert {^l, []} = Logic.step(l, cursor_obs(), 100)
   end
 
-  test "casting arms and throws the rod in ONE atomic sequence (move, press, wait, click)" do
+  test "casting positions the cursor and Quick-Casts the rod in ONE atomic sequence (move, wait, press)" do
     {l, actions} = Logic.step(advance_to(:casting), cursor_obs(), 400)
     assert l.state == :watching
-    # move to water → arm rod → game-response wait → click water, one perform, so no
-    # combat click can slip in between the arm and the throw
+    # move to water → settle wait → press the rod (Quick Cast throws at the cursor, no click),
+    # one perform, so no combat action can move the cursor between positioning and casting
     assert actions == [
              {:move, {800, 400}},
-             {:press, "v"},
              {:wait, 300},
-             {:click, :left, {800, 400}}
+             {:press, "v"}
            ]
 
     assert l.counters.cycles == 1

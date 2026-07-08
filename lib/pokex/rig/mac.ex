@@ -36,7 +36,13 @@ defmodule Pokex.Rig.Mac do
 
   @impl true
   def capture(region, filename) do
-    path = Path.join(Pokex.Home.captures_dir(), filename)
+    # Namespace the capture file by the CALLING process, so two workers reading the SAME
+    # region (e.g. the skill bar: fishing's cooldown gate AND combat's ready-skills, plus the
+    # panel's live cooldown poll) never write the same path concurrently. A shared path let one
+    # screencapture truncate/overwrite the file another was decoding → a corrupt/partial frame
+    # → a wrong reading (e.g. a ready skill misread as cooldown, so the gate never releases the
+    # fish). Each process reuses its own file, so nothing accumulates.
+    path = Path.join(Pokex.Home.captures_dir(), per_process(filename))
 
     case run(Commands.capture(region, path)) do
       :ok -> {:ok, path}
@@ -52,6 +58,14 @@ defmodule Pokex.Rig.Mac do
       :ok -> {:ok, path}
       err -> err
     end
+  end
+
+  # "skillbar.png" → "skillbar-<caller-hash>.png": a per-process filename so concurrent readers
+  # of the same region don't clobber each other's capture file.
+  defp per_process(filename) do
+    ext = Path.extname(filename)
+    base = Path.basename(filename, ext)
+    "#{base}-#{:erlang.phash2(self())}#{ext}"
   end
 
   defp run(cmd) do

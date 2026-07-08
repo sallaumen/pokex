@@ -8,6 +8,7 @@ defmodule PokexWeb.PanelLive do
   @fishing_topic "fishing"
   @combat_topic "combat"
   @loot_topic "loot"
+  @cooldown_poll_ms 1000
 
   @counters [
     {"Ciclos", :cycles, "hero-arrow-path"},
@@ -37,6 +38,10 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @loot_topic)
+      # Keep the cooldown display LIVE while the fishing gate is on, so it never goes stale —
+      # you can watch the reading flip to ready the instant your skills come off cooldown (the
+      # SAME SkillBar read the fishing gate uses each tick).
+      Process.send_after(self(), :refresh_cooldowns, @cooldown_poll_ms)
     end
 
     status = BotSupervisor.status()
@@ -82,6 +87,19 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:loot, snapshot}, socket),
     do: {:noreply, assign(socket, loot: snapshot)}
+
+  # Live cooldown poll: re-read the skill bar WHILE the fishing gate is on, so the display
+  # tracks the reading the gate uses every tick (never stale). Off → skip the capture but keep
+  # the timer alive so it resumes the moment the gate is turned on. Always reschedule.
+  def handle_info(:refresh_cooldowns, socket) do
+    socket =
+      if socket.assigns.require_cooldowns,
+        do: assign(socket, cooldowns_states: read_cooldown_states()),
+        else: socket
+
+    Process.send_after(self(), :refresh_cooldowns, @cooldown_poll_ms)
+    {:noreply, socket}
+  end
 
   def handle_info({:fishing_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🎣", text: text})}
@@ -231,13 +249,7 @@ defmodule PokexWeb.PanelLive do
 
   # One-shot skill-bar read for the display (no loop, no shared process).
   def handle_event("read_cooldowns", _params, socket) do
-    states =
-      case Calibration.load() do
-        {:ok, calib} -> SkillBar.states(SkillBar.read(calib, Settings.all()))
-        _ -> nil
-      end
-
-    {:noreply, assign(socket, cooldowns_states: states)}
+    {:noreply, assign(socket, cooldowns_states: read_cooldown_states())}
   end
 
   def handle_event("save_hook_skills", %{"hook_skills" => raw}, socket) do
@@ -368,6 +380,15 @@ defmodule PokexWeb.PanelLive do
 
   defp log_class(:macro), do: "text-base-content"
   defp log_class(_debug), do: "opacity-50"
+
+  # A one-shot read of the per-slot skill states (:ready | :cooldown), or nil when the bar
+  # isn't calibrated / the capture fails. This is exactly the read SkillBar does for the gate.
+  defp read_cooldown_states do
+    case Calibration.load() do
+      {:ok, calib} -> SkillBar.states(SkillBar.read(calib, Settings.all()))
+      _ -> nil
+    end
+  end
 
   defp cooldown_pill_class(:ready), do: "badge-success"
   defp cooldown_pill_class(_cooldown), do: "badge-ghost opacity-50"
@@ -689,18 +710,25 @@ defmodule PokexWeb.PanelLive do
 
         <section class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold">Cooldowns das skills</h2>
+            <h2 class="text-sm font-semibold">
+              Cooldowns das skills
+              <span
+                :if={@require_cooldowns}
+                class="badge badge-success badge-xs gap-1 align-middle motion-safe:animate-pulse"
+                title="atualizando ao vivo enquanto o gate está ligado"
+              >ao vivo</span>
+            </h2>
             <div class="flex flex-wrap items-center gap-2">
               <div class="flex flex-wrap items-center gap-1">
                 <span
                   :for={{state, i} <- Enum.with_index(@cooldowns_states || [])}
                   class={["badge badge-sm", cooldown_pill_class(state)]}
-                  title={to_string(state)}
+                  title={"skill #{i + 1}: #{state}"}
                 >
                   {i + 1}
                 </span>
                 <span :if={is_nil(@cooldowns_states)} class="text-xs opacity-50">
-                  clique "Ler" (a barra de skills precisa estar calibrada)
+                  ligue o gate abaixo (ou clique "Ler") — a barra de skills precisa estar calibrada
                 </span>
               </div>
               <button class="btn btn-ghost btn-xs" phx-click="read_cooldowns">

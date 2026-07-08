@@ -69,18 +69,23 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "runs the full combat cycle: scan, lock, fight, loot, capture", %{worker: worker} do
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+  test "scan → confirm → fight → kill: hands the corpse to loot and keeps scanning", %{
+    worker: worker
+  } do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Loot.Worker.kill_topic())
 
     assert :ok = Worker.run(worker)
-    assert_receive {:combat, %{state: :scanning, counters: %{captures: 1}}}, 5_000
+
+    # the kill is broadcast to the Loot.Worker with the corpse's :hostile point
+    assert_receive {:kill, {410, 320}}, 5_000
 
     calls = Pokex.Rig.Fake.calls()
     assert {:click, :left, {786, 118}} in calls
     assert {:move, {420, 350}} in calls
     assert {:press, "1"} in calls
-    assert {:press, "space"} in calls
-    assert Enum.any?(calls, &match?({:capture_sequence, _}, &1))
+    # combat itself never loots/captures anymore — that's the Loot.Worker's job
+    refute {:press, "space"} in calls
+    refute Enum.any?(calls, &match?({:capture_sequence, _}, &1))
 
     assert :ok = Worker.halt(worker)
     assert Worker.status(worker).state == :idle

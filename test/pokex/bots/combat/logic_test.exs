@@ -85,21 +85,6 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert actions == [{:click, :left, {1466, 138}}, {:move, {860, 470}}]
   end
 
-  test "scanning SKIPS an empty row (≈no red) without clicking it" do
-    cfg = Map.put(config(), :scan_min_red_to_click, 5)
-    logic = %Logic{state: :scanning, config: cfg, select_idx: 0}
-    # row 0 is empty (0 red), row 1 has a creature → skip row 0, no click, no verify
-    obs =
-      cursor_obs()
-      |> Map.put(:battle_lock, [0, 100, 0, 0, 0, 0])
-      |> Map.put(:battle_creatures?, true)
-
-    {l, actions} = Logic.step(logic, obs, 100)
-    assert l.select_idx == 1
-    assert actions == []
-    refute l.pending_verify?
-  end
-
   # Minor gap flagged in the Task 2 review: io_failed/3 was ported (as fail/3's
   # public entry) but never exercised by the ported combat test suite. The
   # driver (Combat.Worker) calls this when Body.perform/3 returns {:error, _}.

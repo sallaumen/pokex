@@ -132,13 +132,6 @@ defmodule Pokex.Settings do
     # all) measures ~40-150. The old threshold of 40 sat ON the baseline, so the
     # bot "fought" nobody. 350 splits the two populations cleanly.
     target_locked_min_pixels: 350,
-    # SEARCH SPEED: a Battle row reading fewer than this many red px has no name/
-    # creature to lock onto (an empty slot below the last creature) — skip it WITHOUT
-    # clicking (clicking black space just moves the mouse for nothing and deselects the
-    # current target). MEASURED: empty rows read 0, a creature's red name reads 9-22+,
-    # so 5 splits them safely (the enemy always has a red name → never skipped). Set to
-    # 0 to disable (click every row, the old behavior).
-    scan_min_red_to_click: 5,
     # Clicking our OWN pokemon blinks red briefly then fades; a real lock stays
     # for the whole fight. Two reads spaced wait_target_verify_ms filter the blink.
     target_lock_streak: 2,

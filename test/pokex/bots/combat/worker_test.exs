@@ -11,10 +11,6 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     wait_target_verify_ms: 5,
     target_lock_streak: 1,
     target_verify_attempts: 1,
-    # these tests model a lockable row as 0-red BEFORE the click (the lock appears
-    # after); disable the empty-row skip so they exercise the click→lock flow (the
-    # skip itself is unit-tested in Combat.LogicTest with realistic red-name data).
-    scan_min_red_to_click: 0,
     tile_px: 32,
     walk_step_ms: 5,
     wait_loot_ms: 5,

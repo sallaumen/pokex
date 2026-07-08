@@ -194,13 +194,6 @@ defmodule Pokex.Bots.Combat.Logic do
         {%{logic | select_idx: 0, scan_idle?: false} |> advance(:scanning, now),
          [{:log, "nenhum alvo atacável na Battle — recomeçando"}]}
 
-      # This row reads ~no red — no name/creature to lock (an empty slot below the
-      # last creature). Skip it WITHOUT clicking: clicking black space just moves the
-      # mouse for nothing and deselects the current target. The enemy always has a red
-      # name (≥9px) so it's never skipped. Guarded on the config knob (0 = never skip).
-      row_red(obs, logic.select_idx) < Map.get(logic.config, :scan_min_red_to_click, 0) ->
-        {%{logic | select_idx: logic.select_idx + 1, scan_idle?: false}, []}
-
       true ->
         # Click the row (this SELECTS + starts attacking), then slide the cursor OFF
         # to the neutral point. The game paints a selected row PINK while the cursor
@@ -558,7 +551,6 @@ defmodule Pokex.Bots.Combat.Logic do
 
   defp battle_lock(obs), do: Map.get(obs, :battle_lock, [])
   defp row_locked?(obs, idx, min), do: Enum.at(battle_lock(obs), idx, 0) >= min
-  defp row_red(obs, idx), do: Enum.at(battle_lock(obs), idx, 0)
 
   # Default TRUE when the observation is absent (unit tests that don't set it) so
   # existing scan/click behavior is unchanged; only an explicit false idles combat.

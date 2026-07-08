@@ -109,5 +109,11 @@ defmodule Pokex.Bots.Body do
   defp execute({:click, button, point}), do: Rig.impl().click(button, point)
   defp execute({:move, point}), do: Rig.impl().move(point)
   defp execute({:capture_sequence, point}), do: Rig.impl().capture_sequence(point)
+  # A pause WITHIN a sequence: lets one atomic perform hold a game-response gap
+  # (e.g. between arming the rod and clicking the water) without releasing the Body
+  # to a competing worker in between. Runs in the executor task, so the cursor read
+  # (panic path) is never blocked.
+  defp execute({:wait, ms}) when is_integer(ms) and ms > 0, do: Process.sleep(ms)
+  defp execute({:wait, _ms}), do: :ok
   defp execute({:log, _}), do: :ok
 end

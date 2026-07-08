@@ -137,9 +137,10 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
 
-    # two rod presses: one to equip, one to pull the hook after the bite.
+    # at least two rod presses by the time we've hooked once: the atomic cast arms
+    # the rod, and the bite pulls it. (Each cast re-arms, so the count keeps growing.)
     calls = Pokex.Rig.Fake.calls()
-    assert Enum.count(calls, &(&1 == {:press, "v"})) == 2
+    assert Enum.count(calls, &(&1 == {:press, "v"})) >= 2
   end
 
   @tag :tmp_dir
@@ -259,7 +260,7 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     assert_receive {:fishing, %{state: :focusing, error: nil}}, 3_000
 
-    assert_receive {:fishing, %{state: :equipping, error: nil, counters: %{failures: failures}}},
+    assert_receive {:fishing, %{state: :casting, error: nil, counters: %{failures: failures}}},
                    3_000
 
     assert failures >= 1

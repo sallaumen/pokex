@@ -80,15 +80,17 @@ defmodule Pokex.Bots.Fishing.Logic do
   end
 
   defp do_step(%{state: :focusing} = logic, _obs, now) do
-    {advance(logic, :equipping, now, wait: logic.config.wait_focus_ms),
+    {advance(logic, :casting, now, wait: logic.config.wait_focus_ms),
      [{:click, :left, logic.config.neutral_point}]}
   end
 
-  defp do_step(%{state: :equipping} = logic, _obs, now) do
-    {advance(logic, :casting, now, wait: logic.config.wait_after_equip_ms),
-     [{:press, logic.config.rod_key}]}
-  end
-
+  # The cast is ONE ATOMIC Body sequence: move the cursor to the water, arm the rod
+  # (press the rod key), a short game-response wait, then click the water to throw.
+  # It MUST be atomic — the game applies the armed rod to the NEXT click, so if it
+  # were split (arm in one perform, throw in another) a combat click could slip in
+  # between at :high priority and cast the rod onto the battle panel instead of the
+  # water (the "usando a vara no campo de batalha" bug). Keeping it in a single
+  # perform means no competing action can land between the arm and the throw.
   defp do_step(%{state: :casting} = logic, _obs, now) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
 
@@ -109,7 +111,13 @@ defmodule Pokex.Bots.Fishing.Logic do
        :watching,
        now,
        wait: logic.config.wait_cast_settle_ms
-     ), [{:click, :left, logic.config.water_point}]}
+     ),
+     [
+       {:move, logic.config.water_point},
+       {:press, logic.config.rod_key},
+       {:wait, logic.config.wait_after_equip_ms},
+       {:click, :left, logic.config.water_point}
+     ]}
   end
 
   # Bubbles AND the water already settled (splash gone) → a real bite. Require N
@@ -204,7 +212,7 @@ defmodule Pokex.Bots.Fishing.Logic do
            error: "#{reason} (#{failures}x seguidas)"
        }, [{:log, reason}]}
     else
-      {advance(%{logic | failures: failures}, :equipping, now), [{:log, reason}]}
+      {advance(%{logic | failures: failures}, :casting, now), [{:log, reason}]}
     end
   end
 
@@ -217,18 +225,18 @@ defmodule Pokex.Bots.Fishing.Logic do
   # or a cast that never put a line in the water leaves us watching empty water,
   # reading 0 forever. Re-throw when EITHER the consecutive no-bubble streak hits
   # watch_dead_streak_needed (the fast path) OR the absolute watch_timeout_ms
-  # elapses (backstop). Recasting routes through :equipping so the rod is RE-ARMED
-  # (press the rod key) and RE-THROWN — a bare re-click of the water can't recover
-  # a cast whose rod was never used. A real/building bite resets dead_streak (see
-  # the glow:true clauses), so an active bite is never cut short.
+  # elapses (backstop). Recasting routes through :casting, which RE-ARMS the rod
+  # (press the rod key) and RE-THROWS atomically — a bare re-click of the water
+  # can't recover a cast whose rod was never used. A real/building bite resets
+  # dead_streak (see the glow:true clauses), so an active bite is never cut short.
   defp recast_if_dead(logic, now) do
     cond do
       logic.dead_streak >= logic.config.watch_dead_streak_needed ->
-        {advance(logic, :equipping, now),
+        {advance(logic, :casting, now),
          [{:log, "sem bolha por #{logic.dead_streak} frames — re-lançando a vara"}]}
 
       timed_out?(logic, now, logic.config.watch_timeout_ms) ->
-        {advance(logic, :equipping, now), [{:log, "sem bolha a tempo — re-lançando a vara"}]}
+        {advance(logic, :casting, now), [{:log, "sem bolha a tempo — re-lançando a vara"}]}
 
       true ->
         {logic, []}

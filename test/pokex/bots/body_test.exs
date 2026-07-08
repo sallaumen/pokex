@@ -100,6 +100,19 @@ defmodule Pokex.Bots.BodyTest do
     assert calls == [{:press, "1"}, {:move, {5, 5}}]
   end
 
+  test "a :wait action pauses within the sequence without breaking it", %{body: body} do
+    elapsed =
+      :timer.tc(fn ->
+        Body.perform([{:press, "a"}, {:wait, 40}, {:press, "b"}], :normal, body)
+      end)
+      |> elem(0)
+
+    # the whole sequence (incl. the 40ms wait) is one atomic perform; both presses ran
+    assert elapsed >= 40_000
+    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    assert calls == [{:press, "a"}, {:press, "b"}]
+  end
+
   @tag timeout: 2_000
   test "a :high request runs before a queued :normal one" do
     previous_rig = Application.get_env(:pokex, :rig)

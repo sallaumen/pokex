@@ -25,13 +25,8 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
   def advance_to(:focusing), do: elem(Logic.start(Logic.new(config()), 0), 0)
 
-  def advance_to(:equipping) do
-    {l, _} = Logic.step(advance_to(:focusing), cursor_obs(), 0)
-    l
-  end
-
   def advance_to(:casting) do
-    {l, _} = Logic.step(advance_to(:equipping), cursor_obs(), 200)
+    {l, _} = Logic.step(advance_to(:focusing), cursor_obs(), 200)
     l
   end
 
@@ -49,33 +44,35 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
   test "focusing clicks neutral point and waits" do
     {l, actions} = Logic.step(advance_to(:focusing), cursor_obs(), 0)
-    assert l.state == :equipping
+    assert l.state == :casting
     assert actions == [{:click, :left, {860, 470}}]
     assert l.waiting_until == 150
     # tick dentro da espera: nada acontece
     assert {^l, []} = Logic.step(l, cursor_obs(), 100)
   end
 
-  test "equipping presses the rod key then casting clicks water" do
-    {l, actions} = Logic.step(advance_to(:equipping), cursor_obs(), 200)
-    assert l.state == :casting
-    assert actions == [{:press, "v"}]
-
-    {l, actions} = Logic.step(l, cursor_obs(), 600)
+  test "casting arms and throws the rod in ONE atomic sequence (move, press, wait, click)" do
+    {l, actions} = Logic.step(advance_to(:casting), cursor_obs(), 400)
     assert l.state == :watching
-    assert actions == [{:click, :left, {800, 400}}]
+    # move to water → arm rod → game-response wait → click water, one perform, so no
+    # combat click can slip in between the arm and the throw
+    assert actions == [
+             {:move, {800, 400}},
+             {:press, "v"},
+             {:wait, 300},
+             {:click, :left, {800, 400}}
+           ]
+
     assert l.counters.cycles == 1
   end
 
-  test "casting waits out the cast splash before watching" do
+  test "casting arms a settle window; a bubble during it isn't a bite yet" do
     cfg = Map.put(config(), :wait_cast_settle_ms, 500)
-    {l, _} = Logic.step(%{advance_to(:equipping) | config: cfg}, cursor_obs(), 200)
-    {l, actions} = Logic.step(l, cursor_obs(), 600)
-    assert l.state == :watching
-    assert actions == [{:click, :left, {800, 400}}]
-    # a settle window is armed, so the splash isn't read as a bite
-    assert l.waiting_until == 600 + 500
-    assert {^l, []} = Logic.step(l, Map.put(cursor_obs(), :glow, true), 700)
+    {watching, _} = Logic.step(%{advance_to(:casting) | config: cfg}, cursor_obs(), 400)
+    assert watching.state == :watching
+    assert watching.waiting_until == 400 + 500
+    # a glow inside the settle window is a no-op (still waiting out the splash)
+    assert {^watching, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 800)
   end
 
   test "watching: settle on calm water first, THEN a bubble hooks and loops back to casting" do
@@ -213,16 +210,16 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert hooked.state == :casting
   end
 
-  test "watching recasts (via equipping) after the absolute watch timeout" do
+  test "watching recasts (via casting) after the absolute watch timeout" do
     # a single frame past watch_timeout_ms trips the backstop even before the
-    # dead-frame streak fills; recovery re-arms the rod (routes through :equipping).
+    # dead-frame streak fills; recovery re-arms + re-throws (routes through :casting).
     watching = advance_to(:watching)
     {l, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 600 + 30_001)
-    assert l.state == :equipping
+    assert l.state == :casting
     assert [{:log, _}] = actions
   end
 
-  test "watching recasts via equipping after watch_dead_streak_needed no-bubble frames" do
+  test "watching recasts via casting after watch_dead_streak_needed no-bubble frames" do
     # config() sets watch_dead_streak_needed: 10; feed 10 consecutive no-bite
     # frames with the clock well under watch_timeout_ms so ONLY the dead-frame
     # path can fire. Recovery re-arms the rod (press v) rather than just re-click.
@@ -233,7 +230,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
         Logic.step(l, Map.put(cursor_obs(), :glow, false), 700 + i * 100)
       end)
 
-    assert result.state == :equipping
+    assert result.state == :casting
     assert [{:log, msg}] = actions
     assert msg =~ "re-lançando"
   end
@@ -390,7 +387,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   test "io_failed counts and eventually errors" do
     l = advance_to(:watching)
     {l, _} = Logic.io_failed(l, "boom", 700)
-    assert l.state == :equipping
+    assert l.state == :casting
     assert l.failures == 1
     assert l.counters.failures == 1
 
@@ -404,11 +401,11 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     # focusing sets waiting_until = now + wait_focus_ms (150); stepping again at
     # now < 150 would normally be a no-op wait — kill corner must still win.
     focusing = advance_to(:focusing)
-    {equipping, _} = Logic.step(focusing, cursor_obs(), 0)
-    assert equipping.state == :equipping
-    assert equipping.waiting_until == 150
+    {casting, _} = Logic.step(focusing, cursor_obs(), 0)
+    assert casting.state == :casting
+    assert casting.waiting_until == 150
 
-    {killed, actions} = Logic.step(equipping, %{cursor: {3, 3}}, 50)
+    {killed, actions} = Logic.step(casting, %{cursor: {3, 3}}, 50)
     assert killed.state == :idle
     assert [{:log, _}] = actions
   end

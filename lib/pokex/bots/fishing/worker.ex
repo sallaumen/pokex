@@ -236,6 +236,7 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp describe_action({:click, :right, {x, y}}), do: "clique dir (#{x},#{y})"
   defp describe_action({:move, {x, y}}), do: "mover mouse (#{x},#{y})"
   defp describe_action({:capture_sequence, {x, y}}), do: "pokébola (#{x},#{y})"
+  defp describe_action({:wait, _ms}), do: nil
   defp describe_action({:log, msg}), do: msg
 
   defp snapshot(nil), do: %{state: :idle, counters: %Logic{}.counters, error: nil}

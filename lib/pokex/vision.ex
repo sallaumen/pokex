@@ -320,6 +320,53 @@ defmodule Pokex.Vision do
       (r >= 120 and r >= g + 40 and r >= b + 40)
   end
 
+  @doc """
+  Per-slot skill-bar state: splits the frame into `count` equal-width vertical slots
+  (the skill hotbar) and returns a detailed map per slot — average `brightness`
+  (`max(r,g,b)`), average `saturation` (`max-min`), and a `state`.
+
+  A READY skill shows a bright, saturated icon; a skill on COOLDOWN is darkened by a
+  dim overlay with a small white countdown number. The overlay kills the icon's colour,
+  so `saturation` is the primary signal: a slot is `:ready` when it is bright ENOUGH or
+  saturated ENOUGH, and `:cooldown` only when it is BOTH dark AND grey. This keeps a
+  dark-but-colourful ready icon (e.g. a green one) from being misread as cooldown.
+
+  Both thresholds are tunable (measured live from the diagnostic dump, which exports
+  these per-slot numbers). Options: `:count` (7), `:min_brightness` (140),
+  `:min_saturation` (40). Returns `[%{brightness, saturation, state}]`, left→right.
+  """
+  def skill_slots(%Frame{width: w, rgba: rgba}, opts \\ []) do
+    count = opts |> Keyword.get(:count, 7) |> clamp(1, w)
+    min_b = Keyword.get(opts, :min_brightness, 140)
+    min_s = Keyword.get(opts, :min_saturation, 40)
+    slot_w = max(div(w, count), 1)
+
+    acc = skill_slot_acc(rgba, 0, w, count, slot_w, %{})
+
+    for i <- 0..(count - 1)//1 do
+      {sb, ss, n} = Map.get(acc, i, {0, 0, 0})
+      n = max(n, 1)
+      brightness = div(sb, n)
+      saturation = div(ss, n)
+      state = if brightness >= min_b or saturation >= min_s, do: :ready, else: :cooldown
+      %{brightness: brightness, saturation: saturation, state: state}
+    end
+  end
+
+  @doc "The per-slot skill states (`:ready | :cooldown`), left→right. See `skill_slots/2`."
+  def skill_states(%Frame{} = frame, opts \\ []),
+    do: frame |> skill_slots(opts) |> Enum.map(& &1.state)
+
+  defp skill_slot_acc(<<r, g, b, _a, rest::binary>>, i, w, count, slot_w, acc) do
+    slot = min(div(rem(i, w), slot_w), count - 1)
+    bright = max(r, max(g, b))
+    sat = bright - min(r, min(g, b))
+    acc = Map.update(acc, slot, {bright, sat, 1}, fn {sb, ss, n} -> {sb + bright, ss + sat, n + 1} end)
+    skill_slot_acc(rest, i + 1, w, count, slot_w, acc)
+  end
+
+  defp skill_slot_acc(<<>>, _i, _w, _count, _slot_w, acc), do: acc
+
   # Salience ranks for downsample/2: a cell is tagged with the HIGHEST-ranked
   # pixel class present anywhere inside it, so a thin HP bar or lock ring in an
   # otherwise-dark cell still surfaces instead of being averaged into gray.

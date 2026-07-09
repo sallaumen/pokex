@@ -13,13 +13,14 @@ defmodule Pokex.Bots.SkillBar do
   mapping slot i (0-based, left→right) to hotbar key `to_string(i + 1)`.
   """
 
-  alias Pokex.{Calibration, Rig, Vision}
+  alias Pokex.{Calibration, Vision}
+  alias Pokex.Bots.Capture
   alias Pokex.Vision.Frame
 
   @doc "Per-slot `%{brightness, saturation, state}` list, or `nil` (not calibrated / capture failed)."
   def read(calib, settings) do
     with %Calibration{skill_bar_region: region} when is_tuple(region) <- calib,
-         {:ok, path} <- Rig.impl().capture(region, "skillbar.png"),
+         {:ok, path} <- Capture.grab(region, "skillbar.png"),
          {:ok, frame} <- Frame.from_png_file(path) do
       Vision.skill_slots(frame,
         count: settings[:skill_bar_count],
@@ -55,6 +56,26 @@ defmodule Pokex.Bots.SkillBar do
         i -> match?(%{state: :ready}, Enum.at(slots, i))
       end
     end)
+  end
+
+  @doc """
+  Is AT LEAST ONE of `keys` ready? The LOOSENED fishing gate: pull the moment any
+  kill-skill is up, instead of waiting for the whole set (measured on Lucas's real bar:
+  requiring ALL of 4/5/6 held ~54% of bites, because the ~40s kill-skills are usually
+  mid-cooldown — so the fish sat unpulled while the bubbles flashed).
+
+  FAIL-OPEN, same as `all_ready?`, so an unreadable bar can never softlock a held fish:
+    * `nil` slots (no reading / uncalibrated) → `true`;
+    * only UNTRACKABLE keys (non-digits, or digits past the bar) → no information to gate
+      on → `true`. A key counts as ready only when it maps to a real slot reading `:ready`.
+  """
+  def any_ready?(nil, _keys), do: true
+
+  def any_ready?(slots, keys) do
+    count = length(slots)
+    trackable = for key <- keys, i = slot_index(key, count), do: i
+
+    trackable == [] or Enum.any?(trackable, &match?(%{state: :ready}, Enum.at(slots, &1)))
   end
 
   @doc """

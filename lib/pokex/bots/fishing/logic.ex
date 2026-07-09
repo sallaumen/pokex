@@ -132,7 +132,7 @@ defmodule Pokex.Bots.Fishing.Logic do
         {%{logic | glow_streak: streak, dead_streak: 0, holding?: false}, []}
 
       hold_for_cooldowns?(logic, obs) ->
-        # Bite confirmed, but require_cooldowns is on and the kill-skills aren't ready
+        # Bite confirmed, but require_cooldowns is on and NOT ONE kill-skill is ready
         # → HOLD the fish: keep the line live and the bite debounce saturated, DON'T
         # press the rod and DON'T count a hook (the bubbles keep flashing until we
         # pull, so the bite window never closes). Announce the hold ONCE, not per frame.
@@ -254,8 +254,9 @@ defmodule Pokex.Bots.Fishing.Logic do
   defp line_present?(_obs), do: false
 
   # The fishing→combat cooldown gate: hold the fish when require_cooldowns is on and
-  # the kill-skills aren't ready. cooldowns_ready? defaults to true (fail-open) so a
-  # missing observation never softlocks fishing.
+  # NOT ONE kill-skill is ready (the sensor computes cooldowns_ready? as ANY-ready over
+  # hook_skill_keys). Defaults to true (fail-open) so a missing observation never
+  # softlocks fishing.
   defp hold_for_cooldowns?(logic, obs),
     do: require_cooldowns?(logic) and not cooldowns_ready?(obs)
 

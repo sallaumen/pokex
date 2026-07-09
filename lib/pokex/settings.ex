@@ -25,11 +25,13 @@ defmodule Pokex.Settings do
     # it if a greyed cooldown ever reads ready; LOWER it if a small coloured icon reads cooldown.
     skill_ready_min_vivid_pct: 6,
     # Fishing gate (toggle in the panel): when true, a bite is HELD (line stays in
-    # the water, bubbles keep flashing) and the rod is only pulled once every skill
-    # in hook_skill_keys is ready — so you only reel in a fish you can actually kill.
+    # the water, bubbles keep flashing) and the rod is only pulled once AT LEAST ONE
+    # skill in hook_skill_keys is ready — so you don't reel in a fish with nothing to
+    # kill it. (Loosened from ALL-ready, which held ~54% of bites while the ~40s
+    # kill-skills cycled — the "sees bubbles but won't pull" bug.)
     require_cooldowns: false,
-    # Which skills must ALL be ready before the gate lets fishing hook. Lucas needs
-    # 4-7 (~40s each) to kill; edit in the panel. These are hotbar keys ("1".."N").
+    # Which skills the gate watches — it pulls as soon as ANY of them is ready. Lucas
+    # uses 4-7 (~40s each) to kill; edit in the panel. These are hotbar keys ("1".."N").
     hook_skill_keys: ["4", "5", "6", "7"],
     # No delays for now — everything runs as fast as the screen captures allow.
     # A tiny post-success pause (10–50ms) is all that stays, so the game has a

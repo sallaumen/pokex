@@ -3,7 +3,7 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   @behaviour Pokex.Bots.Fisher.Sensors
 
   alias Pokex.{Calibration, Rig, Vision}
-  alias Pokex.Bots.SkillBar
+  alias Pokex.Bots.{Capture, SkillBar}
   alias Pokex.Vision.Frame
 
   @impl true
@@ -81,14 +81,16 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
-  # Are the kill-skills ready? This process reads the skill bar itself (one capture,
-  # a pure SkillBar.read) — no shared process, nothing to block on. Fail-open (true
-  # with no reading) so require_cooldowns can't softlock fishing. Fishing only asks
-  # for this key when the gate is on (see Fishing.Logic.needs/1), so with the gate
-  # off there's no extra capture at all.
+  # Is at least one kill-skill ready? This process reads the skill bar itself (one
+  # capture, a pure SkillBar.read) — no shared process, nothing to block on. ANY-ready
+  # (not ALL): pull the moment one hook-skill is up, so the fish isn't held while the
+  # ~40s kill-skills cycle (all-ready held ~54% of Lucas's bites). Fail-open (true with
+  # no reading) so require_cooldowns can't softlock fishing. Fishing only asks for this
+  # key when the gate is on (see Fishing.Logic.needs/1), so with the gate off there's no
+  # extra capture at all.
   defp fetch(:cooldowns_ready?, calib, settings) do
     keys = settings[:hook_skill_keys] || settings[:skill_keys] || []
-    {:ok, SkillBar.all_ready?(SkillBar.read(calib, settings), keys)}
+    {:ok, SkillBar.any_ready?(SkillBar.read(calib, settings), keys)}
   end
 
   # The ready hotbar keys for combat to fire (highest-priority ready first). nil when
@@ -131,8 +133,10 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   # so this never divides by zero).
   defp row_index(y, top, band, rows), do: max(0, min(div(y - top, band), rows - 1))
 
+  # Through the Capture broker so no two screencaptures run at once (concurrent ones balloon on
+  # macOS — see Pokex.Bots.Capture). Falls back to a direct capture when the broker isn't up.
   defp capture_frame(region, filename) do
-    with {:ok, path} <- Rig.impl().capture(region, filename) do
+    with {:ok, path} <- Capture.grab(region, filename) do
       Frame.from_png_file(path)
     end
   end

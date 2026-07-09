@@ -60,4 +60,28 @@ defmodule Pokex.Bots.SkillBarTest do
     # nil (not []) so combat uses blind rotation, never "no skills ready"
     assert SkillBar.ready_keys(nil) == nil
   end
+
+  @tag :tmp_dir
+  test "any_ready?: the loosened gate pulls when AT LEAST ONE hook-skill is ready" do
+    slots = SkillBar.read(calib({0, 0, 14, 1}), @settings)
+
+    # slots 1-6 ready, 7 on cooldown
+    assert SkillBar.any_ready?(slots, ["4", "5", "6"]) == true
+    # only the cooldown slot → nothing ready → HOLD
+    assert SkillBar.any_ready?(slots, ["7"]) == false
+    # one ready among cooldowns is enough to pull
+    assert SkillBar.any_ready?(slots, ["6", "7"]) == true
+  end
+
+  @tag :tmp_dir
+  test "any_ready? fails OPEN too — an unreadable/untrackable bar never softlocks the hold" do
+    slots = SkillBar.read(calib({0, 0, 14, 1}), @settings)
+
+    # no reading at all → don't hold
+    assert SkillBar.any_ready?(nil, ["4", "5"]) == true
+    # ALL keys untrackable (past the bar / non-digit) → no info → don't hold
+    assert SkillBar.any_ready?(slots, ["9", "e"]) == true
+    # a trackable cooldown key alongside an untrackable one → still nothing ready → HOLD
+    assert SkillBar.any_ready?(slots, ["7", "9"]) == false
+  end
 end

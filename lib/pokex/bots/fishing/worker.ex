@@ -109,12 +109,15 @@ defmodule Pokex.Bots.Fishing.Worker do
       end
 
     # A tick is MACRO when the state or a counter changed (a hook, a recast, an
-    # error) — the events worth keeping; every other tick is routine DEBUG
-    # chatter (per-frame bubble counts), hidden by default in the panel feed.
+    # error) OR the hold latched/released — the events worth keeping; every other
+    # tick is routine DEBUG chatter (per-frame bubble counts), hidden by default in
+    # the panel feed. Elevating the hold transition means the lock never scrolls past
+    # unseen the way the old once-only debug log did.
     level =
-      if logic.state != previous.state or logic.counters != previous.counters,
-        do: :macro,
-        else: :debug
+      if logic.state != previous.state or logic.counters != previous.counters or
+           logic.holding? != previous.holding?,
+         do: :macro,
+         else: :debug
 
     broadcast_activity(previous, raw_obs, actions, level)
     if level == :macro, do: broadcast(logic)
@@ -232,14 +235,20 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp state_desc(%Logic{state: :watching, settled?: settled, dead_streak: dead} = logic, obs) do
     case Map.get(obs, :glow) do
       n when is_integer(n) ->
-        "vigiando: bolhas #{n}px (limiar #{Settings.get(:glow_threshold)}) — assentado? #{settled} — #{dead}/#{logic.config.watch_dead_streak_needed} sem bolha"
+        "vigiando: bolhas #{n}px (limiar #{Settings.get(:glow_threshold)}) — assentado? #{settled} — #{dead}/#{logic.config.watch_dead_streak_needed} sem bolha#{lock_suffix(logic)}"
 
       _ ->
-        "vigiando"
+        "vigiando#{lock_suffix(logic)}"
     end
   end
 
   defp state_desc(_, _obs), do: nil
+
+  # While a bite is HELD by the cooldown gate the line stays live and the bubbles keep
+  # flashing, so without this the watch line just reads "bolhas Npx (acima do limiar)"
+  # forever and never says WHY it isn't pulling. Surface the lock on every held tick.
+  defp lock_suffix(%Logic{holding?: true}), do: " — 🔒 SEGURADO (esperando skill de kill)"
+  defp lock_suffix(_logic), do: ""
 
   defp describe_action({:press, key}), do: "tecla #{key}"
   defp describe_action({:click, :left, {x, y}}), do: "clique esq (#{x},#{y})"

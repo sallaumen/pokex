@@ -147,6 +147,36 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "a held bite SURFACES the lock in the feed (not just the bubble count)", %{worker: worker} do
+    # The bug Lucas hit: with the gate holding the fish, the feed only showed
+    # "vigiando: bolhas Npx (acima do limiar)" and never said WHY it wasn't pulling.
+    # Drive a hold (gate on, no kill-skill ready) and assert the lock is visible.
+    Settings.put(:require_cooldowns, true)
+    # reconfigure the already-started Fake: calm→bite glow, and the gate never opens
+    Agent.update(Sensors.Fake, &Map.merge(&1, %{glow: [50, 900, 900], cooldowns_ready?: [false]}))
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    assert :ok = Worker.run(worker)
+
+    # the feed must carry the lock marker, persistently on the watch line
+    assert wait_for_log("🔒", System.monotonic_time(:millisecond) + 5_000)
+  end
+
+  defp wait_for_log(substr, deadline) do
+    receive do
+      {:fishing_log, _level, text} when is_binary(text) ->
+        if String.contains?(text, substr),
+          do: true,
+          else: wait_for_log(substr, deadline)
+
+      _ ->
+        wait_for_log(substr, deadline)
+    after
+      max(0, deadline - System.monotonic_time(:millisecond)) -> false
+    end
+  end
+
+  @tag :tmp_dir
   test "announces the catch so combat searches immediately", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.catch_topic())
     assert :ok = Worker.run(worker)

@@ -48,6 +48,10 @@ defmodule Pokex.Bots.Capture do
   @impl true
   def init(opts) do
     sck = Keyword.get(opts, :screen_capture_kit, ScreenCaptureKit)
+    # Sweep helper zombies from previous runs BEFORE starting ours: each orphan holds a live
+    # SCStream that loads the SCK daemon until new stream starts time out (the 2026-07-10
+    # death spiral). Real backend only — test fakes have no OS processes to sweep.
+    if sck == ScreenCaptureKit, do: ScreenCaptureKit.kill_orphans()
     {backend, start_recoverable?} = start_backend(opts, sck)
     sck_recoverable? = start_recoverable? and sck_recoverable?(sck)
     sck_recover_interval_ms = sck_recover_interval_ms(opts)

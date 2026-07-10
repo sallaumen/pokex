@@ -271,10 +271,73 @@ func withTimeout<T: Sendable>(
   }
 }
 
+// The runtime lands here once the stream is up. It exists so the stdin loop can start BEFORE
+// stream setup: a request that arrives early just answers "stream not ready" instead of the
+// loop itself waiting on the stream.
+final class RuntimeHolder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var runtime: CaptureRuntime?
+
+  func set(_ value: CaptureRuntime) {
+    lock.lock()
+    runtime = value
+    lock.unlock()
+  }
+
+  func get() -> CaptureRuntime? {
+    lock.lock()
+    defer { lock.unlock() }
+    return runtime
+  }
+}
+
 @main
 struct ScreenCaptureKitHelper {
   static func main() {
     let writer = JsonWriter()
+    let holder = RuntimeHolder()
+
+    // stdin loop + LIFELINE, alive from the very first instant: readLine() returning nil means
+    // the BEAM closed the port (gave up on us, or died) — exit NOW, whatever the stream setup is
+    // doing. The old code only started this loop AFTER the stream came up, so a start that
+    // outlived the supervisor's patience left an orphaned helper running its SCStream forever —
+    // measured on Lucas's machine: dozens of zombies, each pumping frames, starving the SCK
+    // daemon until every new stream start timed out.
+    DispatchQueue.global(qos: .userInitiated).async {
+      while let line = readLine() {
+        guard let data = line.data(using: .utf8) else {
+          writer.write(["ok": false, "error": "invalid utf8"])
+          continue
+        }
+
+        do {
+          guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                object["op"] as? String == "capture",
+                let path = object["path"] as? String
+          else {
+            throw CaptureError.writeFailed("invalid request")
+          }
+
+          guard let runtime = holder.get() else {
+            throw CaptureError.writeFailed("stream not ready")
+          }
+
+          try runtime.store.writeCrop(
+            x: intField(object, "x"),
+            y: intField(object, "y"),
+            width: intField(object, "w"),
+            height: intField(object, "h"),
+            path: path
+          )
+
+          writer.write(["ok": true, "path": path])
+        } catch {
+          writer.write(["ok": false, "error": "\(error)"])
+        }
+      }
+
+      exit(0)
+    }
 
     Task {
       do {
@@ -287,44 +350,16 @@ struct ScreenCaptureKitHelper {
           return try await CaptureRuntime.start(from: content)
         }
 
+        // Publish the runtime BEFORE announcing ready, so a capture that races the announcement
+        // can never see "stream not ready".
+        holder.set(runtime)
+
         writer.write([
           "ready": true,
           "display_width": runtime.display.width,
           "display_height": runtime.display.height,
           "scale": Double(runtime.scale),
         ])
-
-        DispatchQueue.global(qos: .userInitiated).async {
-          while let line = readLine() {
-            guard let data = line.data(using: .utf8) else {
-              writer.write(["ok": false, "error": "invalid utf8"])
-              continue
-            }
-
-            do {
-              guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                    object["op"] as? String == "capture",
-                    let path = object["path"] as? String
-              else {
-                throw CaptureError.writeFailed("invalid request")
-              }
-
-              try runtime.store.writeCrop(
-                x: intField(object, "x"),
-                y: intField(object, "y"),
-                width: intField(object, "w"),
-                height: intField(object, "h"),
-                path: path
-              )
-
-              writer.write(["ok": true, "path": path])
-            } catch {
-              writer.write(["ok": false, "error": "\(error)"])
-            }
-          }
-
-          exit(0)
-        }
       } catch {
         writer.write(["ready": false, "error": "\(error)"])
         exit(1)

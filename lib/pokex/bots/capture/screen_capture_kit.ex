@@ -254,9 +254,58 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
   defp pos_int(value, _default) when is_integer(value) and value > 0, do: value
   defp pos_int(_value, default), do: default
 
+  # Closing the port closes the helper's stdin, which its lifeline thread turns into exit(0) —
+  # but belt-and-suspenders: an OLD compiled helper (pre-lifeline) or a wedged one ignores EOF
+  # and lives forever holding an open SCStream (measured: dozens of zombies starving the SCK
+  # daemon until every start timed out). So grab the OS pid first and SIGKILL it after closing;
+  # the process has no cleanup needs — its death releases the daemon connection.
   defp close_port(port) do
-    Port.close(port)
-  catch
-    :error, _reason -> :ok
+    os_pid =
+      case Port.info(port, :os_pid) do
+        {:os_pid, pid} -> pid
+        _closed -> nil
+      end
+
+    try do
+      Port.close(port)
+    catch
+      :error, _reason -> :ok
+    end
+
+    if os_pid, do: System.cmd("kill", ["-9", Integer.to_string(os_pid)], stderr_to_stdout: true)
+    :ok
+  end
+
+  @doc """
+  SIGKILL every helper left over from a previous run. Each orphan holds a live SCStream that
+  loads the ScreenCaptureKit daemon; enough of them and every new stream start times out — the
+  exact death spiral debugged on 2026-07-10 (~64 zombies). Called once at Capture boot, BEFORE
+  starting our own helper. Assumes one pokex instance per machine (a second running instance
+  would lose its helper and recover through its normal fallback+retry path).
+  """
+  def kill_orphans(executable \\ nil) do
+    # Only when this process would actually USE the SCK backend — a `mix test` run
+    # (capture_backend :screencapture) must never sweep a live dev server's helper.
+    with :ok <- enabled?(), :ok <- macos?() do
+      do_kill_orphans(executable)
+    else
+      _disabled_or_not_macos -> :ok
+    end
+  end
+
+  defp do_kill_orphans(executable) do
+    path = executable || Path.join([Pokex.Home.dir(), "bin", "screen_capture_kit"])
+
+    case System.cmd("pkill", ["-9", "-f", path], stderr_to_stdout: true) do
+      {_out, 0} ->
+        Logger.warning("killed orphaned ScreenCaptureKit helper(s) from a previous run: #{path}")
+        :ok
+
+      # 1 = no matching processes — the common, healthy case.
+      {_out, _code} ->
+        :ok
+    end
+  rescue
+    e in ErlangError -> {:error, {:pkill_failed, e.original}}
   end
 end

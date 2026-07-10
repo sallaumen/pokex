@@ -1,0 +1,61 @@
+defmodule Pokex.Perception.InterpretTest do
+  use ExUnit.Case, async: false
+
+  alias Pokex.Perception.Interpret
+  alias Pokex.{Calibration, Settings}
+  alias Pokex.Vision.Frame
+
+  # battle_region 80x400 at scale 1.0; strip_width points cover the pokeball column.
+  defp calib do
+    %Calibration{
+      scale: 1.0,
+      screen_w: 1000,
+      screen_h: 700,
+      water_point: {1, 1},
+      glow_region: {0, 0, 8, 8},
+      battle_region: {0, 0, 80, 400},
+      arena_region: {100, 100, 60, 40},
+      neutral_point: {500, 500}
+    }
+  end
+
+  defp settings, do: Settings.all()
+
+  # A battle frame: `w` x `h`, dark everywhere except the painter functions.
+  defp frame(w, h, paint) do
+    rgba =
+      for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
+        {r, g, b} = paint.(x, y)
+        <<r, g, b, 255>>
+      end
+
+    %Frame{width: w, height: h, rgba: rgba}
+  end
+
+  test "an all-dark battle frame has no enemies and no lock" do
+    f = frame(80, 400, fn _x, _y -> {9, 9, 9} end)
+    obs = Interpret.battle(f, calib(), settings())
+    assert obs.enemies == []
+    assert obs.locked? == false
+    assert obs.locked_row == nil
+  end
+
+  test "a dark-red band inside row 0's lock band reads as locked" do
+    # row band geometry at scale 1.0: Calibration.row_band_geometry(1.0, row_height)
+    {top, band} = Calibration.row_band_geometry(1.0, Settings.get(:battle_row_height))
+
+    f =
+      frame(80, 400, fn _x, y ->
+        if y >= max(top, 0) and y < top + band, do: {160, 20, 20}, else: {9, 9, 9}
+      end)
+
+    obs = Interpret.battle(f, calib(), settings())
+    assert obs.locked? == true
+    assert obs.locked_row == 0
+  end
+
+  test "arena with no hostile name is nil" do
+    f = frame(60, 40, fn _x, _y -> {9, 9, 9} end)
+    assert Interpret.arena(f, calib(), settings()) == %{hostile: nil}
+  end
+end

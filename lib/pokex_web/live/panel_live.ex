@@ -89,6 +89,7 @@ defmodule PokexWeb.PanelLive do
        cooldowns_states: nil,
        require_cooldowns: Settings.get(:require_cooldowns),
        rescue_enabled: Settings.get(:rescue_enabled),
+       rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " ")
      )}
   end
@@ -318,6 +319,20 @@ defmodule PokexWeb.PanelLive do
     value = not Settings.get(:rescue_enabled)
     Settings.put(:rescue_enabled, value)
     {:noreply, assign(socket, rescue_enabled: value)}
+  end
+
+  # The threshold is expensive to get wrong in BOTH directions: too high burns revives on
+  # scratches, too low revives a corpse. Only a sane 1..90 integer is accepted; anything
+  # else leaves the current setting untouched.
+  def handle_event("save_rescue_pct", %{"rescue_pct" => raw}, socket) do
+    case Integer.parse(String.trim(raw)) do
+      {pct, ""} when pct in 1..90 ->
+        Settings.put(:pokemon_hp_rescue_pct, pct)
+        {:noreply, assign(socket, rescue_pct: pct)}
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   # One-shot skill-bar read for the display (no loop, no shared process).
@@ -831,7 +846,7 @@ defmodule PokexWeb.PanelLive do
               <.automation_row
                 id="automation-rescue"
                 title="Revive automático"
-                description={"Revive quando a vida cai abaixo de #{Settings.get(:pokemon_hp_rescue_pct)}%"}
+                description={"Revive quando a vida cai abaixo de #{@rescue_pct}%"}
                 active={@rescue_enabled}
                 event="toggle_rescue"
               />
@@ -850,10 +865,22 @@ defmodule PokexWeb.PanelLive do
                 style={hp_bar_style(@game)}
               />
             </div>
-            <div class="mt-2 flex justify-between font-mono text-[9px] text-[#737d85]">
-              <span>revive &lt; {Settings.get(:pokemon_hp_rescue_pct)}%</span><span>revives: {rescue_count(
-                @game
-              )}</span>
+            <div class="mt-2 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
+              <form id="rescue-pct-form" phx-change="save_rescue_pct" class="flex items-center gap-1">
+                <label for="rescue-pct">revive &lt;</label>
+                <input
+                  id="rescue-pct"
+                  name="rescue_pct"
+                  type="number"
+                  min="1"
+                  max="90"
+                  value={@rescue_pct}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                />
+                <span>%</span>
+              </form>
+              <span>revives: {rescue_count(@game)}</span>
             </div>
           </section>
 

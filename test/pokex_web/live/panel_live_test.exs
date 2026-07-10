@@ -232,6 +232,23 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:hook_skill_keys) == ["5", "6", "7"]
   end
 
+  test "saves the rescue threshold from the panel and rejects nonsense values", %{conn: conn} do
+    original = Pokex.Settings.get(:pokemon_hp_rescue_pct)
+    on_exit(fn -> Pokex.Settings.put(:pokemon_hp_rescue_pct, original) end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view |> form("#rescue-pct-form", %{"rescue_pct" => "30"}) |> render_change()
+    assert Pokex.Settings.get(:pokemon_hp_rescue_pct) == 30
+    assert render(view) =~ "abaixo de 30%"
+
+    # out-of-range and garbage inputs must not touch the saved value
+    view |> form("#rescue-pct-form", %{"rescue_pct" => "95"}) |> render_change()
+    view |> form("#rescue-pct-form", %{"rescue_pct" => "abc"}) |> render_change()
+    view |> form("#rescue-pct-form", %{"rescue_pct" => ""}) |> render_change()
+    assert Pokex.Settings.get(:pokemon_hp_rescue_pct) == 30
+  end
+
   @tag :tmp_dir
   test "the 'Ler' button reads the skill bar on demand", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

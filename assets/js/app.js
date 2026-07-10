@@ -48,6 +48,16 @@ const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
   hooks: {...colocatedHooks, ImgClick, FishingLab},
+  dom: {
+    // <details> open state lives only in the browser; without this, every LiveView
+    // patch (e.g. each HP-monitor broadcast) re-renders the closed server HTML and
+    // instantly collapses whatever the user just opened.
+    onBeforeElUpdated(from, to) {
+      if (from.tagName === "DETAILS" && from.hasAttribute("open")) {
+        to.setAttribute("open", "")
+      }
+    },
+  },
 })
 
 let miniGameAudioContext

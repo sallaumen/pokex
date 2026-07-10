@@ -47,6 +47,13 @@ defmodule Pokex.Perception do
         interval_setting: :feed_arena_ms,
         filename: "feed_arena.png",
         interpret: &Interpret.arena/3
+      },
+      %{
+        key: :corpses,
+        region: fn calib -> calib.arena_region end,
+        interval_setting: :feed_corpses_ms,
+        filename: "feed_corpses.png",
+        interpret: &Interpret.Corpses.interpret/4
       }
     ]
   end

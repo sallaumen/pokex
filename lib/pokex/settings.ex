@@ -242,7 +242,25 @@ defmodule Pokex.Settings do
     # same keystroke script whenever something else is focused. The game runs under Wine, so
     # System Events knows its process as "wine"; update game_app_name if it ever changes client.
     ensure_game_focus: true,
-    game_app_name: "wine"
+    game_app_name: "wine",
+    # --- Corpse capture (parado mode) -------------------------------------------------------------
+    # The :corpses feed learns the EMPTY ground at attach: the first warmup frame is the baseline
+    # and any 16px cell that deviates during the remaining warmup frames (animated water, sparkles,
+    # the character) is masked out forever. After warmup, a masked-diff blob that holds still for
+    # corpse_stationary_frames consecutive frames is a corpse (a wandering pet never qualifies).
+    # Start the bot with the ground CLEAN — a corpse present at attach becomes part of the baseline.
+    feed_corpses_ms: 400,
+    corpse_warmup_frames: 20,
+    corpse_cell_px: 16,
+    # per-channel delta for a sample to count as changed (warmup: mask a cell; scanning: heat it)
+    corpse_noise_threshold: 40,
+    corpse_diff_threshold: 40,
+    # samples per 16px cell = 16 (stride 4); a cell is HOT when this many changed
+    corpse_cell_min_samples: 6,
+    # a blob needs this many connected hot cells (a corpse sprite spans ~2-3 cells)
+    corpse_min_cells: 2,
+    corpse_stationary_frames: 2,
+    corpse_stationary_tolerance_px: 24
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

@@ -19,7 +19,7 @@ defmodule Pokex.Application do
       # before the bot so every worker's `Capture.grab` reaches it. Concurrent screencaptures
       # balloon on macOS; one-at-a-time keeps each ~0.28s and the sample cadence steady.
       Pokex.Bots.Capture,
-      Pokex.Perception.WorldState,
+      Pokex.Perception,
       Pokex.Bots.BotSupervisor,
       # Start to serve requests, typically the last entry
       PokexWeb.Endpoint

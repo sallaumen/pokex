@@ -213,7 +213,13 @@ defmodule Pokex.Settings do
     potion_enabled: false,
     potion_key: "e",
     pokemon_hp_potion_pct: 70,
-    potion_cooldown_ms: 10_000
+    potion_cooldown_ms: 10_000,
+    # --- Perception feeds -----------------------------------------------------------------------
+    # Capture cadence per feed. A feed only captures while a consumer is attached, so these are
+    # upper bounds on broker demand, not constant costs. battle is the combat hot path; arena only
+    # runs while fighting (corpse position for loot).
+    feed_battle_ms: 120,
+    feed_arena_ms: 300
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

@@ -27,32 +27,11 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "Mini game"
     assert html =~ "Automações"
     assert html =~ "parado"
-    assert has_element?(view, "#quick-fishing[phx-click=test_fishing]", "Testar pesca")
-    assert has_element?(view, "#quick-combat[phx-click=test_combat]", "Testar combate")
     assert has_element?(view, "#panel-navigation[phx-update=ignore]")
     assert has_element?(view, "#panel-navigation-toggle[aria-label='Abrir navegação']")
     assert has_element?(view, "#panel-nav-calibration[href='/calibration']")
     assert has_element?(view, "#panel-nav-diagnostics[href='/diagnostics']")
     assert has_element?(view, "#panel-nav-fishing-lab[href='/fishing-lab']")
-  end
-
-  test "quick worker actions become individual stop buttons while running", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
-
-    Phoenix.PubSub.broadcast(
-      Pokex.PubSub,
-      "fishing",
-      {:fishing, %{state: :watching, counters: %{}, error: nil}}
-    )
-
-    Phoenix.PubSub.broadcast(
-      Pokex.PubSub,
-      "combat",
-      {:combat, %{state: :scanning, counters: %{}, error: nil, locked_row: nil}}
-    )
-
-    assert has_element?(view, "#quick-fishing[phx-click=toggle_fishing]", "Parar pesca")
-    assert has_element?(view, "#quick-combat[phx-click=toggle_combat]", "Parar combate")
   end
 
   test "a fishing broadcast updates only the fishing pill", %{conn: conn} do

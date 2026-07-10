@@ -255,30 +255,6 @@ defmodule PokexWeb.PanelLive do
      )}
   end
 
-  def handle_event("test_combat", _params, socket) do
-    case Combat.Worker.run() do
-      :ok ->
-        {:noreply,
-         assign(socket, errors: [], logs: [], panicked?: false, combat: Combat.Worker.status())}
-
-      {:error, messages} ->
-        {:noreply, assign(socket, errors: messages)}
-    end
-  end
-
-  # Run ONLY the fishing worker — combat stays idle, so you can watch the fishing
-  # loop alone (cast → watch → hook → repeat) without the mouse being shared.
-  def handle_event("test_fishing", _params, socket) do
-    case Fishing.Worker.run() do
-      :ok ->
-        {:noreply,
-         assign(socket, errors: [], logs: [], panicked?: false, fishing: Fishing.Worker.status())}
-
-      {:error, messages} ->
-        {:noreply, assign(socket, errors: messages)}
-    end
-  end
-
   def handle_event("toggle_fishing", _params, socket),
     do: toggle_worker(socket, :fishing, Fishing.Worker)
 
@@ -726,39 +702,6 @@ defmodule PokexWeb.PanelLive do
           >
             <.icon name="hero-stop-solid" class="size-4" /> Parar bot
           </button>
-
-          <div id="quick-worker-actions" class="grid grid-cols-2 gap-2">
-            <button
-              id="quick-fishing"
-              class={[
-                "flex h-11 items-center justify-center gap-2 rounded-lg border text-xs font-semibold transition active:scale-[0.99]",
-                if(active?(@fishing.state),
-                  do: "border-[#713139] bg-[#281216] text-[#ff9ca4] hover:bg-[#35171b]",
-                  else:
-                    "border-[#267c4e] bg-[#10271b] text-[#50dc8d] hover:border-[#39d27c] hover:bg-[#133321]"
-                )
-              ]}
-              phx-click={if(active?(@fishing.state), do: "toggle_fishing", else: "test_fishing")}
-            >
-              <span aria-hidden="true">🎣</span>
-              {if(active?(@fishing.state), do: "Parar pesca", else: "Testar pesca")}
-            </button>
-            <button
-              id="quick-combat"
-              class={[
-                "flex h-11 items-center justify-center gap-2 rounded-lg border text-xs font-semibold transition active:scale-[0.99]",
-                if(active?(@combat.state),
-                  do: "border-[#713139] bg-[#281216] text-[#ff9ca4] hover:bg-[#35171b]",
-                  else:
-                    "border-[#2a343a] bg-[#090d0f] text-[#c6ccd1] hover:border-[#37d07d]/60 hover:text-white"
-                )
-              ]}
-              phx-click={if(active?(@combat.state), do: "toggle_combat", else: "test_combat")}
-            >
-              <span aria-hidden="true">⚔️</span>
-              {if(active?(@combat.state), do: "Parar combate", else: "Testar combate")}
-            </button>
-          </div>
 
           <div class="grid grid-cols-2 gap-2">
             <div

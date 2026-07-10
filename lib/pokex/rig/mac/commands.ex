@@ -54,8 +54,8 @@ defmodule Pokex.Rig.Mac.Commands do
   never mistaken for the numpad (which moves the character); other keys use
   `keystroke`. Modifiers are applied via `using {...}`.
   """
-  def press(combo) do
-    {"osascript", ["-e", ~s(tell application "System Events" to #{key_action(combo)})]}
+  def press(combo, opts \\ []) do
+    build_key_script(["  #{key_action(combo)}"], opts)
   end
 
   def press_many(combos, opts \\ []) do
@@ -68,7 +68,7 @@ defmodule Pokex.Rig.Mac.Commands do
       |> Enum.flat_map(fn combo -> List.duplicate(combo, tap_count) end)
       |> Enum.map(&key_action/1)
 
-    script =
+    lines =
       actions
       |> Enum.with_index()
       |> Enum.flat_map(fn {action, idx} ->
@@ -79,8 +79,48 @@ defmodule Pokex.Rig.Mac.Commands do
         end
       end)
 
+    build_key_script(lines, opts)
+  end
+
+  # A single guardless action keeps the battle-tested one-liner form; anything more (multiple
+  # actions and/or the focus guard) becomes a tell-block script.
+  defp build_key_script([action], opts) do
+    case Keyword.get(opts, :focus_app) do
+      nil ->
+        {"osascript", ["-e", ~s(tell application "System Events" to #{String.trim(action)})]}
+
+      app ->
+        block(focus_guard(app) ++ [action])
+    end
+  end
+
+  defp build_key_script(action_lines, opts) do
+    block(focus_guard(Keyword.get(opts, :focus_app)) ++ action_lines)
+  end
+
+  defp block(lines) do
     {"osascript",
-     ["-e", Enum.join(["tell application \"System Events\"" | script] ++ ["end tell"], "\n")]}
+     ["-e", Enum.join(["tell application \"System Events\"" | lines] ++ ["end tell"], "\n")]}
+  end
+
+  # System Events keystrokes land in the FRONTMOST app — if the user is on the panel (browser)
+  # while a bot presses, the key types into Chrome and the game never sees it. (The old
+  # click-targeting combat masked this: every select-click re-focused the game by accident;
+  # keyboard-only Tab combat removed the mask.) This guard runs INSIDE the same osascript (no
+  # extra process): re-front the game before the keys whenever something else is focused. The
+  # `try` swallows a missing game process, so the keys still fire with the old behavior instead
+  # of erroring the whole press.
+  defp focus_guard(nil), do: []
+
+  defp focus_guard(app_name) do
+    [
+      "  try",
+      ~s(    if name of first application process whose frontmost is true is not "#{app_name}" then),
+      ~s(      set frontmost of application process "#{app_name}" to true),
+      "      delay 0.05",
+      "    end if",
+      "  end try"
+    ]
   end
 
   defp key_action(combo) do

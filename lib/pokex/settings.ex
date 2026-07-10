@@ -234,7 +234,15 @@ defmodule Pokex.Settings do
     # How stale the :arena feed's last hostile point may be and still be handed to loot as
     # the corpse position (was `feed_arena_ms * 5` — a literal that silently drifted if the
     # arena cadence ever changed; now a standalone, intentional ceiling).
-    corpse_max_age_ms: 1_500
+    corpse_max_age_ms: 1_500,
+    # --- Keyboard focus guard --------------------------------------------------------------------
+    # System Events keystrokes land in the FRONTMOST app: with the panel focused (watching the
+    # activity feed in the browser), every bot key typed into Chrome and the game never saw it —
+    # fishing recast forever into the void (2026-07-10). The guard re-fronts the game inside the
+    # same keystroke script whenever something else is focused. The game runs under Wine, so
+    # System Events knows its process as "wine"; update game_app_name if it ever changes client.
+    ensure_game_focus: true,
+    game_app_name: "wine"
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

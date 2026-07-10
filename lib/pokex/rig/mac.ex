@@ -8,12 +8,23 @@ defmodule Pokex.Rig.Mac do
   alias Pokex.Rig.Mac.Commands
 
   @impl true
-  def press(combo), do: run(Commands.press(combo))
+  def press(combo), do: run(Commands.press(combo, focus_app: focus_app()))
 
   @impl true
   def press_many([], _opts), do: :ok
 
-  def press_many(combos, opts), do: run(Commands.press_many(combos, opts))
+  def press_many(combos, opts),
+    do: run(Commands.press_many(combos, Keyword.put(opts, :focus_app, focus_app())))
+
+  # Keystrokes only reach the game while it is FRONTMOST; the guard re-fronts it inside the
+  # keystroke script when the user is off on the panel/browser. Settings-driven so it can be
+  # turned off (ensure_game_focus) or renamed if the game ever leaves Wine (game_app_name).
+  # Fail-open: if Settings isn't up (early boot), skip the guard rather than block the press.
+  defp focus_app do
+    if Pokex.Settings.get(:ensure_game_focus), do: Pokex.Settings.get(:game_app_name)
+  catch
+    :exit, _reason -> nil
+  end
 
   @impl true
   def click(button, point), do: run(Commands.click(button, point))

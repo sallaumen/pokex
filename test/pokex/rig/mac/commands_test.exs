@@ -111,6 +111,35 @@ defmodule Pokex.Rig.Mac.CommandsTest do
              {"osascript", ["-e", ~s(tell application "System Events" to key code 122)]}
   end
 
+  test "focus_app prepends the re-front guard inside the SAME keystroke script" do
+    {"osascript", ["-e", script]} = Commands.press("shift+v", focus_app: "wine")
+
+    assert script ==
+             Enum.join(
+               [
+                 ~s(tell application "System Events"),
+                 "  try",
+                 ~s(    if name of first application process whose frontmost is true is not "wine" then),
+                 ~s(      set frontmost of application process "wine" to true),
+                 "      delay 0.05",
+                 "    end if",
+                 "  end try",
+                 ~s(  keystroke "v" using {shift down}),
+                 "end tell"
+               ],
+               "\n"
+             )
+  end
+
+  test "focus_app guards a press_many burst too, before the first key" do
+    {"osascript", ["-e", script]} =
+      Commands.press_many(["1", "2"], tap_count: 1, gap_ms: 0, focus_app: "wine")
+
+    assert script =~ ~s(set frontmost of application process "wine" to true)
+    # the guard comes BEFORE any key event
+    assert :binary.match(script, "frontmost") < :binary.match(script, "key code 18")
+  end
+
   test "left and right click" do
     assert Commands.click(:left, {812, 402}) == {"cliclick", ["c:812,402"]}
     assert Commands.click(:right, {10, 20}) == {"cliclick", ["rc:10,20"]}

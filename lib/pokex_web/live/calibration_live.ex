@@ -11,6 +11,10 @@ defmodule PokexWeb.CalibrationLive do
   @glow_half 32
 
   @total_steps 11
+  # Click-to-zoom magnification: a rough click magnifies the screenshot around it (via CSS
+  # transform, which the ImgClick hook's getBoundingClientRect already accounts for), then a
+  # precise second click is transcribed back to screen coordinates. Helps a lot on a small screen.
+  @zoom_factor 3.5
 
   @instructions %{
     water: "Clique no PONTO DA ÁGUA onde o bot deve arremessar.",
@@ -50,6 +54,7 @@ defmodule PokexWeb.CalibrationLive do
        review: nil,
        error: nil,
        skillbar_msg: nil,
+       zoom_at: nil,
        skill_count: skill_count,
        skill_count_form: skill_count_form(skill_count),
        row_height: Settings.get(:battle_row_height),
@@ -70,7 +75,8 @@ defmodule PokexWeb.CalibrationLive do
          done: false,
          review: nil,
          error: nil,
-         skillbar_msg: nil
+         skillbar_msg: nil,
+         zoom_at: nil
        )}
     else
       error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
@@ -91,28 +97,8 @@ defmodule PokexWeb.CalibrationLive do
          done: false,
          review: nil,
          error: nil,
-         skillbar_msg: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
-    end
-  end
-
-  # Standalone flow (like the skill bar): calibrate just the main Pokémon's HP bar + portrait,
-  # without redoing the whole 8-step wizard.
-  def handle_event("calibrate_pokemon", _params, socket) do
-    with {:ok, screen} <- grab_screen("pokemon_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :hp_a,
-         mode: :pokemon_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil
+         skillbar_msg: nil,
+         zoom_at: nil
        )}
     else
       error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
@@ -150,7 +136,21 @@ defmodule PokexWeb.CalibrationLive do
       ) do
     scale = socket.assigns.scale
     point = {round(x * nw / cw / scale), round(y * nh / ch / scale)}
-    {:noreply, record_point(socket, point)}
+
+    socket =
+      if socket.assigns.zoom_at do
+        # A precise click on the magnified view → record it, then drop the zoom for the next point.
+        socket |> record_point(point) |> assign(zoom_at: nil)
+      else
+        # A rough first click → magnify around it so the real target is easy to hit on a small screen.
+        assign(socket, zoom_at: point)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("cancel_zoom", _params, socket) do
+    {:noreply, assign(socket, zoom_at: nil)}
   end
 
   def handle_event("capture_baselines", _params, socket) do
@@ -304,13 +304,7 @@ defmodule PokexWeb.CalibrationLive do
         )
 
       :photo ->
-        case socket.assigns.mode do
-          :full ->
-            assign(socket, draft: Map.put(draft, :pokemon_photo_point, point), step: :baselines)
-
-          _ ->
-            save_pokemon(socket, draft.pokemon_hp_region, point)
-        end
+        assign(socket, draft: Map.put(draft, :pokemon_photo_point, point), step: :baselines)
 
       _ ->
         socket
@@ -318,6 +312,16 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   defp region_from({x1, y1}, {x2, y2}), do: {min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)}
+
+  # CSS transform that magnifies the screenshot around the rough click (a screen point). The
+  # transform-origin keeps that point in place while everything around it scales up; the ImgClick
+  # hook reads the transformed getBoundingClientRect, so the precise click maps back correctly.
+  defp zoom_style(nil, _screen, _factor), do: nil
+
+  defp zoom_style({x, y}, %{w: w, h: h}, factor) when w > 0 and h > 0,
+    do: "transform: scale(#{factor}); transform-origin: #{x / w * 100}% #{y / h * 100}%"
+
+  defp zoom_style(_zoom_at, _screen, _factor), do: nil
 
   defp save_skill_bar(socket, region, count) do
     case Calibration.load() do
@@ -337,32 +341,6 @@ defmodule PokexWeb.CalibrationLive do
           step: nil,
           screen: nil,
           error: "não deu pra salvar a barra: #{inspect(reason)}"
-        )
-    end
-  end
-
-  defp save_pokemon(socket, hp_region, photo_point) do
-    case Calibration.load() do
-      {:ok, calib} ->
-        Calibration.save(%{
-          calib
-          | pokemon_hp_region: hp_region,
-            pokemon_photo_point: photo_point
-        })
-
-        assign(socket,
-          draft: %{},
-          step: nil,
-          screen: nil,
-          calibrated?: true,
-          skillbar_msg: "Vida do Pokémon calibrada. Confira a leitura no painel."
-        )
-
-      {:error, reason} ->
-        assign(socket,
-          step: nil,
-          screen: nil,
-          error: "não deu pra salvar a vida do Pokémon: #{inspect(reason)}"
         )
     end
   end
@@ -445,7 +423,8 @@ defmodule PokexWeb.CalibrationLive do
   def render(assigns) do
     # module attributes are not available inside ~H as @foo (that reads
     # assigns), so expose the instruction map as an assign first
-    assigns = assign(assigns, instr: @instructions, total_steps: @total_steps)
+    assigns =
+      assign(assigns, instr: @instructions, total_steps: @total_steps, zoom_factor: @zoom_factor)
 
     ~H"""
     <Layouts.app flash={@flash} current_page={:calibration}>
@@ -529,9 +508,6 @@ defmodule PokexWeb.CalibrationLive do
               <button class="btn btn-ghost btn-sm" phx-click="calibrate_skillbar">
                 <.icon name="hero-bolt" class="size-4" /> Só as skills
               </button>
-              <button class="btn btn-ghost btn-sm" phx-click="calibrate_pokemon">
-                <.icon name="hero-heart" class="size-4" /> Só a vida do Pokémon
-              </button>
             </div>
           </div>
         </div>
@@ -574,31 +550,50 @@ defmodule PokexWeb.CalibrationLive do
             <p class="text-xs opacity-60">{@baselines_done}/10 capturadas</p>
           </div>
 
+          <p :if={marking_step?(@step)} class="text-xs">
+            <span :if={is_nil(@zoom_at)} class="opacity-70">
+              Dê um clique APROXIMADO no alvo — a imagem amplia pra você mirar com precisão.
+            </span>
+            <span :if={@zoom_at} class="font-semibold text-primary">
+              Ampliado {@zoom_factor}× — agora clique PRECISO no alvo.
+            </span>
+            <button
+              :if={@zoom_at}
+              type="button"
+              class="btn btn-ghost btn-xs ml-1 align-middle"
+              phx-click="cancel_zoom"
+            >
+              <.icon name="hero-arrow-uturn-left" class="size-3" /> refazer o clique
+            </button>
+          </p>
+
           <.legend :if={marking_step?(@step)} />
 
           <div
             :if={marking_step?(@step)}
-            class="relative overflow-hidden rounded-lg border border-base-content/20"
+            class="overflow-hidden rounded-lg border border-base-content/20"
           >
-            <img
-              id="calibration-screen"
-              phx-hook="ImgClick"
-              src={@screen.src}
-              class="w-full cursor-crosshair"
-            />
-            <.overlays
-              screen={@screen}
-              water_point={@draft[:water_point]}
-              glow_region={@draft[:glow_region]}
-              battle_region={@draft[:battle_region]}
-              arena_region={@draft[:arena_region]}
-              skill_bar_region={@draft[:skill_bar_region]}
-              neutral_point={@draft[:neutral_point]}
-              player_point={draft_player(@draft)}
-              pokemon_hp_region={@draft[:pokemon_hp_region]}
-              pokemon_photo_point={@draft[:pokemon_photo_point]}
-              bands={draft_bands(@draft, @scale, @row_height, @max_rows)}
-            />
+            <div class="relative" style={zoom_style(@zoom_at, @screen, @zoom_factor)}>
+              <img
+                id="calibration-screen"
+                phx-hook="ImgClick"
+                src={@screen.src}
+                class="w-full cursor-crosshair"
+              />
+              <.overlays
+                screen={@screen}
+                water_point={@draft[:water_point]}
+                glow_region={@draft[:glow_region]}
+                battle_region={@draft[:battle_region]}
+                arena_region={@draft[:arena_region]}
+                skill_bar_region={@draft[:skill_bar_region]}
+                neutral_point={@draft[:neutral_point]}
+                player_point={draft_player(@draft)}
+                pokemon_hp_region={@draft[:pokemon_hp_region]}
+                pokemon_photo_point={@draft[:pokemon_photo_point]}
+                bands={draft_bands(@draft, @scale, @row_height, @max_rows)}
+              />
+            </div>
           </div>
         </div>
 

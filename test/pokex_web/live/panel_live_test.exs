@@ -29,6 +29,11 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "parado"
     assert has_element?(view, "#quick-fishing[phx-click=test_fishing]", "Testar pesca")
     assert has_element?(view, "#quick-combat[phx-click=test_combat]", "Testar combate")
+    assert has_element?(view, "#panel-navigation[phx-update=ignore]")
+    assert has_element?(view, "#panel-navigation-toggle[aria-label='Abrir navegação']")
+    assert has_element?(view, "#panel-nav-calibration[href='/calibration']")
+    assert has_element?(view, "#panel-nav-diagnostics[href='/diagnostics']")
+    assert has_element?(view, "#panel-nav-fishing-lab[href='/fishing-lab']")
   end
 
   test "quick worker actions become individual stop buttons while running", %{conn: conn} do

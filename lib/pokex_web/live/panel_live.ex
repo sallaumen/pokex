@@ -635,20 +635,66 @@ defmodule PokexWeb.PanelLive do
       <div id="panel-dashboard" class="min-h-dvh bg-[#080b0d] text-[#d9dde1]">
         <header class="sticky top-0 z-30 border-b border-[#1f262b] bg-[#090c0f]/95 backdrop-blur">
           <div class="mx-auto flex h-12 max-w-[520px] items-center justify-between px-2">
-            <div class="flex items-center gap-2.5">
+            <.link navigate={~p"/"} class="flex items-center gap-2.5" aria-label="Ir ao painel">
               <span class="grid size-7 place-items-center rounded-lg bg-[#36cf78] text-sm font-black text-[#06150c]">P</span>
               <span class="text-sm font-bold">Pokex</span>
+            </.link>
+            <div class="flex items-center gap-2">
+              <span class="flex items-center gap-2 rounded-full border border-[#293137] px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b949d]">
+                <span class={[
+                  "size-1.5 rounded-full",
+                  if(overall_active?(@fishing, @combat, @loot),
+                    do: "bg-[#37d07d]",
+                    else: "bg-[#68727b]"
+                  )
+                ]} />
+                {if(overall_active?(@fishing, @combat, @loot), do: "Ativo", else: "Parado")}
+              </span>
+              <details id="panel-navigation" phx-update="ignore" class="group relative">
+                <summary
+                  id="panel-navigation-toggle"
+                  class="grid size-8 cursor-pointer list-none place-items-center rounded-lg border border-[#293137] text-[#a4adb4] transition hover:border-[#37d07d]/60 hover:bg-[#14191d] hover:text-white [&::-webkit-details-marker]:hidden"
+                  title="Abrir navegação"
+                  aria-label="Abrir navegação"
+                >
+                  <.icon name="hero-bars-3" class="size-4" />
+                </summary>
+                <nav
+                  aria-label="Navegação principal"
+                  class="absolute right-0 top-10 z-50 w-48 overflow-hidden rounded-lg border border-[#293238] bg-[#111519] p-1 shadow-2xl shadow-black/50"
+                >
+                  <.link
+                    id="panel-nav-home"
+                    navigate={~p"/"}
+                    aria-current="page"
+                    class="flex items-center gap-2 rounded-md bg-[#17231c] px-3 py-2.5 text-xs font-semibold text-[#4ade86]"
+                  >
+                    <.icon name="hero-play-circle" class="size-4" /> Painel
+                  </.link>
+                  <.link
+                    id="panel-nav-calibration"
+                    navigate={~p"/calibration"}
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-xs text-[#c7cdd2] transition hover:bg-[#1a2024] hover:text-white"
+                  >
+                    <.icon name="hero-viewfinder-circle" class="size-4 text-[#7f8992]" /> Calibração
+                  </.link>
+                  <.link
+                    id="panel-nav-diagnostics"
+                    navigate={~p"/diagnostics"}
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-xs text-[#c7cdd2] transition hover:bg-[#1a2024] hover:text-white"
+                  >
+                    <.icon name="hero-beaker" class="size-4 text-[#7f8992]" /> Diagnóstico
+                  </.link>
+                  <.link
+                    id="panel-nav-fishing-lab"
+                    navigate={~p"/fishing-lab"}
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-xs text-[#c7cdd2] transition hover:bg-[#1a2024] hover:text-white"
+                  >
+                    <.icon name="hero-sparkles" class="size-4 text-[#7f8992]" /> Laboratório
+                  </.link>
+                </nav>
+              </details>
             </div>
-            <span class="flex items-center gap-2 rounded-full border border-[#293137] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b949d]">
-              <span class={[
-                "size-1.5 rounded-full",
-                if(overall_active?(@fishing, @combat, @loot),
-                  do: "bg-[#37d07d]",
-                  else: "bg-[#68727b]"
-                )
-              ]} />
-              {if(overall_active?(@fishing, @combat, @loot), do: "Ativo", else: "Parado")}
-            </span>
           </div>
         </header>
 

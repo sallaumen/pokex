@@ -24,7 +24,11 @@ defmodule PokexWeb.CalibrationLive do
     skill_a:
       "7/8 — Clique no canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1).",
     skill_b:
-      "8/8 — Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões."
+      "8/8 — Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões.",
+    hp_a: "Clique no canto SUPERIOR-ESQUERDO da barra de VIDA do Pokémon principal (o do topo).",
+    hp_b: "Agora o canto INFERIOR-DIREITO da MESMA barra de vida.",
+    photo:
+      "Por fim, clique no CENTRO da FOTO do Pokémon principal (onde o mouse fica pro Shift+Q do revive)."
   }
 
   @impl true
@@ -83,6 +87,27 @@ defmodule PokexWeb.CalibrationLive do
          step: :skill_a,
          mode: :skillbar_only,
          draft: %{skill_bar_count: socket.assigns.skill_count},
+         done: false,
+         review: nil,
+         error: nil,
+         skillbar_msg: nil
+       )}
+    else
+      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    end
+  end
+
+  # Standalone flow (like the skill bar): calibrate just the main Pokémon's HP bar + portrait,
+  # without redoing the whole 8-step wizard.
+  def handle_event("calibrate_pokemon", _params, socket) do
+    with {:ok, screen} <- grab_screen("pokemon_probe.png") do
+      {:noreply,
+       assign(socket,
+         scale: screen.scale,
+         screen: screen,
+         step: :hp_a,
+         mode: :pokemon_only,
+         draft: %{},
          done: false,
          review: nil,
          error: nil,
@@ -266,6 +291,18 @@ defmodule PokexWeb.CalibrationLive do
             socket
         end
 
+      :hp_a ->
+        assign(socket, draft: Map.put(draft, :hp_a, point), step: :hp_b)
+
+      :hp_b ->
+        assign(socket,
+          draft: Map.put(draft, :pokemon_hp_region, region_from(draft.hp_a, point)),
+          step: :photo
+        )
+
+      :photo ->
+        save_pokemon(socket, draft.pokemon_hp_region, point)
+
       _ ->
         socket
     end
@@ -295,6 +332,32 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  defp save_pokemon(socket, hp_region, photo_point) do
+    case Calibration.load() do
+      {:ok, calib} ->
+        Calibration.save(%{
+          calib
+          | pokemon_hp_region: hp_region,
+            pokemon_photo_point: photo_point
+        })
+
+        assign(socket,
+          draft: %{},
+          step: nil,
+          screen: nil,
+          calibrated?: true,
+          skillbar_msg: "Vida do Pokémon calibrada. Confira a leitura no painel."
+        )
+
+      {:error, reason} ->
+        assign(socket,
+          step: nil,
+          screen: nil,
+          error: "não deu pra salvar a vida do Pokémon: #{inspect(reason)}"
+        )
+    end
+  end
+
   defp persist_skill_settings(count) do
     Settings.put(:skill_bar_count, count)
     Settings.put(:skill_keys, SkillBar.fit_order(Settings.get(:skill_keys), count))
@@ -318,6 +381,24 @@ defmodule PokexWeb.CalibrationLive do
   defp clamp_skill_count(_count), do: 6
 
   defp skill_count_form(count), do: to_form(%{"count" => to_string(count)}, as: :skill_bar)
+
+  # Any step where the user clicks the screenshot to mark a point/region (the numbered wizard
+  # steps AND the standalone Pokémon-HP flow).
+  defp marking_step?(step),
+    do:
+      step in [
+        :water,
+        :battle_a,
+        :battle_b,
+        :arena_a,
+        :arena_b,
+        :neutral,
+        :skill_a,
+        :skill_b,
+        :hp_a,
+        :hp_b,
+        :photo
+      ]
 
   defp step_index(:water), do: 1
   defp step_index(:battle_a), do: 2
@@ -390,6 +471,8 @@ defmodule PokexWeb.CalibrationLive do
               skill_bar_region={@review.calib.skill_bar_region}
               neutral_point={@review.calib.neutral_point}
               player_point={Calibration.player_point(@review.calib)}
+              pokemon_hp_region={@review.calib.pokemon_hp_region}
+              pokemon_photo_point={@review.calib.pokemon_photo_point}
               bands={Calibration.battle_row_bands(@review.calib, @row_height, @max_rows)}
             />
           </div>
@@ -426,6 +509,9 @@ defmodule PokexWeb.CalibrationLive do
             </button>
             <button :if={@calibrated?} class="btn btn-ghost" phx-click="calibrate_skillbar">
               <.icon name="hero-bolt" class="size-4" /> Recalibrar só as skills
+            </button>
+            <button :if={@calibrated?} class="btn btn-ghost" phx-click="calibrate_pokemon">
+              <.icon name="hero-heart" class="size-4" /> Calibrar vida do Pokémon
             </button>
           </div>
           <p :if={@calibrated?} class="text-xs opacity-60">
@@ -468,23 +554,10 @@ defmodule PokexWeb.CalibrationLive do
             <p class="text-xs opacity-60">{@baselines_done}/10 capturadas</p>
           </div>
 
-          <.legend :if={
-            @step in [:water, :battle_a, :battle_b, :arena_a, :arena_b, :neutral, :skill_a, :skill_b]
-          } />
+          <.legend :if={marking_step?(@step)} />
 
           <div
-            :if={
-              @step in [
-                :water,
-                :battle_a,
-                :battle_b,
-                :arena_a,
-                :arena_b,
-                :neutral,
-                :skill_a,
-                :skill_b
-              ]
-            }
+            :if={marking_step?(@step)}
             class="relative overflow-hidden rounded-lg border border-base-content/20"
           >
             <img
@@ -502,6 +575,8 @@ defmodule PokexWeb.CalibrationLive do
               skill_bar_region={@draft[:skill_bar_region]}
               neutral_point={@draft[:neutral_point]}
               player_point={draft_player(@draft)}
+              pokemon_hp_region={@draft[:pokemon_hp_region]}
+              pokemon_photo_point={@draft[:pokemon_photo_point]}
               bands={draft_bands(@draft, @scale, @row_height, @max_rows)}
             />
           </div>

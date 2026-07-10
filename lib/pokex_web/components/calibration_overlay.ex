@@ -29,6 +29,8 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :skill_bar_region, :any, default: nil
   attr :neutral_point, :any, default: nil
   attr :player_point, :any, default: nil
+  attr :pokemon_hp_region, :any, default: nil
+  attr :pokemon_photo_point, :any, default: nil
   attr :bands, :list, default: []
 
   def overlays(assigns) do
@@ -70,6 +72,15 @@ defmodule PokexWeb.CalibrationOverlay do
       </span>
     </div>
     <div
+      :if={@pokemon_hp_region}
+      class="absolute rounded border-2 border-accent bg-accent/10"
+      style={region_style(@pokemon_hp_region, @screen)}
+    >
+      <span class="absolute -top-4 left-0 rounded bg-accent px-1 text-[10px] font-bold text-accent-content">
+        vida
+      </span>
+    </div>
+    <div
       :for={{band, i} <- Enum.with_index(@bands)}
       class="absolute border-2 border-error bg-error/25"
       style={region_style(band, @screen)}
@@ -95,6 +106,12 @@ defmodule PokexWeb.CalibrationOverlay do
       class="absolute -ml-2 -mt-2 size-4 rounded-full border-2 border-error bg-error/40 shadow"
       style={point_style(@player_point, @screen)}
       title="player"
+    />
+    <div
+      :if={@pokemon_photo_point}
+      class="absolute -ml-2 -mt-2 size-4 rounded-full border-2 border-white bg-accent shadow"
+      style={point_style(@pokemon_photo_point, @screen)}
+      title="foto do Pokémon"
     />
     """
   end
@@ -122,6 +139,9 @@ defmodule PokexWeb.CalibrationOverlay do
       </span>
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-full bg-neutral" /> ponto neutro
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-sm border-2 border-accent" /> vida + foto do Pokémon
       </span>
     </div>
     """

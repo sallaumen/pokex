@@ -213,4 +213,67 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.water_point == {50, 30}
     assert calib.battle_region == {70, 10, 20, 30}
   end
+
+  @tag :tmp_dir
+  test "standalone Pokémon-HP calibration merges the HP region + photo point", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      arena_region: {20, 20, 60, 40},
+      neutral_point: {52, 36},
+      glow_baselines: [],
+      suggested_glow_threshold: 15.0
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} =
+      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration")
+
+    view |> element("button", "Calibrar vida do Pokémon") |> render_click()
+    assert render(view) =~ "barra de VIDA"
+
+    click = fn x, y ->
+      render_hook(view, "img_click", %{
+        "x" => x,
+        "y" => y,
+        "cw" => 50.0,
+        "ch" => 37.5,
+        "nw" => 200.0,
+        "nh" => 150.0
+      })
+    end
+
+    # hp_a → {20, 20}
+    click.(10.0, 10.0)
+    assert render(view) =~ "MESMA barra de vida"
+    # hp_b → {80, 60} → region {20, 20, 60, 40}
+    click.(40.0, 30.0)
+    assert render(view) =~ "FOTO"
+    # photo → {40, 50}
+    click.(20.0, 25.0)
+
+    assert render(view) =~ "Vida do Pokémon calibrada"
+    assert {:ok, calib} = Calibration.load()
+    assert calib.pokemon_hp_region == {20, 20, 60, 40}
+    assert calib.pokemon_photo_point == {40, 50}
+    # the rest of the calibration is untouched
+    assert calib.water_point == {50, 30}
+    assert calib.battle_region == {70, 10, 20, 30}
+  end
 end

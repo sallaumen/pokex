@@ -89,16 +89,33 @@ defmodule Pokex.Perception.Feed do
       if changed?(state.last_obs, obs),
         do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:world, state.spec.key, obs})
 
-      %{state | last_obs: obs}
+      %{state | last_obs: obs, failures: 0}
     else
-      error ->
-        Logger.debug("feed #{state.spec.key} tick failed: #{inspect(error)}")
-        %{state | failures: state.failures + 1}
+      error -> tick_failed(state, error)
     end
   catch
-    kind, reason ->
-      Logger.debug("feed #{state.spec.key} crashed a tick: #{inspect({kind, reason})}")
-      %{state | failures: state.failures + 1}
+    kind, reason -> tick_failed(state, {kind, reason})
+  end
+
+  # A failed capture keeps the last good WorldState entry (the staleness gate in
+  # WorldState.get protects readers) and the loop keeps ticking. Per-tick noise stays at
+  # :debug, but a STREAK of consecutive failures (permission revoked mid-run, a region gone
+  # bad, ...) is exactly the kind of thing that must NOT stay silent — escalate loudly the
+  # instant the streak reaches the configured threshold. Resetting to 0 on the next success
+  # (in observe/1 above) means a warning fires again if failures resume later.
+  defp tick_failed(state, error) do
+    failures = state.failures + 1
+    threshold = Settings.get(:feed_failure_warn_streak)
+
+    if failures == threshold do
+      Logger.warning(
+        "feed #{state.spec.key}: #{failures} capturas seguidas falharam — última: #{inspect(error)}"
+      )
+    else
+      Logger.debug("feed #{state.spec.key} tick failed: #{inspect(error)}")
+    end
+
+    %{state | failures: failures}
   end
 
   # Same content, different timestamp → not a change. Everything else → broadcast.
@@ -120,7 +137,7 @@ defmodule Pokex.Perception.Feed do
 
   defp reschedule(state, delay_ms) do
     if state.timer, do: Process.cancel_timer(state.timer)
-    %{state | timer: Process.send_after(self(), :tick, max(delay_ms || 100, 10))}
+    %{state | timer: Process.send_after(self(), :tick, max(delay_ms, 10))}
   end
 
   defp now, do: System.monotonic_time(:millisecond)

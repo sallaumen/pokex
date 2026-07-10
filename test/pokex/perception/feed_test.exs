@@ -2,6 +2,7 @@ defmodule Pokex.Perception.FeedTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Perception.{Feed, WorldState}
+  alias Pokex.Settings
 
   # A tiny deterministic spec: region is fixed, the interpreter reports the frame width so
   # different scripted PNGs produce different observations.
@@ -124,6 +125,32 @@ defmodule Pokex.Perception.FeedTest do
 
     # paused: no new broadcasts after the consumer died
     refute_receive {:world, :feed_test, _}, 300
+  end
+
+  @tag :tmp_dir
+  test "I2: a consecutive-failure streak reaching the configured threshold logs ONE loud warning",
+       %{tmp_dir: tmp} do
+    a = png!(tmp, "a.png", 8)
+    # One good capture (resets the streak to 0), then every capture after fails forever
+    # (Rig.Fake repeats a single-element script tail) — the streak climbs 1, 2, 3, ...
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}, {:error, :boom}]})
+
+    original = Settings.get(:feed_failure_warn_streak)
+    Settings.put(:feed_failure_warn_streak, 2)
+    on_exit(fn -> Settings.put(:feed_failure_warn_streak, original) end)
+
+    {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        :ok = Feed.attach(feed)
+        # enough ticks (~120ms cadence) for the streak to climb well past the threshold —
+        # proves the warning fires exactly once, at the threshold, not on every failure.
+        Process.sleep(600)
+      end)
+
+    assert log =~ "feed feed_test: 2 capturas seguidas falharam"
+    assert length(Regex.scan(~r/capturas seguidas falharam/, log)) == 1
   end
 
   defp flush_world do

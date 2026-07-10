@@ -164,7 +164,11 @@ defmodule Pokex.Bots.Combat.Logic do
   even though the feed only broadcasts on content CHANGE — `WorldState.get/3` still hands
   the wake a fresh `:captured_at` every capture tick, and `step/3`'s dedup keeps a repeat
   read (same frame, no new tick yet) from double-counting. In :hunting with a hold, wake
-  when the hold clears. Free :hunting/:idle/:error need no timer (purely event-driven).
+  when the hold clears. Free :hunting ALSO polls (at the burst cadence): after a
+  kill/timeout/io_failed rehunt the battle list can be non-empty but pixel-STATIC (the row
+  the previous target vacated stays put, nothing else changes), and the feed only
+  broadcasts on content change — a purely event-driven free hunt would then wait forever
+  for a "world" event that never comes. :idle/:error need no timer (purely event-driven).
   """
   def next_wake(%__MODULE__{state: :tabbing} = logic, now) do
     max(
@@ -188,6 +192,9 @@ defmodule Pokex.Bots.Combat.Logic do
 
   def next_wake(%__MODULE__{state: :hunting, hold_until: until}, now) when is_integer(until),
     do: max(until - now, 1)
+
+  def next_wake(%__MODULE__{state: :hunting} = logic, _now),
+    do: max(logic.config.skill_burst_every_ms, 1)
 
   def next_wake(_logic, _now), do: nil
 

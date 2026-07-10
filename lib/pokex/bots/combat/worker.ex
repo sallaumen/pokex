@@ -16,7 +16,7 @@ defmodule Pokex.Bots.Combat.Worker do
   alias Pokex.Bots.Combat.Logic
   alias Pokex.Bots.MiniGame
   alias Pokex.Perception
-  alias Pokex.Perception.WorldState
+  alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.{Preflight, Settings}
 
   @topic "combat"
@@ -52,7 +52,15 @@ defmodule Pokex.Bots.Combat.Worker do
   def init(:ok) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @catch_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
-    {:ok, %{logic: nil, timer: nil, arena_attached?: false}}
+
+    {:ok,
+     %{
+       logic: nil,
+       timer: nil,
+       arena_attached?: false,
+       feed_ref: nil,
+       reattach_attempts: 0
+     }}
   end
 
   @impl true
@@ -62,9 +70,11 @@ defmodule Pokex.Bots.Combat.Worker do
         config = Settings.all() |> Map.take(@config_keys)
         {logic, _actions} = Logic.start(Logic.new(config), now())
         Perception.attach(:battle)
+        ref = Process.monitor(Feed.name(:battle))
         broadcast(logic)
+        state = %{state | logic: logic, feed_ref: ref, reattach_attempts: 0}
         # step immediately against whatever the world already knows
-        {:reply, :ok, advance(%{state | logic: logic}, current_obs())}
+        {:reply, :ok, advance(state, current_obs())}
 
       {:error, messages} when is_list(messages) ->
         {:reply, {:error, messages}, state}
@@ -78,10 +88,11 @@ defmodule Pokex.Bots.Combat.Worker do
 
   def handle_call(:halt, _from, state) do
     {logic, _} = Logic.stop(state.logic)
-    Perception.detach(:battle)
+    safe_detach(:battle)
     state = detach_arena(%{state | logic: logic})
+    demonitor_feed(state.feed_ref)
     broadcast(logic)
-    {:reply, :ok, cancel_timer(state)}
+    {:reply, :ok, cancel_timer(%{state | feed_ref: nil, reattach_attempts: 0})}
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state.logic), state}
@@ -117,6 +128,37 @@ defmodule Pokex.Bots.Combat.Worker do
 
   def handle_info({:key_burst_failed, _reason}, state), do: {:noreply, state}
 
+  # The :battle feed died (its consumers map — and this worker's registration — dies with
+  # it; a restarted feed starts with nobody attached). Idle/errored: nothing to blind, do
+  # not schedule a reattach. Otherwise, combat would silently wedge forever the moment the
+  # feed comes back — retry-attach on a short timer instead.
+  def handle_info(
+        {:DOWN, ref, :process, _obj, _reason},
+        %{feed_ref: ref, logic: %Logic{state: s}} = state
+      )
+      when s in [:idle, :error],
+      do: {:noreply, %{state | feed_ref: nil}}
+
+  def handle_info({:DOWN, ref, :process, _obj, _reason}, %{feed_ref: ref} = state) do
+    Process.send_after(self(), :reattach_battle, 250)
+    {:noreply, %{state | feed_ref: nil}}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _obj, _reason}, state), do: {:noreply, state}
+
+  def handle_info(:reattach_battle, %{logic: %Logic{state: s}} = state)
+      when s in [:idle, :error],
+      do: {:noreply, state}
+
+  # Already reattached (an earlier retry landed and re-monitored) — nothing to do.
+  def handle_info(:reattach_battle, %{feed_ref: ref} = state) when not is_nil(ref),
+    do: {:noreply, state}
+
+  def handle_info(:reattach_battle, %{logic: %Logic{}} = state),
+    do: {:noreply, reattach_battle(state)}
+
+  def handle_info(:reattach_battle, state), do: {:noreply, state}
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   # -- the step pipeline -------------------------------------------------------
@@ -133,7 +175,7 @@ defmodule Pokex.Bots.Combat.Worker do
     previous = state.logic
 
     dispatch(actions)
-    broadcast_activity(logic, actions)
+    broadcast_activity(previous, logic, actions)
 
     if logic.state != previous.state or logic.counters != previous.counters,
       do: broadcast(logic)
@@ -192,7 +234,7 @@ defmodule Pokex.Bots.Combat.Worker do
 
   # The corpse point for loot: the arena feed's last hostile, if reasonably fresh.
   defp corpse do
-    case WorldState.get(:arena, Settings.get(:feed_arena_ms) * 5, now()) do
+    case WorldState.get(:arena, Settings.get(:corpse_max_age_ms), now()) do
       {:ok, %{hostile: point}} -> point
       _stale_or_missing -> nil
     end
@@ -200,7 +242,7 @@ defmodule Pokex.Bots.Combat.Worker do
 
   # The arena feed (corpse position) only needs to run while fighting.
   defp sync_arena(%{logic: %Logic{state: :fighting}, arena_attached?: false} = state) do
-    Perception.attach(:arena)
+    safe_attach(:arena)
     %{state | arena_attached?: true}
   end
 
@@ -211,11 +253,44 @@ defmodule Pokex.Bots.Combat.Worker do
   defp sync_arena(state), do: state
 
   defp detach_arena(%{arena_attached?: true} = state) do
-    Perception.detach(:arena)
+    safe_detach(:arena)
     %{state | arena_attached?: false}
   end
 
   defp detach_arena(state), do: state
+
+  # The feed's consumers map (and this worker's monitor of it) dies with the feed process —
+  # a restart starts fresh with nobody attached. Reattach on a short retry loop until the
+  # feed is back up (or logic goes idle/error, or we've retried enough that it's clearly not
+  # coming back). try/catch: `Perception.attach/1` exits if the feed isn't registered yet.
+  defp reattach_battle(%{reattach_attempts: attempts} = state) when attempts >= 20, do: state
+
+  defp reattach_battle(state) do
+    Perception.attach(:battle)
+    ref = Process.monitor(Feed.name(:battle))
+    %{state | feed_ref: ref, reattach_attempts: 0}
+  catch
+    :exit, _ ->
+      Process.send_after(self(), :reattach_battle, 250)
+      %{state | reattach_attempts: state.reattach_attempts + 1}
+  end
+
+  defp demonitor_feed(nil), do: :ok
+  defp demonitor_feed(ref), do: Process.demonitor(ref, [:flush])
+
+  # A dead/restarting feed must never crash the halt path (the Guardian panic fan-out runs
+  # through it) nor sync_arena's attach.
+  defp safe_attach(key) do
+    Perception.attach(key)
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_detach(key) do
+    Perception.detach(key)
+  catch
+    :exit, _ -> :ok
+  end
 
   defp schedule_wake(state) do
     state = cancel_timer(state)
@@ -246,11 +321,20 @@ defmodule Pokex.Bots.Combat.Worker do
         {:kill, corpse}
       )
 
-  defp broadcast_activity(logic, actions) do
+  # :macro (surfaced to Lucas) for the moments that matter: the step just landed a fight,
+  # counters moved (a kill/loot/capture/failure), or the log itself flags a timeout. Anything
+  # else — routine hunting/tabbing chatter — stays at :debug. (Previously ANY log after the
+  # first kill of the run stayed :macro forever, which drowned the useful signal in noise.)
+  defp broadcast_activity(previous, logic, actions) do
     texts = for {:log, msg} <- actions, do: msg
 
     if texts != [] do
-      level = if logic.state == :fighting or logic.counters.fights > 0, do: :macro, else: :debug
+      became_fighting? = logic.state == :fighting and previous.state != :fighting
+      counters_changed? = logic.counters != previous.counters
+      mentions_timeout? = Enum.any?(texts, &String.contains?(&1, "timeout"))
+
+      level =
+        if became_fighting? or counters_changed? or mentions_timeout?, do: :macro, else: :debug
 
       Enum.each(texts, fn text ->
         Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat_log, level, "combate: #{text}"})

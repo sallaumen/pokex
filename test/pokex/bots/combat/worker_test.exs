@@ -146,6 +146,51 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "C1: after a kill, free hunting reaches :tabbing again (Tab pressed a 2nd time) via :wake polling alone",
+       %{worker: worker} do
+    world!(worker, battle_obs(enemies: [0]))
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+    world!(worker, battle_obs(locked?: true, locked_row: 0))
+    assert eventually(fn -> Worker.status(worker).state == :fighting end)
+
+    world!(worker, battle_obs(locked?: false))
+    world!(worker, battle_obs(locked?: false))
+    assert eventually(fn -> Worker.status(worker).state == :hunting end)
+    assert Worker.status(worker).counters.fights == 1
+
+    tab_presses_after_kill = Enum.count(presses(), &(&1 == Settings.get(:tab_key)))
+    assert tab_presses_after_kill == 1
+
+    # From here on: NO more :world events (the feed wouldn't broadcast either — a
+    # non-empty-but-pixel-static battle list is not a content CHANGE). Seed WorldState
+    # directly with fresh enemies-present frames on a short loop, exactly like the feed's
+    # own per-tick ETS writes — free :hunting's own poll (C1's next_wake fix) must pick
+    # them up and press Tab again, with nothing driving it but the worker's :wake timer.
+    for _ <- 1..8 do
+      at = System.monotonic_time(:millisecond)
+      WorldState.put(:battle, battle_obs(enemies: [0]) |> Map.put(:captured_at, at), at)
+      Process.sleep(100)
+    end
+
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+    assert Enum.count(presses(), &(&1 == Settings.get(:tab_key))) >= 2
+  end
+
+  @tag :tmp_dir
+  test "I1: :reattach_battle is a liveness no-op while already attached, worker keeps stepping",
+       %{worker: worker} do
+    # Exercising the real feed-restart path cheaply isn't practical here (it needs the
+    # supervisor to actually kill+restart the registered Feed process); this pins the
+    # handler directly: with logic active and already attached, :reattach_battle must not
+    # crash or wedge the worker, and a subsequent world event still steps it normally.
+    send(worker, :reattach_battle)
+    assert Process.alive?(worker)
+
+    world!(worker, battle_obs(enemies: [0]))
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+  end
+
+  @tag :tmp_dir
   test "a key-burst failure steps io_failed; repeated failures error the worker out",
        %{worker: worker} do
     send(worker, {:key_burst_failed, :boom})

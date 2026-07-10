@@ -179,11 +179,56 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert Logic.next_wake(fighting, fighting.entered_at + 5_900) == 100
   end
 
-  test "next_wake: hunting hold → hold remainder; free hunting → nil" do
+  test "next_wake: hunting hold → hold remainder; free hunting polls at the burst cadence" do
     held = %{hunting(0) | hold_until: 2_000}
     assert Logic.next_wake(held, 500) == 1_500
 
-    assert Logic.next_wake(hunting(0), 500) == nil
+    # C1: free :hunting (no hold) must poll, not sleep forever — after a kill/timeout/
+    # io_failed rehunt the battle list can be non-empty but pixel-static (no content change
+    # → the feed never broadcasts), so an event-only free hunt would wedge in "caçando"
+    # forever. Polling at the burst cadence keeps re-checking WorldState directly.
+    assert Logic.next_wake(hunting(0), 500) == 300
+  end
+
+  test "next_wake: idle/error need no timer (purely event-driven)" do
+    {idle, _} = Logic.stop(hunting(0))
+    assert Logic.next_wake(idle, 500) == nil
+
+    error =
+      Enum.reduce(1..5, hunting(0), fn _, logic ->
+        {logic, _} = Logic.io_failed(logic, :boom, 0)
+        logic
+      end)
+
+    assert error.state == :error
+    assert Logic.next_wake(error, 500) == nil
+  end
+
+  test "next_wake: free hunting polls at 1ms floor even with skill_burst_every_ms: 0" do
+    free = hunting(0, skill_burst_every_ms: 0)
+    assert Logic.next_wake(free, 500) == 1
+  end
+
+  test "C1 integration: hunt → tab → fight → kill → free hunting polls, then a fresh frame re-Tabs" do
+    logic = confirmed()
+
+    # two DISTINCT lock-absent frames (distinct captured_at) → the kill, back to hunting
+    {logic, []} = Logic.step(logic, obs(locked?: false, captured_at: 500), 500)
+    assert logic.lost_streak == 1
+
+    {logic, actions} = Logic.step(logic, obs(locked?: false, captured_at: 620), 620)
+    assert logic.state == :hunting
+    assert logic.counters.fights == 1
+    assert Enum.any?(actions, &match?({:log, _}, &1))
+
+    # the battle list can be non-empty but pixel-static here (no "world" event will ever
+    # come) — free hunting must still poll, not go quiet forever.
+    refute Logic.next_wake(logic, 620) == nil
+
+    # a FRESH later frame (newer captured_at) with enemies present triggers a new Tab.
+    {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 900), 900)
+    assert logic.state == :tabbing
+    assert {:tab} in actions
   end
 
   test "next_wake: fighting floors the final result at 1ms even with skill_burst_every_ms: 0 (N1)" do

@@ -214,6 +214,10 @@ defmodule Pokex.Settings do
     # runs while fighting (corpse position for loot).
     feed_battle_ms: 120,
     feed_arena_ms: 300,
+    # Consecutive failed captures (bad region, or the OS revoked Screen Recording mid-run) a
+    # feed tolerates at :debug before it escalates to a loud Logger.warning. Resets to 0 on
+    # the next successful observe, so a warning fires again if failures resume.
+    feed_failure_warn_streak: 10,
     # --- Combat: Tab targeting ------------------------------------------------------------------
     # Tab selects the first attackable enemy; pressing again CYCLES to the next. The confirm
     # window counts from the Tab press against frames captured AFTER it, so capture latency can't
@@ -226,7 +230,11 @@ defmodule Pokex.Settings do
     hunt_cooldown_ms: 1_500,
     skill_burst_every_ms: 300,
     # Battle observations older than this are treated as unknown by combat (fail-safe: no keys).
-    combat_world_max_age_ms: 600
+    combat_world_max_age_ms: 600,
+    # How stale the :arena feed's last hostile point may be and still be handed to loot as
+    # the corpse position (was `feed_arena_ms * 5` — a literal that silently drifted if the
+    # arena cadence ever changed; now a standalone, intentional ceiling).
+    corpse_max_age_ms: 1_500
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

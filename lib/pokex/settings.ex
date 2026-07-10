@@ -200,9 +200,11 @@ defmodule Pokex.Settings do
     game_tick_ms: 120,
     # HP-bar fill detection: a bar column counts as "health" (filled) when it holds a pixel this
     # bright AND this saturated — the green/yellow/red fill clears both; the dark bar background
-    # (~17/0) clears neither. fill% = health columns ÷ bar width. MEASURED on Lucas's green bar.
-    pokemon_hp_min_brightness: 80,
-    pokemon_hp_min_saturation: 55
+    # (~17/0) clears neither. fill% = health columns ÷ bar width. MEASURED on Lucas's real bar
+    # (2026-07-11): his medium green sits ~60-130 bright, so 80/55 undercounted a FULL bar to ~63%;
+    # 60/40 reads it ~92% while the dark background/border (~17-30) stays well below.
+    pokemon_hp_min_brightness: 60,
+    pokemon_hp_min_saturation: 40
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

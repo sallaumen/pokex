@@ -120,6 +120,12 @@ defmodule PokexWeb.PanelLive do
     "width: #{pct}%; background-color: #{color};"
   end
 
+  defp game_badge_label(%{state: :monitoring}), do: "monitorando"
+  defp game_badge_label(_game), do: "desligado"
+
+  defp game_badge_class(%{state: :monitoring}), do: "badge-success"
+  defp game_badge_class(_game), do: "badge-ghost"
+
   @impl true
   def handle_info({:fishing, snapshot}, socket),
     do: {:noreply, assign(socket, fishing: snapshot, panicked?: false)}
@@ -852,7 +858,12 @@ defmodule PokexWeb.PanelLive do
 
         <section class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold">Vida do Pokémon principal</h2>
+            <h2 class="text-sm font-semibold">
+              Vida do Pokémon principal
+              <span class={["badge badge-xs align-middle", game_badge_class(@game)]}>
+                {game_badge_label(@game)}
+              </span>
+            </h2>
             <span class="badge badge-sm font-mono">{hp_label(@game)}</span>
           </div>
 

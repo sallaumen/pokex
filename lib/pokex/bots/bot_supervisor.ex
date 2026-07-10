@@ -19,14 +19,14 @@ defmodule Pokex.Bots.BotSupervisor do
   """
   use Supervisor
 
-  alias Pokex.Bots.{Body, Combat, Fishing, GameController, Guardian, Loot, MiniGame}
+  alias Pokex.Bots.{Body, Catcher, Combat, Fishing, GameController, Guardian, MiniGame}
 
   def start_link(opts \\ []) do
     body = Keyword.get(opts, :body, Body)
     guardian = Keyword.get(opts, :guardian, Guardian)
     fishing = Keyword.get(opts, :fishing, Fishing.Worker)
     combat = Keyword.get(opts, :combat, Combat.Worker)
-    loot = Keyword.get(opts, :loot, Loot.Worker)
+    catcher = Keyword.get(opts, :catcher, Catcher.Worker)
     mini_game = Keyword.get(opts, :mini_game, MiniGame.Worker)
     game_controller = Keyword.get(opts, :game_controller, GameController.Worker)
 
@@ -35,7 +35,7 @@ defmodule Pokex.Bots.BotSupervisor do
       guardian: guardian,
       fishing: fishing,
       combat: combat,
-      loot: loot,
+      catcher: catcher,
       mini_game: mini_game,
       game_controller: game_controller
     }
@@ -52,15 +52,15 @@ defmodule Pokex.Bots.BotSupervisor do
         guardian: guardian,
         fishing: fishing,
         combat: combat,
-        loot: loot,
+        catcher: catcher,
         mini_game: mini_game,
         game_controller: game_controller
       }) do
     # The panic corner halts the automated workers, including the mini-game watcher (so it can't
     # resume the peers it paused). The GameController is NOT halted — it is an always-on monitor,
     # independent of Start/Stop, so its survival combo can protect you while you play by hand.
-    on_panic = fn -> stop_all(fishing, combat, loot, mini_game) end
-    peers = %{fishing: fishing, combat: combat, loot: loot}
+    on_panic = fn -> stop_all(fishing, combat, catcher, mini_game) end
+    peers = %{fishing: fishing, combat: combat, catcher: catcher}
 
     children = [
       Supervisor.child_spec({Body, name: body, mini_game: mini_game}, id: body),
@@ -69,7 +69,7 @@ defmodule Pokex.Bots.BotSupervisor do
       ),
       Supervisor.child_spec({Fishing.Worker, name: fishing, body: body}, id: fishing),
       Supervisor.child_spec({Combat.Worker, name: combat}, id: combat),
-      Supervisor.child_spec({Loot.Worker, name: loot, body: body}, id: loot),
+      Supervisor.child_spec({Catcher.Worker, name: catcher, body: body}, id: catcher),
       Supervisor.child_spec({MiniGame.Worker, name: mini_game, peers: peers}, id: mini_game),
       Supervisor.child_spec({GameController.Worker, name: game_controller, body: body},
         id: game_controller
@@ -80,21 +80,21 @@ defmodule Pokex.Bots.BotSupervisor do
   end
 
   @doc """
-  Starts the workers in order (fishing → combat → loot). If any fails
+  Starts the workers in order (fishing → combat → catcher). If any fails
   preflight/calibration the ones after it never start, and everything is halted again, so a
-  failed `start_all/0` never leaves a partial set running. Loot is event-driven (idle until a
-  kill), so its `run` just readies it.
+  failed `start_all/0` never leaves a partial set running. Catcher is event-driven (armed in
+  `parado` mode, idle waiting on the corpse feed), so its `run` just readies it.
   """
   @spec start_all(GenServer.server(), GenServer.server(), GenServer.server()) ::
           :ok | {:error, [String.t()]}
-  def start_all(fishing, combat, loot) do
+  def start_all(fishing, combat, catcher) do
     with :ok <- Fishing.Worker.run(fishing),
          :ok <- Combat.Worker.run(combat),
-         :ok <- Loot.Worker.run(loot) do
+         :ok <- Catcher.Worker.run(catcher) do
       :ok
     else
       {:error, _messages} = error ->
-        stop_all(fishing, combat, loot)
+        stop_all(fishing, combat, catcher)
         error
     end
   end
@@ -105,27 +105,27 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server()
         ) :: :ok | {:error, [String.t()]}
-  def start_all(fishing, combat, loot, mini_game) do
+  def start_all(fishing, combat, catcher, mini_game) do
     with :ok <- MiniGame.Worker.run(mini_game),
-         :ok <- start_all(fishing, combat, loot) do
+         :ok <- start_all(fishing, combat, catcher) do
       :ok
     else
       {:error, _messages} = error ->
-        stop_all(fishing, combat, loot, mini_game)
+        stop_all(fishing, combat, catcher, mini_game)
         error
     end
   end
 
   def start_all do
-    start_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker)
+    start_all(Fishing.Worker, Combat.Worker, Catcher.Worker, MiniGame.Worker)
   end
 
   @doc "Halts all workers. Safe to call repeatedly — halting an idle worker is a no-op."
   @spec stop_all(GenServer.server(), GenServer.server(), GenServer.server()) :: :ok
-  def stop_all(fishing, combat, loot) do
+  def stop_all(fishing, combat, catcher) do
     Fishing.Worker.halt(fishing)
     Combat.Worker.halt(combat)
-    Loot.Worker.halt(loot)
+    Catcher.Worker.halt(catcher)
     :ok
   end
 
@@ -135,14 +135,14 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server()
         ) :: :ok
-  def stop_all(fishing, combat, loot, mini_game) do
-    stop_all(fishing, combat, loot)
+  def stop_all(fishing, combat, catcher, mini_game) do
+    stop_all(fishing, combat, catcher)
     MiniGame.Worker.halt(mini_game)
     :ok
   end
 
   def stop_all do
-    stop_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker)
+    stop_all(Fishing.Worker, Combat.Worker, Catcher.Worker, MiniGame.Worker)
   end
 
   # A worker can be legitimately unresponsive for seconds — e.g. parked on a screen capture the
@@ -160,12 +160,14 @@ defmodule Pokex.Bots.BotSupervisor do
   end
 
   @spec status(GenServer.server(), GenServer.server(), GenServer.server()) ::
-          %{fishing: map, combat: map, loot: map}
-  def status(fishing, combat, loot) do
+          %{fishing: map, combat: map, catcher: map}
+  def status(fishing, combat, catcher) do
     %{
       fishing: safe_status(fishing),
       combat: safe_status(combat, %{locked_row: nil}),
-      loot: safe_status(loot)
+      # mode included because the panel's catcher pill/hint reads @catcher.mode — a placeholder
+      # without it would crash the very render this fallback exists to protect.
+      catcher: safe_status(catcher, %{mode: "parado"})
     }
   end
 
@@ -174,10 +176,10 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server(),
           GenServer.server()
-        ) :: %{fishing: map, combat: map, loot: map, mini_game: map}
-  def status(fishing, combat, loot, mini_game) do
+        ) :: %{fishing: map, combat: map, catcher: map, mini_game: map}
+  def status(fishing, combat, catcher, mini_game) do
     fishing
-    |> status(combat, loot)
+    |> status(combat, catcher)
     # confidence included because the panel template reads @mini_game.confidence STRICTLY —
     # a placeholder without it would crash the very render this fallback exists to protect.
     |> Map.put(:mini_game, safe_status(mini_game, %{in_game?: false, confidence: 0.0}))
@@ -189,14 +191,14 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server(),
           GenServer.server()
-        ) :: %{fishing: map, combat: map, loot: map, mini_game: map, game_controller: map}
-  def status(fishing, combat, loot, mini_game, game_controller) do
+        ) :: %{fishing: map, combat: map, catcher: map, mini_game: map, game_controller: map}
+  def status(fishing, combat, catcher, mini_game, game_controller) do
     fishing
-    |> status(combat, loot, mini_game)
+    |> status(combat, catcher, mini_game)
     |> Map.put(:game_controller, safe_status(game_controller, %{hp_pct: nil}))
   end
 
   def status do
-    status(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker, GameController.Worker)
+    status(Fishing.Worker, Combat.Worker, Catcher.Worker, MiniGame.Worker, GameController.Worker)
   end
 end

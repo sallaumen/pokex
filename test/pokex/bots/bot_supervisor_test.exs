@@ -21,8 +21,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     max_consecutive_failures: 5,
     tile_px: 32,
     walk_step_ms: 5,
-    wait_loot_ms: 5,
-    wait_after_capture_ms: 5,
     humanize_max_ms: 0,
     cast_delay_max_ms: 0,
     hook_delay_min_ms: 0,
@@ -74,7 +72,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     guardian = :"#{tag}_guardian"
     fishing = :"#{tag}_fishing"
     combat = :"#{tag}_combat"
-    loot = :"#{tag}_loot"
+    catcher = :"#{tag}_catcher"
     mini_game = :"#{tag}_mini_game"
     game_controller = :"#{tag}_game_controller"
 
@@ -85,62 +83,62 @@ defmodule Pokex.Bots.BotSupervisorTest do
        guardian: guardian,
        fishing: fishing,
        combat: combat,
-       loot: loot,
+       catcher: catcher,
        mini_game: mini_game,
        game_controller: game_controller}
     )
 
-    {fishing, combat, loot}
+    {fishing, combat, catcher}
   end
 
   @tag :tmp_dir
   test "start_all/0 runs the workers, reflected in status/0" do
-    {fishing, combat, loot} = start_isolated_supervisor(:start_all_test)
+    {fishing, combat, catcher} = start_isolated_supervisor(:start_all_test)
 
-    assert :ok = BotSupervisor.start_all(fishing, combat, loot)
+    assert :ok = BotSupervisor.start_all(fishing, combat, catcher)
 
-    status = BotSupervisor.status(fishing, combat, loot)
+    status = BotSupervisor.status(fishing, combat, catcher)
     assert status.fishing.state != :idle
     assert status.combat.state != :idle
-    # loot is armed by start_all — :ready (on), waiting for a kill
-    assert status.loot.state == :ready
+    # catcher is armed by start_all in the default "parado" mode, waiting for a corpse
+    assert status.catcher.state == :armed
   end
 
   @tag :tmp_dir
   test "stop_all/0 idles all workers and is idempotent on a second call" do
-    {fishing, combat, loot} = start_isolated_supervisor(:stop_all_test)
+    {fishing, combat, catcher} = start_isolated_supervisor(:stop_all_test)
 
-    assert :ok = BotSupervisor.start_all(fishing, combat, loot)
-    assert :ok = BotSupervisor.stop_all(fishing, combat, loot)
+    assert :ok = BotSupervisor.start_all(fishing, combat, catcher)
+    assert :ok = BotSupervisor.stop_all(fishing, combat, catcher)
 
-    status = BotSupervisor.status(fishing, combat, loot)
+    status = BotSupervisor.status(fishing, combat, catcher)
     assert status.fishing.state == :idle
     assert status.combat.state == :idle
-    assert status.loot.state == :off
+    assert status.catcher.state == :idle
 
     # A second stop_all/0 while already idle must be a safe no-op — this is
     # exactly what the Guardian does on every poll tick while the cursor
     # sits in the panic corner.
-    assert :ok = BotSupervisor.stop_all(fishing, combat, loot)
+    assert :ok = BotSupervisor.stop_all(fishing, combat, catcher)
 
-    status = BotSupervisor.status(fishing, combat, loot)
+    status = BotSupervisor.status(fishing, combat, catcher)
     assert status.fishing.state == :idle
     assert status.combat.state == :idle
-    assert status.loot.state == :off
+    assert status.catcher.state == :idle
   end
 
   @tag :tmp_dir
   test "start_all/0 surfaces a preflight/calibration error instead of starting any worker" do
     File.rm!(Pokex.Home.calibration_file())
 
-    {fishing, combat, loot} = start_isolated_supervisor(:error_test)
+    {fishing, combat, catcher} = start_isolated_supervisor(:error_test)
 
-    assert {:error, [msg]} = BotSupervisor.start_all(fishing, combat, loot)
+    assert {:error, [msg]} = BotSupervisor.start_all(fishing, combat, catcher)
     assert msg =~ "calibração"
 
-    status = BotSupervisor.status(fishing, combat, loot)
+    status = BotSupervisor.status(fishing, combat, catcher)
     assert status.fishing.state == :idle
     assert status.combat.state == :idle
-    assert status.loot.state == :off
+    assert status.catcher.state == :idle
   end
 end

@@ -69,15 +69,34 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "lutando linha 2"
   end
 
-  test "a loot broadcast updates the loot pill and its loots/captures counters", %{conn: conn} do
+  test "a catcher broadcast updates the catcher pill", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
-    snapshot = %{state: :looting, counters: %{loots: 3, captures: 2, failures: 0}, error: nil}
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "loot", {:loot, snapshot})
+    snapshot = %{
+      state: :armed,
+      mode: "parado",
+      counters: %{captures: 2, throws: 3, ignored: 0},
+      error: nil
+    }
 
-    # the loot pill reflects the worker's state, and its counters drive the Loots/Capturas tallies
-    assert render(view) =~ "coletando"
-    assert has_element?(view, "[data-testid=loot-pill][data-state=looting]")
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "catcher", {:catcher, snapshot})
+
+    assert render(view) =~ "capturando"
+    assert has_element?(view, "[data-testid=catcher-pill][data-state=armed]")
+  end
+
+  test "capture mode selector persists and shows the manual hint", %{conn: conn} do
+    mode = Pokex.Settings.get(:capture_mode)
+    on_exit(fn -> Pokex.Settings.put(:capture_mode, mode) end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view |> element(~s(button[phx-value-mode="movimento"])) |> render_click()
+    assert Pokex.Settings.get(:capture_mode) == "movimento"
+    assert render(view) =~ "você captura manualmente"
+
+    view |> element(~s(button[phx-value-mode="parado"])) |> render_click()
+    assert render(view) =~ "Reaprender chão"
   end
 
   test "the busy placeholder snapshots render without crashing (worker missed its status window)",
@@ -90,7 +109,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, busy})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat, Map.put(busy, :locked_row, nil)})
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "loot", {:loot, busy})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "catcher", {:catcher, Map.put(busy, :mode, "parado")})
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,

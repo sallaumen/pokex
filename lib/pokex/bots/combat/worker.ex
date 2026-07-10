@@ -57,7 +57,6 @@ defmodule Pokex.Bots.Combat.Worker do
      %{
        logic: nil,
        timer: nil,
-       arena_attached?: false,
        feed_ref: nil,
        reattach_attempts: 0
      }}
@@ -91,7 +90,7 @@ defmodule Pokex.Bots.Combat.Worker do
   def handle_call(:halt, _from, state) do
     {logic, _} = Logic.stop(state.logic)
     safe_detach(:battle)
-    state = detach_arena(%{state | logic: logic})
+    state = %{state | logic: logic}
     demonitor_feed(state.feed_ref)
     broadcast(logic)
     {:reply, :ok, cancel_timer(%{state | feed_ref: nil, reattach_attempts: 0})}
@@ -183,10 +182,9 @@ defmodule Pokex.Bots.Combat.Worker do
       do: broadcast(logic)
 
     if logic.counters.fights > previous.counters.fights,
-      do: broadcast_kill(corpse())
+      do: broadcast_kill()
 
-    state = sync_arena(%{state | logic: logic})
-    schedule_wake(state)
+    schedule_wake(%{state | logic: logic})
   end
 
   # Tab + skills are keys → the direct fire-and-forget path (a key must never wait behind a
@@ -234,33 +232,6 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   end
 
-  # The corpse point for loot: the arena feed's last hostile, if reasonably fresh.
-  defp corpse do
-    case WorldState.get(:arena, Settings.get(:corpse_max_age_ms), now()) do
-      {:ok, %{hostile: point}} -> point
-      _stale_or_missing -> nil
-    end
-  end
-
-  # The arena feed (corpse position) only needs to run while fighting.
-  defp sync_arena(%{logic: %Logic{state: :fighting}, arena_attached?: false} = state) do
-    safe_attach(:arena)
-    %{state | arena_attached?: true}
-  end
-
-  defp sync_arena(%{logic: %Logic{state: s}, arena_attached?: true} = state)
-       when s != :fighting,
-       do: detach_arena(state)
-
-  defp sync_arena(state), do: state
-
-  defp detach_arena(%{arena_attached?: true} = state) do
-    safe_detach(:arena)
-    %{state | arena_attached?: false}
-  end
-
-  defp detach_arena(state), do: state
-
   # The feed's consumers map (and this worker's monitor of it) dies with the feed process —
   # a restart starts fresh with nobody attached. Reattach on a short retry loop until the
   # feed is back up (or logic goes idle/error, or we've retried enough that it's clearly not
@@ -281,13 +252,7 @@ defmodule Pokex.Bots.Combat.Worker do
   defp demonitor_feed(ref), do: Process.demonitor(ref, [:flush])
 
   # A dead/restarting feed must never crash the halt path (the Guardian panic fan-out runs
-  # through it) nor sync_arena's attach.
-  defp safe_attach(key) do
-    Perception.attach(key)
-  catch
-    :exit, _ -> :ok
-  end
-
+  # through it).
   defp safe_detach(key) do
     Perception.detach(key)
   catch
@@ -315,12 +280,12 @@ defmodule Pokex.Bots.Combat.Worker do
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat, snapshot(logic)})
 
-  defp broadcast_kill(corpse),
+  defp broadcast_kill,
     do:
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
-        Pokex.Bots.Loot.Worker.kill_topic(),
-        {:kill, corpse}
+        Pokex.Bots.Catcher.Worker.kill_topic(),
+        {:kill}
       )
 
   # :macro (surfaced to Lucas) for the moments that matter: the step just landed a fight,

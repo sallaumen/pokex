@@ -67,8 +67,6 @@ defmodule Pokex.Settings do
     # even enter the sample stream (an independent second layer of defense).
     wait_cast_settle_ms: 1600,
     wait_assess_ms: 1500,
-    wait_loot_ms: 30,
-    wait_after_capture_ms: 50,
     watch_timeout_ms: 30_000,
     # Auto-recovery: consecutive NEAR-EMPTY-water frames (bubble px below
     # line_present_min_px — no line in the water) before we assume the cast FAILED
@@ -108,7 +106,6 @@ defmodule Pokex.Settings do
     max_consecutive_failures: 5,
     hostile_scan_every: 2,
     wild_min_red_pixels: 12,
-    auto_capture: true,
     # A SINGLE bite-magnitude frame (> glow_threshold) hooks. The bite oscillates
     # hard (2..1513), so requiring CONSECUTIVE frames never confirms — but one frame
     # over 800 is unambiguous (nothing else reaches it) and the post-hook anti-bot
@@ -231,10 +228,6 @@ defmodule Pokex.Settings do
     skill_burst_every_ms: 300,
     # Battle observations older than this are treated as unknown by combat (fail-safe: no keys).
     combat_world_max_age_ms: 600,
-    # How stale the :arena feed's last hostile point may be and still be handed to loot as
-    # the corpse position (was `feed_arena_ms * 5` — a literal that silently drifted if the
-    # arena cadence ever changed; now a standalone, intentional ceiling).
-    corpse_max_age_ms: 1_500,
     # --- Keyboard focus guard --------------------------------------------------------------------
     # System Events keystrokes land in the FRONTMOST app: with the panel focused (watching the
     # activity feed in the browser), every bot key typed into Chrome and the game never saw it —

@@ -1,13 +1,13 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.{BotSupervisor, Combat, Fishing, GameController, Loot, SkillBar}
+  alias Pokex.Bots.{BotSupervisor, Catcher, Combat, Fishing, GameController, SkillBar}
   alias Pokex.Diagnostics.Report
   alias Pokex.{Calibration, Rig, Settings}
 
   @fishing_topic "fishing"
   @combat_topic "combat"
-  @loot_topic "loot"
+  @catcher_topic "catcher"
   @mini_game_topic "mini_game"
   @game_topic "game"
   @body_topic "body"
@@ -17,7 +17,6 @@ defmodule PokexWeb.PanelLive do
     {"Ciclos", :cycles, "hero-arrow-path"},
     {"Fisgadas", :hooked, "hero-sparkles"},
     {"Lutas", :fights, "hero-bolt"},
-    {"Loots", :loots, "hero-gift"},
     {"Capturas", :captures, "hero-check-badge"},
     {"Falhas", :failures, "hero-exclamation-triangle"}
   ]
@@ -50,7 +49,7 @@ defmodule PokexWeb.PanelLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
-      Phoenix.PubSub.subscribe(Pokex.PubSub, @loot_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, @catcher_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @mini_game_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @game_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @body_topic)
@@ -67,13 +66,13 @@ defmodule PokexWeb.PanelLive do
        page_title: "Painel",
        fishing: status.fishing,
        combat: status.combat,
-       loot: status.loot,
+       catcher: status.catcher,
        mini_game: status.mini_game,
        game: status.game_controller,
        errors: [],
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
-       auto_capture: Settings.get(:auto_capture),
+       capture_mode: Settings.get(:capture_mode),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
        panicked?: false,
        logs: [],
@@ -133,8 +132,8 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:combat, snapshot}, socket),
     do: {:noreply, assign(socket, combat: snapshot, panicked?: false)}
 
-  def handle_info({:loot, snapshot}, socket),
-    do: {:noreply, assign(socket, loot: snapshot)}
+  def handle_info({:catcher, snapshot}, socket),
+    do: {:noreply, assign(socket, catcher: snapshot)}
 
   def handle_info({:mini_game, snapshot}, socket) do
     socket = assign(socket, mini_game: snapshot)
@@ -175,6 +174,9 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:mini_game_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🎮", text: text})}
+
+  def handle_info({:catcher_log, level, text}, socket),
+    do: {:noreply, append_log(socket, %{level: level, source: "🎯", text: text})}
 
   def handle_info({:game, snapshot}, socket),
     do: {:noreply, assign(socket, game: snapshot)}
@@ -237,7 +239,7 @@ defmodule PokexWeb.PanelLive do
            panicked?: false,
            fishing: status.fishing,
            combat: status.combat,
-           loot: status.loot,
+           catcher: status.catcher,
            mini_game: status.mini_game,
            game: status.game_controller
          )}
@@ -255,7 +257,7 @@ defmodule PokexWeb.PanelLive do
      assign(socket,
        fishing: status.fishing,
        combat: status.combat,
-       loot: status.loot,
+       catcher: status.catcher,
        mini_game: status.mini_game,
        game: status.game_controller
      )}
@@ -267,8 +269,17 @@ defmodule PokexWeb.PanelLive do
   def handle_event("toggle_combat", _params, socket),
     do: toggle_worker(socket, :combat, Combat.Worker)
 
-  def handle_event("toggle_loot", _params, socket),
-    do: toggle_worker(socket, :loot, Loot.Worker)
+  def handle_event("set_capture_mode", %{"mode" => mode}, socket)
+      when mode in ~w(parado movimento) do
+    Settings.put(:capture_mode, mode)
+    Catcher.Worker.mode_changed()
+    {:noreply, assign(socket, capture_mode: mode)}
+  end
+
+  def handle_event("relearn_ground", _params, socket) do
+    Catcher.Worker.relearn()
+    {:noreply, socket}
+  end
 
   def handle_event("save_threshold", %{"threshold" => raw}, socket) do
     value =
@@ -306,12 +317,6 @@ defmodule PokexWeb.PanelLive do
       end)
 
     {:noreply, assign(socket, timing: timing)}
-  end
-
-  def handle_event("toggle_capture", _params, socket) do
-    value = not Settings.get(:auto_capture)
-    Settings.put(:auto_capture, value)
-    {:noreply, assign(socket, auto_capture: value)}
   end
 
   def handle_event("toggle_require_cooldowns", _params, socket) do
@@ -573,10 +578,11 @@ defmodule PokexWeb.PanelLive do
   # Fishing and combat only truly overlap on :failures — sum those; every
   # other counter belongs to exactly one worker, so a plain merge is right
   # for them.
-  defp merged_counters(fishing, combat, loot) do
-    # loots/captures now come from the Loot.Worker (combat's are always 0 since the extraction),
-    # fights from combat, hooked from fishing; failures sum across all three.
-    [fishing, combat, loot]
+  defp merged_counters(fishing, combat, catcher) do
+    # captures now come from the Catcher.Worker (combat's are always 0 since the extraction),
+    # fights from combat, hooked from fishing; failures sum across fishing+combat (catcher
+    # tracks its own throws/ignored separately, with no notion of an I/O failure).
+    [fishing, combat, catcher]
     |> Enum.map(&Map.new(&1.counters || %{}))
     |> Enum.reduce(%{}, fn m, acc ->
       Map.merge(acc, m, fn
@@ -596,8 +602,8 @@ defmodule PokexWeb.PanelLive do
   defp fishing_label(:error), do: "erro"
   defp fishing_label(other), do: to_string(other)
 
-  # ⚔️ Batalha: parado / caçando / confirmando alvo (Tab) / lutando linha N / erro. Loot is a
-  # separate worker now (see loot_label/1).
+  # ⚔️ Batalha: parado / caçando / confirmando alvo (Tab) / lutando linha N / erro. Corpse
+  # capture is a separate worker (see catcher_label/1).
   defp combat_label(:idle, _row), do: "parado"
   defp combat_label(:hunting, _row), do: "caçando"
   defp combat_label(:tabbing, _row), do: "confirmando alvo (Tab)"
@@ -606,16 +612,13 @@ defmodule PokexWeb.PanelLive do
   defp combat_label(:error, _row), do: "erro"
   defp combat_label(other, _row), do: to_string(other)
 
-  # 🎒 Loot: parado (desligado) / aguardando (ligado pelo Start, esperando um kill) / coletando
-  # (walk → loot → capture → walk-back) / erro.
-  defp loot_label(:off), do: "parado"
-  defp loot_label(:ready), do: "aguardando"
-  defp loot_label(:walking_to_loot), do: "andando até o corpo"
-  defp loot_label(:looting), do: "coletando (espaço)"
-  defp loot_label(:capturing), do: "pokébola"
-  defp loot_label(:walking_back), do: "voltando"
-  defp loot_label(:error), do: "erro"
-  defp loot_label(other), do: to_string(other)
+  # 🎯 Captura: parado (mode "parado" mas sem corpo ainda / mode "movimento" halted) /
+  # capturando (armado, jogando pokébola nos corpos detectados) / manual (mode "movimento" —
+  # você captura na mão).
+  defp catcher_label(:idle), do: "parado"
+  defp catcher_label(:armed), do: "capturando"
+  defp catcher_label(:manual), do: "manual"
+  defp catcher_label(other), do: to_string(other)
 
   # 🎮 Mini game: desligado / observando a arena / pausando o resto enquanto o jogo está aberto.
   defp mini_game_label(:off), do: "parado"
@@ -642,15 +645,16 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  defp overall_active?(fishing, combat, loot),
-    do: Enum.any?([fishing.state, combat.state, loot.state], &active?/1)
+  # Catcher isn't part of this check: in "movimento" mode it always reads :manual — a display
+  # choice, not a running/halted signal — so it can't tell you whether the bot is on.
+  defp overall_active?(fishing, combat),
+    do: Enum.any?([fishing.state, combat.state], &active?/1)
 
-  defp automation_count(fishing, combat, loot, auto_capture, rescue_enabled, potion_enabled) do
+  defp automation_count(fishing, combat, capture_mode, rescue_enabled, potion_enabled) do
     [
       active?(fishing.state),
       active?(combat.state),
-      active?(loot.state),
-      auto_capture,
+      capture_mode == "parado",
       rescue_enabled,
       potion_enabled
     ]
@@ -710,12 +714,12 @@ defmodule PokexWeb.PanelLive do
               <span class="flex items-center gap-2 rounded-full border border-[#293137] px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b949d]">
                 <span class={[
                   "size-1.5 rounded-full",
-                  if(overall_active?(@fishing, @combat, @loot),
+                  if(overall_active?(@fishing, @combat),
                     do: "bg-[#37d07d]",
                     else: "bg-[#68727b]"
                   )
                 ]} />
-                {if(overall_active?(@fishing, @combat, @loot), do: "Ativo", else: "Parado")}
+                {if(overall_active?(@fishing, @combat), do: "Ativo", else: "Parado")}
               </span>
               <details id="panel-navigation" phx-update="ignore" class="group relative">
                 <summary
@@ -778,7 +782,7 @@ defmodule PokexWeb.PanelLive do
           </div>
 
           <button
-            :if={not overall_active?(@fishing, @combat, @loot)}
+            :if={not overall_active?(@fishing, @combat)}
             id="start-bot"
             class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#39cd76] text-sm font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
             phx-click="start"
@@ -786,7 +790,7 @@ defmodule PokexWeb.PanelLive do
             <.icon name="hero-play-solid" class="size-4" /> Iniciar bot
           </button>
           <button
-            :if={overall_active?(@fishing, @combat, @loot)}
+            :if={overall_active?(@fishing, @combat)}
             id="stop-bot"
             class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#703136] bg-[#281114] text-sm font-bold text-[#ff9ca4] transition hover:bg-[#35171b] active:scale-[0.99]"
             phx-click="stop"
@@ -826,18 +830,18 @@ defmodule PokexWeb.PanelLive do
               </p>
             </div>
             <div
-              data-testid="loot-pill"
-              data-state={@loot.state}
+              data-testid="catcher-pill"
+              data-state={@catcher.state}
               class="rounded-lg border border-[#232a30] bg-[#111519] px-3 py-2.5"
             >
               <div class="flex items-center gap-2 text-xs font-semibold">
                 <span class={[
                   "size-2 rounded-full",
-                  if(active?(@loot.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
-                ]} /> Loot
+                  if(active?(@catcher.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                ]} /> Captura
               </div>
               <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
-                {loot_label(@loot.state)}
+                {catcher_label(@catcher.state)}
               </p>
             </div>
             <div
@@ -888,7 +892,13 @@ defmodule PokexWeb.PanelLive do
           <section>
             <div class="mb-2 flex items-center justify-between px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
               <h2>Automações</h2>
-              <span>{automation_count(@fishing, @combat, @loot, @auto_capture, @rescue_enabled, @potion_enabled)}/6 on</span>
+              <span>{automation_count(
+                @fishing,
+                @combat,
+                @capture_mode,
+                @rescue_enabled,
+                @potion_enabled
+              )}/5 on</span>
             </div>
             <div class="overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]">
               <.automation_row
@@ -905,20 +915,37 @@ defmodule PokexWeb.PanelLive do
                 active={active?(@combat.state)}
                 event="toggle_combat"
               />
-              <.automation_row
-                id="automation-loot"
-                title="Pegar loot"
-                description="Coleta itens após a batalha"
-                active={active?(@loot.state)}
-                event="toggle_loot"
-              />
-              <.automation_row
-                id="automation-capture"
-                title="Auto-captura"
-                description="Joga pokébola no pescado"
-                active={@auto_capture}
-                event="toggle_capture"
-              />
+              <div id="automation-capture" class="flex items-center justify-between px-3 py-2.5">
+                <span>
+                  <span class="block text-xs font-semibold">Captura (Pokébola)</span>
+                  <span class="mt-0.5 block text-[10px] text-[#79838b]">
+                    {if @capture_mode == "parado",
+                      do: "joga bola nos corpos detectados ao redor",
+                      else: "você captura manualmente — em movimento o bot não joga Pokébola"}
+                  </span>
+                </span>
+                <div class="flex gap-1">
+                  <button
+                    :for={{mode, label} <- [{"parado", "Parado"}, {"movimento", "Em movimento"}]}
+                    phx-click="set_capture_mode"
+                    phx-value-mode={mode}
+                    class={[
+                      "h-8 rounded-lg border px-2.5 text-[11px]",
+                      if(@capture_mode == mode,
+                        do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
+                        else: "border-[#293238] text-[#89939a] hover:text-white"
+                      )
+                    ]}
+                  >{label}</button>
+                </div>
+              </div>
+              <button
+                :if={@capture_mode == "parado"}
+                phx-click="relearn_ground"
+                class="mx-3 mb-2 flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
+              >
+                <.icon name="hero-arrow-path" class="size-3" /> Reaprender chão (mudou de spot)
+              </button>
               <.automation_row
                 id="automation-rescue"
                 title="Revive automático"
@@ -1024,7 +1051,7 @@ defmodule PokexWeb.PanelLive do
                 class="rounded-lg border border-[#232b30] bg-[#111519] px-2 py-3 text-center"
               >
                 <div class="text-xl font-bold tabular-nums text-[#dce1e4]">
-                  {Map.get(merged_counters(@fishing, @combat, @loot), key, 0)}
+                  {Map.get(merged_counters(@fishing, @combat, @catcher), key, 0)}
                 </div>
                 <div class="mt-1 font-mono text-[9px] uppercase tracking-[0.1em] text-[#758089]">
                   {label}

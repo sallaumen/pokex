@@ -93,11 +93,8 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "lock lost for the streak broadcasts the kill with the arena corpse", %{worker: worker} do
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Loot.Worker.kill_topic())
-
-    now = System.monotonic_time(:millisecond)
-    WorldState.put(:arena, %{hostile: {123, 456}, captured_at: now}, now)
+  test "lock lost for the streak broadcasts the kill", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.kill_topic())
 
     world!(worker, battle_obs(enemies: [0]))
     assert eventually(fn -> Worker.status(worker).state == :tabbing end)
@@ -107,7 +104,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     world!(worker, battle_obs(locked?: false))
     world!(worker, battle_obs(locked?: false))
 
-    assert_receive {:kill, {123, 456}}, 1_000
+    assert_receive {:kill}, 1_000
     assert Worker.status(worker).counters.fights == 1
   end
 
@@ -123,7 +120,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   @tag :tmp_dir
   test "a static locked-lost screen reaches the kill from :wake polling alone, no further :world events",
        %{worker: worker} do
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Loot.Worker.kill_topic())
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.kill_topic())
 
     world!(worker, battle_obs(enemies: [0]))
     assert eventually(fn -> Worker.status(worker).state == :tabbing end)
@@ -141,7 +138,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       Process.sleep(100)
     end
 
-    assert_receive {:kill, _}, 1_000
+    assert_receive {:kill}, 1_000
     assert Worker.status(worker).counters.fights == 1
   end
 
@@ -158,8 +155,11 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     assert eventually(fn -> Worker.status(worker).state == :hunting end)
     assert Worker.status(worker).counters.fights == 1
 
-    tab_presses_after_kill = Enum.count(presses(), &(&1 == Settings.get(:tab_key)))
-    assert tab_presses_after_kill == 1
+    # The Tab press itself lands via an async spawned task (dispatch/1), so its arrival in
+    # Fake can lag a hair behind the synchronous state transition above — eventually, not a
+    # bare assert (this used to be masked by sync_arena's now-removed Perception.attach/detach
+    # call adding incidental latency to the worker's own message loop).
+    assert eventually(fn -> Enum.count(presses(), &(&1 == Settings.get(:tab_key))) == 1 end)
 
     # From here on: NO more :world events (the feed wouldn't broadcast either — a
     # non-empty-but-pixel-static battle list is not a content CHANGE). Seed WorldState

@@ -2,7 +2,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
   @moduledoc """
   Watches the arena for the fishing mini-game overlay.
 
-  On entry it pauses the regular fishing/combat/loot workers and remembers
+  On entry it pauses the regular fishing/combat/catcher workers and remembers
   which ones were active. On exit it starts only those remembered workers again.
   For now this worker does not play the mini-game; it only coordinates the
   transition and keeps the panel informed.
@@ -13,13 +13,13 @@ defmodule Pokex.Bots.MiniGame.Worker do
   """
   use GenServer
 
-  alias Pokex.Bots.{Capture, Combat, Fishing, Loot}
+  alias Pokex.Bots.{Capture, Catcher, Combat, Fishing}
   alias Pokex.Bots.MiniGame.Detector
   alias Pokex.{Calibration, Settings}
 
   @topic "mini_game"
   @default_counters %{detections: 0, clears: 0, failures: 0}
-  @peer_keys [:fishing, :combat, :loot]
+  @peer_keys [:fishing, :combat, :catcher]
 
   def topic, do: @topic
 
@@ -42,7 +42,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
         Keyword.get(opts, :peers, %{
           fishing: Fishing.Worker,
           combat: Combat.Worker,
-          loot: Loot.Worker
+          catcher: Catcher.Worker
         }),
       pause_peers: Keyword.get(opts, :pause_peers, &default_pause_peers/1),
       resume_peers: Keyword.get(opts, :resume_peers, &default_resume_peers/2)
@@ -336,7 +336,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
     statuses = %{
       fishing: Fishing.Worker.status(peers.fishing),
       combat: Combat.Worker.status(peers.combat),
-      loot: Loot.Worker.status(peers.loot)
+      catcher: Catcher.Worker.status(peers.catcher)
     }
 
     paused =
@@ -345,7 +345,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
     Fishing.Worker.halt(peers.fishing)
     Combat.Worker.halt(peers.combat)
-    Loot.Worker.halt(peers.loot)
+    Catcher.Worker.halt(peers.catcher)
 
     paused
   end
@@ -353,13 +353,13 @@ defmodule Pokex.Bots.MiniGame.Worker do
   defp default_resume_peers(peers, paused_peers) do
     if :fishing in paused_peers, do: Fishing.Worker.run(peers.fishing)
     if :combat in paused_peers, do: Combat.Worker.run(peers.combat)
-    if :loot in paused_peers, do: Loot.Worker.run(peers.loot)
+    if :catcher in paused_peers, do: Catcher.Worker.run(peers.catcher)
     :ok
   end
 
   defp resumable?(:fishing, %{state: state}), do: state not in [:idle, :error]
   defp resumable?(:combat, %{state: state}), do: state not in [:idle, :error]
-  defp resumable?(:loot, %{state: state}), do: state != :off
+  defp resumable?(:catcher, %{state: state}), do: state != :idle
   defp resumable?(_key, _snapshot), do: false
 
   defp peer_label([]), do: "nenhum worker"
@@ -369,7 +369,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
     |> Enum.map(fn
       :fishing -> "pesca"
       :combat -> "combate"
-      :loot -> "loot"
+      :catcher -> "captura"
     end)
     |> Enum.join(", ")
   end

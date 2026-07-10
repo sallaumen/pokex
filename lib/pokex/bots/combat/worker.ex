@@ -70,6 +70,8 @@ defmodule Pokex.Bots.Combat.Worker do
         config = Settings.all() |> Map.take(@config_keys)
         {logic, _actions} = Logic.start(Logic.new(config), now())
         Perception.attach(:battle)
+        # A double :run (two Start presses) must not leak the previous feed monitor.
+        demonitor_feed(state.feed_ref)
         ref = Process.monitor(Feed.name(:battle))
         broadcast(logic)
         state = %{state | logic: logic, feed_ref: ref, reattach_attempts: 0}

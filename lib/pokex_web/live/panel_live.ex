@@ -596,6 +596,9 @@ defmodule PokexWeb.PanelLive do
 
   defp active?(:idle), do: false
   defp active?(:off), do: false
+  # BotSupervisor's busy placeholder (a worker that missed its 1s status window) — unknown,
+  # so don't paint it green/"Ativo" and don't offer "Parar" for a state we couldn't read.
+  defp active?(:ocupado), do: false
   defp active?(_state), do: true
 
   defp toggle_worker(socket, key, worker) do

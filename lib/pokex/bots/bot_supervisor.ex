@@ -178,7 +178,9 @@ defmodule Pokex.Bots.BotSupervisor do
   def status(fishing, combat, loot, mini_game) do
     fishing
     |> status(combat, loot)
-    |> Map.put(:mini_game, safe_status(mini_game, %{in_game?: false}))
+    # confidence included because the panel template reads @mini_game.confidence STRICTLY —
+    # a placeholder without it would crash the very render this fallback exists to protect.
+    |> Map.put(:mini_game, safe_status(mini_game, %{in_game?: false, confidence: 0.0}))
   end
 
   @spec status(

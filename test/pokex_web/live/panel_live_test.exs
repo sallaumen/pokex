@@ -80,6 +80,32 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "[data-testid=loot-pill][data-state=looting]")
   end
 
+  test "the busy placeholder snapshots render without crashing (worker missed its status window)",
+       %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    # exactly the shape BotSupervisor.safe_status/2 falls back to for each worker — the
+    # panel must render it as "ocupado" (not active) instead of raising on a missing key
+    busy = %{state: :ocupado, counters: %{}, error: "sem resposta (captura lenta?)"}
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, busy})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat, Map.put(busy, :locked_row, nil)})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "loot", {:loot, busy})
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "mini_game",
+      {:mini_game, Map.merge(busy, %{in_game?: false, confidence: 0.0})}
+    )
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:game, Map.put(busy, :hp_pct, nil)})
+
+    html = render(view)
+    assert html =~ "ocupado"
+    # busy is UNKNOWN, not running — the header must not flip to active
+    refute html =~ "Parar bot"
+  end
+
   test "a mini game broadcast updates the mini game pill", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 

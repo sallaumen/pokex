@@ -78,6 +78,15 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     assert {%Logic{}, []} = Logic.step(armed(), nil, 50)
   end
 
+  test "a scanning?: false (warmup) observation is a no-op, even with a pending throw past its window" do
+    {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
+
+    # 10_000 is well past the throw's flight window (10 + 800) — a real (scanning: true) obs
+    # with an empty corpse list here would confirm the capture; a warmup frame must not
+    warmup = %{scanning?: false, corpses: [], captured_at: 10_000}
+    assert {^logic, []} = Logic.step(logic, warmup, 10_000)
+  end
+
   test "frame dedup: the same captured_at never double-confirms" do
     {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
     {logic, _} = Logic.step(logic, obs([], 900), 900)

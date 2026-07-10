@@ -5,13 +5,22 @@ defmodule Pokex.Bots.Catcher.Worker do
   mode LIVE — `parado` attaches the feed and acts; `movimento` detaches and idles (Lucas
   captures manually while moving). Combat's kill broadcast is only an accelerator: it forces
   an immediate world re-read; detection never depends on it.
+
+  Combat-engagement gate: PXG combat is tile-locked — a FIGHTING sprite stands still,
+  indistinguishable from a corpse to the stationary-blob detector — so this worker also
+  tracks Combat.Worker's "combat" snapshots. While combat is :tabbing/:fighting, observations
+  are held (no admissions/throws/confirms: they would be contaminated by the live enemy) and
+  the feed is never (re)attached (a mid-fight attach would warm the baseline up on the enemy
+  sprite and mask the melee tile forever). The disengage edge (kill landed or the fight ended)
+  immediately re-checks the world so capture stays prompt, and lets a parado+armed+detached
+  worker re-attach right away — the ground is back to normal.
   """
   use GenServer
 
   alias Pokex.Bots.Body
   alias Pokex.Bots.Catcher.Logic
   alias Pokex.Perception
-  alias Pokex.Perception.WorldState
+  alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.Settings
 
   @topic "catcher"
@@ -51,7 +60,18 @@ defmodule Pokex.Bots.Catcher.Worker do
   def init(body) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
-    {:ok, %{logic: nil, body: body, timer: nil, attached?: false}}
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
+
+    {:ok,
+     %{
+       logic: nil,
+       body: body,
+       timer: nil,
+       attached?: false,
+       combat_engaged?: false,
+       feed_ref: nil,
+       reattach_attempts: 0
+     }}
   end
 
   @impl true
@@ -68,7 +88,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     {logic, _} = Logic.stop(state.logic)
     state = detach(%{state | logic: logic})
     broadcast(state)
-    {:reply, :ok, cancel_timer(state)}
+    {:reply, :ok, cancel_timer(%{state | reattach_attempts: 0})}
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
@@ -82,7 +102,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   def handle_call(:relearn, _from, state) do
-    state = state |> detach() |> sync_mode()
+    state = state |> reset_logic() |> detach() |> sync_mode()
     {:reply, :ok, state}
   end
 
@@ -104,6 +124,56 @@ defmodule Pokex.Bots.Catcher.Worker do
   def handle_info({:kill, _corpse}, %{logic: %Logic{state: :armed}} = state),
     do: {:noreply, advance(state, current_obs())}
 
+  # Combat-engagement gate: track the live fight so a stationary enemy sprite never gets
+  # balled/ignore-poisoned like a corpse. On the engaged→disengaged edge (kill landed or the
+  # fight ended) the corpse track is already mature — re-check the world immediately instead
+  # of waiting for the next event/poll, and let a parado+armed+detached worker re-attach now
+  # (the ground is back to normal, so a fresh warmup here is safe).
+  def handle_info({:combat, %{state: combat_state}}, state) do
+    engaged? = combat_state in [:tabbing, :fighting]
+    disengaged? = state.combat_engaged? and not engaged?
+    state = %{state | combat_engaged?: engaged?}
+
+    # combat_engaged? tracks regardless of our own state (so a :run mid-fight starts correctly
+    # gated); the disengage ACTION (attach + advance) only applies once there is a real armed
+    # logic to drive — nil/halted must never reach Logic.step/3.
+    state =
+      if disengaged? and match?(%Logic{state: :armed}, state.logic) do
+        state |> maybe_attach_after_disengage() |> advance(current_obs())
+      else
+        state
+      end
+
+    {:noreply, state}
+  end
+
+  # The :corpses feed died (its consumers map — and this worker's registration — dies with
+  # it; a restarted feed starts with nobody attached). Manual/halted: nothing to blind, do not
+  # schedule a reattach. Otherwise a silently-detached catcher would stop capturing forever the
+  # moment the feed restarts — retry-attach on a short timer instead (mirrors Combat.Worker's
+  # battle-feed monitor).
+  def handle_info({:DOWN, ref, :process, _obj, _reason}, %{feed_ref: ref} = state) do
+    state = %{state | attached?: false, feed_ref: nil}
+    state = if armed_parado?(state), do: schedule_reattach(state), else: state
+    {:noreply, state}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _obj, _reason}, state), do: {:noreply, state}
+
+  def handle_info(:reattach_corpses, state) do
+    cond do
+      not armed_parado?(state) or state.attached? ->
+        {:noreply, state}
+
+      state.combat_engaged? ->
+        # a fight is in progress — attaching now would warm up on the live sprite; retry later
+        {:noreply, schedule_reattach(state)}
+
+      true ->
+        {:noreply, reattach_corpses(state)}
+    end
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   # -- step pipeline -------------------------------------------------------------
@@ -113,6 +183,11 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp advance(state, obs) do
     if Settings.get(:capture_mode) == "parado", do: do_advance(state, obs), else: state
   end
+
+  # A fight is on: everything reaching here is contaminated by the live enemy sprite
+  # (tile-locked, stands still — indistinguishable from a corpse). No admissions, no throws,
+  # no confirms until combat disengages (see the {:combat,...} handler above).
+  defp do_advance(%{combat_engaged?: true} = state, _obs), do: state
 
   defp do_advance(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())
@@ -137,26 +212,71 @@ defmodule Pokex.Bots.Catcher.Worker do
     end
   end
 
-  # parado + running → attached; movimento or halted → detached.
+  # parado + running → attached; movimento or halted → detached. Never attaches mid-fight (see
+  # should_be_attached?/1) — a mid-fight attach would warm the baseline up on the live enemy
+  # sprite and mask the melee tile forever.
   defp sync_mode(state) do
-    case {Settings.get(:capture_mode), state.logic} do
-      {"parado", %Logic{state: :armed}} -> attach(state)
-      {_mode, _logic} -> cancel_timer(detach(state))
-    end
+    if should_be_attached?(state), do: attach(state), else: cancel_timer(detach(state))
+  end
+
+  defp armed_parado?(state),
+    do: Settings.get(:capture_mode) == "parado" and match?(%Logic{state: :armed}, state.logic)
+
+  defp should_be_attached?(state), do: armed_parado?(state) and not state.combat_engaged?
+
+  defp maybe_attach_after_disengage(state) do
+    if should_be_attached?(state) and not state.attached?, do: attach(state), else: state
   end
 
   defp attach(%{attached?: true} = state), do: state
 
   defp attach(state) do
     safe(fn -> Perception.attach(:corpses) end)
-    %{state | attached?: true}
+    demonitor_feed(state.feed_ref)
+    ref = Process.monitor(Feed.name(:corpses))
+    %{state | attached?: true, feed_ref: ref, reattach_attempts: 0}
   end
 
   defp detach(%{attached?: false} = state), do: state
 
   defp detach(state) do
     safe(fn -> Perception.detach(:corpses) end)
-    %{state | attached?: false}
+    demonitor_feed(state.feed_ref)
+    %{state | attached?: false, feed_ref: nil}
+  end
+
+  defp demonitor_feed(nil), do: :ok
+  defp demonitor_feed(ref), do: Process.demonitor(ref, [:flush])
+
+  defp schedule_reattach(%{reattach_attempts: attempts} = state) when attempts >= 20, do: state
+
+  defp schedule_reattach(state) do
+    Process.send_after(self(), :reattach_corpses, 250)
+    %{state | reattach_attempts: state.reattach_attempts + 1}
+  end
+
+  # The bounded, catch-guarded reattach fired from :reattach_corpses. Unlike attach/1 (used by
+  # the normal run/mode_changed/relearn/disengage paths, which must never crash on a feed that
+  # isn't registered yet), this one is only reached once we already know the feed just went
+  # down — a still-dead feed schedules another bounded retry instead of optimistically marking
+  # itself attached.
+  defp reattach_corpses(state) do
+    Perception.attach(:corpses)
+    demonitor_feed(state.feed_ref)
+    ref = Process.monitor(Feed.name(:corpses))
+    %{state | attached?: true, feed_ref: ref, reattach_attempts: 0}
+  catch
+    :exit, _ -> schedule_reattach(state)
+  end
+
+  defp reset_logic(%{logic: nil} = state), do: state
+
+  # "Reaprender chão": a fresh Logic (not just the old one restarted) so the queue/throw/
+  # ignored map from the old spot die with the old ground — a stale pending throw surviving
+  # the move would confirm/retry against coordinates that mean nothing at the new spot.
+  defp reset_logic(state) do
+    {logic, _actions} = Logic.start(Logic.new(config()), now())
+    %{state | logic: logic}
   end
 
   defp safe(fun) do

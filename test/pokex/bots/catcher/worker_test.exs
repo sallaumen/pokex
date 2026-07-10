@@ -120,6 +120,43 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).state == :idle
   end
 
+  @tag :tmp_dir
+  test "a fight in progress holds all throws", %{worker: worker} do
+    # combat engages — a corpse observation arriving mid-fight must be held: the stationary
+    # blob the detector sees might just be the live, tile-locked enemy sprite
+    send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
+
+    world!(worker, corpses_obs([{150, 250}]))
+    refute_receive {:performed, _p, _a}, 300
+
+    # the fight ends (kill or disengage) — a fresh corpse is already sitting in the world;
+    # the disengage edge must re-check it immediately and throw, no waiting on the next poll
+    fresh = corpses_obs([{150, 250}])
+    WorldState.put(:corpses, fresh, fresh.captured_at)
+    send(worker, {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}})
+
+    assert_receive {:performed, :high, [{:capture_sequence, {150, 250}}]}, 1_000
+  end
+
+  @tag :tmp_dir
+  test "relearn resets pending state", %{worker: worker} do
+    world!(worker, corpses_obs([{160, 260}]))
+    assert_receive {:performed, :high, [{:capture_sequence, {160, 260}}]}, 1_000
+    assert Worker.status(worker).counters.throws == 1
+
+    :ok = Worker.relearn(worker)
+
+    # a warmup frame right after relearn: empty corpses, but scanning?: false — must never be
+    # read as "the old pending throw's corpse vanished" (it would falsely confirm a capture
+    # that never happened, and the NEXT queued throw would aim at the OLD spot's coordinates)
+    future_ms = System.monotonic_time(:millisecond) + 2_000
+    warmup = %{scanning?: false, corpses: [], captured_at: future_ms}
+    world!(worker, warmup)
+
+    refute_receive {:performed, _p, _a}, 300
+    assert Worker.status(worker).counters.captures == 0
+  end
+
   defp eventually(fun, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
 

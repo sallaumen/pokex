@@ -33,8 +33,8 @@ declares capture manual while Lucas plays on the move.
 The corpses interpreter (`Perception.Interpret.Corpses`, its own module — it carries real
 logic) over `arena_region` (already calibrated; covers ball range around the character):
 
-1. **Warmup** (`corpse_warmup_frames`, default 20 — ~2s at the feed cadence): the FIRST warmup
-   frame is the BASELINE; every subsequent warmup frame is compared against it, and any pixel
+1. **Warmup** (`corpse_warmup_frames`, default 20 × `feed_corpses_ms` 400 — ~8s): the FIRST
+   warmup frame is the BASELINE; every subsequent warmup frame is compared against it, and any pixel
    that ever deviates beyond `corpse_noise_threshold` (animated water, sparkles, the breathing
    character sprite) is marked unreliable in the VARIANCE MASK and excluded from diffing
    forever. Publishes `%{scanning?: false, corpses: []}` while warming.

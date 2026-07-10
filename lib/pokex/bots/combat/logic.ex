@@ -33,7 +33,12 @@ defmodule Pokex.Bots.Combat.Logic do
             locked_row: nil,
             failures: 0,
             error: nil,
-            counters: %{fights: 0, loots: 0, captures: 0, failures: 0}
+            # `captures` stays 0 here forever — captures live on Catcher.Logic since the
+            # Catcher extraction — but the panel's merged_counters/3 still folds combat's
+            # counters map into its merge (fishing → combat → catcher, last write wins), so
+            # keep the key rather than let a missing key change that merge's shape.
+            # `loots` was Loot.Logic's; Loot is deleted and nothing reads it here anymore.
+            counters: %{fights: 0, captures: 0, failures: 0}
 
   # -- lifecycle ------------------------------------------------------------
 

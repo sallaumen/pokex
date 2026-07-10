@@ -191,8 +191,9 @@ defmodule Pokex.Settings do
     potion_cooldown_ms: 10_000,
     # --- Perception feeds -----------------------------------------------------------------------
     # Capture cadence per feed. A feed only captures while a consumer is attached, so these are
-    # upper bounds on broker demand, not constant costs. battle is the combat hot path; arena only
-    # runs while fighting (corpse position for loot).
+    # upper bounds on broker demand, not constant costs. battle is the combat hot path; arena has
+    # no consumer today (the Loot walk that read it is gone) — kept registered for a future
+    # feature that wants `arena_region` again, at effectively zero cost while unattached.
     feed_battle_ms: 120,
     feed_arena_ms: 300,
     # Consecutive failed captures (bad region, or the OS revoked Screen Recording mid-run) a

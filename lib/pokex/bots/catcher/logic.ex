@@ -29,6 +29,13 @@ defmodule Pokex.Bots.Catcher.Logic do
   def step(%__MODULE__{state: :idle} = logic, _obs, _now), do: {logic, []}
   def step(logic, nil, _now), do: {logic, []}
 
+  # A warmup frame (`scanning?: false`) proves nothing about the ground — its `corpses` list
+  # is always empty by construction, so letting it fall through would falsely CONFIRM any
+  # pending throw as captured (and, worse, admit nothing while wiping the queue's chance to
+  # re-admit). Must be checked before the freshness dedup below: a warmup frame is fresh
+  # (captured_at keeps advancing) and would otherwise reach the general clause.
+  def step(logic, %{scanning?: false}, _now), do: {logic, []}
+
   def step(%{last_obs_at: last} = logic, %{captured_at: at}, _now)
       when is_integer(last) and at <= last,
       do: {logic, []}

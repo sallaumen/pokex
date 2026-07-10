@@ -1,7 +1,7 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.{BotSupervisor, Combat, Fishing, SkillBar}
+  alias Pokex.Bots.{BotSupervisor, Combat, Fishing, Loot, SkillBar}
   alias Pokex.Diagnostics.Report
   alias Pokex.{Calibration, Rig, Settings}
 
@@ -119,12 +119,6 @@ defmodule PokexWeb.PanelLive do
 
     "width: #{pct}%; background-color: #{color};"
   end
-
-  defp game_badge_label(%{state: :monitoring}), do: "monitorando"
-  defp game_badge_label(_game), do: "desligado"
-
-  defp game_badge_class(%{state: :monitoring}), do: "badge-success"
-  defp game_badge_class(_game), do: "badge-ghost"
 
   @impl true
   def handle_info({:fishing, snapshot}, socket),
@@ -284,6 +278,15 @@ defmodule PokexWeb.PanelLive do
         {:noreply, assign(socket, errors: messages)}
     end
   end
+
+  def handle_event("toggle_fishing", _params, socket),
+    do: toggle_worker(socket, :fishing, Fishing.Worker)
+
+  def handle_event("toggle_combat", _params, socket),
+    do: toggle_worker(socket, :combat, Combat.Worker)
+
+  def handle_event("toggle_loot", _params, socket),
+    do: toggle_worker(socket, :loot, Loot.Worker)
 
   def handle_event("save_threshold", %{"threshold" => raw}, socket) do
     value =
@@ -480,8 +483,6 @@ defmodule PokexWeb.PanelLive do
   defp cell_style(%{rgb: [r, g, b]}), do: "background: rgb(#{r}, #{g}, #{b})"
 
   defp visible_logs(logs, show_debug), do: Enum.filter(logs, &(show_debug or &1.level == :macro))
-  defp macro_count(logs), do: Enum.count(logs, &(&1.level == :macro))
-
   defp log_class(:macro), do: "text-base-content"
   defp log_class(_debug), do: "opacity-50"
 
@@ -493,9 +494,6 @@ defmodule PokexWeb.PanelLive do
       _ -> nil
     end
   end
-
-  defp cooldown_pill_class(:ready), do: "badge-success"
-  defp cooldown_pill_class(_cooldown), do: "badge-ghost opacity-50"
 
   defp parse_skill_keys(raw) do
     raw
@@ -568,487 +566,544 @@ defmodule PokexWeb.PanelLive do
   defp active?(:off), do: false
   defp active?(_state), do: true
 
-  defp pill_class(:error), do: "badge-error"
-  defp pill_class(:idle), do: "badge-ghost"
-  defp pill_class(:off), do: "badge-ghost"
-  defp pill_class(_running), do: "badge-success"
+  defp toggle_worker(socket, key, worker) do
+    current = Map.fetch!(socket.assigns, key)
+    result = if active?(current.state), do: worker.halt(), else: worker.run()
 
-  defp mini_game_pill_class(:playing), do: "badge-warning"
-  defp mini_game_pill_class(:watching), do: "badge-info"
-  defp mini_game_pill_class(:error), do: "badge-error"
-  defp mini_game_pill_class(_state), do: "badge-ghost"
+    case result do
+      :ok -> {:noreply, assign(socket, key, worker.status())}
+      {:error, messages} when is_list(messages) -> {:noreply, assign(socket, errors: messages)}
+      {:error, reason} -> {:noreply, assign(socket, errors: [inspect(reason)])}
+    end
+  end
+
+  defp overall_active?(fishing, combat, loot),
+    do: Enum.any?([fishing.state, combat.state, loot.state], &active?/1)
+
+  defp automation_count(fishing, combat, loot, auto_capture, rescue_enabled) do
+    [
+      active?(fishing.state),
+      active?(combat.state),
+      active?(loot.state),
+      auto_capture,
+      rescue_enabled
+    ]
+    |> Enum.count(& &1)
+  end
+
+  defp rescue_count(game), do: get_in(game, [:counters, :rescues]) || 0
+
+  attr :id, :string, required: true
+  attr :title, :string, required: true
+  attr :description, :string, required: true
+  attr :active, :boolean, required: true
+  attr :event, :string, required: true
+
+  defp automation_row(assigns) do
+    ~H"""
+    <div
+      id={@id}
+      class={[
+        "flex min-h-14 items-center gap-3 border-b border-[#222a2f] px-3 py-2.5 last:border-b-0",
+        @active && "bg-[#102019]"
+      ]}
+    >
+      <span class={[
+        "h-8 w-0.5 shrink-0 rounded-full",
+        if(@active, do: "bg-[#37d07d]", else: "bg-transparent")
+      ]} />
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-semibold text-[#d9dde1]">{@title}</p>
+        <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">{@description}</p>
+      </div>
+      <input
+        id={"#{@id}-toggle"}
+        type="checkbox"
+        class="toggle toggle-success toggle-sm shrink-0"
+        checked={@active}
+        phx-click={@event}
+        aria-label={@title}
+      />
+    </div>
+    """
+  end
 
   @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_page={:panel}>
-      <div class="space-y-5">
-        <div
-          :if={not @calibrated?}
-          class="flex items-center gap-3 rounded-xl border border-warning/40 bg-warning/10 p-4"
-        >
-          <.icon name="hero-exclamation-triangle" class="size-6 shrink-0 text-warning" />
-          <div class="flex-1 text-sm">
-            <p class="font-semibold">Você ainda não calibrou.</p>
-            <p class="opacity-80">
-              O bot precisa saber onde ficam a água, a janela Battle e a arena antes de começar.
-            </p>
-          </div>
-          <.link navigate={~p"/calibration"} class="btn btn-warning btn-sm">Calibrar →</.link>
-        </div>
-
-        <section class="rounded-2xl border border-base-content/10 bg-base-200 p-5">
-          <div class="flex flex-wrap items-center justify-between gap-4">
-            <div class="flex flex-wrap items-center gap-2">
-              <span
-                data-testid="fishing-pill"
-                data-state={@fishing.state}
-                class={["badge gap-1.5 badge-lg", pill_class(@fishing.state)]}
-              >
-                <span class={[
-                  "size-2 rounded-full bg-current",
-                  active?(@fishing.state) && "motion-safe:animate-pulse"
-                ]} /> 🎣 Pesca: {fishing_label(@fishing.state)}
-              </span>
-              <span
-                data-testid="combat-pill"
-                data-state={@combat.state}
-                class={["badge gap-1.5 badge-lg", pill_class(@combat.state)]}
-              >
-                <span class={[
-                  "size-2 rounded-full bg-current",
-                  active?(@combat.state) && "motion-safe:animate-pulse"
-                ]} /> ⚔️ Batalha: {combat_label(@combat.state, Map.get(@combat, :locked_row))}
-              </span>
-              <span
-                data-testid="loot-pill"
-                data-state={@loot.state}
-                class={["badge gap-1.5 badge-lg", pill_class(@loot.state)]}
-              >
-                <span class={[
-                  "size-2 rounded-full bg-current",
-                  active?(@loot.state) && "motion-safe:animate-pulse"
-                ]} /> 🎒 Loot: {loot_label(@loot.state)}
-              </span>
-              <span
-                data-testid="mini-game-pill"
-                data-state={@mini_game.state}
-                class={["badge gap-1.5 badge-lg", mini_game_pill_class(@mini_game.state)]}
-                title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
-              >
-                <span class={[
-                  "size-2 rounded-full bg-current",
-                  @mini_game.state == :playing && "motion-safe:animate-pulse"
-                ]} /> 🎮 Mini game: {mini_game_label(@mini_game.state)}
-              </span>
+      <div id="panel-dashboard" class="min-h-dvh bg-[#080b0d] text-[#d9dde1]">
+        <header class="sticky top-0 z-30 border-b border-[#1f262b] bg-[#090c0f]/95 backdrop-blur">
+          <div class="mx-auto flex h-12 max-w-[520px] items-center justify-between px-2">
+            <div class="flex items-center gap-2.5">
+              <span class="grid size-7 place-items-center rounded-lg bg-[#36cf78] text-sm font-black text-[#06150c]">P</span>
+              <span class="text-sm font-bold">Pokex</span>
             </div>
-            <div class="flex flex-wrap gap-2">
-              <button class="btn btn-success gap-1.5" phx-click="start">
-                <.icon name="hero-play" class="size-4" /> Start
-              </button>
-              <button class="btn btn-outline btn-error gap-1.5" phx-click="stop">
-                <.icon name="hero-stop" class="size-4" /> Stop
-              </button>
-              <button
-                class="btn btn-outline btn-warning gap-1.5"
-                phx-click="test_combat"
-                title="Só o combate em loop: mira → ataca → loot → captura, repetindo"
-              >
-                <.icon name="hero-bug-ant" class="size-4" /> Testar combate
-              </button>
-              <button
-                class="btn btn-outline btn-info gap-1.5"
-                phx-click="test_fishing"
-                title="Só a pesca em loop: arremessa → vigia → fisga, repetindo (combate parado)"
-              >
-                <.icon name="hero-bug-ant" class="size-4" /> Testar pesca
-              </button>
-            </div>
+            <span class="flex items-center gap-2 rounded-full border border-[#293137] px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b949d]">
+              <span class={[
+                "size-1.5 rounded-full",
+                if(overall_active?(@fishing, @combat, @loot),
+                  do: "bg-[#37d07d]",
+                  else: "bg-[#68727b]"
+                )
+              ]} />
+              {if(overall_active?(@fishing, @combat, @loot), do: "Ativo", else: "Parado")}
+            </span>
           </div>
+        </header>
 
-          <p :if={@fishing.error} class="mt-3 rounded-lg bg-error/15 px-3 py-2 text-sm text-error">
-            🎣 {@fishing.error}
-          </p>
-          <p :if={@combat.error} class="mt-3 rounded-lg bg-error/15 px-3 py-2 text-sm text-error">
-            ⚔️ {@combat.error}
-          </p>
-          <p
-            :if={@mini_game.error}
-            class="mt-3 rounded-lg bg-error/15 px-3 py-2 text-sm text-error"
-          >
-            🎮 {@mini_game.error}
-          </p>
-          <ul :if={@errors != []} class="mt-3 space-y-1 rounded-lg bg-warning/10 px-3 py-2 text-sm">
-            <li :for={message <- @errors} class="flex items-start gap-2">
-              <.icon name="hero-x-circle" class="mt-0.5 size-4 shrink-0 text-warning" />
-              <span>{message}</span>
-            </li>
-          </ul>
-        </section>
-
-        <section>
-          <div class="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
-            <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">
-              O que ele está fazendo
-            </h2>
-            <div class="flex flex-wrap items-center gap-2 text-[11px]">
-              <span class="opacity-50">{macro_count(@logs)} eventos · {length(@logs)} no total</span>
-              <label class="flex cursor-pointer items-center gap-1 opacity-70">
-                <input
-                  type="checkbox"
-                  class="toggle toggle-xs"
-                  checked={@show_debug}
-                  phx-click="toggle_debug"
-                /> debug
-              </label>
-              <button class="btn btn-ghost btn-xs" phx-click="export_events">
-                <.icon name="hero-arrow-down-tray" class="size-3" /> Exportar
-              </button>
-              <button class="btn btn-ghost btn-xs" phx-click="clear_logs">Limpar</button>
-            </div>
-          </div>
-          <p :if={@export_msg} class="mb-1 px-1 text-[11px] text-success">
-            {@export_msg}
-            <a :if={@export_src} href={@export_src} download class="link link-primary">baixar</a>
-          </p>
+        <main class="mx-auto max-w-[520px] space-y-3 px-2 py-3">
           <div
-            id="activity-feed"
-            class="h-40 space-y-0.5 overflow-y-auto rounded-lg border border-base-content/10 bg-base-300 p-2 font-mono text-xs"
+            :if={not @calibrated?}
+            class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
           >
-            <p :if={visible_logs(@logs, @show_debug) == []} class="opacity-40">
-              a atividade aparece aqui quando o bot roda (marque "debug" pra ver cada tick)
+            <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-[#f2c45b]" />
+            <p class="flex-1 text-[#c8cdd1]">
+              Calibre água, Battle, arena e skills antes de iniciar.
+            </p>
+            <.link navigate={~p"/calibration"} class="font-semibold text-[#37d07d]">Calibrar</.link>
+          </div>
+
+          <button
+            :if={not overall_active?(@fishing, @combat, @loot)}
+            id="start-bot"
+            class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#39cd76] text-sm font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
+            phx-click="start"
+          >
+            <.icon name="hero-play-solid" class="size-4" /> Iniciar bot
+          </button>
+          <button
+            :if={overall_active?(@fishing, @combat, @loot)}
+            id="stop-bot"
+            class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#703136] bg-[#281114] text-sm font-bold text-[#ff9ca4] transition hover:bg-[#35171b] active:scale-[0.99]"
+            phx-click="stop"
+          >
+            <.icon name="hero-stop-solid" class="size-4" /> Parar bot
+          </button>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              class="h-10 rounded-lg border border-[#273036] bg-[#090d0f] text-xs font-medium text-[#c6ccd1] transition hover:border-[#37d07d]/60 hover:text-white"
+              phx-click="test_combat"
+            >Testar combate</button>
+            <button
+              class="h-10 rounded-lg border border-[#273036] bg-[#090d0f] text-xs font-medium text-[#c6ccd1] transition hover:border-[#37d07d]/60 hover:text-white"
+              phx-click="test_fishing"
+            >Testar pesca</button>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div
+              data-testid="fishing-pill"
+              data-state={@fishing.state}
+              class="rounded-lg border border-[#232a30] bg-[#111519] px-3 py-2.5"
+            >
+              <div class="flex items-center gap-2 text-xs font-semibold">
+                <span class={[
+                  "size-2 rounded-full",
+                  if(active?(@fishing.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                ]} /> Pesca
+              </div>
+              <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
+                {fishing_label(@fishing.state)}
+              </p>
+            </div>
+            <div
+              data-testid="combat-pill"
+              data-state={@combat.state}
+              class="rounded-lg border border-[#232a30] bg-[#111519] px-3 py-2.5"
+            >
+              <div class="flex items-center gap-2 text-xs font-semibold">
+                <span class={[
+                  "size-2 rounded-full",
+                  if(active?(@combat.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                ]} /> Batalha
+              </div>
+              <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
+                {combat_label(@combat.state, Map.get(@combat, :locked_row))}
+              </p>
+            </div>
+            <div
+              data-testid="loot-pill"
+              data-state={@loot.state}
+              class="rounded-lg border border-[#232a30] bg-[#111519] px-3 py-2.5"
+            >
+              <div class="flex items-center gap-2 text-xs font-semibold">
+                <span class={[
+                  "size-2 rounded-full",
+                  if(active?(@loot.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                ]} /> Loot
+              </div>
+              <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
+                {loot_label(@loot.state)}
+              </p>
+            </div>
+            <div
+              data-testid="mini-game-pill"
+              data-state={@mini_game.state}
+              title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
+              class="rounded-lg border border-[#232a30] bg-[#111519] px-3 py-2.5"
+            >
+              <div class="flex items-center gap-2 text-xs font-semibold">
+                <span class={[
+                  "size-2 rounded-full",
+                  if(@mini_game.state == :playing, do: "bg-[#f3ba4e]", else: "bg-[#68717a]")
+                ]} /> Mini game
+              </div>
+              <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
+                {mini_game_label(@mini_game.state)}
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-1">
+            <p
+              :if={@fishing.error}
+              class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+            >
+              {@fishing.error}
             </p>
             <p
-              :for={entry <- visible_logs(@logs, @show_debug)}
-              class={["flex gap-1.5", log_class(entry.level)]}
+              :if={@combat.error}
+              class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
             >
-              <span class="shrink-0 opacity-40">{entry.at}</span>
-              <span class="shrink-0">{entry.source}</span>
-              <span>{entry.text}</span>
+              {@combat.error}
             </p>
-          </div>
-        </section>
-
-        <section>
-          <h2 class="mb-2 px-1 text-xs font-semibold uppercase tracking-wide opacity-50">
-            Sessão
-          </h2>
-          <div class="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            <div
-              :for={{label, key, icon} <- counters()}
-              class="rounded-xl border border-base-content/10 bg-base-200 p-3 text-center"
+            <p
+              :if={@mini_game.error}
+              class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
             >
-              <div class="text-2xl font-bold tabular-nums">
-                {Map.get(merged_counters(@fishing, @combat, @loot), key, 0)}
-              </div>
-              <div class="mt-0.5 flex items-center justify-center gap-1 text-[11px] opacity-60">
-                <.icon name={icon} class="size-3" />{label}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section
-          :if={@calibrated?}
-          class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5"
-        >
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold">Prints &amp; Diagnóstico</h2>
-            <button class="btn btn-sm btn-primary gap-1.5" phx-click="export_diagnostic">
-              <.icon name="hero-document-arrow-down" class="size-4" /> Exportar diagnóstico (JSON)
-            </button>
-          </div>
-          <p class="text-xs opacity-60">
-            Tira prints das áreas calibradas e gera um JSON com tudo que o bot enxerga
-            (pixels, contagens, matriz). Manda o JSON pro Claude diagnosticar sem precisar de foto.
-          </p>
-          <div class="flex flex-wrap gap-2">
-            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="screen">
-              📸 Tela cheia
-            </button>
-            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="glow">
-              📸 Água
-            </button>
-            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="battle">
-              📸 Batalha
-            </button>
-            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="arena">
-              📸 Arena
-            </button>
-            <button class="btn btn-sm btn-outline" phx-click="shot" phx-value-region="skills">
-              📸 Skills
-            </button>
+              {@mini_game.error}
+            </p>
+            <ul
+              :if={@errors != []}
+              class="rounded-lg border border-[#674f20] bg-[#211b0d] px-3 py-2 text-xs text-[#e7ca82]"
+            >
+              <li :for={message <- @errors}>{message}</li>
+            </ul>
           </div>
 
-          <figure :if={@capture_src} class="space-y-1">
-            <figcaption class="flex items-center gap-2 text-xs opacity-70">
-              <span>{@capture_label}</span>
-              <a href={@capture_src} download class="link link-primary">baixar</a>
-            </figcaption>
-            <img
-              src={@capture_src}
-              class="max-h-72 rounded border border-base-content/20 bg-base-300"
-            />
-          </figure>
-          <p :if={@capture_label && is_nil(@capture_src)} class="text-xs text-error">
-            {@capture_label}
-          </p>
-
-          <div
-            :if={@report}
-            class="space-y-3 rounded-xl border border-base-content/10 bg-base-300 p-3"
-          >
-            <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span class="font-semibold text-success">{@report_msg}</span>
-              <a :if={@report_src} href={@report_src} download class="link link-primary">
-                baixar JSON completo
-              </a>
+          <section>
+            <div class="mb-2 flex items-center justify-between px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+              <h2>Automações</h2>
+              <span>{automation_count(@fishing, @combat, @loot, @auto_capture, @rescue_enabled)}/5 on</span>
             </div>
-
-            <div class="grid gap-x-6 gap-y-1 font-mono text-[11px] sm:grid-cols-2">
-              <span>
-                🎣 bolhas: <b>{gi(@report, [:regions, :glow, :metrics, :bubble_count]) || "—"}</b>
-                · isca: <b>{gi(@report, [:regions, :glow, :metrics, :lure_count]) || "—"}</b>
-                · mordida? <b>{inspect(gi(@report, [:regions, :glow, :metrics, :bite?]))}</b>
-              </span>
-              <span>
-                ⚔️ tem bicho?
-                <b>{inspect(gi(@report, [:regions, :battle_body, :metrics, :has_creature?]))}</b>
-                · travado:
-                <b>{inspect(gi(@report, [:regions, :battle_body, :metrics, :locked_row]))}</b>
-              </span>
-              <span>
-                ⚔️ por linha:
-                <b>{inspect(gi(@report, [:regions, :battle_body, :metrics, :red_row_counts]))}</b>
-              </span>
-              <span>
-                ⚔️ pokébola?
-                <b>{inspect(gi(@report, [:regions, :battle_strip, :metrics, :wild_present?]))}</b>
-              </span>
-              <span>
-                ⚡ skills: <b>{gi(@report, [:regions, :skill_bar, :slot_count]) || "—"}</b>
-                lidas · <b>{gi(@report, [:calibration, :skill_bar_count]) || "—"}</b>
-                configuradas
-              </span>
-              <span>escala (probe): <b>{gi(@report, [:screen, :r_scale]) || "—"}×</b></span>
-              <span>tela: <b>{inspect(gi(@report, [:screen, :pixels]))}px</b></span>
+            <div class="overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]">
+              <.automation_row
+                id="automation-fishing"
+                title="Pesca automática"
+                description="Lança e fisga sozinho"
+                active={active?(@fishing.state)}
+                event="toggle_fishing"
+              />
+              <.automation_row
+                id="automation-combat"
+                title="Luta automática"
+                description="Ataca inimigos com as skills"
+                active={active?(@combat.state)}
+                event="toggle_combat"
+              />
+              <.automation_row
+                id="automation-loot"
+                title="Pegar loot"
+                description="Coleta itens após a batalha"
+                active={active?(@loot.state)}
+                event="toggle_loot"
+              />
+              <.automation_row
+                id="automation-capture"
+                title="Auto-captura"
+                description="Joga pokébola no pescado"
+                active={@auto_capture}
+                event="toggle_capture"
+              />
+              <.automation_row
+                id="automation-rescue"
+                title="Revive automático"
+                description={"Revive quando a vida cai abaixo de #{Settings.get(:pokemon_hp_rescue_pct)}%"}
+                active={@rescue_enabled}
+                event="toggle_rescue"
+              />
             </div>
+          </section>
 
-            <% matrix = gi(@report, [:regions, :battle_body, :matrix]) %>
-            <div :if={matrix}>
-              <p class="mb-1 text-[11px] opacity-70">
-                matriz do painel Batalha ({matrix.cols}×{matrix.rows}) — o que o bot vê
-                <span class="opacity-60">(verde = HP · vermelho = lock/alvo · ciano = bolha)</span>
-              </p>
+          <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+            <div class="flex items-center justify-between text-xs font-semibold">
+              <span>Vida do Pokémon principal</span><span class="font-mono text-[#36d47c]">{hp_label(
+                @game
+              )}</span>
+            </div>
+            <div class="mt-2 h-2 overflow-hidden rounded-full bg-[#273037]">
               <div
-                class="inline-grid gap-px rounded border border-base-content/20 bg-base-100 p-1"
-                style={"grid-template-columns: repeat(#{matrix.cols}, 10px)"}
+                class="h-full rounded-full transition-[width] duration-300"
+                style={hp_bar_style(@game)}
+              />
+            </div>
+            <div class="mt-2 flex justify-between font-mono text-[9px] text-[#737d85]">
+              <span>revive &lt; {Settings.get(:pokemon_hp_rescue_pct)}%</span><span>revives: {rescue_count(
+                @game
+              )}</span>
+            </div>
+          </section>
+
+          <section>
+            <h2 class="mb-2 px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+              Sessão
+            </h2>
+            <div class="grid grid-cols-3 gap-2">
+              <div
+                :for={{label, key, _icon} <- counters()}
+                id={"counter-#{key}"}
+                class="rounded-lg border border-[#232b30] bg-[#111519] px-2 py-3 text-center"
               >
-                <div
-                  :for={cell <- List.flatten(matrix.cells)}
-                  class="size-[10px]"
-                  style={cell_style(cell)}
-                  title={to_string(cell.class)}
-                >
+                <div class="text-xl font-bold tabular-nums text-[#dce1e4]">
+                  {Map.get(merged_counters(@fishing, @combat, @loot), key, 0)}
+                </div>
+                <div class="mt-1 font-mono text-[9px] uppercase tracking-[0.1em] text-[#758089]">
+                  {label}
                 </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold">
-              Vida do Pokémon principal
-              <span class={["badge badge-xs align-middle", game_badge_class(@game)]}>
-                {game_badge_label(@game)}
-              </span>
-            </h2>
-            <span class="badge badge-sm font-mono">{hp_label(@game)}</span>
-          </div>
-
-          <div class="h-3 w-full overflow-hidden rounded-full bg-base-300">
-            <div class="h-full rounded-full transition-all" style={hp_bar_style(@game)}></div>
-          </div>
-
-          <label class="flex cursor-pointer items-center justify-between gap-3">
-            <span>
-              <span class="text-sm font-semibold">Combo de sobrevivência</span>
-              <span class="block text-xs opacity-60">
-                Q → Shift+Q na foto → Q quando a vida cair abaixo de {Settings.get(
-                  :pokemon_hp_rescue_pct
-                )}%.
-                No máx. 1x a cada {div(Settings.get(:rescue_cooldown_ms), 1000)}s. Revives: {(@game[
-                                                                                                :counters
-                                                                                              ] || %{})[
-                  :rescues
-                ] || 0}.
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              class="toggle toggle-error"
-              checked={@rescue_enabled}
-              phx-click="toggle_rescue"
-            />
-          </label>
-        </section>
-
-        <section class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold">
-              Cooldowns das skills
-              <span
-                :if={@require_cooldowns}
-                class="badge badge-success badge-xs gap-1 align-middle motion-safe:animate-pulse"
-                title="atualizando ao vivo enquanto o gate está ligado"
-              >ao vivo</span>
-            </h2>
-            <div class="flex flex-wrap items-center gap-2">
-              <div class="flex flex-wrap items-center gap-1">
-                <span
-                  :for={
-                    {state, key} <-
-                      Enum.zip(
-                        @cooldowns_states || [],
-                        SkillBar.keys(length(@cooldowns_states || []))
-                      )
-                  }
-                  class={["badge badge-sm", cooldown_pill_class(state)]}
-                  title={"skill #{key}: #{state}"}
-                >
-                  {key}
-                </span>
-                <span :if={is_nil(@cooldowns_states)} class="text-xs opacity-50">
-                  ligue o gate abaixo (ou clique "Ler") — a barra de skills precisa estar calibrada
-                </span>
-              </div>
-              <button class="btn btn-ghost btn-xs" phx-click="read_cooldowns">
-                <.icon name="hero-arrow-path" class="size-3" /> Ler
-              </button>
+          <section class="overflow-hidden rounded-lg border border-[#232b30] bg-[#111519]">
+            <div class="flex h-10 items-center justify-between border-b border-[#222a2f] px-3">
+              <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#9099a1]">
+                O que ele está fazendo
+              </h2>
+              <label class="flex cursor-pointer items-center gap-2 font-mono text-[10px] text-[#79838b]"><input
+                type="checkbox"
+                class="toggle toggle-success toggle-xs"
+                checked={@show_debug}
+                phx-click="toggle_debug"
+              /> debug</label>
             </div>
-          </div>
-
-          <label class="flex cursor-pointer items-center justify-between gap-3">
-            <span>
-              <span class="text-sm font-semibold">Só pescar quando dá pra matar</span>
-              <span class="block text-xs opacity-60">
-                Segura a fisga e só puxa a vara quando as skills abaixo estiverem prontas.
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              class="toggle toggle-success"
-              checked={@require_cooldowns}
-              phx-click="toggle_require_cooldowns"
-            />
-          </label>
-
-          <div class="border-t border-base-content/10 pt-3">
-            <h3 class="text-xs font-semibold opacity-70">Skills necessárias pra matar</h3>
-            <p class="text-xs opacity-60">
-              Basta uma estar pronta para puxar. Use <code class="font-mono">0</code>
-              para a décima skill.
-            </p>
-            <form
-              id="hook-skills-form"
-              phx-submit="save_hook_skills"
-              class="mt-2 flex items-center gap-2"
+            <p
+              :if={@export_msg}
+              class="border-b border-[#222a2f] px-3 py-1.5 text-[10px] text-[#37d07d]"
             >
-              <input
-                name="hook_skills"
-                value={@hook_skills}
-                placeholder="4 5 6 7"
-                class="input input-bordered input-sm w-40"
+              {@export_msg}
+              <a :if={@export_src} href={@export_src} download class="underline">baixar</a>
+            </p>
+            <div
+              id="activity-feed"
+              class="h-32 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed text-[#9aa3aa]"
+            >
+              <p :if={visible_logs(@logs, @show_debug) == []} class="max-w-[300px] text-[#59636b]">
+                a atividade aparece aqui quando o bot roda<br />(marque "debug" pra ver cada tick)
+              </p>
+              <p
+                :for={entry <- visible_logs(@logs, @show_debug)}
+                class={["flex gap-1.5", log_class(entry.level)]}
+              >
+                <span class="shrink-0 text-[#59636b]">{entry.at}</span><span>{entry.source}</span><span>{entry.text}</span>
+              </p>
+            </div>
+            <div class="grid grid-cols-2 border-t border-[#222a2f]">
+              <button
+                class="h-9 border-r border-[#222a2f] text-[11px] text-[#858f97] hover:bg-[#171c20] hover:text-white"
+                phx-click="export_events"
+              >Exportar</button><button
+                class="h-9 text-[11px] text-[#858f97] hover:bg-[#171c20] hover:text-white"
+                phx-click="clear_logs"
+              >Limpar</button>
+            </div>
+          </section>
+
+          <details
+            id="advanced-panel"
+            class="group overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]"
+          >
+            <summary class="flex h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-semibold [&::-webkit-details-marker]:hidden">
+              <span class="flex items-center gap-2"><.icon
+                name="hero-wrench-screwdriver"
+                class="size-3.5 text-[#758089]"
+              /> Avançado &amp; calibragem</span><.icon
+                name="hero-chevron-down"
+                class="size-3.5 text-[#68727a] transition group-open:rotate-180"
               />
-              <button class="btn btn-sm btn-primary">Salvar</button>
-            </form>
-          </div>
-        </section>
+            </summary>
+            <div class="space-y-5 border-t border-[#232b30] p-3">
+              <section>
+                <div class="flex items-center justify-between">
+                  <h3 class="text-xs font-semibold">Cooldowns das skills</h3><button
+                    class="flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
+                    phx-click="read_cooldowns"
+                  ><.icon name="hero-arrow-path" class="size-3" /> Ler</button>
+                </div>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  <span
+                    :for={
+                      {state, key} <-
+                        Enum.zip(
+                          @cooldowns_states || [],
+                          SkillBar.keys(length(@cooldowns_states || []))
+                        )
+                    }
+                    class={[
+                      "grid size-9 place-items-center rounded-md border font-mono text-xs font-bold",
+                      if(state == :ready,
+                        do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
+                        else: "border-[#313a40] bg-[#171c20] text-[#626c74]"
+                      )
+                    ]}
+                  >{key}</span>
+                  <span :if={is_nil(@cooldowns_states)} class="py-2 text-[10px] text-[#69737b]">Clique em Ler para verificar a barra calibrada.</span>
+                </div>
+              </section>
 
-        <section class="space-y-4 rounded-2xl border border-base-content/10 bg-base-200 p-5">
-          <div>
-            <h2 class="text-sm font-semibold">Sensibilidade do brilho</h2>
-            <p class="text-xs opacity-60">
-              Vazio = usa o valor sugerido na calibração. Ajuste fino em tempo real no <.link
-                navigate={~p"/diagnostics"}
-                class="link link-primary"
-              >Diagnóstico</.link>.
+              <section class="border-t border-[#232b30] pt-4">
+                <label class="flex cursor-pointer items-center justify-between gap-3"><span><span class="block text-xs font-semibold">Só pescar quando dá pra matar</span><span class="mt-0.5 block text-[10px] text-[#79838b]">Segura a fisga até as skills abaixo estarem prontas.</span></span><input
+                  type="checkbox"
+                  class="toggle toggle-success toggle-sm"
+                  checked={@require_cooldowns}
+                  phx-click="toggle_require_cooldowns"
+                /></label>
+                <form id="hook-skills-form" phx-submit="save_hook_skills" class="mt-3">
+                  <label class="font-mono text-[10px] text-[#77828a]">Skills necessárias pra matar</label><div class="mt-1.5 flex gap-2">
+                    <input
+                      name="hook_skills"
+                      value={@hook_skills}
+                      placeholder="4 5 6 7"
+                      class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                    /><button class="btn h-10 border-0 bg-[#37d07d] px-5 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar</button>
+                  </div>
+                </form>
+              </section>
+
+              <section class="grid gap-4 border-t border-[#232b30] pt-4">
+                <div>
+                  <h3 class="text-xs font-semibold">Sensibilidade do brilho</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                    Valor sugerido pela calibração.
+                  </p><form id="threshold-form" phx-submit="save_threshold" class="mt-2 flex gap-2">
+                    <input
+                      name="threshold"
+                      value={@threshold}
+                      placeholder="sugerido"
+                      class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                    /><button class="btn btn-outline h-10 border-[#303940] px-4 text-xs">Salvar</button>
+                  </form>
+                </div>
+                <div>
+                  <h3 class="text-xs font-semibold">Ordem das skills</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                    Prioridade de ataque, as mais fortes primeiro.
+                  </p><form id="skills-form" phx-submit="save_skills" class="mt-2 flex gap-2">
+                    <input
+                      name="skills"
+                      value={@skill_order}
+                      placeholder="1 2 3"
+                      class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                    /><button class="btn btn-outline h-10 border-[#303940] px-4 text-xs">Salvar</button>
+                  </form>
+                </div>
+              </section>
+
+              <section class="border-t border-[#232b30] pt-4">
+                <h3 class="text-xs font-semibold">Timing do combate</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                  Ajuste fino da velocidade de busca e de morte.
+                </p>
+                <form id="timing-form" phx-submit="save_timing" class="mt-3 grid grid-cols-2 gap-2.5">
+                  <label
+                    :for={{key, label, _hint} <- timing_fields()}
+                    class="block font-mono text-[9px] text-[#7d8790]"
+                  ><span>{label}</span><input
+                    type="number"
+                    min={if(positive_timing_key?(key), do: "1", else: "0")}
+                    name={key}
+                    value={@timing[key]}
+                    class="input input-bordered mt-1 h-9 w-full bg-[#090d0f] font-mono text-xs"
+                  /></label>
+                  <button class="col-span-2 mt-1 h-10 rounded-lg bg-[#37d07d] text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar timing</button>
+                </form>
+              </section>
+
+              <section :if={@calibrated?} class="border-t border-[#232b30] pt-4">
+                <h3 class="text-xs font-semibold">Prints &amp; diagnóstico</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                  Gera um JSON com tudo que o bot enxerga para diagnosticar sem foto.
+                </p>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  <button
+                    :for={
+                      {label, region} <- [
+                        {"Tela cheia", "screen"},
+                        {"Água", "glow"},
+                        {"Batalha", "battle"},
+                        {"Arena", "arena"},
+                        {"Skills", "skills"}
+                      ]
+                    }
+                    class="h-8 rounded-lg border border-[#2b353b] px-3 text-[10px] text-[#a3abb1] hover:border-[#37d07d]/60"
+                    phx-click="shot"
+                    phx-value-region={region}
+                  >{label}</button>
+                </div>
+                <button
+                  class="mt-3 h-10 w-full rounded-lg border border-[#30cf75] text-xs font-bold text-[#38dc80] hover:bg-[#102019]"
+                  phx-click="export_diagnostic"
+                >Exportar diagnóstico (JSON)</button>
+                <figure :if={@capture_src} class="mt-3">
+                  <figcaption class="mb-1 text-[10px] text-[#7d8790]">{@capture_label}</figcaption><img
+                    src={@capture_src}
+                    class="max-h-64 rounded-lg border border-[#283138]"
+                  />
+                </figure>
+                <p
+                  :if={@capture_label && is_nil(@capture_src)}
+                  class="mt-2 text-[10px] text-[#ff929b]"
+                >
+                  {@capture_label}
+                </p>
+                <div
+                  :if={@report}
+                  class="mt-3 rounded-lg border border-[#263038] bg-[#090d0f] p-3 text-[10px] text-[#89939a]"
+                >
+                  <div class="flex justify-between">
+                    <span class="font-semibold text-[#37d07d]">{@report_msg}</span><a
+                      :if={@report_src}
+                      href={@report_src}
+                      download
+                      class="text-[#37d07d] underline"
+                    >baixar JSON</a>
+                  </div>
+                  <% matrix = gi(@report, [:regions, :battle_body, :matrix]) %>
+                  <div :if={matrix} class="mt-3">
+                    <p class="mb-1">matriz do painel Batalha ({matrix.cols}×{matrix.rows})</p><div
+                      class="inline-grid gap-px rounded border border-[#263038] bg-black p-1"
+                      style={"grid-template-columns: repeat(#{matrix.cols}, 8px)"}
+                    >
+                      <div
+                        :for={cell <- List.flatten(matrix.cells)}
+                        class="size-2"
+                        style={cell_style(cell)}
+                        title={to_string(cell.class)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <nav class="grid grid-cols-3 gap-2 border-t border-[#232b30] pt-4 text-center text-[10px]">
+                <.link
+                  navigate={~p"/calibration"}
+                  class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
+                >Calibração</.link><.link
+                  navigate={~p"/diagnostics"}
+                  class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
+                >Diagnóstico</.link><.link
+                  navigate={~p"/fishing-lab"}
+                  class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
+                >Laboratório</.link>
+              </nav>
+            </div>
+          </details>
+
+          <div class="flex items-start gap-2 rounded-lg border border-[#6b2b32] bg-[#241114] px-3 py-3 text-[10px] leading-relaxed text-[#f0a0a7]">
+            <.icon name="hero-hand-raised" class="mt-0.5 size-4 shrink-0 text-[#ffbf51]" /><p>
+              <strong>Botão de pânico:</strong>
+              jogue o mouse no canto superior-esquerdo e o bot para na hora.
             </p>
-            <form id="threshold-form" phx-submit="save_threshold" class="mt-2 flex items-center gap-2">
-              <input
-                name="threshold"
-                value={@threshold}
-                placeholder="sugerido"
-                class="input input-bordered input-sm w-28"
-              />
-              <button class="btn btn-sm btn-primary">Salvar</button>
-            </form>
           </div>
-
-          <div class="border-t border-base-content/10 pt-4">
-            <h2 class="text-sm font-semibold">Ordem das skills</h2>
-            <p class="text-xs opacity-60">
-              Prioridade de ataque, as mais fortes primeiro. Ele percorre nesta ordem;
-              skill em cooldown o jogo ignora. Ex.: <code class="font-mono">0 9 8 7 6 5 4 3 2 1</code>.
-            </p>
-            <form id="skills-form" phx-submit="save_skills" class="mt-2 flex items-center gap-2">
-              <input
-                name="skills"
-                value={@skill_order}
-                placeholder="1 2 3"
-                class="input input-bordered input-sm w-40"
-              />
-              <button class="btn btn-sm btn-primary">Salvar</button>
-            </form>
-          </div>
-
-          <div class="border-t border-base-content/10 pt-4">
-            <h2 class="text-sm font-semibold">Timing do combate (calibragem)</h2>
-            <p class="text-xs opacity-60">
-              Ajuste fino da velocidade de busca e de morte. Aplica no próximo <span class="font-medium">Start</span>/<span class="font-medium">Testar</span>.
-            </p>
-            <form id="timing-form" phx-submit="save_timing" class="mt-2 grid gap-3 sm:grid-cols-2">
-              <label :for={{key, label, hint} <- timing_fields()} class="block text-xs">
-                <span class="font-medium">{label}</span>
-                <input
-                  type="number"
-                  min={if(positive_timing_key?(key), do: "1", else: "0")}
-                  name={key}
-                  value={@timing[key]}
-                  class="input input-bordered input-sm mt-1 w-full"
-                />
-                <span class="mt-0.5 block opacity-50">{hint}</span>
-              </label>
-              <div class="sm:col-span-2">
-                <button class="btn btn-sm btn-primary">Salvar timing</button>
-              </div>
-            </form>
-          </div>
-
-          <label class="flex cursor-pointer items-center justify-between gap-3 border-t border-base-content/10 pt-4">
-            <span>
-              <span class="text-sm font-semibold">Auto-captura</span>
-              <span class="block text-xs opacity-60">
-                Joga a pokébola base (Shift+1) em todo pokémon pescado.
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              class="toggle toggle-success"
-              checked={@auto_capture}
-              phx-click="toggle_capture"
-            />
-          </label>
-
-          <div class="flex items-start gap-2 rounded-lg bg-base-300 px-3 py-2 text-xs">
-            <.icon name="hero-hand-raised" class="mt-0.5 size-4 shrink-0 text-error" />
-            <p>
-              <span class="font-semibold">Botão de pânico:</span>
-              jogue o mouse no canto superior-esquerdo da tela e o bot para na hora.
-            </p>
-          </div>
-        </section>
+        </main>
       </div>
     </Layouts.app>
     """

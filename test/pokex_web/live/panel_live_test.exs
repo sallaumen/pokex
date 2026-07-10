@@ -15,16 +15,17 @@ defmodule PokexWeb.PanelLiveTest do
     {:ok, view, html} = live(conn, ~p"/")
     assert html =~ "parado"
 
-    view |> element("button", "Start") |> render_click()
+    view |> element("#start-bot") |> render_click()
     assert render(view) =~ "calibração"
   end
 
   test "renders the independent status pills on mount", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/")
 
-    assert html =~ "🎣"
-    assert html =~ "⚔️"
-    assert html =~ "🎮"
+    assert html =~ "Pesca"
+    assert html =~ "Batalha"
+    assert html =~ "Mini game"
+    assert html =~ "Automações"
     assert html =~ "parado"
   end
 
@@ -41,7 +42,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     html = render(view)
     assert html =~ "vigiando"
-    assert html =~ ~r/tabular-nums">\s*3\s*</
+    assert view |> element("#counter-cycles") |> render() =~ ~r/>\s*3\s*</
 
     # combat pill untouched — still parado
     assert html =~ "parado"
@@ -88,7 +89,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game, snapshot})
 
-    assert render(view) =~ "Mini game: em jogo"
+    assert render(view) =~ "em jogo"
     assert has_element?(view, "[data-testid=mini-game-pill][data-state=playing]")
   end
 
@@ -249,11 +250,11 @@ defmodule PokexWeb.PanelLiveTest do
     })
 
     {:ok, view, _} = live(conn, ~p"/")
-    assert render(view) =~ "precisa estar calibrada"
+    assert render(view) =~ "Clique em Ler"
 
     view |> element(~s(button[phx-click="read_cooldowns"])) |> render_click()
     # reading done → the hint is replaced by the per-slot pills
-    refute render(view) =~ "precisa estar calibrada"
+    refute render(view) =~ "Clique em Ler"
   end
 
   defp save_calibration do

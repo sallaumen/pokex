@@ -33,8 +33,14 @@ defmodule PokexWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <div class="min-h-dvh bg-base-300 text-base-content">
-      <header class="sticky top-0 z-40 border-b border-base-content/10 bg-base-200/90 backdrop-blur">
+    <div class={[
+      "min-h-dvh text-base-content",
+      if(@current_page == :panel, do: "bg-[#080b0d]", else: "bg-base-300")
+    ]}>
+      <header
+        :if={@current_page != :panel}
+        class="sticky top-0 z-40 border-b border-base-content/10 bg-base-200/90 backdrop-blur"
+      >
         <nav class="mx-auto flex h-14 max-w-3xl items-center gap-2 px-3">
           <.link navigate={~p"/"} class="flex items-center gap-2 pr-1 font-bold tracking-tight">
             <span class="grid size-7 place-items-center rounded-lg bg-primary/20 text-primary">
@@ -74,7 +80,7 @@ defmodule PokexWeb.Layouts do
         </nav>
       </header>
 
-      <main class="mx-auto max-w-3xl px-3 py-6">
+      <main class={if(@current_page == :panel, do: "p-0", else: "mx-auto max-w-3xl px-3 py-6")}>
         {render_slot(@inner_block)}
       </main>
 

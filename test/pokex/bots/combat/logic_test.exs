@@ -13,7 +13,8 @@ defmodule Pokex.Bots.Combat.LogicTest do
       target_lost_streak: 2,
       skill_keys: ["1", "2", "3"],
       combat_skill_burst_size: 3,
-      max_consecutive_failures: 5
+      max_consecutive_failures: 5,
+      hunt_probe_window_ms: 8_000
     })
   end
 
@@ -126,6 +127,47 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert logic.state == :hunting
     assert logic.counters.fights == 1
     assert Enum.any?(actions, &match?({:log, _}, &1))
+  end
+
+  test "after a kill, hunting PROBES with blind Tabs even when no enemy is detected" do
+    logic = confirmed()
+    {logic, []} = Logic.step(logic, obs(locked?: false, captured_at: 500), 500)
+    {logic, _} = Logic.step(logic, obs(locked?: false, captured_at: 620), 620)
+    assert logic.state == :hunting
+
+    # detector blind (empty enemies) — and even a nil timer wake — must still Tab inside the
+    # probe window: fished enemies standing unattacked is the one unacceptable idle.
+    {probing, actions} = Logic.step(logic, obs(enemies: [], captured_at: 740), 740)
+    assert probing.state == :tabbing
+    assert {:tab} in actions
+
+    {probing_nil, actions_nil} = Logic.step(logic, nil, 900)
+    assert probing_nil.state == :tabbing
+    assert {:tab} in actions_nil
+  end
+
+  test "the probe window expires: blind hunting goes quiet after hunt_probe_window_ms" do
+    logic = confirmed()
+    {logic, []} = Logic.step(logic, obs(locked?: false, captured_at: 500), 500)
+    {logic, _} = Logic.step(logic, obs(locked?: false, captured_at: 620), 620)
+
+    late = 620 + 8_000
+    {expired, actions} = Logic.step(logic, obs(enemies: [], captured_at: late), late)
+    assert expired.state == :hunting
+    assert actions == []
+
+    # ...but a DETECTED enemy still Tabs normally after expiry
+    {tabbed, actions} = Logic.step(expired, obs(enemies: [0], captured_at: late + 100), late + 100)
+    assert tabbed.state == :tabbing
+    assert {:tab} in actions
+  end
+
+  test "rescan (fish hooked) opens the probe window too" do
+    logic = hunting(0) |> Logic.rescan(100)
+
+    {probing, actions} = Logic.step(logic, obs(enemies: [], captured_at: 200), 200)
+    assert probing.state == :tabbing
+    assert {:tab} in actions
   end
 
   test "fighting: the SAME frame fed twice (event + racing wake) doesn't double-count the lost streak" do

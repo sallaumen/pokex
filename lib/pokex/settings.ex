@@ -218,6 +218,11 @@ defmodule Pokex.Settings do
     tab_max_attempts: 3,
     hunt_cooldown_ms: 1_500,
     skill_burst_every_ms: 300,
+    # After every kill/timeout rehunt (and on a fish hook), hunting keeps PROBING with blind
+    # Tabs for this long even when the HP-bar detector reports no enemy — "idle while fished
+    # enemies wait in the list" is the one state combat must never rest in. Tab on an empty
+    # list is a no-op; the lock ring is what confirms a real target.
+    hunt_probe_window_ms: 8_000,
     # Battle observations older than this are treated as unknown by combat (fail-safe: no keys).
     # MUST outlast the broker's worst case, not just the feed cadence: when SCK is down the
     # screencapture fallback runs ~450-580ms per capture PLUS ~500ms of broker queueing (measured

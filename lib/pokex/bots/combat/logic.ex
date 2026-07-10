@@ -26,6 +26,7 @@ defmodule Pokex.Bots.Combat.Logic do
             tabbed_at: nil,
             tab_attempts: 0,
             hold_until: nil,
+            probe_until: nil,
             last_obs_at: nil,
             skill_idx: 0,
             last_burst_at: nil,
@@ -52,6 +53,7 @@ defmodule Pokex.Bots.Combat.Logic do
          tabbed_at: nil,
          tab_attempts: 0,
          hold_until: nil,
+         probe_until: nil,
          skill_idx: 0,
          last_burst_at: nil,
          lost_streak: 0,
@@ -67,9 +69,12 @@ defmodule Pokex.Bots.Combat.Logic do
 
   def io_failed(logic, reason, now), do: fail(logic, now, reason)
 
-  @doc "A fish was hooked → an attackable enemy is imminent: drop any hunt hold."
+  @doc """
+  A fish was hooked → an attackable enemy is imminent: drop any hunt hold and open the Tab
+  probe window (the new enemy may land before the HP-bar detector picks its row up).
+  """
   def rescan(%__MODULE__{state: :hunting} = logic, now),
-    do: %{logic | hold_until: nil, entered_at: now}
+    do: %{logic | hold_until: nil, entered_at: now, probe_until: probe_deadline(logic, now)}
 
   def rescan(logic, _now), do: logic
 
@@ -101,8 +106,17 @@ defmodule Pokex.Bots.Combat.Logic do
       enemies(obs) != [] ->
         {tab(%{logic | hold_until: nil}, now), [{:tab}, {:log, "alvo na lista; Tab"}]}
 
+      # Probe window (opened by a kill/timeout rehunt or a fish hook): press Tab even with NO
+      # detected enemy. The HP-bar row detector going momentarily blind right after a kill left
+      # 2-3 fished enemies standing unattacked — the worst possible idle. Tab is free: on an
+      # empty list the game selects nothing, and the lock RING (the most reliable read we have)
+      # is what confirms a real target in :tabbing. The window bounds the extra presses; probes
+      # are naturally throttled by the tab-confirm/hunt-hold cycle itself.
+      logic.probe_until != nil and now < logic.probe_until ->
+        {tab(%{logic | hold_until: nil}, now), [{:tab}, {:log, "sonda pós-kill; Tab às cegas"}]}
+
       true ->
-        {%{logic | hold_until: nil, locked_row: nil}, []}
+        {%{logic | hold_until: nil, probe_until: nil, locked_row: nil}, []}
     end
   end
 
@@ -214,6 +228,8 @@ defmodule Pokex.Bots.Combat.Logic do
         tab_attempts: logic.tab_attempts + 1
     }
 
+  # Every rehunt (kill landed, fight timed out, io failure) opens the probe window: "not
+  # attacking while something is attackable" is the one state this machine must never rest in.
   defp rehunt(logic, now) do
     %{
       logic
@@ -224,9 +240,13 @@ defmodule Pokex.Bots.Combat.Logic do
         lost_streak: 0,
         skill_idx: 0,
         last_burst_at: nil,
-        locked_row: nil
+        locked_row: nil,
+        probe_until: probe_deadline(logic, now)
     }
   end
+
+  defp probe_deadline(%{config: config}, now),
+    do: now + Map.get(config, :hunt_probe_window_ms, 8_000)
 
   # Blind rotation, throttled: observations arrive at feed cadence (~120ms) but keys should
   # fire at skill cadence (~300ms) — without the throttle the feed would triple the key rate.

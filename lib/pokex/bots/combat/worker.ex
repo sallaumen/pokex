@@ -26,6 +26,7 @@ defmodule Pokex.Bots.Combat.Worker do
     :tab_confirm_ms,
     :tab_max_attempts,
     :hunt_cooldown_ms,
+    :hunt_probe_window_ms,
     :skill_burst_every_ms,
     :fight_timeout_ms,
     :target_lost_streak,

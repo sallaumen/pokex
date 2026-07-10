@@ -128,6 +128,14 @@ defmodule Pokex.Bots.Capture do
     end
   end
 
+  @doc "Which capture backend is live right now (panel diagnostics)."
+  def backend_info(server \\ __MODULE__) do
+    case GenServer.whereis(server) do
+      nil -> %{backend: :rig, recovering?: false}
+      _pid -> GenServer.call(server, :backend_info)
+    end
+  end
+
   # The capture runs INSIDE handle_call, so the GenServer processes one at a time — that IS the
   # serialization. A slow capture only delays the next queued capture, never the Body/panic path.
   @impl true
@@ -172,6 +180,16 @@ defmodule Pokex.Bots.Capture do
     record_queue(:frame_uncached, filename, requested_at)
     {reply, state} = frame_from_backend(state, region, filename)
     {:reply, reply, prune_cache(state)}
+  end
+
+  def handle_call(:backend_info, _from, state) do
+    backend =
+      case state.backend do
+        {:screen_capture_kit, _b} -> :screen_capture_kit
+        _other -> :rig
+      end
+
+    {:reply, %{backend: backend, recovering?: state.recovering?}, state}
   end
 
   @impl true

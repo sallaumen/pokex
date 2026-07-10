@@ -397,4 +397,12 @@ defmodule PokexWeb.PanelLiveTest do
     # blank left the current value untouched
     assert Pokex.Settings.get(:target_lost_streak) == originals.target_lost_streak
   end
+
+  test "capture metrics block reports the backend on demand", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    html = view |> element(~s(button[phx-click="read_capture_stats"])) |> render_click()
+    assert html =~ "backend:"
+    assert html =~ "screencapture CLI" or html =~ "ScreenCaptureKit"
+  end
 end

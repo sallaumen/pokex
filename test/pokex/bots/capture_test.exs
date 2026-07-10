@@ -336,6 +336,16 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  test "backend_info reports the live backend and recovery flag" do
+    # config/test.exs forces `capture_backend: :screencapture`, which the SCK backend's
+    # enabled?/0 check rejects — so an isolated instance with no fake SCK module deterministically
+    # starts on :rig, no macOS-specific behavior involved.
+    {:ok, server} = Capture.start_link(name: nil)
+    assert %{backend: :rig, recovering?: false} = Capture.backend_info(server)
+
+    GenServer.stop(server)
+  end
+
   defp png!(dir, name, {r, g, b}) do
     rows = for _ <- 1..2, do: for(_ <- 1..3, do: {r, g, b, 255})
     Pokex.PngFixtures.write!(Path.join(dir, name), rows)

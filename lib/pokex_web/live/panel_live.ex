@@ -87,6 +87,7 @@ defmodule PokexWeb.PanelLive do
        report_msg: nil,
        timing: timing_settings(),
        cooldowns_states: nil,
+       capture_info: nil,
        require_cooldowns: Settings.get(:require_cooldowns),
        rescue_enabled: Settings.get(:rescue_enabled),
        rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
@@ -362,6 +363,23 @@ defmodule PokexWeb.PanelLive do
   # One-shot skill-bar read for the display (no loop, no shared process).
   def handle_event("read_cooldowns", _params, socket) do
     {:noreply, assign(socket, cooldowns_states: read_cooldown_states())}
+  end
+
+  # On-demand capture diagnostics: backend + last-window timings. A button, not a timer —
+  # metrics are for humans debugging, they must not add render churn to the hot panel.
+  def handle_event("read_capture_stats", _params, socket) do
+    snapshot = Pokex.Bots.Perf.snapshot()
+
+    window =
+      if map_size(snapshot.last_window) > 0, do: snapshot.last_window, else: snapshot.current
+
+    stats =
+      window
+      |> Enum.filter(fn {key, _v} -> String.starts_with?(key, "capture.backend.") end)
+      |> Enum.sort_by(fn {key, _v} -> key end)
+
+    info = %{backend: Pokex.Bots.Capture.backend_info(), stats: stats}
+    {:noreply, assign(socket, capture_info: info)}
   end
 
   def handle_event("save_hook_skills", %{"hook_skills" => raw}, socket) do
@@ -1044,6 +1062,41 @@ defmodule PokexWeb.PanelLive do
                     ]}
                   >{key}</span>
                   <span :if={is_nil(@cooldowns_states)} class="py-2 text-[10px] text-[#69737b]">Clique em Ler para verificar a barra calibrada.</span>
+                </div>
+              </section>
+
+              <section class="border-t border-[#232b30] pt-4">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-xs font-semibold">Captura de tela</h3><button
+                    class="flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
+                    phx-click="read_capture_stats"
+                  ><.icon name="hero-arrow-path" class="size-3" /> Medir</button>
+                </div>
+                <div :if={@capture_info} class="mt-2 space-y-1 font-mono text-[10px]">
+                  <p class="text-[#9aa3aa]">
+                    backend:
+                    <span class={
+                      if @capture_info.backend.backend == :screen_capture_kit,
+                        do: "text-[#3de083]",
+                        else: "text-[#e0b43d]"
+                    }>
+                      {if @capture_info.backend.backend == :screen_capture_kit,
+                        do: "ScreenCaptureKit (rápido)",
+                        else: "screencapture CLI (lento — fallback)"}
+                    </span>
+                    <span :if={@capture_info.backend.recovering?} class="text-[#79838b]">
+                      · tentando recuperar o SCK…
+                    </span>
+                  </p>
+                  <p :if={@capture_info.stats == []} class="text-[#69737b]">
+                    sem capturas na última janela — ligue um bot e clique Medir de novo
+                  </p>
+                  <p :for={{key, stat} <- @capture_info.stats} class="text-[#79838b]">
+                    {String.replace_prefix(key, "capture.backend.", "")} · n={stat.count}
+                    <span :if={stat.total > 0}>
+                      avg={Float.round(stat.total / stat.count, 1)}ms max={stat.max}ms
+                    </span>
+                  </p>
                 </div>
               </section>
 

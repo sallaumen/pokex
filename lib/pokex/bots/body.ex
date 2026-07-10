@@ -21,7 +21,7 @@ defmodule Pokex.Bots.Body do
     GenServer.start_link(__MODULE__, %{mini_game: mini_game}, name: name)
   end
 
-  @spec perform([tuple], :high | :normal, GenServer.server()) :: :ok | {:error, term}
+  @spec perform([tuple], :critical | :high | :normal, GenServer.server()) :: :ok | {:error, term}
   def perform(actions, priority \\ :normal, server \\ __MODULE__),
     do: GenServer.call(server, {:perform, actions, priority, now()}, :infinity)
 
@@ -34,6 +34,7 @@ defmodule Pokex.Bots.Body do
       {:ok,
        %{
          busy?: false,
+         critical: :queue.new(),
          high: :queue.new(),
          normal: :queue.new(),
          mini_game: opts.mini_game,
@@ -58,7 +59,13 @@ defmodule Pokex.Bots.Body do
   end
 
   def handle_call({:perform, actions, priority, requested_at}, from, state) do
-    q = if priority == :high, do: :high, else: :normal
+    q =
+      case priority do
+        :critical -> :critical
+        :high -> :high
+        _ -> :normal
+      end
+
     state = Map.update!(state, q, &:queue.in({actions, from, requested_at, priority}, &1))
     broadcast_queue(:queued, state, actions, priority, requested_at)
     {:noreply, state}
@@ -71,9 +78,9 @@ defmodule Pokex.Bots.Body do
     {:noreply, dequeue(%{state | current: nil})}
   end
 
-  # Pick the next sequence. High is preferred, but after a high action we let an
-  # already-waiting normal action run once. That keeps combat responsive without
-  # letting repeated false-positive clicks keep fishing off the mouse forever.
+  # Pick the next sequence. :critical (the survival combo) always drains first — nothing gets
+  # ahead of it. Otherwise high is preferred, but after a high action we let an already-waiting
+  # normal action run once, so repeated combat clicks can't keep fishing off the mouse forever.
   defp dequeue(state) do
     case next_queued(state) do
       {:ok, actions, from, requested_at, priority, state} ->
@@ -84,14 +91,21 @@ defmodule Pokex.Bots.Body do
     end
   end
 
-  defp next_queued(%{last_priority: :high} = state) do
+  defp next_queued(state) do
+    case pop(:critical, state) do
+      {:ok, _actions, _from, _requested_at, _priority, _state} = picked -> picked
+      :empty -> next_high_normal(state)
+    end
+  end
+
+  defp next_high_normal(%{last_priority: :high} = state) do
     case pop(:normal, state) do
       {:ok, _actions, _from, _requested_at, _priority, _state} = picked -> picked
       :empty -> high_then_normal(state)
     end
   end
 
-  defp next_queued(state), do: high_then_normal(state)
+  defp next_high_normal(state), do: high_then_normal(state)
 
   defp high_then_normal(state) do
     case pop(:high, state) do
@@ -150,7 +164,7 @@ defmodule Pokex.Bots.Body do
 
       result =
         try do
-          run_guarded(actions, mini_game)
+          run_guarded(actions, mini_game, priority)
         catch
           kind, reason -> {:error, {:crashed, kind, reason}}
         end
@@ -160,7 +174,18 @@ defmodule Pokex.Bots.Body do
     end)
   end
 
-  defp run_guarded(actions, mini_game) do
+  # The survival combo (:critical) bypasses the mini-game guard entirely — recalling and
+  # max-reviving the Pokémon must run even while the mini-game overlay is up.
+  defp run_guarded(actions, _mini_game, :critical) do
+    Enum.reduce_while(actions, :ok, fn action, :ok ->
+      case execute(action) do
+        :ok -> {:cont, :ok}
+        {:error, r} -> {:halt, {:error, r}}
+      end
+    end)
+  end
+
+  defp run_guarded(actions, mini_game, _priority) do
     Enum.reduce_while(actions, :ok, fn action, :ok ->
       with :ok <- guard_before_input(action, mini_game),
            :ok <- execute(action),
@@ -242,6 +267,7 @@ defmodule Pokex.Bots.Body do
 
   defp queue_len(queue), do: :queue.len(queue)
 
+  defp priority_label(:critical), do: "C"
   defp priority_label(:high), do: "H"
   defp priority_label(_priority), do: "N"
 

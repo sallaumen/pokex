@@ -251,6 +251,62 @@ defmodule Pokex.Bots.BodyTest do
     assert SlowRig.log() == ["occupy", "normal", "high"]
   end
 
+  @tag timeout: 2_000
+  test "a :critical request runs before a queued :high one (survival tops everything)" do
+    previous_rig = Application.get_env(:pokex, :rig)
+    Application.put_env(:pokex, :rig, SlowRig)
+    on_exit(fn -> Application.put_env(:pokex, :rig, previous_rig) end)
+
+    start_supervised!(%{id: SlowRig, start: {SlowRig, :start_link, []}})
+    body = start_body(:body_test_critical_body, name: :body_crit)
+    test = self()
+
+    spawn(fn -> Body.perform([{:press, "occupy"}], :normal, body) end)
+    wait_until_busy(body)
+
+    # a :high is queued first; a :critical arrives second and must still run FIRST
+    spawn(fn ->
+      Body.perform([{:press, "high"}], :high, body)
+      send(test, :high_done)
+    end)
+
+    wait_until_queued(body, :high, 1)
+
+    spawn(fn ->
+      Body.perform([{:press, "crit"}], :critical, body)
+      send(test, :crit_done)
+    end)
+
+    wait_until_queued(body, :critical, 1)
+
+    SlowRig.release()
+
+    assert_receive :high_done, 500
+    assert_receive :crit_done, 500
+    assert SlowRig.log() == ["occupy", "crit", "high"]
+  end
+
+  test "a :critical sequence bypasses the mini-game guard (revive beats the overlay)" do
+    gate =
+      start_supervised!(
+        {BlockingMiniGameGate, self()},
+        id: :body_test_critical_gate
+      )
+
+    body =
+      start_body(:body_test_critical_gate_body,
+        name: :body_critical_gate,
+        mini_game: gate
+      )
+
+    # the guard would halt a :normal sequence after the first input; a :critical one runs whole
+    assert :ok = Body.perform([{:press, "q"}, {:press, "shift+q"}, {:press, "q"}], :critical, body)
+    refute_receive :mini_game_blocked, 100
+
+    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    assert calls == [{:press, "q"}, {:press, "shift+q"}, {:press, "q"}]
+  end
+
   defp wait_until_busy(body) do
     if :sys.get_state(body).busy? do
       :ok

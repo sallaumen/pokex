@@ -28,7 +28,7 @@ defmodule PokexWeb.PanelLive do
   # Combat timing knobs Lucas tunes live to speed up search + kills. Config is
   # built once at Start/Testar, so these apply on the NEXT run (noted in the UI).
   @timing_fields [
-    {:tick_ms_fighting, "Ritmo da luta (ms)",
+    {:tick_ms_fighting, "Ritmo da luta (ms) — legado, sem efeito no combate Tab",
      "de quanto em quanto tempo ele reavalia a luta e dispara a próxima rajada"},
     {:combat_skill_burst_size, "Skills por leitura",
      "quantas teclas de skill ele engatilha antes de olhar a luta de novo"},
@@ -566,12 +566,11 @@ defmodule PokexWeb.PanelLive do
   defp fishing_label(:error), do: "erro"
   defp fishing_label(other), do: to_string(other)
 
-  # ⚔️ Batalha: parado / procurando / confirmando linha N / lutando linha N / erro. Loot is a
+  # ⚔️ Batalha: parado / caçando / confirmando alvo (Tab) / lutando linha N / erro. Loot is a
   # separate worker now (see loot_label/1).
   defp combat_label(:idle, _row), do: "parado"
-  defp combat_label(:scanning, _row), do: "procurando"
-  defp combat_label(:confirming, row) when is_integer(row), do: "confirmando linha #{row}"
-  defp combat_label(:confirming, _row), do: "confirmando"
+  defp combat_label(:hunting, _row), do: "caçando"
+  defp combat_label(:tabbing, _row), do: "confirmando alvo (Tab)"
   defp combat_label(:fighting, row) when is_integer(row), do: "lutando linha #{row}"
   defp combat_label(:fighting, _row), do: "lutando"
   defp combat_label(:error, _row), do: "erro"

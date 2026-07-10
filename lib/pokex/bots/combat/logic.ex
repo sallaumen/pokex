@@ -1,29 +1,36 @@
 defmodule Pokex.Bots.Combat.Logic do
   @moduledoc """
-  Pure state machine for the combat sub-cycle (spec §5, combat half). No side
-  effects: the driver gathers observations, calls step/3, and executes the
-  returned actions. Times are monotonic milliseconds supplied by the caller.
+  Pure Tab-targeting state machine. No side effects, no captures, no clock of its own: the
+  driver feeds it battle OBSERVATIONS from the perception blackboard (or nil on a timer
+  wake) plus monotonic `now`, and executes the returned keyboard-only actions.
 
-  Scans the battle list for a CANDIDATE (HP bar, no own-pokemon pokeball), clicks it, and
-  CONFIRMS a real battle via the lock ring before attacking; when the ring vanishes the target
-  died → it bumps `counters.fights` and re-scans for the next enemy IMMEDIATELY. Loot/capture/
-  walk-back is NOT here — the driver broadcasts the kill and the `Loot.Worker` handles the
-  corpse in parallel, so combat never stops attacking to loot. Contains no fishing logic.
+  hunting  — enemies visible in the battle list → press Tab (the game selects the first
+             attackable enemy) → tabbing. A hunt hold (after exhausted Tab attempts)
+             throttles retries against an unattackable-but-visible row.
+  tabbing  — wait for the lock ring on a frame captured AFTER the Tab (the confirm window
+             counts from the press, so capture latency can't eat it — the old click flow's
+             500ms window expired before its first read). No lock in tab_confirm_ms →
+             re-Tab (cycles to the next candidate) up to tab_max_attempts, then hunt-hold.
+  fighting — lock up → fire the next blind-rotation skill burst, throttled by
+             skill_burst_every_ms (observations arrive faster than keys should). Lock gone
+             target_lost_streak OBSERVED frames in a row → the target died: count the kill
+             and hunt the next one (a nil/timer wake never counts — only real frames vote).
+
+  There is NO mouse anywhere: Tab and skills are keys, the Guardian owns the panic corner,
+  and the Body is not involved.
   """
 
   defstruct state: :idle,
             config: nil,
             entered_at: 0,
-            waiting_until: nil,
-            last_hostile: nil,
+            tabbed_at: nil,
+            tab_attempts: 0,
+            hold_until: nil,
+            last_obs_at: nil,
             skill_idx: 0,
-            fight_tick: 0,
-            targeted?: false,
-            locked_row: nil,
-            tried: [],
-            tried_for: nil,
+            last_burst_at: nil,
             lost_streak: 0,
-            scan_idle?: false,
+            locked_row: nil,
             failures: 0,
             error: nil,
             counters: %{fights: 0, loots: 0, captures: 0, failures: 0}
@@ -35,17 +42,15 @@ defmodule Pokex.Bots.Combat.Logic do
   def start(%__MODULE__{state: state} = logic, now) when state in [:idle, :error] do
     {%{
        logic
-       | state: :scanning,
-         targeted?: false,
-         locked_row: nil,
-         tried: [],
-         tried_for: nil,
-         lost_streak: 0,
-         fight_tick: 0,
-         skill_idx: 0,
-         last_hostile: nil,
+       | state: :hunting,
          entered_at: now,
-         waiting_until: nil,
+         tabbed_at: nil,
+         tab_attempts: 0,
+         hold_until: nil,
+         skill_idx: 0,
+         last_burst_at: nil,
+         lost_streak: 0,
+         locked_row: nil,
          failures: 0,
          error: nil
      }, []}
@@ -53,190 +58,153 @@ defmodule Pokex.Bots.Combat.Logic do
 
   def start(logic, _now), do: {logic, []}
 
-  @doc """
-  External wake-up: a fish was just hooked, so a new attackable pokemon is about to land in
-  the Battle list. If we're SCANNING (searching or idle over an empty list), clear the idle
-  latch and any pending wait so the driver looks IMMEDIATELY instead of waiting out an idle
-  poll. A no-op while fighting/looting/walking — never abandons a live fight.
-  """
-  def rescan(%__MODULE__{state: :scanning} = logic, now) do
-    %{logic | scan_idle?: false, waiting_until: nil, entered_at: now}
-  end
-
-  def rescan(logic, _now), do: logic
-
-  def stop(logic), do: {%{logic | state: :idle, waiting_until: nil}, []}
+  def stop(logic), do: {%{logic | state: :idle}, []}
 
   def io_failed(logic, reason, now), do: fail(logic, now, reason)
 
-  # -- driver hints ----------------------------------------------------------
+  @doc "A fish was hooked → an attackable enemy is imminent: drop any hunt hold."
+  def rescan(%__MODULE__{state: :hunting} = logic, now),
+    do: %{logic | hold_until: nil, entered_at: now}
 
-  def needs(%__MODULE__{state: state}, _now) when state in [:idle, :error], do: []
-
-  # Scanning just needs the candidate rows + ring (one screenshot).
-  def needs(%__MODULE__{state: :scanning}, _now), do: [:cursor, :battle]
-
-  # Confirming and fighting CYCLE skill BURSTS (press the next N in order each tick) — they do
-  # NOT read the skill bar. Reading the bar every tick was a 2nd screencapture (each ~0.4-0.8s
-  # on Lucas's multi-monitor Mac even with -m), so skills fired ~2-5s apart, AND when the bar
-  # read came back empty the verify loop got stuck re-pressing the same key. Cycling bursts need
-  # ONE capture (:battle for the ring/liveness) and can never stall: a dropped press just comes
-  # back around the rotation. :battle carries the lock ring; fighting also samples :hostile now
-  # and then for the corpse point.
-  def needs(%__MODULE__{state: :confirming}, _now), do: [:cursor, :battle]
-
-  def needs(%__MODULE__{state: :fighting} = logic, _now) do
-    base = [:cursor, :battle]
-    if scan_tick?(logic), do: base ++ [:hostile], else: base
-  end
-
-  def needs(_logic, _now), do: [:cursor]
-
-  @doc "True while in a post-action pause: the driver skips sensing (no screen capture) until it ends."
-  def waiting?(%__MODULE__{waiting_until: nil}, _now), do: false
-  def waiting?(%__MODULE__{waiting_until: until}, now), do: now < until
-
-  def tick_interval(%__MODULE__{state: state, config: c}) when state in [:fighting, :confirming],
-    do: c.tick_ms_fighting
-
-  def tick_interval(%__MODULE__{config: c}), do: c.tick_ms_default
+  def rescan(logic, _now), do: logic
 
   # -- stepping ---------------------------------------------------------------
 
+  @doc """
+  Step on a battle observation (map with :enemies/:locked?/:locked_row/:captured_at) or nil
+  (timer wake — only time-based rules apply). Returns {logic, actions}.
+  """
   def step(%__MODULE__{state: state} = logic, _obs, _now) when state in [:idle, :error],
     do: {logic, []}
 
-  def step(logic, obs, now) do
+  def step(%{state: :hunting} = logic, obs, now) do
     cond do
-      kill_corner?(obs) ->
-        {%{logic | state: :idle, waiting_until: nil}, [{:log, "kill corner — parado"}]}
-
-      logic.waiting_until != nil and now < logic.waiting_until ->
+      logic.hold_until != nil and now < logic.hold_until ->
         {logic, []}
 
-      true ->
-        do_step(%{logic | waiting_until: nil}, obs, now)
-    end
-  end
-
-  # Find a CANDIDATE enemy (HP bar, no own-pokemon pokeball) and click it — but don't commit to
-  # fighting yet. `candidates` excludes your own pokemon; the click still needs the lock ring to
-  # PROVE a real battle started (a passing player's pokemon has an HP bar and no pokeball, so it
-  # looks attackable, but clicking it engages nothing). Pick the topmost candidate we haven't
-  # already tried-and-failed this pass, click it, slide the cursor off → :confirming. No untried
-  # candidate (empty list, or every one a dud) → stay IDLE with ZERO mouse actions so fishing
-  # keeps the shared mouse; log ONCE on entering idle.
-  defp do_step(%{state: :scanning, targeted?: false} = logic, obs, now) do
-    cands = candidates(obs)
-    # a changed candidate set is a fresh pass → forget which rows we tried last time.
-    logic = if cands == logic.tried_for, do: logic, else: %{logic | tried: [], tried_for: cands}
-
-    case cands -- logic.tried do
-      [] ->
-        log =
-          if logic.scan_idle?,
-            do: [],
-            else: [
-              {:log, "sem inimigos; livre"}
-            ]
-
-        {advance(%{logic | scan_idle?: true, locked_row: nil}, :scanning, now), log}
-
-      [target | _] ->
-        # Click the candidate and slide the cursor off — NOTHING else in this action. Lucas: a
-        # skill pressed in the SAME action as the select-click makes the game DROP the click (the
-        # selection never registers). So the first skill waits for the NEXT tick (confirming),
-        # once the click has landed.
-        {advance(%{logic | locked_row: target, scan_idle?: false}, :confirming, now),
-         [
-           {:click, :left, Enum.at(logic.config.battle_rows, target)},
-           {:move, logic.config.neutral_point}
-         ]}
-    end
-  end
-
-  # Confirm the click started a battle AND attack at the same time — don't wait for the ring to
-  # start hitting. Every tick: watch the clicked row for the red lock ring, and meanwhile press
-  # the next skill burst in the rotation (so the first hit lands ~one tick after the click
-  # instead of after the whole confirm). Ring up → a real target → keep hitting it in :fighting.
-  # No ring
-  # within battle_confirm_ms → the click engaged nothing (a passing player's pokemon has an HP
-  # bar but no pokeball, so it looked attackable but started no battle) → mark the row tried and
-  # pick the next candidate; the presses did nothing on a non-target. The window also filters the
-  # brief red BLINK from clicking your own pokemon.
-  defp do_step(%{state: :confirming, locked_row: row} = logic, obs, now) do
-    cond do
-      ring?(obs, row, logic.config.target_locked_min_pixels) ->
-        # ring up → real battle → keep hitting AND fire this tick's skill too (don't waste the
-        # confirming→fighting tick on nothing — that's a whole capture-tick of lost attack).
-        {logic, press} = press_next_skill(logic)
-
-        {advance(
-           %{logic | targeted?: true, fight_tick: 0, lost_streak: 0, tried: [], tried_for: nil},
-           :fighting,
-           now
-         ), press}
-
-      now - logic.entered_at > logic.config.battle_confirm_ms ->
-        {advance(%{logic | locked_row: nil, tried: [row | logic.tried]}, :scanning, now),
-         [{:log, "L#{row} não entrou em batalha; prox"}]}
+      enemies(obs) != [] ->
+        {tab(%{logic | hold_until: nil}, now), [{:tab}, {:log, "alvo na lista; Tab"}]}
 
       true ->
-        press_next_skill(logic)
+        {%{logic | hold_until: nil, locked_row: nil}, []}
     end
   end
 
-  # Attacking: the lock ring on our row IS the fight. Every tick re-reads it — while it holds we
-  # fire the next keyboard-only skill burst. When it's gone for
-  # target_lost_streak ticks (a debounce against a 1-frame blink) the target died/deselected →
-  # count the kill and go loot the corpse; continue_combat then re-scans for the next enemy.
-  defp do_step(%{state: :fighting, targeted?: true} = logic, obs, now) do
-    min = logic.config.target_locked_min_pixels
-
+  def step(%{state: :tabbing} = logic, obs, now) do
     cond do
-      timed_out?(logic, now, logic.config.fight_timeout_ms) ->
-        # attacking this long with no kill → stuck (bad read / hopelessly tanky) → rescan.
-        {advance(reselect(logic), :scanning, now), [{:log, "timeout alvo; rescan"}]}
-
-      ring?(obs, logic.locked_row, min) ->
+      fresh_lock?(obs, logic.tabbed_at) ->
+        # confirmed on a post-Tab frame → fight, and don't waste this event: first burst now.
         logic = %{
           logic
-          | last_hostile: Map.get(obs, :hostile) || logic.last_hostile,
-            fight_tick: logic.fight_tick + 1,
-            lost_streak: 0
+          | state: :fighting,
+            entered_at: now,
+            lost_streak: 0,
+            locked_row: obs.locked_row,
+            last_burst_at: nil
         }
 
-        press_next_skill(logic)
+        press_next_skill(logic, now)
 
-      logic.lost_streak + 1 >= logic.config.target_lost_streak ->
-        # ring gone for enough checks → target dead/deselected → count the kill and re-scan for
-        # the next enemy IMMEDIATELY (never stop attacking to loot). The corpse is handed to the
-        # Loot.Worker: Combat.Worker broadcasts {:kill, last_hostile} on this counter bump, and
-        # last_hostile is preserved through reselect so the event carries the corpse point.
-        {advance(reselect(update_in(logic.counters.fights, &(&1 + 1))), :scanning, now), []}
+      now - logic.tabbed_at > logic.config.tab_confirm_ms and
+          logic.tab_attempts < logic.config.tab_max_attempts ->
+        {tab(logic, now), [{:tab}, {:log, "sem lock; Tab #{logic.tab_attempts + 1}"}]}
+
+      now - logic.tabbed_at > logic.config.tab_confirm_ms ->
+        {%{
+           logic
+           | state: :hunting,
+             entered_at: now,
+             tabbed_at: nil,
+             tab_attempts: 0,
+             hold_until: now + logic.config.hunt_cooldown_ms
+         }, [{:log, "Tab não lockou; pausa na caça"}]}
 
       true ->
-        {%{logic | lost_streak: logic.lost_streak + 1}, []}
+        {logic, []}
     end
   end
 
-  # Drop the current target and re-scan the Battle list from the top for the next enemy —
-  # after a kill the list re-packs upward, so a survivor may now sit higher. Scanning reads
-  # `enemy_rows` fresh (own pokemon already excluded), so re-selecting is safe.
-  defp reselect(logic) do
+  def step(%{state: :fighting} = logic, obs, now) do
+    cond do
+      now - logic.entered_at > logic.config.fight_timeout_ms ->
+        {rehunt(logic, now), [{:log, "timeout do alvo; recaçando"}]}
+
+      locked?(obs) ->
+        logic = %{logic | lost_streak: 0, locked_row: obs.locked_row}
+        press_next_skill(logic, now)
+
+      observed?(obs) and logic.lost_streak + 1 >= logic.config.target_lost_streak ->
+        logic = update_in(logic.counters.fights, &(&1 + 1))
+        {rehunt(logic, now), [{:log, "alvo morto; caçando o próximo"}]}
+
+      observed?(obs) ->
+        {%{logic | lost_streak: logic.lost_streak + 1}, []}
+
+      true ->
+        # timer wake without a fresh frame: only the timeout above may act.
+        {logic, []}
+    end
+  end
+
+  @doc """
+  When the driver must wake us even if no observation arrives: the earliest pending
+  time-based deadline, or nil (purely event-driven right now).
+  """
+  def next_wake(%__MODULE__{state: :tabbing} = logic, now),
+    do: max(logic.tabbed_at + logic.config.tab_confirm_ms - now, 1)
+
+  def next_wake(%__MODULE__{state: :fighting} = logic, now),
+    do: max(logic.entered_at + logic.config.fight_timeout_ms - now, 1)
+
+  def next_wake(%__MODULE__{state: :hunting, hold_until: until}, now) when is_integer(until),
+    do: max(until - now, 1)
+
+  def next_wake(_logic, _now), do: nil
+
+  # -- helpers ----------------------------------------------------------------
+
+  defp tab(logic, now),
+    do: %{
+      logic
+      | state: :tabbing,
+        entered_at: now,
+        tabbed_at: now,
+        tab_attempts: logic.tab_attempts + 1
+    }
+
+  defp rehunt(logic, now) do
     %{
       logic
-      | targeted?: false,
-        locked_row: nil,
-        tried: [],
-        tried_for: nil,
+      | state: :hunting,
+        entered_at: now,
+        tabbed_at: nil,
+        tab_attempts: 0,
         lost_streak: 0,
-        fight_tick: 0,
-        skill_idx: 0
+        skill_idx: 0,
+        last_burst_at: nil,
+        locked_row: nil
     }
   end
 
-  # -- shared helpers ---------------------------------------------------------
+  # Blind rotation, throttled: observations arrive at feed cadence (~120ms) but keys should
+  # fire at skill cadence (~300ms) — without the throttle the feed would triple the key rate.
+  defp press_next_skill(%{config: %{skill_keys: []}} = logic, _now), do: {logic, []}
+
+  defp press_next_skill(%{config: config} = logic, now) do
+    if logic.last_burst_at != nil and now - logic.last_burst_at < config.skill_burst_every_ms do
+      {logic, []}
+    else
+      burst = max(config.combat_skill_burst_size, 1)
+      len = length(config.skill_keys)
+
+      actions =
+        for offset <- 0..(burst - 1) do
+          {:press, Enum.at(config.skill_keys, rem(logic.skill_idx + offset, len))}
+        end
+
+      {%{logic | skill_idx: logic.skill_idx + burst, last_burst_at: now}, actions}
+    end
+  end
 
   defp fail(%__MODULE__{} = logic, now, reason) do
     failures = logic.failures + 1
@@ -244,61 +212,26 @@ defmodule Pokex.Bots.Combat.Logic do
     reason = to_string(reason)
 
     if failures >= logic.config.max_consecutive_failures do
-      {%{
-         logic
-         | state: :error,
-           failures: failures,
-           waiting_until: nil,
-           error: "#{reason} (#{failures}x seguidas)"
-       }, [{:log, reason}]}
+      {%{logic | state: :error, failures: failures, error: "#{reason} (#{failures}x seguidas)"},
+       [{:log, reason}]}
     else
-      {advance(%{logic | failures: failures}, :scanning, now), [{:log, reason}]}
+      {%{rehunt(logic, now) | failures: failures}, [{:log, reason}]}
     end
   end
 
-  defp advance(logic, state, now, opts \\ []) do
-    wait = Keyword.get(opts, :wait)
-    %{logic | state: state, entered_at: now, waiting_until: wait && now + wait}
-  end
+  defp enemies(nil), do: []
+  defp enemies(obs), do: obs[:enemies] || []
 
-  defp timed_out?(logic, now, ms), do: now - logic.entered_at > ms
+  defp observed?(obs), do: obs != nil
 
-  defp kill_corner?(%{cursor: cursor}), do: Pokex.Bots.Corner.in_kill_corner?(cursor)
-  defp kill_corner?(_obs), do: false
+  defp locked?(nil), do: false
+  defp locked?(obs), do: obs[:locked?] == true
 
-  defp scan_tick?(%__MODULE__{fight_tick: tick, config: c}),
-    do: rem(tick, max(c.hostile_scan_every, 1)) == 0
+  defp fresh_lock?(nil, _tabbed_at), do: false
 
-  # -- battle view ------------------------------------------------------------
-
-  # Press the next skill burst in the rotation this tick and advance the cursor, so consecutive
-  # ticks walk the priority order (strongest first) and loop. No skill-bar read: the game
-  # silently swallows a skill that's on cooldown, and cycling means every key is retried each
-  # loop — so a dropped input just lands on the next pass. One capture per tick, and it can never
-  # stall on one key the way the bar-verify loop did when the bar read came back empty.
-  defp press_next_skill(%{config: %{skill_keys: []}} = logic), do: {logic, []}
-
-  defp press_next_skill(%{config: %{skill_keys: order}, skill_idx: idx} = logic) do
-    burst_size = logic.config |> Map.get(:combat_skill_burst_size, 1) |> positive_int(1)
-    len = length(order)
-
-    actions =
-      for offset <- 0..(burst_size - 1) do
-        {:press, Enum.at(order, rem(idx + offset, len))}
-      end
-
-    {%{logic | skill_idx: idx + burst_size}, actions}
-  end
-
-  defp positive_int(value, _default) when is_integer(value) and value > 0, do: value
-  defp positive_int(_value, default), do: default
-
-  # Candidate enemy rows (HP bar, no own-pokemon pokeball), topmost first. Absent → [] (idle).
-  defp candidates(obs), do: (obs[:battle] || %{})[:enemies] || []
-
-  # Is the red lock ring up on `row` (>= min px)? nil row / absent reading → false.
-  defp ring?(_obs, nil, _min), do: false
-
-  defp ring?(obs, row, min),
-    do: Enum.at((obs[:battle] || %{})[:red] || [], row, 0) >= min
+  # >= (not strict >): millisecond-granularity clocks can legitimately stamp a genuinely
+  # post-Tab capture with the SAME ms as the press when both happen fast (in-process tests,
+  # or a very quick real capture) — only a frame stamped BEFORE the press is stale.
+  defp fresh_lock?(obs, tabbed_at),
+    do: obs[:locked?] == true and is_integer(obs[:captured_at]) and obs[:captured_at] >= tabbed_at
 end

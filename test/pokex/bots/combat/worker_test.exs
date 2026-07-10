@@ -2,169 +2,130 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Combat.Worker
-  alias Pokex.Bots.Fisher.Sensors
+  alias Pokex.Perception.WorldState
   alias Pokex.{Calibration, Settings}
 
-  @fast %{
-    tick_ms_fighting: 20,
-    tick_ms_default: 20,
-    target_lost_streak: 1,
-    tile_px: 32,
-    walk_step_ms: 5,
-    wait_loot_ms: 5,
-    wait_after_capture_ms: 5,
-    humanize_max_ms: 0,
-    cast_delay_max_ms: 0,
-    hook_delay_min_ms: 0,
-    hook_delay_max_ms: 0
-  }
+  @keys [
+    :tab_confirm_ms,
+    :tab_max_attempts,
+    :hunt_cooldown_ms,
+    :skill_burst_every_ms,
+    :combat_world_max_age_ms,
+    :skill_keys
+  ]
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
+    originals = Map.new(@keys, &{&1, Settings.get(&1)})
 
     on_exit(fn ->
       Application.delete_env(:pokex, :home_dir)
-      Enum.each(Settings.defaults(), fn {k, v} -> Settings.put(k, v) end)
+      Enum.each(originals, fn {k, v} -> Settings.put(k, v) end)
+      :ets.delete(:pokex_world, :battle)
+      :ets.delete(:pokex_world, :arena)
     end)
 
-    Enum.each(@fast, fn {k, v} -> Settings.put(k, v) end)
+    Settings.put(:skill_burst_every_ms, 0)
 
     Calibration.save(%Calibration{
-      scale: 2.0,
+      scale: 1.0,
       screen_w: 1000,
       screen_h: 700,
       water_point: {400, 300},
-      glow_region: {368, 268, 64, 64},
-      battle_region: {700, 100, 260, 200},
-      arena_region: {200, 100, 400, 400},
-      neutral_point: {420, 350}
+      glow_region: {0, 0, 20, 20},
+      battle_region: {0, 0, 80, 400},
+      arena_region: {100, 100, 60, 40},
+      neutral_point: {500, 500}
     })
 
-    {:ok, _} = Pokex.Rig.Fake.start_link()
-
-    {:ok, _} =
-      Sensors.Fake.start_link(%{
-        # candidate at row 0 → click (confirming); the ring lights row 0 → confirmed → fight →
-        # fire a skill; then the ring drops (target dead, target_lost_streak 1) → loot → capture.
-        battle: [
-          %{enemies: [0], red: [0, 0, 0, 0, 0, 0]},
-          %{enemies: [0], red: [600, 0, 0, 0, 0, 0]},
-          %{enemies: [0], red: [600, 0, 0, 0, 0, 0]},
-          %{enemies: [0], red: [0, 0, 0, 0, 0, 0]}
-        ],
-        hostile: [{410, 320}]
-      })
-
-    {:ok, _} = Pokex.Bots.Body.start_link(name: :combat_worker_test_body)
-    worker = start_supervised!({Worker, name: nil, body: :combat_worker_test_body})
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{})
+    worker = start_supervised!({Worker, name: nil})
+    :ok = Worker.run(worker)
     %{worker: worker}
   end
 
-  @tag :tmp_dir
-  test "a catch event before running is a safe no-op", %{worker: worker} do
-    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.catch_topic(), {:fish_caught})
-    # the status call round-trips through the same mailbox, proving it processed the
-    # event and is still alive + idle.
-    assert Worker.status(worker).state == :idle
+  defp battle_obs(fields) do
+    Enum.into(fields, %{
+      enemies: [],
+      red: [],
+      locked?: false,
+      locked_row: nil,
+      captured_at: System.monotonic_time(:millisecond)
+    })
+  end
+
+  defp world!(worker, obs) do
+    at = obs.captured_at
+    WorldState.put(:battle, obs, at)
+    send(worker, {:world, :battle, obs})
+  end
+
+  defp presses do
+    for {:press, key} <- Pokex.Rig.Fake.calls(), do: key
   end
 
   @tag :tmp_dir
-  test "scan → confirm → fight → kill: hands the corpse to loot and keeps scanning", %{
-    worker: worker
-  } do
+  test "an enemy observation makes it press Tab", %{worker: worker} do
+    world!(worker, battle_obs(enemies: [0]))
+
+    assert eventually(fn -> Settings.get(:tab_key) in presses() end)
+    assert Worker.status(worker).state == :tabbing
+  end
+
+  @tag :tmp_dir
+  test "a post-Tab locked observation confirms the fight and fires skills", %{worker: worker} do
+    world!(worker, battle_obs(enemies: [0]))
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+
+    world!(worker, battle_obs(locked?: true, locked_row: 0))
+    assert eventually(fn -> Worker.status(worker).state == :fighting end)
+    assert eventually(fn -> "1" in presses() end)
+  end
+
+  @tag :tmp_dir
+  test "lock lost for the streak broadcasts the kill with the arena corpse", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Loot.Worker.kill_topic())
 
-    assert :ok = Worker.run(worker)
+    now = System.monotonic_time(:millisecond)
+    WorldState.put(:arena, %{hostile: {123, 456}, captured_at: now}, now)
 
-    # the kill is broadcast to the Loot.Worker with the corpse's :hostile point
-    assert_receive {:kill, {410, 320}}, 5_000
+    world!(worker, battle_obs(enemies: [0]))
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+    world!(worker, battle_obs(locked?: true, locked_row: 0))
+    assert eventually(fn -> Worker.status(worker).state == :fighting end)
 
-    calls = Pokex.Rig.Fake.calls()
-    assert {:click, :left, {786, 118}} in calls
-    assert {:move, {420, 350}} in calls
-    assert {:press, "1"} in calls
-    # combat itself never loots/captures anymore — that's the Loot.Worker's job
-    refute {:press, "space"} in calls
-    refute Enum.any?(calls, &match?({:capture_sequence, _}, &1))
+    world!(worker, battle_obs(locked?: false))
+    world!(worker, battle_obs(locked?: false))
 
+    assert_receive {:kill, {123, 456}}, 1_000
+    assert Worker.status(worker).counters.fights == 1
+  end
+
+  @tag :tmp_dir
+  test "halt detaches and goes idle", %{worker: worker} do
     assert :ok = Worker.halt(worker)
     assert Worker.status(worker).state == :idle
+
+    world!(worker, battle_obs(enemies: [0]))
+    refute eventually(fn -> Worker.status(worker).state == :tabbing end, 300)
   end
 
-  @tag :tmp_dir
-  test "the select click+move is submitted to the Body at :high priority", %{worker: worker} do
-    # Occupy the shared Body with a queued :normal action first, so the
-    # combat select click provably jumps ahead of it (proves :high routing,
-    # not just that the click eventually happens).
-    test = self()
-
-    spawn(fn ->
-      send(
-        test,
-        {:normal_result,
-         Pokex.Bots.Body.perform([{:press, "occupy"}], :normal, :combat_worker_test_body)}
-      )
-    end)
-
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    assert :ok = Worker.run(worker)
-
-    assert_receive {:combat_log, _level, _}, 2_000
-    assert_receive {:normal_result, :ok}, 2_000
-
-    calls = Pokex.Rig.Fake.calls()
-    assert {:click, :left, {786, 118}} in calls
+  defp eventually(fun, timeout \\ 1_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    poll(fun, deadline)
   end
 
-  @tag :tmp_dir
-  test "start without calibration returns preflight errors", %{worker: worker} do
-    File.rm!(Pokex.Home.calibration_file())
-    assert {:error, [msg]} = Worker.run(worker)
-    assert msg =~ "calibração"
+  defp poll(fun, deadline) do
+    cond do
+      fun.() ->
+        true
+
+      System.monotonic_time(:millisecond) > deadline ->
+        false
+
+      true ->
+        Process.sleep(20)
+        poll(fun, deadline)
+    end
   end
-
-  @tag :tmp_dir
-  test "a Body I/O failure drives Logic.io_failed and stays recoverable (scanning)", %{
-    worker: worker
-  } do
-    previous_rig = Application.get_env(:pokex, :rig)
-    Application.put_env(:pokex, :rig, Pokex.Bots.Combat.WorkerTest.FailingRig)
-    on_exit(fn -> Application.put_env(:pokex, :rig, previous_rig) end)
-
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    assert :ok = Worker.run(worker)
-
-    # first broadcast is the pre-tick :scanning snapshot (zero failures yet);
-    # wait for a SECOND :combat broadcast — that's the tick where the click
-    # failed through the Body and Logic.io_failed bumped counters.failures.
-    assert_receive {:combat, %{state: :scanning, error: nil}}, 3_000
-
-    assert_receive {:combat, %{state: :scanning, error: nil, counters: %{failures: failures}}},
-                   3_000
-
-    assert failures >= 1
-    assert Worker.status(worker).state == :scanning
-  end
-end
-
-defmodule Pokex.Bots.Combat.WorkerTest.FailingRig do
-  @moduledoc "Rig double whose click always errors, to drive the worker's io_failed path."
-  @behaviour Pokex.Rig
-
-  @impl true
-  def press(_combo), do: :ok
-  @impl true
-  def press_many(_combos, _opts), do: :ok
-  @impl true
-  def click(_button, _point), do: {:error, :boom}
-  @impl true
-  def move(_point), do: :ok
-  @impl true
-  def capture_sequence(_point), do: :ok
-  @impl true
-  def capture(_region, filename), do: {:ok, filename}
-  @impl true
-  def capture_screen, do: {:ok, "screen.png"}
-  @impl true
-  def cursor_position, do: {:ok, {500, 500}}
 end

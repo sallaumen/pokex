@@ -167,12 +167,6 @@ defmodule Pokex.Settings do
     mini_game_exit_streak: 2,
     mini_game_min_confidence: 0.62,
     mini_game_min_dark_ratio: 0.34,
-    # After clicking a candidate row, how long to wait for the red target RING to appear before
-    # deciding the click started no real battle. A passing player's pokemon has an HP bar and no
-    # pokeball, so it looks attackable — but clicking it engages nothing (no ring). The ring
-    # renders ~200ms + capture latency; 500 gives a couple of reads to catch it, then combat
-    # marks the row and tries the next candidate instead of fake-fighting nothing.
-    battle_confirm_ms: 500,
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the
     # bot doesn't fish on a perfectly fixed cadence.
@@ -219,7 +213,20 @@ defmodule Pokex.Settings do
     # upper bounds on broker demand, not constant costs. battle is the combat hot path; arena only
     # runs while fighting (corpse position for loot).
     feed_battle_ms: 120,
-    feed_arena_ms: 300
+    feed_arena_ms: 300,
+    # --- Combat: Tab targeting ------------------------------------------------------------------
+    # Tab selects the first attackable enemy; pressing again CYCLES to the next. The confirm
+    # window counts from the Tab press against frames captured AFTER it, so capture latency can't
+    # eat the window (the old click flow's 500ms expired before its first read). Exhausting
+    # tab_max_attempts hunt-holds for hunt_cooldown_ms so a visible-but-unattackable row can't
+    # cause a Tab storm. skill_burst_every_ms throttles bursts below the feed cadence.
+    tab_key: "tab",
+    tab_confirm_ms: 700,
+    tab_max_attempts: 3,
+    hunt_cooldown_ms: 1_500,
+    skill_burst_every_ms: 300,
+    # Battle observations older than this are treated as unknown by combat (fail-safe: no keys).
+    combat_world_max_age_ms: 600
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

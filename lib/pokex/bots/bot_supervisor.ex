@@ -68,7 +68,7 @@ defmodule Pokex.Bots.BotSupervisor do
         id: guardian
       ),
       Supervisor.child_spec({Fishing.Worker, name: fishing, body: body}, id: fishing),
-      Supervisor.child_spec({Combat.Worker, name: combat, body: body}, id: combat),
+      Supervisor.child_spec({Combat.Worker, name: combat}, id: combat),
       Supervisor.child_spec({Loot.Worker, name: loot, body: body}, id: loot),
       Supervisor.child_spec({MiniGame.Worker, name: mini_game, peers: peers}, id: mini_game),
       Supervisor.child_spec({GameController.Worker, name: game_controller, body: body},

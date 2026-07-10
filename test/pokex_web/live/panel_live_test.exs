@@ -327,7 +327,7 @@ defmodule PokexWeb.PanelLiveTest do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "combat",
-      {:combat, %{state: :scanning, counters: %{}, error: nil, locked_row: nil}}
+      {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}}
     )
 
     assert render(view) =~ "vigiando"

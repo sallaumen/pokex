@@ -91,8 +91,10 @@ defmodule PokexWeb.PanelLive do
        require_cooldowns: Settings.get(:require_cooldowns),
        rescue_enabled: Settings.get(:rescue_enabled),
        rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
+       rescue_cooldown_s: div(Settings.get(:rescue_cooldown_ms), 1000),
        potion_enabled: Settings.get(:potion_enabled),
        potion_pct: Settings.get(:pokemon_hp_potion_pct),
+       potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " ")
      )}
   end
@@ -324,18 +326,17 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, rescue_enabled: value)}
   end
 
-  # The threshold is expensive to get wrong in BOTH directions: too high burns revives on
-  # scratches, too low revives a corpse. Only a sane 1..90 integer is accepted; anything
-  # else leaves the current setting untouched.
-  def handle_event("save_rescue_pct", %{"rescue_pct" => raw}, socket) do
-    case Integer.parse(String.trim(raw)) do
-      {pct, ""} when pct in 1..90 ->
-        Settings.put(:pokemon_hp_rescue_pct, pct)
-        {:noreply, assign(socket, rescue_pct: pct)}
+  # Threshold + cooldown are expensive to get wrong in BOTH directions: a too-eager rescue burns
+  # revives on scratches, a too-slow one revives a corpse. The form sends both fields on every
+  # change; each is validated on its own range and an invalid value simply leaves that setting
+  # untouched (the other still saves).
+  def handle_event("save_rescue_cfg", params, socket) do
+    socket =
+      socket
+      |> save_int(params["rescue_pct"], 1..90, :pokemon_hp_rescue_pct, :rescue_pct)
+      |> save_seconds(params["rescue_cooldown_s"], 5..600, :rescue_cooldown_ms, :rescue_cooldown_s)
 
-      _ ->
-        {:noreply, socket}
-    end
+    {:noreply, socket}
   end
 
   def handle_event("toggle_potion", _params, socket) do
@@ -344,15 +345,13 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, potion_enabled: value)}
   end
 
-  def handle_event("save_potion_pct", %{"potion_pct" => raw}, socket) do
-    case Integer.parse(String.trim(raw)) do
-      {pct, ""} when pct in 1..99 ->
-        Settings.put(:pokemon_hp_potion_pct, pct)
-        {:noreply, assign(socket, potion_pct: pct)}
+  def handle_event("save_potion_cfg", params, socket) do
+    socket =
+      socket
+      |> save_int(params["potion_pct"], 1..99, :pokemon_hp_potion_pct, :potion_pct)
+      |> save_seconds(params["potion_cooldown_s"], 1..600, :potion_cooldown_ms, :potion_cooldown_s)
 
-      _ ->
-        {:noreply, socket}
-    end
+    {:noreply, socket}
   end
 
   def handle_event("use_potion", _params, socket) do
@@ -438,6 +437,37 @@ defmodule PokexWeb.PanelLive do
 
       {:error, reason} ->
         {:noreply, assign(socket, report: nil, report_msg: "erro: #{inspect(reason)}")}
+    end
+  end
+
+  defp save_int(socket, raw, range, setting_key, assign_key) do
+    case Integer.parse(String.trim(raw || "")) do
+      {value, ""} ->
+        if value in range do
+          Settings.put(setting_key, value)
+          assign(socket, assign_key, value)
+        else
+          socket
+        end
+
+      _ ->
+        socket
+    end
+  end
+
+  # The UI speaks SECONDS (what Lucas reasons in); the settings store milliseconds.
+  defp save_seconds(socket, raw, range, setting_key, assign_key) do
+    case Integer.parse(String.trim(raw || "")) do
+      {seconds, ""} ->
+        if seconds in range do
+          Settings.put(setting_key, seconds * 1000)
+          assign(socket, assign_key, seconds)
+        else
+          socket
+        end
+
+      _ ->
+        socket
     end
   end
 
@@ -919,7 +949,7 @@ defmodule PokexWeb.PanelLive do
               />
             </div>
             <div class="mt-2 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
-              <form id="rescue-pct-form" phx-change="save_rescue_pct" class="flex items-center gap-1">
+              <form id="rescue-cfg-form" phx-change="save_rescue_cfg" class="flex items-center gap-1">
                 <label for="rescue-pct">revive &lt;</label>
                 <input
                   id="rescue-pct"
@@ -931,12 +961,23 @@ defmodule PokexWeb.PanelLive do
                   phx-debounce="500"
                   class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
                 />
-                <span>%</span>
+                <span>% · a cada</span>
+                <input
+                  id="rescue-cooldown"
+                  name="rescue_cooldown_s"
+                  type="number"
+                  min="5"
+                  max="600"
+                  value={@rescue_cooldown_s}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                />
+                <span>s</span>
               </form>
               <span>revives: {rescue_count(@game)}</span>
             </div>
             <div class="mt-1.5 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
-              <form id="potion-pct-form" phx-change="save_potion_pct" class="flex items-center gap-1">
+              <form id="potion-cfg-form" phx-change="save_potion_cfg" class="flex items-center gap-1">
                 <label for="potion-pct">poção &lt;</label>
                 <input
                   id="potion-pct"
@@ -948,7 +989,18 @@ defmodule PokexWeb.PanelLive do
                   phx-debounce="500"
                   class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
                 />
-                <span>%</span>
+                <span>% · a cada</span>
+                <input
+                  id="potion-cooldown"
+                  name="potion_cooldown_s"
+                  type="number"
+                  min="1"
+                  max="600"
+                  value={@potion_cooldown_s}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                />
+                <span>s</span>
               </form>
               <span>poções: {potion_count(@game)}</span>
             </div>

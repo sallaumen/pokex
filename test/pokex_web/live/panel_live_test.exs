@@ -258,40 +258,67 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:hook_skill_keys) == ["5", "6", "7"]
   end
 
-  test "saves the rescue threshold from the panel and rejects nonsense values", %{conn: conn} do
+  test "saves the rescue threshold + cooldown and rejects nonsense values", %{conn: conn} do
     original = Pokex.Settings.get(:pokemon_hp_rescue_pct)
-    on_exit(fn -> Pokex.Settings.put(:pokemon_hp_rescue_pct, original) end)
+    cooldown = Pokex.Settings.get(:rescue_cooldown_ms)
+
+    on_exit(fn ->
+      Pokex.Settings.put(:pokemon_hp_rescue_pct, original)
+      Pokex.Settings.put(:rescue_cooldown_ms, cooldown)
+    end)
 
     {:ok, view, _} = live(conn, ~p"/")
 
-    view |> form("#rescue-pct-form", %{"rescue_pct" => "30"}) |> render_change()
+    view
+    |> form("#rescue-cfg-form", %{"rescue_pct" => "30", "rescue_cooldown_s" => "20"})
+    |> render_change()
+
     assert Pokex.Settings.get(:pokemon_hp_rescue_pct) == 30
+    # the UI speaks seconds, the setting stores milliseconds
+    assert Pokex.Settings.get(:rescue_cooldown_ms) == 20_000
     assert render(view) =~ "abaixo de 30%"
 
-    # out-of-range and garbage inputs must not touch the saved value
-    view |> form("#rescue-pct-form", %{"rescue_pct" => "95"}) |> render_change()
-    view |> form("#rescue-pct-form", %{"rescue_pct" => "abc"}) |> render_change()
-    view |> form("#rescue-pct-form", %{"rescue_pct" => ""}) |> render_change()
+    # out-of-range and garbage inputs must not touch the saved values — but a valid field
+    # beside an invalid one still saves
+    view
+    |> form("#rescue-cfg-form", %{"rescue_pct" => "95", "rescue_cooldown_s" => "2"})
+    |> render_change()
+
+    view
+    |> form("#rescue-cfg-form", %{"rescue_pct" => "abc", "rescue_cooldown_s" => "45"})
+    |> render_change()
+
     assert Pokex.Settings.get(:pokemon_hp_rescue_pct) == 30
+    assert Pokex.Settings.get(:rescue_cooldown_ms) == 45_000
   end
 
-  test "saves the potion threshold and toggles the auto-potion", %{conn: conn} do
+  test "saves the potion threshold + cooldown and toggles the auto-potion", %{conn: conn} do
     pct = Pokex.Settings.get(:pokemon_hp_potion_pct)
+    cooldown = Pokex.Settings.get(:potion_cooldown_ms)
     enabled = Pokex.Settings.get(:potion_enabled)
 
     on_exit(fn ->
       Pokex.Settings.put(:pokemon_hp_potion_pct, pct)
+      Pokex.Settings.put(:potion_cooldown_ms, cooldown)
       Pokex.Settings.put(:potion_enabled, enabled)
     end)
 
     {:ok, view, _} = live(conn, ~p"/")
 
-    view |> form("#potion-pct-form", %{"potion_pct" => "65"}) |> render_change()
+    view
+    |> form("#potion-cfg-form", %{"potion_pct" => "65", "potion_cooldown_s" => "8"})
+    |> render_change()
+
     assert Pokex.Settings.get(:pokemon_hp_potion_pct) == 65
+    assert Pokex.Settings.get(:potion_cooldown_ms) == 8_000
     assert render(view) =~ "abaixo de 65%"
 
-    view |> form("#potion-pct-form", %{"potion_pct" => "0"}) |> render_change()
+    view
+    |> form("#potion-cfg-form", %{"potion_pct" => "0", "potion_cooldown_s" => "700"})
+    |> render_change()
+
     assert Pokex.Settings.get(:pokemon_hp_potion_pct) == 65
+    assert Pokex.Settings.get(:potion_cooldown_ms) == 8_000
 
     view |> element(~s(#automation-potion input[phx-click="toggle_potion"])) |> render_click()
     refute Pokex.Settings.get(:potion_enabled) == enabled

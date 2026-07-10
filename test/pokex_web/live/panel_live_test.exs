@@ -249,6 +249,28 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:pokemon_hp_rescue_pct) == 30
   end
 
+  test "saves the potion threshold and toggles the auto-potion", %{conn: conn} do
+    pct = Pokex.Settings.get(:pokemon_hp_potion_pct)
+    enabled = Pokex.Settings.get(:potion_enabled)
+
+    on_exit(fn ->
+      Pokex.Settings.put(:pokemon_hp_potion_pct, pct)
+      Pokex.Settings.put(:potion_enabled, enabled)
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view |> form("#potion-pct-form", %{"potion_pct" => "65"}) |> render_change()
+    assert Pokex.Settings.get(:pokemon_hp_potion_pct) == 65
+    assert render(view) =~ "abaixo de 65%"
+
+    view |> form("#potion-pct-form", %{"potion_pct" => "0"}) |> render_change()
+    assert Pokex.Settings.get(:pokemon_hp_potion_pct) == 65
+
+    view |> element(~s(#automation-potion input[phx-click="toggle_potion"])) |> render_click()
+    refute Pokex.Settings.get(:potion_enabled) == enabled
+  end
+
   @tag :tmp_dir
   test "the 'Ler' button reads the skill bar on demand", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

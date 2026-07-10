@@ -27,6 +27,25 @@ defmodule Pokex.Bots.GameController.Logic do
     do: if(now - last >= cooldown, do: :rescue, else: :hold)
 
   @doc """
+  True when the main Pokémon wants a potion — everything EXCEPT the combat gate: enabled, HP known
+  and below the potion threshold, and the previous sip's heal channel (cooldown) has elapsed. The
+  caller checks combat separately because that answer costs a screen capture — this predicate is
+  what makes that capture worth taking. A potion drunk in combat is a wasted potion (the channel is
+  interrupted the moment a fight starts), so the worker only fires when it CONFIRMED out-of-combat.
+
+  Expects `:hp_pct` (0..100 or nil), `:threshold_pct`, `:enabled?`, `:cooldown_ms`,
+  `:last_potion_at` (monotonic ms or nil) and `:now` (monotonic ms).
+  """
+  @spec potion_wanted?(map) :: boolean
+  def potion_wanted?(%{enabled?: false}), do: false
+  def potion_wanted?(%{hp_pct: nil}), do: false
+  def potion_wanted?(%{hp_pct: hp, threshold_pct: threshold}) when hp >= threshold, do: false
+  def potion_wanted?(%{last_potion_at: nil}), do: true
+
+  def potion_wanted?(%{now: now, last_potion_at: last, cooldown_ms: cooldown}),
+    do: now - last >= cooldown
+
+  @doc """
   The atomic combo, as a Body action list: recall (`rescue_key`), move onto the portrait, max-revive
   (`max_revive_key`), release (`rescue_key`), recentre the cursor. `step_ms` waits sit between the
   presses so the game registers each — the whole list runs as ONE Body perform so nothing (not even

@@ -26,7 +26,10 @@ defmodule Pokex.Bots.GameController.WorkerTest do
     :rescue_step_ms,
     :rescue_enabled,
     :rescue_cooldown_ms,
-    :pokemon_hp_rescue_pct
+    :pokemon_hp_rescue_pct,
+    :potion_enabled,
+    :potion_cooldown_ms,
+    :pokemon_hp_potion_pct
   ]
 
   setup %{tmp_dir: tmp} do
@@ -71,6 +74,13 @@ defmodule Pokex.Bots.GameController.WorkerTest do
   end
 
   defp start_worker(body), do: start_supervised!({Worker, name: nil, body: body})
+
+  # A battle-body PNG big enough to cover every lock band: all dark-red = a locked fight,
+  # all dark = no fight. 100 wide × 400 tall so each 52px band holds thousands of pixels.
+  defp battle_png(dir, name, color) do
+    rows = for _y <- 1..400, do: List.duplicate(color, 100)
+    Pokex.PngFixtures.write!(Path.join(dir, name), rows)
+  end
 
   @tag :tmp_dir
   test "holds (no combo) while the HP bar is full", %{tmp: tmp, body: body} do
@@ -119,6 +129,59 @@ defmodule Pokex.Bots.GameController.WorkerTest do
     # keeps ticking on the same low HP, but must NOT fire again
     refute_receive {:performed, :critical, _}, 300
     assert Worker.status(worker).counters.rescues == 1
+  end
+
+  @tag :tmp_dir
+  test "sips a potion when HP is below the potion threshold and no fight is locked", %{
+    tmp: tmp,
+    body: body
+  } do
+    # rescue off so the potion path is what acts; 30% HP < the 70% potion threshold
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+    Settings.put(:potion_cooldown_ms, 60_000)
+
+    low = hp_png(tmp, "low.png", 6)
+    no_fight = battle_png(tmp, "calm.png", {17, 17, 17, 255})
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}, {:ok, no_fight}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
+    assert Worker.status(worker).counters.potions >= 1
+  end
+
+  @tag :tmp_dir
+  test "an active fight (lock ring) blocks the potion — the channel would be interrupted", %{
+    tmp: tmp,
+    body: body
+  } do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+
+    low = hp_png(tmp, "low.png", 6)
+    fight = battle_png(tmp, "fight.png", {160, 20, 20, 255})
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}, {:ok, fight}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, _priority, _actions}, 300
+    assert Worker.status(worker).counters.potions == 0
+  end
+
+  @tag :tmp_dir
+  test "use_potion/1 fires immediately on user intent, no gates", %{tmp: tmp, body: body} do
+    Settings.put(:potion_enabled, false)
+    full = hp_png(tmp, "full.png", 20)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.use_potion(worker)
+
+    assert_receive {:performed, :high, [{:press, "e"}]}, 500
+    assert Worker.status(worker).counters.potions == 1
   end
 
   @tag :tmp_dir

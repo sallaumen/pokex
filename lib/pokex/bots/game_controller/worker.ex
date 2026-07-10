@@ -17,7 +17,7 @@ defmodule Pokex.Bots.GameController.Worker do
   alias Pokex.{Calibration, Settings, Vision}
 
   @topic "game"
-  @default_counters %{rescues: 0, reads: 0, failures: 0}
+  @default_counters %{rescues: 0, potions: 0, reads: 0, failures: 0}
 
   def topic, do: @topic
 
@@ -29,6 +29,7 @@ defmodule Pokex.Bots.GameController.Worker do
       timer: nil,
       hp_pct: nil,
       last_rescue_at: nil,
+      last_potion_at: nil,
       error: nil,
       counters: @default_counters
     }
@@ -44,6 +45,12 @@ defmodule Pokex.Bots.GameController.Worker do
   def run(server \\ __MODULE__), do: GenServer.call(server, :run)
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
 
+  @doc """
+  Manually drink a potion NOW — the panel button. Deliberate user intent, so no combat/threshold
+  gates apply; it still stamps the cooldown so the automatic sip doesn't double up mid-channel.
+  """
+  def use_potion(server \\ __MODULE__), do: GenServer.call(server, :use_potion)
+
   @impl true
   def init(state) do
     # Auto-start monitoring on boot (real app). Gated off in the test env so the app-wide instance
@@ -57,6 +64,12 @@ defmodule Pokex.Bots.GameController.Worker do
   def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
   def handle_call(:run, _from, state), do: {:reply, :ok, reschedule(state, 0)}
   def handle_call(:halt, _from, state), do: {:reply, :ok, cancel_timer(state)}
+
+  def handle_call(:use_potion, _from, state) do
+    state = fire_potion(state, "🧪 poção (manual)")
+    broadcast(state)
+    {:reply, :ok, state}
+  end
 
   @impl true
   def handle_info(:tick, state) do
@@ -107,8 +120,54 @@ defmodule Pokex.Bots.GameController.Worker do
   defp act(state, calib) do
     case Logic.decide(decision_input(state)) do
       :rescue -> fire_combo(state, calib)
-      :hold -> state
+      :hold -> maybe_potion(state, calib)
     end
+  end
+
+  # The combat read costs a screen capture, so it only happens when a potion is otherwise due —
+  # and the potion only fires on a CONFIRMED out-of-combat read (entering a fight interrupts the
+  # heal channel, so an in-combat or unknown read would just waste the potion).
+  defp maybe_potion(state, calib) do
+    with true <- Logic.potion_wanted?(potion_input(state)),
+         {:ok, false} <- in_combat?(calib) do
+      fire_potion(state, "🧪 poção — vida em #{state.hp_pct}%")
+    else
+      _ -> state
+    end
+  end
+
+  defp potion_input(state) do
+    %{
+      hp_pct: state.hp_pct,
+      threshold_pct: Settings.get(:pokemon_hp_potion_pct),
+      enabled?: Settings.get(:potion_enabled),
+      cooldown_ms: Settings.get(:potion_cooldown_ms),
+      last_potion_at: state.last_potion_at,
+      now: now()
+    }
+  end
+
+  # Same signal Combat trusts: per-row lock-ring red inside the battle body; any row at or above
+  # target_locked_min_pixels means a fight is active. Mirrors Fisher.Sensors.Real fetch(:battle_lock).
+  defp in_combat?(calib) do
+    with {:ok, frame} <- Capture.frame(Calibration.battle_body(calib), "target.png") do
+      {top, band} = Calibration.row_band_geometry(calib.scale, Settings.get(:battle_row_height))
+      red = Vision.red_row_counts(frame, top: top, band: band, rows: Settings.get(:battle_max_rows))
+      {:ok, Enum.any?(red, &(&1 >= Settings.get(:target_locked_min_pixels)))}
+    end
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  # Stamp last_potion_at BEFORE dispatch (same rationale as the combo): if the press errors, the
+  # cooldown still holds and a glitch loop can't chug the whole potion stack.
+  defp fire_potion(state, log_text) do
+    at = now()
+    Body.perform([{:press, Settings.get(:potion_key)}], :high, state.body)
+
+    state = %{state | last_potion_at: at, counters: bump(state.counters, :potions)}
+    broadcast_log(:macro, log_text)
+    state
   end
 
   defp decision_input(state) do

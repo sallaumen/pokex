@@ -1,7 +1,7 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.{BotSupervisor, Combat, Fishing, Loot, SkillBar}
+  alias Pokex.Bots.{BotSupervisor, Combat, Fishing, GameController, Loot, SkillBar}
   alias Pokex.Diagnostics.Report
   alias Pokex.{Calibration, Rig, Settings}
 
@@ -90,6 +90,8 @@ defmodule PokexWeb.PanelLive do
        require_cooldowns: Settings.get(:require_cooldowns),
        rescue_enabled: Settings.get(:rescue_enabled),
        rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
+       potion_enabled: Settings.get(:potion_enabled),
+       potion_pct: Settings.get(:pokemon_hp_potion_pct),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " ")
      )}
   end
@@ -335,6 +337,28 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
+  def handle_event("toggle_potion", _params, socket) do
+    value = not Settings.get(:potion_enabled)
+    Settings.put(:potion_enabled, value)
+    {:noreply, assign(socket, potion_enabled: value)}
+  end
+
+  def handle_event("save_potion_pct", %{"potion_pct" => raw}, socket) do
+    case Integer.parse(String.trim(raw)) do
+      {pct, ""} when pct in 1..99 ->
+        Settings.put(:pokemon_hp_potion_pct, pct)
+        {:noreply, assign(socket, potion_pct: pct)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("use_potion", _params, socket) do
+    GameController.Worker.use_potion()
+    {:noreply, socket}
+  end
+
   # One-shot skill-bar read for the display (no loop, no shared process).
   def handle_event("read_cooldowns", _params, socket) do
     {:noreply, assign(socket, cooldowns_states: read_cooldown_states())}
@@ -571,18 +595,20 @@ defmodule PokexWeb.PanelLive do
   defp overall_active?(fishing, combat, loot),
     do: Enum.any?([fishing.state, combat.state, loot.state], &active?/1)
 
-  defp automation_count(fishing, combat, loot, auto_capture, rescue_enabled) do
+  defp automation_count(fishing, combat, loot, auto_capture, rescue_enabled, potion_enabled) do
     [
       active?(fishing.state),
       active?(combat.state),
       active?(loot.state),
       auto_capture,
-      rescue_enabled
+      rescue_enabled,
+      potion_enabled
     ]
     |> Enum.count(& &1)
   end
 
   defp rescue_count(game), do: get_in(game, [:counters, :rescues]) || 0
+  defp potion_count(game), do: get_in(game, [:counters, :potions]) || 0
 
   attr :id, :string, required: true
   attr :title, :string, required: true
@@ -812,7 +838,7 @@ defmodule PokexWeb.PanelLive do
           <section>
             <div class="mb-2 flex items-center justify-between px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
               <h2>Automações</h2>
-              <span>{automation_count(@fishing, @combat, @loot, @auto_capture, @rescue_enabled)}/5 on</span>
+              <span>{automation_count(@fishing, @combat, @loot, @auto_capture, @rescue_enabled, @potion_enabled)}/6 on</span>
             </div>
             <div class="overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]">
               <.automation_row
@@ -850,6 +876,13 @@ defmodule PokexWeb.PanelLive do
                 active={@rescue_enabled}
                 event="toggle_rescue"
               />
+              <.automation_row
+                id="automation-potion"
+                title="Poção automática"
+                description={"Poção (tecla #{Settings.get(:potion_key)}) abaixo de #{@potion_pct}%, só fora de luta"}
+                active={@potion_enabled}
+                event="toggle_potion"
+              />
             </div>
           </section>
 
@@ -882,6 +915,30 @@ defmodule PokexWeb.PanelLive do
               </form>
               <span>revives: {rescue_count(@game)}</span>
             </div>
+            <div class="mt-1.5 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
+              <form id="potion-pct-form" phx-change="save_potion_pct" class="flex items-center gap-1">
+                <label for="potion-pct">poção &lt;</label>
+                <input
+                  id="potion-pct"
+                  name="potion_pct"
+                  type="number"
+                  min="1"
+                  max="99"
+                  value={@potion_pct}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                />
+                <span>%</span>
+              </form>
+              <span>poções: {potion_count(@game)}</span>
+            </div>
+            <button
+              id="use-potion"
+              phx-click="use_potion"
+              class="mt-2.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[#293238] text-[11px] font-semibold text-[#a4adb4] transition hover:border-[#37d07d]/60 hover:bg-[#14191d] hover:text-white active:scale-[0.99]"
+            >
+              🧪 Usar poção agora
+            </button>
           </section>
 
           <section>

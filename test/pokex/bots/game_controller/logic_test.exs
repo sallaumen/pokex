@@ -45,6 +45,37 @@ defmodule Pokex.Bots.GameController.LogicTest do
     end
   end
 
+  describe "potion_wanted?/1" do
+    defp potion_input(overrides) do
+      %{
+        hp_pct: 100,
+        threshold_pct: 70,
+        enabled?: true,
+        cooldown_ms: 10_000,
+        last_potion_at: nil,
+        now: 50_000
+      }
+      |> Map.merge(Map.new(overrides))
+    end
+
+    test "wants a potion the first time HP drops below the potion threshold" do
+      assert Logic.potion_wanted?(potion_input(hp_pct: 69))
+      assert Logic.potion_wanted?(potion_input(hp_pct: 30))
+    end
+
+    test "holds at or above the threshold, on nil HP, or when disabled" do
+      refute Logic.potion_wanted?(potion_input(hp_pct: 70))
+      refute Logic.potion_wanted?(potion_input(hp_pct: 100))
+      refute Logic.potion_wanted?(potion_input(hp_pct: nil))
+      refute Logic.potion_wanted?(potion_input(hp_pct: 30, enabled?: false))
+    end
+
+    test "the heal-channel cooldown blocks a second sip within the window" do
+      refute Logic.potion_wanted?(potion_input(hp_pct: 30, last_potion_at: 45_000, now: 50_000))
+      assert Logic.potion_wanted?(potion_input(hp_pct: 30, last_potion_at: 40_000, now: 50_000))
+    end
+  end
+
   describe "combo/1" do
     test "builds the recall → max-revive-on-photo → release → recentre sequence" do
       config = %{

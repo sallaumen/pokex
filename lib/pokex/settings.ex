@@ -204,7 +204,16 @@ defmodule Pokex.Settings do
     # black background/track and the white "N/max" number are colourless and ignored. Low, permissive
     # floors so even a washed/dark fill tone still registers. See Vision.hp_fill_pct/2.
     pokemon_hp_min_brightness: 45,
-    pokemon_hp_min_saturation: 30
+    pokemon_hp_min_saturation: 30,
+    # --- Potion: cheap top-up so the expensive revive rarely fires ------------------------------
+    # Below pokemon_hp_potion_pct AND out of combat (the heal channel is interrupted by entering a
+    # fight, so an in-combat potion is a wasted potion), press potion_key — the game applies it to
+    # the active Pokémon by itself, no mouse needed. The cooldown covers the heal channel: firing
+    # again mid-channel wastes a potion, so wait it out before another sip.
+    potion_enabled: false,
+    potion_key: "e",
+    pokemon_hp_potion_pct: 70,
+    potion_cooldown_ms: 10_000
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

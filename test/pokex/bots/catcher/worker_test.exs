@@ -229,6 +229,31 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     refute_receive {:performed, _p, _a}, 300
   end
 
+  @tag :tmp_dir
+  test "producer order (kill first, snapshot second) makes loot precede the ball", %{
+    worker: worker
+  } do
+    # engage: the worker holds everything while the fight runs
+    send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
+
+    # a mature corpse observation is already in the world (the enemy stood on the melee tile)
+    obs = corpses_obs([{130, 224}])
+    WorldState.put(:corpses, obs, obs.captured_at)
+
+    # the combat worker emits KILL then the hunting snapshot (post-fix producer order)
+    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "combat",
+      {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}}
+    )
+
+    # FIRST perform must be the Space loot; the ball comes on the disengage advance
+    assert_receive {:performed, :high, [{:press, "space"} | _]}, 1_000
+    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+  end
+
   defp eventually(fun, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
 

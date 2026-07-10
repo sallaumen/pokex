@@ -355,6 +355,11 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp mode_state(nil, _mode), do: :idle
   defp mode_state(_logic, "movimento"), do: :manual
+
+  defp mode_state(%Logic{state: :armed}, _mode) do
+    if Settings.get(:capture_enabled), do: :armed, else: :saqueando
+  end
+
   defp mode_state(%Logic{state: s}, _mode), do: s
 
   defp snapshot(state) do

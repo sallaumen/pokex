@@ -633,6 +633,7 @@ defmodule PokexWeb.PanelLive do
   defp catcher_label(:idle), do: "parado"
   defp catcher_label(:armed), do: "capturando"
   defp catcher_label(:manual), do: "manual"
+  defp catcher_label(:saqueando), do: "só saque"
   defp catcher_label(other), do: to_string(other)
 
   # 🎮 Mini game: desligado / observando a arena / pausando o resto enquanto o jogo está aberto.

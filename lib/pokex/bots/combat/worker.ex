@@ -178,11 +178,15 @@ defmodule Pokex.Bots.Combat.Worker do
     dispatch(actions)
     broadcast_activity(previous, logic, actions)
 
-    if logic.state != previous.state or logic.counters != previous.counters,
-      do: broadcast(logic)
-
+    # KILL first, snapshot second: the Catcher loots on {:kill} (Space presses) and throws the
+    # ball on the disengage snapshot's advance — the ball consumes the corpse WITH its loot, so
+    # this producer-side order IS the loot-before-ball guarantee (same sender → same receiver
+    # preserves it).
     if logic.counters.fights > previous.counters.fights,
       do: broadcast_kill()
+
+    if logic.state != previous.state or logic.counters != previous.counters,
+      do: broadcast(logic)
 
     schedule_wake(%{state | logic: logic})
   end

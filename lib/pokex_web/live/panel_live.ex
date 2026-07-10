@@ -354,7 +354,7 @@ defmodule PokexWeb.PanelLive do
     socket =
       socket
       |> save_int(params["rescue_pct"], 1..90, :pokemon_hp_rescue_pct, :rescue_pct)
-      |> save_seconds(params["rescue_cooldown_s"], 5..600, :rescue_cooldown_ms, :rescue_cooldown_s)
+      |> save_seconds(params["rescue_cooldown_s"], 2..600, :rescue_cooldown_ms, :rescue_cooldown_s)
 
     {:noreply, socket}
   end
@@ -1042,7 +1042,7 @@ defmodule PokexWeb.PanelLive do
                   id="rescue-cooldown"
                   name="rescue_cooldown_s"
                   type="number"
-                  min="5"
+                  min="2"
                   max="600"
                   value={@rescue_cooldown_s}
                   phx-debounce="500"

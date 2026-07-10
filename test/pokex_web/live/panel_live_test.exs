@@ -318,7 +318,7 @@ defmodule PokexWeb.PanelLiveTest do
     # out-of-range and garbage inputs must not touch the saved values — but a valid field
     # beside an invalid one still saves
     view
-    |> form("#rescue-cfg-form", %{"rescue_pct" => "95", "rescue_cooldown_s" => "2"})
+    |> form("#rescue-cfg-form", %{"rescue_pct" => "95", "rescue_cooldown_s" => "1"})
     |> render_change()
 
     view
@@ -327,6 +327,13 @@ defmodule PokexWeb.PanelLiveTest do
 
     assert Pokex.Settings.get(:pokemon_hp_rescue_pct) == 30
     assert Pokex.Settings.get(:rescue_cooldown_ms) == 45_000
+
+    # the floor is 2s (Lucas lowered it from 5): the boundary value saves
+    view
+    |> form("#rescue-cfg-form", %{"rescue_pct" => "30", "rescue_cooldown_s" => "2"})
+    |> render_change()
+
+    assert Pokex.Settings.get(:rescue_cooldown_ms) == 2_000
   end
 
   test "saves the potion threshold + cooldown and toggles the auto-potion", %{conn: conn} do

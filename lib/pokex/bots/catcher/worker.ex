@@ -140,7 +140,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # parado + running → attached; movimento or halted → detached.
   defp sync_mode(state) do
     case {Settings.get(:capture_mode), state.logic} do
-      {"parado", %Logic{}} -> attach(state)
+      {"parado", %Logic{state: :armed}} -> attach(state)
       {_mode, _logic} -> cancel_timer(detach(state))
     end
   end

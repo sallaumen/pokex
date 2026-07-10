@@ -107,6 +107,19 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).state == :armed
   end
 
+  @tag :tmp_dir
+  test "mode_changed on a HALTED worker never re-attaches the feed", %{worker: worker} do
+    :ok = Worker.halt(worker)
+    assert Worker.status(worker).state == :idle
+
+    # poking the mode on a halted worker must not resurrect the feed attachment:
+    # a corpse event afterwards must produce no throws
+    :ok = Worker.mode_changed(worker)
+    world!(worker, corpses_obs([{130, 224}]))
+    refute_receive {:performed, _p, _a}, 300
+    assert Worker.status(worker).state == :idle
+  end
+
   defp eventually(fun, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
 

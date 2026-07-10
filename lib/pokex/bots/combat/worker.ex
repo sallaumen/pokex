@@ -102,6 +102,21 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   def handle_info({:fish_caught}, state), do: {:noreply, state}
+
+  # A key burst failed on its async task (see `dispatch/1`/`tap_keys/2`). Ignore it while
+  # halted/errored — same invariant as the world/wake paths above — so a stale failure from
+  # a task that outlived a `halt` can't silently reactivate the machine.
+  def handle_info({:key_burst_failed, _reason}, %{logic: %Logic{state: s}} = state)
+      when s in [:idle, :error],
+      do: {:noreply, state}
+
+  def handle_info({:key_burst_failed, reason}, %{logic: %Logic{}} = state) do
+    {logic, actions} = Logic.io_failed(state.logic, inspect(reason), now())
+    {:noreply, apply_step(state, logic, actions)}
+  end
+
+  def handle_info({:key_burst_failed, _reason}, state), do: {:noreply, state}
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   # -- the step pipeline -------------------------------------------------------
@@ -110,8 +125,12 @@ defmodule Pokex.Bots.Combat.Worker do
     do: cancel_timer(state)
 
   defp advance(state, obs) do
+    {logic, actions} = Logic.step(state.logic, obs, now())
+    apply_step(state, logic, actions)
+  end
+
+  defp apply_step(state, logic, actions) do
     previous = state.logic
-    {logic, actions} = Logic.step(previous, obs, now())
 
     dispatch(actions)
     broadcast_activity(logic, actions)
@@ -136,11 +155,15 @@ defmodule Pokex.Bots.Combat.Worker do
         {:log, _} -> []
       end)
 
-    if keys != [], do: spawn(fn -> tap_keys(keys) end)
+    if keys != [] do
+      parent = self()
+      spawn(fn -> tap_keys(keys, parent) end)
+    end
+
     :ok
   end
 
-  defp tap_keys(keys) do
+  defp tap_keys(keys, parent) do
     opts = [
       tap_count: Settings.get(:combat_skill_tap_count) |> positive_int(1),
       gap_ms: Settings.get(:combat_skill_gap_ms) |> non_neg_int(0),
@@ -153,7 +176,7 @@ defmodule Pokex.Bots.Combat.Worker do
       :ok
     else
       {:blocked, :mini_game_active} -> :ok
-      {:error, reason} -> Logger.debug("combat key burst failed: #{inspect(reason)}")
+      {:error, reason} -> send(parent, {:key_burst_failed, reason})
     end
   catch
     kind, reason -> Logger.debug("combat key burst crashed: #{inspect({kind, reason})}")

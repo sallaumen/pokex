@@ -58,6 +58,18 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert [{:press, "1"}, {:press, "2"}, {:press, "3"}] = actions
   end
 
+  test "tabbing: a lock captured exactly at tabbed_at (not strictly after) must NOT confirm" do
+    # tab() stamps tabbed_at from `now` (10), not from the triggering obs's captured_at (5) —
+    # so this frame (captured_at: 10) clears the dedup gate (10 > last_obs_at 5) but must
+    # still fail the freshness check: fresh_lock? requires strictly AFTER, not >=.
+    {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 5), 10)
+    assert logic.tabbed_at == 10
+
+    {still, actions} = Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 10), 20)
+    assert still.state == :tabbing
+    assert actions == []
+  end
+
   test "tabbing: window expiry re-Tabs up to max attempts, then hunt cooldown" do
     {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
 
@@ -96,7 +108,8 @@ defmodule Pokex.Bots.Combat.LogicTest do
     # immediately after the confirm burst, another locked frame does NOT burst again
     {logic, []} = Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 150), 150)
 
-    # past the throttle it does, continuing the rotation (burst 2 wraps: keys 1,2,3 again)
+    # past the throttle, a DISTINCT fresh frame does burst, continuing the rotation (burst 2
+    # wraps: keys 1,2,3 again) — this also guards that dedup doesn't eat legit new frames.
     {_logic, actions} =
       Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 460), 460)
 
@@ -113,6 +126,19 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert logic.state == :hunting
     assert logic.counters.fights == 1
     assert Enum.any?(actions, &match?({:log, _}, &1))
+  end
+
+  test "fighting: the SAME frame fed twice (event + racing wake) doesn't double-count the lost streak" do
+    logic = confirmed()
+
+    {logic, []} = Logic.step(logic, obs(locked?: false, captured_at: 500), 500)
+    assert logic.lost_streak == 1
+
+    # identical captured_at: e.g. the wake fired before the feed wrote a new ETS entry —
+    # must be normalized to nil (no vote), not counted as a second observed frame.
+    {logic, []} = Logic.step(logic, obs(locked?: false, captured_at: 500), 620)
+    assert logic.lost_streak == 1
+    assert logic.counters.fights == 0
   end
 
   test "fighting: a nil obs (timer wake) never counts toward the lost streak" do
@@ -132,13 +158,28 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert logic.counters.fights == 0
   end
 
-  test "next_wake: tabbing → confirm window remainder; fighting → timeout remainder; hunting hold → hold remainder; free hunting → nil" do
+  test "next_wake: tabbing polls at min(confirm-window remainder, skill_burst_every_ms)" do
     {tabbing, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
-    assert Logic.next_wake(tabbing, 110) == 600
 
+    # tabbed_at: 10, tab_confirm_ms: 700 → deadline at 710. Window remainder (600) is larger
+    # than the burst cadence (300) → capped at the cadence so a static screen still polls.
+    assert Logic.next_wake(tabbing, 110) == 300
+
+    # near the window's expiry the remainder (10) is smaller than the cadence → it wins.
+    assert Logic.next_wake(tabbing, 700) == 10
+  end
+
+  test "next_wake: fighting polls at min(fight-timeout remainder, skill_burst_every_ms)" do
     fighting = confirmed()
-    assert Logic.next_wake(fighting, 100) == 6_000 - (100 - fighting.entered_at)
 
+    # fresh fight: 6000ms remaining vs a 300ms burst cadence → capped at the cadence.
+    assert Logic.next_wake(fighting, 100) == 300
+
+    # near timeout: the remainder (100) is smaller than the cadence → it wins.
+    assert Logic.next_wake(fighting, fighting.entered_at + 5_900) == 100
+  end
+
+  test "next_wake: hunting hold → hold remainder; free hunting → nil" do
     held = %{hunting(0) | hold_until: 2_000}
     assert Logic.next_wake(held, 500) == 1_500
 

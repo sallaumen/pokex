@@ -55,9 +55,19 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   end
 
   defp world!(worker, obs) do
-    at = obs.captured_at
-    WorldState.put(:battle, obs, at)
+    obs = %{obs | captured_at: fresh_captured_at()}
+    WorldState.put(:battle, obs, obs.captured_at)
     send(worker, {:world, :battle, obs})
+  end
+
+  # Every call gets a captured_at strictly newer than "now" at call time (so a post-Tab
+  # frame is deterministically newer than tabbed_at — guards F1's strict freshness check)
+  # AND strictly newer than the previous call's (guards Logic's frame dedup: two world!
+  # calls in a row must look like two DISTINCT frames, never a re-read of the same one).
+  defp fresh_captured_at do
+    seq = Process.get(:world_seq, 0) + 5
+    Process.put(:world_seq, seq)
+    System.monotonic_time(:millisecond) + seq
   end
 
   defp presses do
@@ -108,6 +118,52 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     world!(worker, battle_obs(enemies: [0]))
     refute eventually(fn -> Worker.status(worker).state == :tabbing end, 300)
+  end
+
+  @tag :tmp_dir
+  test "a static locked-lost screen reaches the kill from :wake polling alone, no further :world events",
+       %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Loot.Worker.kill_topic())
+
+    world!(worker, battle_obs(enemies: [0]))
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+    world!(worker, battle_obs(locked?: true, locked_row: 0))
+    assert eventually(fn -> Worker.status(worker).state == :fighting end)
+
+    # From here on: NO more :world events (the feed wouldn't broadcast either — the
+    # content stopped changing). Simulate the feed's own per-tick ETS writes (a fresh
+    # captured_at every ~120ms in production, even when the content is identical)
+    # directly against WorldState: the worker's :wake polling must reach the kill on
+    # its own, reading the SAME table the real feed writes.
+    for _ <- 1..8 do
+      at = System.monotonic_time(:millisecond)
+      WorldState.put(:battle, battle_obs(locked?: false) |> Map.put(:captured_at, at), at)
+      Process.sleep(100)
+    end
+
+    assert_receive {:kill, _}, 1_000
+    assert Worker.status(worker).counters.fights == 1
+  end
+
+  @tag :tmp_dir
+  test "a key-burst failure steps io_failed; repeated failures error the worker out",
+       %{worker: worker} do
+    send(worker, {:key_burst_failed, :boom})
+    status = Worker.status(worker)
+    assert status.state in [:hunting, :tabbing, :fighting]
+    assert status.counters.failures == 1
+    assert status.error == nil
+
+    for _ <- 1..4, do: send(worker, {:key_burst_failed, :boom})
+
+    status = Worker.status(worker)
+    assert status.state == :error
+    assert status.counters.failures == 5
+    assert status.error =~ "boom"
+
+    # once errored, further failures are ignored (no reactivation from a stale async task)
+    send(worker, {:key_burst_failed, :boom})
+    assert Worker.status(worker).counters.failures == 5
   end
 
   defp eventually(fun, timeout \\ 1_000) do

@@ -73,11 +73,22 @@ defmodule Pokex.Bots.Combat.Logic do
   @doc """
   Step on a battle observation (map with :enemies/:locked?/:locked_row/:captured_at) or nil
   (timer wake — only time-based rules apply). Returns {logic, actions}.
+
+  Frame dedup: an observation whose `:captured_at` is not strictly newer than the last one
+  this machine actually consumed is normalized to nil (no vote, no burst — time-based rules
+  still apply). That makes it safe to feed the SAME WorldState entry twice — once from the
+  "world" PubSub event, once from a racing `:wake` poll — without double-counting things
+  like the lost streak or firing a redundant burst.
   """
-  def step(%__MODULE__{state: state} = logic, _obs, _now) when state in [:idle, :error],
+  def step(%__MODULE__{} = logic, obs, now) do
+    {logic, obs} = dedup(logic, obs)
+    do_step(logic, obs, now)
+  end
+
+  defp do_step(%__MODULE__{state: state} = logic, _obs, _now) when state in [:idle, :error],
     do: {logic, []}
 
-  def step(%{state: :hunting} = logic, obs, now) do
+  defp do_step(%{state: :hunting} = logic, obs, now) do
     cond do
       logic.hold_until != nil and now < logic.hold_until ->
         {logic, []}
@@ -90,7 +101,7 @@ defmodule Pokex.Bots.Combat.Logic do
     end
   end
 
-  def step(%{state: :tabbing} = logic, obs, now) do
+  defp do_step(%{state: :tabbing} = logic, obs, now) do
     cond do
       fresh_lock?(obs, logic.tabbed_at) ->
         # confirmed on a post-Tab frame → fight, and don't waste this event: first burst now.
@@ -124,7 +135,7 @@ defmodule Pokex.Bots.Combat.Logic do
     end
   end
 
-  def step(%{state: :fighting} = logic, obs, now) do
+  defp do_step(%{state: :fighting} = logic, obs, now) do
     cond do
       now - logic.entered_at > logic.config.fight_timeout_ms ->
         {rehunt(logic, now), [{:log, "timeout do alvo; recaçando"}]}
@@ -147,14 +158,27 @@ defmodule Pokex.Bots.Combat.Logic do
   end
 
   @doc """
-  When the driver must wake us even if no observation arrives: the earliest pending
-  time-based deadline, or nil (purely event-driven right now).
+  When the driver must wake us even if no observation arrives: in :tabbing/:fighting, poll
+  at the burst cadence (capped by the terminal deadline — window expiry / fight timeout) so
+  a STATIC screen still makes progress (the lost streak advances, skill bursts keep firing)
+  even though the feed only broadcasts on content CHANGE — `WorldState.get/3` still hands
+  the wake a fresh `:captured_at` every capture tick, and `step/3`'s dedup keeps a repeat
+  read (same frame, no new tick yet) from double-counting. In :hunting with a hold, wake
+  when the hold clears. Free :hunting/:idle/:error need no timer (purely event-driven).
   """
-  def next_wake(%__MODULE__{state: :tabbing} = logic, now),
-    do: max(logic.tabbed_at + logic.config.tab_confirm_ms - now, 1)
+  def next_wake(%__MODULE__{state: :tabbing} = logic, now) do
+    min(
+      max(logic.tabbed_at + logic.config.tab_confirm_ms - now, 1),
+      logic.config.skill_burst_every_ms
+    )
+  end
 
-  def next_wake(%__MODULE__{state: :fighting} = logic, now),
-    do: max(logic.entered_at + logic.config.fight_timeout_ms - now, 1)
+  def next_wake(%__MODULE__{state: :fighting} = logic, now) do
+    min(
+      max(logic.entered_at + logic.config.fight_timeout_ms - now, 1),
+      logic.config.skill_burst_every_ms
+    )
+  end
 
   def next_wake(%__MODULE__{state: :hunting, hold_until: until}, now) when is_integer(until),
     do: max(until - now, 1)
@@ -229,9 +253,24 @@ defmodule Pokex.Bots.Combat.Logic do
 
   defp fresh_lock?(nil, _tabbed_at), do: false
 
-  # >= (not strict >): millisecond-granularity clocks can legitimately stamp a genuinely
-  # post-Tab capture with the SAME ms as the press when both happen fast (in-process tests,
-  # or a very quick real capture) — only a frame stamped BEFORE the press is stale.
+  # Strict > : the confirm window counts from the press, so a frame captured AT OR BEFORE
+  # the Tab (stale — it was already in flight, or is the very frame the press itself reacted
+  # to) must not confirm. Only a frame captured strictly AFTER proves the lock landed.
   defp fresh_lock?(obs, tabbed_at),
-    do: obs[:locked?] == true and is_integer(obs[:captured_at]) and obs[:captured_at] >= tabbed_at
+    do: obs[:locked?] == true and is_integer(obs[:captured_at]) and obs[:captured_at] > tabbed_at
+
+  # Normalizes a repeat/stale observation to nil so every state clause above sees only
+  # genuinely new frames. `obs[:captured_at] <= last_obs_at` catches the SAME WorldState
+  # entry read twice (a "world" event and a racing `:wake` poll landing on the same
+  # unbroadcast tick) — it does NOT catch a fresh entry the feed just wrote, since that
+  # carries a newer `:captured_at` even when its content is unchanged.
+  defp dedup(logic, nil), do: {logic, nil}
+
+  defp dedup(logic, obs) do
+    if logic.last_obs_at != nil and obs[:captured_at] <= logic.last_obs_at do
+      {logic, nil}
+    else
+      {%{logic | last_obs_at: obs[:captured_at]}, obs}
+    end
+  end
 end

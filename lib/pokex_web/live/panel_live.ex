@@ -9,6 +9,7 @@ defmodule PokexWeb.PanelLive do
   @combat_topic "combat"
   @loot_topic "loot"
   @mini_game_topic "mini_game"
+  @game_topic "game"
   @body_topic "body"
   @cooldown_poll_ms 1000
 
@@ -51,6 +52,7 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @loot_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @mini_game_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, @game_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @body_topic)
       # Keep the cooldown display LIVE while the fishing gate is on, so it never goes stale —
       # you can watch the reading flip to ready the instant your skills come off cooldown (the
@@ -67,6 +69,7 @@ defmodule PokexWeb.PanelLive do
        combat: status.combat,
        loot: status.loot,
        mini_game: status.mini_game,
+       game: status.game_controller,
        errors: [],
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
@@ -85,12 +88,36 @@ defmodule PokexWeb.PanelLive do
        timing: timing_settings(),
        cooldowns_states: nil,
        require_cooldowns: Settings.get(:require_cooldowns),
+       rescue_enabled: Settings.get(:rescue_enabled),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " ")
      )}
   end
 
   defp timing_settings do
     Map.new(@timing_fields, fn {key, _label, _hint} -> {key, Settings.get(key)} end)
+  end
+
+  defp hp_pct(%{hp_pct: pct}) when is_integer(pct), do: pct
+  defp hp_pct(_game), do: nil
+
+  defp hp_label(game) do
+    case hp_pct(game) do
+      nil -> "—"
+      pct -> "#{pct}%"
+    end
+  end
+
+  defp hp_bar_style(game) do
+    pct = hp_pct(game) || 0
+
+    color =
+      cond do
+        pct > 50 -> "#22c55e"
+        pct > 25 -> "#eab308"
+        true -> "#ef4444"
+      end
+
+    "width: #{pct}%; background-color: #{color};"
   end
 
   @impl true
@@ -142,6 +169,12 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:mini_game_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🎮", text: text})}
+
+  def handle_info({:game, snapshot}, socket),
+    do: {:noreply, assign(socket, game: snapshot)}
+
+  def handle_info({:game_log, level, text}, socket),
+    do: {:noreply, append_log(socket, %{level: level, source: "🚑", text: text})}
 
   def handle_info({:body_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🧤", text: text})}
@@ -199,7 +232,8 @@ defmodule PokexWeb.PanelLive do
            fishing: status.fishing,
            combat: status.combat,
            loot: status.loot,
-           mini_game: status.mini_game
+           mini_game: status.mini_game,
+           game: status.game_controller
          )}
 
       {:error, messages} ->
@@ -216,7 +250,8 @@ defmodule PokexWeb.PanelLive do
        fishing: status.fishing,
        combat: status.combat,
        loot: status.loot,
-       mini_game: status.mini_game
+       mini_game: status.mini_game,
+       game: status.game_controller
      )}
   end
 
@@ -292,6 +327,12 @@ defmodule PokexWeb.PanelLive do
     value = not Settings.get(:require_cooldowns)
     Settings.put(:require_cooldowns, value)
     {:noreply, assign(socket, require_cooldowns: value)}
+  end
+
+  def handle_event("toggle_rescue", _params, socket) do
+    value = not Settings.get(:rescue_enabled)
+    Settings.put(:rescue_enabled, value)
+    {:noreply, assign(socket, rescue_enabled: value)}
   end
 
   # One-shot skill-bar read for the display (no loop, no shared process).
@@ -807,6 +848,39 @@ defmodule PokexWeb.PanelLive do
               </div>
             </div>
           </div>
+        </section>
+
+        <section class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold">Vida do Pokémon principal</h2>
+            <span class="badge badge-sm font-mono">{hp_label(@game)}</span>
+          </div>
+
+          <div class="h-3 w-full overflow-hidden rounded-full bg-base-300">
+            <div class="h-full rounded-full transition-all" style={hp_bar_style(@game)}></div>
+          </div>
+
+          <label class="flex cursor-pointer items-center justify-between gap-3">
+            <span>
+              <span class="text-sm font-semibold">Combo de sobrevivência</span>
+              <span class="block text-xs opacity-60">
+                Q → Shift+Q na foto → Q quando a vida cair abaixo de {Settings.get(
+                  :pokemon_hp_rescue_pct
+                )}%.
+                No máx. 1x a cada {div(Settings.get(:rescue_cooldown_ms), 1000)}s. Revives: {(@game[
+                                                                                                :counters
+                                                                                              ] || %{})[
+                  :rescues
+                ] || 0}.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              class="toggle toggle-error"
+              checked={@rescue_enabled}
+              phx-click="toggle_rescue"
+            />
+          </label>
         </section>
 
         <section class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5">

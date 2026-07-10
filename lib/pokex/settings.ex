@@ -260,7 +260,18 @@ defmodule Pokex.Settings do
     # a blob needs this many connected hot cells (a corpse sprite spans ~2-3 cells)
     corpse_min_cells: 2,
     corpse_stationary_frames: 2,
-    corpse_stationary_tolerance_px: 24
+    corpse_stationary_tolerance_px: 24,
+    # Catcher: one ball in flight at a time, confirmed against the next observations. A hit
+    # consumes the corpse instantly (game rule), so a blob that SURVIVES corpse_max_balls
+    # throws is not a corpse (a parked pet) → ignored for corpse_ignore_ttl_ms. Confirmation
+    # only counts observations captured at least corpse_confirm_after_ms after the throw (the
+    # ball needs flight time — an instant re-read would read the pre-hit frame).
+    capture_mode: "parado",
+    corpse_match_tolerance_px: 32,
+    corpse_max_balls: 2,
+    corpse_ignore_ttl_ms: 120_000,
+    corpse_confirm_after_ms: 800,
+    catcher_world_max_age_ms: 1_200
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

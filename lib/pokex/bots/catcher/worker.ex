@@ -77,7 +77,8 @@ defmodule Pokex.Bots.Catcher.Worker do
   @impl true
   def handle_call(:run, _from, state) do
     {logic, _} = Logic.start(Logic.new(config()), now())
-    state = sync_mode(%{state | logic: logic})
+    state = %{state | logic: logic, combat_engaged?: seed_combat_engaged()}
+    state = sync_mode(state)
     broadcast(state)
     {:reply, :ok, state}
   end
@@ -96,6 +97,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   def handle_call(:mode_changed, _from, %{logic: nil} = state), do: {:reply, :ok, state}
 
   def handle_call(:mode_changed, _from, state) do
+    state = %{state | combat_engaged?: seed_combat_engaged()}
     state = sync_mode(state)
     broadcast(state)
     {:reply, :ok, state}
@@ -320,6 +322,16 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp broadcast(state),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher, snapshot(state)})
+
+  # combat only broadcasts on transitions — a catcher arming MID-FIGHT would otherwise
+  # believe the field is clear. Best-effort: an unreachable combat reads as not engaged
+  # (fail-open matches the boot default; the next transition broadcast corrects it).
+  defp seed_combat_engaged do
+    %{state: s} = Pokex.Bots.Combat.Worker.status()
+    s in [:tabbing, :fighting]
+  catch
+    :exit, _reason -> false
+  end
 
   defp now, do: System.monotonic_time(:millisecond)
 end

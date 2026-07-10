@@ -157,6 +157,18 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).counters.captures == 0
   end
 
+  @tag :tmp_dir
+  test "run re-seeds combat engagement from live status (stale engaged flag can't stick)",
+       %{worker: worker} do
+    send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
+    :ok = Worker.halt(worker)
+    :ok = Worker.run(worker)
+
+    # global Combat.Worker is idle in tests → seed is false → the gate is open again
+    world!(worker, corpses_obs([{130, 224}]))
+    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+  end
+
   defp eventually(fun, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
 

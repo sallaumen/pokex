@@ -182,7 +182,25 @@ defmodule Pokex.Settings do
     # NEVER closes — so a human-like 0.5-1s reaction is safe AND avoids a robotic
     # instant yank.
     hook_delay_min_ms: 500,
-    hook_delay_max_ms: 1000
+    hook_delay_max_ms: 1000,
+    # --- GameController: keep the main Pokémon alive ------------------------------------------
+    # When its HP bar drops below pokemon_hp_rescue_pct, run the survival combo at :critical:
+    # recall (rescue_key) → max-revive on the portrait (max_revive_key) → release (rescue_key).
+    # Toggle + a cooldown so a detection glitch can't burn the (expensive) revives.
+    rescue_enabled: true,
+    rescue_key: "q",
+    max_revive_key: "shift+q",
+    pokemon_hp_rescue_pct: 50,
+    rescue_cooldown_ms: 60_000,
+    # ms between the presses/moves of the combo so the game registers each.
+    rescue_step_ms: 40,
+    # How often the GameController samples the main Pokémon's HP bar.
+    game_tick_ms: 120,
+    # HP-bar fill detection: a bar column counts as "health" (filled) when it holds a pixel this
+    # bright AND this saturated — the green/yellow/red fill clears both; the dark bar background
+    # (~17/0) clears neither. fill% = health columns ÷ bar width. MEASURED on Lucas's green bar.
+    pokemon_hp_min_brightness: 80,
+    pokemon_hp_min_saturation: 55
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

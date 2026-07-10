@@ -18,6 +18,9 @@ defmodule Pokex.Calibration do
     # skill bar became part of the main wizard.
     :skill_bar_region,
     :skill_bar_count,
+    # Optional (GameController): the main Pokémon's HP bar, and the portrait to aim Shift+Q at.
+    :pokemon_hp_region,
+    :pokemon_photo_point,
     :battle_baseline,
     :suggested_glow_threshold,
     glow_baselines: []
@@ -43,6 +46,9 @@ defmodule Pokex.Calibration do
       "neutral_point" => Tuple.to_list(calib.neutral_point),
       "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
       "skill_bar_count" => calib.skill_bar_count,
+      "pokemon_hp_region" => calib.pokemon_hp_region && Tuple.to_list(calib.pokemon_hp_region),
+      "pokemon_photo_point" =>
+        calib.pokemon_photo_point && Tuple.to_list(calib.pokemon_photo_point),
       "glow_baselines" => calib.glow_baselines,
       "battle_baseline" => calib.battle_baseline,
       "suggested_glow_threshold" => calib.suggested_glow_threshold
@@ -66,6 +72,8 @@ defmodule Pokex.Calibration do
          neutral_point: to_tuple(map["neutral_point"]),
          skill_bar_region: to_tuple(map["skill_bar_region"]),
          skill_bar_count: map["skill_bar_count"],
+         pokemon_hp_region: to_tuple(map["pokemon_hp_region"]),
+         pokemon_photo_point: to_tuple(map["pokemon_photo_point"]),
          glow_baselines: map["glow_baselines"] || [],
          battle_baseline: map["battle_baseline"],
          suggested_glow_threshold: map["suggested_glow_threshold"]
@@ -102,6 +110,21 @@ defmodule Pokex.Calibration do
   @doc "The player's screen position: the client keeps the character centered in the arena viewport."
   def player_point(%__MODULE__{arena_region: region}), do: player_point(region)
   def player_point({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
+
+  # Measured on Lucas's 3440×1440 screen (2026-07-10): the main Pokémon is the TOP of the 6 party
+  # slots at the game's bottom-left — a green→yellow→red HP bar and the "Q" portrait beside it.
+  # These estimates let the GameController run before the field is calibrated; set the real region
+  # in the calibration UI to fine-tune per screen.
+  @default_pokemon_hp_region {134, 921, 230, 18}
+  @default_pokemon_photo_point {70, 934}
+
+  @doc "The main Pokémon's HP bar region (calibrated, else a measured estimate)."
+  def pokemon_hp_region(%__MODULE__{pokemon_hp_region: region}) when is_tuple(region), do: region
+  def pokemon_hp_region(_calib), do: @default_pokemon_hp_region
+
+  @doc "Screen point of the main Pokémon's portrait — where the mouse goes for the Shift+Q revive."
+  def pokemon_photo_point(%__MODULE__{pokemon_photo_point: point}) when is_tuple(point), do: point
+  def pokemon_photo_point(_calib), do: @default_pokemon_photo_point
 
   def battle_first_row(%__MODULE__{battle_region: {x, y, w, _h}}),
     do: {x + div(w, 3), y + @first_row_y_offset}

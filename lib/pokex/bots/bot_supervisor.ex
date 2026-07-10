@@ -19,7 +19,7 @@ defmodule Pokex.Bots.BotSupervisor do
   """
   use Supervisor
 
-  alias Pokex.Bots.{Body, Combat, Fishing, Guardian, Loot, MiniGame}
+  alias Pokex.Bots.{Body, Combat, Fishing, GameController, Guardian, Loot, MiniGame}
 
   def start_link(opts \\ []) do
     body = Keyword.get(opts, :body, Body)
@@ -28,6 +28,7 @@ defmodule Pokex.Bots.BotSupervisor do
     combat = Keyword.get(opts, :combat, Combat.Worker)
     loot = Keyword.get(opts, :loot, Loot.Worker)
     mini_game = Keyword.get(opts, :mini_game, MiniGame.Worker)
+    game_controller = Keyword.get(opts, :game_controller, GameController.Worker)
 
     state = %{
       body: body,
@@ -35,7 +36,8 @@ defmodule Pokex.Bots.BotSupervisor do
       fishing: fishing,
       combat: combat,
       loot: loot,
-      mini_game: mini_game
+      mini_game: mini_game,
+      game_controller: game_controller
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -51,9 +53,13 @@ defmodule Pokex.Bots.BotSupervisor do
         fishing: fishing,
         combat: combat,
         loot: loot,
-        mini_game: mini_game
+        mini_game: mini_game,
+        game_controller: game_controller
       }) do
-    on_panic = fn -> stop_all(fishing, combat, loot) end
+    # The panic corner halts EVERYTHING that can drive the mouse — including the mini-game watcher
+    # (so it can't resume the peers it paused) and the GameController (so its :critical combo can't
+    # fire mid-panic).
+    on_panic = fn -> stop_all(fishing, combat, loot, mini_game, game_controller) end
     peers = %{fishing: fishing, combat: combat, loot: loot}
 
     children = [
@@ -64,7 +70,10 @@ defmodule Pokex.Bots.BotSupervisor do
       Supervisor.child_spec({Fishing.Worker, name: fishing, body: body}, id: fishing),
       Supervisor.child_spec({Combat.Worker, name: combat, body: body}, id: combat),
       Supervisor.child_spec({Loot.Worker, name: loot, body: body}, id: loot),
-      Supervisor.child_spec({MiniGame.Worker, name: mini_game, peers: peers}, id: mini_game)
+      Supervisor.child_spec({MiniGame.Worker, name: mini_game, peers: peers}, id: mini_game),
+      Supervisor.child_spec({GameController.Worker, name: game_controller, body: body},
+        id: game_controller
+      )
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
@@ -107,8 +116,26 @@ defmodule Pokex.Bots.BotSupervisor do
     end
   end
 
+  @spec start_all(
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server()
+        ) :: :ok | {:error, [String.t()]}
+  def start_all(fishing, combat, loot, mini_game, game_controller) do
+    with :ok <- GameController.Worker.run(game_controller),
+         :ok <- start_all(fishing, combat, loot, mini_game) do
+      :ok
+    else
+      {:error, _messages} = error ->
+        stop_all(fishing, combat, loot, mini_game, game_controller)
+        error
+    end
+  end
+
   def start_all do
-    start_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker)
+    start_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker, GameController.Worker)
   end
 
   @doc "Halts all workers. Safe to call repeatedly — halting an idle worker is a no-op."
@@ -132,8 +159,21 @@ defmodule Pokex.Bots.BotSupervisor do
     :ok
   end
 
+  @spec stop_all(
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server()
+        ) :: :ok
+  def stop_all(fishing, combat, loot, mini_game, game_controller) do
+    stop_all(fishing, combat, loot, mini_game)
+    GameController.Worker.halt(game_controller)
+    :ok
+  end
+
   def stop_all do
-    stop_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker)
+    stop_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker, GameController.Worker)
   end
 
   @spec status(GenServer.server(), GenServer.server(), GenServer.server()) ::
@@ -158,7 +198,20 @@ defmodule Pokex.Bots.BotSupervisor do
     |> Map.put(:mini_game, MiniGame.Worker.status(mini_game))
   end
 
+  @spec status(
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server()
+        ) :: %{fishing: map, combat: map, loot: map, mini_game: map, game_controller: map}
+  def status(fishing, combat, loot, mini_game, game_controller) do
+    fishing
+    |> status(combat, loot, mini_game)
+    |> Map.put(:game_controller, GameController.Worker.status(game_controller))
+  end
+
   def status do
-    status(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker)
+    status(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker, GameController.Worker)
   end
 end

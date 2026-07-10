@@ -627,6 +627,36 @@ defmodule Pokex.Vision do
   def skill_states(%Frame{} = frame, opts \\ []),
     do: frame |> skill_slots(opts) |> Enum.map(& &1.state)
 
+  @doc """
+  Fill percentage (0..100) of a horizontal HP bar frame — the fraction of COLUMNS that hold a
+  "health" pixel (bright + saturated: the green/yellow/red fill), so an emptying bar reads lower.
+
+  Robust to the white "current/max" number drawn over the fill: white is bright but colourless
+  (low saturation), so it isn't counted, while the coloured fill above/below the digits still is.
+  The dark bar background clears neither threshold. Options `:min_brightness` (80),
+  `:min_saturation` (55). Empty/zero-size frame → 0.
+  """
+  def hp_fill_pct(frame, opts \\ [])
+
+  def hp_fill_pct(%Frame{width: w, height: h, rgba: rgba}, opts) when w > 0 and h > 0 do
+    min_b = Keyword.get(opts, :min_brightness, 80)
+    min_s = Keyword.get(opts, :min_saturation, 55)
+
+    filled = rgba |> health_columns(0, w, min_b, min_s, MapSet.new()) |> MapSet.size()
+    round(filled * 100 / w)
+  end
+
+  def hp_fill_pct(_frame, _opts), do: 0
+
+  defp health_columns(<<r, g, b, _a, rest::binary>>, i, w, min_b, min_s, acc) do
+    bright = max(r, max(g, b))
+    sat = bright - min(r, min(g, b))
+    acc = if bright >= min_b and sat >= min_s, do: MapSet.put(acc, rem(i, w)), else: acc
+    health_columns(rest, i + 1, w, min_b, min_s, acc)
+  end
+
+  defp health_columns(<<>>, _i, _w, _min_b, _min_s, acc), do: acc
+
   defp skill_bar_signature(<<r, g, b, _a, rest::binary>>, dark, content, total) do
     bright = max(r, max(g, b))
     sat = bright - min(r, min(g, b))

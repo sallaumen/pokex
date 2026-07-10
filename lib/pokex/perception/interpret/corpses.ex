@@ -144,23 +144,38 @@ defmodule Pokex.Perception.Interpret.Corpses do
 
   # -- stationary tracking ------------------------------------------------------
 
-  # tracks: %{center => consecutive_frames_seen}. A center inherits (count + 1) from the
-  # nearest previous track within tolerance; otherwise starts at 1. Confirmed at `needed`.
+  # tracks: %{center => consecutive_frames_seen}. Greedy 1:1 assignment: centers are visited in
+  # deterministic (sorted) order and each claims the nearest still-unclaimed previous track
+  # within tolerance, inheriting (count + 1); a previous track can be claimed by at most one
+  # center, so a brand-new blob near a mature track can never borrow its maturity. A center with
+  # no unclaimed track left within tolerance starts at 1. Confirmed at `needed`.
   defp advance_tracks(prev, centers, tolerance, needed) do
-    tracks =
-      Map.new(centers, fn center ->
-        inherited =
-          prev
-          |> Enum.filter(fn {point, _count} -> near?(point, center, tolerance) end)
-          |> Enum.map(fn {_point, count} -> count end)
-          |> Enum.max(fn -> 0 end)
+    {tracks_list, _leftover} =
+      centers
+      |> Enum.sort()
+      |> Enum.map_reduce(Map.to_list(prev), fn center, available ->
+        case nearest_within(available, center, tolerance) do
+          nil ->
+            {{center, 1}, available}
 
-        {center, inherited + 1}
+          {_point, count} = claimed ->
+            {{center, count + 1}, List.delete(available, claimed)}
+        end
       end)
 
+    tracks = Map.new(tracks_list)
     confirmed = for {center, count} <- tracks, count >= needed, do: center
     {tracks, confirmed}
   end
+
+  # Nearest unclaimed previous track within tolerance, ties broken by the track's point order.
+  defp nearest_within(available, center, tolerance) do
+    available
+    |> Enum.filter(fn {point, _count} -> near?(point, center, tolerance) end)
+    |> Enum.min_by(fn {point, _count} -> {sq_dist(point, center), point} end, fn -> nil end)
+  end
+
+  defp sq_dist({ax, ay}, {bx, by}), do: (ax - bx) * (ax - bx) + (ay - by) * (ay - by)
 
   defp near?({ax, ay}, {bx, by}, tolerance),
     do: abs(ax - bx) <= tolerance and abs(ay - by) <= tolerance

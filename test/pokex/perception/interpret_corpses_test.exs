@@ -116,6 +116,62 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
     assert obs2.corpses == []
   end
 
+  test "a new blob near a mature track does not inherit its maturity" do
+    s = settings()
+    st = warm_up(s)
+
+    # X: horizontal domino at cells {0,0}-{1,0} -> center {16,8} (screen {116,208}).
+    x_only = with_corpse(0, 0)
+
+    {obs, st} = Corpses.interpret(frame(x_only), calib(), s, st)
+    assert obs.corpses == []
+
+    # X mature (stationary_frames: 2).
+    {obs, st} = Corpses.interpret(frame(x_only), calib(), s, st)
+    assert obs.corpses == [{116, 208}]
+
+    # Y: a DISTINCT (non-4-connected) vertical domino at cells {2,1}-{2,2} -> center {40,32}.
+    # dx = |40-16| = 24, dy = |32-8| = 24: exactly at corpse_stationary_tolerance_px (24), so
+    # Y is a brand-new blob within tolerance of X's mature track. X keeps growing (its own
+    # position is nearer to its own prior track, distance 0); Y must start its own count at 1
+    # and must NOT borrow X's maturity.
+    x_and_y = fn x, y ->
+      if div(x, 16) == 2 and div(y, 16) in [1, 2], do: {230, 40, 40}, else: x_only.(x, y)
+    end
+
+    {obs, _st} = Corpses.interpret(frame(x_and_y), calib(), s, st)
+    assert obs.corpses == [{116, 208}]
+  end
+
+  test "two brand-new blobs competing for one vacated mature track: at most one inherits it" do
+    s = settings()
+    st = warm_up(s)
+
+    # Establish a mature track T at center {16,8} via a domino at cells {0,0}-{1,0}.
+    x_only = with_corpse(0, 0)
+    {_obs, st} = Corpses.interpret(frame(x_only), calib(), s, st)
+    {obs, st} = Corpses.interpret(frame(x_only), calib(), s, st)
+    assert obs.corpses == [{116, 208}]
+
+    # Next frame: the original blob vanishes, replaced by TWO brand-new, mutually non-adjacent
+    # blobs, both within tolerance (24px) of T's position {16,8}:
+    #   C: vertical domino at cells {0,0}-{0,1} -> center {8,16} (dx=8, dy=8 from T).
+    #   B: vertical domino at cells {2,1}-{2,2} -> center {40,32} (dx=24, dy=24 from T).
+    # A correct 1:1 assignment lets only ONE of them consume T (so only one is confirmed this
+    # frame); the buggy "max over all tracks within tolerance" implementation lets BOTH inherit
+    # T's count and both would wrongly confirm immediately.
+    two_new = fn x, y ->
+      cond do
+        div(x, 16) == 0 and div(y, 16) in [0, 1] -> {230, 40, 40}
+        div(x, 16) == 2 and div(y, 16) in [1, 2] -> {230, 40, 40}
+        true -> ground(x, y)
+      end
+    end
+
+    {obs, _st} = Corpses.interpret(frame(two_new), calib(), s, st)
+    assert length(obs.corpses) == 1
+  end
+
   test "a blob smaller than corpse_min_cells is noise" do
     # min 2 cells; paint a single-cell blob
     s = settings()

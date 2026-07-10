@@ -37,3 +37,7 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# The always-on GameController monitor is started explicitly by the tests that need it,
+# not auto-started, so the app-wide instance stays idle during unrelated tests.
+config :pokex, :game_controller_auto_monitor, false

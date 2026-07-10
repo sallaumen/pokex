@@ -1,12 +1,14 @@
 defmodule Pokex.Bots.GameController.Worker do
   @moduledoc """
-  Watches the main Pokémon's HP and fires the survival combo when it drops below the rescue
-  threshold. This is the start of the game-state hub: it reads interpreted state (v1: HP) on its
-  own tick and distributes it on the `"game"` PubSub topic for the panel.
+  ALWAYS-ON monitor of the main Pokémon's HP — independent of the fishing/combat bots. It reads the
+  HP every tick from boot and distributes it on the `"game"` PubSub topic, and when the survival
+  combo is enabled it fires it at `:critical` (above combat's `:high`) the moment HP drops below the
+  threshold. So you can play MANUALLY, with every bot off, flip on the "Combo de sobrevivência"
+  toggle, and still have it keep your Pokémon alive.
 
-  The combo runs on the shared Body at `:critical` (above combat's `:high`) so nothing delays a
-  rescue, and the pure `GameController.Logic` owns the "yellow AND off-cooldown AND enabled"
-  decision. Unlike the mini-game, a rescue does NOT pause any worker — it just jumps the queue.
+  It is NOT part of Start/Stop and the panic corner does not halt it — it just monitors. It reloads
+  the calibration each tick, so a fresh HP calibration takes effect without a restart. The pure
+  `GameController.Logic` owns the "below-threshold AND off-cooldown AND enabled" decision.
   """
   use GenServer
 
@@ -23,10 +25,8 @@ defmodule Pokex.Bots.GameController.Worker do
     name = Keyword.get(opts, :name, __MODULE__)
 
     state = %{
-      calib: nil,
       body: Keyword.get(opts, :body, Body),
       timer: nil,
-      running?: false,
       hp_pct: nil,
       last_rescue_at: nil,
       error: nil,
@@ -39,58 +39,59 @@ defmodule Pokex.Bots.GameController.Worker do
     end
   end
 
+  def status(server \\ __MODULE__), do: GenServer.call(server, :status)
+  # The monitor auto-starts on boot; run/halt are kept for manual control and tests.
   def run(server \\ __MODULE__), do: GenServer.call(server, :run)
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
-  def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
   @impl true
-  def init(state), do: {:ok, state}
+  def init(state) do
+    # Auto-start monitoring on boot (real app). Gated off in the test env so the app-wide instance
+    # doesn't tick against the shared Rig/home during unrelated tests — tests call run/1 to monitor.
+    if Application.get_env(:pokex, :game_controller_auto_monitor, true),
+      do: {:ok, reschedule(state, 0)},
+      else: {:ok, state}
+  end
 
   @impl true
-  def handle_call(:run, _from, state) do
-    case Calibration.load() do
-      {:ok, calib} ->
-        state =
-          %{state | calib: calib, running?: true, error: nil, last_rescue_at: nil}
-          |> cancel_timer()
-
-        broadcast(state)
-        {:reply, :ok, reschedule(state, 0)}
-
-      {:error, reason} ->
-        {:reply, {:error, ["calibração ilegível: #{inspect(reason)}"]}, state}
-    end
-  end
-
-  def handle_call(:halt, _from, state) do
-    state = %{cancel_timer(state) | running?: false}
-    broadcast(state)
-    {:reply, :ok, state}
-  end
-
   def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
+  def handle_call(:run, _from, state), do: {:reply, :ok, reschedule(state, 0)}
+  def handle_call(:halt, _from, state), do: {:reply, :ok, cancel_timer(state)}
 
   @impl true
-  def handle_info(:tick, %{running?: false} = state), do: {:noreply, state}
-
   def handle_info(:tick, state) do
     previous = state
 
     state =
-      case read_hp(state) do
-        {:ok, hp_pct} -> act(%{state | hp_pct: hp_pct, error: nil, counters: bump(state.counters, :reads)})
-        {:error, reason} -> fail(state, reason)
+      case Calibration.load() do
+        {:ok, calib} ->
+          case read_hp(calib) do
+            {:ok, hp} ->
+              act(
+                %{state | hp_pct: hp, error: nil, counters: bump(state.counters, :reads)},
+                calib
+              )
+
+            {:error, reason} ->
+              fail(state, reason)
+          end
+
+        # No calibration yet → nothing to read; keep monitoring so it starts the instant one exists.
+        {:error, _reason} ->
+          %{state | hp_pct: nil, error: "sem calibração"}
       end
 
     # Chatter guard: only push a snapshot when the HP reading or a counter actually moved, so the
-    # 120ms tick doesn't flood the panel with identical frames.
+    # tick doesn't flood the panel with identical frames.
     if changed?(previous, state), do: broadcast(state)
 
     {:noreply, reschedule(state, Settings.get(:game_tick_ms))}
   end
 
-  defp read_hp(state) do
-    region = Calibration.pokemon_hp_region(state.calib)
+  # Uncrashable: this monitor runs forever, so a transient capture failure (the broker or the Rig
+  # momentarily down/restarting) must come back as {:error}, not take the whole worker down with it.
+  defp read_hp(calib) do
+    region = Calibration.pokemon_hp_region(calib)
 
     with {:ok, frame} <- Capture.frame(region, "pokemon_hp.png") do
       {:ok,
@@ -99,11 +100,13 @@ defmodule Pokex.Bots.GameController.Worker do
          min_saturation: Settings.get(:pokemon_hp_min_saturation)
        )}
     end
+  catch
+    kind, reason -> {:error, {kind, reason}}
   end
 
-  defp act(state) do
+  defp act(state, calib) do
     case Logic.decide(decision_input(state)) do
-      :rescue -> fire_combo(state)
+      :rescue -> fire_combo(state, calib)
       :hold -> state
     end
   end
@@ -121,22 +124,21 @@ defmodule Pokex.Bots.GameController.Worker do
 
   # Mark the attempt time BEFORE dispatching, so the cooldown holds even if the combo errors —
   # a dying-Pokémon loop must never re-fire and burn the expensive revives.
-  defp fire_combo(state) do
+  defp fire_combo(state, calib) do
     at = now()
-    combo = Logic.combo(combo_config(state))
-    Body.perform(combo, :critical, state.body)
+    Body.perform(Logic.combo(combo_config(calib)), :critical, state.body)
 
     state = %{state | last_rescue_at: at, counters: bump(state.counters, :rescues)}
     broadcast_log(:macro, "🚑 combo de sobrevivência — Pokémon com #{state.hp_pct}% de vida")
     state
   end
 
-  defp combo_config(state) do
+  defp combo_config(calib) do
     %{
       rescue_key: Settings.get(:rescue_key),
       max_revive_key: Settings.get(:max_revive_key),
-      photo_point: Calibration.pokemon_photo_point(state.calib),
-      neutral_point: state.calib.neutral_point,
+      photo_point: Calibration.pokemon_photo_point(calib),
+      neutral_point: calib.neutral_point,
       step_ms: Settings.get(:rescue_step_ms)
     }
   end
@@ -151,20 +153,15 @@ defmodule Pokex.Bots.GameController.Worker do
 
   defp bump(counters, key), do: Map.update!(counters, key, &(&1 + 1))
 
-  defp snapshot(%{running?: false} = state),
-    do: %{state: :off, hp_pct: state.hp_pct, enabled?: enabled?(), counters: state.counters, error: state.error}
-
   defp snapshot(state),
     do: %{
       state: :monitoring,
       hp_pct: state.hp_pct,
-      enabled?: enabled?(),
+      enabled?: Settings.get(:rescue_enabled),
       last_rescue_at: state.last_rescue_at,
       counters: state.counters,
       error: state.error
     }
-
-  defp enabled?, do: Settings.get(:rescue_enabled)
 
   defp broadcast(state),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:game, snapshot(state)})

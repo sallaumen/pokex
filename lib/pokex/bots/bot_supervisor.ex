@@ -56,10 +56,10 @@ defmodule Pokex.Bots.BotSupervisor do
         mini_game: mini_game,
         game_controller: game_controller
       }) do
-    # The panic corner halts EVERYTHING that can drive the mouse — including the mini-game watcher
-    # (so it can't resume the peers it paused) and the GameController (so its :critical combo can't
-    # fire mid-panic).
-    on_panic = fn -> stop_all(fishing, combat, loot, mini_game, game_controller) end
+    # The panic corner halts the automated workers, including the mini-game watcher (so it can't
+    # resume the peers it paused). The GameController is NOT halted — it is an always-on monitor,
+    # independent of Start/Stop, so its survival combo can protect you while you play by hand.
+    on_panic = fn -> stop_all(fishing, combat, loot, mini_game) end
     peers = %{fishing: fishing, combat: combat, loot: loot}
 
     children = [
@@ -116,26 +116,8 @@ defmodule Pokex.Bots.BotSupervisor do
     end
   end
 
-  @spec start_all(
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server()
-        ) :: :ok | {:error, [String.t()]}
-  def start_all(fishing, combat, loot, mini_game, game_controller) do
-    with :ok <- GameController.Worker.run(game_controller),
-         :ok <- start_all(fishing, combat, loot, mini_game) do
-      :ok
-    else
-      {:error, _messages} = error ->
-        stop_all(fishing, combat, loot, mini_game, game_controller)
-        error
-    end
-  end
-
   def start_all do
-    start_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker, GameController.Worker)
+    start_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker)
   end
 
   @doc "Halts all workers. Safe to call repeatedly — halting an idle worker is a no-op."
@@ -159,21 +141,8 @@ defmodule Pokex.Bots.BotSupervisor do
     :ok
   end
 
-  @spec stop_all(
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server()
-        ) :: :ok
-  def stop_all(fishing, combat, loot, mini_game, game_controller) do
-    stop_all(fishing, combat, loot, mini_game)
-    GameController.Worker.halt(game_controller)
-    :ok
-  end
-
   def stop_all do
-    stop_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker, GameController.Worker)
+    stop_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker)
   end
 
   @spec status(GenServer.server(), GenServer.server(), GenServer.server()) ::

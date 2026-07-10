@@ -17,11 +17,13 @@ Ciclo completo, controlado por um painel LiveView:
    lurar um segundo bicho), ataca com as skills na **ordem de prioridade** e mata
    todos os fisgados antes de seguir.
 3. **Captura** — detecta o corpo por diferença contra o CHÃO VAZIO aprendido no
-   início (baseline de warmup) e joga a pokébola sem andar. Modo **Parado**:
-   automático — arma o baseline, detecta o corpo parado, confirma o acerto e
-   repete até 2 bolas antes de descartar como "não é corpo". Modo **Em
-   movimento**: desarma a automação (você captura na mão); "Reaprender chão"
-   força um novo baseline ao trocar de spot.
+   início (baseline de warmup) e joga a pokébola sem andar. O **Parado/Em
+   movimento** é global: modo **Parado** automático — arma o baseline, detecta o
+   corpo parado, confirma o acerto e repete até 2 bolas. **Em movimento**
+   desarma a automação (você captura na mão); "Reaprender chão" força um novo
+   baseline ao trocar. **Space-loot** (em Parado): Espaço após cada kill prensa o
+   corpo adjacente antes da pokébola; `loot_enabled`/`capture_enabled` são
+   independentes (só looting, sem bola).
 
 ## Setup (uma vez)
 

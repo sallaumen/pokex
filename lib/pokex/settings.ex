@@ -186,8 +186,10 @@ defmodule Pokex.Settings do
     # --- GameController: keep the main Pokémon alive ------------------------------------------
     # When its HP bar drops below pokemon_hp_rescue_pct, run the survival combo at :critical:
     # recall (rescue_key) → max-revive on the portrait (max_revive_key) → release (rescue_key).
-    # Toggle + a cooldown so a detection glitch can't burn the (expensive) revives.
-    rescue_enabled: true,
+    # Toggle + a cooldown so a detection glitch can't burn the (expensive) revives. Ships OFF: the
+    # HP region starts from a measured ESTIMATE, so verify the panel HP bar tracks your real HP
+    # before enabling — a miscalibrated region reading a false "low" would waste a revive.
+    rescue_enabled: false,
     rescue_key: "q",
     max_revive_key: "shift+q",
     pokemon_hp_rescue_pct: 50,

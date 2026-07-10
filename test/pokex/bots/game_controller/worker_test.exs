@@ -40,6 +40,8 @@ defmodule Pokex.Bots.GameController.WorkerTest do
 
     Settings.put(:game_tick_ms, 20)
     Settings.put(:rescue_step_ms, 0)
+    # the combo ships OFF by default; the enabled-path tests turn it on ("toggle off" flips it back)
+    Settings.put(:rescue_enabled, true)
 
     Calibration.save(%Calibration{
       scale: 1.0,

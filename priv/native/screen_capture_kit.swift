@@ -46,10 +46,65 @@ final class FrameStore: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
       return
     }
 
+    // DEEP-COPY the frame and let the pool buffer go. Retaining the pool's CVPixelBuffer
+    // (queueDepth 3) starves ScreenCaptureKit's buffer pool after the first frames, and the
+    // stream SILENTLY stops delivering — every crop then serves the same stale boot-time
+    // frame forever ("fixadamente zero" readings, debugged live 2026-07-10: two server crops
+    // 3s apart were byte-identical while the real screen had the lure in the water). ARC keeps
+    // the previous copy alive while a writeCrop is still rendering it, so no tearing either.
+    guard let copy = deepCopy(pixelBuffer) else { return }
+
     lock.lock()
-    latestFrame = pixelBuffer
+    latestFrame = copy
     stoppedError = nil
     lock.unlock()
+  }
+
+  private func deepCopy(_ source: CVPixelBuffer) -> CVPixelBuffer? {
+    let width = CVPixelBufferGetWidth(source)
+    let height = CVPixelBufferGetHeight(source)
+    let format = CVPixelBufferGetPixelFormatType(source)
+
+    var created: CVPixelBuffer?
+
+    guard CVPixelBufferCreate(nil, width, height, format, nil, &created) == kCVReturnSuccess,
+          let copy = created
+    else {
+      return nil
+    }
+
+    CVPixelBufferLockBaseAddress(source, .readOnly)
+    CVPixelBufferLockBaseAddress(copy, [])
+
+    defer {
+      CVPixelBufferUnlockBaseAddress(copy, [])
+      CVPixelBufferUnlockBaseAddress(source, .readOnly)
+    }
+
+    guard let sourceBase = CVPixelBufferGetBaseAddress(source),
+          let copyBase = CVPixelBufferGetBaseAddress(copy)
+    else {
+      return nil
+    }
+
+    let sourceStride = CVPixelBufferGetBytesPerRow(source)
+    let copyStride = CVPixelBufferGetBytesPerRow(copy)
+
+    if sourceStride == copyStride {
+      memcpy(copyBase, sourceBase, sourceStride * height)
+    } else {
+      let rowBytes = min(sourceStride, copyStride)
+
+      for row in 0..<height {
+        memcpy(
+          copyBase.advanced(by: row * copyStride),
+          sourceBase.advanced(by: row * sourceStride),
+          rowBytes
+        )
+      }
+    }
+
+    return copy
   }
 
   func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -161,7 +216,10 @@ final class CaptureRuntime: @unchecked Sendable {
     configuration.height = display.height
     configuration.pixelFormat = kCVPixelFormatType_32BGRA
     configuration.queueDepth = 3
-    configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+    // 10fps: every frame is deep-copied (~19MB on the 3440x1440 display), and no consumer reads
+    // faster than the perception feeds' ~120ms cadence — 30fps would triple the copy cost for
+    // frames nobody looks at.
+    configuration.minimumFrameInterval = CMTime(value: 1, timescale: 10)
     configuration.showsCursor = false
 
     let stream = SCStream(filter: filter, configuration: configuration, delegate: store)

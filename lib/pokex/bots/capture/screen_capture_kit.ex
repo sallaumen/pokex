@@ -132,18 +132,40 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
     end
   end
 
-  defp fresh?(source, executable) do
+  # Rebuild ONLY when the source CONTENT changed — never on mtime. macOS TCC identifies this
+  # ad-hoc binary by its code hash, so every recompile produces a "new app" and silently voids
+  # the Screen Recording permission the user already granted (the System Settings toggle keeps
+  # pointing at the old binary → -3801 "user declined" / re-prompt on the next boot). mtime is
+  # the wrong freshness signal here: git touches it on every checkout/pull even when the file
+  # is byte-identical, which is exactly what kept breaking the permission. The compiled
+  # source's SHA-256 is stored next to the executable and compared against the current source.
+  @doc false
+  def fresh?(source, executable) do
     with true <- File.exists?(executable),
-         {:ok, source_stat} <- File.stat(source, time: :posix),
-         {:ok, executable_stat} <- File.stat(executable, time: :posix) do
-      executable_stat.mtime >= source_stat.mtime
+         {:ok, compiled_sha} <- File.read(hash_path(executable)),
+         {:ok, current} <- source_sha256(source) do
+      String.trim(compiled_sha) == current
     else
       _ -> false
     end
   end
 
+  defp hash_path(executable), do: executable <> ".source_sha256"
+
+  defp source_sha256(source) do
+    with {:ok, content} <- File.read(source) do
+      {:ok, Base.encode16(:crypto.hash(:sha256, content), case: :lower)}
+    end
+  end
+
   defp compile(source, executable) do
     File.mkdir_p!(Path.dirname(executable))
+
+    Logger.warning(
+      "recompiling the ScreenCaptureKit helper — macOS will treat it as a NEW app and " <>
+        "ask for the Screen Recording permission again (grant it once and it sticks " <>
+        "until the helper source actually changes)"
+    )
 
     args = [
       "swiftc",
@@ -170,6 +192,7 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
 
     case System.cmd("xcrun", args, stderr_to_stdout: true) do
       {_out, 0} ->
+        with {:ok, sha} <- source_sha256(source), do: File.write(hash_path(executable), sha)
         {:ok, executable}
 
       {out, code} ->

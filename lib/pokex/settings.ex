@@ -135,22 +135,6 @@ defmodule Pokex.Settings do
     # offset into arrow-key steps, the capture click point, and the corpse's
     # body position one tile below its floating name.
     tile_px: 88,
-    # The character walks fast (~200ms/tile measured on video), but instant
-    # back-to-back movement inputs bug out and he doesn't move at all — so every
-    # step press is spaced by this conservative pause.
-    walk_step_ms: 400,
-    # SPACE loots any ADJACENT corpse (no aiming); press a couple of times to be safe.
-    loot_presses: 2,
-    # A corpse offset beyond this many tiles per axis is a bad hostile read →
-    # treat the corpse as unknown and loot in place instead of marching off.
-    max_walk_tiles: 7,
-    # Pokeball AIM correction (px): the capture point is the corpse's TILE centre, but a pokemon
-    # sprite is drawn ABOVE the tile floor, so aiming at the tile centre lands on the sprite's
-    # lower edge (Lucas: "cai no canto inferior/direito e não acerta"). Nudge the throw UP by this
-    # much (and LEFT by _left) to land on the body. Tunable because sprites vary; if it lands too
-    # high, lower `_up`. A proper per-corpse aim would detect the sprite blob — see the notes.
-    capture_aim_up_px: 30,
-    capture_aim_left_px: 12,
     # /diagnostics still shows the per-row red target-ring read for manual inspection; this
     # is the threshold it uses (a real ring is 600-900 red px, the unlocked baseline ~40-150).
     # Combat itself no longer reads the ring — it targets by HP bar + pokeball (enemy_rows).

@@ -16,8 +16,12 @@ Ciclo completo, controlado por um painel LiveView:
    o alvo (sem mouse) e confirma a trava pela borda vermelha **por-fileira** (sem
    lurar um segundo bicho), ataca com as skills na **ordem de prioridade** e mata
    todos os fisgados antes de seguir.
-3. **Loot + captura** — anda até o corpo se preciso (setas, 1 tile por vez),
-   pega o loot com espaço, joga a pokébola e volta pra posição de pesca.
+3. **Captura** — detecta o corpo por diferença contra o CHÃO VAZIO aprendido no
+   início (baseline de warmup) e joga a pokébola sem andar. Modo **Parado**:
+   automático — arma o baseline, detecta o corpo parado, confirma o acerto e
+   repete até 2 bolas antes de descartar como "não é corpo". Modo **Em
+   movimento**: desarma a automação (você captura na mão); "Reaprender chão"
+   força um novo baseline ao trocar de spot.
 
 ## Setup (uma vez)
 

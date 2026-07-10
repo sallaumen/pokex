@@ -165,8 +165,8 @@ defmodule Pokex.Bots.BotSupervisor do
     %{
       fishing: safe_status(fishing),
       combat: safe_status(combat, %{locked_row: nil}),
-      # mode included because the panel's catcher pill/hint reads @catcher.mode — a placeholder
-      # without it would crash the very render this fallback exists to protect.
+      # mode included so the busy placeholder carries the full catcher snapshot shape (and any
+      # future template read of .mode can't crash).
       catcher: safe_status(catcher, %{mode: "parado"})
     }
   end

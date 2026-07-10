@@ -31,9 +31,6 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.hostile_scan_every == 2
     assert config.target_lost_streak == 2
     assert config.tile_px == 88
-    assert config.walk_step_ms == 400
-    assert config.loot_presses == 2
-    assert config.max_walk_tiles == 7
     refute Map.has_key?(config, :fallback_points)
 
     # rows spaced by battle_row_height (52 pts, the measured real row spacing):

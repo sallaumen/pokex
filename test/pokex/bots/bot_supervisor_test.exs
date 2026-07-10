@@ -20,7 +20,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     glow_threshold: 500,
     max_consecutive_failures: 5,
     tile_px: 32,
-    walk_step_ms: 5,
     humanize_max_ms: 0,
     cast_delay_max_ms: 0,
     hook_delay_min_ms: 0,

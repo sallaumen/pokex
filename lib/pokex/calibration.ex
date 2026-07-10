@@ -14,6 +14,9 @@ defmodule Pokex.Calibration do
     :battle_region,
     :arena_region,
     :neutral_point,
+    # Optional: the character's screen position (the mini-game bar anchor).
+    # Older calibrations fall back to the arena-region center.
+    :player_point,
     # Optional for backwards compatibility with calibrations created before the
     # skill bar became part of the main wizard.
     :skill_bar_region,
@@ -44,6 +47,7 @@ defmodule Pokex.Calibration do
       "battle_region" => Tuple.to_list(calib.battle_region),
       "arena_region" => Tuple.to_list(calib.arena_region),
       "neutral_point" => Tuple.to_list(calib.neutral_point),
+      "player_point" => calib.player_point && Tuple.to_list(calib.player_point),
       "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
       "skill_bar_count" => calib.skill_bar_count,
       "pokemon_hp_region" => calib.pokemon_hp_region && Tuple.to_list(calib.pokemon_hp_region),
@@ -70,6 +74,7 @@ defmodule Pokex.Calibration do
          battle_region: to_tuple(map["battle_region"]),
          arena_region: to_tuple(map["arena_region"]),
          neutral_point: to_tuple(map["neutral_point"]),
+         player_point: to_tuple(map["player_point"]),
          skill_bar_region: to_tuple(map["skill_bar_region"]),
          skill_bar_count: map["skill_bar_count"],
          pokemon_hp_region: to_tuple(map["pokemon_hp_region"]),
@@ -107,7 +112,12 @@ defmodule Pokex.Calibration do
   def battle_body(%__MODULE__{battle_region: region}), do: battle_body(region)
   def battle_body({x, y, w, h}), do: {x, y, w - @strip_width, h}
 
-  @doc "The player's screen position: the client keeps the character centered in the arena viewport."
+  @doc """
+  The player's screen position: the calibrated point when one was marked (the
+  character can stand anywhere in the viewport), else the arena-region center.
+  The mini-game overlay bar is anchored here.
+  """
+  def player_point(%__MODULE__{player_point: point}) when is_tuple(point), do: point
   def player_point(%__MODULE__{arena_region: region}), do: player_point(region)
   def player_point({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
 

@@ -10,7 +10,7 @@ defmodule PokexWeb.CalibrationLive do
   @baseline_count 10
   @glow_half 32
 
-  @total_steps 11
+  @total_steps 12
   # Click-to-zoom magnification: a rough click magnifies the screenshot around it (via CSS
   # transform, which the ImgClick hook's getBoundingClientRect already accounts for), then a
   # precise second click is transcribed back to screen coordinates. Helps a lot on a small screen.
@@ -25,6 +25,8 @@ defmodule PokexWeb.CalibrationLive do
       "Canto SUPERIOR-ESQUERDO da ARENA (área ao redor do personagem onde o pokémon pescado aparece).",
     arena_b: "Canto INFERIOR-DIREITO da arena.",
     neutral: "Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
+    player:
+      "Clique bem no CENTRO do seu PERSONAGEM — é nele que o bot ancora a barra do minigame de pesca. Fique parado onde vai pescar.",
     baselines:
       "Tudo marcado! Agora LANCE A LINHA na água (Shift+V) e, com ela ESPERANDO sem nada fisgado, clique em 'Capturar linhas de base'. Assim o bot aprende a água COM a linha — senão ele acha que é sempre brilho e fisga na hora.",
     skill_a: "Canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1).",
@@ -94,6 +96,28 @@ defmodule PokexWeb.CalibrationLive do
          step: :skill_a,
          mode: :skillbar_only,
          draft: %{skill_bar_count: socket.assigns.skill_count},
+         done: false,
+         review: nil,
+         error: nil,
+         skillbar_msg: nil,
+         zoom_at: nil
+       )}
+    else
+      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    end
+  end
+
+  # Standalone correction: re-mark only the character (the mini-game bar anchor)
+  # on an existing calibration, without redoing the whole wizard.
+  def handle_event("calibrate_player", _params, socket) do
+    with {:ok, screen} <- grab_screen("player_probe.png") do
+      {:noreply,
+       assign(socket,
+         scale: screen.scale,
+         screen: screen,
+         step: :player,
+         mode: :player_only,
+         draft: %{},
          done: false,
          review: nil,
          error: nil,
@@ -200,6 +224,7 @@ defmodule PokexWeb.CalibrationLive do
       battle_region: draft.battle_region,
       arena_region: draft.arena_region,
       neutral_point: draft.neutral_point,
+      player_point: draft[:player_point],
       skill_bar_region: draft.skill_bar_region,
       skill_bar_count: draft.skill_bar_count,
       pokemon_hp_region: draft[:pokemon_hp_region],
@@ -266,7 +291,16 @@ defmodule PokexWeb.CalibrationLive do
         )
 
       :neutral ->
-        assign(socket, draft: Map.put(draft, :neutral_point, point), step: :skill_a)
+        assign(socket, draft: Map.put(draft, :neutral_point, point), step: :player)
+
+      :player ->
+        case socket.assigns.mode do
+          :player_only ->
+            save_player_point(socket, point)
+
+          _ ->
+            assign(socket, draft: Map.put(draft, :player_point, point), step: :skill_a)
+        end
 
       :skill_a ->
         assign(socket, draft: Map.put(draft, :skill_a, point), step: :skill_b)
@@ -345,6 +379,29 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  defp save_player_point(socket, point) do
+    case Calibration.load() do
+      {:ok, calib} ->
+        Calibration.save(%{calib | player_point: point})
+
+        assign(socket,
+          draft: %{},
+          step: nil,
+          screen: nil,
+          calibrated?: true,
+          skillbar_msg:
+            "Personagem marcado em #{inspect(point)} — o minigame procura a barra a partir daí."
+        )
+
+      {:error, reason} ->
+        assign(socket,
+          step: nil,
+          screen: nil,
+          error: "não deu pra salvar o personagem: #{inspect(reason)}"
+        )
+    end
+  end
+
   defp persist_skill_settings(count) do
     Settings.put(:skill_bar_count, count)
     Settings.put(:skill_keys, SkillBar.fit_order(Settings.get(:skill_keys), count))
@@ -380,6 +437,7 @@ defmodule PokexWeb.CalibrationLive do
         :arena_a,
         :arena_b,
         :neutral,
+        :player,
         :skill_a,
         :skill_b,
         :hp_a,
@@ -393,11 +451,12 @@ defmodule PokexWeb.CalibrationLive do
   defp step_index(:arena_a), do: 4
   defp step_index(:arena_b), do: 5
   defp step_index(:neutral), do: 6
-  defp step_index(:skill_a), do: 7
-  defp step_index(:skill_b), do: 8
-  defp step_index(:hp_a), do: 9
-  defp step_index(:hp_b), do: 10
-  defp step_index(:photo), do: 11
+  defp step_index(:player), do: 7
+  defp step_index(:skill_a), do: 8
+  defp step_index(:skill_b), do: 9
+  defp step_index(:hp_a), do: 10
+  defp step_index(:hp_b), do: 11
+  defp step_index(:photo), do: 12
   defp step_index(_), do: nil
 
   defp step_pill_class(n, step) do
@@ -416,6 +475,7 @@ defmodule PokexWeb.CalibrationLive do
 
   defp draft_bands(_draft, _scale, _row_height, _rows), do: []
 
+  defp draft_player(%{player_point: point}) when is_tuple(point), do: point
   defp draft_player(%{arena_region: region}), do: Calibration.player_point(region)
   defp draft_player(_draft), do: nil
 
@@ -507,6 +567,9 @@ defmodule PokexWeb.CalibrationLive do
               </button>
               <button class="btn btn-ghost btn-sm" phx-click="calibrate_skillbar">
                 <.icon name="hero-bolt" class="size-4" /> Só as skills
+              </button>
+              <button class="btn btn-ghost btn-sm" phx-click="calibrate_player">
+                <.icon name="hero-user" class="size-4" /> Só o personagem
               </button>
             </div>
           </div>

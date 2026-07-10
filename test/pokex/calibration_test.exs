@@ -44,6 +44,22 @@ defmodule Pokex.CalibrationTest do
     assert old.skill_bar_count == nil
   end
 
+  @tag :tmp_dir
+  test "player_point round-trips and beats the arena-center fallback", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "calibration.json")
+
+    Calibration.save(%{sample() | player_point: {700, 500}}, path)
+    assert {:ok, loaded} = Calibration.load(path)
+    assert loaded.player_point == {700, 500}
+    assert Calibration.player_point(loaded) == {700, 500}
+
+    # an old file (no player_point key) still loads and falls back to the center
+    Calibration.save(sample(), path)
+    assert {:ok, old} = Calibration.load(path)
+    assert old.player_point == nil
+    assert Calibration.player_point(old) == {840, 470}
+  end
+
   test "derived regions and conversion" do
     calib = sample()
     assert Calibration.battle_strip(calib) == {1610, 120, 30, 220}

@@ -144,10 +144,17 @@ defmodule Pokex.Settings do
     target_lost_streak: 2,
     # Fishing mini-game monitor. It only detects the overlay and coordinates worker pause/resume.
     mini_game_tick_ms: 150,
-    mini_game_enter_streak: 1,
+    # 2 consecutive present frames (~300ms) before entering: the overlay lasts many seconds,
+    # and one dark thing crossing the anchor for a single frame must not pause every worker.
+    mini_game_enter_streak: 2,
     mini_game_exit_streak: 2,
     mini_game_min_confidence: 0.62,
     mini_game_min_dark_ratio: 0.34,
+    # Half-width (screen points) of the window around the player point where the bar may sit.
+    # Measured 2026-07-10: the game draws the bar ~40px to the RIGHT of the character sprite,
+    # so this must cover sprite-center error + that offset (the old 4%-of-width default = ~26px
+    # rejected every real mini-game).
+    mini_game_anchor_tolerance: 70,
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the
     # bot doesn't fish on a perfectly fixed cadence.

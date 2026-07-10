@@ -175,7 +175,8 @@ defmodule Pokex.Bots.MiniGame.Worker do
          min_confidence: Settings.get(:mini_game_min_confidence),
          min_dark_ratio: Settings.get(:mini_game_min_dark_ratio),
          anchor_x: player_anchor_x(frame, state.calib, region),
-         anchor_y: player_anchor_y(frame, state.calib, region)
+         anchor_y: player_anchor_y(frame, state.calib, region),
+         anchor_tolerance: anchor_tolerance(frame, region)
        )}
     end
   end
@@ -280,6 +281,11 @@ defmodule Pokex.Bots.MiniGame.Worker do
     {_px, py} = Calibration.player_point(calib)
     round((py - ry) * frame.height / rh)
   end
+
+  # The game draws the bar OFFSET (~40px right of the sprite), so the search window must be
+  # wider than the sprite itself. Seeded in screen points; scaled to frame px like the anchor.
+  defp anchor_tolerance(frame, {_rx, _ry, rw, _rh}) when rw > 0,
+    do: round(Settings.get(:mini_game_anchor_tolerance) * frame.width / rw)
 
   defp snapshot(%{running?: false} = state),
     do: %{

@@ -83,6 +83,50 @@ defmodule Pokex.Bots.MiniGame.DetectorTest do
            ).present?
   end
 
+  # Real frame from Lucas's screen (2026-07-10): mini-game OPEN while fishing.
+  # Character center ≈ (300, 430); the game draws the bar OFFSET to the RIGHT of
+  # the sprite (bar center = 342, ~40px right). Pins both the offset and why the
+  # production anchor tolerance must be wider than the old ~4%-of-width default.
+  test "detects the real overlay bar, which the game draws to the right of the character" do
+    {:ok, frame} = Frame.from_png_file("test/fixtures/mini_game/real_open.png")
+
+    reading =
+      Detector.detect(frame,
+        anchor_x: 300,
+        anchor_y: 430,
+        anchor_tolerance: 70,
+        min_confidence: 0.62,
+        min_dark_ratio: 0.34
+      )
+
+    assert reading.present?
+    assert reading.bar.x in 335..350
+
+    # the old default tolerance (max(20, 4% of width) = 32px here) rejects the
+    # real bar — the exact "apito nunca toca" bug
+    refute Detector.detect(frame,
+             anchor_x: 300,
+             anchor_y: 430,
+             min_confidence: 0.62,
+             min_dark_ratio: 0.34
+           ).present?
+  end
+
+  # Real frame, NO mini-game: the dark dock fence at x≈210 is a tall dark column,
+  # historically a false-positive source. The wider production tolerance must
+  # still keep it outside the anchor window (player anchored at 323, 237).
+  test "does not mistake the dark dock fence for the mini-game at the production tolerance" do
+    {:ok, frame} = Frame.from_png_file("test/fixtures/mini_game/real_fence_no_game.png")
+
+    refute Detector.detect(frame,
+             anchor_x: 323,
+             anchor_y: 237,
+             anchor_tolerance: 70,
+             min_confidence: 0.62,
+             min_dark_ratio: 0.34
+           ).present?
+  end
+
   test "rejects scattered dark pixels near the player anchor" do
     frame =
       frame(220, 220, fn x, y ->

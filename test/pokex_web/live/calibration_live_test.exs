@@ -67,18 +67,23 @@ defmodule PokexWeb.CalibrationLiveTest do
     # neutral → {52, 36}
     click.(26.0, 18.0)
 
-    assert render(view) =~ "Passo 7/11"
+    # player (mini-game bar anchor) → {40, 32}
+    assert render(view) =~ "Passo 7/12"
+    assert render(view) =~ "PERSONAGEM"
+    click.(20.0, 16.0)
+
+    assert render(view) =~ "Passo 8/12"
     # skill_a → {10, 60}
     click.(5.0, 30.0)
-    assert render(view) =~ "Passo 8/11"
+    assert render(view) =~ "Passo 9/12"
     # skill_b → {58, 70}; count is the explicit value entered before capture.
     click.(29.0, 35.0)
 
     # merged Pokémon steps: hp_a {30,40} → hp_b {90,60} → photo {40,50}
-    assert render(view) =~ "Passo 9/11"
+    assert render(view) =~ "Passo 10/12"
     click.(15.0, 20.0)
     click.(45.0, 30.0)
-    assert render(view) =~ "Passo 11/11"
+    assert render(view) =~ "Passo 12/12"
     click.(20.0, 25.0)
 
     assert render(view) =~ "linhas de base"
@@ -96,6 +101,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.battle_region == {70, 10, 20, 30}
     assert calib.arena_region == {20, 20, 60, 40}
     assert calib.neutral_point == {52, 36}
+    assert calib.player_point == {40, 32}
     assert calib.skill_bar_region == {10, 60, 48, 10}
     assert calib.skill_bar_count == 8
     assert calib.pokemon_hp_region == {30, 40, 60, 20}
@@ -213,5 +219,57 @@ defmodule PokexWeb.CalibrationLiveTest do
     # the rest of the calibration is untouched
     assert calib.water_point == {50, 30}
     assert calib.battle_region == {70, 10, 20, 30}
+  end
+
+  @tag :tmp_dir
+  test "standalone player calibration merges player_point into the saved calibration", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      arena_region: {20, 20, 60, 40},
+      neutral_point: {52, 36},
+      glow_baselines: [],
+      suggested_glow_threshold: 15.0
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} =
+      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration")
+
+    view |> element("button", "Só o personagem") |> render_click()
+    assert render(view) =~ "PERSONAGEM"
+
+    # click-to-zoom: rough click magnifies, precise click records.
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    # player → {40, 32}
+    click.(20.0, 16.0)
+
+    assert render(view) =~ "Personagem marcado"
+    assert {:ok, calib} = Calibration.load()
+    assert calib.player_point == {40, 32}
+    # the rest of the calibration is untouched
+    assert calib.water_point == {50, 30}
+    assert calib.arena_region == {20, 20, 60, 40}
   end
 end

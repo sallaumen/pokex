@@ -6,7 +6,9 @@ defmodule Pokex.Bots.MiniGame.Detector do
   vertical control bar that appears over the player's character and optionally
   boosts confidence when the bright "PRESS SPACE" prompt is visible near the top.
   The player anchor is important: normal map objects can also form dark vertical
-  runs, but the mini-game bar is drawn on top of the character.
+  runs (e.g. the dock fence), but the mini-game bar is drawn AT the character —
+  measured (2026-07-10) ~40px to the RIGHT of the sprite center, so the anchor
+  window must be wider than the sprite (see the mini_game_anchor_tolerance seed).
   """
 
   alias Pokex.Vision.Frame

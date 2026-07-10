@@ -14,7 +14,8 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
           :mini_game_enter_streak,
           :mini_game_exit_streak,
           :mini_game_min_confidence,
-          :mini_game_min_dark_ratio
+          :mini_game_min_dark_ratio,
+          :mini_game_anchor_tolerance
         ],
         &{&1, Settings.get(&1)}
       )
@@ -131,11 +132,66 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     refute_receive :paused, 200
   end
 
-  defp png!(dir, name, with_bar?) do
+  @tag :tmp_dir
+  test "enters the game when the bar sits right of the character, like the real overlay", %{
+    tmp: tmp
+  } do
+    # Real geometry: the game draws the bar ~40px right of the sprite. Player
+    # anchor falls back to the arena center (110); the bar is at 144..156. The
+    # seeded anchor tolerance must absorb the offset.
+    game = png_with_bar_at!(tmp, "offset-game.png", 144..156)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+    test = self()
+
+    pause_peers = fn _peers ->
+      send(test, :paused)
+      [:fishing]
+    end
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    worker = start_supervised!({Worker, name: nil, pause_peers: pause_peers})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+  end
+
+  @tag :tmp_dir
+  test "anchors the bar search at the CALIBRATED player point when one is saved", %{tmp: tmp} do
+    # Tight tolerance so only the calibrated anchor (not the arena center) can
+    # accept the offset bar — proves the worker prefers calibration.player_point.
+    Settings.put(:mini_game_anchor_tolerance, 20)
+
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | player_point: {150, 110}})
+
+    game = png_with_bar_at!(tmp, "calibrated-game.png", 144..156)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+    test = self()
+
+    pause_peers = fn _peers ->
+      send(test, :paused)
+      [:fishing]
+    end
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    worker = start_supervised!({Worker, name: nil, pause_peers: pause_peers})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+  end
+
+  defp png!(dir, name, with_bar?),
+    do: png_with_bar_at!(dir, name, if(with_bar?, do: 104..116))
+
+  defp png_with_bar_at!(dir, name, bar_x_range) do
     rows =
       for y <- 0..219 do
         for x <- 0..219 do
-          if with_bar? and x in 104..116 and y in 24..202,
+          if bar_x_range != nil and x in bar_x_range and y in 24..202,
             do: {26, 30, 48, 255},
             else: {150, 120, 86, 255}
         end

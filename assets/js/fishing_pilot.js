@@ -30,10 +30,16 @@ const lastPairVelocity = observations => {
 
 // Predictive blends the last up-to-3 observations: pairwise slopes with the
 // most recent pair weighted 2:1 (it knows the fish's current intent best).
+// Observations from before a long blind gap (loss streak / detection failure)
+// are dropped first: a pre-gap slope next to one fresh reading would otherwise
+// be trusted as current and aim past a fish that already reversed.
 const blendedVelocity = observations => {
-  if (observations.length < 2) return 0
+  const newest = observations[observations.length - 1]
+  const fresh = observations.filter(observation => newest.at - observation.at <= STALE_MS)
 
-  const recent = observations.slice(-3)
+  if (fresh.length < 2) return 0
+
+  const recent = fresh.slice(-3)
   const newestPair = pairwiseVelocity(recent[recent.length - 2], recent[recent.length - 1])
   if (recent.length < 3) return newestPair
 

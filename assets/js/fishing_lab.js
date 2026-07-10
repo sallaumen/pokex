@@ -143,6 +143,8 @@ const FishingLab = {
         this.ai.queue = []
         this.ai.history = []
         this.pilotView = {targetY: null, ageMs: null}
+        this.resetScore()
+        this.roundTainted = true
         this.forcePressing(false, now)
         this.setMessage(
           this.auto
@@ -158,7 +160,9 @@ const FishingLab = {
         this.config.useVision = node.checked
         this.ai.queue = []
         this.ai.history = []
+        this.pilotView = {targetY: null, ageMs: null}
         this.resetScore()
+        this.roundTainted = true
         this.setMessage(
           this.config.useVision
             ? "Deteccao por pixels ligada."
@@ -199,6 +203,7 @@ const FishingLab = {
     }
 
     this.resetScore()
+    this.roundTainted = true
   },
 
   setPilot(pilot) {
@@ -209,6 +214,7 @@ const FishingLab = {
     this.ai.history = []
     this.pilotView = {targetY: null, ageMs: null}
     this.resetScore()
+    this.roundTainted = true
 
     this.el.querySelectorAll("[data-lab-pilot]").forEach(node => {
       node.classList.toggle("btn-active", node.dataset.labPilot === pilot)
@@ -256,11 +262,15 @@ const FishingLab = {
 
     this.lastSampleAt = 0
     this.pilotView = {targetY: null, ageMs: null}
+    // A fresh round scores again; rounds that straddle a parameter change don't count.
+    this.roundTainted = false
 
     this.vision = {
       y: this.fish.y,
       confidence: 1,
-      fps: 0,
+      // Seed at the configured rate: the lerp only advances per accepted sample
+      // (~7/s), so starting from 0 would under-read for most of a short round.
+      fps: this.config?.visionFps || 0,
       lastAt: now,
     }
 
@@ -303,7 +313,10 @@ const FishingLab = {
     }
 
     this.draw()
-    this.sampleObservation(now)
+    // Paused/round-over frames draw a dark overlay that the background-diff
+    // detector reads as a giant "fish" — never sample them (the real bot has
+    // no game frames when it isn't fishing either).
+    if (this.running) this.sampleObservation(now)
     this.updateUi(now)
     this.frameId = requestAnimationFrame(this.loop)
   },
@@ -385,12 +398,18 @@ const FishingLab = {
 
     if (!this.roundResetAt && (this.progress >= 100 || this.progress <= -30 || this.elapsed > 45)) {
       const won = this.progress >= 100
-      if (won) this.score.wins += 1
-      else this.score.losses += 1
+
+      if (this.roundTainted) {
+        this.setMessage("Rodada descartada do placar (parametros mudaram no meio).")
+      } else {
+        if (won) this.score.wins += 1
+        else this.score.losses += 1
+        this.setMessage(won ? "Captura simulada concluida." : "Rodada perdida; reiniciando.")
+      }
+
       this.running = false
       this.forcePressing(false, now)
       this.roundResetAt = now + 950
-      this.setMessage(won ? "Captura simulada concluida." : "Rodada perdida; reiniciando.")
     }
 
   },

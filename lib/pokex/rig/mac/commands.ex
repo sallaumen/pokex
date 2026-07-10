@@ -45,7 +45,9 @@ defmodule Pokex.Rig.Mac.Commands do
     "f9" => 101,
     "f10" => 109,
     "f11" => 103,
-    "f12" => 111
+    "f12" => 111,
+    # `keystroke "tab"` would TYPE t-a-b; target cycling needs the real Tab key EVENT.
+    "tab" => 48
   }
 
   @doc """

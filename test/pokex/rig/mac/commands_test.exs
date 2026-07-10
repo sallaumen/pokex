@@ -102,6 +102,11 @@ defmodule Pokex.Rig.Mac.CommandsTest do
               ]}
   end
 
+  test "tab is a key EVENT (code 48), never the typed letters t-a-b" do
+    assert Commands.press("tab") ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key code 48)]}
+  end
+
   test "function keys send the real key code, not the typed letters (case-insensitive)" do
     # `keystroke "f1"` would TYPE f then 1 — F-keys need the key EVENT (F1 = 122).
     assert Commands.press("f1") ==

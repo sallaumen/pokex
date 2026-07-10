@@ -1,3 +1,5 @@
+import {decide} from "./fishing_pilot"
+
 const WIDTH = 420
 const HEIGHT = 680
 const TAU = Math.PI * 2
@@ -56,11 +58,17 @@ const FishingLab = {
       deadbandPx: 13,
       minToggleMs: Number(this.el.dataset.minToggleMs || 50),
       useVision: true,
+      visionFps: 7,
+      lossPct: 0,
+      pilot: "predictive",
     }
 
     this.running = true
     this.auto = true
     this.round = 1
+    this.lastSampleAt = 0
+    this.score = {wins: 0, losses: 0}
+    this.pilotView = {targetY: null, ageMs: null}
     this.lastFrameAt = performance.now()
     this.lastUiAt = 0
     this.cleanup = []
@@ -105,6 +113,10 @@ const FishingLab = {
     this.el.querySelectorAll("[data-lab-range]").forEach(node => {
       listen(node, "input", () => this.handleRange(node))
     })
+
+    this.el.querySelectorAll("[data-lab-pilot]").forEach(node => {
+      listen(node, "click", () => this.setPilot(node.dataset.labPilot))
+    })
   },
 
   editableTarget(target) {
@@ -122,14 +134,15 @@ const FishingLab = {
         this.setMessage(this.running ? "Rodada retomada." : "Rodada pausada.")
         break
       case "reset":
+        this.resetScore()
         this.round = 1
         this.resetRound(true)
         break
       case "toggle-auto":
         this.auto = !this.auto
         this.ai.queue = []
-        this.ai.observedY = this.fish.y
-        this.ai.lastObservedAt = now
+        this.ai.history = []
+        this.pilotView = {targetY: null, ageMs: null}
         this.forcePressing(false, now)
         this.setMessage(
           this.auto
@@ -144,6 +157,8 @@ const FishingLab = {
       case "toggle-vision":
         this.config.useVision = node.checked
         this.ai.queue = []
+        this.ai.history = []
+        this.resetScore()
         this.setMessage(
           this.config.useVision
             ? "Deteccao por pixels ligada."
@@ -171,9 +186,43 @@ const FishingLab = {
         this.config.deadbandPx = value
         this.setOutput("deadband", `${value}px`)
         break
+      case "vision-fps":
+        this.config.visionFps = value
+        this.setOutput("vision-fps", `${value} fps · ~${Math.round(1000 / value)}ms`)
+        break
+      case "loss":
+        this.config.lossPct = value
+        this.setOutput("loss", `${value}%`)
+        break
       default:
         break
     }
+
+    this.resetScore()
+  },
+
+  setPilot(pilot) {
+    if (this.config.pilot === pilot) return
+
+    this.config.pilot = pilot
+    this.ai.queue = []
+    this.ai.history = []
+    this.pilotView = {targetY: null, ageMs: null}
+    this.resetScore()
+
+    this.el.querySelectorAll("[data-lab-pilot]").forEach(node => {
+      node.classList.toggle("btn-active", node.dataset.labPilot === pilot)
+    })
+
+    this.setMessage(
+      pilot === "predictive"
+        ? "Piloto preditivo: extrapola a posicao do peixe entre leituras."
+        : "Piloto reativo: age sobre a ultima leitura crua."
+    )
+  },
+
+  resetScore() {
+    this.score = {wins: 0, losses: 0}
   },
 
   resetRound(resetStats) {
@@ -202,11 +251,11 @@ const FishingLab = {
 
     this.ai = {
       queue: [],
-      observedY: this.fish.y,
-      previousObservedY: this.fish.y,
-      observedVy: 0,
-      lastObservedAt: now,
+      history: [],
     }
+
+    this.lastSampleAt = 0
+    this.pilotView = {targetY: null, ageMs: null}
 
     this.vision = {
       y: this.fish.y,
@@ -336,6 +385,8 @@ const FishingLab = {
 
     if (!this.roundResetAt && (this.progress >= 100 || this.progress <= -30 || this.elapsed > 45)) {
       const won = this.progress >= 100
+      if (won) this.score.wins += 1
+      else this.score.losses += 1
       this.running = false
       this.forcePressing(false, now)
       this.roundResetAt = now + 950
@@ -349,29 +400,24 @@ const FishingLab = {
 
     while (this.ai.queue.length > 0 && this.ai.queue[0].readyAt <= now) {
       const observation = this.ai.queue.shift()
-      const elapsed = Math.max(16, observation.at - this.ai.lastObservedAt)
-
-      this.ai.previousObservedY = this.ai.observedY
-      this.ai.observedY = observation.y
-      this.ai.observedVy = ((this.ai.observedY - this.ai.previousObservedY) / elapsed) * 1000
-      this.ai.lastObservedAt = observation.at
+      this.ai.history.push({y: observation.y, at: observation.at})
+      if (this.ai.history.length > 4) this.ai.history.splice(0, this.ai.history.length - 4)
     }
 
-    if (this.ai.observedY == null) return
+    const result = decide(
+      {
+        pilot: this.config.pilot,
+        deadbandPx: this.config.deadbandPx,
+        trackTop: TRACK.top,
+        trackBottom: TRACK.bottom,
+      },
+      this.ai.history,
+      {y: this.bar.y, vy: this.bar.vy, pressing: this.bar.pressing},
+      now
+    )
 
-    const lead = clamp(this.ai.observedVy * 0.11, -34, 34)
-    const targetY = clamp(this.ai.observedY + lead, TRACK.top, TRACK.bottom)
-    const error = this.bar.y - targetY
-    const deadband = this.config.deadbandPx
-    let desired = this.bar.pressing
-
-    if (error > deadband || (this.bar.vy > 120 && error > -deadband * 0.7)) {
-      desired = true
-    } else if (error < -deadband || (this.bar.vy < -135 && error < deadband * 0.7)) {
-      desired = false
-    }
-
-    this.setPressing(desired, now)
+    this.pilotView = {targetY: result.targetY, ageMs: result.ageMs}
+    this.setPressing(result.desired, now)
   },
 
   setPressing(pressing, now) {
@@ -400,11 +446,16 @@ const FishingLab = {
   },
 
   sampleObservation(now) {
-    const observation = this.config.useVision ? this.detectFish(now) : {
-      y: this.fish.y,
-      confidence: 1,
-      fps: this.vision.fps || 60,
-    }
+    if (now - this.lastSampleAt < 1000 / this.config.visionFps) return
+    this.lastSampleAt = now
+
+    const observation = this.config.useVision
+      ? this.detectFish(now)
+      : {y: this.fish.y, confidence: 1, fps: this.nextFps(now)}
+
+    // Simulated failed read: the sampling tick still happened (no early retry),
+    // but nothing downstream sees it — no marker update, no queue push.
+    if (Math.random() * 100 < this.config.lossPct) return
 
     this.vision = {
       y: observation.y,
@@ -423,6 +474,11 @@ const FishingLab = {
     })
 
     if (this.ai.queue.length > 8) this.ai.queue.splice(0, this.ai.queue.length - 8)
+  },
+
+  nextFps(now) {
+    const delta = Math.max(1, now - (this.vision?.lastAt || now - 16))
+    return lerp(this.vision?.fps || 0, 1000 / delta, 0.08)
   },
 
   detectFish(now) {
@@ -449,8 +505,7 @@ const FishingLab = {
       }
     }
 
-    const delta = Math.max(1, now - (this.vision?.lastAt || now - 16))
-    const fps = lerp(this.vision?.fps || 0, 1000 / delta, 0.08)
+    const fps = this.nextFps(now)
 
     if (count < 18) {
       return {y: null, x: null, confidence: 0, fps}
@@ -533,6 +588,7 @@ const FishingLab = {
     this.drawFish(ctx)
     this.drawBar(ctx)
     this.drawVisionMarker(ctx)
+    this.drawPilotMarker(ctx)
     this.drawHud(ctx)
   },
 
@@ -616,6 +672,20 @@ const FishingLab = {
     ctx.restore()
   },
 
+  drawPilotMarker(ctx) {
+    if (!this.auto || this.pilotView?.targetY == null) return
+
+    ctx.save()
+    ctx.strokeStyle = "#facc15"
+    ctx.lineWidth = 2
+    ctx.setLineDash([8, 4])
+    ctx.beginPath()
+    ctx.moveTo(FISH_X - 68, this.pilotView.targetY)
+    ctx.lineTo(TRACK.x + 34, this.pilotView.targetY)
+    ctx.stroke()
+    ctx.restore()
+  },
+
   drawHud(ctx) {
     ctx.save()
     ctx.font = "700 24px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
@@ -653,6 +723,8 @@ const FishingLab = {
     this.setStat("confidence", formatPercent((this.vision.confidence || 0) * 100))
     this.setStat("error", formatPx(this.metrics.averageError))
     this.setStat("round", this.round)
+    this.setStat("score", `${this.score.wins}V · ${this.score.losses}D`)
+    this.setStat("reading-age", this.readingAgeLabel(now))
 
     const press = this.el.querySelector('[data-stat="press-state"]')
     if (press) {
@@ -662,6 +734,12 @@ const FishingLab = {
 
     this.setLabel("running", this.running ? "Pausar" : "Retomar")
     this.setLabel("auto", this.auto ? "Auto ligado" : "Manual")
+  },
+
+  readingAgeLabel(now) {
+    const newest = this.ai.history[this.ai.history.length - 1]
+    if (!newest) return "—"
+    return `${Math.round(now - newest.at)}ms`
   },
 
   setStat(name, value) {

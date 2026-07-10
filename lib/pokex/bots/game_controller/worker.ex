@@ -14,6 +14,7 @@ defmodule Pokex.Bots.GameController.Worker do
 
   alias Pokex.Bots.{Body, Capture}
   alias Pokex.Bots.GameController.Logic
+  alias Pokex.Perception.{Interpret, WorldState}
   alias Pokex.{Calibration, Settings, Vision}
 
   @topic "game"
@@ -155,17 +156,31 @@ defmodule Pokex.Bots.GameController.Worker do
     }
   end
 
-  # Same signal Combat trusts: per-row lock-ring red inside the battle body; any row at or above
-  # target_locked_min_pixels means a fight is active. Mirrors Fisher.Sensors.Real fetch(:battle_lock).
+  # "In combat" for the potion gate is the GAME's notion, not ours: the heal channel is
+  # interrupted the moment anything is fighting you — with or without a lock ring (the ring
+  # only exists after a target is SELECTED, but fished enemies aggress you before any Tab,
+  # and the post-kill gap has no ring either; the old ring-only read drank potions exactly
+  # there). Engaged = lock ring present OR any enemy row in the battle list.
+  #
+  # The :battle feed already interprets this every ~120ms while combat runs — read the
+  # blackboard first (zero extra capture); fall back to a direct capture+interpret when the
+  # entry is stale/missing (manual play, bots off).
   defp in_combat?(calib) do
-    with {:ok, frame} <- Capture.frame(Calibration.battle_body(calib), "target.png") do
-      {top, band} = Calibration.row_band_geometry(calib.scale, Settings.get(:battle_row_height))
-      red = Vision.red_row_counts(frame, top: top, band: band, rows: Settings.get(:battle_max_rows))
-      {:ok, Enum.any?(red, &(&1 >= Settings.get(:target_locked_min_pixels)))}
+    case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now()) do
+      {:ok, obs} -> {:ok, engaged?(obs)}
+      _stale_or_missing -> direct_battle_read(calib)
     end
   catch
     kind, reason -> {:error, {kind, reason}}
   end
+
+  defp direct_battle_read(calib) do
+    with {:ok, frame} <- Capture.frame(calib.battle_region, "potion_battle.png") do
+      {:ok, engaged?(Interpret.battle(frame, calib, Settings.all()))}
+    end
+  end
+
+  defp engaged?(obs), do: obs[:locked?] == true or (obs[:enemies] || []) != []
 
   # Stamp last_potion_at BEFORE dispatch (same rationale as the combo): if the press errors, the
   # cooldown still holds and a glitch loop can't chug the whole potion stack.

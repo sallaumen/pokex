@@ -148,8 +148,24 @@ defmodule Pokex.Bots.GameController.WorkerTest do
     assert Worker.status(worker).counters.rescues == 1
   end
 
+  # The potion gate reads the :battle blackboard entry first, so each test pins WorldState:
+  # a stale entry forces the direct capture+interpret fallback; a fresh one is read as-is.
+  defp stale_battle! do
+    at = System.monotonic_time(:millisecond) - 60_000
+    Pokex.Perception.WorldState.put(:battle, %{enemies: [], locked?: false, captured_at: at}, at)
+  end
+
+  defp fresh_battle!(fields) do
+    at = System.monotonic_time(:millisecond)
+
+    obs =
+      Enum.into(fields, %{enemies: [], red: [], locked?: false, locked_row: nil, captured_at: at})
+
+    Pokex.Perception.WorldState.put(:battle, obs, at)
+  end
+
   @tag :tmp_dir
-  test "sips a potion when HP is below the potion threshold and no fight is locked", %{
+  test "sips a potion when HP is below the potion threshold and no fight is engaged", %{
     tmp: tmp,
     body: body
   } do
@@ -158,6 +174,7 @@ defmodule Pokex.Bots.GameController.WorkerTest do
     Settings.put(:potion_enabled, true)
     Settings.put(:potion_cooldown_ms, 60_000)
 
+    stale_battle!()
     low = hp_png(tmp, "low.png", 6)
     no_fight = battle_png(tmp, "calm.png", {17, 17, 17, 255})
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}, {:ok, no_fight}]})
@@ -177,9 +194,51 @@ defmodule Pokex.Bots.GameController.WorkerTest do
     Settings.put(:rescue_enabled, false)
     Settings.put(:potion_enabled, true)
 
+    stale_battle!()
     low = hp_png(tmp, "low.png", 6)
     fight = battle_png(tmp, "fight.png", {160, 20, 20, 255})
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}, {:ok, fight}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, _priority, _actions}, 300
+    assert Worker.status(worker).counters.potions == 0
+  end
+
+  @tag :tmp_dir
+  test "enemies in the battle list block the potion even with NO lock ring (aggro before Tab)",
+       %{tmp: tmp, body: body} do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+
+    stale_battle!()
+    low = hp_png(tmp, "low.png", 6)
+    # green HP-bar rows and zero red: an unlocked enemy — the game already counts this as
+    # in-battle, so the heal channel would be interrupted. The old ring-only gate drank here.
+    aggro = battle_png(tmp, "aggro.png", {40, 200, 60, 255})
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}, {:ok, aggro}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, _priority, _actions}, 300
+    assert Worker.status(worker).counters.potions == 0
+  end
+
+  @tag :tmp_dir
+  test "a FRESH blackboard entry answers the combat question with no battle capture", %{
+    tmp: tmp,
+    body: body
+  } do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+
+    fresh_battle!(enemies: [0])
+    low = hp_png(tmp, "low.png", 6)
+    # ONLY the HP frame is scripted: if the gate tried a battle capture it would consume a
+    # repeat of this entry (a warm frame) and misread it — the blackboard answer must win.
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)

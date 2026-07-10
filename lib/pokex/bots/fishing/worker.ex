@@ -212,18 +212,18 @@ defmodule Pokex.Bots.Fishing.Worker do
     line_present? =
       case Map.fetch(signal, :line_present?) do
         {:ok, present?} -> present?
-        :error -> Map.get(signal, :bubble_count, 0) >= (settings[:line_present_min_px] || 100)
+        :error -> Map.get(signal, :bubble_count, 0) >= (Settings.value(settings, :line_present_min_px))
       end
 
     obs
-    |> Map.put(:glow, count > (settings[:glow_threshold] || 500))
+    |> Map.put(:glow, count > (Settings.value(settings, :glow_threshold)))
     |> Map.put(:line?, line_present?)
   end
 
   defp threshold_glow(%{glow: count} = obs, settings) when is_integer(count) do
     obs
-    |> Map.put(:glow, count > (settings[:glow_threshold] || 500))
-    |> Map.put(:line?, count >= (settings[:line_present_min_px] || 100))
+    |> Map.put(:glow, count > (Settings.value(settings, :glow_threshold)))
+    |> Map.put(:line?, count >= (Settings.value(settings, :line_present_min_px)))
   end
 
   defp threshold_glow(obs, _settings), do: obs

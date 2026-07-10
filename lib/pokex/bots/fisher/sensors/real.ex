@@ -2,7 +2,7 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   @moduledoc false
   @behaviour Pokex.Bots.Fisher.Sensors
 
-  alias Pokex.{Calibration, Rig, Vision}
+  alias Pokex.{Calibration, Rig, Settings, Vision}
   alias Pokex.Bots.{Capture, SkillBar}
   alias Pokex.Vision.Frame
 
@@ -24,7 +24,7 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   # far brighter (measured peaks 800-1022). We return the RAW cyan count so the
   # driver can show it live in the feed; the driver applies the bite threshold.
   defp fetch(:glow, calib, settings) do
-    region = Calibration.glow_search_region(calib, settings[:glow_search_margin] || 0)
+    region = Calibration.glow_search_region(calib, Settings.value(settings, :glow_search_margin))
 
     with {:ok, frame} <- capture_frame(region, "glow.png") do
       {:ok, Vision.fishing_signal(frame, fishing_signal_opts(settings, calib, region, frame))}
@@ -33,7 +33,7 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
 
   defp fetch(:wild, calib, settings) do
     with {:ok, frame} <- capture_frame(Calibration.battle_strip(calib), "battle.png") do
-      min_count = settings[:wild_min_red_pixels] || 12
+      min_count = Settings.value(settings, :wild_min_red_pixels)
       {:ok, Vision.wild_present?(frame, min_count: min_count)}
     end
   end
@@ -51,8 +51,8 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
       # Calibration.row_band_geometry is the single source of truth for {top,
       # band} (centered on the click point) — the same math the visual preview
       # draws, so what you SEE is exactly what the lock samples.
-      {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height] || 30)
-      rows = settings[:battle_max_rows] || 6
+      {top, band} = Calibration.row_band_geometry(calib.scale, Settings.value(settings, :battle_row_height))
+      rows = Settings.value(settings, :battle_max_rows)
       {:ok, Vision.red_row_counts(frame, top: top, band: band, rows: rows)}
     end
   end
@@ -91,7 +91,7 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   # key when the gate is on (see Fishing.Logic.needs/1), so with the gate off there's no
   # extra capture at all.
   defp fetch(:cooldowns_ready?, calib, settings) do
-    keys = settings[:hook_skill_keys] || settings[:skill_keys] || []
+    keys = Settings.value(settings, :hook_skill_keys)
     {:ok, SkillBar.any_ready?(SkillBar.read(calib, settings), keys)}
   end
 
@@ -103,14 +103,14 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
 
   defp battle_view(calib, settings) do
     with {:ok, frame} <- capture_frame(calib.battle_region, "battle.png") do
-      {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height] || 30)
-      rows = settings[:battle_max_rows] || 6
+      {top, band} = Calibration.row_band_geometry(calib.scale, Settings.value(settings, :battle_row_height))
+      rows = Settings.value(settings, :battle_max_rows)
       strip_px = round(Calibration.strip_width() * calib.scale)
 
       body = Frame.crop(frame, {0, 0, frame.width - strip_px, frame.height})
       strip = Frame.crop(frame, {frame.width - strip_px, 0, strip_px, frame.height})
 
-      min_pokeball = settings[:pokeball_min_red_px] || 5
+      min_pokeball = Settings.value(settings, :pokeball_min_red_px)
       creatures = body |> Vision.hp_bar_row_positions() |> rows_of(top, band, rows)
 
       own =
@@ -144,9 +144,9 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
 
   defp fishing_signal_opts(settings, calib, region, frame) do
     [
-      min_lure_pixels: settings[:fishing_lure_min_pixels] || 20,
-      bubble_radius_px: settings[:fishing_bubble_radius_px] || 48,
-      line_present_min_px: settings[:line_present_min_px] || 100,
+      min_lure_pixels: Settings.value(settings, :fishing_lure_min_pixels),
+      bubble_radius_px: Settings.value(settings, :fishing_bubble_radius_px),
+      line_present_min_px: Settings.value(settings, :line_present_min_px),
       expected_center: expected_glow_center(calib, region, frame)
     ]
   end

@@ -199,6 +199,16 @@ defmodule Pokex.Settings do
   def get(key, server \\ __MODULE__), do: GenServer.call(server, {:get, key})
   def all(server \\ __MODULE__), do: GenServer.call(server, :all)
 
+  @doc """
+  Resolve `key` from an already-fetched settings map, falling back to the ONE default source
+  (`@seed_settings`) when the map omits it. Pure (no GenServer round-trip). Use this instead of
+  scattering `settings[:key] || literal` at call sites — a literal there duplicates the default
+  and silently DRIFTS from it (e.g. `glow_threshold || 500` while the seed is 1100). Here the
+  fallback IS the seed, so there is exactly one place a default can live.
+  """
+  def value(settings, key) when is_map(settings),
+    do: Map.get(settings, key, Map.fetch!(@seed_settings, key))
+
   def put(key, value, server \\ __MODULE__) when is_map_key(@seed_settings, key),
     do: GenServer.call(server, {:put, key, value})
 

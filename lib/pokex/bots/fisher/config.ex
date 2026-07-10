@@ -1,7 +1,7 @@
 defmodule Pokex.Bots.Fisher.Config do
   @moduledoc "Builds the flat, frozen config map the pure Logic runs on."
 
-  alias Pokex.Calibration
+  alias Pokex.{Calibration, Settings}
 
   @setting_keys [
     :rod_key,
@@ -45,8 +45,8 @@ defmodule Pokex.Bots.Fisher.Config do
 
   def build(%Calibration{} = calib, settings) do
     {fx, fy} = Calibration.battle_first_row(calib)
-    row_h = settings[:battle_row_height] || 30
-    max_rows = settings[:battle_max_rows] || 6
+    row_h = Settings.value(settings, :battle_row_height)
+    max_rows = Settings.value(settings, :battle_max_rows)
 
     settings
     |> Map.take(@setting_keys)

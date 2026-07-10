@@ -105,7 +105,7 @@ defmodule Pokex.Diagnostics.Report do
   end
 
   defp glow_region(calib, settings) do
-    Calibration.glow_search_region(calib, settings[:glow_search_margin] || 0)
+    Calibration.glow_search_region(calib, Settings.value(settings, :glow_search_margin))
   end
 
   # The skill hotbar with the per-slot brightness/saturation/state — the numbers to
@@ -179,14 +179,14 @@ defmodule Pokex.Diagnostics.Report do
   defp glow_metrics(frame, calib, region, settings) do
     signal = Vision.fishing_signal(frame, fishing_signal_opts(settings, calib, region, frame))
     count = signal.bubble_count
-    threshold = settings[:glow_threshold] || 500
-    line_min = settings[:line_present_min_px] || 100
+    threshold = Settings.value(settings, :glow_threshold)
+    line_min = Settings.value(settings, :line_present_min_px)
 
     %{
       bubble_count: count,
       lure_count: signal.lure_count,
-      fishing_lure_min_pixels: settings[:fishing_lure_min_pixels] || 20,
-      fishing_bubble_radius_px: settings[:fishing_bubble_radius_px] || 48,
+      fishing_lure_min_pixels: Settings.value(settings, :fishing_lure_min_pixels),
+      fishing_bubble_radius_px: Settings.value(settings, :fishing_bubble_radius_px),
       glow_threshold: threshold,
       line_present_min_px: line_min,
       bite?: count > threshold,
@@ -196,9 +196,9 @@ defmodule Pokex.Diagnostics.Report do
 
   defp fishing_signal_opts(settings, calib, region, frame) do
     [
-      min_lure_pixels: settings[:fishing_lure_min_pixels] || 20,
-      bubble_radius_px: settings[:fishing_bubble_radius_px] || 48,
-      line_present_min_px: settings[:line_present_min_px] || 100,
+      min_lure_pixels: Settings.value(settings, :fishing_lure_min_pixels),
+      bubble_radius_px: Settings.value(settings, :fishing_bubble_radius_px),
+      line_present_min_px: Settings.value(settings, :line_present_min_px),
       expected_center: expected_glow_center(calib, region, frame)
     ]
   end

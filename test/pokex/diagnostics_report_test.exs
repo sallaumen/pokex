@@ -18,6 +18,8 @@ defmodule Pokex.Diagnostics.ReportTest do
   @settings %{
     # tiny fixtures: 8×8 glow = 64 teal px, so the bite threshold sits below that.
     glow_threshold: 10,
+    # no search expansion, so the echoed glow region is exactly the calibrated 64×64.
+    glow_search_margin: 0,
     line_present_min_px: 100,
     battle_row_height: 20,
     battle_max_rows: 3,

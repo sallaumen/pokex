@@ -629,33 +629,38 @@ defmodule Pokex.Vision do
 
   @doc """
   Fill percentage (0..100) of a horizontal HP bar frame — the fraction of COLUMNS that hold a
-  "health" pixel (bright + saturated: the green/yellow/red fill), so an emptying bar reads lower.
+  COLOURED pixel, so an emptying bar reads lower.
 
-  Robust to the white "current/max" number drawn over the fill: white is bright but colourless
-  (low saturation), so it isn't counted, while the coloured fill above/below the digits still is.
-  The dark bar background clears neither threshold. Options `:min_brightness` (80),
-  `:min_saturation` (55). Empty/zero-size frame → 0.
+  COLOUR-AGNOSTIC by design: the fill changes hue as HP drops (green → olive → brown → red), so we
+  can't key on "green". Instead we key on "has colour at all" (`saturation >= min_saturation` with a
+  small brightness floor). That catches every fill tone, while the two colourless things are
+  ignored automatically: the black bar background/track (dark, ~0 saturation) AND the white
+  "current/max" number drawn over the bar (bright but ~0 saturation). Where the number sits over the
+  EMPTY part of the bar its white-on-dark antialiasing stays grey (colourless), so it doesn't
+  inflate the fill. Options `:min_brightness` (45), `:min_saturation` (30). Empty/zero frame → 0.
   """
   def hp_fill_pct(frame, opts \\ [])
 
   def hp_fill_pct(%Frame{width: w, height: h, rgba: rgba}, opts) when w > 0 and h > 0 do
-    min_b = Keyword.get(opts, :min_brightness, 80)
-    min_s = Keyword.get(opts, :min_saturation, 55)
+    min_b = Keyword.get(opts, :min_brightness, 45)
+    min_s = Keyword.get(opts, :min_saturation, 30)
 
-    filled = rgba |> health_columns(0, w, min_b, min_s, MapSet.new()) |> MapSet.size()
+    filled = rgba |> filled_columns(0, w, min_b, min_s, MapSet.new()) |> MapSet.size()
     round(filled * 100 / w)
   end
 
   def hp_fill_pct(_frame, _opts), do: 0
 
-  defp health_columns(<<r, g, b, _a, rest::binary>>, i, w, min_b, min_s, acc) do
+  # A column is "filled" if any of its pixels is COLOURED — bright enough to not be the black
+  # background, and saturated enough to not be the white number (both are colourless).
+  defp filled_columns(<<r, g, b, _a, rest::binary>>, i, w, min_b, min_s, acc) do
     bright = max(r, max(g, b))
     sat = bright - min(r, min(g, b))
     acc = if bright >= min_b and sat >= min_s, do: MapSet.put(acc, rem(i, w)), else: acc
-    health_columns(rest, i + 1, w, min_b, min_s, acc)
+    filled_columns(rest, i + 1, w, min_b, min_s, acc)
   end
 
-  defp health_columns(<<>>, _i, _w, _min_b, _min_s, acc), do: acc
+  defp filled_columns(<<>>, _i, _w, _min_b, _min_s, acc), do: acc
 
   defp skill_bar_signature(<<r, g, b, _a, rest::binary>>, dark, content, total) do
     bright = max(r, max(g, b))

@@ -40,6 +40,30 @@ defmodule Pokex.VisionHpTest do
       assert Vision.hp_fill_pct(frame(bar(6, 20, {200, 40, 40}))) == 30
     end
 
+    test "colour-agnostic: green, olive, brown and red fills all read by SIZE, not hue" do
+      # the fill changes tone as HP drops; a half bar must read ~50% whatever the colour
+      for color <- [{40, 200, 60}, {150, 165, 80}, {150, 100, 60}, {200, 40, 40}] do
+        assert Vision.hp_fill_pct(frame(bar(10, 20, color))) == 50
+      end
+    end
+
+    test "the white number over the EMPTY side does not inflate the fill" do
+      # 6/20 brown fill; the white 'N/max' digits also sit over the dark empty side (cols 10-14).
+      # White is colourless, so those columns must stay empty — only the 6 brown columns count.
+      rows =
+        for y <- 0..3 do
+          for x <- 1..20 do
+            cond do
+              x <= 6 -> {150, 100, 60}
+              y == 1 and x in 10..14 -> @white
+              true -> @dark
+            end
+          end
+        end
+
+      assert Vision.hp_fill_pct(frame(rows)) == 30
+    end
+
     test "the white HP number overlaid on the fill does not eat the reading" do
       # a full green bar, but the middle row of every column is white (the '4304/4304' text).
       # Each column still has green above/below, so it still counts as filled.

@@ -198,13 +198,13 @@ defmodule Pokex.Settings do
     rescue_step_ms: 40,
     # How often the GameController samples the main Pokémon's HP bar.
     game_tick_ms: 120,
-    # HP-bar fill detection: a bar column counts as "health" (filled) when it holds a pixel this
-    # bright AND this saturated — the green/yellow/red fill clears both; the dark bar background
-    # (~17/0) clears neither. fill% = health columns ÷ bar width. MEASURED on Lucas's real bar
-    # (2026-07-11): his medium green sits ~60-130 bright, so 80/55 undercounted a FULL bar to ~63%;
-    # 60/40 reads it ~92% while the dark background/border (~17-30) stays well below.
-    pokemon_hp_min_brightness: 60,
-    pokemon_hp_min_saturation: 40
+    # HP-bar fill detection is COLOUR-AGNOSTIC: a column counts as filled when it holds a COLOURED
+    # pixel (bright enough to not be black, saturated enough to not be the white number). The fill
+    # changes hue as HP drops (green → olive → brown → red) — all are coloured, so all count; the
+    # black background/track and the white "N/max" number are colourless and ignored. Low, permissive
+    # floors so even a washed/dark fill tone still registers. See Vision.hp_fill_pct/2.
+    pokemon_hp_min_brightness: 45,
+    pokemon_hp_min_saturation: 30
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

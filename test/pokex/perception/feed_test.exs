@@ -91,5 +91,48 @@ defmodule Pokex.Perception.FeedTest do
     assert {:ok, %{width: 8}} = WorldState.get(:feed_test, 60_000, now())
   end
 
+  @tag :tmp_dir
+  test "a crashed consumer auto-detaches and pauses the feed", %{tmp_dir: tmp} do
+    a = png!(tmp, "a.png", 8)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}]})
+
+    {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
+
+    # a separate short-lived consumer process attaches, then dies
+    parent = self()
+
+    consumer =
+      spawn(fn ->
+        :ok = Feed.attach(feed)
+        send(parent, :attached)
+
+        receive do
+          :die -> :ok
+        end
+      end)
+
+    assert_receive :attached, 500
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "world")
+    assert_receive {:world, :feed_test, _obs}, 1_000
+
+    send(consumer, :die)
+
+    # give the DOWN a moment to land, then drain anything already in flight
+    Process.sleep(100)
+    flush_world()
+
+    # paused: no new broadcasts after the consumer died
+    refute_receive {:world, :feed_test, _}, 300
+  end
+
+  defp flush_world do
+    receive do
+      {:world, _, _} -> flush_world()
+    after
+      0 -> :ok
+    end
+  end
+
   defp now, do: System.monotonic_time(:millisecond)
 end

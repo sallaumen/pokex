@@ -72,7 +72,7 @@ defmodule PokexWeb.PanelLive do
        errors: [],
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
-       capture_mode: Settings.get(:capture_mode),
+       player_mode: Settings.get(:player_mode),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
        panicked?: false,
        logs: [],
@@ -271,9 +271,9 @@ defmodule PokexWeb.PanelLive do
 
   def handle_event("set_capture_mode", %{"mode" => mode}, socket)
       when mode in ~w(parado movimento) do
-    Settings.put(:capture_mode, mode)
+    Settings.put(:player_mode, mode)
     Catcher.Worker.mode_changed()
-    {:noreply, assign(socket, capture_mode: mode)}
+    {:noreply, assign(socket, player_mode: mode)}
   end
 
   def handle_event("relearn_ground", _params, socket) do
@@ -650,11 +650,11 @@ defmodule PokexWeb.PanelLive do
   defp overall_active?(fishing, combat),
     do: Enum.any?([fishing.state, combat.state], &active?/1)
 
-  defp automation_count(fishing, combat, capture_mode, rescue_enabled, potion_enabled) do
+  defp automation_count(fishing, combat, player_mode, rescue_enabled, potion_enabled) do
     [
       active?(fishing.state),
       active?(combat.state),
-      capture_mode == "parado",
+      player_mode == "parado",
       rescue_enabled,
       potion_enabled
     ]
@@ -895,7 +895,7 @@ defmodule PokexWeb.PanelLive do
               <span>{automation_count(
                 @fishing,
                 @combat,
-                @capture_mode,
+                @player_mode,
                 @rescue_enabled,
                 @potion_enabled
               )}/5 on</span>
@@ -919,7 +919,7 @@ defmodule PokexWeb.PanelLive do
                 <span>
                   <span class="block text-xs font-semibold">Captura (Pokébola)</span>
                   <span class="mt-0.5 block text-[10px] text-[#79838b]">
-                    {if @capture_mode == "parado",
+                    {if @player_mode == "parado",
                       do: "joga bola nos corpos detectados ao redor",
                       else: "você captura manualmente — em movimento o bot não joga Pokébola"}
                   </span>
@@ -931,7 +931,7 @@ defmodule PokexWeb.PanelLive do
                     phx-value-mode={mode}
                     class={[
                       "h-8 rounded-lg border px-2.5 text-[11px]",
-                      if(@capture_mode == mode,
+                      if(@player_mode == mode,
                         do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
                         else: "border-[#293238] text-[#89939a] hover:text-white"
                       )
@@ -940,7 +940,7 @@ defmodule PokexWeb.PanelLive do
                 </div>
               </div>
               <button
-                :if={@capture_mode == "parado"}
+                :if={@player_mode == "parado"}
                 phx-click="relearn_ground"
                 class="mx-3 mb-2 flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
               >

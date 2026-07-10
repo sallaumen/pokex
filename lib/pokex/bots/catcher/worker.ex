@@ -1,10 +1,13 @@
 defmodule Pokex.Bots.Catcher.Worker do
   @moduledoc """
   Driver for the pure Catcher.Logic: consumes `:corpses` observations from the perception
-  blackboard, throws confirmed Pokéballs through the Body (`:high`), and follows the capture
+  blackboard, throws confirmed Pokéballs through the Body (`:high`), and follows the player
   mode LIVE — `parado` attaches the feed and acts; `movimento` detaches and idles (Lucas
   captures manually while moving). Combat's kill broadcast is only an accelerator: it forces
-  an immediate world re-read; detection never depends on it.
+  an immediate world re-read; detection never depends on it. A confirmed kill also triggers a
+  Space loot (gated by `loot_enabled`) before any ball of that cycle — the corpse consumed by
+  a ball takes its loot with it. `capture_enabled` independently gates the entire ball
+  pipeline (and the feed attach) so loot-only operation never throws.
 
   Combat-engagement gate: PXG combat is tile-locked — a FIGHTING sprite stands still,
   indistinguishable from a corpse to the stationary-blob detector — so this worker also
@@ -50,7 +53,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
-  @doc "The panel pokes this after flipping capture_mode — attach/detach applies live."
+  @doc "The panel pokes this after flipping player_mode / the loot & capture toggles — attach/detach applies live."
   def mode_changed(server \\ __MODULE__), do: GenServer.call(server, :mode_changed)
 
   @doc "Force a fresh ground warmup (detach + attach): use after moving to a new spot."
@@ -70,14 +73,15 @@ defmodule Pokex.Bots.Catcher.Worker do
        attached?: false,
        combat_engaged?: false,
        feed_ref: nil,
-       reattach_attempts: 0
+       reattach_attempts: 0,
+       loots: 0
      }}
   end
 
   @impl true
   def handle_call(:run, _from, state) do
     {logic, _} = Logic.start(Logic.new(config()), now())
-    state = %{state | logic: logic, combat_engaged?: seed_combat_engaged()}
+    state = %{state | logic: logic, loots: 0, combat_engaged?: seed_combat_engaged()}
     state = sync_mode(state)
     broadcast(state)
     {:reply, :ok, state}
@@ -119,12 +123,17 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   def handle_info(:wake, state), do: {:noreply, state}
 
-  # kill = accelerator (both shapes: Task 5 drops the payload; tolerate the old one meanwhile)
-  def handle_info({:kill}, %{logic: %Logic{state: :armed}} = state),
-    do: {:noreply, advance(state, current_obs())}
+  # kill = accelerator (both shapes: Task 5 drops the payload; tolerate the old one meanwhile).
+  # loot_kill runs BEFORE advance: the Space presses must land ahead of any ball this cycle.
+  def handle_info({:kill}, %{logic: %Logic{state: :armed}} = state) do
+    state = loot_kill(state)
+    {:noreply, advance(state, current_obs())}
+  end
 
-  def handle_info({:kill, _corpse}, %{logic: %Logic{state: :armed}} = state),
-    do: {:noreply, advance(state, current_obs())}
+  def handle_info({:kill, _corpse}, %{logic: %Logic{state: :armed}} = state) do
+    state = loot_kill(state)
+    {:noreply, advance(state, current_obs())}
+  end
 
   # Combat-engagement gate: track the live fight so a stationary enemy sprite never gets
   # balled/ignore-poisoned like a corpse. On the engaged→disengaged edge (kill landed or the
@@ -183,7 +192,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # The mode gate lives HERE, not only in attach/detach: a late in-flight {:world,...} event
   # (or a test-injected one) right after flipping to movimento must never throw a ball.
   defp advance(state, obs) do
-    if Settings.get(:capture_mode) == "parado", do: do_advance(state, obs), else: state
+    if Settings.get(:player_mode) == "parado", do: do_advance(state, obs), else: state
   end
 
   # A fight is on: everything reaching here is contaminated by the live enemy sprite
@@ -191,7 +200,14 @@ defmodule Pokex.Bots.Catcher.Worker do
   # no confirms until combat disengages (see the {:combat,...} handler above).
   defp do_advance(%{combat_engaged?: true} = state, _obs), do: state
 
+  # Capture disabled (loot-only operation): the ball pipeline never steps — no admissions,
+  # no throws, no confirms. The feed is also detached (see should_be_attached?/1); this
+  # gate only catches stragglers (a late event right after the toggle flip).
   defp do_advance(state, obs) do
+    if Settings.get(:capture_enabled), do: run_step(state, obs), else: state
+  end
+
+  defp run_step(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())
 
     performs = Enum.filter(actions, &match?({:capture_sequence, _}, &1))
@@ -205,6 +221,37 @@ defmodule Pokex.Bots.Catcher.Worker do
       do: broadcast(%{state | logic: logic})
 
     schedule_wake(%{state | logic: logic})
+  end
+
+  # A confirmed kill just dropped a corpse on the ADJACENT melee tile — Space reaches it from
+  # standing position. Runs BEFORE the advance so the presses hit the Body ahead of any ball
+  # of this cycle (the ball additionally waits on detector confirmation, ≥800ms later — and
+  # the ball consumes the corpse WITH its loot, so the order is load-bearing).
+  defp loot_kill(state) do
+    if Settings.get(:player_mode) == "parado" and Settings.get(:loot_enabled) do
+      presses = max(Settings.get(:loot_presses), 1)
+      gap = Settings.get(:loot_press_gap_ms)
+
+      actions =
+        [{:press, "space"}]
+        |> List.duplicate(presses)
+        |> Enum.intersperse([{:wait, gap}])
+        |> List.flatten()
+
+      Body.perform(actions, :high, state.body)
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:catcher_log, :macro, "captura: 🧰 saqueando (espaço ×#{presses})"}
+      )
+
+      state = %{state | loots: state.loots + 1}
+      broadcast(state)
+      state
+    else
+      state
+    end
   end
 
   defp current_obs do
@@ -222,9 +269,10 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   defp armed_parado?(state),
-    do: Settings.get(:capture_mode) == "parado" and match?(%Logic{state: :armed}, state.logic)
+    do: Settings.get(:player_mode) == "parado" and match?(%Logic{state: :armed}, state.logic)
 
-  defp should_be_attached?(state), do: armed_parado?(state) and not state.combat_engaged?
+  defp should_be_attached?(state),
+    do: armed_parado?(state) and not state.combat_engaged? and Settings.get(:capture_enabled)
 
   defp maybe_attach_after_disengage(state) do
     if should_be_attached?(state) and not state.attached?, do: attach(state), else: state
@@ -310,12 +358,14 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp mode_state(%Logic{state: s}, _mode), do: s
 
   defp snapshot(state) do
-    mode = Settings.get(:capture_mode)
+    mode = Settings.get(:player_mode)
 
     %{
       state: mode_state(state.logic, mode),
       mode: mode,
-      counters: (state.logic && state.logic.counters) || %Logic{}.counters,
+      counters:
+        ((state.logic && state.logic.counters) || %Logic{}.counters)
+        |> Map.put(:loots, state.loots),
       error: state.logic && state.logic.error
     }
   end

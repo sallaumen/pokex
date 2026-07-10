@@ -20,15 +20,19 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    mode = Settings.get(:capture_mode)
+    mode = Settings.get(:player_mode)
+    loot_enabled = Settings.get(:loot_enabled)
+    capture_enabled = Settings.get(:capture_enabled)
 
     on_exit(fn ->
       Application.delete_env(:pokex, :home_dir)
-      Settings.put(:capture_mode, mode)
+      Settings.put(:player_mode, mode)
+      Settings.put(:loot_enabled, loot_enabled)
+      Settings.put(:capture_enabled, capture_enabled)
       :ets.delete(:pokex_world, :corpses)
     end)
 
-    Settings.put(:capture_mode, "parado")
+    Settings.put(:player_mode, "parado")
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -94,7 +98,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
   @tag :tmp_dir
   test "movimento mode never acts", %{worker: worker} do
-    Settings.put(:capture_mode, "movimento")
+    Settings.put(:player_mode, "movimento")
     :ok = Worker.mode_changed(worker)
     assert Worker.status(worker).state == :manual
 
@@ -102,7 +106,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     refute_receive {:performed, _p, _a}, 300
 
     # flipping back re-arms
-    Settings.put(:capture_mode, "parado")
+    Settings.put(:player_mode, "parado")
     :ok = Worker.mode_changed(worker)
     assert Worker.status(worker).state == :armed
   end
@@ -167,6 +171,62 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     # global Combat.Worker is idle in tests → seed is false → the gate is open again
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+  end
+
+  @tag :tmp_dir
+  test "a kill triggers the Space loot presses before any ball", %{worker: worker} do
+    # a corpse is already detectable — the ball WOULD fire on the kill's re-read
+    obs = corpses_obs([{130, 224}])
+    WorldState.put(:corpses, obs, obs.captured_at)
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
+
+    # FIRST perform must be the loot (2 presses with the configured gap), ball second
+    assert_receive {:performed, :high, loot_actions}, 1_000
+    assert loot_actions == [{:press, "space"}, {:wait, 250}, {:press, "space"}]
+
+    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert Worker.status(worker).counters.loots == 1
+  end
+
+  @tag :tmp_dir
+  test "loot_enabled false: kills loot nothing (balls unaffected)", %{worker: worker} do
+    Settings.put(:loot_enabled, false)
+
+    obs = corpses_obs([{130, 224}])
+    WorldState.put(:corpses, obs, obs.captured_at)
+    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
+
+    assert_receive {:performed, :high, actions}, 1_000
+    assert actions == [{:capture_sequence, {130, 224}}]
+    assert Worker.status(worker).counters.loots == 0
+  end
+
+  @tag :tmp_dir
+  test "capture_enabled false: loot still fires, balls never, feed never attaches",
+       %{worker: worker} do
+    Settings.put(:capture_enabled, false)
+    :ok = Worker.mode_changed(worker)
+
+    obs = corpses_obs([{130, 224}])
+    WorldState.put(:corpses, obs, obs.captured_at)
+    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
+
+    assert_receive {:performed, :high, [{:press, "space"} | _]}, 1_000
+    refute_receive {:performed, _, [{:capture_sequence, _} | _]}, 400
+
+    # a direct corpse event is also gated
+    world!(worker, corpses_obs([{140, 230}]))
+    refute_receive {:performed, _, [{:capture_sequence, _} | _]}, 300
+  end
+
+  @tag :tmp_dir
+  test "movimento: kills loot nothing", %{worker: worker} do
+    Settings.put(:player_mode, "movimento")
+    :ok = Worker.mode_changed(worker)
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
+    refute_receive {:performed, _p, _a}, 300
   end
 
   defp eventually(fun, timeout) do

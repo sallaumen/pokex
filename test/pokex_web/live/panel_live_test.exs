@@ -86,13 +86,13 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   test "capture mode selector persists and shows the manual hint", %{conn: conn} do
-    mode = Pokex.Settings.get(:capture_mode)
-    on_exit(fn -> Pokex.Settings.put(:capture_mode, mode) end)
+    mode = Pokex.Settings.get(:player_mode)
+    on_exit(fn -> Pokex.Settings.put(:player_mode, mode) end)
 
     {:ok, view, _} = live(conn, ~p"/")
 
     view |> element(~s(button[phx-value-mode="movimento"])) |> render_click()
-    assert Pokex.Settings.get(:capture_mode) == "movimento"
+    assert Pokex.Settings.get(:player_mode) == "movimento"
     assert render(view) =~ "você captura manualmente"
 
     view |> element(~s(button[phx-value-mode="parado"])) |> render_click()

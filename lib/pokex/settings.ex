@@ -244,7 +244,20 @@ defmodule Pokex.Settings do
     # throws is not a corpse (a parked pet) → ignored for corpse_ignore_ttl_ms. Confirmation
     # only counts observations captured at least corpse_confirm_after_ms after the throw (the
     # ball needs flight time — an instant re-read would read the pre-hit frame).
-    capture_mode: "parado",
+    # The GLOBAL player mode: "parado" (standing still — automations that need the fixed
+    # viewport may act) or "movimento" (Lucas is walking around — loot and capture are his).
+    player_mode: "parado",
+    # Independent switches, both only meaningful while parado:
+    # loot: Space pressed after each confirmed kill — the fished pokémon fights and dies on
+    # the ADJACENT melee tile, so Space reaches its corpse from standing position. Fires
+    # BEFORE any Pokéball by construction (balls wait on detector confirmation), which
+    # matters: the ball consumes the corpse INCLUDING its loot.
+    loot_enabled: true,
+    capture_enabled: true,
+    # Space presses per kill and the gap between them (rapid back-to-back inputs bug the
+    # game — the old walk-loot documented the same).
+    loot_presses: 2,
+    loot_press_gap_ms: 250,
     corpse_match_tolerance_px: 32,
     corpse_max_balls: 2,
     corpse_ignore_ttl_ms: 120_000,

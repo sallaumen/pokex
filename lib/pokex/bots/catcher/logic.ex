@@ -58,36 +58,29 @@ defmodule Pokex.Bots.Catcher.Logic do
       obs.captured_at < throw.at + config.corpse_confirm_after_ms ->
         {logic, []}
 
-      true ->
-        # Find if there's a corpse near the throw point
-        matching_corpse =
-          Enum.find(obs.corpses, &near?(&1, throw.point, config.corpse_match_tolerance_px))
-
-        cond do
-          # gone → captured
-          matching_corpse == nil ->
-            logic = update_in(logic.counters.captures, &(&1 + 1))
-            {%{logic | throw: nil}, [{:log, "capturado em #{point_str(throw.point)}"}]}
-
-          # survived but hasn't moved yet → wait for next observation
-          throw.balls < config.corpse_max_balls and matching_corpse == throw.point ->
-            {logic, []}
-
-          # survived, moved (alive!), and balls left → retry
+      # past the flight window, still there (moved-or-not is irrelevant) → retry
+      present?(obs.corpses, throw.point, config.corpse_match_tolerance_px) and
           throw.balls < config.corpse_max_balls ->
-            logic = update_in(logic.counters.throws, &(&1 + 1))
+        logic = update_in(logic.counters.throws, &(&1 + 1))
 
-            {%{logic | throw: %{throw | balls: throw.balls + 1, at: now}},
-             [{:capture_sequence, throw.point}, {:log, "bola #{throw.balls + 1} em #{point_str(throw.point)}"}]}
+        {%{logic | throw: %{throw | balls: throw.balls + 1, at: now}},
+         [
+           {:capture_sequence, throw.point},
+           {:log, "bola #{throw.balls + 1} em #{point_str(throw.point)}"}
+         ]}
 
-          # survived everything → not a corpse; ignore it for the TTL
-          true ->
-            logic = update_in(logic.counters.ignored, &(&1 + 1))
-            ignored = Map.put(logic.ignored, throw.point, now + config.corpse_ignore_ttl_ms)
+      # past the window, still there, and out of balls → not a corpse; ignore for the TTL
+      present?(obs.corpses, throw.point, config.corpse_match_tolerance_px) ->
+        logic = update_in(logic.counters.ignored, &(&1 + 1))
+        ignored = Map.put(logic.ignored, throw.point, now + config.corpse_ignore_ttl_ms)
 
-            {%{logic | throw: nil, ignored: ignored},
-             [{:log, "não é corpo (#{point_str(throw.point)}); ignorando"}]}
-        end
+        {%{logic | throw: nil, ignored: ignored},
+         [{:log, "não é corpo (#{point_str(throw.point)}); ignorando"}]}
+
+      # past the window, gone → captured
+      true ->
+        logic = update_in(logic.counters.captures, &(&1 + 1))
+        {%{logic | throw: nil}, [{:log, "capturado em #{point_str(throw.point)}"}]}
     end
   end
 
@@ -116,6 +109,9 @@ defmodule Pokex.Bots.Catcher.Logic do
   defp prune_ignored(logic, now) do
     %{logic | ignored: Map.filter(logic.ignored, fn {_point, expiry} -> expiry > now end)}
   end
+
+  defp present?(corpses, point, tolerance),
+    do: Enum.any?(corpses, &near?(&1, point, tolerance))
 
   defp near?({ax, ay}, {bx, by}, tolerance),
     do: abs(ax - bx) <= tolerance and abs(ay - by) <= tolerance

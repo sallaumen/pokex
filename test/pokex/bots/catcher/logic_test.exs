@@ -25,20 +25,19 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     assert {:capture_sequence, {100, 200}} in actions
     assert logic.counters.throws == 1
 
-    # more corpses queue but nothing else is thrown while one is in flight
-    {logic, actions} = Logic.step(logic, obs([{100, 200}, {300, 300}], 900), 900)
+    # a PRE-WINDOW frame (10 + 800 = 810 > 700) proves nothing: new corpses queue,
+    # nothing else is thrown while one ball is in flight
+    {logic, actions} = Logic.step(logic, obs([{100, 200}, {300, 300}], 700), 700)
     refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
     assert logic.queue == [{300, 300}]
   end
 
-  test "the corpse vanishing after the flight window confirms the capture and throws the next" do
+  test "the corpse vanishing after the flight window confirms and throws the next in one step" do
     {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
-    {logic, _} = Logic.step(logic, obs([{100, 200}, {300, 300}], 900), 900)
 
-    # gone (only the queued one remains) on a frame past confirm_after → captured
-    {logic, actions} = Logic.step(logic, obs([{300, 300}], 1_000), 1_000)
+    # past the window, {100,200} gone; {300,300} is new → confirm + admit + throw, same step
+    {logic, actions} = Logic.step(logic, obs([{300, 300}], 900), 900)
     assert logic.counters.captures == 1
-    # and the next queued corpse is thrown at in the same step
     assert {:capture_sequence, {300, 300}} in actions
   end
 
@@ -51,26 +50,26 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     assert actions == []
   end
 
-  test "a persisting blob gets one retry then joins the ignore list" do
+  test "a persisting blob gets one retry then joins the ignore list — even at the exact same spot" do
     {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
 
-    # still there after the window → retry (ball 2)
-    {logic, actions} = Logic.step(logic, obs([{104, 196}], 900), 900)
+    # still there after the window (position identical — a parked pet) → retry (ball 2)
+    {logic, actions} = Logic.step(logic, obs([{100, 200}], 900), 900)
     assert {:capture_sequence, {100, 200}} in actions
     assert logic.throw.balls == 2
 
-    # STILL there → ignored, no more balls
+    # the retry got its own flight window (thrown at 900): still there past 1700 → ignored
     {logic, actions} = Logic.step(logic, obs([{100, 200}], 1_800), 1_800)
     refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
     assert logic.counters.ignored == 1
     assert logic.throw == nil
 
-    # while ignored, the same point is never re-admitted
+    # while ignored, never re-admitted
     {logic, actions} = Logic.step(logic, obs([{102, 198}], 2_400), 2_400)
     assert actions == []
     assert logic.queue == []
 
-    # after the TTL it is fair game again
+    # after the TTL (1_800 + 120_000) it is fair game again
     {_logic, actions} = Logic.step(logic, obs([{100, 200}], 130_000), 130_000)
     assert {:capture_sequence, {100, 200}} in actions
   end

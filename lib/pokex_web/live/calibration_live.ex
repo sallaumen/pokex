@@ -10,25 +10,25 @@ defmodule PokexWeb.CalibrationLive do
   @baseline_count 10
   @glow_half 32
 
+  @total_steps 11
+
   @instructions %{
-    water: "1/8 — Clique no PONTO DA ÁGUA onde o bot deve arremessar.",
-    battle_a: "2/8 — Clique no canto SUPERIOR-ESQUERDO da área de criaturas da janela Battle.",
+    water: "Clique no PONTO DA ÁGUA onde o bot deve arremessar.",
+    battle_a: "Clique no canto SUPERIOR-ESQUERDO da área de criaturas da janela Battle.",
     battle_b:
-      "3/8 — Agora o canto INFERIOR-DIREITO da mesma área (incluindo a coluna do ícone de pokébola).",
+      "Agora o canto INFERIOR-DIREITO da mesma área (incluindo a coluna do ícone de pokébola).",
     arena_a:
-      "4/8 — Canto superior-esquerdo da ARENA (área ao redor do personagem onde o pokémon pescado aparece).",
-    arena_b: "5/8 — Canto inferior-direito da arena.",
-    neutral: "6/8 — Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
+      "Canto SUPERIOR-ESQUERDO da ARENA (área ao redor do personagem onde o pokémon pescado aparece).",
+    arena_b: "Canto INFERIOR-DIREITO da arena.",
+    neutral: "Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
     baselines:
       "Tudo marcado! Agora LANCE A LINHA na água (Shift+V) e, com ela ESPERANDO sem nada fisgado, clique em 'Capturar linhas de base'. Assim o bot aprende a água COM a linha — senão ele acha que é sempre brilho e fisga na hora.",
-    skill_a:
-      "7/8 — Clique no canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1).",
+    skill_a: "Canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1).",
     skill_b:
-      "8/8 — Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões.",
-    hp_a: "Clique no canto SUPERIOR-ESQUERDO da barra de VIDA do Pokémon principal (o do topo).",
-    hp_b: "Agora o canto INFERIOR-DIREITO da MESMA barra de vida.",
-    photo:
-      "Por fim, clique no CENTRO da FOTO do Pokémon principal (onde o mouse fica pro Shift+Q do revive)."
+      "Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões.",
+    hp_a: "Canto SUPERIOR-ESQUERDO da barra de VIDA do Pokémon principal (o do topo).",
+    hp_b: "Canto INFERIOR-DIREITO da MESMA barra de vida.",
+    photo: "Centro da FOTO do Pokémon principal (onde o mouse fica pro Shift+Q do revive)."
   }
 
   @impl true
@@ -201,6 +201,8 @@ defmodule PokexWeb.CalibrationLive do
       neutral_point: draft.neutral_point,
       skill_bar_region: draft.skill_bar_region,
       skill_bar_count: draft.skill_bar_count,
+      pokemon_hp_region: draft[:pokemon_hp_region],
+      pokemon_photo_point: draft[:pokemon_photo_point],
       glow_baselines: baseline_paths,
       battle_baseline: battle_baseline,
       suggested_glow_threshold: Vision.suggested_threshold(frames)
@@ -279,7 +281,7 @@ defmodule PokexWeb.CalibrationLive do
                 draft
                 |> Map.put(:skill_bar_region, region)
                 |> Map.put(:skill_bar_count, count),
-              step: :baselines,
+              step: :hp_a,
               skillbar_msg: "Barra configurada com #{count} skills."
             )
 
@@ -301,7 +303,13 @@ defmodule PokexWeb.CalibrationLive do
         )
 
       :photo ->
-        save_pokemon(socket, draft.pokemon_hp_region, point)
+        case socket.assigns.mode do
+          :full ->
+            assign(socket, draft: Map.put(draft, :pokemon_photo_point, point), step: :baselines)
+
+          _ ->
+            save_pokemon(socket, draft.pokemon_hp_region, point)
+        end
 
       _ ->
         socket
@@ -408,6 +416,9 @@ defmodule PokexWeb.CalibrationLive do
   defp step_index(:neutral), do: 6
   defp step_index(:skill_a), do: 7
   defp step_index(:skill_b), do: 8
+  defp step_index(:hp_a), do: 9
+  defp step_index(:hp_b), do: 10
+  defp step_index(:photo), do: 11
   defp step_index(_), do: nil
 
   defp step_pill_class(n, step) do
@@ -433,7 +444,7 @@ defmodule PokexWeb.CalibrationLive do
   def render(assigns) do
     # module attributes are not available inside ~H as @foo (that reads
     # assigns), so expose the instruction map as an assign first
-    assigns = assign(assigns, :instr, @instructions)
+    assigns = assign(assigns, instr: @instructions, total_steps: @total_steps)
 
     ~H"""
     <Layouts.app flash={@flash} current_page={:calibration}>
@@ -500,29 +511,34 @@ defmodule PokexWeb.CalibrationLive do
               label="Quantidade de skills"
             />
           </.form>
-          <div class="flex flex-wrap justify-center gap-2">
-            <button class="btn btn-primary" phx-click="capture_screen">
-              <.icon name="hero-camera" class="size-4" /> Capturar tela
-            </button>
-            <button :if={@calibrated?} class="btn btn-ghost" phx-click="review">
-              <.icon name="hero-eye" class="size-4" /> Revisar áreas salvas
-            </button>
-            <button :if={@calibrated?} class="btn btn-ghost" phx-click="calibrate_skillbar">
-              <.icon name="hero-bolt" class="size-4" /> Recalibrar só as skills
-            </button>
-            <button :if={@calibrated?} class="btn btn-ghost" phx-click="calibrate_pokemon">
-              <.icon name="hero-heart" class="size-4" /> Calibrar vida do Pokémon
-            </button>
-          </div>
-          <p :if={@calibrated?} class="text-xs opacity-60">
-            A barra de skills já faz parte da calibração completa; o botão separado serve apenas para corrigi-la.
+          <button class="btn btn-primary" phx-click="capture_screen">
+            <.icon name="hero-camera" class="size-4" /> Capturar tela (calibração completa)
+          </button>
+          <p class="text-xs opacity-60">
+            Marca tudo em sequência: água, Battle, arena, ponto neutro, barra de skills e a vida do
+            Pokémon principal.
           </p>
+
+          <div :if={@calibrated?} class="mt-2 space-y-2 border-t border-base-content/10 pt-3">
+            <p class="text-xs font-semibold opacity-70">Correções rápidas (sem refazer tudo)</p>
+            <div class="flex flex-wrap justify-center gap-2">
+              <button class="btn btn-ghost btn-sm" phx-click="review">
+                <.icon name="hero-eye" class="size-4" /> Revisar áreas salvas
+              </button>
+              <button class="btn btn-ghost btn-sm" phx-click="calibrate_skillbar">
+                <.icon name="hero-bolt" class="size-4" /> Só as skills
+              </button>
+              <button class="btn btn-ghost btn-sm" phx-click="calibrate_pokemon">
+                <.icon name="hero-heart" class="size-4" /> Só a vida do Pokémon
+              </button>
+            </div>
+          </div>
         </div>
 
         <div :if={@screen} class="space-y-3">
-          <ol :if={step_index(@step)} class="flex items-center gap-1.5">
+          <ol :if={@mode == :full and step_index(@step)} class="flex flex-wrap items-center gap-1.5">
             <li
-              :for={n <- 1..8}
+              :for={n <- 1..@total_steps}
               class={[
                 "flex size-6 items-center justify-center rounded-full text-xs font-semibold",
                 step_pill_class(n, @step)
@@ -536,6 +552,9 @@ defmodule PokexWeb.CalibrationLive do
             :if={@step && @step != :baselines}
             class="rounded-lg bg-info/15 px-3 py-2 text-sm font-medium"
           >
+            <span :if={@mode == :full} class="font-bold">
+              Passo {step_index(@step)}/{@total_steps} —
+            </span>
             {@instr[@step]}
             <span :if={@step in [:skill_a, :skill_b]} class="ml-1 font-bold">
               Quantidade fixa: {@skill_count}.
@@ -589,7 +608,8 @@ defmodule PokexWeb.CalibrationLive do
           <.icon name="hero-check-circle" class="mx-auto size-8 text-success" />
           <p class="font-semibold">Calibração salva!</p>
           <p class="text-sm opacity-70">
-            Brilho e {@draft[:skill_bar_count] || Settings.get(:skill_bar_count)} skills gravados. Pode ir para o painel.
+            Brilho, {@draft[:skill_bar_count] || Settings.get(:skill_bar_count)} skills e a vida do
+            Pokémon gravados. Confira a vida no painel e ligue o combo de sobrevivência.
           </p>
           <div class="flex flex-wrap justify-center gap-2">
             <button class="btn btn-ghost btn-sm" phx-click="review">

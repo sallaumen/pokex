@@ -71,12 +71,19 @@ defmodule PokexWeb.CalibrationLiveTest do
     # neutral → {52, 36}
     click.(26.0, 18.0)
 
-    assert render(view) =~ "7/8"
+    assert render(view) =~ "Passo 7/11"
     # skill_a → {10, 60}
     click.(5.0, 30.0)
-    assert render(view) =~ "8/8"
+    assert render(view) =~ "Passo 8/11"
     # skill_b → {58, 70}; count is the explicit value entered before capture.
     click.(29.0, 35.0)
+
+    # merged Pokémon steps: hp_a {30,40} → hp_b {90,60} → photo {40,50}
+    assert render(view) =~ "Passo 9/11"
+    click.(15.0, 20.0)
+    click.(45.0, 30.0)
+    assert render(view) =~ "Passo 11/11"
+    click.(20.0, 25.0)
 
     assert render(view) =~ "linhas de base"
     view |> element("button", "Capturar linhas de base") |> render_click()
@@ -95,6 +102,8 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.neutral_point == {52, 36}
     assert calib.skill_bar_region == {10, 60, 48, 10}
     assert calib.skill_bar_count == 8
+    assert calib.pokemon_hp_region == {30, 40, 60, 20}
+    assert calib.pokemon_photo_point == {40, 50}
     assert Settings.get(:skill_keys) == ["6", "5", "4", "3", "2", "1", "7", "8"]
     assert length(calib.glow_baselines) == 10
     assert calib.suggested_glow_threshold == 12.0
@@ -185,8 +194,8 @@ defmodule PokexWeb.CalibrationLiveTest do
     |> form("#skill-count-form", skill_bar: %{count: "6"})
     |> render_change()
 
-    view |> element("button", "Recalibrar só as skills") |> render_click()
-    assert render(view) =~ "7/8"
+    view |> element("button", "Só as skills") |> render_click()
+    assert render(view) =~ "barra de skills"
 
     click = fn x, y ->
       render_hook(view, "img_click", %{
@@ -201,7 +210,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     # skill_a → {20, 20}
     click.(10.0, 10.0)
-    assert render(view) =~ "8/8"
+    assert render(view) =~ "última skill"
     # skill_b → {80, 60}
     click.(40.0, 30.0)
 
@@ -245,7 +254,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     {:ok, view, _} = live(conn, ~p"/calibration")
 
-    view |> element("button", "Calibrar vida do Pokémon") |> render_click()
+    view |> element("button", "Só a vida do Pokémon") |> render_click()
     assert render(view) =~ "barra de VIDA"
 
     click = fn x, y ->

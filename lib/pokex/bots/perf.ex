@@ -23,6 +23,14 @@ defmodule Pokex.Bots.Perf do
     cast(server, {:count, normalize_key(key)})
   end
 
+  @doc "Current-window and last-flushed-window stats, for the panel's capture metrics."
+  def snapshot(server \\ __MODULE__) do
+    case GenServer.whereis(server) do
+      nil -> %{current: %{}, last_window: %{}, window_ms: 0}
+      _pid -> GenServer.call(server, :snapshot)
+    end
+  end
+
   defp cast(server, message) do
     case GenServer.whereis(server) do
       nil -> :ok
@@ -39,7 +47,7 @@ defmodule Pokex.Bots.Perf do
         Application.get_env(:pokex, :perf_log_interval_ms, @default_interval_ms)
       )
 
-    state = %{interval_ms: interval, stats: %{}}
+    state = %{interval_ms: interval, stats: %{}, last_window: %{}}
 
     if enabled?(interval), do: Process.send_after(self(), :flush, interval)
     {:ok, state}
@@ -55,6 +63,13 @@ defmodule Pokex.Bots.Perf do
   end
 
   @impl true
+  def handle_call(:snapshot, _from, state) do
+    {:reply,
+     %{current: state.stats, last_window: state.last_window, window_ms: state.interval_ms},
+     state}
+  end
+
+  @impl true
   def handle_info(:flush, %{interval_ms: interval, stats: stats} = state) do
     if map_size(stats) > 0 do
       stats
@@ -65,7 +80,7 @@ defmodule Pokex.Bots.Perf do
     end
 
     if enabled?(interval), do: Process.send_after(self(), :flush, interval)
-    {:noreply, %{state | stats: %{}}}
+    {:noreply, %{state | stats: %{}, last_window: stats}}
   end
 
   defp enabled?(interval), do: is_integer(interval) and interval > 0

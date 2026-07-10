@@ -229,10 +229,18 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   # The freshest battle picture, or nil (stale/missing → Logic acts time-only, fail-safe).
+  # The stale counter matters: on a static battle list the poll is combat's ONLY driver (no
+  # content change → no broadcast), so a stretch of stale polls means combat is flying blind —
+  # exactly the "killed the first, never Tabbed the next" wedge. Watch combat.poll_stale in the
+  # perf dump next to the capture queue times.
   defp current_obs do
     case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now()) do
-      {:ok, obs} -> obs
-      _stale_or_missing -> nil
+      {:ok, obs} ->
+        obs
+
+      _stale_or_missing ->
+        Pokex.Bots.Perf.count("combat.poll_stale")
+        nil
     end
   end
 

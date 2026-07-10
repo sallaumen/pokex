@@ -212,7 +212,14 @@ defmodule Pokex.Settings do
     hunt_cooldown_ms: 1_500,
     skill_burst_every_ms: 300,
     # Battle observations older than this are treated as unknown by combat (fail-safe: no keys).
-    combat_world_max_age_ms: 600,
+    # MUST outlast the broker's worst case, not just the feed cadence: when SCK is down the
+    # screencapture fallback runs ~450-580ms per capture PLUS ~500ms of broker queueing (measured
+    # on Lucas's perf dump, 2026-07-10), so battle entries routinely age past the old 600 under
+    # load. That starved post-kill hunting — a static battle list never broadcasts, the poll was
+    # the only driver, and every poll read "stale" → nil → combat never Tabbed the next fished
+    # enemy. 2.5s still bounds how old a picture may act (enemy rows linger for many seconds),
+    # while surviving a fully queued fallback pipeline.
+    combat_world_max_age_ms: 2_500,
     # --- Keyboard focus guard --------------------------------------------------------------------
     # System Events keystrokes land in the FRONTMOST app: with the panel focused (watching the
     # activity feed in the browser), every bot key typed into Chrome and the game never saw it —

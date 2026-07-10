@@ -268,6 +268,41 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  test "a stopped stream is never retried — straight to fallback (SCK can't resume it)" do
+    start_supervised!(
+      {Pokex.CaptureBackendFake,
+       %{
+         capture: [
+           {:error,
+            {:screen_capture_kit,
+             "ScreenCaptureKit stream stopped: Error Domain=... Code=-3805 " <>
+               "\"Failed during stream due to application connection being interrupted\""}}
+         ]
+       }}
+    )
+
+    {:ok, pid} =
+      Capture.start_link(
+        name: :cap_sck_stopped,
+        screen_capture_kit: Pokex.CaptureBackendFake,
+        sck_capture_retries: 3,
+        sck_retry_sleep_ms: 0
+      )
+
+    assert {:ok, _path} = Capture.grab({1, 2, 3, 4}, "stopped.png", :cap_sck_stopped)
+
+    # exactly ONE SCK attempt (no retries on the dead stream), the zombie helper is stopped,
+    # and the capture was served by the screencapture fallback
+    assert Pokex.CaptureBackendFake.calls()
+           |> Enum.filter(&match?({:capture, _, _, _}, &1))
+           |> length() == 1
+
+    assert Enum.any?(Pokex.CaptureBackendFake.calls(), &match?({:stop, _}, &1))
+    assert Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, _}, &1))
+
+    GenServer.stop(pid)
+  end
+
   test "screen capture kit falls back to screencapture after retry exhaustion" do
     start_supervised!(
       {Pokex.CaptureBackendFake,

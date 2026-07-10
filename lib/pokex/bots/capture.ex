@@ -309,8 +309,13 @@ defmodule Pokex.Bots.Capture do
   # reason, e.g. "no frame available yet") — safe to retry on the same warm port. Anything else
   # (:timeout, :port_closed, a bad/partial response) means the stream is broken/desynced, so we do
   # NOT retry the same port.
+  #
+  # EXCEPT a stopped stream: SCK never resumes one (-3805 "connection interrupted" on screen
+  # lock/sleep/display change is terminal), so the helper is a zombie that will answer the same
+  # error forever. Retrying only delays the real cure — fall back NOW and let the scheduled
+  # recovery start a fresh helper.
   defp sck_retryable_capture_error?({:screen_capture_kit, reason}) when is_binary(reason),
-    do: true
+    do: not String.contains?(reason, "stream stopped")
 
   defp sck_retryable_capture_error?(_reason), do: false
 

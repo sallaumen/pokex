@@ -80,7 +80,7 @@ defmodule Pokex.Settings do
     # immediately instead of waiting ~2s. A REAL/building bite also resets it (see
     # the glow clauses), so a live line is never cut short. Raise it if good lines
     # get recast mid-wait — watch the "N/M sem bolha" counter in the feed.
-    watch_dead_streak_needed: 10,
+    watch_dead_streak_needed: 5,
     # A locked target that hasn't died in this long isn't a real hostile (our own
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,

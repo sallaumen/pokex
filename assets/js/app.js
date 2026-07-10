@@ -50,6 +50,40 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {...colocatedHooks, ImgClick, FishingLab},
 })
 
+let miniGameAudioContext
+
+const playMiniGameTone = transition => {
+  const AudioContext = window.AudioContext || window.webkitAudioContext
+  if (!AudioContext) return
+
+  miniGameAudioContext = miniGameAudioContext || new AudioContext()
+
+  if (miniGameAudioContext.state === "suspended") {
+    miniGameAudioContext.resume().catch(() => {})
+  }
+
+  const now = miniGameAudioContext.currentTime
+  const notes = transition === "entered" ? [740, 988] : [988, 660]
+  const gain = miniGameAudioContext.createGain()
+  gain.connect(miniGameAudioContext.destination)
+  gain.gain.setValueAtTime(0.0001, now)
+  gain.gain.exponentialRampToValueAtTime(0.12, now + 0.015)
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.34)
+
+  notes.forEach((frequency, index) => {
+    const osc = miniGameAudioContext.createOscillator()
+    osc.type = "sine"
+    osc.frequency.setValueAtTime(frequency, now + index * 0.12)
+    osc.connect(gain)
+    osc.start(now + index * 0.12)
+    osc.stop(now + index * 0.12 + 0.16)
+  })
+}
+
+window.addEventListener("phx:mini-game-transition", event => {
+  playMiniGameTone(event.detail?.transition)
+})
+
 // Show progress bar on live navigation and form submits
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))

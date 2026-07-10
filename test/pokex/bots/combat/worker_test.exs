@@ -154,6 +154,8 @@ defmodule Pokex.Bots.Combat.WorkerTest.FailingRig do
   @impl true
   def press(_combo), do: :ok
   @impl true
+  def press_many(_combos, _opts), do: :ok
+  @impl true
   def click(_button, _point), do: {:error, :boom}
   @impl true
   def move(_point), do: :ok

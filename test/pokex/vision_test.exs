@@ -22,9 +22,94 @@ defmodule Pokex.VisionTest do
   end
 
   test "bubble_count counts bright-cyan bubble pixels, not dark water or the red bait" do
-    assert Vision.bubble_count(uniform(4, 4, {100, 200, 220})) == 16
+    assert Vision.bubble_count(uniform(4, 4, {40, 180, 220})) == 16
+    assert Vision.bubble_count(uniform(4, 4, {20, 125, 170})) == 16
+    assert Vision.bubble_count(uniform(4, 4, {120, 210, 230})) == 0
+    assert Vision.bubble_count(uniform(4, 4, {20, 95, 170})) == 0
     assert Vision.bubble_count(uniform(4, 4, {30, 80, 150})) == 0
     assert Vision.bubble_count(uniform(4, 4, {200, 60, 30})) == 0
+  end
+
+  test "fishing_signal ignores cyan map glints when no lure is present" do
+    frame = uniform(64, 64, {20, 125, 170})
+
+    assert Vision.fishing_signal(frame) == %{
+             bubble_count: 0,
+             lure_count: 0,
+             line_present?: false
+           }
+  end
+
+  test "fishing_signal counts cyan near the red lure only" do
+    frame = uniform(96, 96, {30, 80, 150})
+
+    frame =
+      for x <- 44..51, y <- 44..51, reduce: frame do
+        acc -> put_px(acc, x, y, {210, 55, 30})
+      end
+
+    frame =
+      for x <- 34..61, y <- 34..61, reduce: frame do
+        acc ->
+          if x in 44..51 and y in 44..51 do
+            acc
+          else
+            put_px(acc, x, y, {20, 125, 170})
+          end
+      end
+
+    frame =
+      for x <- 0..15, y <- 0..15, reduce: frame do
+        acc -> put_px(acc, x, y, {20, 125, 170})
+      end
+
+    signal = Vision.fishing_signal(frame, bubble_radius_px: 24)
+    assert signal.line_present?
+    assert signal.lure_count == 64
+    assert signal.bubble_count == 28 * 28 - 64
+  end
+
+  test "fishing_signal does not treat lure-coloured pixels alone as a live line" do
+    frame = uniform(96, 96, {30, 80, 150})
+
+    frame =
+      for x <- 44..56, y <- 44..56, reduce: frame do
+        acc -> put_px(acc, x, y, {210, 55, 30})
+      end
+
+    signal = Vision.fishing_signal(frame, bubble_radius_px: 24)
+    assert signal.lure_count > 20
+    assert signal.bubble_count == 0
+    refute signal.line_present?
+  end
+
+  test "fishing_signal prefers the lure candidate near the expected center" do
+    frame = uniform(160, 160, {30, 80, 150})
+
+    frame =
+      for x <- 70..77, y <- 78..85, reduce: frame do
+        acc -> put_px(acc, x, y, {210, 55, 30})
+      end
+
+    frame =
+      for x <- 64..92, y <- 70..98, reduce: frame do
+        acc ->
+          if x in 70..77 and y in 78..85 do
+            acc
+          else
+            put_px(acc, x, y, {20, 125, 170})
+          end
+      end
+
+    frame =
+      for x <- 116..150, y <- 116..150, reduce: frame do
+        acc -> put_px(acc, x, y, {210, 55, 30})
+      end
+
+    signal = Vision.fishing_signal(frame, expected_center: {80, 80}, bubble_radius_px: 32)
+    assert signal.line_present?
+    assert signal.bubble_count > 600
+    assert signal.lure_count < 200
   end
 
   test "suggested_threshold has margin over natural variation, floor of 12" do

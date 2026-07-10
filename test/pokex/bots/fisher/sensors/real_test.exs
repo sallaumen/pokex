@@ -23,19 +23,36 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
-  test "glow returns the raw cyan bubble count (driver applies the threshold)", %{tmp_dir: tmp} do
+  test "glow returns the focused fishing signal (driver applies the threshold)", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
-    # 24x24 = 576 cyan pixels
-    bubbly = Pokex.PngFixtures.write!(Path.join(tmp, "bubbly.png"), rows(24, 24, {100, 200, 220}))
+
+    bubbly =
+      Pokex.PngFixtures.write!(
+        Path.join(tmp, "bubbly.png"),
+        for y <- 0..63 do
+          for x <- 0..63 do
+            cond do
+              x in 28..35 and y in 28..35 -> {210, 55, 30, 255}
+              x in 10..53 and y in 10..53 -> {40, 180, 220, 255}
+              true -> {30, 80, 150, 255}
+            end
+          end
+        end
+      )
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, bubbly}]})
 
-    assert {:ok, %{glow: 576, cursor: {500, 500}}} =
+    assert {:ok, %{glow: signal, cursor: {500, 500}}} =
              Sensors.Real.observe(
                [:cursor, :glow],
                calib(tmp, baseline),
                Pokex.Settings.defaults()
              )
+
+    assert signal.line_present?
+    assert signal.lure_count == 64
+    assert signal.bubble_count > 1_000
+    assert {:capture, {176, 76, 448, 448}, "glow.png"} in Pokex.Rig.Fake.calls()
   end
 
   @tag :tmp_dir
@@ -46,8 +63,10 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, calm}]})
 
-    assert {:ok, %{glow: 0}} =
+    assert {:ok, %{glow: signal}} =
              Sensors.Real.observe([:glow], calib(tmp, baseline), Pokex.Settings.defaults())
+
+    assert signal == %{bubble_count: 0, lure_count: 0, line_present?: false}
   end
 
   @tag :tmp_dir

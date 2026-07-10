@@ -14,10 +14,10 @@ defmodule Pokex.Calibration do
     :battle_region,
     :arena_region,
     :neutral_point,
-    # Optional (nil until calibrated separately): the skill hotbar strip, read by
-    # SkillBar to track which skills are ready. Added without disturbing the main
-    # 6-step wizard so an existing calibration keeps working.
+    # Optional for backwards compatibility with calibrations created before the
+    # skill bar became part of the main wizard.
     :skill_bar_region,
+    :skill_bar_count,
     :battle_baseline,
     :suggested_glow_threshold,
     glow_baselines: []
@@ -42,6 +42,7 @@ defmodule Pokex.Calibration do
       "arena_region" => Tuple.to_list(calib.arena_region),
       "neutral_point" => Tuple.to_list(calib.neutral_point),
       "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
+      "skill_bar_count" => calib.skill_bar_count,
       "glow_baselines" => calib.glow_baselines,
       "battle_baseline" => calib.battle_baseline,
       "suggested_glow_threshold" => calib.suggested_glow_threshold
@@ -64,6 +65,7 @@ defmodule Pokex.Calibration do
          arena_region: to_tuple(map["arena_region"]),
          neutral_point: to_tuple(map["neutral_point"]),
          skill_bar_region: to_tuple(map["skill_bar_region"]),
+         skill_bar_count: map["skill_bar_count"],
          glow_baselines: map["glow_baselines"] || [],
          battle_baseline: map["battle_baseline"],
          suggested_glow_threshold: map["suggested_glow_threshold"]
@@ -73,6 +75,18 @@ defmodule Pokex.Calibration do
 
   def battle_strip(%__MODULE__{battle_region: region}), do: battle_strip(region)
   def battle_strip({x, y, w, h}), do: {x + w - @strip_width, y, @strip_width, h}
+
+  @doc """
+  A wider fishing read around the calibrated bait point.
+
+  The 64x64 `glow_region` is still the precise calibration mark, but the live
+  SCK reader can safely sample a larger water patch: the cyan predicate rejects
+  normal blue water, and the extra margin absorbs quick-cast landing drift or a
+  slightly-off calibration click.
+  """
+  def glow_search_region(%__MODULE__{glow_region: region} = calib, margin) do
+    grow_region(region, margin, calib.screen_w, calib.screen_h)
+  end
 
   @doc "Width (POINTS) of the rightmost pokeball-icon strip cropped off the battle body."
   def strip_width, do: @strip_width
@@ -137,6 +151,20 @@ defmodule Pokex.Calibration do
 
   def frame_to_screen(%__MODULE__{scale: scale}, {rx, ry, _w, _h}, {fx, fy}),
     do: {rx + round(fx / scale), ry + round(fy / scale)}
+
+  defp grow_region({x, y, w, h}, margin, screen_w, screen_h) do
+    margin = if is_number(margin), do: max(round(margin), 0), else: 0
+
+    left = max(x - margin, 0)
+    top = max(y - margin, 0)
+    right = min_edge(x + w + margin, screen_w)
+    bottom = min_edge(y + h + margin, screen_h)
+
+    {left, top, max(right - left, 1), max(bottom - top, 1)}
+  end
+
+  defp min_edge(value, nil), do: value
+  defp min_edge(value, limit), do: min(value, limit)
 
   defp to_tuple(nil), do: nil
   defp to_tuple(list), do: List.to_tuple(list)

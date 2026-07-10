@@ -30,6 +30,18 @@ defmodule Pokex.Vision do
 
   defp sum_abs_diff(<<>>, <<>>, n, acc), do: acc / (3 * n)
 
+  # A pixel counts as "vivid" (part of a live coloured icon, not the grey cooldown overlay
+  # or its white number) when it is both strongly saturated and not near-black.
+  @vivid_sat 60
+  @vivid_bright 60
+
+  @doc "True when a frame has the dark chrome and icon/text content of the skill bar."
+  def skill_bar_frame?(%Frame{rgba: rgba}) do
+    {dark, content, total} = skill_bar_signature(rgba, 0, 0, 0)
+
+    total > 0 and dark * 100 >= total * 10 and content * 100 >= total
+  end
+
   @doc """
   Locates the hostile creature inside the arena frame by clustering pure-red
   pixels (the floating red name text). Species-agnostic. Returns frame PIXELS.
@@ -76,26 +88,188 @@ defmodule Pokex.Vision do
 
   @doc """
   Counts the TEAL "bite" bubble pixels around the bait, by HUE not brightness so
-  it works day and night. A bubble is teal — green and blue both above red AND
-  green not far below blue. The navy water is blue-DOMINANT (measured night water
-  (14,28,59): green is only ~0.47·blue), so the `5·g >= 3·b` (green ≥ 0.6·blue)
-  ratio rejects water at ANY brightness while teal bubbles pass. `min_sum` floors
-  out near-black sensor noise. Earlier absolute thresholds (g,b ≥ 150) missed the
-  dimmer night bubbles entirely (the "0px at night" bug).
+  it works day and night. A bubble is teal: green and blue both above red AND
+  green not far below blue. Normal map glints in the example screenshot can be
+  bright but skew too blue, so the `10*g >= 7*b` (green >= 0.70*blue) ratio keeps
+  those out while cyan bubbles pass. `min_sum` floors out near-black sensor noise.
   """
   def bubble_count(%Frame{rgba: rgba}, opts \\ []) do
     min_sum = Keyword.get(opts, :min_sum, 60)
     teal_pixels(rgba, min_sum, 0)
   end
 
-  defp teal_pixels(<<r, g, b, _a, rest::binary>>, min_sum, n)
-       when g > r and b > r and 5 * g >= 3 * b and g + b >= min_sum,
-       do: teal_pixels(rest, min_sum, n + 1)
-
-  defp teal_pixels(<<_::32, rest::binary>>, min_sum, n),
-    do: teal_pixels(rest, min_sum, n)
+  defp teal_pixels(<<r, g, b, _a, rest::binary>>, min_sum, n) do
+    n = if bubble_pixel?(r, g, b, min_sum), do: n + 1, else: n
+    teal_pixels(rest, min_sum, n)
+  end
 
   defp teal_pixels(<<>>, _min_sum, n), do: n
+
+  defp bubble_pixel?(r, g, b, min_sum) do
+    r <= 80 and g >= 115 and b >= 150 and g > r + 45 and b > r + 70 and
+      10 * g >= 7 * b and g + b >= min_sum
+  end
+
+  @doc """
+  Fishing-specific reading for the expanded water search region.
+
+  A large water crop is intentionally tolerant to calibration drift, but it also
+  includes random map glints. To avoid treating those glints as a live line or a
+  bite, first locate the red/orange lure pixels, then count cyan pixels only near
+  that lure. If no lure is found, the signal is empty even if the water texture
+  contains cyan highlights.
+  """
+  def fishing_signal(%Frame{} = frame, opts \\ []) do
+    min_lure_pixels = Keyword.get(opts, :min_lure_pixels, 20)
+    radius = Keyword.get(opts, :bubble_radius_px, 48)
+    line_present_min = Keyword.get(opts, :line_present_min_px, 100)
+
+    with {:ok, center, lure_count} <- lure_center(frame, opts) do
+      bubble_count = bubble_count_near(frame, center, radius, opts)
+
+      %{
+        bubble_count: bubble_count,
+        lure_count: lure_count,
+        line_present?: lure_count >= min_lure_pixels and bubble_count >= line_present_min
+      }
+    else
+      :none -> %{bubble_count: 0, lure_count: 0, line_present?: false}
+    end
+  end
+
+  defp lure_center(%Frame{width: width, height: height, rgba: rgba} = frame, opts) do
+    bucket_px = Keyword.get(opts, :lure_bucket_px, 16)
+    min_bucket_pixels = Keyword.get(opts, :lure_candidate_min_pixels, 5)
+
+    candidates =
+      rgba
+      |> lure_buckets(0, width, bucket_px, %{})
+      |> Map.values()
+      |> Enum.filter(&(&1.count >= min_bucket_pixels))
+
+    with candidate when not is_nil(candidate) <- select_lure_candidate(candidates, frame, opts) do
+      center = {div(candidate.sum_x, candidate.count), div(candidate.sum_y, candidate.count)}
+      radius = Keyword.get(opts, :lure_cluster_radius_px, max(18, bucket_px + div(bucket_px, 2)))
+      count = lure_count_near(frame, center, radius)
+
+      if count > 0 do
+        {:ok, center, count}
+      else
+        :none
+      end
+    else
+      _ ->
+        fallback_lure_center(rgba, width, height)
+    end
+  end
+
+  defp select_lure_candidate([], _frame, _opts), do: nil
+
+  defp select_lure_candidate(candidates, frame, opts) do
+    expected = Keyword.get(opts, :expected_center)
+    max_distance = Keyword.get(opts, :max_lure_distance_px, max(frame.width, frame.height))
+    radius = Keyword.get(opts, :bubble_radius_px, 48)
+
+    candidates
+    |> Enum.filter(fn candidate ->
+      expected == nil or candidate_distance(candidate, expected) <= max_distance
+    end)
+    |> Enum.max_by(
+      fn candidate ->
+        center = {div(candidate.sum_x, candidate.count), div(candidate.sum_y, candidate.count)}
+        bubbles = bubble_count_near(frame, center, radius, opts)
+
+        distance_penalty =
+          if expected, do: candidate_distance(candidate, expected) * 0.35, else: 0
+
+        bubbles * 4 + min(candidate.count, 64) - distance_penalty
+      end,
+      fn -> nil end
+    )
+  end
+
+  defp candidate_distance(candidate, {ex, ey}) do
+    cx = candidate.sum_x / candidate.count
+    cy = candidate.sum_y / candidate.count
+    :math.sqrt(:math.pow(cx - ex, 2) + :math.pow(cy - ey, 2))
+  end
+
+  defp lure_buckets(<<r, g, b, _a, rest::binary>>, index, width, bucket_px, acc) do
+    acc =
+      if lure_pixel?(r, g, b) do
+        x = rem(index, width)
+        y = div(index, width)
+        key = {div(x, bucket_px), div(y, bucket_px)}
+
+        Map.update(acc, key, %{count: 1, sum_x: x, sum_y: y}, fn bucket ->
+          %{bucket | count: bucket.count + 1, sum_x: bucket.sum_x + x, sum_y: bucket.sum_y + y}
+        end)
+      else
+        acc
+      end
+
+    lure_buckets(rest, index + 1, width, bucket_px, acc)
+  end
+
+  defp lure_buckets(<<>>, _index, _width, _bucket_px, acc), do: acc
+
+  defp fallback_lure_center(rgba, width, _height) do
+    case lure_stats(rgba, 0, width, 0, 0, 0) do
+      {0, _sum_x, _sum_y} -> :none
+      {count, sum_x, sum_y} -> {:ok, {div(sum_x, count), div(sum_y, count)}, count}
+    end
+  end
+
+  defp lure_pixel?(r, g, b),
+    do: r >= 120 and r >= g + 25 and r >= b + 25 and g >= 20 and g <= 190 and b <= 190
+
+  defp lure_stats(<<r, g, b, _a, rest::binary>>, index, width, count, sum_x, sum_y)
+       when r >= 120 and r >= g + 25 and r >= b + 25 and g >= 20 and g <= 190 and b <= 190 do
+    x = rem(index, width)
+    y = div(index, width)
+    lure_stats(rest, index + 1, width, count + 1, sum_x + x, sum_y + y)
+  end
+
+  defp lure_stats(<<_::32, rest::binary>>, index, width, count, sum_x, sum_y),
+    do: lure_stats(rest, index + 1, width, count, sum_x, sum_y)
+
+  defp lure_stats(<<>>, _index, _width, count, sum_x, sum_y), do: {count, sum_x, sum_y}
+
+  defp bubble_count_near(%Frame{width: width, rgba: rgba}, {cx, cy}, radius, opts) do
+    min_sum = Keyword.get(opts, :min_sum, 60)
+    radius2 = max(radius, 0) * max(radius, 0)
+    teal_pixels_near(rgba, 0, width, cx, cy, radius2, min_sum, 0)
+  end
+
+  defp lure_count_near(%Frame{width: width, rgba: rgba}, {cx, cy}, radius) do
+    radius2 = max(radius, 0) * max(radius, 0)
+    lure_pixels_near(rgba, 0, width, cx, cy, radius2, 0)
+  end
+
+  defp teal_pixels_near(<<r, g, b, _a, rest::binary>>, index, width, cx, cy, radius2, min_sum, n) do
+    x = rem(index, width)
+    y = div(index, width)
+    dx = x - cx
+    dy = y - cy
+
+    n = if dx * dx + dy * dy <= radius2 and bubble_pixel?(r, g, b, min_sum), do: n + 1, else: n
+
+    teal_pixels_near(rest, index + 1, width, cx, cy, radius2, min_sum, n)
+  end
+
+  defp teal_pixels_near(<<>>, _index, _width, _cx, _cy, _radius2, _min_sum, n), do: n
+
+  defp lure_pixels_near(<<r, g, b, _a, rest::binary>>, index, width, cx, cy, radius2, n) do
+    x = rem(index, width)
+    y = div(index, width)
+    dx = x - cx
+    dy = y - cy
+
+    n = if dx * dx + dy * dy <= radius2 and lure_pixel?(r, g, b), do: n + 1, else: n
+    lure_pixels_near(rest, index + 1, width, cx, cy, radius2, n)
+  end
+
+  defp lure_pixels_near(<<>>, _index, _width, _cx, _cy, _radius2, n), do: n
 
   @doc "True when the battle strip contains the red/white pokeball icon of a wild pokemon."
   def wild_present?(%Frame{rgba: rgba}, opts \\ []) do
@@ -420,20 +594,15 @@ defmodule Pokex.Vision do
 
   All three thresholds are tunable (measured live from the diagnostic dump, which exports
   these per-slot numbers). Options: `:count` (7), `:min_brightness` (140), `:min_saturation`
-  (40), `:min_vivid_pct` (6). Returns `[%{brightness, saturation, vivid_pct, state}]`, left→right.
+  (40), `:min_vivid_pct` (7). Returns `[%{brightness, saturation, vivid_pct, state}]`, left→right.
   """
-  # A pixel counts as "vivid" (part of a live coloured icon, not the grey cooldown overlay
-  # or its white number) when it is both strongly saturated and not near-black.
-  @vivid_sat 60
-  @vivid_bright 60
-
   def skill_slots(%Frame{width: w, rgba: rgba}, opts \\ []) do
     count = (Keyword.get(opts, :count) || 7) |> clamp(1, w)
     # `|| default` (not Keyword's default) so a nil setting value — a caller passing a partial
     # settings map — still yields a number instead of crashing the `>=` comparison.
     min_b = Keyword.get(opts, :min_brightness) || 140
     min_s = Keyword.get(opts, :min_saturation) || 40
-    min_vivid = Keyword.get(opts, :min_vivid_pct) || 6
+    min_vivid = Keyword.get(opts, :min_vivid_pct) || 7
     slot_w = max(div(w, count), 1)
 
     acc = skill_slot_acc(rgba, 0, w, count, slot_w, %{})
@@ -457,6 +626,20 @@ defmodule Pokex.Vision do
   @doc "The per-slot skill states (`:ready | :cooldown`), left→right. See `skill_slots/2`."
   def skill_states(%Frame{} = frame, opts \\ []),
     do: frame |> skill_slots(opts) |> Enum.map(& &1.state)
+
+  defp skill_bar_signature(<<r, g, b, _a, rest::binary>>, dark, content, total) do
+    bright = max(r, max(g, b))
+    sat = bright - min(r, min(g, b))
+    dark = if bright <= 45, do: dark + 1, else: dark
+    white? = min(r, min(g, b)) >= 180 and sat <= 25
+
+    content =
+      if (sat >= @vivid_sat and bright >= @vivid_bright) or white?, do: content + 1, else: content
+
+    skill_bar_signature(rest, dark, content, total + 1)
+  end
+
+  defp skill_bar_signature(<<>>, dark, content, total), do: {dark, content, total}
 
   defp skill_slot_acc(<<r, g, b, _a, rest::binary>>, i, w, count, slot_w, acc) do
     slot = min(div(rem(i, w), slot_w), count - 1)
@@ -546,7 +729,7 @@ defmodule Pokex.Vision do
       r >= 200 and g <= 60 and b <= 60 -> @rank_pokeball_red
       r >= 130 and g <= 70 and b <= 70 -> @rank_lock_red
       g >= 120 and g >= r + 40 and g >= b + 40 -> @rank_hp_green
-      g > r and b > r and 5 * g >= 3 * b and g + b >= 60 -> @rank_cyan
+      bubble_pixel?(r, g, b, 60) -> @rank_cyan
       r + g + b <= 60 -> @rank_dark
       true -> @rank_other
     end

@@ -75,10 +75,17 @@ defmodule Pokex.Bots.BotSupervisorTest do
     fishing = :"#{tag}_fishing"
     combat = :"#{tag}_combat"
     loot = :"#{tag}_loot"
+    mini_game = :"#{tag}_mini_game"
 
     start_supervised!(
       {BotSupervisor,
-       name: nil, body: body, guardian: guardian, fishing: fishing, combat: combat, loot: loot}
+       name: nil,
+       body: body,
+       guardian: guardian,
+       fishing: fishing,
+       combat: combat,
+       loot: loot,
+       mini_game: mini_game}
     )
 
     {fishing, combat, loot}

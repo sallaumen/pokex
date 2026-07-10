@@ -36,6 +36,17 @@ defmodule Pokex.Bots.Fishing.WorkerTest.SlowRig do
   end
 
   @impl true
+  def press_many(combos, opts) do
+    tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
+
+    Enum.each(combos, fn combo ->
+      Enum.each(1..tap_count, fn _tap -> press(combo) end)
+    end)
+
+    :ok
+  end
+
+  @impl true
   def move(_point), do: :ok
   @impl true
   def capture_sequence(_point), do: :ok
@@ -124,7 +135,7 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     # (Quick Cast — no water click anymore)
     assert {:click, :left, {420, 350}} in calls
     assert {:move, {400, 300}} in calls
-    assert {:press, "v"} in calls
+    assert {:press, "shift+v"} in calls
     refute {:click, :left, {400, 300}} in calls
 
     assert :ok = Worker.halt(worker)
@@ -143,7 +154,27 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     # at least two rod presses by the time we've hooked once: the atomic cast arms
     # the rod, and the bite pulls it. (Each cast re-arms, so the count keeps growing.)
     calls = Pokex.Rig.Fake.calls()
-    assert Enum.count(calls, &(&1 == {:press, "v"})) >= 2
+    assert Enum.count(calls, &(&1 == {:press, "shift+v"})) >= 2
+  end
+
+  @tag :tmp_dir
+  test "a lure-like false positive without a live line still triggers recast", %{worker: worker} do
+    Settings.put(:watch_dead_streak_needed, 3)
+
+    fake_lure_no_line = %{bubble_count: 0, lure_count: 180, line_present?: false}
+
+    Agent.update(
+      Sensors.Fake,
+      &Map.merge(&1, %{glow: List.duplicate(fake_lure_no_line, 5)})
+    )
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    assert :ok = Worker.run(worker)
+    assert wait_for_log("re-lançando", System.monotonic_time(:millisecond) + 5_000)
+
+    calls = Pokex.Rig.Fake.calls()
+    assert Enum.count(calls, &(&1 == {:press, "shift+v"})) >= 2
   end
 
   @tag :tmp_dir
@@ -314,6 +345,8 @@ defmodule Pokex.Bots.Fishing.WorkerTest.FailingRig do
 
   @impl true
   def press(_combo), do: :ok
+  @impl true
+  def press_many(_combos, _opts), do: :ok
   @impl true
   def click(_button, _point), do: {:error, :boom}
   @impl true

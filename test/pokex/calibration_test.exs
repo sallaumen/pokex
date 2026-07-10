@@ -29,17 +29,19 @@ defmodule Pokex.CalibrationTest do
   end
 
   @tag :tmp_dir
-  test "save/load round-trips skill_bar_region, nil for older files", %{tmp_dir: tmp} do
+  test "save/load round-trips skill bar geometry/count, nil for older files", %{tmp_dir: tmp} do
     path = Path.join(tmp, "calibration.json")
 
-    Calibration.save(%{sample() | skill_bar_region: {10, 20, 300, 60}}, path)
+    Calibration.save(%{sample() | skill_bar_region: {10, 20, 300, 60}, skill_bar_count: 8}, path)
     assert {:ok, loaded} = Calibration.load(path)
     assert loaded.skill_bar_region == {10, 20, 300, 60}
+    assert loaded.skill_bar_count == 8
 
     # an old file (no skill_bar_region key) loads as nil, not a crash
     Calibration.save(sample(), path)
     assert {:ok, old} = Calibration.load(path)
     assert old.skill_bar_region == nil
+    assert old.skill_bar_count == nil
   end
 
   test "derived regions and conversion" do
@@ -57,6 +59,17 @@ defmodule Pokex.CalibrationTest do
     assert Calibration.frame_to_screen(calib, calib.arena_region, {100, 50}) == {610, 285}
     # a wild row 100px down the strip → name column, scaled: {1380+86, 120+50}
     assert Calibration.battle_row_point(calib, 100) == {1466, 170}
+  end
+
+  test "glow_search_region expands the bait read and clamps to the screen" do
+    calib = sample()
+    assert Calibration.glow_search_region(calib, 64) == {716, 306, 192, 192}
+
+    near_edge = %{calib | glow_region: {10, 20, 64, 64}}
+    assert Calibration.glow_search_region(near_edge, 64) == {0, 0, 138, 148}
+
+    far_edge = %{calib | glow_region: {1700, 1100, 64, 64}}
+    assert Calibration.glow_search_region(far_edge, 64) == {1636, 1036, 92, 81}
   end
 
   test "row_band_geometry centers the band on the click point" do

@@ -8,6 +8,7 @@ defmodule Pokex.Rig do
   @type region :: {integer, integer, integer, integer}
 
   @callback press(String.t()) :: :ok | {:error, term}
+  @callback press_many([String.t()], keyword) :: :ok | {:error, term}
   @callback click(:left | :right, point) :: :ok | {:error, term}
   @callback move(point) :: :ok | {:error, term}
   @callback capture_sequence(point) :: :ok | {:error, term}

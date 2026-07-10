@@ -262,6 +262,23 @@ defmodule Pokex.Bots.Combat.LogicTest do
       {_l, [{:press, "1"}]} = Logic.step(l, obs, 1300)
     end
 
+    test "can fire a configurable skill burst before reading the battle again" do
+      cfg =
+        config()
+        |> Map.put(:skill_keys, ["1", "2", "3", "4"])
+        |> Map.put(:combat_skill_burst_size, 3)
+
+      {l, []} = Logic.start(Logic.new(cfg), 0)
+      {l, _select} = Logic.step(l, battle_obs([0]), 100)
+
+      {l, actions} = Logic.step(l, battle_obs([0], ring(0)), 200)
+      assert actions == [{:press, "1"}, {:press, "2"}, {:press, "3"}]
+      assert l.state == :fighting
+
+      {_l, actions} = Logic.step(l, battle_obs([0], ring(0)), 300)
+      assert actions == [{:press, "4"}, {:press, "1"}, {:press, "2"}]
+    end
+
     test "a single ring blink does NOT end the fight (debounce), two in a row → loot" do
       cfg = Map.put(config(), :target_lost_streak, 2)
       l = %{advance_to_attacking() | config: cfg}

@@ -17,6 +17,7 @@ defmodule Pokex.Diagnostics.Report do
   """
 
   alias Pokex.{Calibration, Home, Rig, Settings}
+  alias Pokex.Bots.SkillBar
   alias Pokex.Vision
   alias Pokex.Vision.Frame
 
@@ -61,6 +62,8 @@ defmodule Pokex.Diagnostics.Report do
   end
 
   defp build(rig, calib, settings, now_ms) do
+    glow_region = glow_region(calib, settings)
+
     %{
       captured_at_ms: now_ms,
       captured_at: iso8601(now_ms),
@@ -68,7 +71,11 @@ defmodule Pokex.Diagnostics.Report do
       settings: settings,
       regions: %{
         glow:
-          region_report(rig, calib.glow_region, "diag_glow.png", &glow_metrics(&1, settings),
+          region_report(
+            rig,
+            glow_region,
+            "diag_glow.png",
+            &glow_metrics(&1, calib, glow_region, settings),
             matrix: [cols: 16]
           ),
         battle_body:
@@ -97,35 +104,48 @@ defmodule Pokex.Diagnostics.Report do
     }
   end
 
+  defp glow_region(calib, settings) do
+    Calibration.glow_search_region(calib, settings[:glow_search_margin] || 0)
+  end
+
   # The skill hotbar with the per-slot brightness/saturation/state — the numbers to
   # tune skill_ready_min_brightness/saturation against. `calibrated?: false` when the
   # skill bar hasn't been calibrated yet.
   defp skill_bar_report(_rig, %Calibration{skill_bar_region: nil}, _settings),
     do: %{calibrated?: false}
 
-  defp skill_bar_report(rig, %Calibration{skill_bar_region: region}, settings) do
+  defp skill_bar_report(rig, %Calibration{skill_bar_region: region} = calib, settings) do
     case capture_frame(rig, region, "diag_skill_bar.png") do
       {:ok, frame, image} ->
-        slots =
-          Vision.skill_slots(frame,
-            count: settings[:skill_bar_count],
-            min_brightness: settings[:skill_ready_min_brightness],
-            min_saturation: settings[:skill_ready_min_saturation]
-          )
+        if SkillBar.valid_frame?(frame) do
+          slots = SkillBar.slots_from_frame(frame, calib, settings)
 
-        %{
-          calibrated?: true,
-          region: Tuple.to_list(region),
-          image: image,
-          width: frame.width,
-          height: frame.height,
-          thresholds: %{
-            min_brightness: settings[:skill_ready_min_brightness],
-            min_saturation: settings[:skill_ready_min_saturation]
-          },
-          states: Enum.map(slots, & &1.state),
-          slots: slots
-        }
+          %{
+            calibrated?: true,
+            valid?: true,
+            region: Tuple.to_list(region),
+            image: image,
+            width: frame.width,
+            height: frame.height,
+            slot_count: length(slots),
+            thresholds: %{
+              min_brightness: settings[:skill_ready_min_brightness],
+              min_saturation: settings[:skill_ready_min_saturation]
+            },
+            states: Enum.map(slots, & &1.state),
+            slots: slots
+          }
+        else
+          %{
+            calibrated?: true,
+            valid?: false,
+            region: Tuple.to_list(region),
+            image: image,
+            width: frame.width,
+            height: frame.height,
+            error: "a região não parece conter uma barra de skills"
+          }
+        end
 
       {:error, reason} ->
         %{calibrated?: true, region: Tuple.to_list(region), error: inspect(reason)}
@@ -156,17 +176,38 @@ defmodule Pokex.Diagnostics.Report do
   defp maybe_matrix(report, _frame, false), do: report
   defp maybe_matrix(report, frame, m_opts), do: Map.put(report, :matrix, matrix(frame, m_opts))
 
-  defp glow_metrics(frame, settings) do
-    count = Vision.bubble_count(frame)
+  defp glow_metrics(frame, calib, region, settings) do
+    signal = Vision.fishing_signal(frame, fishing_signal_opts(settings, calib, region, frame))
+    count = signal.bubble_count
     threshold = settings[:glow_threshold] || 500
     line_min = settings[:line_present_min_px] || 100
 
     %{
       bubble_count: count,
+      lure_count: signal.lure_count,
+      fishing_lure_min_pixels: settings[:fishing_lure_min_pixels] || 20,
+      fishing_bubble_radius_px: settings[:fishing_bubble_radius_px] || 48,
       glow_threshold: threshold,
       line_present_min_px: line_min,
       bite?: count > threshold,
-      line_present?: count >= line_min
+      line_present?: signal.line_present?
+    }
+  end
+
+  defp fishing_signal_opts(settings, calib, region, frame) do
+    [
+      min_lure_pixels: settings[:fishing_lure_min_pixels] || 20,
+      bubble_radius_px: settings[:fishing_bubble_radius_px] || 48,
+      line_present_min_px: settings[:line_present_min_px] || 100,
+      expected_center: expected_glow_center(calib, region, frame)
+    ]
+  end
+
+  defp expected_glow_center(%Calibration{glow_region: {gx, gy, gw, gh}}, {rx, ry, rw, rh}, frame)
+       when rw > 0 and rh > 0 do
+    {
+      round((gx + gw / 2 - rx) * frame.width / rw),
+      round((gy + gh / 2 - ry) * frame.height / rh)
     }
   end
 
@@ -276,6 +317,8 @@ defmodule Pokex.Diagnostics.Report do
       battle_body: to_list(Calibration.battle_body(calib)),
       battle_strip: to_list(Calibration.battle_strip(calib)),
       arena_region: to_list(calib.arena_region),
+      skill_bar_region: to_list(calib.skill_bar_region),
+      skill_bar_count: calib.skill_bar_count,
       suggested_glow_threshold: calib.suggested_glow_threshold
     }
   end

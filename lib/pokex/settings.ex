@@ -1,18 +1,35 @@
 defmodule Pokex.Settings do
-  @moduledoc "Runtime-tunable bot settings, persisted as JSON. Keys are a closed set."
-  use GenServer
+  @moduledoc """
+  Runtime-tunable bot settings, persisted as JSON.
 
-  @defaults %{
-    rod_key: "v",
+  The checked-in @seed_settings map is the source of truth for defaults. The file at
+  `~/.pokex/settings.json` stores ONLY the keys the user has explicitly changed, so a default
+  that isn't overridden always comes from code — changing a seed default in a new build takes
+  effect for everyone who hasn't overridden that key. (Persisting a full snapshot instead would
+  freeze every default at its first-boot value and silently shadow later code changes.)
+  """
+  use GenServer
+  require Logger
+
+  @seed_settings %{
+    rod_key: "shift+v",
     skill_keys: ["1", "2", "3"],
+    # Combat does not need the mouse once a target is locked. Fire a short keyboard-only burst
+    # per battle read, then re-check the ring/list. This keeps the mouse free for fishing and
+    # reduces capture pressure during fights.
+    combat_skill_burst_size: 3,
+    combat_skill_tap_count: 1,
+    combat_skill_gap_ms: 35,
+    combat_skill_jitter_ms: 20,
     # --- Skill-bar cooldown tracking (SkillBar reads the hotbar per-process) ---
-    # Number of skill slots on the hotbar (left→right = hotkeys "1".."N").
-    skill_bar_count: 7,
+    # Legacy fallback when an old calibration has no explicit count. New calibrations
+    # ask for 1..10 and persist that fixed geometry; cooldown frames never change it.
+    skill_bar_count: 6,
     # A slot reads :ready when its average brightness OR saturation clears these;
     # :cooldown only when BOTH are below (dark + grey overlay). MEASURED on Lucas's
     # real bar (2026-07-08 diagnostic): ready icons sit at brightness 97-131 /
-    # saturation 37-70, while a cooldown slot (darkened + white countdown) reads
-    # 48 / 8 — so 90 and 25 split the two populations cleanly with margin either way
+    # saturation 27-68, while the two measured cooldown slots read brightness 54/49,
+    # saturation 19/19 and vivid 6%/4%. The 90/25/7 floors split those populations
     # (the old 140/40 misread the dimmer pink icon as cooldown). Saturation is the
     # more reliable signal: the overlay greys the icon regardless of the number.
     skill_ready_min_brightness: 90,
@@ -23,7 +40,7 @@ defmodule Pokex.Settings do
     # both low (so it was misread as cooldown forever). The cooldown overlay greys the icon
     # and the white countdown number is colourless, so a real cooldown reads ~0% vivid. RAISE
     # it if a greyed cooldown ever reads ready; LOWER it if a small coloured icon reads cooldown.
-    skill_ready_min_vivid_pct: 6,
+    skill_ready_min_vivid_pct: 7,
     # Fishing gate (toggle in the panel): when true, a bite is HELD (line stays in
     # the water, bubbles keep flashing) and the rod is only pulled once AT LEAST ONE
     # skill in hook_skill_keys is ready — so you don't reel in a fish with nothing to
@@ -37,16 +54,19 @@ defmodule Pokex.Settings do
     # A tiny post-success pause (10–50ms) is all that stays, so the game has a
     # frame to register the previous input before the next one.
     tick_ms_watching: 100,
-    tick_ms_fighting: 150,
+    tick_ms_fighting: 300,
     tick_ms_default: 80,
     wait_focus_ms: 20,
     wait_after_equip_ms: 30,
     # Let the cast SPLASH settle before watching, so the line landing isn't read
-    # as a bite; then give the hooked pokemon time to teleport in before checking.
+    # as a bite; then give the game time to finish the hook/reel animation before
+    # the next cast. Too short here makes the next Shift+V land while the rod is
+    # still being recovered, so the cast fails and fishing relies on the dead-frame
+    # fallback to recover.
     # Widened to fully outlast the ~1-1.5s splash so most ambiguous frames never
     # even enter the sample stream (an independent second layer of defense).
     wait_cast_settle_ms: 1600,
-    wait_assess_ms: 700,
+    wait_assess_ms: 1500,
     wait_loot_ms: 30,
     wait_after_capture_ms: 50,
     watch_timeout_ms: 30_000,
@@ -60,7 +80,7 @@ defmodule Pokex.Settings do
     # immediately instead of waiting ~2s. A REAL/building bite also resets it (see
     # the glow clauses), so a live line is never cut short. Raise it if good lines
     # get recast mid-wait — watch the "N/M sem bolha" counter in the feed.
-    watch_dead_streak_needed: 4,
+    watch_dead_streak_needed: 10,
     # A locked target that hasn't died in this long isn't a real hostile (our own
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,
@@ -69,13 +89,21 @@ defmodule Pokex.Settings do
     # resting bait ring pulses higher than first thought — 800 still let resting
     # frames through as false bites. 1100 clears the resting ceiling with margin;
     # only a real bubble burst reaches it. Tunable via /diagnostics "Bolhas (ciano)".
+    #
+    # The live reader samples `glow_region` plus this margin on every side. Quick-cast
+    # throws toward the cursor but the lure lands on the nearest valid water tile, which
+    # can be ~100-180px away from the cursor on diagonal shorelines. 192 covers that
+    # landing drift; Vision then selects the local lure-like red component near the
+    # expected point so character sprites in the larger crop do not become the target.
+    glow_search_margin: 192,
+    # Inside the expanded region, find the red/orange lure first, then count cyan
+    # only near it. This keeps random water sparkles from looking like a live line.
+    fishing_lure_min_pixels: 20,
+    fishing_bubble_radius_px: 64,
     glow_threshold: 1100,
-    # Min cyan pixels for the LINE to count as present in the water (below the bite
-    # threshold). A cast line resting and waiting for a bite still pulses well above
-    # this — measured 108..759px between bites — while genuinely empty water (a
-    # dropped rod press / a cast that never landed) reads ~0. So a frame below this
-    # floor is the ONLY thing that counts toward the dead-frame recast; any pulse at
-    # or above it resets the streak, keeping a live line fishing indefinitely.
+    # Legacy/raw fallback for line presence when a sensor only returns an integer.
+    # The real sensor now prefers the lure-focused `line_present?` flag so random
+    # water sparkles do not keep a failed cast alive forever.
     line_present_min_px: 100,
     max_consecutive_failures: 5,
     hostile_scan_every: 2,
@@ -133,6 +161,12 @@ defmodule Pokex.Settings do
     # Consecutive ticks the enemy must be GONE from the Battle list before the fight is
     # declared over — filters a 1-frame HP-bar blink on a hit/death animation.
     target_lost_streak: 2,
+    # Fishing mini-game monitor. It only detects the overlay and coordinates worker pause/resume.
+    mini_game_tick_ms: 150,
+    mini_game_enter_streak: 1,
+    mini_game_exit_streak: 2,
+    mini_game_min_confidence: 0.62,
+    mini_game_min_dark_ratio: 0.34,
     # After clicking a candidate row, how long to wait for the red target RING to appear before
     # deciding the click started no real battle. A passing player's pokemon has an HP bar and no
     # pokeball, so it looks attackable — but clicking it engages nothing (no ring). The ring
@@ -151,7 +185,9 @@ defmodule Pokex.Settings do
     hook_delay_max_ms: 1000
   }
 
-  def defaults, do: @defaults
+  @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)
+
+  def defaults, do: @seed_settings
 
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
@@ -163,7 +199,7 @@ defmodule Pokex.Settings do
   def get(key, server \\ __MODULE__), do: GenServer.call(server, {:get, key})
   def all(server \\ __MODULE__), do: GenServer.call(server, :all)
 
-  def put(key, value, server \\ __MODULE__) when is_map_key(@defaults, key),
+  def put(key, value, server \\ __MODULE__) when is_map_key(@seed_settings, key),
     do: GenServer.call(server, {:put, key, value})
 
   @impl true
@@ -173,36 +209,46 @@ defmodule Pokex.Settings do
         Application.get_env(:pokex, :settings_path) ||
         Pokex.Home.settings_file()
 
-    # Store ONLY the user's explicit overrides — never a full snapshot of the
-    # defaults. Otherwise a settings.json written by an older build would freeze
-    # every key at its old value and silently override new code defaults. get/all
-    # fall back to @defaults for anything not overridden here.
-    {:ok, %{path: path, data: load(path)}}
+    # Persist ONLY the user's overrides. load/1 drops any persisted value equal to today's seed
+    # default, which keeps the file to genuine overrides AND self-heals an older file that
+    # materialized every key (so a later change to a seed default reaches existing installs).
+    # The heal write is BEST-EFFORT: a read-only home must not crash-loop the app on boot — the
+    # in-memory overrides are already correct for this run whether or not the rewrite lands.
+    overrides = load(path)
+    heal(path, overrides)
+    {:ok, %{path: path, data: overrides}}
   end
 
   @impl true
-  # Fall back to @defaults so a process that started before a new key was added
-  # (e.g. after a hot code reload) returns the default instead of crashing.
+  # Any key the user hasn't overridden falls back to the code seed — this is what lets a later
+  # change to a @seed_settings default actually take effect.
   def handle_call({:get, key}, _from, state),
-    do: {:reply, Map.get(state.data, key, Map.get(@defaults, key)), state}
+    do: {:reply, Map.get(state.data, key, Map.get(@seed_settings, key)), state}
 
-  # Merge over @defaults so newly-added keys are present even for a process that
-  # started before them (hot reload) — otherwise Config.build hits nil arithmetic.
-  def handle_call(:all, _from, state), do: {:reply, Map.merge(@defaults, state.data), state}
+  def handle_call(:all, _from, state),
+    do: {:reply, Map.merge(@seed_settings, state.data), state}
 
+  # Setting a value back to the current default is NOT an override — drop it so the key keeps
+  # tracking the code default afterwards.
   def handle_call({:put, key, value}, _from, state) do
-    data = Map.put(state.data, key, value)
-    File.mkdir_p!(Path.dirname(state.path))
-    File.write!(state.path, JSON.encode!(data))
+    data =
+      if value == Map.fetch!(@seed_settings, key),
+        do: Map.delete(state.data, key),
+        else: Map.put(state.data, key, value)
+
+    persist!(state.path, data)
     {:reply, :ok, %{state | data: data}}
   end
 
+  # Keep ONLY the keys whose value differs from the current seed default. Restores the
+  # "store overrides, not a snapshot" contract and self-heals an older materialized file.
   defp load(path) do
     with {:ok, bin} <- File.read(path),
          {:ok, json} <- JSON.decode(bin) do
       for {key_string, value} <- json,
           key = known_key(key_string),
           key != nil,
+          value != Map.fetch!(@seed_settings, key),
           into: %{},
           do: {key, value}
     else
@@ -211,6 +257,19 @@ defmodule Pokex.Settings do
   end
 
   defp known_key(key_string) do
-    Enum.find(Map.keys(@defaults), &(Atom.to_string(&1) == key_string))
+    Enum.find(@setting_keys, &(Atom.to_string(&1) == key_string))
+  end
+
+  defp persist!(path, data) do
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, JSON.encode!(data))
+  end
+
+  # The boot-time rewrite that trims a fat/materialized file down to overrides. Never fatal: if
+  # the settings dir isn't writable we keep running off the (already-loaded) in-memory overrides.
+  defp heal(path, data) do
+    persist!(path, data)
+  rescue
+    error -> Logger.warning("Settings: could not rewrite #{path}: #{inspect(error)}")
   end
 end

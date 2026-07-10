@@ -4,10 +4,16 @@ defmodule Pokex.Rig.Mac do
 
   require Logger
 
+  alias Pokex.Bots.Perf
   alias Pokex.Rig.Mac.Commands
 
   @impl true
   def press(combo), do: run(Commands.press(combo))
+
+  @impl true
+  def press_many([], _opts), do: :ok
+
+  def press_many(combos, opts), do: run(Commands.press_many(combos, opts))
 
   @impl true
   def click(button, point), do: run(Commands.click(button, point))
@@ -78,13 +84,33 @@ defmodule Pokex.Rig.Mac do
   end
 
   defp run_capture_output({exe, args}) do
-    Logger.debug("rig: #{exe} #{Enum.join(args, " ")}")
-
-    case System.cmd(exe, args, stderr_to_stdout: true) do
-      {out, 0} -> {:ok, out}
-      {out, code} -> {:error, {exe, code, String.trim(out)}}
+    if Application.get_env(:pokex, :rig_debug, false) do
+      Logger.debug("rig: #{exe} #{Enum.join(args, " ")}")
     end
+
+    started_at = System.monotonic_time(:millisecond)
+
+    result =
+      case System.cmd(exe, args, stderr_to_stdout: true) do
+        {out, 0} -> {:ok, out}
+        {out, code} -> {:error, {exe, code, String.trim(out)}}
+      end
+
+    Perf.record(
+      "rig.cmd:#{command_label(exe, args)}",
+      System.monotonic_time(:millisecond) - started_at
+    )
+
+    result
   rescue
     e in ErlangError -> {:error, {:executable_not_found, exe, e.original}}
   end
+
+  defp command_label("cliclick", ["p"]), do: "cursor"
+  defp command_label("cliclick", ["m:" <> _]), do: "move"
+  defp command_label("cliclick", ["c:" <> _]), do: "click_left"
+  defp command_label("cliclick", ["rc:" <> _]), do: "click_right"
+  defp command_label("screencapture", _args), do: "screencapture"
+  defp command_label("osascript", _args), do: "osascript"
+  defp command_label(exe, _args), do: exe
 end

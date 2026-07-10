@@ -2,7 +2,19 @@ defmodule PokexWeb.CalibrationLiveTest do
   use PokexWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
 
-  alias Pokex.Calibration
+  alias Pokex.{Calibration, Settings}
+
+  setup do
+    count = Settings.get(:skill_bar_count)
+    order = Settings.get(:skill_keys)
+
+    on_exit(fn ->
+      Settings.put(:skill_bar_count, count)
+      Settings.put(:skill_keys, order)
+    end)
+
+    :ok
+  end
 
   defp rows(w, h, color), do: List.duplicate(List.duplicate(color, w), h)
 
@@ -10,6 +22,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   test "full wizard produces a saved calibration", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    Settings.put(:skill_keys, ["6", "5", "4", "3", "2", "1"])
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
 
@@ -25,6 +38,10 @@ defmodule PokexWeb.CalibrationLiveTest do
       })
 
     {:ok, view, _html} = live(conn, ~p"/calibration")
+
+    view
+    |> form("#skill-count-form", skill_bar: %{count: "8"})
+    |> render_change()
 
     view |> element("button", "Capturar tela") |> render_click()
     assert render(view) =~ "PONTO DA ÁGUA"
@@ -54,6 +71,13 @@ defmodule PokexWeb.CalibrationLiveTest do
     # neutral → {52, 36}
     click.(26.0, 18.0)
 
+    assert render(view) =~ "7/8"
+    # skill_a → {10, 60}
+    click.(5.0, 30.0)
+    assert render(view) =~ "8/8"
+    # skill_b → {58, 70}; count is the explicit value entered before capture.
+    click.(29.0, 35.0)
+
     assert render(view) =~ "linhas de base"
     view |> element("button", "Capturar linhas de base") |> render_click()
 
@@ -69,6 +93,9 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.battle_region == {70, 10, 20, 30}
     assert calib.arena_region == {20, 20, 60, 40}
     assert calib.neutral_point == {52, 36}
+    assert calib.skill_bar_region == {10, 60, 48, 10}
+    assert calib.skill_bar_count == 8
+    assert Settings.get(:skill_keys) == ["6", "5", "4", "3", "2", "1", "7", "8"]
     assert length(calib.glow_baselines) == 10
     assert calib.suggested_glow_threshold == 12.0
     assert Enum.all?(calib.glow_baselines, &File.exists?/1)
@@ -87,6 +114,8 @@ defmodule PokexWeb.CalibrationLiveTest do
       glow_region: {18, -2, 64, 64},
       battle_region: {70, 10, 20, 30},
       arena_region: {20, 20, 60, 40},
+      skill_bar_region: {10, 60, 50, 10},
+      skill_bar_count: 6,
       neutral_point: {52, 36},
       glow_baselines: [],
       suggested_glow_threshold: 15.0
@@ -111,6 +140,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     # battle_region left = 70/100 = 70%; arena left = 20/100 = 20%
     assert html =~ "left:70.0%"
     assert html =~ "left:20.0%"
+    assert html =~ "skills"
 
     # the per-row lock bands (red) and the player marker are the new, diagnostic
     # overlays — each battle row gets an L<i> band, and the player point is drawn
@@ -150,8 +180,13 @@ defmodule PokexWeb.CalibrationLiveTest do
       Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
     {:ok, view, _} = live(conn, ~p"/calibration")
-    view |> element("button", "Calibrar barra de skills") |> render_click()
-    assert render(view) =~ "Barra de skills 1/2"
+
+    view
+    |> form("#skill-count-form", skill_bar: %{count: "6"})
+    |> render_change()
+
+    view |> element("button", "Recalibrar só as skills") |> render_click()
+    assert render(view) =~ "7/8"
 
     click = fn x, y ->
       render_hook(view, "img_click", %{
@@ -166,13 +201,14 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     # skill_a → {20, 20}
     click.(10.0, 10.0)
-    assert render(view) =~ "Barra de skills 2/2"
+    assert render(view) =~ "8/8"
     # skill_b → {80, 60}
     click.(40.0, 30.0)
 
-    assert render(view) =~ "Barra de skills salva"
+    assert render(view) =~ "Barra salva com"
     assert {:ok, calib} = Calibration.load()
     assert calib.skill_bar_region == {20, 20, 60, 40}
+    assert calib.skill_bar_count == 6
     # the rest of the calibration is untouched
     assert calib.water_point == {50, 30}
     assert calib.battle_region == {70, 10, 20, 30}

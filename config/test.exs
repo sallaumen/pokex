@@ -5,6 +5,11 @@ config :pokex, settings_path: "tmp/settings_test.json"
 config :pokex, sensors: Pokex.Bots.Fisher.Sensors.Fake
 config :pokex, home_dir: "tmp/test-home"
 config :pokex, baseline_gap_ms: 1
+config :pokex, capture_backend: :screencapture
+config :pokex, perf_log_interval_ms: 0
+# Tests often script different fake images for the same region back-to-back. Keep
+# the global broker uncached there; targeted Capture tests enable cache explicitly.
+config :pokex, capture_cache_ttl_ms: 0
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

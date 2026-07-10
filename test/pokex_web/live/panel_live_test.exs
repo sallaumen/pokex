@@ -19,11 +19,12 @@ defmodule PokexWeb.PanelLiveTest do
     assert render(view) =~ "calibração"
   end
 
-  test "renders both independent status pills on mount", %{conn: conn} do
+  test "renders the independent status pills on mount", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/")
 
     assert html =~ "🎣"
     assert html =~ "⚔️"
+    assert html =~ "🎮"
     assert html =~ "parado"
   end
 
@@ -73,15 +74,35 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "[data-testid=loot-pill][data-state=looting]")
   end
 
-  test "macro fishing_log and combat_log append to the activity feed", %{conn: conn} do
+  test "a mini game broadcast updates the mini game pill", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    snapshot = %{
+      state: :playing,
+      in_game?: true,
+      confidence: 0.91,
+      counters: %{detections: 1, clears: 0, failures: 0},
+      error: nil,
+      transition: :entered
+    }
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game, snapshot})
+
+    assert render(view) =~ "Mini game: em jogo"
+    assert has_element?(view, "[data-testid=mini-game-pill][data-state=playing]")
+  end
+
+  test "macro worker logs append to the activity feed", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, :macro, "lançando a linha"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "mirando linha 0"})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game_log, :macro, "pausando"})
 
     html = render(view)
     assert html =~ "lançando a linha"
     assert html =~ "mirando linha 0"
+    assert html =~ "pausando"
   end
 
   test "debug logs are hidden until the debug toggle is on", %{conn: conn} do
@@ -93,10 +114,19 @@ defmodule PokexWeb.PanelLiveTest do
       {:fishing_log, :debug, "vigiando: bolhas 3px"}
     )
 
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "body",
+      {:body_log, :debug, "fila >N key:shift+v espera=42ms h=0 n=0"}
+    )
+
     refute render(view) =~ "vigiando: bolhas 3px"
+    refute render(view) =~ "fila &gt;N key:shift+v"
 
     view |> element(~s(input[phx-click="toggle_debug"])) |> render_click()
-    assert render(view) =~ "vigiando: bolhas 3px"
+    html = render(view)
+    assert html =~ "vigiando: bolhas 3px"
+    assert html =~ "fila &gt;N key:shift+v"
   end
 
   test "tolerates a legacy 2-tuple log broadcast without crashing", %{conn: conn} do
@@ -285,7 +315,16 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   test "saves combat timing knobs and ignores blanks", %{conn: conn} do
-    keys = [:tick_ms_fighting, :target_lost_streak, :fight_timeout_ms]
+    keys = [
+      :tick_ms_fighting,
+      :combat_skill_burst_size,
+      :combat_skill_tap_count,
+      :combat_skill_gap_ms,
+      :combat_skill_jitter_ms,
+      :target_lost_streak,
+      :fight_timeout_ms
+    ]
+
     originals = Map.new(keys, &{&1, Pokex.Settings.get(&1)})
     on_exit(fn -> Enum.each(originals, fn {k, v} -> Pokex.Settings.put(k, v) end) end)
 
@@ -294,12 +333,21 @@ defmodule PokexWeb.PanelLiveTest do
     view
     |> form("#timing-form", %{
       "tick_ms_fighting" => "120",
+      "combat_skill_burst_size" => "3",
+      "combat_skill_tap_count" => "0",
+      "combat_skill_gap_ms" => "25",
+      "combat_skill_jitter_ms" => "20",
       "target_lost_streak" => "",
       "fight_timeout_ms" => "5000"
     })
     |> render_submit()
 
     assert Pokex.Settings.get(:tick_ms_fighting) == 120
+    assert Pokex.Settings.get(:combat_skill_burst_size) == 3
+    # positive timing knobs clamp 0 to 1 instead of persisting an inert combat setting.
+    assert Pokex.Settings.get(:combat_skill_tap_count) == 1
+    assert Pokex.Settings.get(:combat_skill_gap_ms) == 25
+    assert Pokex.Settings.get(:combat_skill_jitter_ms) == 20
     assert Pokex.Settings.get(:fight_timeout_ms) == 5000
     # blank left the current value untouched
     assert Pokex.Settings.get(:target_lost_streak) == originals.target_lost_streak

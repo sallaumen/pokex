@@ -14,6 +14,18 @@ defmodule Pokex.Rig.Fake do
   def press(combo), do: record({:press, combo}, :press, :ok)
 
   @impl true
+  def press_many(combos, opts) do
+    tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
+    calls = for combo <- combos, _tap <- 1..tap_count, do: {:press, combo}
+
+    Agent.update(__MODULE__, fn state ->
+      %{state | calls: Enum.reverse(calls) ++ state.calls}
+    end)
+
+    :ok
+  end
+
+  @impl true
   def click(button, point), do: record({:click, button, point}, :click, :ok)
 
   @impl true

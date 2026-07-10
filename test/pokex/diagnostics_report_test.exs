@@ -30,7 +30,16 @@ defmodule Pokex.Diagnostics.ReportTest do
     # PNG fixtures the Fake rig will hand back, one per captured region (in the
     # exact order Report captures them): glow, battle body, battle strip, arena,
     # scale probe; then the full screen.
-    glow = png!(tmp, "glow.png", 8, 8, {0, 180, 200})
+    glow =
+      Pokex.PngFixtures.write!(
+        Path.join(tmp, "glow.png"),
+        for y <- 0..15 do
+          for x <- 0..15 do
+            if x in 5..10 and y in 5..10, do: {210, 55, 30, 255}, else: {0, 180, 200, 255}
+          end
+        end
+      )
+
     battle = png!(tmp, "battle.png", 20, 12, {0, 200, 0})
     strip = png!(tmp, "strip.png", 8, 12, {255, 0, 0})
     arena = png!(tmp, "arena.png", 12, 12, {0, 0, 0})

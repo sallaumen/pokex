@@ -76,13 +76,13 @@ defmodule Pokex.Bots.Combat.Logic do
   # Scanning just needs the candidate rows + ring (one screenshot).
   def needs(%__MODULE__{state: :scanning}, _now), do: [:cursor, :battle]
 
-  # Confirming and fighting CYCLE the skills (press the next in order each tick) — they do NOT
-  # read the skill bar. Reading the bar every tick was a 2nd screencapture (each ~0.4-0.8s on
-  # Lucas's multi-monitor Mac even with -m), so skills fired ~2-5s apart, AND when the bar read
-  # came back empty the verify loop got stuck re-pressing the same key. Cycling needs ONE capture
-  # (:battle for the ring/liveness) and can never stall: a dropped press just comes back around
-  # the rotation. :battle carries the lock ring; fighting also samples :hostile now and then for
-  # the corpse point.
+  # Confirming and fighting CYCLE skill BURSTS (press the next N in order each tick) — they do
+  # NOT read the skill bar. Reading the bar every tick was a 2nd screencapture (each ~0.4-0.8s
+  # on Lucas's multi-monitor Mac even with -m), so skills fired ~2-5s apart, AND when the bar
+  # read came back empty the verify loop got stuck re-pressing the same key. Cycling bursts need
+  # ONE capture (:battle for the ring/liveness) and can never stall: a dropped press just comes
+  # back around the rotation. :battle carries the lock ring; fighting also samples :hostile now
+  # and then for the corpse point.
   def needs(%__MODULE__{state: :confirming}, _now), do: [:cursor, :battle]
 
   def needs(%__MODULE__{state: :fighting} = logic, _now) do
@@ -137,7 +137,7 @@ defmodule Pokex.Bots.Combat.Logic do
           if logic.scan_idle?,
             do: [],
             else: [
-              {:log, "Battle sem inimigos atacáveis — combate parado (mouse livre pra pesca)"}
+              {:log, "sem inimigos; livre"}
             ]
 
         {advance(%{logic | scan_idle?: true, locked_row: nil}, :scanning, now), log}
@@ -157,8 +157,9 @@ defmodule Pokex.Bots.Combat.Logic do
 
   # Confirm the click started a battle AND attack at the same time — don't wait for the ring to
   # start hitting. Every tick: watch the clicked row for the red lock ring, and meanwhile press
-  # the NEXT skill in the rotation (so the first hit lands ~one tick after the click instead of
-  # after the whole confirm). Ring up → a real target → keep hitting it in :fighting. No ring
+  # the next skill burst in the rotation (so the first hit lands ~one tick after the click
+  # instead of after the whole confirm). Ring up → a real target → keep hitting it in :fighting.
+  # No ring
   # within battle_confirm_ms → the click engaged nothing (a passing player's pokemon has an HP
   # bar but no pokeball, so it looked attackable but started no battle) → mark the row tried and
   # pick the next candidate; the presses did nothing on a non-target. The window also filters the
@@ -178,7 +179,7 @@ defmodule Pokex.Bots.Combat.Logic do
 
       now - logic.entered_at > logic.config.battle_confirm_ms ->
         {advance(%{logic | locked_row: nil, tried: [row | logic.tried]}, :scanning, now),
-         [{:log, "linha #{row} não entrou em batalha — próximo candidato"}]}
+         [{:log, "L#{row} não entrou em batalha; prox"}]}
 
       true ->
         press_next_skill(logic)
@@ -186,7 +187,7 @@ defmodule Pokex.Bots.Combat.Logic do
   end
 
   # Attacking: the lock ring on our row IS the fight. Every tick re-reads it — while it holds we
-  # fire the strongest READY skill (paced by the global cast window). When it's gone for
+  # fire the next keyboard-only skill burst. When it's gone for
   # target_lost_streak ticks (a debounce against a 1-frame blink) the target died/deselected →
   # count the kill and go loot the corpse; continue_combat then re-scans for the next enemy.
   defp do_step(%{state: :fighting, targeted?: true} = logic, obs, now) do
@@ -195,8 +196,7 @@ defmodule Pokex.Bots.Combat.Logic do
     cond do
       timed_out?(logic, now, logic.config.fight_timeout_ms) ->
         # attacking this long with no kill → stuck (bad read / hopelessly tanky) → rescan.
-        {advance(reselect(logic), :scanning, now),
-         [{:log, "alvo não caiu a tempo — revarredura"}]}
+        {advance(reselect(logic), :scanning, now), [{:log, "timeout alvo; rescan"}]}
 
       ring?(obs, logic.locked_row, min) ->
         logic = %{
@@ -271,17 +271,27 @@ defmodule Pokex.Bots.Combat.Logic do
 
   # -- battle view ------------------------------------------------------------
 
-  # Press the NEXT skill in the rotation this tick and advance the cursor, so consecutive ticks
-  # walk the priority order (strongest first) and loop. No skill-bar read: the game silently
-  # swallows a skill that's on cooldown, and cycling means every key is retried each loop — so a
-  # dropped input just lands on the next pass. One capture per tick, and it can never stall on one
-  # key the way the bar-verify loop did when the bar read came back empty.
+  # Press the next skill burst in the rotation this tick and advance the cursor, so consecutive
+  # ticks walk the priority order (strongest first) and loop. No skill-bar read: the game
+  # silently swallows a skill that's on cooldown, and cycling means every key is retried each
+  # loop — so a dropped input just lands on the next pass. One capture per tick, and it can never
+  # stall on one key the way the bar-verify loop did when the bar read came back empty.
   defp press_next_skill(%{config: %{skill_keys: []}} = logic), do: {logic, []}
 
   defp press_next_skill(%{config: %{skill_keys: order}, skill_idx: idx} = logic) do
-    key = Enum.at(order, rem(idx, length(order)))
-    {%{logic | skill_idx: idx + 1}, [{:press, key}]}
+    burst_size = logic.config |> Map.get(:combat_skill_burst_size, 1) |> positive_int(1)
+    len = length(order)
+
+    actions =
+      for offset <- 0..(burst_size - 1) do
+        {:press, Enum.at(order, rem(idx + offset, len))}
+      end
+
+    {%{logic | skill_idx: idx + burst_size}, actions}
   end
+
+  defp positive_int(value, _default) when is_integer(value) and value > 0, do: value
+  defp positive_int(_value, default), do: default
 
   # Candidate enemy rows (HP bar, no own-pokemon pokeball), topmost first. Absent → [] (idle).
   defp candidates(obs), do: (obs[:battle] || %{})[:enemies] || []

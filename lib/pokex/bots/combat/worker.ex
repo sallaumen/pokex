@@ -10,6 +10,7 @@ defmodule Pokex.Bots.Combat.Worker do
   require Logger
 
   alias Pokex.Bots.Combat.Logic
+  alias Pokex.Bots.MiniGame
   alias Pokex.Bots.Fisher.{Config, Sensors}
   alias Pokex.Bots.Body
   alias Pokex.{Calibration, Preflight, Settings}
@@ -120,16 +121,14 @@ defmodule Pokex.Bots.Combat.Worker do
           {elem(Logic.io_failed(previous, inspect(reason), now()), 0), [], %{}}
       end
 
-    # MACRO when the state or a counter changed (a lock, a kill, a loot, an
-    # error); every other tick — the per-row "linha N travou? Npx" reads — is
-    # routine DEBUG chatter, hidden by default in the panel feed.
-    level =
-      if logic.state != previous.state or logic.counters != previous.counters,
-        do: :macro,
-        else: :debug
+    # Keep the normal feed readable: candidate clicks and false confirms are
+    # DEBUG; a real lock/fight, counter change, timeout or error is MACRO.
+    level = combat_log_level(previous, logic, actions)
 
     broadcast_activity(previous, obs, actions, level)
-    if level == :macro, do: broadcast(logic)
+
+    if logic.state != previous.state or logic.counters != previous.counters,
+      do: broadcast(logic)
 
     # A kill (fights bumped) hands the corpse to the Loot.Worker (one-way, fire-and-forget);
     # combat itself keeps scanning/attacking. last_hostile is the corpse's floating-name point.
@@ -146,31 +145,50 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   # Split combat's actions by input device (Lucas's rule: keyboard can run in PARALLEL, the
-  # mouse can't). SKILL presses fire-and-forget on their own tasks, BYPASSING the Body — so a
-  # skill key never waits behind a fishing cast that's holding the shared Body (that "fila" made
-  # skills lag whole seconds). Each is tapped a few times because the game drops single taps.
-  # MOUSE actions (the select-click + move-off) still go through the Body at :high, serialized
-  # against fishing and run atomically. Nothing this tick → skip the Body entirely so an idle
-  # combat never churns the :high queue ahead of fishing.
+  # mouse can't). SKILL bursts fire-and-forget on their own task, BYPASSING the Body — so a skill
+  # key never waits behind a fishing cast that's holding the shared Body (that "fila" made skills
+  # lag whole seconds). MOUSE actions (the select-click + move-off) still go through the Body at
+  # :high, serialized against fishing and run atomically. Nothing this tick → skip the Body
+  # entirely so an idle combat never churns the :high queue ahead of fishing.
   defp submit(_body, []), do: :ok
 
   defp submit(body, actions) do
     {skills, rest} = Enum.split_with(actions, &match?({:press, _}, &1))
+    skill_keys = for {:press, key} <- skills, do: key
 
-    Enum.each(skills, fn {:press, key} -> spawn(fn -> tap_skill(key) end) end)
+    if skill_keys != [] do
+      spawn(fn -> tap_skills(skill_keys) end)
+    end
 
     if rest == [], do: :ok, else: Body.perform(rest, :high, body)
   end
 
-  # Tap the skill key a few times (the game silently drops single presses; the real osascript
-  # latency spreads the taps over ~half a second, hitting different game frames). Best-effort:
-  # a dropped skill is harmless and the rotation retries it next loop.
-  defp tap_skill(key) do
-    rig = Pokex.Rig.impl()
-    rig.press(key)
-    rig.press(key)
-    rig.press(key)
+  # Best-effort keyboard-only burst. A dropped skill is harmless and the rotation retries it next
+  # loop; errors are logged instead of feeding back into the mouse/body queue.
+  defp tap_skills(keys) do
+    opts = [
+      tap_count: Settings.get(:combat_skill_tap_count) |> positive_int(1),
+      gap_ms: Settings.get(:combat_skill_gap_ms) |> non_neg_int(0),
+      jitter_ms: Settings.get(:combat_skill_jitter_ms) |> non_neg_int(0)
+    ]
+
+    with :ok <- MiniGame.Worker.guard_before_input(),
+         :ok <- Pokex.Rig.impl().press_many(keys, opts),
+         :ok <- MiniGame.Worker.guard_after_input() do
+      :ok
+    else
+      {:blocked, :mini_game_active} -> :ok
+      {:error, reason} -> Logger.debug("combat skill burst failed: #{inspect(reason)}")
+    end
+  catch
+    kind, reason -> Logger.debug("combat skill burst crashed: #{inspect({kind, reason})}")
   end
+
+  defp positive_int(value, _default) when is_integer(value) and value > 0, do: value
+  defp positive_int(_value, default), do: default
+
+  defp non_neg_int(value, _default) when is_integer(value) and value >= 0, do: value
+  defp non_neg_int(_value, default), do: default
 
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat, snapshot(logic)})
@@ -190,6 +208,23 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   end
 
+  defp combat_log_level(previous, logic, actions) do
+    cond do
+      logic.counters != previous.counters -> :macro
+      logic.state == :error or logic.error != previous.error -> :macro
+      previous.state != :fighting and logic.state == :fighting -> :macro
+      important_log?(actions) -> :macro
+      true -> :debug
+    end
+  end
+
+  defp important_log?(actions) do
+    Enum.any?(actions, fn
+      {:log, msg} when is_binary(msg) -> String.contains?(msg, "timeout")
+      _other -> false
+    end)
+  end
+
   defp describe_activity(logic, obs, actions) do
     acts = actions |> Enum.map(&describe_action/1) |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
 
@@ -203,29 +238,27 @@ defmodule Pokex.Bots.Combat.Worker do
 
   defp state_desc(%Logic{state: :scanning, targeted?: false}, obs) do
     case candidates(obs) do
-      [] -> "combate: sem inimigos (parado)"
-      rows -> "combate: candidato(s) na(s) linha(s) #{Enum.join(rows, ",")}"
+      [] -> "combate: sem alvo"
+      rows -> "combate: cand L#{Enum.join(rows, ",")}"
     end
   end
 
   defp state_desc(%Logic{state: :confirming, locked_row: row} = logic, obs),
-    do:
-      "combate: confirmando linha #{row} — anel #{ring_px(obs, row)}px (mín #{logic.config.target_locked_min_pixels})"
+    do: "combate: conf L#{row} anel #{ring_px(obs, row)}/#{logic.config.target_locked_min_pixels}"
 
   defp state_desc(%Logic{state: :fighting, targeted?: true, locked_row: row} = logic, obs),
-    do:
-      "combate: atacando linha #{row} — anel #{ring_px(obs, row)}px (mín #{logic.config.target_locked_min_pixels})"
+    do: "combate: atk L#{row} anel #{ring_px(obs, row)}/#{logic.config.target_locked_min_pixels}"
 
   defp state_desc(_, _obs), do: nil
 
   defp candidates(obs), do: (obs[:battle] || %{})[:enemies] || []
   defp ring_px(obs, row), do: Enum.at((obs[:battle] || %{})[:red] || [], row, 0)
 
-  defp describe_action({:press, key}), do: "tecla #{key}"
-  defp describe_action({:click, :left, {x, y}}), do: "clique esq (#{x},#{y})"
-  defp describe_action({:click, :right, {x, y}}), do: "clique dir (#{x},#{y})"
-  defp describe_action({:move, {x, y}}), do: "mover mouse (#{x},#{y})"
-  defp describe_action({:capture_sequence, {x, y}}), do: "pokébola (#{x},#{y})"
+  defp describe_action({:press, key}), do: "key #{key}"
+  defp describe_action({:click, :left, {x, y}}), do: "clickE #{x},#{y}"
+  defp describe_action({:click, :right, {x, y}}), do: "clickD #{x},#{y}"
+  defp describe_action({:move, {x, y}}), do: "move #{x},#{y}"
+  defp describe_action({:capture_sequence, {x, y}}), do: "ball #{x},#{y}"
   defp describe_action({:log, msg}), do: msg
 
   defp snapshot(nil),

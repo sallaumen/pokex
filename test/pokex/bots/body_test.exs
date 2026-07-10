@@ -18,6 +18,17 @@ defmodule Pokex.Bots.BodyTest.RaisingRig do
   end
 
   @impl true
+  def press_many(combos, opts) do
+    tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
+
+    Enum.each(combos, fn combo ->
+      Enum.each(1..tap_count, fn _tap -> press(combo) end)
+    end)
+
+    :ok
+  end
+
+  @impl true
   def click(_button, _point), do: :ok
   @impl true
   def move(_point), do: :ok
@@ -55,6 +66,17 @@ defmodule Pokex.Bots.BodyTest.SlowRig do
     :ok
   end
 
+  @impl true
+  def press_many(combos, opts) do
+    tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
+
+    Enum.each(combos, fn combo ->
+      Enum.each(1..tap_count, fn _tap -> press(combo) end)
+    end)
+
+    :ok
+  end
+
   defp wait_release do
     if Agent.get(__MODULE__, & &1.held?) do
       Process.sleep(1)
@@ -78,15 +100,36 @@ defmodule Pokex.Bots.BodyTest.SlowRig do
   def cursor_position, do: {:ok, {500, 500}}
 end
 
+defmodule Pokex.Bots.BodyTest.BlockingMiniGameGate do
+  use GenServer
+
+  def start_link(test), do: GenServer.start_link(__MODULE__, test)
+
+  @impl true
+  def init(test), do: {:ok, test}
+
+  @impl true
+  def handle_call(:guard_before_input, _from, test), do: {:reply, :ok, test}
+
+  def handle_call(:guard_after_input, _from, test) do
+    send(test, :mini_game_blocked)
+    {:reply, {:blocked, :mini_game_active}, test}
+  end
+end
+
 defmodule Pokex.Bots.BodyTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.Body
-  alias Pokex.Bots.BodyTest.SlowRig
+  alias Pokex.Bots.BodyTest.{BlockingMiniGameGate, SlowRig}
 
   setup do
-    {:ok, _} = Pokex.Rig.Fake.start_link()
-    {:ok, pid} = Body.start_link(name: :body_test)
+    start_supervised!({Pokex.Rig.Fake, %{}})
+    pid = start_body(:body_test_default_body, name: :body_test)
     %{body: pid}
+  end
+
+  defp start_body(id, opts) do
+    start_supervised!(%{id: id, start: {Body, :start_link, [opts]}})
   end
 
   test "executes an action sequence atomically through the Rig", %{body: body} do
@@ -113,14 +156,34 @@ defmodule Pokex.Bots.BodyTest do
     assert calls == [{:press, "a"}, {:press, "b"}]
   end
 
+  test "mini game gate stops the rest of an action sequence after the triggering input" do
+    gate =
+      start_supervised!(
+        {BlockingMiniGameGate, self()},
+        id: :body_test_blocking_mini_game_gate
+      )
+
+    body =
+      start_body(:body_test_mini_game_gate_body,
+        name: :body_mini_game_gate_test,
+        mini_game: gate
+      )
+
+    assert :ok = Body.perform([{:press, "open"}, {:press, "must_not_run"}], :normal, body)
+    assert_receive :mini_game_blocked
+
+    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    assert calls == [{:press, "open"}]
+  end
+
   @tag timeout: 2_000
   test "a :high request runs before a queued :normal one" do
     previous_rig = Application.get_env(:pokex, :rig)
     Application.put_env(:pokex, :rig, SlowRig)
     on_exit(fn -> Application.put_env(:pokex, :rig, previous_rig) end)
 
-    {:ok, _} = SlowRig.start_link()
-    {:ok, body} = Body.start_link(name: :body_prio)
+    start_supervised!(%{id: SlowRig, start: {SlowRig, :start_link, []}})
+    body = start_body(:body_test_priority_body, name: :body_prio)
     test = self()
 
     # Occupy the body with a press/1 call that genuinely blocks (via SlowRig)
@@ -154,6 +217,40 @@ defmodule Pokex.Bots.BodyTest do
     assert SlowRig.log() == ["occupy", "high", "low"]
   end
 
+  @tag timeout: 2_000
+  test "a queued :normal request gets one turn after :high work" do
+    previous_rig = Application.get_env(:pokex, :rig)
+    Application.put_env(:pokex, :rig, SlowRig)
+    on_exit(fn -> Application.put_env(:pokex, :rig, previous_rig) end)
+
+    start_supervised!(%{id: SlowRig, start: {SlowRig, :start_link, []}})
+    body = start_body(:body_test_fairness_body, name: :body_fair)
+    test = self()
+
+    spawn(fn -> Body.perform([{:press, "occupy"}], :high, body) end)
+    wait_until_busy(body)
+
+    spawn(fn ->
+      Body.perform([{:press, "normal"}], :normal, body)
+      send(test, :normal_done)
+    end)
+
+    wait_until_queued(body, :normal, 1)
+
+    spawn(fn ->
+      Body.perform([{:press, "high"}], :high, body)
+      send(test, :high_done)
+    end)
+
+    wait_until_queued(body, :high, 1)
+
+    SlowRig.release()
+
+    assert_receive :normal_done, 500
+    assert_receive :high_done, 500
+    assert SlowRig.log() == ["occupy", "normal", "high"]
+  end
+
   defp wait_until_busy(body) do
     if :sys.get_state(body).busy? do
       :ok
@@ -182,8 +279,12 @@ defmodule Pokex.Bots.BodyTest do
     Application.put_env(:pokex, :rig, Pokex.Bots.BodyTest.RaisingRig)
     on_exit(fn -> Application.put_env(:pokex, :rig, previous_rig) end)
 
-    {:ok, _} = Pokex.Bots.BodyTest.RaisingRig.start_link()
-    {:ok, body} = Body.start_link(name: :body_crash)
+    start_supervised!(%{
+      id: Pokex.Bots.BodyTest.RaisingRig,
+      start: {Pokex.Bots.BodyTest.RaisingRig, :start_link, []}
+    })
+
+    body = start_body(:body_test_crash_body, name: :body_crash)
 
     assert {:error, {:crashed, :error, %ArgumentError{}}} =
              Body.perform([{:press, "boom"}], :normal, body)

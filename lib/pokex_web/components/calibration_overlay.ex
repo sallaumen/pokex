@@ -26,6 +26,7 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :glow_region, :any, default: nil
   attr :battle_region, :any, default: nil
   attr :arena_region, :any, default: nil
+  attr :skill_bar_region, :any, default: nil
   attr :neutral_point, :any, default: nil
   attr :player_point, :any, default: nil
   attr :bands, :list, default: []
@@ -57,6 +58,15 @@ defmodule PokexWeb.CalibrationOverlay do
     >
       <span class="absolute -top-4 left-0 rounded bg-warning px-1 text-[10px] font-bold text-warning-content">
         Battle
+      </span>
+    </div>
+    <div
+      :if={@skill_bar_region}
+      class="absolute rounded border-2 border-secondary bg-secondary/10"
+      style={region_style(@skill_bar_region, @screen)}
+    >
+      <span class="absolute -top-4 left-0 rounded bg-secondary px-1 text-[10px] font-bold text-secondary-content">
+        skills
       </span>
     </div>
     <div
@@ -103,6 +113,9 @@ defmodule PokexWeb.CalibrationOverlay do
       </span>
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-sm border-2 border-success" /> arena
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-sm border-2 border-secondary" /> barra de skills
       </span>
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-full border border-error bg-error/40" /> player

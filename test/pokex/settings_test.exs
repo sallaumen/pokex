@@ -3,41 +3,119 @@ defmodule Pokex.SettingsTest do
   alias Pokex.Settings
 
   @tag :tmp_dir
-  test "starts with defaults, put persists and reloads", %{tmp_dir: tmp} do
+  test "a fresh install persists NO overrides; every value comes from the code seed", %{
+    tmp_dir: tmp
+  } do
     path = Path.join(tmp, "settings.json")
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
+    # the file holds only overrides — a fresh install has none
+    assert path |> File.read!() |> JSON.decode!() == %{}
+
+    # reads fall back to the seed defaults
     assert Settings.get(:tick_ms_watching, server) == 100
     assert Settings.get(:skill_keys, server) == ["1", "2", "3"]
+    assert Settings.get(:rod_key, server) == "shift+v"
+    assert Settings.get(:wait_assess_ms, server) == 1500
+  end
+
+  @tag :tmp_dir
+  test "put persists ONLY the overridden keys, and they reload", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "settings.json")
+    {:ok, server} = Settings.start_link(name: nil, path: path)
 
     :ok = Settings.put(:glow_threshold, 22.5, server)
     :ok = Settings.put(:skill_keys, ["1", "2", "3", "4"], server)
 
+    # the file is the two overrides — NOT a full snapshot of every key
+    assert path |> File.read!() |> JSON.decode!() ==
+             %{"glow_threshold" => 22.5, "skill_keys" => ["1", "2", "3", "4"]}
+
     {:ok, server2} = Settings.start_link(name: nil, path: path)
     assert Settings.get(:glow_threshold, server2) == 22.5
     assert Settings.get(:skill_keys, server2) == ["1", "2", "3", "4"]
+    # a non-overridden key still comes from the seed
     assert Settings.get(:tile_px, server2) == 88
   end
 
   @tag :tmp_dir
-  test "unknown keys in the file are ignored", %{tmp_dir: tmp} do
+  test "unknown keys are ignored and the file is healed to real overrides only", %{tmp_dir: tmp} do
     path = Path.join(tmp, "settings.json")
     File.write!(path, ~s({"hacker": 1, "tile_px": 48}))
     {:ok, server} = Settings.start_link(name: nil, path: path)
+
     assert Settings.get(:tile_px, server) == 48
-    assert Settings.all(server) |> Map.has_key?(:hacker) == false
+    refute Settings.all(server) |> Map.has_key?(:hacker)
+
+    assert path |> File.read!() |> JSON.decode!() == %{"tile_px" => 48}
   end
 
   @tag :tmp_dir
-  test "a partial file overrides only its keys — the rest track current defaults", %{tmp_dir: tmp} do
-    # A file that only pins tile_px must NOT freeze every other key at whatever
-    # value an older build wrote; unlisted keys follow the code's @defaults.
+  test "a materialized file (every key persisted) is healed down to genuine overrides", %{
+    tmp_dir: tmp
+  } do
+    # Simulate the reverted behavior that wrote ALL keys to disk: only require_cooldowns is a
+    # real override; every other key equals the seed default and must be dropped so future
+    # default changes in code win again.
     path = Path.join(tmp, "settings.json")
-    File.write!(path, ~s({"tile_px": 99}))
+
+    full =
+      Settings.defaults()
+      |> Map.new(fn {k, v} -> {Atom.to_string(k), v} end)
+      |> Map.put("require_cooldowns", true)
+
+    File.write!(path, JSON.encode!(full))
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
-    assert Settings.get(:tile_px, server) == 99
-    assert Settings.get(:tick_ms_fighting, server) == Settings.defaults().tick_ms_fighting
-    assert Settings.get(:humanize_max_ms, server) == Settings.defaults().humanize_max_ms
+    assert path |> File.read!() |> JSON.decode!() == %{"require_cooldowns" => true}
+    assert Settings.get(:require_cooldowns, server) == true
+    assert Settings.get(:glow_threshold, server) == Settings.defaults().glow_threshold
+  end
+
+  @tag :tmp_dir
+  test "putting a value back to the default drops the override", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "settings.json")
+    File.write!(path, ~s({"tile_px": 48}))
+    {:ok, server} = Settings.start_link(name: nil, path: path)
+    assert Settings.get(:tile_px, server) == 48
+
+    :ok = Settings.put(:tile_px, Settings.defaults().tile_px, server)
+
+    assert Settings.get(:tile_px, server) == 88
+    assert path |> File.read!() |> JSON.decode!() == %{}
+  end
+
+  @tag :tmp_dir
+  test "a non-writable settings path does not crash boot — runs off the code defaults", %{
+    tmp_dir: tmp
+  } do
+    # make the parent of the settings path a FILE, so File.mkdir_p!/File.write! deterministically
+    # raise inside init's heal — the app must still boot instead of crash-looping.
+    blocker = Path.join(tmp, "blocker")
+    File.write!(blocker, "i am a file, not a directory")
+    path = Path.join(blocker, "settings.json")
+
+    {:ok, server} = Settings.start_link(name: nil, path: path)
+
+    assert Settings.get(:tick_ms_watching, server) == 100
+    assert Settings.get(:rod_key, server) == "shift+v"
+  end
+
+  @tag :tmp_dir
+  test "values a user deliberately sets are honored — no magic-value rewrite", %{tmp_dir: tmp} do
+    # The old normalize_loaded/2 migrations silently rewrote 6 -> 7 etc. on write, so those
+    # values were impossible to select. They must round-trip now.
+    path = Path.join(tmp, "settings.json")
+    {:ok, server} = Settings.start_link(name: nil, path: path)
+
+    :ok = Settings.put(:skill_ready_min_vivid_pct, 6, server)
+    :ok = Settings.put(:rod_key, "v", server)
+
+    assert Settings.get(:skill_ready_min_vivid_pct, server) == 6
+    assert Settings.get(:rod_key, server) == "v"
+
+    {:ok, server2} = Settings.start_link(name: nil, path: path)
+    assert Settings.get(:skill_ready_min_vivid_pct, server2) == 6
+    assert Settings.get(:rod_key, server2) == "v"
   end
 end

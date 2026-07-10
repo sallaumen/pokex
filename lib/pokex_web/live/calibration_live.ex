@@ -2,6 +2,7 @@ defmodule PokexWeb.CalibrationLive do
   use PokexWeb, :live_view
 
   alias Pokex.{Calibration, Home, Rig, Settings, Vision}
+  alias Pokex.Bots.SkillBar
   alias Pokex.Vision.Frame
 
   import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
@@ -10,30 +11,33 @@ defmodule PokexWeb.CalibrationLive do
   @glow_half 32
 
   @instructions %{
-    water: "1/6 — Clique no PONTO DA ÁGUA onde o bot deve arremessar.",
-    battle_a: "2/6 — Clique no canto SUPERIOR-ESQUERDO da área de criaturas da janela Battle.",
+    water: "1/8 — Clique no PONTO DA ÁGUA onde o bot deve arremessar.",
+    battle_a: "2/8 — Clique no canto SUPERIOR-ESQUERDO da área de criaturas da janela Battle.",
     battle_b:
-      "3/6 — Agora o canto INFERIOR-DIREITO da mesma área (incluindo a coluna do ícone de pokébola).",
+      "3/8 — Agora o canto INFERIOR-DIREITO da mesma área (incluindo a coluna do ícone de pokébola).",
     arena_a:
-      "4/6 — Canto superior-esquerdo da ARENA (área ao redor do personagem onde o pokémon pescado aparece).",
-    arena_b: "5/6 — Canto inferior-direito da arena.",
-    neutral: "6/6 — Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
+      "4/8 — Canto superior-esquerdo da ARENA (área ao redor do personagem onde o pokémon pescado aparece).",
+    arena_b: "5/8 — Canto inferior-direito da arena.",
+    neutral: "6/8 — Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
     baselines:
-      "Tudo marcado! Agora LANCE A LINHA na água (Shift+Z, depois clique na água) e, com ela ESPERANDO sem nada fisgado, clique em 'Capturar linhas de base'. Assim o bot aprende a água COM a linha — senão ele acha que é sempre brilho e fisga na hora.",
+      "Tudo marcado! Agora LANCE A LINHA na água (Shift+V) e, com ela ESPERANDO sem nada fisgado, clique em 'Capturar linhas de base'. Assim o bot aprende a água COM a linha — senão ele acha que é sempre brilho e fisga na hora.",
     skill_a:
-      "Barra de skills 1/2 — Clique no canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1).",
+      "7/8 — Clique no canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1).",
     skill_b:
-      "Barra de skills 2/2 — Canto INFERIOR-DIREITO da barra (depois do último slot). NÃO inclua o cadeado/pokébola à direita."
+      "8/8 — Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões."
   }
 
   @impl true
   def mount(_params, _session, socket) do
+    skill_count = configured_skill_count()
+
     {:ok,
      assign(socket,
        page_title: "Calibração",
        screen: nil,
        scale: nil,
        step: nil,
+       mode: nil,
        draft: %{},
        baselines_done: 0,
        done: false,
@@ -41,6 +45,8 @@ defmodule PokexWeb.CalibrationLive do
        review: nil,
        error: nil,
        skillbar_msg: nil,
+       skill_count: skill_count,
+       skill_count_form: skill_count_form(skill_count),
        row_height: Settings.get(:battle_row_height),
        max_rows: Settings.get(:battle_max_rows)
      )}
@@ -54,19 +60,20 @@ defmodule PokexWeb.CalibrationLive do
          scale: screen.scale,
          screen: screen,
          step: :water,
-         draft: %{},
+         mode: :full,
+         draft: %{skill_bar_count: socket.assigns.skill_count},
          done: false,
          review: nil,
-         error: nil
+         error: nil,
+         skillbar_msg: nil
        )}
     else
       error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
-  # Standalone 2-click skill-bar calibration — merges skill_bar_region into the
-  # EXISTING calibration without touching the other regions or re-running the
-  # 6-step wizard. Only offered once the base calibration exists.
+  # Standalone correction for an existing calibration. The normal 8-step wizard
+  # already includes these two clicks.
   def handle_event("calibrate_skillbar", _params, socket) do
     with {:ok, screen} <- grab_screen("skillbar_probe.png") do
       {:noreply,
@@ -74,7 +81,8 @@ defmodule PokexWeb.CalibrationLive do
          scale: screen.scale,
          screen: screen,
          step: :skill_a,
-         draft: %{},
+         mode: :skillbar_only,
+         draft: %{skill_bar_count: socket.assigns.skill_count},
          done: false,
          review: nil,
          error: nil,
@@ -96,6 +104,17 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("close_review", _params, socket) do
     {:noreply, assign(socket, review: nil)}
+  end
+
+  def handle_event("set_skill_count", %{"skill_bar" => %{"count" => raw}}, socket) do
+    count = parse_skill_count(raw, socket.assigns.skill_count)
+
+    {:noreply,
+     assign(socket,
+       skill_count: count,
+       skill_count_form: skill_count_form(count),
+       draft: Map.put(socket.assigns.draft, :skill_bar_count, count)
+     )}
   end
 
   def handle_event(
@@ -155,12 +174,15 @@ defmodule PokexWeb.CalibrationLive do
       battle_region: draft.battle_region,
       arena_region: draft.arena_region,
       neutral_point: draft.neutral_point,
+      skill_bar_region: draft.skill_bar_region,
+      skill_bar_count: draft.skill_bar_count,
       glow_baselines: baseline_paths,
       battle_baseline: battle_baseline,
       suggested_glow_threshold: Vision.suggested_threshold(frames)
     }
 
     Calibration.save(calib)
+    persist_skill_settings(draft.skill_bar_count)
     {:noreply, assign(socket, done: true, step: nil, calibrated?: true)}
   end
 
@@ -216,33 +238,32 @@ defmodule PokexWeb.CalibrationLive do
         )
 
       :neutral ->
-        assign(socket, draft: Map.put(draft, :neutral_point, point), step: :baselines)
+        assign(socket, draft: Map.put(draft, :neutral_point, point), step: :skill_a)
 
       :skill_a ->
         assign(socket, draft: Map.put(draft, :skill_a, point), step: :skill_b)
 
       :skill_b ->
         region = region_from(draft.skill_a, point)
+        count = draft.skill_bar_count
 
-        case Calibration.load() do
-          {:ok, calib} ->
-            Calibration.save(%{calib | skill_bar_region: region})
-
+        case socket.assigns.mode do
+          :full ->
             assign(socket,
-              draft: %{},
-              step: nil,
-              screen: nil,
-              calibrated?: true,
-              skillbar_msg:
-                "Barra de skills salva: #{inspect(region)}. Confira em 'Exportar diagnóstico' no painel."
+              draft:
+                draft
+                |> Map.put(:skill_bar_region, region)
+                |> Map.put(:skill_bar_count, count),
+              step: :baselines,
+              skillbar_msg: "Barra configurada com #{count} skills."
             )
 
-          {:error, reason} ->
-            assign(socket,
-              step: nil,
-              screen: nil,
-              error: "não deu pra salvar a barra: #{inspect(reason)}"
-            )
+          :skillbar_only ->
+            persist_skill_settings(count)
+            save_skill_bar(socket, region, count)
+
+          _ ->
+            socket
         end
 
       _ ->
@@ -252,12 +273,60 @@ defmodule PokexWeb.CalibrationLive do
 
   defp region_from({x1, y1}, {x2, y2}), do: {min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)}
 
+  defp save_skill_bar(socket, region, count) do
+    case Calibration.load() do
+      {:ok, calib} ->
+        Calibration.save(%{calib | skill_bar_region: region, skill_bar_count: count})
+
+        assign(socket,
+          draft: %{},
+          step: nil,
+          screen: nil,
+          calibrated?: true,
+          skillbar_msg: "Barra salva com #{count} skills. Confira a leitura no painel."
+        )
+
+      {:error, reason} ->
+        assign(socket,
+          step: nil,
+          screen: nil,
+          error: "não deu pra salvar a barra: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp persist_skill_settings(count) do
+    Settings.put(:skill_bar_count, count)
+    Settings.put(:skill_keys, SkillBar.fit_order(Settings.get(:skill_keys), count))
+  end
+
+  defp configured_skill_count do
+    case Calibration.load() do
+      {:ok, %Calibration{skill_bar_count: count}} when count in 1..10 -> count
+      _ -> Settings.get(:skill_bar_count) |> clamp_skill_count()
+    end
+  end
+
+  defp parse_skill_count(raw, fallback) do
+    case Integer.parse(to_string(raw)) do
+      {count, ""} -> clamp_skill_count(count)
+      _ -> fallback
+    end
+  end
+
+  defp clamp_skill_count(count) when is_integer(count), do: min(max(count, 1), 10)
+  defp clamp_skill_count(_count), do: 6
+
+  defp skill_count_form(count), do: to_form(%{"count" => to_string(count)}, as: :skill_bar)
+
   defp step_index(:water), do: 1
   defp step_index(:battle_a), do: 2
   defp step_index(:battle_b), do: 3
   defp step_index(:arena_a), do: 4
   defp step_index(:arena_b), do: 5
   defp step_index(:neutral), do: 6
+  defp step_index(:skill_a), do: 7
+  defp step_index(:skill_b), do: 8
   defp step_index(_), do: nil
 
   defp step_pill_class(n, step) do
@@ -318,6 +387,7 @@ defmodule PokexWeb.CalibrationLive do
               glow_region={@review.calib.glow_region}
               battle_region={@review.calib.battle_region}
               arena_region={@review.calib.arena_region}
+              skill_bar_region={@review.calib.skill_bar_region}
               neutral_point={@review.calib.neutral_point}
               player_point={Calibration.player_point(@review.calib)}
               bands={Calibration.battle_row_bands(@review.calib, @row_height, @max_rows)}
@@ -333,6 +403,20 @@ defmodule PokexWeb.CalibrationLive do
           <p class="text-sm opacity-70">
             Capture a tela do jogo para começar a marcar os pontos.
           </p>
+          <.form
+            for={@skill_count_form}
+            id="skill-count-form"
+            phx-change="set_skill_count"
+            class="mx-auto w-44 text-left"
+          >
+            <.input
+              field={@skill_count_form[:count]}
+              type="number"
+              min="1"
+              max="10"
+              label="Quantidade de skills"
+            />
+          </.form>
           <div class="flex flex-wrap justify-center gap-2">
             <button class="btn btn-primary" phx-click="capture_screen">
               <.icon name="hero-camera" class="size-4" /> Capturar tela
@@ -341,18 +425,18 @@ defmodule PokexWeb.CalibrationLive do
               <.icon name="hero-eye" class="size-4" /> Revisar áreas salvas
             </button>
             <button :if={@calibrated?} class="btn btn-ghost" phx-click="calibrate_skillbar">
-              <.icon name="hero-bolt" class="size-4" /> Calibrar barra de skills
+              <.icon name="hero-bolt" class="size-4" /> Recalibrar só as skills
             </button>
           </div>
           <p :if={@calibrated?} class="text-xs opacity-60">
-            A barra de skills é opcional — só é usada pra rastrear cooldowns (pescar só quando dá pra matar).
+            A barra de skills já faz parte da calibração completa; o botão separado serve apenas para corrigi-la.
           </p>
         </div>
 
         <div :if={@screen} class="space-y-3">
           <ol :if={step_index(@step)} class="flex items-center gap-1.5">
             <li
-              :for={n <- 1..6}
+              :for={n <- 1..8}
               class={[
                 "flex size-6 items-center justify-center rounded-full text-xs font-semibold",
                 step_pill_class(n, @step)
@@ -367,6 +451,9 @@ defmodule PokexWeb.CalibrationLive do
             class="rounded-lg bg-info/15 px-3 py-2 text-sm font-medium"
           >
             {@instr[@step]}
+            <span :if={@step in [:skill_a, :skill_b]} class="ml-1 font-bold">
+              Quantidade fixa: {@skill_count}.
+            </span>
           </p>
 
           <div
@@ -412,6 +499,7 @@ defmodule PokexWeb.CalibrationLive do
               glow_region={@draft[:glow_region]}
               battle_region={@draft[:battle_region]}
               arena_region={@draft[:arena_region]}
+              skill_bar_region={@draft[:skill_bar_region]}
               neutral_point={@draft[:neutral_point]}
               player_point={draft_player(@draft)}
               bands={draft_bands(@draft, @scale, @row_height, @max_rows)}
@@ -425,7 +513,9 @@ defmodule PokexWeb.CalibrationLive do
         >
           <.icon name="hero-check-circle" class="mx-auto size-8 text-success" />
           <p class="font-semibold">Calibração salva!</p>
-          <p class="text-sm opacity-70">Threshold do brilho gravado. Pode ir para o painel.</p>
+          <p class="text-sm opacity-70">
+            Brilho e {@draft[:skill_bar_count] || Settings.get(:skill_bar_count)} skills gravados. Pode ir para o painel.
+          </p>
           <div class="flex flex-wrap justify-center gap-2">
             <button class="btn btn-ghost btn-sm" phx-click="review">
               <.icon name="hero-eye" class="size-4" /> Revisar áreas

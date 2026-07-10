@@ -8,7 +8,9 @@
 import Config
 
 config :pokex,
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  capture_backend: :auto,
+  perf_log_interval_ms: 5_000
 
 # Configure the endpoint
 config :pokex, PokexWeb.Endpoint,

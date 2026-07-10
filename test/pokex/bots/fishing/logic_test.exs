@@ -6,7 +6,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     %{
       water_point: {800, 400},
       neutral_point: {860, 470},
-      rod_key: "v",
+      rod_key: "shift+v",
       tick_ms_watching: 200,
       tick_ms_default: 300,
       wait_focus_ms: 150,
@@ -59,7 +59,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert actions == [
              {:move, {800, 400}},
              {:wait, 300},
-             {:press, "v"}
+             {:press, "shift+v"}
            ]
 
     assert l.counters.cycles == 1
@@ -91,7 +91,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     # now a bubble is a real bite → hook, and loop straight back to casting (no combat)
     {l, actions} = Logic.step(settled, Map.put(cursor_obs(), :glow, true), 900)
     assert l.state == :casting
-    assert actions == [{:press, "v"}]
+    assert actions == [{:press, "shift+v"}]
     assert l.counters.hooked == 1
     assert l.waiting_until == 900 + 1500
   end
@@ -100,7 +100,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     settled = %Logic{state: :watching, settled?: true, config: config()}
     {l, actions} = Logic.step(settled, Map.put(cursor_obs(), :glow, true), 1000)
     assert l.state == :casting
-    assert actions == [{:press, "v"}]
+    assert actions == [{:press, "shift+v"}]
     assert l.counters.hooked == 1
   end
 
@@ -115,7 +115,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
     {l, actions} = Logic.step(l, Map.put(cursor_obs(), :glow, true), 200)
     assert l.state == :casting
-    assert actions == [{:press, "v"}]
+    assert actions == [{:press, "shift+v"}]
 
     # a lone bubble frame followed by calm resets the streak
     {reset, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 100)
@@ -205,23 +205,25 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     {still, []} = Logic.step(settled, Map.put(cursor_obs(), :glow, false), 15_000)
     assert still.settled?
 
-    {hooked, [{:press, "v"}]} = Logic.step(still, Map.put(cursor_obs(), :glow, true), 15_100)
+    {hooked, [{:press, "shift+v"}]} =
+      Logic.step(still, Map.put(cursor_obs(), :glow, true), 15_100)
+
     assert hooked.state == :casting
   end
 
-  test "watching recasts (via casting) after the absolute watch timeout" do
+  test "watching recasts immediately after the absolute watch timeout" do
     # a single frame past watch_timeout_ms trips the backstop even before the
-    # dead-frame streak fills; recovery re-arms + re-throws (routes through :casting).
+    # dead-frame streak fills; recovery re-arms + re-throws immediately.
     watching = advance_to(:watching)
     {l, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 600 + 30_001)
-    assert l.state == :casting
-    assert [{:log, _}] = actions
+    assert l.state == :watching
+    assert [{:log, _}, {:move, _}, {:wait, _}, {:press, "shift+v"}] = actions
   end
 
-  test "watching recasts via casting after watch_dead_streak_needed no-bubble frames" do
+  test "watching recasts immediately after watch_dead_streak_needed no-bubble frames" do
     # config() sets watch_dead_streak_needed: 10; feed 10 consecutive no-bite
     # frames with the clock well under watch_timeout_ms so ONLY the dead-frame
-    # path can fire. Recovery re-arms the rod (press v) rather than just re-click.
+    # path can fire. Recovery re-arms the rod (press shift+v) in the same step.
     watching = advance_to(:watching)
 
     {result, actions} =
@@ -229,8 +231,8 @@ defmodule Pokex.Bots.Fishing.LogicTest do
         Logic.step(l, Map.put(cursor_obs(), :glow, false), 700 + i * 100)
       end)
 
-    assert result.state == :casting
-    assert [{:log, msg}] = actions
+    assert result.state == :watching
+    assert [{:log, msg}, {:move, _}, {:wait, _}, {:press, "shift+v"}] = actions
     assert msg =~ "re-lançando"
   end
 
@@ -306,7 +308,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
     test "gate OFF: hooks normally even when the skills aren't ready" do
       {l, actions} = Logic.step(settled(false), bite(false), 1000)
-      assert actions == [{:press, "v"}]
+      assert actions == [{:press, "shift+v"}]
       assert l.counters.hooked == 1
     end
 
@@ -322,7 +324,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
     test "gate ON + skills ready: hooks" do
       {l, actions} = Logic.step(settled(true), bite(true), 1000)
-      assert actions == [{:press, "v"}]
+      assert actions == [{:press, "shift+v"}]
       assert l.counters.hooked == 1
       refute l.holding?
     end
@@ -339,7 +341,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     test "a held fish is pulled the instant the skills come ready" do
       {held, _} = Logic.step(settled(true), bite(false), 1000)
       {l, actions} = Logic.step(held, bite(true), 1100)
-      assert actions == [{:press, "v"}]
+      assert actions == [{:press, "shift+v"}]
       assert l.counters.hooked == 1
       refute l.holding?
     end

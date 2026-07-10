@@ -55,6 +55,35 @@ defmodule Pokex.Rig.Mac.Commands do
   `keystroke`. Modifiers are applied via `using {...}`.
   """
   def press(combo) do
+    {"osascript", ["-e", ~s(tell application "System Events" to #{key_action(combo)})]}
+  end
+
+  def press_many(combos, opts \\ []) do
+    tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
+    gap_ms = opts |> Keyword.get(:gap_ms, 0) |> max(0)
+    jitter_ms = opts |> Keyword.get(:jitter_ms, 0) |> max(0)
+
+    actions =
+      combos
+      |> Enum.flat_map(fn combo -> List.duplicate(combo, tap_count) end)
+      |> Enum.map(&key_action/1)
+
+    script =
+      actions
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {action, idx} ->
+        if idx == length(actions) - 1 do
+          ["  #{action}"]
+        else
+          ["  #{action}", "  delay #{delay_expr(gap_ms, jitter_ms)}"]
+        end
+      end)
+
+    {"osascript",
+     ["-e", Enum.join(["tell application \"System Events\"" | script] ++ ["end tell"], "\n")]}
+  end
+
+  defp key_action(combo) do
     {mods, [key]} = combo |> String.split("+") |> Enum.split(-1)
 
     action =
@@ -63,13 +92,26 @@ defmodule Pokex.Rig.Mac.Commands do
         code -> "key code #{code}"
       end
 
-    {"osascript", ["-e", ~s(tell application "System Events" to #{action}#{using(mods)})]}
+    action <> using(mods)
   end
 
   defp using([]), do: ""
 
   defp using(mods),
     do: " using {" <> Enum.map_join(mods, ", ", &Map.fetch!(@modifiers, &1)) <> "}"
+
+  defp format_delay(seconds) do
+    if seconds == trunc(seconds),
+      do: Integer.to_string(trunc(seconds)),
+      else: :erlang.float_to_binary(seconds, decimals: 3)
+  end
+
+  defp delay_expr(gap_ms, 0), do: format_delay(gap_ms / 1000)
+  defp delay_expr(0, jitter_ms), do: "(random number from 0 to #{format_delay(jitter_ms / 1000)})"
+
+  defp delay_expr(gap_ms, jitter_ms),
+    do:
+      "(#{format_delay(gap_ms / 1000)} + (random number from 0 to #{format_delay(jitter_ms / 1000)}))"
 
   def click(:left, {x, y}), do: {"cliclick", ["c:#{x},#{y}"]}
   def click(:right, {x, y}), do: {"cliclick", ["rc:#{x},#{y}"]}

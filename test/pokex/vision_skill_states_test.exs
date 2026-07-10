@@ -53,6 +53,25 @@ defmodule Pokex.VisionSkillStatesTest do
       assert states == [:cooldown]
     end
 
+    test "a cooldown retaining exactly 6% vivid pixels stays :cooldown" do
+      # Reproduces the measured slot 5 from the real six-skill screenshot: the darkened
+      # icon retains 6% coloured pixels and the white countdown adds brightness, but it
+      # must stay below the new 7% vivid floor.
+      rgba =
+        :binary.copy(<<40, 45, 40, 255>>, 88) <>
+          :binary.copy(<<40, 100, 40, 255>>, 6) <>
+          :binary.copy(<<240, 240, 240, 255>>, 6)
+
+      frame = %Frame{width: 100, height: 1, rgba: rgba}
+
+      assert Vision.skill_states(frame,
+               count: 1,
+               min_brightness: 90,
+               min_saturation: 25,
+               min_vivid_pct: 7
+             ) == [:cooldown]
+    end
+
     test "clamps the slot count to the frame width" do
       frame = bar([{200, 200, 0}, {200, 200, 0}], 1)
       assert length(Vision.skill_states(frame, count: 50)) == 2
@@ -86,6 +105,24 @@ defmodule Pokex.VisionSkillStatesTest do
         |> Enum.map(& &1.state)
 
       assert states == [:cooldown, :cooldown]
+    end
+  end
+
+  describe "skill_bar_frame?/1" do
+    test "accepts dark hotbar chrome with vivid icons and rejects bright map texture" do
+      bar =
+        %Frame{
+          width: 10,
+          height: 1,
+          rgba:
+            :binary.copy(<<10, 10, 10, 255>>, 4) <>
+              :binary.copy(<<40, 180, 80, 255>>, 6)
+        }
+
+      floor = %Frame{width: 10, height: 1, rgba: :binary.copy(<<120, 210, 235, 255>>, 10)}
+
+      assert Vision.skill_bar_frame?(bar)
+      refute Vision.skill_bar_frame?(floor)
     end
   end
 

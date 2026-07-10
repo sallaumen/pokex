@@ -29,4 +29,11 @@ defmodule Pokex.Rig.FakeTest do
     assert :ok = Fake.press("1")
     assert :ok = Fake.press("1")
   end
+
+  test "press_many records each generated key press in order" do
+    {:ok, _} = Fake.start_link()
+
+    assert :ok = Fake.press_many(["1", "2"], tap_count: 2)
+    assert Fake.calls() == [{:press, "1"}, {:press, "1"}, {:press, "2"}, {:press, "2"}]
+  end
 end

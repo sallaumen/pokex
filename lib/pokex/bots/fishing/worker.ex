@@ -94,7 +94,7 @@ defmodule Pokex.Bots.Fishing.Worker do
           {stepped, actions} = Logic.step(previous, threshold_glow(observations, settings), now())
 
           logic =
-            case submit(state.body, actions, humanize_max_for(previous)) do
+            case submit(state.body, actions, humanize_max_for(previous, actions)) do
               :ok -> stepped
               {:error, reason} -> elem(Logic.io_failed(stepped, inspect(reason), now()), 0)
             end
@@ -146,12 +146,23 @@ defmodule Pokex.Bots.Fishing.Worker do
   # before the pull (the bubbles flash until we pull, so a human 0.5-1s
   # reaction is safe and non-robotic); every other state uses the global
   # humanize (0).
-  defp humanize_max_for(%Logic{state: :casting, config: c}), do: {0, c.cast_delay_max_ms}
+  defp humanize_max_for(logic, actions \\ [])
 
-  defp humanize_max_for(%Logic{state: :watching, config: c}),
-    do: {c.hook_delay_min_ms, c.hook_delay_max_ms}
+  defp humanize_max_for(%Logic{state: :watching, config: c}, actions) do
+    if cast_sequence?(actions),
+      do: {0, c.cast_delay_max_ms},
+      else: {c.hook_delay_min_ms, c.hook_delay_max_ms}
+  end
 
-  defp humanize_max_for(%Logic{config: c}), do: {0, c.humanize_max_ms}
+  defp humanize_max_for(%Logic{state: :casting, config: c}, _actions),
+    do: {0, c.cast_delay_max_ms}
+
+  defp humanize_max_for(%Logic{config: c}, _actions), do: {0, c.humanize_max_ms}
+
+  defp cast_sequence?(actions) do
+    Enum.any?(actions, &match?({:move, _point}, &1)) and
+      Enum.any?(actions, &match?({:press, _key}, &1))
+  end
 
   # Every action list is one atomic Body.perform at :normal — fishing yields
   # to combat. The humanize delay is paced here, BEFORE the submit, so the
@@ -181,7 +192,7 @@ defmodule Pokex.Bots.Fishing.Worker do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @topic,
-        {:fishing_log, :debug, "⏳ delay anti-bot #{delay}ms → #{describe_actions(actions)}"}
+        {:fishing_log, :debug, "delay #{delay}ms → #{describe_actions(actions)}"}
       )
 
       Process.sleep(delay)
@@ -193,12 +204,22 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp describe_actions(actions),
     do: actions |> Enum.map(&describe_action/1) |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
 
-  # The glow sensor returns the RAW cyan count (for the live feed); Logic decides
-  # on booleans, so apply the thresholds here before stepping: `glow` = a BITE
-  # (raw over glow_threshold), `line?` = the line is PRESENT in the water (raw at
-  # or above line_present_min_px, i.e. a resting line pulsing between bites vs
-  # near-empty water). A Fake sensor may hand back a boolean directly — pass those
-  # straight through (no line? key → treated as absent by the Logic).
+  # The real glow sensor returns a fishing signal map (focused around the lure).
+  # Older fakes/tests may still hand back a raw integer or boolean; keep those
+  # shapes working so logic tests stay simple.
+  defp threshold_glow(%{glow: %{bubble_count: count} = signal} = obs, settings)
+       when is_integer(count) do
+    line_present? =
+      case Map.fetch(signal, :line_present?) do
+        {:ok, present?} -> present?
+        :error -> Map.get(signal, :bubble_count, 0) >= (settings[:line_present_min_px] || 100)
+      end
+
+    obs
+    |> Map.put(:glow, count > (settings[:glow_threshold] || 500))
+    |> Map.put(:line?, line_present?)
+  end
+
   defp threshold_glow(%{glow: count} = obs, settings) when is_integer(count) do
     obs
     |> Map.put(:glow, count > (settings[:glow_threshold] || 500))
@@ -228,17 +249,23 @@ defmodule Pokex.Bots.Fishing.Worker do
     end
   end
 
-  defp state_desc(%Logic{state: :focusing}, _obs), do: "pesca: focando (clique neutro)"
-  defp state_desc(%Logic{state: :equipping}, _obs), do: "pesca: equipando a vara"
-  defp state_desc(%Logic{state: :casting}, _obs), do: "pesca: lançando a linha"
+  defp state_desc(%Logic{state: :focusing}, _obs), do: "pesca: foco"
+  defp state_desc(%Logic{state: :equipping}, _obs), do: "pesca: equip"
+  defp state_desc(%Logic{state: :casting}, _obs), do: "pesca: cast"
 
   defp state_desc(%Logic{state: :watching, settled?: settled, dead_streak: dead} = logic, obs) do
     case Map.get(obs, :glow) do
+      %{bubble_count: n} = signal ->
+        lure = Map.get(signal, :lure_count, 0)
+        line? = Map.get(signal, :line_present?, false)
+
+        "pesca: bol #{n}/#{fmt_threshold(Settings.get(:glow_threshold))} isca #{lure} linha #{yes_no(line?)} #{settled_label(settled)} #{dead}/#{logic.config.watch_dead_streak_needed}#{lock_suffix(logic)}"
+
       n when is_integer(n) ->
-        "vigiando: bolhas #{n}px (limiar #{Settings.get(:glow_threshold)}) — assentado? #{settled} — #{dead}/#{logic.config.watch_dead_streak_needed} sem bolha#{lock_suffix(logic)}"
+        "pesca: bol #{n}/#{fmt_threshold(Settings.get(:glow_threshold))} #{settled_label(settled)} #{dead}/#{logic.config.watch_dead_streak_needed}#{lock_suffix(logic)}"
 
       _ ->
-        "vigiando#{lock_suffix(logic)}"
+        "pesca: vigia#{lock_suffix(logic)}"
     end
   end
 
@@ -247,14 +274,23 @@ defmodule Pokex.Bots.Fishing.Worker do
   # While a bite is HELD by the cooldown gate the line stays live and the bubbles keep
   # flashing, so without this the watch line just reads "bolhas Npx (acima do limiar)"
   # forever and never says WHY it isn't pulling. Surface the lock on every held tick.
-  defp lock_suffix(%Logic{holding?: true}), do: " — 🔒 SEGURADO (esperando skill de kill)"
+  defp lock_suffix(%Logic{holding?: true}), do: " — 🔒 cd kill"
   defp lock_suffix(_logic), do: ""
 
-  defp describe_action({:press, key}), do: "tecla #{key}"
-  defp describe_action({:click, :left, {x, y}}), do: "clique esq (#{x},#{y})"
-  defp describe_action({:click, :right, {x, y}}), do: "clique dir (#{x},#{y})"
-  defp describe_action({:move, {x, y}}), do: "mover mouse (#{x},#{y})"
-  defp describe_action({:capture_sequence, {x, y}}), do: "pokébola (#{x},#{y})"
+  defp settled_label(true), do: "ok"
+  defp settled_label(false), do: "settle"
+
+  defp yes_no(true), do: "sim"
+  defp yes_no(false), do: "nao"
+
+  defp fmt_threshold(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 0)
+  defp fmt_threshold(value), do: to_string(value)
+
+  defp describe_action({:press, key}), do: "key #{key}"
+  defp describe_action({:click, :left, {x, y}}), do: "clickE #{x},#{y}"
+  defp describe_action({:click, :right, {x, y}}), do: "clickD #{x},#{y}"
+  defp describe_action({:move, {x, y}}), do: "move #{x},#{y}"
+  defp describe_action({:capture_sequence, {x, y}}), do: "ball #{x},#{y}"
   defp describe_action({:wait, _ms}), do: nil
   defp describe_action({:log, msg}), do: msg
 

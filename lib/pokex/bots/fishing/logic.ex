@@ -91,31 +91,7 @@ defmodule Pokex.Bots.Fishing.Logic do
   # between them, casting the rod onto the battle panel instead of the water (the "usando a vara
   # no campo de batalha" bug). One perform means nothing can land between positioning and casting.
   defp do_step(%{state: :casting} = logic, _obs, now) do
-    logic = update_in(logic.counters.cycles, &(&1 + 1))
-
-    # Enter watching NOT settled: the cast splash also flashes cyan, so we must
-    # first see the water go calm (splash gone) before a cyan spike counts as a
-    # real bite. Settling now requires N CONSECUTIVE calm frames (not one), so an
-    # oscillating splash can't latch it. The settle-wait skips the bulk of the
-    # splash up front.
-    {advance(
-       %{
-         logic
-         | glow_streak: 0,
-           calm_streak: 0,
-           dead_streak: 0,
-           settled?: false,
-           holding?: false
-       },
-       :watching,
-       now,
-       wait: logic.config.wait_cast_settle_ms
-     ),
-     [
-       {:move, logic.config.water_point},
-       {:wait, logic.config.wait_after_equip_ms},
-       {:press, logic.config.rod_key}
-     ]}
+    cast(logic, now)
   end
 
   # Bubbles AND the water already settled (splash gone) → a real bite. Require N
@@ -223,22 +199,57 @@ defmodule Pokex.Bots.Fishing.Logic do
   # or a cast that never put a line in the water leaves us watching empty water,
   # reading 0 forever. Re-throw when EITHER the consecutive no-bubble streak hits
   # watch_dead_streak_needed (the fast path) OR the absolute watch_timeout_ms
-  # elapses (backstop). Recasting routes through :casting, which RE-ARMS the rod
-  # (press the rod key) and RE-THROWS atomically — a bare re-click of the water
+  # elapses (backstop). Recasting RE-ARMS the rod (press the rod key) and
+  # RE-THROWS atomically in the same step — a bare re-click of the water
   # can't recover a cast whose rod was never used. A real/building bite resets
   # dead_streak (see the glow:true clauses), so an active bite is never cut short.
   defp recast_if_dead(logic, now) do
     cond do
       logic.dead_streak >= logic.config.watch_dead_streak_needed ->
-        {advance(logic, :casting, now),
-         [{:log, "sem bolha por #{logic.dead_streak} frames — re-lançando a vara"}]}
+        cast(logic, now, [
+          {:log, "sem bolha #{logic.dead_streak}f — re-lançando"}
+        ])
 
       timed_out?(logic, now, logic.config.watch_timeout_ms) ->
-        {advance(logic, :casting, now), [{:log, "sem bolha a tempo — re-lançando a vara"}]}
+        cast(logic, now, [{:log, "timeout bolha — re-lançando"}])
 
       true ->
         {logic, []}
     end
+  end
+
+  defp cast(logic, now, prefix_actions \\ []) do
+    logic = update_in(logic.counters.cycles, &(&1 + 1))
+
+    # Enter watching NOT settled: the cast splash also flashes cyan, so we must
+    # first see the water go calm (splash gone) before a cyan spike counts as a
+    # real bite. Settling now requires N CONSECUTIVE calm frames (not one), so an
+    # oscillating splash can't latch it. The settle-wait skips the bulk of the
+    # splash up front.
+    logic =
+      advance(
+        %{
+          logic
+          | glow_streak: 0,
+            calm_streak: 0,
+            dead_streak: 0,
+            settled?: false,
+            holding?: false
+        },
+        :watching,
+        now,
+        wait: logic.config.wait_cast_settle_ms
+      )
+
+    actions =
+      prefix_actions ++
+        [
+          {:move, logic.config.water_point},
+          {:wait, logic.config.wait_after_equip_ms},
+          {:press, logic.config.rod_key}
+        ]
+
+    {logic, actions}
   end
 
   # A no-bite frame only counts toward the dead-frame streak when the water is

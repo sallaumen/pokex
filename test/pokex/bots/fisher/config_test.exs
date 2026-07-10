@@ -21,7 +21,12 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.neutral_point == {860, 470}
     assert config.battle_first_row == {1466, 138}
     assert config.player_point == {840, 470}
+    assert config.rod_key == "shift+v"
     assert config.skill_keys == ["1", "2", "3"]
+    assert config.combat_skill_burst_size == 3
+    assert config.combat_skill_tap_count == 1
+    assert config.combat_skill_gap_ms == 35
+    assert config.combat_skill_jitter_ms == 20
     assert config.watch_timeout_ms == 30_000
     assert config.hostile_scan_every == 2
     assert config.target_lost_streak == 2

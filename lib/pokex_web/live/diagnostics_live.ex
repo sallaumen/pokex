@@ -1,6 +1,7 @@
 defmodule PokexWeb.DiagnosticsLive do
   use PokexWeb, :live_view
 
+  alias Pokex.Bots.Capture
   alias Pokex.Rig
   alias Pokex.{Calibration, Settings, Vision}
   alias Pokex.Vision.Frame
@@ -65,18 +66,20 @@ defmodule PokexWeb.DiagnosticsLive do
   end
 
   def handle_event("glow_score", _params, socket) do
-    # Cyan bubble pixels in the region. Cast the rod and click this while the blue
-    # bubbles show: the count spikes (in-game ~512 vs 0 calm). Set the threshold
-    # between them.
+    # Cyan bubble pixels in the same expanded region used by the worker. Cast the
+    # rod and click this while the blue bubbles show: the count should spike above
+    # calm water, and it exercises ScreenCaptureKit when that backend is active.
     with {:ok, calib} <- Calibration.load(),
-         {:ok, path} <- Rig.impl().capture(calib.glow_region, "diag_glow.png"),
-         {:ok, frame} <- Frame.from_png_file(path) do
-      count = Vision.bubble_count(frame)
+         region <- Calibration.glow_search_region(calib, Settings.get(:glow_search_margin) || 0),
+         {:ok, frame} <- Capture.frame_uncached(region, "diag_glow.png") do
+      signal = Vision.fishing_signal(frame, fishing_signal_opts(calib, region, frame))
+      count = signal.bubble_count
       threshold = Settings.get(:glow_threshold) || 500
 
       {:noreply,
        assign(socket,
-         msg: "bolhas: #{count} px ciano | limiar #{threshold} | mordida? #{count > threshold}"
+         msg:
+           "bolhas: #{count} px | isca #{signal.lure_count}px | linha? #{signal.line_present?} | região #{inspect(region)} | limiar #{threshold} | mordida? #{count > threshold}"
        )}
     else
       error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
@@ -226,6 +229,23 @@ defmodule PokexWeb.DiagnosticsLive do
     {:noreply, assign(socket, preview: nil)}
   end
 
+  defp fishing_signal_opts(calib, region, frame) do
+    [
+      min_lure_pixels: Settings.get(:fishing_lure_min_pixels) || 20,
+      bubble_radius_px: Settings.get(:fishing_bubble_radius_px) || 48,
+      line_present_min_px: Settings.get(:line_present_min_px) || 100,
+      expected_center: expected_glow_center(calib, region, frame)
+    ]
+  end
+
+  defp expected_glow_center(%Calibration{glow_region: {gx, gy, gw, gh}}, {rx, ry, rw, rh}, frame)
+       when rw > 0 and rh > 0 do
+    {
+      round((gx + gw / 2 - rx) * frame.width / rw),
+      round((gy + gh / 2 - ry) * frame.height / rh)
+    }
+  end
+
   @impl true
   def handle_info({:delayed_press, combo}, socket) do
     {:noreply, assign(socket, msg: "press #{combo} → #{inspect(Rig.impl().press(combo))}")}
@@ -316,7 +336,9 @@ defmodule PokexWeb.DiagnosticsLive do
               Teclas <span class="font-normal opacity-50">(2s para focar o jogo)</span>
             </h2>
             <div class="flex flex-wrap gap-2">
-              <button class="btn btn-sm" phx-click="press" phx-value-combo="v">Vara (V)</button>
+              <button class="btn btn-sm" phx-click="press" phx-value-combo="shift+v">
+                Vara (Shift+V)
+              </button>
               <button class="btn btn-sm" phx-click="press" phx-value-combo="1">Tecla 1</button>
               <button class="btn btn-sm" phx-click="press" phx-value-combo="2">Tecla 2</button>
             </div>
@@ -451,6 +473,7 @@ defmodule PokexWeb.DiagnosticsLive do
               glow_region={@preview.calib.glow_region}
               battle_region={@preview.calib.battle_region}
               arena_region={@preview.calib.arena_region}
+              skill_bar_region={@preview.calib.skill_bar_region}
               neutral_point={@preview.calib.neutral_point}
               player_point={Calibration.player_point(@preview.calib)}
               bands={

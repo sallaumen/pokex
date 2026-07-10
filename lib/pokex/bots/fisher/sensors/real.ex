@@ -23,9 +23,11 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   # oscillates ~20-305, never 0) and the cast splash flashes ~250; a real BITE is
   # far brighter (measured peaks 800-1022). We return the RAW cyan count so the
   # driver can show it live in the feed; the driver applies the bite threshold.
-  defp fetch(:glow, calib, _settings) do
-    with {:ok, frame} <- capture_frame(calib.glow_region, "glow.png") do
-      {:ok, Vision.bubble_count(frame)}
+  defp fetch(:glow, calib, settings) do
+    region = Calibration.glow_search_region(calib, settings[:glow_search_margin] || 0)
+
+    with {:ok, frame} <- capture_frame(region, "glow.png") do
+      {:ok, Vision.fishing_signal(frame, fishing_signal_opts(settings, calib, region, frame))}
     end
   end
 
@@ -134,10 +136,26 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   defp row_index(y, top, band, rows), do: max(0, min(div(y - top, band), rows - 1))
 
   # Through the Capture broker so no two screencaptures run at once (concurrent ones balloon on
-  # macOS — see Pokex.Bots.Capture). Falls back to a direct capture when the broker isn't up.
+  # macOS — see Pokex.Bots.Capture). `frame/3` also shares a very short decoded-frame cache
+  # between bursty same-region reads, e.g. fishing/combat/panel all looking at the skill bar.
   defp capture_frame(region, filename) do
-    with {:ok, path} <- Capture.grab(region, filename) do
-      Frame.from_png_file(path)
-    end
+    Capture.frame(region, filename)
+  end
+
+  defp fishing_signal_opts(settings, calib, region, frame) do
+    [
+      min_lure_pixels: settings[:fishing_lure_min_pixels] || 20,
+      bubble_radius_px: settings[:fishing_bubble_radius_px] || 48,
+      line_present_min_px: settings[:line_present_min_px] || 100,
+      expected_center: expected_glow_center(calib, region, frame)
+    ]
+  end
+
+  defp expected_glow_center(%Calibration{glow_region: {gx, gy, gw, gh}}, {rx, ry, rw, rh}, frame)
+       when rw > 0 and rh > 0 do
+    {
+      round((gx + gw / 2 - rx) * frame.width / rw),
+      round((gy + gh / 2 - ry) * frame.height / rh)
+    }
   end
 end

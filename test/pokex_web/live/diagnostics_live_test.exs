@@ -10,18 +10,18 @@ defmodule PokexWeb.DiagnosticsLiveTest do
   test "press is delayed then executed through the rig", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/diagnostics")
 
-    view |> element("button[phx-value-combo='v']") |> render_click()
+    view |> element("button[phx-value-combo='shift+v']") |> render_click()
     assert render(view) =~ "em 2s"
 
-    send(view.pid, {:delayed_press, "v"})
-    assert render(view) =~ "press v → :ok"
+    send(view.pid, {:delayed_press, "shift+v"})
+    assert render(view) =~ "press shift+v → :ok"
 
     # Filter out {:cursor_position} — the app-wide Guardian polls the panic
     # corner on its own timer against this same shared Rig.Fake, and its
     # reads may land in this window. What this test actually asserts is that
     # OUR delayed press ran.
     calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
-    assert calls == [{:press, "v"}]
+    assert calls == [{:press, "shift+v"}]
   end
 
   test "click goes straight through", %{conn: conn} do
@@ -65,7 +65,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
-      # Pin the bite threshold below the 576-px bright fixture so "mordida? true"
+      # Pin the bite threshold below the bright-cyan fixture so "mordida? true"
       # is deterministic. Settings is a shared named GenServer, so without this the
       # test silently rode on whatever glow_threshold an earlier test file left
       # behind — passing or failing purely on run order. Restore the default after.
@@ -79,7 +79,16 @@ defmodule PokexWeb.DiagnosticsLiveTest do
         Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120, 255}))
 
       bright =
-        Pokex.PngFixtures.write!(Path.join(tmp, "bright.png"), rows(24, 24, {200, 220, 255, 255}))
+        Pokex.PngFixtures.write!(
+          Path.join(tmp, "bright.png"),
+          for y <- 0..31 do
+            for x <- 0..31 do
+              if x in 12..19 and y in 12..19,
+                do: {210, 55, 30, 255},
+                else: {40, 180, 220, 255}
+            end
+          end
+        )
 
       Pokex.Calibration.save(%Pokex.Calibration{
         scale: 2.0,

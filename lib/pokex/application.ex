@@ -14,6 +14,7 @@ defmodule Pokex.Application do
       # Start a worker by calling: Pokex.Worker.start_link(arg)
       # {Pokex.Worker, arg},
       Pokex.Settings,
+      Pokex.Bots.Perf,
       # Serializes ALL screen captures (see Pokex.Bots.Capture) — a global singleton, started
       # before the bot so every worker's `Capture.grab` reaches it. Concurrent screencaptures
       # balloon on macOS; one-at-a-time keeps each ~0.28s and the sample cadence steady.

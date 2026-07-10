@@ -8,6 +8,8 @@ defmodule PokexWeb.PanelLive do
   @fishing_topic "fishing"
   @combat_topic "combat"
   @loot_topic "loot"
+  @mini_game_topic "mini_game"
+  @body_topic "body"
   @cooldown_poll_ms 1000
 
   @counters [
@@ -26,11 +28,21 @@ defmodule PokexWeb.PanelLive do
   # built once at Start/Testar, so these apply on the NEXT run (noted in the UI).
   @timing_fields [
     {:tick_ms_fighting, "Ritmo da luta (ms)",
-     "de quanto em quanto tempo ele reavalia a luta e tenta a próxima skill"},
+     "de quanto em quanto tempo ele reavalia a luta e dispara a próxima rajada"},
+    {:combat_skill_burst_size, "Skills por leitura",
+     "quantas teclas de skill ele engatilha antes de olhar a luta de novo"},
+    {:combat_skill_tap_count, "Toques por skill",
+     "quantas vezes repetir cada tecla dentro da rajada"},
+    {:combat_skill_gap_ms, "Intervalo entre skills (ms)",
+     "pausa base entre teclas da rajada; 0 = sem pausa fixa"},
+    {:combat_skill_jitter_ms, "Variação aleatória pós-skill (ms)",
+     "sorteia +0..N ms depois de cada skill; 20 = intervalo base + 0 a 20ms"},
     {:target_lost_streak, "Confirmações de morte",
      "quantas leituras sem inimigo até considerar o alvo morto"},
     {:fight_timeout_ms, "Timeout de alvo (ms)", "desiste de um alvo que não morre nesse tempo"}
   ]
+
+  @positive_timing_keys [:combat_skill_burst_size, :combat_skill_tap_count]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -38,6 +50,8 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @loot_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, @mini_game_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, @body_topic)
       # Keep the cooldown display LIVE while the fishing gate is on, so it never goes stale —
       # you can watch the reading flip to ready the instant your skills come off cooldown (the
       # SAME SkillBar read the fishing gate uses each tick).
@@ -52,6 +66,7 @@ defmodule PokexWeb.PanelLive do
        fishing: status.fishing,
        combat: status.combat,
        loot: status.loot,
+       mini_game: status.mini_game,
        errors: [],
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
@@ -88,6 +103,24 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:loot, snapshot}, socket),
     do: {:noreply, assign(socket, loot: snapshot)}
 
+  def handle_info({:mini_game, snapshot}, socket) do
+    socket = assign(socket, mini_game: snapshot)
+
+    socket =
+      case Map.get(snapshot, :transition) do
+        transition when transition in [:entered, :left] ->
+          push_event(socket, "mini-game-transition", %{
+            transition: transition,
+            state: snapshot.state
+          })
+
+        _ ->
+          socket
+      end
+
+    {:noreply, socket}
+  end
+
   # Live cooldown poll: re-read the skill bar WHILE the fishing gate is on, so the display
   # tracks the reading the gate uses every tick (never stale). Off → skip the capture but keep
   # the timer alive so it resumes the moment the gate is turned on. Always reschedule.
@@ -106,6 +139,12 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:combat_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "⚔️", text: text})}
+
+  def handle_info({:mini_game_log, level, text}, socket),
+    do: {:noreply, append_log(socket, %{level: level, source: "🎮", text: text})}
+
+  def handle_info({:body_log, level, text}, socket),
+    do: {:noreply, append_log(socket, %{level: level, source: "🧤", text: text})}
 
   # Backward-compat: a worker still running an OLD build (mid hot-reload) may
   # broadcast the pre-level 2-tuple form. Treat it as debug so the panel never
@@ -159,7 +198,8 @@ defmodule PokexWeb.PanelLive do
            panicked?: false,
            fishing: status.fishing,
            combat: status.combat,
-           loot: status.loot
+           loot: status.loot,
+           mini_game: status.mini_game
          )}
 
       {:error, messages} ->
@@ -170,7 +210,14 @@ defmodule PokexWeb.PanelLive do
   def handle_event("stop", _params, socket) do
     BotSupervisor.stop_all()
     status = BotSupervisor.status()
-    {:noreply, assign(socket, fishing: status.fishing, combat: status.combat, loot: status.loot)}
+
+    {:noreply,
+     assign(socket,
+       fishing: status.fishing,
+       combat: status.combat,
+       loot: status.loot,
+       mini_game: status.mini_game
+     )}
   end
 
   def handle_event("test_combat", _params, socket) do
@@ -211,7 +258,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("save_skills", %{"skills" => raw}, socket) do
     # Priority order, strongest first. The attack loop cycles these in order; a
     # skill on cooldown is a harmless no-op in the game, so the ready ones fire.
-    keys = String.split(raw, ~r/[\s,]+/, trim: true)
+    keys = parse_skill_keys(raw)
     keys = if keys == [], do: Settings.get(:skill_keys), else: keys
     Settings.put(:skill_keys, keys)
     {:noreply, assign(socket, skill_order: Enum.join(keys, " "))}
@@ -222,7 +269,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("save_timing", params, socket) do
     timing =
       Enum.reduce(@timing_fields, socket.assigns.timing, fn {key, _label, _hint}, acc ->
-        case parse_non_neg(params[to_string(key)]) do
+        case parse_timing(key, params[to_string(key)]) do
           {:ok, n} ->
             Settings.put(key, n)
             Map.put(acc, key, n)
@@ -253,7 +300,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   def handle_event("save_hook_skills", %{"hook_skills" => raw}, socket) do
-    keys = String.split(raw, ~r/[\s,]+/, trim: true)
+    keys = parse_skill_keys(raw)
     keys = if keys == [], do: Settings.get(:hook_skill_keys), else: keys
     Settings.put(:hook_skill_keys, keys)
     {:noreply, assign(socket, hook_skills: Enum.join(keys, " "))}
@@ -344,7 +391,10 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  defp region_spec("glow", calib), do: {calib.glow_region, "água (glow)", "shot_glow.png"}
+  defp region_spec("glow", calib) do
+    region = Calibration.glow_search_region(calib, Settings.get(:glow_search_margin) || 0)
+    {region, "água (glow ampliado)", "shot_glow.png"}
+  end
 
   defp region_spec("battle", calib),
     do: {calib.battle_region, "painel Batalha", "shot_battle.png"}
@@ -366,6 +416,13 @@ defmodule PokexWeb.PanelLive do
     case Integer.parse(String.trim(raw)) do
       {n, _} when n >= 0 -> {:ok, n}
       _ -> :error
+    end
+  end
+
+  defp parse_timing(key, raw) do
+    case parse_non_neg(raw) do
+      {:ok, 0} when key in @positive_timing_keys -> {:ok, 1}
+      other -> other
     end
   end
 
@@ -393,8 +450,17 @@ defmodule PokexWeb.PanelLive do
   defp cooldown_pill_class(:ready), do: "badge-success"
   defp cooldown_pill_class(_cooldown), do: "badge-ghost opacity-50"
 
+  defp parse_skill_keys(raw) do
+    raw
+    |> String.split(~r/[\s,]+/, trim: true)
+    |> Enum.map(&if(&1 == "10", do: "0", else: &1))
+    |> Enum.filter(&Regex.match?(~r/^[0-9]$/, &1))
+    |> Enum.uniq()
+  end
+
   defp counters, do: @counters
   defp timing_fields, do: @timing_fields
+  defp positive_timing_key?(key), do: key in @positive_timing_keys
 
   # Fishing and combat only truly overlap on :failures — sum those; every
   # other counter belongs to exactly one worker, so a plain merge is right
@@ -444,6 +510,13 @@ defmodule PokexWeb.PanelLive do
   defp loot_label(:error), do: "erro"
   defp loot_label(other), do: to_string(other)
 
+  # 🎮 Mini game: desligado / observando a arena / pausando o resto enquanto o jogo está aberto.
+  defp mini_game_label(:off), do: "parado"
+  defp mini_game_label(:watching), do: "observando"
+  defp mini_game_label(:playing), do: "em jogo"
+  defp mini_game_label(:error), do: "erro"
+  defp mini_game_label(other), do: to_string(other)
+
   defp active?(:idle), do: false
   defp active?(:off), do: false
   defp active?(_state), do: true
@@ -452,6 +525,11 @@ defmodule PokexWeb.PanelLive do
   defp pill_class(:idle), do: "badge-ghost"
   defp pill_class(:off), do: "badge-ghost"
   defp pill_class(_running), do: "badge-success"
+
+  defp mini_game_pill_class(:playing), do: "badge-warning"
+  defp mini_game_pill_class(:watching), do: "badge-info"
+  defp mini_game_pill_class(:error), do: "badge-error"
+  defp mini_game_pill_class(_state), do: "badge-ghost"
 
   @impl true
   def render(assigns) do
@@ -505,6 +583,17 @@ defmodule PokexWeb.PanelLive do
                   active?(@loot.state) && "motion-safe:animate-pulse"
                 ]} /> 🎒 Loot: {loot_label(@loot.state)}
               </span>
+              <span
+                data-testid="mini-game-pill"
+                data-state={@mini_game.state}
+                class={["badge gap-1.5 badge-lg", mini_game_pill_class(@mini_game.state)]}
+                title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
+              >
+                <span class={[
+                  "size-2 rounded-full bg-current",
+                  @mini_game.state == :playing && "motion-safe:animate-pulse"
+                ]} /> 🎮 Mini game: {mini_game_label(@mini_game.state)}
+              </span>
             </div>
             <div class="flex flex-wrap gap-2">
               <button class="btn btn-success gap-1.5" phx-click="start">
@@ -535,6 +624,12 @@ defmodule PokexWeb.PanelLive do
           </p>
           <p :if={@combat.error} class="mt-3 rounded-lg bg-error/15 px-3 py-2 text-sm text-error">
             ⚔️ {@combat.error}
+          </p>
+          <p
+            :if={@mini_game.error}
+            class="mt-3 rounded-lg bg-error/15 px-3 py-2 text-sm text-error"
+          >
+            🎮 {@mini_game.error}
           </p>
           <ul :if={@errors != []} class="mt-3 space-y-1 rounded-lg bg-warning/10 px-3 py-2 text-sm">
             <li :for={message <- @errors} class="flex items-start gap-2">
@@ -666,6 +761,7 @@ defmodule PokexWeb.PanelLive do
             <div class="grid gap-x-6 gap-y-1 font-mono text-[11px] sm:grid-cols-2">
               <span>
                 🎣 bolhas: <b>{gi(@report, [:regions, :glow, :metrics, :bubble_count]) || "—"}</b>
+                · isca: <b>{gi(@report, [:regions, :glow, :metrics, :lure_count]) || "—"}</b>
                 · mordida? <b>{inspect(gi(@report, [:regions, :glow, :metrics, :bite?]))}</b>
               </span>
               <span>
@@ -681,6 +777,11 @@ defmodule PokexWeb.PanelLive do
               <span>
                 ⚔️ pokébola?
                 <b>{inspect(gi(@report, [:regions, :battle_strip, :metrics, :wild_present?]))}</b>
+              </span>
+              <span>
+                ⚡ skills: <b>{gi(@report, [:regions, :skill_bar, :slot_count]) || "—"}</b>
+                lidas · <b>{gi(@report, [:calibration, :skill_bar_count]) || "—"}</b>
+                configuradas
               </span>
               <span>escala (probe): <b>{gi(@report, [:screen, :r_scale]) || "—"}×</b></span>
               <span>tela: <b>{inspect(gi(@report, [:screen, :pixels]))}px</b></span>
@@ -721,11 +822,17 @@ defmodule PokexWeb.PanelLive do
             <div class="flex flex-wrap items-center gap-2">
               <div class="flex flex-wrap items-center gap-1">
                 <span
-                  :for={{state, i} <- Enum.with_index(@cooldowns_states || [])}
+                  :for={
+                    {state, key} <-
+                      Enum.zip(
+                        @cooldowns_states || [],
+                        SkillBar.keys(length(@cooldowns_states || []))
+                      )
+                  }
                   class={["badge badge-sm", cooldown_pill_class(state)]}
-                  title={"skill #{i + 1}: #{state}"}
+                  title={"skill #{key}: #{state}"}
                 >
-                  {i + 1}
+                  {key}
                 </span>
                 <span :if={is_nil(@cooldowns_states)} class="text-xs opacity-50">
                   ligue o gate abaixo (ou clique "Ler") — a barra de skills precisa estar calibrada
@@ -755,7 +862,8 @@ defmodule PokexWeb.PanelLive do
           <div class="border-t border-base-content/10 pt-3">
             <h3 class="text-xs font-semibold opacity-70">Skills necessárias pra matar</h3>
             <p class="text-xs opacity-60">
-              Todas precisam estar prontas antes de puxar. Ex.: <code class="font-mono">4 5 6 7</code>.
+              Basta uma estar pronta para puxar. Use <code class="font-mono">0</code>
+              para a décima skill.
             </p>
             <form
               id="hook-skills-form"
@@ -797,7 +905,7 @@ defmodule PokexWeb.PanelLive do
             <h2 class="text-sm font-semibold">Ordem das skills</h2>
             <p class="text-xs opacity-60">
               Prioridade de ataque, as mais fortes primeiro. Ele percorre nesta ordem;
-              skill em cooldown o jogo ignora. Ex.: <code class="font-mono">7 6 5 4 3 2 1</code>.
+              skill em cooldown o jogo ignora. Ex.: <code class="font-mono">0 9 8 7 6 5 4 3 2 1</code>.
             </p>
             <form id="skills-form" phx-submit="save_skills" class="mt-2 flex items-center gap-2">
               <input
@@ -820,7 +928,7 @@ defmodule PokexWeb.PanelLive do
                 <span class="font-medium">{label}</span>
                 <input
                   type="number"
-                  min="0"
+                  min={if(positive_timing_key?(key), do: "1", else: "0")}
                   name={key}
                   value={@timing[key]}
                   class="input input-bordered input-sm mt-1 w-full"

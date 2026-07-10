@@ -42,6 +42,66 @@ defmodule Pokex.Rig.Mac.CommandsTest do
               ["-e", ~s(tell application "System Events" to key code 49 using {shift down})]}
   end
 
+  test "press_many batches top-row skill keys into one System Events script" do
+    assert Commands.press_many(["1", "2", "shift+space"], tap_count: 1, gap_ms: 25) ==
+             {"osascript",
+              [
+                "-e",
+                Enum.join(
+                  [
+                    ~s(tell application "System Events"),
+                    "  key code 18",
+                    "  delay 0.025",
+                    "  key code 19",
+                    "  delay 0.025",
+                    "  key code 49 using {shift down}",
+                    "end tell"
+                  ],
+                  "\n"
+                )
+              ]}
+  end
+
+  test "press_many can repeat each skill tap inside the same script" do
+    assert Commands.press_many(["1", "2"], tap_count: 2, gap_ms: 0) ==
+             {"osascript",
+              [
+                "-e",
+                Enum.join(
+                  [
+                    ~s(tell application "System Events"),
+                    "  key code 18",
+                    "  delay 0",
+                    "  key code 18",
+                    "  delay 0",
+                    "  key code 19",
+                    "  delay 0",
+                    "  key code 19",
+                    "end tell"
+                  ],
+                  "\n"
+                )
+              ]}
+  end
+
+  test "press_many can add random jitter to the delay between skills" do
+    assert Commands.press_many(["1", "2"], tap_count: 1, gap_ms: 35, jitter_ms: 20) ==
+             {"osascript",
+              [
+                "-e",
+                Enum.join(
+                  [
+                    ~s(tell application "System Events"),
+                    "  key code 18",
+                    "  delay (0.035 + (random number from 0 to 0.020))",
+                    "  key code 19",
+                    "end tell"
+                  ],
+                  "\n"
+                )
+              ]}
+  end
+
   test "function keys send the real key code, not the typed letters (case-insensitive)" do
     # `keystroke "f1"` would TYPE f then 1 — F-keys need the key EVENT (F1 = 122).
     assert Commands.press("f1") ==

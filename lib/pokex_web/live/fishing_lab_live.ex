@@ -18,7 +18,7 @@ defmodule PokexWeb.FishingLabLive do
                 <span class="badge badge-primary gap-1.5">
                   <.icon name="hero-sparkles" class="size-3.5" /> simulador local
                 </span>
-                <span class="badge badge-ghost">60 FPS no navegador</span>
+                <span class="badge badge-ghost">jogo a 60 FPS · visao configuravel</span>
                 <span class="badge badge-ghost">input minimo 50ms</span>
               </div>
               <h1 class="text-2xl font-bold tracking-tight">Laboratorio do peixe</h1>
@@ -105,6 +105,22 @@ defmodule PokexWeb.FishingLabLive do
                 <button type="button" data-lab-action="new-fish" class="btn btn-outline gap-1.5">
                   <.icon name="hero-swatch" class="size-4" /> Nova cor
                 </button>
+                <div class="join col-span-2 w-full">
+                  <button
+                    type="button"
+                    data-lab-pilot="reactive"
+                    class="btn btn-outline btn-sm join-item flex-1"
+                  >
+                    Reativo
+                  </button>
+                  <button
+                    type="button"
+                    data-lab-pilot="predictive"
+                    class="btn btn-outline btn-sm join-item flex-1 btn-active"
+                  >
+                    Preditivo
+                  </button>
+                </div>
               </div>
 
               <div class="rounded-xl border border-base-content/10 bg-base-300 p-3">
@@ -128,6 +144,14 @@ defmodule PokexWeb.FishingLabLive do
                   <div>
                     <div class="opacity-50">Rodada</div>
                     <div data-stat="round" class="text-lg font-semibold tabular-nums">1</div>
+                  </div>
+                  <div>
+                    <div class="opacity-50">Ultima leitura</div>
+                    <div data-stat="reading-age" class="text-lg font-semibold tabular-nums">—</div>
+                  </div>
+                  <div>
+                    <div class="opacity-50">Placar</div>
+                    <div data-stat="score" class="text-lg font-semibold tabular-nums">0V · 0D</div>
                   </div>
                 </div>
               </div>
@@ -179,6 +203,39 @@ defmodule PokexWeb.FishingLabLive do
                     value="13"
                     data-lab-range="deadband"
                     class="range range-warning range-sm"
+                  />
+                </label>
+
+                <label for="fishing-lab-vision-fps" class="block">
+                  <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                    <span>FPS da visao</span>
+                    <span data-output="vision-fps" class="font-mono text-xs opacity-60">7 fps · ~143ms</span>
+                  </div>
+                  <input
+                    id="fishing-lab-vision-fps"
+                    type="range"
+                    min="2"
+                    max="60"
+                    value="7"
+                    data-lab-range="vision-fps"
+                    class="range range-secondary range-sm"
+                  />
+                </label>
+
+                <label for="fishing-lab-loss" class="block">
+                  <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                    <span>Leituras perdidas</span>
+                    <span data-output="loss" class="font-mono text-xs opacity-60">0%</span>
+                  </div>
+                  <input
+                    id="fishing-lab-loss"
+                    type="range"
+                    min="0"
+                    max="40"
+                    value="0"
+                    step="5"
+                    data-lab-range="loss"
+                    class="range range-error range-sm"
                   />
                 </label>
 

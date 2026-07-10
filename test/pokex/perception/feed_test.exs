@@ -161,5 +161,42 @@ defmodule Pokex.Perception.FeedTest do
     end
   end
 
+  defp stateful_spec do
+    %{
+      key: :feed_stateful_test,
+      region: fn _calib -> {0, 0, 10, 10} end,
+      interval_setting: :feed_battle_ms,
+      filename: "feed_stateful_test.png",
+      # counts how many frames this ATTACHMENT has seen — resets when the feed resumes
+      interpret: fn _frame, _calib, _settings, prev ->
+        n = (prev || 0) + 1
+        {%{frames_seen: n}, n}
+      end
+    }
+  end
+
+  @tag :tmp_dir
+  test "arity-4 interpreters thread state and reset when the feed resumes from idle",
+       %{tmp_dir: tmp} do
+    a = png!(tmp, "a.png", 8)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}]})
+    on_exit(fn -> :ets.delete(:pokex_world, :feed_stateful_test) end)
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "world")
+    {:ok, feed} = Feed.start_link(spec: stateful_spec(), name: nil)
+
+    :ok = Feed.attach(feed)
+    # state threads across ticks: 1, 2, ...
+    assert_receive {:world, :feed_stateful_test, %{frames_seen: 1}}, 1_000
+    assert_receive {:world, :feed_stateful_test, %{frames_seen: 2}}, 1_000
+
+    # pause (last consumer detaches), then resume → the counter restarts at 1
+    :ok = Feed.detach(feed)
+    refute_receive {:world, :feed_stateful_test, _}, 300
+
+    :ok = Feed.attach(feed)
+    assert_receive {:world, :feed_stateful_test, %{frames_seen: 1}}, 1_000
+  end
+
   defp now, do: System.monotonic_time(:millisecond)
 end

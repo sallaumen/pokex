@@ -41,7 +41,7 @@ defmodule Pokex.Perception.Feed do
 
   @impl true
   def init(spec) do
-    {:ok, %{spec: spec, consumers: %{}, timer: nil, last_obs: nil, failures: 0}}
+    {:ok, %{spec: spec, consumers: %{}, timer: nil, last_obs: nil, failures: 0, interp_state: nil}}
   end
 
   @impl true
@@ -53,7 +53,7 @@ defmodule Pokex.Perception.Feed do
         ref = Process.monitor(pid)
         was_idle? = state.consumers == %{}
         state = %{state | consumers: Map.put(state.consumers, pid, ref)}
-        if was_idle?, do: reschedule(state, 0), else: state
+        if was_idle?, do: reschedule(%{state | interp_state: nil, last_obs: nil}, 0), else: state
       end
 
     {:reply, :ok, state}
@@ -79,17 +79,16 @@ defmodule Pokex.Perception.Feed do
          {:ok, frame} <- Capture.frame(region, state.spec.filename) do
       at = now()
 
-      obs =
-        frame
-        |> state.spec.interpret.(calib, Settings.all())
-        |> Map.put(:captured_at, at)
+      {obs_body, interp_state} = run_interpret(state, frame, calib)
+
+      obs = Map.put(obs_body, :captured_at, at)
 
       WorldState.put(state.spec.key, obs, at)
 
       if changed?(state.last_obs, obs),
         do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:world, state.spec.key, obs})
 
-      %{state | last_obs: obs, failures: 0}
+      %{state | last_obs: obs, interp_state: interp_state, failures: 0}
     else
       error -> tick_failed(state, error)
     end
@@ -138,6 +137,18 @@ defmodule Pokex.Perception.Feed do
   defp reschedule(state, delay_ms) do
     if state.timer, do: Process.cancel_timer(state.timer)
     %{state | timer: Process.send_after(self(), :tick, max(delay_ms, 10))}
+  end
+
+  # Interpreters come in two shapes: pure (arity 3) and stateful (arity 4 — e.g. the corpse
+  # detector's warmup baseline). State lives here in the feed and resets whenever the feed
+  # resumes from idle, so every fresh attachment relearns from scratch.
+  defp run_interpret(state, frame, calib) do
+    settings = Settings.all()
+
+    case Function.info(state.spec.interpret, :arity) do
+      {:arity, 4} -> state.spec.interpret.(frame, calib, settings, state.interp_state)
+      {:arity, 3} -> {state.spec.interpret.(frame, calib, settings), state.interp_state}
+    end
   end
 
   defp now, do: System.monotonic_time(:millisecond)

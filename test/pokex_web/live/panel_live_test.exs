@@ -85,7 +85,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "[data-testid=catcher-pill][data-state=armed]")
   end
 
-  test "capture mode selector persists and shows the manual hint", %{conn: conn} do
+  test "the global player mode selector persists and gates the toggles' hints", %{conn: conn} do
     mode = Pokex.Settings.get(:player_mode)
     on_exit(fn -> Pokex.Settings.put(:player_mode, mode) end)
 
@@ -93,10 +93,28 @@ defmodule PokexWeb.PanelLiveTest do
 
     view |> element(~s(button[phx-value-mode="movimento"])) |> render_click()
     assert Pokex.Settings.get(:player_mode) == "movimento"
-    assert render(view) =~ "você captura manualmente"
+    assert render(view) =~ "você saqueia e captura manualmente"
 
     view |> element(~s(button[phx-value-mode="parado"])) |> render_click()
     assert render(view) =~ "Reaprender chão"
+  end
+
+  test "loot and capture toggles persist independently", %{conn: conn} do
+    loot = Pokex.Settings.get(:loot_enabled)
+    cap = Pokex.Settings.get(:capture_enabled)
+
+    on_exit(fn ->
+      Pokex.Settings.put(:loot_enabled, loot)
+      Pokex.Settings.put(:capture_enabled, cap)
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view |> element(~s(input[phx-click="toggle_loot_enabled"])) |> render_click()
+    refute Pokex.Settings.get(:loot_enabled) == loot
+
+    view |> element(~s(input[phx-click="toggle_capture_enabled"])) |> render_click()
+    refute Pokex.Settings.get(:capture_enabled) == cap
   end
 
   test "the busy placeholder snapshots render without crashing (worker missed its status window)",

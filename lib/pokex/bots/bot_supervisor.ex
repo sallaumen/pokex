@@ -145,13 +145,27 @@ defmodule Pokex.Bots.BotSupervisor do
     stop_all(Fishing.Worker, Combat.Worker, Loot.Worker, MiniGame.Worker)
   end
 
+  # A worker can be legitimately unresponsive for seconds — e.g. parked on a screen capture the
+  # OS is throttling (measured: 8-16s per `screencapture` while ScreenCaptureKit recovery
+  # contended for the display). The panel's mount goes through here, so a busy worker must NEVER
+  # take the page down: ask with a short timeout and fall back to a placeholder snapshot that
+  # renders as "ocupado" (every panel label/class has a catch-all for unknown states).
+  @status_timeout_ms 1_000
+  @busy_snapshot %{state: :ocupado, counters: %{}, error: "sem resposta (captura lenta?)"}
+
+  defp safe_status(server, extra \\ %{}) do
+    GenServer.call(server, :status, @status_timeout_ms)
+  catch
+    :exit, _reason -> Map.merge(@busy_snapshot, extra)
+  end
+
   @spec status(GenServer.server(), GenServer.server(), GenServer.server()) ::
           %{fishing: map, combat: map, loot: map}
   def status(fishing, combat, loot) do
     %{
-      fishing: Fishing.Worker.status(fishing),
-      combat: Combat.Worker.status(combat),
-      loot: Loot.Worker.status(loot)
+      fishing: safe_status(fishing),
+      combat: safe_status(combat, %{locked_row: nil}),
+      loot: safe_status(loot)
     }
   end
 
@@ -164,7 +178,7 @@ defmodule Pokex.Bots.BotSupervisor do
   def status(fishing, combat, loot, mini_game) do
     fishing
     |> status(combat, loot)
-    |> Map.put(:mini_game, MiniGame.Worker.status(mini_game))
+    |> Map.put(:mini_game, safe_status(mini_game, %{in_game?: false}))
   end
 
   @spec status(
@@ -177,7 +191,7 @@ defmodule Pokex.Bots.BotSupervisor do
   def status(fishing, combat, loot, mini_game, game_controller) do
     fishing
     |> status(combat, loot, mini_game)
-    |> Map.put(:game_controller, GameController.Worker.status(game_controller))
+    |> Map.put(:game_controller, safe_status(game_controller, %{hp_pct: nil}))
   end
 
   def status do

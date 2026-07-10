@@ -14,13 +14,22 @@ defmodule Pokex.Bots.GameController.Logic do
   toggle, an unknown (nil) HP reading, or HP at/above the threshold all hold, and once a combo has
   fired no second one is allowed until `cooldown_ms` has fully elapsed (revives are expensive).
 
-  Expects a map with `:hp_pct` (0..100 or nil), `:threshold_pct`, `:enabled?`, `:cooldown_ms`,
-  `:last_rescue_at` (monotonic ms or nil) and `:now` (monotonic ms).
+  TWO consecutive reads must agree it's low (`prev_hp_pct` below the threshold too): a single
+  garbage frame — a screenshot of the wrong screen at boot, a mid-scroll tear — must never burn a
+  revive. Costs one tick (~120ms) of rescue delay, which the combo's own ~600ms dwarfs.
+
+  Expects a map with `:hp_pct` and `:prev_hp_pct` (0..100 or nil), `:threshold_pct`, `:enabled?`,
+  `:cooldown_ms`, `:last_rescue_at` (monotonic ms or nil) and `:now` (monotonic ms).
   """
   @spec decide(map) :: decision
   def decide(%{enabled?: false}), do: :hold
   def decide(%{hp_pct: nil}), do: :hold
   def decide(%{hp_pct: hp, threshold_pct: threshold}) when hp >= threshold, do: :hold
+
+  def decide(%{prev_hp_pct: prev, threshold_pct: threshold})
+      when is_nil(prev) or prev >= threshold,
+      do: :hold
+
   def decide(%{last_rescue_at: nil}), do: :rescue
 
   def decide(%{now: now, last_rescue_at: last, cooldown_ms: cooldown}),
@@ -33,13 +42,21 @@ defmodule Pokex.Bots.GameController.Logic do
   what makes that capture worth taking. A potion drunk in combat is a wasted potion (the channel is
   interrupted the moment a fight starts), so the worker only fires when it CONFIRMED out-of-combat.
 
-  Expects `:hp_pct` (0..100 or nil), `:threshold_pct`, `:enabled?`, `:cooldown_ms`,
-  `:last_potion_at` (monotonic ms or nil) and `:now` (monotonic ms).
+  Same two-consecutive-reads rule as `decide/1` (`prev_hp_pct` must agree): a single garbage
+  frame must not chug a potion either.
+
+  Expects `:hp_pct` and `:prev_hp_pct` (0..100 or nil), `:threshold_pct`, `:enabled?`,
+  `:cooldown_ms`, `:last_potion_at` (monotonic ms or nil) and `:now` (monotonic ms).
   """
   @spec potion_wanted?(map) :: boolean
   def potion_wanted?(%{enabled?: false}), do: false
   def potion_wanted?(%{hp_pct: nil}), do: false
   def potion_wanted?(%{hp_pct: hp, threshold_pct: threshold}) when hp >= threshold, do: false
+
+  def potion_wanted?(%{prev_hp_pct: prev, threshold_pct: threshold})
+      when is_nil(prev) or prev >= threshold,
+      do: false
+
   def potion_wanted?(%{last_potion_at: nil}), do: true
 
   def potion_wanted?(%{now: now, last_potion_at: last, cooldown_ms: cooldown}),

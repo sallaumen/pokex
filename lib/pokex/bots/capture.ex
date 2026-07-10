@@ -60,6 +60,7 @@ defmodule Pokex.Bots.Capture do
        sck_recoverable?: sck_recoverable?,
        sck_recover_at: initial_sck_recover_at(backend, sck_recoverable?, sck_recover_interval_ms),
        sck_recover_interval_ms: sck_recover_interval_ms,
+       sck_recover_backoff_ms: sck_recover_interval_ms,
        recovering?: false,
        sck_capture_retries:
          non_neg_int(
@@ -203,7 +204,13 @@ defmodule Pokex.Bots.Capture do
     Logger.info("ScreenCaptureKit capture backend recovered")
 
     {:noreply,
-     %{state | backend: {:screen_capture_kit, backend}, recovering?: false, sck_recover_at: nil}}
+     %{
+       state
+       | backend: {:screen_capture_kit, backend},
+         recovering?: false,
+         sck_recover_at: nil,
+         sck_recover_backoff_ms: state.sck_recover_interval_ms
+     }}
   end
 
   def handle_info({:sck_recovery_result, {:error, {:disabled, _reason}}}, state) do
@@ -481,7 +488,11 @@ defmodule Pokex.Bots.Capture do
     owner = self()
     opts = state.sck_opts
     sck = state.sck
-    retries = sck_start_retries(opts)
+    # ONE start attempt per recovery cycle (boot keeps its retries). Each attempt grabs the
+    # display, so in-attempt retries multiply the window where a live `screencapture` fallback
+    # contends with SCK and balloons to many seconds; the exponential backoff between CYCLES is
+    # what earns extra attempts now.
+    retries = 0
 
     spawn(fn ->
       result =
@@ -509,13 +520,29 @@ defmodule Pokex.Bots.Capture do
 
   defp fallback_backend(%{backend: {:screen_capture_kit, backend}, sck: sck} = state) do
     sck.stop(backend)
-    state |> Map.put(:backend, :rig) |> schedule_sck_recovery()
+
+    state
+    |> Map.put(:backend, :rig)
+    |> Map.put(:sck_recover_backoff_ms, state.sck_recover_interval_ms)
+    |> schedule_sck_recovery()
   end
 
   defp fallback_backend(state), do: state
 
-  defp schedule_sck_recovery(%{sck_recoverable?: true} = state),
-    do: %{state | sck_recover_at: now() + state.sck_recover_interval_ms}
+  # Each SCK start attempt grabs the display and CONTENDS with the live `screencapture` CLI
+  # fallback at the OS level — measured on Lucas's machine: captures ballooned from ~0.3s to
+  # 8-16s while recovery re-fired every fixed 5s. So failed recoveries back off exponentially
+  # (base interval → ×2 per failure, capped) instead of poisoning the fallback path forever; a
+  # successful recovery (or a fresh fall-back from a working SCK) resets the backoff to base.
+  @sck_recover_backoff_max_ms 60_000
+
+  defp schedule_sck_recovery(%{sck_recoverable?: true} = state) do
+    %{
+      state
+      | sck_recover_at: now() + state.sck_recover_backoff_ms,
+        sck_recover_backoff_ms: min(state.sck_recover_backoff_ms * 2, @sck_recover_backoff_max_ms)
+    }
+  end
 
   defp schedule_sck_recovery(state), do: %{state | sck_recover_at: nil}
 

@@ -166,6 +166,42 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  test "failed SCK recoveries back off exponentially and reset on success" do
+    start_supervised!({Pokex.CaptureBackendFake, %{start: [{:error, :timeout}]}})
+
+    {:ok, pid} =
+      Capture.start_link(
+        name: :cap_sck_backoff,
+        screen_capture_kit: Pokex.CaptureBackendFake,
+        sck_start_retries: 0,
+        sck_recover_interval_ms: 5_000
+      )
+
+    # each failed recovery result doubles the next delay (5s → 10s → 20s), capped at 60s
+    send(pid, {:sck_recovery_result, {:error, :timeout}})
+    state = :sys.get_state(pid)
+    assert state.sck_recover_backoff_ms == 10_000
+    assert_in_delta state.sck_recover_at - System.monotonic_time(:millisecond), 5_000, 200
+
+    send(pid, {:sck_recovery_result, {:error, :timeout}})
+    state = :sys.get_state(pid)
+    assert state.sck_recover_backoff_ms == 20_000
+    assert_in_delta state.sck_recover_at - System.monotonic_time(:millisecond), 10_000, 200
+
+    # the cap holds
+    :sys.replace_state(pid, fn s -> %{s | sck_recover_backoff_ms: 60_000} end)
+    send(pid, {:sck_recovery_result, {:error, :timeout}})
+    assert :sys.get_state(pid).sck_recover_backoff_ms == 60_000
+
+    # a successful recovery resets the backoff to the base interval
+    send(pid, {:sck_recovery_result, {:ok, :sck_recovered}})
+    state = :sys.get_state(pid)
+    assert state.sck_recover_backoff_ms == 5_000
+    assert state.sck_recover_at == nil
+
+    GenServer.stop(pid)
+  end
+
   test "a failed SCK start recovers ASYNCHRONOUSLY — captures never block on the re-init" do
     start_supervised!(
       {Pokex.CaptureBackendFake,

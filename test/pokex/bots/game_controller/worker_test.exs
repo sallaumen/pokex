@@ -116,6 +116,23 @@ defmodule Pokex.Bots.GameController.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "a single low-HP glitch frame between full reads never fires the combo", %{
+    tmp: tmp,
+    body: body
+  } do
+    full = hp_png(tmp, "full.png", 20)
+    low = hp_png(tmp, "low.png", 6)
+    # one garbage low frame sandwiched by full bars — the consecutive-reads guard must hold
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}, {:ok, low}, {:ok, full}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, _priority, _actions}, 400
+    assert Worker.status(worker).counters.rescues == 0
+  end
+
+  @tag :tmp_dir
   test "the cooldown blocks a second combo within the window", %{tmp: tmp, body: body} do
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})

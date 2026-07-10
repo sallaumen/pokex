@@ -2,9 +2,12 @@ defmodule Pokex.Bots.GameController.LogicTest do
   use ExUnit.Case, async: true
   alias Pokex.Bots.GameController.Logic
 
+  # prev_hp_pct defaults to 0 (previous read agreed it's low) so the threshold/cooldown tests
+  # exercise their own rule; the consecutive-reads guard has its own dedicated tests.
   defp input(overrides) do
     %{
       hp_pct: 100,
+      prev_hp_pct: 0,
       threshold_pct: 50,
       enabled?: true,
       cooldown_ms: 60_000,
@@ -43,12 +46,21 @@ defmodule Pokex.Bots.GameController.LogicTest do
       assert Logic.decide(input(hp_pct: 5, last_rescue_at: 10_000, now: 70_000)) == :rescue
       assert Logic.decide(input(hp_pct: 5, last_rescue_at: 10_000, now: 200_000)) == :rescue
     end
+
+    test "one garbage frame never burns a revive: the PREVIOUS read must agree it's low" do
+      # first-ever low read (prev nil) or a low read right after a high one → hold
+      assert Logic.decide(input(hp_pct: 5, prev_hp_pct: nil)) == :hold
+      assert Logic.decide(input(hp_pct: 5, prev_hp_pct: 90)) == :hold
+      # two consecutive lows → rescue
+      assert Logic.decide(input(hp_pct: 5, prev_hp_pct: 40)) == :rescue
+    end
   end
 
   describe "potion_wanted?/1" do
     defp potion_input(overrides) do
       %{
         hp_pct: 100,
+        prev_hp_pct: 0,
         threshold_pct: 70,
         enabled?: true,
         cooldown_ms: 10_000,
@@ -73,6 +85,12 @@ defmodule Pokex.Bots.GameController.LogicTest do
     test "the heal-channel cooldown blocks a second sip within the window" do
       refute Logic.potion_wanted?(potion_input(hp_pct: 30, last_potion_at: 45_000, now: 50_000))
       assert Logic.potion_wanted?(potion_input(hp_pct: 30, last_potion_at: 40_000, now: 50_000))
+    end
+
+    test "one garbage frame never chugs a potion: the previous read must agree" do
+      refute Logic.potion_wanted?(potion_input(hp_pct: 30, prev_hp_pct: nil))
+      refute Logic.potion_wanted?(potion_input(hp_pct: 30, prev_hp_pct: 95))
+      assert Logic.potion_wanted?(potion_input(hp_pct: 30, prev_hp_pct: 60))
     end
   end
 

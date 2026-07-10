@@ -28,6 +28,7 @@ defmodule Pokex.Bots.GameController.Worker do
       body: Keyword.get(opts, :body, Body),
       timer: nil,
       hp_pct: nil,
+      prev_hp_pct: nil,
       last_rescue_at: nil,
       last_potion_at: nil,
       error: nil,
@@ -81,7 +82,13 @@ defmodule Pokex.Bots.GameController.Worker do
           case read_hp(calib) do
             {:ok, hp} ->
               act(
-                %{state | hp_pct: hp, error: nil, counters: bump(state.counters, :reads)},
+                %{
+                  state
+                  | prev_hp_pct: state.hp_pct,
+                    hp_pct: hp,
+                    error: nil,
+                    counters: bump(state.counters, :reads)
+                },
                 calib
               )
 
@@ -139,6 +146,7 @@ defmodule Pokex.Bots.GameController.Worker do
   defp potion_input(state) do
     %{
       hp_pct: state.hp_pct,
+      prev_hp_pct: state.prev_hp_pct,
       threshold_pct: Settings.get(:pokemon_hp_potion_pct),
       enabled?: Settings.get(:potion_enabled),
       cooldown_ms: Settings.get(:potion_cooldown_ms),
@@ -173,6 +181,7 @@ defmodule Pokex.Bots.GameController.Worker do
   defp decision_input(state) do
     %{
       hp_pct: state.hp_pct,
+      prev_hp_pct: state.prev_hp_pct,
       threshold_pct: Settings.get(:pokemon_hp_rescue_pct),
       enabled?: Settings.get(:rescue_enabled),
       cooldown_ms: Settings.get(:rescue_cooldown_ms),
@@ -202,9 +211,11 @@ defmodule Pokex.Bots.GameController.Worker do
     }
   end
 
+  # A failed read also resets the consecutive-low guard: after a gap we demand two FRESH
+  # agreeing reads before acting again (garbage often comes in bursts around failures).
   defp fail(state, reason) do
     broadcast_log(:debug, "erro ao ler a vida: #{inspect(reason)}")
-    %{state | error: inspect(reason), counters: bump(state.counters, :failures)}
+    %{state | prev_hp_pct: nil, error: inspect(reason), counters: bump(state.counters, :failures)}
   end
 
   defp changed?(previous, state),

@@ -632,12 +632,15 @@ defmodule Pokex.Vision do
   COLOURED pixel, so an emptying bar reads lower.
 
   COLOUR-AGNOSTIC by design: the fill changes hue as HP drops (green → olive → brown → red), so we
-  can't key on "green". Instead we key on "has colour at all" (`saturation >= min_saturation` with a
-  small brightness floor). That catches every fill tone, while the two colourless things are
-  ignored automatically: the black bar background/track (dark, ~0 saturation) AND the white
-  "current/max" number drawn over the bar (bright but ~0 saturation). Where the number sits over the
-  EMPTY part of the bar its white-on-dark antialiasing stays grey (colourless), so it doesn't
-  inflate the fill. Options `:min_brightness` (45), `:min_saturation` (30). Empty/zero frame → 0.
+  can't key on "green". A column counts as filled when it holds a WARM, COLOURED pixel:
+    * `saturation >= min_saturation` (colourful) — excludes the black background/track AND the white
+      "current/max" number, both of which are colourless (~0 saturation);
+    * `brightness >= min_brightness` — excludes near-black noise;
+    * blue is NOT the dominant channel (`b <= max(r, g)`) — excludes the BLUE game background that
+      can leak into a loosely-drawn box (it's highly saturated blue). Every HP tone (green/yellow/
+      orange/red) has blue as its low channel, so this keeps them all.
+  Options `:min_brightness` (45), `:min_saturation` (30). Empty/zero frame → 0. For an accurate %,
+  calibrate the box tightly on the coloured track (no icons row, no background above/beside it).
   """
   def hp_fill_pct(frame, opts \\ [])
 
@@ -651,12 +654,13 @@ defmodule Pokex.Vision do
 
   def hp_fill_pct(_frame, _opts), do: 0
 
-  # A column is "filled" if any of its pixels is COLOURED — bright enough to not be the black
-  # background, and saturated enough to not be the white number (both are colourless).
+  # A column is "filled" if any of its pixels is a WARM COLOURED pixel: bright enough (not black),
+  # saturated enough (not the white number), and not blue-dominant (not the blue game background).
   defp filled_columns(<<r, g, b, _a, rest::binary>>, i, w, min_b, min_s, acc) do
     bright = max(r, max(g, b))
     sat = bright - min(r, min(g, b))
-    acc = if bright >= min_b and sat >= min_s, do: MapSet.put(acc, rem(i, w)), else: acc
+    warm? = bright >= min_b and sat >= min_s and b <= max(r, g)
+    acc = if warm?, do: MapSet.put(acc, rem(i, w)), else: acc
     filled_columns(rest, i + 1, w, min_b, min_s, acc)
   end
 

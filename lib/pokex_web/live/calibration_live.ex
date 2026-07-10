@@ -26,8 +26,9 @@ defmodule PokexWeb.CalibrationLive do
     skill_a: "Canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1).",
     skill_b:
       "Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões.",
-    hp_a: "Canto SUPERIOR-ESQUERDO da barra de VIDA do Pokémon principal (o do topo).",
-    hp_b: "Canto INFERIOR-DIREITO da MESMA barra de vida.",
+    hp_a:
+      "Canto SUPERIOR-ESQUERDO da barra de VIDA do Pokémon principal — bem RENTE à barra, sem pegar o fundo azul acima nem os ícones abaixo.",
+    hp_b: "Canto INFERIOR-DIREITO da MESMA barra de vida (colado na barra, só ela).",
     photo: "Centro da FOTO do Pokémon principal (onde o mouse fica pro Shift+Q do revive)."
   }
 

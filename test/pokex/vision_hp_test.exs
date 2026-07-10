@@ -7,6 +7,7 @@ defmodule Pokex.VisionHpTest do
   @yellow {220, 200, 40}
   @dark {17, 17, 17}
   @white {240, 240, 240}
+  @blue {38, 76, 164}
 
   # Build a Frame from a list of rows of {r,g,b} pixels (alpha 255).
   defp frame(rows) do
@@ -45,6 +46,17 @@ defmodule Pokex.VisionHpTest do
       for color <- [{40, 200, 60}, {150, 165, 80}, {150, 100, 60}, {200, 40, 40}] do
         assert Vision.hp_fill_pct(frame(bar(10, 20, color))) == 50
       end
+    end
+
+    test "the blue game background leaking into the box is NOT counted (only warm tones)" do
+      # 6/20 green fill; the blue water shows past it. Blue is highly saturated but blue-dominant,
+      # so it must be dropped — the bar reads 30%, not 100%.
+      rows =
+        for _y <- 1..4 do
+          for x <- 1..20, do: if(x <= 6, do: @green, else: @blue)
+        end
+
+      assert Vision.hp_fill_pct(frame(rows)) == 30
     end
 
     test "the white number over the EMPTY side does not inflate the fill" do

@@ -3,7 +3,7 @@ defmodule Pokex.Bots.Combat.LogicTest do
 
   alias Pokex.Bots.Combat.Logic
 
-  defp config(overrides \\ []) do
+  defp config(overrides) do
     Enum.into(overrides, %{
       tab_confirm_ms: 700,
       tab_max_attempts: 3,
@@ -17,8 +17,8 @@ defmodule Pokex.Bots.Combat.LogicTest do
     })
   end
 
-  defp hunting(now \\ 0) do
-    {logic, []} = Logic.start(Logic.new(config()), now)
+  defp hunting(now \\ 0, config_overrides \\ []) do
+    {logic, []} = Logic.start(Logic.new(config(config_overrides)), now)
     logic
   end
 
@@ -186,9 +186,16 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert Logic.next_wake(hunting(0), 500) == nil
   end
 
+  test "next_wake: fighting floors the final result at 1ms even with skill_burst_every_ms: 0 (N1)" do
+    # A user-set 0ms burst cadence must not make next_wake return 0 — that would busy-loop
+    # the driver on a self-wake instead of yielding at least 1ms.
+    fighting = confirmed(skill_burst_every_ms: 0)
+    assert Logic.next_wake(fighting, 100) >= 1
+  end
+
   # hunting --Tab--> tabbing --locked frame--> fighting (first burst already fired at t=40)
-  defp confirmed do
-    {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
+  defp confirmed(config_overrides \\ []) do
+    {logic, _} = Logic.step(hunting(0, config_overrides), obs(enemies: [0], captured_at: 10), 10)
     {logic, _} = Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 30), 40)
     assert logic.state == :fighting
     logic

@@ -49,7 +49,8 @@ defmodule Pokex.Bots.GameController.Logic do
   The atomic combo, as a Body action list: recall (`rescue_key`), move onto the portrait, max-revive
   (`max_revive_key`), release (`rescue_key`), recentre the cursor. `step_ms` waits sit between the
   presses so the game registers each — the whole list runs as ONE Body perform so nothing (not even
-  a combat click) can move the cursor off the portrait mid-combo.
+  a fishing/loot click — combat is keyboard-only via Tab targeting and never touches the Body) can
+  move the cursor off the portrait mid-combo.
   """
   @spec combo(map) :: [tuple]
   def combo(%{

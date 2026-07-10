@@ -12,9 +12,10 @@ Ciclo completo, controlado por um painel LiveView:
 1. **Pesca** — equipa a vara, arremessa e espera as bolhas reais da mordida,
    ignorando o splash do arremesso e o pulso da isca (separados por magnitude e
    por "esperar a água acalmar").
-2. **Luta** — o pokémon fisgado teleporta pra perto; trava o alvo pela borda
-   vermelha **por-fileira** (sem lurar um segundo bicho), ataca com as skills na
-   **ordem de prioridade** e mata todos os fisgados antes de seguir.
+2. **Luta** — o pokémon fisgado teleporta pra perto; aperta **Tab** pra selecionar
+   o alvo (sem mouse) e confirma a trava pela borda vermelha **por-fileira** (sem
+   lurar um segundo bicho), ataca com as skills na **ordem de prioridade** e mata
+   todos os fisgados antes de seguir.
 3. **Loot + captura** — anda até o corpo se preciso (setas, 1 tile por vez),
    pega o loot com espaço, joga a pokébola e volta pra posição de pesca.
 

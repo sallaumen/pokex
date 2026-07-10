@@ -167,16 +167,22 @@ defmodule Pokex.Bots.Combat.Logic do
   when the hold clears. Free :hunting/:idle/:error need no timer (purely event-driven).
   """
   def next_wake(%__MODULE__{state: :tabbing} = logic, now) do
-    min(
-      max(logic.tabbed_at + logic.config.tab_confirm_ms - now, 1),
-      logic.config.skill_burst_every_ms
+    max(
+      min(
+        max(logic.tabbed_at + logic.config.tab_confirm_ms - now, 1),
+        logic.config.skill_burst_every_ms
+      ),
+      1
     )
   end
 
   def next_wake(%__MODULE__{state: :fighting} = logic, now) do
-    min(
-      max(logic.entered_at + logic.config.fight_timeout_ms - now, 1),
-      logic.config.skill_burst_every_ms
+    max(
+      min(
+        max(logic.entered_at + logic.config.fight_timeout_ms - now, 1),
+        logic.config.skill_burst_every_ms
+      ),
+      1
     )
   end
 

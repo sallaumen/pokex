@@ -290,7 +290,7 @@ defmodule Pokex.Vision do
   Per-row count of TARGET-red pixels inside the battle body, one entry per battle
   row. Bands start at `top` (frame px) and are `band` (frame px) tall — pixels
   above `top` (the header) and below the last band are ignored. Lets the state
-  machine attribute a lock to the row it clicked, instead of trusting one
+  machine attribute a lock to the row Tab selected, instead of trusting one
   aggregate over all rows.
 
   The red predicate is LOOSER than the bright pokeball red: MEASURED on the real
@@ -495,9 +495,10 @@ defmodule Pokex.Vision do
   non-matching pixel (and at each row boundary), so thin speckle (isolated
   matching pixels, or runs shorter than `min_run`) never trips it. Early-exits
   `true` on the first qualifying scanline — a clearly-populated frame doesn't
-  need to be scanned to the end. Lets combat go IDLE (zero mouse actions) when
-  the Battle list is empty, instead of clicking a row over black space every
-  tick and starving the fishing bot of the shared mouse.
+  need to be scanned to the end. Used by /diagnostics to report whether the
+  Battle list holds a creature; live combat now decides enemies/idle from
+  `Interpret.battle/3`'s own row diff (Tab-targeting is keyboard-only — no
+  click, no shared-mouse contention with fishing to avoid).
 
   Options: `:min_run` (¼ of the frame width, min 4).
   """
@@ -529,10 +530,11 @@ defmodule Pokex.Vision do
   @doc """
   Center Y (frame pixels, top→bottom) of every HP bar in the battle body. Every creature
   row (your own pokemon, players, the wild target) carries a thin horizontal HP bar, so
-  the bar positions give the VERTICAL location of every occupied row WITHOUT clicking.
-  Crucially, the bar is present BEFORE any click — unlike the red lock ring, which only
-  appears AFTER selecting a row — so combat can bound its scan to the rows that actually
-  hold a creature and stop clicking empty black rows.
+  the bar positions give the VERTICAL location of every occupied row WITHOUT selecting
+  anything. Crucially, the bar is present BEFORE any Tab press — unlike the red lock
+  ring, which only appears AFTER a Tab confirms a target — so combat can bound its scan
+  to the rows that actually hold a creature instead of scanning empty black rows every
+  tick.
 
   A bar is a scanline carrying a CONTIGUOUS run of >= `min_run` HP-bar px — GREEN
   (healthy) OR RED (low-HP), so a damaged creature still counts (unlike `hp_bar_rows/2`,

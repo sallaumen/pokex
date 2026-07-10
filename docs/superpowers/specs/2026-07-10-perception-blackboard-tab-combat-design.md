@@ -205,8 +205,9 @@ The "workers halt/run each other" model is deleted. Every worker governs itself 
 ## Phases
 
 - **Phase 0 — measure:** surface in the panel (Avançado section): active capture backend
-  (SCK vs CLI fallback), captures/s through the broker, and p50/p95 capture duration (the
-  `Perf` module already times shell-outs; expose it). This is the before/after yardstick.
+  (SCK vs CLI fallback), captures in the last window, and avg/max capture duration (the
+  `Perf` module already times shell-outs and aggregates count/avg/max; expose that window).
+  This is the before/after yardstick.
 - **Phase 1 — Perception core + Tab combat:** `WorldState`, `Perception.Feed`, `:battle` +
   `:arena` feeds, Combat rewritten as the Tab machine consuming them. Fishing/loot/mini-game
   untouched. Deliverable: visibly faster combat, alone or with fishing on.

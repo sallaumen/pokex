@@ -26,11 +26,16 @@ defmodule Pokex.Bots.MiniGame.Pilot do
   # lab 34px / 548
   @lead_max 0.062
   @velocity_decay 0.25
-  # lab +120 / -135 px/s / 548
-  @vy_press_override 0.219
-  @vy_release_override -0.246
-  @deadband_factor 0.7
   @elapsed_floor_ms 16
+  # Below this |vy| the bar is hovering: plain position control, no braking math.
+  @coast_epsilon 0.02
+  # Stopping-distance braking defaults (track/s²) — REAL-game physics is
+  # asymmetric: thrust is strong (a fall is arrested almost instantly → brake
+  # late, sink to the fish) while gravity is weak (a rise coasts far after
+  # release → let go early). Measured symptom (Lucas, live): symmetric
+  # velocity thresholds rose past the fish and re-pressed before reaching it.
+  @default_brake_up 1.2
+  @default_brake_down 3.0
 
   def decide(_config, [], _bar, _now), do: %{desired: false, target_y: nil, age_ms: nil}
 
@@ -45,9 +50,13 @@ defmodule Pokex.Bots.MiniGame.Pilot do
     end
   end
 
-  # Shared actuation rule — the lab hysteresis, judged at the position the bar
-  # WILL occupy when the command lands (reading age + actuation delay). Positive
-  # error = bar below the target (y grows downward; holding Space raises the bar).
+  # Actuation rule, judged at the position the bar WILL occupy when the command
+  # lands (reading age + actuation delay). Positive error = bar below the target
+  # (y grows downward; holding Space raises the bar). While the bar is moving,
+  # braking is by STOPPING DISTANCE (v²/2a) with per-direction deceleration:
+  # rising coasts far after release (weak gravity), falling stops almost
+  # instantly under thrust — so a rise releases early and a fall presses only
+  # at the fish.
   defp desired?(config, bar, target_y, now) do
     bar_age_s =
       case Map.get(bar, :at) do
@@ -60,14 +69,28 @@ defmodule Pokex.Bots.MiniGame.Pilot do
 
     error = predicted_bar - target_y
     deadband = config.deadband_pct
+    vy = bar.vy
 
     cond do
-      error > deadband or
-          (bar.vy > @vy_press_override and error > -deadband * @deadband_factor) ->
+      # Rising: if releasing NOW still coasts to/above the target, release —
+      # any later overshoots ("sobe demais").
+      vy < -@coast_epsilon and
+          predicted_bar - vy * vy / (2 * Map.get(config, :brake_up, @default_brake_up)) <=
+            target_y ->
+        false
+
+      # Falling: keep falling while full thrust from NOW would still stop
+      # short of the target; press only when the stop point reaches the fish —
+      # the bar sinks to (a hair past) the center instead of retreating early.
+      vy > @coast_epsilon and
+          predicted_bar + vy * vy / (2 * Map.get(config, :brake_down, @default_brake_down)) >=
+            target_y ->
         true
 
-      error < -deadband or
-          (bar.vy < @vy_release_override and error < deadband * @deadband_factor) ->
+      error > deadband ->
+        true
+
+      error < -deadband ->
         false
 
       true ->

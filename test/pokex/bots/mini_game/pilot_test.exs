@@ -105,18 +105,33 @@ defmodule Pokex.Bots.MiniGame.PilotTest do
     assert Pilot.decide(@reactive, observations, raw_bar, @now).desired == false
   end
 
-  test "bar velocity overrides bite early like the lab hysteresis" do
-    # bar rushing DOWN (positive vy) past the deadband's inner 70% band -> press
-    # even though the raw error is still inside the deadband
+  test "stopping-distance braking replaces the symmetric velocity overrides" do
+    # bar rushing DOWN away from a fish above: even full thrust stops past the
+    # fish -> press now
     result =
       Pilot.decide(@reactive, [%{y: 0.4453, at: @now}], bar(0.4553, 0.25, false), @now)
 
     assert result.desired == true
 
-    # bar rushing UP (negative vy) -> release inside the deadband
+    # bar rushing UP with the fish just above: releasing now still coasts to
+    # it (weak gravity) -> release
     result =
       Pilot.decide(@reactive, [%{y: 0.4453, at: @now}], bar(0.4353, -0.26, true), @now)
 
     assert result.desired == false
+  end
+
+  test "asymmetric braking: rising releases early, falling presses only at the fish" do
+    fish = [%{y: 0.5, at: @now}]
+
+    # rising fast toward a fish well above: the coast-out alone reaches it -> release
+    assert Pilot.decide(@reactive, fish, bar(0.60, -0.5, true), @now).desired == false
+
+    # falling toward a fish below: thrust stops almost instantly, so KEEP
+    # falling well past where the old symmetric rule retreated ("recuava")
+    assert Pilot.decide(@reactive, fish, bar(0.42, 0.30, false), @now).desired == false
+
+    # ...and press exactly when the stop point reaches the fish
+    assert Pilot.decide(@reactive, fish, bar(0.49, 0.30, false), @now).desired == true
   end
 end

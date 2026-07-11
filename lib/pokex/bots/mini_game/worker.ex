@@ -357,7 +357,9 @@ defmodule Pokex.Bots.MiniGame.Worker do
             %{
               pilot: :predictive,
               deadband_pct: Settings.get(:mini_game_deadband_pct),
-              actuation_ms: Settings.get(:mini_game_actuation_ms)
+              actuation_ms: Settings.get(:mini_game_actuation_ms),
+              brake_up: Settings.get(:mini_game_brake_up),
+              brake_down: Settings.get(:mini_game_brake_down)
             },
             fish,
             %{
@@ -420,9 +422,15 @@ defmodule Pokex.Bots.MiniGame.Worker do
     |> Enum.reverse()
   end
 
+  # Physically impossible jumps are misreads, not motion (the lab bar tops out
+  # at ~1.2 track/s) — a mis-tracked capsule must not command a braking slam.
+  @max_capsule_speed 1.5
+
   defp capsule_pair_velocity(older, newer) do
     elapsed = max(newer.at - older.at, 16)
-    (newer.y - older.y) / elapsed * 1000
+    velocity = (newer.y - older.y) / elapsed * 1000
+
+    if abs(velocity) > @max_capsule_speed, do: 0.0, else: velocity
   end
 
   defp actuate(%{play: %{holding?: desired}} = state, desired, _now), do: state

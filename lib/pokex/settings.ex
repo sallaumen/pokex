@@ -169,6 +169,13 @@ defmodule Pokex.Settings do
     # overshoot past a near-stable fish. Drop toward ~10 when the native CGEvent
     # key helper replaces osascript.
     mini_game_actuation_ms: 90,
+    # Stopping-distance braking (track/s²), per direction — the REAL game is
+    # asymmetric: thrust arrests a fall almost instantly (brake late: sink to
+    # the fish before pressing), gravity barely arrests a rise (release early
+    # or it coasts far past — "sobe demais"). RAISE brake_down to press even
+    # later on the way down; LOWER brake_up to release even earlier going up.
+    mini_game_brake_up: 1.2,
+    mini_game_brake_down: 3.0,
     # Browser alert on enter/leave (panel mute button). Muting stops the panel
     # from pushing the sound event at all.
     mini_game_sound: true,

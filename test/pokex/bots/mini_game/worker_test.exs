@@ -15,7 +15,9 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
           :mini_game_exit_streak,
           :mini_game_min_confidence,
           :mini_game_min_dark_ratio,
-          :mini_game_anchor_tolerance
+          :mini_game_anchor_tolerance,
+          :mini_game_play_tick_ms,
+          :mini_game_min_toggle_ms
         ],
         &{&1, Settings.get(&1)}
       )
@@ -30,6 +32,8 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     Settings.put(:mini_game_exit_streak, 1)
     Settings.put(:mini_game_min_confidence, 0.6)
     Settings.put(:mini_game_min_dark_ratio, 0.34)
+    Settings.put(:mini_game_play_tick_ms, 20)
+    Settings.put(:mini_game_min_toggle_ms, 0)
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -184,19 +188,137 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
   end
 
+  # --- the playing loop -------------------------------------------------------
+
+  @tag :tmp_dir
+  test "plays: fish above the capsule -> holds Space (key_down, never Body)", %{tmp: tmp} do
+    game = play_png!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+
+    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+  end
+
+  @tag :tmp_dir
+  test "plays: fish drops below the capsule -> releases Space", %{tmp: tmp} do
+    hold = play_png!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
+    release = play_png!(tmp, "release.png", fish: 170..184, capsule: 120..134)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, hold}, {:ok, release}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+
+    wait_for(fn -> {:key_up, "space"} in Pokex.Rig.Fake.calls() end)
+
+    calls = Pokex.Rig.Fake.calls()
+    down = Enum.find_index(calls, &(&1 == {:key_down, "space"}))
+    up = Enum.find_index(calls, &(&1 == {:key_up, "space"}))
+    assert down != nil and up != nil and down < up
+  end
+
+  @tag :tmp_dir
+  test "leaving the game always releases Space, even if already released", %{tmp: tmp} do
+    game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+    calm = png!(tmp, "calm.png", false)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
+
+    assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
+  end
+
+  @tag :tmp_dir
+  test "halt while holding releases Space", %{tmp: tmp} do
+    game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+
+    assert :ok = Worker.halt(worker)
+    assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
+  end
+
+  @tag :tmp_dir
+  test "a capture failure while holding releases Space", %{tmp: tmp} do
+    game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:error, :boom}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+
+    wait_for(fn -> {:key_up, "space"} in Pokex.Rig.Fake.calls() end)
+  end
+
+  defp wait_for(fun, tries \\ 100) do
+    cond do
+      fun.() ->
+        :ok
+
+      tries == 0 ->
+        flunk("condition never became true; calls: #{inspect(Pokex.Rig.Fake.calls())}")
+
+      true ->
+        Process.sleep(10)
+        wait_for(fun, tries - 1)
+    end
+  end
+
   defp png!(dir, name, with_bar?),
     do: png_with_bar_at!(dir, name, if(with_bar?, do: 104..116))
 
-  defp png_with_bar_at!(dir, name, bar_x_range) do
+  defp png_with_bar_at!(dir, name, bar_x_range, overlays \\ []) do
     rows =
       for y <- 0..219 do
         for x <- 0..219 do
-          if bar_x_range != nil and x in bar_x_range and y in 24..202,
-            do: {26, 30, 48, 255},
-            else: {150, 120, 86, 255}
+          cond do
+            bar_x_range == nil or x not in bar_x_range ->
+              {150, 120, 86, 255}
+
+            true ->
+              Enum.find_value(overlays, track_pixel(y), fn {range, color} ->
+                if y in range, do: color
+              end)
+          end
         end
       end
 
     Pokex.PngFixtures.write!(Path.join(dir, name), rows)
   end
+
+  # Track spans rows 10..209; fish is olive (not dark, not blue), capsule blue.
+  defp play_png!(dir, name, opts) do
+    png_with_bar_at!(dir, name, 104..116, [
+      {Keyword.fetch!(opts, :fish), {120, 100, 0, 255}},
+      {Keyword.fetch!(opts, :capsule), {0, 160, 255, 255}}
+    ])
+  end
+
+  defp track_pixel(y) when y in 10..209, do: {26, 30, 48, 255}
+  defp track_pixel(_y), do: {150, 120, 86, 255}
 end

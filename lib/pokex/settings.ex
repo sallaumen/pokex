@@ -155,6 +155,12 @@ defmodule Pokex.Settings do
     # so this must cover sprite-center error + that offset (the old 4%-of-width default = ~26px
     # rejected every real mini-game).
     mini_game_anchor_tolerance: 70,
+    # Playing the mini-game (hold/release Space chasing the fish). Tick = capture+decide
+    # cadence while in-game; deadband validated by Lucas in the lab 2026-07-10 (6px of the
+    # lab's 548px track); min-toggle mirrors the lab's 50ms input floor.
+    mini_game_play_tick_ms: 150,
+    mini_game_min_toggle_ms: 50,
+    mini_game_deadband_pct: 0.011,
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the
     # bot doesn't fish on a perfectly fixed cadence.

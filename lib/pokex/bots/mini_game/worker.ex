@@ -14,12 +14,17 @@ defmodule Pokex.Bots.MiniGame.Worker do
   use GenServer
 
   alias Pokex.Bots.{Capture, Catcher, Combat, Fishing}
-  alias Pokex.Bots.MiniGame.Detector
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Bots.MiniGame.{Detector, Pilot, Track}
+  alias Pokex.{Calibration, Rig, Settings}
 
   @topic "mini_game"
   @default_counters %{detections: 0, clears: 0, failures: 0}
+  # last_toggle_at nil = never toggled — the monotonic clock is NEGATIVE on the
+  # BEAM, so a 0 sentinel would read as "toggled far in the future" and mute
+  # the actuator forever.
+  @default_play %{fish: [], capsule: [], holding?: false, last_toggle_at: nil}
   @peer_keys [:fishing, :combat, :catcher]
+  @observation_cap 4
 
   def topic, do: @topic
 
@@ -37,6 +42,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
       confidence: 0.0,
       error: nil,
       counters: @default_counters,
+      play: @default_play,
       paused_peers: [],
       peers:
         Keyword.get(opts, :peers, %{
@@ -76,7 +82,18 @@ defmodule Pokex.Bots.MiniGame.Worker do
   end
 
   @impl true
-  def init(state), do: {:ok, state}
+  def init(state) do
+    # Space must never stay held: trapping exits guarantees terminate/2 runs on
+    # supervisor shutdown, releasing the key.
+    Process.flag(:trap_exit, true)
+    {:ok, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    if state.in_game? or state.play.holding?, do: safe_key_up()
+    :ok
+  end
 
   @impl true
   def handle_call(:run, _from, state) do
@@ -108,6 +125,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def handle_call(:halt, _from, state) do
     state =
       state
+      |> force_release()
       |> cancel_timer()
       |> Map.merge(%{
         running?: false,
@@ -144,13 +162,29 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def handle_info(:tick, state) do
     {state, transition} =
       case read_presence(state) do
-        {:ok, reading} -> apply_reading(state, reading)
-        {:error, reason} -> mark_failure(state, reason)
+        {:ok, reading, frame} ->
+          {state, transition} = apply_reading(state, reading)
+          {play(state, reading, frame), transition}
+
+        {:error, reason} ->
+          # A blind tick must not leave Space held.
+          {state, transition} = mark_failure(state, reason)
+          {release_if_holding(state), transition}
       end
 
     if transition, do: broadcast(state, transition), else: :ok
-    {:noreply, reschedule(state, Settings.get(:mini_game_tick_ms))}
+
+    tick_ms =
+      if state.in_game?,
+        do: Settings.get(:mini_game_play_tick_ms),
+        else: Settings.get(:mini_game_tick_ms)
+
+    {:noreply, reschedule(state, tick_ms)}
   end
+
+  # trap_exit is on for terminate/2; stray EXIT messages from unlinked helpers
+  # must not crash the worker.
+  def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, state}
 
   def handle_info({:paused_peers, ref, paused_peers}, %{pause_ref: ref} = state) do
     state =
@@ -170,14 +204,16 @@ defmodule Pokex.Bots.MiniGame.Worker do
     region = mini_game_region(state.calib)
 
     with {:ok, frame} <- Capture.frame(region, "mini_game.png") do
-      {:ok,
-       Detector.detect(frame,
-         min_confidence: Settings.get(:mini_game_min_confidence),
-         min_dark_ratio: Settings.get(:mini_game_min_dark_ratio),
-         anchor_x: player_anchor_x(frame, state.calib, region),
-         anchor_y: player_anchor_y(frame, state.calib, region),
-         anchor_tolerance: anchor_tolerance(frame, region)
-       )}
+      reading =
+        Detector.detect(frame,
+          min_confidence: Settings.get(:mini_game_min_confidence),
+          min_dark_ratio: Settings.get(:mini_game_min_dark_ratio),
+          anchor_x: player_anchor_x(frame, state.calib, region),
+          anchor_y: player_anchor_y(frame, state.calib, region),
+          anchor_tolerance: anchor_tolerance(frame, region)
+        )
+
+      {:ok, reading, frame}
     end
   end
 
@@ -215,9 +251,10 @@ defmodule Pokex.Bots.MiniGame.Worker do
       |> Map.put(:in_game?, true)
       |> Map.put(:pause_ref, ref)
       |> Map.put(:paused_peers, [])
+      |> Map.put(:play, @default_play)
       |> update_in([:counters, :detections], &(&1 + 1))
 
-    broadcast_log(:macro, "mini game detectado — bloqueando inputs e pausando workers")
+    broadcast_log(:macro, "mini game detectado — jogando (bloqueando inputs e pausando workers)")
     {state, :entered}
   end
 
@@ -227,12 +264,97 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
     state =
       state
+      |> force_release()
       |> Map.put(:in_game?, false)
       |> Map.put(:paused_peers, [])
       |> update_in([:counters, :clears], &(&1 + 1))
 
     broadcast_log(:macro, "mini game saiu — retomando #{peer_label(paused_peers)}")
     {state, :left}
+  end
+
+  # --- playing ---------------------------------------------------------------
+
+  # The play step runs on the same tick that watches presence. It talks to the
+  # Rig DIRECTLY (never Body): while in_game the Body guard blocks every other
+  # input — including the Catcher's loot Space — and the player must not block
+  # itself behind its own guard.
+  defp play(%{in_game?: true} = state, %Detector{bar: bar}, frame) when is_map(bar) do
+    now = System.monotonic_time(:millisecond)
+
+    case Track.read(frame, bar) do
+      {:ok, %{fish_y: fish_y, bar_y: bar_y}} ->
+        play = state.play
+        fish = push_observation(play.fish, %{y: fish_y, at: now})
+        capsule = push_observation(play.capsule, %{y: bar_y, at: now})
+
+        decision =
+          Pilot.decide(
+            %{pilot: :predictive, deadband_pct: Settings.get(:mini_game_deadband_pct)},
+            fish,
+            %{y: bar_y, vy: pair_velocity(capsule), pressing: play.holding?},
+            now
+          )
+
+        state = %{state | play: %{play | fish: fish, capsule: capsule}}
+        actuate(state, decision.desired, now)
+
+      {:error, _reason} ->
+        # One blind read at 3-7fps must fail SAFE, not stuck: let go and wait
+        # for the next frame (the pilot re-decides from scratch anyway).
+        release_if_holding(state)
+    end
+  end
+
+  # In game but the Detector lost the overlay this tick (exit streak pending).
+  defp play(%{in_game?: true} = state, _reading, _frame), do: release_if_holding(state)
+
+  defp play(state, _reading, _frame), do: state
+
+  defp push_observation(observations, observation),
+    do: Enum.take(observations ++ [observation], -@observation_cap)
+
+  # The capsule's velocity (track/s) from its last two readings — the lab read
+  # this from the simulator's physics; the real pipeline estimates it.
+  defp pair_velocity(observations) when length(observations) < 2, do: 0.0
+
+  defp pair_velocity(observations) do
+    [older, newer] = Enum.take(observations, -2)
+    elapsed = max(newer.at - older.at, 16)
+    (newer.y - older.y) / elapsed * 1000
+  end
+
+  defp actuate(%{play: %{holding?: desired}} = state, desired, _now), do: state
+
+  defp actuate(state, desired, now) do
+    last = state.play.last_toggle_at
+
+    if last != nil and now - last < Settings.get(:mini_game_min_toggle_ms) do
+      state
+    else
+      apply_hold(desired)
+      %{state | play: %{state.play | holding?: desired, last_toggle_at: now}}
+    end
+  end
+
+  defp apply_hold(true), do: Rig.impl().key_down("space")
+  defp apply_hold(false), do: Rig.impl().key_up("space")
+
+  defp release_if_holding(%{play: %{holding?: true}} = state), do: force_release(state)
+  defp release_if_holding(state), do: state
+
+  # Unconditional key_up: `holding?` can desync from the OS (a failed key_down
+  # report, a crash between the Rig call and the state update), so exits always
+  # send the release. Bypasses the min-toggle floor — safety beats pacing.
+  defp force_release(state) do
+    safe_key_up()
+    %{state | play: %{state.play | holding?: false}}
+  end
+
+  defp safe_key_up do
+    Rig.impl().key_up("space")
+  catch
+    _kind, _reason -> :ok
   end
 
   defp guard_reply(%{running?: true, in_game?: true}), do: {:blocked, :mini_game_active}

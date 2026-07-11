@@ -62,6 +62,25 @@ const liveSocket = new LiveSocket("/live", Socket, {
 
 let miniGameAudioContext
 
+// One enveloped burst of sequential notes. Muting lives on the SERVER (the
+// panel simply stops pushing the event), so this always plays when called.
+const playMiniGameChirp = (ctx, notes, at, {type, peak, noteLength, gap}) => {
+  const gain = ctx.createGain()
+  gain.connect(ctx.destination)
+  gain.gain.setValueAtTime(0.0001, at)
+  gain.gain.exponentialRampToValueAtTime(peak, at + 0.015)
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + (notes.length - 1) * gap + noteLength + 0.05)
+
+  notes.forEach((frequency, index) => {
+    const osc = ctx.createOscillator()
+    osc.type = type
+    osc.frequency.setValueAtTime(frequency, at + index * gap)
+    osc.connect(gain)
+    osc.start(at + index * gap)
+    osc.stop(at + index * gap + noteLength)
+  })
+}
+
 const playMiniGameTone = transition => {
   const AudioContext = window.AudioContext || window.webkitAudioContext
   if (!AudioContext) return
@@ -73,21 +92,28 @@ const playMiniGameTone = transition => {
   }
 
   const now = miniGameAudioContext.currentTime
-  const notes = transition === "entered" ? [740, 988] : [988, 660]
-  const gain = miniGameAudioContext.createGain()
-  gain.connect(miniGameAudioContext.destination)
-  gain.gain.setValueAtTime(0.0001, now)
-  gain.gain.exponentialRampToValueAtTime(0.12, now + 0.015)
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.34)
 
-  notes.forEach((frequency, index) => {
-    const osc = miniGameAudioContext.createOscillator()
-    osc.type = "sine"
-    osc.frequency.setValueAtTime(frequency, now + index * 0.12)
-    osc.connect(gain)
-    osc.start(now + index * 0.12)
-    osc.stop(now + index * 0.12 + 0.16)
-  })
+  if (transition === "entered") {
+    // ALARM: three loud rising square-wave bursts (~1.3s) — must yank
+    // attention from another window, per Lucas (the old sine at 0.12 was
+    // too quiet to notice).
+    for (let burst = 0; burst < 3; burst++) {
+      playMiniGameChirp(miniGameAudioContext, [880, 1244.5], now + burst * 0.42, {
+        type: "square",
+        peak: 0.4,
+        noteLength: 0.16,
+        gap: 0.14,
+      })
+    }
+  } else {
+    // calm: one soft descending pair — it ended, nothing to react to
+    playMiniGameChirp(miniGameAudioContext, [784, 523.25], now, {
+      type: "sine",
+      peak: 0.07,
+      noteLength: 0.24,
+      gap: 0.18,
+    })
+  }
 }
 
 window.addEventListener("phx:mini-game-transition", event => {

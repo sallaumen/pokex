@@ -161,6 +161,35 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "[data-testid=mini-game-pill][data-state=playing]")
   end
 
+  test "mini game transitions push the sound event unless muted", %{conn: conn} do
+    original = Pokex.Settings.get(:mini_game_sound)
+    on_exit(fn -> Pokex.Settings.put(:mini_game_sound, original) end)
+    Pokex.Settings.put(:mini_game_sound, true)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    snapshot = %{
+      state: :playing,
+      in_game?: true,
+      confidence: 0.91,
+      counters: %{detections: 1, clears: 0, failures: 0},
+      error: nil,
+      transition: :entered
+    }
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game, snapshot})
+    assert_push_event(view, "mini-game-transition", %{transition: :entered})
+
+    # the mute button silences the event at the SOURCE (no push at all)
+    view |> element(~s(button[phx-click="toggle_mini_game_sound"])) |> render_click()
+    assert Pokex.Settings.get(:mini_game_sound) == false
+    assert render(view) =~ "mudo"
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game, snapshot})
+    assert render(view) =~ "em jogo"
+    refute_push_event(view, "mini-game-transition", %{})
+  end
+
   test "macro worker logs append to the activity feed", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 

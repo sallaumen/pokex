@@ -72,6 +72,7 @@ defmodule PokexWeb.PanelLive do
        errors: [],
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
+       mini_game_sound: Settings.get(:mini_game_sound),
        player_mode: Settings.get(:player_mode),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
        loot_enabled: Settings.get(:loot_enabled),
@@ -142,11 +143,16 @@ defmodule PokexWeb.PanelLive do
 
     socket =
       case Map.get(snapshot, :transition) do
+        # Muted = no event at all, so the mute silences every open panel tab.
         transition when transition in [:entered, :left] ->
-          push_event(socket, "mini-game-transition", %{
-            transition: transition,
-            state: snapshot.state
-          })
+          if Settings.get(:mini_game_sound) do
+            push_event(socket, "mini-game-transition", %{
+              transition: transition,
+              state: snapshot.state
+            })
+          else
+            socket
+          end
 
         _ ->
           socket
@@ -265,6 +271,12 @@ defmodule PokexWeb.PanelLive do
      )}
   end
 
+  def handle_event("toggle_mini_game_sound", _params, socket) do
+    next = not Settings.get(:mini_game_sound)
+    Settings.put(:mini_game_sound, next)
+    {:noreply, assign(socket, mini_game_sound: next)}
+  end
+
   def handle_event("toggle_fishing", _params, socket),
     do: toggle_worker(socket, :fishing, Fishing.Worker)
 
@@ -354,7 +366,12 @@ defmodule PokexWeb.PanelLive do
     socket =
       socket
       |> save_int(params["rescue_pct"], 1..90, :pokemon_hp_rescue_pct, :rescue_pct)
-      |> save_seconds(params["rescue_cooldown_s"], 2..600, :rescue_cooldown_ms, :rescue_cooldown_s)
+      |> save_seconds(
+        params["rescue_cooldown_s"],
+        2..600,
+        :rescue_cooldown_ms,
+        :rescue_cooldown_s
+      )
 
     {:noreply, socket}
   end
@@ -369,7 +386,12 @@ defmodule PokexWeb.PanelLive do
     socket =
       socket
       |> save_int(params["potion_pct"], 1..99, :pokemon_hp_potion_pct, :potion_pct)
-      |> save_seconds(params["potion_cooldown_s"], 1..600, :potion_cooldown_ms, :potion_cooldown_s)
+      |> save_seconds(
+        params["potion_cooldown_s"],
+        1..600,
+        :potion_cooldown_ms,
+        :potion_cooldown_s
+      )
 
     {:noreply, socket}
   end
@@ -889,6 +911,27 @@ defmodule PokexWeb.PanelLive do
               <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
                 {mini_game_label(@mini_game.state)}
               </p>
+              <button
+                type="button"
+                phx-click="toggle_mini_game_sound"
+                title={
+                  if @mini_game_sound,
+                    do: "Alerta sonoro ligado — clique para silenciar",
+                    else: "Alerta sonoro MUDO — clique para reativar"
+                }
+                class={[
+                  "mt-1 flex cursor-pointer items-center gap-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em]",
+                  if(@mini_game_sound,
+                    do: "text-[#7d8790] hover:text-[#e8ecef]",
+                    else: "text-[#f3ba4e] hover:text-[#ffd27a]"
+                  )
+                ]}
+              >
+                <.icon
+                  name={if @mini_game_sound, do: "hero-speaker-wave", else: "hero-speaker-x-mark"}
+                  class="size-3"
+                /> {if @mini_game_sound, do: "som", else: "mudo"}
+              </button>
             </div>
           </div>
 

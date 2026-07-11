@@ -161,6 +161,9 @@ defmodule Pokex.Settings do
     mini_game_play_tick_ms: 150,
     mini_game_min_toggle_ms: 50,
     mini_game_deadband_pct: 0.011,
+    # Browser alert on enter/leave (panel mute button). Muting stops the panel
+    # from pushing the sound event at all.
+    mini_game_sound: true,
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the
     # bot doesn't fish on a perfectly fixed cadence.

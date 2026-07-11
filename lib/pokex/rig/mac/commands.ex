@@ -50,6 +50,11 @@ defmodule Pokex.Rig.Mac.Commands do
     "tab" => 48
   }
 
+  # Keys the mini-game holds. `key down`/`key up` only accept the CHARACTER form
+  # ("key down \" \"") — a nested `key code` executes as a full press first
+  # (measured live 2026-07-10) — so named keys must map to their character here.
+  @hold_chars %{"space" => " "}
+
   @doc """
   A real keystroke via System Events. Games listen for key EVENTS (a hotkey),
   not typed text. Digits go through `key code` (the top-row keys) so they're
@@ -58,6 +63,24 @@ defmodule Pokex.Rig.Mac.Commands do
   """
   def press(combo, opts \\ []) do
     build_key_script(["  #{key_action(combo)}"], opts)
+  end
+
+  @doc """
+  Hold or release a key — a real `key down` / `key up` event pair split across
+  two calls, for keys the game expects HELD (the mini-game raises its bar while
+  Space stays down). Plain single characters pass through; named keys need a
+  mapping in @hold_chars.
+  """
+  def hold(key, direction, opts \\ []) when direction in [:down, :up] do
+    build_key_script([~s(  key #{direction} "#{hold_char(key)}")], opts)
+  end
+
+  defp hold_char(key) do
+    case Map.get(@hold_chars, String.downcase(key)) do
+      nil when byte_size(key) == 1 -> key
+      nil -> raise ArgumentError, "no hold-character mapping for #{inspect(key)}"
+      char -> char
+    end
   end
 
   def press_many(combos, opts \\ []) do

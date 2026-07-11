@@ -26,6 +26,12 @@ defmodule Pokex.Rig.Fake do
   end
 
   @impl true
+  def key_down(key), do: record({:key_down, key}, :key_down, :ok)
+
+  @impl true
+  def key_up(key), do: record({:key_up, key}, :key_up, :ok)
+
+  @impl true
   def click(button, point), do: record({:click, button, point}, :click, :ok)
 
   @impl true

@@ -36,6 +36,29 @@ defmodule Pokex.Rig.Mac.CommandsTest do
              {"osascript", ["-e", ~s(tell application "System Events" to key code 49)]}
   end
 
+  test "hold builds real key down/up events (mini-game Space hold)" do
+    # NOT `key down (key code 49)`: nested `key code` executes as a full press
+    # first (measured live 2026-07-10); System Events accepts the character form.
+    assert Commands.hold("space", :down) ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key down " ")]}
+
+    assert Commands.hold("space", :up) ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key up " ")]}
+  end
+
+  test "hold carries the focus guard inside the same script" do
+    {"osascript", ["-e", script]} = Commands.hold("space", :down, focus_app: "wine")
+    assert script =~ ~s(set frontmost of application process "wine" to true)
+    assert script =~ ~s(key down " ")
+  end
+
+  test "hold accepts plain single characters and rejects unmapped named keys" do
+    assert Commands.hold("w", :down) ==
+             {"osascript", ["-e", ~s(tell application "System Events" to key down "w")]}
+
+    assert_raise ArgumentError, fn -> Commands.hold("f1", :down) end
+  end
+
   test "named keys compose with modifiers like digits do" do
     assert Commands.press("shift+space") ==
              {"osascript",

@@ -11,6 +11,12 @@ defmodule Pokex.Rig.Mac do
   def press(combo), do: run(Commands.press(combo, focus_app: focus_app()))
 
   @impl true
+  def key_down(key), do: run(Commands.hold(key, :down, focus_app: focus_app()))
+
+  @impl true
+  def key_up(key), do: run(Commands.hold(key, :up, focus_app: focus_app()))
+
+  @impl true
   def press_many([], _opts), do: :ok
 
   def press_many(combos, opts),

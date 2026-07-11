@@ -346,6 +346,39 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       refute l.holding?
     end
 
+    test "gate ON + UNKNOWN reading (nil): holds — a capture glitch must not pull the fish" do
+      {l, actions} = Logic.step(settled(true), bite(nil), 1000)
+
+      assert l.state == :watching
+      assert l.counters.hooked == 0
+      assert l.holding?
+      refute Enum.any?(actions, &match?({:press, _}, &1))
+    end
+
+    test "the hold ceiling (hook_hold_max_ms) pulls anyway, loudly" do
+      cfg =
+        config()
+        |> Map.put(:require_cooldowns, true)
+        |> Map.put(:hook_hold_max_ms, 5_000)
+
+      w = %Logic{state: :watching, settled?: true, config: cfg}
+
+      {w, _} = Logic.step(w, bite(false), 1_000)
+      assert w.holding? and w.holding_since == 1_000
+
+      # peaks keep refreshing entered_at but NOT holding_since — the ceiling measures
+      # the whole hold, not time-since-last-peak
+      {w, _} = Logic.step(w, bite(false), 4_000)
+      assert w.holding_since == 1_000
+
+      {w, actions} = Logic.step(w, bite(false), 6_100)
+      assert {:press, "shift+v"} in actions
+      assert Enum.any?(actions, &match?({:log, "⏳" <> _}, &1))
+      assert w.counters.hooked == 1
+      refute w.holding?
+      assert w.holding_since == nil
+    end
+
     test "a held bite survives oscillation troughs — no re-log, no recast" do
       cfg = config() |> Map.put(:require_cooldowns, true) |> Map.put(:watch_timeout_ms, 100)
       w = %Logic{state: :watching, settled?: true, config: cfg, entered_at: 0}

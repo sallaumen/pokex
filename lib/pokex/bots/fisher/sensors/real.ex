@@ -86,13 +86,19 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   # Is at least one kill-skill ready? This process reads the skill bar itself (one
   # capture, a pure SkillBar.read) — no shared process, nothing to block on. ANY-ready
   # (not ALL): pull the moment one hook-skill is up, so the fish isn't held while the
-  # ~40s kill-skills cycle (all-ready held ~54% of Lucas's bites). Fail-open (true with
-  # no reading) so require_cooldowns can't softlock fishing. Fishing only asks for this
-  # key when the gate is on (see Fishing.Logic.needs/1), so with the gate off there's no
+  # ~40s kill-skills cycle (all-ready held ~54% of Lucas's bites). A missing reading is
+  # NIL (unknown), NOT true: the old fail-open pulled the fish on any capture glitch,
+  # calling monsters with nothing to kill them — Fishing.Logic holds on unknown and its
+  # hook_hold_max_ms bail is what prevents a softlock. Fishing only asks for this key
+  # when the gate is on (see Fishing.Logic.needs/1), so with the gate off there's no
   # extra capture at all.
   defp fetch(:cooldowns_ready?, calib, settings) do
     keys = Settings.value(settings, :hook_skill_keys)
-    {:ok, SkillBar.any_ready?(SkillBar.read(calib, settings), keys)}
+
+    case SkillBar.read(calib, settings) do
+      nil -> {:ok, nil}
+      slots -> {:ok, SkillBar.any_ready?(slots, keys)}
+    end
   end
 
   # The ready hotbar keys for combat to fire (highest-priority ready first). nil when

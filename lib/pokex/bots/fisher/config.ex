@@ -25,6 +25,7 @@ defmodule Pokex.Bots.Fisher.Config do
     :glow_streak_needed,
     :calm_streak_needed,
     :require_cooldowns,
+    :hook_hold_max_ms,
     :target_locked_min_pixels,
     :target_lost_streak,
     :tile_px,

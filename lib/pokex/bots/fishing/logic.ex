@@ -21,6 +21,9 @@ defmodule Pokex.Bots.Fishing.Logic do
             # true while a confirmed bite is being HELD because require_cooldowns is on
             # and the kill-skills aren't ready yet — used only to announce the hold once.
             holding?: false,
+            # when the current hold STARTED (not refreshed per peak) — drives the
+            # hook_hold_max_ms bail so one bite can never be held forever.
+            holding_since: nil,
             failures: 0,
             error: nil,
             counters: %{cycles: 0, hooked: 0, failures: 0}
@@ -105,9 +108,10 @@ defmodule Pokex.Bots.Fishing.Logic do
     cond do
       streak < logic.config.glow_streak_needed ->
         # a bite signal, even mid-debounce, means the line is live → clear dead_streak
-        {%{logic | glow_streak: streak, dead_streak: 0, holding?: false}, []}
+        {%{logic | glow_streak: streak, dead_streak: 0, holding?: false, holding_since: nil},
+         []}
 
-      hold_for_cooldowns?(logic, obs) ->
+      hold_for_cooldowns?(logic, obs) and not hold_expired?(logic, now) ->
         # Bite confirmed, but require_cooldowns is on and NOT ONE kill-skill is ready
         # → HOLD the fish: keep the line live and the bite debounce saturated, DON'T
         # press the rod and DON'T count a hook (the bubbles keep flashing until we
@@ -119,14 +123,31 @@ defmodule Pokex.Bots.Fishing.Logic do
         # time-since-last-bite, not time-since-cast — otherwise a >30s hold (hook skills
         # are ~40s) would trip the timeout on a trough frame and abandon a live fish.
         log = if logic.holding?, do: [], else: [{:log, "🔒 fisga segurada — skills em cooldown"}]
-        {%{logic | glow_streak: streak, dead_streak: 0, holding?: true, entered_at: now}, log}
+
+        {%{
+           logic
+           | glow_streak: streak,
+             dead_streak: 0,
+             holding?: true,
+             holding_since: logic.holding_since || now,
+             entered_at: now
+         }, log}
 
       true ->
         logic = update_in(logic.counters.hooked, &(&1 + 1))
 
-        {advance(%{logic | glow_streak: 0, holding?: false}, :casting, now,
+        # A hold that outlived hook_hold_max_ms falls through to here and pulls anyway —
+        # the loud log is the tell that either the watched cooldowns are longer than the
+        # ceiling or the skill-bar read is stuck. This bail (NOT a fail-open on a missing
+        # reading) is the only "don't hold forever" protection.
+        bail_log =
+          if hold_for_cooldowns?(logic, obs),
+            do: [{:log, "⏳ fisga segurada até o teto sem skill pronta — puxando mesmo assim"}],
+            else: []
+
+        {advance(%{logic | glow_streak: 0, holding?: false, holding_since: nil}, :casting, now,
            wait: logic.config.wait_assess_ms
-         ), [{:press, logic.config.rod_key}]}
+         ), bail_log ++ [{:press, logic.config.rod_key}]}
     end
   end
 
@@ -234,7 +255,8 @@ defmodule Pokex.Bots.Fishing.Logic do
             calm_streak: 0,
             dead_streak: 0,
             settled?: false,
-            holding?: false
+            holding?: false,
+            holding_since: nil
         },
         :watching,
         now,
@@ -266,15 +288,22 @@ defmodule Pokex.Bots.Fishing.Logic do
 
   # The fishing→combat cooldown gate: hold the fish when require_cooldowns is on and
   # NOT ONE kill-skill is ready (the sensor computes cooldowns_ready? as ANY-ready over
-  # hook_skill_keys). Defaults to true (fail-open) so a missing observation never
-  # softlocks fishing.
+  # hook_skill_keys). An UNKNOWN reading (nil — capture failed / bar unreadable) HOLDS:
+  # treating unknown as ready pulled fish with nothing to kill them the moment one read
+  # glitched. The hook_hold_max_ms bail (not a fail-open) is what prevents a softlock.
+  # An observation WITHOUT the key (gate off → sensor never asked) still reads ready.
   defp hold_for_cooldowns?(logic, obs),
     do: require_cooldowns?(logic) and not cooldowns_ready?(obs)
 
   defp require_cooldowns?(logic), do: Map.get(logic.config, :require_cooldowns, false)
 
-  defp cooldowns_ready?(%{cooldowns_ready?: ready?}), do: ready?
+  defp cooldowns_ready?(%{cooldowns_ready?: ready?}), do: ready? == true
   defp cooldowns_ready?(_obs), do: true
+
+  defp hold_expired?(%{holding_since: nil}, _now), do: false
+
+  defp hold_expired?(logic, now),
+    do: now - logic.holding_since > Map.get(logic.config, :hook_hold_max_ms, 180_000)
 
   defp timed_out?(logic, now, ms), do: now - logic.entered_at > ms
 

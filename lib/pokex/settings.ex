@@ -50,6 +50,11 @@ defmodule Pokex.Settings do
     # Which skills the gate watches — it pulls as soon as ANY of them is ready. Lucas
     # uses 4-7 (~40s each) to kill; edit in the panel. These are hotbar keys ("1".."N").
     hook_skill_keys: ["4", "5", "6", "7"],
+    # Ceiling on ONE held bite: if no watched skill reads ready for this long, pull anyway
+    # (logged loudly). This is the ONLY "don't hold forever" protection — an unreadable or
+    # misread skill bar HOLDS (unknown ≠ ready) and this timer is what unblocks it, so it
+    # must exceed the longest watched-skill cooldown (Lucas's slot 6 is ~2min).
+    hook_hold_max_ms: 180_000,
     # No delays for now — everything runs as fast as the screen captures allow.
     # A tiny post-success pause (10–50ms) is all that stays, so the game has a
     # frame to register the previous input before the next one.

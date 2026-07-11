@@ -6,6 +6,8 @@ config :pokex, sensors: Pokex.Bots.Fisher.Sensors.Fake
 config :pokex, home_dir: "tmp/test-home"
 config :pokex, baseline_gap_ms: 1
 config :pokex, capture_backend: :screencapture
+# Never compile/spawn the native key helper in tests (stubbed via :executable).
+config :pokex, native_key_events: false
 config :pokex, perf_log_interval_ms: 0
 # Tests often script different fake images for the same region back-to-back. Keep
 # the global broker uncached there; targeted Capture tests enable cache explicitly.

@@ -36,6 +36,13 @@ defmodule Pokex.Rig.Mac.CommandsTest do
              {"osascript", ["-e", ~s(tell application "System Events" to key code 49)]}
   end
 
+  test "keycode maps digits and named keys for the native CGEvent path" do
+    assert Commands.keycode("space") == {:ok, 49}
+    assert Commands.keycode("2") == {:ok, 19}
+    assert Commands.keycode("TAB") == {:ok, 48}
+    assert Commands.keycode("z") == :error
+  end
+
   test "hold builds real key down/up events (mini-game Space hold)" do
     # NOT `key down (key code 49)`: nested `key code` executes as a full press
     # first (measured live 2026-07-10); System Events accepts the character form.

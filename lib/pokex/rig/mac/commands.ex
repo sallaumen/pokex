@@ -65,6 +65,14 @@ defmodule Pokex.Rig.Mac.Commands do
     build_key_script(["  #{key_action(combo)}"], opts)
   end
 
+  @doc "Virtual key code for a digit/named key — the native CGEvent path. :error = unmapped."
+  def keycode(key) do
+    case Map.get(@digit_keycodes, key) || Map.get(@named_keycodes, String.downcase(key)) do
+      nil -> :error
+      code -> {:ok, code}
+    end
+  end
+
   @doc """
   Hold or release a key — a real `key down` / `key up` event pair split across
   two calls, for keys the game expects HELD (the mini-game raises its bar while

@@ -11,10 +11,22 @@ defmodule Pokex.Rig.Mac do
   def press(combo), do: run(Commands.press(combo, focus_app: focus_app()))
 
   @impl true
-  def key_down(key), do: run(Commands.hold(key, :down, focus_app: focus_app()))
+  def key_down(key), do: hold(key, :down)
 
   @impl true
-  def key_up(key), do: run(Commands.hold(key, :up, focus_app: focus_app()))
+  def key_up(key), do: hold(key, :up)
+
+  # Native CGEvent helper first (~1-2ms per event; it carries the same focus
+  # guard); osascript is the always-works fallback while the helper is
+  # missing, untrusted or restarting.
+  defp hold(key, action) do
+    with {:ok, code} <- Commands.keycode(key),
+         :ok <- Pokex.Rig.Mac.KeyEvents.key(action, code, focus_app()) do
+      :ok
+    else
+      _fallback -> run(Commands.hold(key, action, focus_app: focus_app()))
+    end
+  end
 
   @impl true
   def press_many([], _opts), do: :ok

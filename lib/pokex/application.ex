@@ -15,6 +15,9 @@ defmodule Pokex.Application do
       # {Pokex.Worker, arg},
       Pokex.Settings,
       Pokex.Bots.Perf,
+      # Native CGEvent key helper (~1-2ms per key event vs ~60-100ms osascript).
+      # Degrades to :disabled/:untrusted states; Rig.Mac falls back to osascript.
+      Pokex.Rig.Mac.KeyEvents,
       # Serializes ALL screen captures (see Pokex.Bots.Capture) — a global singleton, started
       # before the bot so every worker's `Capture.grab` reaches it. Concurrent screencaptures
       # balloon on macOS; one-at-a-time keeps each ~0.28s and the sample cadence steady.

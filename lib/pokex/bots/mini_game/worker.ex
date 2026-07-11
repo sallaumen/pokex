@@ -357,7 +357,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
             %{
               pilot: :predictive,
               deadband_pct: Settings.get(:mini_game_deadband_pct),
-              actuation_ms: Settings.get(:mini_game_actuation_ms),
+              actuation_ms: actuation_ms(),
               brake_up: Settings.get(:mini_game_brake_up),
               brake_down: Settings.get(:mini_game_brake_down)
             },
@@ -431,6 +431,17 @@ defmodule Pokex.Bots.MiniGame.Worker do
     velocity = (newer.y - older.y) / elapsed * 1000
 
     if abs(velocity) > @max_capsule_speed, do: 0.0, else: velocity
+  end
+
+  # ~2ms CGEvent post + port hop when the native key helper is up; the seeded
+  # value models the osascript fallback (~90ms). Auto-switching keeps the bar
+  # prediction honest on whichever path is live.
+  @native_actuation_ms 15
+
+  defp actuation_ms do
+    if Rig.Mac.KeyEvents.status() == :ready,
+      do: @native_actuation_ms,
+      else: Settings.get(:mini_game_actuation_ms)
   end
 
   defp actuate(%{play: %{holding?: desired}} = state, desired, _now), do: state

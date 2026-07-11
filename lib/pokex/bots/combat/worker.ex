@@ -59,7 +59,10 @@ defmodule Pokex.Bots.Combat.Worker do
        logic: nil,
        timer: nil,
        feed_ref: nil,
-       reattach_attempts: 0
+       reattach_attempts: 0,
+       # the ONE in-flight key burst (nil when none): a new burst is SKIPPED while the previous
+       # is still landing, instead of piling concurrent osascripts onto System Events
+       burst_pid: nil
      }}
   end
 
@@ -176,7 +179,7 @@ defmodule Pokex.Bots.Combat.Worker do
   defp apply_step(state, logic, actions) do
     previous = state.logic
 
-    dispatch(actions)
+    state = dispatch(state, actions)
     broadcast_activity(previous, logic, actions)
 
     # KILL first, snapshot second: the Catcher loots on {:kill} (Space presses) and throws the
@@ -194,7 +197,13 @@ defmodule Pokex.Bots.Combat.Worker do
 
   # Tab + skills are keys → the direct fire-and-forget path (a key must never wait behind a
   # mouse sequence holding the Body). Logs are broadcast, not typed.
-  defp dispatch(actions) do
+  #
+  # AT MOST ONE burst in flight: a burst takes ~1.2s on the osascript path (taps × gaps) while
+  # the logic re-decides every ~300ms — spawning every decision stacked 3-4 concurrent key
+  # scripts onto System Events (one OS queue), lagging EVERY key in the app seconds behind its
+  # mouse move. Skipping is correct, not lossy: the next decision re-reads the world and fires
+  # a FRESHER burst than the one skipped.
+  defp dispatch(state, actions) do
     keys =
       Enum.flat_map(actions, fn
         {:tab} -> [Settings.get(:tab_key)]
@@ -202,12 +211,18 @@ defmodule Pokex.Bots.Combat.Worker do
         {:log, _} -> []
       end)
 
-    if keys != [] do
-      parent = self()
-      spawn(fn -> tap_keys(keys, parent) end)
-    end
+    cond do
+      keys == [] ->
+        state
 
-    :ok
+      state.burst_pid != nil and Process.alive?(state.burst_pid) ->
+        Pokex.Bots.Perf.count("combat.burst_skipped")
+        state
+
+      true ->
+        parent = self()
+        %{state | burst_pid: spawn(fn -> tap_keys(keys, parent) end)}
+    end
   end
 
   defp tap_keys(keys, parent) do

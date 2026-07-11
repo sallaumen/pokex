@@ -5,10 +5,24 @@ defmodule Pokex.Rig.Mac do
   require Logger
 
   alias Pokex.Bots.{InputGate, Perf}
-  alias Pokex.Rig.Mac.Commands
+  alias Pokex.Rig.Mac.{Commands, KeyEvents, OsaBus}
 
   @impl true
-  def press(combo), do: gated(fn -> run(Commands.press(combo, focus_app: focus_app())) end)
+  def press(combo), do: gated(fn -> do_press(combo) end)
+
+  # Native CGEvent press first (~2ms, serialized inside KeyEvents, same focus guard) for
+  # modifier-free mapped keys — the hot paths: combat digits, Tab, Space, potion. Fallback:
+  # osascript through the OsaBus (see its moduledoc — System Events is one queue; concurrent
+  # key scripts pile up and desync keys from the mouse moves they belong with).
+  defp do_press(combo) do
+    with false <- String.contains?(combo, "+"),
+         {:ok, code} <- Commands.keycode(combo),
+         :ok <- KeyEvents.key(:press, code, focus_app()) do
+      :ok
+    else
+      _fallback -> run_key(Commands.press(combo, focus_app: focus_app()))
+    end
+  end
 
   @impl true
   def key_down(key), do: gated(fn -> hold(key, :down) end)
@@ -21,18 +35,66 @@ defmodule Pokex.Rig.Mac do
   # missing, untrusted or restarting.
   defp hold(key, action) do
     with {:ok, code} <- Commands.keycode(key),
-         :ok <- Pokex.Rig.Mac.KeyEvents.key(action, code, focus_app()) do
+         :ok <- KeyEvents.key(action, code, focus_app()) do
       :ok
     else
-      _fallback -> run(Commands.hold(key, action, focus_app: focus_app()))
+      _fallback -> run_key(Commands.hold(key, action, focus_app: focus_app()))
     end
   end
 
   @impl true
   def press_many([], _opts), do: :ok
 
-  def press_many(combos, opts),
-    do: gated(fn -> run(Commands.press_many(combos, Keyword.put(opts, :focus_app, focus_app()))) end)
+  def press_many(combos, opts), do: gated(fn -> do_press_many(combos, opts) end)
+
+  # All-native bursts compose the taps/gaps in Elixir (each key event ~2ms through the
+  # serialized helper; the pacing sleeps happen HERE in the caller's task, holding nothing).
+  # Any unmappable combo (a modifier like shift+v, an unmapped letter) or an unready helper
+  # falls back to the single composed osascript, serialized by the OsaBus.
+  defp do_press_many(combos, opts) do
+    if Enum.all?(combos, &native_pressable?/1) and KeyEvents.status() == :ready do
+      native_burst(combos, opts)
+    else
+      run_key(Commands.press_many(combos, Keyword.put(opts, :focus_app, focus_app())))
+    end
+  end
+
+  defp native_pressable?(combo),
+    do: not String.contains?(combo, "+") and match?({:ok, _}, Commands.keycode(combo))
+
+  defp native_burst(combos, opts) do
+    tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
+    gap_ms = opts |> Keyword.get(:gap_ms, 0) |> max(0)
+    jitter_ms = opts |> Keyword.get(:jitter_ms, 0) |> max(0)
+    taps = Enum.flat_map(combos, fn combo -> List.duplicate(combo, tap_count) end)
+    last = length(taps) - 1
+
+    taps
+    |> Enum.with_index()
+    |> Enum.each(fn {combo, idx} ->
+      {:ok, code} = Commands.keycode(combo)
+      # per-key best effort: a mid-burst helper hiccup sends THAT key via the bus instead of
+      # double-pressing the whole burst through the fallback
+      case KeyEvents.key(:press, code, focus_app()) do
+        :ok -> :ok
+        _ -> run_key(Commands.press(combo, focus_app: focus_app()))
+      end
+
+      if idx < last do
+        jitter = if jitter_ms > 0, do: :rand.uniform(jitter_ms + 1) - 1, else: 0
+        Process.sleep(gap_ms + jitter)
+      end
+    end)
+
+    :ok
+  end
+
+  defp run_key(cmd) do
+    case OsaBus.run(cmd) do
+      {:ok, _out} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
 
   # Keystrokes only reach the game while it is FRONTMOST; the guard re-fronts it inside the
   # keystroke script when the user is off on the panel/browser. Settings-driven so it can be

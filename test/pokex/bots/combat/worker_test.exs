@@ -75,6 +75,31 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "at most ONE key burst in flight — a decision landing mid-burst skips, never stacks", %{
+    worker: worker
+  } do
+    # re-script the Fake with a slow (osascript-like) burst so the first one is still in
+    # flight when the next decision arrives
+    Agent.stop(Pokex.Rig.Fake)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{press_many_sleep_ms: 250})
+
+    # Tab burst (slow) spawns...
+    world!(worker, battle_obs(enemies: [0]))
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+
+    # ...and the lock lands while it is STILL in flight → the skill burst must be SKIPPED
+    world!(worker, battle_obs(locked?: true, locked_row: 0))
+    assert eventually(fn -> Worker.status(worker).state == :fighting end)
+
+    Process.sleep(400)
+    assert presses() == [Settings.get(:tab_key)]
+
+    # burst 1 done → the next locked frame fires a fresh skill burst normally
+    world!(worker, battle_obs(locked?: true, locked_row: 0))
+    assert eventually(fn -> length(presses()) > 1 end)
+  end
+
+  @tag :tmp_dir
   test "an enemy observation makes it press Tab", %{worker: worker} do
     world!(worker, battle_obs(enemies: [0]))
 
@@ -89,7 +114,14 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     world!(worker, battle_obs(locked?: true, locked_row: 0))
     assert eventually(fn -> Worker.status(worker).state == :fighting end)
-    assert eventually(fn -> "1" in presses() end)
+
+    # keep feeding fresh locked frames while we wait, like the real feed's ~120ms writes do —
+    # a burst that lands while the (fast) Tab spawn is still alive is legitimately SKIPPED
+    # (one-burst-in-flight), and the NEXT fresh frame is what re-fires it
+    assert eventually(fn ->
+             "1" in presses() or
+               (world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
+           end)
   end
 
   @tag :tmp_dir

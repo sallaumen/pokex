@@ -15,6 +15,12 @@ defmodule Pokex.Rig.Fake do
 
   @impl true
   def press_many(combos, opts) do
+    # optional scripted latency, so tests can model a slow (osascript) burst still in flight
+    case Agent.get(__MODULE__, & &1.script[:press_many_sleep_ms]) do
+      ms when is_integer(ms) and ms > 0 -> Process.sleep(ms)
+      _ -> :ok
+    end
+
     tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
     calls = for combo <- combos, _tap <- 1..tap_count, do: {:press, combo}
 

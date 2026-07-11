@@ -16,6 +16,47 @@ defmodule Pokex.VisionSkillStatesTest do
       assert Vision.skill_states(frame, count: 2) == [:ready, :cooldown]
     end
 
+    test "the countdown number over a COLOURED icon reads :cooldown (the slot-6 '16' case)" do
+      # An olive/yellow icon stays saturated under the cooldown overlay, and the white
+      # number's anti-aliasing over it mints bright saturated edge pixels — the colour
+      # tests alone read this READY (Lucas's slot 6 at 16s). The pure-white glyph body is
+      # the game's own "cooling" statement, and it must win over any amount of colour.
+      rgba =
+        :binary.copy(<<120, 110, 40, 255>>, 80) <>
+          :binary.copy(<<255, 255, 255, 255>>, 12) <>
+          :binary.copy(<<200, 190, 120, 255>>, 8)
+
+      frame = %Frame{width: 100, height: 1, rgba: rgba}
+
+      [slot] =
+        Vision.skill_slots(frame,
+          count: 1,
+          min_saturation: 25,
+          min_vivid_pct: 7,
+          min_white_pct: 4
+        )
+
+      # the colour tests DO pass (that's the trap) — the white override is what saves it
+      assert slot.saturation >= 25
+      assert slot.white_pct >= 4
+      assert slot.state == :cooldown
+    end
+
+    test "a colourful icon with only a TRACE of white (icon art, no number) stays :ready" do
+      # 2% pure white is icon art, not a countdown glyph — below the 4% floor.
+      rgba =
+        :binary.copy(<<120, 110, 40, 255>>, 98) <> :binary.copy(<<255, 255, 255, 255>>, 2)
+
+      frame = %Frame{width: 100, height: 1, rgba: rgba}
+
+      assert Vision.skill_states(frame,
+               count: 1,
+               min_saturation: 25,
+               min_vivid_pct: 7,
+               min_white_pct: 4
+             ) == [:ready]
+    end
+
     test "the BIG white countdown ('17.6', under 20s) never fakes :ready — colour only" do
       # Under ~20s the game renders the countdown huge with decimals: enough WHITE pixels
       # to lift the slot's average brightness way up (here to ~136). White is colourless —

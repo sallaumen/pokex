@@ -130,7 +130,8 @@ defmodule Pokex.Diagnostics.Report do
             slot_count: length(slots),
             thresholds: %{
               min_saturation: settings[:skill_ready_min_saturation],
-              min_vivid_pct: settings[:skill_ready_min_vivid_pct]
+              min_vivid_pct: settings[:skill_ready_min_vivid_pct],
+              min_white_pct: settings[:skill_cooldown_min_white_pct]
             },
             states: Enum.map(slots, & &1.state),
             slots: slots

@@ -34,6 +34,13 @@ defmodule Pokex.Settings do
     # MEASURED on Lucas's real bar (2026-07-08 diagnostic): ready icons sit at saturation
     # 27-68 (every one clears the colour tests alone), cooldown slots at 19/19.
     skill_ready_min_saturation: 25,
+    # The countdown NUMBER wins over everything: a slot with at least this % of PURE-white
+    # pixels (the glyph body) reads :cooldown regardless of colour — the number's
+    # anti-aliasing over a COLOURED icon mints saturated edge pixels that fool the colour
+    # tests (the slot-6 "16" false ready, 2026-07-10). Erring toward :cooldown is the cheap
+    # direction (hook_hold_max_ms bounds a false hold). RAISE this if a ready icon with real
+    # white art ever reads :cooldown — white_pct is exported per slot in the diagnostics.
+    skill_cooldown_min_white_pct: 4,
     # A slot also reads :ready when at least this % of its pixels are strongly COLOURED
     # (the coloured glyph of a usable icon). This is what saves a dark-but-colourful ready
     # icon — e.g. skill 3's green symbol on black — whose AVERAGE brightness/saturation are

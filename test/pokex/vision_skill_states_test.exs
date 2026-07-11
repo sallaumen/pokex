@@ -132,6 +132,55 @@ defmodule Pokex.VisionSkillStatesTest do
     end
   end
 
+  describe "skill_slots/2 with per-slot READY references (calibrated match)" do
+    # Lucas's pink-with-white icon: its READY art carries >4% pure white, so the white
+    # override read it permanently :cooldown. Against its own reference it must read :ready.
+    @pink_ready :binary.copy(<<230, 120, 190, 255>>, 90) <>
+                  :binary.copy(<<255, 255, 255, 255>>, 10)
+
+    test "an icon matching its own reference reads :ready — even with lots of white art" do
+      frame = %Frame{width: 100, height: 1, rgba: @pink_ready}
+      # the reference: this exact icon's non-white signature (as calibration captures it)
+      [%{signature: ref}] = Vision.skill_slots(frame, count: 1)
+
+      [slot] = Vision.skill_slots(frame, count: 1, refs: [ref], max_distance: 60)
+      assert slot.white_pct >= 4
+      assert slot.distance <= 10
+      assert slot.state == :ready
+    end
+
+    test "the darkened (overlay) icon reads :cooldown by distance — number excluded" do
+      ready = %Frame{width: 100, height: 1, rgba: @pink_ready}
+      [%{signature: ref}] = Vision.skill_slots(ready, count: 1)
+
+      # cooldown: the overlay halves the icon's colour; a BIG white countdown covers 30%.
+      # The white glyph is excluded from the signature, so what remains is the darkened
+      # pink — far from the ready reference.
+      cooling =
+        :binary.copy(<<115, 60, 95, 255>>, 70) <> :binary.copy(<<255, 255, 255, 255>>, 30)
+
+      frame = %Frame{width: 100, height: 1, rgba: cooling}
+      [slot] = Vision.skill_slots(frame, count: 1, refs: [ref], max_distance: 60)
+
+      assert slot.distance > 60
+      assert slot.state == :cooldown
+    end
+
+    test "slots without a reference fall back to the threshold rules" do
+      # two slots, refs only for the first: slot 2 (colourful, no ref) uses the colour test
+      rgba = :binary.copy(<<230, 120, 190, 255>>, 50) <> :binary.copy(<<200, 200, 0, 255>>, 50)
+      frame = %Frame{width: 100, height: 1, rgba: rgba}
+      [%{signature: ref}, _] = Vision.skill_slots(frame, count: 2)
+
+      states =
+        frame
+        |> Vision.skill_slots(count: 2, refs: [ref, nil], max_distance: 60)
+        |> Enum.map(& &1.state)
+
+      assert states == [:ready, :ready]
+    end
+  end
+
   describe "skill_slots/2 (detailed, for the diagnostic + tuning)" do
     test "reports brightness, saturation, vivid_pct and state per slot" do
       [ready, cooldown] = Vision.skill_slots(bar([{200, 200, 0}, {20, 20, 20}], 2), count: 2)

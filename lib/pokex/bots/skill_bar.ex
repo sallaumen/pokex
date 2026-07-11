@@ -34,6 +34,8 @@ defmodule Pokex.Bots.SkillBar do
 
     Vision.skill_slots(frame,
       count: count,
+      refs: calib.skill_slot_refs,
+      max_distance: settings[:skill_ref_max_distance],
       min_saturation: settings[:skill_ready_min_saturation],
       min_vivid_pct: settings[:skill_ready_min_vivid_pct],
       min_white_pct: settings[:skill_cooldown_min_white_pct]

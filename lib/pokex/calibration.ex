@@ -21,6 +21,11 @@ defmodule Pokex.Calibration do
     # skill bar became part of the main wizard.
     :skill_bar_region,
     :skill_bar_count,
+    # Optional: per-slot READY colour references ({r,g,b} of the non-white pixels, one per
+    # slot, captured from the calibration screenshot with every skill ready). When present,
+    # SkillBar matches each live slot against its own reference instead of universal
+    # thresholds — icons too white or too colourful for thresholds read correctly.
+    :skill_slot_refs,
     # Optional (GameController): the main Pokémon's HP bar, and the portrait to aim Shift+Q at.
     :pokemon_hp_region,
     :pokemon_photo_point,
@@ -50,6 +55,8 @@ defmodule Pokex.Calibration do
       "player_point" => calib.player_point && Tuple.to_list(calib.player_point),
       "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
       "skill_bar_count" => calib.skill_bar_count,
+      "skill_slot_refs" =>
+        calib.skill_slot_refs && Enum.map(calib.skill_slot_refs, &(&1 && Tuple.to_list(&1))),
       "pokemon_hp_region" => calib.pokemon_hp_region && Tuple.to_list(calib.pokemon_hp_region),
       "pokemon_photo_point" =>
         calib.pokemon_photo_point && Tuple.to_list(calib.pokemon_photo_point),
@@ -77,6 +84,7 @@ defmodule Pokex.Calibration do
          player_point: to_tuple(map["player_point"]),
          skill_bar_region: to_tuple(map["skill_bar_region"]),
          skill_bar_count: map["skill_bar_count"],
+         skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),
          pokemon_hp_region: to_tuple(map["pokemon_hp_region"]),
          pokemon_photo_point: to_tuple(map["pokemon_photo_point"]),
          glow_baselines: map["glow_baselines"] || [],

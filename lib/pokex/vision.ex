@@ -591,25 +591,30 @@ defmodule Pokex.Vision do
   @vivid_bright). A ready icon has a chunk of vivid pixels (the coloured glyph); the
   cooldown overlay greys everything and the white number is colourless, so vivid_pct ≈ 0.
 
-  The COUNTDOWN NUMBER wins over everything: a slot whose `white_pct` (share of PURE-white
-  pixels — min channel ≥ 200, near-zero saturation) reaches `min_white_pct` reads
-  `:cooldown` no matter how colourful the rest looks. The number is the game's own
-  statement that the skill is cooling, and it defeats the two ways colour lies: under ~20s
-  the countdown renders BIG with decimals ("17.6"), and its anti-aliasing OVER a coloured
-  icon mints bright saturated edge pixels that pass the colour tests (Lucas's slot-6 "16"
-  false ready, 2026-07-10). A ready icon shows no big white glyph. Erring toward
-  :cooldown is the CHEAP direction: the fishing gate's hook_hold_max_ms ceiling bounds a
-  false hold, while a false ready pulls monsters with nothing to kill them.
+  THE PREFERRED MODE — reference match (per-slot, calibrated): pass `:refs`, a list with one
+  `{r, g, b}` per slot captured at calibration time with every skill READY. A slot's live
+  `signature` (the average colour of its NON-white pixels) is compared with its own
+  reference: within `:max_distance` (euclidean) → `:ready`, further → `:cooldown`. The
+  countdown glyph and any white icon art are excluded from BOTH sides of the comparison, so
+  no white rendering can contaminate it in either direction — this is what universal
+  thresholds could never do: the pink-with-white icon read permanently :cooldown under the
+  white override, while the olive icon's number anti-aliasing read falsely :ready under the
+  colour tests (Lucas, 2026-07-10). The cooldown overlay darkens the icon, pushing the
+  signature far from its reference. A slot with no reference (nil, or an all-white live
+  read) falls back to the threshold rules below.
 
-  Otherwise a slot is `:ready` when it is saturated ENOUGH (avg) OR has enough VIVID
-  pixels; `:cooldown` when both fail — readiness is COLOUR, never brightness alone
-  (white/grey are colourless; brightness is still REPORTED per slot for the diagnostics).
-  Lucas's measured ready icons (2026-07-08): saturation 27-68, all pass colour alone.
+  Threshold fallback (no reference): the COUNTDOWN NUMBER wins — a slot whose `white_pct`
+  (share of PURE-white pixels: min channel ≥ 200, near-zero saturation) reaches
+  `min_white_pct` reads `:cooldown` no matter how colourful the rest looks. Otherwise a
+  slot is `:ready` when saturated ENOUGH (avg) OR with enough VIVID pixels — colour, never
+  brightness alone (white/grey are colourless; brightness is still REPORTED per slot).
+  Erring toward :cooldown is the CHEAP direction: the fishing gate's hook_hold_max_ms
+  ceiling bounds a false hold, while a false ready pulls monsters with nothing to kill.
 
-  Thresholds are tunable (measured live from the diagnostic dump, which exports these
-  per-slot numbers). Options: `:count` (7), `:min_saturation` (40), `:min_vivid_pct` (7),
-  `:min_white_pct` (4). Returns `[%{brightness, saturation, vivid_pct, white_pct, state}]`,
-  left→right.
+  All numbers are exported per slot for tuning from the diagnostic dump. Options: `:count`
+  (7), `:refs` (nil), `:max_distance` (60), `:min_saturation` (40), `:min_vivid_pct` (7),
+  `:min_white_pct` (4). Returns
+  `[%{brightness, saturation, vivid_pct, white_pct, signature, distance, state}]`, left→right.
   """
   def skill_slots(%Frame{width: w, rgba: rgba}, opts \\ []) do
     count = (Keyword.get(opts, :count) || 7) |> clamp(1, w)
@@ -618,20 +623,25 @@ defmodule Pokex.Vision do
     min_s = Keyword.get(opts, :min_saturation) || 40
     min_vivid = Keyword.get(opts, :min_vivid_pct) || 7
     min_white = Keyword.get(opts, :min_white_pct) || 4
+    max_distance = Keyword.get(opts, :max_distance) || 60
+    refs = Keyword.get(opts, :refs) || []
     slot_w = max(div(w, count), 1)
 
     acc = skill_slot_acc(rgba, 0, w, count, slot_w, %{})
 
     for i <- 0..(count - 1)//1 do
-      {sb, ss, vivid, white, n} = Map.get(acc, i, {0, 0, 0, 0, 0})
+      {sb, ss, vivid, white, cr, cg, cb, cn, n} = Map.get(acc, i, {0, 0, 0, 0, 0, 0, 0, 0, 0})
       n = max(n, 1)
       brightness = div(sb, n)
       saturation = div(ss, n)
       vivid_pct = div(vivid * 100, n)
       white_pct = div(white * 100, n)
+      signature = if cn > 0, do: {div(cr, cn), div(cg, cn), div(cb, cn)}
+      distance = slot_distance(signature, Enum.at(refs, i))
 
       state =
         cond do
+          distance != nil -> if distance <= max_distance, do: :ready, else: :cooldown
           white_pct >= min_white -> :cooldown
           saturation >= min_s or vivid_pct >= min_vivid -> :ready
           true -> :cooldown
@@ -642,10 +652,17 @@ defmodule Pokex.Vision do
         saturation: saturation,
         vivid_pct: vivid_pct,
         white_pct: white_pct,
+        signature: signature,
+        distance: distance,
         state: state
       }
     end
   end
+
+  defp slot_distance({r, g, b}, {rr, rg, rb}),
+    do: round(:math.sqrt((r - rr) ** 2 + (g - rg) ** 2 + (b - rb) ** 2))
+
+  defp slot_distance(_signature, _ref), do: nil
 
   @doc "The per-slot skill states (`:ready | :cooldown`), left→right. See `skill_slots/2`."
   def skill_states(%Frame{} = frame, opts \\ []),
@@ -711,11 +728,18 @@ defmodule Pokex.Vision do
     vivid = if sat >= @vivid_sat and bright >= @vivid_bright, do: 1, else: 0
     # PURE white — the countdown glyph's body. min-channel high AND colourless, so a bright
     # coloured icon (yellow: b low) or a light grey chrome never counts.
-    white = if min(r, min(g, b)) >= 200 and sat <= 30, do: 1, else: 0
+    white? = min(r, min(g, b)) >= 200 and sat <= 30
+    white = if white?, do: 1, else: 0
+    # The NON-WHITE colour signature: what the icon looks like with the countdown glyph
+    # (and any white icon art) taken out — the reference-match compares only this, so the
+    # number can't contaminate the reading in either direction.
+    {cr, cg, cb, cn} = if white?, do: {0, 0, 0, 0}, else: {r, g, b, 1}
 
     acc =
-      Map.update(acc, slot, {bright, sat, vivid, white, 1}, fn {sb, ss, sv, sw, n} ->
-        {sb + bright, ss + sat, sv + vivid, sw + white, n + 1}
+      Map.update(acc, slot, {bright, sat, vivid, white, cr, cg, cb, cn, 1}, fn
+        {sb, ss, sv, sw, sr, sg, sbl, sn, n} ->
+          {sb + bright, ss + sat, sv + vivid, sw + white, sr + cr, sg + cg, sbl + cb, sn + cn,
+           n + 1}
       end)
 
     skill_slot_acc(rest, i + 1, w, count, slot_w, acc)

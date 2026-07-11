@@ -45,6 +45,20 @@ defmodule Pokex.CalibrationTest do
   end
 
   @tag :tmp_dir
+  test "skill_slot_refs round-trip (with nil holes), nil for older files", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "calibration.json")
+    refs = [{230, 120, 190}, nil, {40, 200, 60}]
+
+    Calibration.save(%{sample() | skill_slot_refs: refs}, path)
+    assert {:ok, loaded} = Calibration.load(path)
+    assert loaded.skill_slot_refs == refs
+
+    Calibration.save(sample(), path)
+    assert {:ok, old} = Calibration.load(path)
+    assert old.skill_slot_refs == nil
+  end
+
+  @tag :tmp_dir
   test "player_point round-trips and beats the arena-center fallback", %{tmp_dir: tmp} do
     path = Path.join(tmp, "calibration.json")
 

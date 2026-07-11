@@ -106,6 +106,9 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.skill_bar_count == 8
     assert calib.pokemon_hp_region == {30, 40, 60, 20}
     assert calib.pokemon_photo_point == {40, 50}
+    # per-slot READY references, cropped from the wizard's own screenshot (flat {9,9,9})
+    assert length(calib.skill_slot_refs) == 8
+    assert Enum.all?(calib.skill_slot_refs, &(&1 == {9, 9, 9}))
     assert Settings.get(:skill_keys) == ["6", "5", "4", "3", "2", "1", "7", "8"]
     assert length(calib.glow_baselines) == 10
     assert calib.suggested_glow_threshold == 12.0

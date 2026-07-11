@@ -29,7 +29,10 @@ defmodule PokexWeb.CalibrationLive do
       "Clique bem no CENTRO do seu PERSONAGEM — é nele que o bot ancora a barra do minigame de pesca. Fique parado onde vai pescar.",
     baselines:
       "Tudo marcado! Agora LANCE A LINHA na água (Shift+V) e, com ela ESPERANDO sem nada fisgado, clique em 'Capturar linhas de base'. Assim o bot aprende a água COM a linha — senão ele acha que é sempre brilho e fisga na hora.",
-    skill_a: "Canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1).",
+    skill_a:
+      "Canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1). IMPORTANTE: " <>
+        "deixe TODAS as skills PRONTAS (sem cooldown) — a foto de cada ícone vira a " <>
+        "referência de 'pronta' pro leitor.",
     skill_b:
       "Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões.",
     hp_a:
@@ -227,6 +230,8 @@ defmodule PokexWeb.CalibrationLive do
       player_point: draft[:player_point],
       skill_bar_region: draft.skill_bar_region,
       skill_bar_count: draft.skill_bar_count,
+      skill_slot_refs:
+        skill_slot_refs(socket.assigns.screen, draft.skill_bar_region, draft.skill_bar_count),
       pokemon_hp_region: draft[:pokemon_hp_region],
       pokemon_photo_point: draft[:pokemon_photo_point],
       glow_baselines: baseline_paths,
@@ -250,12 +255,32 @@ defmodule PokexWeb.CalibrationLive do
       {:ok,
        %{
          src: "/captures/#{Path.basename(screen_path)}?t=#{System.unique_integer([:positive])}",
+         path: screen_path,
          scale: scale,
          w: round(px_w / scale),
          h: round(px_h / scale)
        }}
     end
   end
+
+  # Per-slot READY references, cropped from the SAME screenshot the user just marked the bar
+  # on (no extra capture, exact same instant): each slot's non-white colour signature becomes
+  # its "this is what ready looks like" baseline for SkillBar. The wizard copy tells the user
+  # to calibrate with every skill ready. nil (refs are optional) when the crop fails — the
+  # reader then falls back to the threshold rules.
+  defp skill_slot_refs(%{path: path, scale: scale}, {x, y, w, h}, count) do
+    with {:ok, frame} <- Frame.from_png_file(path),
+         crop = {round(x * scale), round(y * scale), round(w * scale), round(h * scale)},
+         %Frame{} = bar <- Frame.crop(frame, crop) do
+      bar |> Vision.skill_slots(count: count) |> Enum.map(& &1.signature)
+    else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp skill_slot_refs(_screen, _region, _count), do: nil
 
   defp record_point(socket, point) do
     %{step: step, draft: draft} = socket.assigns
@@ -360,7 +385,14 @@ defmodule PokexWeb.CalibrationLive do
   defp save_skill_bar(socket, region, count) do
     case Calibration.load() do
       {:ok, calib} ->
-        Calibration.save(%{calib | skill_bar_region: region, skill_bar_count: count})
+        refs = skill_slot_refs(socket.assigns.screen, region, count)
+
+        Calibration.save(%{
+          calib
+          | skill_bar_region: region,
+            skill_bar_count: count,
+            skill_slot_refs: refs
+        })
 
         assign(socket,
           draft: %{},

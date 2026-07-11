@@ -32,6 +32,20 @@ defmodule Pokex.Bots.GuardianTest do
     %{on_panic: on_panic}
   end
 
+  defp eventually(fun, timeout \\ 500) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    poll = fn poll ->
+      cond do
+        fun.() -> true
+        System.monotonic_time(:millisecond) > deadline -> false
+        true -> Process.sleep(5) && poll.(poll)
+      end
+    end
+
+    poll.(poll)
+  end
+
   test "a cursor in the kill corner triggers on_panic", %{on_panic: on_panic} do
     {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
 
@@ -48,6 +62,23 @@ defmodule Pokex.Bots.GuardianTest do
       Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
 
     refute_receive :panicked, 100
+  end
+
+  test "closes the InputGate's corner flag in the corner, reopens it outside", %{on_panic: on_panic} do
+    alias Pokex.Bots.InputGate
+    on_exit(fn -> InputGate.set_corner_ok(true) end)
+
+    {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
+
+    {:ok, _guardian} =
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+    # cursor parked in the corner → corner flag closed (this is what suppresses the always-on
+    # GameController's revive/potion, not just the Start/Stop workers)
+    assert eventually(fn -> InputGate.state().corner_ok == false end)
+
+    FakeBody.set_reply(body, {:ok, {500, 500}})
+    assert eventually(fn -> InputGate.state().corner_ok == true end)
   end
 
   test "an error reading the cursor reschedules without firing", %{on_panic: on_panic} do

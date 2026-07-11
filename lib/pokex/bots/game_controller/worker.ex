@@ -12,7 +12,7 @@ defmodule Pokex.Bots.GameController.Worker do
   """
   use GenServer
 
-  alias Pokex.Bots.{Body, Capture}
+  alias Pokex.Bots.{Body, Capture, InputGate}
   alias Pokex.Bots.GameController.Logic
   alias Pokex.Perception.{Interpret, WorldState}
   alias Pokex.{Calibration, Settings, Vision}
@@ -140,10 +140,17 @@ defmodule Pokex.Bots.GameController.Worker do
     end
   end
 
+  # The always-on monitor keeps READING the HP even while actuation is gated (so the panel and
+  # the resume are accurate), but it never ACTS through a closed gate: the panic corner and a
+  # defocused game must stop revive AND potion, not just have the Rig silently swallow them.
   defp act(state, calib) do
-    case Logic.decide(decision_input(state)) do
-      :rescue -> fire_combo(state, calib)
-      :hold -> maybe_potion(state, calib)
+    if InputGate.allowed?() do
+      case Logic.decide(decision_input(state)) do
+        :rescue -> fire_combo(state, calib)
+        :hold -> maybe_potion(state, calib)
+      end
+    else
+      state
     end
   end
 

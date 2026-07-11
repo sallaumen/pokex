@@ -43,3 +43,7 @@ config :phoenix,
 # The always-on GameController monitor is started explicitly by the tests that need it,
 # not auto-started, so the app-wide instance stays idle during unrelated tests.
 config :pokex, :game_controller_auto_monitor, false
+# The Focus poller shells out to osascript for the frontmost app — never let the app-wide
+# instance poll during unrelated tests. Focus tests drive their own instance with an injected
+# frontmost reader.
+config :pokex, :focus_auto_monitor, false

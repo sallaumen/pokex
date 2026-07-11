@@ -4,17 +4,17 @@ defmodule Pokex.Rig.Mac do
 
   require Logger
 
-  alias Pokex.Bots.Perf
+  alias Pokex.Bots.{InputGate, Perf}
   alias Pokex.Rig.Mac.Commands
 
   @impl true
-  def press(combo), do: run(Commands.press(combo, focus_app: focus_app()))
+  def press(combo), do: gated(fn -> run(Commands.press(combo, focus_app: focus_app())) end)
 
   @impl true
-  def key_down(key), do: hold(key, :down)
+  def key_down(key), do: gated(fn -> hold(key, :down) end)
 
   @impl true
-  def key_up(key), do: hold(key, :up)
+  def key_up(key), do: gated(fn -> hold(key, :up) end)
 
   # Native CGEvent helper first (~1-2ms per event; it carries the same focus
   # guard); osascript is the always-works fallback while the helper is
@@ -32,7 +32,7 @@ defmodule Pokex.Rig.Mac do
   def press_many([], _opts), do: :ok
 
   def press_many(combos, opts),
-    do: run(Commands.press_many(combos, Keyword.put(opts, :focus_app, focus_app())))
+    do: gated(fn -> run(Commands.press_many(combos, Keyword.put(opts, :focus_app, focus_app()))) end)
 
   # Keystrokes only reach the game while it is FRONTMOST; the guard re-fronts it inside the
   # keystroke script when the user is off on the panel/browser. Settings-driven so it can be
@@ -45,10 +45,10 @@ defmodule Pokex.Rig.Mac do
   end
 
   @impl true
-  def click(button, point), do: run(Commands.click(button, point))
+  def click(button, point), do: gated(fn -> run(Commands.click(button, point)) end)
 
   @impl true
-  def move(point), do: run(Commands.move(point))
+  def move(point), do: gated(fn -> run(Commands.move(point)) end)
 
   @impl true
   # Move the cursor onto the target, then press F1 — the in-game pokeball hotkey throws at the
@@ -58,6 +58,15 @@ defmodule Pokex.Rig.Mac do
     with :ok <- move(point) do
       press("f1")
     end
+  end
+
+  # The hard safety floor: no ACTUATION (key/click/move) leaves this process while the InputGate
+  # is closed — the cursor is in the panic corner OR the game window isn't frontmost. Suppressed
+  # calls return :ok (a no-op, not an error) so a worker never mistakes "held for safety" for a
+  # real I/O failure. SENSING (capture/cursor) is never gated: we must keep reading the screen to
+  # know when it's safe to act again.
+  defp gated(fun) do
+    if InputGate.allowed?(), do: fun.(), else: :ok
   end
 
   @impl true

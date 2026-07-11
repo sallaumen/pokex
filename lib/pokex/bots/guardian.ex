@@ -28,7 +28,7 @@ defmodule Pokex.Bots.Guardian do
   use GenServer
   require Logger
 
-  alias Pokex.Bots.{Body, Corner}
+  alias Pokex.Bots.{Body, Corner, InputGate}
 
   @fishing_topic "fishing"
   @combat_topic "combat"
@@ -57,7 +57,12 @@ defmodule Pokex.Bots.Guardian do
   def handle_info(:poll, state) do
     case Body.cursor(state.body) do
       {:ok, point} ->
-        if Corner.in_kill_corner?(point), do: panic(state)
+        in_corner? = Corner.in_kill_corner?(point)
+        # The gate closes the moment the cursor enters the corner, so it ALSO suppresses the
+        # always-on GameController's revive/potion — not just the Start/Stop workers on_panic
+        # halts. It reopens when the cursor leaves, so manual-play protection comes right back.
+        InputGate.set_corner_ok(not in_corner?)
+        if in_corner?, do: panic(state)
 
       _error ->
         :ok

@@ -15,6 +15,9 @@ defmodule Pokex.Application do
       # {Pokex.Worker, arg},
       Pokex.Settings,
       Pokex.Bots.Perf,
+      # The actuation safety floor — owns the gate ETS table. MUST start before anything that
+      # can send a key/click so Rig.Mac's gate check always has a table to read.
+      Pokex.Bots.InputGate,
       # Native CGEvent key helper (~1-2ms per key event vs ~60-100ms osascript).
       # Degrades to :disabled/:untrusted states; Rig.Mac falls back to osascript.
       Pokex.Rig.Mac.KeyEvents,
@@ -24,6 +27,9 @@ defmodule Pokex.Application do
       Pokex.Bots.Capture,
       Pokex.Perception,
       Pokex.Bots.BotSupervisor,
+      # Pauses everything when the game window loses focus (and resumes on refocus). After the
+      # BotSupervisor so it can halt/resume those workers.
+      Pokex.Bots.Focus,
       # Start to serve requests, typically the last entry
       PokexWeb.Endpoint
     ]

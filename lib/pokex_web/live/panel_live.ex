@@ -11,6 +11,7 @@ defmodule PokexWeb.PanelLive do
   @mini_game_topic "mini_game"
   @game_topic "game"
   @body_topic "body"
+  @focus_topic "focus"
   @cooldown_poll_ms 1000
 
   @counters [
@@ -52,6 +53,7 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @mini_game_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @game_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @body_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, @focus_topic)
       # Keep the cooldown display LIVE while the fishing gate is on, so it never goes stale —
       # you can watch the reading flip to ready the instant your skills come off cooldown (the
       # SAME SkillBar read the fishing gate uses each tick).
@@ -77,6 +79,7 @@ defmodule PokexWeb.PanelLive do
        loot_enabled: Settings.get(:loot_enabled),
        capture_enabled: Settings.get(:capture_enabled),
        panicked?: false,
+       focused?: initial_focus(),
        logs: [],
        show_debug: false,
        export_src: nil,
@@ -102,6 +105,14 @@ defmodule PokexWeb.PanelLive do
 
   defp timing_settings do
     Map.new(@timing_fields, fn {key, _label, _hint} -> {key, Settings.get(key)} end)
+  end
+
+  # The Focus poller may not have published yet at mount; ask it directly (fail-open to focused
+  # so the pause banner never shows spuriously when the feature is off / the poller is absent).
+  defp initial_focus do
+    Pokex.Bots.Focus.status().focused?
+  catch
+    _kind, _reason -> true
   end
 
   defp hp_pct(%{hp_pct: pct}) when is_integer(pct), do: pct
@@ -187,6 +198,9 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:game, snapshot}, socket),
     do: {:noreply, assign(socket, game: snapshot)}
+
+  def handle_info({:focus, %{focused?: focused?}}, socket),
+    do: {:noreply, assign(socket, focused?: focused?)}
 
   def handle_info({:game_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🚑", text: text})}
@@ -942,6 +956,19 @@ defmodule PokexWeb.PanelLive do
             >
               <li :for={message <- @errors}>{message}</li>
             </ul>
+          </div>
+
+          <div
+            :if={not @focused?}
+            id="focus-pause-banner"
+            class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
+          >
+            <.icon name="hero-pause-circle" class="size-5 shrink-0 text-[#f2c45b]" />
+            <p class="flex-1 text-[#c8cdd1]">
+              <span class="font-semibold text-[#f2c45b]">Pausado por segurança</span> — a janela do
+              jogo perdeu o foco. Nada é digitado/clicado até você voltar pro jogo; aí os workers
+              religam sozinhos.
+            </p>
           </div>
 
           <button

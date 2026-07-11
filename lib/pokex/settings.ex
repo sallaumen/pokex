@@ -292,6 +292,16 @@ defmodule Pokex.Settings do
     # System Events knows its process as "wine"; update game_app_name if it ever changes client.
     ensure_game_focus: true,
     game_app_name: "wine",
+    # SAFETY: pause everything while the game window isn't frontmost. The Focus poller closes the
+    # InputGate (no key/click reaches the OS) and halts the workers the instant focus leaves the
+    # game, and reopens + resumes when it returns. This is the fail-safe answer to a stray menu
+    # stealing focus overnight and the bot typing into random windows. Off → never pause on focus
+    # (the old "re-front then fire" behaviour via ensure_game_focus still applies).
+    pause_when_unfocused: true,
+    # How often the Focus poller checks the frontmost app. 250ms bounds the reaction to a focus
+    # change while keeping the osascript overhead low (the InputGate makes the actual safety
+    # independent of this cadence for anything routed through the gate).
+    focus_poll_ms: 250,
     # --- Corpse capture (parado mode) -------------------------------------------------------------
     # The :corpses feed learns the EMPTY ground at attach: the first warmup frame is the baseline
     # and any 16px cell that deviates during the remaining warmup frames (animated water, sparkles,

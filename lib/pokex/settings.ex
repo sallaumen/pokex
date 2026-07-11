@@ -25,14 +25,14 @@ defmodule Pokex.Settings do
     # Legacy fallback when an old calibration has no explicit count. New calibrations
     # ask for 1..10 and persist that fixed geometry; cooldown frames never change it.
     skill_bar_count: 6,
-    # A slot reads :ready when its average brightness OR saturation clears these;
-    # :cooldown only when BOTH are below (dark + grey overlay). MEASURED on Lucas's
-    # real bar (2026-07-08 diagnostic): ready icons sit at brightness 97-131 /
-    # saturation 27-68, while the two measured cooldown slots read brightness 54/49,
-    # saturation 19/19 and vivid 6%/4%. The 90/25/7 floors split those populations
-    # (the old 140/40 misread the dimmer pink icon as cooldown). Saturation is the
-    # more reliable signal: the overlay greys the icon regardless of the number.
-    skill_ready_min_brightness: 90,
+    # A slot reads :ready when its average SATURATION clears this (or the vivid floor
+    # below) — readiness is COLOUR, never brightness alone. Under ~20s the game renders
+    # the countdown BIG with decimals ("17.6"); that white number lifted average
+    # brightness enough that the old brightness-only branch read every long cooldown as
+    # falsely ready for its final stretch (Lucas, 2026-07-10) — pulling fish with nothing
+    # to kill them. White/grey have zero saturation, so the colour tests are immune.
+    # MEASURED on Lucas's real bar (2026-07-08 diagnostic): ready icons sit at saturation
+    # 27-68 (every one clears the colour tests alone), cooldown slots at 19/19.
     skill_ready_min_saturation: 25,
     # A slot also reads :ready when at least this % of its pixels are strongly COLOURED
     # (the coloured glyph of a usable icon). This is what saves a dark-but-colourful ready

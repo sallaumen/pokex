@@ -109,7 +109,7 @@ defmodule Pokex.Diagnostics.Report do
   end
 
   # The skill hotbar with the per-slot brightness/saturation/state — the numbers to
-  # tune skill_ready_min_brightness/saturation against. `calibrated?: false` when the
+  # tune skill_ready_min_saturation/vivid_pct against. `calibrated?: false` when the
   # skill bar hasn't been calibrated yet.
   defp skill_bar_report(_rig, %Calibration{skill_bar_region: nil}, _settings),
     do: %{calibrated?: false}
@@ -129,8 +129,8 @@ defmodule Pokex.Diagnostics.Report do
             height: frame.height,
             slot_count: length(slots),
             thresholds: %{
-              min_brightness: settings[:skill_ready_min_brightness],
-              min_saturation: settings[:skill_ready_min_saturation]
+              min_saturation: settings[:skill_ready_min_saturation],
+              min_vivid_pct: settings[:skill_ready_min_vivid_pct]
             },
             states: Enum.map(slots, & &1.state),
             slots: slots

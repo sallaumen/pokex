@@ -10,10 +10,26 @@ defmodule Pokex.VisionSkillStatesTest do
       assert Vision.skill_states(frame, count: 4) == [:ready, :cooldown, :ready, :cooldown]
     end
 
-    test "a DARK but colourful icon still reads :ready (saturation, not just brightness)" do
-      # dark green: brightness 90 (< 140) but saturation 90 (>= 40) → ready.
+    test "a DARK but colourful icon still reads :ready (saturation, not brightness)" do
+      # dark green: dim (brightness 90) but saturated (90 >= 40) → ready.
       frame = bar([{0, 90, 0}, {30, 30, 30}], 2)
       assert Vision.skill_states(frame, count: 2) == [:ready, :cooldown]
+    end
+
+    test "the BIG white countdown ('17.6', under 20s) never fakes :ready — colour only" do
+      # Under ~20s the game renders the countdown huge with decimals: enough WHITE pixels
+      # to lift the slot's average brightness way up (here to ~136). White is colourless —
+      # the old brightness-only branch read this as ready and pulled fish with every
+      # kill-skill still on cooldown (Lucas, 2026-07-10). Saturation and vivid stay ~0 →
+      # :cooldown.
+      rgba =
+        :binary.copy(<<40, 45, 40, 255>>, 55) <> :binary.copy(<<245, 245, 245, 255>>, 45)
+
+      frame = %Frame{width: 100, height: 1, rgba: rgba}
+      [slot] = Vision.skill_slots(frame, count: 1, min_saturation: 25, min_vivid_pct: 7)
+
+      assert slot.brightness >= 90
+      assert slot.state == :cooldown
     end
 
     test "a mostly-dark icon with a few VIVID pixels reads :ready (the green skill-3 case)" do
@@ -26,7 +42,6 @@ defmodule Pokex.VisionSkillStatesTest do
       states =
         Vision.skill_slots(frame,
           count: 1,
-          min_brightness: 90,
           min_saturation: 25,
           min_vivid_pct: 6
         )
@@ -44,7 +59,6 @@ defmodule Pokex.VisionSkillStatesTest do
       states =
         Vision.skill_slots(frame,
           count: 1,
-          min_brightness: 90,
           min_saturation: 25,
           min_vivid_pct: 6
         )
@@ -66,7 +80,6 @@ defmodule Pokex.VisionSkillStatesTest do
 
       assert Vision.skill_states(frame,
                count: 1,
-               min_brightness: 90,
                min_saturation: 25,
                min_vivid_pct: 7
              ) == [:cooldown]
@@ -93,12 +106,11 @@ defmodule Pokex.VisionSkillStatesTest do
     end
 
     test "thresholds are tunable" do
-      # force everything to :cooldown with impossible thresholds (all three paths)
+      # force everything to :cooldown with impossible thresholds (both colour paths)
       states =
         bar([{200, 200, 0}, {20, 20, 20}], 2)
         |> Vision.skill_slots(
           count: 2,
-          min_brightness: 999,
           min_saturation: 999,
           min_vivid_pct: 999
         )

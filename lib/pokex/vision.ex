@@ -584,25 +584,30 @@ defmodule Pokex.Vision do
   `state`.
 
   A READY skill shows a colourful icon; a skill on COOLDOWN is darkened by a dim grey
-  overlay with a small white countdown number. The AVERAGE brightness/saturation can't
-  separate them when the ready icon is a SMALL bright symbol on a dark ground (e.g. skill
-  3's green glyph on black): the average washes the colour out, so both read low and the
-  icon is misread as cooldown forever. So the primary signal is `vivid_pct` — the % of
-  pixels that are strongly COLOURED (per-pixel saturation ≥ @vivid_sat and brightness ≥
+  overlay with a white countdown number. The AVERAGE saturation can't separate them when
+  the ready icon is a SMALL bright symbol on a dark ground (e.g. skill 3's green glyph on
+  black): the average washes the colour out. So the primary signal is `vivid_pct` — the %
+  of pixels that are strongly COLOURED (per-pixel saturation ≥ @vivid_sat and brightness ≥
   @vivid_bright). A ready icon has a chunk of vivid pixels (the coloured glyph); the
   cooldown overlay greys everything and the white number is colourless, so vivid_pct ≈ 0.
-  A slot is `:ready` when it is bright ENOUGH (avg) OR saturated ENOUGH (avg) OR has enough
-  VIVID pixels; `:cooldown` only when all three fail.
 
-  All three thresholds are tunable (measured live from the diagnostic dump, which exports
-  these per-slot numbers). Options: `:count` (7), `:min_brightness` (140), `:min_saturation`
-  (40), `:min_vivid_pct` (7). Returns `[%{brightness, saturation, vivid_pct, state}]`, left→right.
+  A slot is `:ready` when it is saturated ENOUGH (avg) OR has enough VIVID pixels;
+  `:cooldown` when both fail. Readiness is COLOUR, never brightness alone: under ~20s the
+  game renders the countdown BIG with decimals ("17.6"), and that white number lifted the
+  slot's average brightness over the old brightness-only branch — every long cooldown
+  turned falsely "ready" for its final stretch (Lucas, 2026-07-10). White/grey have zero
+  saturation, so the colour tests are immune to it; brightness is still REPORTED per slot
+  for the diagnostics. (Lucas's measured ready icons, 2026-07-08: saturation 27-68 — the
+  colour tests alone already caught every one of them.)
+
+  Thresholds are tunable (measured live from the diagnostic dump, which exports these
+  per-slot numbers). Options: `:count` (7), `:min_saturation` (40), `:min_vivid_pct` (7).
+  Returns `[%{brightness, saturation, vivid_pct, state}]`, left→right.
   """
   def skill_slots(%Frame{width: w, rgba: rgba}, opts \\ []) do
     count = (Keyword.get(opts, :count) || 7) |> clamp(1, w)
     # `|| default` (not Keyword's default) so a nil setting value — a caller passing a partial
     # settings map — still yields a number instead of crashing the `>=` comparison.
-    min_b = Keyword.get(opts, :min_brightness) || 140
     min_s = Keyword.get(opts, :min_saturation) || 40
     min_vivid = Keyword.get(opts, :min_vivid_pct) || 7
     slot_w = max(div(w, count), 1)
@@ -617,7 +622,7 @@ defmodule Pokex.Vision do
       vivid_pct = div(vivid * 100, n)
 
       state =
-        if brightness >= min_b or saturation >= min_s or vivid_pct >= min_vivid,
+        if saturation >= min_s or vivid_pct >= min_vivid,
           do: :ready,
           else: :cooldown
 

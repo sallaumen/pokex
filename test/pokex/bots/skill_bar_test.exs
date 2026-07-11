@@ -4,7 +4,7 @@ defmodule Pokex.Bots.SkillBarTest do
   alias Pokex.Calibration
   alias Pokex.Vision.Frame
 
-  @settings %{skill_bar_count: 7, skill_ready_min_brightness: 140, skill_ready_min_saturation: 40}
+  @settings %{skill_bar_count: 7, skill_ready_min_saturation: 40, skill_ready_min_vivid_pct: 7}
 
   defp calib(region, count \\ nil) do
     %Calibration{

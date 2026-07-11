@@ -34,7 +34,6 @@ defmodule Pokex.Bots.SkillBar do
 
     Vision.skill_slots(frame,
       count: count,
-      min_brightness: settings[:skill_ready_min_brightness],
       min_saturation: settings[:skill_ready_min_saturation],
       min_vivid_pct: settings[:skill_ready_min_vivid_pct]
     )

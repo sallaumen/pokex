@@ -203,6 +203,10 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
 
     wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+
+    # while playing, captures shrink to the armed strip around the bar
+    # (bar center 110 in the 220pt arena -> strip 70..150, full height)
+    assert {:capture, {70, 0, 80, 220}, "mini_game_strip.png"} in Pokex.Rig.Fake.calls()
   end
 
   @tag :tmp_dir
@@ -210,7 +214,8 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     hold = play_png!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
     release = play_png!(tmp, "release.png", fish: 170..184, capsule: 120..134)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, hold}, {:ok, release}]})
+    # tick 1 watches+enters, tick 2 plays the hold strip, tick 3 the release
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, hold}, {:ok, hold}, {:ok, release}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
@@ -280,7 +285,9 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   test "a capture failure while holding releases Space", %{tmp: tmp} do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:error, :boom}]})
+    # tick 1 enters, tick 2 holds, tick 3 fails blind -> must release
+    {:ok, _} =
+      Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, game}, {:error, :boom}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})

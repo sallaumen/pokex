@@ -23,8 +23,20 @@ defmodule Pokex.Bots.MiniGame.Worker do
   @default_counters %{detections: 0, clears: 0, failures: 0}
   # last_toggle_at nil = never toggled — the monotonic clock is NEGATIVE on the
   # BEAM, so a 0 sentinel would read as "toggled far in the future" and mute
-  # the actuator forever.
-  @default_play %{fish: [], capsule: [], holding?: false, last_toggle_at: nil}
+  # the actuator forever. strip = the narrow capture region around the bar,
+  # armed on enter (the overlay never moves within one game).
+  @default_play %{
+    fish: [],
+    capsule: [],
+    holding?: false,
+    last_toggle_at: nil,
+    strip: nil,
+    bar_width: 14
+  }
+  # Half-width (screen points) of the playing-time capture strip around the
+  # bar: wide enough for the track + the fish poking past it, and ~8x cheaper
+  # to capture and scan than the whole arena.
+  @strip_half_pt 40
   @peer_keys [:fishing, :combat, :catcher]
   @observation_cap 4
 
@@ -166,17 +178,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def handle_info(:tick, %{running?: false} = state), do: {:noreply, state}
 
   def handle_info(:tick, state) do
-    {state, transition} =
-      case read_presence(state) do
-        {:ok, reading, frame, captured_at} ->
-          {state, transition} = apply_reading(state, reading)
-          {play(state, reading, frame, captured_at), transition}
-
-        {:error, reason} ->
-          # A blind tick must not leave Space held.
-          {state, transition} = mark_failure(state, reason)
-          {release_if_holding(state), transition}
-      end
+    {state, transition} = if state.in_game?, do: play_tick(state), else: watch_tick(state)
 
     if transition, do: broadcast(state, transition), else: :ok
 
@@ -206,26 +208,48 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   def handle_info({:paused_peers, _stale_ref, _paused_peers}, state), do: {:noreply, state}
 
-  defp read_presence(state) do
-    region = mini_game_region(state.calib)
-    # Stamped BEFORE the capture: observations must carry the CAPTURE time, so
-    # the pilot's age_ms covers the real 100-300ms capture+decode latency and
-    # the predictive extrapolation compensates it (the lab's "latencia" knob).
-    captured_at = System.monotonic_time(:millisecond)
+  # Watching: full arena capture + Detector, exactly as before. On the enter
+  # edge the bar geometry arms the playing-time capture strip.
+  defp watch_tick(state) do
+    case read_presence(state) do
+      {:ok, reading} ->
+        {state, transition} = apply_reading(state, reading)
+        state = if transition == :entered, do: arm_strip(state, reading), else: state
+        {state, transition}
 
-    with {:ok, frame} <- Capture.frame(region, "mini_game.png") do
-      reading =
-        Detector.detect(frame,
-          min_confidence: Settings.get(:mini_game_min_confidence),
-          min_dark_ratio: Settings.get(:mini_game_min_dark_ratio),
-          anchor_x: player_anchor_x(frame, state.calib, region),
-          anchor_y: player_anchor_y(frame, state.calib, region),
-          anchor_tolerance: anchor_tolerance(frame, region)
-        )
-
-      {:ok, reading, frame, captured_at}
+      {:error, reason} ->
+        mark_failure(state, reason)
     end
   end
+
+  defp read_presence(state) do
+    region = mini_game_region(state.calib)
+
+    with {:ok, frame} <- Capture.frame(region, "mini_game.png") do
+      {:ok,
+       Detector.detect(frame,
+         min_confidence: Settings.get(:mini_game_min_confidence),
+         min_dark_ratio: Settings.get(:mini_game_min_dark_ratio),
+         anchor_x: player_anchor_x(frame, state.calib, region),
+         anchor_y: player_anchor_y(frame, state.calib, region),
+         anchor_tolerance: anchor_tolerance(frame, region)
+       )}
+    end
+  end
+
+  # The overlay never moves within one game, so the playing loop only captures
+  # a narrow strip around the bar — much cheaper than arena + Detector, which
+  # is what lets the play tick run at 80ms.
+  defp arm_strip(state, %Detector{bar: bar}) when is_map(bar) do
+    {rx, ry, _rw, rh} = mini_game_region(state.calib)
+    scale = state.calib.scale || 1.0
+    center = rx + round(bar.x / scale)
+
+    strip = {max(center - @strip_half_pt, 0), ry, @strip_half_pt * 2, rh}
+    %{state | play: %{state.play | strip: strip, bar_width: bar.width}}
+  end
+
+  defp arm_strip(state, _reading), do: state
 
   defp apply_reading(state, %Detector{} = reading) do
     state =
@@ -285,13 +309,38 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   # --- playing ---------------------------------------------------------------
 
-  # The play step runs on the same tick that watches presence. It talks to the
-  # Rig DIRECTLY (never Body): while in_game the Body guard blocks every other
-  # input — including the Catcher's loot Space — and the player must not block
-  # itself behind its own guard.
-  defp play(%{in_game?: true} = state, %Detector{bar: bar}, frame, captured_at)
-       when is_map(bar) do
-    case Track.read(frame, bar) do
+  # The play tick captures ONLY the armed strip and reads presence from the
+  # Track itself (:no_track = overlay gone). It talks to the Rig DIRECTLY
+  # (never Body): while in_game the Body guard blocks every other input —
+  # including the Catcher's loot Space — and the player must not block itself
+  # behind its own guard.
+  defp play_tick(%{play: %{strip: nil}} = state) do
+    # Defensive: entered without a bar candidate — nothing to play from.
+    leave_game(state)
+  end
+
+  defp play_tick(%{play: %{strip: strip}} = state) do
+    # Stamped BEFORE the capture: observations must carry the CAPTURE time, so
+    # the pilot's age_ms covers the real capture+decode latency and the
+    # predictive extrapolation compensates it (the lab's "latencia" knob).
+    captured_at = System.monotonic_time(:millisecond)
+
+    case Capture.frame(strip, "mini_game_strip.png") do
+      {:ok, frame} ->
+        play_frame(state, frame, strip, captured_at)
+
+      {:error, reason} ->
+        # A blind tick must not leave Space held.
+        {state, transition} = mark_failure(state, reason)
+        {release_if_holding(state), transition}
+    end
+  end
+
+  defp play_frame(state, frame, {_sx, _sy, sw, _sh}, captured_at) do
+    # The bar sits at the strip's center; scale point-geometry to frame px.
+    track_bar = %{x: round(@strip_half_pt * frame.width / sw), width: state.play.bar_width}
+
+    case Track.read(frame, track_bar) do
       {:ok, %{fish_y: fish_y, bar_y: bar_y, bar_source: bar_source}} ->
         play = state.play
         fish = push_observation(play.fish, %{y: fish_y, at: captured_at})
@@ -311,21 +360,22 @@ defmodule Pokex.Bots.MiniGame.Worker do
             now
           )
 
-        state = %{state | play: %{play | fish: fish, capsule: capsule}}
-        actuate(state, decision.desired, now)
+        state = %{state | play: %{play | fish: fish, capsule: capsule}, absent_streak: 0}
+        {actuate(state, decision.desired, now), nil}
 
-      {:error, _reason} ->
-        # One blind read at 3-7fps must fail SAFE, not stuck: let go and wait
-        # for the next frame (the pilot re-decides from scratch anyway).
-        release_if_holding(state)
+      {:error, :no_fish} ->
+        # Track still there, fish unreadable this frame: blind ticks fail SAFE
+        # (release), but the overlay is present — not an exit signal.
+        {release_if_holding(%{state | absent_streak: 0}), nil}
+
+      {:error, :no_track} ->
+        state = release_if_holding(%{state | absent_streak: state.absent_streak + 1})
+
+        if state.absent_streak >= Settings.get(:mini_game_exit_streak),
+          do: leave_game(state),
+          else: {state, nil}
     end
   end
-
-  # In game but the Detector lost the overlay this tick (exit streak pending).
-  defp play(%{in_game?: true} = state, _reading, _frame, _captured_at),
-    do: release_if_holding(state)
-
-  defp play(state, _reading, _frame, _captured_at), do: state
 
   defp push_observation(observations, observation),
     do: Enum.take(observations ++ [observation], -@observation_cap)

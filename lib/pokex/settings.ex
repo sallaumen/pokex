@@ -157,8 +157,10 @@ defmodule Pokex.Settings do
     mini_game_anchor_tolerance: 70,
     # Playing the mini-game (hold/release Space chasing the fish). Tick = capture+decide
     # cadence while in-game; deadband validated by Lucas in the lab 2026-07-10 (6px of the
-    # lab's 548px track); min-toggle mirrors the lab's 50ms input floor.
-    mini_game_play_tick_ms: 150,
+    # lab's 548px track); min-toggle mirrors the lab's 50ms input floor. 80ms tick: while
+    # playing the worker captures only the narrow bar STRIP (no Detector pass), so each
+    # decision is cheap — the fish reverses every 0.5-1.5s and 150ms reacted too late.
+    mini_game_play_tick_ms: 80,
     mini_game_min_toggle_ms: 50,
     mini_game_deadband_pct: 0.011,
     # Browser alert on enter/leave (panel mute button). Muting stops the panel

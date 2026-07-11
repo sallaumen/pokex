@@ -13,6 +13,8 @@ defmodule Pokex.Bots.MiniGame.Worker do
   """
   use GenServer
 
+  require Logger
+
   alias Pokex.Bots.{Capture, Catcher, Combat, Fishing}
   alias Pokex.Bots.MiniGame.{Detector, Pilot, Track}
   alias Pokex.{Calibration, Rig, Settings}
@@ -99,8 +101,11 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def handle_call(:run, _from, state) do
     case Calibration.load() do
       {:ok, calib} ->
+        # re-run mid-game (panel Start while playing) must not strand a held
+        # Space: the merge below forgets in_game?/play, so release FIRST.
         state =
           state
+          |> release_if_holding()
           |> cancel_timer()
           |> Map.merge(%{
             calib: calib,
@@ -111,6 +116,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
             absent_streak: 0,
             confidence: 0.0,
             error: nil,
+            play: @default_play,
             paused_peers: []
           })
 
@@ -162,9 +168,9 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def handle_info(:tick, state) do
     {state, transition} =
       case read_presence(state) do
-        {:ok, reading, frame} ->
+        {:ok, reading, frame, captured_at} ->
           {state, transition} = apply_reading(state, reading)
-          {play(state, reading, frame), transition}
+          {play(state, reading, frame, captured_at), transition}
 
         {:error, reason} ->
           # A blind tick must not leave Space held.
@@ -202,6 +208,10 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   defp read_presence(state) do
     region = mini_game_region(state.calib)
+    # Stamped BEFORE the capture: observations must carry the CAPTURE time, so
+    # the pilot's age_ms covers the real 100-300ms capture+decode latency and
+    # the predictive extrapolation compensates it (the lab's "latencia" knob).
+    captured_at = System.monotonic_time(:millisecond)
 
     with {:ok, frame} <- Capture.frame(region, "mini_game.png") do
       reading =
@@ -213,7 +223,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
           anchor_tolerance: anchor_tolerance(frame, region)
         )
 
-      {:ok, reading, frame}
+      {:ok, reading, frame, captured_at}
     end
   end
 
@@ -279,20 +289,25 @@ defmodule Pokex.Bots.MiniGame.Worker do
   # Rig DIRECTLY (never Body): while in_game the Body guard blocks every other
   # input — including the Catcher's loot Space — and the player must not block
   # itself behind its own guard.
-  defp play(%{in_game?: true} = state, %Detector{bar: bar}, frame) when is_map(bar) do
-    now = System.monotonic_time(:millisecond)
-
+  defp play(%{in_game?: true} = state, %Detector{bar: bar}, frame, captured_at)
+       when is_map(bar) do
     case Track.read(frame, bar) do
-      {:ok, %{fish_y: fish_y, bar_y: bar_y}} ->
+      {:ok, %{fish_y: fish_y, bar_y: bar_y, bar_source: bar_source}} ->
         play = state.play
-        fish = push_observation(play.fish, %{y: fish_y, at: now})
-        capsule = push_observation(play.capsule, %{y: bar_y, at: now})
+        fish = push_observation(play.fish, %{y: fish_y, at: captured_at})
+
+        capsule =
+          push_observation(play.capsule, %{y: bar_y, at: captured_at, source: bar_source})
+
+        # Decision time is NOW, observations carry capture time: age_ms > 0 is
+        # exactly the capture latency the predictive pilot extrapolates over.
+        now = System.monotonic_time(:millisecond)
 
         decision =
           Pilot.decide(
             %{pilot: :predictive, deadband_pct: Settings.get(:mini_game_deadband_pct)},
             fish,
-            %{y: bar_y, vy: pair_velocity(capsule), pressing: play.holding?},
+            %{y: bar_y, vy: capsule_velocity(capsule), pressing: play.holding?},
             now
           )
 
@@ -307,21 +322,31 @@ defmodule Pokex.Bots.MiniGame.Worker do
   end
 
   # In game but the Detector lost the overlay this tick (exit streak pending).
-  defp play(%{in_game?: true} = state, _reading, _frame), do: release_if_holding(state)
+  defp play(%{in_game?: true} = state, _reading, _frame, _captured_at),
+    do: release_if_holding(state)
 
-  defp play(state, _reading, _frame), do: state
+  defp play(state, _reading, _frame, _captured_at), do: state
 
   defp push_observation(observations, observation),
     do: Enum.take(observations ++ [observation], -@observation_cap)
 
   # The capsule's velocity (track/s) from its last two readings — the lab read
-  # this from the simulator's physics; the real pipeline estimates it.
-  defp pair_velocity(observations) when length(observations) < 2, do: 0.0
+  # this from the simulator's physics; the real pipeline estimates it. When the
+  # reading SOURCE flips (blue capsule <-> occlusion fallback), the position
+  # jumps by the capsule/fish centroid offset, not by real motion — that fake
+  # spike would cross the hysteresis vy overrides right at the success moment,
+  # so a source switch reads as vy 0.
+  defp capsule_velocity(observations) when length(observations) < 2, do: 0.0
 
-  defp pair_velocity(observations) do
+  defp capsule_velocity(observations) do
     [older, newer] = Enum.take(observations, -2)
-    elapsed = max(newer.at - older.at, 16)
-    (newer.y - older.y) / elapsed * 1000
+
+    if older.source != newer.source do
+      0.0
+    else
+      elapsed = max(newer.at - older.at, 16)
+      (newer.y - older.y) / elapsed * 1000
+    end
   end
 
   defp actuate(%{play: %{holding?: desired}} = state, desired, _now), do: state
@@ -337,8 +362,19 @@ defmodule Pokex.Bots.MiniGame.Worker do
     end
   end
 
-  defp apply_hold(true), do: Rig.impl().key_down("space")
-  defp apply_hold(false), do: Rig.impl().key_up("space")
+  # A failed hold call desyncs holding? from the OS until the next exit-boundary
+  # release — surface it instead of failing silently.
+  defp apply_hold(desired) do
+    result = if desired, do: Rig.impl().key_down("space"), else: Rig.impl().key_up("space")
+
+    with {:error, reason} <- result do
+      Logger.warning(
+        "mini-game: espaço #{if desired, do: "down", else: "up"} falhou: #{inspect(reason)}"
+      )
+
+      result
+    end
+  end
 
   defp release_if_holding(%{play: %{holding?: true}} = state), do: force_release(state)
   defp release_if_holding(state), do: state

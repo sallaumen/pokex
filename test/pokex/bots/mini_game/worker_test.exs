@@ -243,6 +243,23 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "re-running the worker mid-game releases Space (panel Start while playing)", %{tmp: tmp} do
+    game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+
+    assert :ok = Worker.run(worker)
+    assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
+  end
+
+  @tag :tmp_dir
   test "halt while holding releases Space", %{tmp: tmp} do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
 

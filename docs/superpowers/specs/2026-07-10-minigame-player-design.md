@@ -21,9 +21,9 @@ pause_peers removal) stays OUT of scope — the existing detect/pause/resume mac
 ## 1. Rig: key hold primitives
 
 - `Rig.impl().key_down(key)` / `key_up(key)` — new callbacks beside `press/1`.
-- Mac implementation: System Events `key down (key code N)` / `key up (key code N)` inside the
-  SAME osascript as the focus guard (identical structure to `press`); space key code = 49.
-  Fail-open catch like the other input paths.
+- Mac implementation: System Events `key down " "` / `key up " "` — the CHARACTER form, inside
+  the SAME osascript as the focus guard. NOT `key down (key code 49)`: a nested `key code`
+  executes as a full press first (measured live 2026-07-10). Fail-open like the other paths.
 - `Pokex.Rig.Fake` records `{:key_down, key}` / `{:key_up, key}` like it records presses.
 - The player calls Rig DIRECTLY (not Body): while in_game the Body guard blocks third-party
   inputs (that's its job — e.g. the Catcher's loot Space), and the player must not block itself.
@@ -39,10 +39,13 @@ column (`bar.x ± bar.width`, grown 2px) full frame height, classifying each sam
 
 Track bounds = min..max y of (dark ∪ blue) — the fish interrupts the dark run (that's why the
 Detector's y1..y2 understates the track), but dark-above + dark-below + blue always bracket it.
-Output: `{:ok, %{fish_y: 0..1, bar_y: 0..1, track_px: height}}` (centroids normalized to the
-bounds) or `{:error, :no_track | :no_fish}`. Occlusion rule: no blue pixels → `bar_y = fish_y`.
-No fish rows → `{:error, :no_fish}` (the pilot's stale fail-safe handles absence).
-Fish at the extreme ends can poke 1 fish-height past the dark bounds — clamped; accepted error.
+Output: `{:ok, %{fish_y: 0..1, bar_y: 0..1, bar_source: :blue | :fish}}` (centroids normalized
+to the bounds) or `{:error, :no_track | :no_fish}`. Occlusion rule: no blue pixels →
+`bar_y = fish_y` with `bar_source: :fish` (the worker zeroes the capsule-velocity estimate
+across a source switch — the centroid jump at occlusion start/end is not real motion).
+Edge rule: a fish pegged at a track END can fall outside the bounds (too little dark left to
+bracket it) — a fish-SIZED other-run just past the edge, terminated by dark/blue, reads as the
+fish clamped to that extreme (0.0/1.0). No fish anywhere → `{:error, :no_fish}` → release.
 
 ## 3. `Pokex.Bots.MiniGame.Pilot` — pure Elixir port of fishing_pilot.js
 
@@ -69,14 +72,17 @@ Same GenServer, same tick loop, same enter/exit streaks and pause/resume peers:
 
 - Each tick already captures the arena region → after `apply_reading`, when `in_game?`:
   `Track.read(frame, reading.bar)` → push fish observation + capsule reading into play state
-  (histories capped 4, capture timestamp = tick capture time) → `Pilot.decide` → actuate.
+  (histories capped 4). Observations are stamped BEFORE the capture starts and the decision
+  uses a fresh `now` — so `age_ms` covers the real 100-300ms capture latency and the
+  predictive extrapolation compensates it (this is the lab's validated "latencia").
 - Actuation: `desired` != current holding → `Rig.impl().key_down/up("space")`, min-toggle
   50ms (`mini_game_min_toggle_ms`), tracked in state (`holding?`, `last_toggle_at`).
 - Tick cadence while in_game: `mini_game_play_tick_ms` (150 default) — same value as the
   watch tick today, but an independent knob.
-- **Space is NEVER left held:** key_up fires on leave_game, halt, any tick failure
-  (`mark_failure`), Detector presence lost mid-read, and in `terminate/2` (worker traps
-  exits) — all best-effort, fail-open.
+- **Space is NEVER left held:** key_up fires on leave_game, halt, RE-RUN (panel Start while
+  playing), any tick failure (`mark_failure`), Detector presence lost mid-read, unreadable
+  track frames, and in `terminate/2` (worker traps exits) — all best-effort, fail-open. A
+  failed Rig hold call is logged (holding? desync self-heals at the next exit boundary).
 - Reading with no bar candidate while in_game (Detector lost the overlay but exit streak not
   yet met): skip Track/decide for that tick, release if holding.
 - Play state resets on enter_game (empty histories, holding? false).

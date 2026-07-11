@@ -25,7 +25,8 @@ defmodule Pokex.Bots.MiniGame.Track do
   @min_fish_rows 4
 
   @spec read(Frame.t(), %{:x => integer, :width => integer, optional(any) => any}) ::
-          {:ok, %{fish_y: float, bar_y: float}} | {:error, :no_track | :no_fish}
+          {:ok, %{fish_y: float, bar_y: float, bar_source: :blue | :fish}}
+          | {:error, :no_track | :no_fish}
   def read(%Frame{} = frame, %{x: x, width: width}) do
     half = div(width, 2) + @column_margin
     left = clamp_int(x - half, 0, frame.width - 1)
@@ -44,7 +45,7 @@ defmodule Pokex.Bots.MiniGame.Track do
   end
 
   defp read_bounds(classes, top, bottom) do
-    case largest_other_run(classes, top, bottom) do
+    case largest_other_run(classes, top, bottom) || edge_fish_run(classes, top, bottom) do
       nil ->
         {:error, :no_fish}
 
@@ -52,13 +53,52 @@ defmodule Pokex.Bots.MiniGame.Track do
         span = max(bottom - top, 1)
         fish_y = clamp_float(((fish_top + fish_bottom) / 2 - top) / span)
 
-        bar_y =
-          case blue_mean(classes, top, bottom) do
-            nil -> fish_y
-            mean -> clamp_float((mean - top) / span)
-          end
+        case blue_mean(classes, top, bottom) do
+          nil ->
+            # Fish drawn OVER the capsule: full occlusion = the success state.
+            {:ok, %{fish_y: fish_y, bar_y: fish_y, bar_source: :fish}}
 
-        {:ok, %{fish_y: fish_y, bar_y: bar_y}}
+          mean ->
+            {:ok, %{fish_y: fish_y, bar_y: clamp_float((mean - top) / span), bar_source: :blue}}
+        end
+    end
+  end
+
+  # A fish pegged at a track END can fall OUTSIDE the bounds: fewer than
+  # @min_dark_resume_rows of track remain beyond it, so the extension never
+  # commits across it. Look just past each edge for a fish-SIZED other-run
+  # (the floor is other-classified too, but floor runs are far larger than a
+  # fish) and clamp it to the edge — releasing there would drop the capsule
+  # exactly when the fish demands the extreme.
+  defp edge_fish_run(classes, top, bottom) do
+    edge_run(classes, top, -1) || edge_run(classes, bottom, +1)
+  end
+
+  defp edge_run(classes, edge, step) do
+    start = first_other(classes, edge + step, step, @min_dark_resume_rows + 2)
+
+    with y when y != nil <- start,
+         run = run_length(classes, y, step, :other),
+         true <- run >= @min_fish_rows and run <= @max_interrupt_rows,
+         # a fish is a BOUNDED blob: dark/blue must terminate the run — a
+         # frame-edge-truncated floor sliver is not a fish
+         beyond = y + step * run,
+         true <- beyond >= 0 and beyond < tuple_size(classes),
+         true <- elem(classes, beyond) in [:dark, :blue] do
+      # collapse to the edge row: the target IS the extreme
+      {edge, edge}
+    else
+      _miss -> nil
+    end
+  end
+
+  defp first_other(_classes, _y, _step, 0), do: nil
+
+  defp first_other(classes, y, step, budget) do
+    cond do
+      y < 0 or y >= tuple_size(classes) -> nil
+      elem(classes, y) == :other -> y
+      true -> first_other(classes, y + step, step, budget - 1)
     end
   end
 

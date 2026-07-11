@@ -44,6 +44,7 @@ defmodule Pokex.Bots.MiniGame.TrackTest do
     # bounds 20..200 (span 180): fish centroid 130 -> 0.611, capsule 70 -> 0.278
     assert_in_delta reading.fish_y, 0.611, 0.02
     assert_in_delta reading.bar_y, 0.278, 0.02
+    assert reading.bar_source == :blue
   end
 
   test "full occlusion (fish over the capsule) reads bar_y = fish_y" do
@@ -56,7 +57,25 @@ defmodule Pokex.Bots.MiniGame.TrackTest do
 
     assert {:ok, reading} = Track.read(frame, @bar)
     assert reading.bar_y == reading.fish_y
+    assert reading.bar_source == :fish
     assert_in_delta reading.fish_y, 0.611, 0.02
+  end
+
+  test "fish pegged at the track top (too little dark above to bracket) clamps to 0.0" do
+    # only a 6-row dark sliver above the fish: the bounds extension cannot
+    # commit across it, so the fish falls outside the bounds — the edge rule
+    # must still find it and target the extreme instead of releasing.
+    frame =
+      frame([
+        {30..35, @track_color},
+        {36..56, @fish},
+        {57..200, @track_color}
+      ])
+
+    assert {:ok, reading} = Track.read(frame, @bar)
+    assert reading.fish_y == 0.0
+    assert reading.bar_y == 0.0
+    assert reading.bar_source == :fish
   end
 
   test "dark clutter outside the track does not stretch the bounds" do

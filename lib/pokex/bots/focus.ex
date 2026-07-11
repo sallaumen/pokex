@@ -102,11 +102,19 @@ defmodule Pokex.Bots.Focus do
   end
 
   defp apply_focus(%{focused?: false} = state, true) do
-    # focus just REGAINED → open the gate, resume what was running.
+    # focus just REGAINED → open the gate, resume what was running — UNLESS a panic order
+    # stands. The panic latch outranks every remembered intention: resuming over a human's
+    # mouse-to-corner is exactly the incident that killed Lucas's Pokémon (2026-07-11). The
+    # pending resume is DROPPED, not deferred — after a panic only Iniciar bot restarts.
+    resume? = state.resume? and not InputGate.panic_latched?()
     InputGate.set_focus_ok(true)
-    if state.resume?, do: safe_resume(state)
+    if resume?, do: safe_resume(state)
     broadcast(true)
-    Logger.info("focus regained — input allowed" <> if(state.resume?, do: " and workers resumed", else: ""))
+
+    Logger.info(
+      "focus regained — input allowed" <> if(resume?, do: " and workers resumed", else: "")
+    )
+
     %{state | focused?: true, resume?: false}
   end
 

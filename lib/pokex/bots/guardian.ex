@@ -73,6 +73,10 @@ defmodule Pokex.Bots.Guardian do
   end
 
   defp panic(state) do
+    # LATCH FIRST, halt second: the latch is what forbids every auto-resume path (the Focus
+    # poller's refocus resume) from restarting workers over this human order — set it before
+    # anything else so no resume can slip in between. Only Iniciar bot clears it.
+    InputGate.set_panic_latch(true)
     state.on_panic.()
     Phoenix.PubSub.broadcast(Pokex.PubSub, @fishing_topic, {:panic, "kill corner"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:panic, "kill corner"})

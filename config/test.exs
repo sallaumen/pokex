@@ -47,3 +47,6 @@ config :pokex, :player_support_auto_monitor, false
 # instance poll during unrelated tests. Focus tests drive their own instance with an injected
 # frontmost reader.
 config :pokex, :focus_auto_monitor, false
+# Calibration's "front the game before the screenshot" shells out to osascript and sleeps —
+# never in tests (the LiveView tests drive the capture flow with the faked Rig).
+config :pokex, :calibration_front_game, false

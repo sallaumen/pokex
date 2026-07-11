@@ -182,8 +182,21 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("capture_baselines", _params, socket) do
     File.mkdir_p!(Home.baselines_dir())
+
+    # The baselines sample the WATER with the line cast — the game must be visible for the
+    # whole ~4s run, so front it once here and hand focus back at the completion clause
+    # (per-capture flapping would strobe both windows).
+    return_app =
+      if Application.get_env(:pokex, :calibration_front_game, true) and
+           Settings.get(:ensure_game_focus) do
+        previous = frontmost_app()
+        front_app(Settings.get(:game_app_name))
+        Process.sleep(Settings.get(:calibration_front_delay_ms))
+        previous
+      end
+
     send(self(), {:baseline, 0})
-    {:noreply, assign(socket, baselines_done: 0)}
+    {:noreply, assign(socket, baselines_done: 0, return_app: return_app)}
   end
 
   @impl true
@@ -198,7 +211,8 @@ defmodule PokexWeb.CalibrationLive do
         {:noreply, assign(socket, baselines_done: index + 1)}
 
       {:error, reason} ->
-        {:noreply, assign(socket, error: "baseline falhou: #{inspect(reason)}")}
+        {:noreply,
+         socket |> return_focus() |> assign(error: "baseline falhou: #{inspect(reason)}")}
     end
   end
 
@@ -241,14 +255,89 @@ defmodule PokexWeb.CalibrationLive do
 
     Calibration.save(calib)
     persist_skill_settings(draft.skill_bar_count)
-    {:noreply, assign(socket, done: true, step: nil, calibrated?: true)}
+    {:noreply, socket |> return_focus() |> assign(done: true, step: nil, calibrated?: true)}
   end
 
-  # Probe a 100x100 region for the Retina scale, then grab the full screen.
+  # Hand focus back to whatever was frontmost before the baselines fronted the game.
+  defp return_focus(socket) do
+    case socket.assigns[:return_app] do
+      nil ->
+        socket
+
+      app ->
+        front_app(app)
+        assign(socket, return_app: nil)
+    end
+  end
+
+  # On a SINGLE monitor the panel browser covers the game — a naive screenshot calibrates the
+  # browser, so Lucas had to shrink the game window to calibrate at all. Instead: bring the game
+  # to the FRONT, wait for it to render, run `fun` (the capture), and hand focus back to whatever
+  # was frontmost (the browser) so he keeps clicking the wizard. The game can stay fullscreen.
+  # Env-gated off in tests (osascript); fail-open — a failed front-switch still captures.
+  defp with_game_front(fun) do
+    if Application.get_env(:pokex, :calibration_front_game, true) and
+         Settings.get(:ensure_game_focus) do
+      previous = frontmost_app()
+      front_app(Settings.get(:game_app_name))
+      Process.sleep(Settings.get(:calibration_front_delay_ms))
+
+      try do
+        fun.()
+      after
+        if previous, do: front_app(previous)
+      end
+    else
+      fun.()
+    end
+  end
+
+  defp frontmost_app do
+    case System.cmd(
+           "osascript",
+           [
+             "-e",
+             ~s(tell application "System Events" to name of first application process whose frontmost is true)
+           ],
+           stderr_to_stdout: true
+         ) do
+      {out, 0} -> String.trim(out)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp front_app(nil), do: :ok
+
+  defp front_app(app_name) do
+    System.cmd(
+      "osascript",
+      [
+        "-e",
+        ~s(tell application "System Events" to set frontmost of application process "#{app_name}" to true)
+      ],
+      stderr_to_stdout: true
+    )
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  # Probe a 100x100 region for the Retina scale, then grab the full screen — both while the
+  # GAME is fronted (see with_game_front/1), so a fullscreen game on one monitor calibrates.
   defp grab_screen(probe_name) do
-    with {:ok, probe_path} <- Rig.impl().capture({0, 0, 100, 100}, probe_name),
+    captured =
+      with_game_front(fn ->
+        with {:ok, probe} <- Rig.impl().capture({0, 0, 100, 100}, probe_name),
+             {:ok, screen} <- Rig.impl().capture_screen() do
+          {:ok, probe, screen}
+        end
+      end)
+
+    with {:ok, probe_path, screen_path} <- captured,
          {:ok, {probe_px, _}} <- Frame.png_dimensions(probe_path),
-         {:ok, screen_path} <- Rig.impl().capture_screen(),
          {:ok, {px_w, px_h}} <- Frame.png_dimensions(screen_path) do
       scale = probe_px / 100
 
@@ -568,6 +657,10 @@ defmodule PokexWeb.CalibrationLive do
           <.icon name="hero-camera" class="mx-auto size-8 opacity-60" />
           <p class="text-sm opacity-70">
             Capture a tela do jogo para começar a marcar os pontos.
+          </p>
+          <p class="text-xs opacity-50">
+            Pode deixar o jogo em TELA CHEIA: ao capturar, ele traz o jogo pra frente por ~1s,
+            tira a foto e volta pra cá sozinho.
           </p>
           <.form
             for={@skill_count_form}

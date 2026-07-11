@@ -307,6 +307,11 @@ defmodule Pokex.Settings do
     # change while keeping the osascript overhead low (the InputGate makes the actual safety
     # independent of this cadence for anything routed through the gate).
     focus_poll_ms: 250,
+    # Calibration on ONE monitor: "Capturar tela" fronts the GAME, waits this long for it to
+    # render (fullscreen games need a beat after the focus switch), screenshots, and hands focus
+    # back to the browser — so the game never has to be shrunk to calibrate. Raise it if the
+    # screenshot catches the browser/game mid-transition.
+    calibration_front_delay_ms: 700,
     # --- Corpse capture (parado mode) -------------------------------------------------------------
     # The :corpses feed learns the EMPTY ground at attach: the first warmup frame is the baseline
     # and any 16px cell that deviates during the remaining warmup frames (animated water, sparkles,

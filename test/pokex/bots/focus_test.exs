@@ -7,6 +7,8 @@ defmodule Pokex.Bots.FocusTest do
     Pokex.Settings.put(:pause_when_unfocused, true)
     Pokex.Settings.put(:focus_poll_ms, 20)
     Pokex.Settings.put(:game_app_name, "wine")
+    # a latch left over from another suite's panic would silently veto the resume paths here
+    InputGate.set_panic_latch(false)
 
     on_exit(fn ->
       Pokex.Settings.put(:pause_when_unfocused, false)
@@ -96,6 +98,39 @@ defmodule Pokex.Bots.FocusTest do
     Process.sleep(120)
     assert InputGate.state().focus_ok == true
     refute :stop in calls(agent)
+  end
+
+  test "INCIDENT REGRESSION: a panic between focus-lost and refocus kills the pending resume",
+       %{agent: agent, opts: opts} do
+    alias Pokex.Bots.InputGate
+    on_exit(fn -> InputGate.set_panic_latch(false) end)
+
+    # bot running, game focused
+    set(agent, %{frontmost: "wine", running: true})
+    start_focus!(opts)
+    assert eventually(fn -> InputGate.state().focus_ok == true end)
+
+    # 1. game loses focus → Focus halts the workers and remembers "resume later"
+    set(agent, %{frontmost: "Google Chrome"})
+    assert eventually(fn -> InputGate.state().focus_ok == false end)
+    assert :stop in calls(agent)
+
+    # 2. the human PANICS (mouse-to-corner sets the latch — what Guardian.panic does)
+    InputGate.set_panic_latch(true)
+
+    # 3. the human refocuses the game to fight manually → the pending resume MUST be dropped,
+    #    not executed over the panic (this exact sequence restarted the bot mid-fight and got
+    #    Lucas's Pokémon killed, 2026-07-11)
+    set(agent, %{frontmost: "wine"})
+    assert eventually(fn -> InputGate.state().focus_ok == true end)
+    refute :start in calls(agent)
+
+    # 4. and the drop is permanent — another focus round-trip resumes nothing either
+    set(agent, %{frontmost: "Finder", running: false})
+    assert eventually(fn -> InputGate.state().focus_ok == false end)
+    set(agent, %{frontmost: "wine"})
+    assert eventually(fn -> InputGate.state().focus_ok == true end)
+    refute :start in calls(agent)
   end
 
   test "an unreadable frontmost holds the last verdict (no gate flapping)", %{agent: agent, opts: opts} do

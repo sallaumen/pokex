@@ -29,6 +29,9 @@ defmodule Pokex.Bots.GuardianTest do
   setup do
     test = self()
     on_panic = fn -> send(test, :panicked) end
+    # every corner-triggered panic now SETS the global latch — clear it after each test so it
+    # never leaks into other suites (the Focus resume tests read it)
+    on_exit(fn -> Pokex.Bots.InputGate.set_panic_latch(false) end)
     %{on_panic: on_panic}
   end
 
@@ -62,6 +65,26 @@ defmodule Pokex.Bots.GuardianTest do
       Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
 
     refute_receive :panicked, 100
+  end
+
+  test "panic SETS the latch, and leaving the corner does NOT clear it (only Iniciar bot does)",
+       %{on_panic: on_panic} do
+    alias Pokex.Bots.InputGate
+    on_exit(fn -> InputGate.set_panic_latch(false) end)
+    InputGate.set_panic_latch(false)
+
+    {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
+
+    {:ok, _guardian} =
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+    assert eventually(fn -> InputGate.panic_latched?() end)
+
+    # the cursor leaves the corner: the GATE reopens (live condition) but the LATCH stands
+    # (human order) — auto-resume paths stay forbidden
+    FakeBody.set_reply(body, {:ok, {500, 500}})
+    assert eventually(fn -> InputGate.state().corner_ok == true end)
+    assert InputGate.panic_latched?()
   end
 
   test "closes the InputGate's corner flag in the corner, reopens it outside", %{on_panic: on_panic} do

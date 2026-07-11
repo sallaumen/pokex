@@ -125,6 +125,11 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server()
         ) :: :ok | {:error, [String.t()]}
   def start_all(fishing, combat, catcher, mini_game, player_support) do
+    # Iniciar bot is the ONE act that clears a standing panic order — the human explicitly
+    # asked for the bot again. Cleared even if preflight fails below: the intent to resume
+    # was expressed either way.
+    Pokex.Bots.InputGate.set_panic_latch(false)
+
     # PlayerSupport.run is infallible (no preflight — it monitors even uncalibrated), so it
     # can't poison the with-chain; arming it first means a preflight failure below still
     # leaves the player protected. Gated by the same env flag as its boot auto-start so a

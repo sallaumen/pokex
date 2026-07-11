@@ -30,9 +30,23 @@ defmodule Pokex.Bots.InputGateTest do
     refute InputGate.allowed?()
   end
 
-  test "state reports both flags" do
+  test "state reports all flags" do
     InputGate.set_corner_ok(false)
     InputGate.set_focus_ok(true)
-    assert InputGate.state() == %{corner_ok: false, focus_ok: true}
+    assert InputGate.state() == %{corner_ok: false, focus_ok: true, panic_latch: false}
+  end
+
+  test "the panic latch defaults OFF, sets from the very first write, and never gates input" do
+    on_exit(fn -> InputGate.set_panic_latch(false) end)
+
+    refute InputGate.panic_latched?()
+
+    InputGate.set_panic_latch(true)
+    assert InputGate.panic_latched?()
+    # the latch forbids AUTO-RESUME, not actuation — the human's manual play is never suppressed
+    assert InputGate.allowed?()
+
+    InputGate.set_panic_latch(false)
+    refute InputGate.panic_latched?()
   end
 end

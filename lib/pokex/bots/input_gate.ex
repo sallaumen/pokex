@@ -41,8 +41,40 @@ defmodule Pokex.Bots.InputGate do
   @doc "The focus guard: set false while the game window is not frontmost."
   def set_focus_ok(ok?) when is_boolean(ok?), do: put(:focus_ok, ok?)
 
-  @doc "Both flags at once, for the panel/diagnostics."
-  def state, do: %{corner_ok: flag(:corner_ok), focus_ok: flag(:focus_ok)}
+  @doc """
+  The PANIC LATCH. Unlike the two gate flags (which reflect a live condition and reopen when it
+  clears), the latch records a HUMAN ORDER — mouse-to-corner — and nothing clears it except the
+  human pressing Iniciar bot. Specifically it forbids every AUTO-resume path (the Focus poller's
+  refocus resume) from restarting workers over a panic. It does not feed `allowed?/0`: workers
+  are halted by the panic itself, and the human's own manual play must never be suppressed.
+
+  This exists because of a real incident (2026-07-11): bot running → game lost focus (Focus
+  halted the workers and noted "resume later") → Lucas panicked to the corner → he refocused the
+  game to fight manually → Focus's pending resume RESTARTED everything over his panic, and he
+  died to it. A panic now outranks every remembered intention.
+  """
+  # Not via put/2: its change-detection reads flag/1, whose missing-key default is TRUE (right
+  # for the gate flags, wrong here) — the very first set_panic_latch(true) would be skipped.
+  def set_panic_latch(on?) when is_boolean(on?) do
+    if panic_latched?() != on?, do: :ets.insert(@table, {:panic_latch, on?})
+    :ok
+  catch
+    :error, :badarg -> :ok
+  end
+
+  @doc "True while a panic order stands (only Iniciar bot clears it). Missing → false (no panic)."
+  def panic_latched? do
+    case :ets.lookup(@table, :panic_latch) do
+      [{:panic_latch, on?}] -> on?
+      _ -> false
+    end
+  catch
+    :error, :badarg -> false
+  end
+
+  @doc "All flags at once, for the panel/diagnostics."
+  def state,
+    do: %{corner_ok: flag(:corner_ok), focus_ok: flag(:focus_ok), panic_latch: panic_latched?()}
 
   # Only write on a real change: ETS writes are cheap but the pollers call these every tick, and
   # keeping the table quiet avoids needless churn.

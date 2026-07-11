@@ -138,9 +138,28 @@ defmodule Pokex.Bots.BodyTest do
     # Filter out {:cursor_position} — the app-wide Guardian polls the panic
     # corner on its own timer against this same shared Rig.Fake, and its
     # reads may land in this window. What this test actually asserts is that
-    # OUR sequence ran, in order, atomically.
+    # OUR sequence ran, in order, atomically. The trailing move is the cursor
+    # RESTORE (the sequence touches the mouse, so the pointer goes back to
+    # where it was — Rig.Fake's scripted cursor, {500, 500}).
     calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
-    assert calls == [{:press, "1"}, {:move, {5, 5}}]
+    assert calls == [{:press, "1"}, {:move, {5, 5}}, {:move, {500, 500}}]
+  end
+
+  test "a KEY-ONLY sequence never reads or moves the cursor (no restore overhead)", %{body: body} do
+    assert :ok = Body.perform([{:press, "a"}, {:press, "b"}], :normal, body)
+
+    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    assert calls == [{:press, "a"}, {:press, "b"}]
+  end
+
+  test "the cursor restore can be turned off", %{body: body} do
+    Pokex.Settings.put(:restore_mouse_after_actions, false)
+    on_exit(fn -> Pokex.Settings.put(:restore_mouse_after_actions, true) end)
+
+    assert :ok = Body.perform([{:move, {5, 5}}], :normal, body)
+
+    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    assert calls == [{:move, {5, 5}}]
   end
 
   test "a :wait action pauses within the sequence without breaking it", %{body: body} do

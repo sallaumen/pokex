@@ -164,7 +164,7 @@ defmodule Pokex.Bots.Body do
 
       result =
         try do
-          run_guarded(actions, mini_game, priority)
+          with_mouse_restore(actions, fn -> run_guarded(actions, mini_game, priority) end)
         catch
           kind, reason -> {:error, {:crashed, kind, reason}}
         end
@@ -173,6 +173,40 @@ defmodule Pokex.Bots.Body do
       send(server, {:done, from, result})
     end)
   end
+
+  # Cursor setup/teardown: a sequence that USES the mouse captures where the pointer was and
+  # puts it back afterwards, so bot actions stop teleporting the cursor around while Lucas
+  # shares the computer with it. Costs one cursor read + one move (~65ms) per mouse-using
+  # sequence; key-only sequences skip the whole thing. The restore goes through the gated
+  # Rig.move — if a panic/defocus closed the gate mid-sequence it is suppressed with
+  # everything else, so it can never fight the human's own hand (e.g. yank the cursor OUT of
+  # the panic corner they just reached). A failed origin read skips the restore, never the run.
+  defp with_mouse_restore(actions, fun) do
+    if restore_mouse?() and Enum.any?(actions, &mouse_action?/1) do
+      origin =
+        case safe_cursor_position() do
+          {:ok, point} -> point
+          _ -> nil
+        end
+
+      result = fun.()
+      if origin, do: execute({:move, origin})
+      result
+    else
+      fun.()
+    end
+  end
+
+  defp restore_mouse? do
+    Pokex.Settings.get(:restore_mouse_after_actions)
+  catch
+    :exit, _reason -> false
+  end
+
+  defp mouse_action?({:move, _point}), do: true
+  defp mouse_action?({:click, _button, _point}), do: true
+  defp mouse_action?({:capture_sequence, _point}), do: true
+  defp mouse_action?(_action), do: false
 
   # The survival combo (:critical) bypasses the mini-game guard entirely — recalling and
   # max-reviving the Pokémon must run even while the mini-game overlay is up.

@@ -312,6 +312,11 @@ defmodule Pokex.Settings do
     # back to the browser — so the game never has to be shrunk to calibrate. Raise it if the
     # screenshot catches the browser/game mid-transition.
     calibration_front_delay_ms: 700,
+    # Cursor setup/teardown: every Body sequence that USES the mouse (cast, ball throw, revive
+    # combo) captures the pointer position first and restores it after, so the bot stops
+    # teleporting the cursor around while you share the computer with it. ~65ms per mouse
+    # sequence (one read + one move); key-only sequences skip it entirely.
+    restore_mouse_after_actions: true,
     # --- Corpse capture (parado mode) -------------------------------------------------------------
     # The :corpses feed learns the EMPTY ground at attach: the first warmup frame is the baseline
     # and any 16px cell that deviates during the remaining warmup frames (animated water, sparkles,

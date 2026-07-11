@@ -1,7 +1,7 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.{BotSupervisor, Catcher, Combat, Fishing, GameController, SkillBar}
+  alias Pokex.Bots.{BotSupervisor, Catcher, Combat, Fishing, PlayerSupport, SkillBar}
   alias Pokex.Diagnostics.Report
   alias Pokex.{Calibration, Rig, Settings}
 
@@ -69,7 +69,7 @@ defmodule PokexWeb.PanelLive do
        combat: status.combat,
        catcher: status.catcher,
        mini_game: status.mini_game,
-       game: status.game_controller,
+       game: status.player_support,
        errors: [],
        calibrated?: Calibration.exists?(),
        threshold: Settings.get(:glow_threshold),
@@ -262,7 +262,7 @@ defmodule PokexWeb.PanelLive do
            combat: status.combat,
            catcher: status.catcher,
            mini_game: status.mini_game,
-           game: status.game_controller
+           game: status.player_support
          )}
 
       {:error, messages} ->
@@ -280,7 +280,7 @@ defmodule PokexWeb.PanelLive do
        combat: status.combat,
        catcher: status.catcher,
        mini_game: status.mini_game,
-       game: status.game_controller
+       game: status.player_support
      )}
   end
 
@@ -368,6 +368,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("toggle_rescue", _params, socket) do
     value = not Settings.get(:rescue_enabled)
     Settings.put(:rescue_enabled, value)
+    if value, do: arm_support()
     {:noreply, assign(socket, rescue_enabled: value)}
   end
 
@@ -392,8 +393,10 @@ defmodule PokexWeb.PanelLive do
   def handle_event("toggle_potion", _params, socket) do
     value = not Settings.get(:potion_enabled)
     Settings.put(:potion_enabled, value)
+    if value, do: arm_support()
     {:noreply, assign(socket, potion_enabled: value)}
   end
+
 
   def handle_event("save_potion_cfg", params, socket) do
     socket =
@@ -410,7 +413,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   def handle_event("use_potion", _params, socket) do
-    GameController.Worker.use_potion()
+    PlayerSupport.Worker.use_potion()
     {:noreply, socket}
   end
 
@@ -493,6 +496,18 @@ defmodule PokexWeb.PanelLive do
       {:error, reason} ->
         {:noreply, assign(socket, report: nil, report_msg: "erro: #{inspect(reason)}")}
     end
+  end
+
+  # Turning a support feature ON re-arms the (idempotent) monitor — the natural re-enable after
+  # a panic halted it. Gated by the same env flag as the boot auto-start so the app-global
+  # worker never starts ticking against the shared Rig during unrelated tests.
+  defp arm_support do
+    if Application.get_env(:pokex, :player_support_auto_monitor, true),
+      do: PlayerSupport.Worker.run()
+
+    :ok
+  catch
+    :exit, _reason -> :ok
   end
 
   defp save_int(socket, raw, range, setting_key, assign_key) do
@@ -671,6 +686,11 @@ defmodule PokexWeb.PanelLive do
   defp catcher_label(:saqueando), do: "só saque"
   defp catcher_label(other), do: to_string(other)
 
+  # 🚑 Suporte (PlayerSupport): revive + poção. Halts on panic/Stop like every worker.
+  defp support_label(:monitoring), do: "monitorando"
+  defp support_label(:idle), do: "parado"
+  defp support_label(other), do: to_string(other)
+
   # 🎮 Mini game: desligado / observando a arena / pausando o resto enquanto o jogo está aberto.
   defp mini_game_label(:off), do: "parado"
   defp mini_game_label(:watching), do: "observando"
@@ -843,91 +863,108 @@ defmodule PokexWeb.PanelLive do
             <.link navigate={~p"/calibration"} class="font-semibold text-[#37d07d]">Calibrar</.link>
           </div>
 
-          <div class="grid grid-cols-2 gap-2">
+          <div class="grid grid-cols-3 gap-1.5">
             <div
               data-testid="fishing-pill"
               data-state={@fishing.state}
-              class="rounded-lg border border-[#232a30] bg-[#111519] px-3 py-2.5"
+              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
             >
-              <div class="flex items-center gap-2 text-xs font-semibold">
+              <div class="flex items-center gap-1.5 text-[11px] font-semibold">
                 <span class={[
-                  "size-2 rounded-full",
+                  "size-1.5 shrink-0 rounded-full",
                   if(active?(@fishing.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
                 ]} /> Pesca
               </div>
-              <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
+              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
                 {fishing_label(@fishing.state)}
               </p>
             </div>
             <div
               data-testid="combat-pill"
               data-state={@combat.state}
-              class="rounded-lg border border-[#232a30] bg-[#111519] px-3 py-2.5"
+              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
             >
-              <div class="flex items-center gap-2 text-xs font-semibold">
+              <div class="flex items-center gap-1.5 text-[11px] font-semibold">
                 <span class={[
-                  "size-2 rounded-full",
+                  "size-1.5 shrink-0 rounded-full",
                   if(active?(@combat.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
                 ]} /> Batalha
               </div>
-              <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
+              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
                 {combat_label(@combat.state, Map.get(@combat, :locked_row))}
               </p>
             </div>
             <div
               data-testid="catcher-pill"
               data-state={@catcher.state}
-              class="rounded-lg border border-[#232a30] bg-[#111519] px-3 py-2.5"
+              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
             >
-              <div class="flex items-center gap-2 text-xs font-semibold">
+              <div class="flex items-center gap-1.5 text-[11px] font-semibold">
                 <span class={[
-                  "size-2 rounded-full",
+                  "size-1.5 shrink-0 rounded-full",
                   if(active?(@catcher.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
                 ]} /> Captura
               </div>
-              <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
-                {catcher_label(@catcher.state)}
-              </p>
-              <p class="mt-0.5 pl-4 font-mono text-[9px] text-[#7d8790]">
-                {catcher_captures(@catcher)} 🎯 · {catcher_loots(@catcher)} 🧰
+              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                {catcher_label(@catcher.state)} · {catcher_captures(@catcher)}🎯 {catcher_loots(
+                  @catcher
+                )}🧰
               </p>
             </div>
             <div
               data-testid="mini-game-pill"
               data-state={@mini_game.state}
               title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
-              class="rounded-lg border border-[#232a30] bg-[#111519] px-3 py-2.5"
+              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
             >
-              <div class="flex items-center gap-2 text-xs font-semibold">
-                <span class={[
-                  "size-2 rounded-full",
-                  if(@mini_game.state == :playing, do: "bg-[#f3ba4e]", else: "bg-[#68717a]")
-                ]} /> Mini game
+              <div class="flex items-center justify-between text-[11px] font-semibold">
+                <span class="flex items-center gap-1.5">
+                  <span class={[
+                    "size-1.5 shrink-0 rounded-full",
+                    if(@mini_game.state == :playing, do: "bg-[#f3ba4e]", else: "bg-[#68717a]")
+                  ]} /> Mini game
+                </span>
+                <button
+                  type="button"
+                  phx-click="toggle_mini_game_sound"
+                  title={
+                    if @mini_game_sound,
+                      do: "Alerta sonoro ligado — clique para silenciar",
+                      else: "Alerta sonoro MUDO — clique para reativar"
+                  }
+                  class={[
+                    "cursor-pointer",
+                    if(@mini_game_sound,
+                      do: "text-[#7d8790] hover:text-[#e8ecef]",
+                      else: "text-[#f3ba4e] hover:text-[#ffd27a]"
+                    )
+                  ]}
+                >
+                  <.icon
+                    name={if @mini_game_sound, do: "hero-speaker-wave", else: "hero-speaker-x-mark"}
+                    class="size-3"
+                  />
+                </button>
               </div>
-              <p class="mt-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em] text-[#7d8790]">
+              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
                 {mini_game_label(@mini_game.state)}
               </p>
-              <button
-                type="button"
-                phx-click="toggle_mini_game_sound"
-                title={
-                  if @mini_game_sound,
-                    do: "Alerta sonoro ligado — clique para silenciar",
-                    else: "Alerta sonoro MUDO — clique para reativar"
-                }
-                class={[
-                  "mt-1 flex cursor-pointer items-center gap-1 pl-4 font-mono text-[9px] uppercase tracking-[0.12em]",
-                  if(@mini_game_sound,
-                    do: "text-[#7d8790] hover:text-[#e8ecef]",
-                    else: "text-[#f3ba4e] hover:text-[#ffd27a]"
-                  )
-                ]}
-              >
-                <.icon
-                  name={if @mini_game_sound, do: "hero-speaker-wave", else: "hero-speaker-x-mark"}
-                  class="size-3"
-                /> {if @mini_game_sound, do: "som", else: "mudo"}
-              </button>
+            </div>
+            <div
+              data-testid="support-pill"
+              data-state={@game.state}
+              title="revive + poção — protege o Pokémon principal, até jogando manual"
+              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+            >
+              <div class="flex items-center gap-1.5 text-[11px] font-semibold">
+                <span class={[
+                  "size-1.5 shrink-0 rounded-full",
+                  if(@game.state == :monitoring, do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                ]} /> Suporte
+              </div>
+              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                {support_label(@game.state)} · {rescue_count(@game)}🚑 {potion_count(@game)}🧪
+              </p>
             </div>
           </div>
 

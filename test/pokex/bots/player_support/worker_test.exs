@@ -1,4 +1,4 @@
-defmodule Pokex.Bots.GameController.WorkerTest.FakeBody do
+defmodule Pokex.Bots.PlayerSupport.WorkerTest.FakeBody do
   @moduledoc "Records Body.perform calls and forwards them to the test process."
   use GenServer
 
@@ -14,15 +14,15 @@ defmodule Pokex.Bots.GameController.WorkerTest.FakeBody do
   end
 end
 
-defmodule Pokex.Bots.GameController.WorkerTest do
+defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   use ExUnit.Case, async: false
 
-  alias Pokex.Bots.GameController.Worker
-  alias Pokex.Bots.GameController.WorkerTest.FakeBody
+  alias Pokex.Bots.PlayerSupport.Worker
+  alias Pokex.Bots.PlayerSupport.WorkerTest.FakeBody
   alias Pokex.{Calibration, Settings}
 
   @keys [
-    :game_tick_ms,
+    :support_tick_ms,
     :rescue_step_ms,
     :rescue_enabled,
     :rescue_cooldown_ms,
@@ -41,7 +41,7 @@ defmodule Pokex.Bots.GameController.WorkerTest do
       Enum.each(originals, fn {k, v} -> Settings.put(k, v) end)
     end)
 
-    Settings.put(:game_tick_ms, 20)
+    Settings.put(:support_tick_ms, 20)
     Settings.put(:rescue_step_ms, 0)
     # the combo ships OFF by default; the enabled-path tests turn it on ("toggle off" flips it back)
     Settings.put(:rescue_enabled, true)
@@ -92,6 +92,58 @@ defmodule Pokex.Bots.GameController.WorkerTest do
 
     refute_receive {:performed, _priority, _actions}, 200
     assert Worker.status(worker).hp_pct == 100
+  end
+
+  @tag :tmp_dir
+  test "a MINIMIZED party window (region shows game world) reads UNKNOWN and never acts", %{
+    tmp: tmp,
+    body: body
+  } do
+    Settings.put(:rescue_enabled, true)
+    Settings.put(:potion_enabled, true)
+
+    # bright, blue-ish "game world" pixels — nothing like the bar's warm fill + black track.
+    # The old reader turned this into a garbage low-HP % and fired the combo in a loop.
+    rows = for _y <- 1..4, do: List.duplicate({120, 180, 235, 255}, 20)
+    world = Pokex.PngFixtures.write!(Path.join(tmp, "world.png"), rows)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, world}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, _priority, _actions}, 300
+    status = Worker.status(worker)
+    assert status.hp_pct == nil
+    assert status.error =~ "não reconhecida"
+    assert status.counters.rescues == 0
+    assert status.counters.potions == 0
+  end
+
+  @tag :tmp_dir
+  test "halt STICKS (panic path): no reads or actions after halt, run re-arms", %{
+    tmp: tmp,
+    body: body
+  } do
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    Settings.put(:rescue_cooldown_ms, 1)
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+    assert_receive {:performed, :critical, _}, 1_000
+    assert Worker.status(worker).state == :monitoring
+
+    # halt (what the panic corner calls): even with HP still low, nothing more fires
+    assert :ok = Worker.halt(worker)
+    assert Worker.status(worker).state == :idle
+    reads_at_halt = Worker.status(worker).counters.reads
+    refute_receive {:performed, _priority, _actions}, 300
+    assert Worker.status(worker).counters.reads == reads_at_halt
+
+    # run re-arms the monitor
+    assert :ok = Worker.run(worker)
+    assert Worker.status(worker).state == :monitoring
+    assert_receive {:performed, :critical, _}, 1_000
   end
 
   @tag :tmp_dir

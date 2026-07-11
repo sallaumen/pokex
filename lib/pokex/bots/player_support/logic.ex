@@ -1,4 +1,4 @@
-defmodule Pokex.Bots.GameController.Logic do
+defmodule Pokex.Bots.PlayerSupport.Logic do
   @moduledoc """
   Pure decision core for the survival combo. No I/O, no time of its own — the caller supplies the
   HP reading and the monotonic `now`, so the whole rule is a total function that is trivial to test.

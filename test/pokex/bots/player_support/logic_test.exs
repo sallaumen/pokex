@@ -1,6 +1,6 @@
-defmodule Pokex.Bots.GameController.LogicTest do
+defmodule Pokex.Bots.PlayerSupport.LogicTest do
   use ExUnit.Case, async: true
-  alias Pokex.Bots.GameController.Logic
+  alias Pokex.Bots.PlayerSupport.Logic
 
   # prev_hp_pct defaults to 0 (previous read agreed it's low) so the threshold/cooldown tests
   # exercise their own rule; the consecutive-reads guard has its own dedicated tests.

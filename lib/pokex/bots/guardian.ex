@@ -59,7 +59,7 @@ defmodule Pokex.Bots.Guardian do
       {:ok, point} ->
         in_corner? = Corner.in_kill_corner?(point)
         # The gate closes the moment the cursor enters the corner, so it ALSO suppresses the
-        # always-on GameController's revive/potion — not just the Start/Stop workers on_panic
+        # always-on PlayerSupport's revive/potion — not just the Start/Stop workers on_panic
         # halts. It reopens when the cursor leaves, so manual-play protection comes right back.
         InputGate.set_corner_ok(not in_corner?)
         if in_corner?, do: panic(state)

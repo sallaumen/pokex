@@ -211,7 +211,7 @@ defmodule Pokex.Settings do
     # instant yank.
     hook_delay_min_ms: 500,
     hook_delay_max_ms: 1000,
-    # --- GameController: keep the main Pokémon alive ------------------------------------------
+    # --- PlayerSupport: keep the main Pokémon alive ------------------------------------------
     # When its HP bar drops below pokemon_hp_rescue_pct, run the survival combo at :critical:
     # recall (rescue_key) → max-revive on the portrait (max_revive_key) → release (rescue_key).
     # Toggle + a cooldown so a detection glitch can't burn the (expensive) revives. Ships OFF: the
@@ -224,8 +224,8 @@ defmodule Pokex.Settings do
     rescue_cooldown_ms: 60_000,
     # ms between the presses/moves of the combo so the game registers each.
     rescue_step_ms: 40,
-    # How often the GameController samples the main Pokémon's HP bar.
-    game_tick_ms: 120,
+    # How often the PlayerSupport samples the main Pokémon's HP bar.
+    support_tick_ms: 120,
     # HP-bar fill detection is COLOUR-AGNOSTIC: a column counts as filled when it holds a COLOURED
     # pixel (bright enough to not be black, saturated enough to not be the white number). The fill
     # changes hue as HP drops (green → olive → brown → red) — all are coloured, so all count; the
@@ -239,6 +239,11 @@ defmodule Pokex.Settings do
     # gates — as 100%. Lower it if a recalibrated tighter box still plateaus below 100; set
     # 100 to disable the correction.
     pokemon_hp_full_at_pct: 95,
+    # Sanity floor on the HP read: at least this % of the region's pixels must be the bar's own
+    # two populations (warm fill + near-black track). Below it the frame is NOT the bar — e.g.
+    # the party window is MINIMIZED and the region shows game world — and the read is UNKNOWN
+    # (never acted on), instead of a garbage "low HP" that fired the combo in a loop.
+    pokemon_hp_min_known_pct: 55,
     # --- Potion: cheap top-up so the expensive revive rarely fires ------------------------------
     # Below pokemon_hp_potion_pct AND out of combat (the heal channel is interrupted by entering a
     # fight, so an in-combat potion is a wasted potion), press potion_key — the game applies it to

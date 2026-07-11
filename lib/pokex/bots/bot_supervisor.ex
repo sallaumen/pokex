@@ -19,7 +19,7 @@ defmodule Pokex.Bots.BotSupervisor do
   """
   use Supervisor
 
-  alias Pokex.Bots.{Body, Catcher, Combat, Fishing, GameController, Guardian, MiniGame}
+  alias Pokex.Bots.{Body, Catcher, Combat, Fishing, PlayerSupport, Guardian, MiniGame}
 
   def start_link(opts \\ []) do
     body = Keyword.get(opts, :body, Body)
@@ -28,7 +28,7 @@ defmodule Pokex.Bots.BotSupervisor do
     combat = Keyword.get(opts, :combat, Combat.Worker)
     catcher = Keyword.get(opts, :catcher, Catcher.Worker)
     mini_game = Keyword.get(opts, :mini_game, MiniGame.Worker)
-    game_controller = Keyword.get(opts, :game_controller, GameController.Worker)
+    player_support = Keyword.get(opts, :player_support, PlayerSupport.Worker)
 
     state = %{
       body: body,
@@ -37,7 +37,7 @@ defmodule Pokex.Bots.BotSupervisor do
       combat: combat,
       catcher: catcher,
       mini_game: mini_game,
-      game_controller: game_controller
+      player_support: player_support
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -54,12 +54,13 @@ defmodule Pokex.Bots.BotSupervisor do
         combat: combat,
         catcher: catcher,
         mini_game: mini_game,
-        game_controller: game_controller
+        player_support: player_support
       }) do
-    # The panic corner halts the automated workers, including the mini-game watcher (so it can't
-    # resume the peers it paused). The GameController is NOT halted — it is an always-on monitor,
-    # independent of Start/Stop, so its survival combo can protect you while you play by hand.
-    on_panic = fn -> stop_all(fishing, combat, catcher, mini_game) end
+    # The panic corner halts EVERY automated worker — including the mini-game watcher (so it
+    # can't resume the peers it paused) and the PlayerSupport (Lucas: a support gone wrong,
+    # e.g. a minimized window misread burning potions, must be killable by mouse-to-corner
+    # like everything else; it re-arms on boot, Iniciar bot, or a support toggle).
+    on_panic = fn -> stop_all(fishing, combat, catcher, mini_game, player_support) end
     peers = %{fishing: fishing, combat: combat, catcher: catcher}
 
     children = [
@@ -71,8 +72,8 @@ defmodule Pokex.Bots.BotSupervisor do
       Supervisor.child_spec({Combat.Worker, name: combat}, id: combat),
       Supervisor.child_spec({Catcher.Worker, name: catcher, body: body}, id: catcher),
       Supervisor.child_spec({MiniGame.Worker, name: mini_game, peers: peers}, id: mini_game),
-      Supervisor.child_spec({GameController.Worker, name: game_controller, body: body},
-        id: game_controller
+      Supervisor.child_spec({PlayerSupport.Worker, name: player_support, body: body},
+        id: player_support
       )
     ]
 
@@ -116,8 +117,33 @@ defmodule Pokex.Bots.BotSupervisor do
     end
   end
 
+  @spec start_all(
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server()
+        ) :: :ok | {:error, [String.t()]}
+  def start_all(fishing, combat, catcher, mini_game, player_support) do
+    # PlayerSupport.run is infallible (no preflight — it monitors even uncalibrated), so it
+    # can't poison the with-chain; arming it first means a preflight failure below still
+    # leaves the player protected. Gated by the same env flag as its boot auto-start so a
+    # test calling start_all never leaves the app-global monitor ticking against the shared
+    # Rig for the rest of the suite.
+    if Application.get_env(:pokex, :player_support_auto_monitor, true),
+      do: :ok = PlayerSupport.Worker.run(player_support)
+
+    start_all(fishing, combat, catcher, mini_game)
+  end
+
   def start_all do
-    start_all(Fishing.Worker, Combat.Worker, Catcher.Worker, MiniGame.Worker)
+    start_all(
+      Fishing.Worker,
+      Combat.Worker,
+      Catcher.Worker,
+      MiniGame.Worker,
+      PlayerSupport.Worker
+    )
   end
 
   @doc "Halts all workers. Safe to call repeatedly — halting an idle worker is a no-op."
@@ -141,8 +167,27 @@ defmodule Pokex.Bots.BotSupervisor do
     :ok
   end
 
+  @spec stop_all(
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server(),
+          GenServer.server()
+        ) :: :ok
+  def stop_all(fishing, combat, catcher, mini_game, player_support) do
+    stop_all(fishing, combat, catcher, mini_game)
+    PlayerSupport.Worker.halt(player_support)
+    :ok
+  end
+
   def stop_all do
-    stop_all(Fishing.Worker, Combat.Worker, Catcher.Worker, MiniGame.Worker)
+    stop_all(
+      Fishing.Worker,
+      Combat.Worker,
+      Catcher.Worker,
+      MiniGame.Worker,
+      PlayerSupport.Worker
+    )
   end
 
   # A worker can be legitimately unresponsive for seconds — e.g. parked on a screen capture the
@@ -191,14 +236,14 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server(),
           GenServer.server()
-        ) :: %{fishing: map, combat: map, catcher: map, mini_game: map, game_controller: map}
-  def status(fishing, combat, catcher, mini_game, game_controller) do
+        ) :: %{fishing: map, combat: map, catcher: map, mini_game: map, player_support: map}
+  def status(fishing, combat, catcher, mini_game, player_support) do
     fishing
     |> status(combat, catcher, mini_game)
-    |> Map.put(:game_controller, safe_status(game_controller, %{hp_pct: nil}))
+    |> Map.put(:player_support, safe_status(player_support, %{hp_pct: nil}))
   end
 
   def status do
-    status(Fishing.Worker, Combat.Worker, Catcher.Worker, MiniGame.Worker, GameController.Worker)
+    status(Fishing.Worker, Combat.Worker, Catcher.Worker, MiniGame.Worker, PlayerSupport.Worker)
   end
 end

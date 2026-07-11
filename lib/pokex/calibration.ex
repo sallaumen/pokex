@@ -26,7 +26,7 @@ defmodule Pokex.Calibration do
     # SkillBar matches each live slot against its own reference instead of universal
     # thresholds — icons too white or too colourful for thresholds read correctly.
     :skill_slot_refs,
-    # Optional (GameController): the main Pokémon's HP bar, and the portrait to aim Shift+Q at.
+    # Optional (PlayerSupport): the main Pokémon's HP bar, and the portrait to aim Shift+Q at.
     :pokemon_hp_region,
     :pokemon_photo_point,
     :battle_baseline,
@@ -131,7 +131,7 @@ defmodule Pokex.Calibration do
 
   # Measured on Lucas's 3440×1440 screen (2026-07-10): the main Pokémon is the TOP of the 6 party
   # slots at the game's bottom-left — a green→yellow→red HP bar and the "Q" portrait beside it.
-  # These estimates let the GameController run before the field is calibrated; set the real region
+  # These estimates let the PlayerSupport run before the field is calibrated; set the real region
   # in the calibration UI to fine-tune per screen.
   @default_pokemon_hp_region {134, 921, 230, 18}
   @default_pokemon_photo_point {70, 934}

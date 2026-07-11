@@ -73,7 +73,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     combat = :"#{tag}_combat"
     catcher = :"#{tag}_catcher"
     mini_game = :"#{tag}_mini_game"
-    game_controller = :"#{tag}_game_controller"
+    player_support = :"#{tag}_player_support"
 
     start_supervised!(
       {BotSupervisor,
@@ -84,7 +84,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
        combat: combat,
        catcher: catcher,
        mini_game: mini_game,
-       game_controller: game_controller}
+       player_support: player_support}
     )
 
     {fishing, combat, catcher}

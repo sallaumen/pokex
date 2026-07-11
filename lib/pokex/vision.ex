@@ -669,6 +669,43 @@ defmodule Pokex.Vision do
     do: frame |> skill_slots(opts) |> Enum.map(& &1.state)
 
   @doc """
+  Does this frame LOOK like the calibrated HP bar at all? A real bar is made of exactly two
+  pixel populations — the WARM coloured fill and the near-black track (plus a thin white
+  number) — so their combined share is high. When the party window is MINIMIZED the region
+  shows something else entirely (game world / window chrome: bright, blue-ish, colourful),
+  the known share collapses, and the fill% becomes garbage — which read as "low HP" and made
+  the survival combo open/close the window in a loop, burning potions and revives (Lucas,
+  2026-07-11). Callers treat an implausible frame as UNKNOWN (nil HP → never act), same
+  fail-safe rule as everywhere else.
+
+  Options: `:min_brightness`/`:min_saturation` (the fill predicate, same defaults as
+  `hp_fill_pct/2`) and `:min_known_pct` (55) — the floor on (fill + track) share.
+  """
+  def hp_region_plausible?(frame, opts \\ [])
+
+  def hp_region_plausible?(%Frame{width: w, height: h, rgba: rgba}, opts)
+      when w > 0 and h > 0 do
+    min_b = Keyword.get(opts, :min_brightness) || 45
+    min_s = Keyword.get(opts, :min_saturation) || 30
+    min_known = Keyword.get(opts, :min_known_pct) || 55
+
+    {known, total} = hp_known_px(rgba, min_b, min_s, 0, 0)
+    known * 100 >= min_known * total
+  end
+
+  def hp_region_plausible?(_frame, _opts), do: false
+
+  defp hp_known_px(<<r, g, b, _a, rest::binary>>, min_b, min_s, known, total) do
+    bright = max(r, max(g, b))
+    sat = bright - min(r, min(g, b))
+    fill? = bright >= min_b and sat >= min_s and b <= max(r, g)
+    track? = bright <= 60
+    hp_known_px(rest, min_b, min_s, known + if(fill? or track?, do: 1, else: 0), total + 1)
+  end
+
+  defp hp_known_px(<<>>, _min_b, _min_s, known, total), do: {known, max(total, 1)}
+
+  @doc """
   Fill percentage (0..100) of a horizontal HP bar frame — the fraction of COLUMNS that hold a
   COLOURED pixel, so an emptying bar reads lower.
 

@@ -1,19 +1,20 @@
-defmodule Pokex.Bots.GameController.Worker do
+defmodule Pokex.Bots.PlayerSupport.Worker do
   @moduledoc """
-  ALWAYS-ON monitor of the main Pokémon's HP — independent of the fishing/combat bots. It reads the
-  HP every tick from boot and distributes it on the `"game"` PubSub topic, and when the survival
-  combo is enabled it fires it at `:critical` (above combat's `:high`) the moment HP drops below the
-  threshold. So you can play MANUALLY, with every bot off, flip on the "Combo de sobrevivência"
-  toggle, and still have it keep your Pokémon alive.
+  The player-SUPPORT worker: keeps the main Pokémon alive (survival combo at `:critical`, potion
+  out of combat) independently of the fishing/combat bots. It reads the HP every tick, distributes
+  it on the `"game"` PubSub topic, and acts when the respective toggles are enabled — so you can
+  play MANUALLY, with every bot off, and still be protected.
 
-  It is NOT part of Start/Stop and the panic corner does not halt it — it just monitors. It reloads
-  the calibration each tick, so a fresh HP calibration takes effect without a restart. The pure
-  `GameController.Logic` owns the "below-threshold AND off-cooldown AND enabled" decision.
+  Lifecycle: auto-starts monitoring on boot, and — unlike the old always-on GameController — it IS
+  part of Start/Stop and the PANIC CORNER halts it (Lucas: a stray reading must be killable by
+  mouse-to-corner like everything else; re-arm via Iniciar bot or by touching a support toggle).
+  It reloads the calibration each tick, so a fresh HP calibration takes effect without a restart.
+  The pure `PlayerSupport.Logic` owns the "below-threshold AND off-cooldown AND enabled" decision.
   """
   use GenServer
 
   alias Pokex.Bots.{Body, Capture, InputGate}
-  alias Pokex.Bots.GameController.Logic
+  alias Pokex.Bots.PlayerSupport.Logic
   alias Pokex.Perception.{Interpret, WorldState}
   alias Pokex.{Calibration, Settings, Vision}
 
@@ -28,6 +29,9 @@ defmodule Pokex.Bots.GameController.Worker do
     state = %{
       body: Keyword.get(opts, :body, Body),
       timer: nil,
+      # explicit lifecycle flag: a halt must stick even when a :tick was already in flight
+      # (the timer fires before the cancel lands) — the flag, not the timer, decides.
+      running?: false,
       hp_pct: nil,
       prev_hp_pct: nil,
       last_rescue_at: nil,
@@ -43,7 +47,8 @@ defmodule Pokex.Bots.GameController.Worker do
   end
 
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
-  # The monitor auto-starts on boot; run/halt are kept for manual control and tests.
+  # Auto-starts on boot; run/halt participate in Start/Stop AND the panic fan-out. Both are
+  # idempotent, so the panel toggles can call run/1 freely to re-arm after a panic.
   def run(server \\ __MODULE__), do: GenServer.call(server, :run)
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
 
@@ -57,15 +62,25 @@ defmodule Pokex.Bots.GameController.Worker do
   def init(state) do
     # Auto-start monitoring on boot (real app). Gated off in the test env so the app-wide instance
     # doesn't tick against the shared Rig/home during unrelated tests — tests call run/1 to monitor.
-    if Application.get_env(:pokex, :game_controller_auto_monitor, true),
-      do: {:ok, reschedule(state, 0)},
+    if Application.get_env(:pokex, :player_support_auto_monitor, true),
+      do: {:ok, reschedule(%{state | running?: true}, 0)},
       else: {:ok, state}
   end
 
   @impl true
   def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
-  def handle_call(:run, _from, state), do: {:reply, :ok, reschedule(state, 0)}
-  def handle_call(:halt, _from, state), do: {:reply, :ok, cancel_timer(state)}
+
+  def handle_call(:run, _from, state) do
+    state = reschedule(%{state | running?: true}, 0)
+    broadcast(state)
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:halt, _from, state) do
+    state = cancel_timer(%{state | running?: false})
+    broadcast(state)
+    {:reply, :ok, state}
+  end
 
   def handle_call(:use_potion, _from, state) do
     state = fire_potion(state, "🧪 poção (manual)")
@@ -74,6 +89,10 @@ defmodule Pokex.Bots.GameController.Worker do
   end
 
   @impl true
+  # A late tick after a halt (the timer fired before the cancel landed) must NOT resurrect the
+  # loop — the running? flag is the source of truth, not the timer.
+  def handle_info(:tick, %{running?: false} = state), do: {:noreply, state}
+
   def handle_info(:tick, state) do
     previous = state
 
@@ -93,6 +112,16 @@ defmodule Pokex.Bots.GameController.Worker do
                 calib
               )
 
+            # The region doesn't look like the bar (minimized party window): UNKNOWN — clear the
+            # reading so nothing can act on a stale/garbage value, and say why in the panel.
+            :unrecognized ->
+              %{
+                state
+                | hp_pct: nil,
+                  prev_hp_pct: nil,
+                  error: "barra de vida não reconhecida (janela do Pokémon minimizada?)"
+              }
+
             {:error, reason} ->
               fail(state, reason)
           end
@@ -106,22 +135,29 @@ defmodule Pokex.Bots.GameController.Worker do
     # tick doesn't flood the panel with identical frames.
     if changed?(previous, state), do: broadcast(state)
 
-    {:noreply, reschedule(state, Settings.get(:game_tick_ms))}
+    {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
   end
 
   # Uncrashable: this monitor runs forever, so a transient capture failure (the broker or the Rig
   # momentarily down/restarting) must come back as {:error}, not take the whole worker down with it.
   defp read_hp(calib) do
     region = Calibration.pokemon_hp_region(calib)
+    min_b = Settings.get(:pokemon_hp_min_brightness)
+    min_s = Settings.get(:pokemon_hp_min_saturation)
 
     with {:ok, frame} <- Capture.frame(region, "pokemon_hp.png") do
-      raw =
-        Vision.hp_fill_pct(frame,
-          min_brightness: Settings.get(:pokemon_hp_min_brightness),
-          min_saturation: Settings.get(:pokemon_hp_min_saturation)
-        )
-
-      {:ok, normalize_hp(raw)}
+      # A frame that doesn't LOOK like the bar (party window minimized → the region shows game
+      # world) is UNKNOWN, not a reading: a garbage fill% here read as "low HP" and fired the
+      # combo in an open/close loop, burning potions and revives.
+      if Vision.hp_region_plausible?(frame,
+           min_brightness: min_b,
+           min_saturation: min_s,
+           min_known_pct: Settings.get(:pokemon_hp_min_known_pct)
+         ) do
+        {:ok, normalize_hp(Vision.hp_fill_pct(frame, min_brightness: min_b, min_saturation: min_s))}
+      else
+        :unrecognized
+      end
     end
   catch
     kind, reason -> {:error, {kind, reason}}
@@ -260,9 +296,11 @@ defmodule Pokex.Bots.GameController.Worker do
 
   defp bump(counters, key), do: Map.update!(counters, key, &(&1 + 1))
 
+  # Real lifecycle state, not a constant: the panel's Suporte card shows whether the monitor is
+  # actually ticking (a panic/Stop halts it → :idle until re-armed).
   defp snapshot(state),
     do: %{
-      state: :monitoring,
+      state: if(state.running?, do: :monitoring, else: :idle),
       hp_pct: state.hp_pct,
       enabled?: Settings.get(:rescue_enabled),
       last_rescue_at: state.last_rescue_at,

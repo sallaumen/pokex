@@ -40,9 +40,9 @@ config :phoenix_live_view,
 config :phoenix,
   sort_verified_routes_query_params: true
 
-# The always-on GameController monitor is started explicitly by the tests that need it,
+# The always-on PlayerSupport monitor is started explicitly by the tests that need it,
 # not auto-started, so the app-wide instance stays idle during unrelated tests.
-config :pokex, :game_controller_auto_monitor, false
+config :pokex, :player_support_auto_monitor, false
 # The Focus poller shells out to osascript for the frontmost app — never let the app-wide
 # instance poll during unrelated tests. Focus tests drive their own instance with an injected
 # frontmost reader.

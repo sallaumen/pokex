@@ -91,4 +91,23 @@ defmodule Pokex.VisionHpTest do
       assert Vision.hp_fill_pct(%Frame{width: 0, height: 0, rgba: <<>>}) == 0
     end
   end
+
+  describe "hp_region_plausible?/2" do
+    test "a real bar (fill + track, any ratio) is plausible" do
+      # full, half and near-empty bars are all two-population frames
+      assert Vision.hp_region_plausible?(frame(bar(20, 20, @green)))
+      assert Vision.hp_region_plausible?(frame(bar(10, 20, @green)))
+      assert Vision.hp_region_plausible?(frame(bar(2, 20, @green)))
+    end
+
+    test "the MINIMIZED window (game world in the region) is NOT plausible" do
+      # bright blue-ish world pixels: neither warm fill nor near-black track
+      world = for _y <- 0..3, do: List.duplicate({120, 180, 235}, 20)
+      refute Vision.hp_region_plausible?(frame(world))
+    end
+
+    test "a zero-size frame is not plausible (no crash)" do
+      refute Vision.hp_region_plausible?(%Frame{width: 0, height: 0, rgba: <<>>})
+    end
+  end
 end

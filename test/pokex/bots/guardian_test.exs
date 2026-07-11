@@ -74,7 +74,7 @@ defmodule Pokex.Bots.GuardianTest do
       Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
 
     # cursor parked in the corner → corner flag closed (this is what suppresses the always-on
-    # GameController's revive/potion, not just the Start/Stop workers)
+    # PlayerSupport's revive/potion, not just the Start/Stop workers)
     assert eventually(fn -> InputGate.state().corner_ok == false end)
 
     FakeBody.set_reply(body, {:ok, {500, 500}})

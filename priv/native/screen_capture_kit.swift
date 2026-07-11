@@ -39,25 +39,32 @@ final class FrameStore: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
     didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
     of type: SCStreamOutputType
   ) {
-    guard type == .screen,
-          sampleBuffer.isValid,
-          let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
-    else {
-      return
+    // The stream queue's implicit autorelease pool drains LAZILY under constant
+    // load — at 10fps of ~80MB retina frames the autoreleased sample wrappers
+    // piled up to a measured 19GB RSS (2026-07-11), thrashing the helper until
+    // every SCK capture timed out and the broker fell back to 250ms
+    // screencapture. Drain per frame.
+    autoreleasepool {
+      guard type == .screen,
+            sampleBuffer.isValid,
+            let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+      else {
+        return
+      }
+
+      // DEEP-COPY the frame and let the pool buffer go. Retaining the pool's CVPixelBuffer
+      // (queueDepth 3) starves ScreenCaptureKit's buffer pool after the first frames, and the
+      // stream SILENTLY stops delivering — every crop then serves the same stale boot-time
+      // frame forever ("fixadamente zero" readings, debugged live 2026-07-10: two server crops
+      // 3s apart were byte-identical while the real screen had the lure in the water). ARC keeps
+      // the previous copy alive while a writeCrop is still rendering it, so no tearing either.
+      guard let copy = deepCopy(pixelBuffer) else { return }
+
+      lock.lock()
+      latestFrame = copy
+      stoppedError = nil
+      lock.unlock()
     }
-
-    // DEEP-COPY the frame and let the pool buffer go. Retaining the pool's CVPixelBuffer
-    // (queueDepth 3) starves ScreenCaptureKit's buffer pool after the first frames, and the
-    // stream SILENTLY stops delivering — every crop then serves the same stale boot-time
-    // frame forever ("fixadamente zero" readings, debugged live 2026-07-10: two server crops
-    // 3s apart were byte-identical while the real screen had the lure in the water). ARC keeps
-    // the previous copy alive while a writeCrop is still rendering it, so no tearing either.
-    guard let copy = deepCopy(pixelBuffer) else { return }
-
-    lock.lock()
-    latestFrame = copy
-    stoppedError = nil
-    lock.unlock()
   }
 
   private func deepCopy(_ source: CVPixelBuffer) -> CVPixelBuffer? {
@@ -119,6 +126,14 @@ final class FrameStore: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
   }
 
   func writeCrop(x: Int, y: Int, width: Int, height: Int, path: String) throws {
+    // Same autorelease discipline as the stream callback: CI/CG rendering mints
+    // autoreleased objects per crop, and crops arrive many times per second.
+    try autoreleasepool {
+      try writeCropInner(x: x, y: y, width: width, height: height, path: path)
+    }
+  }
+
+  private func writeCropInner(x: Int, y: Int, width: Int, height: Int, path: String) throws {
     guard width > 0, height > 0 else {
       throw CaptureError.invalidRegion("region must have positive width/height")
     }

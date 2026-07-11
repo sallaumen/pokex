@@ -32,9 +32,9 @@ defmodule Pokex.Bots.MiniGame.Pilot do
   # Stopping-distance braking defaults (track/s²) — REAL-game physics is
   # asymmetric: thrust is strong (a fall is arrested almost instantly → brake
   # late, sink to the fish) while gravity is weak (a rise coasts far after
-  # release → let go early). Measured symptom (Lucas, live): symmetric
-  # velocity thresholds rose past the fish and re-pressed before reaching it.
-  @default_brake_up 1.2
+  # release → let go early). brake_up FIT from live traces (2026-07-11):
+  # falling acceleration ≈ 0.7-0.95 track/s².
+  @default_brake_up 0.8
   @default_brake_down 3.0
 
   def decide(_config, [], _bar, _now), do: %{desired: false, target_y: nil, age_ms: nil}

@@ -41,6 +41,13 @@ defmodule Pokex.Settings do
     # direction (hook_hold_max_ms bounds a false hold). RAISE this if a ready icon with real
     # white art ever reads :cooldown — white_pct is exported per slot in the diagnostics.
     skill_cooldown_min_white_pct: 4,
+    # Reference match (preferred, when the calibration carries per-slot references captured
+    # with every skill READY): a slot is :ready while its live non-white colour signature
+    # stays within this euclidean RGB distance of its own reference. The cooldown overlay
+    # darkens the icon (distance ~130-160); same-icon noise/anti-aliasing stays ~0-30. The
+    # per-slot `distance` is exported in the diagnostics — tune from there if an icon
+    # flickers between states.
+    skill_ref_max_distance: 60,
     # A slot also reads :ready when at least this % of its pixels are strongly COLOURED
     # (the coloured glyph of a usable icon). This is what saves a dark-but-colourful ready
     # icon — e.g. skill 3's green symbol on black — whose AVERAGE brightness/saturation are
@@ -186,7 +193,10 @@ defmodule Pokex.Settings do
     # the fish before pressing), gravity barely arrests a rise (release early
     # or it coasts far past — "sobe demais"). RAISE brake_down to press even
     # later on the way down; LOWER brake_up to release even earlier going up.
-    mini_game_brake_up: 1.2,
+    # brake_up MEASURED from live game traces (2026-07-11, 4 games): falling
+    # acceleration ≈ 0.7-0.95 track/s² — and Lucas's independent "press 0.7x
+    # as long" intuition lands on the same number (1.2 * 0.7 ≈ 0.84).
+    mini_game_brake_up: 0.8,
     mini_game_brake_down: 3.0,
     # Browser alert on enter/leave (panel mute button). Muting stops the panel
     # from pushing the sound event at all.

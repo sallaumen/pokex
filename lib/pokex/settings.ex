@@ -163,6 +163,12 @@ defmodule Pokex.Settings do
     mini_game_play_tick_ms: 80,
     mini_game_min_toggle_ms: 50,
     mini_game_deadband_pct: 0.011,
+    # How long a hold/release command takes to LAND in the game (osascript spawn +
+    # System Events). The pilot judges the error at the bar's PREDICTED position
+    # (reading age + this) — deciding on the stale reading made the capsule
+    # overshoot past a near-stable fish. Drop toward ~10 when the native CGEvent
+    # key helper replaces osascript.
+    mini_game_actuation_ms: 90,
     # Browser alert on enter/leave (panel mute button). Muting stops the panel
     # from pushing the sound event at all.
     mini_game_sound: true,

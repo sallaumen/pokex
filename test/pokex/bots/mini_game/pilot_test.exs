@@ -91,6 +91,20 @@ defmodule Pokex.Bots.MiniGame.PilotTest do
     assert_in_delta result.target_y, 0.4453, 0.005
   end
 
+  test "brakes on the PREDICTED bar position, not the stale reading" do
+    config = Map.put(@reactive, :actuation_ms, 90)
+    observations = [%{y: 0.5, at: @now}]
+
+    # bar read 100ms ago at 0.46, falling at +0.30/s: by the time the command
+    # lands it will be past the fish — press NOW to brake
+    stale_bar = %{y: 0.46, vy: 0.30, pressing: false, at: @now - 100}
+    assert Pilot.decide(config, observations, stale_bar, @now).desired == true
+
+    # the same raw reading judged without prediction coasts into the overshoot
+    raw_bar = %{y: 0.46, vy: 0.30, pressing: false}
+    assert Pilot.decide(@reactive, observations, raw_bar, @now).desired == false
+  end
+
   test "bar velocity overrides bite early like the lab hysteresis" do
     # bar rushing DOWN (positive vy) past the deadband's inner 70% band -> press
     # even though the raw error is still inside the deadband

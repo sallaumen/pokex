@@ -354,9 +354,18 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
         decision =
           Pilot.decide(
-            %{pilot: :predictive, deadband_pct: Settings.get(:mini_game_deadband_pct)},
+            %{
+              pilot: :predictive,
+              deadband_pct: Settings.get(:mini_game_deadband_pct),
+              actuation_ms: Settings.get(:mini_game_actuation_ms)
+            },
             fish,
-            %{y: bar_y, vy: capsule_velocity(capsule), pressing: play.holding?},
+            %{
+              y: bar_y,
+              vy: capsule_velocity(capsule),
+              pressing: play.holding?,
+              at: captured_at
+            },
             now
           )
 
@@ -380,23 +389,40 @@ defmodule Pokex.Bots.MiniGame.Worker do
   defp push_observation(observations, observation),
     do: Enum.take(observations ++ [observation], -@observation_cap)
 
-  # The capsule's velocity (track/s) from its last two readings — the lab read
-  # this from the simulator's physics; the real pipeline estimates it. When the
-  # reading SOURCE flips (blue capsule <-> occlusion fallback), the position
-  # jumps by the capsule/fish centroid offset, not by real motion — that fake
-  # spike would cross the hysteresis vy overrides right at the success moment,
-  # so a source switch reads as vy 0.
-  defp capsule_velocity(observations) when length(observations) < 2, do: 0.0
-
+  # The capsule's velocity (track/s) — the lab read this from the simulator's
+  # physics; the real pipeline estimates it from readings. Two protections:
+  # only the trailing run of SAME-SOURCE readings counts (a blue<->occlusion
+  # source flip jumps by the centroid offset, not real motion — that fake spike
+  # crossed the hysteresis overrides right at the success moment), and up to 3
+  # readings blend 2:1 toward the newest pair (single-pair estimates were too
+  # noisy from row quantization, feeding the overshoot Lucas saw live).
   defp capsule_velocity(observations) do
-    [older, newer] = Enum.take(observations, -2)
+    case observations |> trailing_same_source() |> Enum.take(-3) do
+      run when length(run) < 2 ->
+        0.0
 
-    if older.source != newer.source do
-      0.0
-    else
-      elapsed = max(newer.at - older.at, 16)
-      (newer.y - older.y) / elapsed * 1000
+      [older, newer] ->
+        capsule_pair_velocity(older, newer)
+
+      [first, second, third] ->
+        (capsule_pair_velocity(second, third) * 2 + capsule_pair_velocity(first, second)) / 3
     end
+  end
+
+  defp trailing_same_source([]), do: []
+
+  defp trailing_same_source(observations) do
+    source = List.last(observations).source
+
+    observations
+    |> Enum.reverse()
+    |> Enum.take_while(&(&1.source == source))
+    |> Enum.reverse()
+  end
+
+  defp capsule_pair_velocity(older, newer) do
+    elapsed = max(newer.at - older.at, 16)
+    (newer.y - older.y) / elapsed * 1000
   end
 
   defp actuate(%{play: %{holding?: desired}} = state, desired, _now), do: state

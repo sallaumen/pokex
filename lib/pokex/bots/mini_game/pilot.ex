@@ -10,8 +10,14 @@ defmodule Pokex.Bots.MiniGame.Pilot do
 
   observations: accepted vision readings, oldest -> newest (caller caps the
     length): [%{y: 0..1, at: ms}] — `at` is the CAPTURE timestamp.
-  bar: %{y: 0..1, vy: track/s (caller-estimated), pressing: boolean}
-  config: %{pilot: :reactive | :predictive, deadband_pct: float}
+  bar: %{y: 0..1, vy: track/s (caller-estimated), pressing: boolean} plus an
+    optional :at (capture timestamp): when present, the bar is extrapolated to
+    decision time + the actuation delay before judging the error — deciding on
+    the stale bar position is what made the real capsule overshoot up/down
+    past a near-stable fish (the sim handed the EXACT bar position; reality
+    hands one ~100-300ms old, and the command takes ~90ms more to land).
+  config: %{pilot: :reactive | :predictive, deadband_pct: float} plus an
+    optional :actuation_ms (hold/release command landing time).
   returns %{desired: boolean, target_y: float | nil, age_ms: integer | nil}
   """
 
@@ -35,14 +41,24 @@ defmodule Pokex.Bots.MiniGame.Pilot do
       # Stale fail-safe (both pilots): never chase a ghost.
       %{desired: false, target_y: target_y, age_ms: age_ms}
     else
-      %{desired: desired?(config, bar, target_y), target_y: target_y, age_ms: age_ms}
+      %{desired: desired?(config, bar, target_y, now), target_y: target_y, age_ms: age_ms}
     end
   end
 
-  # Shared actuation rule — the lab hysteresis verbatim. Positive error = bar
-  # below the target (y grows downward; holding Space raises the bar).
-  defp desired?(config, bar, target_y) do
-    error = bar.y - target_y
+  # Shared actuation rule — the lab hysteresis, judged at the position the bar
+  # WILL occupy when the command lands (reading age + actuation delay). Positive
+  # error = bar below the target (y grows downward; holding Space raises the bar).
+  defp desired?(config, bar, target_y, now) do
+    bar_age_s =
+      case Map.get(bar, :at) do
+        nil -> 0.0
+        at -> (now - at) / 1000
+      end
+
+    horizon_s = bar_age_s + Map.get(config, :actuation_ms, 0) / 1000
+    predicted_bar = clamp(bar.y + bar.vy * horizon_s, 0.0, 1.0)
+
+    error = predicted_bar - target_y
     deadband = config.deadband_pct
 
     cond do

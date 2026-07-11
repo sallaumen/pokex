@@ -31,8 +31,12 @@ defmodule Pokex.Bots.MiniGame.Worker do
     holding?: false,
     last_toggle_at: nil,
     strip: nil,
-    bar_width: 14
+    bar_width: 14,
+    trace: []
   }
+  # Per-game telemetry cap: at the 80ms tick this is ~5min of play — no real
+  # game lasts that long, but a stuck one must not grow memory unbounded.
+  @trace_cap 4000
   # Half-width (screen points) of the playing-time capture strip around the
   # bar: wide enough for the track + the fish poking past it, and ~8x cheaper
   # to capture and scan than the whole arena.
@@ -296,6 +300,8 @@ defmodule Pokex.Bots.MiniGame.Worker do
     paused_peers = state.paused_peers
     if paused_peers != [], do: resume_peers_async(state, paused_peers)
 
+    dump_trace(state)
+
     state =
       state
       |> force_release()
@@ -305,6 +311,42 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
     broadcast_log(:macro, "mini game saiu — retomando #{peer_label(paused_peers)}")
     {state, :left}
+  end
+
+  # Per-game telemetry: everything needed to FIT the real bar physics offline
+  # (rise/fall acceleration, terminal speeds, true actuation latency) instead
+  # of guessing the braking constants. One JSON per game under ~/.pokex/exports.
+  defp record_trace(state, sample) do
+    trace = state.play.trace
+
+    if length(trace) >= @trace_cap,
+      do: state,
+      else: %{state | play: %{state.play | trace: trace ++ [sample]}}
+  end
+
+  defp dump_trace(%{play: %{trace: trace}}) when length(trace) < 5, do: :ok
+
+  defp dump_trace(%{play: %{trace: trace}}) do
+    dir = Path.join(Pokex.Home.dir(), "exports")
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "mini_game_trace-#{System.os_time(:millisecond)}.json")
+
+    payload = %{
+      settings: %{
+        play_tick_ms: Settings.get(:mini_game_play_tick_ms),
+        deadband_pct: Settings.get(:mini_game_deadband_pct),
+        actuation_ms: actuation_ms(),
+        brake_up: Settings.get(:mini_game_brake_up),
+        brake_down: Settings.get(:mini_game_brake_down),
+        native_keys: Rig.Mac.KeyEvents.status() == :ready
+      },
+      samples: trace
+    }
+
+    File.write!(path, JSON.encode!(payload))
+    broadcast_log(:macro, "trace do mini game salvo (#{length(trace)} ticks): #{path}")
+  rescue
+    error -> Logger.warning("mini-game trace dump failed: #{inspect(error)}")
   end
 
   # --- playing ---------------------------------------------------------------
@@ -327,7 +369,8 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
     case Capture.frame(strip, "mini_game_strip.png") do
       {:ok, frame} ->
-        play_frame(state, frame, strip, captured_at)
+        capture_ms = System.monotonic_time(:millisecond) - captured_at
+        play_frame(state, frame, strip, captured_at, capture_ms)
 
       {:error, reason} ->
         # A blind tick must not leave Space held.
@@ -336,7 +379,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
     end
   end
 
-  defp play_frame(state, frame, {_sx, _sy, sw, _sh}, captured_at) do
+  defp play_frame(state, frame, {_sx, _sy, sw, _sh}, captured_at, capture_ms) do
     # The bar sits at the strip's center; scale point-geometry to frame px.
     track_bar = %{x: round(@strip_half_pt * frame.width / sw), width: state.play.bar_width}
 
@@ -372,7 +415,20 @@ defmodule Pokex.Bots.MiniGame.Worker do
           )
 
         state = %{state | play: %{play | fish: fish, capsule: capsule}, absent_streak: 0}
-        {actuate(state, decision.desired, now), nil}
+        state = actuate(state, decision.desired, now)
+
+        sample = %{
+          t: captured_at,
+          cap_ms: capture_ms,
+          fish: Float.round(fish_y, 4),
+          bar: Float.round(bar_y, 4),
+          src: bar_source,
+          target: decision.target_y && Float.round(decision.target_y, 4),
+          desired: decision.desired,
+          hold: state.play.holding?
+        }
+
+        {record_trace(state, sample), nil}
 
       {:error, :no_fish} ->
         # Track still there, fish unreadable this frame: blind ticks fail SAFE

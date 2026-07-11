@@ -265,6 +265,31 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "leaving the game dumps a physics trace to exports", %{tmp: tmp} do
+    game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+    calm = png!(tmp, "calm.png", false)
+
+    # several play ticks (trace needs >= 5 samples), then the overlay vanishes
+    captures = List.duplicate({:ok, game}, 8) ++ [{:ok, calm}]
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: captures})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :watching, transition: :left}}, 2_000
+
+    assert [path] = Path.wildcard(Path.join([tmp, "exports", "mini_game_trace-*.json"]))
+
+    assert %{"settings" => settings, "samples" => samples} =
+             path |> File.read!() |> JSON.decode!()
+
+    assert length(samples) >= 5
+    assert is_number(settings["brake_up"])
+    assert Enum.all?(samples, &(is_number(&1["fish"]) and is_number(&1["bar"])))
+  end
+
+  @tag :tmp_dir
   test "halt while holding releases Space", %{tmp: tmp} do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
 

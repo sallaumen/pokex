@@ -233,6 +233,12 @@ defmodule Pokex.Settings do
     # floors so even a washed/dark fill tone still registers. See Vision.hp_fill_pct/2.
     pokemon_hp_min_brightness: 45,
     pokemon_hp_min_saturation: 30,
+    # The HP bar's tips are ROUNDED: the last few columns of the calibrated box never hold a
+    # coloured pixel even at genuinely full health, so the raw column-fill tops out below 100
+    # (Lucas's bar plateaus at 95). Raw readings are rescaled so this value displays — and
+    # gates — as 100%. Lower it if a recalibrated tighter box still plateaus below 100; set
+    # 100 to disable the correction.
+    pokemon_hp_full_at_pct: 95,
     # --- Potion: cheap top-up so the expensive revive rarely fires ------------------------------
     # Below pokemon_hp_potion_pct AND out of combat (the heal channel is interrupted by entering a
     # fight, so an in-combat potion is a wasted potion), press potion_key — the game applies it to

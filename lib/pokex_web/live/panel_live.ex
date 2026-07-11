@@ -17,8 +17,7 @@ defmodule PokexWeb.PanelLive do
     {"Ciclos", :cycles, "hero-arrow-path"},
     {"Fisgadas", :hooked, "hero-sparkles"},
     {"Lutas", :fights, "hero-bolt"},
-    {"Capturas", :captures, "hero-check-badge"},
-    {"Falhas", :failures, "hero-exclamation-triangle"}
+    {"Capturas", :captures, "hero-check-badge"}
   ]
 
   @idle_fishing %{state: :idle, counters: %{}, error: nil}
@@ -830,23 +829,6 @@ defmodule PokexWeb.PanelLive do
             <.link navigate={~p"/calibration"} class="font-semibold text-[#37d07d]">Calibrar</.link>
           </div>
 
-          <button
-            :if={not overall_active?(@fishing, @combat)}
-            id="start-bot"
-            class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#39cd76] text-sm font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
-            phx-click="start"
-          >
-            <.icon name="hero-play-solid" class="size-4" /> Iniciar bot
-          </button>
-          <button
-            :if={overall_active?(@fishing, @combat)}
-            id="stop-bot"
-            class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#703136] bg-[#281114] text-sm font-bold text-[#ff9ca4] transition hover:bg-[#35171b] active:scale-[0.99]"
-            phx-click="stop"
-          >
-            <.icon name="hero-stop-solid" class="size-4" /> Parar bot
-          </button>
-
           <div class="grid grid-cols-2 gap-2">
             <div
               data-testid="fishing-pill"
@@ -962,9 +944,32 @@ defmodule PokexWeb.PanelLive do
             </ul>
           </div>
 
-          <section>
-            <div class="mb-2 flex items-center justify-between px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-              <h2>Automações</h2>
+          <button
+            :if={not overall_active?(@fishing, @combat)}
+            id="start-bot"
+            class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#39cd76] text-sm font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
+            phx-click="start"
+          >
+            <.icon name="hero-play-solid" class="size-4" /> Iniciar bot
+          </button>
+          <button
+            :if={overall_active?(@fishing, @combat)}
+            id="stop-bot"
+            class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#703136] bg-[#281114] text-sm font-bold text-[#ff9ca4] transition hover:bg-[#35171b] active:scale-[0.99]"
+            phx-click="stop"
+          >
+            <.icon name="hero-stop-solid" class="size-4" /> Parar bot
+          </button>
+
+          <details id="automations-panel" open class="group">
+            <summary class="mb-2 flex cursor-pointer list-none items-center justify-between px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b] transition hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
+              <h2 class="flex items-center gap-1.5">
+                Automações
+                <.icon
+                  name="hero-chevron-down"
+                  class="size-3 text-[#68727a] transition group-open:rotate-180"
+                />
+              </h2>
               <span>{automation_count(
                 @fishing,
                 @combat,
@@ -974,7 +979,7 @@ defmodule PokexWeb.PanelLive do
                 @rescue_enabled,
                 @potion_enabled
               )}/6 on</span>
-            </div>
+            </summary>
             <div class="overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]">
               <.automation_row
                 id="automation-fishing"
@@ -1053,7 +1058,7 @@ defmodule PokexWeb.PanelLive do
                 event="toggle_potion"
               />
             </div>
-          </section>
+          </details>
 
           <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
             <div class="flex items-center justify-between text-xs font-semibold">
@@ -1130,22 +1135,57 @@ defmodule PokexWeb.PanelLive do
             >
               🧪 Usar poção agora
             </button>
+
+            <div class="mt-3 border-t border-[#222a2f] pt-2.5">
+              <div class="flex items-center justify-between">
+                <h3 class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                  Cooldowns das skills
+                </h3>
+                <button
+                  class="flex h-6 items-center gap-1 rounded-md border border-[#293238] px-2 font-mono text-[9px] text-[#89939a] transition hover:text-white"
+                  phx-click="read_cooldowns"
+                >
+                  <.icon name="hero-arrow-path" class="size-2.5" /> Ler
+                </button>
+              </div>
+              <div class="mt-1.5 flex flex-wrap gap-1.5">
+                <span
+                  :for={
+                    {state, key} <-
+                      Enum.zip(
+                        @cooldowns_states || [],
+                        SkillBar.keys(length(@cooldowns_states || []))
+                      )
+                  }
+                  class={[
+                    "grid size-8 place-items-center rounded-md border font-mono text-[11px] font-bold",
+                    if(state == :ready,
+                      do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
+                      else: "border-[#313a40] bg-[#171c20] text-[#626c74]"
+                    )
+                  ]}
+                >{key}</span>
+                <span :if={is_nil(@cooldowns_states)} class="py-1.5 text-[10px] text-[#69737b]">
+                  Clique em Ler para verificar a barra calibrada.
+                </span>
+              </div>
+            </div>
           </section>
 
           <section>
             <h2 class="mb-2 px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
               Sessão
             </h2>
-            <div class="grid grid-cols-3 gap-2">
+            <div class="grid grid-cols-4 gap-1.5">
               <div
                 :for={{label, key, _icon} <- counters()}
                 id={"counter-#{key}"}
-                class="rounded-lg border border-[#232b30] bg-[#111519] px-2 py-3 text-center"
+                class="rounded-lg border border-[#232b30] bg-[#111519] px-1 py-2 text-center"
               >
-                <div class="text-xl font-bold tabular-nums text-[#dce1e4]">
+                <div class="text-base font-bold tabular-nums leading-tight text-[#dce1e4]">
                   {Map.get(merged_counters(@fishing, @combat, @catcher), key, 0)}
                 </div>
-                <div class="mt-1 font-mono text-[9px] uppercase tracking-[0.1em] text-[#758089]">
+                <div class="mt-0.5 truncate font-mono text-[8px] uppercase tracking-[0.08em] text-[#758089]">
                   {label}
                 </div>
               </div>
@@ -1173,7 +1213,7 @@ defmodule PokexWeb.PanelLive do
             </p>
             <div
               id="activity-feed"
-              class="h-32 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed text-[#9aa3aa]"
+              class="h-64 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed text-[#9aa3aa]"
             >
               <p :if={visible_logs(@logs, @show_debug) == []} class="max-w-[300px] text-[#59636b]">
                 a atividade aparece aqui quando o bot roda<br />(marque "debug" pra ver cada tick)
@@ -1211,34 +1251,6 @@ defmodule PokexWeb.PanelLive do
             </summary>
             <div class="space-y-5 border-t border-[#232b30] p-3">
               <section>
-                <div class="flex items-center justify-between">
-                  <h3 class="text-xs font-semibold">Cooldowns das skills</h3><button
-                    class="flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
-                    phx-click="read_cooldowns"
-                  ><.icon name="hero-arrow-path" class="size-3" /> Ler</button>
-                </div>
-                <div class="mt-2 flex flex-wrap gap-2">
-                  <span
-                    :for={
-                      {state, key} <-
-                        Enum.zip(
-                          @cooldowns_states || [],
-                          SkillBar.keys(length(@cooldowns_states || []))
-                        )
-                    }
-                    class={[
-                      "grid size-9 place-items-center rounded-md border font-mono text-xs font-bold",
-                      if(state == :ready,
-                        do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
-                        else: "border-[#313a40] bg-[#171c20] text-[#626c74]"
-                      )
-                    ]}
-                  >{key}</span>
-                  <span :if={is_nil(@cooldowns_states)} class="py-2 text-[10px] text-[#69737b]">Clique em Ler para verificar a barra calibrada.</span>
-                </div>
-              </section>
-
-              <section class="border-t border-[#232b30] pt-4">
                 <div class="flex items-center justify-between">
                   <h3 class="text-xs font-semibold">Captura de tela</h3><button
                     class="flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"

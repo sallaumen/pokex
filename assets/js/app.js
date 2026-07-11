@@ -50,11 +50,13 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {...colocatedHooks, ImgClick, FishingLab},
   dom: {
     // <details> open state lives only in the browser; without this, every LiveView
-    // patch (e.g. each HP-monitor broadcast) re-renders the closed server HTML and
-    // instantly collapses whatever the user just opened.
+    // patch (e.g. each HP-monitor broadcast) re-renders the server HTML and stomps
+    // whatever the user just toggled. Mirror BOTH states: a default-closed section
+    // stays open after the user opens it, and a default-open one stays closed.
     onBeforeElUpdated(from, to) {
-      if (from.tagName === "DETAILS" && from.hasAttribute("open")) {
-        to.setAttribute("open", "")
+      if (from.tagName === "DETAILS") {
+        if (from.hasAttribute("open")) to.setAttribute("open", "")
+        else to.removeAttribute("open")
       }
     },
   },

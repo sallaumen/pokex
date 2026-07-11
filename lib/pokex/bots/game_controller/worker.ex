@@ -115,14 +115,29 @@ defmodule Pokex.Bots.GameController.Worker do
     region = Calibration.pokemon_hp_region(calib)
 
     with {:ok, frame} <- Capture.frame(region, "pokemon_hp.png") do
-      {:ok,
-       Vision.hp_fill_pct(frame,
-         min_brightness: Settings.get(:pokemon_hp_min_brightness),
-         min_saturation: Settings.get(:pokemon_hp_min_saturation)
-       )}
+      raw =
+        Vision.hp_fill_pct(frame,
+          min_brightness: Settings.get(:pokemon_hp_min_brightness),
+          min_saturation: Settings.get(:pokemon_hp_min_saturation)
+        )
+
+      {:ok, normalize_hp(raw)}
     end
   catch
     kind, reason -> {:error, {kind, reason}}
+  end
+
+  # The bar's rounded tips eat the last columns of the box, so the raw fill plateaus below
+  # 100 at genuinely full health (Lucas's: 95). Rescale so "full raw" reads — and gates — as
+  # 100%; everything below scales proportionally.
+  defp normalize_hp(raw) do
+    case Settings.get(:pokemon_hp_full_at_pct) do
+      full when is_integer(full) and full > 0 and full < 100 ->
+        min(100, round(raw * 100 / full))
+
+      _ ->
+        raw
+    end
   end
 
   defp act(state, calib) do

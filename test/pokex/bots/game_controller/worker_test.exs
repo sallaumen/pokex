@@ -95,6 +95,23 @@ defmodule Pokex.Bots.GameController.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "the rounded bar tip is corrected: raw 95% reads as a genuinely FULL 100%", %{
+    tmp: tmp,
+    body: body
+  } do
+    # 19 of 20 columns filled = raw 95 — exactly what Lucas's real full bar reads, because
+    # the bar's rounded tip never paints the last columns of the box.
+    nearly = hp_png(tmp, "nearly.png", 19)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, nearly}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, _priority, _actions}, 200
+    assert Worker.status(worker).hp_pct == 100
+  end
+
+  @tag :tmp_dir
   test "fires the survival combo at :critical when HP is below the threshold", %{
     tmp: tmp,
     body: body

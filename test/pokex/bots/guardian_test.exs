@@ -151,4 +151,81 @@ defmodule Pokex.Bots.GuardianTest do
     assert state.poll_ms == 100
     assert state.body == Pokex.Bots.Body
   end
+
+  describe "stop conditions (metas de sessão)" do
+    setup do
+      on_exit(fn ->
+        Pokex.Perception.WorldState.forget(:session)
+        Pokex.Settings.put(:stop_after_minutes, 0)
+        Pokex.Settings.put(:stop_after_kills, 0)
+      end)
+
+      :ok
+    end
+
+    defp active_session!(age_ms) do
+      at = System.monotonic_time(:millisecond)
+      Pokex.Perception.WorldState.put(:session, %{started_at: at - age_ms}, at)
+    end
+
+    test "meta de kills atingida para a frota e broadcasta {:session_stop, _}", %{
+      on_panic: on_panic
+    } do
+      active_session!(0)
+      Pokex.Settings.put(:stop_after_kills, 2)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+      {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
+
+      {:ok, guardian} =
+        Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+      # kills ride the snapshots combat already broadcasts
+      send(guardian, {:combat, %{state: :hunting, counters: %{fights: 2}, error: nil}})
+
+      assert_receive :panicked, 1_000
+      assert_receive {:session_stop, reason}, 1_000
+      assert reason =~ "meta de kills atingida (2/2)"
+    end
+
+    test "limite de tempo da sessão para a frota", %{on_panic: on_panic} do
+      active_session!(61_000)
+      Pokex.Settings.put(:stop_after_minutes, 1)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+      {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
+      {:ok, _} = Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+      assert_receive :panicked, 1_000
+      assert_receive {:session_stop, reason}, 1_000
+      assert reason =~ "tempo de caçada atingido (1min)"
+    end
+
+    test "sem sessão ativa, limites configurados não disparam nada", %{on_panic: on_panic} do
+      Pokex.Settings.put(:stop_after_kills, 1)
+      Pokex.Settings.put(:stop_after_minutes, 1)
+
+      {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
+
+      {:ok, guardian} =
+        Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+      send(guardian, {:combat, %{state: :hunting, counters: %{fights: 99}, error: nil}})
+
+      refute_receive :panicked, 150
+    end
+
+    test "sessão ativa com limites em 0 (desligados) nunca para", %{on_panic: on_panic} do
+      active_session!(3_600_000)
+
+      {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
+
+      {:ok, guardian} =
+        Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+      send(guardian, {:combat, %{state: :hunting, counters: %{fights: 99}, error: nil}})
+
+      refute_receive :panicked, 150
+    end
+  end
 end

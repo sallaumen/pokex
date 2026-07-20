@@ -231,6 +231,11 @@ defmodule Pokex.Settings do
     # turn the panel into a siren. Muting stops the push entirely.
     alarm_sound: true,
     alarm_min_gap_ms: 30_000,
+    # Stop conditions (hunt goals): the Guardian halts the WHOLE fleet — with
+    # the same latch as the panic corner, so nothing auto-resumes until Iniciar
+    # — when the running session crosses a limit. 0 = condition off.
+    stop_after_minutes: 0,
+    stop_after_kills: 0,
     # Max age of the :mini_game WorldState fact before readers treat it as unknown
     # (= not playing, fail-open). The worker republishes every tick (80-150ms), so
     # 2s only trips when the worker is dead or a capture is badly stuck — exactly

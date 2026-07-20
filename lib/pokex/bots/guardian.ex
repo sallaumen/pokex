@@ -6,6 +6,17 @@ defmodule Pokex.Bots.Guardian do
   once via `on_panic` and broadcasts `{:panic, "kill corner"}` on both the
   "fishing" and "combat" PubSub topics.
 
+  ALSO the watchdog for the session STOP CONDITIONS (hunt goals): the same
+  poll checks the `:session` fact against `stop_after_minutes` /
+  `stop_after_kills` (kills ride the combat snapshots this process
+  subscribes to). A hit halts the fleet through the SAME latch + on_panic
+  path as the corner — a reached goal is a standing order to stay stopped
+  until the human presses Iniciar — but broadcasts `{:session_stop, reason}`
+  instead of `{:panic, _}`, so the panel reports a met goal, not an
+  emergency. Being external to every worker, the stop can never deadlock on
+  a worker halting itself; and since `on_panic` (stop_all) forgets the
+  `:session` fact, a fired condition cannot re-fire.
+
   `on_panic` is injected (not a hard dependency on the bot supervisor) so
   this module doesn't need to know about `BotSupervisor` — callers pass e.g.
   `&BotSupervisor.stop_all/0`.
@@ -29,9 +40,14 @@ defmodule Pokex.Bots.Guardian do
   require Logger
 
   alias Pokex.Bots.{Body, Corner, InputGate}
+  alias Pokex.Perception.WorldState
+  alias Pokex.Settings
 
   @fishing_topic "fishing"
   @combat_topic "combat"
+
+  # same practically-forever max age the :calibration/:session stamps use
+  @session_max_age_ms 4_000_000_000
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -39,7 +55,7 @@ defmodule Pokex.Bots.Guardian do
     body = Keyword.get(opts, :body, Body)
     poll_ms = Keyword.get(opts, :poll_ms, 100)
 
-    state = %{on_panic: on_panic, body: body, poll_ms: poll_ms}
+    state = %{on_panic: on_panic, body: body, poll_ms: poll_ms, fights: 0}
 
     case name do
       nil -> GenServer.start_link(__MODULE__, state)
@@ -49,6 +65,8 @@ defmodule Pokex.Bots.Guardian do
 
   @impl true
   def init(state) do
+    # kills for the stop condition ride the snapshots combat already broadcasts
+    Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
     schedule_poll(state.poll_ms)
     {:ok, state}
   end
@@ -68,9 +86,18 @@ defmodule Pokex.Bots.Guardian do
         :ok
     end
 
+    check_session_limits(state)
     schedule_poll(state.poll_ms)
     {:noreply, state}
   end
+
+  def handle_info({:combat, snapshot}, state) do
+    fights = get_in(snapshot, [:counters, :fights])
+    {:noreply, %{state | fights: fights || state.fights}}
+  end
+
+  # the combat topic also carries {:combat_log, ...} / {:panic, ...} chatter — not ours
+  def handle_info(_msg, state), do: {:noreply, state}
 
   defp panic(state) do
     # LATCH FIRST, halt second: the latch is what forbids every auto-resume path (the Focus
@@ -80,6 +107,41 @@ defmodule Pokex.Bots.Guardian do
     state.on_panic.()
     Phoenix.PubSub.broadcast(Pokex.PubSub, @fishing_topic, {:panic, "kill corner"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:panic, "kill corner"})
+  end
+
+  # No running session (no fact) = nothing to measure; 0 = condition off.
+  # A fired stop halts the fleet, which forgets :session — self-disarming.
+  defp check_session_limits(state) do
+    now = System.monotonic_time(:millisecond)
+
+    case WorldState.get(:session, @session_max_age_ms, now) do
+      {:ok, %{started_at: started_at}} ->
+        minutes = Settings.get(:stop_after_minutes)
+        kills = Settings.get(:stop_after_kills)
+
+        cond do
+          is_integer(minutes) and minutes > 0 and now - started_at >= minutes * 60_000 ->
+            session_stop(state, "tempo de caçada atingido (#{minutes}min)")
+
+          is_integer(kills) and kills > 0 and state.fights >= kills ->
+            session_stop(state, "meta de kills atingida (#{state.fights}/#{kills})")
+
+          true ->
+            :ok
+        end
+
+      _no_session ->
+        :ok
+    end
+  end
+
+  defp session_stop(state, reason) do
+    Logger.info("Guardian: parada por condição — #{reason}")
+    # same order as panic: latch first, halt second — nothing may auto-resume
+    # a finished hunt; only Iniciar clears it.
+    InputGate.set_panic_latch(true)
+    state.on_panic.()
+    Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:session_stop, reason})
   end
 
   defp schedule_poll(poll_ms), do: Process.send_after(self(), :poll, poll_ms)

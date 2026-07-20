@@ -59,6 +59,7 @@ defmodule Pokex.Bots.Combat.Worker do
        timer: nil,
        feed_ref: nil,
        reattach_attempts: 0,
+       held?: false,
        # the ONE in-flight key burst (nil when none): a new burst is SKIPPED while the previous
        # is still landing, instead of piling concurrent osascripts onto System Events
        burst_pid: nil
@@ -76,7 +77,7 @@ defmodule Pokex.Bots.Combat.Worker do
         demonitor_feed(state.feed_ref)
         ref = Process.monitor(Feed.name(:battle))
         broadcast(logic)
-        state = %{state | logic: logic, feed_ref: ref, reattach_attempts: 0}
+        state = %{state | logic: logic, feed_ref: ref, reattach_attempts: 0, held?: false}
         # step immediately against whatever the world already knows
         {:reply, :ok, advance(state, current_obs())}
 
@@ -96,7 +97,7 @@ defmodule Pokex.Bots.Combat.Worker do
     state = %{state | logic: logic}
     demonitor_feed(state.feed_ref)
     broadcast(logic)
-    {:reply, :ok, cancel_timer(%{state | feed_ref: nil, reattach_attempts: 0})}
+    {:reply, :ok, cancel_timer(%{state | feed_ref: nil, reattach_attempts: 0, held?: false})}
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state.logic), state}
@@ -171,8 +172,34 @@ defmodule Pokex.Bots.Combat.Worker do
     do: cancel_timer(state)
 
   defp advance(state, obs) do
+    cond do
+      Perception.mini_game_playing?() -> hold(state)
+      state.held? -> state |> resume_from_hold() |> step(current_obs())
+      true -> step(state, obs)
+    end
+  end
+
+  defp step(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())
     apply_step(state, logic, actions)
+  end
+
+  # Frozen while the mini-game plays: no steps, no bursts. Combat is
+  # event-driven and a static battle would never deliver the resume edge, so
+  # poll :wake while held (every :wake funnels back through advance/2).
+  @held_poll_ms 250
+  defp hold(state) do
+    state = cancel_timer(state)
+    %{state | held?: true, timer: Process.send_after(self(), :wake, @held_poll_ms)}
+  end
+
+  # The fight state frozen many seconds ago is garbage — restart the machine,
+  # exactly what the old external halt+run pair produced.
+  defp resume_from_hold(state) do
+    config = Settings.all() |> Map.take(@config_keys)
+    {logic, _actions} = Logic.start(Logic.new(config), now())
+    broadcast(logic)
+    %{state | logic: logic, held?: false}
   end
 
   defp apply_step(state, logic, actions) do

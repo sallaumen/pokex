@@ -191,8 +191,15 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # The mode gate lives HERE, not only in attach/detach: a late in-flight {:world,...} event
   # (or a test-injected one) right after flipping to movimento must never throw a ball.
+  # The mini-game gate comes first: no admissions, throws or confirms while it
+  # plays. The catcher is event-driven — the next corpse/kill/combat event after
+  # the fact clears resumes the flow on its own.
   defp advance(state, obs) do
-    if Settings.get(:player_mode) == "parado", do: do_advance(state, obs), else: state
+    cond do
+      Perception.mini_game_playing?() -> state
+      Settings.get(:player_mode) == "parado" -> do_advance(state, obs)
+      true -> state
+    end
   end
 
   # A fight is on: everything reaching here is contaminated by the live enemy sprite
@@ -228,7 +235,10 @@ defmodule Pokex.Bots.Catcher.Worker do
   # of this cycle (the ball additionally waits on detector confirmation, ≥800ms later — and
   # the ball consumes the corpse WITH its loot, so the order is load-bearing).
   defp loot_kill(state) do
-    if Settings.get(:player_mode) == "parado" and Settings.get(:loot_enabled) do
+    # Space is the MINI-GAME's control key: looting mid-game would drive the
+    # capsule (the Body gate also blocks it — this keeps the log honest too).
+    if not Perception.mini_game_playing?() and
+         Settings.get(:player_mode) == "parado" and Settings.get(:loot_enabled) do
       presses = max(Settings.get(:loot_presses), 1)
       gap = Settings.get(:loot_press_gap_ms)
 

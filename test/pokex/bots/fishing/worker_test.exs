@@ -64,6 +64,7 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   alias Pokex.Bots.Fishing.Worker
   alias Pokex.Bots.Fisher.Sensors
   alias Pokex.Bots.Fishing.WorkerTest.SlowRig
+  alias Pokex.Perception.WorldState
   alias Pokex.{Calibration, Settings}
 
   @fast %{
@@ -140,6 +141,55 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     assert :ok = Worker.halt(worker)
     assert Worker.status(worker).state == :idle
+  end
+
+  @tag :tmp_dir
+  test "holds itself while the :mini_game fact says playing, recasting fresh when it clears", %{
+    worker: worker
+  } do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
+
+    # the mini-game opens: the worker freezes itself — no sensing, no actions
+    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
+    on_exit(fn -> WorldState.forget(:mini_game) end)
+
+    # let in-flight ticks/Body sequences land, then the Rig must go quiet
+    # ({:cursor_position} excluded: the app-global Guardian polls the panic
+    # corner against this same shared Rig.Fake on its own timer)
+    input_calls = fn ->
+      Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    end
+
+    Process.sleep(150)
+    frozen = length(input_calls.())
+    Process.sleep(300)
+    assert length(input_calls.()) == frozen
+
+    # game over: the worker restarts the cast cycle fresh on its own —
+    # the focus click on the neutral point runs AGAIN (same as the old halt+run)
+    focus_clicks = fn ->
+      Enum.count(Pokex.Rig.Fake.calls(), &(&1 == {:click, :left, {420, 350}}))
+    end
+
+    before = focus_clicks.()
+    WorldState.forget(:mini_game)
+    assert hold_eventually(fn -> focus_clicks.() > before end)
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
+
+  defp hold_eventually(fun, timeout \\ 2_000),
+    do: hold_poll(fun, System.monotonic_time(:millisecond) + timeout)
+
+  defp hold_poll(fun, deadline) do
+    cond do
+      fun.() -> true
+      System.monotonic_time(:millisecond) > deadline -> false
+      true -> Process.sleep(20) && hold_poll(fun, deadline)
+    end
   end
 
   @tag :tmp_dir

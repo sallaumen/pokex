@@ -17,7 +17,7 @@ defmodule Pokex.Bots.Fishing.Worker do
   alias Pokex.Bots.Fishing.Logic
   alias Pokex.Bots.Fisher.{Config, Sensors}
   alias Pokex.Bots.Body
-  alias Pokex.{Calibration, Preflight, Settings}
+  alias Pokex.{Calibration, Perception, Preflight, Settings}
 
   @topic "fishing"
 
@@ -38,7 +38,7 @@ defmodule Pokex.Bots.Fishing.Worker do
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
   @impl true
-  def init(body), do: {:ok, %{logic: nil, calib: nil, body: body, timer: nil}}
+  def init(body), do: {:ok, %{logic: nil, calib: nil, body: body, timer: nil, held?: false}}
 
   @impl true
   def handle_call(:run, _from, state) do
@@ -48,7 +48,7 @@ defmodule Pokex.Bots.Fishing.Worker do
       {logic, actions} = Logic.start(Logic.new(config), now())
       submit(state.body, actions, humanize_max_for(logic))
       broadcast(logic)
-      {:reply, :ok, %{state | logic: logic, calib: calib} |> reschedule(0)}
+      {:reply, :ok, %{state | logic: logic, calib: calib, held?: false} |> reschedule(0)}
     else
       {:error, messages} when is_list(messages) -> {:reply, {:error, messages}, state}
       {:error, other} -> {:reply, {:error, ["calibração ilegível: #{inspect(other)}"]}, state}
@@ -60,7 +60,7 @@ defmodule Pokex.Bots.Fishing.Worker do
   def handle_call(:halt, _from, state) do
     {logic, _actions} = Logic.stop(state.logic)
     broadcast(logic)
-    {:reply, :ok, %{cancel_timer(state) | logic: logic}}
+    {:reply, :ok, %{cancel_timer(state) | logic: logic, held?: false}}
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state.logic), state}
@@ -74,15 +74,36 @@ defmodule Pokex.Bots.Fishing.Worker do
   def handle_info(:tick, state) do
     previous = state.logic
 
-    # In a post-action pause there's nothing to sense — skip the capture (so
-    # the kill corner isn't polled THIS tick either; Fishing.Logic.step/3 is
-    # what checks it, on every active tick once sensing resumes) and just
-    # wait out the pause.
-    if Logic.waiting?(previous, now()) do
-      {:noreply, reschedule(state, Logic.tick_interval(previous))}
-    else
-      run_tick(state, previous)
+    cond do
+      # The mini-game is being played: freeze this cycle (no sensing, no
+      # actions) and keep polling the fact. Nobody halts us from outside.
+      Perception.mini_game_playing?() ->
+        {:noreply, reschedule(%{state | held?: true}, Logic.tick_interval(previous))}
+
+      # Resume edge: the fight for the rod is over. The frozen mid-cycle state
+      # (a glow watched 30s ago, a cast mid-settle) is garbage — restart the
+      # cast cycle fresh, exactly what the old external halt+run pair produced.
+      state.held? ->
+        {:noreply, resume_from_hold(state)}
+
+      # In a post-action pause there's nothing to sense — skip the capture (so
+      # the kill corner isn't polled THIS tick either; Fishing.Logic.step/3 is
+      # what checks it, on every active tick once sensing resumes) and just
+      # wait out the pause.
+      Logic.waiting?(previous, now()) ->
+        {:noreply, reschedule(state, Logic.tick_interval(previous))}
+
+      true ->
+        run_tick(state, previous)
     end
+  end
+
+  defp resume_from_hold(state) do
+    config = Config.build(state.calib, Settings.all())
+    {logic, actions} = Logic.start(Logic.new(config), now())
+    submit(state.body, actions, humanize_max_for(logic))
+    broadcast(logic)
+    %{state | logic: logic, held?: false} |> reschedule(0)
   end
 
   defp run_tick(state, previous) do

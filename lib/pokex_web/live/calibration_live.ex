@@ -458,13 +458,15 @@ defmodule PokexWeb.CalibrationLive do
   # Per-slot READY references, cropped from the SAME screenshot the user just marked the bar
   # on (no extra capture, exact same instant): each slot's non-white colour signature becomes
   # its "this is what ready looks like" baseline for SkillBar. The wizard copy tells the user
-  # to calibrate with every skill ready. nil (refs are optional) when the crop fails — the
-  # reader then falls back to the threshold rules.
+  # to calibrate with every skill ready — but SkillBar.slot_refs drops any slot that LOOKS
+  # like a countdown anyway (nil ref → threshold fallback), so one charging skill at
+  # calibration time can't poison its own slot into reading inverted forever. nil (refs are
+  # optional) when the crop fails — the reader then falls back to the threshold rules.
   defp skill_slot_refs(%{path: path, scale: scale}, {x, y, w, h}, count) do
     with {:ok, frame} <- Frame.from_png_file(path),
          crop = {round(x * scale), round(y * scale), round(w * scale), round(h * scale)},
          %Frame{} = bar <- Frame.crop(frame, crop) do
-      bar |> Vision.skill_slots(count: count) |> Enum.map(& &1.signature)
+      bar |> Vision.skill_slots(count: count) |> SkillBar.slot_refs(Settings.all())
     else
       _ -> nil
     end

@@ -45,6 +45,24 @@ defmodule Pokex.Bots.SkillBar do
   @doc "Whether a captured frame still resembles the calibrated skill bar."
   def valid_frame?(frame), do: Vision.skill_bar_frame?(frame)
 
+  @doc """
+  Per-slot READY references from a calibration-time read: each slot's non-white colour
+  signature — EXCEPT slots that look like they're counting down (`white_pct` at/over the
+  cooldown threshold), which get `nil` (→ threshold fallback) instead of a POISONED
+  reference. Calibrating with a skill mid-cooldown would otherwise store the dark panel
+  as "ready": every later cooldown then MATCHES the ref (distance ~0 → :ready) and the
+  true ready art mismatches — the reading inverts permanently for that slot.
+  """
+  def slot_refs(nil, _settings), do: nil
+
+  def slot_refs(slots, settings) do
+    min_white = settings[:skill_cooldown_min_white_pct] || 4
+
+    Enum.map(slots, fn slot ->
+      if slot.white_pct >= min_white, do: nil, else: slot.signature
+    end)
+  end
+
   @doc "Hotbar keys for `count` slots. PokeXGames labels slot 10 with `0`."
   def keys(count) when is_integer(count) and count > 0,
     do: for(index <- 0..(min(count, 10) - 1), do: key_for_index(index))

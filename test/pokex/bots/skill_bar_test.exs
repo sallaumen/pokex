@@ -119,4 +119,30 @@ defmodule Pokex.Bots.SkillBarTest do
     assert SkillBar.fit_order(["8", "6", "3", "1"], 5) == ["3", "1", "2", "4", "5"]
     assert List.last(SkillBar.fit_order(Enum.map(1..10, &to_string/1), 10)) == "0"
   end
+
+  describe "slot_refs/2 (calibration-time reference building)" do
+    @tag :tmp_dir
+    test "a slot that LOOKS like a countdown gets NO reference — a poisoned ref inverts" do
+      # Calibrating with a skill mid-cooldown would store the dark panel as "this is what
+      # ready looks like": every later cooldown then MATCHES the ref (distance ~0 → :ready)
+      # and the true ready art mismatches — the reading inverts permanently for that slot.
+      # A countdown glyph at calibration time (white_pct at/over the cooldown threshold)
+      # therefore yields nil (→ threshold fallback), never a reference.
+      slots = [
+        %{signature: {200, 200, 0}, white_pct: 1},
+        %{signature: {24, 35, 25}, white_pct: 11},
+        %{signature: nil, white_pct: 0}
+      ]
+
+      assert SkillBar.slot_refs(slots, %{skill_cooldown_min_white_pct: 4}) ==
+               [{200, 200, 0}, nil, nil]
+    end
+
+    @tag :tmp_dir
+    test "nil slots (no reading) and missing settings fail safe" do
+      assert SkillBar.slot_refs(nil, %{}) == nil
+
+      assert SkillBar.slot_refs([%{signature: {1, 2, 3}, white_pct: 5}], %{}) == [nil]
+    end
+  end
 end

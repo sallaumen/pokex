@@ -19,13 +19,7 @@ defmodule Pokex.Bots.MiniGame.TrackTest do
       end
     end
 
-    rgba =
-      for y <- 0..219, x <- 0..219, into: <<>> do
-        {r, g, b} = build.(x, y)
-        <<r, g, b, 255>>
-      end
-
-    %Frame{width: 220, height: 220, rgba: rgba}
+    Pokex.FrameFixtures.of(220, 220, build)
   end
 
   @bar %{x: 106, width: 13}

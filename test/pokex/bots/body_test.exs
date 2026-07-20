@@ -319,7 +319,9 @@ defmodule Pokex.Bots.BodyTest do
       )
 
     # the guard would halt a :normal sequence after the first input; a :critical one runs whole
-    assert :ok = Body.perform([{:press, "q"}, {:press, "shift+q"}, {:press, "q"}], :critical, body)
+    assert :ok =
+             Body.perform([{:press, "q"}, {:press, "shift+q"}, {:press, "q"}], :critical, body)
+
     refute_receive :mini_game_blocked, 100
 
     calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))

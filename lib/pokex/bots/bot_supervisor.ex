@@ -138,7 +138,23 @@ defmodule Pokex.Bots.BotSupervisor do
     if Application.get_env(:pokex, :player_support_auto_monitor, true),
       do: :ok = PlayerSupport.Worker.run(player_support)
 
-    start_all(fishing, combat, catcher, mini_game)
+    case start_all(fishing, combat, catcher, mini_game) do
+      :ok ->
+        # Stamp WHICH calibration this run loaded (workers read the file at run).
+        # The panel compares it against the file's current mtime: different =
+        # "os bots rodam uma calibração antiga" → the restart banner.
+        Pokex.Perception.WorldState.put(
+          :calibration,
+          %{loaded_mtime: Pokex.Calibration.mtime()},
+          System.monotonic_time(:millisecond)
+        )
+
+        :ok
+
+      {:error, _messages} = error ->
+        Pokex.Perception.WorldState.forget(:calibration)
+        error
+    end
   end
 
   def start_all do
@@ -182,6 +198,8 @@ defmodule Pokex.Bots.BotSupervisor do
   def stop_all(fishing, combat, catcher, mini_game, player_support) do
     stop_all(fishing, combat, catcher, mini_game)
     PlayerSupport.Worker.halt(player_support)
+    # nothing is running an old calibration anymore — the banner has no meaning
+    Pokex.Perception.WorldState.forget(:calibration)
     :ok
   end
 

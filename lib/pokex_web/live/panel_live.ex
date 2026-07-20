@@ -71,6 +71,7 @@ defmodule PokexWeb.PanelLive do
        game: status.player_support,
        errors: [],
        calibrated?: Calibration.exists?(),
+       calib_stale?: calib_stale?(),
        threshold: Settings.get(:glow_threshold),
        mini_game_sound: Settings.get(:mini_game_sound),
        player_mode: Settings.get(:player_mode),
@@ -103,6 +104,41 @@ defmodule PokexWeb.PanelLive do
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " ")
      )}
+  end
+
+  defp start_bots(socket) do
+    case BotSupervisor.start_all() do
+      :ok ->
+        status = BotSupervisor.status()
+
+        assign(socket,
+          errors: [],
+          logs: [],
+          panicked?: false,
+          calib_stale?: calib_stale?(),
+          fishing: status.fishing,
+          combat: status.combat,
+          catcher: status.catcher,
+          mini_game: status.mini_game,
+          game: status.player_support
+        )
+
+      {:error, messages} ->
+        assign(socket, errors: messages, calib_stale?: calib_stale?())
+    end
+  end
+
+  # The workers load the calibration at Start; edits after that (a quick fix, an
+  # applied profile) do NOTHING until Parar/Iniciar — a trap that already cost two
+  # live test sessions. Compare the file's mtime with the one stamped at the last
+  # start: different = the bots are flying an old calibration.
+  defp calib_stale? do
+    now = System.monotonic_time(:millisecond)
+
+    case Pokex.Perception.WorldState.get(:calibration, 4_000_000_000, now) do
+      {:ok, %{loaded_mtime: loaded}} -> loaded != Calibration.mtime()
+      _not_started -> false
+    end
   end
 
   defp timing_settings do
@@ -183,7 +219,7 @@ defmodule PokexWeb.PanelLive do
         else: socket
 
     Process.send_after(self(), :refresh_cooldowns, @cooldown_poll_ms)
-    {:noreply, socket}
+    {:noreply, assign(socket, calib_stale?: calib_stale?())}
   end
 
   def handle_info({:fishing_log, level, text}, socket),
@@ -250,26 +286,13 @@ defmodule PokexWeb.PanelLive do
   end
 
   @impl true
-  def handle_event("start", _params, socket) do
-    case BotSupervisor.start_all() do
-      :ok ->
-        status = BotSupervisor.status()
+  def handle_event("start", _params, socket), do: {:noreply, start_bots(socket)}
 
-        {:noreply,
-         assign(socket,
-           errors: [],
-           logs: [],
-           panicked?: false,
-           fishing: status.fishing,
-           combat: status.combat,
-           catcher: status.catcher,
-           mini_game: status.mini_game,
-           game: status.player_support
-         )}
-
-      {:error, messages} ->
-        {:noreply, assign(socket, errors: messages)}
-    end
+  # The stale-calibration banner's one-click fix: full stop + fresh start, so the
+  # workers reload whatever is on disk (quick fixes, an applied profile).
+  def handle_event("restart_bots", _params, socket) do
+    BotSupervisor.stop_all()
+    {:noreply, start_bots(socket)}
   end
 
   def handle_event("stop", _params, socket) do
@@ -278,6 +301,7 @@ defmodule PokexWeb.PanelLive do
 
     {:noreply,
      assign(socket,
+       calib_stale?: false,
        fishing: status.fishing,
        combat: status.combat,
        catcher: status.catcher,
@@ -860,6 +884,23 @@ defmodule PokexWeb.PanelLive do
             <.link navigate={~p"/calibration"} class="font-semibold text-[#37d07d]">Calibrar</.link>
           </div>
 
+          <div
+            :if={@calib_stale?}
+            id="calib-stale-banner"
+            class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
+          >
+            <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-[#f2c45b]" />
+            <p class="flex-1 text-[#c8cdd1]">
+              A calibração mudou depois do último Start — os bots ainda usam a ANTIGA.
+            </p>
+            <button
+              phx-click="restart_bots"
+              class="btn btn-xs border-0 bg-[#37d07d] font-bold text-[#06140c] hover:bg-[#45dd88]"
+            >
+              Parar e Iniciar
+            </button>
+          </div>
+
           <div class="grid grid-cols-3 gap-1.5">
             <div
               data-testid="fishing-pill"
@@ -1125,6 +1166,56 @@ defmodule PokexWeb.PanelLive do
                 active={@reposition_enabled}
                 event="toggle_reposition"
               />
+              <.automation_row
+                id="automation-require-cooldowns"
+                title="Só pescar quando dá pra matar"
+                description="segura a fisga até pelo menos UMA das skills abaixo estar pronta"
+                active={@require_cooldowns}
+                event="toggle_require_cooldowns"
+              />
+              <form
+                id="hook-skills-form"
+                phx-submit="save_hook_skills"
+                class="border-b border-[#222a2f] px-3 py-2.5"
+              >
+                <label class="font-mono text-[10px] text-[#77828a]">
+                  Skills necessárias pra matar
+                </label>
+                <div class="mt-1.5 flex gap-2">
+                  <input
+                    name="hook_skills"
+                    value={@hook_skills}
+                    placeholder="4 5 6 7"
+                    class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                  />
+                  <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+                    Salvar
+                  </button>
+                </div>
+              </form>
+              <.automation_row
+                id="automation-require-pokemon-hp"
+                title="Só pescar com vida"
+                description="segura a fisga se o Pokémon está com pouca vida ou fora da pokébola (lê o monitor de suporte)"
+                active={@require_pokemon_hp}
+                event="toggle_require_pokemon_hp"
+              />
+              <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
+                <label class="font-mono text-[10px] text-[#77828a]">
+                  Vida mínima pra puxar a vara (%)
+                </label>
+                <div class="mt-1.5 flex gap-2">
+                  <input
+                    name="fishing_hp_pct"
+                    inputmode="numeric"
+                    value={@fishing_hp_pct}
+                    class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                  />
+                  <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+                    Salvar
+                  </button>
+                </div>
+              </form>
             </div>
           </details>
 
@@ -1351,41 +1442,6 @@ defmodule PokexWeb.PanelLive do
                     </span>
                   </p>
                 </div>
-              </section>
-
-              <section class="border-t border-[#232b30] pt-4">
-                <label class="flex cursor-pointer items-center justify-between gap-3"><span><span class="block text-xs font-semibold">Só pescar quando dá pra matar</span><span class="mt-0.5 block text-[10px] text-[#79838b]">Segura a fisga até as skills abaixo estarem prontas.</span></span><input
-                  type="checkbox"
-                  class="toggle toggle-success toggle-sm"
-                  checked={@require_cooldowns}
-                  phx-click="toggle_require_cooldowns"
-                /></label>
-                <form id="hook-skills-form" phx-submit="save_hook_skills" class="mt-3">
-                  <label class="font-mono text-[10px] text-[#77828a]">Skills necessárias pra matar</label><div class="mt-1.5 flex gap-2">
-                    <input
-                      name="hook_skills"
-                      value={@hook_skills}
-                      placeholder="4 5 6 7"
-                      class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
-                    /><button class="btn h-10 border-0 bg-[#37d07d] px-5 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar</button>
-                  </div>
-                </form>
-                <label class="mt-4 flex cursor-pointer items-center justify-between gap-3"><span><span class="block text-xs font-semibold">Só pescar com vida</span><span class="mt-0.5 block text-[10px] text-[#79838b]">Segura a fisga se o Pokémon está com pouca vida ou fora da pokébola (lê o monitor de suporte).</span></span><input
-                  type="checkbox"
-                  class="toggle toggle-success toggle-sm"
-                  checked={@require_pokemon_hp}
-                  phx-click="toggle_require_pokemon_hp"
-                /></label>
-                <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="mt-3">
-                  <label class="font-mono text-[10px] text-[#77828a]">Vida mínima pra puxar a vara (%)</label><div class="mt-1.5 flex gap-2">
-                    <input
-                      name="fishing_hp_pct"
-                      inputmode="numeric"
-                      value={@fishing_hp_pct}
-                      class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
-                    /><button class="btn h-10 border-0 bg-[#37d07d] px-5 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar</button>
-                  </div>
-                </form>
               </section>
 
               <section class="grid gap-4 border-t border-[#232b30] pt-4">

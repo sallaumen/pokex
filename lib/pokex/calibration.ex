@@ -48,6 +48,14 @@ defmodule Pokex.Calibration do
 
   def exists?(path \\ nil), do: File.exists?(path || Pokex.Home.calibration_file())
 
+  @doc "The active calibration file's mtime (unix seconds), or nil when absent."
+  def mtime(path \\ nil) do
+    case File.stat(path || Pokex.Home.calibration_file(), time: :posix) do
+      {:ok, %File.Stat{mtime: mtime}} -> mtime
+      _absent -> nil
+    end
+  end
+
   def save(%__MODULE__{} = calib, path \\ nil) do
     path = path || Pokex.Home.calibration_file()
     File.mkdir_p!(Path.dirname(path))

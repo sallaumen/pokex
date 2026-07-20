@@ -580,10 +580,26 @@ defmodule PokexWeb.CalibrationLive do
   # hook reads the transformed getBoundingClientRect, so the precise click maps back correctly.
   defp zoom_style(nil, _screen, _factor), do: nil
 
-  defp zoom_style({x, y}, %{w: w, h: h}, factor) when w > 0 and h > 0,
-    do: "transform: scale(#{factor}); transform-origin: #{x / w * 100}% #{y / h * 100}%"
+  # Center-and-clamp pan: scale from the top-left and translate so the clicked point lands
+  # mid-container, clamped to keep the scaled image flush with the edges (no blank gutters).
+  # The old transform-origin trick PINNED the clicked point at its original container
+  # position, leaving only (1-f)/factor of visible margin beyond it — for a target near a
+  # screen edge that margin vanishes: the skill bar lives at the BOTTOM of the screen and
+  # its bottom-right corner (the skill_b click) fell OUTSIDE the zoom window (measured:
+  # corner at 92.85% of the height vs a window ending at 91.9%), which read as "can't
+  # click the last skill" (Lucas, 2026-07-20).
+  defp zoom_style({x, y}, %{w: w, h: h}, factor) when w > 0 and h > 0 do
+    "transform: translate(#{translate_pct(x / w, factor)}%, #{translate_pct(y / h, factor)}%) " <>
+      "scale(#{factor}); transform-origin: 0 0"
+  end
 
   defp zoom_style(_zoom_at, _screen, _factor), do: nil
+
+  # The translate (in % of the container) that centers fraction `f` at scale `factor`,
+  # clamped into [1 - factor, 0] so the window never runs past the image.
+  defp translate_pct(f, factor) do
+    Float.round(100 * min(max(0.5 - f * factor, 1.0 - factor), 0.0), 2)
+  end
 
   defp save_skill_bar(socket, region, count) do
     case Calibration.load() do
@@ -1006,7 +1022,7 @@ defmodule PokexWeb.CalibrationLive do
             </li>
           </ol>
 
-          <p
+          <div
             :if={@step && @step != :baselines}
             class="rounded-lg bg-info/15 px-3 py-2 text-sm font-medium"
           >
@@ -1014,10 +1030,24 @@ defmodule PokexWeb.CalibrationLive do
               Passo {step_index(@step)}/{@total_steps} —
             </span>
             {@instr[@step]}
-            <span :if={@step in [:skill_a, :skill_b]} class="ml-1 font-bold">
-              Quantidade fixa: {@skill_count}.
-            </span>
-          </p>
+            <.form
+              :if={@step in [:skill_a, :skill_b]}
+              for={@skill_count_form}
+              id="skill-count-form-marking"
+              phx-change="set_skill_count"
+              class="ml-1 inline-flex items-center gap-1 align-middle font-bold"
+            >
+              Quantidade:
+              <input
+                type="number"
+                name="skill_bar[count]"
+                value={@skill_count}
+                min="1"
+                max="10"
+                class="input input-bordered input-xs w-14 text-center font-bold"
+              />
+            </.form>
+          </div>
 
           <div
             :if={@step == :baselines}

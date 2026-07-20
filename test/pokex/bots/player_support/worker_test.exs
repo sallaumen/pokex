@@ -19,32 +19,22 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
   alias Pokex.Bots.PlayerSupport.Worker
   alias Pokex.Bots.PlayerSupport.WorkerTest.FakeBody
-  alias Pokex.{Calibration, Settings}
-
-  @keys [
-    :support_tick_ms,
-    :rescue_step_ms,
-    :rescue_enabled,
-    :rescue_cooldown_ms,
-    :pokemon_hp_rescue_pct,
-    :potion_enabled,
-    :potion_cooldown_ms,
-    :pokemon_hp_potion_pct
-  ]
+  alias Pokex.{Calibration, Settings, SettingsStash}
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    originals = Map.new(@keys, &{&1, Settings.get(&1)})
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
-    on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
-      Enum.each(originals, fn {k, v} -> Settings.put(k, v) end)
-    end)
-
-    Settings.put(:support_tick_ms, 20)
-    Settings.put(:rescue_step_ms, 0)
     # the combo ships OFF by default; the enabled-path tests turn it on ("toggle off" flips it back)
-    Settings.put(:rescue_enabled, true)
+    SettingsStash.stash!(support_tick_ms: 20, rescue_step_ms: 0, rescue_enabled: true)
+
+    SettingsStash.stash_keys!([
+      :rescue_cooldown_ms,
+      :pokemon_hp_rescue_pct,
+      :potion_enabled,
+      :potion_cooldown_ms,
+      :pokemon_hp_potion_pct
+    ])
 
     Calibration.save(%Calibration{
       scale: 1.0,

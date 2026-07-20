@@ -2,38 +2,24 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.MiniGame.Worker
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.{Calibration, Settings, SettingsStash}
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
-    originals =
-      Map.new(
-        [
-          :mini_game_tick_ms,
-          :mini_game_enter_streak,
-          :mini_game_exit_streak,
-          :mini_game_min_confidence,
-          :mini_game_min_dark_ratio,
-          :mini_game_anchor_tolerance,
-          :mini_game_play_tick_ms,
-          :mini_game_min_toggle_ms
-        ],
-        &{&1, Settings.get(&1)}
-      )
+    SettingsStash.stash!(
+      mini_game_tick_ms: 20,
+      mini_game_enter_streak: 1,
+      mini_game_exit_streak: 1,
+      mini_game_min_confidence: 0.6,
+      mini_game_min_dark_ratio: 0.34,
+      mini_game_play_tick_ms: 20,
+      mini_game_min_toggle_ms: 0
+    )
 
-    on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
-      Enum.each(originals, fn {key, value} -> Settings.put(key, value) end)
-    end)
-
-    Settings.put(:mini_game_tick_ms, 20)
-    Settings.put(:mini_game_enter_streak, 1)
-    Settings.put(:mini_game_exit_streak, 1)
-    Settings.put(:mini_game_min_confidence, 0.6)
-    Settings.put(:mini_game_min_dark_ratio, 0.34)
-    Settings.put(:mini_game_play_tick_ms, 20)
-    Settings.put(:mini_game_min_toggle_ms, 0)
+    # put mid-test by the calibrated-anchor test — must restore too
+    SettingsStash.stash_keys!([:mini_game_anchor_tolerance])
 
     Calibration.save(%Calibration{
       scale: 1.0,

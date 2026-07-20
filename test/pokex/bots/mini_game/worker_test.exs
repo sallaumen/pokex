@@ -2,11 +2,16 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.MiniGame.Worker
+  alias Pokex.Perception.WorldState
   alias Pokex.{Calibration, Settings, SettingsStash}
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    on_exit(fn ->
+      Application.delete_env(:pokex, :home_dir)
+      WorldState.forget(:mini_game)
+    end)
 
     SettingsStash.stash!(
       mini_game_tick_ms: 20,
@@ -172,6 +177,32 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+  end
+
+  @tag :tmp_dir
+  test "publishes the :mini_game fact on the blackboard across enter, exit and halt", %{tmp: tmp} do
+    game = png!(tmp, "mini-game.png", true)
+    calm = png!(tmp, "calm.png", false)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}, {:ok, game}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+
+    refute Pokex.Perception.mini_game_playing?()
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+    wait_for(fn -> Pokex.Perception.mini_game_playing?() end)
+
+    assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
+    wait_for(fn -> not Pokex.Perception.mini_game_playing?() end)
+
+    # back in: halt must also clear the fact
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+    wait_for(fn -> Pokex.Perception.mini_game_playing?() end)
+    assert :ok = Worker.halt(worker)
+    refute Pokex.Perception.mini_game_playing?()
   end
 
   # --- the playing loop -------------------------------------------------------

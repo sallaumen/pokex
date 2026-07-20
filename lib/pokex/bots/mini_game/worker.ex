@@ -18,6 +18,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   alias Pokex.Bots.{Capture, Catcher, Combat, Fishing}
   alias Pokex.Bots.MiniGame.{Detector, Player}
+  alias Pokex.Perception.WorldState
   alias Pokex.{Calibration, Settings}
 
   @topic "mini_game"
@@ -90,6 +91,8 @@ defmodule Pokex.Bots.MiniGame.Worker do
   @impl true
   def terminate(_reason, state) do
     if state.in_game? or Player.holding?(state.play), do: Player.safe_key_up()
+    # a crashing worker must not leave a "playing" fact behind for its peers
+    WorldState.put(:mini_game, %{playing?: false, confidence: 0.0}, now_ms())
     :ok
   end
 
@@ -115,6 +118,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
             paused_peers: []
           })
 
+        publish_fact(state)
         broadcast(state)
         {:reply, :ok, reschedule(state, 0)}
 
@@ -138,6 +142,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
         paused_peers: []
       })
 
+    publish_fact(state)
     broadcast(state)
     {:reply, :ok, state}
   end
@@ -162,6 +167,9 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def handle_info(:tick, state) do
     {state, transition} = if state.in_game?, do: play_tick(state), else: watch_tick(state)
 
+    # republished EVERY tick (not just on transitions) so the fact stays fresh —
+    # readers fail open once it ages past mini_game_fact_max_age_ms
+    publish_fact(state)
     if transition, do: broadcast(state, transition), else: :ok
 
     tick_ms =
@@ -408,6 +416,16 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   defp broadcast_log(level, text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:mini_game_log, level, text})
+
+  defp publish_fact(state) do
+    WorldState.put(
+      :mini_game,
+      %{playing?: state.running? and state.in_game?, confidence: state.confidence},
+      now_ms()
+    )
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
   defp reschedule(state, delay_ms) do
     state = cancel_timer(state)

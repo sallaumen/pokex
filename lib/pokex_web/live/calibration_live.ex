@@ -38,7 +38,13 @@ defmodule PokexWeb.CalibrationLive do
     hp_a:
       "Canto SUPERIOR-ESQUERDO da barra de VIDA do Pokémon principal — bem RENTE à barra, sem pegar o fundo azul acima nem os ícones abaixo.",
     hp_b: "Canto INFERIOR-DIREITO da MESMA barra de vida (colado na barra, só ela).",
-    photo: "Centro da FOTO do Pokémon principal (onde o mouse fica pro Shift+Q do revive)."
+    photo: "Centro da FOTO do Pokémon principal (onde o mouse fica pro Shift+Q do revive).",
+    mini_game_a:
+      "Canto SUPERIOR-ESQUERDO da FAIXA onde a barra do minigame aparece quando você pesca " <>
+        "deste lugar (deixe uma folga de 1-2 tiles pra cada lado da barra).",
+    mini_game_b:
+      "Canto INFERIOR-DIREITO da mesma faixa — cubra a altura TODA da barra, sem pegar os " <>
+        "painéis escuros da lateral (Battle/bolsa)."
   }
 
   @impl true
@@ -120,6 +126,29 @@ defmodule PokexWeb.CalibrationLive do
          screen: screen,
          step: :player,
          mode: :player_only,
+         draft: %{},
+         done: false,
+         review: nil,
+         error: nil,
+         skillbar_msg: nil,
+         zoom_at: nil
+       )}
+    else
+      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    end
+  end
+
+  # Standalone correction: mark only the strip where the mini-game bar shows up
+  # (2 corners) on an existing calibration. From then on the mini-game worker
+  # watches THAT region instead of hunting the bar inside the arena.
+  def handle_event("calibrate_mini_game", _params, socket) do
+    with {:ok, screen} <- grab_screen("mini_game_probe.png") do
+      {:noreply,
+       assign(socket,
+         scale: screen.scale,
+         screen: screen,
+         step: :mini_game_a,
+         mode: :mini_game_only,
          draft: %{},
          done: false,
          review: nil,
@@ -454,6 +483,12 @@ defmodule PokexWeb.CalibrationLive do
       :photo ->
         assign(socket, draft: Map.put(draft, :pokemon_photo_point, point), step: :baselines)
 
+      :mini_game_a ->
+        assign(socket, draft: Map.put(draft, :mini_game_a, point), step: :mini_game_b)
+
+      :mini_game_b ->
+        save_mini_game_region(socket, region_from(draft.mini_game_a, point))
+
       _ ->
         socket
     end
@@ -496,6 +531,30 @@ defmodule PokexWeb.CalibrationLive do
           step: nil,
           screen: nil,
           error: "não deu pra salvar a barra: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp save_mini_game_region(socket, region) do
+    case Calibration.load() do
+      {:ok, calib} ->
+        Calibration.save(%{calib | mini_game_region: region})
+
+        assign(socket,
+          draft: %{},
+          step: nil,
+          screen: nil,
+          calibrated?: true,
+          skillbar_msg:
+            "Faixa do minigame salva em #{inspect(region)} — o bot agora observa SÓ ela. " <>
+              "Reinicie o worker (Parar/Iniciar) pra valer."
+        )
+
+      {:error, reason} ->
+        assign(socket,
+          step: nil,
+          screen: nil,
+          error: "não deu pra salvar a faixa do minigame: #{inspect(reason)}"
         )
     end
   end
@@ -695,6 +754,9 @@ defmodule PokexWeb.CalibrationLive do
               </button>
               <button class="btn btn-ghost btn-sm" phx-click="calibrate_player">
                 <.icon name="hero-user" class="size-4" /> Só o personagem
+              </button>
+              <button class="btn btn-ghost btn-sm" phx-click="calibrate_mini_game">
+                <.icon name="hero-flag" class="size-4" /> Só o minigame
               </button>
             </div>
           </div>

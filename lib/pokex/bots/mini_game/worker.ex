@@ -159,16 +159,30 @@ defmodule Pokex.Bots.MiniGame.Worker do
   defp read_presence(state) do
     region = mini_game_region(state.calib)
 
+    opts =
+      [
+        min_confidence: Settings.get(:mini_game_min_confidence),
+        min_dark_ratio: Settings.get(:mini_game_min_dark_ratio)
+      ]
+
     with {:ok, frame} <- Capture.frame(region, "mini_game.png") do
-      {:ok,
-       Detector.detect(frame,
-         min_confidence: Settings.get(:mini_game_min_confidence),
-         min_dark_ratio: Settings.get(:mini_game_min_dark_ratio),
-         anchor_x: player_anchor_x(frame, state.calib, region),
-         anchor_y: player_anchor_y(frame, state.calib, region),
-         anchor_tolerance: anchor_tolerance(frame, region)
-       )}
+      {:ok, Detector.detect(frame, opts ++ anchor_opts(frame, state.calib, region))}
     end
+  end
+
+  # A DEDICATED mini-game region IS the bar's home: search all of it (anchor at
+  # the crop center, tolerance the full half-width, no y gate). Without one,
+  # anchor at the calibrated player point inside the arena crop, as before.
+  defp anchor_opts(frame, %Calibration{mini_game_region: dedicated}, _region)
+       when is_tuple(dedicated),
+       do: [anchor_x: div(frame.width, 2), anchor_tolerance: div(frame.width, 2) + 1]
+
+  defp anchor_opts(frame, calib, region) do
+    [
+      anchor_x: player_anchor_x(frame, calib, region),
+      anchor_y: player_anchor_y(frame, calib, region),
+      anchor_tolerance: anchor_tolerance(frame, region)
+    ]
   end
 
   defp arm_strip(state, reading),
@@ -270,6 +284,8 @@ defmodule Pokex.Bots.MiniGame.Worker do
     broadcast_log(:debug, "erro ao observar mini game: #{inspect(reason)}")
     {state, nil}
   end
+
+  defp mini_game_region(%Calibration{mini_game_region: region}) when is_tuple(region), do: region
 
   defp mini_game_region(%Calibration{arena_region: region}) when is_tuple(region), do: region
 

@@ -17,6 +17,12 @@ defmodule Pokex.Calibration do
     # Optional: the character's screen position (the mini-game bar anchor).
     # Older calibrations fall back to the arena-region center.
     :player_point,
+    # Optional: a DEDICATED strip where the mini-game bar appears (marked from
+    # the fishing spot the player always uses). When set, the mini-game worker
+    # watches ONLY this region and searches all of it — no player anchor, no
+    # dependency on arena coverage. Without it, detection anchors in
+    # arena_region as before.
+    :mini_game_region,
     # Optional for backwards compatibility with calibrations created before the
     # skill bar became part of the main wizard.
     :skill_bar_region,
@@ -53,6 +59,7 @@ defmodule Pokex.Calibration do
       "arena_region" => Tuple.to_list(calib.arena_region),
       "neutral_point" => Tuple.to_list(calib.neutral_point),
       "player_point" => calib.player_point && Tuple.to_list(calib.player_point),
+      "mini_game_region" => calib.mini_game_region && Tuple.to_list(calib.mini_game_region),
       "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
       "skill_bar_count" => calib.skill_bar_count,
       "skill_slot_refs" =>
@@ -82,6 +89,7 @@ defmodule Pokex.Calibration do
          arena_region: to_tuple(map["arena_region"]),
          neutral_point: to_tuple(map["neutral_point"]),
          player_point: to_tuple(map["player_point"]),
+         mini_game_region: to_tuple(map["mini_game_region"]),
          skill_bar_region: to_tuple(map["skill_bar_region"]),
          skill_bar_count: map["skill_bar_count"],
          skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),

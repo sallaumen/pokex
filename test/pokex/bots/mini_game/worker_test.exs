@@ -82,6 +82,24 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "a dedicated mini_game_region owns the watch: that region is captured and searched whole",
+       %{tmp: tmp} do
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | mini_game_region: {140, 20, 60, 180}})
+
+    game = png!(tmp, "mini-game.png", true)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+
+    assert {:capture, {140, 20, 60, 180}, "mini_game.png"} in Pokex.Rig.Fake.calls()
+  end
+
+  @tag :tmp_dir
   test "anchors the bar search at the CALIBRATED player point when one is saved", %{tmp: tmp} do
     # Tight tolerance so only the calibrated anchor (not the arena center) can
     # accept the offset bar — proves the worker prefers calibration.player_point.

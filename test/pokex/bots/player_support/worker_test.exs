@@ -42,7 +42,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :potion_cooldown_ms,
       :pokemon_hp_potion_pct,
       :reposition_enabled,
-      :reposition_battle_clear_ms
+      :reposition_battle_clear_ms,
+      :support_waits_capture,
+      :support_capture_wait_max_ms
     ])
 
     on_exit(fn -> Pokex.Perception.WorldState.forget(:pokemon) end)
@@ -316,6 +318,53 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
     assert Worker.status(worker).counters.potions == 1
     assert %{text: "poção", at: _} = Worker.status(worker).last_action
+  end
+
+  @tag :tmp_dir
+  test "ordem pós-luta: a poção devida espera a captura resolver os corpos", %{
+    tmp: tmp,
+    body: body
+  } do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+    Settings.put(:potion_cooldown_ms, 60_000)
+    Settings.put(:support_waits_capture, true)
+
+    fresh_battle!(enemies: [])
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    # the catcher is still working a corpse when monitoring starts
+    send(worker, {:catcher, %{pending_corpses: 1}})
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, :high, _}, 300
+    assert Worker.status(worker).hold_reason =~ "esperando a captura terminar"
+
+    # the catcher resolves the corpse → the sip lands right away
+    send(worker, {:catcher, %{pending_corpses: 0}})
+    assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
+  end
+
+  @tag :tmp_dir
+  test "o teto solta o suporte se a captura empacar (fail-open)", %{tmp: tmp, body: body} do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+    Settings.put(:potion_cooldown_ms, 60_000)
+    Settings.put(:support_waits_capture, true)
+    Settings.put(:support_capture_wait_max_ms, 150)
+
+    fresh_battle!(enemies: [])
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    send(worker, {:catcher, %{pending_corpses: 1}})
+    assert :ok = Worker.run(worker)
+
+    # the pending count never clears — past the cap the heal must not starve
+    assert_receive {:performed, :high, [{:press, "e"}]}, 2_000
   end
 
   @tag :tmp_dir

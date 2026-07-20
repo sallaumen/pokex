@@ -62,6 +62,23 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "pending_corpses rides the snapshot: 1 with a ball in flight, 0 once resolved", %{
+    worker: worker
+  } do
+    assert Worker.status(worker).pending_corpses == 0
+
+    world!(worker, corpses_obs([{150, 250}]))
+    assert_receive {:performed, :high, [{:capture_sequence, {150, 250}}]}, 1_000
+    assert Worker.status(worker).pending_corpses == 1
+
+    # the corpse vanished past the flight window → capture confirmed, nothing pending
+    gone = corpses_obs([])
+    gone = %{gone | captured_at: gone.captured_at + 2_000}
+    world!(worker, gone)
+    assert eventually(fn -> Worker.status(worker).pending_corpses == 0 end, 2_000)
+  end
+
+  @tag :tmp_dir
   test "a corpse observation makes it throw a ball at :high", %{worker: worker} do
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000

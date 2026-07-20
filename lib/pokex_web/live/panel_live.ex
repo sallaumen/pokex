@@ -102,6 +102,7 @@ defmodule PokexWeb.PanelLive do
        rescue_cooldown_s: div(Settings.get(:rescue_cooldown_ms), 1000),
        potion_enabled: Settings.get(:potion_enabled),
        reposition_enabled: Settings.get(:reposition_enabled),
+       support_waits_capture: Settings.get(:support_waits_capture),
        potion_pct: Settings.get(:pokemon_hp_potion_pct),
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
@@ -148,6 +149,7 @@ defmodule PokexWeb.PanelLive do
       potion_enabled: Settings.get(:potion_enabled),
       potion_pct: Settings.get(:pokemon_hp_potion_pct),
       reposition_enabled: Settings.get(:reposition_enabled),
+      support_waits_capture: Settings.get(:support_waits_capture),
       presets: Settings.list_presets()
     )
   end
@@ -512,6 +514,12 @@ defmodule PokexWeb.PanelLive do
     Settings.put(:reposition_enabled, value)
     if value, do: arm_support()
     {:noreply, assign(socket, reposition_enabled: value)}
+  end
+
+  def handle_event("toggle_support_waits_capture", _params, socket) do
+    value = not Settings.get(:support_waits_capture)
+    Settings.put(:support_waits_capture, value)
+    {:noreply, assign(socket, support_waits_capture: value)}
   end
 
   def handle_event("save_potion_cfg", params, socket) do
@@ -1320,6 +1328,13 @@ defmodule PokexWeb.PanelLive do
                   description="clique do meio no tile calibrado (Calibração → Posição do Pokémon) 2s depois da luta acabar"
                   active={@reposition_enabled}
                   event="toggle_reposition"
+                />
+                <.automation_row
+                  id="automation-support-waits-capture"
+                  title="Suporte espera a captura"
+                  description="ordem pós-luta: loot → bola → suporte — poção e reposição só agem quando os corpos foram resolvidos (teto de 10s pra nunca segurar a cura)"
+                  active={@support_waits_capture}
+                  event="toggle_support_waits_capture"
                 />
                 <.automation_row
                   id="automation-require-cooldowns"

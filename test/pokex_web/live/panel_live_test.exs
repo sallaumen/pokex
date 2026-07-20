@@ -214,6 +214,16 @@ defmodule PokexWeb.PanelLiveTest do
     refute Pokex.Settings.get(:capture_enabled) == cap
   end
 
+  test "a política pós-luta (suporte espera a captura) persiste pelo toggle", %{conn: conn} do
+    value = Pokex.Settings.get(:support_waits_capture)
+    on_exit(fn -> Pokex.Settings.put(:support_waits_capture, value) end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view |> element(~s(input[phx-click="toggle_support_waits_capture"])) |> render_click()
+    refute Pokex.Settings.get(:support_waits_capture) == value
+  end
+
   test "the busy placeholder snapshots render without crashing (worker missed its status window)",
        %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")

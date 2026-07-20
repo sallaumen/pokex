@@ -92,6 +92,8 @@ defmodule PokexWeb.PanelLive do
        cooldowns_states: nil,
        capture_info: nil,
        require_cooldowns: Settings.get(:require_cooldowns),
+       require_pokemon_hp: Settings.get(:require_pokemon_hp),
+       fishing_hp_pct: Settings.get(:pokemon_hp_fishing_pct),
        rescue_enabled: Settings.get(:rescue_enabled),
        rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
        rescue_cooldown_s: div(Settings.get(:rescue_cooldown_ms), 1000),
@@ -362,6 +364,19 @@ defmodule PokexWeb.PanelLive do
     value = not Settings.get(:require_cooldowns)
     Settings.put(:require_cooldowns, value)
     {:noreply, assign(socket, require_cooldowns: value)}
+  end
+
+  def handle_event("toggle_require_pokemon_hp", _params, socket) do
+    value = not Settings.get(:require_pokemon_hp)
+    Settings.put(:require_pokemon_hp, value)
+    # the gate reads the :pokemon fact the support monitor publishes — make sure it's ticking
+    if value, do: arm_support()
+    {:noreply, assign(socket, require_pokemon_hp: value)}
+  end
+
+  def handle_event("save_fishing_hp_cfg", params, socket) do
+    {:noreply,
+     save_int(socket, params["fishing_hp_pct"], 1..90, :pokemon_hp_fishing_pct, :fishing_hp_pct)}
   end
 
   def handle_event("toggle_rescue", _params, socket) do
@@ -1336,6 +1351,22 @@ defmodule PokexWeb.PanelLive do
                       name="hook_skills"
                       value={@hook_skills}
                       placeholder="4 5 6 7"
+                      class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                    /><button class="btn h-10 border-0 bg-[#37d07d] px-5 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar</button>
+                  </div>
+                </form>
+                <label class="mt-4 flex cursor-pointer items-center justify-between gap-3"><span><span class="block text-xs font-semibold">Só pescar com vida</span><span class="mt-0.5 block text-[10px] text-[#79838b]">Segura a fisga se o Pokémon está com pouca vida ou fora da pokébola (lê o monitor de suporte).</span></span><input
+                  type="checkbox"
+                  class="toggle toggle-success toggle-sm"
+                  checked={@require_pokemon_hp}
+                  phx-click="toggle_require_pokemon_hp"
+                /></label>
+                <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="mt-3">
+                  <label class="font-mono text-[10px] text-[#77828a]">Vida mínima pra puxar a vara (%)</label><div class="mt-1.5 flex gap-2">
+                    <input
+                      name="fishing_hp_pct"
+                      inputmode="numeric"
+                      value={@fishing_hp_pct}
                       class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
                     /><button class="btn h-10 border-0 bg-[#37d07d] px-5 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar</button>
                   </div>

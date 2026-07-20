@@ -36,6 +36,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       prev_hp_pct: nil,
       last_rescue_at: nil,
       last_potion_at: nil,
+      # first monotonic ms of the CURRENT battle-free streak of potion-gate reads
+      # (nil = last read saw combat, or the potion isn't due so nobody is watching)
+      battle_clear_since: nil,
       error: nil,
       counters: @default_counters
     }
@@ -101,6 +104,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
         {:ok, calib} ->
           case read_hp(calib) do
             {:ok, hp} ->
+              publish_pokemon_fact(%{hp_pct: hp, readable?: true})
+
               act(
                 %{
                   state
@@ -112,9 +117,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                 calib
               )
 
-            # The region doesn't look like the bar (minimized party window): UNKNOWN — clear the
-            # reading so nothing can act on a stale/garbage value, and say why in the panel.
+            # The region doesn't look like the bar (minimized party window, or no Pokémon
+            # out of the ball): UNKNOWN — clear the reading so nothing can act on a
+            # stale/garbage value, and say why in the panel. The fact says readable?: false,
+            # which is exactly what the fishing gate treats as "sem pokémon ativo".
             :unrecognized ->
+              publish_pokemon_fact(%{hp_pct: nil, readable?: false})
+
               %{
                 state
                 | hp_pct: nil,
@@ -191,15 +200,31 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # The combat read costs a screen capture, so it only happens when a potion is otherwise due —
-  # and the potion only fires on a CONFIRMED out-of-combat read (entering a fight interrupts the
-  # heal channel, so an in-combat or unknown read would just waste the potion).
+  # The combat read costs a screen capture, so it only happens when a potion is otherwise due.
+  # ONE clear read is NOT "out of battle": fished enemies re-aggress in the post-kill gap and
+  # the game cancels the heal channel, wasting the potion (Lucas, live 2026-07-20) — so the
+  # potion only fires after a CONTINUOUS battle-free window (potion_battle_clear_ms). Any
+  # in-combat/unknown read — or the potion not being due — resets the streak.
   defp maybe_potion(state, calib) do
-    with true <- Logic.potion_wanted?(potion_input(state)),
-         {:ok, false} <- in_combat?(calib) do
-      fire_potion(state, "🧪 poção — vida em #{state.hp_pct}%")
+    if Logic.potion_wanted?(potion_input(state)) do
+      case in_combat?(calib) do
+        {:ok, false} -> potion_after_clear_window(state)
+        _in_combat_or_unknown -> %{state | battle_clear_since: nil}
+      end
     else
-      _ -> state
+      %{state | battle_clear_since: nil}
+    end
+  end
+
+  defp potion_after_clear_window(state) do
+    at = now()
+    since = state.battle_clear_since || at
+    state = %{state | battle_clear_since: since}
+
+    if at - since >= Settings.get(:potion_battle_clear_ms) do
+      %{fire_potion(state, "🧪 poção — vida em #{state.hp_pct}%") | battle_clear_since: nil}
+    else
+      state
     end
   end
 
@@ -308,6 +333,12 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       counters: state.counters,
       error: state.error
     }
+
+  # The :pokemon blackboard fact: the fishing hook-gate (and any future consumer)
+  # reads it via Perception.pokemon/1. Published only on a conclusive read —
+  # transient errors / missing calibration publish nothing, so the fact ages out
+  # and readers fail open.
+  defp publish_pokemon_fact(obs), do: WorldState.put(:pokemon, obs, now())
 
   defp broadcast(state),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:game, snapshot(state)})

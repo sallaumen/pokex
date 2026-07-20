@@ -346,6 +346,55 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       refute l.holding?
     end
 
+    test "pokemon gate: pokemon_ok? false HOLDS with the worker's reason in the feed" do
+      obs =
+        cursor_obs()
+        |> Map.put(:glow, true)
+        |> Map.merge(%{pokemon_ok?: false, pokemon_hold_reason: "vida 22% < 40%"})
+
+      {l, actions} = Logic.step(settled(false), obs, 1000)
+
+      assert l.state == :watching
+      assert l.counters.hooked == 0
+      assert l.holding?
+      assert actions == [{:log, "🔒 fisga segurada — vida 22% < 40%"}]
+    end
+
+    test "pokemon gate: absent key (gate off / fact unknown) hooks normally" do
+      obs = cursor_obs() |> Map.put(:glow, true)
+      {l, actions} = Logic.step(settled(false), obs, 1000)
+      assert actions == [{:press, "shift+v"}]
+      assert l.counters.hooked == 1
+    end
+
+    test "pokemon gate: a held fish is pulled the instant the pokemon recovers" do
+      low =
+        cursor_obs()
+        |> Map.put(:glow, true)
+        |> Map.merge(%{pokemon_ok?: false, pokemon_hold_reason: "sem pokémon ativo"})
+
+      {held, a1} = Logic.step(settled(false), low, 1000)
+      assert held.holding?
+      assert a1 == [{:log, "🔒 fisga segurada — sem pokémon ativo"}]
+
+      ok = cursor_obs() |> Map.put(:glow, true) |> Map.put(:pokemon_ok?, true)
+      {l, actions} = Logic.step(held, ok, 1100)
+      assert actions == [{:press, "shift+v"}]
+      assert l.counters.hooked == 1
+      refute l.holding?
+    end
+
+    test "both gates closed: ONE hold, both reasons announced" do
+      obs =
+        bite(false)
+        |> Map.merge(%{pokemon_ok?: false, pokemon_hold_reason: "sem pokémon ativo"})
+
+      {l, actions} = Logic.step(settled(true), obs, 1000)
+
+      assert l.holding?
+      assert actions == [{:log, "🔒 fisga segurada — skills em cooldown + sem pokémon ativo"}]
+    end
+
     test "gate ON + UNKNOWN reading (nil): holds — a capture glitch must not pull the fish" do
       {l, actions} = Logic.step(settled(true), bite(nil), 1000)
 

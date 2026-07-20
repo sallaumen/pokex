@@ -61,6 +61,18 @@ defmodule Pokex.Settings do
     # kill it. (Loosened from ALL-ready, which held ~54% of bites while the ~40s
     # kill-skills cycled — the "sees bubbles but won't pull" bug.)
     require_cooldowns: false,
+    # Fishing HP gate (toggle in the panel), the cooldown gate's sibling: when true, a
+    # bite is HELD unless the :pokemon blackboard fact says the active Pokémon can take
+    # the fight — HP at least pokemon_hp_fishing_pct AND the HP bar readable (unreadable
+    # = no Pokémon out of the ball / party window minimized). Casting is never gated —
+    # only the pull. Fact missing/stale (support monitor off, no HP calibration) = no
+    # opinion, the gate stays open.
+    require_pokemon_hp: false,
+    pokemon_hp_fishing_pct: 40,
+    # Max age of the :pokemon fact before the fishing gate treats it as unknown. The
+    # support monitor republishes every support_tick_ms, so 3s only trips when the
+    # monitor is halted or wedged — fail open, never hold fishing on a dead monitor.
+    pokemon_fact_max_age_ms: 3_000,
     # Which skills the gate watches — it pulls as soon as ANY of them is ready. Lucas
     # uses 4-7 (~40s each) to kill; edit in the panel. These are hotbar keys ("1".."N").
     hook_skill_keys: ["4", "5", "6", "7"],
@@ -250,6 +262,10 @@ defmodule Pokex.Settings do
     potion_key: "e",
     pokemon_hp_potion_pct: 70,
     potion_cooldown_ms: 10_000,
+    # One out-of-combat read is NOT "battle over": fished enemies re-aggress in the
+    # post-kill gap and the game cancels the heal channel, wasting the potion. The
+    # potion only fires after the battle has read CLEAR continuously for this long.
+    potion_battle_clear_ms: 2_000,
     # --- Perception feeds -----------------------------------------------------------------------
     # Capture cadence per feed. A feed only captures while a consumer is attached, so these are
     # upper bounds on broker demand, not constant costs. battle is the combat hot path; arena has

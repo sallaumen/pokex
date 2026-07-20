@@ -110,18 +110,19 @@ defmodule Pokex.Bots.Fishing.Logic do
         # a bite signal, even mid-debounce, means the line is live → clear dead_streak
         {%{logic | glow_streak: streak, dead_streak: 0, holding?: false, holding_since: nil}, []}
 
-      hold_for_cooldowns?(logic, obs) and not hold_expired?(logic, now) ->
-        # Bite confirmed, but require_cooldowns is on and NOT ONE kill-skill is ready
-        # → HOLD the fish: keep the line live and the bite debounce saturated, DON'T
-        # press the rod and DON'T count a hook (the bubbles keep flashing until we
-        # pull, so the bite window never closes). Announce the hold ONCE, not per frame.
+      hold_gate?(logic, obs) and not hold_expired?(logic, now) ->
+        # Bite confirmed, but a hook gate is closed (skills on cooldown and/or the
+        # Pokémon can't take the fight) → HOLD the fish: keep the line live and the
+        # bite debounce saturated, DON'T press the rod and DON'T count a hook (the
+        # bubbles keep flashing until we pull, so the bite window never closes).
+        # Announce the hold ONCE, not per frame.
         #
         # A real bite OSCILLATES across the threshold (raw 2..1513), so a hold is a run
         # of peaks (this clause) interleaved with troughs (the settled/no-glow clause).
         # REFRESH entered_at on every peak so the watch_timeout_ms backstop measures
         # time-since-last-bite, not time-since-cast — otherwise a >30s hold (hook skills
         # are ~40s) would trip the timeout on a trough frame and abandon a live fish.
-        log = if logic.holding?, do: [], else: [{:log, "🔒 fisga segurada — skills em cooldown"}]
+        log = if logic.holding?, do: [], else: [{:log, hold_log(logic, obs)}]
 
         {%{
            logic
@@ -140,8 +141,8 @@ defmodule Pokex.Bots.Fishing.Logic do
         # ceiling or the skill-bar read is stuck. This bail (NOT a fail-open on a missing
         # reading) is the only "don't hold forever" protection.
         bail_log =
-          if hold_for_cooldowns?(logic, obs),
-            do: [{:log, "⏳ fisga segurada até o teto sem skill pronta — puxando mesmo assim"}],
+          if hold_gate?(logic, obs),
+            do: [{:log, "⏳ fisga segurada até o teto com gate fechado — puxando mesmo assim"}],
             else: []
 
         {advance(%{logic | glow_streak: 0, holding?: false, holding_since: nil}, :casting, now,
@@ -285,6 +286,26 @@ defmodule Pokex.Bots.Fishing.Logic do
   defp line_present?(%{line?: present?}), do: present?
   defp line_present?(_obs), do: false
 
+  # Every hook gate in one place: the pull is held while ANY of them is closed.
+  # Casting is never gated — only this clause (the confirmed-bite pull) consults it.
+  defp hold_gate?(logic, obs),
+    do: hold_for_cooldowns?(logic, obs) or hold_for_pokemon?(obs)
+
+  defp hold_log(logic, obs) do
+    reasons =
+      Enum.reject(
+        [
+          if(hold_for_cooldowns?(logic, obs), do: "skills em cooldown"),
+          if(hold_for_pokemon?(obs),
+            do: Map.get(obs, :pokemon_hold_reason, "pokémon sem condição")
+          )
+        ],
+        &is_nil/1
+      )
+
+    "🔒 fisga segurada — " <> Enum.join(reasons, " + ")
+  end
+
   # The fishing→combat cooldown gate: hold the fish when require_cooldowns is on and
   # NOT ONE kill-skill is ready (the sensor computes cooldowns_ready? as ANY-ready over
   # hook_skill_keys). An UNKNOWN reading (nil — capture failed / bar unreadable) HOLDS:
@@ -298,6 +319,12 @@ defmodule Pokex.Bots.Fishing.Logic do
 
   defp cooldowns_ready?(%{cooldowns_ready?: ready?}), do: ready? == true
   defp cooldowns_ready?(_obs), do: true
+
+  # The fishing→support HP gate: the WORKER computes pokemon_ok? per tick from the
+  # :pokemon blackboard fact + the require_pokemon_hp/pokemon_hp_fishing_pct settings
+  # (so the panel toggle applies instantly, no restart). Absent key = gate off or no
+  # opinion (fact stale/missing) — never hold on a dead monitor.
+  defp hold_for_pokemon?(obs), do: Map.get(obs, :pokemon_ok?, true) == false
 
   defp hold_expired?(%{holding_since: nil}, _now), do: false
 

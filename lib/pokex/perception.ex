@@ -59,6 +59,22 @@ defmodule Pokex.Perception do
     if mini_game_playing?(now_ms), do: {:blocked, :mini_game_active}, else: :ok
   end
 
+  @doc """
+  The `:pokemon` fact PlayerSupport publishes every monitor tick: the active
+  Pokémon's HP (`hp_pct`) and whether the HP bar was readable at all
+  (`readable?: false` = party window minimized or no Pokémon out of the ball).
+  `:unknown` when the fact is missing or older than `pokemon_fact_max_age_ms`
+  (monitor halted / not calibrated) — readers fail open on it, as with every
+  fact.
+  """
+  @spec pokemon(integer) :: {:ok, %{hp_pct: integer | nil, readable?: boolean}} | :unknown
+  def pokemon(now_ms \\ System.monotonic_time(:millisecond)) do
+    case WorldState.get(:pokemon, Settings.get(:pokemon_fact_max_age_ms), now_ms) do
+      {:ok, obs} -> {:ok, obs}
+      _stale_or_missing -> :unknown
+    end
+  end
+
   # Feed inventory. Task 5 fills in the :battle and :arena interpreters; later phases add
   # :glow, :pokemon_hp, :mini_game and :skill_bar here.
   def feed_specs do

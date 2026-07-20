@@ -307,6 +307,10 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     view |> element("button", "Só o minigame") |> render_click()
     assert render(view) =~ "FAIXA"
+    # the clickable screenshot MUST render on the quick-fix steps — a step
+    # missing from marking_step?/1 shows the instruction over a black page
+    # (the exact 2026-07-20 regression; render_hook alone can't catch it)
+    assert has_element?(view, "#calibration-screen")
 
     click = fn x, y ->
       params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}

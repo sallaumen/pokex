@@ -609,7 +609,9 @@ defmodule PokexWeb.CalibrationLive do
   defp skill_count_form(count), do: to_form(%{"count" => to_string(count)}, as: :skill_bar)
 
   # Any step where the user clicks the screenshot to mark a point/region (the numbered wizard
-  # steps AND the standalone Pokémon-HP flow).
+  # steps AND the standalone quick-fix flows). A step missing here renders the
+  # instruction with NO screenshot below it — a black page (2026-07-20 bug: the
+  # mini_game quick-fix steps were absent).
   defp marking_step?(step),
     do:
       step in [
@@ -624,7 +626,9 @@ defmodule PokexWeb.CalibrationLive do
         :skill_b,
         :hp_a,
         :hp_b,
-        :photo
+        :photo,
+        :mini_game_a,
+        :mini_game_b
       ]
 
   defp step_index(:water), do: 1

@@ -193,6 +193,16 @@ defmodule Pokex.Settings do
     # decision is cheap — the fish reverses every 0.5-1.5s and 150ms reacted too late.
     mini_game_play_tick_ms: 80,
     mini_game_min_toggle_ms: 50,
+    # End-of-game detection is DEFENSE IN DEPTH — the "track gone" exit streak alone hung
+    # the whole bot (2026-07-20): after a WIN the world behind the strip held a ≥60-row dark
+    # column, Track kept reading a "track" + clutter-fish, and every tick came back present.
+    # The capsule's blue is the player's OWN presence (measured live: visible on 86/86 play
+    # frames), so present readings with NO blue for this many consecutive ticks mean the
+    # overlay is functionally gone (~2s at the 80ms tick).
+    mini_game_no_capsule_exit_ticks: 25,
+    # Hard duration cap per game — the backstop for ANY unseen wedge (same philosophy as
+    # hook_hold_max_ms): no real game lasts minutes; a "game" that does is a stuck reading.
+    mini_game_max_game_ms: 90_000,
     mini_game_deadband_pct: 0.011,
     # Stopping-distance braking (track/s²), per direction — the REAL game is
     # asymmetric: thrust arrests a fall almost instantly (brake late: sink to

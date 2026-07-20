@@ -26,6 +26,7 @@ defmodule Pokex.Bots.MiniGame.Player do
             last_toggle_at: nil,
             strip: nil,
             bar_width: 14,
+            no_capsule_streak: 0,
             trace: []
 
   @type t :: %__MODULE__{}
@@ -162,61 +163,24 @@ defmodule Pokex.Bots.MiniGame.Player do
     track_bar = %{x: round(@strip_half_pt * frame.width / sw), width: player.bar_width}
 
     case Track.read(frame, track_bar) do
-      {:ok, %{fish_y: fish_y, bar_y: bar_y, bar_source: bar_source}} ->
-        # Fish readings pass the plausibility gate: a teleporting misread must
-        # not re-aim the pilot (it flew the capsule to the track top while the
-        # real fish sat at the bottom — live traces, 2026-07-20).
-        fish =
-          player.fish
-          |> Pilot.accept_target(%{y: fish_y, at: captured_at},
-            max_speed: Settings.get(:mini_game_fish_max_speed),
-            reacquire_ms: Settings.get(:mini_game_fish_reacquire_ms)
-          )
-          |> Enum.take(-@observation_cap)
+      # Present readings with NO blue anywhere: without the capsule this is not
+      # our overlay anymore — after a WIN the world behind the strip can hold a
+      # fake dark "track" + clutter-fish forever (the 2026-07-20 hang: every
+      # tick read present and the exit streak never fired, freezing the whole
+      # self-held bot). In real play the capsule's blue pokes out on virtually
+      # every tick (measured 86/86), so a streak of blue-less frames is an END
+      # signal, reported as :absent for the worker's normal exit path.
+      {:ok, %{bar_source: :fish}} = reading ->
+        streak = player.no_capsule_streak + 1
 
-        capsule =
-          push_observation(player.capsule, %{y: bar_y, at: captured_at, source: bar_source})
+        if streak >= Settings.get(:mini_game_no_capsule_exit_ticks) do
+          {:absent, release_if_holding(%{player | no_capsule_streak: streak})}
+        else
+          play_reading(%{player | no_capsule_streak: streak}, reading, captured_at, capture_ms)
+        end
 
-        # Decision time is NOW, observations carry capture time: age_ms > 0 is
-        # exactly the capture latency the predictive pilot extrapolates over.
-        now = System.monotonic_time(:millisecond)
-
-        decision =
-          Pilot.decide(
-            %{
-              pilot: :predictive,
-              deadband_pct: Settings.get(:mini_game_deadband_pct),
-              actuation_ms: Rig.impl().hold_latency_ms(),
-              brake_up: Settings.get(:mini_game_brake_up),
-              brake_down: Settings.get(:mini_game_brake_down)
-            },
-            fish,
-            %{
-              y: bar_y,
-              vy: Pilot.capsule_velocity(capsule),
-              pressing: player.holding?,
-              at: captured_at
-            },
-            now
-          )
-
-        player =
-          %{player | fish: fish, capsule: capsule}
-          |> actuate(decision.desired, now)
-
-        sample = %{
-          t: captured_at,
-          cap_ms: capture_ms,
-          fish: Float.round(fish_y, 4),
-          aim: Float.round(List.last(fish).y, 4),
-          bar: Float.round(bar_y, 4),
-          src: bar_source,
-          target: decision.target_y && Float.round(decision.target_y, 4),
-          desired: decision.desired,
-          hold: player.holding?
-        }
-
-        {:present, record_trace(player, sample)}
+      {:ok, _fish_and_blue} = reading ->
+        play_reading(%{player | no_capsule_streak: 0}, reading, captured_at, capture_ms)
 
       {:error, :no_fish} ->
         # Track still there, fish unreadable this frame: blind ticks fail SAFE
@@ -226,6 +190,65 @@ defmodule Pokex.Bots.MiniGame.Player do
       {:error, :no_track} ->
         {:absent, release_if_holding(player)}
     end
+  end
+
+  defp play_reading(player, {:ok, reading}, captured_at, capture_ms) do
+    %{fish_y: fish_y, bar_y: bar_y, bar_source: bar_source} = reading
+
+    # Fish readings pass the plausibility gate: a teleporting misread must
+    # not re-aim the pilot (it flew the capsule to the track top while the
+    # real fish sat at the bottom — live traces, 2026-07-20).
+    fish =
+      player.fish
+      |> Pilot.accept_target(%{y: fish_y, at: captured_at},
+        max_speed: Settings.get(:mini_game_fish_max_speed),
+        reacquire_ms: Settings.get(:mini_game_fish_reacquire_ms)
+      )
+      |> Enum.take(-@observation_cap)
+
+    capsule =
+      push_observation(player.capsule, %{y: bar_y, at: captured_at, source: bar_source})
+
+    # Decision time is NOW, observations carry capture time: age_ms > 0 is
+    # exactly the capture latency the predictive pilot extrapolates over.
+    now = System.monotonic_time(:millisecond)
+
+    decision =
+      Pilot.decide(
+        %{
+          pilot: :predictive,
+          deadband_pct: Settings.get(:mini_game_deadband_pct),
+          actuation_ms: Rig.impl().hold_latency_ms(),
+          brake_up: Settings.get(:mini_game_brake_up),
+          brake_down: Settings.get(:mini_game_brake_down)
+        },
+        fish,
+        %{
+          y: bar_y,
+          vy: Pilot.capsule_velocity(capsule),
+          pressing: player.holding?,
+          at: captured_at
+        },
+        now
+      )
+
+    player =
+      %{player | fish: fish, capsule: capsule}
+      |> actuate(decision.desired, now)
+
+    sample = %{
+      t: captured_at,
+      cap_ms: capture_ms,
+      fish: Float.round(fish_y, 4),
+      aim: Float.round(List.last(fish).y, 4),
+      bar: Float.round(bar_y, 4),
+      src: bar_source,
+      target: decision.target_y && Float.round(decision.target_y, 4),
+      desired: decision.desired,
+      hold: player.holding?
+    }
+
+    {:present, record_trace(player, sample)}
   end
 
   defp push_observation(observations, observation),

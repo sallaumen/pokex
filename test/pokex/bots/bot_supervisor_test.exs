@@ -11,7 +11,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     wait_cast_settle_ms: 5,
     wait_assess_ms: 5,
     tick_ms_watching: 20,
-    tick_ms_fighting: 20,
     tick_ms_default: 20,
     watch_dead_streak_needed: 1000,
     watch_timeout_ms: 30_000,

@@ -108,8 +108,7 @@ defmodule Pokex.Bots.Fishing.Logic do
     cond do
       streak < logic.config.glow_streak_needed ->
         # a bite signal, even mid-debounce, means the line is live → clear dead_streak
-        {%{logic | glow_streak: streak, dead_streak: 0, holding?: false, holding_since: nil},
-         []}
+        {%{logic | glow_streak: streak, dead_streak: 0, holding?: false, holding_since: nil}, []}
 
       hold_for_cooldowns?(logic, obs) and not hold_expired?(logic, now) ->
         # Bite confirmed, but require_cooldowns is on and NOT ONE kill-skill is ready

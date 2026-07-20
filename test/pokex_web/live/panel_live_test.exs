@@ -487,7 +487,6 @@ defmodule PokexWeb.PanelLiveTest do
 
   test "saves combat timing knobs and ignores blanks", %{conn: conn} do
     keys = [
-      :tick_ms_fighting,
       :combat_skill_burst_size,
       :combat_skill_tap_count,
       :combat_skill_gap_ms,
@@ -503,7 +502,6 @@ defmodule PokexWeb.PanelLiveTest do
 
     view
     |> form("#timing-form", %{
-      "tick_ms_fighting" => "120",
       "combat_skill_burst_size" => "3",
       "combat_skill_tap_count" => "0",
       "combat_skill_gap_ms" => "25",
@@ -513,7 +511,6 @@ defmodule PokexWeb.PanelLiveTest do
     })
     |> render_submit()
 
-    assert Pokex.Settings.get(:tick_ms_fighting) == 120
     assert Pokex.Settings.get(:combat_skill_burst_size) == 3
     # positive timing knobs clamp 0 to 1 instead of persisting an inert combat setting.
     assert Pokex.Settings.get(:combat_skill_tap_count) == 1

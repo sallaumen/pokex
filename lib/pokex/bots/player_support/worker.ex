@@ -154,7 +154,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
            min_saturation: min_s,
            min_known_pct: Settings.get(:pokemon_hp_min_known_pct)
          ) do
-        {:ok, normalize_hp(Vision.hp_fill_pct(frame, min_brightness: min_b, min_saturation: min_s))}
+        {:ok,
+         normalize_hp(Vision.hp_fill_pct(frame, min_brightness: min_b, min_saturation: min_s))}
       else
         :unrecognized
       end

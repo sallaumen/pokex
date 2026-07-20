@@ -73,7 +73,6 @@ defmodule Pokex.Settings do
     # A tiny post-success pause (10–50ms) is all that stays, so the game has a
     # frame to register the previous input before the next one.
     tick_ms_watching: 100,
-    tick_ms_fighting: 300,
     tick_ms_default: 80,
     wait_focus_ms: 20,
     wait_after_equip_ms: 30,
@@ -123,7 +122,6 @@ defmodule Pokex.Settings do
     # water sparkles do not keep a failed cast alive forever.
     line_present_min_px: 100,
     max_consecutive_failures: 5,
-    hostile_scan_every: 2,
     wild_min_red_pixels: 12,
     # A SINGLE bite-magnitude frame (> glow_threshold) hooks. The bite oscillates
     # hard (2..1513), so requiring CONSECUTIVE frames never confirms — but one frame

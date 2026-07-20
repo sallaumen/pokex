@@ -27,8 +27,6 @@ defmodule PokexWeb.PanelLive do
   # Combat timing knobs Lucas tunes live to speed up search + kills. Config is
   # built once at Start/Testar, so these apply on the NEXT run (noted in the UI).
   @timing_fields [
-    {:tick_ms_fighting, "Ritmo da luta (ms) — legado, sem efeito no combate Tab",
-     "de quanto em quanto tempo ele reavalia a luta e dispara a próxima rajada"},
     {:combat_skill_burst_size, "Skills por leitura",
      "quantas teclas de skill ele engatilha antes de olhar a luta de novo"},
     {:combat_skill_tap_count, "Toques por skill",
@@ -396,7 +394,6 @@ defmodule PokexWeb.PanelLive do
     if value, do: arm_support()
     {:noreply, assign(socket, potion_enabled: value)}
   end
-
 
   def handle_event("save_potion_cfg", params, socket) do
     socket =

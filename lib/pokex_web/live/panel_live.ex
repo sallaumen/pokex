@@ -104,7 +104,9 @@ defmodule PokexWeb.PanelLive do
        reposition_enabled: Settings.get(:reposition_enabled),
        potion_pct: Settings.get(:pokemon_hp_potion_pct),
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
-       hook_skills: Enum.join(Settings.get(:hook_skill_keys), " ")
+       hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
+       presets: Settings.list_presets(),
+       preset_msg: nil
      )}
   end
 
@@ -128,6 +130,26 @@ defmodule PokexWeb.PanelLive do
       {:error, messages} ->
         assign(socket, errors: messages, calib_stale?: calib_stale?())
     end
+  end
+
+  # The Settings-derived assigns a preset can change — re-read after apply_preset
+  # so every toggle/field on screen matches what was just applied.
+  defp refresh_setting_assigns(socket) do
+    assign(socket,
+      skill_order: Enum.join(Settings.get(:skill_keys), " "),
+      hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
+      loot_enabled: Settings.get(:loot_enabled),
+      capture_enabled: Settings.get(:capture_enabled),
+      require_cooldowns: Settings.get(:require_cooldowns),
+      require_pokemon_hp: Settings.get(:require_pokemon_hp),
+      fishing_hp_pct: Settings.get(:pokemon_hp_fishing_pct),
+      rescue_enabled: Settings.get(:rescue_enabled),
+      rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
+      potion_enabled: Settings.get(:potion_enabled),
+      potion_pct: Settings.get(:pokemon_hp_potion_pct),
+      reposition_enabled: Settings.get(:reposition_enabled),
+      presets: Settings.list_presets()
+    )
   end
 
   # The workers load the calibration at Start; edits after that (a quick fix, an
@@ -406,6 +428,51 @@ defmodule PokexWeb.PanelLive do
   def handle_event("save_fishing_hp_cfg", params, socket) do
     {:noreply,
      save_int(socket, params["fishing_hp_pct"], 1..90, :pokemon_hp_fishing_pct, :fishing_hp_pct)}
+  end
+
+  def handle_event("save_preset", %{"name" => name}, socket) do
+    case Settings.save_preset(name) do
+      {:ok, slug} ->
+        {:noreply,
+         assign(socket, presets: Settings.list_presets(), preset_msg: "Preset \"#{slug}\" salvo")}
+
+      {:error, :invalid_name} ->
+        {:noreply, assign(socket, preset_msg: "Nome inválido — use letras/números")}
+    end
+  end
+
+  def handle_event("apply_preset", %{"slug" => slug}, socket) do
+    case Settings.apply_preset(slug) do
+      {:ok, %{applied: applied}} ->
+        # same side effect as the individual toggles: a support gate the preset
+        # turned on needs the monitor ticking
+        support_keys = [
+          :require_pokemon_hp,
+          :rescue_enabled,
+          :potion_enabled,
+          :reposition_enabled
+        ]
+
+        if Enum.any?(support_keys, &Settings.get/1), do: arm_support()
+
+        {:noreply,
+         socket
+         |> refresh_setting_assigns()
+         |> assign(
+           preset_msg:
+             "Preset \"#{slug}\" aplicado (#{applied} ajustes) — bots rodando pegam as skills no próximo Parar e Iniciar"
+         )}
+
+      {:error, _not_found_or_corrupt} ->
+        {:noreply, assign(socket, preset_msg: "Preset \"#{slug}\" ilegível ou inexistente")}
+    end
+  end
+
+  def handle_event("delete_preset", %{"slug" => slug}, socket) do
+    Settings.delete_preset(slug)
+
+    {:noreply,
+     assign(socket, presets: Settings.list_presets(), preset_msg: "Preset \"#{slug}\" excluído")}
   end
 
   def handle_event("toggle_rescue", _params, socket) do
@@ -751,6 +818,20 @@ defmodule PokexWeb.PanelLive do
       ⚡ {last_action_text(@snapshot, @now_ms)}
     </p>
     """
+  end
+
+  # One line summarizing what a preset would change — the two skill lists are
+  # the piece you actually scan for when switching Pokémon.
+  defp preset_summary(preset) do
+    [
+      preset.skill_keys && "skills #{Enum.join(preset.skill_keys, " ")}",
+      preset.hook_skill_keys && "fisga #{Enum.join(preset.hook_skill_keys, " ")}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> "—"
+      parts -> Enum.join(parts, " · ")
+    end
   end
 
   defp last_action_text(snapshot, now_ms) do
@@ -1292,6 +1373,62 @@ defmodule PokexWeb.PanelLive do
                 </form>
               </div>
             </details>
+
+            <section id="presets-card" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+              <div class="flex items-center justify-between text-xs font-semibold">
+                <span>Presets por Pokémon</span>
+                <span class="font-mono text-[9px] text-[#737d85]">skills · bolas · suporte</span>
+              </div>
+              <p class="mt-1 text-[11px] leading-tight text-[#7f8992]">
+                Salva o conjunto atual de skills, captura e suporte com o nome do Pokémon —
+                trocar de Pokémon vira um clique.
+              </p>
+              <form id="preset-save-form" phx-submit="save_preset" class="mt-2 flex gap-2">
+                <input
+                  name="name"
+                  placeholder="ex.: charizard"
+                  class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                />
+                <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+                  Salvar preset
+                </button>
+              </form>
+              <p :if={@preset_msg} id="preset-msg" class="mt-2 text-[11px] text-[#e7ca82]">
+                {@preset_msg}
+              </p>
+              <ul
+                :if={@presets != []}
+                id="preset-list"
+                class="mt-2 divide-y divide-[#222a2f] overflow-hidden rounded-lg border border-[#232b30]"
+              >
+                <li
+                  :for={preset <- @presets}
+                  class="flex items-center gap-2 bg-[#101418] px-3 py-2"
+                >
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-semibold text-[#d9dde1]">{preset.slug}</p>
+                    <p class="truncate font-mono text-[9px] text-[#737d85]">
+                      {preset_summary(preset)}
+                    </p>
+                  </div>
+                  <button
+                    phx-click="apply_preset"
+                    phx-value-slug={preset.slug}
+                    class="btn btn-xs h-7 border-0 bg-[#37d07d] px-3 text-[11px] font-bold text-[#06140c] hover:bg-[#45dd88]"
+                  >
+                    Aplicar
+                  </button>
+                  <button
+                    phx-click="delete_preset"
+                    phx-value-slug={preset.slug}
+                    data-confirm={"Excluir o preset \"#{preset.slug}\"?"}
+                    class="btn btn-xs h-7 border border-[#5f292f] bg-transparent px-2 text-[11px] text-[#ff9ca4] hover:bg-[#241114]"
+                  >
+                    Excluir
+                  </button>
+                </li>
+              </ul>
+            </section>
 
             <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
               <div class="flex items-center justify-between text-xs font-semibold">

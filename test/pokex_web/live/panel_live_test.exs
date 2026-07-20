@@ -421,6 +421,42 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:hook_skill_keys) == ["5", "6", "7"]
   end
 
+  @tag :tmp_dir
+  test "preset por Pokémon: salvar → aplicar → excluir no painel", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    keys = Pokex.Settings.get(:hook_skill_keys)
+    on_exit(fn -> Pokex.Settings.put(:hook_skill_keys, keys) end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    # save captures the CURRENT settings under the Pokémon's name
+    Pokex.Settings.put(:hook_skill_keys, ["8", "9"])
+    view |> form("#preset-save-form", %{"name" => "Blastoise"}) |> render_submit()
+    html = render(view)
+    assert html =~ "Preset &quot;blastoise&quot; salvo"
+    assert html =~ "fisga 8 9"
+
+    # settings drift, apply restores the bundle AND the visible fields
+    Pokex.Settings.put(:hook_skill_keys, ["1"])
+
+    view
+    |> element(~s(#preset-list button[phx-value-slug="blastoise"]), "Aplicar")
+    |> render_click()
+
+    assert Pokex.Settings.get(:hook_skill_keys) == ["8", "9"]
+    html = render(view)
+    assert html =~ "aplicado"
+    assert html =~ "8 9"
+
+    view
+    |> element(~s(#preset-list button[phx-value-slug="blastoise"]), "Excluir")
+    |> render_click()
+
+    refute render(view) =~ "fisga 8 9"
+  end
+
   test "saves the rescue threshold + cooldown and rejects nonsense values", %{conn: conn} do
     original = Pokex.Settings.get(:pokemon_hp_rescue_pct)
     cooldown = Pokex.Settings.get(:rescue_cooldown_ms)

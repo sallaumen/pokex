@@ -409,6 +409,34 @@ defmodule Pokex.Settings do
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)
 
+  # The per-Pokémon settings a preset bundles (~/.pokex/presets/<slug>.json):
+  # combat/hook skills, ball and support setup for ONE Pokémon — switchable as a
+  # set (mirrors Calibration profiles). Everything else (timings, vision
+  # thresholds, calibration) is rig-specific and stays out.
+  @preset_keys [
+    # combate
+    :skill_keys,
+    # pesca — skills de abate e gates
+    :hook_skill_keys,
+    :require_cooldowns,
+    :require_pokemon_hp,
+    :pokemon_hp_fishing_pct,
+    :rod_key,
+    # bolas / pós-luta
+    :loot_enabled,
+    :capture_enabled,
+    :corpse_max_balls,
+    # suporte
+    :rescue_enabled,
+    :rescue_key,
+    :max_revive_key,
+    :pokemon_hp_rescue_pct,
+    :potion_enabled,
+    :potion_key,
+    :pokemon_hp_potion_pct,
+    :reposition_enabled
+  ]
+
   # ETS mirror of the GLOBAL instance's overrides. Worker ticks read several
   # settings every 80-400ms across many processes; funnelling those through one
   # GenServer serializes every hot loop behind a single mailbox. Reads against
@@ -452,6 +480,64 @@ defmodule Pokex.Settings do
 
   def put(key, value, server \\ __MODULE__) when is_map_key(@seed_settings, key),
     do: GenServer.call(server, {:put, key, value})
+
+  # --- presets por Pokémon ---------------------------------------------------
+
+  def preset_keys, do: @preset_keys
+
+  @doc "Saves the CURRENT per-Pokémon settings under `name`. {:ok, slug} | {:error, reason}."
+  def save_preset(name, server \\ __MODULE__) do
+    with {:ok, slug} <- preset_slug(name) do
+      data = Map.new(@preset_keys, fn key -> {key, get(key, server)} end)
+      File.mkdir_p!(presets_dir())
+      File.write!(preset_path(slug), JSON.encode!(data))
+      {:ok, slug}
+    end
+  end
+
+  @doc """
+  Applies the named preset: every known, type-valid preset key is put; anything
+  else in the file (unknown keys, non-preset keys, hand-edited values with the
+  wrong shape) is IGNORED — a bad file must not poison Settings.
+  {:ok, %{slug, applied}} | {:error, reason}.
+  """
+  def apply_preset(name, server \\ __MODULE__) do
+    with {:ok, slug} <- preset_slug(name),
+         {:ok, bin} <- read_preset(slug),
+         {:ok, json} <- JSON.decode(bin) do
+      applied =
+        for {key_string, value} <- json,
+            key = known_key(key_string),
+            key in @preset_keys,
+            valid_preset_value?(key, value) do
+          :ok = put(key, value, server)
+          key
+        end
+
+      {:ok, %{slug: slug, applied: length(applied)}}
+    end
+  end
+
+  def delete_preset(name) do
+    with {:ok, slug} <- preset_slug(name) do
+      File.rm(preset_path(slug))
+      :ok
+    end
+  end
+
+  @doc "Every saved preset: slug, skills summary and saved-at (unix seconds)."
+  def list_presets do
+    case File.ls(presets_dir()) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.ends_with?(&1, ".json"))
+        |> Enum.sort()
+        |> Enum.map(&preset_entry/1)
+
+      {:error, _no_dir_yet} ->
+        []
+    end
+  end
 
   @impl true
   def init(opts) do
@@ -541,5 +627,68 @@ defmodule Pokex.Settings do
     persist!(path, data)
   rescue
     error -> Logger.warning("Settings: could not rewrite #{path}: #{inspect(error)}")
+  end
+
+  # --- preset helpers --------------------------------------------------------
+
+  defp presets_dir, do: Path.join(Pokex.Home.dir(), "presets")
+  defp preset_path(slug), do: Path.join(presets_dir(), slug <> ".json")
+
+  defp read_preset(slug) do
+    case File.read(preset_path(slug)) do
+      {:ok, bin} -> {:ok, bin}
+      {:error, _enoent_or_other} -> {:error, :not_found}
+    end
+  end
+
+  # Same normalization as Calibration.profile_slug — kept local on purpose: two
+  # call sites, no shared "slug" concept worth an abstraction yet.
+  defp preset_slug(name) do
+    slug =
+      name
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9_-]+/u, "-")
+      |> String.trim("-")
+
+    if slug == "", do: {:error, :invalid_name}, else: {:ok, slug}
+  end
+
+  # "Valid" = the same SHAPE as the seed default: booleans stay booleans,
+  # integers stay integers, key strings stay strings, key LISTS stay lists of
+  # strings. This is the whole validation the aceite asks for — enough to keep
+  # a hand-edited preset from feeding Settings a value no consumer expects.
+  defp valid_preset_value?(key, value) do
+    seed = Map.fetch!(@seed_settings, key)
+
+    cond do
+      is_boolean(seed) -> is_boolean(value)
+      is_integer(seed) -> is_integer(value)
+      is_binary(seed) -> is_binary(value)
+      is_list(seed) -> is_list(value) and Enum.all?(value, &is_binary/1)
+      true -> false
+    end
+  end
+
+  defp preset_entry(file) do
+    slug = String.trim_trailing(file, ".json")
+    path = preset_path(slug)
+
+    summary =
+      with {:ok, bin} <- File.read(path),
+           {:ok, json} <- JSON.decode(bin) do
+        %{skill_keys: json["skill_keys"], hook_skill_keys: json["hook_skill_keys"]}
+      else
+        _corrupt -> %{skill_keys: nil, hook_skill_keys: nil}
+      end
+
+    saved_at =
+      case File.stat(path, time: :posix) do
+        {:ok, %File.Stat{mtime: mtime}} -> mtime
+        _stat_error -> nil
+      end
+
+    Map.merge(summary, %{slug: slug, saved_at: saved_at})
   end
 end

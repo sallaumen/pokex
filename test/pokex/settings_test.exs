@@ -157,4 +157,78 @@ defmodule Pokex.SettingsTest do
     assert Settings.get(:glow_threshold, server) == 77.0
     assert :ets.lookup(:pokex_settings_overrides, :glow_threshold) == []
   end
+
+  describe "presets por Pokémon" do
+    defp preset_server(tmp) do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      {:ok, server} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+      server
+    end
+
+    @tag :tmp_dir
+    test "save → apply round-trips the per-Pokémon keys", %{tmp_dir: tmp} do
+      server = preset_server(tmp)
+
+      :ok = Settings.put(:skill_keys, ["9", "0"], server)
+      :ok = Settings.put(:potion_enabled, true, server)
+      assert {:ok, "charizard"} = Settings.save_preset("Charizard!", server)
+
+      :ok = Settings.put(:skill_keys, ["1"], server)
+      :ok = Settings.put(:potion_enabled, false, server)
+
+      assert {:ok, %{slug: "charizard", applied: applied}} =
+               Settings.apply_preset("charizard", server)
+
+      assert applied == length(Settings.preset_keys())
+      assert Settings.get(:skill_keys, server) == ["9", "0"]
+      assert Settings.get(:potion_enabled, server) == true
+    end
+
+    @tag :tmp_dir
+    test "apply ignores unknown keys, non-preset keys and wrong-shaped values", %{tmp_dir: tmp} do
+      server = preset_server(tmp)
+
+      File.mkdir_p!(Path.join(tmp, "presets"))
+
+      File.write!(
+        Path.join(tmp, "presets/misto.json"),
+        JSON.encode!(%{
+          "skill_keys" => ["7"],
+          # wrong shape: a string where a boolean lives
+          "potion_enabled" => "sim",
+          # known Settings key that is NOT a preset key
+          "glow_threshold" => 1,
+          # unknown key
+          "hacked" => true
+        })
+      )
+
+      glow_before = Settings.get(:glow_threshold, server)
+      assert {:ok, %{applied: 1}} = Settings.apply_preset("misto", server)
+
+      assert Settings.get(:skill_keys, server) == ["7"]
+      assert Settings.get(:potion_enabled, server) == Settings.defaults()[:potion_enabled]
+      assert Settings.get(:glow_threshold, server) == glow_before
+    end
+
+    @tag :tmp_dir
+    test "list/delete round-trip, missing preset and the invalid-name guard", %{tmp_dir: tmp} do
+      server = preset_server(tmp)
+
+      assert Settings.apply_preset("nada", server) == {:error, :not_found}
+      assert Settings.save_preset("!!!", server) == {:error, :invalid_name}
+
+      :ok = Settings.put(:hook_skill_keys, ["8"], server)
+      assert {:ok, "mewtwo"} = Settings.save_preset("Mewtwo", server)
+
+      assert [%{slug: "mewtwo", hook_skill_keys: ["8"], saved_at: saved_at}] =
+               Settings.list_presets()
+
+      assert is_integer(saved_at)
+
+      :ok = Settings.delete_preset("mewtwo")
+      assert Settings.list_presets() == []
+    end
+  end
 end

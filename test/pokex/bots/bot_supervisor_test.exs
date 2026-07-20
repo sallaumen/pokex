@@ -140,6 +140,25 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert status.catcher.state == :idle
   end
 
+  @tag :tmp_dir
+  test "start_all/5 stamps the :calibration fact; stop_all/5 forgets it" do
+    alias Pokex.Perception.WorldState
+
+    {fishing, combat, catcher} = start_isolated_supervisor(:stamp_test)
+    mini_game = :stamp_test_mini_game
+    player_support = :stamp_test_player_support
+    on_exit(fn -> WorldState.forget(:calibration) end)
+
+    assert :ok = BotSupervisor.start_all(fishing, combat, catcher, mini_game, player_support)
+
+    now = System.monotonic_time(:millisecond)
+    assert {:ok, %{loaded_mtime: loaded}} = WorldState.get(:calibration, 4_000_000_000, now)
+    assert loaded == Pokex.Calibration.mtime()
+
+    assert :ok = BotSupervisor.stop_all(fishing, combat, catcher, mini_game, player_support)
+    assert WorldState.get(:calibration, 4_000_000_000, now) == :missing
+  end
+
   # The single most safety-critical invariant of the whole bot: the Guardian's
   # panic corner runs stop_all/5, and that MUST release a Space the mini-game
   # player is holding — a stuck Space keeps acting in the game after the human

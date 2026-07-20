@@ -4,7 +4,27 @@ defmodule PokexWeb.PanelLiveTest do
 
   setup do
     {:ok, _} = Pokex.Rig.Fake.start_link()
+    on_exit(fn -> Pokex.Perception.WorldState.forget(:calibration) end)
     :ok
+  end
+
+  test "a calibration edited after the last Start raises the stale banner", %{conn: conn} do
+    # the stamp says the bots loaded mtime 123; the file on disk differs (absent here)
+    Pokex.Perception.WorldState.put(
+      :calibration,
+      %{loaded_mtime: 123},
+      System.monotonic_time(:millisecond)
+    )
+
+    {:ok, view, html} = live(conn, ~p"/")
+
+    assert html =~ "calibração mudou"
+    assert has_element?(view, "#calib-stale-banner button[phx-click='restart_bots']")
+  end
+
+  test "no stamp (bots never started) → no stale banner", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+    refute has_element?(view, "#calib-stale-banner")
   end
 
   @tag :tmp_dir

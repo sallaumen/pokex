@@ -5,10 +5,30 @@ defmodule Pokex.Bots.MiniGame.Detector do
   This is intentionally only a presence detector. It looks for the long dark
   vertical control bar that appears over the player's character and optionally
   boosts confidence when the bright "PRESS SPACE" prompt is visible near the top.
-  The player anchor is important: normal map objects can also form dark vertical
-  runs (e.g. the dock fence), but the mini-game bar is drawn AT the character —
-  measured (2026-07-10) ~40px to the RIGHT of the sprite center, so the anchor
-  window must be wider than the sprite (see the mini_game_anchor_tolerance seed).
+
+  Detection runs in three passes:
+
+  1. **Anchored** — columns within `anchor_tolerance` of the calibrated player
+    point, tight 8px gap budget. Normal map objects can also form dark vertical
+    runs (e.g. the dock fence), and the anchor window keeps them out. The bar is
+    drawn AT the character — measured (2026-07-10) ~40px to the RIGHT of the
+    sprite center, so the window must be wider than the sprite (see the
+    mini_game_anchor_tolerance seed).
+  2. **Sweep** — when the anchored pass finds nothing, the full frame is swept
+    with a sprite-sized gap budget (nameplate/sprite pixels interrupt the dark
+    column when the overlay lands on the character). Sweep candidates must show
+    the blue capsule INSIDE the column (measured: ~100 sampled capsule pixels on
+    a real open frame vs 0 on the dock-fence frame), which is what lets it skip
+    the anchor entirely — a stale/imprecise player calibration no longer blocks
+    detection.
+  3. **Capsule** — when even the sweep fails (measured 2026-07-20: the bar at
+    the viewport's right edge merges with the dark sidebar into one block wider
+    than max_width), the capsule itself is the anchor: find the blue pixels,
+    then demand a bar-length dark column through them. Width plays no part, so
+    dark neighbours can't disqualify the bar.
+
+  Caveat for passes 2-3: a frame where the fish fully occludes the capsule has
+  no blue evidence for that tick; the enter streak just picks the next one up.
   """
 
   alias Pokex.Vision.Frame
@@ -25,10 +45,18 @@ defmodule Pokex.Bots.MiniGame.Detector do
           prompt_score: non_neg_integer
         }
 
+  # sweep: x stride between sampled columns (must stay under the bar's minimum
+  # width), gap budget as a fraction of frame height (a 2x-scale sprite +
+  # nameplate interrupts ~100-130px of a ~950px crop), and the minimum sampled
+  # capsule-blue pixels a candidate must contain.
+  @sweep_stride 4
+  @sweep_gap_ratio 0.15
+  @sweep_min_blue_px 6
+
   @doc "Returns a presence reading for the mini-game overlay in a captured frame."
   @spec detect(Frame.t(), keyword) :: t
   def detect(%Frame{} = frame, opts \\ []) do
-    bar = find_dark_bar(frame, opts)
+    bar = find_dark_bar(frame, opts) || sweep_bar(frame, opts) || capsule_bar(frame, opts)
     prompt_score = prompt_score(frame)
     bar_confidence = if bar, do: bar.confidence, else: 0.0
     min_confidence = Keyword.get(opts, :min_confidence, 0.62)
@@ -68,7 +96,7 @@ defmodule Pokex.Bots.MiniGame.Detector do
     columns
     |> Enum.chunk_by(fn {_x, run} -> run.score >= min_dark end)
     |> Enum.filter(fn [{_x, run} | _] -> run.score >= min_dark end)
-    |> Enum.map(&bar_candidate(&1, step, h, min_dark_ratio))
+    |> Enum.map(&bar_candidate(&1, step, step, h, min_dark_ratio, :anchor))
     |> Enum.filter(fn candidate ->
       candidate.width >= min_width and candidate.width <= max_width and
         abs(candidate.x - anchor_x) <= anchor_tolerance and
@@ -77,21 +105,120 @@ defmodule Pokex.Bots.MiniGame.Detector do
     |> Enum.max_by(& &1.confidence, fn -> nil end)
   end
 
-  defp bar_candidate(run, step, height, min_dark_ratio) do
+  defp sweep_bar(%Frame{width: w, height: h} = frame, opts) do
+    step = max(Keyword.get(opts, :step, 2), 1)
+    stride = max(step, @sweep_stride)
+    min_dark_ratio = Keyword.get(opts, :min_dark_ratio, 0.34)
+    min_width = Keyword.get(opts, :min_width, max(8, round(w * 0.012)))
+    max_width = Keyword.get(opts, :max_width, max(36, round(w * 0.035)))
+    max_gap = max(round(h * @sweep_gap_ratio / step), 1)
+    min_dark = round(h * min_dark_ratio / step)
+
+    columns =
+      for x <- 0..(w - 1)//stride do
+        {x, dark_column_run(frame, x, step, max_gap)}
+      end
+
+    columns
+    |> Enum.chunk_by(fn {_x, run} -> run.score >= min_dark end)
+    |> Enum.filter(fn [{_x, run} | _] -> run.score >= min_dark end)
+    |> Enum.map(&bar_candidate(&1, stride, step, h, min_dark_ratio, :sweep))
+    |> Enum.filter(fn candidate ->
+      candidate.width >= min_width and candidate.width <= max_width and
+        capsule_evidence?(frame, candidate)
+    end)
+    |> Enum.max_by(& &1.confidence, fn -> nil end)
+  end
+
+  defp bar_candidate(run, x_step, y_step, height, min_dark_ratio, via) do
     {{left, _}, {right, _}} = {List.first(run), List.last(run)}
     {_x, best_run} = Enum.max_by(run, fn {_x, column_run} -> column_run.score end)
-    dark_ratio = best_run.score * step / height
+    dark_ratio = best_run.score * y_step / height
 
     %{
       x: div(left + right, 2),
-      width: right - left + step,
+      width: right - left + x_step,
       y1: best_run.start,
       y2: best_run.stop,
-      height: max(best_run.stop - best_run.start + step, 0),
+      height: max(best_run.stop - best_run.start + y_step, 0),
       dark_ratio: dark_ratio,
-      confidence: bar_confidence(dark_ratio, min_dark_ratio)
+      confidence: bar_confidence(dark_ratio, min_dark_ratio),
+      via: via
     }
   end
+
+  defp capsule_evidence?(%Frame{width: w} = frame, candidate) do
+    half = div(candidate.width, 2)
+    x1 = max(candidate.x - half, 0)
+    x2 = min(candidate.x + half, w - 1)
+
+    blue =
+      for x <- x1..x2//2, y <- candidate.y1..candidate.y2//2, reduce: 0 do
+        acc -> if capsule_pixel?(Frame.at(frame, x, y)), do: acc + 1, else: acc
+      end
+
+    blue >= @sweep_min_blue_px
+  end
+
+  # Last-resort pass: the capsule IS the anchor. Median-x of the capsule-blue
+  # pixels names the bar's column; a bar-length dark run through it (sweep gap
+  # budget — the capsule itself interrupts the dark) confirms. Width is only
+  # measured (bounded by max_width), never used to reject — this is what
+  # survives the bar sitting flush against the dark sidebar.
+  defp capsule_bar(%Frame{width: w, height: h} = frame, opts) do
+    step = max(Keyword.get(opts, :step, 2), 1)
+    min_dark_ratio = Keyword.get(opts, :min_dark_ratio, 0.34)
+    max_width = Keyword.get(opts, :max_width, max(36, round(w * 0.035)))
+    min_dark = round(h * min_dark_ratio / step)
+    max_gap = max(round(h * @sweep_gap_ratio / step), 1)
+
+    blue_xs =
+      for x <- 0..(w - 1)//2,
+          y <- 0..(h - 1)//2,
+          capsule_pixel?(Frame.at(frame, x, y)),
+          do: x
+
+    with true <- length(blue_xs) >= @sweep_min_blue_px,
+         cx = blue_xs |> Enum.sort() |> Enum.at(div(length(blue_xs), 2)),
+         run = dark_column_run(frame, cx, step, max_gap),
+         true <- run.score >= min_dark do
+      half = div(max_width, 2)
+      left = grow_dark(frame, cx, -1, max(cx - half, 0), step, max_gap, min_dark)
+      right = grow_dark(frame, cx, 1, min(cx + half, w - 1), step, max_gap, min_dark)
+      dark_ratio = min(run.score * step / h, 1.0)
+
+      %{
+        x: div(left + right, 2),
+        width: right - left + 1,
+        y1: run.start,
+        y2: run.stop,
+        height: max(run.stop - run.start + step, 0),
+        dark_ratio: dark_ratio,
+        confidence: bar_confidence(dark_ratio, min_dark_ratio),
+        via: :capsule
+      }
+    else
+      _no_capsule_or_no_bar -> nil
+    end
+  end
+
+  # Widen from the capsule column while neighbours still carry a bar-length
+  # dark run, up to `limit`.
+  defp grow_dark(frame, x, dir, limit, step, max_gap, min_dark) do
+    next = x + dir
+    within? = if dir < 0, do: next >= limit, else: next <= limit
+
+    if within? and dark_column_run(frame, next, step, max_gap).score >= min_dark do
+      grow_dark(frame, next, dir, limit, step, max_gap, min_dark)
+    else
+      x
+    end
+  end
+
+  # The capsule's saturated blue. b >= 225 keeps open WATER out (measured
+  # 2026-07-20: water tops out around {0, 86, 180}; the capsule reads
+  # {0, 164, 255} live and >= 235 in every fixture).
+  defp capsule_pixel?({r, g, b}), do: b >= 225 and b >= g + 60 and r <= 80
 
   defp bar_confidence(dark_ratio, min_dark_ratio) do
     # The real overlay bar occupies roughly 45-55% of the arena crop, not the

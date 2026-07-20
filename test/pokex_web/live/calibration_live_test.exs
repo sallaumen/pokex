@@ -275,4 +275,55 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.water_point == {50, 30}
     assert calib.arena_region == {20, 20, 60, 40}
   end
+
+  @tag :tmp_dir
+  test "standalone mini-game strip calibration merges mini_game_region into the saved calibration",
+       %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      arena_region: {20, 20, 60, 40},
+      neutral_point: {52, 36},
+      glow_baselines: [],
+      suggested_glow_threshold: 15.0
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} =
+      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration")
+
+    view |> element("button", "Só o minigame") |> render_click()
+    assert render(view) =~ "FAIXA"
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    # two corners → region {60, 8, 20, 48}
+    click.(30.0, 4.0)
+    assert render(view) =~ "INFERIOR-DIREITO"
+    click.(40.0, 28.0)
+
+    assert render(view) =~ "Faixa do minigame salva"
+    assert {:ok, calib} = Calibration.load()
+    assert calib.mini_game_region == {60, 8, 20, 48}
+    # the rest of the calibration is untouched
+    assert calib.water_point == {50, 30}
+    assert calib.arena_region == {20, 20, 60, 40}
+  end
 end

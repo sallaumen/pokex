@@ -74,6 +74,20 @@ defmodule Pokex.CalibrationTest do
     assert Calibration.player_point(old) == {840, 470}
   end
 
+  @tag :tmp_dir
+  test "mini_game_region round-trips, nil for older files", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "calibration.json")
+
+    Calibration.save(%{sample() | mini_game_region: {1180, 300, 90, 620}}, path)
+    assert {:ok, loaded} = Calibration.load(path)
+    assert loaded.mini_game_region == {1180, 300, 90, 620}
+
+    # an old file (no mini_game_region key) still loads as nil, not a crash
+    Calibration.save(sample(), path)
+    assert {:ok, old} = Calibration.load(path)
+    assert old.mini_game_region == nil
+  end
+
   test "derived regions and conversion" do
     calib = sample()
     assert Calibration.battle_strip(calib) == {1610, 120, 30, 220}

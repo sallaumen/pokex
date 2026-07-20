@@ -8,9 +8,10 @@ defmodule Pokex.Bots.MiniGame.Worker do
   On exit it releases Space, resumes the remembered workers and keeps the
   panel informed. This module is lifecycle only — streaks, peers, guards.
 
-  Detection runs ONLY on this worker's own watch tick. The Body's input guards
-  (`guard_before_input`/`guard_after_input`) are a pure, non-blocking read of the cached
-  `in_game?` flag — they never capture, so an input never pays a synchronous screencapture.
+  Detection runs ONLY on this worker's own watch tick. Every tick publishes the
+  `:mini_game` fact on the WorldState blackboard — the Body and combat gate their
+  inputs on it (`Pokex.Perception.mini_game_gate/0`) with a lock-free ETS read,
+  so an input never blocks on this worker's mailbox or pays a screencapture.
   """
   use GenServer
 
@@ -62,23 +63,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def run(server \\ __MODULE__), do: GenServer.call(server, :run)
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
-
-  def guard_before_input(server \\ __MODULE__), do: guard(server, :guard_before_input)
-  def guard_after_input(server \\ __MODULE__), do: guard(server, :guard_after_input)
-
-  defp guard(nil, _message), do: :ok
-
-  defp guard(server, message) do
-    case GenServer.whereis(server) do
-      nil ->
-        :ok
-
-      _pid ->
-        GenServer.call(server, message, :infinity)
-    end
-  catch
-    :exit, _reason -> :ok
-  end
 
   @impl true
   def init(state) do
@@ -148,18 +132,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
-
-  def handle_call(:guard_before_input, _from, state) do
-    {:reply, guard_reply(state), state}
-  end
-
-  # PURE, non-blocking read of the cached in_game? flag — it must NEVER capture, because it runs
-  # inside the Body's input path (Body.run_guarded wraps every click/press in it). Detection is
-  # the watch tick's job; the mini-game is a sustained overlay, so one tick's latency to notice it
-  # is fine and keeps the actuator off a synchronous screencapture per input.
-  def handle_call(:guard_after_input, _from, state) do
-    {:reply, guard_reply(state), state}
-  end
 
   @impl true
   def handle_info(:tick, %{running?: false} = state), do: {:noreply, state}
@@ -325,9 +297,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   defp apply_play_result({:capture_error, reason, play}, state),
     do: mark_failure(%{state | play: play}, reason)
-
-  defp guard_reply(%{running?: true, in_game?: true}), do: {:blocked, :mini_game_active}
-  defp guard_reply(_state), do: :ok
 
   defp pause_peers_async(state, ref) do
     owner = self()

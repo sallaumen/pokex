@@ -49,6 +49,16 @@ defmodule Pokex.Perception do
     end
   end
 
+  @doc """
+  `mini_game_playing?/1` in the shape input gates want: `:ok` to act,
+  `{:blocked, :mini_game_active}` to stop. Used by the Body around every
+  guarded input and by combat around its key bursts.
+  """
+  @spec mini_game_gate(integer) :: :ok | {:blocked, :mini_game_active}
+  def mini_game_gate(now_ms \\ System.monotonic_time(:millisecond)) do
+    if mini_game_playing?(now_ms), do: {:blocked, :mini_game_active}, else: :ok
+  end
+
   # Feed inventory. Task 5 fills in the :battle and :arena interpreters; later phases add
   # :glow, :pokemon_hp, :mini_game and :skill_bar here.
   def feed_specs do

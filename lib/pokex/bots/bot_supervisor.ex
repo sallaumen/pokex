@@ -64,7 +64,7 @@ defmodule Pokex.Bots.BotSupervisor do
     peers = %{fishing: fishing, combat: combat, catcher: catcher}
 
     children = [
-      Supervisor.child_spec({Body, name: body, mini_game: mini_game}, id: body),
+      Supervisor.child_spec({Body, name: body}, id: body),
       Supervisor.child_spec({Guardian, name: guardian, on_panic: on_panic, body: body},
         id: guardian
       ),

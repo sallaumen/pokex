@@ -79,55 +79,6 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "the input guard reflects the tick-driven in_game? flag (no capture on the hot path)", %{
-    tmp: tmp
-  } do
-    game = png!(tmp, "mini-game.png", true)
-
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
-    test = self()
-
-    pause_peers = fn _peers ->
-      send(test, :paused)
-      [:fishing]
-    end
-
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-
-    worker = start_supervised!({Worker, name: nil, pause_peers: pause_peers})
-
-    assert :ok = Worker.run(worker)
-
-    # the WATCH TICK enters the game; the guard only mirrors the cached flag
-    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
-    assert {:blocked, :mini_game_active} = Worker.guard_before_input(worker)
-    assert {:blocked, :mini_game_active} = Worker.guard_after_input(worker)
-    assert Worker.status(worker).state == :playing
-  end
-
-  @tag :tmp_dir
-  test "the guard never captures or pauses on its own — detection is the tick's job", %{tmp: tmp} do
-    calm = png!(tmp, "calm.png", false)
-
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, calm}]})
-    test = self()
-
-    pause_peers = fn _peers ->
-      send(test, :paused)
-      []
-    end
-
-    worker = start_supervised!({Worker, name: nil, pause_peers: pause_peers})
-
-    assert :ok = Worker.run(worker)
-
-    # no game on screen: the guard is a pure read — :ok, and it pauses nobody
-    assert :ok = Worker.guard_before_input(worker)
-    assert :ok = Worker.guard_after_input(worker)
-    refute_receive :paused, 200
-  end
-
-  @tag :tmp_dir
   test "enters the game when the bar sits right of the character, like the real overlay", %{
     tmp: tmp
   } do

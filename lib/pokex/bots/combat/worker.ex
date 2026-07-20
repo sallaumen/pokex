@@ -14,7 +14,6 @@ defmodule Pokex.Bots.Combat.Worker do
   require Logger
 
   alias Pokex.Bots.Combat.Logic
-  alias Pokex.Bots.MiniGame
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.{Preflight, Settings}
@@ -232,9 +231,9 @@ defmodule Pokex.Bots.Combat.Worker do
       jitter_ms: Settings.get(:combat_skill_jitter_ms) |> non_neg_int(0)
     ]
 
-    with :ok <- MiniGame.Worker.guard_before_input(),
+    with :ok <- Perception.mini_game_gate(),
          :ok <- Pokex.Rig.impl().press_many(keys, opts),
-         :ok <- MiniGame.Worker.guard_after_input() do
+         :ok <- Perception.mini_game_gate() do
       :ok
     else
       {:blocked, :mini_game_active} -> :ok

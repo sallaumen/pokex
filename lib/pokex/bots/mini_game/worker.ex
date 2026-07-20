@@ -3,9 +3,10 @@ defmodule Pokex.Bots.MiniGame.Worker do
   Watches the arena for the fishing mini-game overlay.
 
   On entry it pauses the regular fishing/combat/catcher workers and remembers
-  which ones were active. On exit it starts only those remembered workers again.
-  For now this worker does not play the mini-game; it only coordinates the
-  transition and keeps the panel informed.
+  which ones were active, then PLAYS through `MiniGame.Player` (the engine
+  owning strip capture, pilot decisions, actuation and the physics trace).
+  On exit it releases Space, resumes the remembered workers and keeps the
+  panel informed. This module is lifecycle only — streaks, peers, guards.
 
   Detection runs ONLY on this worker's own watch tick. The Body's input guards
   (`guard_before_input`/`guard_after_input`) are a pure, non-blocking read of the cached
@@ -16,33 +17,12 @@ defmodule Pokex.Bots.MiniGame.Worker do
   require Logger
 
   alias Pokex.Bots.{Capture, Catcher, Combat, Fishing}
-  alias Pokex.Bots.MiniGame.{Detector, Pilot, Track}
-  alias Pokex.{Calibration, Rig, Settings}
+  alias Pokex.Bots.MiniGame.{Detector, Player}
+  alias Pokex.{Calibration, Settings}
 
   @topic "mini_game"
   @default_counters %{detections: 0, clears: 0, failures: 0}
-  # last_toggle_at nil = never toggled — the monotonic clock is NEGATIVE on the
-  # BEAM, so a 0 sentinel would read as "toggled far in the future" and mute
-  # the actuator forever. strip = the narrow capture region around the bar,
-  # armed on enter (the overlay never moves within one game).
-  @default_play %{
-    fish: [],
-    capsule: [],
-    holding?: false,
-    last_toggle_at: nil,
-    strip: nil,
-    bar_width: 14,
-    trace: []
-  }
-  # Per-game telemetry cap: at the 80ms tick this is ~5min of play — no real
-  # game lasts that long, but a stuck one must not grow memory unbounded.
-  @trace_cap 4000
-  # Half-width (screen points) of the playing-time capture strip around the
-  # bar: wide enough for the track + the fish poking past it, and ~8x cheaper
-  # to capture and scan than the whole arena.
-  @strip_half_pt 40
   @peer_keys [:fishing, :combat, :catcher]
-  @observation_cap 4
 
   def topic, do: @topic
 
@@ -60,7 +40,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
       confidence: 0.0,
       error: nil,
       counters: @default_counters,
-      play: @default_play,
+      play: Player.new(),
       paused_peers: [],
       peers:
         Keyword.get(opts, :peers, %{
@@ -109,7 +89,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   @impl true
   def terminate(_reason, state) do
-    if state.in_game? or state.play.holding?, do: safe_key_up()
+    if state.in_game? or Player.holding?(state.play), do: Player.safe_key_up()
     :ok
   end
 
@@ -120,8 +100,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
         # re-run mid-game (panel Start while playing) must not strand a held
         # Space: the merge below forgets in_game?/play, so release FIRST.
         state =
-          state
-          |> release_if_holding()
+          %{state | play: Player.release_if_holding(state.play)}
           |> cancel_timer()
           |> Map.merge(%{
             calib: calib,
@@ -132,7 +111,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
             absent_streak: 0,
             confidence: 0.0,
             error: nil,
-            play: @default_play,
+            play: Player.new(),
             paused_peers: []
           })
 
@@ -146,8 +125,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   def handle_call(:halt, _from, state) do
     state =
-      state
-      |> force_release()
+      %{state | play: Player.force_release(state.play)}
       |> cancel_timer()
       |> Map.merge(%{
         running?: false,
@@ -241,19 +219,11 @@ defmodule Pokex.Bots.MiniGame.Worker do
     end
   end
 
-  # The overlay never moves within one game, so the playing loop only captures
-  # a narrow strip around the bar — much cheaper than arena + Detector, which
-  # is what lets the play tick run at 80ms.
-  defp arm_strip(state, %Detector{bar: bar}) when is_map(bar) do
-    {rx, ry, _rw, rh} = mini_game_region(state.calib)
-    scale = state.calib.scale || 1.0
-    center = rx + round(bar.x / scale)
-
-    strip = {max(center - @strip_half_pt, 0), ry, @strip_half_pt * 2, rh}
-    %{state | play: %{state.play | strip: strip, bar_width: bar.width}}
-  end
-
-  defp arm_strip(state, _reading), do: state
+  defp arm_strip(state, reading),
+    do: %{
+      state
+      | play: Player.arm(state.play, state.calib, mini_game_region(state.calib), reading)
+    }
 
   defp apply_reading(state, %Detector{} = reading) do
     state =
@@ -289,7 +259,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
       |> Map.put(:in_game?, true)
       |> Map.put(:pause_ref, ref)
       |> Map.put(:paused_peers, [])
-      |> Map.put(:play, @default_play)
+      |> Map.put(:play, Player.new())
       |> update_in([:counters, :detections], &(&1 + 1))
 
     broadcast_log(:macro, "mini game detectado — jogando (bloqueando inputs e pausando workers)")
@@ -300,11 +270,10 @@ defmodule Pokex.Bots.MiniGame.Worker do
     paused_peers = state.paused_peers
     if paused_peers != [], do: resume_peers_async(state, paused_peers)
 
-    dump_trace(state)
+    log_trace_dump(Player.dump_trace(state.play))
 
     state =
-      state
-      |> force_release()
+      %{state | play: Player.force_release(state.play)}
       |> Map.put(:in_game?, false)
       |> Map.put(:paused_peers, [])
       |> update_in([:counters, :clears], &(&1 + 1))
@@ -313,182 +282,41 @@ defmodule Pokex.Bots.MiniGame.Worker do
     {state, :left}
   end
 
-  # Per-game telemetry: everything needed to FIT the real bar physics offline
-  # (rise/fall acceleration, terminal speeds, true actuation latency) instead
-  # of guessing the braking constants. One JSON per game under ~/.pokex/exports.
-  defp record_trace(state, sample) do
-    trace = state.play.trace
+  defp log_trace_dump({:ok, path, samples}),
+    do: broadcast_log(:macro, "trace do mini game salvo (#{samples} ticks): #{path}")
 
-    if length(trace) >= @trace_cap,
-      do: state,
-      else: %{state | play: %{state.play | trace: trace ++ [sample]}}
-  end
+  defp log_trace_dump(:skip), do: :ok
 
-  defp dump_trace(%{play: %{trace: trace}}) when length(trace) < 5, do: :ok
+  defp log_trace_dump({:error, reason}),
+    do: Logger.warning("mini-game trace dump failed: #{inspect(reason)}")
 
-  defp dump_trace(%{play: %{trace: trace}}) do
-    dir = Path.join(Pokex.Home.dir(), "exports")
-    File.mkdir_p!(dir)
-    path = Path.join(dir, "mini_game_trace-#{System.os_time(:millisecond)}.json")
+  # --- playing (delegated to the Player engine) ------------------------------
 
-    payload = %{
-      settings: %{
-        play_tick_ms: Settings.get(:mini_game_play_tick_ms),
-        deadband_pct: Settings.get(:mini_game_deadband_pct),
-        actuation_ms: Rig.impl().hold_latency_ms(),
-        brake_up: Settings.get(:mini_game_brake_up),
-        brake_down: Settings.get(:mini_game_brake_down)
-      },
-      samples: trace
-    }
-
-    File.write!(path, JSON.encode!(payload))
-    broadcast_log(:macro, "trace do mini game salvo (#{length(trace)} ticks): #{path}")
-  rescue
-    error -> Logger.warning("mini-game trace dump failed: #{inspect(error)}")
-  end
-
-  # --- playing ---------------------------------------------------------------
-
-  # The play tick captures ONLY the armed strip and reads presence from the
-  # Track itself (:no_track = overlay gone). It talks to the Rig DIRECTLY
-  # (never Body): while in_game the Body guard blocks every other input —
-  # including the Catcher's loot Space — and the player must not block itself
-  # behind its own guard.
-  defp play_tick(%{play: %{strip: nil}} = state) do
-    # Defensive: entered without a bar candidate — nothing to play from.
-    leave_game(state)
-  end
-
-  defp play_tick(%{play: %{strip: strip}} = state) do
-    # Stamped BEFORE the capture: observations must carry the CAPTURE time, so
-    # the pilot's age_ms covers the real capture+decode latency and the
-    # predictive extrapolation compensates it (the lab's "latencia" knob).
-    captured_at = System.monotonic_time(:millisecond)
-
-    case Capture.frame(strip, "mini_game_strip.png") do
-      {:ok, frame} ->
-        capture_ms = System.monotonic_time(:millisecond) - captured_at
-        play_frame(state, frame, strip, captured_at, capture_ms)
-
-      {:error, reason} ->
-        # A blind tick must not leave Space held.
-        {state, transition} = mark_failure(state, reason)
-        {release_if_holding(state), transition}
-    end
-  end
-
-  defp play_frame(state, frame, {_sx, _sy, sw, _sh}, captured_at, capture_ms) do
-    # The bar sits at the strip's center; scale point-geometry to frame px.
-    track_bar = %{x: round(@strip_half_pt * frame.width / sw), width: state.play.bar_width}
-
-    case Track.read(frame, track_bar) do
-      {:ok, %{fish_y: fish_y, bar_y: bar_y, bar_source: bar_source}} ->
-        play = state.play
-        fish = push_observation(play.fish, %{y: fish_y, at: captured_at})
-
-        capsule =
-          push_observation(play.capsule, %{y: bar_y, at: captured_at, source: bar_source})
-
-        # Decision time is NOW, observations carry capture time: age_ms > 0 is
-        # exactly the capture latency the predictive pilot extrapolates over.
-        now = System.monotonic_time(:millisecond)
-
-        decision =
-          Pilot.decide(
-            %{
-              pilot: :predictive,
-              deadband_pct: Settings.get(:mini_game_deadband_pct),
-              actuation_ms: Rig.impl().hold_latency_ms(),
-              brake_up: Settings.get(:mini_game_brake_up),
-              brake_down: Settings.get(:mini_game_brake_down)
-            },
-            fish,
-            %{
-              y: bar_y,
-              vy: Pilot.capsule_velocity(capsule),
-              pressing: play.holding?,
-              at: captured_at
-            },
-            now
-          )
-
-        state = %{state | play: %{play | fish: fish, capsule: capsule}, absent_streak: 0}
-        state = actuate(state, decision.desired, now)
-
-        sample = %{
-          t: captured_at,
-          cap_ms: capture_ms,
-          fish: Float.round(fish_y, 4),
-          bar: Float.round(bar_y, 4),
-          src: bar_source,
-          target: decision.target_y && Float.round(decision.target_y, 4),
-          desired: decision.desired,
-          hold: state.play.holding?
-        }
-
-        {record_trace(state, sample), nil}
-
-      {:error, :no_fish} ->
-        # Track still there, fish unreadable this frame: blind ticks fail SAFE
-        # (release), but the overlay is present — not an exit signal.
-        {release_if_holding(%{state | absent_streak: 0}), nil}
-
-      {:error, :no_track} ->
-        state = release_if_holding(%{state | absent_streak: state.absent_streak + 1})
-
-        if state.absent_streak >= Settings.get(:mini_game_exit_streak),
-          do: leave_game(state),
-          else: {state, nil}
-    end
-  end
-
-  defp push_observation(observations, observation),
-    do: Enum.take(observations ++ [observation], -@observation_cap)
-
-  defp actuate(%{play: %{holding?: desired}} = state, desired, _now), do: state
-
-  defp actuate(state, desired, now) do
-    last = state.play.last_toggle_at
-
-    if last != nil and now - last < Settings.get(:mini_game_min_toggle_ms) do
-      state
+  defp play_tick(state) do
+    if Player.armed?(state.play) do
+      state.play |> Player.tick() |> apply_play_result(state)
     else
-      apply_hold(desired)
-      %{state | play: %{state.play | holding?: desired, last_toggle_at: now}}
+      # Defensive: entered without a bar candidate — nothing to play from.
+      leave_game(state)
     end
   end
 
-  # A failed hold call desyncs holding? from the OS until the next exit-boundary
-  # release — surface it instead of failing silently.
-  defp apply_hold(desired) do
-    result = if desired, do: Rig.impl().key_down("space"), else: Rig.impl().key_up("space")
+  defp apply_play_result({:present, play}, state),
+    do: {%{state | play: play, absent_streak: 0}, nil}
 
-    with {:error, reason} <- result do
-      Logger.warning(
-        "mini-game: espaço #{if desired, do: "down", else: "up"} falhou: #{inspect(reason)}"
-      )
+  defp apply_play_result({:blind, play}, state),
+    do: {%{state | play: play, absent_streak: 0}, nil}
 
-      result
-    end
+  defp apply_play_result({:absent, play}, state) do
+    state = %{state | play: play, absent_streak: state.absent_streak + 1}
+
+    if state.absent_streak >= Settings.get(:mini_game_exit_streak),
+      do: leave_game(state),
+      else: {state, nil}
   end
 
-  defp release_if_holding(%{play: %{holding?: true}} = state), do: force_release(state)
-  defp release_if_holding(state), do: state
-
-  # Unconditional key_up: `holding?` can desync from the OS (a failed key_down
-  # report, a crash between the Rig call and the state update), so exits always
-  # send the release. Bypasses the min-toggle floor — safety beats pacing.
-  defp force_release(state) do
-    safe_key_up()
-    %{state | play: %{state.play | holding?: false}}
-  end
-
-  defp safe_key_up do
-    Rig.impl().key_up("space")
-  catch
-    _kind, _reason -> :ok
-  end
+  defp apply_play_result({:capture_error, reason, play}, state),
+    do: mark_failure(%{state | play: play}, reason)
 
   defp guard_reply(%{running?: true, in_game?: true}), do: {:blocked, :mini_game_active}
   defp guard_reply(_state), do: :ok

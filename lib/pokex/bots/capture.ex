@@ -45,6 +45,25 @@ defmodule Pokex.Bots.Capture do
     end
   end
 
+  @doc """
+  Full-screen capture of the SAME display the capture backend films — `{:ok, path}`.
+
+  Calibration/diagnostic screenshots must show exactly what production frames
+  see. With ScreenCaptureKit up, the helper's ready metadata names the game
+  display's full region (and even a mid-call CLI fallback then uses that region
+  in global coordinates — still the right monitor). Only without SCK at all do
+  we fall back to `screencapture -m`, which on a multi-monitor setup can film
+  the wrong display.
+  """
+  def screen(filename, server \\ __MODULE__) do
+    requested_at = now()
+
+    case GenServer.whereis(server) do
+      nil -> Rig.impl().capture_screen()
+      pid -> GenServer.call(pid, {:screen, filename, requested_at}, :infinity)
+    end
+  end
+
   @impl true
   def init(opts) do
     sck = Keyword.get(opts, :screen_capture_kit, ScreenCaptureKit)
@@ -158,6 +177,19 @@ defmodule Pokex.Bots.Capture do
           {{:ok, path}, state} -> {:reply, {:ok, path}, put_cache(state, key, path)}
           {error, state} -> {:reply, error, prune_cache(state)}
         end
+    end
+  end
+
+  def handle_call({:screen, filename, requested_at}, _from, state) do
+    record_queue(:screen, filename, requested_at)
+
+    case screen_region(state) do
+      {:ok, region} ->
+        {reply, state} = capture_path(state, region, filename)
+        {:reply, reply, prune_cache(state)}
+
+      :unknown ->
+        {:reply, Rig.impl().capture_screen(), state}
     end
   end
 
@@ -297,6 +329,11 @@ defmodule Pokex.Bots.Capture do
 
   defp record_queue(kind, filename, requested_at),
     do: Perf.record("capture.queue.#{kind}:#{filename}", now() - requested_at)
+
+  defp screen_region(%{backend: {:screen_capture_kit, backend}, sck: sck}),
+    do: sck.display_region(backend)
+
+  defp screen_region(_state), do: :unknown
 
   defp capture_with_sck(state, backend, region, path, filename) do
     do_capture_with_sck(state, backend, region, path, filename, state.sck_capture_retries)

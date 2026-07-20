@@ -172,9 +172,9 @@ defmodule PokexWeb.DiagnosticsLive do
   # scale, and SHOW the actual battle-body capture so we can see what the bot sees.
   def handle_event("xray", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
-         {:ok, probe_path} <- Rig.impl().capture({0, 0, 100, 100}, "xray_probe.png"),
+         {:ok, probe_path} <- Capture.grab({0, 0, 100, 100}, "xray_probe.png"),
          {:ok, {probe_px, _}} <- Frame.png_dimensions(probe_path),
-         {:ok, screen_path} <- Rig.impl().capture_screen(),
+         {:ok, screen_path} <- Capture.screen("xray_screen.png"),
          {:ok, {full_px_w, full_px_h}} <- Frame.png_dimensions(screen_path),
          body_region = Calibration.battle_body(calib),
          {:ok, body_path} <- Rig.impl().capture(body_region, "xray_body.png"),
@@ -258,10 +258,11 @@ defmodule PokexWeb.DiagnosticsLive do
 
   # Probe a 100x100 region for the Retina scale, then grab the full screen — same
   # recipe as CalibrationLive, so the preview lines up 1:1 with the saved points.
+  # Via the Capture broker: same display as the production feeds (see Capture.screen/2).
   defp grab_screen do
-    with {:ok, probe_path} <- Rig.impl().capture({0, 0, 100, 100}, "diag_scale_probe.png"),
+    with {:ok, probe_path} <- Capture.grab({0, 0, 100, 100}, "diag_scale_probe.png"),
          {:ok, {probe_px, _}} <- Frame.png_dimensions(probe_path),
-         {:ok, screen_path} <- Rig.impl().capture_screen(),
+         {:ok, screen_path} <- Capture.screen("diag_screen.png"),
          {:ok, {px_w, px_h}} <- Frame.png_dimensions(screen_path) do
       scale = probe_px / 100
 

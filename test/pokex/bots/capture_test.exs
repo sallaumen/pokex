@@ -24,6 +24,48 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  test "screen captures the SCK backend's full display region — never the CLI's guess" do
+    start_supervised!(
+      {Pokex.CaptureBackendFake,
+       %{
+         start: [{:ok, :sck_backend}],
+         display_region: [{:ok, {0, 0, 3440, 1440}}]
+       }}
+    )
+
+    {:ok, pid} =
+      Capture.start_link(name: :cap_screen_sck, screen_capture_kit: Pokex.CaptureBackendFake)
+
+    assert {:ok, _path} = Capture.screen("screen.png", :cap_screen_sck)
+
+    assert {:capture, :sck_backend, {0, 0, 3440, 1440}, _path} =
+             Enum.find(Pokex.CaptureBackendFake.calls(), &match?({:capture, _, _, _}, &1))
+
+    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture_screen}, &1))
+
+    GenServer.stop(pid)
+  end
+
+  test "SCK display_region converts the helper's ready metadata to a points region" do
+    alias Pokex.Bots.Capture.ScreenCaptureKit
+
+    backend = %ScreenCaptureKit{
+      metadata: %{"display_width" => 6880, "display_height" => 2880, "scale" => 2.0}
+    }
+
+    assert ScreenCaptureKit.display_region(backend) == {:ok, {0, 0, 3440, 1440}}
+    assert ScreenCaptureKit.display_region(%ScreenCaptureKit{}) == :unknown
+  end
+
+  test "screen falls back to the CLI capture_screen without SCK display metadata" do
+    {:ok, pid} = Capture.start_link(name: :cap_screen_cli)
+
+    assert {:ok, "/tmp/fake/screen.png"} = Capture.screen("screen.png", :cap_screen_cli)
+    assert {:capture_screen} in Pokex.Rig.Fake.calls()
+
+    GenServer.stop(pid)
+  end
+
   @tag :tmp_dir
   test "frame decodes and reuses a short same-region cache", %{tmp_dir: tmp} do
     path = png!(tmp, "frame.png", {10, 20, 30})

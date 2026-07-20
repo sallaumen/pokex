@@ -9,7 +9,7 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
   """
   require Logger
 
-  defstruct [:port, :executable, :command_timeout_ms]
+  defstruct [:port, :executable, :command_timeout_ms, :metadata]
 
   @default_ready_timeout_ms 20_000
   @default_command_timeout_ms 10_000
@@ -36,7 +36,12 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
           Logger.info("ScreenCaptureKit capture backend ready: #{inspect(metadata)}")
 
           {:ok,
-           %__MODULE__{port: port, executable: executable, command_timeout_ms: command_timeout_ms}}
+           %__MODULE__{
+             port: port,
+             executable: executable,
+             command_timeout_ms: command_timeout_ms,
+             metadata: metadata
+           }}
 
         {:error, reason} ->
           close_port(port)
@@ -80,6 +85,20 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
 
   def stop(%__MODULE__{port: port}) when is_port(port), do: close_port(port)
   def stop(_backend), do: :ok
+
+  @doc """
+  The filmed display's full area as a screen-points region, from the helper's
+  ready metadata. This names the GAME's display (the helper films the main
+  display, `CGMainDisplayID`) — full-screen captures must use it, because the
+  CLI's `screencapture -m` can film the wrong monitor on a 2-display setup.
+  """
+  def display_region(%__MODULE__{
+        metadata: %{"display_width" => pw, "display_height" => ph, "scale" => scale}
+      })
+      when is_number(pw) and is_number(ph) and is_number(scale) and scale > 0,
+      do: {:ok, {0, 0, round(pw / scale), round(ph / scale)}}
+
+  def display_region(_backend), do: :unknown
 
   defp enabled? do
     case Application.get_env(:pokex, :capture_backend, :auto) do

@@ -28,6 +28,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "Automações"
     assert html =~ "parado"
     assert html =~ "Só pescar com vida"
+    assert html =~ "Reposicionar após lutas"
     assert has_element?(view, "#fishing-hp-form")
     assert has_element?(view, "#panel-navigation[phx-update=ignore]")
     assert has_element?(view, "#panel-navigation-toggle[aria-label='Abrir navegação']")

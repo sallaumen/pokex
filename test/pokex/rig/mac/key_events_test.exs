@@ -12,6 +12,17 @@ defmodule Pokex.Rig.Mac.KeyEventsTest do
 
     assert :ok = KeyEvents.key(:down, 49, "wine", pid)
     assert :ok = KeyEvents.key(:up, 49, nil, pid)
+    assert :ok = KeyEvents.middle_click({1200, 640}, "wine", pid)
+  end
+
+  @tag :tmp_dir
+  test "middle_click degrades to an error when the helper isn't ready", %{tmp_dir: tmp} do
+    stub = write_stub!(tmp, trusted: false)
+    pid = start_supervised!({KeyEvents, name: nil, executable: stub})
+
+    wait_status(pid, :untrusted)
+
+    assert {:error, :untrusted} = KeyEvents.middle_click({10, 20}, nil, pid)
   end
 
   @tag :tmp_dir

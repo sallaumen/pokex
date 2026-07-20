@@ -40,7 +40,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :pokemon_hp_rescue_pct,
       :potion_enabled,
       :potion_cooldown_ms,
-      :pokemon_hp_potion_pct
+      :pokemon_hp_potion_pct,
+      :reposition_enabled,
+      :reposition_battle_clear_ms
     ])
 
     on_exit(fn -> Pokex.Perception.WorldState.forget(:pokemon) end)
@@ -337,6 +339,55 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     refute_receive {:performed, :high, _}, 250
     # a full uninterrupted window after the reset → sip
     assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
+  end
+
+  @tag :tmp_dir
+  test "after a battle clears for the window, the Pokémon is sent back to its spot", %{
+    tmp: tmp,
+    body: body
+  } do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:reposition_enabled, true)
+    Settings.put(:reposition_battle_clear_ms, 200)
+
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | pokemon_spot_point: {450, 380}})
+
+    full = hp_png(tmp, "full.png", 20)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}]})
+
+    # a battle is on when monitoring starts...
+    fresh_battle!(enemies: [0])
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+    refute_receive {:performed, _p, _a}, 150
+
+    # ...the battle ends → after the clear window, ONE middle click on the spot
+    fresh_battle!(enemies: [])
+    assert_receive {:performed, :normal, [{:click, :middle, {450, 380}}]}, 1_500
+    assert Worker.status(worker).counters.repositions == 1
+
+    # no new battle → no second click
+    refute_receive {:performed, _p, _a}, 400
+  end
+
+  @tag :tmp_dir
+  test "no battle seen → never repositions (nothing to undo)", %{tmp: tmp, body: body} do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:reposition_enabled, true)
+    Settings.put(:reposition_battle_clear_ms, 50)
+
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | pokemon_spot_point: {450, 380}})
+
+    full = hp_png(tmp, "full.png", 20)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}]})
+
+    fresh_battle!(enemies: [])
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, _p, _a}, 400
   end
 
   @tag :tmp_dir

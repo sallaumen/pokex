@@ -120,6 +120,11 @@ defmodule Pokex.Rig.Mac do
   end
 
   @impl true
+  # Middle button: cliclick has no middle click, so it goes through the native
+  # CGEvent helper — and ONLY through it. No fallback: an {:error, _} means the
+  # click did not happen (positioning is best-effort; the caller logs it).
+  def click(:middle, point), do: gated(fn -> KeyEvents.middle_click(point, focus_app()) end)
+
   def click(button, point), do: gated(fn -> run(Commands.click(button, point)) end)
 
   @impl true

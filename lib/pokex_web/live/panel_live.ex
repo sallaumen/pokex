@@ -98,6 +98,7 @@ defmodule PokexWeb.PanelLive do
        rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
        rescue_cooldown_s: div(Settings.get(:rescue_cooldown_ms), 1000),
        potion_enabled: Settings.get(:potion_enabled),
+       reposition_enabled: Settings.get(:reposition_enabled),
        potion_pct: Settings.get(:pokemon_hp_potion_pct),
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " ")
@@ -409,6 +410,13 @@ defmodule PokexWeb.PanelLive do
     Settings.put(:potion_enabled, value)
     if value, do: arm_support()
     {:noreply, assign(socket, potion_enabled: value)}
+  end
+
+  def handle_event("toggle_reposition", _params, socket) do
+    value = not Settings.get(:reposition_enabled)
+    Settings.put(:reposition_enabled, value)
+    if value, do: arm_support()
+    {:noreply, assign(socket, reposition_enabled: value)}
   end
 
   def handle_event("save_potion_cfg", params, socket) do
@@ -1109,6 +1117,13 @@ defmodule PokexWeb.PanelLive do
                 description={"Poção (tecla #{Settings.get(:potion_key)}) abaixo de #{@potion_pct}%, só fora de luta"}
                 active={@potion_enabled}
                 event="toggle_potion"
+              />
+              <.automation_row
+                id="automation-reposition"
+                title="Reposicionar após lutas"
+                description="clique do meio no tile calibrado (Calibração → Posição do Pokémon) 2s depois da luta acabar"
+                active={@reposition_enabled}
+                event="toggle_reposition"
               />
             </div>
           </details>

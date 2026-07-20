@@ -42,6 +42,19 @@ defmodule Pokex.Rig.Mac do
     end
   end
 
+  @native_hold_latency_ms 15
+  @osascript_hold_latency_ms 90
+
+  @impl true
+  # Which backend will key_down/key_up actually use right now? Measured: ~2ms
+  # CGEvent post + port hop when the native helper is ready; ~60-100ms per
+  # osascript spawn on the fallback path.
+  def hold_latency_ms do
+    if KeyEvents.status() == :ready,
+      do: @native_hold_latency_ms,
+      else: @osascript_hold_latency_ms
+  end
+
   @impl true
   def press_many([], _opts), do: :ok
 

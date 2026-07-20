@@ -182,12 +182,6 @@ defmodule Pokex.Settings do
     mini_game_play_tick_ms: 80,
     mini_game_min_toggle_ms: 50,
     mini_game_deadband_pct: 0.011,
-    # How long a hold/release command takes to LAND in the game (osascript spawn +
-    # System Events). The pilot judges the error at the bar's PREDICTED position
-    # (reading age + this) — deciding on the stale reading made the capsule
-    # overshoot past a near-stable fish. Drop toward ~10 when the native CGEvent
-    # key helper replaces osascript.
-    mini_game_actuation_ms: 90,
     # Stopping-distance braking (track/s²), per direction — the REAL game is
     # asymmetric: thrust arrests a fall almost instantly (brake late: sink to
     # the fish before pressing), gravity barely arrests a rise (release early

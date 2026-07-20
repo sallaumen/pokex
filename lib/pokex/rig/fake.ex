@@ -38,6 +38,10 @@ defmodule Pokex.Rig.Fake do
   def key_up(key), do: record({:key_up, key}, :key_up, :ok)
 
   @impl true
+  # Fake actuation is instantaneous — tests must not inherit real-backend lag.
+  def hold_latency_ms, do: 0
+
+  @impl true
   def click(button, point), do: record({:click, button, point}, :click, :ok)
 
   @impl true

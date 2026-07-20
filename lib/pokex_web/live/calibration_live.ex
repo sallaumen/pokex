@@ -2,7 +2,7 @@ defmodule PokexWeb.CalibrationLive do
   use PokexWeb, :live_view
 
   alias Pokex.{Calibration, Home, Rig, Settings, Vision}
-  alias Pokex.Bots.SkillBar
+  alias Pokex.Bots.{Capture, SkillBar}
   alias Pokex.Vision.Frame
 
   import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
@@ -355,12 +355,14 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   # Probe a 100x100 region for the Retina scale, then grab the full screen — both while the
-  # GAME is fronted (see with_game_front/1), so a fullscreen game on one monitor calibrates.
+  # GAME is fronted (see with_game_front/1). Both go through the Capture broker so they hit
+  # the SAME display the production feeds film — with 2 monitors, the raw CLI capture_screen
+  # can grab the wrong one (measured 2026-07-20: calibration previewed the laptop screen).
   defp grab_screen(probe_name) do
     captured =
       with_game_front(fn ->
-        with {:ok, probe} <- Rig.impl().capture({0, 0, 100, 100}, probe_name),
-             {:ok, screen} <- Rig.impl().capture_screen() do
+        with {:ok, probe} <- Capture.grab({0, 0, 100, 100}, probe_name),
+             {:ok, screen} <- Capture.screen("calibration_screen.png") do
           {:ok, probe, screen}
         end
       end)

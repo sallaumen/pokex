@@ -547,7 +547,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   defp capture_region("screen") do
-    case Rig.impl().capture_screen() do
+    case Pokex.Bots.Capture.screen("panel_screen.png") do
       {:ok, path} -> {:ok, capture_src(path), "tela cheia"}
       {:error, reason} -> {:error, "erro na captura: #{inspect(reason)}"}
     end

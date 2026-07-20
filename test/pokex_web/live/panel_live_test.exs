@@ -32,6 +32,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "#panel-nav-calibration[href='/calibration']")
     assert has_element?(view, "#panel-nav-diagnostics[href='/diagnostics']")
     assert has_element?(view, "#panel-nav-fishing-lab[href='/fishing-lab']")
+    assert has_element?(view, "#panel-nav-world[href='/world']")
   end
 
   test "a fishing broadcast updates only the fishing pill", %{conn: conn} do

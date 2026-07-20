@@ -487,7 +487,6 @@ defmodule PokexWeb.PanelLiveTest do
 
   test "saves combat timing knobs and ignores blanks", %{conn: conn} do
     keys = [
-      :tick_ms_fighting,
       :combat_skill_burst_size,
       :combat_skill_tap_count,
       :combat_skill_gap_ms,
@@ -496,14 +495,13 @@ defmodule PokexWeb.PanelLiveTest do
       :fight_timeout_ms
     ]
 
-    originals = Map.new(keys, &{&1, Pokex.Settings.get(&1)})
-    on_exit(fn -> Enum.each(originals, fn {k, v} -> Pokex.Settings.put(k, v) end) end)
+    Pokex.SettingsStash.stash_keys!(keys)
+    original_streak = Pokex.Settings.get(:target_lost_streak)
 
     {:ok, view, _} = live(conn, ~p"/")
 
     view
     |> form("#timing-form", %{
-      "tick_ms_fighting" => "120",
       "combat_skill_burst_size" => "3",
       "combat_skill_tap_count" => "0",
       "combat_skill_gap_ms" => "25",
@@ -513,7 +511,6 @@ defmodule PokexWeb.PanelLiveTest do
     })
     |> render_submit()
 
-    assert Pokex.Settings.get(:tick_ms_fighting) == 120
     assert Pokex.Settings.get(:combat_skill_burst_size) == 3
     # positive timing knobs clamp 0 to 1 instead of persisting an inert combat setting.
     assert Pokex.Settings.get(:combat_skill_tap_count) == 1
@@ -521,7 +518,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:combat_skill_jitter_ms) == 20
     assert Pokex.Settings.get(:fight_timeout_ms) == 5000
     # blank left the current value untouched
-    assert Pokex.Settings.get(:target_lost_streak) == originals.target_lost_streak
+    assert Pokex.Settings.get(:target_lost_streak) == original_streak
   end
 
   test "capture metrics block reports the backend on demand", %{conn: conn} do

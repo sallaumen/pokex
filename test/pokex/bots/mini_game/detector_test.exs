@@ -138,13 +138,5 @@ defmodule Pokex.Bots.MiniGame.DetectorTest do
     refute Detector.detect(frame, min_confidence: 0.6, step: 1, max_gap_px: 4).present?
   end
 
-  defp frame(width, height, fun) do
-    rgba =
-      for y <- 0..(height - 1)//1, x <- 0..(width - 1)//1, into: <<>> do
-        {r, g, b} = fun.(x, y)
-        <<r, g, b, 255>>
-      end
-
-    %Frame{width: width, height: height, rgba: rgba}
-  end
+  defp frame(width, height, fun), do: Pokex.FrameFixtures.of(width, height, fun)
 end

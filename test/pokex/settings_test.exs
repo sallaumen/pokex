@@ -1,5 +1,6 @@
 defmodule Pokex.SettingsTest do
-  use ExUnit.Case, async: true
+  # async: false — the ETS-mirror tests touch the GLOBAL instance.
+  use ExUnit.Case, async: false
   alias Pokex.Settings
 
   @tag :tmp_dir
@@ -117,5 +118,43 @@ defmodule Pokex.SettingsTest do
     {:ok, server2} = Settings.start_link(name: nil, path: path)
     assert Settings.get(:skill_ready_min_vivid_pct, server2) == 6
     assert Settings.get(:rod_key, server2) == "v"
+  end
+
+  test "the GLOBAL server mirrors overrides into ETS so hot-loop reads skip the GenServer" do
+    # The app-booted global instance owns the mirror table. Worker ticks call
+    # Settings.get/1 many times per 80ms tick across several processes; those
+    # reads must be ETS lookups, not GenServer round-trips.
+    original = Settings.get(:glow_threshold)
+    on_exit(fn -> Settings.put(:glow_threshold, original) end)
+
+    :ok = Settings.put(:glow_threshold, 4321.0)
+    assert :ets.lookup(:pokex_settings_overrides, :glow_threshold) == [{:glow_threshold, 4321.0}]
+    assert Settings.get(:glow_threshold) == 4321.0
+
+    # putting the seed value back is NOT an override — the mirror row disappears
+    # and the read falls back to the code seed
+    :ok = Settings.put(:glow_threshold, Settings.defaults()[:glow_threshold])
+    assert :ets.lookup(:pokex_settings_overrides, :glow_threshold) == []
+    assert Settings.get(:glow_threshold) == Settings.defaults()[:glow_threshold]
+  end
+
+  @tag :tmp_dir
+  test "a JSON null in the file is corruption, not an override", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "settings.json")
+    File.write!(path, ~s({"glow_threshold":null}))
+
+    {:ok, server} = Settings.start_link(name: nil, path: path)
+    assert Settings.get(:glow_threshold, server) == Settings.defaults()[:glow_threshold]
+  end
+
+  @tag :tmp_dir
+  test "private instances (no name) keep working through GenServer calls", %{tmp_dir: tmp} do
+    # tmp-scoped instances used by tests must not touch the global mirror
+    path = Path.join(tmp, "settings.json")
+    {:ok, server} = Settings.start_link(name: nil, path: path)
+
+    :ok = Settings.put(:glow_threshold, 77.0, server)
+    assert Settings.get(:glow_threshold, server) == 77.0
+    assert :ets.lookup(:pokex_settings_overrides, :glow_threshold) == []
   end
 end

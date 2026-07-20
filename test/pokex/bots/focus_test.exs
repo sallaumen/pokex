@@ -67,7 +67,10 @@ defmodule Pokex.Bots.FocusTest do
     assert :stop in calls(agent)
   end
 
-  test "regaining focus reopens the gate and resumes what was running", %{agent: agent, opts: opts} do
+  test "regaining focus reopens the gate and resumes what was running", %{
+    agent: agent,
+    opts: opts
+  } do
     set(agent, %{frontmost: "Finder", running: true})
     start_focus!(opts)
 
@@ -79,7 +82,10 @@ defmodule Pokex.Bots.FocusTest do
     assert :start in calls(agent)
   end
 
-  test "a bot that was NOT running is halted but not auto-started on refocus", %{agent: agent, opts: opts} do
+  test "a bot that was NOT running is halted but not auto-started on refocus", %{
+    agent: agent,
+    opts: opts
+  } do
     set(agent, %{frontmost: "Finder", running: false})
     start_focus!(opts)
 
@@ -90,7 +96,10 @@ defmodule Pokex.Bots.FocusTest do
     refute :start in calls(agent)
   end
 
-  test "the master switch off leaves the gate open regardless of focus", %{agent: agent, opts: opts} do
+  test "the master switch off leaves the gate open regardless of focus", %{
+    agent: agent,
+    opts: opts
+  } do
     Pokex.Settings.put(:pause_when_unfocused, false)
     set(agent, %{frontmost: "Google Chrome", running: true})
     start_focus!(opts)
@@ -133,7 +142,10 @@ defmodule Pokex.Bots.FocusTest do
     refute :start in calls(agent)
   end
 
-  test "an unreadable frontmost holds the last verdict (no gate flapping)", %{agent: agent, opts: opts} do
+  test "an unreadable frontmost holds the last verdict (no gate flapping)", %{
+    agent: agent,
+    opts: opts
+  } do
     set(agent, %{frontmost: "wine", running: true})
 
     reader = fn ->

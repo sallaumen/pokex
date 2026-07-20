@@ -21,16 +21,7 @@ defmodule Pokex.Perception.InterpretTest do
 
   defp settings, do: Settings.all()
 
-  # A battle frame: `w` x `h`, dark everywhere except the painter functions.
-  defp frame(w, h, paint) do
-    rgba =
-      for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
-        {r, g, b} = paint.(x, y)
-        <<r, g, b, 255>>
-      end
-
-    %Frame{width: w, height: h, rgba: rgba}
-  end
+  defp frame(w, h, paint), do: Pokex.FrameFixtures.of(w, h, paint)
 
   test "an all-dark battle frame has no enemies and no lock" do
     f = frame(80, 400, fn _x, _y -> {9, 9, 9} end)

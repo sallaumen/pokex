@@ -73,7 +73,6 @@ defmodule Pokex.Settings do
     # A tiny post-success pause (10–50ms) is all that stays, so the game has a
     # frame to register the previous input before the next one.
     tick_ms_watching: 100,
-    tick_ms_fighting: 300,
     tick_ms_default: 80,
     wait_focus_ms: 20,
     wait_after_equip_ms: 30,
@@ -123,7 +122,6 @@ defmodule Pokex.Settings do
     # water sparkles do not keep a failed cast alive forever.
     line_present_min_px: 100,
     max_consecutive_failures: 5,
-    hostile_scan_every: 2,
     wild_min_red_pixels: 12,
     # A SINGLE bite-magnitude frame (> glow_threshold) hooks. The bite oscillates
     # hard (2..1513), so requiring CONSECUTIVE frames never confirms — but one frame
@@ -182,12 +180,6 @@ defmodule Pokex.Settings do
     mini_game_play_tick_ms: 80,
     mini_game_min_toggle_ms: 50,
     mini_game_deadband_pct: 0.011,
-    # How long a hold/release command takes to LAND in the game (osascript spawn +
-    # System Events). The pilot judges the error at the bar's PREDICTED position
-    # (reading age + this) — deciding on the stale reading made the capsule
-    # overshoot past a near-stable fish. Drop toward ~10 when the native CGEvent
-    # key helper replaces osascript.
-    mini_game_actuation_ms: 90,
     # Stopping-distance braking (track/s²), per direction — the REAL game is
     # asymmetric: thrust arrests a fall almost instantly (brake late: sink to
     # the fish before pressing), gravity barely arrests a rise (release early
@@ -363,6 +355,13 @@ defmodule Pokex.Settings do
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)
 
+  # ETS mirror of the GLOBAL instance's overrides. Worker ticks read several
+  # settings every 80-400ms across many processes; funnelling those through one
+  # GenServer serializes every hot loop behind a single mailbox. Reads against
+  # the global name hit this table instead; the GenServer stays the only WRITER
+  # (:protected), so the "overrides + seed fallback" semantics are unchanged.
+  @mirror_table :pokex_settings_overrides
+
   def defaults, do: @seed_settings
 
   def start_link(opts \\ []) do
@@ -372,7 +371,19 @@ defmodule Pokex.Settings do
     end
   end
 
-  def get(key, server \\ __MODULE__), do: GenServer.call(server, {:get, key})
+  def get(key, server \\ __MODULE__)
+
+  def get(key, __MODULE__) do
+    case :ets.lookup(@mirror_table, key) do
+      [{^key, value}] -> value
+      [] -> Map.get(@seed_settings, key)
+    end
+  rescue
+    # Mirror not up yet (early boot) — take the slow path.
+    ArgumentError -> GenServer.call(__MODULE__, {:get, key})
+  end
+
+  def get(key, server), do: GenServer.call(server, {:get, key})
   def all(server \\ __MODULE__), do: GenServer.call(server, :all)
 
   @doc """
@@ -402,7 +413,17 @@ defmodule Pokex.Settings do
     # in-memory overrides are already correct for this run whether or not the rewrite lands.
     overrides = load(path)
     heal(path, overrides)
-    {:ok, %{path: path, data: overrides}}
+
+    # Only the GLOBAL (named) instance owns the mirror — tmp-scoped test
+    # instances must not clobber it.
+    mirror? = Keyword.get(opts, :name, __MODULE__) == __MODULE__
+
+    if mirror? do
+      :ets.new(@mirror_table, [:named_table, :set, :protected, read_concurrency: true])
+      :ets.insert(@mirror_table, Map.to_list(overrides))
+    end
+
+    {:ok, %{path: path, data: overrides, mirror?: mirror?}}
   end
 
   @impl true
@@ -422,6 +443,12 @@ defmodule Pokex.Settings do
         do: Map.delete(state.data, key),
         else: Map.put(state.data, key, value)
 
+    if state.mirror? do
+      if is_map_key(data, key),
+        do: :ets.insert(@mirror_table, {key, value}),
+        else: :ets.delete(@mirror_table, key)
+    end
+
     persist!(state.path, data)
     {:reply, :ok, %{state | data: data}}
   end
@@ -434,6 +461,9 @@ defmodule Pokex.Settings do
       for {key_string, value} <- json,
           key = known_key(key_string),
           key != nil,
+          # A JSON null is file corruption, never a legitimate override — keeping
+          # it would make Settings.get return nil to code expecting a number.
+          not is_nil(value),
           value != Map.fetch!(@seed_settings, key),
           into: %{},
           do: {key, value}

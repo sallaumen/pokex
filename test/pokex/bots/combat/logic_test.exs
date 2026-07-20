@@ -157,7 +157,9 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert actions == []
 
     # ...but a DETECTED enemy still Tabs normally after expiry
-    {tabbed, actions} = Logic.step(expired, obs(enemies: [0], captured_at: late + 100), late + 100)
+    {tabbed, actions} =
+      Logic.step(expired, obs(enemies: [0], captured_at: late + 100), late + 100)
+
     assert tabbed.state == :tabbing
     assert {:tab} in actions
   end

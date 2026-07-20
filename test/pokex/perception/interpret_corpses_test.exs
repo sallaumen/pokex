@@ -23,16 +23,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
     Map.merge(Settings.defaults(), Map.merge(%{corpse_warmup_frames: 3}, overrides))
   end
 
-  # A frame painted by fun.(x, y) -> {r, g, b}.
-  defp frame(paint) do
-    rgba =
-      for y <- 0..63, x <- 0..63, into: <<>> do
-        {r, g, b} = paint.(x, y)
-        <<r, g, b, 255>>
-      end
-
-    %Frame{width: 64, height: 64, rgba: rgba}
-  end
+  defp frame(paint), do: Pokex.FrameFixtures.of(64, 64, paint)
 
   defp ground(_x, _y), do: {100, 90, 60}
 

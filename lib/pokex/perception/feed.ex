@@ -41,7 +41,8 @@ defmodule Pokex.Perception.Feed do
 
   @impl true
   def init(spec) do
-    {:ok, %{spec: spec, consumers: %{}, timer: nil, last_obs: nil, failures: 0, interp_state: nil}}
+    {:ok,
+     %{spec: spec, consumers: %{}, timer: nil, last_obs: nil, failures: 0, interp_state: nil}}
   end
 
   @impl true

@@ -2,38 +2,24 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.MiniGame.Worker
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.{Calibration, Settings, SettingsStash}
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
-    originals =
-      Map.new(
-        [
-          :mini_game_tick_ms,
-          :mini_game_enter_streak,
-          :mini_game_exit_streak,
-          :mini_game_min_confidence,
-          :mini_game_min_dark_ratio,
-          :mini_game_anchor_tolerance,
-          :mini_game_play_tick_ms,
-          :mini_game_min_toggle_ms
-        ],
-        &{&1, Settings.get(&1)}
-      )
+    SettingsStash.stash!(
+      mini_game_tick_ms: 20,
+      mini_game_enter_streak: 1,
+      mini_game_exit_streak: 1,
+      mini_game_min_confidence: 0.6,
+      mini_game_min_dark_ratio: 0.34,
+      mini_game_play_tick_ms: 20,
+      mini_game_min_toggle_ms: 0
+    )
 
-    on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
-      Enum.each(originals, fn {key, value} -> Settings.put(key, value) end)
-    end)
-
-    Settings.put(:mini_game_tick_ms, 20)
-    Settings.put(:mini_game_enter_streak, 1)
-    Settings.put(:mini_game_exit_streak, 1)
-    Settings.put(:mini_game_min_confidence, 0.6)
-    Settings.put(:mini_game_min_dark_ratio, 0.34)
-    Settings.put(:mini_game_play_tick_ms, 20)
-    Settings.put(:mini_game_min_toggle_ms, 0)
+    # put mid-test by the calibrated-anchor test — must restore too
+    SettingsStash.stash_keys!([:mini_game_anchor_tolerance])
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -339,35 +325,15 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   defp png!(dir, name, with_bar?),
-    do: png_with_bar_at!(dir, name, if(with_bar?, do: 104..116))
+    do: Pokex.PngFixtures.mini_game_scene!(dir, name, bar_x: if(with_bar?, do: 104..116))
 
-  defp png_with_bar_at!(dir, name, bar_x_range, overlays \\ []) do
-    rows =
-      for y <- 0..219 do
-        for x <- 0..219 do
-          cond do
-            bar_x_range == nil or x not in bar_x_range ->
-              {150, 120, 86, 255}
+  defp png_with_bar_at!(dir, name, bar_x_range),
+    do: Pokex.PngFixtures.mini_game_scene!(dir, name, bar_x: bar_x_range)
 
-            true ->
-              Enum.find_value(overlays, track_pixel(y), fn {range, color} ->
-                if y in range, do: color
-              end)
-          end
-        end
-      end
-
-    Pokex.PngFixtures.write!(Path.join(dir, name), rows)
-  end
-
-  # Track spans rows 10..209; fish is olive (not dark, not blue), capsule blue.
-  defp play_png!(dir, name, opts) do
-    png_with_bar_at!(dir, name, 104..116, [
-      {Keyword.fetch!(opts, :fish), {120, 100, 0, 255}},
-      {Keyword.fetch!(opts, :capsule), {0, 160, 255, 255}}
-    ])
-  end
-
-  defp track_pixel(y) when y in 10..209, do: {26, 30, 48, 255}
-  defp track_pixel(_y), do: {150, 120, 86, 255}
+  defp play_png!(dir, name, opts),
+    do:
+      Pokex.PngFixtures.mini_game_scene!(dir, name,
+        fish: Keyword.fetch!(opts, :fish),
+        capsule: Keyword.fetch!(opts, :capsule)
+      )
 end

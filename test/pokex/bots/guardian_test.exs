@@ -87,7 +87,9 @@ defmodule Pokex.Bots.GuardianTest do
     assert InputGate.panic_latched?()
   end
 
-  test "closes the InputGate's corner flag in the corner, reopens it outside", %{on_panic: on_panic} do
+  test "closes the InputGate's corner flag in the corner, reopens it outside", %{
+    on_panic: on_panic
+  } do
     alias Pokex.Bots.InputGate
     on_exit(fn -> InputGate.set_corner_ok(true) end)
 

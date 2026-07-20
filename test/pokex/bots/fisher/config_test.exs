@@ -28,7 +28,6 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.combat_skill_gap_ms == 35
     assert config.combat_skill_jitter_ms == 20
     assert config.watch_timeout_ms == 30_000
-    assert config.hostile_scan_every == 2
     assert config.target_lost_streak == 2
     assert config.tile_px == 88
     refute Map.has_key?(config, :fallback_points)

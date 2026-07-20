@@ -65,8 +65,7 @@ defmodule Pokex.Bots.Perf do
   @impl true
   def handle_call(:snapshot, _from, state) do
     {:reply,
-     %{current: state.stats, last_window: state.last_window, window_ms: state.interval_ms},
-     state}
+     %{current: state.stats, last_window: state.last_window, window_ms: state.interval_ms}, state}
   end
 
   @impl true

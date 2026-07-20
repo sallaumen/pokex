@@ -164,7 +164,10 @@ defmodule Pokex.Bots.Focus do
   defp default_frontmost do
     case System.cmd(
            "osascript",
-           ["-e", ~s(tell application "System Events" to name of first application process whose frontmost is true)],
+           [
+             "-e",
+             ~s(tell application "System Events" to name of first application process whose frontmost is true)
+           ],
            stderr_to_stdout: true
          ) do
       {out, 0} -> {:ok, String.trim(out)}

@@ -51,7 +51,9 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
       # Calibration.row_band_geometry is the single source of truth for {top,
       # band} (centered on the click point) — the same math the visual preview
       # draws, so what you SEE is exactly what the lock samples.
-      {top, band} = Calibration.row_band_geometry(calib.scale, Settings.value(settings, :battle_row_height))
+      {top, band} =
+        Calibration.row_band_geometry(calib.scale, Settings.value(settings, :battle_row_height))
+
       rows = Settings.value(settings, :battle_max_rows)
       {:ok, Vision.red_row_counts(frame, top: top, band: band, rows: rows)}
     end
@@ -109,7 +111,9 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
 
   defp battle_view(calib, settings) do
     with {:ok, frame} <- capture_frame(calib.battle_region, "battle.png") do
-      {top, band} = Calibration.row_band_geometry(calib.scale, Settings.value(settings, :battle_row_height))
+      {top, band} =
+        Calibration.row_band_geometry(calib.scale, Settings.value(settings, :battle_row_height))
+
       rows = Settings.value(settings, :battle_max_rows)
       strip_px = round(Calibration.strip_width() * calib.scale)
 

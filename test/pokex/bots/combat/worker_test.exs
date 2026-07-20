@@ -3,29 +3,26 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
   alias Pokex.Bots.Combat.Worker
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings}
-
-  @keys [
-    :tab_confirm_ms,
-    :tab_max_attempts,
-    :hunt_cooldown_ms,
-    :skill_burst_every_ms,
-    :combat_world_max_age_ms,
-    :skill_keys
-  ]
+  alias Pokex.{Calibration, Settings, SettingsStash}
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    originals = Map.new(@keys, &{&1, Settings.get(&1)})
+
+    SettingsStash.stash!(skill_burst_every_ms: 0)
+
+    SettingsStash.stash_keys!([
+      :tab_confirm_ms,
+      :tab_max_attempts,
+      :hunt_cooldown_ms,
+      :combat_world_max_age_ms,
+      :skill_keys
+    ])
 
     on_exit(fn ->
       Application.delete_env(:pokex, :home_dir)
-      Enum.each(originals, fn {k, v} -> Settings.put(k, v) end)
       :ets.delete(:pokex_world, :battle)
       :ets.delete(:pokex_world, :arena)
     end)
-
-    Settings.put(:skill_burst_every_ms, 0)
 
     Calibration.save(%Calibration{
       scale: 1.0,

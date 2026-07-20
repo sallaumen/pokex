@@ -77,7 +77,10 @@ defmodule Pokex.Bots.Fishing.Worker do
     cond do
       # The mini-game is being played: freeze this cycle (no sensing, no
       # actions) and keep polling the fact. Nobody halts us from outside.
+      # The freeze EDGE broadcasts once so the panel shows WHY fishing stopped;
+      # the repeated polls stay silent.
       Perception.mini_game_playing?() ->
+        if not state.held?, do: broadcast_held(previous)
         {:noreply, reschedule(%{state | held?: true}, Logic.tick_interval(previous))}
 
       # Resume edge: the fight for the rod is over. The frozen mid-cycle state
@@ -280,6 +283,11 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fishing, snapshot(logic)})
 
+  defp broadcast_held(logic) do
+    snapshot = %{snapshot(logic) | hold_reason: "mini-game em jogo"}
+    Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fishing, snapshot})
+  end
+
   defp broadcast_activity(logic, obs, actions, level) do
     case describe_activity(logic, obs, actions) do
       nil -> :ok
@@ -343,8 +351,23 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp describe_action({:wait, _ms}), do: nil
   defp describe_action({:log, msg}), do: msg
 
-  defp snapshot(nil), do: %{state: :idle, counters: %Logic{}.counters, error: nil}
-  defp snapshot(logic), do: %{state: logic.state, counters: logic.counters, error: logic.error}
+  defp snapshot(nil),
+    do: %{
+      state: :idle,
+      counters: %Logic{}.counters,
+      error: nil,
+      hold_reason: nil,
+      last_action: nil
+    }
+
+  defp snapshot(logic),
+    do: %{
+      state: logic.state,
+      counters: logic.counters,
+      error: logic.error,
+      hold_reason: logic.hold_reason,
+      last_action: logic.last_action
+    }
 
   defp now, do: System.monotonic_time(:millisecond)
 

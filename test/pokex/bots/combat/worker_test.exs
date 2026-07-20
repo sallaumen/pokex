@@ -103,6 +103,10 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     assert eventually(fn -> Settings.get(:tab_key) in presses() end)
     assert Worker.status(worker).state == :tabbing
+
+    # the dispatched burst is the pill's "última ação"
+    assert %{text: "teclas " <> _, at: at} = Worker.status(worker).last_action
+    assert is_integer(at)
   end
 
   @tag :tmp_dir
@@ -175,6 +179,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     # an enemy shows up mid-game: NO Tab — the worker froze itself
     world!(worker, battle_obs(enemies: [0]))
     refute eventually(fn -> Settings.get(:tab_key) in presses() end, 400)
+    assert Worker.status(worker).hold_reason == "mini-game em jogo"
 
     # game over: leave a fresh battle picture for the resume to read, clear the fact —
     # the worker's own held :wake poll must resume it with NO further :world events
@@ -184,6 +189,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     assert eventually(fn -> Settings.get(:tab_key) in presses() end)
     assert Worker.status(worker).state == :tabbing
+    assert Worker.status(worker).hold_reason == nil
   end
 
   defp now_ms, do: System.monotonic_time(:millisecond)

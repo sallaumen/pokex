@@ -310,9 +310,12 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     # one clear read is NOT enough anymore — nothing within the window...
     refute_receive {:performed, :high, _}, 200
+    # ...and while the clock runs, the pill says WHY the sip is waiting
+    assert Worker.status(worker).hold_reason == "poção esperando batalha limpa"
     # ...but after 300ms of consecutive clear reads, the sip lands
     assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
     assert Worker.status(worker).counters.potions == 1
+    assert %{text: "poção", at: _} = Worker.status(worker).last_action
   end
 
   @tag :tmp_dir
@@ -361,11 +364,14 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
     refute_receive {:performed, _p, _a}, 150
+    assert Worker.status(worker).hold_reason == "reposição esperando fim da luta"
 
     # ...the battle ends → after the clear window, ONE middle click on the spot
     fresh_battle!(enemies: [])
     assert_receive {:performed, :normal, [{:click, :middle, {450, 380}}]}, 1_500
     assert Worker.status(worker).counters.repositions == 1
+    assert Worker.status(worker).hold_reason == nil
+    assert %{text: "reposição (clique do meio)", at: _} = Worker.status(worker).last_action
 
     # no new battle → no second click
     refute_receive {:performed, _p, _a}, 400

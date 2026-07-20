@@ -97,6 +97,59 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "parado"
   end
 
+  test "hold reason and last action render as pill detail lines (Fase 1)", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    snapshot = %{
+      state: :watching,
+      counters: %{cycles: 1, hooked: 0, failures: 0},
+      error: nil,
+      hold_reason: "sem pokémon ativo",
+      last_action: %{text: "arremesso da isca", at: System.monotonic_time(:millisecond) - 5_000}
+    }
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, snapshot})
+
+    html = render(view)
+    assert html =~ "🔒 sem pokémon ativo"
+    # the age is measured against the mount's clock, a hair before the broadcast — 4 or 5s
+    assert html =~ ~r/arremesso da isca · há [45]s/
+  end
+
+  test "catcher and support errors surface in the error banners", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "catcher",
+      {:catcher,
+       %{
+         state: :idle,
+         mode: "parado",
+         counters: %{captures: 0, throws: 0, ignored: 0},
+         error: "detector confuso"
+       }}
+    )
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "game",
+      {:game,
+       %{
+         state: :idle,
+         hp_pct: nil,
+         enabled?: false,
+         last_rescue_at: nil,
+         counters: %{rescues: 0, potions: 0, reads: 0, failures: 0, repositions: 0},
+         error: "leitura de vida falhou"
+       }}
+    )
+
+    html = render(view)
+    assert html =~ "detector confuso"
+    assert html =~ "leitura de vida falhou"
+  end
+
   test "a combat broadcast updates only the combat pill, including the locked row", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 

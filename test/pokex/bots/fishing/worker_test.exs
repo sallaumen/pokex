@@ -156,6 +156,9 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
     on_exit(fn -> WorldState.forget(:mini_game) end)
 
+    # the freeze EDGE broadcasts the reason once, so the panel pill shows WHY
+    assert_receive {:fishing, %{hold_reason: "mini-game em jogo"}}, 5_000
+
     # let in-flight ticks/Body sequences land, then the Rig must go quiet
     # ({:cursor_position} excluded: the app-global Guardian polls the panic
     # corner against this same shared Rig.Fake on its own timer)

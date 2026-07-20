@@ -62,7 +62,9 @@ defmodule Pokex.Bots.Combat.Worker do
        held?: false,
        # the ONE in-flight key burst (nil when none): a new burst is SKIPPED while the previous
        # is still landing, instead of piling concurrent osascripts onto System Events
-       burst_pid: nil
+       burst_pid: nil,
+       # last dispatched burst as %{text, at} (monotonic ms; nil until the first) — panel-facing
+       last_action: nil
      }}
   end
 
@@ -80,8 +82,17 @@ defmodule Pokex.Bots.Combat.Worker do
         # A double :run (two Start presses) must not leak the previous feed monitor.
         demonitor_feed(state.feed_ref)
         ref = Process.monitor(Feed.name(:battle))
-        broadcast(logic)
-        state = %{state | logic: logic, feed_ref: ref, reattach_attempts: 0, held?: false}
+
+        state = %{
+          state
+          | logic: logic,
+            feed_ref: ref,
+            reattach_attempts: 0,
+            held?: false,
+            last_action: nil
+        }
+
+        broadcast(logic, state)
         # step immediately against whatever the world already knows
         {:reply, :ok, advance(state, current_obs())}
 
@@ -99,13 +110,13 @@ defmodule Pokex.Bots.Combat.Worker do
     {logic, _} = Logic.stop(state.logic)
     safe_detach(:battle)
     safe_detach(:skill_bar)
-    state = %{state | logic: logic}
     demonitor_feed(state.feed_ref)
-    broadcast(logic)
-    {:reply, :ok, cancel_timer(%{state | feed_ref: nil, reattach_attempts: 0, held?: false})}
+    state = %{state | logic: logic, feed_ref: nil, reattach_attempts: 0, held?: false}
+    broadcast(logic, state)
+    {:reply, :ok, cancel_timer(state)}
   end
 
-  def handle_call(:status, _from, state), do: {:reply, snapshot(state.logic), state}
+  def handle_call(:status, _from, state), do: {:reply, snapshot(state.logic, state), state}
 
   @impl true
   def handle_info({:world, :battle, obs}, %{logic: %Logic{}} = state),
@@ -199,8 +210,10 @@ defmodule Pokex.Bots.Combat.Worker do
   # Frozen while the mini-game plays: no steps, no bursts. Combat is
   # event-driven and a static battle would never deliver the resume edge, so
   # poll :wake while held (every :wake funnels back through advance/2).
+  # The freeze EDGE broadcasts once so the panel shows WHY combat stopped.
   @held_poll_ms 250
   defp hold(state) do
+    if not state.held?, do: broadcast(state.logic, %{state | held?: true})
     state = cancel_timer(state)
     %{state | held?: true, timer: Process.send_after(self(), :wake, @held_poll_ms)}
   end
@@ -210,12 +223,14 @@ defmodule Pokex.Bots.Combat.Worker do
   defp resume_from_hold(state) do
     config = Settings.all() |> Map.take(@config_keys)
     {logic, _actions} = Logic.start(Logic.new(config), now())
-    broadcast(logic)
-    %{state | logic: logic, held?: false}
+    state = %{state | logic: logic, held?: false}
+    broadcast(logic, state)
+    state
   end
 
   defp apply_step(state, logic, actions) do
     previous = state.logic
+    previous_action = state.last_action
 
     state = dispatch(state, actions)
     broadcast_activity(previous, logic, actions)
@@ -227,8 +242,9 @@ defmodule Pokex.Bots.Combat.Worker do
     if logic.counters.fights > previous.counters.fights,
       do: broadcast_kill()
 
-    if logic.state != previous.state or logic.counters != previous.counters,
-      do: broadcast(logic)
+    if logic.state != previous.state or logic.counters != previous.counters or
+         state.last_action != previous_action,
+       do: broadcast(logic, state)
 
     schedule_wake(%{state | logic: logic})
   end
@@ -259,7 +275,12 @@ defmodule Pokex.Bots.Combat.Worker do
 
       true ->
         parent = self()
-        %{state | burst_pid: spawn(fn -> tap_keys(keys, parent) end)}
+
+        %{
+          state
+          | burst_pid: spawn(fn -> tap_keys(keys, parent) end),
+            last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()}
+        }
     end
   end
 
@@ -343,8 +364,8 @@ defmodule Pokex.Bots.Combat.Worker do
 
   # -- broadcasts ---------------------------------------------------------------
 
-  defp broadcast(logic),
-    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat, snapshot(logic)})
+  defp broadcast(logic, state),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat, snapshot(logic, state)})
 
   defp broadcast_kill,
     do:
@@ -375,15 +396,24 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   end
 
-  defp snapshot(nil),
-    do: %{state: :idle, counters: %Logic{}.counters, error: nil, locked_row: nil}
+  defp snapshot(nil, state),
+    do: %{
+      state: :idle,
+      counters: %Logic{}.counters,
+      error: nil,
+      locked_row: nil,
+      hold_reason: nil,
+      last_action: state.last_action
+    }
 
-  defp snapshot(logic),
+  defp snapshot(logic, state),
     do: %{
       state: logic.state,
       counters: logic.counters,
       error: logic.error,
-      locked_row: logic.locked_row
+      locked_row: logic.locked_row,
+      hold_reason: if(state.held?, do: "mini-game em jogo"),
+      last_action: state.last_action
     }
 
   defp positive_int(value, _default) when is_integer(value) and value > 0, do: value

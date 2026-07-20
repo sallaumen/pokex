@@ -72,6 +72,7 @@ defmodule PokexWeb.PanelLive do
        errors: [],
        calibrated?: Calibration.exists?(),
        calib_stale?: calib_stale?(),
+       now_ms: now_ms(),
        threshold: Settings.get(:glow_threshold),
        mini_game_sound: Settings.get(:mini_game_sound),
        player_mode: Settings.get(:player_mode),
@@ -220,7 +221,9 @@ defmodule PokexWeb.PanelLive do
         else: socket
 
     Process.send_after(self(), :refresh_cooldowns, @cooldown_poll_ms)
-    {:noreply, assign(socket, calib_stale?: calib_stale?())}
+    # now_ms anchors the "há Xs" ages of the pills' last actions — the same 1s
+    # cadence keeps them ticking without any extra timer.
+    {:noreply, assign(socket, calib_stale?: calib_stale?(), now_ms: now_ms())}
   end
 
   def handle_info({:fishing_log, level, text}, socket),
@@ -728,6 +731,44 @@ defmodule PokexWeb.PanelLive do
   defp mini_game_label(:error), do: "erro"
   defp mini_game_label(other), do: to_string(other)
 
+  # The Fase-1 pill details: WHY the worker is holding back (amber lock) and the
+  # last performed actuation with its live age. Snapshots without the keys (an
+  # old worker mid-rolling-restart) render nothing — Map.get keeps it safe.
+  defp pill_details(assigns) do
+    ~H"""
+    <p
+      :if={Map.get(@snapshot, :hold_reason)}
+      title={Map.get(@snapshot, :hold_reason)}
+      class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#f2c45b]"
+    >
+      🔒 {Map.get(@snapshot, :hold_reason)}
+    </p>
+    <p
+      :if={last_action_text(@snapshot, @now_ms)}
+      title={last_action_text(@snapshot, @now_ms)}
+      class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#5d6670]"
+    >
+      ⚡ {last_action_text(@snapshot, @now_ms)}
+    </p>
+    """
+  end
+
+  defp last_action_text(snapshot, now_ms) do
+    case Map.get(snapshot, :last_action) do
+      %{text: text, at: at} when is_integer(at) -> "#{text} · #{format_age(now_ms - at)}"
+      _absent -> nil
+    end
+  end
+
+  # Ages come from monotonic timestamps (may be negative numbers — nil, never 0,
+  # is the "no action yet" sentinel, handled above).
+  defp format_age(ms) when ms < 1_000, do: "agora"
+  defp format_age(ms) when ms < 60_000, do: "há #{div(ms, 1000)}s"
+  defp format_age(ms) when ms < 3_600_000, do: "há #{div(ms, 60_000)}min"
+  defp format_age(_ms), do: "há 1h+"
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
+
   defp active?(:idle), do: false
   defp active?(:off), do: false
   # BotSupervisor's busy placeholder (a worker that missed its 1s status window) — unknown,
@@ -933,6 +974,7 @@ defmodule PokexWeb.PanelLive do
                 <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
                   {fishing_label(@fishing.state)}
                 </p>
+                <.pill_details snapshot={@fishing} now_ms={@now_ms} />
               </div>
               <div
                 data-testid="combat-pill"
@@ -948,6 +990,7 @@ defmodule PokexWeb.PanelLive do
                 <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
                   {combat_label(@combat.state, Map.get(@combat, :locked_row))}
                 </p>
+                <.pill_details snapshot={@combat} now_ms={@now_ms} />
               </div>
               <div
                 data-testid="catcher-pill"
@@ -965,6 +1008,7 @@ defmodule PokexWeb.PanelLive do
                     @catcher
                   )}🧰
                 </p>
+                <.pill_details snapshot={@catcher} now_ms={@now_ms} />
               </div>
               <div
                 data-testid="mini-game-pill"
@@ -1020,6 +1064,7 @@ defmodule PokexWeb.PanelLive do
                 <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
                   {support_label(@game.state)} · {rescue_count(@game)}🚑 {potion_count(@game)}🧪
                 </p>
+                <.pill_details snapshot={@game} now_ms={@now_ms} />
               </div>
             </div>
 
@@ -1041,6 +1086,18 @@ defmodule PokexWeb.PanelLive do
                 class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
               >
                 {@mini_game.error}
+              </p>
+              <p
+                :if={@catcher.error}
+                class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+              >
+                {@catcher.error}
+              </p>
+              <p
+                :if={@game.error}
+                class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+              >
+                {@game.error}
               </p>
               <ul
                 :if={@errors != []}

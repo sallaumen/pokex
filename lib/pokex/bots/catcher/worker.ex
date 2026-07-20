@@ -74,7 +74,9 @@ defmodule Pokex.Bots.Catcher.Worker do
        combat_engaged?: false,
        feed_ref: nil,
        reattach_attempts: 0,
-       loots: 0
+       loots: 0,
+       # last performed actuation as %{text, at} (monotonic ms; nil until the first) — panel-facing
+       last_action: nil
      }}
   end
 
@@ -143,7 +145,12 @@ defmodule Pokex.Bots.Catcher.Worker do
   def handle_info({:combat, %{state: combat_state}}, state) do
     engaged? = combat_state in [:tabbing, :fighting]
     disengaged? = state.combat_engaged? and not engaged?
+    edge? = engaged? != state.combat_engaged?
     state = %{state | combat_engaged?: engaged?}
+
+    # The engage/disengage EDGE broadcasts so the panel's "esperando fim da luta"
+    # reason appears and clears in real time, not only on the next corpse event.
+    if edge? and state.logic != nil, do: broadcast(state)
 
     # combat_engaged? tracks regardless of our own state (so a :run mid-fight starts correctly
     # gated); the disengage ACTION (attach + advance) only applies once there is a real armed
@@ -220,6 +227,11 @@ defmodule Pokex.Bots.Catcher.Worker do
     performs = Enum.filter(actions, &match?({:capture_sequence, _}, &1))
     if performs != [], do: Body.perform(performs, :high, state.body)
 
+    state =
+      if performs != [],
+        do: %{state | last_action: %{text: "bola arremessada", at: now()}},
+        else: state
+
     for {:log, text} <- actions do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, :macro, "captura: #{text}"})
     end
@@ -256,7 +268,12 @@ defmodule Pokex.Bots.Catcher.Worker do
         {:catcher_log, :macro, "captura: 🧰 saqueando (espaço ×#{presses})"}
       )
 
-      state = %{state | loots: state.loots + 1}
+      state = %{
+        state
+        | loots: state.loots + 1,
+          last_action: %{text: "saque (espaço ×#{presses})", at: now()}
+      }
+
       broadcast(state)
       state
     else
@@ -381,8 +398,23 @@ defmodule Pokex.Bots.Catcher.Worker do
       counters:
         ((state.logic && state.logic.counters) || %Logic{}.counters)
         |> Map.put(:loots, state.loots),
-      error: state.logic && state.logic.error
+      error: state.logic && state.logic.error,
+      hold_reason: hold_reason(state),
+      last_action: state.last_action
     }
+  end
+
+  # Computed at broadcast time from live state — the engage/disengage edge above
+  # guarantees the fight reason appears/clears promptly; the mini-game one rides
+  # on whatever event broadcasts while the game plays (the catcher is passive then).
+  defp hold_reason(%{logic: nil}), do: nil
+
+  defp hold_reason(state) do
+    cond do
+      Perception.mini_game_playing?() -> "mini-game em jogo"
+      state.combat_engaged? -> "esperando fim da luta"
+      true -> nil
+    end
   end
 
   defp broadcast(state),

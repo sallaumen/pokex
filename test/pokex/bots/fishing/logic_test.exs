@@ -395,6 +395,26 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       assert actions == [{:log, "🔒 fisga segurada — skills em cooldown + sem pokémon ativo"}]
     end
 
+    test "the hold exposes its reason on the struct (panel snapshot), cleared on the pull" do
+      obs =
+        bite(false)
+        |> Map.merge(%{pokemon_ok?: false, pokemon_hold_reason: "sem pokémon ativo"})
+
+      {held, _} = Logic.step(settled(true), obs, 1000)
+      assert held.hold_reason == "skills em cooldown + sem pokémon ativo"
+
+      pull = bite(true) |> Map.put(:pokemon_ok?, true)
+      {pulled, _} = Logic.step(held, pull, 1100)
+      assert pulled.hold_reason == nil
+      assert pulled.last_action == %{text: "fisgada", at: 1100}
+    end
+
+    test "a cast records the last action (panel snapshot)" do
+      {l, _actions} = Logic.step(advance_to(:casting), cursor_obs(), 600)
+      assert l.state == :watching
+      assert l.last_action == %{text: "arremesso da isca", at: 600}
+    end
+
     test "gate ON + UNKNOWN reading (nil): holds — a capture glitch must not pull the fish" do
       {l, actions} = Logic.step(settled(true), bite(nil), 1000)
 

@@ -42,6 +42,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # reposition: a battle was seen since the last reposition (something to undo)
       reposition_pending?: false,
       reposition_clear_since: nil,
+      # last performed actuation as %{text, at} (monotonic ms; nil until the first) — panel-facing
+      last_action: nil,
       error: nil,
       counters: @default_counters
     }
@@ -268,7 +270,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
             state
             | reposition_pending?: false,
               reposition_clear_since: nil,
-              counters: bump(state.counters, :repositions)
+              counters: bump(state.counters, :repositions),
+              last_action: %{text: "reposição (clique do meio)", at: at}
           }
 
         {:error, reason} ->
@@ -336,7 +339,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     at = now()
     Body.perform([{:press, Settings.get(:potion_key)}], :high, state.body)
 
-    state = %{state | last_potion_at: at, counters: bump(state.counters, :potions)}
+    state = %{
+      state
+      | last_potion_at: at,
+        counters: bump(state.counters, :potions),
+        last_action: %{text: "poção", at: at}
+    }
+
     broadcast_log(:macro, log_text)
     state
   end
@@ -359,7 +368,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     at = now()
     Body.perform(Logic.combo(combo_config(calib)), :critical, state.body)
 
-    state = %{state | last_rescue_at: at, counters: bump(state.counters, :rescues)}
+    state = %{
+      state
+      | last_rescue_at: at,
+        counters: bump(state.counters, :rescues),
+        last_action: %{text: "combo de sobrevivência", at: at}
+    }
+
     broadcast_log(:macro, "🚑 combo de sobrevivência — Pokémon com #{state.hp_pct}% de vida")
     state
   end
@@ -382,7 +397,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   end
 
   defp changed?(previous, state),
-    do: previous.hp_pct != state.hp_pct or previous.counters != state.counters
+    do:
+      previous.hp_pct != state.hp_pct or previous.counters != state.counters or
+        hold_reason(previous) != hold_reason(state) or
+        previous.last_action != state.last_action
 
   defp bump(counters, key), do: Map.update!(counters, key, &(&1 + 1))
 
@@ -395,8 +413,25 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       enabled?: Settings.get(:rescue_enabled),
       last_rescue_at: state.last_rescue_at,
       counters: state.counters,
-      error: state.error
+      error: state.error,
+      hold_reason: hold_reason(state),
+      last_action: state.last_action
     }
+
+  # The support worker's "why am I waiting": each armed clear-window clock is a
+  # reason; both waiting at once join in one text. nil = nothing pending.
+  defp hold_reason(state) do
+    reasons =
+      Enum.reject(
+        [
+          if(state.battle_clear_since != nil, do: "poção esperando batalha limpa"),
+          if(state.reposition_pending?, do: "reposição esperando fim da luta")
+        ],
+        &is_nil/1
+      )
+
+    if reasons == [], do: nil, else: Enum.join(reasons, " + ")
+  end
 
   # The :pokemon blackboard fact: the fishing hook-gate (and any future consumer)
   # reads it via Perception.pokemon/1. Published only on a conclusive read —

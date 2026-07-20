@@ -24,6 +24,12 @@ defmodule Pokex.Bots.Fishing.Logic do
             # when the current hold STARTED (not refreshed per peak) — drives the
             # hook_hold_max_ms bail so one bite can never be held forever.
             holding_since: nil,
+            # the user-facing WHY of the current hold (nil when not holding) — the
+            # panel renders it straight from the snapshot.
+            hold_reason: nil,
+            # last PERFORMED actuation as %{text: String.t(), at: monotonic_ms} —
+            # nil until the first cast (never a 0 sentinel).
+            last_action: nil,
             failures: 0,
             error: nil,
             counters: %{cycles: 0, hooked: 0, failures: 0}
@@ -39,7 +45,7 @@ defmodule Pokex.Bots.Fishing.Logic do
 
   def start(logic, _now), do: {logic, []}
 
-  def stop(logic), do: {%{logic | state: :idle, waiting_until: nil}, []}
+  def stop(logic), do: {%{logic | state: :idle, waiting_until: nil, hold_reason: nil}, []}
 
   def io_failed(logic, reason, now), do: fail(logic, now, reason)
 
@@ -108,7 +114,14 @@ defmodule Pokex.Bots.Fishing.Logic do
     cond do
       streak < logic.config.glow_streak_needed ->
         # a bite signal, even mid-debounce, means the line is live → clear dead_streak
-        {%{logic | glow_streak: streak, dead_streak: 0, holding?: false, holding_since: nil}, []}
+        {%{
+           logic
+           | glow_streak: streak,
+             dead_streak: 0,
+             holding?: false,
+             holding_since: nil,
+             hold_reason: nil
+         }, []}
 
       hold_gate?(logic, obs) and not hold_expired?(logic, now) ->
         # Bite confirmed, but a hook gate is closed (skills on cooldown and/or the
@@ -130,6 +143,9 @@ defmodule Pokex.Bots.Fishing.Logic do
              dead_streak: 0,
              holding?: true,
              holding_since: logic.holding_since || now,
+             # refreshed per peak, so a reason that changes mid-hold (cooldown
+             # cleared, HP still low) stays current on the panel.
+             hold_reason: hold_reason(logic, obs),
              entered_at: now
          }, log}
 
@@ -145,7 +161,17 @@ defmodule Pokex.Bots.Fishing.Logic do
             do: [{:log, "⏳ fisga segurada até o teto com gate fechado — puxando mesmo assim"}],
             else: []
 
-        {advance(%{logic | glow_streak: 0, holding?: false, holding_since: nil}, :casting, now,
+        {advance(
+           %{
+             logic
+             | glow_streak: 0,
+               holding?: false,
+               holding_since: nil,
+               hold_reason: nil,
+               last_action: %{text: "fisgada", at: now}
+           },
+           :casting,
+           now,
            wait: logic.config.wait_assess_ms
          ), bail_log ++ [{:press, logic.config.rod_key}]}
     end
@@ -256,7 +282,9 @@ defmodule Pokex.Bots.Fishing.Logic do
             dead_streak: 0,
             settled?: false,
             holding?: false,
-            holding_since: nil
+            holding_since: nil,
+            hold_reason: nil,
+            last_action: %{text: "arremesso da isca", at: now}
         },
         :watching,
         now,
@@ -291,19 +319,19 @@ defmodule Pokex.Bots.Fishing.Logic do
   defp hold_gate?(logic, obs),
     do: hold_for_cooldowns?(logic, obs) or hold_for_pokemon?(obs)
 
-  defp hold_log(logic, obs) do
-    reasons =
-      Enum.reject(
-        [
-          if(hold_for_cooldowns?(logic, obs), do: "skills em cooldown"),
-          if(hold_for_pokemon?(obs),
-            do: Map.get(obs, :pokemon_hold_reason, "pokémon sem condição")
-          )
-        ],
-        &is_nil/1
-      )
+  defp hold_log(logic, obs), do: "🔒 fisga segurada — " <> hold_reason(logic, obs)
 
-    "🔒 fisga segurada — " <> Enum.join(reasons, " + ")
+  # One text for the WHY of a hold, shared by the once-only log and the struct
+  # field the panel snapshot carries — the two can never disagree.
+  defp hold_reason(logic, obs) do
+    [
+      if(hold_for_cooldowns?(logic, obs), do: "skills em cooldown"),
+      if(hold_for_pokemon?(obs),
+        do: Map.get(obs, :pokemon_hold_reason, "pokémon sem condição")
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" + ")
   end
 
   # The fishing→combat cooldown gate: hold the fish when require_cooldowns is on and

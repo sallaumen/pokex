@@ -132,6 +132,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     world!(worker, corpses_obs([{150, 250}]))
     refute_receive {:performed, _p, _a}, 300
+    assert Worker.status(worker).hold_reason == "esperando fim da luta"
 
     # the fight ends (kill or disengage) — a fresh corpse is already sitting in the world;
     # the disengage edge must re-check it immediately and throw, no waiting on the next poll
@@ -140,6 +141,9 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     send(worker, {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}})
 
     assert_receive {:performed, :high, [{:capture_sequence, {150, 250}}]}, 1_000
+    assert Worker.status(worker).hold_reason == nil
+    assert %{text: "bola arremessada", at: at} = Worker.status(worker).last_action
+    assert is_integer(at)
   end
 
   @tag :tmp_dir
@@ -211,6 +215,8 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
     assert Worker.status(worker).counters.loots == 1
+    # the ball lands after the loot, so it owns the pill's "última ação"
+    assert %{text: "bola arremessada", at: _} = Worker.status(worker).last_action
   end
 
   @tag :tmp_dir

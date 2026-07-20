@@ -27,7 +27,7 @@ defmodule PokexWeb.Layouts do
 
   attr :current_page, :atom,
     default: nil,
-    doc: "the active nav item: :panel | :calibration | :diagnostics | :fishing_lab"
+    doc: "the active nav item: :panel | :calibration | :diagnostics | :fishing_lab | :world"
 
   slot :inner_block, required: true
 
@@ -73,6 +73,9 @@ defmodule PokexWeb.Layouts do
               icon="hero-sparkles"
             >
               Laboratório
+            </.nav_link>
+            <.nav_link navigate={~p"/world"} active={@current_page == :world} icon="hero-eye">
+              Mundo
             </.nav_link>
           </div>
 

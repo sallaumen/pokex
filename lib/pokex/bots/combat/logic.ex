@@ -11,8 +11,12 @@ defmodule Pokex.Bots.Combat.Logic do
              counts from the press, so capture latency can't eat it — the old click flow's
              500ms window expired before its first read). No lock in tab_confirm_ms →
              re-Tab (cycles to the next candidate) up to tab_max_attempts, then hunt-hold.
-  fighting — lock up → fire the next blind-rotation skill burst, throttled by
-             skill_burst_every_ms (observations arrive faster than keys should). Lock gone
+  fighting — lock up → fire the next skill burst, throttled by skill_burst_every_ms
+             (observations arrive faster than keys should). When the observation carries a
+             fresh :skill_bar reading (obs[:ready_skills], merged in by the driver), only
+             READY skills fire, in skill_keys priority order; without one (nil/empty/none
+             of ours) the blind rotation runs unchanged — a bad read may waste presses,
+             never stop the attack. Lock gone
              target_lost_streak OBSERVED frames in a row → the target died: count the kill
              and hunt the next one (a nil/timer wake never counts — only real frames vote).
 
@@ -133,7 +137,7 @@ defmodule Pokex.Bots.Combat.Logic do
             last_burst_at: nil
         }
 
-        press_next_skill(logic, now)
+        press_next_skill(logic, now, obs[:ready_skills])
 
       now - logic.tabbed_at > logic.config.tab_confirm_ms and
           logic.tab_attempts < logic.config.tab_max_attempts ->
@@ -161,7 +165,7 @@ defmodule Pokex.Bots.Combat.Logic do
 
       locked?(obs) ->
         logic = %{logic | lost_streak: 0, locked_row: obs.locked_row}
-        press_next_skill(logic, now)
+        press_next_skill(logic, now, obs[:ready_skills])
 
       observed?(obs) and logic.lost_streak + 1 >= logic.config.target_lost_streak ->
         logic = update_in(logic.counters.fights, &(&1 + 1))
@@ -248,25 +252,52 @@ defmodule Pokex.Bots.Combat.Logic do
   defp probe_deadline(%{config: config}, now),
     do: now + Map.get(config, :hunt_probe_window_ms, 8_000)
 
-  # Blind rotation, throttled: observations arrive at feed cadence (~120ms) but keys should
+  # One skill burst, throttled: observations arrive at feed cadence (~120ms) but keys should
   # fire at skill cadence (~300ms) — without the throttle the feed would triple the key rate.
-  defp press_next_skill(%{config: %{skill_keys: []}} = logic, _now), do: {logic, []}
+  #
+  # INFORMED mode (a fresh :skill_bar reading rode in on the observation): fire only the
+  # READY skills, in skill_keys PRIORITY order, each at most once per burst — no rotation
+  # index needed, because pressing a skill puts it on cooldown and it leaves the ready set
+  # by itself (self-balancing). BLIND mode (no reading / empty / none of ours): the
+  # round-robin rotation, unchanged — FAIL-OPEN, because a wrong or missing read may waste
+  # presses (a cooling key is a no-op in game — today's behavior) but must never stop the
+  # attack: not attacking while something is attackable is the one idle this machine
+  # exists to prevent.
+  defp press_next_skill(%{config: %{skill_keys: []}} = logic, _now, _ready), do: {logic, []}
 
-  defp press_next_skill(%{config: config} = logic, now) do
-    if logic.last_burst_at != nil and now - logic.last_burst_at < config.skill_burst_every_ms do
-      {logic, []}
-    else
-      burst = max(config.combat_skill_burst_size, 1)
-      len = length(config.skill_keys)
+  defp press_next_skill(%{config: config} = logic, now, ready) do
+    cond do
+      logic.last_burst_at != nil and now - logic.last_burst_at < config.skill_burst_every_ms ->
+        {logic, []}
 
-      actions =
-        for offset <- 0..(burst - 1) do
-          {:press, Enum.at(config.skill_keys, rem(logic.skill_idx + offset, len))}
-        end
+      keys = ready_in_priority(config.skill_keys, ready) ->
+        burst = max(config.combat_skill_burst_size, 1)
+        actions = keys |> Enum.take(burst) |> Enum.map(&{:press, &1})
+        {%{logic | last_burst_at: now}, actions}
 
-      {%{logic | skill_idx: logic.skill_idx + burst, last_burst_at: now}, actions}
+      true ->
+        burst = max(config.combat_skill_burst_size, 1)
+        len = length(config.skill_keys)
+
+        actions =
+          for offset <- 0..(burst - 1) do
+            {:press, Enum.at(config.skill_keys, rem(logic.skill_idx + offset, len))}
+          end
+
+        {%{logic | skill_idx: logic.skill_idx + burst, last_burst_at: now}, actions}
     end
   end
+
+  # The ready keys in skill_keys priority order, or nil (→ blind rotation) when the
+  # reading is absent or names none of ours.
+  defp ready_in_priority(skill_keys, ready) when is_list(ready) do
+    case Enum.filter(skill_keys, &(&1 in ready)) do
+      [] -> nil
+      keys -> keys
+    end
+  end
+
+  defp ready_in_priority(_skill_keys, _unknown), do: nil
 
   defp fail(%__MODULE__{} = logic, now, reason) do
     failures = logic.failures + 1

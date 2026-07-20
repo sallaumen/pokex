@@ -6,6 +6,7 @@ defmodule Pokex.Perception.Interpret do
   (locked?/locked_row), computed here once so every consumer shares one interpretation.
   """
 
+  alias Pokex.Bots.SkillBar
   alias Pokex.{Calibration, Settings, Vision}
   alias Pokex.Vision.Frame
 
@@ -44,6 +45,21 @@ defmodule Pokex.Perception.Interpret do
       locked?: locked_row != nil,
       locked_row: locked_row
     }
+  end
+
+  @doc """
+  The skill hotbar: per-slot readiness (`:ready | :cooldown`) plus the ready hotbar keys in
+  ascending slot order. Both are NIL when the frame stopped looking like the calibrated bar
+  (window moved/covered) — UNKNOWN, never a guess, so consumers fail open (combat: blind
+  rotation; fishing: the hold's own ceiling).
+  """
+  def skills(frame, calib, settings) do
+    if SkillBar.valid_frame?(frame) do
+      slots = SkillBar.slots_from_frame(frame, calib, settings)
+      %{states: SkillBar.states(slots), ready_keys: SkillBar.ready_keys(slots)}
+    else
+      %{states: nil, ready_keys: nil}
+    end
   end
 
   @doc "The arena: the hostile's floating-name point in SCREEN coordinates, or nil."

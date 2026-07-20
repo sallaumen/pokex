@@ -9,6 +9,7 @@ defmodule Pokex.PerceptionTest do
     on_exit(fn ->
       WorldState.forget(:mini_game)
       WorldState.forget(:pokemon)
+      WorldState.forget(:skill_bar)
     end)
 
     :ok
@@ -41,5 +42,21 @@ defmodule Pokex.PerceptionTest do
     stale_at = 10_000 + Pokex.Settings.get(:mini_game_fact_max_age_ms) + 1
 
     refute Perception.mini_game_playing?(stale_at)
+  end
+
+  test "ready_skills mirrors a fresh :skill_bar fact and is UNKNOWN on stale/missing" do
+    # missing → nil (combat blind-rotates; never [] which would read "all on cooldown")
+    assert Perception.ready_skills(10_000) == nil
+
+    WorldState.put(:skill_bar, %{states: [:ready, :cooldown], ready_keys: ["1"]}, 10_000)
+    assert Perception.ready_skills(10_100) == ["1"]
+
+    # an unreadable bar (window covered) publishes nil keys — still UNKNOWN, not empty
+    WorldState.put(:skill_bar, %{states: nil, ready_keys: nil}, 10_200)
+    assert Perception.ready_skills(10_300) == nil
+
+    WorldState.put(:skill_bar, %{states: [:ready], ready_keys: ["1"]}, 10_000)
+    stale_at = 10_000 + Pokex.Settings.get(:skill_bar_fact_max_age_ms) + 1
+    assert Perception.ready_skills(stale_at) == nil
   end
 end

@@ -56,12 +56,12 @@ defmodule Pokex.Bots.BotSupervisor do
         mini_game: mini_game,
         player_support: player_support
       }) do
-    # The panic corner halts EVERY automated worker — including the mini-game watcher (so it
-    # can't resume the peers it paused) and the PlayerSupport (Lucas: a support gone wrong,
-    # e.g. a minimized window misread burning potions, must be killable by mouse-to-corner
-    # like everything else; it re-arms on boot, Iniciar bot, or a support toggle).
+    # The panic corner halts EVERY automated worker — including the mini-game watcher (its
+    # halt clears the :mini_game fact, so nobody stays self-held) and the PlayerSupport
+    # (Lucas: a support gone wrong, e.g. a minimized window misread burning potions, must be
+    # killable by mouse-to-corner like everything else; it re-arms on boot, Iniciar bot, or a
+    # support toggle).
     on_panic = fn -> stop_all(fishing, combat, catcher, mini_game, player_support) end
-    peers = %{fishing: fishing, combat: combat, catcher: catcher}
 
     children = [
       Supervisor.child_spec({Body, name: body}, id: body),
@@ -71,7 +71,7 @@ defmodule Pokex.Bots.BotSupervisor do
       Supervisor.child_spec({Fishing.Worker, name: fishing, body: body}, id: fishing),
       Supervisor.child_spec({Combat.Worker, name: combat}, id: combat),
       Supervisor.child_spec({Catcher.Worker, name: catcher, body: body}, id: catcher),
-      Supervisor.child_spec({MiniGame.Worker, name: mini_game, peers: peers}, id: mini_game),
+      Supervisor.child_spec({MiniGame.Worker, name: mini_game}, id: mini_game),
       Supervisor.child_spec({PlayerSupport.Worker, name: player_support, body: body},
         id: player_support
       )

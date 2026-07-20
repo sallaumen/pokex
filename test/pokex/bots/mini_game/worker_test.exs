@@ -41,38 +41,22 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "announces enter and exit transitions while pausing and resuming remembered peers", %{
-    tmp: tmp
-  } do
+  test "announces enter and exit transitions on the panel topic", %{tmp: tmp} do
     game = png!(tmp, "mini-game.png", true)
     calm = png!(tmp, "calm.png", false)
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}]})
-    test = self()
-
-    pause_peers = fn _peers ->
-      send(test, :paused)
-      [:fishing, :combat]
-    end
-
-    resume_peers = fn _peers, paused ->
-      send(test, {:resumed, paused})
-      :ok
-    end
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
-    worker =
-      start_supervised!({Worker, name: nil, pause_peers: pause_peers, resume_peers: resume_peers})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
 
-    assert_receive :paused, 1_000
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
     assert_receive {:mini_game_log, :macro, enter_log}, 1_000
-    assert enter_log =~ "pausando"
+    assert enter_log =~ "jogando"
 
-    assert_receive {:resumed, [:fishing, :combat]}, 1_000
     assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
 
     assert :ok = Worker.halt(worker)
@@ -88,16 +72,10 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     game = png_with_bar_at!(tmp, "offset-game.png", 144..156)
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
-    test = self()
-
-    pause_peers = fn _peers ->
-      send(test, :paused)
-      [:fishing]
-    end
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
-    worker = start_supervised!({Worker, name: nil, pause_peers: pause_peers})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
@@ -115,16 +93,10 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     game = png_with_bar_at!(tmp, "calibrated-game.png", 144..156)
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
-    test = self()
-
-    pause_peers = fn _peers ->
-      send(test, :paused)
-      [:fishing]
-    end
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
-    worker = start_supervised!({Worker, name: nil, pause_peers: pause_peers})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
@@ -138,7 +110,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}, {:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+    worker = start_supervised!({Worker, name: nil})
 
     refute Pokex.Perception.mini_game_playing?()
 
@@ -165,7 +137,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
@@ -186,7 +158,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, hold}, {:ok, hold}, {:ok, release}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
@@ -207,7 +179,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
@@ -222,7 +194,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
@@ -242,7 +214,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: captures})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :watching, transition: :left}}, 2_000
@@ -264,7 +236,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
@@ -283,7 +255,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, game}, {:error, :boom}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    worker = start_supervised!({Worker, name: nil, pause_peers: fn _ -> [] end})
+    worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000

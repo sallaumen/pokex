@@ -208,6 +208,24 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "the :pokemon fact holds the hook end-to-end (fact → worker obs → Logic hold)", %{
+    worker: worker
+  } do
+    Settings.put(:require_pokemon_hp, true)
+    WorldState.put(:pokemon, %{hp_pct: 15, readable?: true}, System.monotonic_time(:millisecond))
+    on_exit(fn -> WorldState.forget(:pokemon) end)
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    assert :ok = Worker.run(worker)
+    assert wait_for_log("vida 15% < 40%", System.monotonic_time(:millisecond) + 5_000)
+
+    # the cast armed the rod ONCE; the held bite must not pull a second press
+    calls = Pokex.Rig.Fake.calls()
+    assert Enum.count(calls, &(&1 == {:press, "shift+v"})) == 1
+  end
+
+  @tag :tmp_dir
   test "a lure-like false positive without a live line still triggers recast", %{worker: worker} do
     Settings.put(:watch_dead_streak_needed, 3)
 

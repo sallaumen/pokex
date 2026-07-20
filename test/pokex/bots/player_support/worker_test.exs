@@ -25,8 +25,15 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
-    # the combo ships OFF by default; the enabled-path tests turn it on ("toggle off" flips it back)
-    SettingsStash.stash!(support_tick_ms: 20, rescue_step_ms: 0, rescue_enabled: true)
+    # the combo ships OFF by default; the enabled-path tests turn it on ("toggle off" flips it
+    # back). potion_battle_clear_ms: 0 keeps the pre-window tests meaningful (one clear read
+    # fires) — the window tests set their own value.
+    SettingsStash.stash!(
+      support_tick_ms: 20,
+      rescue_step_ms: 0,
+      rescue_enabled: true,
+      potion_battle_clear_ms: 0
+    )
 
     SettingsStash.stash_keys!([
       :rescue_cooldown_ms,
@@ -35,6 +42,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :potion_cooldown_ms,
       :pokemon_hp_potion_pct
     ])
+
+    on_exit(fn -> Pokex.Perception.WorldState.forget(:pokemon) end)
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -207,6 +216,40 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert Worker.status(worker).counters.rescues == 1
   end
 
+  @tag :tmp_dir
+  test "publishes the :pokemon fact — HP when readable, readable?: false when not", %{
+    tmp: tmp,
+    body: body
+  } do
+    full = hp_png(tmp, "full.png", 20)
+    # bright blue-ish "game world" pixels — the same unrecognizable frame the
+    # minimized-window test uses: readable?: false
+    rows = for _y <- 1..4, do: List.duplicate({120, 180, 235, 255}, 20)
+    world = Pokex.PngFixtures.write!(Path.join(tmp, "world.png"), rows)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}, {:ok, world}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert wait_until(fn ->
+             Pokex.Perception.pokemon() == {:ok, %{hp_pct: 100, readable?: true}}
+           end)
+
+    assert wait_until(fn ->
+             Pokex.Perception.pokemon() == {:ok, %{hp_pct: nil, readable?: false}}
+           end)
+  end
+
+  defp wait_until(fun, deadline \\ nil) do
+    deadline = deadline || System.monotonic_time(:millisecond) + 1_500
+
+    cond do
+      fun.() -> true
+      System.monotonic_time(:millisecond) > deadline -> false
+      true -> Process.sleep(20) && wait_until(fun, deadline)
+    end
+  end
+
   # The potion gate reads the :battle blackboard entry first, so each test pins WorldState:
   # a stale entry forces the direct capture+interpret fallback; a fresh one is read as-is.
   defp stale_battle! do
@@ -243,6 +286,57 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
     assert Worker.status(worker).counters.potions >= 1
+  end
+
+  @tag :tmp_dir
+  test "the potion waits out a CONTINUOUS battle-free window before firing", %{
+    tmp: tmp,
+    body: body
+  } do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+    Settings.put(:potion_cooldown_ms, 60_000)
+    Settings.put(:potion_battle_clear_ms, 300)
+
+    # blackboard says clear the whole time (fresh entry, no captures of battle needed)
+    fresh_battle!(enemies: [])
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    # one clear read is NOT enough anymore — nothing within the window...
+    refute_receive {:performed, :high, _}, 200
+    # ...but after 300ms of consecutive clear reads, the sip lands
+    assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
+    assert Worker.status(worker).counters.potions == 1
+  end
+
+  @tag :tmp_dir
+  test "a battle read mid-window RESETS the clear clock", %{tmp: tmp, body: body} do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+    Settings.put(:potion_cooldown_ms, 60_000)
+    Settings.put(:potion_battle_clear_ms, 400)
+
+    fresh_battle!(enemies: [])
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    # halfway through the window a fished enemy re-aggresses → the clock must restart
+    Process.sleep(200)
+    fresh_battle!(enemies: [0])
+    Process.sleep(100)
+    fresh_battle!(enemies: [])
+
+    # 400ms after the ORIGINAL clear would be now — but the reset means nothing yet
+    refute_receive {:performed, :high, _}, 250
+    # a full uninterrupted window after the reset → sip
+    assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
   end
 
   @tag :tmp_dir

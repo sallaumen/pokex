@@ -6,8 +6,22 @@ defmodule Pokex.PerceptionTest do
   alias Pokex.Perception.WorldState
 
   setup do
-    on_exit(fn -> WorldState.forget(:mini_game) end)
+    on_exit(fn ->
+      WorldState.forget(:mini_game)
+      WorldState.forget(:pokemon)
+    end)
+
     :ok
+  end
+
+  test "pokemon mirrors a fresh fact and fails open on stale/missing" do
+    refute match?({:ok, _}, Perception.pokemon(10_000))
+
+    WorldState.put(:pokemon, %{hp_pct: 62, readable?: true}, 10_000)
+    assert Perception.pokemon(10_100) == {:ok, %{hp_pct: 62, readable?: true}}
+
+    stale_at = 10_000 + Pokex.Settings.get(:pokemon_fact_max_age_ms) + 1
+    assert Perception.pokemon(stale_at) == :unknown
   end
 
   test "mini_game_playing? mirrors a fresh fact" do

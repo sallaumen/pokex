@@ -106,12 +106,37 @@ defmodule Pokex.Bots.Fishing.Worker do
     %{state | logic: logic, held?: false} |> reschedule(0)
   end
 
+  # The fishing→support HP gate, fed by the :pokemon blackboard fact PlayerSupport
+  # publishes. Computed here (not in Logic) so the panel toggle and threshold apply
+  # instantly, without rebuilding the run config. Empty map = gate off or fact
+  # unknown (monitor halted / HP not calibrated) — Logic then never holds for it.
+  defp pokemon_obs do
+    with true <- Settings.get(:require_pokemon_hp),
+         {:ok, pokemon} <- Pokex.Perception.pokemon() do
+      min_pct = Settings.get(:pokemon_hp_fishing_pct)
+
+      cond do
+        pokemon.readable? != true ->
+          %{pokemon_ok?: false, pokemon_hold_reason: "sem pokémon ativo"}
+
+        is_integer(pokemon.hp_pct) and pokemon.hp_pct < min_pct ->
+          %{pokemon_ok?: false, pokemon_hold_reason: "vida #{pokemon.hp_pct}% < #{min_pct}%"}
+
+        true ->
+          %{pokemon_ok?: true}
+      end
+    else
+      _off_or_unknown -> %{}
+    end
+  end
+
   defp run_tick(state, previous) do
     settings = Settings.all()
 
     {logic, actions, raw_obs} =
       case Sensors.impl().observe(Logic.needs(previous), state.calib, settings) do
         {:ok, observations} ->
+          observations = Map.merge(observations, pokemon_obs())
           {stepped, actions} = Logic.step(previous, threshold_glow(observations, settings), now())
 
           logic =

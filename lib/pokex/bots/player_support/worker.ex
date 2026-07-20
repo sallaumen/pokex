@@ -42,6 +42,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # reposition: a battle was seen since the last reposition (something to undo)
       reposition_pending?: false,
       reposition_clear_since: nil,
+      # post-fight order policy: the catcher's pending-corpse count from its
+      # snapshots, and when THIS busy episode started (nil = catcher free) —
+      # drives the support_waits_capture gate and its fail-open cap
+      capture_pending: 0,
+      capture_busy_since: nil,
       # last performed actuation as %{text, at} (monotonic ms; nil until the first) — panel-facing
       last_action: nil,
       error: nil,
@@ -68,6 +73,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   @impl true
   def init(state) do
+    # The catcher's snapshots carry pending_corpses — the post-fight order
+    # policy (support_waits_capture) reads it from here.
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.topic())
+
     # Auto-start monitoring on boot (real app). Gated off in the test env so the app-wide instance
     # doesn't tick against the shared Rig/home during unrelated tests — tests call run/1 to monitor.
     if Application.get_env(:pokex, :player_support_auto_monitor, true),
@@ -153,6 +162,18 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
   end
+
+  # The catcher's pending-corpse count rides its snapshots (see init/1). The
+  # busy clock starts on the FIRST busy snapshot of an episode and never
+  # refreshes mid-episode — that's what the fail-open cap measures.
+  def handle_info({:catcher, snapshot}, state) do
+    pending = Map.get(snapshot, :pending_corpses, 0)
+    busy_since = if pending > 0, do: state.capture_busy_since || now(), else: nil
+    {:noreply, %{state | capture_pending: pending, capture_busy_since: busy_since}}
+  end
+
+  # The catcher topic also carries {:catcher_log, ...} chatter — not ours.
+  def handle_info(_msg, state), do: {:noreply, state}
 
   # Uncrashable: this monitor runs forever, so a transient capture failure (the broker or the Rig
   # momentarily down/restarting) must come back as {:error}, not take the whole worker down with it.
@@ -259,27 +280,37 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     since = state.reposition_clear_since || at
     state = %{state | reposition_clear_since: since}
 
-    if at - since >= Settings.get(:reposition_battle_clear_ms) do
-      # through the Body like every mouse action (serialization, cursor restore,
-      # mini-game gate); :normal priority — positioning never preempts anything
-      case Body.perform([{:click, :middle, point}], :normal, state.body) do
-        :ok ->
-          broadcast_log(:macro, "🐾 pokémon reposicionado no ponto calibrado")
+    cond do
+      at - since < Settings.get(:reposition_battle_clear_ms) ->
+        state
 
-          %{
-            state
-            | reposition_pending?: false,
-              reposition_clear_since: nil,
-              counters: bump(state.counters, :repositions),
-              last_action: %{text: "reposição (clique do meio)", at: at}
-          }
+      # post-fight order policy — same wait as the potion, same fail-open cap
+      capture_busy?(state) ->
+        state
 
-        {:error, reason} ->
-          broadcast_log(:debug, "reposicionar falhou (helper nativo?): #{inspect(reason)}")
-          %{state | reposition_clear_since: nil}
-      end
-    else
-      state
+      true ->
+        do_reposition(state, point, at)
+    end
+  end
+
+  # through the Body like every mouse action (serialization, cursor restore,
+  # mini-game gate); :normal priority — positioning never preempts anything
+  defp do_reposition(state, point, at) do
+    case Body.perform([{:click, :middle, point}], :normal, state.body) do
+      :ok ->
+        broadcast_log(:macro, "🐾 pokémon reposicionado no ponto calibrado")
+
+        %{
+          state
+          | reposition_pending?: false,
+            reposition_clear_since: nil,
+            counters: bump(state.counters, :repositions),
+            last_action: %{text: "reposição (clique do meio)", at: at}
+        }
+
+      {:error, reason} ->
+        broadcast_log(:debug, "reposicionar falhou (helper nativo?): #{inspect(reason)}")
+        %{state | reposition_clear_since: nil}
     end
   end
 
@@ -288,10 +319,17 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     since = state.battle_clear_since || at
     state = %{state | battle_clear_since: since}
 
-    if at - since >= Settings.get(:potion_battle_clear_ms) do
-      %{fire_potion(state, "🧪 poção — vida em #{state.hp_pct}%") | battle_clear_since: nil}
-    else
-      state
+    cond do
+      at - since < Settings.get(:potion_battle_clear_ms) ->
+        state
+
+      # post-fight order policy: the window elapsed but the catcher still has
+      # corpse work — keep the satisfied clock and sip the moment it frees up
+      capture_busy?(state) ->
+        state
+
+      true ->
+        %{fire_potion(state, "🧪 poção — vida em #{state.hp_pct}%") | battle_clear_since: nil}
     end
   end
 
@@ -419,18 +457,32 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     }
 
   # The support worker's "why am I waiting": each armed clear-window clock is a
-  # reason; both waiting at once join in one text. nil = nothing pending.
+  # reason; both waiting at once join in one text. nil = nothing pending. The
+  # capture wait only shows while something is actually due (a bare pending
+  # count with nothing to do isn't a hold).
   defp hold_reason(state) do
+    waiting? = state.battle_clear_since != nil or state.reposition_pending?
+
     reasons =
       Enum.reject(
         [
           if(state.battle_clear_since != nil, do: "poção esperando batalha limpa"),
-          if(state.reposition_pending?, do: "reposição esperando fim da luta")
+          if(state.reposition_pending?, do: "reposição esperando fim da luta"),
+          if(waiting? and capture_busy?(state), do: "esperando a captura terminar")
         ],
         &is_nil/1
       )
 
     if reasons == [], do: nil, else: Enum.join(reasons, " + ")
+  end
+
+  # The post-fight ORDER policy (loot → bola → suporte): with the toggle on, a
+  # due potion/reposition also waits for the catcher's pending corpses to hit
+  # zero. The cap bails the wait so a stuck detector can never starve the heal.
+  defp capture_busy?(state) do
+    Settings.get(:support_waits_capture) and state.capture_pending > 0 and
+      state.capture_busy_since != nil and
+      now() - state.capture_busy_since < Settings.get(:support_capture_wait_max_ms)
   end
 
   # The :pokemon blackboard fact: the fishing hook-gate (and any future consumer)

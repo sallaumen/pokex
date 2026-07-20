@@ -236,8 +236,11 @@ defmodule Pokex.Bots.Catcher.Worker do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, :macro, "captura: #{text}"})
     end
 
-    if logic.counters != state.logic.counters or actions != [],
-      do: broadcast(%{state | logic: logic})
+    # pending_corpses joins the change condition: suporte holds on that number,
+    # so its transitions must reach the wire even on an action-less step
+    if logic.counters != state.logic.counters or actions != [] or
+         Logic.pending(logic) != Logic.pending(state.logic),
+       do: broadcast(%{state | logic: logic})
 
     schedule_wake(%{state | logic: logic})
   end
@@ -400,7 +403,8 @@ defmodule Pokex.Bots.Catcher.Worker do
         |> Map.put(:loots, state.loots),
       error: state.logic && state.logic.error,
       hold_reason: hold_reason(state),
-      last_action: state.last_action
+      last_action: state.last_action,
+      pending_corpses: (state.logic && Logic.pending(state.logic)) || 0
     }
   end
 

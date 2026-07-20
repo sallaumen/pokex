@@ -292,6 +292,12 @@ defmodule Pokex.Settings do
     # (cliclick has no middle button).
     reposition_enabled: false,
     reposition_battle_clear_ms: 2_000,
+    # Post-fight ORDER policy (loot → bola → suporte): with this on, a due
+    # potion/reposition ALSO waits for the catcher to resolve its pending
+    # corpses (queued + ball in flight) before acting. The cap below bails the
+    # wait so a stuck detector can never starve the heal — fail-open, loudly.
+    support_waits_capture: false,
+    support_capture_wait_max_ms: 10_000,
     # --- Perception feeds -----------------------------------------------------------------------
     # Capture cadence per feed. A feed only captures while a consumer is attached, so these are
     # upper bounds on broker demand, not constant costs. battle is the combat hot path; arena has
@@ -434,7 +440,9 @@ defmodule Pokex.Settings do
     :potion_enabled,
     :potion_key,
     :pokemon_hp_potion_pct,
-    :reposition_enabled
+    :reposition_enabled,
+    # política pós-luta
+    :support_waits_capture
   ]
 
   # ETS mirror of the GLOBAL instance's overrides. Worker ticks read several

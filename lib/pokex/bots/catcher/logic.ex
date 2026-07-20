@@ -55,6 +55,15 @@ defmodule Pokex.Bots.Catcher.Logic do
   def next_wake(%__MODULE__{throw: nil, queue: []}, _now), do: nil
   def next_wake(%__MODULE__{config: config}, _now), do: max(config.feed_corpses_ms, 1)
 
+  @doc """
+  Corpses still being worked (queued + the one ball in flight) — the post-fight
+  policy signal: suporte can wait for this to hit zero before healing/moving.
+  """
+  def pending(%__MODULE__{state: :idle}), do: 0
+
+  def pending(%__MODULE__{queue: queue, throw: throw}),
+    do: length(queue) + if(throw, do: 1, else: 0)
+
   # -- confirmation -------------------------------------------------------------
 
   defp confirm(%{throw: nil} = logic, _obs, _now), do: {logic, []}

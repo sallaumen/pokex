@@ -636,6 +636,28 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  # A quick-fix card: title + one-line hint, so each button says WHAT it re-marks
+  # (the old bare-label row made "Só o minigame" vs "Só o personagem" a guessing game).
+  attr :event, :string, required: true
+  attr :icon, :string, required: true
+  attr :title, :string, required: true
+  attr :hint, :string, required: true
+
+  defp quick_fix(assigns) do
+    ~H"""
+    <button
+      phx-click={@event}
+      class="flex items-start gap-2.5 rounded-xl border border-base-content/10 bg-base-100 px-3 py-2.5 text-left transition hover:border-primary/40 hover:bg-base-100/60"
+    >
+      <.icon name={@icon} class="mt-0.5 size-4 shrink-0 text-primary" />
+      <span class="min-w-0">
+        <span class="block text-xs font-semibold">{@title}</span>
+        <span class="mt-0.5 block text-[11px] leading-snug opacity-60">{@hint}</span>
+      </span>
+    </button>
+    """
+  end
+
   defp profile_thumb_file(slug), do: "calib_profile_#{slug}.png"
 
   defp load_profiles do
@@ -830,73 +852,101 @@ defmodule PokexWeb.CalibrationLive do
           </div>
         </div>
 
-        <div
-          :if={is_nil(@screen) and is_nil(@review)}
-          class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-6 text-center"
-        >
-          <.icon name="hero-camera" class="mx-auto size-8 opacity-60" />
-          <p class="text-sm opacity-70">
-            Capture a tela do jogo para começar a marcar os pontos.
-          </p>
-          <p class="text-xs opacity-50">
-            Pode deixar o jogo em TELA CHEIA: ao capturar, ele traz o jogo pra frente por ~1s,
-            tira a foto e volta pra cá sozinho.
-          </p>
-          <.form
-            for={@skill_count_form}
-            id="skill-count-form"
-            phx-change="set_skill_count"
-            class="mx-auto w-44 text-left"
-          >
-            <.input
-              field={@skill_count_form[:count]}
-              type="number"
-              min="1"
-              max="10"
-              label="Quantidade de skills"
-            />
-          </.form>
-          <button class="btn btn-primary" phx-click="capture_screen">
-            <.icon name="hero-camera" class="size-4" /> Capturar tela (calibração completa)
-          </button>
-          <p class="text-xs opacity-60">
-            Marca tudo em sequência: água, Battle, arena, ponto neutro, barra de skills e a vida do
-            Pokémon principal.
-          </p>
-
-          <div :if={@calibrated?} class="mt-2 space-y-2 border-t border-base-content/10 pt-3">
-            <p class="text-xs font-semibold opacity-70">Correções rápidas (sem refazer tudo)</p>
-            <div class="flex flex-wrap justify-center gap-2">
-              <button class="btn btn-ghost btn-sm" phx-click="review">
-                <.icon name="hero-eye" class="size-4" /> Revisar áreas salvas
-              </button>
-              <button class="btn btn-ghost btn-sm" phx-click="calibrate_skillbar">
-                <.icon name="hero-bolt" class="size-4" /> Só as skills
-              </button>
-              <button class="btn btn-ghost btn-sm" phx-click="calibrate_player">
-                <.icon name="hero-user" class="size-4" /> Só o personagem
-              </button>
-              <button class="btn btn-ghost btn-sm" phx-click="calibrate_mini_game">
-                <.icon name="hero-flag" class="size-4" /> Só o minigame
-              </button>
-              <button class="btn btn-ghost btn-sm" phx-click="calibrate_pokemon_spot">
-                <.icon name="hero-map-pin" class="size-4" /> Posição do Pokémon
+        <div :if={is_nil(@screen) and is_nil(@review)} class="space-y-4">
+          <section class="space-y-4 rounded-2xl border border-base-content/10 bg-base-200 p-5">
+            <div class="flex items-start gap-3">
+              <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+                <.icon name="hero-camera" class="size-5" />
+              </span>
+              <div class="min-w-0">
+                <h2 class="text-sm font-bold">Calibração completa</h2>
+                <p class="mt-0.5 text-xs leading-relaxed opacity-60">
+                  Os 12 passos guiados: água, Battle, arena, ponto neutro, personagem, skills e
+                  vida. Pode deixar o jogo em TELA CHEIA — ao capturar, ele vem pra frente por
+                  ~1s, tira a foto e volta pra cá sozinho.
+                </p>
+              </div>
+            </div>
+            <div class="flex flex-wrap items-end justify-center gap-3">
+              <.form
+                for={@skill_count_form}
+                id="skill-count-form"
+                phx-change="set_skill_count"
+                class="w-40 text-left"
+              >
+                <.input
+                  field={@skill_count_form[:count]}
+                  type="number"
+                  min="1"
+                  max="10"
+                  label="Quantidade de skills"
+                />
+              </.form>
+              <button class="btn btn-primary" phx-click="capture_screen">
+                <.icon name="hero-camera" class="size-4" /> Capturar tela e começar
               </button>
             </div>
-          </div>
+          </section>
 
-          <div
-            :if={@calibrated? or @profiles != []}
-            class="mt-2 space-y-2 border-t border-base-content/10 pt-3"
+          <section
+            :if={@calibrated?}
+            class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5"
           >
-            <p class="text-xs font-semibold opacity-70">
-              Perfis salvos (um por layout de monitor)
-            </p>
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <h2 class="text-sm font-bold">Correções rápidas</h2>
+                <p class="mt-0.5 text-xs opacity-60">
+                  Ajusta UM ponto da calibração atual, sem refazer o resto.
+                </p>
+              </div>
+              <button class="btn btn-ghost btn-xs shrink-0" phx-click="review">
+                <.icon name="hero-eye" class="size-3.5" /> Revisar áreas salvas
+              </button>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <.quick_fix
+                event="calibrate_skillbar"
+                icon="hero-bolt"
+                title="Só as skills"
+                hint="re-marca a barra de skills e a referência de 'pronta' de cada ícone"
+              />
+              <.quick_fix
+                event="calibrate_player"
+                icon="hero-user"
+                title="Só o personagem"
+                hint="âncora da detecção do minigame quando não há faixa dedicada"
+              />
+              <.quick_fix
+                event="calibrate_mini_game"
+                icon="hero-flag"
+                title="Só o minigame"
+                hint="a faixa onde a barra do minigame aparece (2 cliques) — detecção direta"
+              />
+              <.quick_fix
+                event="calibrate_pokemon_spot"
+                icon="hero-map-pin"
+                title="Posição do Pokémon"
+                hint="o tile estratégico pro reposicionamento depois das lutas"
+              />
+            </div>
+          </section>
+
+          <section
+            :if={@calibrated? or @profiles != []}
+            class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5"
+          >
+            <div>
+              <h2 class="text-sm font-bold">Perfis de calibração</h2>
+              <p class="mt-0.5 text-xs opacity-60">
+                Um por layout de monitor — trocar de setup vira um clique em "Usar" (+
+                Parar/Iniciar nos bots).
+              </p>
+            </div>
             <form
               :if={@calibrated?}
               id="profile-form"
               phx-submit="save_profile"
-              class="mx-auto flex max-w-xs gap-2"
+              class="flex max-w-xs gap-2"
             >
               <input
                 name="profile_name"
@@ -938,7 +988,7 @@ defmodule PokexWeb.CalibrationLive do
                 </button>
               </li>
             </ul>
-          </div>
+          </section>
         </div>
 
         <div :if={@screen} class="space-y-3">

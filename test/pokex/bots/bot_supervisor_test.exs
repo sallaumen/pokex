@@ -147,7 +147,11 @@ defmodule Pokex.Bots.BotSupervisorTest do
     {fishing, combat, catcher} = start_isolated_supervisor(:stamp_test)
     mini_game = :stamp_test_mini_game
     player_support = :stamp_test_player_support
-    on_exit(fn -> WorldState.forget(:calibration) end)
+
+    on_exit(fn ->
+      WorldState.forget(:calibration)
+      WorldState.forget(:session)
+    end)
 
     assert :ok = BotSupervisor.start_all(fishing, combat, catcher, mini_game, player_support)
 
@@ -155,8 +159,13 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert {:ok, %{loaded_mtime: loaded}} = WorldState.get(:calibration, 4_000_000_000, now)
     assert loaded == Pokex.Calibration.mtime()
 
+    # the hunt session starts with the workers (panel duration/rates read this)
+    assert {:ok, %{started_at: started_at}} = WorldState.get(:session, 4_000_000_000, now)
+    assert is_integer(started_at)
+
     assert :ok = BotSupervisor.stop_all(fishing, combat, catcher, mini_game, player_support)
     assert WorldState.get(:calibration, 4_000_000_000, now) == :missing
+    assert WorldState.get(:session, 4_000_000_000, now) == :missing
   end
 
   # The single most safety-critical invariant of the whole bot: the Guardian's

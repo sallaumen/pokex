@@ -75,6 +75,9 @@ defmodule PokexWeb.PanelLive do
        now_ms: now_ms(),
        threshold: Settings.get(:glow_threshold),
        mini_game_sound: Settings.get(:mini_game_sound),
+       alarm_sound: Settings.get(:alarm_sound),
+       alarm_last: %{},
+       session_started_at: session_started_at(),
        player_mode: Settings.get(:player_mode),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
        loot_enabled: Settings.get(:loot_enabled),
@@ -121,6 +124,7 @@ defmodule PokexWeb.PanelLive do
           logs: [],
           panicked?: false,
           calib_stale?: calib_stale?(),
+          session_started_at: session_started_at(),
           fishing: status.fishing,
           combat: status.combat,
           catcher: status.catcher,
@@ -204,16 +208,20 @@ defmodule PokexWeb.PanelLive do
 
   @impl true
   def handle_info({:fishing, snapshot}, socket),
-    do: {:noreply, assign(socket, fishing: snapshot, panicked?: false)}
+    do:
+      {:noreply,
+       socket |> alarm_on_error(:fishing, snapshot) |> assign(fishing: snapshot, panicked?: false)}
 
   def handle_info({:combat, snapshot}, socket),
-    do: {:noreply, assign(socket, combat: snapshot, panicked?: false)}
+    do:
+      {:noreply,
+       socket |> alarm_on_error(:combat, snapshot) |> assign(combat: snapshot, panicked?: false)}
 
   def handle_info({:catcher, snapshot}, socket),
-    do: {:noreply, assign(socket, catcher: snapshot)}
+    do: {:noreply, socket |> alarm_on_error(:catcher, snapshot) |> assign(catcher: snapshot)}
 
   def handle_info({:mini_game, snapshot}, socket) do
-    socket = assign(socket, mini_game: snapshot)
+    socket = socket |> alarm_on_error(:mini_game, snapshot) |> assign(mini_game: snapshot)
 
     socket =
       case Map.get(snapshot, :transition) do
@@ -245,9 +253,14 @@ defmodule PokexWeb.PanelLive do
         else: socket
 
     Process.send_after(self(), :refresh_cooldowns, @cooldown_poll_ms)
-    # now_ms anchors the "há Xs" ages of the pills' last actions — the same 1s
-    # cadence keeps them ticking without any extra timer.
-    {:noreply, assign(socket, calib_stale?: calib_stale?(), now_ms: now_ms())}
+    # now_ms anchors the "há Xs" ages of the pills' last actions AND the session
+    # clock — the same 1s cadence keeps both ticking without any extra timer.
+    {:noreply,
+     assign(socket,
+       calib_stale?: calib_stale?(),
+       now_ms: now_ms(),
+       session_started_at: session_started_at()
+     )}
   end
 
   def handle_info({:fishing_log, level, text}, socket),
@@ -262,8 +275,15 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:catcher_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🎯", text: text})}
 
-  def handle_info({:game, snapshot}, socket),
-    do: {:noreply, assign(socket, game: snapshot)}
+  def handle_info({:game, snapshot}, socket) do
+    socket =
+      socket
+      |> alarm_on_error(:game, snapshot)
+      |> alarm_on_critical_hp(snapshot)
+      |> assign(game: snapshot)
+
+    {:noreply, socket}
+  end
 
   def handle_info({:focus, %{focused?: focused?}}, socket),
     do: {:noreply, assign(socket, focused?: focused?)}
@@ -342,6 +362,12 @@ defmodule PokexWeb.PanelLive do
     next = not Settings.get(:mini_game_sound)
     Settings.put(:mini_game_sound, next)
     {:noreply, assign(socket, mini_game_sound: next)}
+  end
+
+  def handle_event("toggle_alarm_sound", _params, socket) do
+    next = not Settings.get(:alarm_sound)
+    Settings.put(:alarm_sound, next)
+    {:noreply, assign(socket, alarm_sound: next)}
   end
 
   def handle_event("toggle_fishing", _params, socket),
@@ -721,7 +747,7 @@ defmodule PokexWeb.PanelLive do
 
   defp cell_style(%{rgb: [r, g, b]}), do: "background: rgb(#{r}, #{g}, #{b})"
 
-  @feed_sources ["🎣", "⚔️", "🎮", "🎯", "🚑", "🧤"]
+  @feed_sources ["🎣", "⚔️", "🎮", "🎯", "🚑", "🧤", "🔔"]
   defp feed_sources, do: @feed_sources
 
   defp visible_logs(logs, show_debug, source_filter) do
@@ -827,6 +853,96 @@ defmodule PokexWeb.PanelLive do
     </p>
     """
   end
+
+  # --- sessão e alarmes (Fase 7) ---------------------------------------------
+
+  # Same practically-forever max age the :calibration stamp uses — the fact only
+  # disappears because stop_all forgets it, never by expiring.
+  @session_max_age_ms 4_000_000_000
+
+  defp session_started_at do
+    case Pokex.Perception.WorldState.get(:session, @session_max_age_ms, now_ms()) do
+      {:ok, %{started_at: at}} -> at
+      _no_session -> nil
+    end
+  end
+
+  defp session_duration(nil, _now_ms), do: nil
+
+  defp session_duration(started_at, now_ms) do
+    total_s = max(div(now_ms - started_at, 1000), 0)
+    {h, m, s} = {div(total_s, 3600), div(rem(total_s, 3600), 60), rem(total_s, 60)}
+
+    cond do
+      h > 0 -> "#{h}h#{String.pad_leading("#{m}", 2, "0")}m"
+      m > 0 -> "#{m}m#{String.pad_leading("#{s}", 2, "0")}s"
+      true -> "#{s}s"
+    end
+  end
+
+  # Per-hour rate over the session window, one decimal ("12.5"). The 1-minute
+  # floor keeps the first seconds from printing absurd extrapolations.
+  defp session_rate(count, started_at, now_ms) do
+    hours = max(now_ms - started_at, 60_000) / 3_600_000
+    :erlang.float_to_binary(count / hours, decimals: 1)
+  end
+
+  # A worker snapshot arriving with a FRESH error (previous had none) rings the
+  # alarm. A persisting error is no edge; the min-gap dedupe below covers
+  # flapping. Map.get on both sides: the busy placeholder has no :error key.
+  defp alarm_on_error(socket, key, snapshot) do
+    previous_error = Map.get(socket.assigns[key], :error)
+
+    case Map.get(snapshot, :error) do
+      error when is_binary(error) and is_nil(previous_error) ->
+        alarm(socket, {:error, key}, "#{worker_name(key)} em erro: #{error}")
+
+      _no_edge ->
+        socket
+    end
+  end
+
+  # HP crossing BELOW the rescue threshold (or first read already below it).
+  defp alarm_on_critical_hp(socket, snapshot) do
+    threshold = Settings.get(:pokemon_hp_rescue_pct)
+    previous = socket.assigns.game.hp_pct
+    current = Map.get(snapshot, :hp_pct)
+
+    if is_integer(current) and current < threshold and
+         (previous == nil or previous >= threshold) do
+      alarm(socket, :hp_critical, "vida crítica: #{current}% (limiar #{threshold}%)")
+    else
+      socket
+    end
+  end
+
+  # One pipeline for every alarm: the per-type min gap (KizuBot's
+  # antiSpamInterval) dedupes a flapping source; inside the gap NOTHING happens
+  # (no line, no sound). Mute only silences the sound — the 🔔 feed line stays,
+  # so a muted panel still keeps the record.
+  defp alarm(socket, key, text) do
+    last = Map.get(socket.assigns.alarm_last, key)
+    at = now_ms()
+
+    if last != nil and at - last < Settings.get(:alarm_min_gap_ms) do
+      socket
+    else
+      socket =
+        socket
+        |> assign(alarm_last: Map.put(socket.assigns.alarm_last, key, at))
+        |> append_log(%{level: :macro, source: "🔔", text: text})
+
+      if Settings.get(:alarm_sound),
+        do: push_event(socket, "alarm", %{text: text}),
+        else: socket
+    end
+  end
+
+  defp worker_name(:fishing), do: "pesca"
+  defp worker_name(:combat), do: "batalha"
+  defp worker_name(:catcher), do: "captura"
+  defp worker_name(:mini_game), do: "mini game"
+  defp worker_name(:game), do: "suporte"
 
   # One line summarizing what a preset would change — the two skill lists are
   # the piece you actually scan for when switching Pokémon.
@@ -1568,9 +1684,50 @@ defmodule PokexWeb.PanelLive do
 
           <div class="min-w-0 space-y-3">
             <section>
-              <h2 class="mb-2 px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-                Sessão
-              </h2>
+              <div class="mb-2 flex items-center justify-between px-0.5">
+                <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                  Sessão<span
+                    :if={session_duration(@session_started_at, @now_ms)}
+                    id="session-duration"
+                    class="text-[#9aa3aa]"
+                  > · {session_duration(@session_started_at, @now_ms)}</span>
+                </h2>
+                <span class="flex items-center gap-2 font-mono text-[9px] text-[#758089]">
+                  <span :if={@session_started_at} id="session-rates">
+                    {session_rate(
+                      Map.get(merged_counters(@fishing, @combat, @catcher), :fights, 0),
+                      @session_started_at,
+                      @now_ms
+                    )} kills/h · {session_rate(
+                      Map.get(merged_counters(@fishing, @combat, @catcher), :captures, 0),
+                      @session_started_at,
+                      @now_ms
+                    )} capturas/h
+                  </span>
+                  <button
+                    type="button"
+                    phx-click="toggle_alarm_sound"
+                    title={
+                      if @alarm_sound,
+                        do:
+                          "Alarmes sonoros ligados (erro de worker, vida crítica) — clique para silenciar",
+                        else: "Alarmes MUDOS — clique para reativar (o feed 🔔 continua registrando)"
+                    }
+                    class={[
+                      "cursor-pointer",
+                      if(@alarm_sound,
+                        do: "text-[#7d8790] hover:text-[#e8ecef]",
+                        else: "text-[#f3ba4e] hover:text-[#ffd27a]"
+                      )
+                    ]}
+                  >
+                    <.icon
+                      name={if @alarm_sound, do: "hero-bell-alert", else: "hero-bell-slash"}
+                      class="size-3.5"
+                    />
+                  </button>
+                </span>
+              </div>
               <div class="grid grid-cols-4 gap-1.5">
                 <div
                   :for={{label, key, _icon} <- counters()}

@@ -140,19 +140,26 @@ defmodule Pokex.Bots.BotSupervisor do
 
     case start_all(fishing, combat, catcher, mini_game) do
       :ok ->
+        at = System.monotonic_time(:millisecond)
+
         # Stamp WHICH calibration this run loaded (workers read the file at run).
         # The panel compares it against the file's current mtime: different =
         # "os bots rodam uma calibração antiga" → the restart banner.
         Pokex.Perception.WorldState.put(
           :calibration,
           %{loaded_mtime: Pokex.Calibration.mtime()},
-          System.monotonic_time(:millisecond)
+          at
         )
+
+        # The hunt SESSION starts here — worker counters also reset at run, so
+        # the panel's duration/rates measure the same window the counters do.
+        Pokex.Perception.WorldState.put(:session, %{started_at: at}, at)
 
         :ok
 
       {:error, _messages} = error ->
         Pokex.Perception.WorldState.forget(:calibration)
+        Pokex.Perception.WorldState.forget(:session)
         error
     end
   end
@@ -200,6 +207,8 @@ defmodule Pokex.Bots.BotSupervisor do
     PlayerSupport.Worker.halt(player_support)
     # nothing is running an old calibration anymore — the banner has no meaning
     Pokex.Perception.WorldState.forget(:calibration)
+    # the hunt session ended with the workers
+    Pokex.Perception.WorldState.forget(:session)
     :ok
   end
 

@@ -21,16 +21,19 @@ defmodule Pokex.Perception.Interpret do
     rows = Settings.value(settings, :battle_max_rows)
     strip_px = round(Calibration.strip_width() * calib.scale)
 
+    # The strip (the rightmost pokeball column) is cropped OFF the body so its
+    # red ball pixels can't read as the lock ring — but a pokeball on a row no
+    # longer subtracts it from the enemies: measured live (2026-07-20), a
+    # "Catch Pokémon" quest marks the CATCHABLE enemy's row with a pokeball —
+    # the very creature the bot must attack — while the own pokemon (out, HP
+    # readable) doesn't appear in the list at all. The old "pokeball = own
+    # pokemon" subtraction erased the only enemy: battle read 0 forever and
+    # combat stood still while the creature beat the player. Every HP-bar row
+    # is a candidate; the lock ring (and the game's own Tab, which cannot
+    # target your pokemon) confirms real targets.
     body = Frame.crop(frame, {0, 0, frame.width - strip_px, frame.height})
-    strip = Frame.crop(frame, {frame.width - strip_px, 0, strip_px, frame.height})
 
     creatures = body |> Vision.hp_bar_row_positions() |> rows_of(top, band, rows)
-
-    own =
-      strip
-      |> Vision.pokeball_row_positions(min_count: Settings.value(settings, :pokeball_min_red_px))
-      |> rows_of(top, band, rows)
-
     red = Vision.red_row_counts(body, top: top, band: band, rows: rows)
 
     locked_row =
@@ -40,7 +43,7 @@ defmodule Pokex.Perception.Interpret do
       end
 
     %{
-      enemies: Enum.sort(creatures -- own),
+      enemies: Enum.sort(creatures),
       red: red,
       locked?: locked_row != nil,
       locked_row: locked_row

@@ -59,14 +59,11 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     end
   end
 
-  # The full battle view Combat needs, from ONE screenshot of the whole battle_region sliced in
-  # memory into the body (HP bars + lock ring) and the rightmost pokeball strip. One
-  # screencapture per tick (not two), and body+strip come from the SAME instant (no tear).
+  # The full battle view Combat needs, from ONE screenshot of the whole battle_region: the
+  # rightmost pokeball strip is cropped OFF the body so ball red can't read as lock red.
   # Returns %{enemies: [rows, topmost first], red: [per-row red px]}:
-  #   - enemies = HP-bar rows (body) MINUS own-pokemon pokeball rows (strip). The pokeball marks
-  #     YOUR pokemon, so subtracting it leaves the wilds/others. These are only CANDIDATES: a
-  #     passing player's pokemon has an HP bar and NO pokeball, so it looks attackable — but
-  #     clicking it starts no real battle. Combat must CONFIRM the click via the lock ring.
+  #   - enemies = HP-bar rows (body). These are only CANDIDATES — the lock ring is what
+  #     confirms a real target (and the game's own Tab cannot select your pokemon).
   #   - red = per-row red-pixel counts (the lock-ring signal); Combat treats a row over
   #     target_locked_min_pixels as a confirmed active battle.
   defp fetch(:battle, calib, settings), do: battle_view(calib, settings)
@@ -117,20 +114,16 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
       rows = Settings.value(settings, :battle_max_rows)
       strip_px = round(Calibration.strip_width() * calib.scale)
 
+      # Strip cropped off so ball red can't read as lock red — but pokeball
+      # rows are NOT subtracted anymore: a catch-quest marks the CATCHABLE
+      # enemy's row with a pokeball (measured 2026-07-20; it erased the only
+      # enemy and combat never fought). See Perception.Interpret.battle/3.
       body = Frame.crop(frame, {0, 0, frame.width - strip_px, frame.height})
-      strip = Frame.crop(frame, {frame.width - strip_px, 0, strip_px, frame.height})
 
-      min_pokeball = Settings.value(settings, :pokeball_min_red_px)
       creatures = body |> Vision.hp_bar_row_positions() |> rows_of(top, band, rows)
-
-      own =
-        strip
-        |> Vision.pokeball_row_positions(min_count: min_pokeball)
-        |> rows_of(top, band, rows)
-
       red = Vision.red_row_counts(body, top: top, band: band, rows: rows)
 
-      {:ok, %{enemies: Enum.sort(creatures -- own), red: red}}
+      {:ok, %{enemies: Enum.sort(creatures), red: red}}
     end
   end
 

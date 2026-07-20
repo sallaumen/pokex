@@ -72,6 +72,31 @@ defmodule Pokex.Bots.MiniGame.TrackTest do
     assert reading.bar_source == :fish
   end
 
+  test "a fish pegged at the BOTTOM beats bounded clutter past the TOP edge" do
+    # Real incident (live traces, 2026-07-20): the fish sat at the track BOTTOM
+    # with too little dark below to bracket it, while a bounded clutter blob sat
+    # just past the TOP edge. The old top-first edge order elected the clutter —
+    # the reading snapped to EXACTLY 0.0 for ~4 frames and the pilot flew the
+    # capsule to the track top with the real fish waiting at the bottom. The
+    # fish sprite is the LARGER run: when both edges hold a candidate, the
+    # longer one is the fish.
+    frame =
+      frame([
+        # bounded clutter just past the top edge: 12 other-rows, dark beyond
+        {0..7, @track_color},
+        {8..19, @floor},
+        {20..190, @track_color},
+        # the REAL fish, pegged at the bottom: only 7 dark rows beyond it
+        {191..205, @fish},
+        {206..212, @track_color}
+      ])
+
+    assert {:ok, reading} = Track.read(frame, @bar)
+    assert reading.fish_y == 1.0
+    assert reading.bar_y == 1.0
+    assert reading.bar_source == :fish
+  end
+
   test "dark clutter outside the track does not stretch the bounds" do
     # dark decoration far above the track (like the print's bench shadows)
     frame =

@@ -176,6 +176,55 @@ defmodule Pokex.Bots.MiniGame.Pilot do
     end
   end
 
+  # The fish tops out ~1.3 track/s (measured from live traces, 2026-07-20);
+  # a reading implying more is a MISREAD, not motion.
+  @default_max_target_speed 2.0
+  # How long a held (last plausible) aim may block disagreeing readings before
+  # the AIM itself is presumed wrong. Phantom episodes measured 1-3 frames
+  # (~180-550ms); real re-acquisition (game restart mid-history) is rarer and
+  # slower. Must stay under @stale_ms so the gate can never starve the pilot
+  # into the permanent stale fail-safe.
+  @default_reacquire_ms 700
+
+  @doc """
+  Plausibility gate for FISH readings — the counterpart of the capsule's
+  impossible-jump protection, for the target: a reading that implies a
+  physically impossible fish speed vs the last ACCEPTED reading is a misread
+  (live 2026-07-20: 0.917 -> 0.000 in 182ms, ~5 track/s — the pilot chased
+  the phantom to the track top while the real fish sat at the bottom), so it
+  is DROPPED and the aim holds. If the disagreement outlives `:reacquire_ms`,
+  the new reading is adopted and the history RESTARTS — appending would blend
+  a velocity across the warp and aim at a ghost in between.
+
+  Options: `:max_speed` (track/s, #{@default_max_target_speed}),
+  `:reacquire_ms` (#{@default_reacquire_ms}).
+  """
+  @spec accept_target([observation], observation, keyword) :: [observation]
+  def accept_target(history, obs, opts \\ []) do
+    case List.last(history) do
+      nil ->
+        history ++ [obs]
+
+      last ->
+        max_speed = opts[:max_speed] || @default_max_target_speed
+        reacquire_ms = opts[:reacquire_ms] || @default_reacquire_ms
+        speed = abs(pairwise_velocity(last, obs))
+
+        cond do
+          # Impossible speed: a misread. Hold the aim — each further rejection
+          # widens the dt to the last ACCEPTED reading, so a PERSISTENT
+          # disagreement dilutes below the ceiling by itself and lands in the
+          # restart branch: blindness is bounded without trusting any phantom.
+          speed > max_speed -> history
+          # Plausible, but the last accepted reading is old (a rejection spell
+          # or a blind gap): restart at the new reading — appending would blend
+          # a velocity across the gap and aim at a ghost in between.
+          obs.at - last.at >= reacquire_ms -> [obs]
+          true -> history ++ [obs]
+        end
+    end
+  end
+
   # Estimated velocity of the PLAYER capsule (track/s) from its readings — the
   # lab read this straight from the simulator's physics; reality estimates it.
   # Three protections, all measured live: only the trailing run of SAME-SOURCE

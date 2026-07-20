@@ -70,8 +70,19 @@ defmodule Pokex.Bots.MiniGame.Track do
   # (the floor is other-classified too, but floor runs are far larger than a
   # fish) and clamp it to the edge — releasing there would drop the capsule
   # exactly when the fish demands the extreme.
+  #
+  # BOTH edges can hold a candidate at once (live traces, 2026-07-20: the real
+  # fish pegged at the BOTTOM while bounded clutter sat past the TOP edge —
+  # the old top-first order elected the clutter, the reading snapped to 0.0
+  # and the capsule flew to the track top). The fish sprite is the larger
+  # blob: the LONGER run wins.
   defp edge_fish_run(classes, top, bottom) do
-    edge_run(classes, top, -1) || edge_run(classes, bottom, +1)
+    [edge_run(classes, top, -1), edge_run(classes, bottom, +1)]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      candidates -> candidates |> Enum.max_by(fn {run, _collapsed} -> run end) |> elem(1)
+    end
   end
 
   defp edge_run(classes, edge, step) do
@@ -86,7 +97,7 @@ defmodule Pokex.Bots.MiniGame.Track do
          true <- beyond >= 0 and beyond < tuple_size(classes),
          true <- elem(classes, beyond) in [:dark, :blue] do
       # collapse to the edge row: the target IS the extreme
-      {edge, edge}
+      {run, {edge, edge}}
     else
       _miss -> nil
     end

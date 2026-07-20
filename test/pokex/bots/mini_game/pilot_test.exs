@@ -134,4 +134,48 @@ defmodule Pokex.Bots.MiniGame.PilotTest do
     # ...and press exactly when the stop point reaches the fish
     assert Pilot.decide(@reactive, fish, bar(0.49, 0.30, false), @now).desired == true
   end
+
+  describe "accept_target/3 (fish plausibility gate)" do
+    # Live traces (2026-07-20): phantom fish readings TELEPORTED the target —
+    # 0.917 -> 0.000 in 182ms implies ~5 track/s against a measured legit
+    # ceiling of ~1.3 — and the pilot obediently flew the capsule to the track
+    # top while the real fish never left the bottom. Physically impossible
+    # readings must not enter the history the pilot aims at.
+
+    test "the first reading is always accepted" do
+      assert Pilot.accept_target([], %{y: 0.5, at: 1000}) == [%{y: 0.5, at: 1000}]
+    end
+
+    test "a plausible move appends to the history" do
+      history = [%{y: 0.80, at: 1000}]
+      obs = %{y: 0.70, at: 1180}
+
+      assert Pilot.accept_target(history, obs) == history ++ [obs]
+    end
+
+    test "a teleport is REJECTED and the aim holds (the real incident)" do
+      history = [%{y: 0.849, at: 1000}, %{y: 0.917, at: 1180}]
+
+      assert Pilot.accept_target(history, %{y: 0.0, at: 1362}) == history
+    end
+
+    test "after the reacquire window the new reading is adopted and history restarts" do
+      # The gate must never chase-block forever: if every reading disagrees
+      # with a stale aim for longer than the window, the AIM is what's wrong.
+      # The history restarts (not appends): a velocity blended across the warp
+      # would aim at a ghost between the two positions.
+      history = [%{y: 0.917, at: 1000}]
+      obs = %{y: 0.1, at: 1900}
+
+      assert Pilot.accept_target(history, obs, reacquire_ms: 700) == [obs]
+    end
+
+    test "the ceiling is configurable" do
+      history = [%{y: 0.5, at: 1000}]
+      obs = %{y: 0.3, at: 1100}
+
+      assert Pilot.accept_target(history, obs, max_speed: 1.0) == history
+      assert Pilot.accept_target(history, obs, max_speed: 3.0) == history ++ [obs]
+    end
+  end
 end

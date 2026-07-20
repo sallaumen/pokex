@@ -24,7 +24,11 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     )
 
     # put mid-test by the calibrated-anchor test — must restore too
-    SettingsStash.stash_keys!([:mini_game_anchor_tolerance])
+    SettingsStash.stash_keys!([
+      :mini_game_anchor_tolerance,
+      :mini_game_no_capsule_exit_ticks,
+      :mini_game_max_game_ms
+    ])
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -57,6 +61,59 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert_receive {:mini_game_log, :macro, enter_log}, 1_000
     assert enter_log =~ "jogando"
 
+    assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
+
+    assert :ok = Worker.halt(worker)
+  end
+
+  @tag :tmp_dir
+  test "a lingering fake track WITHOUT the capsule ends the game (the post-win hang)", %{
+    tmp: tmp
+  } do
+    # Real hang (2026-07-20): after a WIN the overlay closed, but the world
+    # behind the strip held a >=60-row dark column — Track kept reading a
+    # "track" + a clutter-fish, every tick came back :present, the exit streak
+    # never fired and the whole bot stayed self-held until a manual Stop. The
+    # capsule is the player's OWN presence: in real play its blue pokes out on
+    # virtually every tick (measured 86/86 frames on the live traces), so
+    # present readings WITHOUT any blue for N consecutive ticks mean the
+    # overlay is functionally gone.
+    Settings.put(:mini_game_no_capsule_exit_ticks, 3)
+
+    game = png!(tmp, "mini-game.png", true)
+    fishy_world = play_png!(tmp, "fishy-world.png", fish: 100..131, capsule: nil)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, fishy_world}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    worker = start_supervised!({Worker, name: nil})
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+    assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
+
+    assert :ok = Worker.halt(worker)
+  end
+
+  @tag :tmp_dir
+  test "a game that outlives the hard duration cap is force-ended", %{tmp: tmp} do
+    # Backstop for ANY unseen wedge (same philosophy as hook_hold_max_ms): no
+    # real game lasts minutes, so a "game" that does is a stuck reading — end
+    # it and let the watcher re-enter if the overlay is genuinely back.
+    Settings.put(:mini_game_max_game_ms, 1)
+
+    game = png!(tmp, "mini-game.png", true)
+    playing = play_png!(tmp, "playing.png", fish: 100..131, capsule: 140..160)
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, playing}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    worker = start_supervised!({Worker, name: nil})
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
     assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
 
     assert :ok = Worker.halt(worker)

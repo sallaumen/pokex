@@ -36,6 +36,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
       timer: nil,
       running?: false,
       in_game?: false,
+      game_entered_at: nil,
       present_streak: 0,
       absent_streak: 0,
       confidence: 0.0,
@@ -220,6 +221,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
     state =
       state
       |> Map.put(:in_game?, true)
+      |> Map.put(:game_entered_at, System.monotonic_time(:millisecond))
       |> Map.put(:play, Player.new())
       |> update_in([:counters, :detections], &(&1 + 1))
 
@@ -233,6 +235,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
     state =
       %{state | play: Player.force_release(state.play)}
       |> Map.put(:in_game?, false)
+      |> Map.put(:game_entered_at, nil)
       |> update_in([:counters, :clears], &(&1 + 1))
 
     broadcast_log(:macro, "mini game saiu — workers retomam sozinhos")
@@ -250,13 +253,27 @@ defmodule Pokex.Bots.MiniGame.Worker do
   # --- playing (delegated to the Player engine) ------------------------------
 
   defp play_tick(state) do
-    if Player.armed?(state.play) do
-      state.play |> Player.tick() |> apply_play_result(state)
-    else
-      # Defensive: entered without a bar candidate — nothing to play from.
-      leave_game(state)
+    cond do
+      game_over_cap?(state) ->
+        # Backstop for ANY unseen wedge (same philosophy as hook_hold_max_ms):
+        # no real game lasts minutes — a "game" that does is a stuck reading,
+        # and a stuck in_game? self-holds the ENTIRE bot (2026-07-20 hang).
+        broadcast_log(:macro, "mini game excedeu o teto de duração — encerrando à força")
+        leave_game(state)
+
+      Player.armed?(state.play) ->
+        state.play |> Player.tick() |> apply_play_result(state)
+
+      true ->
+        # Defensive: entered without a bar candidate — nothing to play from.
+        leave_game(state)
     end
   end
+
+  defp game_over_cap?(%{game_entered_at: entered_at}) when is_integer(entered_at),
+    do: System.monotonic_time(:millisecond) - entered_at > Settings.get(:mini_game_max_game_ms)
+
+  defp game_over_cap?(_state), do: false
 
   defp apply_play_result({:present, play}, state),
     do: {%{state | play: play, absent_streak: 0}, nil}

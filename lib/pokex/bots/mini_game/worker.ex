@@ -406,7 +406,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
             fish,
             %{
               y: bar_y,
-              vy: capsule_velocity(capsule),
+              vy: Pilot.capsule_velocity(capsule),
               pressing: play.holding?,
               at: captured_at
             },
@@ -445,48 +445,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   defp push_observation(observations, observation),
     do: Enum.take(observations ++ [observation], -@observation_cap)
-
-  # The capsule's velocity (track/s) — the lab read this from the simulator's
-  # physics; the real pipeline estimates it from readings. Two protections:
-  # only the trailing run of SAME-SOURCE readings counts (a blue<->occlusion
-  # source flip jumps by the centroid offset, not real motion — that fake spike
-  # crossed the hysteresis overrides right at the success moment), and up to 3
-  # readings blend 2:1 toward the newest pair (single-pair estimates were too
-  # noisy from row quantization, feeding the overshoot Lucas saw live).
-  defp capsule_velocity(observations) do
-    case observations |> trailing_same_source() |> Enum.take(-3) do
-      run when length(run) < 2 ->
-        0.0
-
-      [older, newer] ->
-        capsule_pair_velocity(older, newer)
-
-      [first, second, third] ->
-        (capsule_pair_velocity(second, third) * 2 + capsule_pair_velocity(first, second)) / 3
-    end
-  end
-
-  defp trailing_same_source([]), do: []
-
-  defp trailing_same_source(observations) do
-    source = List.last(observations).source
-
-    observations
-    |> Enum.reverse()
-    |> Enum.take_while(&(&1.source == source))
-    |> Enum.reverse()
-  end
-
-  # Physically impossible jumps are misreads, not motion (the lab bar tops out
-  # at ~1.2 track/s) — a mis-tracked capsule must not command a braking slam.
-  @max_capsule_speed 1.5
-
-  defp capsule_pair_velocity(older, newer) do
-    elapsed = max(newer.at - older.at, 16)
-    velocity = (newer.y - older.y) / elapsed * 1000
-
-    if abs(velocity) > @max_capsule_speed, do: 0.0, else: velocity
-  end
 
   defp actuate(%{play: %{holding?: desired}} = state, desired, _now), do: state
 

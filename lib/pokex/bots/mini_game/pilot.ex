@@ -146,6 +146,46 @@ defmodule Pokex.Bots.MiniGame.Pilot do
     end
   end
 
+  # Estimated velocity of the PLAYER capsule (track/s) from its readings — the
+  # lab read this straight from the simulator's physics; reality estimates it.
+  # Three protections, all measured live: only the trailing run of SAME-SOURCE
+  # readings counts (a blue<->occlusion source flip jumps by the centroid
+  # offset, not real motion); up to 3 readings blend 2:1 toward the newest pair
+  # (single pairs are row-quantization noisy); and physically impossible jumps
+  # (the bar tops out ~1.2 track/s) read as 0 — a misread must not command a
+  # braking slam. Lives HERE so the Pilot owns ALL kinematics.
+  @max_capsule_speed 1.5
+
+  def capsule_velocity(observations) do
+    case observations |> trailing_same_source() |> Enum.take(-3) do
+      run when length(run) < 2 ->
+        0.0
+
+      [older, newer] ->
+        capsule_pair_velocity(older, newer)
+
+      [first, second, third] ->
+        (capsule_pair_velocity(second, third) * 2 + capsule_pair_velocity(first, second)) / 3
+    end
+  end
+
+  defp trailing_same_source([]), do: []
+
+  defp trailing_same_source(observations) do
+    source = List.last(observations).source
+
+    observations
+    |> Enum.reverse()
+    |> Enum.take_while(&(&1.source == source))
+    |> Enum.reverse()
+  end
+
+  defp capsule_pair_velocity(older, newer) do
+    velocity = pairwise_velocity(older, newer)
+
+    if abs(velocity) > @max_capsule_speed, do: 0.0, else: velocity
+  end
+
   defp pairwise_velocity(older, newer) do
     elapsed = max(@elapsed_floor_ms, newer.at - older.at)
     (newer.y - older.y) / elapsed * 1000

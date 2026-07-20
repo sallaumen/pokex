@@ -3,6 +3,7 @@ defmodule PokexWeb.PanelLive do
 
   alias Pokex.Bots.{BotSupervisor, Catcher, Combat, Fishing, PlayerSupport, SkillBar}
   alias Pokex.Diagnostics.Report
+  alias PokexWeb.PanelForms
   alias Pokex.{Calibration, Rig, Settings}
 
   @fishing_topic "fishing"
@@ -333,7 +334,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("save_skills", %{"skills" => raw}, socket) do
     # Priority order, strongest first. The attack loop cycles these in order; a
     # skill on cooldown is a harmless no-op in the game, so the ready ones fire.
-    keys = parse_skill_keys(raw)
+    keys = PanelForms.parse_skill_keys(raw)
     keys = if keys == [], do: Settings.get(:skill_keys), else: keys
     Settings.put(:skill_keys, keys)
     {:noreply, assign(socket, skill_order: Enum.join(keys, " "))}
@@ -344,7 +345,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("save_timing", params, socket) do
     timing =
       Enum.reduce(@timing_fields, socket.assigns.timing, fn {key, _label, _hint}, acc ->
-        case parse_timing(key, params[to_string(key)]) do
+        case PanelForms.parse_timing(key, params[to_string(key)], @positive_timing_keys) do
           {:ok, n} ->
             Settings.put(key, n)
             Map.put(acc, key, n)
@@ -437,7 +438,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   def handle_event("save_hook_skills", %{"hook_skills" => raw}, socket) do
-    keys = parse_skill_keys(raw)
+    keys = PanelForms.parse_skill_keys(raw)
     keys = if keys == [], do: Settings.get(:hook_skill_keys), else: keys
     Settings.put(:hook_skill_keys, keys)
     {:noreply, assign(socket, hook_skills: Enum.join(keys, " "))}
@@ -508,32 +509,24 @@ defmodule PokexWeb.PanelLive do
   end
 
   defp save_int(socket, raw, range, setting_key, assign_key) do
-    case Integer.parse(String.trim(raw || "")) do
-      {value, ""} ->
-        if value in range do
-          Settings.put(setting_key, value)
-          assign(socket, assign_key, value)
-        else
-          socket
-        end
+    case PanelForms.parse_int(raw, range) do
+      {:ok, value} ->
+        Settings.put(setting_key, value)
+        assign(socket, assign_key, value)
 
-      _ ->
+      :error ->
         socket
     end
   end
 
   # The UI speaks SECONDS (what Lucas reasons in); the settings store milliseconds.
   defp save_seconds(socket, raw, range, setting_key, assign_key) do
-    case Integer.parse(String.trim(raw || "")) do
-      {seconds, ""} ->
-        if seconds in range do
-          Settings.put(setting_key, seconds * 1000)
-          assign(socket, assign_key, seconds)
-        else
-          socket
-        end
+    case PanelForms.parse_int(raw, range) do
+      {:ok, seconds} ->
+        Settings.put(setting_key, seconds * 1000)
+        assign(socket, assign_key, seconds)
 
-      _ ->
+      :error ->
         socket
     end
   end
@@ -590,22 +583,6 @@ defmodule PokexWeb.PanelLive do
   defp capture_src(path),
     do: "/captures/#{Path.basename(path)}?t=#{System.unique_integer([:positive])}"
 
-  defp parse_non_neg(nil), do: :error
-
-  defp parse_non_neg(raw) do
-    case Integer.parse(String.trim(raw)) do
-      {n, _} when n >= 0 -> {:ok, n}
-      _ -> :error
-    end
-  end
-
-  defp parse_timing(key, raw) do
-    case parse_non_neg(raw) do
-      {:ok, 0} when key in @positive_timing_keys -> {:ok, 1}
-      other -> other
-    end
-  end
-
   # Nil-safe deep fetch into the report map (regions may carry :error instead of
   # :metrics/:matrix when a capture fails), so the render never KeyErrors.
   defp gi(map, path), do: get_in(map, path)
@@ -623,14 +600,6 @@ defmodule PokexWeb.PanelLive do
       {:ok, calib} -> SkillBar.states(SkillBar.read(calib, Settings.all()))
       _ -> nil
     end
-  end
-
-  defp parse_skill_keys(raw) do
-    raw
-    |> String.split(~r/[\s,]+/, trim: true)
-    |> Enum.map(&if(&1 == "10", do: "0", else: &1))
-    |> Enum.filter(&Regex.match?(~r/^[0-9]$/, &1))
-    |> Enum.uniq()
   end
 
   defp counters, do: @counters

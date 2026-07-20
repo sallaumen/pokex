@@ -325,35 +325,15 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   defp png!(dir, name, with_bar?),
-    do: png_with_bar_at!(dir, name, if(with_bar?, do: 104..116))
+    do: Pokex.PngFixtures.mini_game_scene!(dir, name, bar_x: if(with_bar?, do: 104..116))
 
-  defp png_with_bar_at!(dir, name, bar_x_range, overlays \\ []) do
-    rows =
-      for y <- 0..219 do
-        for x <- 0..219 do
-          cond do
-            bar_x_range == nil or x not in bar_x_range ->
-              {150, 120, 86, 255}
+  defp png_with_bar_at!(dir, name, bar_x_range),
+    do: Pokex.PngFixtures.mini_game_scene!(dir, name, bar_x: bar_x_range)
 
-            true ->
-              Enum.find_value(overlays, track_pixel(y), fn {range, color} ->
-                if y in range, do: color
-              end)
-          end
-        end
-      end
-
-    Pokex.PngFixtures.write!(Path.join(dir, name), rows)
-  end
-
-  # Track spans rows 10..209; fish is olive (not dark, not blue), capsule blue.
-  defp play_png!(dir, name, opts) do
-    png_with_bar_at!(dir, name, 104..116, [
-      {Keyword.fetch!(opts, :fish), {120, 100, 0, 255}},
-      {Keyword.fetch!(opts, :capsule), {0, 160, 255, 255}}
-    ])
-  end
-
-  defp track_pixel(y) when y in 10..209, do: {26, 30, 48, 255}
-  defp track_pixel(_y), do: {150, 120, 86, 255}
+  defp play_png!(dir, name, opts),
+    do:
+      Pokex.PngFixtures.mini_game_scene!(dir, name,
+        fish: Keyword.fetch!(opts, :fish),
+        capsule: Keyword.fetch!(opts, :capsule)
+      )
 end

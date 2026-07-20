@@ -139,4 +139,70 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert status.combat.state == :idle
     assert status.catcher.state == :idle
   end
+
+  # The single most safety-critical invariant of the whole bot: the Guardian's
+  # panic corner runs stop_all/5, and that MUST release a Space the mini-game
+  # player is holding — a stuck Space keeps acting in the game after the human
+  # asked everything to stop.
+  @tag :tmp_dir
+  test "panic stop_all releases a Space held by the mini-game player", %{tmp_dir: tmp} do
+    {fishing, combat, catcher} = start_isolated_supervisor(:panic_release_test)
+    mini_game = :panic_release_test_mini_game
+    player_support = :panic_release_test_player_support
+
+    Enum.each(
+      %{
+        mini_game_tick_ms: 20,
+        mini_game_enter_streak: 1,
+        mini_game_exit_streak: 1,
+        mini_game_min_confidence: 0.6,
+        mini_game_min_dark_ratio: 0.34,
+        mini_game_play_tick_ms: 20,
+        mini_game_min_toggle_ms: 0
+      },
+      fn {k, v} -> Settings.put(k, v) end
+    )
+
+    # geometry matching the shared 220x220 scene fixture
+    Calibration.save(%Calibration{
+      scale: 1.0,
+      screen_w: 220,
+      screen_h: 220,
+      water_point: {100, 100},
+      glow_region: {0, 0, 20, 20},
+      battle_region: {0, 0, 20, 20},
+      arena_region: {0, 0, 220, 220},
+      neutral_point: {100, 100}
+    })
+
+    # fish above the capsule -> the player holds Space to chase it
+    game = Pokex.PngFixtures.mini_game_scene!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
+    Agent.stop(Pokex.Rig.Fake)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+
+    assert :ok = Pokex.Bots.MiniGame.Worker.run(mini_game)
+    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+
+    # exactly the Guardian's on_panic closure (stop_all/5)
+    assert :ok = BotSupervisor.stop_all(fishing, combat, catcher, mini_game, player_support)
+
+    assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
+    assert Pokex.Bots.MiniGame.Worker.status(mini_game).state == :off
+  end
+
+  defp wait_for(fun, tries \\ 100) do
+    cond do
+      fun.() ->
+        :ok
+
+      tries == 0 ->
+        ExUnit.Assertions.flunk(
+          "condition never became true; calls: #{inspect(Pokex.Rig.Fake.calls())}"
+        )
+
+      true ->
+        Process.sleep(10)
+        wait_for(fun, tries - 1)
+    end
+  end
 end

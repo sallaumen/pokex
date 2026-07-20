@@ -82,6 +82,7 @@ defmodule PokexWeb.PanelLive do
        focused?: initial_focus(),
        logs: [],
        show_debug: false,
+       feed_filter: nil,
        export_src: nil,
        export_msg: nil,
        capture_src: nil,
@@ -491,6 +492,12 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, hook_skills: Enum.join(keys, " "))}
   end
 
+  # One chip per worker: click isolates that worker's lines, click again clears.
+  def handle_event("filter_feed", %{"source" => source}, socket) do
+    next = if socket.assigns.feed_filter == source, do: nil, else: source
+    {:noreply, assign(socket, feed_filter: next)}
+  end
+
   def handle_event("toggle_debug", _params, socket),
     do: {:noreply, assign(socket, show_debug: not socket.assigns.show_debug)}
 
@@ -636,7 +643,16 @@ defmodule PokexWeb.PanelLive do
 
   defp cell_style(%{rgb: [r, g, b]}), do: "background: rgb(#{r}, #{g}, #{b})"
 
-  defp visible_logs(logs, show_debug), do: Enum.filter(logs, &(show_debug or &1.level == :macro))
+  @feed_sources ["🎣", "⚔️", "🎮", "🎯", "🚑", "🧤"]
+  defp feed_sources, do: @feed_sources
+
+  defp visible_logs(logs, show_debug, source_filter) do
+    Enum.filter(logs, fn entry ->
+      (show_debug or entry.level == :macro) and
+        (source_filter == nil or entry.source == source_filter)
+    end)
+  end
+
   defp log_class(:macro), do: "text-base-content"
   defp log_class(_debug), do: "opacity-50"
 
@@ -872,709 +888,747 @@ defmodule PokexWeb.PanelLive do
           </div>
         </header>
 
-        <main class="mx-auto max-w-[520px] space-y-3 px-2 py-3">
-          <div
-            :if={not @calibrated?}
-            class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
-          >
-            <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-[#f2c45b]" />
-            <p class="flex-1 text-[#c8cdd1]">
-              Calibre água, Battle, arena e skills antes de iniciar.
-            </p>
-            <.link navigate={~p"/calibration"} class="font-semibold text-[#37d07d]">Calibrar</.link>
-          </div>
+        <main class="mx-auto max-w-[520px] space-y-3 px-2 py-3 xl:grid xl:max-w-[1080px] xl:grid-cols-2 xl:items-start xl:gap-4 xl:space-y-0">
+          <div class="min-w-0 space-y-3">
+            <div
+              :if={not @calibrated?}
+              class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
+            >
+              <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-[#f2c45b]" />
+              <p class="flex-1 text-[#c8cdd1]">
+                Calibre água, Battle, arena e skills antes de iniciar.
+              </p>
+              <.link navigate={~p"/calibration"} class="font-semibold text-[#37d07d]">Calibrar</.link>
+            </div>
 
-          <div
-            :if={@calib_stale?}
-            id="calib-stale-banner"
-            class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
-          >
-            <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-[#f2c45b]" />
-            <p class="flex-1 text-[#c8cdd1]">
-              A calibração mudou depois do último Start — os bots ainda usam a ANTIGA.
-            </p>
-            <button
-              phx-click="restart_bots"
-              class="btn btn-xs border-0 bg-[#37d07d] font-bold text-[#06140c] hover:bg-[#45dd88]"
+            <div
+              :if={@calib_stale?}
+              id="calib-stale-banner"
+              class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
             >
-              Parar e Iniciar
-            </button>
-          </div>
+              <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-[#f2c45b]" />
+              <p class="flex-1 text-[#c8cdd1]">
+                A calibração mudou depois do último Start — os bots ainda usam a ANTIGA.
+              </p>
+              <button
+                phx-click="restart_bots"
+                class="btn btn-xs border-0 bg-[#37d07d] font-bold text-[#06140c] hover:bg-[#45dd88]"
+              >
+                Parar e Iniciar
+              </button>
+            </div>
 
-          <div class="grid grid-cols-3 gap-1.5">
-            <div
-              data-testid="fishing-pill"
-              data-state={@fishing.state}
-              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
-            >
-              <div class="flex items-center gap-1.5 text-[11px] font-semibold">
-                <span class={[
-                  "size-1.5 shrink-0 rounded-full",
-                  if(active?(@fishing.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
-                ]} /> Pesca
-              </div>
-              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
-                {fishing_label(@fishing.state)}
-              </p>
-            </div>
-            <div
-              data-testid="combat-pill"
-              data-state={@combat.state}
-              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
-            >
-              <div class="flex items-center gap-1.5 text-[11px] font-semibold">
-                <span class={[
-                  "size-1.5 shrink-0 rounded-full",
-                  if(active?(@combat.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
-                ]} /> Batalha
-              </div>
-              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
-                {combat_label(@combat.state, Map.get(@combat, :locked_row))}
-              </p>
-            </div>
-            <div
-              data-testid="catcher-pill"
-              data-state={@catcher.state}
-              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
-            >
-              <div class="flex items-center gap-1.5 text-[11px] font-semibold">
-                <span class={[
-                  "size-1.5 shrink-0 rounded-full",
-                  if(active?(@catcher.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
-                ]} /> Captura
-              </div>
-              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
-                {catcher_label(@catcher.state)} · {catcher_captures(@catcher)}🎯 {catcher_loots(
-                  @catcher
-                )}🧰
-              </p>
-            </div>
-            <div
-              data-testid="mini-game-pill"
-              data-state={@mini_game.state}
-              title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
-              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
-            >
-              <div class="flex items-center justify-between text-[11px] font-semibold">
-                <span class="flex items-center gap-1.5">
+            <div class="grid grid-cols-3 gap-1.5">
+              <div
+                data-testid="fishing-pill"
+                data-state={@fishing.state}
+                class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+              >
+                <div class="flex items-center gap-1.5 text-[11px] font-semibold">
                   <span class={[
                     "size-1.5 shrink-0 rounded-full",
-                    if(@mini_game.state == :playing, do: "bg-[#f3ba4e]", else: "bg-[#68717a]")
-                  ]} /> Mini game
-                </span>
-                <button
-                  type="button"
-                  phx-click="toggle_mini_game_sound"
-                  title={
-                    if @mini_game_sound,
-                      do: "Alerta sonoro ligado — clique para silenciar",
-                      else: "Alerta sonoro MUDO — clique para reativar"
-                  }
-                  class={[
-                    "cursor-pointer",
-                    if(@mini_game_sound,
-                      do: "text-[#7d8790] hover:text-[#e8ecef]",
-                      else: "text-[#f3ba4e] hover:text-[#ffd27a]"
-                    )
-                  ]}
-                >
-                  <.icon
-                    name={if @mini_game_sound, do: "hero-speaker-wave", else: "hero-speaker-x-mark"}
-                    class="size-3"
-                  />
-                </button>
-              </div>
-              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
-                {mini_game_label(@mini_game.state)}
-              </p>
-            </div>
-            <div
-              data-testid="support-pill"
-              data-state={@game.state}
-              title="revive + poção — protege o Pokémon principal, até jogando manual"
-              class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
-            >
-              <div class="flex items-center gap-1.5 text-[11px] font-semibold">
-                <span class={[
-                  "size-1.5 shrink-0 rounded-full",
-                  if(@game.state == :monitoring, do: "bg-[#37d07d]", else: "bg-[#68717a]")
-                ]} /> Suporte
-              </div>
-              <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
-                {support_label(@game.state)} · {rescue_count(@game)}🚑 {potion_count(@game)}🧪
-              </p>
-            </div>
-          </div>
-
-          <div class="space-y-1">
-            <p
-              :if={@fishing.error}
-              class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
-            >
-              {@fishing.error}
-            </p>
-            <p
-              :if={@combat.error}
-              class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
-            >
-              {@combat.error}
-            </p>
-            <p
-              :if={@mini_game.error}
-              class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
-            >
-              {@mini_game.error}
-            </p>
-            <ul
-              :if={@errors != []}
-              class="rounded-lg border border-[#674f20] bg-[#211b0d] px-3 py-2 text-xs text-[#e7ca82]"
-            >
-              <li :for={message <- @errors}>{message}</li>
-            </ul>
-          </div>
-
-          <div
-            :if={not @focused?}
-            id="focus-pause-banner"
-            class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
-          >
-            <.icon name="hero-pause-circle" class="size-5 shrink-0 text-[#f2c45b]" />
-            <p class="flex-1 text-[#c8cdd1]">
-              <span class="font-semibold text-[#f2c45b]">Pausado por segurança</span> — a janela do
-              jogo perdeu o foco. Nada é digitado/clicado até você voltar pro jogo; aí os workers
-              religam sozinhos.
-            </p>
-          </div>
-
-          <button
-            :if={not overall_active?(@fishing, @combat)}
-            id="start-bot"
-            class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#39cd76] text-sm font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
-            phx-click="start"
-          >
-            <.icon name="hero-play-solid" class="size-4" /> Iniciar bot
-          </button>
-          <button
-            :if={overall_active?(@fishing, @combat)}
-            id="stop-bot"
-            class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#703136] bg-[#281114] text-sm font-bold text-[#ff9ca4] transition hover:bg-[#35171b] active:scale-[0.99]"
-            phx-click="stop"
-          >
-            <.icon name="hero-stop-solid" class="size-4" /> Parar bot
-          </button>
-
-          <details id="automations-panel" open class="group">
-            <summary class="mb-2 flex cursor-pointer list-none items-center justify-between px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b] transition hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
-              <h2 class="flex items-center gap-1.5">
-                Automações
-                <.icon
-                  name="hero-chevron-down"
-                  class="size-3 text-[#68727a] transition group-open:rotate-180"
-                />
-              </h2>
-              <span>{automation_count(
-                @fishing,
-                @combat,
-                @player_mode,
-                @loot_enabled,
-                @capture_enabled,
-                @rescue_enabled,
-                @potion_enabled
-              )}/6 on</span>
-            </summary>
-            <div class="overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]">
-              <.automation_row
-                id="automation-fishing"
-                title="Pesca automática"
-                description="Lança e fisga sozinho"
-                active={active?(@fishing.state)}
-                event="toggle_fishing"
-              />
-              <.automation_row
-                id="automation-combat"
-                title="Luta automática"
-                description="Ataca inimigos com as skills"
-                active={active?(@combat.state)}
-                event="toggle_combat"
-              />
-              <div
-                id="automation-mode"
-                class="flex min-h-14 items-center gap-3 border-b border-[#222a2f] px-3 py-2.5"
-              >
-                <div class="min-w-0 flex-1">
-                  <p class="text-sm font-semibold text-[#d9dde1]">Modo</p>
-                  <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
-                    {if @player_mode == "parado",
-                      do: "parado no spot — loot e captura agem sozinhos",
-                      else: "você saqueia e captura manualmente — em movimento o bot não age"}
-                  </p>
+                    if(active?(@fishing.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                  ]} /> Pesca
                 </div>
-                <div class="flex shrink-0 gap-1">
+                <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                  {fishing_label(@fishing.state)}
+                </p>
+              </div>
+              <div
+                data-testid="combat-pill"
+                data-state={@combat.state}
+                class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+              >
+                <div class="flex items-center gap-1.5 text-[11px] font-semibold">
+                  <span class={[
+                    "size-1.5 shrink-0 rounded-full",
+                    if(active?(@combat.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                  ]} /> Batalha
+                </div>
+                <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                  {combat_label(@combat.state, Map.get(@combat, :locked_row))}
+                </p>
+              </div>
+              <div
+                data-testid="catcher-pill"
+                data-state={@catcher.state}
+                class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+              >
+                <div class="flex items-center gap-1.5 text-[11px] font-semibold">
+                  <span class={[
+                    "size-1.5 shrink-0 rounded-full",
+                    if(active?(@catcher.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                  ]} /> Captura
+                </div>
+                <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                  {catcher_label(@catcher.state)} · {catcher_captures(@catcher)}🎯 {catcher_loots(
+                    @catcher
+                  )}🧰
+                </p>
+              </div>
+              <div
+                data-testid="mini-game-pill"
+                data-state={@mini_game.state}
+                title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
+                class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+              >
+                <div class="flex items-center justify-between text-[11px] font-semibold">
+                  <span class="flex items-center gap-1.5">
+                    <span class={[
+                      "size-1.5 shrink-0 rounded-full",
+                      if(@mini_game.state == :playing, do: "bg-[#f3ba4e]", else: "bg-[#68717a]")
+                    ]} /> Mini game
+                  </span>
                   <button
-                    :for={{mode, label} <- [{"parado", "Parado"}, {"movimento", "Em movimento"}]}
-                    phx-click="set_player_mode"
-                    phx-value-mode={mode}
+                    type="button"
+                    phx-click="toggle_mini_game_sound"
+                    title={
+                      if @mini_game_sound,
+                        do: "Alerta sonoro ligado — clique para silenciar",
+                        else: "Alerta sonoro MUDO — clique para reativar"
+                    }
                     class={[
-                      "h-8 rounded-lg border px-2.5 text-[11px]",
-                      if(@player_mode == mode,
-                        do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
-                        else: "border-[#293238] text-[#89939a] hover:text-white"
+                      "cursor-pointer",
+                      if(@mini_game_sound,
+                        do: "text-[#7d8790] hover:text-[#e8ecef]",
+                        else: "text-[#f3ba4e] hover:text-[#ffd27a]"
                       )
                     ]}
-                  >{label}</button>
-                </div>
-              </div>
-              <.automation_row
-                id="automation-loot"
-                title="Pegar loot (Espaço)"
-                description="Espaço após cada kill (o corpo cai do teu lado)"
-                active={@loot_enabled}
-                event="toggle_loot_enabled"
-              />
-              <.automation_row
-                id="automation-capture"
-                title="Capturar (Pokébola)"
-                description="joga bola nos corpos detectados ao redor"
-                active={@capture_enabled}
-                event="toggle_capture_enabled"
-              />
-              <button
-                :if={@player_mode == "parado"}
-                phx-click="relearn_ground"
-                class="mx-3 mb-2 flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
-              >
-                <.icon name="hero-arrow-path" class="size-3" /> Reaprender chão (mudou de spot)
-              </button>
-              <.automation_row
-                id="automation-rescue"
-                title="Revive automático"
-                description={"Revive quando a vida cai abaixo de #{@rescue_pct}%"}
-                active={@rescue_enabled}
-                event="toggle_rescue"
-              />
-              <.automation_row
-                id="automation-potion"
-                title="Poção automática"
-                description={"Poção (tecla #{Settings.get(:potion_key)}) abaixo de #{@potion_pct}%, só fora de luta"}
-                active={@potion_enabled}
-                event="toggle_potion"
-              />
-              <.automation_row
-                id="automation-reposition"
-                title="Reposicionar após lutas"
-                description="clique do meio no tile calibrado (Calibração → Posição do Pokémon) 2s depois da luta acabar"
-                active={@reposition_enabled}
-                event="toggle_reposition"
-              />
-              <.automation_row
-                id="automation-require-cooldowns"
-                title="Só pescar quando dá pra matar"
-                description="segura a fisga até pelo menos UMA das skills abaixo estar pronta"
-                active={@require_cooldowns}
-                event="toggle_require_cooldowns"
-              />
-              <form
-                id="hook-skills-form"
-                phx-submit="save_hook_skills"
-                class="border-b border-[#222a2f] px-3 py-2.5"
-              >
-                <label class="font-mono text-[10px] text-[#77828a]">
-                  Skills necessárias pra matar
-                </label>
-                <div class="mt-1.5 flex gap-2">
-                  <input
-                    name="hook_skills"
-                    value={@hook_skills}
-                    placeholder="4 5 6 7"
-                    class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
-                  />
-                  <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
-                    Salvar
+                  >
+                    <.icon
+                      name={if @mini_game_sound, do: "hero-speaker-wave", else: "hero-speaker-x-mark"}
+                      class="size-3"
+                    />
                   </button>
                 </div>
-              </form>
-              <.automation_row
-                id="automation-require-pokemon-hp"
-                title="Só pescar com vida"
-                description="segura a fisga se o Pokémon está com pouca vida ou fora da pokébola (lê o monitor de suporte)"
-                active={@require_pokemon_hp}
-                event="toggle_require_pokemon_hp"
-              />
-              <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
-                <label class="font-mono text-[10px] text-[#77828a]">
-                  Vida mínima pra puxar a vara (%)
-                </label>
-                <div class="mt-1.5 flex gap-2">
-                  <input
-                    name="fishing_hp_pct"
-                    inputmode="numeric"
-                    value={@fishing_hp_pct}
-                    class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
-                  />
-                  <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
-                    Salvar
-                  </button>
-                </div>
-              </form>
-            </div>
-          </details>
-
-          <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
-            <div class="flex items-center justify-between text-xs font-semibold">
-              <span>Vida do Pokémon principal</span><span class="font-mono text-[#36d47c]">{hp_label(
-                @game
-              )}</span>
-            </div>
-            <div class="mt-2 h-2 overflow-hidden rounded-full bg-[#273037]">
-              <div
-                class="h-full rounded-full transition-[width] duration-300"
-                style={hp_bar_style(@game)}
-              />
-            </div>
-            <div class="mt-2 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
-              <form id="rescue-cfg-form" phx-change="save_rescue_cfg" class="flex items-center gap-1">
-                <label for="rescue-pct">revive &lt;</label>
-                <input
-                  id="rescue-pct"
-                  name="rescue_pct"
-                  type="number"
-                  min="1"
-                  max="90"
-                  value={@rescue_pct}
-                  phx-debounce="500"
-                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
-                />
-                <span>% · a cada</span>
-                <input
-                  id="rescue-cooldown"
-                  name="rescue_cooldown_s"
-                  type="number"
-                  min="2"
-                  max="600"
-                  value={@rescue_cooldown_s}
-                  phx-debounce="500"
-                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
-                />
-                <span>s</span>
-              </form>
-              <span>revives: {rescue_count(@game)}</span>
-            </div>
-            <div class="mt-1.5 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
-              <form id="potion-cfg-form" phx-change="save_potion_cfg" class="flex items-center gap-1">
-                <label for="potion-pct">poção &lt;</label>
-                <input
-                  id="potion-pct"
-                  name="potion_pct"
-                  type="number"
-                  min="1"
-                  max="99"
-                  value={@potion_pct}
-                  phx-debounce="500"
-                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
-                />
-                <span>% · a cada</span>
-                <input
-                  id="potion-cooldown"
-                  name="potion_cooldown_s"
-                  type="number"
-                  min="1"
-                  max="600"
-                  value={@potion_cooldown_s}
-                  phx-debounce="500"
-                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
-                />
-                <span>s</span>
-              </form>
-              <span>poções: {potion_count(@game)}</span>
-            </div>
-            <button
-              id="use-potion"
-              phx-click="use_potion"
-              class="mt-2.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[#293238] text-[11px] font-semibold text-[#a4adb4] transition hover:border-[#37d07d]/60 hover:bg-[#14191d] hover:text-white active:scale-[0.99]"
-            >
-              🧪 Usar poção agora
-            </button>
-
-            <div class="mt-3 border-t border-[#222a2f] pt-2.5">
-              <div class="flex items-center justify-between">
-                <h3 class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-                  Cooldowns das skills
-                </h3>
-                <button
-                  class="flex h-6 items-center gap-1 rounded-md border border-[#293238] px-2 font-mono text-[9px] text-[#89939a] transition hover:text-white"
-                  phx-click="read_cooldowns"
-                >
-                  <.icon name="hero-arrow-path" class="size-2.5" /> Ler
-                </button>
+                <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                  {mini_game_label(@mini_game.state)}
+                </p>
               </div>
-              <div class="mt-1.5 flex flex-wrap gap-1.5">
-                <span
-                  :for={
-                    {state, key} <-
-                      Enum.zip(
-                        @cooldowns_states || [],
-                        SkillBar.keys(length(@cooldowns_states || []))
-                      )
-                  }
-                  class={[
-                    "grid size-8 place-items-center rounded-md border font-mono text-[11px] font-bold",
-                    if(state == :ready,
-                      do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
-                      else: "border-[#313a40] bg-[#171c20] text-[#626c74]"
-                    )
-                  ]}
-                >{key}</span>
-                <span :if={is_nil(@cooldowns_states)} class="py-1.5 text-[10px] text-[#69737b]">
-                  Clique em Ler para verificar a barra calibrada.
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <section>
-            <h2 class="mb-2 px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-              Sessão
-            </h2>
-            <div class="grid grid-cols-4 gap-1.5">
               <div
-                :for={{label, key, _icon} <- counters()}
-                id={"counter-#{key}"}
-                class="rounded-lg border border-[#232b30] bg-[#111519] px-1 py-2 text-center"
+                data-testid="support-pill"
+                data-state={@game.state}
+                title="revive + poção — protege o Pokémon principal, até jogando manual"
+                class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
               >
-                <div class="text-base font-bold tabular-nums leading-tight text-[#dce1e4]">
-                  {Map.get(merged_counters(@fishing, @combat, @catcher), key, 0)}
+                <div class="flex items-center gap-1.5 text-[11px] font-semibold">
+                  <span class={[
+                    "size-1.5 shrink-0 rounded-full",
+                    if(@game.state == :monitoring, do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                  ]} /> Suporte
                 </div>
-                <div class="mt-0.5 truncate font-mono text-[8px] uppercase tracking-[0.08em] text-[#758089]">
-                  {label}
-                </div>
+                <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                  {support_label(@game.state)} · {rescue_count(@game)}🚑 {potion_count(@game)}🧪
+                </p>
               </div>
             </div>
-          </section>
 
-          <section class="overflow-hidden rounded-lg border border-[#232b30] bg-[#111519]">
-            <div class="flex h-10 items-center justify-between border-b border-[#222a2f] px-3">
-              <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#9099a1]">
-                O que ele está fazendo
-              </h2>
-              <label class="flex cursor-pointer items-center gap-2 font-mono text-[10px] text-[#79838b]"><input
-                type="checkbox"
-                class="toggle toggle-success toggle-xs"
-                checked={@show_debug}
-                phx-click="toggle_debug"
-              /> debug</label>
-            </div>
-            <p
-              :if={@export_msg}
-              class="border-b border-[#222a2f] px-3 py-1.5 text-[10px] text-[#37d07d]"
-            >
-              {@export_msg}
-              <a :if={@export_src} href={@export_src} download class="underline">baixar</a>
-            </p>
-            <div
-              id="activity-feed"
-              class="h-64 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed text-[#9aa3aa]"
-            >
-              <p :if={visible_logs(@logs, @show_debug) == []} class="max-w-[300px] text-[#59636b]">
-                a atividade aparece aqui quando o bot roda<br />(marque "debug" pra ver cada tick)
+            <div class="space-y-1">
+              <p
+                :if={@fishing.error}
+                class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+              >
+                {@fishing.error}
               </p>
               <p
-                :for={entry <- visible_logs(@logs, @show_debug)}
-                class={["flex gap-1.5", log_class(entry.level)]}
+                :if={@combat.error}
+                class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
               >
-                <span class="shrink-0 text-[#59636b]">{entry.at}</span><span>{entry.source}</span><span>{entry.text}</span>
+                {@combat.error}
+              </p>
+              <p
+                :if={@mini_game.error}
+                class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+              >
+                {@mini_game.error}
+              </p>
+              <ul
+                :if={@errors != []}
+                class="rounded-lg border border-[#674f20] bg-[#211b0d] px-3 py-2 text-xs text-[#e7ca82]"
+              >
+                <li :for={message <- @errors}>{message}</li>
+              </ul>
+            </div>
+
+            <div
+              :if={not @focused?}
+              id="focus-pause-banner"
+              class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
+            >
+              <.icon name="hero-pause-circle" class="size-5 shrink-0 text-[#f2c45b]" />
+              <p class="flex-1 text-[#c8cdd1]">
+                <span class="font-semibold text-[#f2c45b]">Pausado por segurança</span> — a janela do
+                jogo perdeu o foco. Nada é digitado/clicado até você voltar pro jogo; aí os workers
+                religam sozinhos.
               </p>
             </div>
-            <div class="grid grid-cols-2 border-t border-[#222a2f]">
-              <button
-                class="h-9 border-r border-[#222a2f] text-[11px] text-[#858f97] hover:bg-[#171c20] hover:text-white"
-                phx-click="export_events"
-              >Exportar</button><button
-                class="h-9 text-[11px] text-[#858f97] hover:bg-[#171c20] hover:text-white"
-                phx-click="clear_logs"
-              >Limpar</button>
-            </div>
-          </section>
 
-          <details
-            id="advanced-panel"
-            class="group overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]"
-          >
-            <summary class="flex h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-semibold [&::-webkit-details-marker]:hidden">
-              <span class="flex items-center gap-2"><.icon
-                name="hero-wrench-screwdriver"
-                class="size-3.5 text-[#758089]"
-              /> Avançado &amp; calibragem</span><.icon
-                name="hero-chevron-down"
-                class="size-3.5 text-[#68727a] transition group-open:rotate-180"
-              />
-            </summary>
-            <div class="space-y-5 border-t border-[#232b30] p-3">
-              <section>
-                <div class="flex items-center justify-between">
-                  <h3 class="text-xs font-semibold">Captura de tela</h3><button
-                    class="flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
-                    phx-click="read_capture_stats"
-                  ><.icon name="hero-arrow-path" class="size-3" /> Medir</button>
-                </div>
-                <div :if={@capture_info} class="mt-2 space-y-1 font-mono text-[10px]">
-                  <p class="text-[#9aa3aa]">
-                    backend:
-                    <span class={
-                      if @capture_info.backend.backend == :screen_capture_kit,
-                        do: "text-[#3de083]",
-                        else: "text-[#e0b43d]"
-                    }>
-                      {if @capture_info.backend.backend == :screen_capture_kit,
-                        do: "ScreenCaptureKit (rápido)",
-                        else: "screencapture CLI (lento — fallback)"}
-                    </span>
-                    <span :if={@capture_info.backend.recovering?} class="text-[#79838b]">
-                      · tentando recuperar o SCK…
-                    </span>
-                  </p>
-                  <p :if={@capture_info.stats == []} class="text-[#69737b]">
-                    sem capturas na última janela — ligue um bot e clique Medir de novo
-                  </p>
-                  <p :for={{key, stat} <- @capture_info.stats} class="text-[#79838b]">
-                    {String.replace_prefix(key, "capture.backend.", "")} · n={stat.count}
-                    <span :if={stat.total > 0}>
-                      avg={Float.round(stat.total / stat.count, 1)}ms max={stat.max}ms
-                    </span>
-                  </p>
-                </div>
-              </section>
+            <button
+              :if={not overall_active?(@fishing, @combat)}
+              id="start-bot"
+              class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#39cd76] text-sm font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
+              phx-click="start"
+            >
+              <.icon name="hero-play-solid" class="size-4" /> Iniciar bot
+            </button>
+            <button
+              :if={overall_active?(@fishing, @combat)}
+              id="stop-bot"
+              class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#703136] bg-[#281114] text-sm font-bold text-[#ff9ca4] transition hover:bg-[#35171b] active:scale-[0.99]"
+              phx-click="stop"
+            >
+              <.icon name="hero-stop-solid" class="size-4" /> Parar bot
+            </button>
 
-              <section class="grid gap-4 border-t border-[#232b30] pt-4">
-                <div>
-                  <h3 class="text-xs font-semibold">Sensibilidade do brilho</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
-                    Valor sugerido pela calibração.
-                  </p><form id="threshold-form" phx-submit="save_threshold" class="mt-2 flex gap-2">
-                    <input
-                      name="threshold"
-                      value={@threshold}
-                      placeholder="sugerido"
-                      class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
-                    /><button class="btn btn-outline h-10 border-[#303940] px-4 text-xs">Salvar</button>
-                  </form>
-                </div>
-                <div>
-                  <h3 class="text-xs font-semibold">Ordem das skills</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
-                    Prioridade de ataque, as mais fortes primeiro.
-                  </p><form id="skills-form" phx-submit="save_skills" class="mt-2 flex gap-2">
-                    <input
-                      name="skills"
-                      value={@skill_order}
-                      placeholder="1 2 3"
-                      class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
-                    /><button class="btn btn-outline h-10 border-[#303940] px-4 text-xs">Salvar</button>
-                  </form>
-                </div>
-              </section>
-
-              <section class="border-t border-[#232b30] pt-4">
-                <h3 class="text-xs font-semibold">Timing do combate</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
-                  Ajuste fino da velocidade de busca e de morte.
-                </p>
-                <form id="timing-form" phx-submit="save_timing" class="mt-3 grid grid-cols-2 gap-2.5">
-                  <label
-                    :for={{key, label, _hint} <- timing_fields()}
-                    class="block font-mono text-[9px] text-[#7d8790]"
-                  ><span>{label}</span><input
-                    type="number"
-                    min={if(positive_timing_key?(key), do: "1", else: "0")}
-                    name={key}
-                    value={@timing[key]}
-                    class="input input-bordered mt-1 h-9 w-full bg-[#090d0f] font-mono text-xs"
-                  /></label>
-                  <button class="col-span-2 mt-1 h-10 rounded-lg bg-[#37d07d] text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar timing</button>
-                </form>
-              </section>
-
-              <section :if={@calibrated?} class="border-t border-[#232b30] pt-4">
-                <h3 class="text-xs font-semibold">Prints &amp; diagnóstico</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
-                  Gera um JSON com tudo que o bot enxerga para diagnosticar sem foto.
-                </p>
-                <div class="mt-2 flex flex-wrap gap-2">
-                  <button
-                    :for={
-                      {label, region} <- [
-                        {"Tela cheia", "screen"},
-                        {"Água", "glow"},
-                        {"Batalha", "battle"},
-                        {"Arena", "arena"},
-                        {"Skills", "skills"}
-                      ]
-                    }
-                    class="h-8 rounded-lg border border-[#2b353b] px-3 text-[10px] text-[#a3abb1] hover:border-[#37d07d]/60"
-                    phx-click="shot"
-                    phx-value-region={region}
-                  >{label}</button>
-                </div>
-                <button
-                  class="mt-3 h-10 w-full rounded-lg border border-[#30cf75] text-xs font-bold text-[#38dc80] hover:bg-[#102019]"
-                  phx-click="export_diagnostic"
-                >Exportar diagnóstico (JSON)</button>
-                <figure :if={@capture_src} class="mt-3">
-                  <figcaption class="mb-1 text-[10px] text-[#7d8790]">{@capture_label}</figcaption><img
-                    src={@capture_src}
-                    class="max-h-64 rounded-lg border border-[#283138]"
+            <details id="automations-panel" open class="group">
+              <summary class="mb-2 flex cursor-pointer list-none items-center justify-between px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b] transition hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
+                <h2 class="flex items-center gap-1.5">
+                  Automações
+                  <.icon
+                    name="hero-chevron-down"
+                    class="size-3 text-[#68727a] transition group-open:rotate-180"
                   />
-                </figure>
-                <p
-                  :if={@capture_label && is_nil(@capture_src)}
-                  class="mt-2 text-[10px] text-[#ff929b]"
-                >
-                  {@capture_label}
-                </p>
+                </h2>
+                <span>{automation_count(
+                  @fishing,
+                  @combat,
+                  @player_mode,
+                  @loot_enabled,
+                  @capture_enabled,
+                  @rescue_enabled,
+                  @potion_enabled
+                )}/6 on</span>
+              </summary>
+              <div class="overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]">
+                <.automation_row
+                  id="automation-fishing"
+                  title="Pesca automática"
+                  description="Lança e fisga sozinho"
+                  active={active?(@fishing.state)}
+                  event="toggle_fishing"
+                />
+                <.automation_row
+                  id="automation-combat"
+                  title="Luta automática"
+                  description="Ataca inimigos com as skills"
+                  active={active?(@combat.state)}
+                  event="toggle_combat"
+                />
                 <div
-                  :if={@report}
-                  class="mt-3 rounded-lg border border-[#263038] bg-[#090d0f] p-3 text-[10px] text-[#89939a]"
+                  id="automation-mode"
+                  class="flex min-h-14 items-center gap-3 border-b border-[#222a2f] px-3 py-2.5"
                 >
-                  <div class="flex justify-between">
-                    <span class="font-semibold text-[#37d07d]">{@report_msg}</span><a
-                      :if={@report_src}
-                      href={@report_src}
-                      download
-                      class="text-[#37d07d] underline"
-                    >baixar JSON</a>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-semibold text-[#d9dde1]">Modo</p>
+                    <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
+                      {if @player_mode == "parado",
+                        do: "parado no spot — loot e captura agem sozinhos",
+                        else: "você saqueia e captura manualmente — em movimento o bot não age"}
+                    </p>
                   </div>
-                  <% matrix = gi(@report, [:regions, :battle_body, :matrix]) %>
-                  <div :if={matrix} class="mt-3">
-                    <p class="mb-1">matriz do painel Batalha ({matrix.cols}×{matrix.rows})</p><div
-                      class="inline-grid gap-px rounded border border-[#263038] bg-black p-1"
-                      style={"grid-template-columns: repeat(#{matrix.cols}, 8px)"}
-                    >
-                      <div
-                        :for={cell <- List.flatten(matrix.cells)}
-                        class="size-2"
-                        style={cell_style(cell)}
-                        title={to_string(cell.class)}
-                      />
+                  <div class="flex shrink-0 gap-1">
+                    <button
+                      :for={{mode, label} <- [{"parado", "Parado"}, {"movimento", "Em movimento"}]}
+                      phx-click="set_player_mode"
+                      phx-value-mode={mode}
+                      class={[
+                        "h-8 rounded-lg border px-2.5 text-[11px]",
+                        if(@player_mode == mode,
+                          do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
+                          else: "border-[#293238] text-[#89939a] hover:text-white"
+                        )
+                      ]}
+                    >{label}</button>
+                  </div>
+                </div>
+                <.automation_row
+                  id="automation-loot"
+                  title="Pegar loot (Espaço)"
+                  description="Espaço após cada kill (o corpo cai do teu lado)"
+                  active={@loot_enabled}
+                  event="toggle_loot_enabled"
+                />
+                <.automation_row
+                  id="automation-capture"
+                  title="Capturar (Pokébola)"
+                  description="joga bola nos corpos detectados ao redor"
+                  active={@capture_enabled}
+                  event="toggle_capture_enabled"
+                />
+                <button
+                  :if={@player_mode == "parado"}
+                  phx-click="relearn_ground"
+                  class="mx-3 mb-2 flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
+                >
+                  <.icon name="hero-arrow-path" class="size-3" /> Reaprender chão (mudou de spot)
+                </button>
+                <.automation_row
+                  id="automation-rescue"
+                  title="Revive automático"
+                  description={"Revive quando a vida cai abaixo de #{@rescue_pct}%"}
+                  active={@rescue_enabled}
+                  event="toggle_rescue"
+                />
+                <.automation_row
+                  id="automation-potion"
+                  title="Poção automática"
+                  description={"Poção (tecla #{Settings.get(:potion_key)}) abaixo de #{@potion_pct}%, só fora de luta"}
+                  active={@potion_enabled}
+                  event="toggle_potion"
+                />
+                <.automation_row
+                  id="automation-reposition"
+                  title="Reposicionar após lutas"
+                  description="clique do meio no tile calibrado (Calibração → Posição do Pokémon) 2s depois da luta acabar"
+                  active={@reposition_enabled}
+                  event="toggle_reposition"
+                />
+                <.automation_row
+                  id="automation-require-cooldowns"
+                  title="Só pescar quando dá pra matar"
+                  description="segura a fisga até pelo menos UMA das skills abaixo estar pronta"
+                  active={@require_cooldowns}
+                  event="toggle_require_cooldowns"
+                />
+                <form
+                  id="hook-skills-form"
+                  phx-submit="save_hook_skills"
+                  class="border-b border-[#222a2f] px-3 py-2.5"
+                >
+                  <label class="font-mono text-[10px] text-[#77828a]">
+                    Skills necessárias pra matar
+                  </label>
+                  <div class="mt-1.5 flex gap-2">
+                    <input
+                      name="hook_skills"
+                      value={@hook_skills}
+                      placeholder="4 5 6 7"
+                      class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                    />
+                    <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+                      Salvar
+                    </button>
+                  </div>
+                </form>
+                <.automation_row
+                  id="automation-require-pokemon-hp"
+                  title="Só pescar com vida"
+                  description="segura a fisga se o Pokémon está com pouca vida ou fora da pokébola (lê o monitor de suporte)"
+                  active={@require_pokemon_hp}
+                  event="toggle_require_pokemon_hp"
+                />
+                <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
+                  <label class="font-mono text-[10px] text-[#77828a]">
+                    Vida mínima pra puxar a vara (%)
+                  </label>
+                  <div class="mt-1.5 flex gap-2">
+                    <input
+                      name="fishing_hp_pct"
+                      inputmode="numeric"
+                      value={@fishing_hp_pct}
+                      class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                    />
+                    <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+                      Salvar
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </details>
+
+            <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+              <div class="flex items-center justify-between text-xs font-semibold">
+                <span>Vida do Pokémon principal</span><span class="font-mono text-[#36d47c]">{hp_label(
+                  @game
+                )}</span>
+              </div>
+              <div class="mt-2 h-2 overflow-hidden rounded-full bg-[#273037]">
+                <div
+                  class="h-full rounded-full transition-[width] duration-300"
+                  style={hp_bar_style(@game)}
+                />
+              </div>
+              <div class="mt-2 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
+                <form
+                  id="rescue-cfg-form"
+                  phx-change="save_rescue_cfg"
+                  class="flex items-center gap-1"
+                >
+                  <label for="rescue-pct">revive &lt;</label>
+                  <input
+                    id="rescue-pct"
+                    name="rescue_pct"
+                    type="number"
+                    min="1"
+                    max="90"
+                    value={@rescue_pct}
+                    phx-debounce="500"
+                    class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                  />
+                  <span>% · a cada</span>
+                  <input
+                    id="rescue-cooldown"
+                    name="rescue_cooldown_s"
+                    type="number"
+                    min="2"
+                    max="600"
+                    value={@rescue_cooldown_s}
+                    phx-debounce="500"
+                    class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                  />
+                  <span>s</span>
+                </form>
+                <span>revives: {rescue_count(@game)}</span>
+              </div>
+              <div class="mt-1.5 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
+                <form
+                  id="potion-cfg-form"
+                  phx-change="save_potion_cfg"
+                  class="flex items-center gap-1"
+                >
+                  <label for="potion-pct">poção &lt;</label>
+                  <input
+                    id="potion-pct"
+                    name="potion_pct"
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={@potion_pct}
+                    phx-debounce="500"
+                    class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                  />
+                  <span>% · a cada</span>
+                  <input
+                    id="potion-cooldown"
+                    name="potion_cooldown_s"
+                    type="number"
+                    min="1"
+                    max="600"
+                    value={@potion_cooldown_s}
+                    phx-debounce="500"
+                    class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                  />
+                  <span>s</span>
+                </form>
+                <span>poções: {potion_count(@game)}</span>
+              </div>
+              <button
+                id="use-potion"
+                phx-click="use_potion"
+                class="mt-2.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[#293238] text-[11px] font-semibold text-[#a4adb4] transition hover:border-[#37d07d]/60 hover:bg-[#14191d] hover:text-white active:scale-[0.99]"
+              >
+                🧪 Usar poção agora
+              </button>
+
+              <div class="mt-3 border-t border-[#222a2f] pt-2.5">
+                <div class="flex items-center justify-between">
+                  <h3 class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                    Cooldowns das skills
+                  </h3>
+                  <button
+                    class="flex h-6 items-center gap-1 rounded-md border border-[#293238] px-2 font-mono text-[9px] text-[#89939a] transition hover:text-white"
+                    phx-click="read_cooldowns"
+                  >
+                    <.icon name="hero-arrow-path" class="size-2.5" /> Ler
+                  </button>
+                </div>
+                <div class="mt-1.5 flex flex-wrap gap-1.5">
+                  <span
+                    :for={
+                      {state, key} <-
+                        Enum.zip(
+                          @cooldowns_states || [],
+                          SkillBar.keys(length(@cooldowns_states || []))
+                        )
+                    }
+                    class={[
+                      "grid size-8 place-items-center rounded-md border font-mono text-[11px] font-bold",
+                      if(state == :ready,
+                        do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
+                        else: "border-[#313a40] bg-[#171c20] text-[#626c74]"
+                      )
+                    ]}
+                  >{key}</span>
+                  <span :if={is_nil(@cooldowns_states)} class="py-1.5 text-[10px] text-[#69737b]">
+                    Clique em Ler para verificar a barra calibrada.
+                  </span>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="min-w-0 space-y-3">
+            <section>
+              <h2 class="mb-2 px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                Sessão
+              </h2>
+              <div class="grid grid-cols-4 gap-1.5">
+                <div
+                  :for={{label, key, _icon} <- counters()}
+                  id={"counter-#{key}"}
+                  class="rounded-lg border border-[#232b30] bg-[#111519] px-1 py-2 text-center"
+                >
+                  <div class="text-base font-bold tabular-nums leading-tight text-[#dce1e4]">
+                    {Map.get(merged_counters(@fishing, @combat, @catcher), key, 0)}
+                  </div>
+                  <div class="mt-0.5 truncate font-mono text-[8px] uppercase tracking-[0.08em] text-[#758089]">
+                    {label}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="overflow-hidden rounded-lg border border-[#232b30] bg-[#111519]">
+              <div class="flex h-10 items-center justify-between border-b border-[#222a2f] px-3">
+                <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#9099a1]">
+                  O que ele está fazendo
+                </h2>
+                <label class="flex cursor-pointer items-center gap-2 font-mono text-[10px] text-[#79838b]"><input
+                  type="checkbox"
+                  class="toggle toggle-success toggle-xs"
+                  checked={@show_debug}
+                  phx-click="toggle_debug"
+                /> debug</label>
+              </div>
+              <div class="flex items-center gap-1 border-b border-[#222a2f] px-3 py-1.5">
+                <button
+                  :for={source <- feed_sources()}
+                  phx-click="filter_feed"
+                  phx-value-source={source}
+                  class={[
+                    "rounded-md px-1.5 py-0.5 text-[11px] transition",
+                    if(@feed_filter == source,
+                      do: "bg-[#17231c] ring-1 ring-[#37d07d]",
+                      else: "opacity-50 hover:opacity-100"
+                    )
+                  ]}
+                >
+                  {source}
+                </button>
+                <span :if={@feed_filter} class="ml-1 font-mono text-[9px] text-[#79838b]">
+                  só {@feed_filter} — clique de novo pra limpar
+                </span>
+              </div>
+              <p
+                :if={@export_msg}
+                class="border-b border-[#222a2f] px-3 py-1.5 text-[10px] text-[#37d07d]"
+              >
+                {@export_msg}
+                <a :if={@export_src} href={@export_src} download class="underline">baixar</a>
+              </p>
+              <div
+                id="activity-feed"
+                class="h-64 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed text-[#9aa3aa] xl:h-[30rem]"
+              >
+                <p
+                  :if={visible_logs(@logs, @show_debug, @feed_filter) == []}
+                  class="max-w-[300px] text-[#59636b]"
+                >
+                  a atividade aparece aqui quando o bot roda<br />(marque "debug" pra ver cada tick)
+                </p>
+                <p
+                  :for={entry <- visible_logs(@logs, @show_debug, @feed_filter)}
+                  class={["flex gap-1.5", log_class(entry.level)]}
+                >
+                  <span class="shrink-0 text-[#59636b]">{entry.at}</span><span>{entry.source}</span><span>{entry.text}</span>
+                </p>
+              </div>
+              <div class="grid grid-cols-2 border-t border-[#222a2f]">
+                <button
+                  class="h-9 border-r border-[#222a2f] text-[11px] text-[#858f97] hover:bg-[#171c20] hover:text-white"
+                  phx-click="export_events"
+                >Exportar</button><button
+                  class="h-9 text-[11px] text-[#858f97] hover:bg-[#171c20] hover:text-white"
+                  phx-click="clear_logs"
+                >Limpar</button>
+              </div>
+            </section>
+
+            <details
+              id="advanced-panel"
+              class="group overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]"
+            >
+              <summary class="flex h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-semibold [&::-webkit-details-marker]:hidden">
+                <span class="flex items-center gap-2"><.icon
+                  name="hero-wrench-screwdriver"
+                  class="size-3.5 text-[#758089]"
+                /> Avançado &amp; calibragem</span><.icon
+                  name="hero-chevron-down"
+                  class="size-3.5 text-[#68727a] transition group-open:rotate-180"
+                />
+              </summary>
+              <div class="space-y-5 border-t border-[#232b30] p-3">
+                <section>
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-xs font-semibold">Captura de tela</h3><button
+                      class="flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
+                      phx-click="read_capture_stats"
+                    ><.icon name="hero-arrow-path" class="size-3" /> Medir</button>
+                  </div>
+                  <div :if={@capture_info} class="mt-2 space-y-1 font-mono text-[10px]">
+                    <p class="text-[#9aa3aa]">
+                      backend:
+                      <span class={
+                        if @capture_info.backend.backend == :screen_capture_kit,
+                          do: "text-[#3de083]",
+                          else: "text-[#e0b43d]"
+                      }>
+                        {if @capture_info.backend.backend == :screen_capture_kit,
+                          do: "ScreenCaptureKit (rápido)",
+                          else: "screencapture CLI (lento — fallback)"}
+                      </span>
+                      <span :if={@capture_info.backend.recovering?} class="text-[#79838b]">
+                        · tentando recuperar o SCK…
+                      </span>
+                    </p>
+                    <p :if={@capture_info.stats == []} class="text-[#69737b]">
+                      sem capturas na última janela — ligue um bot e clique Medir de novo
+                    </p>
+                    <p :for={{key, stat} <- @capture_info.stats} class="text-[#79838b]">
+                      {String.replace_prefix(key, "capture.backend.", "")} · n={stat.count}
+                      <span :if={stat.total > 0}>
+                        avg={Float.round(stat.total / stat.count, 1)}ms max={stat.max}ms
+                      </span>
+                    </p>
+                  </div>
+                </section>
+
+                <section class="grid gap-4 border-t border-[#232b30] pt-4">
+                  <div>
+                    <h3 class="text-xs font-semibold">Sensibilidade do brilho</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                      Valor sugerido pela calibração.
+                    </p><form id="threshold-form" phx-submit="save_threshold" class="mt-2 flex gap-2">
+                      <input
+                        name="threshold"
+                        value={@threshold}
+                        placeholder="sugerido"
+                        class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                      /><button class="btn btn-outline h-10 border-[#303940] px-4 text-xs">Salvar</button>
+                    </form>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-semibold">Ordem das skills</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                      Prioridade de ataque, as mais fortes primeiro.
+                    </p><form id="skills-form" phx-submit="save_skills" class="mt-2 flex gap-2">
+                      <input
+                        name="skills"
+                        value={@skill_order}
+                        placeholder="1 2 3"
+                        class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                      /><button class="btn btn-outline h-10 border-[#303940] px-4 text-xs">Salvar</button>
+                    </form>
+                  </div>
+                </section>
+
+                <section class="border-t border-[#232b30] pt-4">
+                  <h3 class="text-xs font-semibold">Timing do combate</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                    Ajuste fino da velocidade de busca e de morte.
+                  </p>
+                  <form
+                    id="timing-form"
+                    phx-submit="save_timing"
+                    class="mt-3 grid grid-cols-2 gap-2.5"
+                  >
+                    <label
+                      :for={{key, label, _hint} <- timing_fields()}
+                      class="block font-mono text-[9px] text-[#7d8790]"
+                    ><span>{label}</span><input
+                      type="number"
+                      min={if(positive_timing_key?(key), do: "1", else: "0")}
+                      name={key}
+                      value={@timing[key]}
+                      class="input input-bordered mt-1 h-9 w-full bg-[#090d0f] font-mono text-xs"
+                    /></label>
+                    <button class="col-span-2 mt-1 h-10 rounded-lg bg-[#37d07d] text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar timing</button>
+                  </form>
+                </section>
+
+                <section :if={@calibrated?} class="border-t border-[#232b30] pt-4">
+                  <h3 class="text-xs font-semibold">Prints &amp; diagnóstico</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                    Gera um JSON com tudo que o bot enxerga para diagnosticar sem foto.
+                  </p>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <button
+                      :for={
+                        {label, region} <- [
+                          {"Tela cheia", "screen"},
+                          {"Água", "glow"},
+                          {"Batalha", "battle"},
+                          {"Arena", "arena"},
+                          {"Skills", "skills"}
+                        ]
+                      }
+                      class="h-8 rounded-lg border border-[#2b353b] px-3 text-[10px] text-[#a3abb1] hover:border-[#37d07d]/60"
+                      phx-click="shot"
+                      phx-value-region={region}
+                    >{label}</button>
+                  </div>
+                  <button
+                    class="mt-3 h-10 w-full rounded-lg border border-[#30cf75] text-xs font-bold text-[#38dc80] hover:bg-[#102019]"
+                    phx-click="export_diagnostic"
+                  >Exportar diagnóstico (JSON)</button>
+                  <figure :if={@capture_src} class="mt-3">
+                    <figcaption class="mb-1 text-[10px] text-[#7d8790]">{@capture_label}</figcaption><img
+                      src={@capture_src}
+                      class="max-h-64 rounded-lg border border-[#283138]"
+                    />
+                  </figure>
+                  <p
+                    :if={@capture_label && is_nil(@capture_src)}
+                    class="mt-2 text-[10px] text-[#ff929b]"
+                  >
+                    {@capture_label}
+                  </p>
+                  <div
+                    :if={@report}
+                    class="mt-3 rounded-lg border border-[#263038] bg-[#090d0f] p-3 text-[10px] text-[#89939a]"
+                  >
+                    <div class="flex justify-between">
+                      <span class="font-semibold text-[#37d07d]">{@report_msg}</span><a
+                        :if={@report_src}
+                        href={@report_src}
+                        download
+                        class="text-[#37d07d] underline"
+                      >baixar JSON</a>
+                    </div>
+                    <% matrix = gi(@report, [:regions, :battle_body, :matrix]) %>
+                    <div :if={matrix} class="mt-3">
+                      <p class="mb-1">matriz do painel Batalha ({matrix.cols}×{matrix.rows})</p><div
+                        class="inline-grid gap-px rounded border border-[#263038] bg-black p-1"
+                        style={"grid-template-columns: repeat(#{matrix.cols}, 8px)"}
+                      >
+                        <div
+                          :for={cell <- List.flatten(matrix.cells)}
+                          class="size-2"
+                          style={cell_style(cell)}
+                          title={to_string(cell.class)}
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              </section>
+                </section>
 
-              <nav class="grid grid-cols-3 gap-2 border-t border-[#232b30] pt-4 text-center text-[10px]">
-                <.link
-                  navigate={~p"/calibration"}
-                  class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
-                >Calibração</.link><.link
-                  navigate={~p"/diagnostics"}
-                  class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
-                >Diagnóstico</.link><.link
-                  navigate={~p"/fishing-lab"}
-                  class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
-                >Laboratório</.link>
-              </nav>
+                <nav class="grid grid-cols-3 gap-2 border-t border-[#232b30] pt-4 text-center text-[10px]">
+                  <.link
+                    navigate={~p"/calibration"}
+                    class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
+                  >Calibração</.link><.link
+                    navigate={~p"/diagnostics"}
+                    class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
+                  >Diagnóstico</.link><.link
+                    navigate={~p"/fishing-lab"}
+                    class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
+                  >Laboratório</.link>
+                </nav>
+              </div>
+            </details>
+
+            <div class="flex items-start gap-2 rounded-lg border border-[#6b2b32] bg-[#241114] px-3 py-3 text-[10px] leading-relaxed text-[#f0a0a7]">
+              <.icon name="hero-hand-raised" class="mt-0.5 size-4 shrink-0 text-[#ffbf51]" /><p>
+                <strong>Botão de pânico:</strong>
+                jogue o mouse no canto superior-esquerdo e o bot para na hora.
+              </p>
             </div>
-          </details>
-
-          <div class="flex items-start gap-2 rounded-lg border border-[#6b2b32] bg-[#241114] px-3 py-3 text-[10px] leading-relaxed text-[#f0a0a7]">
-            <.icon name="hero-hand-raised" class="mt-0.5 size-4 shrink-0 text-[#ffbf51]" /><p>
-              <strong>Botão de pânico:</strong>
-              jogue o mouse no canto superior-esquerdo e o bot para na hora.
-            </p>
           </div>
         </main>
       </div>

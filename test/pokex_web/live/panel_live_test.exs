@@ -27,6 +27,26 @@ defmodule PokexWeb.PanelLiveTest do
     refute has_element?(view, "#calib-stale-banner")
   end
 
+  test "the feed filter isolates one worker's lines and toggles off", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    send(view.pid, {:fishing_log, :macro, "linha-da-pesca"})
+    send(view.pid, {:combat_log, :macro, "linha-do-combate"})
+
+    html = render(view)
+    assert html =~ "linha-da-pesca"
+    assert html =~ "linha-do-combate"
+
+    view |> element("button[phx-value-source='🎣']") |> render_click()
+    html = render(view)
+    assert html =~ "linha-da-pesca"
+    refute html =~ "linha-do-combate"
+
+    # click the same chip again → filter cleared
+    view |> element("button[phx-value-source='🎣']") |> render_click()
+    assert render(view) =~ "linha-do-combate"
+  end
+
   @tag :tmp_dir
   test "start without calibration shows preflight error", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

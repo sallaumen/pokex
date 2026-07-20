@@ -174,6 +174,47 @@ defmodule PokexWeb.PanelLiveTest do
     refute has_element?(view, "#session-rates")
   end
 
+  test "condição de parada atingida: alarme 🛑 e o relógio da sessão some", %{conn: conn} do
+    at = System.monotonic_time(:millisecond)
+    Pokex.Perception.WorldState.put(:session, %{started_at: at - 5_000}, at)
+
+    {:ok, view, _} = live(conn, ~p"/")
+    assert has_element?(view, "#session-duration")
+
+    # what the real stop does first: the fleet halt forgets the fact
+    Pokex.Perception.WorldState.forget(:session)
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "combat",
+      {:session_stop, "meta de kills atingida (200/200)"}
+    )
+
+    assert_push_event(view, "alarm", %{text: text})
+    assert text =~ "meta de kills"
+    assert render(view) =~ "caçada parada"
+    refute has_element?(view, "#session-duration")
+  end
+
+  test "o form das condições de parada persiste minutos e kills", %{conn: conn} do
+    minutes = Pokex.Settings.get(:stop_after_minutes)
+    kills = Pokex.Settings.get(:stop_after_kills)
+
+    on_exit(fn ->
+      Pokex.Settings.put(:stop_after_minutes, minutes)
+      Pokex.Settings.put(:stop_after_kills, kills)
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view
+    |> form("#stop-conditions-form", %{"stop_minutes" => "120", "stop_kills" => "200"})
+    |> render_change()
+
+    assert Pokex.Settings.get(:stop_after_minutes) == 120
+    assert Pokex.Settings.get(:stop_after_kills) == 200
+  end
+
   test "um erro NOVO de worker dispara o alarme uma vez; o gap dedupa a recaída", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 

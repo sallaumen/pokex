@@ -78,6 +78,8 @@ defmodule PokexWeb.PanelLive do
        alarm_sound: Settings.get(:alarm_sound),
        alarm_last: %{},
        session_started_at: session_started_at(),
+       stop_after_minutes: Settings.get(:stop_after_minutes),
+       stop_after_kills: Settings.get(:stop_after_kills),
        player_mode: Settings.get(:player_mode),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
        loot_enabled: Settings.get(:loot_enabled),
@@ -308,6 +310,18 @@ defmodule PokexWeb.PanelLive do
   # to STAY stopped, so this must stay idempotent: only the first panic (the
   # transition) idles the pills and logs; repeats are a safe, silent no-op so
   # the feed doesn't fill up with duplicate spam.
+  # A stop condition fired (Guardian): the fleet is already halting (workers
+  # broadcast their own idle snapshots) — ring the alarm with the MET GOAL and
+  # drop the session clock. Not a panic: no red banner, just the record.
+  def handle_info({:session_stop, reason}, socket) do
+    socket =
+      socket
+      |> alarm(:session_stop, "🛑 caçada parada: #{reason}")
+      |> assign(session_started_at: nil)
+
+    {:noreply, socket}
+  end
+
   def handle_info({:panic, _reason}, %{assigns: %{panicked?: true}} = socket),
     do: {:noreply, socket}
 
@@ -368,6 +382,15 @@ defmodule PokexWeb.PanelLive do
     next = not Settings.get(:alarm_sound)
     Settings.put(:alarm_sound, next)
     {:noreply, assign(socket, alarm_sound: next)}
+  end
+
+  def handle_event("save_stop_conditions", params, socket) do
+    socket =
+      socket
+      |> save_int(params["stop_minutes"], 0..999, :stop_after_minutes, :stop_after_minutes)
+      |> save_int(params["stop_kills"], 0..9999, :stop_after_kills, :stop_after_kills)
+
+    {:noreply, socket}
   end
 
   def handle_event("toggle_fishing", _params, socket),
@@ -1742,6 +1765,36 @@ defmodule PokexWeb.PanelLive do
                   </div>
                 </div>
               </div>
+              <form
+                id="stop-conditions-form"
+                phx-change="save_stop_conditions"
+                title="Condições de parada: ao bater o limite, TUDO para (como o Stop) e o alarme toca; nada religa até você apertar Iniciar. 0 = nunca."
+                class="mt-1.5 flex items-center gap-1 px-0.5 font-mono text-[9px] text-[#737d85]"
+              >
+                <span>🛑 parar após</span>
+                <input
+                  id="stop-minutes"
+                  name="stop_minutes"
+                  type="number"
+                  min="0"
+                  max="999"
+                  value={@stop_after_minutes}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                />
+                <span>min ·</span>
+                <input
+                  id="stop-kills"
+                  name="stop_kills"
+                  type="number"
+                  min="0"
+                  max="9999"
+                  value={@stop_after_kills}
+                  phx-debounce="500"
+                  class="h-6 w-14 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                />
+                <span>kills (0 = nunca)</span>
+              </form>
             </section>
 
             <section class="overflow-hidden rounded-lg border border-[#232b30] bg-[#111519]">

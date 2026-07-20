@@ -5,7 +5,32 @@ defmodule Pokex.Rig.Fake do
   use Agent
 
   def start_link(script \\ %{}) do
-    Agent.start_link(fn -> %{script: script, calls: []} end, name: __MODULE__)
+    case Agent.start_link(fn -> %{script: script, calls: []} end, name: __MODULE__) do
+      {:error, {:already_started, old}} ->
+        # The previous test's Fake is still UNWINDING: it is linked to a test
+        # process that already exited, but the exit signal is asynchronous, so
+        # the next test's setup can land in this gap. That race was the suite's
+        # "1 run in 5 fails one random test" ghost (measured 2026-07-20). Wait
+        # out the death instead of racing it; test files touching this global
+        # name are all async: false, so the holder is never a live test.
+        ref = Process.monitor(old)
+
+        receive do
+          {:DOWN, ^ref, :process, ^old, _reason} -> :ok
+        after
+          1_000 ->
+            Process.exit(old, :kill)
+
+            receive do
+              {:DOWN, ^ref, :process, ^old, _reason} -> :ok
+            end
+        end
+
+        start_link(script)
+
+      ok ->
+        ok
+    end
   end
 
   def calls, do: __MODULE__ |> Agent.get(& &1.calls) |> Enum.reverse()

@@ -122,6 +122,28 @@ window.addEventListener("phx:mini-game-transition", event => {
   playMiniGameTone(event.detail?.transition)
 })
 
+// Session ALARM (worker error / critical HP): two urgent bursts, pitched a
+// third below the mini-game's so the ear tells them apart.
+window.addEventListener("phx:alarm", () => {
+  const AudioContext = window.AudioContext || window.webkitAudioContext
+  if (!AudioContext) return
+
+  miniGameAudioContext = miniGameAudioContext || new AudioContext()
+  if (miniGameAudioContext.state === "suspended") {
+    miniGameAudioContext.resume().catch(() => {})
+  }
+
+  const now = miniGameAudioContext.currentTime
+  for (let burst = 0; burst < 2; burst++) {
+    playMiniGameChirp(miniGameAudioContext, [659.25, 987.77], now + burst * 0.5, {
+      type: "square",
+      peak: 0.35,
+      noteLength: 0.2,
+      gap: 0.16,
+    })
+  }
+})
+
 // Show progress bar on live navigation and form submits
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))

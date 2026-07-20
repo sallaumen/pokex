@@ -4,7 +4,12 @@ defmodule PokexWeb.PanelLiveTest do
 
   setup do
     {:ok, _} = Pokex.Rig.Fake.start_link()
-    on_exit(fn -> Pokex.Perception.WorldState.forget(:calibration) end)
+
+    on_exit(fn ->
+      Pokex.Perception.WorldState.forget(:calibration)
+      Pokex.Perception.WorldState.forget(:session)
+    end)
+
     :ok
   end
 
@@ -148,6 +153,84 @@ defmodule PokexWeb.PanelLiveTest do
     html = render(view)
     assert html =~ "detector confuso"
     assert html =~ "leitura de vida falhou"
+  end
+
+  test "sessão ativa mostra duração e taxas por hora no header", %{conn: conn} do
+    at = System.monotonic_time(:millisecond)
+    Pokex.Perception.WorldState.put(:session, %{started_at: at - 65_000}, at)
+    on_exit(fn -> Pokex.Perception.WorldState.forget(:session) end)
+
+    {:ok, view, html} = live(conn, ~p"/")
+
+    assert has_element?(view, "#session-duration")
+    assert html =~ "1m05s"
+    assert html =~ "kills/h"
+    assert html =~ "capturas/h"
+  end
+
+  test "sem sessão: nem relógio nem taxas", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+    refute has_element?(view, "#session-duration")
+    refute has_element?(view, "#session-rates")
+  end
+
+  test "um erro NOVO de worker dispara o alarme uma vez; o gap dedupa a recaída", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    err = %{state: :error, counters: %{cycles: 0, hooked: 0, failures: 1}, error: "vara sumiu"}
+    ok = %{err | state: :watching, error: nil}
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, err})
+    assert_push_event(view, "alarm", %{text: text})
+    assert text =~ "pesca em erro: vara sumiu"
+    assert render(view) =~ "🔔"
+
+    # clears and errors again INSIDE the min gap → the edge exists but the dedupe holds
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, ok})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, err})
+    render(view)
+    refute_push_event(view, "alarm", %{text: _})
+  end
+
+  test "alarme mudo: sem som, mas o feed 🔔 registra", %{conn: conn} do
+    sound = Pokex.Settings.get(:alarm_sound)
+    on_exit(fn -> Pokex.Settings.put(:alarm_sound, sound) end)
+    Pokex.Settings.put(:alarm_sound, false)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    err = %{
+      state: :error,
+      counters: %{fights: 0, failures: 1},
+      error: "tab não pegou",
+      locked_row: nil
+    }
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat, err})
+
+    assert render(view) =~ "batalha em erro: tab não pegou"
+    refute_push_event(view, "alarm", %{text: _})
+  end
+
+  test "vida cruzando o limiar de resgate dispara o alarme de vida crítica", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    base = %{
+      state: :monitoring,
+      hp_pct: 80,
+      enabled?: false,
+      last_rescue_at: nil,
+      counters: %{rescues: 0, potions: 0, reads: 1, failures: 0, repositions: 0},
+      error: nil
+    }
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:game, base})
+    render(view)
+    refute_push_event(view, "alarm", %{text: _})
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:game, %{base | hp_pct: 20}})
+    assert_push_event(view, "alarm", %{text: text})
+    assert text =~ "vida crítica: 20%"
   end
 
   test "a combat broadcast updates only the combat pill, including the locked row", %{conn: conn} do

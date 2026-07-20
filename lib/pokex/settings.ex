@@ -225,6 +225,12 @@ defmodule Pokex.Settings do
     # Browser alert on enter/leave (panel mute button). Muting stops the panel
     # from pushing the sound event at all.
     mini_game_sound: true,
+    # Session ALARMS (panel): sound on a worker error edge or the Pokémon's HP
+    # crossing below the rescue threshold. Deduplicated per alarm type by
+    # alarm_min_gap_ms (KizuBot's antiSpamInterval) — a flapping error can't
+    # turn the panel into a siren. Muting stops the push entirely.
+    alarm_sound: true,
+    alarm_min_gap_ms: 30_000,
     # Max age of the :mini_game WorldState fact before readers treat it as unknown
     # (= not playing, fail-open). The worker republishes every tick (80-150ms), so
     # 2s only trips when the worker is dead or a capture is badly stuck — exactly

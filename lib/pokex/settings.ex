@@ -202,6 +202,14 @@ defmodule Pokex.Settings do
     # brake_up MEASURED from live game traces (2026-07-11, 4 games): falling
     # acceleration ≈ 0.7-0.95 track/s² — and Lucas's independent "press 0.7x
     # as long" intuition lands on the same number (1.2 * 0.7 ≈ 0.84).
+    # Fish readings implying a faster-than-possible jump are MISREADS (the fish tops out
+    # ~1.3 track/s, measured 2026-07-20; the phantom teleports implied 3-5): the pilot holds
+    # its last plausible aim instead of chasing them...
+    mini_game_fish_max_speed: 2.0,
+    # ...unless the last plausible reading is older than this — then the new reading is
+    # adopted and the history restarts (bounded blindness beats chasing ghosts, and a fresh
+    # start beats blending a velocity across the warp).
+    mini_game_fish_reacquire_ms: 700,
     mini_game_brake_up: 0.8,
     mini_game_brake_down: 3.0,
     # Browser alert on enter/leave (panel mute button). Muting stops the panel

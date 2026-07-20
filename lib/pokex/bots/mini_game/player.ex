@@ -163,7 +163,16 @@ defmodule Pokex.Bots.MiniGame.Player do
 
     case Track.read(frame, track_bar) do
       {:ok, %{fish_y: fish_y, bar_y: bar_y, bar_source: bar_source}} ->
-        fish = push_observation(player.fish, %{y: fish_y, at: captured_at})
+        # Fish readings pass the plausibility gate: a teleporting misread must
+        # not re-aim the pilot (it flew the capsule to the track top while the
+        # real fish sat at the bottom — live traces, 2026-07-20).
+        fish =
+          player.fish
+          |> Pilot.accept_target(%{y: fish_y, at: captured_at},
+            max_speed: Settings.get(:mini_game_fish_max_speed),
+            reacquire_ms: Settings.get(:mini_game_fish_reacquire_ms)
+          )
+          |> Enum.take(-@observation_cap)
 
         capsule =
           push_observation(player.capsule, %{y: bar_y, at: captured_at, source: bar_source})
@@ -199,6 +208,7 @@ defmodule Pokex.Bots.MiniGame.Player do
           t: captured_at,
           cap_ms: capture_ms,
           fish: Float.round(fish_y, 4),
+          aim: Float.round(List.last(fish).y, 4),
           bar: Float.round(bar_y, 4),
           src: bar_source,
           target: decision.target_y && Float.round(decision.target_y, 4),

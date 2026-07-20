@@ -88,6 +88,48 @@ defmodule Pokex.CalibrationTest do
     assert old.mini_game_region == nil
   end
 
+  @tag :tmp_dir
+  test "pokemon_spot_point round-trips, nil for older files", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "calibration.json")
+
+    Calibration.save(%{sample() | pokemon_spot_point: {450, 380}}, path)
+    assert {:ok, loaded} = Calibration.load(path)
+    assert loaded.pokemon_spot_point == {450, 380}
+
+    Calibration.save(sample(), path)
+    assert {:ok, old} = Calibration.load(path)
+    assert old.pokemon_spot_point == nil
+  end
+
+  @tag :tmp_dir
+  test "profiles: save/list/apply/delete round-trip", %{tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    assert Calibration.list_profiles() == []
+
+    Calibration.save(sample())
+    assert {:ok, "dois-monitores"} = Calibration.save_profile("Dois Monitores!")
+
+    assert [profile] = Calibration.list_profiles()
+    assert profile.name == "dois-monitores"
+    assert profile.screen_w == 1728
+    assert is_integer(profile.saved_at)
+
+    # overwrite the active calibration, then the profile brings it back
+    Calibration.save(%{sample() | screen_w: 999})
+    assert {:ok, restored} = Calibration.apply_profile("dois-monitores")
+    assert restored.screen_w == 1728
+    assert {:ok, active} = Calibration.load()
+    assert active.screen_w == 1728
+
+    assert :ok = Calibration.delete_profile("dois-monitores")
+    assert Calibration.list_profiles() == []
+
+    # invalid names never touch the filesystem
+    assert {:error, :invalid_name} = Calibration.save_profile("///")
+  end
+
   test "derived regions and conversion" do
     calib = sample()
     assert Calibration.battle_strip(calib) == {1610, 120, 30, 220}

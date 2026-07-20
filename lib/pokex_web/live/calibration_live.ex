@@ -44,7 +44,10 @@ defmodule PokexWeb.CalibrationLive do
         "deste lugar (deixe uma folga de 1-2 tiles pra cada lado da barra).",
     mini_game_b:
       "Canto INFERIOR-DIREITO da mesma faixa — cubra a altura TODA da barra, sem pegar os " <>
-        "painéis escuros da lateral (Battle/bolsa)."
+        "painéis escuros da lateral (Battle/bolsa).",
+    pokemon_spot:
+      "Clique no TILE onde o seu Pokémon deve FICAR (a posição estratégica de ataque). " <>
+        "Depois das lutas, o suporte manda ele de volta pra cá com um clique do meio."
   }
 
   @impl true
@@ -62,6 +65,7 @@ defmodule PokexWeb.CalibrationLive do
        baselines_done: 0,
        done: false,
        calibrated?: Calibration.exists?(),
+       profiles: load_profiles(),
        review: nil,
        error: nil,
        skillbar_msg: nil,
@@ -149,6 +153,74 @@ defmodule PokexWeb.CalibrationLive do
          screen: screen,
          step: :mini_game_a,
          mode: :mini_game_only,
+         draft: %{},
+         done: false,
+         review: nil,
+         error: nil,
+         skillbar_msg: nil,
+         zoom_at: nil
+       )}
+    else
+      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    end
+  end
+
+  # --- calibration profiles: save the current one, apply/delete a saved one ----
+
+  def handle_event("save_profile", %{"profile_name" => name}, socket) do
+    case Calibration.save_profile(name) do
+      {:ok, slug} ->
+        # best-effort thumbnail so the list shows WHICH layout this was; a failed
+        # capture just means no image on the card
+        Capture.screen(profile_thumb_file(slug))
+
+        {:noreply,
+         assign(socket,
+           profiles: load_profiles(),
+           error: nil,
+           skillbar_msg: "Perfil \"#{slug}\" salvo com a calibração atual."
+         )}
+
+      {:error, :invalid_name} ->
+        {:noreply, assign(socket, error: "nome de perfil inválido — use letras/números")}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, error: "não deu pra salvar o perfil: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("apply_profile", %{"name" => name}, socket) do
+    case Calibration.apply_profile(name) do
+      {:ok, calib} ->
+        {:noreply,
+         assign(socket,
+           calibrated?: true,
+           error: nil,
+           skillbar_msg:
+             "Perfil \"#{name}\" aplicado (#{calib.screen_w}×#{calib.screen_h}). " <>
+               "Reinicie os bots (Parar/Iniciar) pra valer."
+         )}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, error: "não deu pra aplicar o perfil: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("delete_profile", %{"name" => name}, socket) do
+    Calibration.delete_profile(name)
+    {:noreply, assign(socket, profiles: load_profiles(), skillbar_msg: "Perfil excluído.")}
+  end
+
+  # Standalone correction: mark only where the Pokémon should STAND (the strategic
+  # attack tile the support worker middle-clicks after battles).
+  def handle_event("calibrate_pokemon_spot", _params, socket) do
+    with {:ok, screen} <- grab_screen("pokemon_spot_probe.png") do
+      {:noreply,
+       assign(socket,
+         scale: screen.scale,
+         screen: screen,
+         step: :pokemon_spot,
+         mode: :pokemon_spot_only,
          draft: %{},
          done: false,
          review: nil,
@@ -491,6 +563,9 @@ defmodule PokexWeb.CalibrationLive do
       :mini_game_b ->
         save_mini_game_region(socket, region_from(draft.mini_game_a, point))
 
+      :pokemon_spot ->
+        save_pokemon_spot(socket, point)
+
       _ ->
         socket
     end
@@ -557,6 +632,45 @@ defmodule PokexWeb.CalibrationLive do
           step: nil,
           screen: nil,
           error: "não deu pra salvar a faixa do minigame: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp profile_thumb_file(slug), do: "calib_profile_#{slug}.png"
+
+  defp load_profiles do
+    Enum.map(Calibration.list_profiles(), fn profile ->
+      thumb = Path.join(Home.captures_dir(), profile_thumb_file(profile.name))
+
+      thumb_src =
+        if File.exists?(thumb),
+          do:
+            "/captures/#{profile_thumb_file(profile.name)}?t=#{System.unique_integer([:positive])}"
+
+      Map.put(profile, :thumb_src, thumb_src)
+    end)
+  end
+
+  defp save_pokemon_spot(socket, point) do
+    case Calibration.load() do
+      {:ok, calib} ->
+        Calibration.save(%{calib | pokemon_spot_point: point})
+
+        assign(socket,
+          draft: %{},
+          step: nil,
+          screen: nil,
+          calibrated?: true,
+          skillbar_msg:
+            "Posição do Pokémon salva em #{inspect(point)} — ligue \"Reposicionar após lutas\" " <>
+              "no painel pra usar."
+        )
+
+      {:error, reason} ->
+        assign(socket,
+          step: nil,
+          screen: nil,
+          error: "não deu pra salvar a posição do Pokémon: #{inspect(reason)}"
         )
     end
   end
@@ -628,7 +742,8 @@ defmodule PokexWeb.CalibrationLive do
         :hp_b,
         :photo,
         :mini_game_a,
-        :mini_game_b
+        :mini_game_b,
+        :pokemon_spot
       ]
 
   defp step_index(:water), do: 1
@@ -764,7 +879,65 @@ defmodule PokexWeb.CalibrationLive do
               <button class="btn btn-ghost btn-sm" phx-click="calibrate_mini_game">
                 <.icon name="hero-flag" class="size-4" /> Só o minigame
               </button>
+              <button class="btn btn-ghost btn-sm" phx-click="calibrate_pokemon_spot">
+                <.icon name="hero-map-pin" class="size-4" /> Posição do Pokémon
+              </button>
             </div>
+          </div>
+
+          <div
+            :if={@calibrated? or @profiles != []}
+            class="mt-2 space-y-2 border-t border-base-content/10 pt-3"
+          >
+            <p class="text-xs font-semibold opacity-70">
+              Perfis salvos (um por layout de monitor)
+            </p>
+            <form
+              :if={@calibrated?}
+              id="profile-form"
+              phx-submit="save_profile"
+              class="mx-auto flex max-w-xs gap-2"
+            >
+              <input
+                name="profile_name"
+                placeholder="ex: 2-monitores"
+                class="input input-bordered input-sm min-w-0 flex-1"
+              />
+              <button class="btn btn-primary btn-sm">Salvar atual</button>
+            </form>
+            <ul :if={@profiles != []} class="space-y-1.5">
+              <li
+                :for={profile <- @profiles}
+                class="flex items-center gap-3 rounded-lg border border-base-content/10 bg-base-100 px-3 py-2 text-left"
+              >
+                <img
+                  :if={profile.thumb_src}
+                  src={profile.thumb_src}
+                  class="h-10 w-16 shrink-0 rounded border border-base-content/20 object-cover"
+                />
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-semibold">{profile.name}</p>
+                  <p class="font-mono text-[10px] opacity-60">
+                    {profile.screen_w}×{profile.screen_h} pt · escala {profile.scale}
+                  </p>
+                </div>
+                <button
+                  class="btn btn-success btn-xs"
+                  phx-click="apply_profile"
+                  phx-value-name={profile.name}
+                >
+                  Usar
+                </button>
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="delete_profile"
+                  phx-value-name={profile.name}
+                  data-confirm={"Excluir o perfil \"#{profile.name}\"?"}
+                >
+                  <.icon name="hero-trash" class="size-3.5" />
+                </button>
+              </li>
+            </ul>
           </div>
         </div>
 

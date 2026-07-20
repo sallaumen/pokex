@@ -19,7 +19,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.{Calibration, Settings, Vision}
 
   @topic "game"
-  @default_counters %{rescues: 0, potions: 0, reads: 0, failures: 0}
+  @default_counters %{rescues: 0, potions: 0, reads: 0, failures: 0, repositions: 0}
 
   def topic, do: @topic
 
@@ -39,6 +39,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # first monotonic ms of the CURRENT battle-free streak of potion-gate reads
       # (nil = last read saw combat, or the potion isn't due so nobody is watching)
       battle_clear_since: nil,
+      # reposition: a battle was seen since the last reposition (something to undo)
+      reposition_pending?: false,
+      reposition_clear_since: nil,
       error: nil,
       counters: @default_counters
     }
@@ -140,6 +143,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
           %{state | hp_pct: nil, error: "sem calibração"}
       end
 
+    state = maybe_reposition(state)
+
     # Chatter guard: only push a snapshot when the HP reading or a counter actually moved, so the
     # tick doesn't flood the panel with identical frames.
     if changed?(previous, state), do: broadcast(state)
@@ -213,6 +218,65 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       end
     else
       %{state | battle_clear_since: nil}
+    end
+  end
+
+  # After every battle, send the Pokémon back to its calibrated strategic tile with a
+  # MIDDLE click (the game's "step here" command) — battles drag it off the spot where
+  # it hits several enemies at once. Same battle-clear caution as the potion, on its
+  # own window/clock: battle presence comes from the :battle fact (a free ETS read),
+  # so no combat running = no battles seen = nothing to undo. The click needs the
+  # native key-event helper (cliclick has no middle button); a failed click keeps
+  # reposition_pending? so the next clear window retries.
+  defp maybe_reposition(state) do
+    with true <- Settings.get(:reposition_enabled),
+         {:ok, %Calibration{pokemon_spot_point: point}} when is_tuple(point) <-
+           Calibration.load(),
+         true <- InputGate.allowed?() do
+      case battle_now() do
+        :engaged -> %{state | reposition_pending?: true, reposition_clear_since: nil}
+        :clear -> reposition_after_clear_window(state, point)
+        :unknown -> state
+      end
+    else
+      _off_or_uncalibrated_or_gated -> state
+    end
+  end
+
+  defp battle_now do
+    case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now()) do
+      {:ok, obs} -> if engaged?(obs), do: :engaged, else: :clear
+      _stale_or_missing -> :unknown
+    end
+  end
+
+  defp reposition_after_clear_window(%{reposition_pending?: false} = state, _point), do: state
+
+  defp reposition_after_clear_window(state, point) do
+    at = now()
+    since = state.reposition_clear_since || at
+    state = %{state | reposition_clear_since: since}
+
+    if at - since >= Settings.get(:reposition_battle_clear_ms) do
+      # through the Body like every mouse action (serialization, cursor restore,
+      # mini-game gate); :normal priority — positioning never preempts anything
+      case Body.perform([{:click, :middle, point}], :normal, state.body) do
+        :ok ->
+          broadcast_log(:macro, "🐾 pokémon reposicionado no ponto calibrado")
+
+          %{
+            state
+            | reposition_pending?: false,
+              reposition_clear_since: nil,
+              counters: bump(state.counters, :repositions)
+          }
+
+        {:error, reason} ->
+          broadcast_log(:debug, "reposicionar falhou (helper nativo?): #{inspect(reason)}")
+          %{state | reposition_clear_since: nil}
+      end
+    else
+      state
     end
   end
 

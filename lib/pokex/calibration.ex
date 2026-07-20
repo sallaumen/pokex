@@ -23,6 +23,9 @@ defmodule Pokex.Calibration do
     # dependency on arena coverage. Without it, detection anchors in
     # arena_region as before.
     :mini_game_region,
+    # Optional: where the active Pokémon should STAND (the strategic attack tile).
+    # PlayerSupport middle-clicks this point after battles to send it back there.
+    :pokemon_spot_point,
     # Optional for backwards compatibility with calibrations created before the
     # skill bar became part of the main wizard.
     :skill_bar_region,
@@ -60,6 +63,7 @@ defmodule Pokex.Calibration do
       "neutral_point" => Tuple.to_list(calib.neutral_point),
       "player_point" => calib.player_point && Tuple.to_list(calib.player_point),
       "mini_game_region" => calib.mini_game_region && Tuple.to_list(calib.mini_game_region),
+      "pokemon_spot_point" => calib.pokemon_spot_point && Tuple.to_list(calib.pokemon_spot_point),
       "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
       "skill_bar_count" => calib.skill_bar_count,
       "skill_slot_refs" =>
@@ -90,6 +94,7 @@ defmodule Pokex.Calibration do
          neutral_point: to_tuple(map["neutral_point"]),
          player_point: to_tuple(map["player_point"]),
          mini_game_region: to_tuple(map["mini_game_region"]),
+         pokemon_spot_point: to_tuple(map["pokemon_spot_point"]),
          skill_bar_region: to_tuple(map["skill_bar_region"]),
          skill_bar_count: map["skill_bar_count"],
          skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),
@@ -100,6 +105,85 @@ defmodule Pokex.Calibration do
          suggested_glow_threshold: map["suggested_glow_threshold"]
        }}
     end
+  end
+
+  # --- profiles -------------------------------------------------------------
+  # Named snapshots of a whole calibration (~/.pokex/calibrations/<slug>.json):
+  # one per monitor layout, so plugging the second monitor back in is a one-click
+  # switch instead of a full wizard redo.
+
+  @doc "Saves the CURRENT calibration under `name`. {:ok, slug} | {:error, reason}."
+  def save_profile(name) do
+    with {:ok, slug} <- profile_slug(name),
+         {:ok, calib} <- load() do
+      File.mkdir_p!(profiles_dir())
+      save(calib, profile_path(slug))
+      {:ok, slug}
+    end
+  end
+
+  @doc "Makes the named profile the ACTIVE calibration. {:ok, calib} | {:error, reason}."
+  def apply_profile(name) do
+    with {:ok, slug} <- profile_slug(name),
+         {:ok, calib} <- load(profile_path(slug)) do
+      save(calib)
+      {:ok, calib}
+    end
+  end
+
+  def delete_profile(name) do
+    with {:ok, slug} <- profile_slug(name) do
+      File.rm(profile_path(slug))
+      :ok
+    end
+  end
+
+  @doc "Every saved profile: name, screen dims/scale and saved-at (unix seconds)."
+  def list_profiles do
+    case File.ls(profiles_dir()) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.ends_with?(&1, ".json"))
+        |> Enum.sort()
+        |> Enum.map(&profile_entry/1)
+
+      {:error, _no_dir_yet} ->
+        []
+    end
+  end
+
+  defp profile_entry(file) do
+    slug = String.trim_trailing(file, ".json")
+    path = profile_path(slug)
+
+    dims =
+      case load(path) do
+        {:ok, calib} -> %{screen_w: calib.screen_w, screen_h: calib.screen_h, scale: calib.scale}
+        _corrupt -> %{screen_w: nil, screen_h: nil, scale: nil}
+      end
+
+    saved_at =
+      case File.stat(path, time: :posix) do
+        {:ok, %File.Stat{mtime: mtime}} -> mtime
+        _stat_error -> nil
+      end
+
+    Map.merge(%{name: slug, saved_at: saved_at}, dims)
+  end
+
+  defp profiles_dir, do: Path.join(Pokex.Home.dir(), "calibrations")
+  defp profile_path(slug), do: Path.join(profiles_dir(), slug <> ".json")
+
+  defp profile_slug(name) do
+    slug =
+      name
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9_-]+/u, "-")
+      |> String.trim("-")
+
+    if slug == "", do: {:error, :invalid_name}, else: {:ok, slug}
   end
 
   def battle_strip(%__MODULE__{battle_region: region}), do: battle_strip(region)

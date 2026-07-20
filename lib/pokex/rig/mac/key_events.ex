@@ -48,6 +48,19 @@ defmodule Pokex.Rig.Mac.KeyEvents do
     :exit, _reason -> :unavailable
   end
 
+  @doc """
+  Middle click at a screen point (the game's "step here" command for the active
+  Pokémon). There is NO fallback path: cliclick and osascript can't post a
+  middle button, so `{:error, _}` here means the click did not happen.
+  """
+  @spec middle_click({number, number}, String.t() | nil, GenServer.server()) ::
+          :ok | {:error, term}
+  def middle_click({x, y}, app \\ nil, server \\ __MODULE__) do
+    GenServer.call(server, {:middle_click, x, y, app}, @command_timeout_ms + 500)
+  catch
+    :exit, _reason -> {:error, :unavailable}
+  end
+
   @impl true
   def init(opts) do
     # An explicit :executable (tests, power users) always runs; otherwise the
@@ -101,6 +114,24 @@ defmodule Pokex.Rig.Mac.KeyEvents do
       |> maybe_put_app(app)
       |> JSON.encode!()
 
+    send_command(request, state)
+  end
+
+  def handle_call({:middle_click, _x, _y, _app}, _from, %{status: status} = state)
+      when status != :ready do
+    {:reply, {:error, status}, state}
+  end
+
+  def handle_call({:middle_click, x, y, app}, _from, state) do
+    request =
+      %{op: "middle_click", x: x, y: y}
+      |> maybe_put_app(app)
+      |> JSON.encode!()
+
+    send_command(request, state)
+  end
+
+  defp send_command(request, state) do
     with true <- safe_port_command(state.port, request <> "\n"),
          {:ok, %{"ok" => true}} <- read_line(state.port, @command_timeout_ms) do
       {:reply, :ok, state}

@@ -330,4 +330,94 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.water_point == {50, 30}
     assert calib.arena_region == {20, 20, 60, 40}
   end
+
+  @tag :tmp_dir
+  test "standalone Pokémon-spot calibration merges pokemon_spot_point into the saved calibration",
+       %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      arena_region: {20, 20, 60, 40},
+      neutral_point: {52, 36},
+      glow_baselines: [],
+      suggested_glow_threshold: 15.0
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} =
+      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration")
+
+    view |> element("button", "Posição do Pokémon") |> render_click()
+    assert render(view) =~ "TILE"
+    assert has_element?(view, "#calibration-screen")
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    click.(35.0, 20.0)
+
+    assert render(view) =~ "Posição do Pokémon salva"
+    assert {:ok, calib} = Calibration.load()
+    assert calib.pokemon_spot_point == {70, 40}
+    assert calib.water_point == {50, 30}
+  end
+
+  @tag :tmp_dir
+  test "profiles: save the current calibration, apply it back after it changes", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 1.0,
+      screen_w: 3440,
+      screen_h: 1440,
+      water_point: {50, 30},
+      glow_region: {18, 2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      arena_region: {20, 20, 60, 40},
+      neutral_point: {52, 36},
+      glow_baselines: [],
+      suggested_glow_threshold: 15.0
+    })
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{})
+    {:ok, view, _} = live(conn, ~p"/calibration")
+
+    view
+    |> form("#profile-form", %{"profile_name" => "2 monitores"})
+    |> render_submit()
+
+    html = render(view)
+    assert html =~ "Perfil &quot;2-monitores&quot; salvo"
+    assert html =~ "2-monitores"
+    assert html =~ "3440×1440"
+
+    # the active calibration drifts; applying the profile restores it
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | screen_w: 111})
+
+    view |> element("button[phx-value-name='2-monitores']", "Usar") |> render_click()
+    assert render(view) =~ "Perfil &quot;2-monitores&quot; aplicado"
+    assert {:ok, restored} = Calibration.load()
+    assert restored.screen_w == 3440
+  end
 end

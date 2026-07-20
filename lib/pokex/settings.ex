@@ -266,6 +266,12 @@ defmodule Pokex.Settings do
     # post-kill gap and the game cancels the heal channel, wasting the potion. The
     # potion only fires after the battle has read CLEAR continuously for this long.
     potion_battle_clear_ms: 2_000,
+    # After every battle, middle-click the calibrated pokemon_spot_point to send the
+    # Pokémon back to its strategic tile (toggle in the panel). Same battle-clear
+    # caution as the potion, on its own window. Needs the native key-event helper
+    # (cliclick has no middle button).
+    reposition_enabled: false,
+    reposition_battle_clear_ms: 2_000,
     # --- Perception feeds -----------------------------------------------------------------------
     # Capture cadence per feed. A feed only captures while a consumer is attached, so these are
     # upper bounds on broker demand, not constant costs. battle is the combat hot path; arena has

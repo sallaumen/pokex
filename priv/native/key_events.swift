@@ -6,6 +6,8 @@
 //   <- {"ok":true}
 //   -> {"op":"key","action":"down"|"up"|"press","code":49,"app":"wine"}
 //   <- {"ok":true}
+//   -> {"op":"middle_click","x":1200,"y":640,"app":"wine"}
+//   <- {"ok":true}
 //
 // Ready line on boot: {"ready":true,"trusted":<bool>} — `trusted` is the
 // Accessibility (AXIsProcessTrusted) grant, WITHOUT which posted events are
@@ -53,9 +55,45 @@ struct KeyEventsHelper {
       emit(["ok": true])
     case "key":
       handleKey(json)
+    case "middle_click":
+      handleMiddleClick(json)
     default:
       emit(["ok": false, "error": "unknown_op:\(op)"])
     }
+  }
+
+  // Middle click at a screen point (the game's "step here" command for the
+  // active Pokémon). cliclick has no middle button, so this is the ONLY path.
+  static func handleMiddleClick(_ json: [String: Any]) {
+    guard let x = json["x"] as? Double ?? (json["x"] as? Int).map(Double.init),
+      let y = json["y"] as? Double ?? (json["y"] as? Int).map(Double.init)
+    else {
+      emit(["ok": false, "error": "bad_middle_click_command"])
+      return
+    }
+
+    if let app = json["app"] as? String {
+      ensureFrontmost(app)
+    }
+
+    let point = CGPoint(x: x, y: y)
+
+    guard
+      let down = CGEvent(
+        mouseEventSource: nil, mouseType: .otherMouseDown, mouseCursorPosition: point,
+        mouseButton: .center),
+      let up = CGEvent(
+        mouseEventSource: nil, mouseType: .otherMouseUp, mouseCursorPosition: point,
+        mouseButton: .center)
+    else {
+      emit(["ok": false, "error": "middle_click_event_failed"])
+      return
+    }
+
+    down.post(tap: .cghidEventTap)
+    usleep(12_000)
+    up.post(tap: .cghidEventTap)
+    emit(["ok": true])
   }
 
   static func handleKey(_ json: [String: Any]) {

@@ -193,6 +193,11 @@ defmodule Pokex.Settings do
     # Browser alert on enter/leave (panel mute button). Muting stops the panel
     # from pushing the sound event at all.
     mini_game_sound: true,
+    # Max age of the :mini_game WorldState fact before readers treat it as unknown
+    # (= not playing, fail-open). The worker republishes every tick (80-150ms), so
+    # 2s only trips when the worker is dead or a capture is badly stuck — exactly
+    # when peers must NOT stay frozen.
+    mini_game_fact_max_age_ms: 2_000,
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the
     # bot doesn't fish on a perfectly fixed cadence.

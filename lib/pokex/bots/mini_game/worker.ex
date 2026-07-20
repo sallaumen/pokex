@@ -2,27 +2,29 @@ defmodule Pokex.Bots.MiniGame.Worker do
   @moduledoc """
   Watches the arena for the fishing mini-game overlay.
 
-  On entry it pauses the regular fishing/combat/catcher workers and remembers
-  which ones were active, then PLAYS through `MiniGame.Player` (the engine
-  owning strip capture, pilot decisions, actuation and the physics trace).
-  On exit it releases Space, resumes the remembered workers and keeps the
-  panel informed. This module is lifecycle only — streaks, peers, guards.
+  On entry it PLAYS through `MiniGame.Player` (the engine owning strip capture,
+  pilot decisions, actuation and the physics trace); on exit it releases Space
+  and keeps the panel informed. This module is lifecycle only — streaks, the
+  blackboard fact, guards. It coordinates with NOBODY directly: peers hold
+  themselves on the `:mini_game` fact this worker publishes, and resume when it
+  clears (or goes stale — a crash here can never strand them).
 
-  Detection runs ONLY on this worker's own watch tick. The Body's input guards
-  (`guard_before_input`/`guard_after_input`) are a pure, non-blocking read of the cached
-  `in_game?` flag — they never capture, so an input never pays a synchronous screencapture.
+  Detection runs ONLY on this worker's own watch tick. Every tick publishes the
+  `:mini_game` fact on the WorldState blackboard — the Body and combat gate their
+  inputs on it (`Pokex.Perception.mini_game_gate/0`) with a lock-free ETS read,
+  so an input never blocks on this worker's mailbox or pays a screencapture.
   """
   use GenServer
 
   require Logger
 
-  alias Pokex.Bots.{Capture, Catcher, Combat, Fishing}
+  alias Pokex.Bots.Capture
   alias Pokex.Bots.MiniGame.{Detector, Player}
+  alias Pokex.Perception.WorldState
   alias Pokex.{Calibration, Settings}
 
   @topic "mini_game"
   @default_counters %{detections: 0, clears: 0, failures: 0}
-  @peer_keys [:fishing, :combat, :catcher]
 
   def topic, do: @topic
 
@@ -34,22 +36,12 @@ defmodule Pokex.Bots.MiniGame.Worker do
       timer: nil,
       running?: false,
       in_game?: false,
-      pause_ref: nil,
       present_streak: 0,
       absent_streak: 0,
       confidence: 0.0,
       error: nil,
       counters: @default_counters,
-      play: Player.new(),
-      paused_peers: [],
-      peers:
-        Keyword.get(opts, :peers, %{
-          fishing: Fishing.Worker,
-          combat: Combat.Worker,
-          catcher: Catcher.Worker
-        }),
-      pause_peers: Keyword.get(opts, :pause_peers, &default_pause_peers/1),
-      resume_peers: Keyword.get(opts, :resume_peers, &default_resume_peers/2)
+      play: Player.new()
     }
 
     case name do
@@ -62,23 +54,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
-  def guard_before_input(server \\ __MODULE__), do: guard(server, :guard_before_input)
-  def guard_after_input(server \\ __MODULE__), do: guard(server, :guard_after_input)
-
-  defp guard(nil, _message), do: :ok
-
-  defp guard(server, message) do
-    case GenServer.whereis(server) do
-      nil ->
-        :ok
-
-      _pid ->
-        GenServer.call(server, message, :infinity)
-    end
-  catch
-    :exit, _reason -> :ok
-  end
-
   @impl true
   def init(state) do
     # Space must never stay held: trapping exits guarantees terminate/2 runs on
@@ -90,6 +65,8 @@ defmodule Pokex.Bots.MiniGame.Worker do
   @impl true
   def terminate(_reason, state) do
     if state.in_game? or Player.holding?(state.play), do: Player.safe_key_up()
+    # a crashing worker must not leave a "playing" fact behind for its peers
+    WorldState.put(:mini_game, %{playing?: false, confidence: 0.0}, now_ms())
     :ok
   end
 
@@ -106,15 +83,14 @@ defmodule Pokex.Bots.MiniGame.Worker do
             calib: calib,
             running?: true,
             in_game?: false,
-            pause_ref: nil,
             present_streak: 0,
             absent_streak: 0,
             confidence: 0.0,
             error: nil,
-            play: Player.new(),
-            paused_peers: []
+            play: Player.new()
           })
 
+        publish_fact(state)
         broadcast(state)
         {:reply, :ok, reschedule(state, 0)}
 
@@ -130,31 +106,18 @@ defmodule Pokex.Bots.MiniGame.Worker do
       |> Map.merge(%{
         running?: false,
         in_game?: false,
-        pause_ref: nil,
         present_streak: 0,
         absent_streak: 0,
         confidence: 0.0,
-        error: nil,
-        paused_peers: []
+        error: nil
       })
 
+    publish_fact(state)
     broadcast(state)
     {:reply, :ok, state}
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
-
-  def handle_call(:guard_before_input, _from, state) do
-    {:reply, guard_reply(state), state}
-  end
-
-  # PURE, non-blocking read of the cached in_game? flag — it must NEVER capture, because it runs
-  # inside the Body's input path (Body.run_guarded wraps every click/press in it). Detection is
-  # the watch tick's job; the mini-game is a sustained overlay, so one tick's latency to notice it
-  # is fine and keeps the actuator off a synchronous screencapture per input.
-  def handle_call(:guard_after_input, _from, state) do
-    {:reply, guard_reply(state), state}
-  end
 
   @impl true
   def handle_info(:tick, %{running?: false} = state), do: {:noreply, state}
@@ -162,6 +125,9 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def handle_info(:tick, state) do
     {state, transition} = if state.in_game?, do: play_tick(state), else: watch_tick(state)
 
+    # republished EVERY tick (not just on transitions) so the fact stays fresh —
+    # readers fail open once it ages past mini_game_fact_max_age_ms
+    publish_fact(state)
     if transition, do: broadcast(state, transition), else: :ok
 
     tick_ms =
@@ -175,20 +141,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
   # trap_exit is on for terminate/2; stray EXIT messages from unlinked helpers
   # must not crash the worker.
   def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, state}
-
-  def handle_info({:paused_peers, ref, paused_peers}, %{pause_ref: ref} = state) do
-    state =
-      if state.in_game? do
-        %{state | paused_peers: paused_peers, pause_ref: nil}
-      else
-        resume_peers_async(state, paused_peers)
-        %{state | paused_peers: [], pause_ref: nil}
-      end
-
-    {:noreply, state}
-  end
-
-  def handle_info({:paused_peers, _stale_ref, _paused_peers}, state), do: {:noreply, state}
 
   # Watching: full arena capture + Detector, exactly as before. On the enter
   # edge the bar geometry arms the playing-time capture strip.
@@ -251,34 +203,25 @@ defmodule Pokex.Bots.MiniGame.Worker do
     do: %{state | present_streak: 0, absent_streak: state.absent_streak + 1}
 
   defp enter_game(state) do
-    ref = make_ref()
-    pause_peers_async(state, ref)
-
     state =
       state
       |> Map.put(:in_game?, true)
-      |> Map.put(:pause_ref, ref)
-      |> Map.put(:paused_peers, [])
       |> Map.put(:play, Player.new())
       |> update_in([:counters, :detections], &(&1 + 1))
 
-    broadcast_log(:macro, "mini game detectado — jogando (bloqueando inputs e pausando workers)")
+    broadcast_log(:macro, "mini game detectado — jogando (workers se seguram pelo fato)")
     {state, :entered}
   end
 
   defp leave_game(state) do
-    paused_peers = state.paused_peers
-    if paused_peers != [], do: resume_peers_async(state, paused_peers)
-
     log_trace_dump(Player.dump_trace(state.play))
 
     state =
       %{state | play: Player.force_release(state.play)}
       |> Map.put(:in_game?, false)
-      |> Map.put(:paused_peers, [])
       |> update_in([:counters, :clears], &(&1 + 1))
 
-    broadcast_log(:macro, "mini game saiu — retomando #{peer_label(paused_peers)}")
+    broadcast_log(:macro, "mini game saiu — workers retomam sozinhos")
     {state, :left}
   end
 
@@ -317,27 +260,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   defp apply_play_result({:capture_error, reason, play}, state),
     do: mark_failure(%{state | play: play}, reason)
-
-  defp guard_reply(%{running?: true, in_game?: true}), do: {:blocked, :mini_game_active}
-  defp guard_reply(_state), do: :ok
-
-  defp pause_peers_async(state, ref) do
-    owner = self()
-    peers = state.peers
-    pause_peers = state.pause_peers
-
-    spawn(fn ->
-      paused_peers = pause_peers.(peers)
-      send(owner, {:paused_peers, ref, paused_peers})
-    end)
-  end
-
-  defp resume_peers_async(state, paused_peers) do
-    peers = state.peers
-    resume_peers = state.resume_peers
-    spawn(fn -> resume_peers.(peers, paused_peers) end)
-    :ok
-  end
 
   defp mark_failure(state, reason) do
     state =
@@ -409,6 +331,16 @@ defmodule Pokex.Bots.MiniGame.Worker do
   defp broadcast_log(level, text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:mini_game_log, level, text})
 
+  defp publish_fact(state) do
+    WorldState.put(
+      :mini_game,
+      %{playing?: state.running? and state.in_game?, confidence: state.confidence},
+      now_ms()
+    )
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
+
   defp reschedule(state, delay_ms) do
     state = cancel_timer(state)
     %{state | timer: Process.send_after(self(), :tick, max(delay_ms || 250, 10))}
@@ -419,47 +351,5 @@ defmodule Pokex.Bots.MiniGame.Worker do
   defp cancel_timer(%{timer: timer} = state) do
     Process.cancel_timer(timer)
     %{state | timer: nil}
-  end
-
-  defp default_pause_peers(peers) do
-    statuses = %{
-      fishing: Fishing.Worker.status(peers.fishing),
-      combat: Combat.Worker.status(peers.combat),
-      catcher: Catcher.Worker.status(peers.catcher)
-    }
-
-    paused =
-      @peer_keys
-      |> Enum.filter(fn key -> resumable?(key, statuses[key]) end)
-
-    Fishing.Worker.halt(peers.fishing)
-    Combat.Worker.halt(peers.combat)
-    Catcher.Worker.halt(peers.catcher)
-
-    paused
-  end
-
-  defp default_resume_peers(peers, paused_peers) do
-    if :fishing in paused_peers, do: Fishing.Worker.run(peers.fishing)
-    if :combat in paused_peers, do: Combat.Worker.run(peers.combat)
-    if :catcher in paused_peers, do: Catcher.Worker.run(peers.catcher)
-    :ok
-  end
-
-  defp resumable?(:fishing, %{state: state}), do: state not in [:idle, :error]
-  defp resumable?(:combat, %{state: state}), do: state not in [:idle, :error]
-  defp resumable?(:catcher, %{state: state}), do: state != :idle
-  defp resumable?(_key, _snapshot), do: false
-
-  defp peer_label([]), do: "nenhum worker"
-
-  defp peer_label(peers) do
-    peers
-    |> Enum.map(fn
-      :fishing -> "pesca"
-      :combat -> "combate"
-      :catcher -> "captura"
-    end)
-    |> Enum.join(", ")
   end
 end

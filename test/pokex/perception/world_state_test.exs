@@ -25,4 +25,10 @@ defmodule Pokex.Perception.WorldStateTest do
     WorldState.put(:test_key, %{a: 1}, 42)
     assert {:test_key, %{a: 1}, 42} in WorldState.entries()
   end
+
+  test "forget drops the key back to :missing" do
+    WorldState.put(:test_key, %{a: 1}, 42)
+    assert :ok = WorldState.forget(:test_key)
+    assert WorldState.get(:test_key, 500, 100) == :missing
+  end
 end

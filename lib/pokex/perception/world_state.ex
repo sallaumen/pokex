@@ -41,6 +41,12 @@ defmodule Pokex.Perception.WorldState do
     end
   end
 
+  @doc "Drop `key` entirely — reads go back to `:missing` (the fail-open unknown)."
+  def forget(key) do
+    :ets.delete(@table, key)
+    :ok
+  end
+
   @doc "Everything the world currently knows — the /world page's data source."
   def entries, do: :ets.tab2list(@table)
 end

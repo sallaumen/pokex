@@ -8,8 +8,8 @@ defmodule Pokex.Bots.Body do
   here — they are read-only and each worker senses on its own.
   """
   use GenServer
-  alias Pokex.Bots.{MiniGame, Perf}
-  alias Pokex.Rig
+  alias Pokex.Bots.Perf
+  alias Pokex.{Perception, Rig}
 
   @topic "body"
 
@@ -17,8 +17,7 @@ defmodule Pokex.Bots.Body do
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
-    mini_game = Keyword.get(opts, :mini_game, MiniGame.Worker)
-    GenServer.start_link(__MODULE__, %{mini_game: mini_game}, name: name)
+    GenServer.start_link(__MODULE__, %{}, name: name)
   end
 
   @spec perform([tuple], :critical | :high | :normal, GenServer.server()) :: :ok | {:error, term}
@@ -29,7 +28,7 @@ defmodule Pokex.Bots.Body do
   def cursor(server \\ __MODULE__), do: GenServer.call(server, :cursor)
 
   @impl true
-  def init(opts),
+  def init(_opts),
     do:
       {:ok,
        %{
@@ -37,7 +36,6 @@ defmodule Pokex.Bots.Body do
          critical: :queue.new(),
          high: :queue.new(),
          normal: :queue.new(),
-         mini_game: opts.mini_game,
          current: nil,
          last_priority: nil
        }}
@@ -138,7 +136,7 @@ defmodule Pokex.Bots.Body do
     }
 
     broadcast_queue(:start, state, actions, priority, requested_at)
-    run(actions, from, state.mini_game, requested_at, priority)
+    run(actions, from, requested_at, priority)
     state
   end
 
@@ -153,7 +151,7 @@ defmodule Pokex.Bots.Body do
   # spawned process dies silently, {:done} never arrives, the calling worker
   # blocks forever, and the Body never processes anything queued behind it —
   # including a :halt call, defeating the panic corner. So: always reply.
-  defp run(actions, from, mini_game, requested_at, priority) do
+  defp run(actions, from, requested_at, priority) do
     server = self()
     queue_ms = now() - requested_at
     label = body_label(priority, actions)
@@ -164,7 +162,7 @@ defmodule Pokex.Bots.Body do
 
       result =
         try do
-          with_mouse_restore(actions, fn -> run_guarded(actions, mini_game, priority) end)
+          with_mouse_restore(actions, fn -> run_guarded(actions, priority) end)
         catch
           kind, reason -> {:error, {:crashed, kind, reason}}
         end
@@ -208,9 +206,9 @@ defmodule Pokex.Bots.Body do
   defp mouse_action?({:capture_sequence, _point}), do: true
   defp mouse_action?(_action), do: false
 
-  # The survival combo (:critical) bypasses the mini-game guard entirely — recalling and
+  # The survival combo (:critical) bypasses the mini-game gate entirely — recalling and
   # max-reviving the Pokémon must run even while the mini-game overlay is up.
-  defp run_guarded(actions, _mini_game, :critical) do
+  defp run_guarded(actions, :critical) do
     Enum.reduce_while(actions, :ok, fn action, :ok ->
       case execute(action) do
         :ok -> {:cont, :ok}
@@ -219,11 +217,11 @@ defmodule Pokex.Bots.Body do
     end)
   end
 
-  defp run_guarded(actions, mini_game, _priority) do
+  defp run_guarded(actions, _priority) do
     Enum.reduce_while(actions, :ok, fn action, :ok ->
-      with :ok <- guard_before_input(action, mini_game),
+      with :ok <- mini_game_gate(action),
            :ok <- execute(action),
-           :ok <- guard_after_input(action, mini_game) do
+           :ok <- mini_game_gate(action) do
         {:cont, :ok}
       else
         {:blocked, :mini_game_active} -> {:halt, :ok}
@@ -250,12 +248,12 @@ defmodule Pokex.Bots.Body do
   defp execute({:wait, _ms}), do: :ok
   defp execute({:log, _}), do: :ok
 
-  defp guard_before_input(action, mini_game) do
-    if guarded_input?(action), do: MiniGame.Worker.guard_before_input(mini_game), else: :ok
-  end
-
-  defp guard_after_input(action, mini_game) do
-    if guarded_input?(action), do: MiniGame.Worker.guard_after_input(mini_game), else: :ok
+  # Lock-free ETS read of the :mini_game blackboard fact — the input hot path never
+  # blocks on the mini-game worker's mailbox (which is busy capturing). Checked before
+  # AND after each input so a sequence already running when the game opens stops
+  # between inputs instead of finishing.
+  defp mini_game_gate(action) do
+    if guarded_input?(action), do: Perception.mini_game_gate(), else: :ok
   end
 
   defp guarded_input?({:press, _key}), do: true

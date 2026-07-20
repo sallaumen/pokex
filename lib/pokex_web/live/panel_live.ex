@@ -657,7 +657,8 @@ defmodule PokexWeb.PanelLive do
   defp support_label(:idle), do: "parado"
   defp support_label(other), do: to_string(other)
 
-  # 🎮 Mini game: desligado / observando a arena / pausando o resto enquanto o jogo está aberto.
+  # 🎮 Mini game: desligado / observando a arena / jogando (os outros workers se
+  # seguram sozinhos lendo o fato :mini_game no blackboard).
   defp mini_game_label(:off), do: "parado"
   defp mini_game_label(:watching), do: "observando"
   defp mini_game_label(:playing), do: "em jogo"

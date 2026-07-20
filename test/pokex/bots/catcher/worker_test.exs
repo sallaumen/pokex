@@ -143,6 +143,30 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "the mini-game fact freezes loots and throws; the next event after it clears acts", %{
+    worker: worker
+  } do
+    WorldState.put(
+      :mini_game,
+      %{playing?: true, confidence: 1.0},
+      System.monotonic_time(:millisecond)
+    )
+
+    on_exit(fn -> WorldState.forget(:mini_game) end)
+
+    # a kill lands mid-game: NO Space loot (Space is the mini-game's control key!), no ball
+    obs = corpses_obs([{130, 224}])
+    WorldState.put(:corpses, obs, obs.captured_at)
+    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
+    refute_receive {:performed, _p, _a}, 300
+
+    # game over: the catcher is event-driven — the next corpse event acts normally
+    WorldState.forget(:mini_game)
+    world!(worker, corpses_obs([{130, 224}]))
+    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+  end
+
+  @tag :tmp_dir
   test "relearn resets pending state", %{worker: worker} do
     world!(worker, corpses_obs([{160, 260}]))
     assert_receive {:performed, :high, [{:capture_sequence, {160, 260}}]}, 1_000

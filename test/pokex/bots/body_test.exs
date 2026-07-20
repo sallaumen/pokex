@@ -100,27 +100,61 @@ defmodule Pokex.Bots.BodyTest.SlowRig do
   def cursor_position, do: {:ok, {500, 500}}
 end
 
-defmodule Pokex.Bots.BodyTest.BlockingMiniGameGate do
-  use GenServer
+defmodule Pokex.Bots.BodyTest.GameOpeningRig do
+  # Test-local Rig double: press("open") publishes a playing :mini_game fact
+  # before returning — simulating the overlay appearing exactly as an input
+  # lands. The Body's after-input gate must stop the rest of the sequence.
+  @behaviour Pokex.Rig
 
-  def start_link(test), do: GenServer.start_link(__MODULE__, test)
+  def start_link, do: Agent.start_link(fn -> [] end, name: __MODULE__)
+
+  def log, do: __MODULE__ |> Agent.get(& &1) |> Enum.reverse()
 
   @impl true
-  def init(test), do: {:ok, test}
+  def press(combo) do
+    Agent.update(__MODULE__, &[combo | &1])
 
-  @impl true
-  def handle_call(:guard_before_input, _from, test), do: {:reply, :ok, test}
+    if combo == "open" do
+      Pokex.Perception.WorldState.put(
+        :mini_game,
+        %{playing?: true, confidence: 1.0},
+        System.monotonic_time(:millisecond)
+      )
+    end
 
-  def handle_call(:guard_after_input, _from, test) do
-    send(test, :mini_game_blocked)
-    {:reply, {:blocked, :mini_game_active}, test}
+    :ok
   end
+
+  @impl true
+  def press_many(combos, opts) do
+    tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
+
+    Enum.each(combos, fn combo ->
+      Enum.each(1..tap_count, fn _tap -> press(combo) end)
+    end)
+
+    :ok
+  end
+
+  @impl true
+  def click(_button, _point), do: :ok
+  @impl true
+  def move(_point), do: :ok
+  @impl true
+  def capture_sequence(_point), do: :ok
+  @impl true
+  def capture(_region, filename), do: {:ok, filename}
+  @impl true
+  def capture_screen, do: {:ok, "screen.png"}
+  @impl true
+  def cursor_position, do: {:ok, {500, 500}}
 end
 
 defmodule Pokex.Bots.BodyTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.Body
-  alias Pokex.Bots.BodyTest.{BlockingMiniGameGate, SlowRig}
+  alias Pokex.Bots.BodyTest.{GameOpeningRig, SlowRig}
+  alias Pokex.Perception.WorldState
 
   setup do
     start_supervised!({Pokex.Rig.Fake, %{}})
@@ -175,24 +209,30 @@ defmodule Pokex.Bots.BodyTest do
     assert calls == [{:press, "a"}, {:press, "b"}]
   end
 
-  test "mini game gate stops the rest of an action sequence after the triggering input" do
-    gate =
-      start_supervised!(
-        {BlockingMiniGameGate, self()},
-        id: :body_test_blocking_mini_game_gate
-      )
+  test "the mini game fact stops the rest of a sequence the moment it appears mid-run" do
+    previous_rig = Application.get_env(:pokex, :rig)
+    Application.put_env(:pokex, :rig, GameOpeningRig)
 
-    body =
-      start_body(:body_test_mini_game_gate_body,
-        name: :body_mini_game_gate_test,
-        mini_game: gate
-      )
+    on_exit(fn ->
+      Application.put_env(:pokex, :rig, previous_rig)
+      WorldState.forget(:mini_game)
+    end)
+
+    start_supervised!(%{id: GameOpeningRig, start: {GameOpeningRig, :start_link, []}})
+    body = start_body(:body_test_mini_game_gate_body, name: :body_mini_game_gate_test)
 
     assert :ok = Body.perform([{:press, "open"}, {:press, "must_not_run"}], :normal, body)
-    assert_receive :mini_game_blocked
+    assert GameOpeningRig.log() == ["open"]
+  end
+
+  test "a sequence never starts while the mini game fact says playing", %{body: body} do
+    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
+    on_exit(fn -> WorldState.forget(:mini_game) end)
+
+    assert :ok = Body.perform([{:press, "a"}, {:press, "b"}], :normal, body)
 
     calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
-    assert calls == [{:press, "open"}]
+    assert calls == []
   end
 
   @tag timeout: 2_000
@@ -305,28 +345,21 @@ defmodule Pokex.Bots.BodyTest do
     assert SlowRig.log() == ["occupy", "crit", "high"]
   end
 
-  test "a :critical sequence bypasses the mini-game guard (revive beats the overlay)" do
-    gate =
-      start_supervised!(
-        {BlockingMiniGameGate, self()},
-        id: :body_test_critical_gate
-      )
+  test "a :critical sequence bypasses the mini-game gate (revive beats the overlay)", %{
+    body: body
+  } do
+    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
+    on_exit(fn -> WorldState.forget(:mini_game) end)
 
-    body =
-      start_body(:body_test_critical_gate_body,
-        name: :body_critical_gate,
-        mini_game: gate
-      )
-
-    # the guard would halt a :normal sequence after the first input; a :critical one runs whole
+    # the gate halts a :normal sequence before its first input; a :critical one runs whole
     assert :ok =
              Body.perform([{:press, "q"}, {:press, "shift+q"}, {:press, "q"}], :critical, body)
-
-    refute_receive :mini_game_blocked, 100
 
     calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == [{:press, "q"}, {:press, "shift+q"}, {:press, "q"}]
   end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
   defp wait_until_busy(body) do
     if :sys.get_state(body).busy? do

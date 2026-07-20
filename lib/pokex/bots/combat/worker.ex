@@ -73,6 +73,10 @@ defmodule Pokex.Bots.Combat.Worker do
         config = Settings.all() |> Map.take(@config_keys)
         {logic, _actions} = Logic.start(Logic.new(config), now())
         Perception.attach(:battle)
+        # The skill-bar feed powers the cooldown-aware rotation. Its loss is GRACEFUL
+        # (stale fact → nil → blind rotation), so unlike :battle it gets no monitor and no
+        # reattach loop — combat still fights, just blind, exactly as before the feed.
+        Perception.attach(:skill_bar)
         # A double :run (two Start presses) must not leak the previous feed monitor.
         demonitor_feed(state.feed_ref)
         ref = Process.monitor(Feed.name(:battle))
@@ -94,6 +98,7 @@ defmodule Pokex.Bots.Combat.Worker do
   def handle_call(:halt, _from, state) do
     {logic, _} = Logic.stop(state.logic)
     safe_detach(:battle)
+    safe_detach(:skill_bar)
     state = %{state | logic: logic}
     demonitor_feed(state.feed_ref)
     broadcast(logic)
@@ -180,9 +185,16 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   defp step(state, obs) do
-    {logic, actions} = Logic.step(state.logic, obs, now())
+    {logic, actions} = Logic.step(state.logic, with_ready_skills(obs), now())
     apply_step(state, logic, actions)
   end
+
+  # The freshest skill-bar reading rides along on every observation the logic sees, so the
+  # burst it decides fires only READY skills. nil obs stays nil (a timer wake without a
+  # frame must not become a fake observation), and a missing/stale/unreadable fact merges
+  # as nil → Logic blind-rotates (fail-open; see Logic.press_next_skill).
+  defp with_ready_skills(nil), do: nil
+  defp with_ready_skills(obs), do: Map.put(obs, :ready_skills, Perception.ready_skills())
 
   # Frozen while the mini-game plays: no steps, no bursts. Combat is
   # event-driven and a static battle would never deliver the resume edge, so

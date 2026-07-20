@@ -599,9 +599,15 @@ defmodule Pokex.Vision do
   no white rendering can contaminate it in either direction — this is what universal
   thresholds could never do: the pink-with-white icon read permanently :cooldown under the
   white override, while the olive icon's number anti-aliasing read falsely :ready under the
-  colour tests (Lucas, 2026-07-10). The cooldown overlay darkens the icon, pushing the
-  signature far from its reference. A slot with no reference (nil, or an all-white live
+  colour tests (Lucas, 2026-07-10). A slot with no reference (nil, or an all-white live
   read) falls back to the threshold rules below.
+
+  The ceiling is TIGHT by measurement: PXG's cooldown REPLACES the icon with a dark panel
+  + countdown number, and for icons whose ready art is a small glyph on black the ref
+  averages out dark too — the panel lands only ~44-60 away (measured 2026-07-20; a red
+  countdown glyph pulls even closer). A TRUE ready match measures 0-1: the icon is static
+  art and the capture is deterministic. So the gap to split is ~1 vs ~44, and the old
+  ceiling of 60 read half the charging bar as :ready.
 
   Threshold fallback (no reference): the COUNTDOWN NUMBER wins — a slot whose `white_pct`
   (share of PURE-white pixels: min channel ≥ 200, near-zero saturation) reaches
@@ -612,7 +618,7 @@ defmodule Pokex.Vision do
   ceiling bounds a false hold, while a false ready pulls monsters with nothing to kill.
 
   All numbers are exported per slot for tuning from the diagnostic dump. Options: `:count`
-  (7), `:refs` (nil), `:max_distance` (60), `:min_saturation` (40), `:min_vivid_pct` (7),
+  (7), `:refs` (nil), `:max_distance` (25), `:min_saturation` (40), `:min_vivid_pct` (7),
   `:min_white_pct` (4). Returns
   `[%{brightness, saturation, vivid_pct, white_pct, signature, distance, state}]`, left→right.
   """
@@ -623,7 +629,7 @@ defmodule Pokex.Vision do
     min_s = Keyword.get(opts, :min_saturation) || 40
     min_vivid = Keyword.get(opts, :min_vivid_pct) || 7
     min_white = Keyword.get(opts, :min_white_pct) || 4
-    max_distance = Keyword.get(opts, :max_distance) || 60
+    max_distance = Keyword.get(opts, :max_distance) || 25
     refs = Keyword.get(opts, :refs) || []
     slot_w = max(div(w, count), 1)
 

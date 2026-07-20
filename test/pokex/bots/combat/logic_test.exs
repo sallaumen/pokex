@@ -282,6 +282,62 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert Logic.next_wake(fighting, 100) >= 1
   end
 
+  describe "cooldown-aware rotation (the :skill_bar fact rides on the observation)" do
+    test "fires only READY skills, in skill_keys priority order" do
+      logic = confirmed()
+
+      {logic, actions} =
+        Logic.step(
+          logic,
+          obs(locked?: true, locked_row: 0, captured_at: 400, ready_skills: ["3", "1"]),
+          400
+        )
+
+      assert logic.state == :fighting
+      # skill_keys ["1", "2", "3"] ∩ ready ["3", "1"] in PRIORITY order, burst capped at
+      # the ready count — never the same key twice in one burst.
+      assert actions == [{:press, "1"}, {:press, "3"}]
+    end
+
+    test "a single ready skill fires ONCE per burst, not burst_size times" do
+      logic = confirmed()
+
+      {_logic, actions} =
+        Logic.step(
+          logic,
+          obs(locked?: true, locked_row: 0, captured_at: 400, ready_skills: ["2"]),
+          400
+        )
+
+      assert actions == [{:press, "2"}]
+    end
+
+    test "fails OPEN to the full blind rotation: no reading, empty, or none-of-ours" do
+      for ready <- [nil, [], ["9"]] do
+        logic = confirmed()
+
+        {_logic, actions} =
+          Logic.step(
+            logic,
+            obs(locked?: true, locked_row: 0, captured_at: 400, ready_skills: ready),
+            400
+          )
+
+        assert actions == [{:press, "1"}, {:press, "2"}, {:press, "3"}],
+               "ready_skills: #{inspect(ready)} must blind-rotate"
+      end
+    end
+
+    test "an observation WITHOUT the key (older world snapshot) blind-rotates too" do
+      logic = confirmed()
+
+      {_logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 400), 400)
+
+      assert actions == [{:press, "1"}, {:press, "2"}, {:press, "3"}]
+    end
+  end
+
   # hunting --Tab--> tabbing --locked frame--> fighting (first burst already fired at t=40)
   defp confirmed(config_overrides \\ []) do
     {logic, _} = Logic.step(hunting(0, config_overrides), obs(enemies: [0], captured_at: 10), 10)

@@ -43,11 +43,13 @@ defmodule Pokex.Settings do
     skill_cooldown_min_white_pct: 4,
     # Reference match (preferred, when the calibration carries per-slot references captured
     # with every skill READY): a slot is :ready while its live non-white colour signature
-    # stays within this euclidean RGB distance of its own reference. The cooldown overlay
-    # darkens the icon (distance ~130-160); same-icon noise/anti-aliasing stays ~0-30. The
-    # per-slot `distance` is exported in the diagnostics — tune from there if an icon
-    # flickers between states.
-    skill_ref_max_distance: 60,
+    # stays within this euclidean RGB distance of its own reference. TIGHT by measurement
+    # (2026-07-20): a true ready match is 0-1 (static art, deterministic capture), while the
+    # dark cooldown panel that REPLACES the icon lands at ~44-60 from dark-averaging refs —
+    # the old ceiling of 60 read slots 3/6/8 as :ready mid-cooldown. 25 splits ~1 from ~44
+    # with margin on both sides. The per-slot `distance` is exported in the diagnostics —
+    # tune from there if an icon flickers between states.
+    skill_ref_max_distance: 25,
     # A slot also reads :ready when at least this % of its pixels are strongly COLOURED
     # (the coloured glyph of a usable icon). This is what saves a dark-but-colourful ready
     # icon — e.g. skill 3's green symbol on black — whose AVERAGE brightness/saturation are
@@ -279,6 +281,13 @@ defmodule Pokex.Settings do
     # feature that wants `arena_region` again, at effectively zero cost while unattached.
     feed_battle_ms: 120,
     feed_arena_ms: 300,
+    # The skill hotbar changes at ~1s granularity (countdown numbers), so its feed runs far
+    # slower than battle; it only captures while combat is attached anyway.
+    feed_skill_bar_ms: 250,
+    # How old the :skill_bar fact may be before combat treats it as UNKNOWN (→ blind
+    # rotation). Generous vs the 250ms cadence so one slow/failed capture doesn't flap the
+    # rotation between filtered and blind.
+    skill_bar_fact_max_age_ms: 1_500,
     # Consecutive failed captures (bad region, or the OS revoked Screen Recording mid-run) a
     # feed tolerates at :debug before it escalates to a loud Logger.warning. Resets to 0 on
     # the next successful observe, so a warning fires again if failures resume.

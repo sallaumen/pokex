@@ -22,6 +22,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       Application.delete_env(:pokex, :home_dir)
       :ets.delete(:pokex_world, :battle)
       :ets.delete(:pokex_world, :arena)
+      :ets.delete(:pokex_world, :skill_bar)
     end)
 
     Calibration.save(%Calibration{
@@ -119,6 +120,33 @@ defmodule Pokex.Bots.Combat.WorkerTest do
              "1" in presses() or
                (world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
            end)
+  end
+
+  @tag :tmp_dir
+  test "a fresh :skill_bar fact narrows every skill burst to READY keys only", %{worker: worker} do
+    # only "2" is ready → all skill presses must be "2"; Tab is not a skill and stays
+    put_fact = fn ->
+      at = System.monotonic_time(:millisecond)
+      WorldState.put(:skill_bar, %{states: [:cooldown, :ready], ready_keys: ["2"]}, at)
+    end
+
+    put_fact.()
+    world!(worker, battle_obs(enemies: [0]))
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+
+    world!(worker, battle_obs(locked?: true, locked_row: 0))
+    assert eventually(fn -> Worker.status(worker).state == :fighting end)
+
+    # keep the fact fresh and the frames flowing (same re-feed dance as the burst tests)
+    assert eventually(fn ->
+             skills = Enum.reject(presses(), &(&1 == Settings.get(:tab_key)))
+
+             (skills != [] and Enum.uniq(skills) == ["2"]) or
+               (put_fact.() && world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
+           end)
+
+    skills = Enum.reject(presses(), &(&1 == Settings.get(:tab_key)))
+    assert skills != [] and Enum.uniq(skills) == ["2"]
   end
 
   @tag :tmp_dir

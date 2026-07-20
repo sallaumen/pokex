@@ -75,8 +75,22 @@ defmodule Pokex.Perception do
     end
   end
 
+  @doc """
+  The ready hotbar keys per the `:skill_bar` fact its feed publishes, or nil when the
+  fact is missing, stale (`skill_bar_fact_max_age_ms`) or unreadable — UNKNOWN, and
+  consumers must fail OPEN on it (combat falls back to the blind rotation; nothing may
+  stop attacking over a bad read).
+  """
+  @spec ready_skills(integer) :: [String.t()] | nil
+  def ready_skills(now_ms \\ System.monotonic_time(:millisecond)) do
+    case WorldState.get(:skill_bar, Settings.get(:skill_bar_fact_max_age_ms), now_ms) do
+      {:ok, %{ready_keys: keys}} -> keys
+      _stale_or_missing -> nil
+    end
+  end
+
   # Feed inventory. Task 5 fills in the :battle and :arena interpreters; later phases add
-  # :glow, :pokemon_hp, :mini_game and :skill_bar here.
+  # :glow, :pokemon_hp and :mini_game here.
   def feed_specs do
     [
       %{
@@ -92,6 +106,13 @@ defmodule Pokex.Perception do
         interval_setting: :feed_arena_ms,
         filename: "feed_arena.png",
         interpret: &Interpret.arena/3
+      },
+      %{
+        key: :skill_bar,
+        region: fn calib -> calib.skill_bar_region end,
+        interval_setting: :feed_skill_bar_ms,
+        filename: "feed_skill_bar.png",
+        interpret: &Interpret.skills/3
       },
       %{
         key: :corpses,

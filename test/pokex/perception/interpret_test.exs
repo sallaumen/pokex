@@ -45,6 +45,28 @@ defmodule Pokex.Perception.InterpretTest do
     assert obs.locked_row == 0
   end
 
+  describe "skills/3" do
+    test "a valid bar frame reads per-slot states and ready keys" do
+      # 2 slots: vivid yellow (ready) + dark cooldown panel (also the ≥10% dark share
+      # skill_bar_frame? wants)
+      rgba = :binary.copy(<<200, 200, 0, 255>>, 50) <> :binary.copy(<<20, 20, 20, 255>>, 50)
+      frame = %Frame{width: 100, height: 1, rgba: rgba}
+      calib = %{calib() | skill_bar_region: {0, 0, 100, 1}, skill_bar_count: 2}
+
+      assert Interpret.skills(frame, calib, settings()) ==
+               %{states: [:ready, :cooldown], ready_keys: ["1"]}
+    end
+
+    test "a frame that no longer looks like the bar is UNKNOWN — nils, never a guess" do
+      # uniform mid-grey (window moved/covered): no dark ground, no vivid/white content
+      rgba = :binary.copy(<<120, 120, 120, 255>>, 100)
+      frame = %Frame{width: 100, height: 1, rgba: rgba}
+
+      assert Interpret.skills(frame, %{calib() | skill_bar_count: 2}, settings()) ==
+               %{states: nil, ready_keys: nil}
+    end
+  end
+
   test "arena with no hostile name is nil" do
     f = frame(60, 40, fn _x, _y -> {9, 9, 9} end)
     assert Interpret.arena(f, calib(), settings()) == %{hostile: nil}

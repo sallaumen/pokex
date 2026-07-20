@@ -166,6 +166,31 @@ defmodule Pokex.VisionSkillStatesTest do
       assert slot.state == :cooldown
     end
 
+    test "the dark REPLACEMENT panel reads :cooldown under the DEFAULT ceiling" do
+      # Measured live (2026-07-20): PXG's cooldown REPLACES the icon with a dark panel +
+      # countdown number — it does not darken the art in place. Icons whose ready art is a
+      # small glyph on black average out DARK (slot 3's ref measured {46, 75, 40}), so the
+      # dark panel ({24, 35, 25}) sits only ~48 away — the old 60 ceiling read slots 3/6/8
+      # falsely :ready mid-cooldown, while a TRUE ready match measures 0-1 (static art,
+      # deterministic capture). The default ceiling must split ~1 from ~44 (the closest
+      # cooldown measured: a red "16" glyph pulling the average toward a green ref).
+      panel = :binary.copy(<<24, 35, 25, 255>>, 90) <> :binary.copy(<<255, 255, 255, 255>>, 10)
+      frame = %Frame{width: 100, height: 1, rgba: panel}
+
+      [slot] = Vision.skill_slots(frame, count: 1, refs: [{46, 75, 40}])
+
+      assert slot.distance in 40..60
+      assert slot.state == :cooldown
+    end
+
+    test "a true ready match stays :ready under the DEFAULT ceiling" do
+      frame = %Frame{width: 100, height: 1, rgba: @pink_ready}
+      [%{signature: ref}] = Vision.skill_slots(frame, count: 1)
+
+      [slot] = Vision.skill_slots(frame, count: 1, refs: [ref])
+      assert slot.state == :ready
+    end
+
     test "slots without a reference fall back to the threshold rules" do
       # two slots, refs only for the first: slot 2 (colourful, no ref) uses the colour test
       rgba = :binary.copy(<<230, 120, 190, 255>>, 50) <> :binary.copy(<<200, 200, 0, 255>>, 50)

@@ -37,6 +37,36 @@ defmodule Pokex.Bots.MiniGame.Pilot do
   @default_brake_up 0.8
   @default_brake_down 3.0
 
+  @typedoc "Track-normalized vision reading: y in 0..1, at = capture timestamp (ms)."
+  @type observation :: %{
+          required(:y) => float,
+          required(:at) => integer,
+          optional(:source) => atom
+        }
+
+  @typedoc "Player bar state; :at enables extrapolation to command-landing time."
+  @type bar :: %{
+          required(:y) => float,
+          required(:vy) => float,
+          required(:pressing) => boolean,
+          optional(:at) => integer
+        }
+
+  @type config :: %{
+          required(:pilot) => :reactive | :predictive,
+          required(:deadband_pct) => float,
+          optional(:actuation_ms) => non_neg_integer,
+          optional(:brake_up) => float,
+          optional(:brake_down) => float
+        }
+
+  @type decision :: %{
+          desired: boolean,
+          target_y: float | nil,
+          age_ms: non_neg_integer | nil
+        }
+
+  @spec decide(config, [observation], bar, integer) :: decision
   def decide(_config, [], _bar, _now), do: %{desired: false, target_y: nil, age_ms: nil}
 
   def decide(config, observations, bar, now) do
@@ -156,6 +186,7 @@ defmodule Pokex.Bots.MiniGame.Pilot do
   # braking slam. Lives HERE so the Pilot owns ALL kinematics.
   @max_capsule_speed 1.5
 
+  @spec capsule_velocity([observation]) :: float
   def capsule_velocity(observations) do
     case observations |> trailing_same_source() |> Enum.take(-3) do
       run when length(run) < 2 ->

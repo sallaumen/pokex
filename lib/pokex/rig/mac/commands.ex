@@ -66,6 +66,7 @@ defmodule Pokex.Rig.Mac.Commands do
   end
 
   @doc "Virtual key code for a digit/named key — the native CGEvent path. :error = unmapped."
+  @spec keycode(String.t()) :: {:ok, non_neg_integer} | :error
   def keycode(key) do
     case Map.get(@digit_keycodes, key) || Map.get(@named_keycodes, String.downcase(key)) do
       nil -> :error

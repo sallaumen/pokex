@@ -28,7 +28,12 @@ defmodule Pokex.Rig.Mac.KeyEvents do
     end
   end
 
+  @type status ::
+          :ready | :starting | :untrusted | :disabled | :unavailable | {:error, term}
+
   @doc "Post a key event through the helper. `{:error, _}` means: use the fallback."
+  @spec key(:down | :up | :press, non_neg_integer, String.t() | nil, GenServer.server()) ::
+          :ok | {:error, term}
   def key(action, code, app \\ nil, server \\ __MODULE__)
       when action in [:down, :up, :press] and is_integer(code) do
     GenServer.call(server, {:key, action, code, app}, @command_timeout_ms + 500)
@@ -36,6 +41,7 @@ defmodule Pokex.Rig.Mac.KeyEvents do
     :exit, _reason -> {:error, :unavailable}
   end
 
+  @spec status(GenServer.server()) :: status
   def status(server \\ __MODULE__) do
     GenServer.call(server, :status, 500)
   catch

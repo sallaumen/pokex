@@ -195,12 +195,14 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     {:ok, view, _} = live(conn, ~p"/calibration")
 
-    view
-    |> form("#skill-count-form", skill_bar: %{count: "6"})
-    |> render_change()
-
     view |> element("button", "Só as skills") |> render_click()
     assert render(view) =~ "barra de skills"
+
+    # The count is editable INSIDE the flow (switching Pokémon changes it — the quick fix
+    # must not silently reuse a stale one): the marking header carries its own form.
+    view
+    |> form("#skill-count-form-marking", skill_bar: %{count: "6"})
+    |> render_change()
 
     # click-to-zoom: rough click magnifies, precise click records.
     click = fn x, y ->
@@ -219,9 +221,74 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert {:ok, calib} = Calibration.load()
     assert calib.skill_bar_region == {20, 20, 60, 40}
     assert calib.skill_bar_count == 6
+    assert Settings.get(:skill_bar_count) == 6
     # the rest of the calibration is untouched
     assert calib.water_point == {50, 30}
     assert calib.battle_region == {70, 10, 20, 30}
+  end
+
+  @tag :tmp_dir
+  test "the zoom PANS to center the clicked point — an edge target stays visible", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      arena_region: {20, 20, 60, 40},
+      neutral_point: {52, 36},
+      glow_baselines: [],
+      suggested_glow_threshold: 15.0
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} =
+      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration")
+    view |> element("button", "Só as skills") |> render_click()
+
+    # A rough click at the BOTTOM-RIGHT corner of the screen (the skill bar lives at the
+    # bottom edge). The old transform-origin zoom pinned this point in place, leaving
+    # (1-f)/3.5 of visible margin past it — the bar's own corner fell outside the window
+    # and the last skills were UNCLICKABLE. The pan must clamp flush to the edge
+    # (translate 100 * (1 - 3.5) = -250%), which keeps the full corner in view.
+    render_hook(view, "img_click", %{
+      "x" => 46.0,
+      "y" => 34.5,
+      "cw" => 50.0,
+      "ch" => 37.5,
+      "nw" => 200.0,
+      "nh" => 150.0
+    })
+
+    assert render(view) =~ "translate(-250.0%, -250.0%) scale(3.5)"
+
+    # A center click pans to CENTER the point, not pin it: fx = 0.5 → -125%; the y point
+    # rounds to 38 of 75 rows (fy = 0.50667) → 100 * (0.5 - 0.50667*3.5) = -127.33%.
+    render_hook(view, "cancel_zoom", %{})
+
+    render_hook(view, "img_click", %{
+      "x" => 25.0,
+      "y" => 18.75,
+      "cw" => 50.0,
+      "ch" => 37.5,
+      "nw" => 200.0,
+      "nh" => 150.0
+    })
+
+    assert render(view) =~ "translate(-125.0%, -127.33%) scale(3.5)"
   end
 
   @tag :tmp_dir

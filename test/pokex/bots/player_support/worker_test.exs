@@ -47,7 +47,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :support_capture_wait_max_ms,
       :escape_direction,
       :escape_steps,
-      :escape_walk_wait_ms
+      :escape_walk_wait_ms,
+      :calibration_front_delay_ms
     ])
 
     on_exit(fn -> Pokex.Perception.WorldState.forget(:pokemon) end)
@@ -458,6 +459,47 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   test "flee_to_escape sem escada calibrada: erro e nenhum clique", %{tmp: _tmp, body: body} do
     worker = start_worker(body)
     assert {:error, :not_calibrated} = Worker.flee_to_escape(worker)
+    refute_receive {:performed, _p, _a}, 150
+  end
+
+  @tag :tmp_dir
+  test "fuga com o jogo FORA de foco: fronta, reabre o gate e clica mesmo assim", %{
+    tmp: _tmp,
+    body: body
+  } do
+    alias Pokex.Bots.InputGate
+
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | escape_point: {620, 240}})
+    Settings.put(:calibration_front_delay_ms, 1)
+
+    # the panel scenario: browser frontmost → the Focus poller closed the gate
+    InputGate.set_focus_ok(false)
+    on_exit(fn -> InputGate.set_focus_ok(true) end)
+
+    worker = start_worker(body)
+    assert :ok = Worker.flee_to_escape(worker)
+
+    assert_receive {:performed, :critical, [{:click, :left, {620, 240}} | _]}, 1_000
+    # the gate reflects the fronted game immediately (the poller would lag)
+    assert InputGate.state().focus_ok
+  end
+
+  @tag :tmp_dir
+  test "o canto de pânico VETA a fuga — kill switch humano acima de tudo", %{
+    tmp: _tmp,
+    body: body
+  } do
+    alias Pokex.Bots.InputGate
+
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | escape_point: {620, 240}})
+
+    InputGate.set_corner_ok(false)
+    on_exit(fn -> InputGate.set_corner_ok(true) end)
+
+    worker = start_worker(body)
+    assert {:error, :panic_corner} = Worker.flee_to_escape(worker)
     refute_receive {:performed, _p, _a}, 150
   end
 

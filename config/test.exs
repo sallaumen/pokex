@@ -50,6 +50,8 @@ config :pokex, :focus_auto_monitor, false
 # Calibration's "front the game before the screenshot" shells out to osascript and sleeps —
 # never in tests (the LiveView tests drive the capture flow with the faked Rig).
 config :pokex, :calibration_front_game, false
+# Fronting the game shells out to System Events — never from a test suite.
+config :pokex, :front_game_cmd, false
 # The app-wide Guardian must NOT act on session rules (stop conditions / anti-stagnation)
 # during tests: a test planting a global :session fact + limits would wake its REAL
 # stop_all, racing the test's own scoped Guardian (measured flaky). Guardian tests opt

@@ -115,12 +115,11 @@ defmodule PokexWeb.PanelLive do
        reposition_enabled: Settings.get(:reposition_enabled),
        support_waits_capture: Settings.get(:support_waits_capture),
        shiny_guard_enabled: Settings.get(:shiny_guard_enabled),
-       shiny_watch: Enum.join(Settings.get(:shiny_watch_names), ", "),
        shiny_action: Settings.get(:shiny_action),
        shiny_msg: nil,
-       shiny_preview: shiny_preview(),
-       shiny_scores: %{},
-       shiny_min_px_ui: Settings.get(:shiny_min_px),
+       shiny_star_px: nil,
+       shiny_star_min_px: Settings.get(:shiny_star_min_px),
+       shiny_log: Pokex.Pokedex.ShinyLog.entries(),
        potion_pct: Settings.get(:pokemon_hp_potion_pct),
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
@@ -319,9 +318,13 @@ defmodule PokexWeb.PanelLive do
     {:noreply, socket}
   end
 
-  # The ShinyGuard's live per-name arena reading (throttled) — feeds the meter.
-  def handle_info({:shiny_reading, %{scores: scores, min_px: min_px}}, socket),
-    do: {:noreply, assign(socket, shiny_scores: scores, shiny_min_px_ui: min_px)}
+  # The ShinyGuard's live star reading (throttled) — feeds the meter.
+  def handle_info({:shiny_reading, %{star_px: px, min_px: min_px}}, socket),
+    do: {:noreply, assign(socket, shiny_star_px: px, shiny_star_min_px: min_px)}
+
+  # A confirmed sighting: refresh the trophy shelf so the encounter shows up.
+  def handle_info({:shiny_seen, _info}, socket),
+    do: {:noreply, assign(socket, shiny_log: Pokex.Pokedex.ShinyLog.entries())}
 
   def handle_info({:focus, %{focused?: focused?}}, socket),
     do: {:noreply, assign(socket, focused?: focused?)}
@@ -642,16 +645,6 @@ defmodule PokexWeb.PanelLive do
   end
 
   def handle_event("save_shiny_cfg", params, socket) do
-    names =
-      (params["shiny_watch"] || "")
-      |> String.split([",", " "], trim: true)
-      |> Enum.map(&String.trim/1)
-
-    if names != [] do
-      Settings.put(:shiny_watch_names, names)
-      Pokex.Pokedex.ShinySignatures.rebuild()
-    end
-
     socket =
       case params["shiny_action"] do
         action when action in ["fugir", "alarme"] ->
@@ -662,63 +655,38 @@ defmodule PokexWeb.PanelLive do
           socket
       end
 
-    {:noreply,
-     assign(socket,
-       shiny_watch: Enum.join(Settings.get(:shiny_watch_names), ", "),
-       shiny_preview: shiny_preview()
-     )}
+    {:noreply, socket}
   end
 
-  # The shiny PROBE: capture the arena NOW, rebuild the signatures and score
-  # each watched shiny — the tuning tool. Writes the scores into the live-meter
-  # assign too, so the bars light up even without the guard running.
+  # The shiny PROBE: capture the battle list NOW and show the star score of
+  # every row — the tuning tool. A list with no shiny reads 0 everywhere; the
+  # measured star lands at 15+.
   def handle_event("shiny_probe", _params, socket) do
-    {msg, scores} =
+    {msg, px} =
       with {:ok, calib} <- Calibration.load(),
-           {:ok, _built} <- Pokex.Pokedex.ShinySignatures.rebuild(),
-           {:ok, frame} <-
-             Pokex.Bots.Capture.frame(calib.arena_region, "shiny_probe.png") do
-        results = Pokex.Pokedex.ShinySignatures.probe(frame)
+           {:ok, frame} <- Pokex.Bots.Capture.frame(calib.battle_region, "shiny_probe.png") do
+        settings = Settings.all()
+        {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height])
+        rows = settings[:battle_max_rows]
+        strip = round(Calibration.strip_width() * calib.scale)
+        body = Pokex.Vision.Frame.crop(frame, {0, 0, frame.width - strip, frame.height})
 
-        text =
-          case results do
-            [] ->
-              "sonda: nenhuma assinatura construída — confere os nomes e roda o sync dos sprites"
+        clusters = Pokex.Vision.star_row_clusters(body, top: top, band: band, rows: rows)
+        best = Enum.max(clusters, fn -> 0 end)
 
-            _ ->
-              "sonda: " <>
-                Enum.map_join(results, " · ", fn {name, px} -> "#{name}: #{px}px" end) <>
-                " (limiar #{Settings.get(:shiny_min_px)}px)"
-          end
-
-        {text, Map.new(results)}
+        {"sonda: estrela por linha " <>
+           Enum.map_join(Enum.with_index(clusters), " · ", fn {px, i} -> "L#{i}: #{px}px" end) <>
+           " (limiar #{settings[:shiny_star_min_px]}px)", best}
       else
-        error -> {"sonda falhou: #{inspect(error)}", %{}}
+        error -> {"sonda falhou: #{inspect(error)}", nil}
       end
 
-    {:noreply,
-     assign(socket, shiny_msg: msg, shiny_scores: scores, shiny_preview: shiny_preview())}
+    {:noreply, assign(socket, shiny_msg: msg, shiny_star_px: px)}
   end
 
-  # Learn the CLEAN-arena background (point at water, no enemy) and subtract
-  # those colors from every signature — the false-positive killer for pale
-  # shinies vs water shimmer.
-  def handle_event("shiny_learn_baseline", _params, socket) do
-    msg =
-      with {:ok, calib} <- Calibration.load(),
-           {:ok, frame} <-
-             Pokex.Bots.Capture.frame(calib.arena_region, "shiny_baseline.png"),
-           {:ok, %{baseline: n, per_name: per_name}} <-
-             Pokex.Pokedex.ShinySignatures.learn_baseline(frame) do
-        removed = per_name |> Enum.map(&elem(&1, 1)) |> Enum.sum()
-
-        "fundo aprendido (#{n} cores de água/cenário) — #{removed} tons removidos das " <>
-          "assinaturas. Agora aponte pra água limpa e clique na Sonda: deve ler ~0px."
-      else
-        error -> "aprender fundo falhou: #{inspect(error)}"
-      end
-
-    {:noreply, assign(socket, shiny_msg: msg, shiny_preview: shiny_preview())}
+  def handle_event("shiny_log_clear", _params, socket) do
+    Pokex.Pokedex.ShinyLog.clear()
+    {:noreply, assign(socket, shiny_log: [], shiny_msg: "registro de shinies limpo")}
   end
 
   # The escape SIMULATION (the aceite's "simulação"): runs the REAL protocol —
@@ -1072,26 +1040,36 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # --- shiny guard dashboard (live meter + visual preview) --------------------
+  # --- shiny guard (star meter + trophy shelf) --------------------------------
 
-  defp shiny_preview do
-    Pokex.Pokedex.ShinySignatures.preview()
-  rescue
-    _error -> []
+  # "há 3min" / the clock time — the shelf reads as a timeline, not ISO noise.
+  defp shiny_log_when(%{at: at}) when is_binary(at) do
+    case DateTime.from_iso8601(at) do
+      {:ok, dt, _} ->
+        diff = DateTime.diff(DateTime.utc_now(), dt)
+
+        cond do
+          diff < 60 -> "agora"
+          diff < 3_600 -> "há #{div(diff, 60)}min"
+          diff < 86_400 -> "há #{div(diff, 3_600)}h"
+          true -> "há #{div(diff, 86_400)}d"
+        end
+
+      _bad ->
+        at
+    end
   end
 
-  defp shiny_px(scores, name), do: Map.get(scores, name)
+  defp shiny_log_when(_entry), do: "?"
 
   defp shiny_px_label(nil), do: "—"
   defp shiny_px_label(px), do: to_string(px)
 
-  # px vs threshold → a 0..100 bar. No reading yet = 0.
   defp shiny_bar_pct(nil, _min), do: 0
   defp shiny_bar_pct(_px, min) when min <= 0, do: 0
   defp shiny_bar_pct(px, min), do: min(round(px / min * 100), 100)
 
-  # green = clean/safe, amber = creeping toward the threshold, red = A SHINY
-  # (at/above threshold) — red is GOOD here, it means detection.
+  # green = no star (normal list), red = A SHINY is listed — red is GOOD here.
   defp shiny_zone(nil, _min), do: :none
   defp shiny_zone(px, min) when px >= min, do: :hit
   defp shiny_zone(px, min) when px >= min * 0.5, do: :warn
@@ -1103,15 +1081,6 @@ defmodule PokexWeb.PanelLive do
       :warn -> "text-[#f2c45b]"
       :safe -> "text-[#37d07d]"
       :none -> "text-[#5d6670]"
-    end
-  end
-
-  defp shiny_bar_class(px, min) do
-    case shiny_zone(px, min) do
-      :hit -> "bg-[#ff6b74]"
-      :warn -> "bg-[#f2c45b]"
-      :safe -> "bg-[#37d07d]"
-      :none -> "bg-[#3a4249]"
     end
   end
 
@@ -1805,8 +1774,8 @@ defmodule PokexWeb.PanelLive do
                     <div class="min-w-0 flex-1">
                       <p class="text-sm font-semibold text-[#d9dde1]">Guarda anti-shiny ✨</p>
                       <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
-                        vigia a arena pela COR dos shinies (assinatura dos sprites da wiki) —
-                        ao confirmar, foge pela escada ou só alarma (você luta)
+                        vê a ESTRELA dourada que a lista de batalha põe no shiny — vale pra
+                        QUALQUER shiny, e a bola sempre voa (mesmo com captura desligada)
                       </p>
                     </div>
                     <input
@@ -1816,113 +1785,98 @@ defmodule PokexWeb.PanelLive do
                       phx-click="toggle_shiny_guard"
                     />
                   </div>
-                  <form
-                    id="shiny-cfg-form"
-                    phx-change="save_shiny_cfg"
-                    class="mt-1.5 flex flex-wrap items-center gap-1 font-mono text-[9px] text-[#737d85]"
-                  >
-                    <span>vigiar</span>
-                    <input
-                      id="shiny-watch"
-                      name="shiny_watch"
-                      value={@shiny_watch}
-                      placeholder="Seadra, Kingler"
-                      phx-debounce="700"
-                      class="h-6 w-40 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
-                    />
-                    <span>· ao ver →</span>
-                    <select
-                      id="shiny-action"
-                      name="shiny_action"
-                      class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+
+                  <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <form
+                      id="shiny-cfg-form"
+                      phx-change="save_shiny_cfg"
+                      class="flex items-center gap-1 font-mono text-[9px] text-[#737d85]"
                     >
-                      <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
-                      <option value="alarme" selected={@shiny_action == "alarme"}>
-                        lutar (só alarme) ⚔️
-                      </option>
-                    </select>
+                      <span>ao ver →</span>
+                      <select
+                        id="shiny-action"
+                        name="shiny_action"
+                        class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                      >
+                        <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
+                        <option value="alarme" selected={@shiny_action == "alarme"}>
+                          lutar (só alarme) ⚔️
+                        </option>
+                      </select>
+                    </form>
+
+                    <div class="flex min-w-[9rem] flex-1 items-center gap-2">
+                      <span class={[
+                        "font-mono text-sm font-bold tabular-nums",
+                        shiny_px_class(@shiny_star_px, @shiny_star_min_px)
+                      ]}>
+                        {shiny_px_label(@shiny_star_px)}<span class="text-[9px] font-normal text-[#737d85]">/{@shiny_star_min_px}px</span>
+                      </span>
+                      <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#222a2f]">
+                        <div
+                          class={[
+                            "h-full rounded-full transition-[width]",
+                            case shiny_zone(@shiny_star_px, @shiny_star_min_px) do
+                              :hit -> "bg-[#ff6b74]"
+                              :warn -> "bg-[#f2c45b]"
+                              :safe -> "bg-[#37d07d]"
+                              :none -> "bg-[#3a4249]"
+                            end
+                          ]}
+                          style={"width: #{shiny_bar_pct(@shiny_star_px, @shiny_star_min_px)}%"}
+                        />
+                      </div>
+                    </div>
+
                     <button
                       id="shiny-probe"
                       type="button"
                       phx-click="shiny_probe"
-                      title="captura a arena AGORA e pontua cada shiny vigiado — arena limpa deve ler ~0px"
-                      class="btn btn-xs h-6 border border-[#293238] bg-transparent px-2 text-[10px] text-[#89939a] hover:text-white"
+                      title="lê a lista de batalha AGORA e mostra a pontuação da estrela por linha — sem shiny na lista tudo deve ler 0px"
+                      class="btn btn-xs h-6 shrink-0 border border-[#293238] bg-transparent px-2 text-[10px] text-[#89939a] hover:text-white"
                     >
                       🔬 Sonda
                     </button>
-                    <button
-                      id="shiny-baseline"
-                      type="button"
-                      phx-click="shiny_learn_baseline"
-                      title="APONTE a câmera pra água/cenário LIMPO (sem inimigo) e clique: as cores do fundo saem das assinaturas — mata o falso-positivo do shiny branco na água"
-                      class="btn btn-xs h-6 border border-[#293238] bg-transparent px-2 text-[10px] text-[#7cc0e8] hover:text-white"
-                    >
-                      🌊 Aprender fundo
-                    </button>
-                  </form>
+                  </div>
+
                   <p :if={@shiny_msg} id="shiny-msg" class="mt-1 font-mono text-[9px] text-[#e7ca82]">
                     {@shiny_msg}
                   </p>
 
-                  <div :if={@shiny_preview != []} id="shiny-preview" class="mt-2 space-y-1.5">
-                    <div
-                      :for={p <- @shiny_preview}
-                      class="rounded-lg border border-[#232b30] bg-[#101418] p-2"
-                    >
-                      <div class="flex items-center gap-2">
-                        <img
-                          :if={p.base_sprite}
-                          src={"/" <> p.base_sprite}
-                          alt="normal"
-                          title="normal"
-                          onerror="this.style.display='none'"
-                          class="size-7 shrink-0 object-contain opacity-60"
-                        />
-                        <img
-                          :if={p.shiny_sprite}
-                          src={"/" <> p.shiny_sprite}
-                          alt={p.name}
-                          title={p.name}
-                          onerror="this.style.display='none'"
-                          class="size-7 shrink-0 object-contain"
-                        />
-                        <div class="min-w-0 flex-1">
-                          <p class="truncate text-[11px] font-semibold text-[#dce1e4]">{p.name}</p>
-                          <div class="mt-0.5 flex items-center gap-0.5">
-                            <span class="mr-1 font-mono text-[8px] text-[#737d85]">caça</span>
-                            <span
-                              :for={{r, g, b} <- p.swatches}
-                              class="size-3 rounded-sm border border-[#00000060]"
-                              style={"background-color: rgb(#{r},#{g},#{b})"}
-                            />
-                            <span class="ml-1 font-mono text-[8px] text-[#737d85]">
-                              {p.bucket_count} tons
-                            </span>
-                          </div>
-                        </div>
-                        <div class="w-24 shrink-0 text-right">
-                          <p class={[
-                            "font-mono text-sm font-bold tabular-nums",
-                            shiny_px_class(shiny_px(@shiny_scores, p.name), @shiny_min_px_ui)
-                          ]}>
-                            {shiny_px_label(shiny_px(@shiny_scores, p.name))}<span class="text-[9px] font-normal text-[#737d85]">/{@shiny_min_px_ui}px</span>
-                          </p>
-                          <div class="mt-0.5 h-1 overflow-hidden rounded-full bg-[#222a2f]">
-                            <div
-                              class={[
-                                "h-full rounded-full transition-[width]",
-                                shiny_bar_class(shiny_px(@shiny_scores, p.name), @shiny_min_px_ui)
-                              ]}
-                              style={"width: #{shiny_bar_pct(shiny_px(@shiny_scores, p.name), @shiny_min_px_ui)}%"}
-                            />
-                          </div>
-                        </div>
-                      </div>
+                  <div :if={@shiny_log != []} id="shiny-log" class="mt-2">
+                    <div class="flex items-center justify-between">
+                      <p class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#c9a227]">
+                        ✨ shinies encontrados ({length(@shiny_log)})
+                      </p>
+                      <button
+                        phx-click="shiny_log_clear"
+                        data-confirm="Apagar o registro de shinies encontrados?"
+                        class="cursor-pointer font-mono text-[9px] text-[#68727a] hover:text-[#ff9ca4]"
+                      >
+                        limpar
+                      </button>
                     </div>
-                    <p class="px-0.5 font-mono text-[8px] leading-tight text-[#5d6670]">
-                      barra verde = arena limpa (seguro) · vermelha = SHINY visto. Aponte pra água
-                      sem inimigo: se passar de verde, clique "Aprender fundo".
-                    </p>
+                    <ul class="mt-1 space-y-0.5">
+                      <li
+                        :for={entry <- Enum.take(@shiny_log, 5)}
+                        class="flex items-center gap-2 rounded border border-[#3a3320] bg-[#181509] px-2 py-1 font-mono text-[9px]"
+                      >
+                        <span class="text-[#c9a227]">✨</span>
+                        <span class="text-[#a8b0b7]">{shiny_log_when(entry)}</span>
+                        <span class={[
+                          "rounded px-1",
+                          case entry.outcome do
+                            "morto" -> "bg-[#241114] text-[#ff9ca4]"
+                            "bola" -> "bg-[#101d24] text-[#7cc0e8]"
+                            "fugiu" -> "bg-[#211b0d] text-[#f3ba4e]"
+                            _visto -> "bg-[#14191d] text-[#8b949d]"
+                          end
+                        ]}>
+                          {entry.outcome}
+                        </span>
+                        <span class="text-[#5d6670]">{entry.star_px}px · {entry.action}</span>
+                      </li>
+                    </ul>
                   </div>
                 </div>
                 <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">

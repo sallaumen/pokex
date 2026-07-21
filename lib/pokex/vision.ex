@@ -326,6 +326,83 @@ defmodule Pokex.Vision do
   defp red_band_counts(<<>>, _index, _width, _top, _band, _rows, acc), do: acc
 
   @doc """
+  Battle rows marked with the SHINY star: PXG paints a gold ★ before a shiny's
+  name in the battle list — an EXPLICIT game signal, far better than guessing
+  the sprite's recolor.
+
+  MEASURED on Lucas's real capture (2026-07-21, a Shiny Seadra beside a normal
+  Wigglytuff): the star is a DENSE gold cluster — 32px across 7 adjacent
+  columns, colors (248,188,89)/(250,192,90), G/R ≈ 0.76 — while the non-shiny
+  row reads ZERO gold and the shiny's own sprite icon contributes only
+  scattered singles (1px per column). DENSITY is therefore the discriminator,
+  not the raw count: a yellow-ish sprite never stacks a column the way the
+  glyph does. The gold predicate also demands a high G/R, so deep-orange
+  sprites and the (255,28,28) pokeball can never match.
+
+  Returns `[{row, cluster_px}]` for every row whose densest 3-column window
+  reaches `min_cluster`.
+  """
+  @spec star_rows(Frame.t(), keyword) :: [{non_neg_integer, non_neg_integer}]
+  def star_rows(%Frame{width: w, rgba: rgba}, opts) do
+    top = Keyword.fetch!(opts, :top)
+    band = Keyword.fetch!(opts, :band)
+    rows = Keyword.fetch!(opts, :rows)
+    min_cluster = Keyword.get(opts, :min_cluster, 10)
+
+    cells = gold_cells(rgba, 0, w, top, band, rows, %{})
+
+    for row <- 0..(rows - 1)//1,
+        cluster = densest_window(cells, row, w),
+        cluster >= min_cluster,
+        do: {row, cluster}
+  end
+
+  @doc false
+  # Per-row densest 3-column gold window — exposed for the panel's shiny probe
+  # (it shows the score of EVERY row, including the ones below the threshold).
+  def star_row_clusters(%Frame{width: w, rgba: rgba}, opts) do
+    top = Keyword.fetch!(opts, :top)
+    band = Keyword.fetch!(opts, :band)
+    rows = Keyword.fetch!(opts, :rows)
+    cells = gold_cells(rgba, 0, w, top, band, rows, %{})
+
+    for row <- 0..(rows - 1)//1, do: densest_window(cells, row, w)
+  end
+
+  # The star glyph spans ~7 columns; a 3-wide window is the tightest measure
+  # that still fully separates it (15+ px) from icon speckle (≤2 px).
+  defp densest_window(cells, row, width) do
+    Enum.reduce(0..(width - 1)//1, 0, fn x, best ->
+      sum =
+        Map.get(cells, {row, x}, 0) + Map.get(cells, {row, x + 1}, 0) +
+          Map.get(cells, {row, x + 2}, 0)
+
+      max(best, sum)
+    end)
+  end
+
+  # Gold = bright, yellow (G close to R), clearly not blue. The G/R floor
+  # (g*10 >= r*6, i.e. G/R ≥ 0.6) is what keeps deep oranges and the red
+  # pokeball out. Clause order matters (see red_band_counts).
+  defp gold_cells(<<r, g, b, _a, rest::binary>>, index, width, top, band, rows, acc)
+       when r >= 190 and g >= 130 and b <= 150 and r - b >= 80 and g - b >= 40 and g * 10 >= r * 6 do
+    y = div(index, width)
+    row = if y >= top, do: div(y - top, band), else: -1
+
+    acc =
+      if row >= 0 and row < rows,
+        do: Map.update(acc, {row, rem(index, width)}, 1, &(&1 + 1)),
+        else: acc
+
+    gold_cells(rest, index + 1, width, top, band, rows, acc)
+  end
+
+  defp gold_cells(<<_::32, rest::binary>>, index, width, top, band, rows, acc),
+    do: gold_cells(rest, index + 1, width, top, band, rows, acc)
+
+  defp gold_cells(<<>>, _index, _width, _top, _band, _rows, acc), do: acc
+
+  @doc """
   The single locked battle row: the loudest band whose red count reaches
   `min_pixels`, or `:none` if none do. Argmax (not any-over-threshold) is robust
   when a sibling row briefly grazes the threshold. Ties break to the lowest index.

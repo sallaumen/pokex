@@ -242,12 +242,17 @@ defmodule Pokex.Settings do
     # confirmed sighting: "fugir" = the emergency-escape protocol (staircase);
     # "alarme" = keep fighting, just scream (his "lutar se quiser").
     shiny_guard_enabled: false,
+    # The battle-list STAR detector (the reliable path — PXG marks a shiny with
+    # a gold ★ before its name). A row is shiny when its densest 3-column gold
+    # window reaches this many pixels; MEASURED on Lucas's real capture
+    # (2026-07-21): the star reads 15+ in that window, a non-shiny row 0, and a
+    # shiny's own sprite icon at most 2. Raise it if a golden sprite ever trips.
+    shiny_star_min_px: 10,
+    # A shiny ALWAYS deserves a pokéball, even with capture_enabled off
+    # (Lucas: "O Shiny sempre tem que tentar").
+    shiny_always_ball: true,
     shiny_action: "alarme",
-    shiny_watch_names: ["Seadra", "Kingler"],
-    # A sighting needs this many signature pixels clustered in one 2×2 block of
-    # 16px cells, on shiny_streak_needed consecutive arena frames — tune with
-    # the panel's "Sonda" (an empty arena should read ~0px).
-    shiny_min_px: 12,
+    # Consecutive battle frames showing the star before the guard acts.
     shiny_streak_needed: 3,
     # Anti-stagnation rule (Actions & Rules): an ACTIVE session with neither a
     # kill nor a hooked fish for this many minutes is a wedged bot (empty

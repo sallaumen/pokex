@@ -1,9 +1,15 @@
 defmodule Pokex.Bots.ShinyGuard do
   @moduledoc """
-  The anti-shiny protocol's TRIGGER (Lucas's request): watches the `:arena`
-  feed for the shiny verdict `Interpret.arena` computes from the wiki-sprite
-  color signatures, debounces it over `shiny_streak_needed` consecutive
-  frames, and acts per `shiny_action`:
+  The anti-shiny protocol's TRIGGER. Watches the `:battle` feed for the game's
+  OWN shiny marker — the gold ★ the battle list paints before a shiny's name
+  (Lucas, 2026-07-21: "descobri um jeito muito mais fácil, pela estrelinha
+  amarela"). That beats guessing the sprite recolor: it is explicit, it works
+  for ANY shiny (not only the configured names), and it rides the region
+  combat already captures every ~120ms.
+
+  It debounces over `shiny_streak_needed` consecutive frames, LOGS the
+  encounter (Pokex.Pokedex.ShinyLog — the trophy shelf), and acts per
+  `shiny_action`:
 
     * `"fugir"` — the emergency-escape protocol (latch, click-walk to the
       calibrated staircase, full stop, alarm) via the injected `escape_fun`;
@@ -11,13 +17,12 @@ defmodule Pokex.Bots.ShinyGuard do
       `{:rule_alarm, _}` so the panel screams (F7 pipeline) and he decides.
 
   Always-on app child like the Guardian — a shiny is dangerous during MANUAL
-  play too. It manages its own arena-feed attachment from the
+  play too. It manages its own battle-feed attachment from the
   `shiny_guard_enabled` setting on a slow poll (the demand-driven feed only
-  captures while someone is attached), rebuilds the color signatures on every
-  (re)attach so edits to `shiny_watch_names` apply on the next enable, and
-  holds a refractory window after firing so one sighting can't machine-gun
-  escapes or alarms. It never touches the Body itself — the escape path owns
-  its own gates, the alarm is just PubSub — so no panic fan-out is needed.
+  captures while someone is attached) and holds a refractory window after
+  firing so one sighting can't machine-gun escapes or alarms. It never
+  touches the Body itself — the escape path owns its own gates, the alarm is
+  just PubSub — so no panic fan-out is needed.
 
   Like the Guardian's session rules, the env flag `:shiny_guard_active` turns
   the app-global instance off in the test env (a test flipping the global
@@ -30,7 +35,7 @@ defmodule Pokex.Bots.ShinyGuard do
 
   alias Pokex.Perception
   alias Pokex.Perception.Feed
-  alias Pokex.Pokedex.ShinySignatures
+  alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
 
   @combat_topic "combat"
@@ -63,6 +68,8 @@ defmodule Pokex.Bots.ShinyGuard do
 
   @impl true
   def init(state) do
+    # combat's kill broadcast closes an open encounter as "morto"
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.kill_topic())
     schedule_poll()
     {:ok, state}
   end
@@ -74,7 +81,7 @@ defmodule Pokex.Bots.ShinyGuard do
        enabled?: state.active? and Settings.get(:shiny_guard_enabled),
        attached?: state.attached?,
        streak: state.streak,
-       signatures: Enum.map(ShinySignatures.signatures(), & &1.name)
+       star_min_px: Settings.get(:shiny_star_min_px)
      }, state}
   end
 
@@ -85,14 +92,28 @@ defmodule Pokex.Bots.ShinyGuard do
     {:noreply, state}
   end
 
-  def handle_info({:world, :arena, obs}, state) do
-    state = broadcast_reading(state, Map.get(obs, :shiny_scores, []))
-    {:noreply, advance(state, Map.get(obs, :shiny))}
+  def handle_info({:world, :battle, obs}, state) do
+    px = Map.get(obs, :shiny_star_px, 0)
+    state = broadcast_reading(state, px)
+    seen? = Map.get(obs, :shiny_rows, []) != []
+    {:noreply, advance(state, seen?, px)}
   end
 
   def handle_info({:world, _key, _obs}, state), do: {:noreply, state}
 
-  # The :arena feed died — mark detached; the next poll re-attaches (a fresh
+  # A kill right after a sighting IS that shiny dying (Lucas: "se eu matei um
+  # Shiny"). Outside the window it is an ordinary kill — ignored.
+  def handle_info(kill, state) when kill in [{:kill}, {:kill, nil}] do
+    if recent_sighting?(state), do: ShinyLog.resolve_last("morto")
+    {:noreply, state}
+  end
+
+  def handle_info({:kill, _corpse}, state) do
+    if recent_sighting?(state), do: ShinyLog.resolve_last("morto")
+    {:noreply, state}
+  end
+
+  # The :battle feed died — mark detached; the next poll re-attaches (a fresh
   # feed starts with nobody attached, same liveness pattern as the catcher's).
   def handle_info({:DOWN, ref, :process, _obj, _reason}, %{feed_ref: ref} = state),
     do: {:noreply, %{state | attached?: false, feed_ref: nil, streak: 0}}
@@ -108,16 +129,8 @@ defmodule Pokex.Bots.ShinyGuard do
 
     cond do
       enabled? and not state.attached? ->
-        {:ok, built} = ShinySignatures.rebuild()
-
-        if built == [] do
-          Logger.warning(
-            "ShinyGuard: nenhuma assinatura construída (sprites/base ausentes?) — vigiando nada"
-          )
-        end
-
-        Perception.attach(:arena)
-        ref = Process.monitor(Feed.name(:arena))
+        Perception.attach(:battle)
+        ref = Process.monitor(Feed.name(:battle))
         %{state | attached?: true, feed_ref: ref, streak: 0}
 
       not enabled? and state.attached? ->
@@ -131,7 +144,7 @@ defmodule Pokex.Bots.ShinyGuard do
   end
 
   defp safe_detach do
-    Perception.detach(:arena)
+    Perception.detach(:battle)
   catch
     _kind, _reason -> :ok
   end
@@ -141,17 +154,26 @@ defmodule Pokex.Bots.ShinyGuard do
 
   # -- detection ---------------------------------------------------------------
 
-  defp advance(state, nil), do: %{state | streak: 0}
+  defp advance(state, false, _px), do: %{state | streak: 0}
 
-  defp advance(state, %{name: name, px: px}) do
+  defp advance(state, true, px) do
     streak = state.streak + 1
 
     if streak >= Settings.get(:shiny_streak_needed) and cooled_down?(state) do
-      fire(state, name, px)
+      fire(state, px)
     else
       %{state | streak: streak}
     end
   end
+
+  # the encounter is "open" for a while after the sighting — long enough for a
+  # fight to end, short enough not to claim an unrelated kill
+  @encounter_window_ms 45_000
+
+  defp recent_sighting?(%{last_fired_at: nil}), do: false
+
+  defp recent_sighting?(%{last_fired_at: at}),
+    do: System.monotonic_time(:millisecond) - at <= @encounter_window_ms
 
   defp cooled_down?(%{last_fired_at: nil}), do: true
 
@@ -160,16 +182,14 @@ defmodule Pokex.Bots.ShinyGuard do
 
   # Feed the panel's live meter — throttled so the arena's ~300ms cadence
   # doesn't re-render the panel several times a second.
-  defp broadcast_reading(state, []), do: state
-
-  defp broadcast_reading(state, scores) do
+  defp broadcast_reading(state, px) do
     now = System.monotonic_time(:millisecond)
 
     if state.last_reading_at == nil or now - state.last_reading_at > @reading_throttle_ms do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @reading_topic,
-        {:shiny_reading, %{scores: Map.new(scores), min_px: Settings.get(:shiny_min_px)}}
+        {:shiny_reading, %{star_px: px, min_px: Settings.get(:shiny_star_min_px)}}
       )
 
       %{state | last_reading_at: now}
@@ -178,18 +198,29 @@ defmodule Pokex.Bots.ShinyGuard do
     end
   end
 
-  defp fire(state, name, px) do
-    reason = "✨ SHINY na área: #{name} (#{px}px)"
+  defp fire(state, px) do
+    action = Settings.get(:shiny_action)
+    reason = "✨ SHINY na lista de batalha (estrela #{px}px)"
 
-    case Settings.get(:shiny_action) do
+    # the trophy shelf first: the encounter is logged even if the action fails
+    ShinyLog.record(star_px: px, action: action, outcome: "visto")
+
+    case action do
       "fugir" ->
         Logger.warning("ShinyGuard: #{reason} — fugindo pela escada")
         state.escape_fun.(reason)
+        ShinyLog.resolve_last("fugiu")
 
       _alarme_ou_lutar ->
         Logger.warning("ShinyGuard: #{reason} — modo lutar, só alarmando")
         Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, reason <> " — LUTA!"})
     end
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @reading_topic,
+      {:shiny_seen, %{px: px, action: action}}
+    )
 
     %{state | streak: 0, last_fired_at: System.monotonic_time(:millisecond)}
   end

@@ -95,6 +95,7 @@ defmodule Pokex.Pokedex.Sync do
 
     merged = if opts[:fresh], do: species, else: Scraper.upsert(existing_species(), species)
     {merged, filled} = fill_gaps(merged, delay, opts, scraped_at, progress)
+    save_element_icons(opts, progress)
 
     File.mkdir_p!(out_dir())
 
@@ -108,6 +109,37 @@ defmodule Pokex.Pokedex.Sync do
        shinies: Enum.count(merged, &shiny_entry?/1),
        filled: filled
      }}
+  end
+
+  # The game's own type icons (one small PNG per element), harvested from any
+  # species page and cached under priv/static/images/pokedex/elements/ so the
+  # UI can show them instead of plain words. Best-effort: a failed download
+  # just leaves the coloured text chip in place.
+  defp save_element_icons(opts, progress) do
+    if opts[:skip_sprites] do
+      :ok
+    else
+      with {:ok, html} <- fetch("/index.php/Sceptile"),
+           icons when map_size(icons) > 0 <- Scraper.element_icons(html) do
+        dir = Path.join(sprites_dir(), "elements")
+        File.mkdir_p!(dir)
+
+        Enum.each(icons, fn {element, url} ->
+          path = Path.join(dir, String.downcase(element) <> ".png")
+
+          unless File.exists?(path) do
+            case Req.get(@base <> url, retry: :transient, max_retries: 2) do
+              {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(path, body)
+              _error -> :skip
+            end
+          end
+        end)
+
+        progress.("ícones de elemento: #{map_size(icons)}")
+      else
+        _unavailable -> :ok
+      end
+    end
   end
 
   @doc "Entries still missing the harvest — what the gap pass targets."
@@ -254,6 +286,7 @@ defmodule Pokex.Pokedex.Sync do
             neutral: base.neutral,
             evolutions: [],
             moves: nil,
+            moves_pvp: nil,
             sprite: sprite,
             shiny_of: base.name,
             shiny_name: nil,
@@ -280,6 +313,7 @@ defmodule Pokex.Pokedex.Sync do
       neutral: parsed.neutral,
       evolutions: parsed.evolutions,
       moves: parsed.moves,
+      moves_pvp: parsed.moves_pvp,
       sprite: download_sprite(parsed.sprite_url, parsed.name, opts),
       shiny_of: shiny_of,
       shiny_name: parsed.shiny && parsed.shiny.name,

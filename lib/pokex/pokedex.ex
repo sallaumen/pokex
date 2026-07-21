@@ -19,19 +19,34 @@ defmodule Pokex.Pokedex do
   @doc "When the dataset was last synced (ISO8601), or nil — anchors the novelty badges."
   def synced_at, do: data().synced_at
 
-  @doc """
-  Entries whose novelty stamp matches the LAST sync: `:new` (first_seen_at)
-  or `:changed` (changed_at). nil when the entry predates the stamps or is
-  older than the last run — exactly what "o que veio na última sync" needs.
-  """
-  def novelty(entry, synced_at \\ nil) do
-    synced_at = synced_at || synced_at()
+  @novelty_days 7
 
-    cond do
-      synced_at == nil -> nil
-      entry.first_seen_at == synced_at -> :new
-      entry.changed_at == synced_at -> :changed
-      true -> nil
+  @doc "The novelty window in days (the wiki-edit recency that counts as NEW)."
+  def novelty_days, do: @novelty_days
+
+  @doc """
+  How many days ago the WIKI last edited this entry's page, or nil when
+  unknown. This — not our own sync bookkeeping — is what "novidade" means:
+  it recycles itself as time passes, and a first-ever sync doesn't paint the
+  whole base as new (Lucas: "Se algo for novo para mim aqui, não deveria
+  mostrar como novo. Se for novo na wiki… nos últimos sete dias").
+  """
+  def wiki_age_days(entry, today \\ nil) do
+    today = today || Date.utc_today()
+
+    with date when is_binary(date) <- entry.edited_at,
+         {:ok, edited} <- Date.from_iso8601(date) do
+      Date.diff(today, edited)
+    else
+      _unknown -> nil
+    end
+  end
+
+  @doc "Fresh on the WIKI: edited within `novelty_days` (nil when older/unknown)."
+  def novelty(entry, today \\ nil) do
+    case wiki_age_days(entry, today) do
+      days when is_integer(days) and days >= 0 and days <= @novelty_days -> {:wiki, days}
+      _older_or_unknown -> nil
     end
   end
 
@@ -344,6 +359,9 @@ defmodule Pokex.Pokedex do
       # nil = entry predates the moves scrape (the page hints at re-sync);
       # [] = scraped and the page truly has no table
       moves: map["moves"] && Enum.map(map["moves"], &move_entry/1),
+      # the PVP moveset — same slots, different cooldowns; kept apart so the
+      # hunting (PVE) numbers are never mixed with it
+      moves_pvp: map["moves_pvp"] && Enum.map(map["moves_pvp"], &move_entry/1),
       sprite: map["sprite"],
       shiny_of: map["shiny_of"],
       shiny_name: map["shiny_name"],

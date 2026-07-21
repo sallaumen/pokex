@@ -175,38 +175,30 @@ defmodule Pokex.PokedexTest do
   end
 
   @tag :tmp_dir
-  test "novidade: :new e :changed relativos ao ÚLTIMO sync; filtro só-novidades", %{tmp_dir: tmp} do
-    now = "2026-07-21T10:00:00Z"
+  test "novidade = frescor da WIKI (auto-recicla): dentro da janela, fora, e desconhecida",
+       %{tmp_dir: tmp} do
+    today = ~D[2026-07-21]
 
     dataset =
-      @dataset
-      |> Map.put("scraped_at", now)
-      |> update_in(["species"], fn species ->
+      update_in(@dataset["species"], fn species ->
         Enum.map(species, fn
-          %{"name" => "Seadra"} = s ->
-            Map.merge(s, %{"first_seen_at" => now, "changed_at" => now})
-
-          %{"name" => "Charizard"} = s ->
-            Map.merge(s, %{"first_seen_at" => "2026-01-01T00:00:00Z", "changed_at" => now})
-
-          s ->
-            Map.merge(s, %{
-              "first_seen_at" => "2026-01-01T00:00:00Z",
-              "changed_at" => "2026-01-01T00:00:00Z"
-            })
+          # editado ONTEM → novidade
+          %{"name" => "Seadra"} = s -> Map.put(s, "edited_at", "2026-07-20")
+          # editado há 30 dias → não é mais novidade (o tempo reciclou sozinho)
+          %{"name" => "Charizard"} = s -> Map.put(s, "edited_at", "2026-06-21")
+          # sem data conhecida → nunca é novidade
+          s -> Map.delete(s, "edited_at")
         end)
       end)
 
     File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(dataset))
     Pokedex.reload()
 
-    assert Pokedex.synced_at() == now
-    assert Pokedex.novelty(Pokedex.get("Seadra")) == :new
-    assert Pokedex.novelty(Pokedex.get("Charizard")) == :changed
-    assert Pokedex.novelty(Pokedex.get("Venusaur")) == nil
-
-    novelties = Pokedex.search(%{only_novelty: true}) |> Enum.map(& &1.name)
-    assert Enum.sort(novelties) == ["Charizard", "Seadra"]
+    assert {:wiki, 1} = Pokedex.novelty(Pokedex.get("Seadra"), today)
+    assert Pokedex.novelty(Pokedex.get("Charizard"), today) == nil
+    assert Pokedex.novelty(Pokedex.get("Venusaur"), today) == nil
+    assert Pokedex.wiki_age_days(Pokedex.get("Charizard"), today) == 30
+    assert Pokedex.novelty_days() == 7
   end
 
   @tag :tmp_dir

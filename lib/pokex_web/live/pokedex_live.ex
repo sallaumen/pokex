@@ -233,16 +233,14 @@ defmodule PokexWeb.PokedexLive do
 
   @impl true
   def render(assigns) do
-    synced_at = Pokedex.synced_at()
+    today = Date.utc_today()
 
     assigns =
       assigns
       |> assign(:capped, Enum.take(assigns.results, @results_cap))
-      |> assign(:synced_at, synced_at)
-      |> assign(
-        :novelty_count,
-        Enum.count(assigns.results, &(Pokedex.novelty(&1, synced_at) != nil))
-      )
+      |> assign(:synced_at, Pokedex.synced_at())
+      |> assign(:today, today)
+      |> assign(:novelty_count, Enum.count(assigns.results, &(Pokedex.novelty(&1, today) != nil)))
 
     ~H"""
     <div class="min-h-dvh bg-[#080b0d] px-3 py-4 text-[#d9dde1]">
@@ -411,7 +409,7 @@ defmodule PokexWeb.PokedexLive do
 
             <button
               phx-click="toggle_novelty"
-              title="só o que a última sincronização trouxe ou mudou"
+              title={"só o que a wiki editou nos últimos #{Pokedex.novelty_days()} dias — a lista se recicla sozinha"}
               class={[
                 "ml-auto rounded px-1.5 py-0.5 transition",
                 if(@only_novelty?,
@@ -459,14 +457,10 @@ defmodule PokexWeb.PokedexLive do
                       title={entry.edited_at && "wiki editada em #{entry.edited_at}"}
                     >
                       {entry.name}<span :if={entry.shiny_of}> ✨</span><span
-                        :if={Pokedex.novelty(entry, @synced_at) == :new}
-                        title="entrou na base na última sincronização"
+                        :if={Pokedex.novelty(entry, @today)}
+                        title={"a wiki editou esta página há #{elem(Pokedex.novelty(entry, @today), 1)} dia(s)"}
                         class="ml-1 rounded bg-[#0d3822] px-1 py-0.5 align-middle font-mono text-[8px] text-[#3de083]"
-                      >NOVO</span><span
-                        :if={Pokedex.novelty(entry, @synced_at) == :changed}
-                        title="a wiki mudou este Pokémon desde a sincronização anterior"
-                        class="ml-1 rounded bg-[#211b0d] px-1 py-0.5 align-middle font-mono text-[8px] text-[#f3ba4e]"
-                      >MUDOU</span>
+                      >NOVO</span>
                     </p>
                     <p class="font-mono text-[9px] text-[#737d85]">
                       <span :if={entry.number}>#{entry.number} · </span>lv {entry.level || "?"} · {Enum.join(

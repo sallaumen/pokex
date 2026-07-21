@@ -46,6 +46,16 @@ defmodule PokexWeb.PokedexDetailLiveTest do
             "level" => nil
           }
         ],
+        "moves_pvp" => [
+          %{
+            "slot" => "M1",
+            "name" => "Mud Shot",
+            "cooldown_s" => 40,
+            "element" => "Ground",
+            "tags" => ["Damage"],
+            "level" => 50
+          }
+        ],
         "evolutions" => [],
         "sprite" => nil,
         "shiny_of" => nil,
@@ -129,7 +139,7 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     assert render(view) =~ "ele RESISTE"
 
     # fishable + the shiny cross-link
-    assert view |> element("#entry-lures") |> render() =~ "Shrimp · pesca lv 50"
+    assert view |> element("#entry-lures") |> render() =~ "Shrimp · lv 50"
     assert view |> element("#entry-shiny-links") |> render() =~ "ver Shiny Seadra (lv 80)"
   end
 

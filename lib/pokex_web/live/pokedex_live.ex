@@ -193,8 +193,10 @@ defmodule PokexWeb.PokedexLive do
                     {entry.name}<span :if={entry.shiny_of}> ✨</span>
                   </p>
                   <p class="font-mono text-[9px] text-[#737d85]">
-                    <span :if={entry.number}>#{entry.number} · </span>lv {entry.level || "?"}
-                    · {Enum.join(entry.elements, "/")}
+                    <span :if={entry.number}>#{entry.number} · </span>lv {entry.level || "?"} · {Enum.join(
+                      entry.elements,
+                      "/"
+                    )}
                   </p>
                 </div>
               </div>
@@ -205,7 +207,10 @@ defmodule PokexWeb.PokedexLive do
           </ul>
         </section>
 
-        <section :if={@loaded? and @lures != []} class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+        <section
+          :if={@loaded? and @lures != []}
+          class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+        >
           <div class="flex flex-wrap items-center gap-2">
             <h2 class="text-sm font-semibold">🎣 Por isca</h2>
             <form id="lure-form" phx-change="select_lure">

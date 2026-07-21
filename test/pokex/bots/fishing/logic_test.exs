@@ -42,6 +42,30 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert {^l, []} = Logic.start(l, 10)
   end
 
+  test "focusing over a LIVE line skips the recast and watches it (the Focus resume)" do
+    # Clicking another window pauses the bot (Focus); coming back restarts the
+    # fishing logic — but the previous cast may still be IN the water (the
+    # resting line's ring pulses continuously, so line? is readable on the very
+    # first frame). Recasting would reset the whole cycle and lose the live
+    # bait (Lucas, 2026-07-20): with the line present, skip focusing/casting
+    # and watch it — settled (the splash is long gone) and with no actions.
+    {l, actions} = Logic.step(advance_to(:focusing), %{cursor: {500, 500}, line?: true}, 0)
+
+    assert l.state == :watching
+    assert l.settled? == true
+    # no click, no move, no rod press — nothing to disturb the live line
+    assert [{:log, log}] = actions
+    assert log =~ "isca já na água"
+    # no cast happened: the cycle counter must not tick
+    assert l.counters.cycles == 0
+  end
+
+  test "focusing WITHOUT a live line follows the normal click-and-cast path" do
+    {l, actions} = Logic.step(advance_to(:focusing), %{cursor: {500, 500}, line?: false}, 0)
+    assert l.state == :casting
+    assert actions == [{:click, :left, {860, 470}}]
+  end
+
   test "focusing clicks neutral point and waits" do
     {l, actions} = Logic.step(advance_to(:focusing), cursor_obs(), 0)
     assert l.state == :casting
@@ -283,7 +307,8 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   end
 
   test "needs per state" do
-    assert Logic.needs(advance_to(:focusing)) == [:cursor]
+    # :glow so the very first frame can already see a live line (skip-recast)
+    assert Logic.needs(advance_to(:focusing)) == [:cursor, :glow]
     # gate off (default) → no skill-bar read
     assert Logic.needs(advance_to(:watching)) == [:cursor, :glow]
     assert Logic.needs(%Logic{state: :idle}) == []

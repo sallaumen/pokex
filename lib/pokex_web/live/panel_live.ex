@@ -1171,10 +1171,21 @@ defmodule PokexWeb.PanelLive do
       <div id="panel-dashboard" class="min-h-dvh bg-[#080b0d] text-[#d9dde1]">
         <header class="sticky top-0 z-30 border-b border-[#1f262b] bg-[#090c0f]/95 backdrop-blur">
           <div class="mx-auto flex h-12 max-w-[520px] items-center justify-between px-2">
-            <.link navigate={~p"/"} class="flex items-center gap-2.5" aria-label="Ir ao painel">
-              <span class="grid size-7 place-items-center rounded-lg bg-[#36cf78] text-sm font-black text-[#06150c]">P</span>
-              <span class="text-sm font-bold">Pokex</span>
-            </.link>
+            <div class="flex items-center gap-2">
+              <.link navigate={~p"/"} class="flex items-center gap-2.5" aria-label="Ir ao painel">
+                <span class="grid size-7 place-items-center rounded-lg bg-[#36cf78] text-sm font-black text-[#06150c]">P</span>
+                <span class="text-sm font-bold">Pokex</span>
+              </.link>
+              <span
+                :if={not @focused?}
+                id="focus-pause-badge"
+                class="grid size-6 place-items-center rounded-full border border-[#674f20] bg-[#211b0d] text-[#f2c45b]"
+                title="Pausado por segurança — a janela do jogo perdeu o foco. Nada é digitado/clicado até você voltar pro jogo; aí os workers religam sozinhos."
+                aria-label="Pausado por segurança: a janela do jogo perdeu o foco"
+              >
+                <.icon name="hero-pause-circle" class="size-4" />
+              </span>
+            </div>
             <div class="flex items-center gap-2">
               <span class="flex items-center gap-2 rounded-full border border-[#293137] px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b949d]">
                 <span class={[
@@ -1417,19 +1428,6 @@ defmodule PokexWeb.PanelLive do
               >
                 <li :for={message <- @errors}>{message}</li>
               </ul>
-            </div>
-
-            <div
-              :if={not @focused?}
-              id="focus-pause-banner"
-              class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
-            >
-              <.icon name="hero-pause-circle" class="size-5 shrink-0 text-[#f2c45b]" />
-              <p class="flex-1 text-[#c8cdd1]">
-                <span class="font-semibold text-[#f2c45b]">Pausado por segurança</span> — a janela do
-                jogo perdeu o foco. Nada é digitado/clicado até você voltar pro jogo; aí os workers
-                religam sozinhos.
-              </p>
             </div>
 
             <button

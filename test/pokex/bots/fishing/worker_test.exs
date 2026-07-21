@@ -109,12 +109,14 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     {:ok, _} = Pokex.Rig.Fake.start_link()
 
-    # Watching needs [:cursor, :glow]. The RAW glow count starts under threshold
-    # (calm, so watching settles) then spikes over threshold (a bite) — proving
-    # the worker applies threshold_glow/2 before Logic ever sees a boolean.
+    # :focusing consumes the FIRST glow read (the live-line check: 50 < the
+    # line_present_min_px of 100 → no line → the normal cast path). Then
+    # watching starts under threshold (calm, so it settles) and spikes over
+    # (a bite) — proving the worker applies threshold_glow/2 before Logic
+    # ever sees a boolean.
     {:ok, _} =
       Sensors.Fake.start_link(%{
-        glow: [50, 900]
+        glow: [50, 50, 900]
       })
 
     {:ok, _} = Pokex.Bots.Body.start_link(name: :fishing_worker_test_body)
@@ -176,6 +178,11 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     focus_clicks = fn ->
       Enum.count(Pokex.Rig.Fake.calls(), &(&1 == {:click, :left, {420, 350}}))
     end
+
+    # after the catch there is NO line in the water: re-script the glow low so
+    # the resume's live-line check (the :focusing glow read) sees none and the
+    # cycle restarts with the classic focus click + cast
+    Agent.update(Sensors.Fake, &Map.merge(&1, %{glow: [50, 50, 900]}))
 
     before = focus_clicks.()
     WorldState.forget(:mini_game)
@@ -255,7 +262,12 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     # Drive a hold (gate on, no kill-skill ready) and assert the lock is visible.
     Settings.put(:require_cooldowns, true)
     # reconfigure the already-started Fake: calm→bite glow, and the gate never opens
-    Agent.update(Sensors.Fake, &Map.merge(&1, %{glow: [50, 900, 900], cooldowns_ready?: [false]}))
+    # first 50 feeds the :focusing live-line check (none), second settles watching
+    Agent.update(
+      Sensors.Fake,
+      &Map.merge(&1, %{glow: [50, 50, 900, 900], cooldowns_ready?: [false]})
+    )
+
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
     assert :ok = Worker.run(worker)

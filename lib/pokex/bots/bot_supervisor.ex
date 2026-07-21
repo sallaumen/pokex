@@ -212,6 +212,22 @@ defmodule Pokex.Bots.BotSupervisor do
     :ok
   end
 
+  @doc """
+  The emergency-escape protocol (Actions & Rules): latch FIRST (nothing may
+  auto-resume — the flee usually lands on ANOTHER floor, where resuming the
+  hunt would be wrong; only Iniciar clears it), ONE click-to-walk to the
+  calibrated staircase at :critical, halt the fleet, tell the panel. Returns
+  the flee result — {:error, :not_calibrated} still stops everything: a
+  triggered escape must never leave the hunt running.
+  """
+  def emergency_escape(reason) do
+    Pokex.Bots.InputGate.set_panic_latch(true)
+    flee = PlayerSupport.Worker.flee_to_escape()
+    stop_all()
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:escape, reason, flee})
+    flee
+  end
+
   def stop_all do
     stop_all(
       Fishing.Worker,

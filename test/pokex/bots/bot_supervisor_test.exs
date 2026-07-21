@@ -168,6 +168,27 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert WorldState.get(:session, 4_000_000_000, now) == :missing
   end
 
+  @tag :tmp_dir
+  test "emergency_escape sem escada calibrada: trava, para e broadcasta mesmo assim", %{
+    tmp_dir: tmp
+  } do
+    alias Pokex.Bots.InputGate
+
+    # scope home to an empty dir so Calibration.load fails → :not_calibrated
+    Application.put_env(:pokex, :home_dir, tmp)
+
+    on_exit(fn ->
+      Application.delete_env(:pokex, :home_dir)
+      InputGate.set_panic_latch(false)
+    end)
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    assert {:error, :not_calibrated} = BotSupervisor.emergency_escape("teste")
+    assert InputGate.panic_latched?()
+    assert_receive {:escape, "teste", {:error, :not_calibrated}}, 1_000
+  end
+
   # The single most safety-critical invariant of the whole bot: the Guardian's
   # panic corner runs stop_all/5, and that MUST release a Space the mini-game
   # player is holding — a stuck Space keeps acting in the game after the human

@@ -47,7 +47,10 @@ defmodule PokexWeb.CalibrationLive do
         "painéis escuros da lateral (Battle/bolsa).",
     pokemon_spot:
       "Clique no TILE onde o seu Pokémon deve FICAR (a posição estratégica de ataque). " <>
-        "Depois das lutas, o suporte manda ele de volta pra cá com um clique do meio."
+        "Depois das lutas, o suporte manda ele de volta pra cá com um clique do meio.",
+    escape_point:
+      "Clique na ESCADA (ou rampa/buraco) mais próxima do teu spot — a fuga de emergência " <>
+        "clica aqui pra ANDAR até ela e sair do andar quando o perigo aparecer."
   }
 
   @impl true
@@ -221,6 +224,28 @@ defmodule PokexWeb.CalibrationLive do
          screen: screen,
          step: :pokemon_spot,
          mode: :pokemon_spot_only,
+         draft: %{},
+         done: false,
+         review: nil,
+         error: nil,
+         skillbar_msg: nil,
+         zoom_at: nil
+       )}
+    else
+      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    end
+  end
+
+  # Standalone correction: mark only the escape STAIRCASE tile the
+  # emergency-escape protocol click-walks to.
+  def handle_event("calibrate_escape_point", _params, socket) do
+    with {:ok, screen} <- grab_screen("escape_point_probe.png") do
+      {:noreply,
+       assign(socket,
+         scale: screen.scale,
+         screen: screen,
+         step: :escape_point,
+         mode: :escape_point_only,
          draft: %{},
          done: false,
          review: nil,
@@ -568,6 +593,9 @@ defmodule PokexWeb.CalibrationLive do
       :pokemon_spot ->
         save_pokemon_spot(socket, point)
 
+      :escape_point ->
+        save_escape_point(socket, point)
+
       _ ->
         socket
     end
@@ -715,6 +743,30 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  defp save_escape_point(socket, point) do
+    case Calibration.load() do
+      {:ok, calib} ->
+        Calibration.save(%{calib | escape_point: point})
+
+        assign(socket,
+          draft: %{},
+          step: nil,
+          screen: nil,
+          calibrated?: true,
+          skillbar_msg:
+            "Escada de fuga salva em #{inspect(point)} — o botão \"Testar fuga\" do painel " <>
+              "usa esse ponto."
+        )
+
+      {:error, reason} ->
+        assign(socket,
+          step: nil,
+          screen: nil,
+          error: "não deu pra salvar a escada de fuga: #{inspect(reason)}"
+        )
+    end
+  end
+
   defp save_player_point(socket, point) do
     case Calibration.load() do
       {:ok, calib} ->
@@ -783,7 +835,8 @@ defmodule PokexWeb.CalibrationLive do
         :photo,
         :mini_game_a,
         :mini_game_b,
-        :pokemon_spot
+        :pokemon_spot,
+        :escape_point
       ]
 
   defp step_index(:water), do: 1
@@ -945,6 +998,12 @@ defmodule PokexWeb.CalibrationLive do
                 icon="hero-map-pin"
                 title="Posição do Pokémon"
                 hint="o tile estratégico pro reposicionamento depois das lutas"
+              />
+              <.quick_fix
+                event="calibrate_escape_point"
+                icon="hero-arrow-up-on-square"
+                title="Escada de fuga"
+                hint="pra onde correr na fuga de emergência (protocolo anti-shiny)"
               />
             </div>
           </section>

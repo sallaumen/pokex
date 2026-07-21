@@ -443,6 +443,19 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert {:ok, calib} = Calibration.load()
     assert calib.pokemon_spot_point == {70, 40}
     assert calib.water_point == {50, 30}
+
+    # the escape-staircase quick-fix rides the SAME flow (and the same
+    # clickable screenshot — the marking_step? lesson)
+    view |> element("button", "Escada de fuga") |> render_click()
+    assert render(view) =~ "ESCADA"
+    assert has_element?(view, "#calibration-screen")
+
+    click.(10.0, 10.0)
+
+    assert render(view) =~ "Escada de fuga salva"
+    assert {:ok, calib} = Calibration.load()
+    assert calib.escape_point == {20, 20}
+    assert calib.pokemon_spot_point == {70, 40}
   end
 
   @tag :tmp_dir

@@ -71,6 +71,12 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   """
   def use_potion(server \\ __MODULE__), do: GenServer.call(server, :use_potion)
 
+  @doc """
+  Emergency escape: ONE left click-to-walk on the calibrated `escape_point`
+  (the staircase). :ok | {:error, :not_calibrated | :input_gated | term}.
+  """
+  def flee_to_escape(server \\ __MODULE__), do: GenServer.call(server, :flee_to_escape)
+
   @impl true
   def init(state) do
     # The catcher's snapshots carry pending_corpses — the post-fight order
@@ -103,6 +109,29 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state = fire_potion(state, "🧪 poção (manual)")
     broadcast(state)
     {:reply, :ok, state}
+  end
+
+  # Emergency escape (Actions & Rules): ONE left click-to-walk on the
+  # calibrated staircase. Deliberate flee — bypasses thresholds and combat
+  # logic, but NEVER the input gate (frontmost/panic still rule); rides
+  # :critical so it enters the Body ahead of everything else in flight.
+  def handle_call(:flee_to_escape, _from, state) do
+    with {:ok, %Calibration{escape_point: point}} when is_tuple(point) <- Calibration.load(),
+         true <- InputGate.allowed?() do
+      case Body.perform([{:click, :left, point}], :critical, state.body) do
+        :ok ->
+          broadcast_log(:macro, "🏃 fuga: clique na escada calibrada")
+          state = %{state | last_action: %{text: "fuga (clique na escada)", at: now()}}
+          broadcast(state)
+          {:reply, :ok, state}
+
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
+      end
+    else
+      false -> {:reply, {:error, :input_gated}, state}
+      _no_point_or_no_calib -> {:reply, {:error, :not_calibrated}, state}
+    end
   end
 
   @impl true

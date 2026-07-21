@@ -504,8 +504,13 @@ defmodule Pokex.Settings do
   def value(settings, key) when is_map(settings),
     do: Map.get(settings, key, Map.fetch!(@seed_settings, key))
 
-  def put(key, value, server \\ __MODULE__) when is_map_key(@seed_settings, key),
-    do: GenServer.call(server, {:put, key, value})
+  # nil is NEVER a legitimate override (load/1 already drops persisted nulls as
+  # corruption) — rejecting it here keeps a bad caller from poisoning reads
+  # until the next reboot (a panel_live_test cleanup did exactly that: the nil
+  # landed in the ETS mirror and randomly broke settings_test — 2026-07-20).
+  def put(key, value, server \\ __MODULE__)
+      when is_map_key(@seed_settings, key) and not is_nil(value),
+      do: GenServer.call(server, {:put, key, value})
 
   # --- presets por Pokémon ---------------------------------------------------
 

@@ -210,6 +210,24 @@ defmodule PokexWeb.PanelLiveTest do
     assert render(view) =~ "⏰ estagnação"
   end
 
+  test "o protocolo de fuga: botão presente e o {:escape, _, _} toca o alarme com o resultado",
+       %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    assert has_element?(view, "#test-escape[data-confirm]")
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "combat",
+      {:escape, "shiny detectado", {:error, :not_calibrated}}
+    )
+
+    assert_push_event(view, "alarm", %{text: text})
+    assert text =~ "FUGA: shiny detectado"
+    assert text =~ "SEM escada calibrada"
+    assert render(view) =~ "FUGA"
+  end
+
   test "o form da anti-estagnação persiste janela e ação", %{conn: conn} do
     minutes = Pokex.Settings.get(:stagnation_minutes)
     action = Pokex.Settings.get(:stagnation_action)
@@ -779,10 +797,15 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   test "saves glow threshold", %{conn: conn} do
+    # restore the SEED default (dropping the override) — the old cleanup put
+    # nil, which became a real nil override in the global mirror and randomly
+    # broke settings_test depending on file order
+    threshold = Pokex.Settings.get(:glow_threshold)
+    on_exit(fn -> Pokex.Settings.put(:glow_threshold, threshold) end)
+
     {:ok, view, _} = live(conn, ~p"/")
     view |> form("#threshold-form", %{"threshold" => "21.5"}) |> render_submit()
     assert Pokex.Settings.get(:glow_threshold) == 21.5
-    Pokex.Settings.put(:glow_threshold, nil)
   end
 
   test "saves combat timing knobs and ignores blanks", %{conn: conn} do

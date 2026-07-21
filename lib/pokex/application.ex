@@ -30,6 +30,9 @@ defmodule Pokex.Application do
       Pokex.Bots.Capture,
       Pokex.Perception,
       Pokex.Bots.BotSupervisor,
+      # The anti-shiny watchdog (always-on like Guardian; manages its own
+      # arena-feed attachment from the shiny_guard_enabled setting).
+      Pokex.Bots.ShinyGuard,
       # Pauses everything when the game window loses focus (and resumes on refocus). After the
       # BotSupervisor so it can halt/resume those workers.
       Pokex.Bots.Focus,

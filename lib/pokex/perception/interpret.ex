@@ -42,11 +42,23 @@ defmodule Pokex.Perception.Interpret do
         :none -> nil
       end
 
+    # The SHINY star (gold ★ before a shiny's name) — the game telling us
+    # outright, on the region combat already captures every ~120ms.
+    stars =
+      Vision.star_rows(body,
+        top: top,
+        band: band,
+        rows: rows,
+        min_cluster: Settings.value(settings, :shiny_star_min_px)
+      )
+
     %{
       enemies: Enum.sort(creatures),
       red: red,
       locked?: locked_row != nil,
-      locked_row: locked_row
+      locked_row: locked_row,
+      shiny_rows: Enum.map(stars, &elem(&1, 0)),
+      shiny_star_px: stars |> Enum.map(&elem(&1, 1)) |> Enum.max(fn -> 0 end)
     }
   end
 
@@ -65,27 +77,15 @@ defmodule Pokex.Perception.Interpret do
     end
   end
 
-  @doc """
-  The arena: the hostile's floating-name point in SCREEN coordinates (or nil),
-  plus the shiny verdict — the best signature-color cluster in the frame
-  (%{name, px} | nil; free when no signatures are cached, i.e. guard off).
-  """
-  def arena(frame, calib, settings) do
+  @doc "The arena: the hostile's floating-name point in SCREEN coordinates, or nil."
+  def arena(frame, calib, _settings) do
     hostile =
       case Vision.find_hostile(frame) do
         {:ok, pixel} -> Calibration.frame_to_screen(calib, calib.arena_region, pixel)
         :not_found -> nil
       end
 
-    scores = Pokex.Pokedex.ShinySignatures.probe(frame)
-
-    %{
-      hostile: hostile,
-      shiny: Pokex.Pokedex.ShinySignatures.best(scores, Settings.value(settings, :shiny_min_px)),
-      # the full per-name probe rides along so the panel's live meter can show
-      # how close the water is to the threshold — no extra capture
-      shiny_scores: scores
-    }
+    %{hostile: hostile}
   end
 
   # Bucket frame-Ys into distinct 0-based battle rows (same math as the lock sensor).

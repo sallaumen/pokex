@@ -64,6 +64,9 @@ defmodule Pokex.Bots.Catcher.Worker do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
+    # a SHINY sighting overrides capture_enabled for the next ball (Lucas:
+    # "O Shiny sempre tem que tentar")
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
     {:ok,
      %{
@@ -75,6 +78,8 @@ defmodule Pokex.Bots.Catcher.Worker do
        feed_ref: nil,
        reattach_attempts: 0,
        loots: 0,
+       # a shiny was just seen: the NEXT ball ignores capture_enabled
+       shiny_pending?: false,
        # last performed actuation as %{text, at} (monotonic ms; nil until the first) — panel-facing
        last_action: nil
      }}
@@ -192,7 +197,20 @@ defmodule Pokex.Bots.Catcher.Worker do
     end
   end
 
+  # A shiny is on screen: arm the override so the ball flies even with capture
+  # off, and make sure the corpse feed is attached to see its body.
+  def handle_info({:shiny_seen, _info}, state) do
+    state = %{state | shiny_pending?: true}
+    {:noreply, if(should_be_attached?(state), do: attach(state), else: state)}
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
+
+  # capture_enabled OR a pending shiny (never lose a shiny to a toggle).
+  defp capture_allowed?(state),
+    do:
+      Settings.get(:capture_enabled) or
+        (state.shiny_pending? and Settings.get(:shiny_always_ball))
 
   # -- step pipeline -------------------------------------------------------------
 
@@ -218,7 +236,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # no throws, no confirms. The feed is also detached (see should_be_attached?/1); this
   # gate only catches stragglers (a late event right after the toggle flip).
   defp do_advance(state, obs) do
-    if Settings.get(:capture_enabled), do: run_step(state, obs), else: state
+    if capture_allowed?(state), do: run_step(state, obs), else: state
   end
 
   defp run_step(state, obs) do
@@ -228,9 +246,18 @@ defmodule Pokex.Bots.Catcher.Worker do
     if performs != [], do: Body.perform(performs, :high, state.body)
 
     state =
-      if performs != [],
-        do: %{state | last_action: %{text: "bola arremessada", at: now()}},
-        else: state
+      if performs != [] do
+        # a ball that flew because a SHINY was seen closes that log entry
+        if state.shiny_pending?, do: Pokex.Pokedex.ShinyLog.resolve_last("bola")
+
+        %{
+          state
+          | last_action: %{text: "bola arremessada", at: now()},
+            shiny_pending?: false
+        }
+      else
+        state
+      end
 
     for {:log, text} <- actions do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, :macro, "captura: #{text}"})
@@ -302,7 +329,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     do: Settings.get(:player_mode) == "parado" and match?(%Logic{state: :armed}, state.logic)
 
   defp should_be_attached?(state),
-    do: armed_parado?(state) and not state.combat_engaged? and Settings.get(:capture_enabled)
+    do: armed_parado?(state) and not state.combat_engaged? and capture_allowed?(state)
 
   defp maybe_attach_after_disengage(state) do
     if should_be_attached?(state) and not state.attached?, do: attach(state), else: state

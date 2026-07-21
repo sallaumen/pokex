@@ -256,80 +256,68 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   @tag :tmp_dir
-  test "guarda anti-shiny: toggle e config persistem; a sonda lê a arena e pontua", %{
+  test "guarda anti-shiny: ação persiste, sonda lê a lista de batalha, registro aparece", %{
     conn: conn,
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
 
     enabled = Pokex.Settings.get(:shiny_guard_enabled)
-    names = Pokex.Settings.get(:shiny_watch_names)
     action = Pokex.Settings.get(:shiny_action)
 
     on_exit(fn ->
       Application.delete_env(:pokex, :home_dir)
       Pokex.Settings.put(:shiny_guard_enabled, enabled)
-      Pokex.Settings.put(:shiny_watch_names, names)
       Pokex.Settings.put(:shiny_action, action)
-      Pokex.Pokedex.ShinySignatures.clear()
     end)
 
-    # an arena region for the probe to capture…
     Pokex.Calibration.save(%Pokex.Calibration{
       scale: 1.0,
       screen_w: 1000,
       screen_h: 700,
       water_point: {400, 300},
       glow_region: {0, 0, 20, 20},
-      battle_region: {0, 0, 20, 20},
+      battle_region: {900, 0, 239, 95},
       arena_region: {100, 100, 60, 40},
       neutral_point: {500, 500}
     })
 
-    # …and REAL dark pngs at the shared Fake's default capture paths
+    # the probe reads the REAL battle-list capture (Lucas's shiny Seadra) via
+    # the shared Fake's default capture path
     File.mkdir_p!("/tmp/fake")
-    dark = for _ <- 1..40, do: List.duplicate({20, 20, 20, 255}, 60)
-    Pokex.PngFixtures.write!("/tmp/fake/shiny_probe.png", dark)
-    Pokex.PngFixtures.write!("/tmp/fake/shiny_baseline.png", dark)
+    File.cp!("test/fixtures/battle/shiny_star_list.png", "/tmp/fake/shiny_probe.png")
 
     {:ok, view, _} = live(conn, ~p"/")
 
     view |> element(~s(input[phx-click="toggle_shiny_guard"])) |> render_click()
     refute Pokex.Settings.get(:shiny_guard_enabled) == enabled
 
-    view
-    |> form("#shiny-cfg-form", %{"shiny_watch" => "Seadra", "shiny_action" => "fugir"})
-    |> render_change()
-
-    assert Pokex.Settings.get(:shiny_watch_names) == ["Seadra"]
+    view |> form("#shiny-cfg-form", %{"shiny_action" => "fugir"}) |> render_change()
     assert Pokex.Settings.get(:shiny_action) == "fugir"
 
-    # the visual preview renders the watched shiny's sprites + color swatches
-    assert has_element?(view, "#shiny-preview")
-    assert render(view) =~ "Shiny Seadra"
-
-    # the probe runs the REAL pipeline (repo sprites, sips conversion) against
-    # the dark frame — every watched shiny must score 0px
+    # the probe scores each row — the real capture has a star on one of them
     view |> element("#shiny-probe") |> render_click()
     html = render(view)
-    assert html =~ "sonda: "
-    assert html =~ "0px"
+    assert html =~ "sonda: estrela por linha"
+    assert html =~ "L0:"
 
-    # learn the (dark) background — the button runs the real capture+subtract
-    view |> element("#shiny-baseline") |> render_click()
-    assert render(view) =~ "fundo aprendido"
-
-    # a live reading from the guard lights the meter
+    # a live reading lights the meter
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "shiny",
-      {:shiny_reading, %{scores: %{"Shiny Seadra" => 3}, min_px: 12}}
+      {:shiny_reading, %{star_px: 4, min_px: 10}}
     )
 
-    assert render(view) =~ "3<span"
+    assert render(view) =~ "4<span"
 
-    Pokex.Pokedex.ShinySignatures.clear()
-    Pokex.Pokedex.ShinySignatures.forget_baseline()
+    # a sighting lands on the trophy shelf
+    Pokex.Pokedex.ShinyLog.record(star_px: 22, action: "fugir", outcome: "visto")
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_seen, %{px: 22, action: "fugir"}})
+
+    html = render(view)
+    assert has_element?(view, "#shiny-log")
+    assert html =~ "shinies encontrados (1)"
+    assert html =~ "22px"
   end
 
   test "o protocolo de fuga: botão presente e o {:escape, _, _} toca o alarme com o resultado",

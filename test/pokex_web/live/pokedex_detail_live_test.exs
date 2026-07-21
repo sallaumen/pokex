@@ -229,15 +229,21 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     # efetividade completa: o bucket neutro entra
     assert view |> element("#entry-neutral") |> render() =~ "Fighting"
 
-    # nada de dica de re-sync numa entrada completa
+    # a página NUNCA cobra sincronização do usuário — o sync se completa sozinho
     refute html =~ "antes da colheita"
+    refute html =~ "sincroniza a wiki"
   end
 
   @tag :tmp_dir
-  test "entrada antiga (sem moves no JSON): dica de re-sync cirúrgico, sem crash", %{conn: conn} do
-    {:ok, view, _} = live(conn, ~p"/pokedex/Horsea")
-    assert view |> element("#entry-moves-stale") |> render() =~ "sincroniza a wiki"
+  test "entrada antiga (sem moves no JSON): página limpa, sem cobrança de sync", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/pokedex/Horsea")
+
+    # o card de movimentos some silenciosamente; nada de banner pedindo sync
     refute has_element?(view, "#entry-moves")
+    refute html =~ "sincroniza a wiki"
+    # e o resto da página funciona normalmente
+    assert html =~ "Horsea"
+    assert view |> element("#entry-evolutions") |> render() =~ "Seadra"
   end
 
   @tag :tmp_dir

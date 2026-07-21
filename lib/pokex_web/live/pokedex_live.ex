@@ -141,7 +141,11 @@ defmodule PokexWeb.PokedexLive do
         sync_running?: false,
         sync_msg:
           "sincronizado: #{summary.updated} atualizadas, #{summary.base} na base " <>
-            "(#{summary.shinies} shinies)",
+            "(#{summary.shinies} shinies)" <>
+            if(Map.get(summary, :filled, 0) > 0,
+              do: " · #{summary.filled} completadas",
+              else: ""
+            ),
         loaded?: Pokedex.loaded?(),
         elements: Pokedex.elements(),
         lures: Pokedex.lures(),

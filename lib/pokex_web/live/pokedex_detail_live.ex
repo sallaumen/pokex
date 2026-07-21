@@ -11,25 +11,73 @@ defmodule PokexWeb.PokedexDetailLive do
   use PokexWeb, :live_view
 
   alias Pokex.Pokedex
+  alias Pokex.Pokedex.Team
 
   @impl true
-  def mount(_params, _session, socket), do: {:ok, socket}
+  def mount(_params, _session, socket),
+    do: {:ok, assign(socket, species_names: Enum.map(Pokedex.search(%{}), & &1.name))}
 
   # handle_params (not mount) owns the lookup so evolution/shiny links between
   # detail pages patch in place — no full remount, "bem ágil".
   @impl true
-  def handle_params(%{"name" => name}, _uri, socket) do
+  def handle_params(%{"name" => name}, _uri, socket),
+    do: {:noreply, socket |> assign(jump_msg: nil) |> assign_entry(name)}
+
+  # The jump box: land on any Pokémon FROM any Pokémon — no round-trip
+  # through the list. Same-LiveView patch, so it is instant.
+  @impl true
+  def handle_event("jump", %{"name" => name}, socket) do
+    name = String.trim(name)
+
+    if Pokedex.get(name) do
+      {:noreply, push_patch(socket, to: ~p"/pokedex/#{name}")}
+    else
+      {:noreply, assign(socket, jump_msg: "não conheço \"#{name}\"")}
+    end
+  end
+
+  # Add straight from the page he is LOOKING at — no detour through /time.
+  def handle_event("add_to", %{"where" => where}, socket) do
+    Team.add(socket.assigns.entry.name, if(where == "bank", do: :bank, else: :team))
+    {:noreply, assign_entry(socket, socket.assigns.entry.name)}
+  end
+
+  defp assign_entry(socket, name) do
     entry = Pokedex.get(name)
 
-    {:noreply,
-     assign(socket,
-       page_title: (entry && entry.name) || "Pokédex",
-       entry: entry,
-       missing_name: unless(entry, do: name),
-       lures: (entry && Pokedex.lures_for(entry.name)) || [],
-       base: entry && entry.shiny_of && Pokedex.get(entry.shiny_of),
-       shiny: entry && entry.shiny_name && Pokedex.get(entry.shiny_name)
-     )}
+    assign(socket,
+      page_title: (entry && entry.name) || "Pokédex",
+      entry: entry,
+      missing_name: unless(entry, do: name),
+      lures: (entry && Pokedex.lures_for(entry.name)) || [],
+      base: entry && entry.shiny_of && Pokedex.get(entry.shiny_of),
+      shiny: entry && entry.shiny_name && Pokedex.get(entry.shiny_name),
+      membership: entry && membership(entry.name),
+      matchup: (entry && matchup(entry)) || [],
+      team_empty?: Team.members() == []
+    )
+  end
+
+  defp membership(name) do
+    cond do
+      Enum.any?(Team.members(), &(&1.name == name)) -> :team
+      Enum.any?(Team.bank(), &(&1.name == name)) -> :bank
+      true -> nil
+    end
+  end
+
+  # THIS Pokémon against MY team, member by member: which of my elements hit
+  # its weaknesses (fere) and which of ITS elements hit the member's (sofre).
+  # Only members with something to say make the list.
+  defp matchup(entry) do
+    for %{name: name} <- Team.members(),
+        member = Pokedex.get(name),
+        member != nil,
+        fere = Enum.filter(member.elements, &(&1 in entry.weak_to)),
+        sofre = Enum.filter(entry.elements, &(&1 in member.weak_to)),
+        fere != [] or sofre != [] do
+      %{name: name, fere: fere, sofre: sofre}
+    end
   end
 
   @impl true
@@ -37,13 +85,32 @@ defmodule PokexWeb.PokedexDetailLive do
     ~H"""
     <div class="min-h-dvh bg-[#080b0d] px-3 py-4 text-[#d9dde1]">
       <div class="mx-auto max-w-[720px] space-y-3">
-        <header class="flex items-center justify-between gap-2">
+        <header class="flex flex-wrap items-center justify-between gap-2">
           <.link
             navigate={~p"/pokedex"}
             class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
           >
             ← pokédex
           </.link>
+          <form id="jump-form" phx-submit="jump" class="flex items-center gap-1.5">
+            <input
+              name="name"
+              list="species-names"
+              placeholder="pular pra outro…"
+              autocomplete="off"
+              data-quick-search
+              class="input input-bordered h-8 w-44 bg-[#090d0f] font-mono text-xs"
+            />
+            <datalist id="species-names">
+              <option :for={name <- @species_names} value={name} />
+            </datalist>
+            <button class="btn h-8 border border-[#293238] bg-transparent px-2.5 text-xs text-[#c7cdd2] hover:border-[#37d07d]/60 hover:text-white">
+              ir
+            </button>
+            <span :if={@jump_msg} id="jump-msg" class="font-mono text-[10px] text-[#e7ca82]">
+              {@jump_msg}
+            </span>
+          </form>
           <.link
             navigate={~p"/"}
             class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
@@ -96,6 +163,72 @@ defmodule PokexWeb.PokedexDetailLive do
                 </p>
               </div>
             </div>
+          </section>
+
+          <section id="entry-team-context" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                ⚔️ contra o TEU time
+              </h2>
+              <span
+                :if={@membership == :team}
+                id="membership-badge"
+                class="rounded bg-[#0d3822] px-1.5 py-0.5 font-mono text-[10px] text-[#3de083]"
+              >
+                🧢 no teu time
+              </span>
+              <span
+                :if={@membership == :bank}
+                id="membership-badge"
+                class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[10px] text-[#7cc0e8]"
+              >
+                🏦 no teu banco
+              </span>
+              <span :if={@membership == nil} class="flex gap-1.5">
+                <button
+                  phx-click="add_to"
+                  phx-value-where="team"
+                  class="btn btn-xs h-7 border-0 bg-[#37d07d] px-2.5 text-[11px] font-bold text-[#06140c] hover:bg-[#45dd88]"
+                >
+                  + time
+                </button>
+                <button
+                  phx-click="add_to"
+                  phx-value-where="bank"
+                  class="btn btn-xs h-7 border border-[#293238] bg-transparent px-2.5 text-[11px] text-[#c7cdd2] hover:border-[#37d07d]/60 hover:text-white"
+                >
+                  + banco
+                </button>
+              </span>
+              <.link
+                navigate={~p"/time"}
+                class="ml-auto font-mono text-[10px] text-[#89939a] underline hover:text-white"
+              >
+                gerenciar →
+              </.link>
+            </div>
+            <p :if={@matchup == [] and @team_empty?} class="mt-1.5 text-[11px] text-[#7f8992]">
+              cadastra teu time em /time e eu te digo aqui quem fere quem
+            </p>
+            <p :if={@matchup == [] and not @team_empty?} class="mt-1.5 text-[11px] text-[#7f8992]">
+              nenhum matchup relevante com o teu time — luta neutra
+            </p>
+            <ul :if={@matchup != []} id="entry-matchup" class="mt-1.5 space-y-1">
+              <li
+                :for={row <- @matchup}
+                class="flex flex-wrap items-center gap-1.5 font-mono text-[10px]"
+              >
+                <.link navigate={~p"/pokedex/#{row.name}"} class="font-semibold hover:underline">
+                  {row.name}
+                </.link>
+                <span :if={row.fere != []} class="rounded bg-[#0d3822] px-1.5 py-0.5 text-[#3de083]">
+                  fere ele com {Enum.join(row.fere, "+")}
+                </span>
+                <span :if={row.sofre != []} class="rounded bg-[#241114] px-1.5 py-0.5 text-[#ff9ca4]">
+                  APANHA de {Enum.join(row.sofre, "+")}
+                </span>
+              </li>
+            </ul>
           </section>
 
           <div class="grid gap-3 sm:grid-cols-2">

@@ -120,6 +120,28 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
+  test "filtros vivem na URL: mudar patcheia, link direto restaura, isca inclusa", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/pokedex")
+
+    view |> form("#pokedex-filter-form", %{"f" => %{"weak_to" => "Water"}}) |> render_change()
+    assert_patch(view, "/pokedex?weak_to=Water")
+    assert render(view) =~ "1 resultado(s)"
+
+    # a pasted/bookmarked link lands on the SAME view (o voltar do navegador idem)
+    {:ok, view2, html2} = live(conn, ~p"/pokedex?weak_to=Water")
+    assert html2 =~ "1 resultado(s)"
+    assert view2 |> element("#pokedex-results") |> render() =~ "Charizard"
+
+    # a visão por isca também é um link
+    {:ok, view3, _} = live(conn, ~p"/pokedex?isca=Shrimp")
+    assert view3 |> element("#lure-tiers") |> render() =~ "pesca lv 50"
+    assert has_element?(view3, "#lure-shiny-count")
+
+    # e o atalho "/" tem alvo na página
+    assert has_element?(view3, "input[data-quick-search]")
+  end
+
+  @tag :tmp_dir
   test "o filtro por data de edição da wiki estreita os resultados", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex")
 

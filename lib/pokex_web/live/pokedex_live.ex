@@ -15,6 +15,7 @@ defmodule PokexWeb.PokedexLive do
   alias Pokex.Pokedex
   alias Pokex.Pokedex.Sync
   alias PokexWeb.PanelForms
+  alias PokexWeb.PokedexStyle
 
   @results_cap 120
 
@@ -229,6 +230,23 @@ defmodule PokexWeb.PokedexLive do
       _unparsable ->
         String.slice(iso, 0, 10)
     end
+  end
+
+  attr :element, :string, required: true
+  attr :class, :string, default: "px-1 py-0.5 text-[9px]"
+
+  defp element_chip(assigns) do
+    assigns = assign(assigns, :icon, PokedexStyle.element_icon(assigns.element))
+
+    ~H"""
+    <span
+      class={["inline-flex items-center gap-0.5 rounded font-mono", @class]}
+      style={PokedexStyle.element_style(@element)}
+    >
+      <img :if={@icon} src={@icon} alt="" class="size-3 object-contain" loading="lazy" />
+      {@element}
+    </span>
+    """
   end
 
   @impl true
@@ -462,11 +480,12 @@ defmodule PokexWeb.PokedexLive do
                         class="ml-1 rounded bg-[#0d3822] px-1 py-0.5 align-middle font-mono text-[8px] text-[#3de083]"
                       >NOVO</span>
                     </p>
-                    <p class="font-mono text-[9px] text-[#737d85]">
-                      <span :if={entry.number}>#{entry.number} · </span>lv {entry.level || "?"} · {Enum.join(
-                        entry.elements,
-                        "/"
-                      )}
+                    <p class="flex flex-wrap items-center gap-1 font-mono text-[9px] text-[#737d85]">
+                      <span :if={entry.number}>#{entry.number}</span>
+                      <span class="rounded bg-[#161b1f] px-1 py-0.5 text-[#aeb6bd]">
+                        lv {entry.level || "?"}
+                      </span>
+                      <.element_chip :for={el <- entry.elements} element={el} />
                     </p>
                     <p
                       :if={@sort in [:edited, :changed] and (entry.edited_at || entry.changed_at)}
@@ -480,9 +499,9 @@ defmodule PokexWeb.PokedexLive do
                 </div>
                 <p
                   :if={entry.weak_to != []}
-                  class="mt-1 truncate font-mono text-[9px] text-[#8b949d]"
+                  class="mt-1 flex flex-wrap items-center gap-1 font-mono text-[9px] text-[#59636b]"
                 >
-                  fraco: {Enum.join(entry.weak_to, ", ")}
+                  fraco a <.element_chip :for={el <- entry.weak_to} element={el} />
                 </p>
               </.link>
             </li>

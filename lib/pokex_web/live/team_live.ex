@@ -14,6 +14,7 @@ defmodule PokexWeb.TeamLive do
   alias Pokex.Pokedex
   alias Pokex.Pokedex.Team
   alias PokexWeb.PanelForms
+  alias PokexWeb.PokedexStyle
 
   @impl true
   def mount(_params, _session, socket) do
@@ -306,8 +307,12 @@ defmodule PokexWeb.TeamLive do
         class="min-w-0 flex-1 truncate text-sm font-semibold hover:underline"
       >
         {@row.name}<span :if={@row.entry.shiny_of}> ✨</span>
-        <span class="font-mono text-[9px] font-normal text-[#737d85]">
-          {Enum.join(@row.entry.elements, "/")}
+        <span
+          :for={el <- @row.entry.elements}
+          class="ml-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 align-middle font-mono text-[9px] font-normal"
+          style={PokedexStyle.element_style(el)}
+        >
+          {el}
         </span>
       </.link>
       <form

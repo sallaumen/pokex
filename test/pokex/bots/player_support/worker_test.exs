@@ -44,7 +44,10 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :reposition_enabled,
       :reposition_battle_clear_ms,
       :support_waits_capture,
-      :support_capture_wait_max_ms
+      :support_capture_wait_max_ms,
+      :escape_direction,
+      :escape_steps,
+      :escape_walk_wait_ms
     ])
 
     on_exit(fn -> Pokex.Perception.WorldState.forget(:pokemon) end)
@@ -427,14 +430,28 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "flee_to_escape clica na escada a :critical e vira a última ação", %{tmp: _tmp, body: body} do
+  test "flee_to_escape: clique no tile, espera da caminhada e passos de seta, tudo atômico a :critical",
+       %{tmp: _tmp, body: body} do
     {:ok, calib} = Calibration.load()
     Calibration.save(%{calib | escape_point: {620, 240}})
+    Settings.put(:escape_direction, "left")
+    Settings.put(:escape_steps, 2)
+    Settings.put(:escape_walk_wait_ms, 1_500)
 
     worker = start_worker(body)
     assert :ok = Worker.flee_to_escape(worker)
-    assert_receive {:performed, :critical, [{:click, :left, {620, 240}}]}, 1_000
-    assert %{text: "fuga (clique na escada)", at: _} = Worker.status(worker).last_action
+
+    assert_receive {:performed, :critical, actions}, 1_000
+
+    assert actions == [
+             {:click, :left, {620, 240}},
+             {:wait, 1_500},
+             {:press, "left"},
+             {:wait, 300},
+             {:press, "left"}
+           ]
+
+    assert %{text: "fuga (escada)", at: _} = Worker.status(worker).last_action
   end
 
   @tag :tmp_dir

@@ -176,11 +176,62 @@ defmodule Pokex.Pokedex.Scraper do
   Upsert: fresh entries REPLACE existing ones by name; everything else stays —
   a partial `--only` run refreshes just its targets. Handles the key-style
   mix (existing entries come from JSON with string keys, fresh ones are atoms).
+
+  NOVELTY STAMPS (Lucas: "um Pokémon novo! esse aqui é novo, sabe?"): each
+  merged entry carries `first_seen_at` (the sync that first brought it into
+  the base) and `changed_at` (the last sync where its CONTENT actually moved
+  — level, elements, moves, effectiveness…). Both are OUR clock, deliberately
+  distinct from `edited_at` (the wiki's own edit date): a re-scrape that finds
+  the same data does not touch changed_at, so "o que mudou desde a última
+  sincronização" stays honest.
   """
   def upsert(existing, fresh) do
+    by_name = Map.new(existing, &{entry_name(&1), &1})
     fresh_names = MapSet.new(fresh, & &1.name)
-    Enum.reject(existing, &MapSet.member?(fresh_names, entry_name(&1))) ++ fresh
+
+    stamped = Enum.map(fresh, &stamp_novelty(&1, Map.get(by_name, &1.name)))
+
+    Enum.reject(existing, &MapSet.member?(fresh_names, entry_name(&1))) ++ stamped
   end
+
+  # Volatile/bookkeeping keys never count as a content change.
+  @novelty_keys ~w(scraped_at first_seen_at changed_at)
+
+  # A fresh entry without scraped_at (hand-built by an odd caller) simply gets
+  # no stamps — never a crash; the page treats a nil stamp as "no opinion".
+  defp stamp_novelty(fresh, previous) do
+    case Map.get(fresh, :scraped_at) do
+      nil ->
+        fresh
+
+      now ->
+        changed_at =
+          cond do
+            previous == nil -> now
+            content(fresh) == content(previous) -> get_field(previous, "changed_at") || now
+            true -> now
+          end
+
+        Map.merge(fresh, %{
+          first_seen_at: (previous && get_field(previous, "first_seen_at")) || now,
+          changed_at: changed_at
+        })
+    end
+  end
+
+  # Compare on STRING keys with the bookkeeping fields dropped: existing
+  # entries come from JSON (string keys, JSON-shaped values), fresh ones are
+  # atom-keyed structs-as-maps — round-tripping the fresh one through JSON
+  # makes the two directly comparable.
+  defp content(entry) do
+    entry
+    |> JSON.encode!()
+    |> JSON.decode!()
+    |> Map.drop(@novelty_keys)
+  end
+
+  defp get_field(entry, key) when is_map(entry),
+    do: Map.get(entry, key) || Map.get(entry, String.to_existing_atom(key))
 
   defp entry_name(%{name: name}), do: name
   defp entry_name(%{"name" => name}), do: name

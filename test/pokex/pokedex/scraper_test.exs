@@ -8,6 +8,63 @@ defmodule Pokex.Pokedex.ScraperTest do
   # instead of silently producing an empty/garbled pokedex.json.
   defp fixture(name), do: File.read!(Path.join("test/fixtures/pokedex", name))
 
+  describe "upsert/2 — carimbos de novidade" do
+    defp entry(name, extra \\ %{}) do
+      Map.merge(
+        %{
+          name: name,
+          number: 1,
+          level: 10,
+          elements: ["Water"],
+          scraped_at: "2026-07-21T10:00:00Z"
+        },
+        extra
+      )
+    end
+
+    test "entrada inédita nasce com first_seen_at e changed_at do sync atual" do
+      [seadra] = Scraper.upsert([], [entry("Seadra")])
+
+      assert seadra.first_seen_at == "2026-07-21T10:00:00Z"
+      assert seadra.changed_at == "2026-07-21T10:00:00Z"
+    end
+
+    test "re-scrape SEM mudança preserva as duas datas (não é novidade)" do
+      [old] = Scraper.upsert([], [entry("Seadra")])
+      old_json = old |> JSON.encode!() |> JSON.decode!()
+
+      [again] =
+        Scraper.upsert([old_json], [entry("Seadra", %{scraped_at: "2026-07-22T10:00:00Z"})])
+
+      assert again.first_seen_at == "2026-07-21T10:00:00Z"
+      assert again.changed_at == "2026-07-21T10:00:00Z"
+    end
+
+    test "conteúdo alterado move changed_at, mas first_seen_at fica" do
+      [old] = Scraper.upsert([], [entry("Seadra")])
+      old_json = old |> JSON.encode!() |> JSON.decode!()
+
+      [changed] =
+        Scraper.upsert(
+          [old_json],
+          [entry("Seadra", %{level: 55, scraped_at: "2026-07-22T10:00:00Z"})]
+        )
+
+      assert changed.first_seen_at == "2026-07-21T10:00:00Z"
+      assert changed.changed_at == "2026-07-22T10:00:00Z"
+    end
+
+    test "entradas não tocadas pelo run parcial continuam intactas" do
+      [seadra] = Scraper.upsert([], [entry("Seadra")])
+      seadra_json = seadra |> JSON.encode!() |> JSON.decode!()
+
+      merged = Scraper.upsert([seadra_json], [entry("Horsea", %{number: 116})])
+
+      assert length(merged) == 2
+      assert Enum.find(merged, &(Map.get(&1, "name") == "Seadra")) == seadra_json
+    end
+  end
+
   describe "parse_species/1 (real Seadra page)" do
     test "extracts the full attribute map" do
       assert {:ok, seadra} = Scraper.parse_species(fixture("seadra.html"))

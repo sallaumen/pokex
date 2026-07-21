@@ -151,6 +151,65 @@ defmodule Pokex.PokedexTest do
   end
 
   @tag :tmp_dir
+  test "ordenação: level, tipo, fraqueza, shiny, edição da wiki — e inversão" do
+    # ascending by level; entries WITHOUT a level sink to the bottom
+    names = Pokedex.search(%{sort: :level}) |> Enum.map(& &1.name)
+    assert names == ["Seadra", "Venusaur", "Shiny Seadra", "Charizard"]
+
+    # descending flips only the ranked part — the level-less still sink
+    desc = Pokedex.search(%{sort: :level, desc: true}) |> Enum.map(& &1.name)
+    assert hd(desc) == "Charizard"
+
+    # by element / by weakness (first value of each list)
+    assert %{name: "Charizard", elements: ["Fire" | _]} =
+             Pokedex.search(%{sort: :element}) |> hd()
+
+    assert %{name: "Charizard"} = Pokedex.search(%{sort: :weak_to, desc: true}) |> hd()
+
+    # shiny sort groups each variant beside its base form
+    shiny_first = Pokedex.search(%{sort: :shiny}) |> Enum.map(& &1.name)
+    assert hd(shiny_first) == "Shiny Seadra"
+
+    # by the WIKI's edit date — only Seadra has one, so it leads
+    assert %{name: "Seadra"} = Pokedex.search(%{sort: :edited}) |> hd()
+  end
+
+  @tag :tmp_dir
+  test "novidade: :new e :changed relativos ao ÚLTIMO sync; filtro só-novidades", %{tmp_dir: tmp} do
+    now = "2026-07-21T10:00:00Z"
+
+    dataset =
+      @dataset
+      |> Map.put("scraped_at", now)
+      |> update_in(["species"], fn species ->
+        Enum.map(species, fn
+          %{"name" => "Seadra"} = s ->
+            Map.merge(s, %{"first_seen_at" => now, "changed_at" => now})
+
+          %{"name" => "Charizard"} = s ->
+            Map.merge(s, %{"first_seen_at" => "2026-01-01T00:00:00Z", "changed_at" => now})
+
+          s ->
+            Map.merge(s, %{
+              "first_seen_at" => "2026-01-01T00:00:00Z",
+              "changed_at" => "2026-01-01T00:00:00Z"
+            })
+        end)
+      end)
+
+    File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(dataset))
+    Pokedex.reload()
+
+    assert Pokedex.synced_at() == now
+    assert Pokedex.novelty(Pokedex.get("Seadra")) == :new
+    assert Pokedex.novelty(Pokedex.get("Charizard")) == :changed
+    assert Pokedex.novelty(Pokedex.get("Venusaur")) == nil
+
+    novelties = Pokedex.search(%{only_novelty: true}) |> Enum.map(& &1.name)
+    assert Enum.sort(novelties) == ["Charizard", "Seadra"]
+  end
+
+  @tag :tmp_dir
   test "lures_for finds every tier that hooks the species" do
     assert Pokedex.lures_for("Seadra") == [%{lure: "Shrimp", fishing_level: 50}]
     assert Pokedex.lures_for("Charizard") == []

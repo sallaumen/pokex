@@ -50,19 +50,65 @@ defmodule PokexWeb.PokedexLive do
       |> put_level(:min_level, params["min_level"])
       |> put_level(:max_level, params["max_level"])
 
+    sort = sort_atom(params["sort"])
+    desc? = params["desc"] == "1"
+
+    filters =
+      filters
+      |> Map.put(:sort, sort)
+      |> Map.put(:desc, desc?)
+      |> Map.put(:only_novelty, params["novidades"] == "true")
+
     {:noreply,
      assign(socket,
        raw_filters:
-         Map.take(params, ~w(name element weak_to min_level max_level only_shiny edited_after)),
+         Map.take(
+           params,
+           ~w(name element weak_to min_level max_level only_shiny edited_after sort desc novidades)
+         ),
        form: filter_form(params),
+       sort: sort,
+       desc?: desc?,
+       only_novelty?: params["novidades"] == "true",
        results: Pokedex.search(filters),
        selected_lure: Enum.find(socket.assigns.lures, &(&1.name == params["isca"]))
      )}
   end
 
+  # The sort control lives in the URL like every other filter: same back/forward,
+  # same shareable link. Clicking the ACTIVE sort flips its direction.
+  def handle_event("sort", %{"by" => by}, socket) do
+    flip? = to_string(socket.assigns.sort) == by and not socket.assigns.desc?
+
+    query =
+      socket.assigns.raw_filters
+      |> Map.merge(%{"sort" => by, "desc" => if(flip?, do: "1", else: nil)})
+      |> Map.put("isca", current_lure_name(socket))
+      |> clean_query()
+
+    {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
+  end
+
+  def handle_event("toggle_novelty", _params, socket) do
+    query =
+      socket.assigns.raw_filters
+      |> Map.put("novidades", if(socket.assigns.only_novelty?, do: nil, else: "true"))
+      |> Map.put("isca", current_lure_name(socket))
+      |> clean_query()
+
+    {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
+  end
+
   @impl true
   def handle_event("filter", %{"f" => params}, socket) do
-    query = params |> Map.put("isca", current_lure_name(socket)) |> clean_query()
+    keep = Map.take(socket.assigns.raw_filters, ~w(sort desc novidades))
+
+    query =
+      params
+      |> Map.merge(keep)
+      |> Map.put("isca", current_lure_name(socket))
+      |> clean_query()
+
     {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
   end
 
@@ -148,9 +194,51 @@ defmodule PokexWeb.PokedexLive do
 
   defp shiny?(name), do: String.starts_with?(name, "Shiny ")
 
+  @sorts [
+    {:number, "nº"},
+    {:name, "nome"},
+    {:level, "level"},
+    {:element, "tipo"},
+    {:weak_to, "fraqueza"},
+    {:shiny, "shiny"},
+    {:edited, "edição da wiki"},
+    {:changed, "mudou aqui"}
+  ]
+
+  defp sorts, do: @sorts
+
+  defp sort_atom(raw) do
+    Enum.find_value(@sorts, :number, fn {key, _label} ->
+      if to_string(key) == raw, do: key
+    end)
+  end
+
+  # "2026-07-21T14:03:22Z" → "21/07 14h03" (the sync stamp, human-sized)
+  defp short_stamp(nil), do: nil
+
+  defp short_stamp(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, dt, _offset} ->
+        :io_lib.format("~2..0B/~2..0B ~2..0Bh~2..0B", [dt.day, dt.month, dt.hour, dt.minute])
+        |> IO.iodata_to_binary()
+
+      _unparsable ->
+        String.slice(iso, 0, 10)
+    end
+  end
+
   @impl true
   def render(assigns) do
-    assigns = assign(assigns, :capped, Enum.take(assigns.results, @results_cap))
+    synced_at = Pokedex.synced_at()
+
+    assigns =
+      assigns
+      |> assign(:capped, Enum.take(assigns.results, @results_cap))
+      |> assign(:synced_at, synced_at)
+      |> assign(
+        :novelty_count,
+        Enum.count(assigns.results, &(Pokedex.novelty(&1, synced_at) != nil))
+      )
 
     ~H"""
     <div class="min-h-dvh bg-[#080b0d] px-3 py-4 text-[#d9dde1]">
@@ -292,9 +380,52 @@ defmodule PokexWeb.PokedexLive do
             </label>
           </.form>
 
+          <div
+            id="pokedex-sort"
+            class="mt-2 flex flex-wrap items-center gap-1 border-t border-[#1d2429] pt-2 font-mono text-[10px] text-[#737d85]"
+          >
+            <span class="mr-0.5">ordenar</span>
+            <button
+              :for={{key, label} <- sorts()}
+              phx-click="sort"
+              phx-value-by={key}
+              title={
+                if @sort == key,
+                  do: "clique de novo pra inverter",
+                  else: "ordenar por #{label}"
+              }
+              class={[
+                "rounded px-1.5 py-0.5 transition",
+                if(@sort == key,
+                  do: "bg-[#17231c] text-[#3de083] ring-1 ring-[#37d07d]/60",
+                  else: "text-[#89939a] hover:bg-[#161b1f] hover:text-white"
+                )
+              ]}
+            >
+              {label}{if @sort == key, do: if(@desc?, do: " ↓", else: " ↑")}
+            </button>
+
+            <button
+              phx-click="toggle_novelty"
+              title="só o que a última sincronização trouxe ou mudou"
+              class={[
+                "ml-auto rounded px-1.5 py-0.5 transition",
+                if(@only_novelty?,
+                  do: "bg-[#211b0d] text-[#f3ba4e] ring-1 ring-[#674f20]",
+                  else: "text-[#89939a] hover:bg-[#161b1f] hover:text-white"
+                )
+              ]}
+            >
+              🆕 novidades{if @novelty_count > 0 and not @only_novelty?, do: " (#{@novelty_count})"}
+            </button>
+          </div>
+
           <p id="pokedex-count" class="mt-2 font-mono text-[10px] text-[#737d85]">
             {length(@results)} resultado(s){if length(@results) > length(@capped),
               do: " — mostrando #{length(@capped)}"}
+            <span :if={@synced_at} id="synced-at">
+              · sincronizado {short_stamp(@synced_at)}
+            </span>
           </p>
 
           <ul id="pokedex-results" class="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
@@ -323,13 +454,29 @@ defmodule PokexWeb.PokedexLive do
                       class="truncate text-sm font-semibold"
                       title={entry.edited_at && "wiki editada em #{entry.edited_at}"}
                     >
-                      {entry.name}<span :if={entry.shiny_of}> ✨</span>
+                      {entry.name}<span :if={entry.shiny_of}> ✨</span><span
+                        :if={Pokedex.novelty(entry, @synced_at) == :new}
+                        title="entrou na base na última sincronização"
+                        class="ml-1 rounded bg-[#0d3822] px-1 py-0.5 align-middle font-mono text-[8px] text-[#3de083]"
+                      >NOVO</span><span
+                        :if={Pokedex.novelty(entry, @synced_at) == :changed}
+                        title="a wiki mudou este Pokémon desde a sincronização anterior"
+                        class="ml-1 rounded bg-[#211b0d] px-1 py-0.5 align-middle font-mono text-[8px] text-[#f3ba4e]"
+                      >MUDOU</span>
                     </p>
                     <p class="font-mono text-[9px] text-[#737d85]">
                       <span :if={entry.number}>#{entry.number} · </span>lv {entry.level || "?"} · {Enum.join(
                         entry.elements,
                         "/"
                       )}
+                    </p>
+                    <p
+                      :if={@sort in [:edited, :changed] and (entry.edited_at || entry.changed_at)}
+                      class="font-mono text-[9px] text-[#59636b]"
+                    >
+                      {if @sort == :edited,
+                        do: "wiki #{entry.edited_at || "?"}",
+                        else: "mudou #{short_stamp(entry.changed_at) || "?"}"}
                     </p>
                   </div>
                 </div>

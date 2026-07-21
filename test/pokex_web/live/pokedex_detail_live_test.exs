@@ -23,6 +23,29 @@ defmodule PokexWeb.PokedexDetailLiveTest do
         "elements" => ["Water"],
         "weak_to" => ["Grass", "Electric"],
         "resists" => ["Fire"],
+        "neutral" => ["Normal", "Fighting"],
+        "habilidades" => ["Surf", "Headbutt"],
+        "materia" => "Seavell",
+        "evolution_stones" => ["Water Stone", "Crystal Stone"],
+        "description" => "As farpas venenosas em todo o corpo são altamente valorizadas.",
+        "moves" => [
+          %{
+            "slot" => "M1",
+            "name" => "Mud Shot",
+            "cooldown_s" => 15,
+            "element" => "Ground",
+            "tags" => ["Target", "Focus Blocked", "Damage", "Blind"],
+            "level" => 50
+          },
+          %{
+            "slot" => "P",
+            "name" => "Dragon Rage",
+            "cooldown_s" => nil,
+            "element" => "Dragon",
+            "tags" => ["Passive", "Buff"],
+            "level" => nil
+          }
+        ],
         "evolutions" => [],
         "sprite" => nil,
         "shiny_of" => nil,
@@ -172,6 +195,49 @@ defmodule PokexWeb.PokedexDetailLiveTest do
 
     view |> form("#jump-form", %{"name" => "Digimon"}) |> render_submit()
     assert view |> element("#jump-msg") |> render() =~ "não conheço"
+  end
+
+  @tag :tmp_dir
+  test "a colheita completa na página: movimentos, habilidades, pedras, descrição, neutro", %{
+    conn: conn
+  } do
+    {:ok, view, html} = live(conn, ~p"/pokedex/Seadra")
+
+    # descrição como citação
+    assert view |> element("#entry-description") |> render() =~ "farpas venenosas"
+
+    # movimentos: slot, nome, elemento próprio, cooldown, tag e level
+    moves = view |> element("#entry-moves") |> render()
+    assert moves =~ "M1"
+    assert moves =~ "Mud Shot"
+    assert moves =~ "Ground"
+    assert moves =~ "⏱ 15s"
+    assert moves =~ "Blind"
+    assert moves =~ "lv 50"
+    # a passiva destacada, sem cooldown
+    assert moves =~ "Dragon Rage"
+    assert moves =~ "Passive"
+    # ruído cortado: a tag "Focus Blocked" não polui a linha
+    refute moves =~ "Focus Blocked"
+
+    # habilidades & itens
+    info = view |> element("#entry-info") |> render()
+    assert info =~ "Surf"
+    assert info =~ "Water Stone"
+    assert info =~ "Seavell"
+
+    # efetividade completa: o bucket neutro entra
+    assert view |> element("#entry-neutral") |> render() =~ "Fighting"
+
+    # nada de dica de re-sync numa entrada completa
+    refute html =~ "antes da colheita"
+  end
+
+  @tag :tmp_dir
+  test "entrada antiga (sem moves no JSON): dica de re-sync cirúrgico, sem crash", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/pokedex/Horsea")
+    assert view |> element("#entry-moves-stale") |> render() =~ "sincroniza a wiki"
+    refute has_element?(view, "#entry-moves")
   end
 
   @tag :tmp_dir

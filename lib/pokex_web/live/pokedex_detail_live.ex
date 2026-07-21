@@ -163,6 +163,13 @@ defmodule PokexWeb.PokedexDetailLive do
                 </p>
               </div>
             </div>
+            <p
+              :if={@entry.description}
+              id="entry-description"
+              class="mt-3 border-l-2 border-[#293238] pl-3 text-[12px] italic leading-relaxed text-[#9aa3aa]"
+            >
+              {@entry.description}
+            </p>
           </section>
 
           <section id="entry-team-context" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
@@ -231,7 +238,67 @@ defmodule PokexWeb.PokedexDetailLive do
             </ul>
           </section>
 
-          <div class="grid gap-3 sm:grid-cols-2">
+          <section
+            :if={@entry.moves == nil}
+            id="entry-moves-stale"
+            class="rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-[11px] text-[#e7ca82]"
+          >
+            🔄 Esta entrada é de antes da colheita de movimentos — sincroniza a wiki (só
+            "{@entry.name}" leva segundos) pra puxar movimentos, habilidades e descrição.
+          </section>
+
+          <section
+            :if={@entry.moves != nil}
+            id="entry-moves"
+            class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+          >
+            <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+              movimentos
+            </h2>
+            <p :if={@entry.moves == []} class="text-[11px] text-[#7f8992]">
+              a página da wiki não tem tabela de movimentos
+            </p>
+            <ul class="space-y-1">
+              <li
+                :for={move <- @entry.moves}
+                class="flex flex-wrap items-center gap-1.5 rounded-lg border border-[#232b30] bg-[#101418] px-2.5 py-1.5"
+              >
+                <span class={[
+                  "w-7 shrink-0 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold",
+                  if(move.slot == "P",
+                    do: "bg-[#211b0d] text-[#f3ba4e]",
+                    else: "bg-[#161b1f] text-[#8b949d]"
+                  )
+                ]}>
+                  {move.slot}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-sm font-semibold">{move.name}</span>
+                <span
+                  :if={move.element}
+                  class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[10px] text-[#7cc0e8]"
+                >
+                  {move.element}
+                </span>
+                <span
+                  :if={move.cooldown_s}
+                  class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[10px] text-[#f3ba4e]"
+                >
+                  ⏱ {move.cooldown_s}s
+                </span>
+                <span
+                  :for={tag <- Enum.reject(move.tags, &(&1 == "Focus Blocked"))}
+                  class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[9px] text-[#8b949d]"
+                >
+                  {tag}
+                </span>
+                <span :if={move.level} class="font-mono text-[9px] text-[#59636b]">
+                  lv {move.level}
+                </span>
+              </li>
+            </ul>
+          </section>
+
+          <div class="grid gap-3 sm:grid-cols-3">
             <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
               <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
                 bate FORTE nele
@@ -261,7 +328,61 @@ defmodule PokexWeb.PokedexDetailLive do
                 </span>
               </p>
             </section>
+
+            <section
+              :if={@entry.neutral != []}
+              id="entry-neutral"
+              class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+            >
+              <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                dano neutro
+              </h2>
+              <p class="flex flex-wrap gap-1">
+                <span
+                  :for={el <- @entry.neutral}
+                  class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[10px] text-[#737d85]"
+                >
+                  {el}
+                </span>
+              </p>
+            </section>
           </div>
+
+          <section
+            :if={@entry.habilidades != [] or @entry.evolution_stones != [] or @entry.materia}
+            id="entry-info"
+            class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+          >
+            <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+              habilidades &amp; itens
+            </h2>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              <p :if={@entry.habilidades != []} class="flex flex-wrap items-center gap-1">
+                <span class="font-mono text-[9px] text-[#59636b]">habilidades</span>
+                <span
+                  :for={hab <- @entry.habilidades}
+                  class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[11px] text-[#7cc0e8]"
+                >
+                  {hab}
+                </span>
+              </p>
+              <p :if={@entry.evolution_stones != []} class="flex flex-wrap items-center gap-1">
+                <span class="font-mono text-[9px] text-[#59636b]">pedra de evolução</span>
+                <span
+                  :for={stone <- @entry.evolution_stones}
+                  class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[11px] text-[#f3ba4e]"
+                >
+                  {stone}
+                </span>
+              </p>
+              <p :if={@entry.materia} class="flex items-center gap-1">
+                <span class="font-mono text-[9px] text-[#59636b]">matéria</span>
+                <span class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[11px] text-[#aeb6bd]">
+                  {@entry.materia}
+                </span>
+              </p>
+            </div>
+          </section>
 
           <section
             :if={@entry.evolutions != []}

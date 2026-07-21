@@ -273,17 +273,36 @@ defmodule Pokex.Pokedex do
       # scrapes prior to the dual-type fix stored "Grass / Poison" as one item
       elements: Enum.flat_map(map["elements"] || [], &String.split(&1, ~r{\s*/\s*}, trim: true)),
       boost: map["boost"],
+      habilidades: map["habilidades"] || [],
+      materia: map["materia"],
+      evolution_stones: map["evolution_stones"] || [],
+      description: map["description"],
       weak_to: map["weak_to"] || [],
       resists: map["resists"] || [],
+      neutral: map["neutral"] || [],
       evolutions:
         Enum.map(map["evolutions"] || [], fn evo ->
           %{name: evo["name"], level: evo["level"]}
         end),
+      # nil = entry predates the moves scrape (the page hints at re-sync);
+      # [] = scraped and the page truly has no table
+      moves: map["moves"] && Enum.map(map["moves"], &move_entry/1),
       sprite: map["sprite"],
       shiny_of: map["shiny_of"],
       shiny_name: map["shiny_name"],
       edited_at: map["edited_at"],
       scraped_at: map["scraped_at"]
+    }
+  end
+
+  defp move_entry(map) do
+    %{
+      slot: map["slot"],
+      name: map["name"],
+      cooldown_s: map["cooldown_s"],
+      element: map["element"],
+      tags: map["tags"] || [],
+      level: map["level"]
     }
   end
 

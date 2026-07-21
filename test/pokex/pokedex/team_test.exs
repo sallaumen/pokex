@@ -12,7 +12,8 @@ defmodule Pokex.Pokedex.TeamTest do
         "number" => 117,
         "elements" => ["Water"],
         "shiny_of" => "Seadra"
-      }
+      },
+      %{"name" => "Venusaur", "number" => 3, "elements" => ["Grass"]}
     ],
     "lures" => []
   }
@@ -31,18 +32,69 @@ defmodule Pokex.Pokedex.TeamTest do
   end
 
   @tag :tmp_dir
-  test "add/members/remove round-trip, idempotent" do
+  test "add/members/remove round-trip, idempotent across the two lists" do
+    assert Team.members() == []
+    assert Team.bank() == []
+
+    assert {:ok, _} = Team.add("Seadra")
+    # owning the Shiny is real — variants are allowed
+    assert {:ok, _} = Team.add("Shiny Seadra")
+    # duplicate add is a no-op (the name lives in ONE place)
+    assert {:ok, _} = Team.add("Seadra")
+    assert Team.member_names() == ["Seadra", "Shiny Seadra"]
+
+    Team.remove("Seadra")
+    assert Team.member_names() == ["Shiny Seadra"]
+  end
+
+  @tag :tmp_dir
+  test "banco: adicionar direto, mover pra lá e voltar mantendo o level" do
+    assert {:ok, _} = Team.add("Venusaur", :bank)
+    assert Enum.map(Team.bank(), & &1.name) == ["Venusaur"]
     assert Team.members() == []
 
-    assert {:ok, ["Seadra"]} = Team.add("Seadra")
-    # owning the Shiny is real — variants are allowed
-    assert {:ok, ["Seadra", "Shiny Seadra"]} = Team.add("Shiny Seadra")
-    # duplicate add is a no-op
-    assert {:ok, ["Seadra", "Shiny Seadra"]} = Team.add("Seadra")
-    assert Team.members() == ["Seadra", "Shiny Seadra"]
+    Team.set_level("Venusaur", 72)
+    Team.move("Venusaur", :team)
+    assert [%{name: "Venusaur", level: 72}] = Team.members()
+    assert Team.bank() == []
 
-    assert Team.remove("Seadra") == ["Shiny Seadra"]
-    assert Team.members() == ["Shiny Seadra"]
+    Team.move("Venusaur", :bank)
+    assert [%{name: "Venusaur", level: 72}] = Team.bank()
+
+    # adding an existing bank name to the TEAM relocates it (never duplicates)
+    assert {:ok, _} = Team.add("Venusaur", :team)
+    assert Team.bank() == []
+    assert Team.member_names() == ["Venusaur"]
+  end
+
+  @tag :tmp_dir
+  test "meu level + janela persistem; margem tem default 15" do
+    assert Team.player_level() == nil
+    assert Team.level_margin() == 15
+
+    Team.set_player_level(88)
+    Team.set_level_margin(20)
+    assert Team.player_level() == 88
+    assert Team.level_margin() == 20
+
+    Team.set_player_level(nil)
+    assert Team.player_level() == nil
+  end
+
+  @tag :tmp_dir
+  test "um team.json v1 (lista de nomes) carrega como time sem levels" do
+    File.write!(
+      Path.join(Pokex.Home.dir(), "team.json"),
+      JSON.encode!(%{members: ["Seadra", "Venusaur"]})
+    )
+
+    assert Team.members() == [
+             %{name: "Seadra", level: nil},
+             %{name: "Venusaur", level: nil}
+           ]
+
+    assert Team.bank() == []
+    assert Team.level_margin() == 15
   end
 
   @tag :tmp_dir
@@ -55,5 +107,6 @@ defmodule Pokex.Pokedex.TeamTest do
   test "a corrupt team file degrades to empty" do
     File.write!(Path.join(Pokex.Home.dir(), "team.json"), "{lixo")
     assert Team.members() == []
+    assert Team.bank() == []
   end
 end

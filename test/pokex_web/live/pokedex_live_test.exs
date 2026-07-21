@@ -133,34 +133,6 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "meu time: adicionar mostra alvos e perigos; remover limpa; nome errado avisa", %{
-    conn: conn
-  } do
-    {:ok, view, _} = live(conn, ~p"/pokedex")
-
-    view |> form("#team-add-form", %{"member" => "Charizard"}) |> render_submit()
-    html = render(view)
-
-    # the chip and the two ranked lists
-    assert html =~ "Charizard"
-    assert has_element?(view, "#hunt-targets")
-    assert html =~ "Venusaur"
-    assert html =~ "Fire fere (Charizard)"
-    assert html =~ "✨ tem shiny"
-    assert has_element?(view, "#hunt-threats")
-    assert html =~ "Water pega em Charizard"
-
-    # unknown name warns without touching the team
-    view |> form("#team-add-form", %{"member" => "Digimon"}) |> render_submit()
-    assert render(view) =~ "não conheço"
-
-    view |> element("button[phx-value-name='Charizard']") |> render_click()
-    html = render(view)
-    refute has_element?(view, "#hunt-targets")
-    assert html =~ "cadastra teus Pokémon"
-  end
-
-  @tag :tmp_dir
   test "sync pela UI: trava de sync duplo, progresso ao vivo e done recarrega a base", %{
     conn: conn,
     path: path

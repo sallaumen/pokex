@@ -69,22 +69,36 @@ defmodule Pokex.Pokedex do
   forte em MIM"), one row per species with every endangered member, ranked by
   how many members it endangers, then by level.
 
-  `filters` narrows the candidate pool with the same options as `search/1`
-  (e.g. %{max_level: 60} for "só alvos até level 60").
+  LEVEL WINDOW (Lucas: "você está recomendando pokémons de level muito
+  baixo"): pass `:player_level` (+ optional `:level_margin`, default 15) and
+  targets are drawn from species within player_level ± margin — the hunts
+  that are actually worth his time. When NOTHING lives in the window (lv 200
+  with no lv-200 species), the pool falls back to the species BELOW his
+  level, ranked closest-first, so the answer stays useful instead of empty.
+  The returned `:window` says which mode answered:
+  `{:window, lo, hi}` | `{:below, player_level}` | `:all`.
+
+  Remaining `filters` narrow the pool with the same options as `search/1`.
   """
   def hunt_suggestions(member_names, filters \\ %{}) do
+    {player_level, filters} = Map.pop(filters, :player_level)
+    {margin, filters} = Map.pop(filters, :level_margin)
+
     members = member_names |> Enum.map(&get/1) |> Enum.reject(&is_nil/1)
 
     candidates =
       search(filters)
       |> Enum.filter(&(&1.shiny_of == nil and &1.name not in member_names))
 
+    {pool, window} = level_pool(candidates, player_level, margin)
+
     %{
+      window: window,
       targets:
-        candidates
+        pool
         |> Enum.map(&target_row(&1, members))
         |> Enum.reject(&is_nil/1)
-        |> Enum.sort_by(&{-&1.score, &1.entry.number || 9_999}),
+        |> Enum.sort_by(&{-&1.score, proximity(&1.entry, player_level), &1.entry.number || 9_999}),
       threats:
         candidates
         |> Enum.map(&threat_row(&1, members))
@@ -92,6 +106,32 @@ defmodule Pokex.Pokedex do
         |> Enum.sort_by(&{-length(&1.members), -(&1.entry.level || 0)})
     }
   end
+
+  # No player level → everything competes (the old behavior). With one, only
+  # species with a KNOWN level can be judged; the window keeps the hunt near
+  # his strength, and an empty window degrades to closest-below, never to [].
+  defp level_pool(candidates, nil, _margin), do: {candidates, :all}
+
+  defp level_pool(candidates, player_level, margin) do
+    margin = margin || 15
+    leveled = Enum.filter(candidates, &is_integer(&1.level))
+    {lo, hi} = {player_level - margin, player_level + margin}
+    windowed = Enum.filter(leveled, &(&1.level >= lo and &1.level <= hi))
+
+    cond do
+      windowed != [] ->
+        {windowed, {:window, max(lo, 1), hi}}
+
+      (below = Enum.filter(leveled, &(&1.level <= player_level))) != [] ->
+        {below, {:below, player_level}}
+
+      true ->
+        {leveled, :all}
+    end
+  end
+
+  defp proximity(_entry, nil), do: 0
+  defp proximity(entry, player_level), do: abs((entry.level || 0) - player_level)
 
   defp target_row(target, members) do
     scored =

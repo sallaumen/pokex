@@ -23,6 +23,7 @@ defmodule Pokex.Pokedex.ShinySignatures do
   alias Pokex.Vision.Frame
 
   @key {__MODULE__, :signatures}
+  @baseline_key {__MODULE__, :baseline}
   # 8 levels per channel — coarse enough to absorb in-game lighting, fine
   # enough to keep "white" and "pale blue" apart
   @bucket_shift 5
@@ -32,6 +33,11 @@ defmodule Pokex.Pokedex.ShinySignatures do
   # color covering ≥0.5% of the normal sprite is disqualified
   @shiny_min_pct 0.02
   @base_max_pct 0.005
+  # a color covering ≥0.2% of the clean-arena BASELINE is background (water
+  # shimmer, terrain) — subtracted from every signature. This is the
+  # false-positive killer for the pale-white shinies (Seadra): if a "shiny"
+  # color also shows up in empty water, it was never a reliable signal.
+  @baseline_min_pct 0.002
   # outline/near-black pixels carry no recolor signal
   @min_brightness 90
 
@@ -62,16 +68,7 @@ defmodule Pokex.Pokedex.ShinySignatures do
   pixels in the best 2×2 cell block) when some signature clusters at least
   `min_px`, else nil. O(pixels), one pass — runs inside the arena feed.
   """
-  def scan(frame, min_px) do
-    case probe(frame) do
-      [] ->
-        nil
-
-      results ->
-        {name, px} = Enum.max_by(results, &elem(&1, 1))
-        if px >= min_px, do: %{name: name, px: px}
-    end
-  end
+  def scan(frame, min_px), do: frame |> probe() |> best(min_px)
 
   @doc "Per-name best cluster size for a frame ([{name, px}]) — the panel's probe."
   def probe(frame) do
@@ -88,6 +85,77 @@ defmodule Pokex.Pokedex.ShinySignatures do
     end
   end
 
+  @doc "The thresholded winner of a probe score list: `%{name, px}` | nil."
+  def best([], _min_px), do: nil
+
+  def best(scores, min_px) do
+    {name, px} = Enum.max_by(scores, &elem(&1, 1))
+    if px >= min_px, do: %{name: name, px: px}
+  end
+
+  @doc """
+  What the detector is HUNTING, for the panel: per watched shiny, its two
+  sprites and the distinctive colors (up to 8 swatches) it keeps after the
+  normal-sprite and baseline subtraction. Makes "12px of signature" legible.
+  """
+  def preview do
+    species = Pokedex.species()
+
+    for %{name: shiny_name, buckets: buckets} <- signatures() do
+      base = Enum.find(species, &(&1.shiny_name == shiny_name))
+      shiny = Enum.find(species, &(&1.name == shiny_name))
+
+      %{
+        name: shiny_name,
+        base_sprite: base && base.sprite,
+        shiny_sprite: shiny && shiny.sprite,
+        swatches: buckets |> Enum.take(8) |> Enum.map(&bucket_center/1),
+        bucket_count: MapSet.size(buckets)
+      }
+    end
+  end
+
+  # -- baseline (water/terrain subtraction) ------------------------------------
+
+  @doc "The current baseline bucket set (loaded lazily from the home dir)."
+  def baseline do
+    case :persistent_term.get(@baseline_key, :missing) do
+      :missing ->
+        set = read_baseline_file()
+        :persistent_term.put(@baseline_key, set)
+        set
+
+      set ->
+        set
+    end
+  end
+
+  @doc """
+  Learns the CLEAN-arena background from `frame` (no enemy/shiny present):
+  its significant colors become the subtraction set, persisted and applied by
+  a rebuild. Returns {:ok, %{baseline: n, per_name: [{name, removed}]}}.
+  """
+  def learn_baseline(frame) do
+    set = frame |> bucket_counts() |> significant(@baseline_min_pct) |> MapSet.new()
+    :persistent_term.put(@baseline_key, set)
+    write_baseline_file(set)
+
+    before = Map.new(signatures(), &{&1.name, MapSet.size(&1.buckets)})
+    rebuild()
+
+    per_name =
+      for s <- signatures(), do: {s.name, Map.get(before, s.name, 0) - MapSet.size(s.buckets)}
+
+    {:ok, %{baseline: MapSet.size(set), per_name: per_name}}
+  end
+
+  @doc "Forgets the baseline and rebuilds (signatures widen back to sprite-only)."
+  def forget_baseline do
+    :persistent_term.put(@baseline_key, MapSet.new())
+    File.rm(baseline_file())
+    rebuild()
+  end
+
   # -- signature building ------------------------------------------------------
 
   defp build(base_name) do
@@ -96,7 +164,10 @@ defmodule Pokex.Pokedex.ShinySignatures do
          {:ok, shiny_frame} <- sprite_frame(shiny.sprite),
          {:ok, base_frame} <- sprite_frame(base.sprite),
          buckets when buckets != [] <- distinctive_buckets(shiny_frame, base_frame) do
-      %{name: shiny_name, buckets: MapSet.new(buckets)}
+      # subtract the clean-arena baseline: a shiny color that also shows in
+      # empty water is a false-positive source, not a signal
+      buckets = MapSet.difference(MapSet.new(buckets), baseline())
+      if MapSet.size(buckets) > 0, do: %{name: shiny_name, buckets: buckets}
     else
       _missing_entry_sprite_or_empty -> nil
     end
@@ -218,4 +289,35 @@ defmodule Pokex.Pokedex.ShinySignatures do
 
   defp sprites_root,
     do: Application.get_env(:pokex, :sprites_root, "priv/static")
+
+  # -- baseline persistence + swatches -----------------------------------------
+
+  # Bucket → a representative RGB (channel center of the quantization cell), so
+  # the panel can paint the color the detector is actually hunting.
+  defp bucket_center({r, g, b}) do
+    {min((r <<< @bucket_shift) + 16, 255), min((g <<< @bucket_shift) + 16, 255),
+     min((b <<< @bucket_shift) + 16, 255)}
+  end
+
+  defp baseline_file, do: Path.join(Home.dir(), "shiny_baseline.json")
+
+  defp read_baseline_file do
+    with {:ok, bin} <- File.read(baseline_file()),
+         {:ok, list} when is_list(list) <- JSON.decode(bin) do
+      list
+      |> Enum.map(fn
+        [r, g, b] -> {r, g, b}
+        _bad -> nil
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+    else
+      _missing_or_corrupt -> MapSet.new()
+    end
+  end
+
+  defp write_baseline_file(set) do
+    File.mkdir_p!(Home.dir())
+    File.write!(baseline_file(), JSON.encode!(Enum.map(set, &Tuple.to_list/1)))
+  end
 end

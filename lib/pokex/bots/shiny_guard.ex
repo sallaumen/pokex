@@ -34,8 +34,11 @@ defmodule Pokex.Bots.ShinyGuard do
   alias Pokex.Settings
 
   @combat_topic "combat"
+  # the panel's live meter subscribes here for throttled per-name readings
+  @reading_topic "shiny"
   @poll_ms 1_000
   @refractory_ms 60_000
+  @reading_throttle_ms 700
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -46,7 +49,8 @@ defmodule Pokex.Bots.ShinyGuard do
       attached?: false,
       feed_ref: nil,
       streak: 0,
-      last_fired_at: nil
+      last_fired_at: nil,
+      last_reading_at: nil
     }
 
     case name do
@@ -82,6 +86,7 @@ defmodule Pokex.Bots.ShinyGuard do
   end
 
   def handle_info({:world, :arena, obs}, state) do
+    state = broadcast_reading(state, Map.get(obs, :shiny_scores, []))
     {:noreply, advance(state, Map.get(obs, :shiny))}
   end
 
@@ -152,6 +157,26 @@ defmodule Pokex.Bots.ShinyGuard do
 
   defp cooled_down?(%{last_fired_at: at}),
     do: System.monotonic_time(:millisecond) - at > @refractory_ms
+
+  # Feed the panel's live meter — throttled so the arena's ~300ms cadence
+  # doesn't re-render the panel several times a second.
+  defp broadcast_reading(state, []), do: state
+
+  defp broadcast_reading(state, scores) do
+    now = System.monotonic_time(:millisecond)
+
+    if state.last_reading_at == nil or now - state.last_reading_at > @reading_throttle_ms do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @reading_topic,
+        {:shiny_reading, %{scores: Map.new(scores), min_px: Settings.get(:shiny_min_px)}}
+      )
+
+      %{state | last_reading_at: now}
+    else
+      state
+    end
+  end
 
   defp fire(state, name, px) do
     reason = "✨ SHINY na área: #{name} (#{px}px)"

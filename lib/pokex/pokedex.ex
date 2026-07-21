@@ -124,7 +124,8 @@ defmodule Pokex.Pokedex do
       name: map["name"],
       number: map["number"],
       level: map["level"],
-      elements: map["elements"] || [],
+      # scrapes prior to the dual-type fix stored "Grass / Poison" as one item
+      elements: Enum.flat_map(map["elements"] || [], &String.split(&1, ~r{\s*/\s*}, trim: true)),
       boost: map["boost"],
       weak_to: map["weak_to"] || [],
       resists: map["resists"] || [],

@@ -1235,6 +1235,13 @@ defmodule PokexWeb.PanelLive do
                   >
                     <.icon name="hero-eye" class="size-4 text-[#7f8992]" /> Mundo
                   </.link>
+                  <.link
+                    id="panel-nav-pokedex"
+                    navigate={~p"/pokedex"}
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-xs text-[#c7cdd2] transition hover:bg-[#1a2024] hover:text-white"
+                  >
+                    <.icon name="hero-book-open" class="size-4 text-[#7f8992]" /> Pokédex
+                  </.link>
                 </nav>
               </details>
             </div>

@@ -8,6 +8,7 @@ defmodule PokexWeb.PokedexLive do
   use PokexWeb, :live_view
 
   alias Pokex.Pokedex
+  alias Pokex.Pokedex.Sync
   alias Pokex.Pokedex.Team
   alias PokexWeb.PanelForms
 
@@ -15,9 +16,13 @@ defmodule PokexWeb.PokedexLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: Phoenix.PubSub.subscribe(Pokex.PubSub, Sync.topic())
+
     {:ok,
      assign(socket,
        page_title: "Pokédex",
+       sync_running?: Sync.running?(),
+       sync_msg: nil,
        loaded?: Pokedex.loaded?(),
        elements: Pokedex.elements(),
        lures: Pokedex.lures(),
@@ -35,7 +40,8 @@ defmodule PokexWeb.PokedexLive do
         name: params["name"] || "",
         element: params["element"] || "",
         weak_to: params["weak_to"] || "",
-        only_shiny: params["only_shiny"] == "true"
+        only_shiny: params["only_shiny"] == "true",
+        edited_after: params["edited_after"] || ""
       }
       |> put_level(:min_level, params["min_level"])
       |> put_level(:max_level, params["max_level"])
@@ -63,6 +69,51 @@ defmodule PokexWeb.PokedexLive do
     Team.remove(name)
     {:noreply, assign_team(socket, nil)}
   end
+
+  # The sync button: empty names = full run; names = surgical refresh. One
+  # sync at a time — the double-click loser just sees the running state.
+  def handle_event("sync_wiki", %{"only" => only}, socket) do
+    case Sync.start(only: String.trim(only)) do
+      :ok ->
+        {:noreply, assign(socket, sync_running?: true, sync_msg: "sincronizando…")}
+
+      {:error, :already_running} ->
+        {:noreply, assign(socket, sync_running?: true, sync_msg: "já tem um sync rodando")}
+    end
+  end
+
+  @impl true
+  def handle_info({:pokedex_sync, {:progress, text}}, socket),
+    do: {:noreply, assign(socket, sync_running?: true, sync_msg: text)}
+
+  def handle_info({:pokedex_sync, {:done, summary}}, socket) do
+    # the dataset was reloaded by the sync task — refresh EVERYTHING derived
+    socket =
+      socket
+      |> assign(
+        sync_running?: false,
+        sync_msg:
+          "sincronizado: #{summary.updated} atualizadas, #{summary.base} na base " <>
+            "(#{summary.shinies} shinies)",
+        loaded?: Pokedex.loaded?(),
+        elements: Pokedex.elements(),
+        lures: Pokedex.lures(),
+        form: filter_form(%{}),
+        results: Pokedex.search(%{}),
+        selected_lure: nil
+      )
+      |> assign_team()
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:pokedex_sync, {:failed, reason}}, socket),
+    do:
+      {:noreply,
+       assign(socket,
+         sync_running?: false,
+         sync_msg: "sync falhou: #{String.slice(reason, 0, 200)}"
+       )}
 
   # The team + its hunt suggestions in one place: mount, add and remove all
   # funnel through here, so the two lists can never drift from the saved team.
@@ -96,7 +147,8 @@ defmodule PokexWeb.PokedexLive do
         "weak_to" => params["weak_to"] || "",
         "min_level" => params["min_level"] || "",
         "max_level" => params["max_level"] || "",
-        "only_shiny" => params["only_shiny"] || "false"
+        "only_shiny" => params["only_shiny"] || "false",
+        "edited_after" => params["edited_after"] || ""
       },
       as: :f
     )
@@ -111,22 +163,49 @@ defmodule PokexWeb.PokedexLive do
     ~H"""
     <div class="min-h-dvh bg-[#080b0d] px-3 py-4 text-[#d9dde1]">
       <div class="mx-auto max-w-[1080px] space-y-4">
-        <header class="flex items-center justify-between">
+        <header class="flex flex-wrap items-center justify-between gap-2">
           <h1 class="text-lg font-bold">Pokédex</h1>
-          <.link
-            navigate={~p"/"}
-            class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
-          >
-            ← painel
-          </.link>
+          <div class="flex items-center gap-3">
+            <form id="sync-form" phx-submit="sync_wiki" class="flex items-center gap-2">
+              <input
+                name="only"
+                list="species-names"
+                placeholder="só estes nomes (vazio = tudo)"
+                autocomplete="off"
+                class="input input-bordered h-8 w-52 bg-[#090d0f] font-mono text-xs"
+              />
+              <button
+                disabled={@sync_running?}
+                title="raspa a wiki de novo: dados (upsert) + imagens novas. Vazio = base inteira (~10min); com nomes = segundos."
+                class="btn h-8 border border-[#293238] bg-transparent px-3 text-xs text-[#c7cdd2] hover:border-[#37d07d]/60 hover:text-white disabled:opacity-40"
+              >
+                {if @sync_running?, do: "⏳ sincronizando…", else: "🔄 Sincronizar wiki"}
+              </button>
+            </form>
+            <.link
+              navigate={~p"/"}
+              class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
+            >
+              ← painel
+            </.link>
+          </div>
         </header>
+
+        <p
+          :if={@sync_msg}
+          id="sync-status"
+          class="rounded-lg border border-[#232b30] bg-[#111519] px-3 py-1.5 font-mono text-[10px] text-[#8b949d]"
+        >
+          {@sync_msg}
+        </p>
 
         <section
           :if={not @loaded?}
           class="rounded-lg border border-[#674f20] bg-[#211b0d] p-4 text-sm text-[#e7ca82]"
         >
-          Sem dados ainda — rode <code class="font-mono">mix pokedex.scrape</code>
-          e reinicie o servidor pra popular a base a partir da wiki do PXG.
+          Sem dados ainda — clica em "🔄 Sincronizar wiki" aí em cima (ou roda
+          <code class="font-mono">mix pokedex.scrape</code>
+          no terminal) pra popular a base.
         </section>
 
         <section :if={@loaded?} class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
@@ -188,6 +267,18 @@ defmodule PokexWeb.PokedexLive do
                 class="input input-bordered h-9 w-20 bg-[#090d0f] font-mono text-sm"
               />
             </label>
+            <label
+              class="flex flex-col gap-1"
+              title="páginas da wiki editadas a partir desta data — bom pra caçar NOVIDADES do PXG"
+            >
+              wiki editada após
+              <input
+                type="date"
+                name="f[edited_after]"
+                value={@form[:edited_after].value}
+                class="input input-bordered h-9 w-36 bg-[#090d0f] font-mono text-sm"
+              />
+            </label>
             <label class="flex h-9 items-center gap-2">
               <input
                 type="checkbox"
@@ -225,7 +316,10 @@ defmodule PokexWeb.PokedexLive do
                   loading="lazy"
                 />
                 <div class="min-w-0">
-                  <p class="truncate text-sm font-semibold">
+                  <p
+                    class="truncate text-sm font-semibold"
+                    title={entry.edited_at && "wiki editada em #{entry.edited_at}"}
+                  >
                     {entry.name}<span :if={entry.shiny_of}> ✨</span>
                   </p>
                   <p class="font-mono text-[9px] text-[#737d85]">

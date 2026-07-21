@@ -26,6 +26,8 @@ defmodule Pokex.Pokedex do
     * `:weak_to` — this element hits the species hard (Muito Efetivo)
     * `:min_level` / `:max_level` — inclusive bounds (species without a level drop)
     * `:only_shiny` — only Shiny variants
+    * `:edited_after` — wiki page edited on/after this "YYYY-MM-DD" (entries
+      without a known edit date drop when this filter is on)
   """
   def search(filters) when is_map(filters) do
     species()
@@ -151,6 +153,13 @@ defmodule Pokex.Pokedex do
   @doc "True when the scraped dataset is present (the page hints at the mix task when not)."
   def loaded?, do: species() != []
 
+  @doc "Re-reads the JSON (after a sync) and replaces the cached dataset in place."
+  def reload do
+    path = data_path()
+    :persistent_term.put({__MODULE__, path}, load(path))
+    :ok
+  end
+
   # -- filtering ---------------------------------------------------------------
 
   defp matches?(entry, filters) do
@@ -172,6 +181,10 @@ defmodule Pokex.Pokedex do
 
       {:only_shiny, true} ->
         entry.shiny_of != nil
+
+      # ISO dates compare correctly as strings
+      {:edited_after, date} when is_binary(date) and date != "" ->
+        is_binary(entry.edited_at) and entry.edited_at >= date
 
       _off ->
         true
@@ -228,7 +241,9 @@ defmodule Pokex.Pokedex do
         end),
       sprite: map["sprite"],
       shiny_of: map["shiny_of"],
-      shiny_name: map["shiny_name"]
+      shiny_name: map["shiny_name"],
+      edited_at: map["edited_at"],
+      scraped_at: map["scraped_at"]
     }
   end
 

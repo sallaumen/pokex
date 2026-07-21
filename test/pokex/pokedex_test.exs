@@ -16,7 +16,8 @@ defmodule Pokex.PokedexTest do
         "evolutions" => [%{"name" => "Horsea", "level" => 10}],
         "sprite" => "images/pokedex/seadra.gif",
         "shiny_of" => nil,
-        "shiny_name" => "Shiny Seadra"
+        "shiny_name" => "Shiny Seadra",
+        "edited_at" => "2026-02-06"
       },
       %{
         "name" => "Shiny Seadra",
@@ -123,9 +124,27 @@ defmodule Pokex.PokedexTest do
   end
 
   @tag :tmp_dir
+  test "edited_after keeps only pages edited on/after the date (unknown dates drop)" do
+    assert [%{name: "Seadra"}] = Pokedex.search(%{edited_after: "2026-01-01"})
+    assert [%{name: "Seadra"}] = Pokedex.search(%{edited_after: "2026-02-06"})
+    assert [] = Pokedex.search(%{edited_after: "2026-02-07"})
+  end
+
+  @tag :tmp_dir
   test "lures_for finds every tier that hooks the species" do
     assert Pokedex.lures_for("Seadra") == [%{lure: "Shrimp", fishing_level: 50}]
     assert Pokedex.lures_for("Charizard") == []
+  end
+
+  @tag :tmp_dir
+  test "reload swaps the cached dataset in place (the sync button's refresh)", %{tmp_dir: tmp} do
+    assert Pokedex.get("Lapras") == nil
+
+    bigger = update_in(@dataset["species"], &(&1 ++ [%{"name" => "Lapras", "number" => 131}]))
+    File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(bigger))
+
+    assert :ok = Pokedex.reload()
+    assert %{name: "Lapras", number: 131} = Pokedex.get("Lapras")
   end
 
   @tag :tmp_dir

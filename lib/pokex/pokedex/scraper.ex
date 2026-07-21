@@ -47,10 +47,56 @@ defmodule Pokex.Pokedex.Scraper do
            resists: effectiveness(html, "Muito Inefetivo"),
            evolutions: evolutions(html),
            sprite_url: sprite,
-           shiny: shiny_version(html)
+           shiny: shiny_version(html),
+           edited_at: parse_edited_at(html)
          }}
     end
   end
+
+  @months %{
+    "janeiro" => 1,
+    "fevereiro" => 2,
+    "março" => 3,
+    "abril" => 4,
+    "maio" => 5,
+    "junho" => 6,
+    "julho" => 7,
+    "agosto" => 8,
+    "setembro" => 9,
+    "outubro" => 10,
+    "novembro" => 11,
+    "dezembro" => 12
+  }
+
+  @doc """
+  The page's last-edit date from the MediaWiki footer ("modificada pela última
+  vez em 6 de fevereiro de 2026") as "YYYY-MM-DD" — the filterable freshness
+  signal (a recently edited page usually means new/changed PXG content).
+  """
+  def parse_edited_at(html) do
+    with [_, day, month_name, year] <-
+           Regex.run(~r/modificada pela última vez em (\d{1,2}) de (\p{L}+) de (\d{4})/u, html),
+         month when month != nil <- @months[String.downcase(month_name)] do
+      :io_lib.format("~s-~2..0B-~2..0B", [year, month, String.to_integer(day)])
+      |> IO.iodata_to_binary()
+    else
+      _absent_or_odd -> nil
+    end
+  end
+
+  @doc """
+  Upsert: fresh entries REPLACE existing ones by name; everything else stays —
+  a partial `--only` run refreshes just its targets. Handles the key-style
+  mix (existing entries come from JSON with string keys, fresh ones are atoms).
+  """
+  def upsert(existing, fresh) do
+    fresh_names = MapSet.new(fresh, & &1.name)
+    Enum.reject(existing, &MapSet.member?(fresh_names, entry_name(&1))) ++ fresh
+  end
+
+  defp entry_name(%{name: name}), do: name
+  defp entry_name(%{"name" => name}), do: name
+  defp entry_name(_entry), do: nil
 
   @doc ~S'The Fishing page → every lure: `%{name, tiers: [%{fishing_level, pokemon: [names]}]}`.'
   def parse_lures(html) do

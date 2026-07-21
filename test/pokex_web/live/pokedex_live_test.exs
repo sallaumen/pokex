@@ -14,7 +14,8 @@ defmodule PokexWeb.PokedexLiveTest do
         "evolutions" => [],
         "sprite" => nil,
         "shiny_of" => nil,
-        "shiny_name" => "Shiny Seadra"
+        "shiny_name" => "Shiny Seadra",
+        "edited_at" => "2026-02-06"
       },
       %{
         "name" => "Shiny Seadra",
@@ -76,7 +77,7 @@ defmodule PokexWeb.PokedexLiveTest do
       Application.delete_env(:pokex, :home_dir)
     end)
 
-    :ok
+    %{path: path}
   end
 
   @tag :tmp_dir
@@ -119,6 +120,19 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
+  test "o filtro por data de edição da wiki estreita os resultados", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/pokedex")
+
+    view
+    |> form("#pokedex-filter-form", %{"f" => %{"edited_after" => "2026-01-01"}})
+    |> render_change()
+
+    html = render(view)
+    assert html =~ "1 resultado(s)"
+    assert view |> element("#pokedex-results") |> render() =~ "Seadra"
+  end
+
+  @tag :tmp_dir
   test "meu time: adicionar mostra alvos e perigos; remover limpa; nome errado avisa", %{
     conn: conn
   } do
@@ -147,9 +161,50 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
+  test "sync pela UI: trava de sync duplo, progresso ao vivo e done recarrega a base", %{
+    conn: conn,
+    path: path
+  } do
+    # occupy the sync slot: the click must NEVER reach the network in a test
+    {:ok, holder} = Task.start(fn -> Process.sleep(:infinity) end)
+    Process.register(holder, :pokedex_sync)
+    on_exit(fn -> Process.exit(holder, :kill) end)
+
+    {:ok, view, _} = live(conn, ~p"/pokedex")
+    assert has_element?(view, "#sync-form button")
+
+    view |> form("#sync-form", %{"only" => ""}) |> render_submit()
+    assert render(view) =~ "já tem um sync rodando"
+
+    # progress rides PubSub — any tab shows it
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "pokedex_sync",
+      {:pokedex_sync, {:progress, "350/635 Snorlax"}}
+    )
+
+    assert render(view) =~ "350/635 Snorlax"
+
+    # done: the sync task reloads the dataset; the page must pick the NEW base up
+    bigger = update_in(@dataset["species"], &(&1 ++ [%{"name" => "Lapras", "number" => 131}]))
+    File.write!(path, JSON.encode!(bigger))
+    Pokex.Pokedex.reload()
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "pokedex_sync",
+      {:pokedex_sync, {:done, %{updated: 2, base: 5, shinies: 1}}}
+    )
+
+    html = render(view)
+    assert html =~ "sincronizado: 2 atualizadas"
+    assert view |> element("#pokedex-results") |> render() =~ "Lapras"
+  end
+
+  @tag :tmp_dir
   test "sem dataset, aponta o mix pokedex.scrape", %{conn: conn} do
     Application.put_env(:pokex, :pokedex_path, "/nao/existe.json")
     {:ok, _view, html} = live(conn, ~p"/pokedex")
-    assert html =~ "mix pokedex.scrape"
+    assert html =~ "Sincronizar wiki"
   end
 end

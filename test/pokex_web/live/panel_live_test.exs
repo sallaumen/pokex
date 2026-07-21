@@ -32,6 +32,24 @@ defmodule PokexWeb.PanelLiveTest do
     refute has_element?(view, "#calib-stale-banner")
   end
 
+  test "losing game focus shows the header badge — never the layout-shifting banner", %{
+    conn: conn
+  } do
+    # The old banner sat right above the Start/Stop button and pushed it down
+    # whenever Lucas clicked another window — an alert beside the logo (full
+    # message on hover) keeps the layout identical in both states.
+    {:ok, view, _} = live(conn, ~p"/")
+    refute has_element?(view, "#focus-pause-badge")
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "focus", {:focus, %{focused?: false}})
+
+    assert view |> element("#focus-pause-badge") |> render() =~ "Pausado por segurança"
+    refute has_element?(view, "#focus-pause-banner")
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "focus", {:focus, %{focused?: true}})
+    refute has_element?(view, "#focus-pause-badge")
+  end
+
   test "the feed filter isolates one worker's lines and toggles off", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 

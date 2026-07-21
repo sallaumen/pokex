@@ -61,6 +61,10 @@ defmodule Pokex.Bots.Fishing.Logic do
       else: [:cursor, :glow]
   end
 
+  # :glow too, so the very first frame can already see a LIVE line and skip the
+  # recast (see the :focusing steps below).
+  def needs(%__MODULE__{state: :focusing}), do: [:cursor, :glow]
+
   def needs(_logic), do: [:cursor]
 
   @doc "True while in a post-action pause: the driver skips sensing (no screen capture) until it ends."
@@ -86,6 +90,29 @@ defmodule Pokex.Bots.Fishing.Logic do
       true ->
         do_step(%{logic | waiting_until: nil}, obs, now)
     end
+  end
+
+  # Resuming over a LIVE line (the Focus pause-and-return, a re-Start right
+  # after a cast): the resting line's indicator ring pulses continuously, so
+  # `line?` on the very first frame means the previous cast is still in the
+  # water. Recasting would reset the whole cycle and lose the live bait
+  # (Lucas, 2026-07-20) — skip the neutral click AND the cast, and watch it:
+  # settled (any cast splash is long gone) with clean streaks. No cycle count:
+  # nothing was cast.
+  defp do_step(%{state: :focusing} = logic, %{line?: true}, now) do
+    logic = %{
+      logic
+      | glow_streak: 0,
+        calm_streak: 0,
+        dead_streak: 0,
+        settled?: true,
+        holding?: false,
+        holding_since: nil,
+        hold_reason: nil,
+        last_action: %{text: "retomada sobre a isca viva", at: now}
+    }
+
+    {advance(logic, :watching, now), [{:log, "isca já na água — vigiando sem re-lançar"}]}
   end
 
   defp do_step(%{state: :focusing} = logic, _obs, now) do

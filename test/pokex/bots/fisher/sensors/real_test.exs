@@ -203,19 +203,25 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   end
 
   @tag :tmp_dir
-  test "battle enemies = HP-bar rows MINUS the own-pokemon pokeball rows", %{tmp_dir: tmp} do
-    # HP bars at rows 0 (y40), 1 (y120), 3 (y340); the pokeball sits at row 0 → that's the
-    # player's own pokemon → enemies = [1, 3].
-    assert {:ok, %{battle: %{enemies: [1, 3]}}} =
+  test "a pokeball on a row does NOT erase it — quest-catchable enemies carry one", %{
+    tmp_dir: tmp
+  } do
+    # Measured live (2026-07-20): a "Catch Pokémon" quest marks the CATCHABLE
+    # enemy's battle row with a pokeball — the very creature the bot must
+    # attack — while the own pokemon (out of its ball, HP readable) does not
+    # appear in the list at all. The old "pokeball = own pokemon" subtraction
+    # erased the only enemy: battle read 0 forever and combat never fought
+    # back. Rows with an HP bar are enemies, pokeball or not; the lock ring
+    # (and the game's own Tab, which cannot target your pokemon) is what
+    # confirms a real target.
+    assert {:ok, %{battle: %{enemies: [0, 1, 3]}}} =
              observe_battle(tmp, hp: [40, 120, 340], ball: [40])
   end
 
   @tag :tmp_dir
-  test "the own pokemon (its pokeball row) is NEVER an enemy, even with a full HP bar", %{
-    tmp_dir: tmp
-  } do
-    # HP bar and pokeball both at row 1 → the only creature is yours → []. Bug guard: no self-attack.
-    assert {:ok, %{battle: %{enemies: []}}} = observe_battle(tmp, hp: [120], ball: [120])
+  test "the SOLE enemy row keeps its pokeball and is still attackable (the 2026-07-20 hang)",
+       %{tmp_dir: tmp} do
+    assert {:ok, %{battle: %{enemies: [1]}}} = observe_battle(tmp, hp: [120], ball: [120])
   end
 
   @tag :tmp_dir

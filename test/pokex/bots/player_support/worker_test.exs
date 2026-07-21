@@ -427,6 +427,24 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "flee_to_escape clica na escada a :critical e vira a última ação", %{tmp: _tmp, body: body} do
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | escape_point: {620, 240}})
+
+    worker = start_worker(body)
+    assert :ok = Worker.flee_to_escape(worker)
+    assert_receive {:performed, :critical, [{:click, :left, {620, 240}}]}, 1_000
+    assert %{text: "fuga (clique na escada)", at: _} = Worker.status(worker).last_action
+  end
+
+  @tag :tmp_dir
+  test "flee_to_escape sem escada calibrada: erro e nenhum clique", %{tmp: _tmp, body: body} do
+    worker = start_worker(body)
+    assert {:error, :not_calibrated} = Worker.flee_to_escape(worker)
+    refute_receive {:performed, _p, _a}, 150
+  end
+
+  @tag :tmp_dir
   test "no battle seen → never repositions (nothing to undo)", %{tmp: tmp, body: body} do
     Settings.put(:rescue_enabled, false)
     Settings.put(:reposition_enabled, true)

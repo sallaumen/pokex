@@ -102,6 +102,19 @@ defmodule Pokex.CalibrationTest do
   end
 
   @tag :tmp_dir
+  test "escape_point round-trips, nil for older files", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "calibration.json")
+
+    Calibration.save(%{sample() | escape_point: {620, 240}}, path)
+    assert {:ok, loaded} = Calibration.load(path)
+    assert loaded.escape_point == {620, 240}
+
+    Calibration.save(sample(), path)
+    assert {:ok, old} = Calibration.load(path)
+    assert old.escape_point == nil
+  end
+
+  @tag :tmp_dir
   test "profiles: save/list/apply/delete round-trip", %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)

@@ -26,6 +26,9 @@ defmodule Pokex.Calibration do
     # Optional: where the active Pokémon should STAND (the strategic attack tile).
     # PlayerSupport middle-clicks this point after battles to send it back there.
     :pokemon_spot_point,
+    # Optional: the escape STAIRCASE tile — the emergency-escape protocol
+    # left-clicks here (click-to-walk) to flee danger (e.g. a shiny).
+    :escape_point,
     # Optional for backwards compatibility with calibrations created before the
     # skill bar became part of the main wizard.
     :skill_bar_region,
@@ -72,6 +75,7 @@ defmodule Pokex.Calibration do
       "player_point" => calib.player_point && Tuple.to_list(calib.player_point),
       "mini_game_region" => calib.mini_game_region && Tuple.to_list(calib.mini_game_region),
       "pokemon_spot_point" => calib.pokemon_spot_point && Tuple.to_list(calib.pokemon_spot_point),
+      "escape_point" => calib.escape_point && Tuple.to_list(calib.escape_point),
       "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
       "skill_bar_count" => calib.skill_bar_count,
       "skill_slot_refs" =>
@@ -103,6 +107,7 @@ defmodule Pokex.Calibration do
          player_point: to_tuple(map["player_point"]),
          mini_game_region: to_tuple(map["mini_game_region"]),
          pokemon_spot_point: to_tuple(map["pokemon_spot_point"]),
+         escape_point: to_tuple(map["escape_point"]),
          skill_bar_region: to_tuple(map["skill_bar_region"]),
          skill_bar_count: map["skill_bar_count"],
          skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),

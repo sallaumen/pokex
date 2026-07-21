@@ -289,6 +289,25 @@ defmodule PokexWeb.PanelLive do
     {:noreply, socket}
   end
 
+  # The emergency-escape protocol ran (BotSupervisor.emergency_escape): the
+  # fleet is halting (workers broadcast their own idle snapshots) — report
+  # WHAT happened to the flee click alongside the trigger.
+  def handle_info({:escape, reason, flee}, socket) do
+    note =
+      case flee do
+        :ok -> "clique na escada executado"
+        {:error, :not_calibrated} -> "SEM escada calibrada — só parou tudo"
+        {:error, other} -> "clique falhou (#{inspect(other)}) — só parou tudo"
+      end
+
+    socket =
+      socket
+      |> alarm(:escape, "🏃 FUGA: #{reason} — #{note}")
+      |> assign(session_started_at: nil)
+
+    {:noreply, socket}
+  end
+
   def handle_info({:focus, %{focused?: focused?}}, socket),
     do: {:noreply, assign(socket, focused?: focused?)}
 
@@ -599,6 +618,14 @@ defmodule PokexWeb.PanelLive do
     value = not Settings.get(:support_waits_capture)
     Settings.put(:support_waits_capture, value)
     {:noreply, assign(socket, support_waits_capture: value)}
+  end
+
+  # The escape SIMULATION (the aceite's "simulação"): runs the REAL protocol —
+  # real click, real halt, real alarm — behind the button's data-confirm. The
+  # {:escape, ...} broadcast coming back is what updates this panel.
+  def handle_event("test_escape", _params, socket) do
+    BotSupervisor.emergency_escape("teste manual")
+    {:noreply, socket}
   end
 
   def handle_event("save_potion_cfg", params, socket) do
@@ -1539,6 +1566,26 @@ defmodule PokexWeb.PanelLive do
                   active={@require_pokemon_hp}
                   event="toggle_require_pokemon_hp"
                 />
+                <div
+                  id="automation-escape"
+                  class="flex min-h-14 items-center gap-3 border-b border-[#222a2f] px-3 py-2.5"
+                >
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-semibold text-[#d9dde1]">Fuga de emergência</p>
+                    <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
+                      anda até a escada calibrada (Calibração → Escada de fuga), para TUDO e toca o
+                      alarme — vai ser o protocolo anti-shiny
+                    </p>
+                  </div>
+                  <button
+                    id="test-escape"
+                    phx-click="test_escape"
+                    data-confirm="Vai CLICAR NO JOGO (na escada calibrada) e PARAR todos os bots. Testar a fuga agora?"
+                    class="btn btn-xs h-8 shrink-0 border border-[#674f20] bg-transparent px-3 text-[11px] text-[#e7ca82] hover:bg-[#211b0d]"
+                  >
+                    🧪 Testar fuga
+                  </button>
+                </div>
                 <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
                   <label class="font-mono text-[10px] text-[#77828a]">
                     Vida mínima pra puxar a vara (%)

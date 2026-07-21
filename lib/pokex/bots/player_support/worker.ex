@@ -72,8 +72,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   def use_potion(server \\ __MODULE__), do: GenServer.call(server, :use_potion)
 
   @doc """
-  Emergency escape: ONE left click-to-walk on the calibrated `escape_point`
-  (the staircase). :ok | {:error, :not_calibrated | :input_gated | term}.
+  Emergency escape: click-to-walk to the calibrated `escape_point` (a walkable
+  tile BESIDE the staircase), wait out the walk, then arrow-step
+  `escape_direction` × `escape_steps` to enter the stairs.
+  :ok | {:error, :not_calibrated | :input_gated | term}.
   """
   def flee_to_escape(server \\ __MODULE__), do: GenServer.call(server, :flee_to_escape)
 
@@ -111,17 +113,22 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     {:reply, :ok, state}
   end
 
-  # Emergency escape (Actions & Rules): ONE left click-to-walk on the
-  # calibrated staircase. Deliberate flee — bypasses thresholds and combat
-  # logic, but NEVER the input gate (frontmost/panic still rule); rides
-  # :critical so it enters the Body ahead of everything else in flight.
+  # Emergency escape (Actions & Rules). Deliberate flee — bypasses thresholds
+  # and combat logic, but NEVER the input gate (frontmost/panic still rule);
+  # rides :critical so the WHOLE sequence enters the Body ahead of everything
+  # else in flight, atomically.
   def handle_call(:flee_to_escape, _from, state) do
     with {:ok, %Calibration{escape_point: point}} when is_tuple(point) <- Calibration.load(),
          true <- InputGate.allowed?() do
-      case Body.perform([{:click, :left, point}], :critical, state.body) do
+      case Body.perform(flee_actions(point), :critical, state.body) do
         :ok ->
-          broadcast_log(:macro, "🏃 fuga: clique na escada calibrada")
-          state = %{state | last_action: %{text: "fuga (clique na escada)", at: now()}}
+          broadcast_log(
+            :macro,
+            "🏃 fuga: andou até o tile calibrado e entrou na escada " <>
+              "(#{Settings.get(:escape_steps)}× #{direction_label(escape_direction())})"
+          )
+
+          state = %{state | last_action: %{text: "fuga (escada)", at: now()}}
           broadcast(state)
           {:reply, :ok, state}
 
@@ -321,6 +328,38 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
         do_reposition(state, point, at)
     end
   end
+
+  # Clicking ON a ladder USES it, and using only works when adjacent (Lucas,
+  # live 2026-07-20) — so the flee is: click-walk to the calibrated APPROACH
+  # tile, wait the walk out, then arrow-step INTO the staircase. One atomic
+  # perform: nothing can interleave mid-flee.
+  @escape_step_gap_ms 300
+
+  defp flee_actions(point) do
+    steps = max(Settings.get(:escape_steps), 1)
+
+    arrow_steps =
+      [{:press, escape_direction()}]
+      |> List.duplicate(steps)
+      |> Enum.intersperse([{:wait, @escape_step_gap_ms}])
+      |> List.flatten()
+
+    [{:click, :left, point}, {:wait, Settings.get(:escape_walk_wait_ms)}] ++ arrow_steps
+  end
+
+  # The arrow names map to REAL key events on both Rig paths (Commands'
+  # @named_keycodes serves the native helper too). Corrupt value → right.
+  defp escape_direction do
+    case Settings.get(:escape_direction) do
+      dir when dir in ["left", "right", "up", "down"] -> dir
+      _corrupt -> "right"
+    end
+  end
+
+  defp direction_label("left"), do: "esquerda"
+  defp direction_label("right"), do: "direita"
+  defp direction_label("up"), do: "cima"
+  defp direction_label("down"), do: "baixo"
 
   # through the Body like every mouse action (serialization, cursor restore,
   # mini-game gate); :normal priority — positioning never preempts anything

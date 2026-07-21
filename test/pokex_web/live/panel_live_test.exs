@@ -196,6 +196,32 @@ defmodule PokexWeb.PanelLiveTest do
     refute has_element?(view, "#session-duration")
   end
 
+  test "o form da fuga persiste direção, passos e espera da caminhada", %{conn: conn} do
+    direction = Pokex.Settings.get(:escape_direction)
+    steps = Pokex.Settings.get(:escape_steps)
+    wait = Pokex.Settings.get(:escape_walk_wait_ms)
+
+    on_exit(fn ->
+      Pokex.Settings.put(:escape_direction, direction)
+      Pokex.Settings.put(:escape_steps, steps)
+      Pokex.Settings.put(:escape_walk_wait_ms, wait)
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view
+    |> form("#escape-cfg-form", %{
+      "escape_direction" => "left",
+      "escape_steps" => "3",
+      "escape_walk_wait_ms" => "1500"
+    })
+    |> render_change()
+
+    assert Pokex.Settings.get(:escape_direction) == "left"
+    assert Pokex.Settings.get(:escape_steps) == 3
+    assert Pokex.Settings.get(:escape_walk_wait_ms) == 1500
+  end
+
   test "um {:rule_alarm, _} (anti-estagnação) toca o alarme sem parar nada", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 

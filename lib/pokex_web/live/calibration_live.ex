@@ -49,8 +49,9 @@ defmodule PokexWeb.CalibrationLive do
       "Clique no TILE onde o seu Pokémon deve FICAR (a posição estratégica de ataque). " <>
         "Depois das lutas, o suporte manda ele de volta pra cá com um clique do meio.",
     escape_point:
-      "Clique na ESCADA (ou rampa/buraco) mais próxima do teu spot — a fuga de emergência " <>
-        "clica aqui pra ANDAR até ela e sair do andar quando o perigo aparecer."
+      "Clique num TILE LIVRE DO CAMINHO colado na escada (NÃO na escada: clicar nela tenta " <>
+        "USÁ-LA, e usar só funciona do lado). A fuga anda até esse tile e aí dá os passos " <>
+        "de seta (direção configurada no painel) pra ENTRAR na escada."
   }
 
   @impl true
@@ -754,8 +755,8 @@ defmodule PokexWeb.CalibrationLive do
           screen: nil,
           calibrated?: true,
           skillbar_msg:
-            "Escada de fuga salva em #{inspect(point)} — o botão \"Testar fuga\" do painel " <>
-              "usa esse ponto."
+            "Tile de fuga salvo em #{inspect(point)} — configure a DIREÇÃO dos passos no " <>
+              "painel (Fuga de emergência) e use \"Testar fuga\" pra validar."
         )
 
       {:error, reason} ->
@@ -1003,7 +1004,7 @@ defmodule PokexWeb.CalibrationLive do
                 event="calibrate_escape_point"
                 icon="hero-arrow-up-on-square"
                 title="Escada de fuga"
-                hint="pra onde correr na fuga de emergência (protocolo anti-shiny)"
+                hint="o tile do caminho COLADO na escada — a fuga anda até ele e entra de seta"
               />
             </div>
           </section>

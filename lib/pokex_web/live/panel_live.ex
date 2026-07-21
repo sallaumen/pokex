@@ -82,6 +82,9 @@ defmodule PokexWeb.PanelLive do
        stop_after_kills: Settings.get(:stop_after_kills),
        stagnation_minutes: Settings.get(:stagnation_minutes),
        stagnation_action: Settings.get(:stagnation_action),
+       escape_direction: Settings.get(:escape_direction),
+       escape_steps: Settings.get(:escape_steps),
+       escape_walk_wait_ms: Settings.get(:escape_walk_wait_ms),
        player_mode: Settings.get(:player_mode),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
        loot_enabled: Settings.get(:loot_enabled),
@@ -621,10 +624,34 @@ defmodule PokexWeb.PanelLive do
   end
 
   # The escape SIMULATION (the aceite's "simulação"): runs the REAL protocol —
-  # real click, real halt, real alarm — behind the button's data-confirm. The
-  # {:escape, ...} broadcast coming back is what updates this panel.
+  # real click, real walk, real halt, real alarm — behind the button's
+  # data-confirm. The {:escape, ...} broadcast coming back updates this panel.
   def handle_event("test_escape", _params, socket) do
     BotSupervisor.emergency_escape("teste manual")
+    {:noreply, socket}
+  end
+
+  def handle_event("save_escape_cfg", params, socket) do
+    socket =
+      socket
+      |> save_int(params["escape_steps"], 1..10, :escape_steps, :escape_steps)
+      |> save_int(
+        params["escape_walk_wait_ms"],
+        0..10_000,
+        :escape_walk_wait_ms,
+        :escape_walk_wait_ms
+      )
+
+    socket =
+      case params["escape_direction"] do
+        direction when direction in ["left", "right", "up", "down"] ->
+          Settings.put(:escape_direction, direction)
+          assign(socket, escape_direction: direction)
+
+        _invalid ->
+          socket
+      end
+
     {:noreply, socket}
   end
 
@@ -1566,25 +1593,66 @@ defmodule PokexWeb.PanelLive do
                   active={@require_pokemon_hp}
                   event="toggle_require_pokemon_hp"
                 />
-                <div
-                  id="automation-escape"
-                  class="flex min-h-14 items-center gap-3 border-b border-[#222a2f] px-3 py-2.5"
-                >
-                  <div class="min-w-0 flex-1">
-                    <p class="text-sm font-semibold text-[#d9dde1]">Fuga de emergência</p>
-                    <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
-                      anda até a escada calibrada (Calibração → Escada de fuga), para TUDO e toca o
-                      alarme — vai ser o protocolo anti-shiny
-                    </p>
+                <div id="automation-escape" class="border-b border-[#222a2f] px-3 py-2.5">
+                  <div class="flex min-h-10 items-center gap-3">
+                    <div class="min-w-0 flex-1">
+                      <p class="text-sm font-semibold text-[#d9dde1]">Fuga de emergência</p>
+                      <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
+                        anda até o tile calibrado (Calibração → Escada de fuga), entra na escada
+                        de seta, para TUDO e toca o alarme — vai ser o protocolo anti-shiny
+                      </p>
+                    </div>
+                    <button
+                      id="test-escape"
+                      phx-click="test_escape"
+                      data-confirm="Vai CLICAR NO JOGO (no tile calibrado), dar os passos de seta e PARAR todos os bots. Testar a fuga agora?"
+                      class="btn btn-xs h-8 shrink-0 border border-[#674f20] bg-transparent px-3 text-[11px] text-[#e7ca82] hover:bg-[#211b0d]"
+                    >
+                      🧪 Testar fuga
+                    </button>
                   </div>
-                  <button
-                    id="test-escape"
-                    phx-click="test_escape"
-                    data-confirm="Vai CLICAR NO JOGO (na escada calibrada) e PARAR todos os bots. Testar a fuga agora?"
-                    class="btn btn-xs h-8 shrink-0 border border-[#674f20] bg-transparent px-3 text-[11px] text-[#e7ca82] hover:bg-[#211b0d]"
+                  <form
+                    id="escape-cfg-form"
+                    phx-change="save_escape_cfg"
+                    title="Depois do clique no tile, espera o personagem ANDAR até lá e então dá os passos de seta pra dentro da escada."
+                    class="mt-1.5 flex flex-wrap items-center gap-1 font-mono text-[9px] text-[#737d85]"
                   >
-                    🧪 Testar fuga
-                  </button>
+                    <span>entra pra</span>
+                    <select
+                      id="escape-direction"
+                      name="escape_direction"
+                      class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                    >
+                      <option value="left" selected={@escape_direction == "left"}>← esquerda</option>
+                      <option value="right" selected={@escape_direction == "right"}>→ direita</option>
+                      <option value="up" selected={@escape_direction == "up"}>↑ cima</option>
+                      <option value="down" selected={@escape_direction == "down"}>↓ baixo</option>
+                    </select>
+                    <span>×</span>
+                    <input
+                      id="escape-steps"
+                      name="escape_steps"
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={@escape_steps}
+                      phx-debounce="500"
+                      class="h-6 w-10 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                    />
+                    <span>passos · espera a caminhada por</span>
+                    <input
+                      id="escape-walk-wait"
+                      name="escape_walk_wait_ms"
+                      type="number"
+                      min="0"
+                      max="10000"
+                      step="100"
+                      value={@escape_walk_wait_ms}
+                      phx-debounce="500"
+                      class="h-6 w-14 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                    />
+                    <span>ms</span>
+                  </form>
                 </div>
                 <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
                   <label class="font-mono text-[10px] text-[#77828a]">

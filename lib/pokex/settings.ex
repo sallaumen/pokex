@@ -243,6 +243,14 @@ defmodule Pokex.Settings do
     # fleet through the same latch as the stop conditions.
     stagnation_minutes: 0,
     stagnation_action: "alarme",
+    # Escape WALK (the flee protocol): clicking ON a ladder tries to USE it,
+    # which only works when adjacent (Lucas, live 2026-07-20) — so escape_point
+    # is a WALKABLE tile beside the staircase; after click-walking there the
+    # flee presses the escape_direction arrow key escape_steps times to
+    # actually step INTO the stairs. The wait covers the click-walk itself.
+    escape_direction: "right",
+    escape_steps: 2,
+    escape_walk_wait_ms: 2_000,
     # Max age of the :mini_game WorldState fact before readers treat it as unknown
     # (= not playing, fail-open). The worker republishes every tick (80-150ms), so
     # 2s only trips when the worker is dead or a capture is badly stuck — exactly

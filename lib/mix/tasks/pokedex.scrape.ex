@@ -43,7 +43,9 @@ defmodule Mix.Tasks.Pokedex.Scrape do
 
     Mix.shell().info(
       "pronto: #{summary.updated} atualizadas nesta rodada, " <>
-        "#{summary.base} na base (#{summary.shinies} shinies) — priv/pokedex/pokedex.json"
+        "#{summary.base} na base (#{summary.shinies} shinies)" <>
+        if(Map.get(summary, :filled, 0) > 0, do: ", #{summary.filled} completadas", else: "") <>
+        " — priv/pokedex/pokedex.json"
     )
   end
 end

@@ -239,25 +239,13 @@ defmodule PokexWeb.PokedexDetailLive do
           </section>
 
           <section
-            :if={@entry.moves == nil}
-            id="entry-moves-stale"
-            class="rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-[11px] text-[#e7ca82]"
-          >
-            🔄 Esta entrada é de antes da colheita de movimentos — sincroniza a wiki (só
-            "{@entry.name}" leva segundos) pra puxar movimentos, habilidades e descrição.
-          </section>
-
-          <section
-            :if={@entry.moves != nil}
+            :if={@entry.moves not in [nil, []]}
             id="entry-moves"
             class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
           >
             <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
               movimentos
             </h2>
-            <p :if={@entry.moves == []} class="text-[11px] text-[#7f8992]">
-              a página da wiki não tem tabela de movimentos
-            </p>
             <ul class="space-y-1">
               <li
                 :for={move <- @entry.moves}

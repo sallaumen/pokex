@@ -62,7 +62,13 @@ defmodule Pokex.Pokedex.Sync do
   @doc """
   The synchronous pipeline. Options: `:only` ("Seadra,Horsea"), `:fresh`,
   `:limit`, `:delay_ms` (default 200), `:skip_sprites`. Returns
-  `{:ok, %{updated, base, shinies}}`.
+  `{:ok, %{updated, base, shinies, filled}}`.
+
+  Every run ends with a GAP PASS: any entry still missing the harvest (moves
+  == nil — an older dataset, a partial `--only` run, a fetch that failed, a
+  shiny built from the link fallback) is scraped again by name until the base
+  is whole. Lucas: "quero que a sincronização geral sempre já pegue os dados
+  faltando, como ataques e talz, mesmo que sejam muitos".
   """
   def run(opts, progress) when is_function(progress, 1) do
     delay = opts[:delay_ms] || 200
@@ -88,6 +94,7 @@ defmodule Pokex.Pokedex.Sync do
       end)
 
     merged = if opts[:fresh], do: species, else: Scraper.upsert(existing_species(), species)
+    {merged, filled} = fill_gaps(merged, delay, opts, scraped_at, progress)
 
     File.mkdir_p!(out_dir())
 
@@ -98,9 +105,59 @@ defmodule Pokex.Pokedex.Sync do
      %{
        updated: length(species),
        base: length(merged),
-       shinies: Enum.count(merged, &shiny_entry?/1)
+       shinies: Enum.count(merged, &shiny_entry?/1),
+       filled: filled
      }}
   end
+
+  @doc "Entries still missing the harvest — what the gap pass targets."
+  def incomplete(entries), do: Enum.filter(entries, &(field(&1, "moves") == nil))
+
+  # The gap pass. Scrapes by NAME (the wiki page always mirrors it), keeps the
+  # entry's own name and shiny_of so a variant stays a variant, and runs at the
+  # same polite delay. A page that stays unparsable is simply retried next run
+  # — never a silent half-entry.
+  defp fill_gaps(merged, delay, opts, scraped_at, progress) do
+    gaps = incomplete(merged)
+    total = length(gaps)
+
+    if total == 0 do
+      {merged, 0}
+    else
+      progress.("completando #{total} entradas sem movimentos…")
+
+      fresh =
+        gaps
+        |> Enum.with_index(1)
+        |> Enum.flat_map(fn {entry, i} ->
+          if rem(i, 25) == 0 or i == total,
+            do: progress.("completando #{i}/#{total} #{field(entry, "name")}")
+
+          Process.sleep(delay)
+          scrape_by_name(entry, opts, scraped_at)
+        end)
+
+      {Scraper.upsert(merged, fresh), length(fresh)}
+    end
+  end
+
+  defp scrape_by_name(entry, opts, scraped_at) do
+    name = field(entry, "name")
+    page = "/index.php/" <> URI.encode(String.replace(name, " ", "_"))
+
+    with true <- is_binary(name),
+         {:ok, html} <- fetch(page),
+         {:ok, parsed} <- Scraper.parse_species(html) do
+      # the page we asked for IS this entry — keep its identity even if the
+      # wiki's own "Nome:" field disagrees (redirects, odd forms)
+      [to_entry(%{parsed | name: name}, field(entry, "shiny_of"), opts, scraped_at)]
+    else
+      _unavailable -> []
+    end
+  end
+
+  defp field(entry, key) when is_map(entry),
+    do: Map.get(entry, key) || Map.get(entry, String.to_existing_atom(key))
 
   defp broadcast(event),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:pokedex_sync, event})

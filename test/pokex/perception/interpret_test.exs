@@ -69,6 +69,6 @@ defmodule Pokex.Perception.InterpretTest do
 
   test "arena with no hostile name is nil" do
     f = frame(60, 40, fn _x, _y -> {9, 9, 9} end)
-    assert Interpret.arena(f, calib(), settings()) == %{hostile: nil}
+    assert Interpret.arena(f, calib(), settings()) == %{hostile: nil, shiny: nil}
   end
 end

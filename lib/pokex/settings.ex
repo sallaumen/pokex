@@ -236,6 +236,19 @@ defmodule Pokex.Settings do
     # — when the running session crosses a limit. 0 = condition off.
     stop_after_minutes: 0,
     stop_after_kills: 0,
+    # Shiny guard (Lucas's anti-shiny protocol): watch the arena feed for the
+    # COLOR signature of the watched Shinies (built from the wiki sprites — a
+    # PXG shiny is a full recolor, so no in-game photo is needed). Action on a
+    # confirmed sighting: "fugir" = the emergency-escape protocol (staircase);
+    # "alarme" = keep fighting, just scream (his "lutar se quiser").
+    shiny_guard_enabled: false,
+    shiny_action: "alarme",
+    shiny_watch_names: ["Seadra", "Kingler"],
+    # A sighting needs this many signature pixels clustered in one 2×2 block of
+    # 16px cells, on shiny_streak_needed consecutive arena frames — tune with
+    # the panel's "Sonda" (an empty arena should read ~0px).
+    shiny_min_px: 12,
+    shiny_streak_needed: 3,
     # Anti-stagnation rule (Actions & Rules): an ACTIVE session with neither a
     # kill nor a hooked fish for this many minutes is a wedged bot (empty
     # water, stuck detector, dead spot). 0 = off. Action "alarme" re-rings

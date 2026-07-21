@@ -113,6 +113,10 @@ defmodule PokexWeb.PanelLive do
        potion_enabled: Settings.get(:potion_enabled),
        reposition_enabled: Settings.get(:reposition_enabled),
        support_waits_capture: Settings.get(:support_waits_capture),
+       shiny_guard_enabled: Settings.get(:shiny_guard_enabled),
+       shiny_watch: Enum.join(Settings.get(:shiny_watch_names), ", "),
+       shiny_action: Settings.get(:shiny_action),
+       shiny_msg: nil,
        potion_pct: Settings.get(:pokemon_hp_potion_pct),
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
@@ -621,6 +625,58 @@ defmodule PokexWeb.PanelLive do
     value = not Settings.get(:support_waits_capture)
     Settings.put(:support_waits_capture, value)
     {:noreply, assign(socket, support_waits_capture: value)}
+  end
+
+  def handle_event("toggle_shiny_guard", _params, socket) do
+    value = not Settings.get(:shiny_guard_enabled)
+    Settings.put(:shiny_guard_enabled, value)
+    {:noreply, assign(socket, shiny_guard_enabled: value)}
+  end
+
+  def handle_event("save_shiny_cfg", params, socket) do
+    names =
+      (params["shiny_watch"] || "")
+      |> String.split([",", " "], trim: true)
+      |> Enum.map(&String.trim/1)
+
+    if names != [], do: Settings.put(:shiny_watch_names, names)
+
+    socket =
+      case params["shiny_action"] do
+        action when action in ["fugir", "alarme"] ->
+          Settings.put(:shiny_action, action)
+          assign(socket, shiny_action: action)
+
+        _invalid ->
+          socket
+      end
+
+    {:noreply, assign(socket, shiny_watch: Enum.join(Settings.get(:shiny_watch_names), ", "))}
+  end
+
+  # The shiny PROBE: capture the arena NOW, rebuild the signatures and show
+  # each watched shiny's cluster score — the tuning tool (a clean arena must
+  # read ~0px; a false positive here means raise shiny_min_px).
+  def handle_event("shiny_probe", _params, socket) do
+    msg =
+      with {:ok, calib} <- Calibration.load(),
+           {:ok, built} <- Pokex.Pokedex.ShinySignatures.rebuild(),
+           {:ok, frame} <-
+             Pokex.Bots.Capture.frame(calib.arena_region, "shiny_probe.png") do
+        case Pokex.Pokedex.ShinySignatures.probe(frame) do
+          [] ->
+            "sonda: nenhuma assinatura construída (#{inspect(built)}) — confere os nomes e os sprites"
+
+          results ->
+            "sonda: " <>
+              Enum.map_join(results, " · ", fn {name, px} -> "#{name}: #{px}px" end) <>
+              " (limiar #{Settings.get(:shiny_min_px)}px)"
+        end
+      else
+        error -> "sonda falhou: #{inspect(error)}"
+      end
+
+    {:noreply, assign(socket, shiny_msg: msg)}
   end
 
   # The escape SIMULATION (the aceite's "simulação"): runs the REAL protocol —
@@ -1658,6 +1714,61 @@ defmodule PokexWeb.PanelLive do
                     />
                     <span>ms</span>
                   </form>
+                </div>
+                <div id="automation-shiny-guard" class="border-b border-[#222a2f] px-3 py-2.5">
+                  <div class="flex min-h-10 items-center gap-3">
+                    <div class="min-w-0 flex-1">
+                      <p class="text-sm font-semibold text-[#d9dde1]">Guarda anti-shiny ✨</p>
+                      <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
+                        vigia a arena pela COR dos shinies (assinatura dos sprites da wiki) —
+                        ao confirmar, foge pela escada ou só alarma (você luta)
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      class="toggle toggle-success toggle-sm shrink-0"
+                      checked={@shiny_guard_enabled}
+                      phx-click="toggle_shiny_guard"
+                    />
+                  </div>
+                  <form
+                    id="shiny-cfg-form"
+                    phx-change="save_shiny_cfg"
+                    class="mt-1.5 flex flex-wrap items-center gap-1 font-mono text-[9px] text-[#737d85]"
+                  >
+                    <span>vigiar</span>
+                    <input
+                      id="shiny-watch"
+                      name="shiny_watch"
+                      value={@shiny_watch}
+                      placeholder="Seadra, Kingler"
+                      phx-debounce="700"
+                      class="h-6 w-40 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                    />
+                    <span>· ao ver →</span>
+                    <select
+                      id="shiny-action"
+                      name="shiny_action"
+                      class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                    >
+                      <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
+                      <option value="alarme" selected={@shiny_action == "alarme"}>
+                        lutar (só alarme) ⚔️
+                      </option>
+                    </select>
+                    <button
+                      id="shiny-probe"
+                      type="button"
+                      phx-click="shiny_probe"
+                      title="captura a arena AGORA e mostra a pontuação de cada shiny vigiado — arena limpa deve ler ~0px"
+                      class="btn btn-xs h-6 border border-[#293238] bg-transparent px-2 text-[10px] text-[#89939a] hover:text-white"
+                    >
+                      🔬 Sonda
+                    </button>
+                  </form>
+                  <p :if={@shiny_msg} id="shiny-msg" class="mt-1 font-mono text-[9px] text-[#e7ca82]">
+                    {@shiny_msg}
+                  </p>
                 </div>
                 <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
                   <label class="font-mono text-[10px] text-[#77828a]">

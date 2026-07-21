@@ -65,12 +65,22 @@ defmodule Pokex.Perception.Interpret do
     end
   end
 
-  @doc "The arena: the hostile's floating-name point in SCREEN coordinates, or nil."
-  def arena(frame, calib, _settings) do
-    case Vision.find_hostile(frame) do
-      {:ok, pixel} -> %{hostile: Calibration.frame_to_screen(calib, calib.arena_region, pixel)}
-      :not_found -> %{hostile: nil}
-    end
+  @doc """
+  The arena: the hostile's floating-name point in SCREEN coordinates (or nil),
+  plus the shiny verdict — the best signature-color cluster in the frame
+  (%{name, px} | nil; free when no signatures are cached, i.e. guard off).
+  """
+  def arena(frame, calib, settings) do
+    hostile =
+      case Vision.find_hostile(frame) do
+        {:ok, pixel} -> Calibration.frame_to_screen(calib, calib.arena_region, pixel)
+        :not_found -> nil
+      end
+
+    %{
+      hostile: hostile,
+      shiny: Pokex.Pokedex.ShinySignatures.scan(frame, Settings.value(settings, :shiny_min_px))
+    }
   end
 
   # Bucket frame-Ys into distinct 0-based battle rows (same math as the lock sensor).

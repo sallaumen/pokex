@@ -8,6 +8,7 @@ defmodule PokexWeb.PokedexLive do
   use PokexWeb, :live_view
 
   alias Pokex.Pokedex
+  alias Pokex.Pokedex.Team
   alias PokexWeb.PanelForms
 
   @results_cap 120
@@ -23,7 +24,8 @@ defmodule PokexWeb.PokedexLive do
        form: filter_form(%{}),
        results: Pokedex.search(%{}),
        selected_lure: nil
-     )}
+     )
+     |> assign_team()}
   end
 
   @impl true
@@ -44,6 +46,39 @@ defmodule PokexWeb.PokedexLive do
   def handle_event("select_lure", %{"lure" => name}, socket) do
     lure = Enum.find(socket.assigns.lures, &(&1.name == name))
     {:noreply, assign(socket, selected_lure: lure)}
+  end
+
+  def handle_event("add_member", %{"member" => name}, socket) do
+    case Team.add(String.trim(name)) do
+      {:ok, _members} ->
+        {:noreply, assign_team(socket, nil)}
+
+      {:error, :unknown} ->
+        {:noreply,
+         assign_team(socket, "não conheço \"#{String.trim(name)}\" — usa um nome da Pokédex")}
+    end
+  end
+
+  def handle_event("remove_member", %{"name" => name}, socket) do
+    Team.remove(name)
+    {:noreply, assign_team(socket, nil)}
+  end
+
+  # The team + its hunt suggestions in one place: mount, add and remove all
+  # funnel through here, so the two lists can never drift from the saved team.
+  defp assign_team(socket, team_msg \\ nil) do
+    members = Team.members()
+
+    suggestions =
+      if members == [], do: %{targets: [], threats: []}, else: Pokedex.hunt_suggestions(members)
+
+    assign(socket,
+      team: members,
+      team_entries: members |> Enum.map(&Pokedex.get/1) |> Enum.reject(&is_nil/1),
+      targets: Enum.take(suggestions.targets, 24),
+      threats: Enum.take(suggestions.threats, 12),
+      team_msg: team_msg
+    )
   end
 
   defp put_level(filters, key, raw) do
@@ -169,7 +204,7 @@ defmodule PokexWeb.PokedexLive do
               do: " — mostrando #{length(@capped)}"}
           </p>
 
-          <ul class="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
+          <ul id="pokedex-results" class="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
             <li
               :for={entry <- @capped}
               class={[
@@ -206,6 +241,140 @@ defmodule PokexWeb.PokedexLive do
               </p>
             </li>
           </ul>
+        </section>
+
+        <section
+          :if={@loaded?}
+          id="team-card"
+          class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <h2 class="text-sm font-semibold">🧢 Meu Time</h2>
+            <span
+              :for={entry <- @team_entries}
+              class="flex items-center gap-1.5 rounded-lg border border-[#293238] bg-[#101418] px-2 py-1 text-xs"
+            >
+              <img
+                :if={entry.sprite}
+                src={"/" <> entry.sprite}
+                alt={entry.name}
+                onerror="this.style.display='none'"
+                class="size-5 object-contain"
+              />
+              {entry.name}
+              <span class="font-mono text-[9px] text-[#737d85]">
+                {Enum.join(entry.elements, "/")}
+              </span>
+              <button
+                phx-click="remove_member"
+                phx-value-name={entry.name}
+                title="tirar do time"
+                class="cursor-pointer text-[#89939a] hover:text-[#ff9ca4]"
+              >
+                ×
+              </button>
+            </span>
+            <form id="team-add-form" phx-submit="add_member" class="flex items-center gap-2">
+              <input
+                name="member"
+                list="species-names"
+                placeholder="adicionar (ex.: Venusaur)"
+                autocomplete="off"
+                class="input input-bordered h-9 w-48 bg-[#090d0f] font-mono text-sm"
+              />
+              <datalist id="species-names">
+                <option :for={entry <- Pokedex.search(%{})} value={entry.name} />
+              </datalist>
+              <button class="btn h-9 border-0 bg-[#37d07d] px-3 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+                Adicionar
+              </button>
+            </form>
+          </div>
+          <p :if={@team_msg} id="team-msg" class="mt-2 text-[11px] text-[#e7ca82]">{@team_msg}</p>
+          <p :if={@team == []} class="mt-2 text-[11px] text-[#7f8992]">
+            cadastra teus Pokémon e eu te digo quem apanha deles (e de quem fugir)
+          </p>
+
+          <div :if={@targets != []} class="mt-3 grid gap-3 lg:grid-cols-2">
+            <div>
+              <h3 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                🎯 melhores caçadas pro teu time
+              </h3>
+              <ul id="hunt-targets" class="space-y-1">
+                <li
+                  :for={row <- @targets}
+                  class="rounded-lg border border-[#232b30] bg-[#101418] px-2.5 py-1.5"
+                >
+                  <div class="flex items-center gap-2">
+                    <img
+                      :if={row.entry.sprite}
+                      src={"/" <> row.entry.sprite}
+                      alt={row.entry.name}
+                      onerror="this.style.display='none'"
+                      class="size-6 shrink-0 object-contain"
+                    />
+                    <p class="min-w-0 flex-1 truncate text-sm font-semibold">
+                      {row.entry.name}
+                      <span class="font-mono text-[9px] font-normal text-[#737d85]">
+                        lv {row.entry.level || "?"}
+                      </span>
+                    </p>
+                    <span class="font-mono text-[10px] font-bold text-[#37d07d]">+{row.score}</span>
+                  </div>
+                  <p class="mt-0.5 flex flex-wrap gap-1 font-mono text-[9px]">
+                    <span class="rounded bg-[#0d3822] px-1 py-0.5 text-[#3de083]">
+                      {Enum.join(row.hits, "+")} fere ({row.member})
+                    </span>
+                    <span
+                      :if={row.resisted != []}
+                      class="rounded bg-[#241114] px-1 py-0.5 text-[#ff9ca4]"
+                    >
+                      resiste {Enum.join(row.resisted, "+")}
+                    </span>
+                    <span :if={row.shiny?} class="rounded bg-[#211b0d] px-1 py-0.5 text-[#f3ba4e]">
+                      ✨ tem shiny
+                    </span>
+                    <span
+                      :for={lure <- Enum.take(row.lures, 2)}
+                      class="rounded bg-[#101d24] px-1 py-0.5 text-[#7cc0e8]"
+                    >
+                      🎣 {lure.lure} lv{lure.fishing_level}
+                    </span>
+                  </p>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                ⚠️ cuidado — batem forte no teu time
+              </h3>
+              <ul id="hunt-threats" class="space-y-1">
+                <li
+                  :for={row <- @threats}
+                  class="rounded-lg border border-[#3a2b30] bg-[#161014] px-2.5 py-1.5"
+                >
+                  <div class="flex items-center gap-2">
+                    <img
+                      :if={row.entry.sprite}
+                      src={"/" <> row.entry.sprite}
+                      alt={row.entry.name}
+                      onerror="this.style.display='none'"
+                      class="size-6 shrink-0 object-contain"
+                    />
+                    <p class="min-w-0 flex-1 truncate text-sm font-semibold">
+                      {row.entry.name}
+                      <span class="font-mono text-[9px] font-normal text-[#737d85]">
+                        lv {row.entry.level || "?"}
+                      </span>
+                    </p>
+                  </div>
+                  <p class="mt-0.5 font-mono text-[9px] text-[#d1949c]">
+                    {Enum.join(row.via, "+")} pega em {Enum.join(row.members, ", ")}
+                  </p>
+                </li>
+              </ul>
+            </div>
+          </div>
         </section>
 
         <section

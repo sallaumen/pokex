@@ -39,6 +39,18 @@ defmodule PokexWeb.PokedexLiveTest do
         "sprite" => nil,
         "shiny_of" => nil,
         "shiny_name" => nil
+      },
+      %{
+        "name" => "Venusaur",
+        "number" => 3,
+        "level" => 60,
+        "elements" => ["Grass"],
+        "weak_to" => ["Fire"],
+        "resists" => [],
+        "evolutions" => [],
+        "sprite" => nil,
+        "shiny_of" => nil,
+        "shiny_name" => "Shiny Venusaur"
       }
     ],
     "lures" => [
@@ -56,7 +68,14 @@ defmodule PokexWeb.PokedexLiveTest do
     path = Path.join(tmp, "pokedex.json")
     File.write!(path, JSON.encode!(@dataset))
     Application.put_env(:pokex, :pokedex_path, path)
-    on_exit(fn -> Application.delete_env(:pokex, :pokedex_path) end)
+    # the team file lives under the Pokex home — scope it too
+    Application.put_env(:pokex, :home_dir, tmp)
+
+    on_exit(fn ->
+      Application.delete_env(:pokex, :pokedex_path)
+      Application.delete_env(:pokex, :home_dir)
+    end)
+
     :ok
   end
 
@@ -66,16 +85,17 @@ defmodule PokexWeb.PokedexLiveTest do
 
     assert html =~ "Seadra"
     assert html =~ "Charizard"
-    assert html =~ "3 resultado(s)"
+    assert html =~ "4 resultado(s)"
 
     view
     |> form("#pokedex-filter-form", %{"f" => %{"weak_to" => "Water"}})
     |> render_change()
 
     html = render(view)
-    assert html =~ "Charizard"
-    refute html =~ "Shiny Seadra"
     assert html =~ "1 resultado(s)"
+    results = view |> element("#pokedex-results") |> render()
+    assert results =~ "Charizard"
+    refute results =~ "Shiny Seadra"
   end
 
   @tag :tmp_dir
@@ -96,6 +116,34 @@ defmodule PokexWeb.PokedexLiveTest do
     assert html =~ "pesca lv 60"
     assert has_element?(view, "#lure-shiny-count")
     assert html =~ "1 shiny(s)"
+  end
+
+  @tag :tmp_dir
+  test "meu time: adicionar mostra alvos e perigos; remover limpa; nome errado avisa", %{
+    conn: conn
+  } do
+    {:ok, view, _} = live(conn, ~p"/pokedex")
+
+    view |> form("#team-add-form", %{"member" => "Charizard"}) |> render_submit()
+    html = render(view)
+
+    # the chip and the two ranked lists
+    assert html =~ "Charizard"
+    assert has_element?(view, "#hunt-targets")
+    assert html =~ "Venusaur"
+    assert html =~ "Fire fere (Charizard)"
+    assert html =~ "✨ tem shiny"
+    assert has_element?(view, "#hunt-threats")
+    assert html =~ "Water pega em Charizard"
+
+    # unknown name warns without touching the team
+    view |> form("#team-add-form", %{"member" => "Digimon"}) |> render_submit()
+    assert render(view) =~ "não conheço"
+
+    view |> element("button[phx-value-name='Charizard']") |> render_click()
+    html = render(view)
+    refute has_element?(view, "#hunt-targets")
+    assert html =~ "cadastra teus Pokémon"
   end
 
   @tag :tmp_dir

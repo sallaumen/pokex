@@ -77,9 +77,14 @@ defmodule Pokex.Perception.Interpret do
         :not_found -> nil
       end
 
+    scores = Pokex.Pokedex.ShinySignatures.probe(frame)
+
     %{
       hostile: hostile,
-      shiny: Pokex.Pokedex.ShinySignatures.scan(frame, Settings.value(settings, :shiny_min_px))
+      shiny: Pokex.Pokedex.ShinySignatures.best(scores, Settings.value(settings, :shiny_min_px)),
+      # the full per-name probe rides along so the panel's live meter can show
+      # how close the water is to the threshold — no extra capture
+      shiny_scores: scores
     }
   end
 

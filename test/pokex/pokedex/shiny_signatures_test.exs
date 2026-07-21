@@ -113,4 +113,38 @@ defmodule Pokex.Pokedex.ShinySignaturesTest do
     clean = arena_frame!(tmp)
     assert [{"Shiny Seadra", 0}] = ShinySignatures.probe(clean)
   end
+
+  @tag :tmp_dir
+  test "learn_baseline subtracts the water colors so a shiny-colored blob stops firing", %{
+    tmp: tmp
+  } do
+    {:ok, _} = ShinySignatures.rebuild()
+
+    # the white the signature hunts ALSO fills this 'clean water' frame → learning
+    # it as baseline must remove white from the signature
+    watery = arena_frame!(tmp, {0, 0, 96, 64, {230, 230, 230}})
+    assert {:ok, %{baseline: n}} = ShinySignatures.learn_baseline(watery)
+    assert n > 0
+
+    # now the same white blob no longer triggers (white left the signature)
+    blob = arena_frame!(tmp, {30, 20, 24, 14, {230, 230, 230}})
+    assert ShinySignatures.scan(blob, 12) == nil
+
+    # forgetting the baseline widens the signature back — white returns
+    ShinySignatures.forget_baseline()
+    assert %{name: "Shiny Seadra"} = ShinySignatures.scan(blob, 12)
+  end
+
+  @tag :tmp_dir
+  test "preview carries the sprites and color swatches the detector is hunting" do
+    {:ok, _} = ShinySignatures.rebuild()
+
+    assert [%{name: "Shiny Seadra", shiny_sprite: "shiny-seadra.png", swatches: swatches} = p] =
+             ShinySignatures.preview()
+
+    assert p.base_sprite == "seadra.png"
+    assert p.bucket_count > 0
+    # the white bucket center is near-white
+    assert Enum.any?(swatches, fn {r, g, b} -> r > 200 and g > 200 and b > 200 end)
+  end
 end

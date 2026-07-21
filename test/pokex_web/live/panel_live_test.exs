@@ -286,10 +286,11 @@ defmodule PokexWeb.PanelLiveTest do
       neutral_point: {500, 500}
     })
 
-    # …and a REAL dark png at the shared Fake's default capture path
+    # …and REAL dark pngs at the shared Fake's default capture paths
     File.mkdir_p!("/tmp/fake")
     dark = for _ <- 1..40, do: List.duplicate({20, 20, 20, 255}, 60)
     Pokex.PngFixtures.write!("/tmp/fake/shiny_probe.png", dark)
+    Pokex.PngFixtures.write!("/tmp/fake/shiny_baseline.png", dark)
 
     {:ok, view, _} = live(conn, ~p"/")
 
@@ -303,12 +304,32 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:shiny_watch_names) == ["Seadra"]
     assert Pokex.Settings.get(:shiny_action) == "fugir"
 
+    # the visual preview renders the watched shiny's sprites + color swatches
+    assert has_element?(view, "#shiny-preview")
+    assert render(view) =~ "Shiny Seadra"
+
     # the probe runs the REAL pipeline (repo sprites, sips conversion) against
     # the dark frame — every watched shiny must score 0px
     view |> element("#shiny-probe") |> render_click()
     html = render(view)
     assert html =~ "sonda: "
     assert html =~ "0px"
+
+    # learn the (dark) background — the button runs the real capture+subtract
+    view |> element("#shiny-baseline") |> render_click()
+    assert render(view) =~ "fundo aprendido"
+
+    # a live reading from the guard lights the meter
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "shiny",
+      {:shiny_reading, %{scores: %{"Shiny Seadra" => 3}, min_px: 12}}
+    )
+
+    assert render(view) =~ "3<span"
+
+    Pokex.Pokedex.ShinySignatures.clear()
+    Pokex.Pokedex.ShinySignatures.forget_baseline()
   end
 
   test "o protocolo de fuga: botão presente e o {:escape, _, _} toca o alarme com o resultado",

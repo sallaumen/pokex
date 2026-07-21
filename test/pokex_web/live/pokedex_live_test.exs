@@ -155,6 +155,76 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
+  test "ordenação pela URL: clicar ordena, clicar de novo inverte, e o filtro sobrevive", %{
+    conn: conn
+  } do
+    {:ok, view, _} = live(conn, ~p"/pokedex")
+
+    view |> element(~s(#pokedex-sort button[phx-value-by="level"])) |> render_click()
+    assert_patch(view, "/pokedex?sort=level")
+
+    # o primeiro card é o de MENOR level (Seadra 50)
+    assert view |> element("#pokedex-results li:first-child") |> render() =~ "Seadra"
+
+    # clicar no ordenador ATIVO inverte a direção
+    view |> element(~s(#pokedex-sort button[phx-value-by="level"])) |> render_click()
+    assert_patch(view, "/pokedex?desc=1&sort=level")
+    assert view |> element("#pokedex-results li:first-child") |> render() =~ "Charizard"
+
+    # e a ordenação sobrevive a um filtro novo (os dois viajam na URL)
+    view |> form("#pokedex-filter-form", %{"f" => %{"element" => "Water"}}) |> render_change()
+    assert view |> element("#pokedex-sort button[phx-value-by='level']") |> render() =~ "↓"
+    assert view |> element("#pokedex-count") |> render() =~ "resultado(s)"
+  end
+
+  @tag :tmp_dir
+  test "novidades: badges NOVO/MUDOU e o filtro só-novidades", %{conn: conn, path: path} do
+    now = "2026-07-21T10:00:00Z"
+
+    dataset =
+      @dataset
+      |> Map.put("scraped_at", now)
+      |> update_in(["species"], fn species ->
+        Enum.map(species, fn
+          %{"name" => "Charizard"} = s ->
+            Map.merge(s, %{"first_seen_at" => now, "changed_at" => now})
+
+          %{"name" => "Venusaur"} = s ->
+            Map.merge(s, %{"first_seen_at" => "2026-01-01T00:00:00Z", "changed_at" => now})
+
+          s ->
+            Map.merge(s, %{
+              "first_seen_at" => "2026-01-01T00:00:00Z",
+              "changed_at" => "2026-01-01T00:00:00Z"
+            })
+        end)
+      end)
+
+    File.write!(path, JSON.encode!(dataset))
+    Pokex.Pokedex.reload()
+
+    {:ok, view, _} = live(conn, ~p"/pokedex")
+
+    results = view |> element("#pokedex-results") |> render()
+    assert results =~ "NOVO"
+    assert results =~ "MUDOU"
+
+    # o carimbo do último sync fica visível ao lado da contagem
+    assert view |> element("#synced-at") |> render() =~ "21/07"
+
+    # o chip filtra só o que a última sincronização trouxe/mudou
+    view |> element(~s(#pokedex-sort button[phx-click="toggle_novelty"])) |> render_click()
+    assert_patch(view, "/pokedex?novidades=true")
+
+    html = render(view)
+    assert html =~ "2 resultado(s)"
+    results = view |> element("#pokedex-results") |> render()
+    assert results =~ "Charizard"
+    assert results =~ "Venusaur"
+    refute results =~ "Shiny Seadra"
+  end
+
+  @tag :tmp_dir
   test "sync pela UI: trava de sync duplo, progresso ao vivo e done recarrega a base", %{
     conn: conn,
     path: path

@@ -16,6 +16,25 @@ defmodule Pokex.Pokedex do
   @doc "Every fishing lure with its level tiers."
   def lures, do: data().lures
 
+  @doc "When the dataset was last synced (ISO8601), or nil — anchors the novelty badges."
+  def synced_at, do: data().synced_at
+
+  @doc """
+  Entries whose novelty stamp matches the LAST sync: `:new` (first_seen_at)
+  or `:changed` (changed_at). nil when the entry predates the stamps or is
+  older than the last run — exactly what "o que veio na última sync" needs.
+  """
+  def novelty(entry, synced_at \\ nil) do
+    synced_at = synced_at || synced_at()
+
+    cond do
+      synced_at == nil -> nil
+      entry.first_seen_at == synced_at -> :new
+      entry.changed_at == synced_at -> :changed
+      true -> nil
+    end
+  end
+
   def get(name), do: Enum.find(species(), &(&1.name == name))
 
   @doc """
@@ -28,12 +47,46 @@ defmodule Pokex.Pokedex do
     * `:only_shiny` — only Shiny variants
     * `:edited_after` — wiki page edited on/after this "YYYY-MM-DD" (entries
       without a known edit date drop when this filter is on)
+    * `:only_novelty` — only entries the LAST sync brought in or changed
+
+  Sorting (`:sort` + `:desc`): `:number` (default), `:name`, `:level`,
+  `:element`, `:weak_to`, `:shiny`, `:edited` (the WIKI's own edit date —
+  "que pokémon a wiki mexeu por último") or `:changed` (OUR last content
+  change). Missing values always sink to the bottom, in BOTH directions —
+  a level-less entry is never the "highest level".
   """
   def search(filters) when is_map(filters) do
+    {sort, filters} = Map.pop(filters, :sort)
+    {desc?, filters} = Map.pop(filters, :desc)
+
     species()
     |> Enum.filter(&matches?(&1, filters))
-    |> Enum.sort_by(&{&1.number || 9_999, &1.name})
+    |> sort_entries(sort, desc?)
   end
+
+  defp sort_entries(entries, sort, desc?) when sort in [nil, "", :number],
+    do: Enum.sort_by(entries, &{&1.number || 9_999, &1.name}, direction(desc?))
+
+  defp sort_entries(entries, sort, desc?) do
+    {missing, present} = Enum.split_with(entries, &(sort_key(&1, sort) in [nil, "", []]))
+
+    Enum.sort_by(present, &{sort_key(&1, sort), &1.name}, direction(desc?)) ++
+      Enum.sort_by(missing, &{&1.number || 9_999, &1.name})
+  end
+
+  defp direction(true), do: :desc
+  defp direction(_asc), do: :asc
+
+  defp sort_key(entry, :name), do: entry.name
+  defp sort_key(entry, :level), do: entry.level
+  defp sort_key(entry, :element), do: List.first(entry.elements)
+  defp sort_key(entry, :weak_to), do: List.first(entry.weak_to)
+  defp sort_key(entry, :edited), do: entry.edited_at
+  defp sort_key(entry, :changed), do: entry.changed_at || entry.first_seen_at
+  # shiny variants first (or last, flipped): the base form's own name groups
+  # each pair together, so a Shiny sits beside its base either way
+  defp sort_key(entry, :shiny), do: {entry.shiny_of == nil, entry.shiny_of || entry.name}
+  defp sort_key(entry, _unknown), do: entry.number
 
   @doc "The Shiny variants a lure can hook, with the fishing level of each tier."
   def shinies_for_lure(lure_name) do
@@ -226,6 +279,9 @@ defmodule Pokex.Pokedex do
       {:edited_after, date} when is_binary(date) and date != "" ->
         is_binary(entry.edited_at) and entry.edited_at >= date
 
+      {:only_novelty, true} ->
+        novelty(entry) != nil
+
       _off ->
         true
     end)
@@ -258,10 +314,11 @@ defmodule Pokex.Pokedex do
          {:ok, json} <- JSON.decode(bin) do
       %{
         species: Enum.map(json["species"] || [], &species_entry/1),
-        lures: Enum.map(json["lures"] || [], &lure_entry/1)
+        lures: Enum.map(json["lures"] || [], &lure_entry/1),
+        synced_at: json["scraped_at"]
       }
     else
-      _missing_or_corrupt -> %{species: [], lures: []}
+      _missing_or_corrupt -> %{species: [], lures: [], synced_at: nil}
     end
   end
 
@@ -291,7 +348,11 @@ defmodule Pokex.Pokedex do
       shiny_of: map["shiny_of"],
       shiny_name: map["shiny_name"],
       edited_at: map["edited_at"],
-      scraped_at: map["scraped_at"]
+      scraped_at: map["scraped_at"],
+      # our own clock (see Scraper.upsert): when this entry ENTERED the base
+      # and when its content last actually changed — the novelty signals
+      first_seen_at: map["first_seen_at"],
+      changed_at: map["changed_at"]
     }
   end
 

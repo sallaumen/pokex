@@ -47,6 +47,99 @@ defmodule Pokex.Pokedex do
     end
   end
 
+  @doc "Which lures can hook `name`, as [%{lure, fishing_level}] (all tiers)."
+  def lures_for(name) do
+    for lure <- lures(), tier <- lure.tiers, name in tier.pokemon do
+      %{lure: lure.name, fishing_level: tier.fishing_level}
+    end
+  end
+
+  @doc """
+  Hunt suggestions for the team: `%{targets, threats}`.
+
+  TARGETS — base species at least one member hits super-effectively (a member
+  element inside the target's weak_to), ranked by a transparent score:
+  +2 per weakness hit, -2 per member element the target RESISTS, +1 when a
+  Shiny variant exists (upside!), +1 when fishable. Each row names the best
+  member and carries the reasons, so the ranking is auditable on screen.
+
+  THREATS — species whose own elements hit a member's weaknesses ("quem bate
+  forte em MIM"), one row per species with every endangered member, ranked by
+  how many members it endangers, then by level.
+
+  `filters` narrows the candidate pool with the same options as `search/1`
+  (e.g. %{max_level: 60} for "só alvos até level 60").
+  """
+  def hunt_suggestions(member_names, filters \\ %{}) do
+    members = member_names |> Enum.map(&get/1) |> Enum.reject(&is_nil/1)
+
+    candidates =
+      search(filters)
+      |> Enum.filter(&(&1.shiny_of == nil and &1.name not in member_names))
+
+    %{
+      targets:
+        candidates
+        |> Enum.map(&target_row(&1, members))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.sort_by(&{-&1.score, &1.entry.number || 9_999}),
+      threats:
+        candidates
+        |> Enum.map(&threat_row(&1, members))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.sort_by(&{-length(&1.members), -(&1.entry.level || 0)})
+    }
+  end
+
+  defp target_row(target, members) do
+    scored =
+      for member <- members,
+          hits = Enum.filter(member.elements, &(&1 in target.weak_to)),
+          hits != [] do
+        resisted = Enum.filter(member.elements, &(&1 in target.resists))
+        {2 * length(hits) - 2 * length(resisted), member, hits, resisted}
+      end
+
+    case Enum.max_by(scored, &elem(&1, 0), fn -> nil end) do
+      nil ->
+        nil
+
+      {base_score, member, hits, resisted} ->
+        lures = lures_for(target.name)
+        shiny? = target.shiny_name != nil
+
+        %{
+          entry: target,
+          member: member.name,
+          hits: hits,
+          resisted: resisted,
+          shiny?: shiny?,
+          lures: lures,
+          score: base_score + if(shiny?, do: 1, else: 0) + if(lures != [], do: 1, else: 0)
+        }
+    end
+  end
+
+  defp threat_row(target, members) do
+    endangered =
+      for member <- members,
+          via = Enum.filter(target.elements, &(&1 in member.weak_to)),
+          via != [],
+          do: {member.name, via}
+
+    case endangered do
+      [] ->
+        nil
+
+      list ->
+        %{
+          entry: target,
+          members: Enum.map(list, &elem(&1, 0)),
+          via: list |> Enum.flat_map(&elem(&1, 1)) |> Enum.uniq()
+        }
+    end
+  end
+
   @doc "Every element seen in the dataset (for filter selects)."
   def elements do
     species()

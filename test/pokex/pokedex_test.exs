@@ -41,6 +41,18 @@ defmodule Pokex.PokedexTest do
         "sprite" => nil,
         "shiny_of" => nil,
         "shiny_name" => nil
+      },
+      %{
+        "name" => "Venusaur",
+        "number" => 3,
+        "level" => 60,
+        "elements" => ["Grass", "Poison"],
+        "weak_to" => ["Fire", "Psychic", "Ice"],
+        "resists" => ["Water"],
+        "evolutions" => [],
+        "sprite" => nil,
+        "shiny_of" => nil,
+        "shiny_name" => "Shiny Venusaur"
       }
     ],
     "lures" => [
@@ -71,12 +83,16 @@ defmodule Pokex.PokedexTest do
     assert [%{name: "Charizard"}] = Pokedex.search(%{weak_to: "Water"})
 
     assert [%{name: "Charizard"}] = Pokedex.search(%{element: "Fire"})
-    assert [%{name: "Charizard"}, %{name: "Shiny Seadra"}] = Pokedex.search(%{min_level: 60})
+
+    assert [%{name: "Venusaur"}, %{name: "Charizard"}, %{name: "Shiny Seadra"}] =
+             Pokedex.search(%{min_level: 60})
+
     assert [%{name: "Shiny Seadra"}] = Pokedex.search(%{only_shiny: true})
     assert [%{name: "Seadra"}] = Pokedex.search(%{max_level: 50, element: "Water"})
 
     # empty-string filters are OFF, results sorted by dex number
-    assert [%{name: "Charizard"} | _] = Pokedex.search(%{name: "", element: ""})
+    assert [%{name: "Venusaur"}, %{name: "Charizard"} | _] =
+             Pokedex.search(%{name: "", element: ""})
   end
 
   @tag :tmp_dir
@@ -86,6 +102,30 @@ defmodule Pokex.PokedexTest do
            ]
 
     assert Pokedex.shinies_for_lure("inexistente") == []
+  end
+
+  @tag :tmp_dir
+  test "hunt_suggestions ranks who my team hits hard, and who hits back" do
+    %{targets: targets, threats: threats} = Pokedex.hunt_suggestions(["Charizard"])
+
+    # Venusaur takes Fire (+2), has a Shiny (+1), isn't fishable: score 3.
+    # Seadra RESISTS Fire → no super-effective hit → never a target.
+    assert [%{entry: %{name: "Venusaur"}, member: "Charizard", hits: ["Fire"], score: 3}] =
+             targets
+
+    # Seadra is Water — exactly what Charizard is weak to
+    assert [%{entry: %{name: "Seadra"}, members: ["Charizard"], via: ["Water"]}] = threats
+
+    # the fisherman's view: Seadra as the hunter → Charizard is the prey (+2 fishable? no)
+    %{targets: [row]} = Pokedex.hunt_suggestions(["Seadra"])
+    assert row.entry.name == "Charizard"
+    assert row.score == 2
+  end
+
+  @tag :tmp_dir
+  test "lures_for finds every tier that hooks the species" do
+    assert Pokedex.lures_for("Seadra") == [%{lure: "Shrimp", fishing_level: 50}]
+    assert Pokedex.lures_for("Charizard") == []
   end
 
   @tag :tmp_dir

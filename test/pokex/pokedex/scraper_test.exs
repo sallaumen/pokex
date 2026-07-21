@@ -40,6 +40,42 @@ defmodule Pokex.Pokedex.ScraperTest do
       assert seadra.edited_at == "2026-02-06"
     end
 
+    test "a colheita completa: habilidades, matéria, pedras, descrição e efetividade neutra" do
+      assert {:ok, seadra} = Scraper.parse_species(fixture("seadra.html"))
+
+      assert seadra.habilidades == ["Surf", "Headbutt"]
+      assert seadra.materia == "Seavell"
+      assert seadra.evolution_stones == ["Water Stone", "Crystal Stone"]
+      assert seadra.description =~ "farpas venenosas"
+      assert "Normal" in seadra.neutral
+      assert length(seadra.neutral) == 13
+    end
+
+    test "a tabela de MOVIMENTOS: M1..M8 + passiva, com cooldown, elemento, tags e level" do
+      assert {:ok, seadra} = Scraper.parse_species(fixture("seadra.html"))
+      assert length(seadra.moves) == 9
+
+      assert %{
+               slot: "M1",
+               name: "Mud Shot",
+               cooldown_s: 15,
+               element: "Ground",
+               level: 50
+             } = m1 = hd(seadra.moves)
+
+      assert "Damage" in m1.tags
+      assert "Blind" in m1.tags
+
+      # a passiva: sem cooldown, sem level, marcada como Passive
+      passive = List.last(seadra.moves)
+      assert %{slot: "P", name: "Dragon Rage", cooldown_s: nil, element: "Dragon"} = passive
+      assert "Passive" in passive.tags
+
+      # cada M tem o elemento PRÓPRIO — Hydro Cannon é Water mesmo num pokémon Water
+      assert %{name: "Hydro Cannon", cooldown_s: 45, element: "Water"} =
+               Enum.find(seadra.moves, &(&1.name == "Hydro Cannon"))
+    end
+
     test "a page without the Nome field is unrecognized" do
       assert Scraper.parse_species("<html><body>nada</body></html>") ==
                {:error, :unrecognized}

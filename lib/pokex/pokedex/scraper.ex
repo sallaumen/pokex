@@ -43,13 +43,101 @@ defmodule Pokex.Pokedex.Scraper do
            level: field(html, "Level") |> parse_int(),
            elements: field(html, "Elemento") |> split_list(),
            boost: field(html, "Boost"),
+           # field abilities (Surf, Fly, Ride, Headbutt…) — travel/utility info
+           habilidades: field(html, "Habilidades") |> split_list(),
+           materia: field(html, "Materia"),
+           evolution_stones: field(html, "Pedra de Evolução") |> split_list(),
+           description: description(html),
            weak_to: effectiveness(html, "Muito Efetivo"),
            resists: effectiveness(html, "Muito Inefetivo"),
+           neutral: effectiveness(html, "Normal"),
            evolutions: evolutions(html),
+           moves: moves(html),
            sprite_url: sprite,
            shiny: shiny_version(html),
            edited_at: parse_edited_at(html)
          }}
+    end
+  end
+
+  @doc """
+  The Movimentos table → one map per slot (M1..M8 + P for the passive):
+  `%{slot, name, cooldown_s, element, tags, level}`. Measured on the real
+  pages: each slot is a `<th rowspan="2">` block whose first row carries
+  "Name (15s)", the mechanic-tag icons (Arquivo: links — Damage, Buff,
+  Blind, Target, Passive…) and the move's OWN element (a non-Arquivo link);
+  the second row carries "Level N" (absent on passives).
+  """
+  def moves(html) do
+    case section(html, "Movimentos") do
+      nil ->
+        []
+
+      table ->
+        table
+        |> String.split("<th rowspan=\"2\">")
+        |> Enum.drop(1)
+        |> Enum.map(&move_block/1)
+        |> Enum.reject(&is_nil/1)
+    end
+  end
+
+  defp move_block(block) do
+    with [_, slot] <- Regex.run(~r/\A\s*([A-Z]\d*)\s*$/m, block),
+         [_, raw_name] <- Regex.run(~r/<td align="left">([^<]+)/, block) do
+      raw_name = String.trim(raw_name)
+
+      {name, cooldown} =
+        case Regex.run(~r/\A(.*?)\s*\((\d+)s\)\z/, raw_name) do
+          [_, name, seconds] -> {name, String.to_integer(seconds)}
+          nil -> {raw_name, nil}
+        end
+
+      %{
+        slot: slot,
+        name: name,
+        cooldown_s: cooldown,
+        element: move_element(block),
+        tags: move_tags(block),
+        level:
+          case Regex.run(~r/<td align="left">Level\s*(\d+)/, block) do
+            [_, level] -> String.to_integer(level)
+            nil -> nil
+          end
+      }
+    else
+      _unparsable -> nil
+    end
+  end
+
+  # mechanic tags ride Arquivo: image links ("Damage", "Buff", "Passive"…)
+  defp move_tags(block) do
+    ~r/Arquivo:[^"]+" class="image" title="([^"]+)"/
+    |> Regex.scan(block)
+    |> Enum.map(fn [_, tag] -> tag end)
+  end
+
+  # the move's own element is the ONE non-Arquivo page link in the block
+  defp move_element(block) do
+    case Regex.run(~r{<a href="/index\.php/(?!Arquivo)[^"]+" title="([^"]+)"><img}, block) do
+      [_, element] -> element
+      nil -> nil
+    end
+  end
+
+  # the flavor text under the "Descrição:" heading
+  defp description(html) do
+    case Regex.run(~r{id="Descrição:"[^>]*>.*?</h2>\s*<p>(.*?)</p>}s, html) do
+      [_, text] -> text |> strip_tags() |> String.trim()
+      nil -> nil
+    end
+  end
+
+  # everything between a section heading and the next <h2> (nil when absent)
+  defp section(html, heading) do
+    case Regex.run(~r{id="#{heading}"[^>]*>.*?</h2>(.*?)(<h2|\z)}s, html) do
+      [_, body, _] -> body
+      nil -> nil
     end
   end
 

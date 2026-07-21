@@ -1280,7 +1280,7 @@ defmodule PokexWeb.PanelLive do
     <Layouts.app flash={@flash} current_page={:panel}>
       <div id="panel-dashboard" class="min-h-dvh bg-[#080b0d] text-[#d9dde1]">
         <header class="sticky top-0 z-30 border-b border-[#1f262b] bg-[#090c0f]/95 backdrop-blur">
-          <div class="mx-auto flex h-12 max-w-[520px] items-center justify-between px-2">
+          <div class="mx-auto flex h-12 max-w-[520px] items-center justify-between px-2 xl:max-w-[1080px] 2xl:max-w-[1800px]">
             <div class="flex items-center gap-2">
               <.link navigate={~p"/"} class="flex items-center gap-2.5" aria-label="Ir ao painel">
                 <span class="grid size-7 place-items-center rounded-lg bg-[#36cf78] text-sm font-black text-[#06150c]">P</span>
@@ -1369,7 +1369,7 @@ defmodule PokexWeb.PanelLive do
           </div>
         </header>
 
-        <main class="mx-auto max-w-[520px] space-y-3 px-2 py-3 xl:grid xl:max-w-[1080px] xl:grid-cols-2 xl:items-start xl:gap-4 xl:space-y-0">
+        <main class="mx-auto max-w-[520px] space-y-3 px-2 py-3 xl:grid xl:max-w-[1080px] xl:grid-cols-2 xl:items-start xl:gap-4 xl:space-y-0 2xl:max-w-[1800px] 2xl:grid-cols-3">
           <div class="min-w-0 space-y-3">
             <div
               :if={not @calibrated?}
@@ -1563,6 +1563,119 @@ defmodule PokexWeb.PanelLive do
             >
               <.icon name="hero-stop-solid" class="size-4" /> Parar bot
             </button>
+          </div>
+
+          <div class="min-w-0 space-y-3">
+            <section id="shiny-guard-card" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+              <div class="flex min-h-10 items-center gap-3">
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-semibold text-[#d9dde1]">Guarda anti-shiny ✨</p>
+                  <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
+                    vê a ESTRELA dourada que a lista de batalha põe no shiny — vale pra
+                    QUALQUER shiny, e a bola sempre voa (mesmo com captura desligada)
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-success toggle-sm shrink-0"
+                  checked={@shiny_guard_enabled}
+                  phx-click="toggle_shiny_guard"
+                />
+              </div>
+
+              <div class="mt-2 flex flex-wrap items-center gap-2">
+                <form
+                  id="shiny-cfg-form"
+                  phx-change="save_shiny_cfg"
+                  class="flex items-center gap-1 font-mono text-[9px] text-[#737d85]"
+                >
+                  <span>ao ver →</span>
+                  <select
+                    id="shiny-action"
+                    name="shiny_action"
+                    class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                  >
+                    <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
+                    <option value="alarme" selected={@shiny_action == "alarme"}>
+                      lutar (só alarme) ⚔️
+                    </option>
+                  </select>
+                </form>
+
+                <div class="flex min-w-[9rem] flex-1 items-center gap-2">
+                  <span class={[
+                    "font-mono text-sm font-bold tabular-nums",
+                    shiny_px_class(@shiny_star_px, @shiny_star_min_px)
+                  ]}>
+                    {shiny_px_label(@shiny_star_px)}<span class="text-[9px] font-normal text-[#737d85]">/{@shiny_star_min_px}px</span>
+                  </span>
+                  <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#222a2f]">
+                    <div
+                      class={[
+                        "h-full rounded-full transition-[width]",
+                        case shiny_zone(@shiny_star_px, @shiny_star_min_px) do
+                          :hit -> "bg-[#ff6b74]"
+                          :warn -> "bg-[#f2c45b]"
+                          :safe -> "bg-[#37d07d]"
+                          :none -> "bg-[#3a4249]"
+                        end
+                      ]}
+                      style={"width: #{shiny_bar_pct(@shiny_star_px, @shiny_star_min_px)}%"}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  id="shiny-probe"
+                  type="button"
+                  phx-click="shiny_probe"
+                  title="lê a lista de batalha AGORA e mostra a pontuação da estrela por linha — sem shiny na lista tudo deve ler 0px"
+                  class="btn btn-xs h-6 shrink-0 border border-[#293238] bg-transparent px-2 text-[10px] text-[#89939a] hover:text-white"
+                >
+                  🔬 Sonda
+                </button>
+              </div>
+
+              <p :if={@shiny_msg} id="shiny-msg" class="mt-1 font-mono text-[9px] text-[#e7ca82]">
+                {@shiny_msg}
+              </p>
+
+              <div :if={@shiny_log != []} id="shiny-log" class="mt-2">
+                <div class="flex items-center justify-between">
+                  <p class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#c9a227]">
+                    ✨ shinies encontrados ({length(@shiny_log)})
+                  </p>
+                  <button
+                    phx-click="shiny_log_clear"
+                    data-confirm="Apagar o registro de shinies encontrados?"
+                    class="cursor-pointer font-mono text-[9px] text-[#68727a] hover:text-[#ff9ca4]"
+                  >
+                    limpar
+                  </button>
+                </div>
+                <ul class="mt-1 space-y-0.5">
+                  <li
+                    :for={entry <- Enum.take(@shiny_log, 5)}
+                    class="flex items-center gap-2 rounded border border-[#3a3320] bg-[#181509] px-2 py-1 font-mono text-[9px]"
+                  >
+                    <span class="text-[#c9a227]">✨</span>
+                    <span class="text-[#a8b0b7]">{shiny_log_when(entry)}</span>
+                    <span class={[
+                      "rounded px-1",
+                      case entry.outcome do
+                        "morto" -> "bg-[#241114] text-[#ff9ca4]"
+                        "bola" -> "bg-[#101d24] text-[#7cc0e8]"
+                        "fugiu" -> "bg-[#211b0d] text-[#f3ba4e]"
+                        _visto -> "bg-[#14191d] text-[#8b949d]"
+                      end
+                    ]}>
+                      {entry.outcome}
+                    </span>
+                    <span class="text-[#5d6670]">{entry.star_px}px · {entry.action}</span>
+                  </li>
+                </ul>
+              </div>
+            </section>
 
             <details id="automations-panel" open class="group">
               <summary class="mb-2 flex cursor-pointer list-none items-center justify-between px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b] transition hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
@@ -1768,116 +1881,6 @@ defmodule PokexWeb.PanelLive do
                     />
                     <span>ms</span>
                   </form>
-                </div>
-                <div id="automation-shiny-guard" class="border-b border-[#222a2f] px-3 py-2.5">
-                  <div class="flex min-h-10 items-center gap-3">
-                    <div class="min-w-0 flex-1">
-                      <p class="text-sm font-semibold text-[#d9dde1]">Guarda anti-shiny ✨</p>
-                      <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
-                        vê a ESTRELA dourada que a lista de batalha põe no shiny — vale pra
-                        QUALQUER shiny, e a bola sempre voa (mesmo com captura desligada)
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      class="toggle toggle-success toggle-sm shrink-0"
-                      checked={@shiny_guard_enabled}
-                      phx-click="toggle_shiny_guard"
-                    />
-                  </div>
-
-                  <div class="mt-2 flex flex-wrap items-center gap-2">
-                    <form
-                      id="shiny-cfg-form"
-                      phx-change="save_shiny_cfg"
-                      class="flex items-center gap-1 font-mono text-[9px] text-[#737d85]"
-                    >
-                      <span>ao ver →</span>
-                      <select
-                        id="shiny-action"
-                        name="shiny_action"
-                        class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
-                      >
-                        <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
-                        <option value="alarme" selected={@shiny_action == "alarme"}>
-                          lutar (só alarme) ⚔️
-                        </option>
-                      </select>
-                    </form>
-
-                    <div class="flex min-w-[9rem] flex-1 items-center gap-2">
-                      <span class={[
-                        "font-mono text-sm font-bold tabular-nums",
-                        shiny_px_class(@shiny_star_px, @shiny_star_min_px)
-                      ]}>
-                        {shiny_px_label(@shiny_star_px)}<span class="text-[9px] font-normal text-[#737d85]">/{@shiny_star_min_px}px</span>
-                      </span>
-                      <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#222a2f]">
-                        <div
-                          class={[
-                            "h-full rounded-full transition-[width]",
-                            case shiny_zone(@shiny_star_px, @shiny_star_min_px) do
-                              :hit -> "bg-[#ff6b74]"
-                              :warn -> "bg-[#f2c45b]"
-                              :safe -> "bg-[#37d07d]"
-                              :none -> "bg-[#3a4249]"
-                            end
-                          ]}
-                          style={"width: #{shiny_bar_pct(@shiny_star_px, @shiny_star_min_px)}%"}
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      id="shiny-probe"
-                      type="button"
-                      phx-click="shiny_probe"
-                      title="lê a lista de batalha AGORA e mostra a pontuação da estrela por linha — sem shiny na lista tudo deve ler 0px"
-                      class="btn btn-xs h-6 shrink-0 border border-[#293238] bg-transparent px-2 text-[10px] text-[#89939a] hover:text-white"
-                    >
-                      🔬 Sonda
-                    </button>
-                  </div>
-
-                  <p :if={@shiny_msg} id="shiny-msg" class="mt-1 font-mono text-[9px] text-[#e7ca82]">
-                    {@shiny_msg}
-                  </p>
-
-                  <div :if={@shiny_log != []} id="shiny-log" class="mt-2">
-                    <div class="flex items-center justify-between">
-                      <p class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#c9a227]">
-                        ✨ shinies encontrados ({length(@shiny_log)})
-                      </p>
-                      <button
-                        phx-click="shiny_log_clear"
-                        data-confirm="Apagar o registro de shinies encontrados?"
-                        class="cursor-pointer font-mono text-[9px] text-[#68727a] hover:text-[#ff9ca4]"
-                      >
-                        limpar
-                      </button>
-                    </div>
-                    <ul class="mt-1 space-y-0.5">
-                      <li
-                        :for={entry <- Enum.take(@shiny_log, 5)}
-                        class="flex items-center gap-2 rounded border border-[#3a3320] bg-[#181509] px-2 py-1 font-mono text-[9px]"
-                      >
-                        <span class="text-[#c9a227]">✨</span>
-                        <span class="text-[#a8b0b7]">{shiny_log_when(entry)}</span>
-                        <span class={[
-                          "rounded px-1",
-                          case entry.outcome do
-                            "morto" -> "bg-[#241114] text-[#ff9ca4]"
-                            "bola" -> "bg-[#101d24] text-[#7cc0e8]"
-                            "fugiu" -> "bg-[#211b0d] text-[#f3ba4e]"
-                            _visto -> "bg-[#14191d] text-[#8b949d]"
-                          end
-                        ]}>
-                          {entry.outcome}
-                        </span>
-                        <span class="text-[#5d6670]">{entry.star_px}px · {entry.action}</span>
-                      </li>
-                    </ul>
-                  </div>
                 </div>
                 <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
                   <label class="font-mono text-[10px] text-[#77828a]">

@@ -8,12 +8,27 @@ defmodule Pokex.Pokedex.SyncTest do
       assert [%{"name" => "Sceptile"}] =
                Sync.incomplete([
                  %{"name" => "Sceptile", "level" => 100},
-                 %{"name" => "Seadra", "level" => 50, "moves" => []}
+                 %{"name" => "Seadra", "level" => 50, "moves" => [%{"slot" => "M1"}]}
                ])
     end
 
-    test "moves: [] é COMPLETA — a wiki simplesmente não tem tabela ali" do
-      assert Sync.incomplete([%{"name" => "Seadra", "moves" => []}]) == []
+    test "moves: [] também é gap — foi assim que 202 entradas ficaram sem ataques" do
+      assert [%{"name" => "Seadra"}] = Sync.incomplete([%{"name" => "Seadra", "moves" => []}])
+    end
+
+    test "página já lida NESTE run (moves: []) não é buscada de novo" do
+      entries = [
+        %{"name" => "Seadra", "moves" => [], "scraped_at" => "2026-07-22T10:00:00Z"},
+        %{"name" => "Sceptile", "moves" => [], "scraped_at" => "2026-07-01T10:00:00Z"}
+      ]
+
+      assert [%{"name" => "Sceptile"}] = Sync.incomplete(entries, "2026-07-22T10:00:00Z")
+    end
+
+    test "shiny do fallback (moves: nil) é retentado no MESMO run" do
+      entry = %{"name" => "Shiny Seadra", "moves" => nil, "scraped_at" => "2026-07-22T10:00:00Z"}
+
+      assert [%{"name" => "Shiny Seadra"}] = Sync.incomplete([entry], "2026-07-22T10:00:00Z")
     end
 
     test "entrada colhida com movimentos não volta pro passe" do
@@ -25,7 +40,7 @@ defmodule Pokex.Pokedex.SyncTest do
       assert [%{name: "Sceptile"}] =
                Sync.incomplete([
                  %{name: "Sceptile", moves: nil},
-                 %{name: "Seadra", moves: []}
+                 %{name: "Seadra", moves: [%{slot: "M1"}]}
                ])
     end
   end

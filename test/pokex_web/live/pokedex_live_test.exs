@@ -178,25 +178,25 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "novidades: badges NOVO/MUDOU e o filtro só-novidades", %{conn: conn, path: path} do
-    now = "2026-07-21T10:00:00Z"
+  test "novidades = frescor da wiki: badge NOVO e o chip que se recicla sozinho", %{
+    conn: conn,
+    path: path
+  } do
+    hoje = Date.utc_today()
 
     dataset =
-      @dataset
-      |> Map.put("scraped_at", now)
-      |> update_in(["species"], fn species ->
+      update_in(@dataset["species"], fn species ->
         Enum.map(species, fn
+          # editado ontem na wiki → NOVO
           %{"name" => "Charizard"} = s ->
-            Map.merge(s, %{"first_seen_at" => now, "changed_at" => now})
+            Map.put(s, "edited_at", Date.to_iso8601(Date.add(hoje, -1)))
 
+          # editado há 60 dias → sem badge
           %{"name" => "Venusaur"} = s ->
-            Map.merge(s, %{"first_seen_at" => "2026-01-01T00:00:00Z", "changed_at" => now})
+            Map.put(s, "edited_at", Date.to_iso8601(Date.add(hoje, -60)))
 
           s ->
-            Map.merge(s, %{
-              "first_seen_at" => "2026-01-01T00:00:00Z",
-              "changed_at" => "2026-01-01T00:00:00Z"
-            })
+            Map.delete(s, "edited_at")
         end)
       end)
 
@@ -207,21 +207,15 @@ defmodule PokexWeb.PokedexLiveTest do
 
     results = view |> element("#pokedex-results") |> render()
     assert results =~ "NOVO"
-    assert results =~ "MUDOU"
+    # só o recém-editado carrega o badge
+    assert Regex.scan(~r/NOVO/, results) |> length() == 1
 
-    # o carimbo do último sync fica visível ao lado da contagem
-    assert view |> element("#synced-at") |> render() =~ "21/07"
-
-    # o chip filtra só o que a última sincronização trouxe/mudou
+    # o chip isola só as novidades da wiki
     view |> element(~s(#pokedex-sort button[phx-click="toggle_novelty"])) |> render_click()
     assert_patch(view, "/pokedex?novidades=true")
 
-    html = render(view)
-    assert html =~ "2 resultado(s)"
-    results = view |> element("#pokedex-results") |> render()
-    assert results =~ "Charizard"
-    assert results =~ "Venusaur"
-    refute results =~ "Shiny Seadra"
+    assert render(view) =~ "1 resultado(s)"
+    assert view |> element("#pokedex-results") |> render() =~ "Charizard"
   end
 
   @tag :tmp_dir

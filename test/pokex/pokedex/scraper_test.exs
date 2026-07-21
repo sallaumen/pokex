@@ -162,6 +162,39 @@ defmodule Pokex.Pokedex.ScraperTest do
     end
   end
 
+  describe "parse_species/1 (real Sceptile page — PVE + PVP)" do
+    test "separa os dois movesets: MESMOS golpes, cooldowns DIFERENTES" do
+      assert {:ok, sceptile} = Scraper.parse_species(fixture("sceptile.html"))
+
+      assert length(sceptile.moves) == 8
+      assert length(sceptile.moves_pvp) == 8
+
+      # o PVE (caçada) é o que vale pro bot
+      assert %{slot: "M5", name: "Leafage", cooldown_s: 30, element: "Grass", level: 80} =
+               Enum.find(sceptile.moves, &(&1.slot == "M5"))
+
+      # mesmo golpe, cooldown de PVP
+      assert %{slot: "M5", name: "Leafage", cooldown_s: 50} =
+               Enum.find(sceptile.moves_pvp, &(&1.slot == "M5"))
+
+      # nomes em NEGRITO na wiki (<b>Leafage (30s)</b>) não viram "Level 80"
+      refute Enum.any?(sceptile.moves, &String.starts_with?(&1.name, "Level"))
+      # e o elemento é o do GOLPE (Night Slash é Dark num Pokémon Grass)
+      assert %{element: "Dark"} = Enum.find(sceptile.moves, &(&1.name == "Night Slash"))
+    end
+
+    test "página antiga com tabela única: tudo vira PVE, PVP vazio" do
+      assert {:ok, seadra} = Scraper.parse_species(fixture("seadra.html"))
+      assert length(seadra.moves) == 9
+      assert seadra.moves_pvp == []
+    end
+
+    test "colhe os ícones de elemento da wiki pra UI" do
+      assert %{"Grass" => "/images/c/c5/Grass.png", "Dark" => _} =
+               Scraper.element_icons(fixture("sceptile.html"))
+    end
+  end
+
   describe "parse_index/1 (real index slice)" do
     test "extracts number+name+page per species row, deduped" do
       entries = Scraper.parse_index(fixture("index_slice.html"))

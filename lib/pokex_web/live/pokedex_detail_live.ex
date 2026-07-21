@@ -12,6 +12,7 @@ defmodule PokexWeb.PokedexDetailLive do
 
   alias Pokex.Pokedex
   alias Pokex.Pokedex.Team
+  alias PokexWeb.PokedexStyle
 
   @impl true
   def mount(_params, _session, socket),
@@ -80,11 +81,66 @@ defmodule PokexWeb.PokedexDetailLive do
     end
   end
 
+  attr :element, :string, required: true
+  attr :class, :string, default: "px-1.5 py-0.5 text-[11px]"
+
+  defp element_chip(assigns) do
+    assigns = assign(assigns, :icon, PokedexStyle.element_icon(assigns.element))
+
+    ~H"""
+    <span
+      class={["inline-flex items-center gap-1 rounded font-mono", @class]}
+      style={PokedexStyle.element_style(@element)}
+    >
+      <img :if={@icon} src={@icon} alt="" class="size-3.5 object-contain" loading="lazy" />
+      {@element}
+    </span>
+    """
+  end
+
+  attr :moves, :list, required: true
+
+  defp moves_table(assigns) do
+    ~H"""
+    <ul class="space-y-1">
+      <li
+        :for={move <- @moves}
+        class="flex flex-wrap items-center gap-1.5 rounded-lg border border-[#232b30] bg-[#101418] px-2.5 py-1.5"
+      >
+        <span class={[
+          "w-7 shrink-0 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold",
+          if(move.slot == "P",
+            do: "bg-[#211b0d] text-[#f3ba4e]",
+            else: "bg-[#161b1f] text-[#8b949d]"
+          )
+        ]}>
+          {move.slot}
+        </span>
+        <span class="min-w-0 flex-1 truncate text-sm font-semibold">{move.name}</span>
+        <.element_chip :if={move.element} element={move.element} class="px-1.5 py-0.5 text-[10px]" />
+        <span
+          :if={move.cooldown_s}
+          class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[10px] text-[#f3ba4e]"
+        >
+          ⏱ {move.cooldown_s}s
+        </span>
+        <span
+          :for={tag <- Enum.reject(move.tags, &(&1 == "Focus Blocked"))}
+          class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[9px] text-[#8b949d]"
+        >
+          {tag}
+        </span>
+        <span :if={move.level} class="font-mono text-[9px] text-[#59636b]">lv {move.level}</span>
+      </li>
+    </ul>
+    """
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
     <div class="min-h-dvh bg-[#080b0d] px-3 py-4 text-[#d9dde1]">
-      <div class="mx-auto max-w-[720px] space-y-3">
+      <div class="mx-auto max-w-[1080px] space-y-3">
         <header class="flex flex-wrap items-center justify-between gap-2">
           <.link
             navigate={~p"/pokedex"}
@@ -148,12 +204,7 @@ defmodule PokexWeb.PokedexDetailLive do
                   <span class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd]">
                     lv {@entry.level || "?"}
                   </span>
-                  <span
-                    :for={el <- @entry.elements}
-                    class="rounded bg-[#101d24] px-1.5 py-0.5 text-[#7cc0e8]"
-                  >
-                    {el}
-                  </span>
+                  <.element_chip :for={el <- @entry.elements} element={el} />
                   <span :if={@entry.boost} class="rounded bg-[#211b0d] px-1.5 py-0.5 text-[#f3ba4e]">
                     boost {@entry.boost}
                   </span>
@@ -238,198 +289,170 @@ defmodule PokexWeb.PokedexDetailLive do
             </ul>
           </section>
 
-          <section
-            :if={@entry.moves not in [nil, []]}
-            id="entry-moves"
-            class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
-          >
-            <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-              movimentos
-            </h2>
-            <ul class="space-y-1">
-              <li
-                :for={move <- @entry.moves}
-                class="flex flex-wrap items-center gap-1.5 rounded-lg border border-[#232b30] bg-[#101418] px-2.5 py-1.5"
-              >
-                <span class={[
-                  "w-7 shrink-0 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold",
-                  if(move.slot == "P",
-                    do: "bg-[#211b0d] text-[#f3ba4e]",
-                    else: "bg-[#161b1f] text-[#8b949d]"
-                  )
-                ]}>
-                  {move.slot}
-                </span>
-                <span class="min-w-0 flex-1 truncate text-sm font-semibold">{move.name}</span>
-                <span
-                  :if={move.element}
-                  class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[10px] text-[#7cc0e8]"
-                >
-                  {move.element}
-                </span>
-                <span
-                  :if={move.cooldown_s}
-                  class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[10px] text-[#f3ba4e]"
-                >
-                  ⏱ {move.cooldown_s}s
-                </span>
-                <span
-                  :for={tag <- Enum.reject(move.tags, &(&1 == "Focus Blocked"))}
-                  class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[9px] text-[#8b949d]"
-                >
-                  {tag}
-                </span>
-                <span :if={move.level} class="font-mono text-[9px] text-[#59636b]">
-                  lv {move.level}
-                </span>
-              </li>
-            </ul>
-          </section>
-
-          <div class="grid gap-3 sm:grid-cols-3">
-            <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+          <div class="grid gap-3 lg:grid-cols-3 lg:items-start">
+            <section
+              :if={@entry.moves not in [nil, []]}
+              id="entry-moves"
+              class="rounded-lg border border-[#232b30] bg-[#111519] p-3 lg:col-span-2"
+            >
               <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-                bate FORTE nele
-              </h2>
-              <p :if={@entry.weak_to == []} class="text-[11px] text-[#7f8992]">nada mapeado</p>
-              <p class="flex flex-wrap gap-1">
-                <span
-                  :for={el <- @entry.weak_to}
-                  class="rounded bg-[#0d3822] px-1.5 py-0.5 font-mono text-[11px] text-[#3de083]"
-                >
-                  {el}
+                ⚔️ movimentos <span class="text-[#3de083]">PVE</span>
+                <span class="font-normal normal-case tracking-normal text-[#59636b]">
+                  (caçada)
                 </span>
-              </p>
+              </h2>
+              <.moves_table moves={@entry.moves} />
+
+              <details :if={@entry.moves_pvp not in [nil, []]} id="entry-moves-pvp" class="mt-2 group">
+                <summary class="cursor-pointer list-none font-mono text-[10px] uppercase tracking-[0.12em] text-[#69737b] hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
+                  ▸ moveset PVP
+                  <span class="font-normal normal-case tracking-normal text-[#59636b]">
+                    — mesmos golpes, cooldowns diferentes
+                  </span>
+                </summary>
+                <div class="mt-1.5 opacity-80">
+                  <.moves_table moves={@entry.moves_pvp} />
+                </div>
+              </details>
             </section>
 
-            <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+            <div class="space-y-3">
+              <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+                <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                  efetividades
+                </h2>
+                <p class="mb-0.5 font-mono text-[9px] text-[#59636b]">bate FORTE nele</p>
+                <p :if={@entry.weak_to == []} class="text-[11px] text-[#7f8992]">nada mapeado</p>
+                <p class="flex flex-wrap gap-1">
+                  <.element_chip
+                    :for={el <- @entry.weak_to}
+                    element={el}
+                    class="px-1.5 py-0.5 text-[10px]"
+                  />
+                </p>
+
+                <p class="mb-0.5 mt-2 font-mono text-[9px] text-[#59636b]">ele RESISTE</p>
+                <p :if={@entry.resists == []} class="text-[11px] text-[#7f8992]">nada mapeado</p>
+                <p class="flex flex-wrap gap-1 opacity-70">
+                  <.element_chip
+                    :for={el <- @entry.resists}
+                    element={el}
+                    class="px-1.5 py-0.5 text-[10px]"
+                  />
+                </p>
+
+                <details :if={@entry.neutral != []} id="entry-neutral" class="mt-2">
+                  <summary class="cursor-pointer list-none font-mono text-[9px] text-[#59636b] hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
+                    ▸ dano neutro ({length(@entry.neutral)})
+                  </summary>
+                  <p class="mt-1 flex flex-wrap gap-1 opacity-60">
+                    <.element_chip
+                      :for={el <- @entry.neutral}
+                      element={el}
+                      class="px-1 py-0.5 text-[9px]"
+                    />
+                  </p>
+                </details>
+              </section>
+
+              <section
+                :if={@entry.habilidades != [] or @entry.evolution_stones != [] or @entry.materia}
+                id="entry-info"
+                class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+              >
+                <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                  habilidades &amp; itens
+                </h2>
+                <div class="space-y-1.5">
+                  <p :if={@entry.habilidades != []} class="flex flex-wrap items-center gap-1">
+                    <span class="font-mono text-[9px] text-[#59636b]">🏄 habilidades</span>
+                    <span
+                      :for={hab <- @entry.habilidades}
+                      class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[11px] text-[#7cc0e8]"
+                    >
+                      {hab}
+                    </span>
+                  </p>
+                  <p :if={@entry.evolution_stones != []} class="flex flex-wrap items-center gap-1">
+                    <span class="font-mono text-[9px] text-[#59636b]">💎 pedra</span>
+                    <span
+                      :for={stone <- @entry.evolution_stones}
+                      class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[11px] text-[#f3ba4e]"
+                    >
+                      {stone}
+                    </span>
+                  </p>
+                  <p :if={@entry.materia} class="flex items-center gap-1">
+                    <span class="font-mono text-[9px] text-[#59636b]">🧪 matéria</span>
+                    <span class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[11px] text-[#aeb6bd]">
+                      {@entry.materia}
+                    </span>
+                  </p>
+                </div>
+              </section>
+
+              <section
+                :if={@lures != []}
+                id="entry-lures"
+                class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+              >
+                <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                  🎣 vem nestas iscas
+                </h2>
+                <p class="flex flex-wrap gap-1">
+                  <span
+                    :for={lure <- @lures}
+                    class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[11px] text-[#7cc0e8]"
+                  >
+                    {lure.lure} · lv {lure.fishing_level}
+                  </span>
+                </p>
+              </section>
+            </div>
+          </div>
+
+          <div class="grid gap-3 sm:grid-cols-2 sm:items-start">
+            <section
+              :if={@entry.evolutions != []}
+              id="entry-evolutions"
+              class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+            >
               <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-                ele RESISTE
+                evoluções
               </h2>
-              <p :if={@entry.resists == []} class="text-[11px] text-[#7f8992]">nada mapeado</p>
-              <p class="flex flex-wrap gap-1">
-                <span
-                  :for={el <- @entry.resists}
-                  class="rounded bg-[#241114] px-1.5 py-0.5 font-mono text-[11px] text-[#ff9ca4]"
+              <p class="flex flex-wrap items-center gap-1.5">
+                <.link
+                  :for={evo <- @entry.evolutions}
+                  patch={~p"/pokedex/#{evo.name}"}
+                  class="rounded-lg border border-[#293238] bg-[#101418] px-2 py-1 text-xs hover:border-[#37d07d]/60 hover:text-white"
                 >
-                  {el}
-                </span>
+                  {evo.name}
+                  <span :if={evo.level} class="font-mono text-[9px] text-[#737d85]">lv {evo.level}</span>
+                </.link>
               </p>
             </section>
 
             <section
-              :if={@entry.neutral != []}
-              id="entry-neutral"
-              class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+              :if={@shiny || @base}
+              id="entry-shiny-links"
+              class="rounded-lg border border-[#674f20] bg-[#211b0d] p-3"
             >
-              <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-                dano neutro
-              </h2>
-              <p class="flex flex-wrap gap-1">
-                <span
-                  :for={el <- @entry.neutral}
-                  class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[10px] text-[#737d85]"
-                >
-                  {el}
-                </span>
-              </p>
+              <.link
+                :if={@shiny}
+                patch={~p"/pokedex/#{@shiny.name}"}
+                class="text-sm font-semibold text-[#f3ba4e] underline hover:text-[#ffd27a]"
+              >
+                ✨ ver {@shiny.name} (lv {@shiny.level || "?"})
+              </.link>
+              <.link
+                :if={@base}
+                patch={~p"/pokedex/#{@base.name}"}
+                class="text-sm font-semibold text-[#f3ba4e] underline hover:text-[#ffd27a]"
+              >
+                ver a forma base: {@base.name} (lv {@base.level || "?"})
+              </.link>
             </section>
           </div>
-
-          <section
-            :if={@entry.habilidades != [] or @entry.evolution_stones != [] or @entry.materia}
-            id="entry-info"
-            class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
-          >
-            <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-              habilidades &amp; itens
-            </h2>
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-              <p :if={@entry.habilidades != []} class="flex flex-wrap items-center gap-1">
-                <span class="font-mono text-[9px] text-[#59636b]">habilidades</span>
-                <span
-                  :for={hab <- @entry.habilidades}
-                  class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[11px] text-[#7cc0e8]"
-                >
-                  {hab}
-                </span>
-              </p>
-              <p :if={@entry.evolution_stones != []} class="flex flex-wrap items-center gap-1">
-                <span class="font-mono text-[9px] text-[#59636b]">pedra de evolução</span>
-                <span
-                  :for={stone <- @entry.evolution_stones}
-                  class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[11px] text-[#f3ba4e]"
-                >
-                  {stone}
-                </span>
-              </p>
-              <p :if={@entry.materia} class="flex items-center gap-1">
-                <span class="font-mono text-[9px] text-[#59636b]">matéria</span>
-                <span class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[11px] text-[#aeb6bd]">
-                  {@entry.materia}
-                </span>
-              </p>
-            </div>
-          </section>
-
-          <section
-            :if={@entry.evolutions != []}
-            id="entry-evolutions"
-            class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
-          >
-            <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-              evoluções
-            </h2>
-            <p class="flex flex-wrap items-center gap-1.5">
-              <.link
-                :for={evo <- @entry.evolutions}
-                patch={~p"/pokedex/#{evo.name}"}
-                class="rounded-lg border border-[#293238] bg-[#101418] px-2 py-1 text-xs hover:border-[#37d07d]/60 hover:text-white"
-              >
-                {evo.name}
-                <span :if={evo.level} class="font-mono text-[9px] text-[#737d85]">lv {evo.level}</span>
-              </.link>
-            </p>
-          </section>
-
-          <section
-            :if={@lures != []}
-            id="entry-lures"
-            class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
-          >
-            <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-              🎣 vem nestas iscas
-            </h2>
-            <p class="flex flex-wrap gap-1">
-              <span
-                :for={lure <- @lures}
-                class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[11px] text-[#7cc0e8]"
-              >
-                {lure.lure} · pesca lv {lure.fishing_level}
-              </span>
-            </p>
-          </section>
-
-          <section
-            :if={@shiny || @base}
-            id="entry-shiny-links"
-            class="rounded-lg border border-[#674f20] bg-[#211b0d] p-3"
-          >
-            <.link
-              :if={@shiny}
-              patch={~p"/pokedex/#{@shiny.name}"}
-              class="text-sm font-semibold text-[#f3ba4e] underline hover:text-[#ffd27a]"
-            >
-              ✨ ver {@shiny.name} (lv {@shiny.level || "?"})
-            </.link>
-            <.link
-              :if={@base}
-              patch={~p"/pokedex/#{@base.name}"}
-              class="text-sm font-semibold text-[#f3ba4e] underline hover:text-[#ffd27a]"
-            >
-              ver a forma base: {@base.name} (lv {@base.level || "?"})
-            </.link>
-          </section>
         </article>
       </div>
     </div>

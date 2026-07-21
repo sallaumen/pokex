@@ -53,6 +53,8 @@ defmodule Pokex.Pokedex.Scraper do
            neutral: effectiveness(html, "Normal"),
            evolutions: evolutions(html),
            moves: moves(html),
+           moves_pvp: moves(html, :pvp),
+           element_icons: element_icons(html),
            sprite_url: sprite,
            shiny: shiny_version(html),
            edited_at: parse_edited_at(html)
@@ -61,15 +63,23 @@ defmodule Pokex.Pokedex.Scraper do
   end
 
   @doc """
-  The Movimentos table → one map per slot (M1..M8 + P for the passive):
-  `%{slot, name, cooldown_s, element, tags, level}`. Measured on the real
-  pages: each slot is a `<th rowspan="2">` block whose first row carries
-  "Name (15s)", the mechanic-tag icons (Arquivo: links — Damage, Buff,
-  Blind, Target, Passive…) and the move's OWN element (a non-Arquivo link);
-  the second row carries "Level N" (absent on passives).
+  The moves of one arena → a map per slot (M1..M8 + P for the passive):
+  `%{slot, name, cooldown_s, element, tags, level}`.
+
+  PXG pages carry TWO movesets under "Movimentos" — `Moveset PVE` (hunting,
+  what this bot cares about) and `Moveset PVP` — with the SAME slot names and
+  DIFFERENT cooldowns (Lucas: "ele quase sempre tem as versões de ataques de
+  PVP e PVM… hoje aparece como se todos estivessem em ordem, mas duplicados").
+  `arena` picks one: `:pve` (default, falls back to the whole Movimentos
+  section on older single-table pages) or `:pvp` (empty when absent).
+
+  Measured on the real pages: each slot is a `<th rowspan="2">` block whose
+  first row carries "Name (15s)" — sometimes wrapped in `<b>` — the
+  mechanic-tag icons (Arquivo: links) and the move's OWN element (a
+  non-Arquivo link); the second row carries "Level N" (absent on passives).
   """
-  def moves(html) do
-    case section(html, "Movimentos") do
+  def moves(html, arena \\ :pve) do
+    case moves_section(html, arena) do
       nil ->
         []
 
@@ -82,10 +92,30 @@ defmodule Pokex.Pokedex.Scraper do
     end
   end
 
+  # PVE lives under its own heading when the page has both; older pages keep a
+  # single unsectioned table, which IS the PVE moveset for our purposes.
+  defp moves_section(html, :pve),
+    do: section(html, "Moveset_PVE") || section(html, "Movimentos")
+
+  defp moves_section(html, :pvp), do: section(html, "Moveset_PVP")
+
+  @doc """
+  Element → wiki icon URL, harvested from the move rows (`<img alt="Grass"
+  src="/images/c/c5/Grass.png" width="24">`). The sync downloads these once
+  so the UI can show the game's OWN type icons instead of plain text.
+  """
+  def element_icons(html) do
+    ~r/<img alt="([A-Za-z]+)" src="(\/images\/[^"]+)" decoding="async" width="24"/
+    |> Regex.scan(html)
+    |> Map.new(fn [_, element, url] -> {element, url} end)
+  end
+
   defp move_block(block) do
     with [_, slot] <- Regex.run(~r/\A\s*([A-Z]\d*)\s*$/m, block),
-         [_, raw_name] <- Regex.run(~r/<td align="left">([^<]+)/, block) do
-      raw_name = String.trim(raw_name)
+         [_, cell] <- Regex.run(~r{<td align="left">(.*?)</td>}s, block) do
+      # the cell may wrap the name in <b> (highlighted moves) — strip tags, or
+      # the old regex fell through to the NEXT cell and named the move "Level 80"
+      raw_name = cell |> strip_tags() |> String.trim()
 
       {name, cooldown} =
         case Regex.run(~r/\A(.*?)\s*\((\d+)s\)\z/, raw_name) do
@@ -100,7 +130,7 @@ defmodule Pokex.Pokedex.Scraper do
         element: move_element(block),
         tags: move_tags(block),
         level:
-          case Regex.run(~r/<td align="left">Level\s*(\d+)/, block) do
+          case Regex.run(~r/Level\s*(\d+)/, strip_tags(block)) do
             [_, level] -> String.to_integer(level)
             nil -> nil
           end
@@ -133,9 +163,11 @@ defmodule Pokex.Pokedex.Scraper do
     end
   end
 
-  # everything between a section heading and the next <h2> (nil when absent)
+  # Everything between a heading and the next one (nil when absent). Accepts h2
+  # AND h3 because the movesets are h3 subsections of the h2 "Movimentos" — an
+  # h2-only matcher silently returned nothing for them.
   defp section(html, heading) do
-    case Regex.run(~r{id="#{heading}"[^>]*>.*?</h2>(.*?)(<h2|\z)}s, html) do
+    case Regex.run(~r{id="#{heading}"[^>]*>.*?</h[23]>(.*?)(<h[23]|\z)}s, html) do
       [_, body, _] -> body
       nil -> nil
     end

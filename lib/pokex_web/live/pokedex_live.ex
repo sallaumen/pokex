@@ -296,43 +296,48 @@ defmodule PokexWeb.PokedexLive do
           </p>
 
           <ul id="pokedex-results" class="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
-            <li
-              :for={entry <- @capped}
-              class={[
-                "rounded-lg border bg-[#101418] px-2.5 py-2",
-                if(entry.shiny_of,
-                  do: "border-[#674f20]",
-                  else: "border-[#232b30]"
-                )
-              ]}
-            >
-              <div class="flex items-center gap-2">
-                <img
-                  :if={entry.sprite}
-                  src={"/" <> entry.sprite}
-                  alt={entry.name}
-                  onerror="this.style.display='none'"
-                  class="size-8 shrink-0 object-contain"
-                  loading="lazy"
-                />
-                <div class="min-w-0">
-                  <p
-                    class="truncate text-sm font-semibold"
-                    title={entry.edited_at && "wiki editada em #{entry.edited_at}"}
-                  >
-                    {entry.name}<span :if={entry.shiny_of}> ✨</span>
-                  </p>
-                  <p class="font-mono text-[9px] text-[#737d85]">
-                    <span :if={entry.number}>#{entry.number} · </span>lv {entry.level || "?"} · {Enum.join(
-                      entry.elements,
-                      "/"
-                    )}
-                  </p>
+            <li :for={entry <- @capped}>
+              <.link
+                navigate={~p"/pokedex/#{entry.name}"}
+                class={[
+                  "block rounded-lg border bg-[#101418] px-2.5 py-2 transition hover:border-[#37d07d]/60",
+                  if(entry.shiny_of,
+                    do: "border-[#674f20]",
+                    else: "border-[#232b30]"
+                  )
+                ]}
+              >
+                <div class="flex items-center gap-2">
+                  <img
+                    :if={entry.sprite}
+                    src={"/" <> entry.sprite}
+                    alt={entry.name}
+                    onerror="this.style.display='none'"
+                    class="size-8 shrink-0 object-contain"
+                    loading="lazy"
+                  />
+                  <div class="min-w-0">
+                    <p
+                      class="truncate text-sm font-semibold"
+                      title={entry.edited_at && "wiki editada em #{entry.edited_at}"}
+                    >
+                      {entry.name}<span :if={entry.shiny_of}> ✨</span>
+                    </p>
+                    <p class="font-mono text-[9px] text-[#737d85]">
+                      <span :if={entry.number}>#{entry.number} · </span>lv {entry.level || "?"} · {Enum.join(
+                        entry.elements,
+                        "/"
+                      )}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <p :if={entry.weak_to != []} class="mt-1 truncate font-mono text-[9px] text-[#8b949d]">
-                fraco: {Enum.join(entry.weak_to, ", ")}
-              </p>
+                <p
+                  :if={entry.weak_to != []}
+                  class="mt-1 truncate font-mono text-[9px] text-[#8b949d]"
+                >
+                  fraco: {Enum.join(entry.weak_to, ", ")}
+                </p>
+              </.link>
             </li>
           </ul>
         </section>
@@ -507,10 +512,11 @@ defmodule PokexWeb.PokedexLive do
               class="rounded-lg border border-[#232b30] bg-[#101418] px-3 py-2"
             >
               <span class="font-mono text-[10px] text-[#737d85]">pesca lv {tier.fishing_level}:</span>
-              <span
+              <.link
                 :for={name <- tier.pokemon}
+                navigate={~p"/pokedex/#{name}"}
                 class={[
-                  "ml-1 inline-block rounded px-1.5 py-0.5 text-[11px]",
+                  "ml-1 inline-block rounded px-1.5 py-0.5 text-[11px] hover:underline",
                   if(shiny?(name),
                     do: "bg-[#211b0d] font-semibold text-[#f3ba4e]",
                     else: "bg-[#161b1f] text-[#aeb6bd]"
@@ -518,7 +524,7 @@ defmodule PokexWeb.PokedexLive do
                 ]}
               >
                 {name}{if shiny?(name), do: " ✨"}
-              </span>
+              </.link>
             </li>
           </ul>
         </section>

@@ -27,6 +27,7 @@ defmodule PokexWeb.Router do
       live "/fishing-lab", FishingLabLive
       live "/world", WorldLive
       live "/pokedex", PokedexLive
+      live "/pokedex/:name", PokedexDetailLive
     end
   end
 

@@ -87,6 +87,7 @@ defmodule Pokex.Pokedex.Scraper do
     text
     |> String.trim_trailing(".")
     |> String.replace(" and ", ", ")
+    |> String.replace("/", ", ")
     |> String.split(",", trim: true)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 in ["", "None"]))

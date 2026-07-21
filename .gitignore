@@ -39,3 +39,6 @@ tmp/
 
 lib/.DS_Store
 .DS_Store
+
+# Pokédex sprites: 61MB scraped from the wiki — local only, repopulate with `mix pokedex.scrape`
+/priv/static/images/pokedex/

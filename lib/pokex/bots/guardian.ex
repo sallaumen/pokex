@@ -6,10 +6,13 @@ defmodule Pokex.Bots.Guardian do
   once via `on_panic` and broadcasts `{:panic, "kill corner"}` on both the
   "fishing" and "combat" PubSub topics.
 
-  ALSO the watchdog for the session STOP CONDITIONS (hunt goals): the same
-  poll checks the `:session` fact against `stop_after_minutes` /
-  `stop_after_kills` (kills ride the combat snapshots this process
-  subscribes to). A hit halts the fleet through the SAME latch + on_panic
+  ALSO the watchdog for the session STOP CONDITIONS (hunt goals) and the
+  ANTI-STAGNATION rule: the same poll checks the `:session` fact against
+  `stop_after_minutes` / `stop_after_kills`, and against
+  `stagnation_minutes` of silence — no kill, no hooked fish — whose action
+  is an `{:rule_alarm, _}` broadcast (re-armed per window) or the same full
+  stop (kills/hooks ride the snapshots combat and fishing already
+  broadcast; this process subscribes to both). A hit halts the fleet through the SAME latch + on_panic
   path as the corner — a reached goal is a standing order to stay stopped
   until the human presses Iniciar — but broadcasts `{:session_stop, reason}`
   instead of `{:panic, _}`, so the panel reports a met goal, not an
@@ -55,7 +58,29 @@ defmodule Pokex.Bots.Guardian do
     body = Keyword.get(opts, :body, Body)
     poll_ms = Keyword.get(opts, :poll_ms, 100)
 
-    state = %{on_panic: on_panic, body: body, poll_ms: poll_ms, fights: 0}
+    # Same pattern as :player_support_auto_monitor: the env flag turns the
+    # session rules OFF for the app-global instance in the test env, so a test
+    # planting a :session fact + global limits never wakes the real Guardian
+    # (its real stop_all would race the test's own scoped Guardian — measured
+    # flaky). Test Guardians opt back in via the option.
+    session_rules? =
+      Keyword.get(
+        opts,
+        :session_rules,
+        Application.get_env(:pokex, :guardian_session_rules, true)
+      )
+
+    state = %{
+      on_panic: on_panic,
+      body: body,
+      poll_ms: poll_ms,
+      session_rules?: session_rules?,
+      fights: 0,
+      hooked: 0,
+      # last time a kill or a hooked fish was SEEN (monotonic ms; nil = none
+      # yet this run) — the anti-stagnation rule measures silence from here
+      last_activity_at: nil
+    }
 
     case name do
       nil -> GenServer.start_link(__MODULE__, state)
@@ -65,8 +90,10 @@ defmodule Pokex.Bots.Guardian do
 
   @impl true
   def init(state) do
-    # kills for the stop condition ride the snapshots combat already broadcasts
+    # kills (stop condition + stagnation) and hooked fish (stagnation) ride
+    # the snapshots the workers already broadcast
     Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
     schedule_poll(state.poll_ms)
     {:ok, state}
   end
@@ -86,18 +113,37 @@ defmodule Pokex.Bots.Guardian do
         :ok
     end
 
-    check_session_limits(state)
+    state = check_session_limits(state)
     schedule_poll(state.poll_ms)
     {:noreply, state}
   end
 
-  def handle_info({:combat, snapshot}, state) do
-    fights = get_in(snapshot, [:counters, :fights])
-    {:noreply, %{state | fights: fights || state.fights}}
-  end
+  def handle_info({:combat, snapshot}, state),
+    do: {:noreply, track_counter(state, :fights, get_in(snapshot, [:counters, :fights]))}
 
-  # the combat topic also carries {:combat_log, ...} / {:panic, ...} chatter — not ours
+  def handle_info({:fishing, snapshot}, state),
+    do: {:noreply, track_counter(state, :hooked, get_in(snapshot, [:counters, :hooked]))}
+
+  # the subscribed topics also carry {:*_log, ...} / {:panic, ...} chatter — not ours
   def handle_info(_msg, state), do: {:noreply, state}
+
+  # A counter INCREASE is activity; a decrease is the run-start reset (workers
+  # zero their counters on run) — store it silently so the next real kill/hook
+  # still reads as an increase.
+  defp track_counter(state, key, value) do
+    cond do
+      not is_integer(value) ->
+        state
+
+      value > Map.fetch!(state, key) ->
+        state
+        |> Map.put(key, value)
+        |> Map.put(:last_activity_at, System.monotonic_time(:millisecond))
+
+      true ->
+        Map.put(state, key, value)
+    end
+  end
 
   defp panic(state) do
     # LATCH FIRST, halt second: the latch is what forbids every auto-resume path (the Focus
@@ -111,6 +157,8 @@ defmodule Pokex.Bots.Guardian do
 
   # No running session (no fact) = nothing to measure; 0 = condition off.
   # A fired stop halts the fleet, which forgets :session — self-disarming.
+  defp check_session_limits(%{session_rules?: false} = state), do: state
+
   defp check_session_limits(state) do
     now = System.monotonic_time(:millisecond)
 
@@ -122,16 +170,44 @@ defmodule Pokex.Bots.Guardian do
         cond do
           is_integer(minutes) and minutes > 0 and now - started_at >= minutes * 60_000 ->
             session_stop(state, "tempo de caçada atingido (#{minutes}min)")
+            state
 
           is_integer(kills) and kills > 0 and state.fights >= kills ->
             session_stop(state, "meta de kills atingida (#{state.fights}/#{kills})")
+            state
 
           true ->
-            :ok
+            check_stagnation(state, started_at, now)
         end
 
       _no_session ->
-        :ok
+        state
+    end
+  end
+
+  # The anti-stagnation rule: silence (no kill, no hooked fish) measured from
+  # the LATER of session start / last activity / last ring — so the alarm
+  # action re-rings only after ANOTHER full silent window (its own cooldown),
+  # and a fresh session never inherits old silence.
+  defp check_stagnation(state, started_at, now) do
+    minutes = Settings.get(:stagnation_minutes)
+    baseline = max(state.last_activity_at || started_at, started_at)
+
+    if is_integer(minutes) and minutes > 0 and now - baseline >= minutes * 60_000 do
+      reason = "estagnação: sem kills nem fisgadas há #{minutes}min"
+
+      case Settings.get(:stagnation_action) do
+        "parar" ->
+          session_stop(state, reason)
+          state
+
+        _alarme ->
+          Logger.info("Guardian: #{reason}")
+          Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, reason})
+          %{state | last_activity_at: now}
+      end
+    else
+      state
     end
   end
 

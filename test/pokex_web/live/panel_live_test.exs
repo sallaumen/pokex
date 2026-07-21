@@ -196,6 +196,39 @@ defmodule PokexWeb.PanelLiveTest do
     refute has_element?(view, "#session-duration")
   end
 
+  test "um {:rule_alarm, _} (anti-estagnação) toca o alarme sem parar nada", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "combat",
+      {:rule_alarm, "estagnação: sem kills nem fisgadas há 10min"}
+    )
+
+    assert_push_event(view, "alarm", %{text: text})
+    assert text =~ "estagnação"
+    assert render(view) =~ "⏰ estagnação"
+  end
+
+  test "o form da anti-estagnação persiste janela e ação", %{conn: conn} do
+    minutes = Pokex.Settings.get(:stagnation_minutes)
+    action = Pokex.Settings.get(:stagnation_action)
+
+    on_exit(fn ->
+      Pokex.Settings.put(:stagnation_minutes, minutes)
+      Pokex.Settings.put(:stagnation_action, action)
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    view
+    |> form("#stagnation-form", %{"stagnation_minutes" => "10", "stagnation_action" => "parar"})
+    |> render_change()
+
+    assert Pokex.Settings.get(:stagnation_minutes) == 10
+    assert Pokex.Settings.get(:stagnation_action) == "parar"
+  end
+
   test "o form das condições de parada persiste minutos e kills", %{conn: conn} do
     minutes = Pokex.Settings.get(:stop_after_minutes)
     kills = Pokex.Settings.get(:stop_after_kills)

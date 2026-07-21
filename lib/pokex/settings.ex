@@ -236,6 +236,13 @@ defmodule Pokex.Settings do
     # — when the running session crosses a limit. 0 = condition off.
     stop_after_minutes: 0,
     stop_after_kills: 0,
+    # Anti-stagnation rule (Actions & Rules): an ACTIVE session with neither a
+    # kill nor a hooked fish for this many minutes is a wedged bot (empty
+    # water, stuck detector, dead spot). 0 = off. Action "alarme" re-rings
+    # after every silent window (the rule's own cooldown); "parar" halts the
+    # fleet through the same latch as the stop conditions.
+    stagnation_minutes: 0,
+    stagnation_action: "alarme",
     # Max age of the :mini_game WorldState fact before readers treat it as unknown
     # (= not playing, fail-open). The worker republishes every tick (80-150ms), so
     # 2s only trips when the worker is dead or a capture is badly stuck — exactly

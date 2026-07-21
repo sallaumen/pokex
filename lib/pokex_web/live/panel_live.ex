@@ -80,6 +80,8 @@ defmodule PokexWeb.PanelLive do
        session_started_at: session_started_at(),
        stop_after_minutes: Settings.get(:stop_after_minutes),
        stop_after_kills: Settings.get(:stop_after_kills),
+       stagnation_minutes: Settings.get(:stagnation_minutes),
+       stagnation_action: Settings.get(:stagnation_action),
        player_mode: Settings.get(:player_mode),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
        loot_enabled: Settings.get(:loot_enabled),
@@ -310,6 +312,11 @@ defmodule PokexWeb.PanelLive do
   # to STAY stopped, so this must stay idempotent: only the first panic (the
   # transition) idles the pills and logs; repeats are a safe, silent no-op so
   # the feed doesn't fill up with duplicate spam.
+  # A rule fired with the ALARM action (Guardian, e.g. anti-stagnation): ring
+  # the F7 pipeline — nothing was halted, the sound + 🔔 line ARE the action.
+  def handle_info({:rule_alarm, reason}, socket),
+    do: {:noreply, alarm(socket, :rule_alarm, "⏰ #{reason}")}
+
   # A stop condition fired (Guardian): the fleet is already halting (workers
   # broadcast their own idle snapshots) — ring the alarm with the MET GOAL and
   # drop the session clock. Not a panic: no red banner, just the record.
@@ -389,6 +396,29 @@ defmodule PokexWeb.PanelLive do
       socket
       |> save_int(params["stop_minutes"], 0..999, :stop_after_minutes, :stop_after_minutes)
       |> save_int(params["stop_kills"], 0..9999, :stop_after_kills, :stop_after_kills)
+
+    {:noreply, socket}
+  end
+
+  def handle_event("save_stagnation", params, socket) do
+    socket =
+      save_int(
+        socket,
+        params["stagnation_minutes"],
+        0..999,
+        :stagnation_minutes,
+        :stagnation_minutes
+      )
+
+    socket =
+      case params["stagnation_action"] do
+        action when action in ["alarme", "parar"] ->
+          Settings.put(:stagnation_action, action)
+          assign(socket, stagnation_action: action)
+
+        _invalid ->
+          socket
+      end
 
     {:noreply, socket}
   end
@@ -1794,6 +1824,33 @@ defmodule PokexWeb.PanelLive do
                   class="h-6 w-14 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
                 />
                 <span>kills (0 = nunca)</span>
+              </form>
+              <form
+                id="stagnation-form"
+                phx-change="save_stagnation"
+                title="Anti-estagnação: sessão rodando mas sem NENHUM kill nem fisgada pela janela toda = bot travado (água vazia, detector preso). Alarme re-toca a cada janela de silêncio; Parar usa a mesma trava do Stop. 0 = desligado."
+                class="mt-1 flex items-center gap-1 px-0.5 font-mono text-[9px] text-[#737d85]"
+              >
+                <span>😴 sem atividade por</span>
+                <input
+                  id="stagnation-minutes"
+                  name="stagnation_minutes"
+                  type="number"
+                  min="0"
+                  max="999"
+                  value={@stagnation_minutes}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                />
+                <span>min →</span>
+                <select
+                  id="stagnation-action"
+                  name="stagnation_action"
+                  class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                >
+                  <option value="alarme" selected={@stagnation_action == "alarme"}>alarme</option>
+                  <option value="parar" selected={@stagnation_action == "parar"}>parar tudo</option>
+                </select>
               </form>
             </section>
 

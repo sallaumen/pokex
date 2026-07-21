@@ -124,6 +124,26 @@ defmodule Pokex.PokedexTest do
   end
 
   @tag :tmp_dir
+  test "janela de level: alvos perto da força; nada na janela → os mais próximos ABAIXO" do
+    # sem player_level: comportamento antigo, janela :all
+    assert %{window: :all, targets: [%{entry: %{name: "Venusaur"}}]} =
+             Pokedex.hunt_suggestions(["Charizard"])
+
+    # lv 65 ±15 → 50..80: Venusaur (60) está na janela
+    assert %{window: {:window, 50, 80}, targets: [%{entry: %{name: "Venusaur"}}]} =
+             Pokedex.hunt_suggestions(["Charizard"], %{player_level: 65, level_margin: 15})
+
+    # lv 88 ±15 → 73..103: NENHUM candidato na janela (Venusaur 60 fica fora)
+    # → fallback: os mais próximos ABAIXO do level, nunca lista vazia
+    assert %{window: {:below, 88}, targets: [%{entry: %{name: "Venusaur"}}]} =
+             Pokedex.hunt_suggestions(["Charizard"], %{player_level: 88, level_margin: 15})
+
+    # janela apertada SEM nada abaixo → degrada pra todos os com level
+    assert %{window: :all, targets: [%{entry: %{name: "Venusaur"}}]} =
+             Pokedex.hunt_suggestions(["Charizard"], %{player_level: 1, level_margin: 5})
+  end
+
+  @tag :tmp_dir
   test "edited_after keeps only pages edited on/after the date (unknown dates drop)" do
     assert [%{name: "Seadra"}] = Pokedex.search(%{edited_after: "2026-01-01"})
     assert [%{name: "Seadra"}] = Pokedex.search(%{edited_after: "2026-02-06"})

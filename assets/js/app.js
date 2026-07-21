@@ -144,6 +144,21 @@ window.addEventListener("phx:alarm", () => {
   }
 })
 
+// "/" focuses the page's quick-search input (Pokédex list / detail jump box) —
+// muscle-memory access for daily use. Ignored while already typing somewhere.
+window.addEventListener("keydown", event => {
+  if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return
+  const tag = document.activeElement?.tagName
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return
+
+  const target = document.querySelector("[data-quick-search]")
+  if (target) {
+    event.preventDefault()
+    target.focus()
+    target.select()
+  }
+})
+
 // Show progress bar on live navigation and form submits
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))

@@ -5,6 +5,10 @@ defmodule PokexWeb.PokedexLive do
   fraqueza de planta?") and level — plus the per-lure view that answers
   "pescando com ESTA isca, quais Shinies podem vir?". Every card links into
   `/pokedex/:name`; the team and its hunt suggestions live on `/time`.
+
+  FILTERS LIVE IN THE URL: exploring a card and coming BACK restores the
+  exact view (the day-to-day flow), and any filtered view — including the
+  per-lure one (`?isca=Shrimp`) — is a shareable, bookmarkable link.
   """
   use PokexWeb, :live_view
 
@@ -26,15 +30,15 @@ defmodule PokexWeb.PokedexLive do
        loaded?: Pokedex.loaded?(),
        elements: Pokedex.elements(),
        lures: Pokedex.lures(),
-       species_names: Enum.map(Pokedex.search(%{}), & &1.name),
-       form: filter_form(%{}),
-       results: Pokedex.search(%{}),
-       selected_lure: nil
+       species_names: Enum.map(Pokedex.search(%{}), & &1.name)
      )}
   end
 
+  # The URL is the single source of filter truth: form changes push_patch the
+  # query, and THIS applies it — so browser back/forward and pasted links all
+  # land on the exact same view.
   @impl true
-  def handle_event("filter", %{"f" => params}, socket) do
+  def handle_params(params, _uri, socket) do
     filters =
       %{
         name: params["name"] || "",
@@ -46,12 +50,25 @@ defmodule PokexWeb.PokedexLive do
       |> put_level(:min_level, params["min_level"])
       |> put_level(:max_level, params["max_level"])
 
-    {:noreply, assign(socket, results: Pokedex.search(filters), form: filter_form(params))}
+    {:noreply,
+     assign(socket,
+       raw_filters:
+         Map.take(params, ~w(name element weak_to min_level max_level only_shiny edited_after)),
+       form: filter_form(params),
+       results: Pokedex.search(filters),
+       selected_lure: Enum.find(socket.assigns.lures, &(&1.name == params["isca"]))
+     )}
+  end
+
+  @impl true
+  def handle_event("filter", %{"f" => params}, socket) do
+    query = params |> Map.put("isca", current_lure_name(socket)) |> clean_query()
+    {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
   end
 
   def handle_event("select_lure", %{"lure" => name}, socket) do
-    lure = Enum.find(socket.assigns.lures, &(&1.name == name))
-    {:noreply, assign(socket, selected_lure: lure)}
+    query = socket.assigns.raw_filters |> Map.put("isca", name) |> clean_query()
+    {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
   end
 
   # The sync button: empty names = full run; names = surgical refresh. One
@@ -82,11 +99,9 @@ defmodule PokexWeb.PokedexLive do
         loaded?: Pokedex.loaded?(),
         elements: Pokedex.elements(),
         lures: Pokedex.lures(),
-        species_names: Enum.map(Pokedex.search(%{}), & &1.name),
-        form: filter_form(%{}),
-        results: Pokedex.search(%{}),
-        selected_lure: nil
+        species_names: Enum.map(Pokedex.search(%{}), & &1.name)
       )
+      |> push_patch(to: ~p"/pokedex?#{clean_query(socket.assigns.raw_filters)}")
 
     {:noreply, socket}
   end
@@ -98,6 +113,16 @@ defmodule PokexWeb.PokedexLive do
          sync_running?: false,
          sync_msg: "sync falhou: #{String.slice(reason, 0, 200)}"
        )}
+
+  # Only meaningful values reach the URL — clean, shareable links.
+  defp clean_query(params) do
+    params
+    |> Enum.reject(fn {_k, v} -> v in [nil, "", "false"] end)
+    |> Map.new()
+  end
+
+  defp current_lure_name(socket),
+    do: socket.assigns.selected_lure && socket.assigns.selected_lure.name
 
   defp put_level(filters, key, raw) do
     case PanelForms.parse_int(raw, 1..999) do
@@ -197,7 +222,8 @@ defmodule PokexWeb.PokedexLive do
                 type="text"
                 name="f[name]"
                 value={@form[:name].value}
-                placeholder="ex.: seadra"
+                placeholder='ex.: seadra  (atalho: "/")'
+                data-quick-search
                 class="input input-bordered h-9 w-40 bg-[#090d0f] font-mono text-sm"
               />
             </label>

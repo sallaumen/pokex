@@ -41,6 +41,30 @@ defmodule PokexWeb.PokedexDetailLiveTest do
         "sprite" => nil,
         "shiny_of" => "Seadra",
         "shiny_name" => nil
+      },
+      %{
+        "name" => "Charizard",
+        "number" => 6,
+        "level" => 100,
+        "elements" => ["Fire"],
+        "weak_to" => ["Water"],
+        "resists" => [],
+        "evolutions" => [],
+        "sprite" => nil,
+        "shiny_of" => nil,
+        "shiny_name" => nil
+      },
+      %{
+        "name" => "Venusaur",
+        "number" => 3,
+        "level" => 60,
+        "elements" => ["Grass"],
+        "weak_to" => ["Fire"],
+        "resists" => [],
+        "evolutions" => [],
+        "sprite" => nil,
+        "shiny_of" => nil,
+        "shiny_name" => nil
       }
     ],
     "lures" => [
@@ -105,6 +129,49 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     # the shiny page links back to the base form (name with a space, URL-encoded)
     {:ok, shiny, _} = live(conn, ~p"/pokedex/#{"Shiny Seadra"}")
     assert shiny |> element("#entry-shiny-links") |> render() =~ "forma base: Seadra"
+  end
+
+  @tag :tmp_dir
+  test "contexto do MEU time: matchup nos dois sentidos, badge e adicionar direto da página", %{
+    conn: conn
+  } do
+    # time vazio → dica de cadastrar + botões de adicionar
+    {:ok, view, _} = live(conn, ~p"/pokedex/Charizard")
+    assert render(view) =~ "cadastra teu time"
+
+    view |> element(~s(button[phx-value-where="team"])) |> render_click()
+    assert view |> element("#membership-badge") |> render() =~ "no teu time"
+    assert [%{name: "Charizard"}] = Pokex.Pokedex.Team.members()
+
+    # na página do Venusaur: Charizard fere ele com Fire (e nada apanha)
+    {:ok, venu, _} = live(conn, ~p"/pokedex/Venusaur")
+    matchup = venu |> element("#entry-matchup") |> render()
+    assert matchup =~ "Charizard"
+    assert matchup =~ "fere ele com Fire"
+
+    # Venusaur pro time: na página do Charizard ele deve APANHAR de Fire
+    {:ok, _} = Pokex.Pokedex.Team.add("Venusaur", :team)
+    {:ok, chari, _} = live(conn, ~p"/pokedex/Charizard")
+    matchup = chari |> element("#entry-matchup") |> render()
+    assert matchup =~ "Venusaur"
+    assert matchup =~ "APANHA de Fire"
+
+    # + banco direto da página
+    {:ok, horsea, _} = live(conn, ~p"/pokedex/Horsea")
+    horsea |> element(~s(button[phx-value-where="bank"])) |> render_click()
+    assert horsea |> element("#membership-badge") |> render() =~ "no teu banco"
+  end
+
+  @tag :tmp_dir
+  test "caixa de salto: pula direto pra outro Pokémon; desconhecido avisa", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/pokedex/Horsea")
+
+    view |> form("#jump-form", %{"name" => "Seadra"}) |> render_submit()
+    assert_patch(view, "/pokedex/Seadra")
+    assert render(view) =~ "ver Shiny Seadra"
+
+    view |> form("#jump-form", %{"name" => "Digimon"}) |> render_submit()
+    assert view |> element("#jump-msg") |> render() =~ "não conheço"
   end
 
   @tag :tmp_dir

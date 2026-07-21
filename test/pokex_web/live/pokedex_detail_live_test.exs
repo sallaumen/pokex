@@ -88,6 +88,42 @@ defmodule PokexWeb.PokedexDetailLiveTest do
         "shiny_name" => nil
       },
       %{
+        "name" => "Dragonite",
+        "number" => 149,
+        "level" => 100,
+        "elements" => ["Dragon"],
+        "weak_to" => ["Ice"],
+        "resists" => [],
+        "evolutions" => [],
+        "sprite" => nil,
+        "shiny_of" => nil,
+        "shiny_name" => nil
+      },
+      %{
+        "name" => "Florges",
+        "number" => 671,
+        "level" => 100,
+        "elements" => ["Fairy"],
+        "weak_to" => ["Poison", "Steel"],
+        "resists" => ["Fighting", "Bug", "Dark", "Grass"],
+        "immune" => ["Dragon"],
+        "effectiveness" => [
+          %{"label" => "Super efetivo", "kind" => "weak", "elements" => ["Poison", "Steel"]},
+          %{"label" => "Inefetivo", "kind" => "resists", "elements" => ["Grass"]},
+          %{
+            "label" => "Muito inefetivo",
+            "kind" => "resists",
+            "elements" => ["Fighting", "Bug", "Dark"]
+          },
+          %{"label" => "Nulo", "kind" => "immune", "elements" => ["Dragon"]}
+        ],
+        "evolutions" => [],
+        "moves" => [%{"slot" => "M1", "name" => "Tackle", "cooldown_s" => 8, "tags" => []}],
+        "sprite" => nil,
+        "shiny_of" => nil,
+        "shiny_name" => nil
+      },
+      %{
         "name" => "Venusaur",
         "number" => 3,
         "level" => 60,
@@ -245,15 +281,59 @@ defmodule PokexWeb.PokedexDetailLiveTest do
   end
 
   @tag :tmp_dir
-  test "entrada antiga (sem moves no JSON): página limpa, sem cobrança de sync", %{conn: conn} do
+  test "sem moves no JSON: manda pra wiki em vez de cobrar sync", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/pokedex/Horsea")
 
-    # o card de movimentos some silenciosamente; nada de banner pedindo sync
     refute has_element?(view, "#entry-moves")
+    # nada de banner pedindo sincronização — só a saída pra fonte original
     refute html =~ "sincroniza a wiki"
+    refute html =~ "sincronização"
+
+    missing = view |> element("#entry-moves-missing") |> render()
+    assert missing =~ "sem tabela de golpes"
+    assert missing =~ "https://wiki.pokexgames.com/index.php/Horsea"
+
     # e o resto da página funciona normalmente
     assert html =~ "Horsea"
     assert view |> element("#entry-evolutions") |> render() =~ "Seadra"
+  end
+
+  @tag :tmp_dir
+  test "toda página leva pra wiki original, com o nome composto codificado", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/pokedex/Seadra")
+
+    assert view |> element("#wiki-link") |> render() =~
+             "https://wiki.pokexgames.com/index.php/Seadra"
+
+    {:ok, shiny, _} = live(conn, ~p"/pokedex/#{"Shiny Seadra"}")
+
+    assert shiny |> element("#wiki-link") |> render() =~
+             "https://wiki.pokexgames.com/index.php/Shiny_Seadra"
+  end
+
+  @tag :tmp_dir
+  test "efetividades: tiers rotulados quando a wiki tem dois, e o que é NULO nele", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/pokedex/Florges")
+
+    card = view |> element("#entry-card") |> render()
+    # dois tiers de resistência da MESMA página aparecem separados e rotulados
+    assert card =~ "Inefetivo"
+    assert card =~ "Muito inefetivo"
+    # tier único não ganha rótulo redundante
+    refute card =~ "Super efetivo"
+
+    assert view |> element("#entry-immune") |> render() =~ "Dragon"
+  end
+
+  @tag :tmp_dir
+  test "matchup avisa quando o elemento do meu bicho é NULO no alvo", %{conn: conn} do
+    {:ok, _} = Pokex.Pokedex.Team.add("Dragonite", :team)
+
+    {:ok, view, _} = live(conn, ~p"/pokedex/Florges")
+    matchup = view |> element("#entry-matchup") |> render()
+
+    assert matchup =~ "Dragonite"
+    assert matchup =~ "Dragon não fere ele"
   end
 
   @tag :tmp_dir

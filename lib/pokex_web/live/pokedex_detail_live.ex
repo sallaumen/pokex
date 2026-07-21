@@ -76,8 +76,23 @@ defmodule PokexWeb.PokedexDetailLive do
         member != nil,
         fere = Enum.filter(member.elements, &(&1 in entry.weak_to)),
         sofre = Enum.filter(entry.elements, &(&1 in member.weak_to)),
-        fere != [] or sofre != [] do
-      %{name: name, fere: fere, sofre: sofre}
+        # "Nulo" na wiki: esse elemento não tira UM ponto de vida dele — a pior
+        # surpresa possível numa caçada, então entra no matchup como aviso
+        nulo = Enum.filter(member.elements, &(&1 in entry.immune)),
+        fere != [] or sofre != [] or nulo != [] do
+      %{name: name, fere: fere, sofre: sofre, nulo: nulo}
+    end
+  end
+
+  # The wiki words effectiveness in tiers of different strength — Venusaur has
+  # BOTH "Inefetivo" and "Muito Inefetivo" — so show the tiers apart, labelled
+  # as the page labels them. Only one tier (or an entry scraped before we kept
+  # the labels) collapses back to a single unlabelled row.
+  defp tiers(entry, kind, fallback) do
+    case Enum.filter(entry.effectiveness, &(&1.kind == kind and &1.elements != [])) do
+      [] -> [%{label: nil, elements: fallback}]
+      [only] -> [%{only | label: nil}]
+      many -> many
     end
   end
 
@@ -209,8 +224,17 @@ defmodule PokexWeb.PokedexDetailLive do
                     boost {@entry.boost}
                   </span>
                 </p>
-                <p :if={@entry.edited_at} class="mt-1 font-mono text-[9px] text-[#59636b]">
-                  wiki editada em {@entry.edited_at}
+                <p class="mt-1 font-mono text-[9px] text-[#59636b]">
+                  <span :if={@entry.edited_at}>wiki editada em {@entry.edited_at} ·</span>
+                  <.link
+                    id="wiki-link"
+                    href={Pokedex.wiki_url(@entry)}
+                    target="_blank"
+                    rel="noopener"
+                    class="underline hover:text-white"
+                  >
+                    ver na wiki ↗
+                  </.link>
                 </p>
               </div>
             </div>
@@ -285,11 +309,35 @@ defmodule PokexWeb.PokedexDetailLive do
                 <span :if={row.sofre != []} class="rounded bg-[#241114] px-1.5 py-0.5 text-[#ff9ca4]">
                   APANHA de {Enum.join(row.sofre, "+")}
                 </span>
+                <span :if={row.nulo != []} class="rounded bg-[#1c1a12] px-1.5 py-0.5 text-[#e0c46a]">
+                  {Enum.join(row.nulo, "+")} não fere ele
+                </span>
               </li>
             </ul>
           </section>
 
           <div class="grid gap-3 lg:grid-cols-3 lg:items-start">
+            <section
+              :if={@entry.moves in [nil, []]}
+              id="entry-moves-missing"
+              class="rounded-lg border border-[#232b30] bg-[#111519] p-3 lg:col-span-2"
+            >
+              <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                ⚔️ movimentos
+              </h2>
+              <p class="text-[12px] text-[#9aa3aa]">
+                sem tabela de golpes por aqui.
+                <.link
+                  href={Pokedex.wiki_url(@entry)}
+                  target="_blank"
+                  rel="noopener"
+                  class="text-[#7cc0e8] underline hover:text-white"
+                >
+                  conferir na wiki ↗
+                </.link>
+              </p>
+            </section>
+
             <section
               :if={@entry.moves not in [nil, []]}
               id="entry-moves"
@@ -323,23 +371,46 @@ defmodule PokexWeb.PokedexDetailLive do
                 </h2>
                 <p class="mb-0.5 font-mono text-[9px] text-[#59636b]">bate FORTE nele</p>
                 <p :if={@entry.weak_to == []} class="text-[11px] text-[#7f8992]">nada mapeado</p>
-                <p class="flex flex-wrap gap-1">
-                  <.element_chip
-                    :for={el <- @entry.weak_to}
-                    element={el}
-                    class="px-1.5 py-0.5 text-[10px]"
-                  />
-                </p>
+                <div :for={tier <- tiers(@entry, "weak", @entry.weak_to)}>
+                  <p :if={tier.label} class="font-mono text-[9px] text-[#59636b] opacity-70">
+                    {tier.label}
+                  </p>
+                  <p class="flex flex-wrap gap-1">
+                    <.element_chip
+                      :for={el <- tier.elements}
+                      element={el}
+                      class="px-1.5 py-0.5 text-[10px]"
+                    />
+                  </p>
+                </div>
 
                 <p class="mb-0.5 mt-2 font-mono text-[9px] text-[#59636b]">ele RESISTE</p>
                 <p :if={@entry.resists == []} class="text-[11px] text-[#7f8992]">nada mapeado</p>
-                <p class="flex flex-wrap gap-1 opacity-70">
-                  <.element_chip
-                    :for={el <- @entry.resists}
-                    element={el}
-                    class="px-1.5 py-0.5 text-[10px]"
-                  />
-                </p>
+                <div :for={tier <- tiers(@entry, "resists", @entry.resists)}>
+                  <p :if={tier.label} class="font-mono text-[9px] text-[#59636b] opacity-70">
+                    {tier.label}
+                  </p>
+                  <p class="flex flex-wrap gap-1 opacity-70">
+                    <.element_chip
+                      :for={el <- tier.elements}
+                      element={el}
+                      class="px-1.5 py-0.5 text-[10px]"
+                    />
+                  </p>
+                </div>
+
+                <div :if={@entry.immune != []} id="entry-immune">
+                  <p class="mb-0.5 mt-2 font-mono text-[9px] text-[#59636b]">
+                    NÃO sente (nulo)
+                  </p>
+                  <p class="flex flex-wrap gap-1 opacity-50">
+                    <.element_chip
+                      :for={el <- @entry.immune}
+                      element={el}
+                      class="px-1.5 py-0.5 text-[10px] line-through"
+                    />
+                  </p>
+                </div>
 
                 <details :if={@entry.neutral != []} id="entry-neutral" class="mt-2">
                   <summary class="cursor-pointer list-none font-mono text-[9px] text-[#59636b] hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">

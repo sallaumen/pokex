@@ -52,6 +52,19 @@ defmodule Pokex.Pokedex do
 
   def get(name), do: Enum.find(species(), &(&1.name == name))
 
+  @wiki_base "https://wiki.pokexgames.com/index.php/"
+
+  @doc """
+  The entry's page on the PXG wiki — where every field here came from, and the
+  escape hatch whenever the harvest still looks thin (Lucas: "vale colocarmos o
+  link pra wiki original de todo pokemon"). Derived from the name exactly like
+  the scraper derives it, so the link points at the page we actually read.
+  """
+  def wiki_url(%{name: name}) when is_binary(name) and name != "",
+    do: @wiki_base <> URI.encode(String.replace(name, " ", "_"))
+
+  def wiki_url(_nameless), do: nil
+
   @doc """
   Filtered species search. Filters compose (all must match):
 
@@ -426,6 +439,15 @@ defmodule Pokex.Pokedex do
       weak_to: map["weak_to"] || [],
       resists: map["resists"] || [],
       neutral: map["neutral"] || [],
+      # elements that do NOTHING to it ("Nulo"/"Imune") — absent from older
+      # scrapes, which simply never read that line
+      immune: map["immune"] || [],
+      # the tiers as the page words them ("Efetivo" vs "Muito Efetivo"), so the
+      # detail page can show two strengths instead of one flattened list
+      effectiveness:
+        Enum.map(map["effectiveness"] || [], fn tier ->
+          %{label: tier["label"], kind: tier["kind"], elements: tier["elements"] || []}
+        end),
       evolutions:
         Enum.map(map["evolutions"] || [], fn evo ->
           %{name: evo["name"], level: evo["level"]}

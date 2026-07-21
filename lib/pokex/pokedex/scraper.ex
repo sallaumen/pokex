@@ -35,6 +35,7 @@ defmodule Pokex.Pokedex.Scraper do
 
       name ->
         {number, sprite} = main_sprite(html)
+        tiers = effectiveness_tiers(html)
 
         {:ok,
          %{
@@ -48,9 +49,11 @@ defmodule Pokex.Pokedex.Scraper do
            materia: field(html, "Materia"),
            evolution_stones: field(html, "Pedra de Evolução") |> split_list(),
            description: description(html),
-           weak_to: effectiveness(html, "Muito Efetivo"),
-           resists: effectiveness(html, "Muito Inefetivo"),
-           neutral: effectiveness(html, "Normal"),
+           weak_to: tier_elements(tiers, :weak),
+           resists: tier_elements(tiers, :resists),
+           neutral: tier_elements(tiers, :neutral),
+           immune: tier_elements(tiers, :immune),
+           effectiveness: tiers,
            evolutions: evolutions(html),
            moves: moves(html),
            moves_pvp: moves(html, :pvp),
@@ -92,12 +95,15 @@ defmodule Pokex.Pokedex.Scraper do
     end
   end
 
-  # PVE lives under its own heading when the page has both; older pages keep a
-  # single unsectioned table, which IS the PVE moveset for our purposes.
+  # The wiki names this heading three different ways depending on when the page
+  # was written — "Moveset_PVE" (Sceptile), "Movimentos_PvE" (Venusaur),
+  # "Movimentos_PVE" (Florges) — so match the shape, case-insensitively, not one
+  # literal. PVE lives under its own heading when the page has both; older pages
+  # keep a single unsectioned table, which IS the PVE moveset for our purposes.
   defp moves_section(html, :pve),
-    do: section(html, "Moveset_PVE") || section(html, "Movimentos")
+    do: section(html, "(?:Moveset|Movimentos)_PVE") || section(html, "Movimentos")
 
-  defp moves_section(html, :pvp), do: section(html, "Moveset_PVP")
+  defp moves_section(html, :pvp), do: section(html, "(?:Moveset|Movimentos)_PVP")
 
   @doc """
   Element → wiki icon URL, harvested from the move rows (`<img alt="Grass"
@@ -163,12 +169,14 @@ defmodule Pokex.Pokedex.Scraper do
     end
   end
 
-  # Everything between a heading and the next one (nil when absent). Accepts h2
+  # Everything between a heading and the next one (nil when absent OR empty —
+  # an h2 whose whole body is h3 subsections has nothing of its own). Accepts h2
   # AND h3 because the movesets are h3 subsections of the h2 "Movimentos" — an
-  # h2-only matcher silently returned nothing for them.
+  # h2-only matcher silently returned nothing for them. Case-insensitive: the
+  # same heading appears as PVE and PvE across page generations.
   defp section(html, heading) do
-    case Regex.run(~r{id="#{heading}"[^>]*>.*?</h[23]>(.*?)(<h[23]|\z)}s, html) do
-      [_, body, _] -> body
+    case Regex.run(~r{id="#{heading}"[^>]*>.*?</h[23]>(.*?)(<h[23]|\z)}si, html) do
+      [_, body, _] -> if String.trim(body) == "", do: nil, else: body
       nil -> nil
     end
   end
@@ -302,23 +310,68 @@ defmodule Pokex.Pokedex.Scraper do
 
   defp split_list(text) do
     text
-    |> String.trim_trailing(".")
     |> String.replace(" and ", ", ")
     |> String.replace("/", ", ")
     |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
+    # the trailing "." rides the LAST item and the page may leave a space after
+    # it ("… and Fairy. ") — trim each item, then the dot, or "Fairy." shipped
+    |> Enum.map(&(&1 |> String.trim() |> String.trim_trailing(".") |> String.trim()))
     |> Enum.reject(&(&1 in ["", "None"]))
   end
 
-  defp effectiveness(html, label) do
-    case Regex.run(~r/<b>#{label}:<\/b>\s*([^<]+)</, html) do
-      [_, value] -> split_list(value)
-      nil -> []
+  @doc """
+  The "Efetividades" lines as written on the page: `[%{label, kind, elements}]`
+  in page order.
+
+  Measured across a 40-page sample (2026-07-21) the wiki uses SEVEN labels for
+  four meanings, and no page carries all of them: "Muito Efetivo" (23 pages),
+  "Efetivo" (21), "Super Efetivo" (2), "Muito Inefetivo" (30), "Inefetivo" (21),
+  "Nulo" (15), "Imune" (1) — plus lowercase spellings. Matching one literal
+  ("Muito Efetivo") left 345 of 866 species with NO weakness at all, Venusaur
+  included. So classify by shape: anything "…inefetivo" resists, anything else
+  "…efetivo" is a weakness, "Nulo"/"Imune" is immunity.
+
+  The label is kept verbatim so the UI can show the tier the page actually
+  claims instead of flattening two different strengths into one word.
+  """
+  def effectiveness_tiers(html) do
+    ~r"<b>([^<:]{2,20}):</b>\s*([^<]+)"
+    |> Regex.scan(html)
+    |> Enum.flat_map(fn [_, label, value] ->
+      label = String.trim(label)
+
+      case tier_kind(label) do
+        nil -> []
+        kind -> [%{label: label, kind: kind, elements: split_list(value)}]
+      end
+    end)
+  end
+
+  defp tier_kind(label) do
+    down = String.downcase(label)
+
+    cond do
+      String.contains?(down, "inefetivo") -> :resists
+      String.contains?(down, "efetivo") -> :weak
+      down in ["nulo", "imune"] -> :immune
+      down == "normal" -> :neutral
+      true -> nil
     end
   end
 
+  # Two tiers of the same kind (Inefetivo + Muito Inefetivo) merge, page order
+  # kept — the detail page shows the tiers apart, the filters want one list.
+  defp tier_elements(tiers, kind) do
+    tiers
+    |> Enum.filter(&(&1.kind == kind))
+    |> Enum.flat_map(& &1.elements)
+    |> Enum.uniq()
+  end
+
+  # "precisa de Level 40" and "precisa de level 80" both occur — sometimes on
+  # the SAME page (Venusaur), which silently dropped the final evolution.
   defp evolutions(html) do
-    ~r/<b>([^<]+)<\/b>\s*precisa de Level\s*(\d+)/
+    ~r/<b>([^<]+)<\/b>\s*precisa de level\s*(\d+)/i
     |> Regex.scan(html)
     |> Enum.map(fn [_, name, level] ->
       %{name: String.trim(name), level: String.to_integer(level)}
@@ -326,9 +379,10 @@ defmodule Pokex.Pokedex.Scraper do
   end
 
   # The FIRST content image is the species' own sprite ("117_-_Seadra.gif" /
-  # "117-Seadra.png") — the dex number rides its filename.
+  # "117-Seadra.png" / "671.Florges.png") — the dex number rides its filename,
+  # and the separator drifts with the page's generation.
   defp main_sprite(html) do
-    case Regex.run(~r/src="(\/images\/[^"]+\/0*(\d+)[-_][^"]+)"/, html) do
+    case Regex.run(~r/src="(\/images\/[^"]+\/0*(\d+)[-_.][^"]+)"/, html) do
       [_, sprite, number] -> {String.to_integer(number), sprite}
       nil -> {nil, nil}
     end

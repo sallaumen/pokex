@@ -195,6 +195,94 @@ defmodule Pokex.Pokedex.ScraperTest do
     end
   end
 
+  # The wiki is NOT one format: pages written in different eras name the same
+  # sections differently. These two REAL pages pin the drifts that silently
+  # emptied 202 entries' movesets and 345 entries' weaknesses (measured on the
+  # 2026-07-21 base) — every variant below was copied from the live markup.
+  describe "parse_species/1 (Venusaur — seções 'Movimentos_PvE/PvP')" do
+    test "acha os dois movesets mesmo com o id em 'Movimentos_PvE' (não 'Moveset_PVE')" do
+      assert {:ok, venusaur} = Scraper.parse_species(fixture("venusaur.html"))
+
+      assert length(venusaur.moves) == 11
+      assert length(venusaur.moves_pvp) == 11
+
+      # a página lista o PVP ANTES do PVE — cada um tem que cair no seu lado
+      assert %{slot: "M5", name: "Leech Seed", cooldown_s: 20} =
+               Enum.find(venusaur.moves, &(&1.slot == "M5"))
+
+      assert %{slot: "M5", name: "Leech Seed", cooldown_s: 30} =
+               Enum.find(venusaur.moves_pvp, &(&1.slot == "M5"))
+    end
+
+    test "a fraqueza também vem do tier 'Efetivo' (páginas sem 'Muito Efetivo')" do
+      assert {:ok, venusaur} = Scraper.parse_species(fixture("venusaur.html"))
+
+      assert venusaur.weak_to == ["Fire", "Ice", "Flying", "Psychic"]
+      # dois tiers de resistência na mesma página: Inefetivo + Muito Inefetivo
+      assert venusaur.resists == ["Water", "Electric", "Fighting", "Fairy", "Grass"]
+      assert venusaur.immune == []
+    end
+
+    test "evolução com 'level' minúsculo conta igual" do
+      assert {:ok, venusaur} = Scraper.parse_species(fixture("venusaur.html"))
+      assert %{name: "Venusaur", level: 80} in venusaur.evolutions
+    end
+  end
+
+  describe "parse_species/1 (Florges — página da geração nova)" do
+    test "'Movimentos_PVE' em caixa alta também é moveset" do
+      assert {:ok, florges} = Scraper.parse_species(fixture("florges.html"))
+
+      assert length(florges.moves) == 9
+      assert length(florges.moves_pvp) == 9
+
+      assert %{slot: "M6", name: "Floral Storm", cooldown_s: 50} =
+               Enum.find(florges.moves, &(&1.slot == "M6"))
+
+      assert %{slot: "M6", name: "Floral Storm", cooldown_s: 60} =
+               Enum.find(florges.moves_pvp, &(&1.slot == "M6"))
+    end
+
+    test "'Super efetivo' é fraqueza e 'Nulo' vira imunidade" do
+      assert {:ok, florges} = Scraper.parse_species(fixture("florges.html"))
+
+      assert florges.weak_to == ["Poison", "Steel"]
+      assert florges.resists == ["Fighting", "Bug", "Dark"]
+      assert florges.immune == ["Dragon"]
+    end
+
+    test "sprite '671.Florges.png' entrega número e imagem" do
+      assert {:ok, florges} = Scraper.parse_species(fixture("florges.html"))
+
+      assert florges.number == 671
+      assert florges.sprite_url == "/images/5/55/671.Florges.png"
+    end
+
+    test "o último elemento da lista não carrega o ponto final" do
+      assert {:ok, florges} = Scraper.parse_species(fixture("florges.html"))
+
+      assert "Fairy" in florges.neutral
+      refute "Fairy." in florges.neutral
+    end
+
+    test "evoluções com 'precisa de level' minúsculo" do
+      assert {:ok, florges} = Scraper.parse_species(fixture("florges.html"))
+
+      assert florges.evolutions == [
+               %{name: "Flabébé", level: 20},
+               %{name: "Floette", level: 50},
+               %{name: "Florges", level: 100}
+             ]
+    end
+  end
+
+  describe "parse_species/1 — imunidade nas páginas antigas" do
+    test "página sem 'Nulo' devolve lista vazia, não nil" do
+      assert {:ok, seadra} = Scraper.parse_species(fixture("seadra.html"))
+      assert seadra.immune == []
+    end
+  end
+
   describe "parse_index/1 (real index slice)" do
     test "extracts number+name+page per species row, deduped" do
       entries = Scraper.parse_index(fixture("index_slice.html"))

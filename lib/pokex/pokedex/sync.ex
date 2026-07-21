@@ -142,15 +142,38 @@ defmodule Pokex.Pokedex.Sync do
     end
   end
 
-  @doc "Entries still missing the harvest — what the gap pass targets."
-  def incomplete(entries), do: Enum.filter(entries, &(field(&1, "moves") == nil))
+  @doc """
+  Entries with no moveset that this run did NOT just fetch — what the gap pass
+  targets.
+
+  An empty `moves` used to count as complete ("the wiki simply has no table
+  there"), which was wrong: 202 of 866 entries were empty because the parser
+  missed the page's heading spelling, and the pass that exists to fix gaps never
+  looked at them. Two states, two rules:
+
+    * `nil` — never harvested (an old dataset, a shiny kept from the link
+      fallback because its page failed): always a gap, retried even inside the
+      run that created it, exactly as before.
+    * `[]` — the page WAS parsed and had no table: a gap only if this run did
+      not just fetch it, so a full sync never pays for a second round-trip
+      while a partial one (`--only`, `--limit`) still heals the rest of the base.
+  """
+  def incomplete(entries, scraped_at \\ nil) do
+    Enum.filter(entries, fn entry ->
+      case field(entry, "moves") do
+        nil -> true
+        [] -> scraped_at == nil or field(entry, "scraped_at") != scraped_at
+        _harvested -> false
+      end
+    end)
+  end
 
   # The gap pass. Scrapes by NAME (the wiki page always mirrors it), keeps the
   # entry's own name and shiny_of so a variant stays a variant, and runs at the
   # same polite delay. A page that stays unparsable is simply retried next run
   # — never a silent half-entry.
   defp fill_gaps(merged, delay, opts, scraped_at, progress) do
-    gaps = incomplete(merged)
+    gaps = incomplete(merged, scraped_at)
     total = length(gaps)
 
     if total == 0 do
@@ -284,6 +307,8 @@ defmodule Pokex.Pokedex.Sync do
             weak_to: base.weak_to,
             resists: base.resists,
             neutral: base.neutral,
+            immune: base.immune,
+            effectiveness: base.effectiveness,
             evolutions: [],
             moves: nil,
             moves_pvp: nil,
@@ -311,6 +336,8 @@ defmodule Pokex.Pokedex.Sync do
       weak_to: parsed.weak_to,
       resists: parsed.resists,
       neutral: parsed.neutral,
+      immune: parsed.immune,
+      effectiveness: parsed.effectiveness,
       evolutions: parsed.evolutions,
       moves: parsed.moves,
       moves_pvp: parsed.moves_pvp,

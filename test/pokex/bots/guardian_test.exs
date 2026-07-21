@@ -178,7 +178,13 @@ defmodule Pokex.Bots.GuardianTest do
       {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
 
       {:ok, guardian} =
-        Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+        Guardian.start_link(
+          name: nil,
+          body: body,
+          on_panic: on_panic,
+          poll_ms: 5,
+          session_rules: true
+        )
 
       # kills ride the snapshots combat already broadcasts
       send(guardian, {:combat, %{state: :hunting, counters: %{fights: 2}, error: nil}})
@@ -194,7 +200,15 @@ defmodule Pokex.Bots.GuardianTest do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
 
       {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
-      {:ok, _} = Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+
+      {:ok, _} =
+        Guardian.start_link(
+          name: nil,
+          body: body,
+          on_panic: on_panic,
+          poll_ms: 5,
+          session_rules: true
+        )
 
       assert_receive :panicked, 1_000
       assert_receive {:session_stop, reason}, 1_000
@@ -208,7 +222,13 @@ defmodule Pokex.Bots.GuardianTest do
       {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
 
       {:ok, guardian} =
-        Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+        Guardian.start_link(
+          name: nil,
+          body: body,
+          on_panic: on_panic,
+          poll_ms: 5,
+          session_rules: true
+        )
 
       send(guardian, {:combat, %{state: :hunting, counters: %{fights: 99}, error: nil}})
 
@@ -221,11 +241,88 @@ defmodule Pokex.Bots.GuardianTest do
       {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
 
       {:ok, guardian} =
-        Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+        Guardian.start_link(
+          name: nil,
+          body: body,
+          on_panic: on_panic,
+          poll_ms: 5,
+          session_rules: true
+        )
 
       send(guardian, {:combat, %{state: :hunting, counters: %{fights: 99}, error: nil}})
 
       refute_receive :panicked, 150
+    end
+  end
+
+  describe "anti-estagnação (Actions & Rules)" do
+    setup do
+      on_exit(fn ->
+        Pokex.Perception.WorldState.forget(:session)
+        Pokex.Settings.put(:stagnation_minutes, 0)
+        Pokex.Settings.put(:stagnation_action, "alarme")
+      end)
+
+      :ok
+    end
+
+    defp start_guardian!(on_panic) do
+      {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
+
+      {:ok, guardian} =
+        Guardian.start_link(
+          name: nil,
+          body: body,
+          on_panic: on_panic,
+          poll_ms: 5,
+          session_rules: true
+        )
+
+      guardian
+    end
+
+    test "janela de silêncio vencida com ação alarme: broadcasta UMA vez e re-arma", %{
+      on_panic: on_panic
+    } do
+      active_session!(61_000)
+      Pokex.Settings.put(:stagnation_minutes, 1)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+      start_guardian!(on_panic)
+
+      assert_receive {:rule_alarm, reason}, 1_000
+      assert reason =~ "sem kills nem fisgadas há 1min"
+
+      # firing re-armed the window — no second ring, and NEVER a fleet stop
+      refute_receive {:rule_alarm, _}, 150
+      refute_receive :panicked, 10
+    end
+
+    test "atividade (fisgada) dentro da janela zera o relógio do silêncio", %{on_panic: on_panic} do
+      active_session!(61_000)
+      Pokex.Settings.put(:stagnation_minutes, 1)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+      guardian = start_guardian!(on_panic)
+      # the hook arrives BEFORE the first poll can fire the rule
+      send(guardian, {:fishing, %{state: :watching, counters: %{hooked: 1}, error: nil}})
+
+      refute_receive {:rule_alarm, _}, 150
+    end
+
+    test "ação parar: estagnação derruba a frota pelo caminho do session_stop", %{
+      on_panic: on_panic
+    } do
+      active_session!(61_000)
+      Pokex.Settings.put(:stagnation_minutes, 1)
+      Pokex.Settings.put(:stagnation_action, "parar")
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+      start_guardian!(on_panic)
+
+      assert_receive :panicked, 1_000
+      assert_receive {:session_stop, reason}, 1_000
+      assert reason =~ "estagnação"
     end
   end
 end

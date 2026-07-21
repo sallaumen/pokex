@@ -9,6 +9,11 @@ defmodule PokexWeb.PokedexLive do
   FILTERS LIVE IN THE URL: exploring a card and coming BACK restores the
   exact view (the day-to-day flow), and any filtered view — including the
   per-lure one (`?isca=Shrimp`) — is a shareable, bookmarkable link.
+
+  RESULTS STREAM IN by CURSOR (`Pokedex.page/3`), 100 at a time, appended to a
+  LiveView stream as the viewport reaches the bottom — the DOM grows without
+  the socket ever holding the whole list, and a filter/sort change resets the
+  stream instead of diffing hundreds of cards.
   """
   use PokexWeb, :live_view
 
@@ -17,14 +22,15 @@ defmodule PokexWeb.PokedexLive do
   alias PokexWeb.PanelForms
   alias PokexWeb.PokedexStyle
 
-  @results_cap 120
-
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Pokex.PubSub, Sync.topic())
 
     {:ok,
-     assign(socket,
+     socket
+     # entries carry no :id — the NAME is the natural unique key
+     |> stream(:species, [], dom_id: &("species-" <> dom_slug(&1.name)))
+     |> assign(
        page_title: "Pokédex",
        sync_running?: Sync.running?(),
        sync_msg: nil,
@@ -60,20 +66,48 @@ defmodule PokexWeb.PokedexLive do
       |> Map.put(:desc, desc?)
       |> Map.put(:only_novelty, params["novidades"] == "true")
 
+    page = Pokedex.page(filters)
+
     {:noreply,
-     assign(socket,
+     socket
+     |> assign(
        raw_filters:
          Map.take(
            params,
            ~w(name element weak_to min_level max_level only_shiny edited_after sort desc novidades)
          ),
+       filters: filters,
        form: filter_form(params),
        sort: sort,
        desc?: desc?,
        only_novelty?: params["novidades"] == "true",
-       results: Pokedex.search(filters),
+       cursor: page.cursor,
+       total: page.total,
+       loaded: length(page.entries),
+       novelty_count: Enum.count(Pokedex.search(filters), &(Pokedex.novelty(&1) != nil)),
        selected_lure: Enum.find(socket.assigns.lures, &(&1.name == params["isca"]))
-     )}
+     )
+     # a new filter/sort is a NEW list — reset instead of diffing the old cards
+     |> stream(:species, page.entries, reset: true)}
+  end
+
+  # The infinite scroll: the viewport reached the bottom (or he clicked the
+  # fallback button) — append the next cursor page. A nil cursor means the
+  # list ended, and the binding is not even rendered then.
+  def handle_event("load_more", _params, %{assigns: %{cursor: nil}} = socket),
+    do: {:noreply, socket}
+
+  def handle_event("load_more", _params, socket) do
+    page = Pokedex.page(socket.assigns.filters, socket.assigns.cursor)
+
+    {:noreply,
+     socket
+     |> assign(
+       cursor: page.cursor,
+       total: page.total,
+       loaded: socket.assigns.loaded + length(page.entries)
+     )
+     |> stream(:species, page.entries)}
   end
 
   # The sort control lives in the URL like every other filter: same back/forward,
@@ -199,6 +233,8 @@ defmodule PokexWeb.PokedexLive do
 
   defp shiny?(name), do: String.starts_with?(name, "Shiny ")
 
+  defp dom_slug(name), do: name |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "-")
+
   @sorts [
     {:number, "nº"},
     {:name, "nome"},
@@ -251,14 +287,10 @@ defmodule PokexWeb.PokedexLive do
 
   @impl true
   def render(assigns) do
-    today = Date.utc_today()
-
     assigns =
       assigns
-      |> assign(:capped, Enum.take(assigns.results, @results_cap))
       |> assign(:synced_at, Pokedex.synced_at())
-      |> assign(:today, today)
-      |> assign(:novelty_count, Enum.count(assigns.results, &(Pokedex.novelty(&1, today) != nil)))
+      |> assign(:today, Date.utc_today())
 
     ~H"""
     <div class="min-h-dvh bg-[#080b0d] px-3 py-4 text-[#d9dde1]">
@@ -441,15 +473,22 @@ defmodule PokexWeb.PokedexLive do
           </div>
 
           <p id="pokedex-count" class="mt-2 font-mono text-[10px] text-[#737d85]">
-            {length(@results)} resultado(s){if length(@results) > length(@capped),
-              do: " — mostrando #{length(@capped)}"}
+            {@total} resultado(s){if @cursor, do: " — #{@loaded} carregados"}
             <span :if={@synced_at} id="synced-at">
               · sincronizado {short_stamp(@synced_at)}
             </span>
           </p>
 
-          <ul id="pokedex-results" class="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
-            <li :for={entry <- @capped}>
+          <ul
+            id="pokedex-results"
+            phx-update="stream"
+            phx-viewport-bottom={@cursor && "load_more"}
+            class={[
+              "mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4",
+              @cursor && "pb-[10vh]"
+            ]}
+          >
+            <li :for={{dom_id, entry} <- @streams.species} id={dom_id}>
               <.link
                 navigate={~p"/pokedex/#{entry.name}"}
                 class={[
@@ -506,6 +545,24 @@ defmodule PokexWeb.PokedexLive do
               </.link>
             </li>
           </ul>
+
+          <div class="mt-2 flex justify-center">
+            <button
+              :if={@cursor}
+              id="load-more"
+              phx-click="load_more"
+              class="btn h-8 border border-[#293238] bg-transparent px-4 font-mono text-[10px] text-[#89939a] hover:border-[#37d07d]/60 hover:text-white"
+            >
+              carregar mais ({@total - @loaded} restantes)
+            </button>
+            <p
+              :if={@cursor == nil and @total > Pokedex.page_size()}
+              id="list-end"
+              class="font-mono text-[10px] text-[#59636b]"
+            >
+              — fim da lista ({@total}) —
+            </p>
+          </div>
         </section>
 
         <section

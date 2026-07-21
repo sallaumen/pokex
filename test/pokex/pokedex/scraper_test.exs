@@ -35,6 +35,9 @@ defmodule Pokex.Pokedex.ScraperTest do
                page: "/index.php/Shiny_Seadra",
                sprite_url: "/images/2/2a/117-Sh_Seadra.png"
              }
+
+      # the MediaWiki footer date, ISO — the edited_after filter's source
+      assert seadra.edited_at == "2026-02-06"
     end
 
     test "a page without the Nome field is unrecognized" do
@@ -44,7 +47,25 @@ defmodule Pokex.Pokedex.ScraperTest do
 
     test "dual types split (the wiki writes 'Grass / Poison')" do
       html = ~s(<b>Nome:</b> Bulbasaur<br /><b>Elemento:</b> Grass / Poison<br />)
-      assert {:ok, %{elements: ["Grass", "Poison"]}} = Scraper.parse_species(html)
+      assert {:ok, %{elements: ["Grass", "Poison"], edited_at: nil}} = Scraper.parse_species(html)
+    end
+  end
+
+  describe "upsert/2" do
+    test "fresh entries replace by name, everything else stays (mixed key styles)" do
+      existing = [
+        %{"name" => "Seadra", "level" => 50},
+        %{"name" => "Horsea", "level" => 10}
+      ]
+
+      fresh = [%{name: "Seadra", level: 55, edited_at: "2026-07-01"}]
+
+      merged = Scraper.upsert(existing, fresh)
+
+      assert length(merged) == 2
+      assert %{"name" => "Horsea", "level" => 10} in merged
+      assert %{name: "Seadra", level: 55, edited_at: "2026-07-01"} in merged
+      refute %{"name" => "Seadra", "level" => 50} in merged
     end
   end
 

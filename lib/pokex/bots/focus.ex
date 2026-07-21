@@ -160,6 +160,32 @@ defmodule Pokex.Bots.Focus do
     state
   end
 
+  @doc """
+  Bring the GAME to the front NOW (System Events), for deliberate flows that
+  must act while something else holds focus — the emergency escape is the
+  first: its click/keys would be swallowed by the Rig's focus gate otherwise
+  (Lucas, live 2026-07-20: "quando ta fora do foco no jogo nao vai").
+  Env-gated off in tests (`:front_game_cmd`) so suites never shell out.
+  """
+  def front_game do
+    if Application.get_env(:pokex, :front_game_cmd, true) do
+      app = Settings.get(:game_app_name)
+
+      System.cmd(
+        "osascript",
+        [
+          "-e",
+          ~s(tell application "System Events" to set frontmost of application process "#{app}" to true)
+        ],
+        stderr_to_stdout: true
+      )
+    end
+
+    :ok
+  rescue
+    _oascript_unavailable -> :ok
+  end
+
   # Frontmost process name via System Events. `{:ok, name}` or `:error` (unreadable → hold).
   defp default_frontmost do
     case System.cmd(

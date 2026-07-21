@@ -201,6 +201,134 @@ defmodule Pokex.PokedexTest do
     assert Pokedex.novelty_days() == 7
   end
 
+  describe "page/3 — paginação por cursor (keyset)" do
+    # 250 espécies, MUITAS empatadas no mesmo level: é onde uma paginação sem
+    # desempate estável duplica ou pula linhas na virada de página
+    defp big_dataset do
+      species =
+        for i <- 1..250 do
+          %{
+            "name" => "Mon#{String.pad_leading("#{i}", 3, "0")}",
+            "number" => i,
+            # só 5 levels distintos → empates em massa
+            "level" => rem(i, 5) * 10 + 10,
+            "elements" => ["Water"],
+            "weak_to" => [],
+            "resists" => [],
+            "evolutions" => [],
+            "sprite" => nil,
+            "shiny_of" => nil,
+            "shiny_name" => nil
+          }
+        end
+
+      %{"species" => species, "lures" => []}
+    end
+
+    defp load_big(tmp) do
+      File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(big_dataset()))
+      Pokedex.reload()
+    end
+
+    @tag :tmp_dir
+    test "percorre a base inteira em páginas, sem repetir nem pular", %{tmp_dir: tmp} do
+      load_big(tmp)
+
+      {all, pages} = drain(%{}, nil, [], 0)
+
+      assert length(all) == 250
+      assert Enum.uniq(all) == all
+      # a ordem paginada é EXATAMENTE a da busca completa
+      assert all == Enum.map(Pokedex.search(%{}), & &1.name)
+      assert pages == 3
+    end
+
+    @tag :tmp_dir
+    test "com empates no level (ordenação instável seria fatal) também fecha certo",
+         %{tmp_dir: tmp} do
+      load_big(tmp)
+
+      {asc, _} = drain(%{sort: :level}, nil, [], 0)
+      assert length(asc) == 250
+      assert Enum.uniq(asc) == asc
+      assert asc == Enum.map(Pokedex.search(%{sort: :level}), & &1.name)
+
+      {desc, _} = drain(%{sort: :level, desc: true}, nil, [], 0)
+      assert length(desc) == 250
+      assert Enum.uniq(desc) == desc
+      assert desc == Enum.map(Pokedex.search(%{sort: :level, desc: true}), & &1.name)
+    end
+
+    @tag :tmp_dir
+    test "cursor nil na última página; total é o filtrado, não o carregado", %{tmp_dir: tmp} do
+      load_big(tmp)
+
+      first = Pokedex.page(%{}, nil, 100)
+      assert length(first.entries) == 100
+      assert first.total == 250
+      assert first.cursor != nil
+
+      last = Pokedex.page(%{}, Pokedex.page(%{}, first.cursor, 100).cursor, 100)
+      assert length(last.entries) == 50
+      assert last.cursor == nil
+    end
+
+    @tag :tmp_dir
+    test "o filtro entra na paginação (total e páginas seguem o filtro)", %{tmp_dir: tmp} do
+      load_big(tmp)
+
+      page = Pokedex.page(%{min_level: 50}, nil, 100)
+      assert page.total == 50
+      assert length(page.entries) == 50
+      assert page.cursor == nil
+      assert Enum.all?(page.entries, &(&1.level >= 50))
+    end
+
+    @tag :tmp_dir
+    test "entradas SEM valor de ordenação continuam no fim, e paginam", %{tmp_dir: tmp} do
+      # metade sem level: o bucket dos ausentes tem que ser atravessado também
+      species =
+        for i <- 1..150 do
+          base = %{
+            "name" => "Mon#{String.pad_leading("#{i}", 3, "0")}",
+            "number" => i,
+            "elements" => ["Water"],
+            "weak_to" => [],
+            "resists" => [],
+            "evolutions" => [],
+            "sprite" => nil,
+            "shiny_of" => nil,
+            "shiny_name" => nil
+          }
+
+          if rem(i, 2) == 0, do: Map.put(base, "level", 50), else: base
+        end
+
+      File.write!(
+        Path.join(tmp, "pokedex.json"),
+        JSON.encode!(%{"species" => species, "lures" => []})
+      )
+
+      Pokedex.reload()
+
+      {all, _} = drain(%{sort: :level}, nil, [], 0)
+      assert length(all) == 150
+      assert Enum.uniq(all) == all
+      assert all == Enum.map(Pokedex.search(%{sort: :level}), & &1.name)
+    end
+
+    # walks every page, accumulating names in order
+    defp drain(filters, cursor, acc, pages) do
+      page = Pokedex.page(filters, cursor, 100)
+      acc = acc ++ Enum.map(page.entries, & &1.name)
+
+      case page.cursor do
+        nil -> {acc, pages + 1}
+        next -> drain(filters, next, acc, pages + 1)
+      end
+    end
+  end
+
   @tag :tmp_dir
   test "lures_for finds every tier that hooks the species" do
     assert Pokedex.lures_for("Seadra") == [%{lure: "Shrimp", fishing_level: 50}]

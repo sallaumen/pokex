@@ -71,22 +71,96 @@ defmodule Pokex.Pokedex do
   a level-less entry is never the "highest level".
   """
   def search(filters) when is_map(filters) do
-    {sort, filters} = Map.pop(filters, :sort)
-    {desc?, filters} = Map.pop(filters, :desc)
+    {sort, desc?, filters} = pop_sort(filters)
 
     species()
     |> Enum.filter(&matches?(&1, filters))
     |> sort_entries(sort, desc?)
   end
 
-  defp sort_entries(entries, sort, desc?) when sort in [nil, "", :number],
-    do: Enum.sort_by(entries, &{&1.number || 9_999, &1.name}, direction(desc?))
+  @page_size 100
+
+  @doc """
+  One page of `search/1`, by CURSOR (keyset), for the infinite scroll:
+  `%{entries, cursor, total}` — `cursor` is nil when the last page came back.
+
+  Keyset, not offset: the dataset is replaced wholesale by a sync, and an
+  offset would then skip or repeat entries mid-scroll. The cursor is the last
+  row's ORDERING KEY with a stable tiebreaker appended (the playbook's rule —
+  "append a stable tiebreaker so pages don't overlap"): here `{bucket, key,
+  name}`, where `name` is unique and `bucket` keeps the missing-value rows
+  pinned to the bottom in both directions. Resuming compares against that key
+  rather than looking the row up, so a page still resolves correctly when the
+  row it pointed at disappeared between pages.
+
+  `total` is free here (the base lives in memory), so unlike a SQL COUNT it
+  needs no opt-in.
+  """
+  def page(filters, cursor \\ nil, limit \\ @page_size) when is_map(filters) do
+    {sort, desc?, filters} = pop_sort(filters)
+
+    ordered =
+      species()
+      |> Enum.filter(&matches?(&1, filters))
+      |> sort_entries(sort, desc?)
+
+    rest =
+      case cursor do
+        nil ->
+          ordered
+
+        cursor ->
+          Enum.drop_while(ordered, &(not after_cursor?(cursor_key(&1, sort), cursor, desc?)))
+      end
+
+    entries = Enum.take(rest, limit)
+
+    %{
+      entries: entries,
+      cursor:
+        if(entries != [] and length(rest) > limit,
+          do: cursor_key(List.last(entries), sort)
+        ),
+      total: length(ordered)
+    }
+  end
+
+  @doc "The default page size of `page/3`."
+  def page_size, do: @page_size
+
+  defp pop_sort(filters) do
+    {sort, filters} = Map.pop(filters, :sort)
+    {desc?, filters} = Map.pop(filters, :desc)
+    {sort, desc?, filters}
+  end
 
   defp sort_entries(entries, sort, desc?) do
-    {missing, present} = Enum.split_with(entries, &(sort_key(&1, sort) in [nil, "", []]))
+    {missing, present} = Enum.split_with(entries, &missing_key?(sort_key(&1, sort)))
 
     Enum.sort_by(present, &{sort_key(&1, sort), &1.name}, direction(desc?)) ++
       Enum.sort_by(missing, &{&1.number || 9_999, &1.name})
+  end
+
+  defp missing_key?(key), do: key in [nil, "", []]
+
+  # {bucket, key, name}: bucket 1 (missing) always sorts last, and `name`
+  # breaks ties so two lv-50 species can never straddle a page boundary.
+  defp cursor_key(entry, sort) do
+    case sort_key(entry, sort) do
+      key when key in [nil, "", []] -> {1, entry.number || 9_999, entry.name}
+      key -> {0, key, entry.name}
+    end
+  end
+
+  # Strictly after the cursor, in the SAME order the page was sorted in.
+  defp after_cursor?({bucket, key, name}, {c_bucket, c_key, c_name}, desc?) do
+    cond do
+      bucket != c_bucket -> bucket > c_bucket
+      # the missing bucket is always ascending by number/name
+      bucket == 1 -> {key, name} > {c_key, c_name}
+      desc? -> {key, name} < {c_key, c_name}
+      true -> {key, name} > {c_key, c_name}
+    end
   end
 
   defp direction(true), do: :desc
@@ -101,7 +175,7 @@ defmodule Pokex.Pokedex do
   # shiny variants first (or last, flipped): the base form's own name groups
   # each pair together, so a Shiny sits beside its base either way
   defp sort_key(entry, :shiny), do: {entry.shiny_of == nil, entry.shiny_of || entry.name}
-  defp sort_key(entry, _unknown), do: entry.number
+  defp sort_key(entry, _number_or_unknown), do: entry.number || 9_999
 
   @doc "The Shiny variants a lure can hook, with the fishing level of each tier."
   def shinies_for_lure(lure_name) do

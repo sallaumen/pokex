@@ -219,6 +219,88 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
+  test "scroll infinito: primeira leva de 100, carrega mais, e termina", %{conn: conn, path: path} do
+    species =
+      for i <- 1..250 do
+        %{
+          "name" => "Mon#{String.pad_leading("#{i}", 3, "0")}",
+          "number" => i,
+          "level" => 50,
+          "elements" => ["Water"],
+          "weak_to" => [],
+          "resists" => [],
+          "evolutions" => [],
+          "sprite" => nil,
+          "shiny_of" => nil,
+          "shiny_name" => nil
+        }
+      end
+
+    File.write!(path, JSON.encode!(%{"species" => species, "lures" => []}))
+    Pokex.Pokedex.reload()
+
+    {:ok, view, _} = live(conn, ~p"/pokedex")
+
+    # a contagem fala do TOTAL, mas só 100 vieram
+    assert view |> element("#pokedex-count") |> render() =~ "250 resultado(s)"
+    assert view |> element("#pokedex-count") |> render() =~ "100 carregados"
+    results = view |> element("#pokedex-results") |> render()
+    assert results =~ "Mon001"
+    refute results =~ "Mon101"
+
+    # o gatilho do viewport está armado enquanto houver cursor
+    assert has_element?(view, ~s(#pokedex-results[phx-viewport-bottom="load_more"]))
+
+    # segunda leva (o botão dispara o MESMO evento do scroll)
+    view |> element("#load-more") |> render_click()
+    results = view |> element("#pokedex-results") |> render()
+    assert results =~ "Mon101"
+    assert view |> element("#pokedex-count") |> render() =~ "200 carregados"
+    # o stream APENDA: o que já estava continua no DOM
+    assert results =~ "Mon001"
+
+    # terceira e última: cursor zera, gatilho e botão somem, marcador de fim entra
+    view |> element("#load-more") |> render_click()
+    assert view |> element("#pokedex-results") |> render() =~ "Mon250"
+    refute has_element?(view, "#load-more")
+    refute has_element?(view, ~s(#pokedex-results[phx-viewport-bottom="load_more"]))
+    assert view |> element("#list-end") |> render() =~ "fim da lista (250)"
+  end
+
+  @tag :tmp_dir
+  test "mudar o filtro RESETA a lista (não acumula com a anterior)", %{conn: conn, path: path} do
+    species =
+      for i <- 1..150 do
+        %{
+          "name" => "Mon#{String.pad_leading("#{i}", 3, "0")}",
+          "number" => i,
+          "level" => if(i <= 100, do: 10, else: 90),
+          "elements" => ["Water"],
+          "weak_to" => [],
+          "resists" => [],
+          "evolutions" => [],
+          "sprite" => nil,
+          "shiny_of" => nil,
+          "shiny_name" => nil
+        }
+      end
+
+    File.write!(path, JSON.encode!(%{"species" => species, "lures" => []}))
+    Pokex.Pokedex.reload()
+
+    {:ok, view, _} = live(conn, ~p"/pokedex")
+    view |> element("#load-more") |> render_click()
+    assert view |> element("#pokedex-results") |> render() =~ "Mon150"
+
+    # filtro novo → lista nova, sem restos da anterior
+    view |> form("#pokedex-filter-form", %{"f" => %{"min_level" => "90"}}) |> render_change()
+    results = view |> element("#pokedex-results") |> render()
+    assert results =~ "Mon101"
+    refute results =~ "Mon001"
+    assert view |> element("#pokedex-count") |> render() =~ "50 resultado(s)"
+  end
+
+  @tag :tmp_dir
   test "sync pela UI: trava de sync duplo, progresso ao vivo e done recarrega a base", %{
     conn: conn,
     path: path

@@ -135,4 +135,28 @@ defmodule PokexWeb.TeamLiveTest do
     refute html =~ "Meu Time"
     refute html =~ "cuidado — batem forte"
   end
+
+  @tag :tmp_dir
+  test "assigning a hotkey slot is what lets a combo swap by name", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Pokex.Pokedex.Team.add("Charizard")
+
+    {:ok, view, _html} = live(conn, ~p"/time")
+
+    view
+    |> element("#slot-form-Charizard")
+    |> render_change(%{"name" => "Charizard", "slot" => "4"})
+
+    assert Pokex.Pokedex.Team.slot_of("Charizard") == 4
+    assert render(view) =~ "C+4"
+
+    # clearing it takes the pokémon out of every combo's reach
+    view
+    |> element("#slot-form-Charizard")
+    |> render_change(%{"name" => "Charizard", "slot" => ""})
+
+    assert Pokex.Pokedex.Team.slot_of("Charizard") == nil
+  end
 end

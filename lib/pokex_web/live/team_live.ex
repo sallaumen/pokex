@@ -51,6 +51,19 @@ defmodule PokexWeb.TeamLive do
     {:noreply, assign_team(socket)}
   end
 
+  # The bridge to the game: which hotkey brings this pokémon out. Combos need
+  # it — swapping by name is only possible once a name has a key.
+  def handle_event("set_slot", %{"name" => name} = params, socket) do
+    slot =
+      case Integer.parse(params["slot"] || "") do
+        {slot, ""} when slot in 2..6 -> slot
+        _blank_or_garbage -> nil
+      end
+
+    Team.set_slot(name, slot)
+    {:noreply, assign_team(socket)}
+  end
+
   def handle_event("set_level", %{"name" => name} = params, socket) do
     case PanelForms.parse_int(params["level"], 1..999) do
       {:ok, level} -> Team.set_level(name, level)
@@ -105,10 +118,10 @@ defmodule PokexWeb.TeamLive do
   end
 
   defp with_entries(list) do
-    for %{name: name, level: level} <- list,
+    for %{name: name, level: level} = member <- list,
         entry = Pokedex.get(name),
         entry != nil,
-        do: %{name: name, level: level, entry: entry}
+        do: %{name: name, level: level, slot: Map.get(member, :slot), entry: entry}
   end
 
   defp window_note(:all, _margin), do: nil
@@ -315,6 +328,23 @@ defmodule PokexWeb.TeamLive do
           {el}
         </span>
       </.link>
+      <form
+        id={"slot-form-" <> String.replace(@row.name, ~r/\W+/, "-")}
+        phx-change="set_slot"
+        class="flex items-center gap-1 font-mono text-[9px] text-[#737d85]"
+      >
+        <input type="hidden" name="name" value={@row.name} />
+        <select
+          name="slot"
+          title="tecla que troca pra ele no jogo"
+          class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+        >
+          <option value="" selected={@row.slot == nil}>sem tecla</option>
+          <option :for={slot <- 2..6//1} value={slot} selected={@row.slot == slot}>
+            C+{slot}
+          </option>
+        </select>
+      </form>
       <form
         id={"level-form-" <> String.replace(@row.name, ~r/\W+/, "-")}
         phx-change="set_level"

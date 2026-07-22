@@ -71,13 +71,25 @@ defmodule Pokex.Perception.InterpretHudTest do
       obs = Team.interpret(region_frame(fix, :team_column), calib, %{})
 
       assert length(obs.rows) == 5
-      assert Enum.map(obs.rows, & &1.slot) == [2, 3, 4, 5, 6]
+
+      # The hotkey is READ, not counted from the row's position — and in this
+      # capture the fifth row carries no "C+N" label at all, so it has no key
+      # to press and reads as nil rather than as a confident C+6.
+      assert Enum.map(obs.rows, & &1.slot) == [2, 3, 4, 5, nil]
       assert Enum.all?(obs.rows, & &1.present?)
 
       # measured: row C+2's green fill stops 8px short of the others
       [first | rest] = obs.rows
       assert first.hp_pct < 1.0
       assert Enum.all?(rest, &(&1.hp_pct > first.hp_pct))
+    end
+
+    test "the hotkey is parsed from the label, and refused when it is not one" do
+      assert Team.parse_slot("C+4") == 4
+      assert Team.parse_slot("C+2") == 2
+      assert Team.parse_slot("C+9") == nil
+      assert Team.parse_slot("") == nil
+      assert Team.parse_slot("C+?") == nil
     end
 
     test "parse_hp only accepts the real shape" do

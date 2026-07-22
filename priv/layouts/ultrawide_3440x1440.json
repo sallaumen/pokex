@@ -182,12 +182,21 @@
     },
     "team_icon_first": {
       "fixed": [
-        28,
+        18,
         1110,
-        56,
-        56
+        54,
+        54
       ],
-      "note": "The first C+N row's circular portrait (measured: discs at x 18..94, 56px tall, repeating every 67px). Its centre is the rect's centre and its radius half the height."
+      "note": "The first C+N row's circular portrait, measured by pixel probe: at y=1136 the grey ring sits at x18-19 and x70-71, the fill spans x21..68, background resumes at x72. Pitch 67. An earlier rect of [28,1110,56,56] began 10px INSIDE the disc and ran 12px past it — it matched fine because learning and reading shared the same offset, which is exactly how a wrong region hides."
+    },
+    "team_label_first": {
+      "fixed": [
+        49,
+        1109,
+        50,
+        22
+      ],
+      "note": "The first row's 'C+N' hotkey label, drawn ON TOP of the portrait. Read rather than assumed from the row's position: in captures from earlier the same day the fifth row carried NO label at all, and a row with no hotkey cannot be swapped to."
     }
   },
   "battle_rows": {

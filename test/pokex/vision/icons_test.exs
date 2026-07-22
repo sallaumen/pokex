@@ -13,9 +13,10 @@ defmodule Pokex.Vision.IconsTest do
   alias Pokex.ScreenFixtures
   alias Pokex.Vision.Icons
 
-  # measured: the row portraits are 56px discs at x 18..94, repeating every 67px
-  @first_centre {56, 1138}
-  @radius 28
+  # measured by pixel probe: the disc's grey ring sits at x18-19 and x70-71, so
+  # the portrait is 54px wide centred on x 44/45, repeating every 67px
+  @first_centre {45, 1137}
+  @radius 27
   @pitch 67
 
   # the capture whose team order Lucas confirmed in writing (see TIME.md)

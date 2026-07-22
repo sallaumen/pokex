@@ -135,11 +135,14 @@ defmodule Pokex.Combos do
 
   def key_for(step, _enemy, _live_rows), do: {:skip, {:bad_step, step}}
 
+  # A row is only reachable when BOTH its portrait and its hotkey were read: a
+  # nameless row could be anyone, and a row with no C+N label has no key to
+  # press.
   defp find_slot(live_rows, name) do
-    case Enum.find(live_rows, &(is_map(&1) and Map.get(&1, :name) == name)) do
-      nil -> nil
-      row -> row.slot
-    end
+    Enum.find_value(live_rows, fn row ->
+      if is_map(row) and Map.get(row, :name) == name and is_integer(Map.get(row, :slot)),
+        do: row.slot
+    end)
   end
 
   @doc "How long the whole sequence will take, so a caller can budget for it."

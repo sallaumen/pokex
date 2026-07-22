@@ -365,6 +365,61 @@
       ],
       "kind": "line",
       "expected": "Pidgeot"
+    },
+    {
+      "fixture": "ultrawide_3440x1440_time",
+      "region": [
+        49,
+        1109,
+        50,
+        22
+      ],
+      "kind": "line",
+      "expected": "C+2"
+    },
+    {
+      "fixture": "ultrawide_3440x1440_time",
+      "region": [
+        49,
+        1176,
+        50,
+        22
+      ],
+      "kind": "line",
+      "expected": "C+3"
+    },
+    {
+      "fixture": "ultrawide_3440x1440_time",
+      "region": [
+        49,
+        1243,
+        50,
+        22
+      ],
+      "kind": "line",
+      "expected": "C+4"
+    },
+    {
+      "fixture": "ultrawide_3440x1440_time",
+      "region": [
+        49,
+        1310,
+        50,
+        22
+      ],
+      "kind": "line",
+      "expected": "C+5"
+    },
+    {
+      "fixture": "ultrawide_3440x1440_time",
+      "region": [
+        49,
+        1377,
+        50,
+        22
+      ],
+      "kind": "line",
+      "expected": "C+6"
     }
   ]
 }

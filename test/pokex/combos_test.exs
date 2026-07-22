@@ -99,6 +99,12 @@ defmodule Pokex.CombosTest do
       assert {:skip, {:no_counter, "Magikarp"}} = Combos.plan(sing(), "Magikarp", rows)
     end
 
+    test "a row with no hotkey label is never swapped to" do
+      rows = [%{slot: nil, name: "Jigglypuff"}, %{slot: 4, name: "Sceptile"}]
+
+      assert {:skip, {:not_on_screen, "Jigglypuff"}} = Combos.plan(sing(), "Magikarp", rows)
+    end
+
     test "a row whose portrait was not recognised is never swapped to" do
       rows = [%{slot: 5, name: "Jigglypuff"}, %{slot: 4, name: nil}]
 

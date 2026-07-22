@@ -54,6 +54,9 @@ defmodule Pokex.Pokedex do
 
   def get(name), do: Enum.find(species(), &(&1.name == name))
 
+  @doc "Every species name — the lexicon a screen reading is closed against."
+  def names, do: Enum.map(species(), & &1.name)
+
   @wiki_base "https://wiki.pokexgames.com/index.php/"
 
   @doc """

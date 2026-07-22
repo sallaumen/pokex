@@ -145,12 +145,18 @@ defmodule PokexWeb.PokedexLive do
     {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
   end
 
-  # A chip toggles its value in or out of the group — "todos de planta E todos
+  # A chip toggles its option in or out of the group — "todos de planta E todos
   # de veneno" is two chips on. OR inside the group, AND across groups.
-  def handle_event("toggle_filter", %{"key" => key, "value" => value}, socket)
+  #
+  # The param is "option", NOT "value": LiveView's extractMeta reads every
+  # phx-value-* attribute and THEN overwrites meta.value with the element's own
+  # DOM .value, which on a <button> is "". So phx-value-value silently ships an
+  # empty string — and render_click/1 never sees it, because the test client
+  # reads the attributes only. Any phx-value-* name is safe except "value".
+  def handle_event("toggle_filter", %{"key" => key, "option" => option}, socket)
       when key in ~w(elements weak_to clans) do
     current = socket.assigns.raw_filters[key] || []
-    updated = if value in current, do: List.delete(current, value), else: current ++ [value]
+    updated = if option in current, do: List.delete(current, option), else: current ++ [option]
 
     {:noreply, patch_with(socket, %{key => updated})}
   end
@@ -340,7 +346,7 @@ defmodule PokexWeb.PokedexLive do
         type="button"
         phx-click="toggle_filter"
         phx-value-key={@param}
-        phx-value-value={option}
+        phx-value-option={option}
         style={@style_fun.(option)}
         class={[
           "rounded px-1.5 py-0.5 font-mono text-[10px] transition",

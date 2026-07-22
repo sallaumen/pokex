@@ -177,8 +177,19 @@ defmodule PokexWeb.Panel.CombosCard do
   defp step_text({:swap_counter}), do: "traz counter"
   defp step_text({:skill, key}), do: "skill #{key}"
   defp step_text({:wait, ms}) when is_integer(ms), do: "espera #{ms}ms"
-  defp step_text({:wait, setting}), do: "espera #{setting}"
+  # A wait step stores the SETTING it follows, so the tuned value is never
+  # duplicated into the combo. Print what it currently means — "espera
+  # combo_swap_wait_ms" is an internal name leaking onto Lucas's screen, and it
+  # does not answer the only question the chip is there to answer: how long.
+  defp step_text({:wait, setting}) when is_atom(setting), do: "espera #{wait_ms(setting)}ms"
   defp step_text(_unknown), do: "passo inválido"
+
+  defp wait_ms(setting) do
+    case Pokex.Settings.get(setting) do
+      ms when is_integer(ms) -> ms
+      _unset -> "?"
+    end
+  end
 
   # A swap to somebody who is not in the hotkeys right now cannot run — say it on
   # the chip instead of letting him find out mid-fight (or never).
@@ -195,6 +206,10 @@ defmodule PokexWeb.Panel.CombosCard do
       do: "#{name} está nos atalhos agora.",
       else: "#{name} NÃO está nos atalhos — este combo não vai rodar."
   end
+
+  # The setting name still belongs SOMEWHERE — a hover away, not on the chip.
+  defp step_detail({:wait, setting}, _team) when is_atom(setting),
+    do: "espera o valor de #{setting} (ajustável nas configurações)"
 
   defp step_detail(_step, _team), do: nil
 

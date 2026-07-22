@@ -1162,5 +1162,71 @@ defmodule PokexWeb.PanelLiveTest do
       assert html =~ "sing não rodou contra Tentacool"
       assert html =~ "Jigglypuff não está nos atalhos"
     end
+
+    test "um passo de espera mostra os milissegundos, não o nome da setting", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      # "espera combo_swap_wait_ms" is an internal name printed on his screen, and
+      # it does not answer the only question the chip exists to answer: how long?
+      chip = view |> element(~s([title*="combo_swap_wait_ms"])) |> render()
+
+      assert chip =~ "espera #{Pokex.Settings.get(:combo_swap_wait_ms)}ms"
+      # the setting name still lives a hover away, in the tooltip
+      assert chip =~ "ajustável nas configurações"
+    end
+  end
+
+  describe "o sistema visual" do
+    # These are markup guards for things a LiveView test cannot measure in pixels.
+    # MEASURED in the browser at Lucas's window width (2026-07-22): the worker
+    # status lines had 15-30px of slack and the support line was ALREADY cut, and
+    # the uppercase + 0.1em treatment alone accounted for 36px (15%) of the width.
+    # Nothing here re-measures that — these just keep the causes from coming back.
+    test "o estado dos workers não é escrito em caixa alta espaçada", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      for testid <- ~w(fishing combat catcher mini-game support) do
+        row = view |> element(~s([data-testid="#{testid}-pill"])) |> render()
+
+        refute row =~ "uppercase",
+               "a linha de #{testid} voltou pra caixa alta — ela custa 15% da largura"
+
+        refute row =~ "tracking-[0.1em]"
+      end
+    end
+
+    test "o estado de um worker nunca é truncado; a última ação pode ser", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        "game",
+        {:game,
+         %{
+           state: :monitoring,
+           counters: %{rescues: 27, potions: 194, failures: 0},
+           error: nil,
+           hp_pct: 100,
+           last_action: %{text: "poção", at: System.monotonic_time(:millisecond)}
+         }}
+      )
+
+      row = view |> element(~s([data-testid="support-pill"])) |> render()
+
+      # the state + counters live in a span that is allowed to grow
+      assert row =~ "monitorando"
+      assert row =~ "27 revive · 194 poção"
+      refute row =~ ~s(class="min-w-0 flex-1 text-pk-body text-pk-text-2 truncate)
+    end
+
+    test "um valor que ainda não foi lido aparece como — e nunca como ?", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+      world = view |> element("#world-card") |> render()
+
+      # "?" reads as a broken field; the feeds fail OPEN, so "ainda não li" is
+      # normal and must look normal.
+      refute world =~ ">?<"
+      assert world =~ "—"
+    end
   end
 end

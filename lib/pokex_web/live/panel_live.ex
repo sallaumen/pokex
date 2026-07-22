@@ -1149,25 +1149,66 @@ defmodule PokexWeb.PanelLive do
   defp mini_game_label(:error), do: "erro"
   defp mini_game_label(other), do: to_string(other)
 
-  # The Fase-1 pill details: WHY the worker is holding back (amber lock) and the
-  # last performed actuation with its live age. Snapshots without the keys (an
-  # old worker mid-rolling-restart) render nothing — Map.get keeps it safe.
-  defp pill_details(assigns) do
+  attr :testid, :string, required: true
+  attr :name, :string, required: true
+  attr :state, :atom, required: true
+  attr :active?, :boolean, required: true
+  attr :tone, :string, default: "bg-pk-ok"
+  attr :label, :string, required: true
+  attr :counters, :string, default: nil
+  attr :snapshot, :map, required: true
+  attr :now_ms, :integer, required: true
+  attr :title, :string, default: nil
+  slot :aside
+
+  # One worker, one row: dot, name, what it is doing, what it did last, and — on
+  # its own full-width line — WHY it is holding back.
+  #
+  # This used to be five near-identical cards in a 3-column grid, which left the
+  # fifth card orphaned and gave each status line ~240px. MEASURED at Lucas's
+  # window width (2026-07-22): the support line needed 248px inside that box, so
+  # it was already cut with the SHORTEST counters it can print. A row spans the
+  # whole column, so the state — the reason the row exists — never truncates.
+  defp worker_row(assigns) do
     ~H"""
-    <p
-      :if={Map.get(@snapshot, :hold_reason)}
-      title={Map.get(@snapshot, :hold_reason)}
-      class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-warn"
+    <div
+      data-testid={@testid}
+      data-state={@state}
+      title={@title}
+      class="border-b border-pk-line px-3 py-2 last:border-b-0"
     >
-      🔒 {Map.get(@snapshot, :hold_reason)}
-    </p>
-    <p
-      :if={last_action_text(@snapshot, @now_ms)}
-      title={last_action_text(@snapshot, @now_ms)}
-      class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3"
-    >
-      ⚡ {last_action_text(@snapshot, @now_ms)}
-    </p>
+      <%!-- min-h keeps every row the same height whether or not it carries a
+            control, so the column of dots reads as one straight line --%>
+      <div class="flex min-h-5 items-center gap-2">
+        <span class={[
+          "size-1.5 shrink-0 rounded-full",
+          if(@active?, do: @tone, else: "bg-pk-text-3")
+        ]} />
+        <span class="w-[4.5rem] shrink-0 text-pk-body font-semibold text-pk-text">{@name}</span>
+        <%!-- sentence case, no letter-spacing: the uppercase + 0.1em treatment this
+              replaced cost 15% of the width (248px vs 212px, measured) and was what
+              pushed these lines past their box --%>
+        <span class="min-w-0 flex-1 text-pk-body text-pk-text-2">
+          {@label}<span :if={@counters} class="pk-num text-pk-text-3">{" · " <> @counters}</span>
+        </span>
+        <span
+          :if={last_action_text(@snapshot, @now_ms)}
+          title={last_action_text(@snapshot, @now_ms)}
+          class="hidden max-w-[15rem] shrink-0 truncate text-pk-meta text-pk-text-3 sm:block"
+        >
+          ⚡ {last_action_text(@snapshot, @now_ms)}
+        </span>
+        {render_slot(@aside)}
+      </div>
+      <%!-- the lock is the most useful line on the panel (it says why nothing is
+            happening), so it gets the full width instead of a truncated sliver --%>
+      <p
+        :if={Map.get(@snapshot, :hold_reason)}
+        class="mt-1 pl-[1.125rem] text-pk-meta text-pk-warn"
+      >
+        🔒 {Map.get(@snapshot, :hold_reason)}
+      </p>
+    </div>
     """
   end
 
@@ -1186,23 +1227,28 @@ defmodule PokexWeb.PanelLive do
 
   # --- world card (the blackboard, where he is already looking) ---------------
 
-  defp world_num(nil), do: "?"
+  # "—" for a value we do not have YET, never "?". A question mark reads as a
+  # broken field; an em-dash reads as "nada lido ainda", which is the truth: the
+  # feeds fail OPEN, so an unread value is normal, not an error.
+  @unknown "—"
+
+  defp world_num(nil), do: @unknown
   defp world_num(value), do: to_string(value)
 
-  defp world_hp(nil), do: "?"
+  defp world_hp(nil), do: @unknown
   defp world_hp({current, max}), do: "#{current}/#{max}"
 
-  defp world_pct(nil), do: "?"
+  defp world_pct(nil), do: @unknown
   defp world_pct(fraction), do: "#{round(fraction * 100)}%"
 
-  defp world_pos(nil), do: "?"
+  defp world_pos(nil), do: @unknown
   defp world_pos({x, y, z}), do: "#{x}, #{y} · andar #{z}"
 
   defp world_enemies(%{enemies: [], shiny?: false}), do: "livre"
   defp world_enemies(%{enemies: [], shiny?: true}), do: "✨ SHINY"
 
   defp world_enemies(%{enemies: enemies, shiny?: shiny?}) do
-    names = Enum.map_join(enemies, ", ", &(&1[:name] || "?"))
+    names = Enum.map_join(enemies, ", ", &(&1[:name] || "sem nome"))
     if shiny?, do: "✨ " <> names, else: names
   end
 
@@ -1236,7 +1282,7 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  defp shiny_log_when(_entry), do: "?"
+  defp shiny_log_when(_entry), do: @unknown
 
   defp shiny_px_label(nil), do: "—"
   defp shiny_px_label(px), do: to_string(px)
@@ -1469,9 +1515,10 @@ defmodule PokexWeb.PanelLive do
             manual
           </span>
         </p>
-        <%!-- one short line; the long explanation lives in the tooltip so it stays
-              a hover away instead of in the way --%>
-        <p class="mt-0.5 truncate text-pk-body leading-tight text-pk-text-2" title={@detail}>
+        <%!-- the description WRAPS instead of truncating: a sentence cut mid-word
+              ("segura a fisga se o Pokémon está com pou…") tells him less than no
+              sentence at all. The long-form explanation still lives in the tooltip. --%>
+        <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2" title={@detail}>
           {@description}
         </p>
       </div>
@@ -1643,71 +1690,50 @@ defmodule PokexWeb.PanelLive do
                 </button>
               </div>
 
-              <div class="grid grid-cols-3 gap-1.5">
-                <div
-                  data-testid="fishing-pill"
-                  data-state={@fishing.state}
-                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
-                >
-                  <div class="flex items-center gap-1.5 text-pk-body font-semibold">
-                    <span class={[
-                      "size-1.5 shrink-0 rounded-full",
-                      if(active?(@fishing.state), do: "bg-pk-ok", else: "bg-pk-text-3")
-                    ]} /> Pesca
-                  </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                    {fishing_label(@fishing.state)}
-                  </p>
-                  <.pill_details snapshot={@fishing} now_ms={@now_ms} />
-                </div>
-                <div
-                  data-testid="combat-pill"
-                  data-state={@combat.state}
-                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
-                >
-                  <div class="flex items-center gap-1.5 text-pk-body font-semibold">
-                    <span class={[
-                      "size-1.5 shrink-0 rounded-full",
-                      if(active?(@combat.state), do: "bg-pk-ok", else: "bg-pk-text-3")
-                    ]} /> Batalha
-                  </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                    {combat_label(@combat.state, Map.get(@combat, :locked_row))}
-                  </p>
-                  <.pill_details snapshot={@combat} now_ms={@now_ms} />
-                </div>
-                <div
-                  data-testid="catcher-pill"
-                  data-state={@catcher.state}
-                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
-                >
-                  <div class="flex items-center gap-1.5 text-pk-body font-semibold">
-                    <span class={[
-                      "size-1.5 shrink-0 rounded-full",
-                      if(active?(@catcher.state), do: "bg-pk-ok", else: "bg-pk-text-3")
-                    ]} /> Captura
-                  </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                    {catcher_label(@catcher.state)}
-                    <span class="pk-num">
-                      · {catcher_captures(@catcher)} bola · {catcher_loots(@catcher)} saque
-                    </span>
-                  </p>
-                  <.pill_details snapshot={@catcher} now_ms={@now_ms} />
-                </div>
-                <div
-                  data-testid="mini-game-pill"
-                  data-state={@mini_game.state}
+              <%!-- The five workers as ROWS in one card: a 3-column grid left the
+                   fifth card orphaned, and every row here gets the full column width,
+                   so the state never has to be truncated to fit. --%>
+              <div class="overflow-hidden rounded-lg border border-pk-line bg-pk-surface">
+                <.worker_row
+                  testid="fishing-pill"
+                  name="Pesca"
+                  state={@fishing.state}
+                  active?={active?(@fishing.state)}
+                  label={fishing_label(@fishing.state)}
+                  snapshot={@fishing}
+                  now_ms={@now_ms}
+                />
+                <.worker_row
+                  testid="combat-pill"
+                  name="Batalha"
+                  state={@combat.state}
+                  active?={active?(@combat.state)}
+                  label={combat_label(@combat.state, Map.get(@combat, :locked_row))}
+                  snapshot={@combat}
+                  now_ms={@now_ms}
+                />
+                <.worker_row
+                  testid="catcher-pill"
+                  name="Captura"
+                  state={@catcher.state}
+                  active?={active?(@catcher.state)}
+                  label={catcher_label(@catcher.state)}
+                  counters={"#{catcher_captures(@catcher)} bola · #{catcher_loots(@catcher)} saque"}
+                  snapshot={@catcher}
+                  now_ms={@now_ms}
+                />
+                <.worker_row
+                  testid="mini-game-pill"
+                  name="Mini game"
+                  state={@mini_game.state}
+                  active?={@mini_game.state == :playing}
+                  tone="bg-pk-warn"
+                  label={mini_game_label(@mini_game.state)}
                   title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
-                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
+                  snapshot={@mini_game}
+                  now_ms={@now_ms}
                 >
-                  <div class="flex items-center justify-between text-pk-body font-semibold">
-                    <span class="flex items-center gap-1.5">
-                      <span class={[
-                        "size-1.5 shrink-0 rounded-full",
-                        if(@mini_game.state == :playing, do: "bg-pk-warn", else: "bg-pk-text-3")
-                      ]} /> Mini game
-                    </span>
+                  <:aside>
                     <button
                       type="button"
                       phx-click="toggle_mini_game_sound"
@@ -1717,7 +1743,7 @@ defmodule PokexWeb.PanelLive do
                           else: "Alerta sonoro MUDO — clique para reativar"
                       }
                       class={[
-                        "cursor-pointer",
+                        "flex shrink-0 cursor-pointer",
                         if(@mini_game_sound,
                           do: "text-pk-text-3 hover:text-pk-text",
                           else: "text-pk-warn hover:text-pk-warn"
@@ -1728,34 +1754,22 @@ defmodule PokexWeb.PanelLive do
                         name={
                           if @mini_game_sound, do: "hero-speaker-wave", else: "hero-speaker-x-mark"
                         }
-                        class="size-3"
+                        class="size-3.5"
                       />
                     </button>
-                  </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                    {mini_game_label(@mini_game.state)}
-                  </p>
-                </div>
-                <div
-                  data-testid="support-pill"
-                  data-state={@game.state}
+                  </:aside>
+                </.worker_row>
+                <.worker_row
+                  testid="support-pill"
+                  name="Suporte"
+                  state={@game.state}
+                  active?={@game.state == :monitoring}
+                  label={support_label(@game.state)}
+                  counters={"#{rescue_count(@game)} revive · #{potion_count(@game)} poção"}
                   title="revive + poção — protege o Pokémon principal, até jogando manual"
-                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
-                >
-                  <div class="flex items-center gap-1.5 text-pk-body font-semibold">
-                    <span class={[
-                      "size-1.5 shrink-0 rounded-full",
-                      if(@game.state == :monitoring, do: "bg-pk-ok", else: "bg-pk-text-3")
-                    ]} /> Suporte
-                  </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                    {support_label(@game.state)}
-                    <span class="pk-num">
-                      · {rescue_count(@game)} revive · {potion_count(@game)} poção
-                    </span>
-                  </p>
-                  <.pill_details snapshot={@game} now_ms={@now_ms} />
-                </div>
+                  snapshot={@game}
+                  now_ms={@now_ms}
+                />
               </div>
 
               <div class="space-y-1">
@@ -1798,8 +1812,19 @@ defmodule PokexWeb.PanelLive do
               </div>
 
               <%!-- The MODE is what Iniciar means, so it sits on the button, not buried
-                   in a list of eleven switches. Switching reapplies its defaults. --%>
-              <div id="mode-picker" class="grid grid-cols-2 gap-1.5">
+                   in a list of eleven switches. Switching reapplies its defaults.
+
+                   ONE control, two halves — not two cards side by side. Two equal
+                   cards where one is tinted make the reader compare them to find the
+                   difference; a segmented control says "this is a choice, and THIS
+                   half is on" before you read a word. The chosen half also carries a
+                   check, so the state survives a glance (and colour-blindness). --%>
+              <div
+                id="mode-picker"
+                role="radiogroup"
+                aria-label="Modo de jogo"
+                class="grid grid-cols-2 gap-1 rounded-lg border border-pk-line-strong bg-pk-sunken p-1"
+              >
                 <button
                   :for={
                     {mode, label, hint, icon} <- [
@@ -1808,14 +1833,16 @@ defmodule PokexWeb.PanelLive do
                     ]
                   }
                   id={"mode-#{mode}"}
+                  role="radio"
                   phx-click="set_player_mode"
                   phx-value-mode={mode}
+                  aria-checked={to_string(@player_mode == mode)}
                   aria-pressed={to_string(@player_mode == mode)}
                   class={[
-                    "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition",
+                    "flex items-center gap-2 rounded-md px-2.5 py-2 text-left transition",
                     if(@player_mode == mode,
-                      do: "border-pk-ok-line bg-pk-ok-dim",
-                      else: "border-pk-line-strong hover:border-[#3a464e]"
+                      do: "bg-pk-ok-dim ring-1 ring-inset ring-pk-ok-line",
+                      else: "opacity-70 hover:bg-pk-raised hover:opacity-100"
                     )
                   ]}
                 >
@@ -1826,13 +1853,18 @@ defmodule PokexWeb.PanelLive do
                       if(@player_mode == mode, do: "text-pk-ok", else: "text-pk-text-3")
                     ]}
                   />
-                  <span class="min-w-0">
+                  <span class="min-w-0 flex-1">
                     <span class={[
                       "block truncate text-pk-body font-semibold",
                       if(@player_mode == mode, do: "text-pk-ok", else: "text-pk-text-2")
                     ]}>{label}</span>
                     <span class="block truncate text-pk-meta text-pk-text-3">{hint}</span>
                   </span>
+                  <.icon
+                    :if={@player_mode == mode}
+                    name="hero-check-circle-solid"
+                    class="size-4 shrink-0 text-pk-ok"
+                  />
                 </button>
               </div>
 

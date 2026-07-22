@@ -372,14 +372,14 @@ defmodule PokexWeb.PanelLiveTest do
     # the probe scores each row — the real capture has a star on one of them
     view |> element("#shiny-probe") |> render_click()
     html = render(view)
-    assert html =~ "sonda: estrela por linha"
+    assert html =~ "sonda: colunas douradas por linha"
     assert html =~ "L0:"
 
     # a live reading lights the meter
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "shiny",
-      {:shiny_reading, %{star_px: 4, min_px: 10}}
+      {:shiny_reading, %{star_run: 4, min_px: 3}}
     )
 
     assert render(view) =~ "4<span"

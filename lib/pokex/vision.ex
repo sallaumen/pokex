@@ -339,51 +339,58 @@ defmodule Pokex.Vision do
   glyph does. The gold predicate also demands a high G/R, so deep-orange
   sprites and the (255,28,28) pokeball can never match.
 
-  Returns `[{row, cluster_px}]` for every row whose densest 3-column window
+  Returns `[{row, run}]` for every row whose longest run of dense gold columns
   reaches `min_cluster`.
   """
+  @star_min_px_per_column 4
+  @star_min_run 3
+
   @spec star_rows(Frame.t(), keyword) :: [{non_neg_integer, non_neg_integer}]
   def star_rows(%Frame{width: w, rgba: rgba}, opts) do
     top = Keyword.fetch!(opts, :top)
     band = Keyword.fetch!(opts, :band)
     rows = Keyword.fetch!(opts, :rows)
-    min_cluster = Keyword.get(opts, :min_cluster, 10)
+    min_run = Keyword.get(opts, :min_cluster, @star_min_run)
 
     cells = gold_cells(rgba, 0, w, top, band, rows, %{})
 
     for row <- 0..(rows - 1)//1,
-        cluster = densest_window(cells, row, w),
-        cluster >= min_cluster,
-        do: {row, cluster}
+        run = dense_run(cells, row, w),
+        run >= min_run,
+        do: {row, run}
   end
 
-  @doc false
-  # Per-row densest 3-column gold window — exposed for the panel's shiny probe
-  # (it shows the score of EVERY row, including the ones below the threshold).
+  @doc """
+  Per-row star score: the longest run of ADJACENT columns that each carry at
+  least `@star_min_px_per_column` gold pixels. The panel's Sonda shows this.
+  """
   def star_row_clusters(%Frame{width: w, rgba: rgba}, opts) do
     top = Keyword.fetch!(opts, :top)
     band = Keyword.fetch!(opts, :band)
     rows = Keyword.fetch!(opts, :rows)
     cells = gold_cells(rgba, 0, w, top, band, rows, %{})
 
-    for row <- 0..(rows - 1)//1, do: densest_window(cells, row, w)
+    for row <- 0..(rows - 1)//1, do: dense_run(cells, row, w)
   end
 
-  # The star glyph spans ~7 columns; a 3-wide window is the tightest measure
-  # that still fully separates it (15+ px) from icon speckle (≤2 px).
-  defp densest_window(cells, row, width) do
-    Enum.reduce(0..(width - 1)//1, 0, fn x, best ->
-      sum =
-        Map.get(cells, {row, x}, 0) + Map.get(cells, {row, x + 1}, 0) +
-          Map.get(cells, {row, x + 2}, 0)
+  # A star is a compact GLYPH: measured on Lucas's real shiny row, five
+  # consecutive columns carry 4-7 gold pixels each. A yellow POKÉMON is not —
+  # a Magikarp's fins scatter 1-3 pixels per column with gaps, peaking at a
+  # single column of 5. Summing a window could not tell them apart (star 19,
+  # Magikarp 10, threshold 10 — the fish won); requiring every column of the
+  # run to be dense separates them by 5 to 1.
+  defp dense_run(cells, row, width) do
+    Enum.reduce(0..(width - 1)//1, {0, 0}, fn column, {best, current} ->
+      current =
+        if Map.get(cells, {row, column}, 0) >= @star_min_px_per_column,
+          do: current + 1,
+          else: 0
 
-      max(best, sum)
+      {max(best, current), current}
     end)
+    |> elem(0)
   end
 
-  # Gold = bright, yellow (G close to R), clearly not blue. The G/R floor
-  # (g*10 >= r*6, i.e. G/R ≥ 0.6) is what keeps deep oranges and the red
-  # pokeball out. Clause order matters (see red_band_counts).
   defp gold_cells(<<r, g, b, _a, rest::binary>>, index, width, top, band, rows, acc)
        when r >= 190 and g >= 130 and b <= 150 and r - b >= 80 and g - b >= 40 and g * 10 >= r * 6 do
     y = div(index, width)

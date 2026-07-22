@@ -19,27 +19,36 @@ defmodule Pokex.VisionStarTest do
   end
 
   test "finds the star ONLY on the shiny's row" do
-    rows = Vision.star_rows(frame!(), bands() ++ [min_cluster: 10])
+    rows = Vision.star_rows(frame!(), bands() ++ [min_cluster: 3])
 
-    assert [{1, cluster}] = rows
-    # measured: the glyph packs 15+ gold px into its densest 3 columns
-    assert cluster >= 15
+    assert [{1, run}] = rows
+    # measured: five consecutive columns carry 4-7 gold pixels each
+    assert run >= 5
   end
 
-  test "the per-row clusters separate the shiny from the normal row by a mile" do
+  test "the per-row runs separate the shiny from the normal row by a mile" do
     assert [normal, shiny] = Vision.star_row_clusters(frame!(), bands())
 
-    # The non-shiny row reads ~0: the only gold near it is the topmost pixel of
-    # the star BELOW, clipped in by the band boundary (the row height here is a
-    # test-chosen approximation of the live geometry). One stray pixel against
-    # the glyph's 15+ is exactly why DENSITY, not presence, is the rule.
-    assert normal <= 2
-    assert shiny >= 15
-    assert shiny > normal * 5
+    assert normal == 0
+    assert shiny >= 5
   end
 
   test "a threshold above the measured star finds nothing (the tuning knob works)" do
-    assert Vision.star_rows(frame!(), bands() ++ [min_cluster: 999]) == []
+    assert Vision.star_rows(frame!(), bands() ++ [min_cluster: 99]) == []
+  end
+
+  test "a battle list full of YELLOW pokémon is not a battle list full of shinies" do
+    # The false positive that made this rule necessary: five Magikarps, whose
+    # fins are gold. Summing a 3-column window scored them 10 against the real
+    # star's 19 — with the threshold at 10, every fish was a shiny.
+    {:ok, frame} = Frame.from_png_file("test/fixtures/screen/ultrawide_3440x1440_outro_mapa.png")
+    {:ok, fix} = Pokex.Layout.locate(frame)
+    {x, y, w, h} = Pokex.Layout.region(:battle_list, fix)
+    body = Frame.crop(Frame.crop(frame, {x, y, w, h}), {0, 0, w - 30, h})
+    {top, band} = Pokex.Calibration.row_band_geometry(1.0, 46)
+
+    assert Vision.star_rows(body, top: top, band: band, rows: 6) == []
+    assert Enum.max(Vision.star_row_clusters(body, top: top, band: band, rows: 6)) <= 2
   end
 
   test "the red pokeball never reads as a star" do
@@ -48,6 +57,6 @@ defmodule Pokex.VisionStarTest do
     path = Pokex.PngFixtures.write!(Path.join(System.tmp_dir!(), "pokeball_red.png"), rows)
     {:ok, red} = Frame.from_png_file(path)
 
-    assert Vision.star_rows(red, top: 0, band: 20, rows: 2, min_cluster: 10) == []
+    assert Vision.star_rows(red, top: 0, band: 20, rows: 2, min_cluster: 3) == []
   end
 end

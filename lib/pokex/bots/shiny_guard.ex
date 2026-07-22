@@ -90,7 +90,7 @@ defmodule Pokex.Bots.ShinyGuard do
        enabled?: state.active? and Settings.get(:shiny_guard_enabled),
        attached?: state.attached?,
        pending?: state.pending_ref != nil,
-       star_min_px: Settings.get(:shiny_star_min_px)
+       star_min_columns: Settings.get(:shiny_star_min_columns)
      }, state}
   end
 
@@ -105,7 +105,7 @@ defmodule Pokex.Bots.ShinyGuard do
     # the world topic carries battle obs whenever ANYONE (combat included)
     # attaches the feed — a disabled guard must stay inert
     if state.active? and Settings.get(:shiny_guard_enabled) do
-      px = Map.get(obs, :shiny_star_px, 0)
+      px = Map.get(obs, :shiny_star_run, 0)
       state = broadcast_reading(state, px)
       seen? = Map.get(obs, :shiny_rows, []) != []
       {:noreply, advance(state, seen?, px)}
@@ -215,7 +215,7 @@ defmodule Pokex.Bots.ShinyGuard do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @reading_topic,
-        {:shiny_reading, %{star_px: px, min_px: Settings.get(:shiny_star_min_px)}}
+        {:shiny_reading, %{star_run: px, min_px: Settings.get(:shiny_star_min_columns)}}
       )
 
       %{state | last_reading_at: now}
@@ -229,7 +229,7 @@ defmodule Pokex.Bots.ShinyGuard do
     reason = "✨ SHINY na lista de batalha (estrela #{px}px)"
 
     # the trophy shelf first: the encounter is logged even if the action fails
-    ShinyLog.record(star_px: px, action: action, outcome: "visto")
+    ShinyLog.record(star_run: px, action: action, outcome: "visto")
 
     case action do
       "fugir" ->

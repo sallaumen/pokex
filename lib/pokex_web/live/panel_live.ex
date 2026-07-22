@@ -126,8 +126,8 @@ defmodule PokexWeb.PanelLive do
        shiny_guard_enabled: Settings.get(:shiny_guard_enabled),
        shiny_action: Settings.get(:shiny_action),
        shiny_msg: nil,
-       shiny_star_px: nil,
-       shiny_star_min_px: Settings.get(:shiny_star_min_px),
+       shiny_star_run: nil,
+       shiny_star_min_columns: Settings.get(:shiny_star_min_columns),
        shiny_log: Pokex.Pokedex.ShinyLog.entries(),
        potion_pct: Settings.get(:pokemon_hp_potion_pct),
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
@@ -332,8 +332,8 @@ defmodule PokexWeb.PanelLive do
   end
 
   # The ShinyGuard's live star reading (throttled) — feeds the meter.
-  def handle_info({:shiny_reading, %{star_px: px, min_px: min_px}}, socket),
-    do: {:noreply, assign(socket, shiny_star_px: px, shiny_star_min_px: min_px)}
+  def handle_info({:shiny_reading, %{star_run: px, min_px: min_px}}, socket),
+    do: {:noreply, assign(socket, shiny_star_run: px, shiny_star_min_columns: min_px)}
 
   # A confirmed sighting: refresh the trophy shelf so the encounter shows up.
   def handle_info({:shiny_seen, _info}, socket),
@@ -703,14 +703,14 @@ defmodule PokexWeb.PanelLive do
         clusters = Pokex.Vision.star_row_clusters(body, top: top, band: band, rows: rows)
         best = Enum.max(clusters, fn -> 0 end)
 
-        {"sonda: estrela por linha " <>
-           Enum.map_join(Enum.with_index(clusters), " · ", fn {px, i} -> "L#{i}: #{px}px" end) <>
-           " (limiar #{settings[:shiny_star_min_px]}px)", best}
+        {"sonda: colunas douradas por linha " <>
+           Enum.map_join(Enum.with_index(clusters), " · ", fn {run, i} -> "L#{i}: #{run}" end) <>
+           " (limiar #{settings[:shiny_star_min_columns]} colunas)", best}
       else
         error -> {"sonda falhou: #{inspect(error)}", nil}
       end
 
-    {:noreply, assign(socket, shiny_msg: msg, shiny_star_px: px)}
+    {:noreply, assign(socket, shiny_msg: msg, shiny_star_run: px)}
   end
 
   def handle_event("shiny_log_clear", _params, socket) do
@@ -2195,22 +2195,22 @@ defmodule PokexWeb.PanelLive do
                 <div class="flex min-w-[9rem] flex-1 items-center gap-2">
                   <span class={[
                     "font-mono text-sm font-bold tabular-nums",
-                    shiny_px_class(@shiny_star_px, @shiny_star_min_px)
+                    shiny_px_class(@shiny_star_run, @shiny_star_min_columns)
                   ]}>
-                    {shiny_px_label(@shiny_star_px)}<span class="text-[9px] font-normal text-[#737d85]">/{@shiny_star_min_px}px</span>
+                    {shiny_px_label(@shiny_star_run)}<span class="text-[9px] font-normal text-[#737d85]">/{@shiny_star_min_columns} col</span>
                   </span>
                   <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#222a2f]">
                     <div
                       class={[
                         "h-full rounded-full transition-[width]",
-                        case shiny_zone(@shiny_star_px, @shiny_star_min_px) do
+                        case shiny_zone(@shiny_star_run, @shiny_star_min_columns) do
                           :hit -> "bg-[#ff6b74]"
                           :warn -> "bg-[#f2c45b]"
                           :safe -> "bg-[#37d07d]"
                           :none -> "bg-[#3a4249]"
                         end
                       ]}
-                      style={"width: #{shiny_bar_pct(@shiny_star_px, @shiny_star_min_px)}%"}
+                      style={"width: #{shiny_bar_pct(@shiny_star_run, @shiny_star_min_columns)}%"}
                     />
                   </div>
                 </div>

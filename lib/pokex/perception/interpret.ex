@@ -49,7 +49,7 @@ defmodule Pokex.Perception.Interpret do
         top: top,
         band: band,
         rows: rows,
-        min_cluster: Settings.value(settings, :shiny_star_min_px)
+        min_cluster: Settings.value(settings, :shiny_star_min_columns)
       )
 
     %{
@@ -58,7 +58,7 @@ defmodule Pokex.Perception.Interpret do
       locked?: locked_row != nil,
       locked_row: locked_row,
       shiny_rows: Enum.map(stars, &elem(&1, 0)),
-      shiny_star_px: stars |> Enum.map(&elem(&1, 1)) |> Enum.max(fn -> 0 end)
+      shiny_star_run: stars |> Enum.map(&elem(&1, 1)) |> Enum.max(fn -> 0 end)
     }
   end
 

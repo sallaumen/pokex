@@ -247,7 +247,10 @@ defmodule Pokex.Settings do
     # window reaches this many pixels; MEASURED on Lucas's real capture
     # (2026-07-21): the star reads 15+ in that window, a non-shiny row 0, and a
     # shiny's own sprite icon at most 2. Raise it if a golden sprite ever trips.
-    shiny_star_min_px: 10,
+    # A star is a compact glyph: MEASURED, five consecutive columns carry 4-7
+    # gold pixels each. A yellow POKÉMON never stacks like that — a Magikarp's
+    # fins peak at ONE dense column. 3 sits between the two.
+    shiny_star_min_columns: 3,
     # A shiny ALWAYS deserves a pokéball, even with capture_enabled off
     # (Lucas: "O Shiny sempre tem que tentar").
     shiny_always_ball: true,

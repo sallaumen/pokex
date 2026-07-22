@@ -26,10 +26,10 @@ defmodule Pokex.Bots.ShinyGuardTest do
   # what Interpret.battle publishes: which rows carry the gold star + the best
   # cluster score seen
   defp shiny_obs(px \\ 40),
-    do: %{enemies: [0], red: [0, 0], locked?: false, shiny_rows: [1], shiny_star_px: px}
+    do: %{enemies: [0], red: [0, 0], locked?: false, shiny_rows: [1], shiny_star_run: px}
 
   defp clean_obs,
-    do: %{enemies: [0], red: [0, 0], locked?: false, shiny_rows: [], shiny_star_px: 0}
+    do: %{enemies: [0], red: [0, 0], locked?: false, shiny_rows: [], shiny_star_run: 0}
 
   # Deliver EXACTLY like the Feed does — a PubSub broadcast on the world topic.
   # The live-sighting bug shipped because tests sent messages straight to the
@@ -99,7 +99,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   @tag :tmp_dir
   test "status expõe o estado do guarda", %{guard: guard} do
     status = ShinyGuard.status(guard)
-    assert %{enabled?: _, attached?: false, pending?: false, star_min_px: _} = status
+    assert %{enabled?: _, attached?: false, pending?: false, star_min_columns: _} = status
   end
 
   @tag :tmp_dir
@@ -107,7 +107,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
     world_broadcast(clean_obs())
-    assert_receive {:shiny_reading, %{star_px: 0, min_px: _}}, 500
+    assert_receive {:shiny_reading, %{star_run: 0, min_px: _}}, 500
 
     # the throttle suppresses a second reading right after the first
     world_broadcast(clean_obs())

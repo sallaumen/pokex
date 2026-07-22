@@ -51,7 +51,43 @@ lib/pokex_web/live/panel_live.ex      # MOD  stock badges + layout banner
 lib/pokex_web/live/team_live.ex       # MOD  slot mapping UI (whatever file owns /time)
 ```
 
-Phase→PR mapping: F1 = Tasks 1–4, F2 = 5–7, F3 = 8–12, F4 = 13, F5 = 14–16, F6 = 17, wrap-up = 18.
+Phase→PR mapping: F1 = Tasks 1–4, F2 = 5–7, F3 = 9–12, F4 = 13, F5 = 14–16 (+ Task 8), F6 = 17, wrap-up = 18.
+
+## Progress (2026-07-22)
+
+| phase | PR | state |
+|---|---|---|
+| F1 Glyphs | #50 | ✅ merged — 18 real regions round-trip exactly |
+| F2 Layout | #51 | ✅ merged — 3 anchors, unique screen-wide; sentinel + banner |
+| F3 Feeds + snapshot | #52 | ✅ merged — :hud/:team/:minimap, World.snapshot, /world v2 |
+| F4 Stock alerts | #53 | ✅ merged — F1/F2/E/S+Q, one alarm per crossing |
+| **Task 8** battle names+HP | — | ⏳ NEXT, moved into F5 (see below) |
+| F5 Team slots + combos | — | ⏳ pending |
+| F6 minimap_step | — | ⏳ pending |
+
+### Deviations from the original plan, and why
+
+1. **Ink is NEUTRAL, not merely bright** (Task 2). Measured: game text is
+   white (255,255,255) or grey (136,136,136) while bars are saturated
+   ((100,240,100)). The planned `max(r,g,b) >= 170` would have read the HP bar
+   as text. Implemented as `min(r,g,b) >= floor and spread <= 60`, with the
+   floor per REGION (slot counts sit on bright item sprites and need 200).
+2. **Anchors are 3, but the minimap hangs off the BATTLE header**, not off a
+   screen corner: the minimap panel runs from the dock top down to wherever
+   the battle panel starts, so resizing the map moves one anchor and the
+   region follows. All three anchors verified unique across the full screen.
+3. **Task 8 (battle names + HP) moved after F4**, into F5 where combos
+   actually need it. Reason: Lucas's manual `battle_region` is STALE (it says
+   y=287; the panel now starts at y=460 because he enlarged his map), so
+   switching battle to the derived region is a behaviour change to the combat
+   path and deserves its own PR with row-geometry tests — not a rider on the
+   feed work.
+4. **Minimap sanity gates are a public pure function** (`Minimap.accept/2`)
+   rather than private state juggling — it is the only part with real logic,
+   so it is the part that must be directly testable.
+5. **Feed HOLDS on a nil region** instead of counting a capture failure: a
+   feed whose panel is not located yet must wait, not accumulate a streak that
+   triggers a pointless re-locate.
 
 ---
 

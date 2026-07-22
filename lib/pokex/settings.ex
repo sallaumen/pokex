@@ -374,6 +374,9 @@ defmodule Pokex.Settings do
     # comes in.
     combos_enabled: false,
     combo_swap_wait_ms: 900,
+    # a beat between the combo's key presses, so the client registers them as
+    # separate actions rather than one blur
+    combo_press_gap_ms: 120,
     combo_sing_wait_ms: 2_500,
     stock_alerts_enabled: true,
     stock_alert_f1: 30,

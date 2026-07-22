@@ -10,6 +10,8 @@ defmodule Pokex.Pokedex do
   it up on the next restart.
   """
 
+  alias Pokex.Pokedex.Clans
+
   @doc "Every species entry (shiny variants included, `shiny_of` set on them)."
   def species, do: data().species
 
@@ -415,13 +417,30 @@ defmodule Pokex.Pokedex do
     with {:ok, bin} <- File.read(path),
          {:ok, json} <- JSON.decode(bin) do
       %{
-        species: Enum.map(json["species"] || [], &species_entry/1),
+        species: (json["species"] || []) |> Enum.map(&species_entry/1) |> inherit_clans(),
         lures: Enum.map(json["lures"] || [], &lure_entry/1),
         synced_at: json["scraped_at"]
       }
     else
       _missing_or_corrupt -> %{species: [], lures: [], synced_at: nil}
     end
+  end
+
+  # 18 of the 80 materia-less entries are Shiny variants whose base form HAS
+  # one — same creature, same clan, so inherit it instead of showing "no clan".
+  defp inherit_clans(species) do
+    by_name = Map.new(species, &{&1.name, &1})
+
+    Enum.map(species, fn
+      %{clans: [], shiny_of: base_name} = entry when is_binary(base_name) ->
+        case by_name[base_name] do
+          %{clans: clans} -> %{entry | clans: clans}
+          nil -> entry
+        end
+
+      entry ->
+        entry
+    end)
   end
 
   defp species_entry(map) do
@@ -434,6 +453,10 @@ defmodule Pokex.Pokedex do
       boost: map["boost"],
       habilidades: map["habilidades"] || [],
       materia: map["materia"],
+      # PXG clan(s), derived from materia at load time — filterable, with no
+      # hand-marking of 866 entries; a shiny without materia inherits from its
+      # base form (see inherit_clans/1)
+      clans: Clans.parse(map["materia"]),
       evolution_stones: map["evolution_stones"] || [],
       description: map["description"],
       weak_to: map["weak_to"] || [],

@@ -17,6 +17,7 @@ defmodule Pokex.PokedexTest do
         "sprite" => "images/pokedex/seadra.gif",
         "shiny_of" => nil,
         "shiny_name" => "Shiny Seadra",
+        "materia" => "Seavell",
         "edited_at" => "2026-02-06"
       },
       %{
@@ -41,7 +42,8 @@ defmodule Pokex.PokedexTest do
         "evolutions" => [],
         "sprite" => nil,
         "shiny_of" => nil,
-        "shiny_name" => nil
+        "shiny_name" => nil,
+        "materia" => "Volcanic Superior"
       },
       %{
         "name" => "Venusaur",
@@ -73,6 +75,22 @@ defmodule Pokex.PokedexTest do
     Application.put_env(:pokex, :pokedex_path, path)
     on_exit(fn -> Application.delete_env(:pokex, :pokedex_path) end)
     :ok
+  end
+
+  describe "clãs derivados da matéria" do
+    @tag :tmp_dir
+    test "cada entrada nasce com seus clãs; shiny sem matéria herda do base-form" do
+      assert %{clans: ["Seavell"]} = Pokedex.get("Seadra")
+      assert %{clans: ["Volcanic"]} = Pokedex.get("Charizard")
+
+      # Shiny Seadra não tem materia no JSON — herda do Seadra
+      assert %{clans: ["Seavell"]} = Pokedex.get("Shiny Seadra")
+    end
+
+    @tag :tmp_dir
+    test "entrada sem matéria e sem base-form fica honestamente sem clã" do
+      assert %{clans: []} = Pokedex.get("Venusaur")
+    end
   end
 
   @tag :tmp_dir

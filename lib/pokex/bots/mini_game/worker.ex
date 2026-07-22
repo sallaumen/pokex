@@ -302,13 +302,9 @@ defmodule Pokex.Bots.MiniGame.Worker do
     {state, nil}
   end
 
-  defp mini_game_region(%Calibration{mini_game_region: region}) when is_tuple(region), do: region
-
-  defp mini_game_region(%Calibration{arena_region: region}) when is_tuple(region), do: region
-
-  defp mini_game_region(%Calibration{screen_w: w, screen_h: h})
-       when is_integer(w) and is_integer(h),
-       do: {0, 0, w, h}
+  # One resolver for the whole app (the preview draws the SAME rect the worker
+  # searches) — see Calibration.mini_game_region/1 for the precedence.
+  defp mini_game_region(%Calibration{} = calib), do: Calibration.mini_game_region(calib)
 
   defp player_anchor_x(frame, calib, {rx, _ry, rw, _rh}) when rw > 0 do
     {px, _py} = Calibration.player_point(calib)

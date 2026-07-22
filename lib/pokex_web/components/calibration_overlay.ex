@@ -31,6 +31,7 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :player_point, :any, default: nil
   attr :pokemon_hp_region, :any, default: nil
   attr :pokemon_photo_point, :any, default: nil
+  attr :mini_game_region, :any, default: nil
   attr :bands, :list, default: []
 
   def overlays(assigns) do
@@ -51,6 +52,15 @@ defmodule PokexWeb.CalibrationOverlay do
     >
       <span class="absolute -top-4 left-0 rounded bg-success px-1 text-[10px] font-bold text-success-content">
         arena
+      </span>
+    </div>
+    <div
+      :if={@mini_game_region}
+      class="absolute rounded border-2 border-primary bg-primary/10"
+      style={region_style(@mini_game_region, @screen)}
+    >
+      <span class="absolute -top-4 left-0 rounded bg-primary px-1 text-[10px] font-bold text-primary-content">
+        mini game
       </span>
     </div>
     <div
@@ -130,6 +140,9 @@ defmodule PokexWeb.CalibrationOverlay do
       </span>
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-sm border-2 border-success" /> arena
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-sm border-2 border-primary" /> faixa do mini game
       </span>
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-sm border-2 border-secondary" /> barra de skills

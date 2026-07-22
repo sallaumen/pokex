@@ -252,8 +252,9 @@ defmodule Pokex.Settings do
     # (Lucas: "O Shiny sempre tem que tentar").
     shiny_always_ball: true,
     shiny_action: "alarme",
-    # Consecutive battle frames showing the star before the guard acts.
-    shiny_streak_needed: 3,
+    # A sighting must survive this long without a clean frame refuting it.
+    # The feed captures every ~120ms, so a one-frame glitch dies in ~120-240ms.
+    shiny_confirm_ms: 400,
     # Anti-stagnation rule (Actions & Rules): an ACTIVE session with neither a
     # kill nor a hooked fish for this many minutes is a wedged bot (empty
     # water, stuck detector, dead spot). 0 = off. Action "alarme" re-rings

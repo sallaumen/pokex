@@ -6,10 +6,51 @@ defmodule PokexWeb.WorldLiveTest do
 
   setup do
     on_exit(fn ->
-      Enum.each([:battle, :corpses, :mini_game, :world_test_key], &WorldState.forget/1)
+      Enum.each(
+        [:battle, :corpses, :mini_game, :world_test_key, :hud, :team, :minimap],
+        &WorldState.forget/1
+      )
     end)
 
     :ok
+  end
+
+  test "the snapshot card shows the whole game state at a glance", %{conn: conn} do
+    now = System.monotonic_time(:millisecond)
+
+    WorldState.put(
+      :hud,
+      %{level: 90, food: 1525, fishing: 96, slots: %{f1: 322, f2: 36, e: 7, s_q: 43}},
+      now
+    )
+
+    WorldState.put(
+      :team,
+      %{pokemon_hp: {5559, 6410}, rows: [%{slot: 2, present?: true, hp_pct: 0.86}]},
+      now
+    )
+
+    WorldState.put(:minimap, %{pos: {337, 46107, 4}}, now)
+
+    WorldState.put(
+      :battle,
+      %{
+        enemies: [0],
+        locked?: true,
+        shiny_rows: [],
+        enemies_detail: [%{row: 0, name: "Pidgeot"}]
+      },
+      now
+    )
+
+    {:ok, view, html} = live(conn, ~p"/world")
+
+    assert has_element?(view, "#world-snapshot")
+    assert html =~ "5559/6410"
+    assert html =~ "337, 46107"
+    assert html =~ "Pidgeot"
+    assert html =~ "322"
+    assert html =~ "C+2"
   end
 
   test "renders the empty state before anything is published", %{conn: conn} do

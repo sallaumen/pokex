@@ -115,6 +115,27 @@ defmodule Pokex.Perception do
         interpret: &Interpret.skills/3
       },
       %{
+        key: :hud,
+        region: fn _calib -> Pokex.Layout.region(:hud_bottom) end,
+        interval_setting: :feed_hud_ms,
+        filename: "feed_hud.png",
+        interpret: &Interpret.Hud.interpret/3
+      },
+      %{
+        key: :team,
+        region: fn _calib -> Pokex.Layout.region(:team_column) end,
+        interval_setting: :feed_team_ms,
+        filename: "feed_team.png",
+        interpret: &Interpret.Team.interpret/3
+      },
+      %{
+        key: :minimap,
+        region: fn _calib -> Pokex.Layout.region(:minimap) end,
+        interval_setting: :feed_minimap_ms,
+        filename: "feed_minimap.png",
+        interpret: &Interpret.Minimap.interpret/4
+      },
+      %{
         key: :corpses,
         region: fn calib -> calib.arena_region end,
         interval_setting: :feed_corpses_ms,

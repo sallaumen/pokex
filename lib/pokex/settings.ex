@@ -361,6 +361,11 @@ defmodule Pokex.Settings do
     # feed tolerates at :debug before it escalates to a loud Logger.warning. Resets to 0 on
     # the next successful observe, so a warning fires again if failures resume.
     feed_failure_warn_streak: 10,
+    # HUD numbers change slowly (stocks, level); position changes as fast as
+    # Lucas walks, so the minimap is read more often than the rest.
+    feed_hud_ms: 500,
+    feed_team_ms: 500,
+    feed_minimap_ms: 250,
     # --- Combat: Tab targeting ------------------------------------------------------------------
     # Tab selects the first attackable enemy; pressing again CYCLES to the next. The confirm
     # window counts from the Tab press against frames captured AFTER it, so capture latency can't

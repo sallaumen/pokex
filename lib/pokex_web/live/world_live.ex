@@ -10,6 +10,7 @@ defmodule PokexWeb.WorldLive do
 
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
+  alias Pokex.World
 
   @refresh_ms 500
 
@@ -25,18 +26,18 @@ defmodule PokexWeb.WorldLive do
       Process.send_after(self(), :refresh, @refresh_ms)
     end
 
-    {:ok, assign(socket, page_title: "Mundo", entries: entries())}
+    {:ok, assign(socket, page_title: "Mundo", entries: entries(), snapshot: World.snapshot())}
   end
 
   @impl true
   def handle_info(:refresh, socket) do
     Process.send_after(self(), :refresh, @refresh_ms)
-    {:noreply, assign(socket, entries: entries())}
+    {:noreply, assign(socket, entries: entries(), snapshot: World.snapshot())}
   end
 
   # Any world broadcast just re-reads the table — the table is the truth.
   def handle_info({:world, _key, _obs}, socket) do
-    {:noreply, assign(socket, entries: entries())}
+    {:noreply, assign(socket, entries: entries(), snapshot: World.snapshot())}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
@@ -87,13 +88,102 @@ defmodule PokexWeb.WorldLive do
     obs |> Map.drop([:captured_at]) |> inspect(limit: 8, printable_limit: 120)
   end
 
+  defp summary(:hud, %{level: level, slots: slots}) do
+    "level #{num(level)} · F1 #{num(slots[:f1])} · F2 #{num(slots[:f2])} · E #{num(slots[:e])} · S+Q #{num(slots[:s_q])}"
+  end
+
+  defp summary(:team, %{pokemon_hp: hp, rows: rows}) do
+    alive = Enum.count(rows, & &1.present?)
+    "ativo #{hp_text(hp)} · #{alive}/#{length(rows)} no time"
+  end
+
+  defp summary(:minimap, %{pos: nil}), do: "posição ilegível"
+  defp summary(:minimap, %{pos: {x, y, z}}), do: "posição #{x}, #{y} (andar #{z})"
+
   defp summary(_key, obs), do: inspect(obs, limit: 8, printable_limit: 120)
+
+  defp pos_text(nil), do: "?"
+  defp pos_text({x, y, z}), do: "#{x}, #{y} · andar #{z}"
+
+  defp enemies_text(%{enemies: [], shiny?: false}), do: "livre"
+  defp enemies_text(%{enemies: [], shiny?: true}), do: "✨ SHINY"
+
+  defp enemies_text(%{enemies: enemies, shiny?: shiny?}) do
+    names = enemies |> Enum.map(&(&1[:name] || "?")) |> Enum.join(", ")
+    if shiny?, do: "✨ " <> names, else: names
+  end
+
+  defp num(nil), do: "?"
+  defp num(n), do: to_string(n)
+
+  defp hp_text(nil), do: "?"
+  defp hp_text({current, max}), do: "#{current}/#{max}"
+
+  @doc false
+  def pct(nil), do: "?"
+  def pct(fraction), do: "#{round(fraction * 100)}%"
 
   @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_page={:world}>
       <div class="space-y-4">
+        <section
+          id="world-snapshot"
+          class="rounded-lg border border-[#232b30] bg-[#111519] p-4"
+        >
+          <div class="flex items-baseline justify-between">
+            <h2 class="text-sm font-bold uppercase tracking-[0.12em] text-[#8b949d]">
+              O que a IA vê agora
+            </h2>
+            <span :if={not @snapshot.layout?} class="font-mono text-[10px] text-[#ff9ca4]">
+              HUD não localizado
+            </span>
+          </div>
+
+          <dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div>
+              <dt class="font-mono text-[10px] uppercase text-[#69737b]">Pokémon ativo</dt>
+              <dd class="font-mono text-sm text-[#d9dde1]">
+                {hp_text(@snapshot.me.pokemon_hp)}
+                <span class="text-[#37d07d]">{pct(World.pokemon_hp_pct(@snapshot))}</span>
+              </dd>
+            </div>
+            <div>
+              <dt class="font-mono text-[10px] uppercase text-[#69737b]">Level · pesca</dt>
+              <dd class="font-mono text-sm text-[#d9dde1]">
+                {num(@snapshot.me.level)} · {num(@snapshot.me.fishing)}
+              </dd>
+            </div>
+            <div>
+              <dt class="font-mono text-[10px] uppercase text-[#69737b]">Posição</dt>
+              <dd class="font-mono text-sm text-[#d9dde1]">{pos_text(@snapshot.pos)}</dd>
+            </div>
+            <div>
+              <dt class="font-mono text-[10px] uppercase text-[#69737b]">Batalha</dt>
+              <dd class="font-mono text-sm text-[#d9dde1]">
+                {enemies_text(@snapshot)}
+              </dd>
+            </div>
+          </dl>
+
+          <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div :for={{slot, label} <- [f1: "F1", f2: "F2", e: "E", s_q: "S+Q"]}>
+              <dt class="font-mono text-[10px] uppercase text-[#69737b]">{label}</dt>
+              <dd class="font-mono text-sm text-[#d9dde1]">{num(@snapshot.inventory[slot])}</dd>
+            </div>
+          </div>
+
+          <ul :if={@snapshot.team != []} class="mt-3 flex flex-wrap gap-2">
+            <li
+              :for={row <- @snapshot.team}
+              class="rounded border border-[#293238] px-2 py-1 font-mono text-[10px] text-[#a8b0b7]"
+            >
+              C+{row.slot} {pct(row.hp_pct)}
+            </li>
+          </ul>
+        </section>
+
         <header>
           <h1 class="text-xl font-bold">Mundo</h1>
           <p class="mt-1 text-sm opacity-70">

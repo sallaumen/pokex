@@ -36,6 +36,7 @@
     "slot_s_q": {"anchor": "hotbar_sto", "offset": [213, 33], "size": [30, 22], "ink": 200},
 
     "pokemon_hp": {"anchor": "left_hud_icons", "offset": [112, -16], "size": [90, 17]},
-    "team_column": {"anchor": "left_hud_icons", "offset": [-88, 78], "size": [360, 340]}
+    "team_column": {"anchor": "left_hud_icons", "offset": [-88, -22], "size": [360, 440]},
+    "team_bar_first": {"anchor": "left_hud_icons", "offset": [-10, 99], "size": [84, 7]}
   }
 }

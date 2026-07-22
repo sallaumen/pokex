@@ -51,41 +51,65 @@ defmodule Pokex.CombosTest do
     end
   end
 
-  describe "resolution" do
-    test "the sing combo becomes real key presses and waits" do
-      Team.add("Jigglypuff")
-      Team.add("Sceptile")
-      Team.set_slot("Jigglypuff", 5)
-      Team.set_slot("Sceptile", 4)
+  describe "planning and pressing" do
+    # what the :team feed sees on screen at this instant
+    defp live(pairs), do: Enum.map(pairs, fn {slot, name} -> %{slot: slot, name: name} end)
 
-      assert {:ok, steps} = Combos.resolve(sing(), "Magikarp")
+    test "fixed steps resolve up front; swaps stay symbolic" do
+      rows = live([{5, "Jigglypuff"}, {4, "Sceptile"}])
+
+      assert {:ok, steps} = Combos.plan(sing(), "Magikarp", rows)
 
       assert [
-               {:press, "ctrl+5"},
+               {:swap_member, "Jigglypuff"},
                {:wait, 900},
                {:press, "4"},
                {:wait, 2_500},
-               {:press, "ctrl+4"}
+               {:swap_counter}
              ] = steps
 
       assert Combos.duration(steps) == 3_400
     end
 
-    test "a pokémon with no slot means the combo does NOT run" do
-      # half a combo is worse than none: it would leave Jigglypuff out, asleep
-      # in front of the enemy, with no counter coming
-      Team.add("Jigglypuff")
-      Team.add("Sceptile")
-      Team.set_slot("Sceptile", 4)
+    test "a swap is keyed by the team as it is AT THAT MOMENT" do
+      # This is the bug that eager resolution hides: swapping Jigglypuff in is
+      # itself what reorders the rows, so the counter's key must be computed
+      # after that has happened — 3.4 seconds later, from a fresh reading.
+      before = live([{5, "Jigglypuff"}, {4, "Sceptile"}])
+      assert {:ok, "ctrl+5"} = Combos.key_for({:swap_member, "Jigglypuff"}, "Magikarp", before)
 
-      assert {:skip, {:no_slot, "Jigglypuff"}} = Combos.resolve(sing(), "Magikarp")
+      # Jigglypuff went out; everyone shuffled up a row
+      later = live([{4, "Jigglypuff"}, {3, "Sceptile"}])
+      assert {:ok, "ctrl+3"} = Combos.key_for({:swap_counter}, "Magikarp", later)
+
+      # the same step against the OLD reading would have pressed the wrong key
+      assert {:ok, "ctrl+4"} = Combos.key_for({:swap_counter}, "Magikarp", before)
     end
 
-    test "an enemy nobody answers means the combo does NOT run" do
-      Team.add("Jigglypuff")
-      Team.set_slot("Jigglypuff", 5)
+    test "a pokémon that is NOT on screen means the combo never starts" do
+      # half a combo strands whoever it just sent out
+      rows = live([{4, "Sceptile"}])
 
-      assert {:skip, {:no_counter, "Magikarp"}} = Combos.resolve(sing(), "Magikarp")
+      assert {:skip, {:not_on_screen, "Jigglypuff"}} = Combos.plan(sing(), "Magikarp", rows)
+    end
+
+    test "an enemy nobody answers means the combo never starts" do
+      rows = live([{5, "Jigglypuff"}])
+
+      assert {:skip, {:no_counter, "Magikarp"}} = Combos.plan(sing(), "Magikarp", rows)
+    end
+
+    test "a row whose portrait was not recognised is never swapped to" do
+      rows = [%{slot: 5, name: "Jigglypuff"}, %{slot: 4, name: nil}]
+
+      assert {:skip, {:no_counter, "Magikarp"}} = Combos.plan(sing(), "Magikarp", rows)
+    end
+
+    test "a swap that became impossible mid-combo refuses instead of guessing" do
+      # the runner asks for each key at press time; if the pokémon has left the
+      # panel between steps, this is where it finds out
+      assert {:skip, {:not_on_screen, "Jigglypuff"}} =
+               Combos.key_for({:swap_member, "Jigglypuff"}, "Magikarp", live([{2, "Sceptile"}]))
     end
   end
 

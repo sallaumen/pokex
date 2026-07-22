@@ -22,6 +22,8 @@ defmodule PokexWeb.TeamLive do
      socket
      |> assign(
        page_title: "Meu Time",
+       portraits: [],
+       portrait_msg: nil,
        species_names: Enum.map(Pokedex.search(%{}), & &1.name)
      )
      |> assign_team()}
@@ -51,17 +53,33 @@ defmodule PokexWeb.TeamLive do
     {:noreply, assign_team(socket)}
   end
 
-  # The bridge to the game: which hotkey brings this pokémon out. Combos need
-  # it — swapping by name is only possible once a name has a key.
-  def handle_event("set_slot", %{"name" => name} = params, socket) do
-    slot =
-      case Integer.parse(params["slot"] || "") do
-        {slot, ""} when slot in 2..6 -> slot
-        _blank_or_garbage -> nil
-      end
+  # Reading the panel to SHOW him what the bot currently sees in each C+N row,
+  # so naming a portrait is a matter of looking rather than remembering.
+  def handle_event("scan_portraits", _params, socket) do
+    {:noreply, assign(socket, portraits: read_portraits(), portrait_msg: nil)}
+  end
 
-    Team.set_slot(name, slot)
-    {:noreply, assign_team(socket)}
+  def handle_event("learn_portrait", %{"row" => row, "name" => name}, socket) do
+    name = String.trim(name)
+    row = String.to_integer(row)
+
+    with true <- name != "",
+         %{signature: signature} <- Enum.find(socket.assigns.portraits, &(&1.row == row)) do
+      Pokex.Pokedex.TeamIcons.learn(name, signature)
+
+      {:noreply,
+       assign(socket,
+         portraits: read_portraits(),
+         portrait_msg: "aprendi o retrato de #{name} — o slot dele agora é lido, não configurado"
+       )}
+    else
+      _blank_or_missing -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("forget_portrait", %{"name" => name}, socket) do
+    Pokex.Pokedex.TeamIcons.forget(name)
+    {:noreply, assign(socket, portraits: read_portraits(), portrait_msg: "esqueci #{name}")}
   end
 
   def handle_event("set_level", %{"name" => name} = params, socket) do
@@ -117,11 +135,42 @@ defmodule PokexWeb.TeamLive do
     )
   end
 
+  # One capture of the team column, sliced into the five C+N portraits: what
+  # the bot sees, its current guess, and the signature that naming would store.
+  defp read_portraits do
+    with fix when not is_nil(fix) <- Pokex.Layout.current(),
+         {cx0, cy0, pw, ph} when not is_nil(cx0) <- Pokex.Layout.region(:team_icon_first, fix),
+         {rx, ry, rw, rh} <- Pokex.Layout.region(:team_column, fix),
+         {:ok, frame} <- Pokex.Bots.Capture.frame({rx, ry, rw, rh}, "team_portraits.png") do
+      learned = Pokex.Pokedex.TeamIcons.all()
+
+      for row <- 0..4//1 do
+        centre =
+          {cx0 - rx + div(pw, 2), cy0 - ry + div(ph, 2) + row * 67, div(ph, 2)}
+
+        signature = Pokex.Vision.Icons.signature(frame, centre)
+
+        %{
+          row: row,
+          slot: row + 2,
+          signature: signature,
+          guess:
+            case Pokex.Vision.Icons.match(signature, learned) do
+              {name, score} -> %{name: name, score: score}
+              nil -> nil
+            end
+        }
+      end
+    else
+      _unavailable -> []
+    end
+  end
+
   defp with_entries(list) do
-    for %{name: name, level: level} = member <- list,
+    for %{name: name, level: level} <- list,
         entry = Pokedex.get(name),
         entry != nil,
-        do: %{name: name, level: level, slot: Map.get(member, :slot), entry: entry}
+        do: %{name: name, level: level, entry: entry}
   end
 
   defp window_note(:all, _margin), do: nil
@@ -154,6 +203,73 @@ defmodule PokexWeb.TeamLive do
             </.link>
           </div>
         </header>
+
+        <section id="portraits" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-sm font-bold">Retratos do time</h2>
+              <p class="mt-0.5 text-[11px] leading-relaxed text-[#7f8992]">
+                A ordem dos atalhos C+N muda conforme você joga, então o bot não pode ter o slot
+                configurado — ele LÊ quem está em cada linha, toda vez. Para isso precisa conhecer
+                a carinha de cada um: varra o painel e diga quem é quem. Uma vez só, por pokémon.
+              </p>
+            </div>
+            <button class="btn btn-sm btn-primary shrink-0" phx-click="scan_portraits">
+              Varrer painel
+            </button>
+          </div>
+
+          <p :if={@portrait_msg} class="mt-2 font-mono text-[10px] text-[#e7ca82]">
+            {@portrait_msg}
+          </p>
+
+          <ul :if={@portraits != []} class="mt-3 space-y-2">
+            <li
+              :for={portrait <- @portraits}
+              id={"portrait-#{portrait.slot}"}
+              class="flex flex-wrap items-center gap-2 rounded-lg border border-[#293238] bg-[#101418] px-2.5 py-2"
+            >
+              <span class="font-mono text-xs font-bold text-[#8b949d]">C+{portrait.slot}</span>
+
+              <span :if={portrait.guess} class="font-mono text-[11px] text-[#37d07d]">
+                {portrait.guess.name}
+                <span class="text-[#5d6670]">({round(portrait.guess.score * 100)}%)</span>
+              </span>
+              <span :if={is_nil(portrait.guess)} class="font-mono text-[11px] text-[#f2c45b]">
+                não sei quem é
+              </span>
+
+              <form phx-submit="learn_portrait" class="ml-auto flex items-center gap-1.5">
+                <input type="hidden" name="row" value={portrait.row} />
+                <input
+                  name="name"
+                  list="team-names"
+                  placeholder="quem é?"
+                  autocomplete="off"
+                  class="h-7 w-40 rounded border border-[#293238] bg-[#090d0f] px-2 font-mono text-[11px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                />
+                <button class="btn btn-xs h-7">Aprender</button>
+              </form>
+            </li>
+          </ul>
+
+          <datalist id="team-names">
+            <option :for={row <- @team} value={row.name} />
+            <option :for={row <- @bank} value={row.name} />
+          </datalist>
+
+          <p :if={Pokex.Pokedex.TeamIcons.known() != []} class="mt-2 flex flex-wrap gap-1.5">
+            <button
+              :for={name <- Pokex.Pokedex.TeamIcons.known()}
+              phx-click="forget_portrait"
+              phx-value-name={name}
+              title="esquecer este retrato"
+              class="cursor-pointer rounded border border-[#293238] px-1.5 py-0.5 font-mono text-[10px] text-[#8b949d] hover:border-[#5f292f] hover:text-[#ff9ca4]"
+            >
+              {name} ✕
+            </button>
+          </p>
+        </section>
 
         <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
           <form
@@ -328,23 +444,6 @@ defmodule PokexWeb.TeamLive do
           {el}
         </span>
       </.link>
-      <form
-        id={"slot-form-" <> String.replace(@row.name, ~r/\W+/, "-")}
-        phx-change="set_slot"
-        class="flex items-center gap-1 font-mono text-[9px] text-[#737d85]"
-      >
-        <input type="hidden" name="name" value={@row.name} />
-        <select
-          name="slot"
-          title="tecla que troca pra ele no jogo"
-          class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
-        >
-          <option value="" selected={@row.slot == nil}>sem tecla</option>
-          <option :for={slot <- 2..6//1} value={slot} selected={@row.slot == slot}>
-            C+{slot}
-          </option>
-        </select>
-      </form>
       <form
         id={"level-form-" <> String.replace(@row.name, ~r/\W+/, "-")}
         phx-change="set_level"

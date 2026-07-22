@@ -137,26 +137,18 @@ defmodule PokexWeb.TeamLiveTest do
   end
 
   @tag :tmp_dir
-  test "assigning a hotkey slot is what lets a combo swap by name", %{conn: conn, tmp_dir: tmp} do
+  test "the portrait section explains WHY the slot is not configurable", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
-    Pokex.Pokedex.Team.add("Charizard")
+    {:ok, view, html} = live(conn, ~p"/time")
 
-    {:ok, view, _html} = live(conn, ~p"/time")
-
-    view
-    |> element("#slot-form-Charizard")
-    |> render_change(%{"name" => "Charizard", "slot" => "4"})
-
-    assert Pokex.Pokedex.Team.slot_of("Charizard") == 4
-    assert render(view) =~ "C+4"
-
-    # clearing it takes the pokémon out of every combo's reach
-    view
-    |> element("#slot-form-Charizard")
-    |> render_change(%{"name" => "Charizard", "slot" => ""})
-
-    assert Pokex.Pokedex.Team.slot_of("Charizard") == nil
+    assert has_element?(view, "#portraits")
+    assert html =~ "ordem dos atalhos C+N muda"
+    # there is no slot selector any more: a configured slot would lie
+    refute html =~ "slot-form-"
   end
 end

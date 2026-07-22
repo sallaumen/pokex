@@ -59,6 +59,10 @@ defmodule Pokex.Bots.StockAlertsTest do
   end
 
   test "an unread slot is never an alarm — a misread must not cry wolf", %{alerts: alerts} do
+    # This is the safety property behind every "?" in the panel. Lucas had 404
+    # potions; a rect sized for a single digit read "2" and alarmed. A reading
+    # the eye cannot fully resolve must arrive as nil, and nil must be silent —
+    # a wrong number is far worse than a missing one.
     hud(%{f1: nil, f2: nil, e: nil, s_q: nil})
 
     refute_receive {:rule_alarm, _}, 200

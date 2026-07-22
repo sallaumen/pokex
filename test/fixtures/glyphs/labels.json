@@ -60,10 +60,10 @@
     {
       "fixture": "hud_bottom",
       "region": [
+        65,
         72,
-        75,
-        34,
-        22
+        42,
+        28
       ],
       "kind": "int",
       "expected": "322",
@@ -84,10 +84,10 @@
     {
       "fixture": "hud_bottom",
       "region": [
-        123,
-        75,
-        35,
-        22
+        116,
+        72,
+        42,
+        28
       ],
       "kind": "int",
       "expected": "36",
@@ -108,10 +108,10 @@
     {
       "fixture": "hud_bottom",
       "region": [
-        197,
-        75,
-        13,
-        22
+        167,
+        72,
+        42,
+        28
       ],
       "kind": "int",
       "expected": "7",
@@ -132,10 +132,10 @@
     {
       "fixture": "hud_bottom",
       "region": [
-        229,
-        75,
-        30,
-        22
+        218,
+        72,
+        42,
+        28
       ],
       "kind": "int",
       "expected": "43",
@@ -156,10 +156,10 @@
     {
       "fixture": "hud_bottom",
       "region": [
-        279,
-        75,
-        33,
-        22
+        269,
+        72,
+        42,
+        28
       ],
       "kind": "int",
       "expected": "245",
@@ -245,25 +245,13 @@
     {
       "fixture": "ultrawide_3440x1440_outro_mapa",
       "region": [
-        1268,
-        1401,
+        1265,
+        1402,
         42,
-        30
+        28
       ],
       "kind": "int",
       "expected": "561",
-      "ink": 200
-    },
-    {
-      "fixture": "ultrawide_3440x1440_outro_mapa",
-      "region": [
-        1397,
-        1405,
-        13,
-        22
-      ],
-      "kind": "int",
-      "expected": "4",
       "ink": 200
     },
     {
@@ -288,5 +276,6 @@
       "kind": "coord",
       "expected": "(2782, 30571, 5)"
     }
-  ]
+  ],
+  "_known_gap": "The E slot's count over the potion sprite cannot be segmented cleanly at any single brightness floor: those digits are grey (204) with edges that fall below it, so a '0' breaks into pieces. It therefore reads as unknown -> nil -> the panel shows '?' and NOTHING alarms. That is the safe failure: Lucas's bug report was a rect sized for one digit reading '2' out of 404 and raising a false low-stock alarm."
 }

@@ -25,7 +25,11 @@ defmodule Pokex.CalibrationTest do
     :ok = Calibration.save(sample(), path)
     assert Calibration.exists?(path)
     assert {:ok, loaded} = Calibration.load(path)
-    assert loaded == sample()
+
+    # :layout is not a file field — load/1 attaches the auto-located HUD in
+    # force so a feed's capture region and its interpreter's offsets come from
+    # one resolution. The round-trip is about what the FILE carries.
+    assert %{loaded | layout: nil} == sample()
   end
 
   @tag :tmp_dir

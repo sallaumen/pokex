@@ -39,8 +39,9 @@
       ],
       "size": [
         300,
-        290
-      ]
+        310
+      ],
+      "note": "Tall enough for all six rows INCLUDING the sixth's HP bar (42 + 5*46 + 30)."
     },
     "minimap": {
       "anchor": "battle_header",
@@ -178,6 +179,32 @@
         479
       ],
       "note": "FIXED, not anchored: the fishing mini-game bar is drawn inside the game viewport near its right edge, not in a dock panel. Proof: this rect is from Lucas's 2-moni-8skill profile, measured when the battle panel sat at y=287; he later enlarged the minimap and pushed that panel to y=460, and the strip stayed correct. Anchoring it to the battle header would have dragged it 173px down."
+    }
+  },
+  "battle_rows": {
+    "note": "Measured on the real captures: rows repeat every 46px (his battle_row_height setting says 52, tuned for a panel position that no longer exists). Offsets are relative to the battle_list region's own origin, because that is the frame the feed captures.",
+    "pitch": 46,
+    "max_rows": 6,
+    "band_top": 30,
+    "name": {
+      "offset": [
+        83,
+        42
+      ],
+      "size": [
+        132,
+        21
+      ]
+    },
+    "bar": {
+      "offset": [
+        85,
+        64
+      ],
+      "size": [
+        190,
+        10
+      ]
     }
   }
 }

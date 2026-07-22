@@ -218,6 +218,29 @@ defmodule Pokex.Layout do
   @doc "Same, resolving the layout in force. Prefer `region/2` with the fix the caller already holds."
   def region(name), do: region(name, current())
 
+  @doc """
+  The battle list's per-row geometry, measured rather than configured.
+
+  His `battle_row_height` setting says 52 — tuned when the panel sat 173px
+  higher — while the rows actually repeat every 46px. Reading it from the
+  profile means the row bands land on the rows even when the setting is stale.
+  """
+  def battle_rows(name \\ "ultrawide_3440x1440") do
+    case profile(name)["battle_rows"] do
+      nil ->
+        nil
+
+      spec ->
+        %{
+          pitch: spec["pitch"],
+          max_rows: spec["max_rows"],
+          band_top: spec["band_top"],
+          name: {spec["name"]["offset"], spec["name"]["size"]},
+          bar: {spec["bar"]["offset"], spec["bar"]["size"]}
+        }
+    end
+  end
+
   @doc "Reading options a region declares (its ink floor), ready for Glyphs."
   def region_opts(%Fix{region_opts: opts}, region), do: Map.get(opts, region, [])
 

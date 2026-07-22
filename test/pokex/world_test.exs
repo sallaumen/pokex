@@ -31,7 +31,14 @@ defmodule Pokex.WorldTest do
 
     snap = World.snapshot()
 
-    assert snap.me == %{pokemon_hp: {5559, 6410}, level: 90, food: 1525, fishing: 96}
+    assert snap.me == %{
+             pokemon_hp: {5559, 6410},
+             hp_pct: nil,
+             level: 90,
+             food: 1525,
+             fishing: 96
+           }
+
     assert snap.inventory == %{f1: 322, f2: 36, e: 7, s_q: 43}
     assert snap.pos == {337, 46107, 4}
     assert snap.engaged?
@@ -52,6 +59,23 @@ defmodule Pokex.WorldTest do
 
     assert snap.me.level == nil
     assert snap.inventory == %{f1: nil, f2: nil, e: nil, s_q: nil}
+  end
+
+  test "the health bar the potion logic trusts wins over the digits" do
+    # PlayerSupport has read this bar in production for potions and revives all
+    # along; a digit the glyph atlas has never seen must not blank the card.
+    publish(:pokemon, %{hp_pct: 42, readable?: true})
+    publish(:team, %{pokemon_hp: nil, rows: []})
+
+    assert World.pokemon_hp_pct(World.snapshot()) == 0.42
+    WorldState.forget(:pokemon)
+  end
+
+  test "without that worker the digits still answer" do
+    WorldState.forget(:pokemon)
+    publish(:team, %{pokemon_hp: {8932, 9215}, rows: []})
+
+    assert_in_delta World.pokemon_hp_pct(World.snapshot()), 8932 / 9215, 0.001
   end
 
   test "the layout stays true however long ago it was located" do

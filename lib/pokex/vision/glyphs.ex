@@ -83,22 +83,75 @@ defmodule Pokex.Vision.Glyphs do
   def signature(bitmap),
     do: bitmap |> Enum.map(&Enum.join(&1, ",")) |> Enum.join(";")
 
-  @doc "The learned atlas (signature => character), cached in :persistent_term."
+  @doc """
+  The atlas in force: the shipped one, plus whatever Lucas has taught this
+  install on top of it.
+
+  The shipped atlas can only ever contain the characters that happened to be
+  on screen when captures were taken — a digit he has never had in a slot is a
+  digit the bot has never seen. Rather than wait for a new capture to reach a
+  developer, the learned file lets him close the gap himself in seconds, and it
+  survives updates because it is merged OVER the shipped atlas, never into it.
+  """
   def atlas do
     case :persistent_term.get(@atlas_key, nil) do
       nil ->
-        atlas =
-          Application.app_dir(:pokex, "priv/glyphs/atlas.json")
-          |> File.read!()
-          |> Jason.decode!()
-          |> Map.fetch!("glyphs")
-
+        atlas = Map.merge(shipped_atlas(), learned_atlas())
         :persistent_term.put(@atlas_key, atlas)
         atlas
 
       atlas ->
         atlas
     end
+  end
+
+  defp shipped_atlas do
+    Application.app_dir(:pokex, "priv/glyphs/atlas.json")
+    |> File.read!()
+    |> Jason.decode!()
+    |> Map.fetch!("glyphs")
+  end
+
+  defp learned_atlas do
+    case File.read(learned_path()) do
+      {:ok, body} -> body |> Jason.decode!() |> Map.get("glyphs", %{})
+      _no_file -> %{}
+    end
+  end
+
+  defp learned_path, do: Path.join(Pokex.Home.dir(), "glyphs_learned.json")
+
+  @doc """
+  Teaches this install one character. Returns the number of glyphs known.
+
+  Refuses a signature the atlas already reads: silently redefining a known
+  glyph is how a typo turns every future "8" into a "3".
+  """
+  def teach(signature, character)
+      when is_binary(signature) and is_binary(character) and character != "" do
+    if Map.has_key?(atlas(), signature) do
+      {:error, :already_known}
+    else
+      learned = Map.put(learned_atlas(), signature, character)
+      File.mkdir_p!(Pokex.Home.dir())
+      File.write!(learned_path(), Jason.encode!(%{glyphs: learned}, pretty: true))
+      clear()
+      {:ok, map_size(atlas())}
+    end
+  end
+
+  @doc """
+  The glyphs in `region` this install cannot read — each with its bitmap, so a
+  human can look at it and say what it is.
+  """
+  def unknown_in(%Frame{} = frame, region, opts \\ []) do
+    atlas = atlas()
+
+    frame
+    |> segment(region, opts)
+    |> Enum.filter(fn glyph -> lookup(glyph.bitmap, atlas) == nil end)
+    |> Enum.map(fn glyph -> %{bitmap: glyph.bitmap, signature: signature(glyph.bitmap)} end)
+    |> Enum.uniq_by(& &1.signature)
   end
 
   @doc "Drops the cached atlas (tests, and after `mix glyphs.learn`)."

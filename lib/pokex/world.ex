@@ -10,11 +10,12 @@ defmodule Pokex.World do
   ask "what is happening?" and get an honest answer, holes included.
   """
 
+  alias Pokex.Perception
   alias Pokex.Perception.WorldState
 
   defmodule Snapshot do
     @moduledoc "One coherent view of the game, as of `at`."
-    defstruct me: %{pokemon_hp: nil, level: nil, food: nil, fishing: nil},
+    defstruct me: %{pokemon_hp: nil, hp_pct: nil, level: nil, food: nil, fishing: nil},
               inventory: %{f1: nil, f2: nil, e: nil, s_q: nil},
               team: [],
               enemies: [],
@@ -40,6 +41,11 @@ defmodule Pokex.World do
     %Snapshot{
       me: %{
         pokemon_hp: team[:pokemon_hp],
+        # PlayerSupport has been reading this bar in production for the potion
+        # and revive rules long before the HUD feeds existed. Its percentage is
+        # the trusted one; the digits above are a bonus that needs every glyph
+        # learned, and must never be the reason the card goes blank.
+        hp_pct: pokemon_fact_pct(now),
         level: hud[:level],
         food: hud[:food],
         fishing: hud[:fishing]
@@ -62,11 +68,28 @@ defmodule Pokex.World do
   def team_health(%Snapshot{team: rows}),
     do: Map.new(rows, fn row -> {row.slot, row.hp_pct} end)
 
-  @doc "The active pokémon's health as a fraction, or nil when unread."
+  @doc """
+  The active pokémon's health as a fraction.
+
+  Prefers the proven `:pokemon` fact (the bar PlayerSupport reads for potions
+  and revives); falls back to the digits when that worker is not running.
+  """
+  def pokemon_hp_pct(%Snapshot{me: %{hp_pct: pct}}) when is_number(pct) and pct >= 0,
+    do: pct / 100
+
   def pokemon_hp_pct(%Snapshot{me: %{pokemon_hp: {current, max}}}) when max > 0,
     do: current / max
 
   def pokemon_hp_pct(_snapshot), do: nil
+
+  # hp_pct arrives as an integer percentage (0..100) or nil when the party
+  # window is minimized / no pokémon is out.
+  defp pokemon_fact_pct(now) do
+    case Perception.pokemon(now) do
+      {:ok, %{hp_pct: pct}} -> pct
+      _unknown -> nil
+    end
+  end
 
   defp fact(key, now) do
     case WorldState.get(key, @max_age_ms, now) do

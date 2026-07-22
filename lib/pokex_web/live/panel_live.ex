@@ -55,6 +55,7 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @focus_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Layout.Sentinel.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.StockAlerts.topic())
       # Keep the cooldown display LIVE while the fishing gate is on, so it never goes stale —
       # you can watch the reading flip to ready the instant your skills come off cooldown (the
       # SAME SkillBar read the fishing gate uses each tick).
@@ -75,6 +76,7 @@ defmodule PokexWeb.PanelLive do
        calibrated?: Calibration.exists?(),
        calib_stale?: calib_stale?(),
        layout_lost?: false,
+       stocks: %{},
        now_ms: now_ms(),
        threshold: Settings.get(:glow_threshold),
        mini_game_sound: Settings.get(:mini_game_sound),
@@ -359,6 +361,10 @@ defmodule PokexWeb.PanelLive do
     do: {:noreply, assign(socket, layout_lost?: not ok?)}
 
   def handle_info({:layout_suspect, _key}, socket), do: {:noreply, socket}
+
+  # A slot's stock crossed its threshold — the badge stays until he restocks.
+  def handle_info({:stock, %{slot: slot} = reading}, socket),
+    do: {:noreply, assign(socket, stocks: Map.put(socket.assigns.stocks, slot, reading))}
 
   def handle_info({:rule_alarm, reason}, socket),
     do: {:noreply, alarm(socket, :rule_alarm, "⏰ #{reason}")}
@@ -1997,6 +2003,32 @@ defmodule PokexWeb.PanelLive do
           </div>
 
           <div class="min-w-0 space-y-3">
+            <section
+              :if={@stocks != %{}}
+              id="stock-badges"
+              class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+            >
+              <p class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                estoques
+              </p>
+              <ul class="mt-2 flex flex-wrap gap-2">
+                <li
+                  :for={{slot, label, _setting} <- Pokex.Bots.StockAlerts.slots()}
+                  :if={@stocks[slot]}
+                  id={"stock-badge-#{slot}"}
+                  class={[
+                    "rounded border px-2 py-1 font-mono text-[10px]",
+                    if(@stocks[slot].low?,
+                      do: "border-[#5f292f] bg-[#241114] text-[#ff9ca4]",
+                      else: "border-[#293238] text-[#7f8992]"
+                    )
+                  ]}
+                >
+                  {label} {@stocks[slot].count}
+                </li>
+              </ul>
+            </section>
+
             <section id="shiny-guard-card" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
               <div class="flex min-h-10 items-center gap-3">
                 <div class="min-w-0 flex-1">

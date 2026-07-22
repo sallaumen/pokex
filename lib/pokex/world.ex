@@ -50,7 +50,10 @@ defmodule Pokex.World do
       shiny?: (battle[:shiny_rows] || []) != [],
       engaged?: battle[:locked?] == true,
       pos: minimap[:pos],
-      layout?: fact(:layout, now) != %{},
+      # NOT time-limited: the layout is configuration, not an observation. It
+      # stops being true when the panels MOVE (the sentinel's job to notice),
+      # never merely because it was located a while ago.
+      layout?: match?({:ok, _fact}, WorldState.get(:layout, :infinity, now)),
       at: DateTime.utc_now()
     }
   end

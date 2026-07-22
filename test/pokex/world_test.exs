@@ -54,6 +54,20 @@ defmodule Pokex.WorldTest do
     assert snap.inventory == %{f1: nil, f2: nil, e: nil, s_q: nil}
   end
 
+  test "the layout stays true however long ago it was located" do
+    # The bug: the layout was read through the 5s perception window, so the
+    # panel claimed "HUD não localizado" five seconds after boot, forever. The
+    # layout is CONFIGURATION — it stops being true when the panels move, not
+    # when the clock advances.
+    publish(:layout, %{"regions" => %{}}, 60_000)
+
+    assert World.snapshot().layout?
+  end
+
+  test "no layout fact means no layout — never a cheerful default" do
+    refute World.snapshot().layout?
+  end
+
   test "an empty blackboard still answers — holes, never a crash" do
     snap = World.snapshot()
 

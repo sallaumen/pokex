@@ -208,12 +208,15 @@ defmodule Pokex.Layout do
   end
 
   @doc "A region rect from the layout in force, or nil when uncalibrated."
-  def region(name, fix \\ nil) do
-    case fix || current() do
+  def region(name, fix) do
+    case fix do
       %Fix{regions: regions} -> Map.get(regions, name)
       nil -> nil
     end
   end
+
+  @doc "Same, resolving the layout in force. Prefer `region/2` with the fix the caller already holds."
+  def region(name), do: region(name, current())
 
   @doc "Reading options a region declares (its ink floor), ready for Glyphs."
   def region_opts(%Fix{region_opts: opts}, region), do: Map.get(opts, region, [])

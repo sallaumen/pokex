@@ -2,7 +2,7 @@ defmodule Pokex.Perception.InterpretHudTest do
   # async: false — the layout fact is global
   use ExUnit.Case, async: false
 
-  alias Pokex.Layout
+  alias Pokex.{Calibration, Layout}
   alias Pokex.Perception.Interpret.{Hud, Minimap, Team}
   alias Pokex.Perception.WorldState
   alias Pokex.ScreenFixtures
@@ -12,7 +12,9 @@ defmodule Pokex.Perception.InterpretHudTest do
     on_exit(fn -> WorldState.forget(:layout) end)
     {:ok, fix} = Layout.locate(ScreenFixtures.frame!("ultrawide_3440x1440_full"))
     publish(fix)
-    %{fix: fix}
+    # exactly what the Feed hands an interpreter: the calibration of that tick,
+    # carrying the layout that was used to CAPTURE the frame
+    %{fix: fix, calib: %Calibration{scale: 1.0, layout: fix}}
   end
 
   # The feeds see their own cropped region, exactly as Capture hands it over.
@@ -38,8 +40,11 @@ defmodule Pokex.Perception.InterpretHudTest do
   end
 
   describe "the :hud feed" do
-    test "reads the character's numbers and every watched stock off the real bar", %{fix: fix} do
-      obs = Hud.interpret(region_frame(fix, :hud_bottom), nil, %{})
+    test "reads the character's numbers and every watched stock off the real bar", %{
+      fix: fix,
+      calib: calib
+    } do
+      obs = Hud.interpret(region_frame(fix, :hud_bottom), calib, %{})
 
       assert obs.level == 90
       assert obs.food == 1525
@@ -47,27 +52,23 @@ defmodule Pokex.Perception.InterpretHudTest do
       assert obs.slots == %{f1: 322, f2: 36, e: 7, s_q: 43}
     end
 
-    test "no layout means nils, never invented numbers" do
-      WorldState.forget(:layout)
-      Application.put_env(:pokex, :home_dir, System.tmp_dir!() <> "/pokex-no-layout")
-
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
-
-      obs = Hud.interpret(Pokex.FrameFixtures.of(10, 10, fn _x, _y -> {0, 0, 0} end), nil, %{})
+    test "an uncalibrated system yields nils, never invented numbers" do
+      blind = %Calibration{scale: 1.0, layout: nil}
+      obs = Hud.interpret(Pokex.FrameFixtures.of(10, 10, fn _x, _y -> {0, 0, 0} end), blind, %{})
 
       assert obs == Hud.empty()
     end
   end
 
   describe "the :team feed" do
-    test "reads the active pokémon's HP in digits", %{fix: fix} do
-      obs = Team.interpret(region_frame(fix, :team_column), nil, %{})
+    test "reads the active pokémon's HP in digits", %{fix: fix, calib: calib} do
+      obs = Team.interpret(region_frame(fix, :team_column), calib, %{})
 
       assert obs.pokemon_hp == {5559, 6410}
     end
 
-    test "measures all five C+N rows; the damaged one reads lower", %{fix: fix} do
-      obs = Team.interpret(region_frame(fix, :team_column), nil, %{})
+    test "measures all five C+N rows; the damaged one reads lower", %{fix: fix, calib: calib} do
+      obs = Team.interpret(region_frame(fix, :team_column), calib, %{})
 
       assert length(obs.rows) == 5
       assert Enum.map(obs.rows, & &1.slot) == [2, 3, 4, 5, 6]
@@ -87,15 +88,18 @@ defmodule Pokex.Perception.InterpretHudTest do
   end
 
   describe "the :minimap feed" do
-    test "reads the printed position — the cavebot never needs to see the map", %{fix: fix} do
-      {obs, _state} = Minimap.interpret(region_frame(fix, :minimap), nil, %{})
+    test "reads the printed position — the cavebot never needs to see the map", %{
+      fix: fix,
+      calib: calib
+    } do
+      {obs, _state} = Minimap.interpret(region_frame(fix, :minimap), calib, %{})
 
       assert obs.pos == {337, 46107, 4}
     end
 
-    test "an unreadable frame yields nil, not a stale lie" do
+    test "an unreadable frame yields nil, not a stale lie", %{calib: calib} do
       {obs, _state} =
-        Minimap.interpret(Pokex.FrameFixtures.of(60, 40, fn _x, _y -> {0, 0, 0} end), nil, %{})
+        Minimap.interpret(Pokex.FrameFixtures.of(60, 40, fn _x, _y -> {0, 0, 0} end), calib, %{})
 
       assert obs.pos == nil
     end

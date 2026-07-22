@@ -27,9 +27,41 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "#calib-stale-banner button[phx-click='restart_bots']")
   end
 
-  test "a low stock lights a red badge that stays until he restocks", %{conn: conn} do
+  test "the world card is always there — stocks visible before anything goes wrong", %{
+    conn: conn
+  } do
+    now = System.monotonic_time(:millisecond)
+
+    Pokex.Perception.WorldState.put(
+      :hud,
+      %{level: 90, food: 1525, fishing: 96, slots: %{f1: 322, f2: 36, e: 7, s_q: 43}},
+      now
+    )
+
+    Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46107, 4}}, now)
+
+    Pokex.Perception.WorldState.put(
+      :team,
+      %{pokemon_hp: {5559, 6410}, rows: [%{slot: 2, present?: true, hp_pct: 0.86}]},
+      now
+    )
+
+    on_exit(fn ->
+      Enum.each([:hud, :minimap, :team], &Pokex.Perception.WorldState.forget/1)
+    end)
+
+    {:ok, view, html} = live(conn, ~p"/")
+
+    assert has_element?(view, "#world-card")
+    # the four stocks are ALWAYS on screen, not only once one goes low
+    assert html =~ "322"
+    assert html =~ "5559/6410"
+    assert html =~ "337, 46107"
+    assert html =~ "C+2"
+  end
+
+  test "a low stock turns its badge red and it stays until he restocks", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
-    refute has_element?(view, "#stock-badges")
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
@@ -37,7 +69,6 @@ defmodule PokexWeb.PanelLiveTest do
       {:stock, %{slot: :f1, count: 28, low?: true}}
     )
 
-    assert view |> element("#stock-badge-f1") |> render() =~ "28"
     assert view |> element("#stock-badge-f1") |> render() =~ "ff9ca4"
 
     Phoenix.PubSub.broadcast(

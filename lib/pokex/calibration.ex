@@ -64,6 +64,32 @@ defmodule Pokex.Calibration do
     end
   end
 
+  @doc """
+  Where the fishing mini-game bar is, resolved.
+
+  The auto-located layout WINS over the hand-marked field. That is deliberate
+  and unlike the other manual fields: the strip is a fixed part of the game
+  viewport (see the layout profile's note), Lucas's measured value lives in
+  the profile, and his hand-marked one has drifted. The manual field is the
+  fallback for an uncalibrated layout; after that comes the arena, then the
+  whole screen — the mini-game worker searches whatever it is given.
+  """
+  def mini_game_region(%__MODULE__{} = calib) do
+    Pokex.Layout.region(:mini_game, calib.layout) || manual_mini_game_region(calib)
+  end
+
+  defp manual_mini_game_region(%__MODULE__{mini_game_region: region}) when is_tuple(region),
+    do: region
+
+  defp manual_mini_game_region(%__MODULE__{arena_region: region}) when is_tuple(region),
+    do: region
+
+  defp manual_mini_game_region(%__MODULE__{screen_w: w, screen_h: h})
+       when is_integer(w) and is_integer(h),
+       do: {0, 0, w, h}
+
+  defp manual_mini_game_region(_uncalibrated), do: nil
+
   def save(%__MODULE__{} = calib, path \\ nil) do
     path = path || Pokex.Home.calibration_file()
     File.mkdir_p!(Path.dirname(path))

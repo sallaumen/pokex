@@ -906,6 +906,14 @@ defmodule PokexWeb.CalibrationLive do
             <button class="btn btn-ghost btn-xs" phx-click="close_review">Fechar</button>
           </div>
           <.legend />
+          <p
+            :if={Pokex.Layout.region(:mini_game, @review.calib.layout)}
+            class="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs"
+          >
+            A faixa do <b>mini game</b> vem do calibrador automático (é fixa na tela, não muda
+            com os painéis) — marcar ela à mão aqui não tem efeito enquanto o HUD estiver
+            localizado.
+          </p>
           <div class="relative overflow-hidden rounded-lg border border-base-content/20">
             <img src={@review.src} class="w-full" />
             <.overlays
@@ -919,6 +927,7 @@ defmodule PokexWeb.CalibrationLive do
               player_point={Calibration.player_point(@review.calib)}
               pokemon_hp_region={@review.calib.pokemon_hp_region}
               pokemon_photo_point={@review.calib.pokemon_photo_point}
+              mini_game_region={Calibration.mini_game_region(@review.calib)}
               bands={Calibration.battle_row_bands(@review.calib, @row_height, @max_rows)}
             />
           </div>

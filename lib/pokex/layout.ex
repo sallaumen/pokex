@@ -272,11 +272,22 @@ defmodule Pokex.Layout do
 
   defp derive_regions(profile, anchors) do
     Map.new(profile["regions"], fn {name, spec} ->
-      {ax, ay} = Map.fetch!(anchors, String.to_atom(spec["anchor"]))
-      [ox, oy] = spec["offset"]
-      [w, h] = spec["size"]
-      {String.to_atom(name), {ax + ox, ay + oy, w, h}}
+      {String.to_atom(name), derive_region(spec, anchors)}
     end)
+  end
+
+  # A FIXED region is absolute: it belongs to the game viewport rather than to
+  # a docked panel, so anchoring it would make it drift whenever that panel
+  # moves. Proven by the mini-game strip: Lucas enlarged his minimap, which
+  # pushed the battle panel 173px down, and the strip stayed exactly where it
+  # was. The profile is per-resolution, so absolute is well-defined here.
+  defp derive_region(%{"fixed" => [x, y, w, h]}, _anchors), do: {x, y, w, h}
+
+  defp derive_region(spec, anchors) do
+    {ax, ay} = Map.fetch!(anchors, String.to_atom(spec["anchor"]))
+    [ox, oy] = spec["offset"]
+    [w, h] = spec["size"]
+    {ax + ox, ay + oy, w, h}
   end
 
   defp derive_opts(profile) do

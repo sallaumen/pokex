@@ -37,6 +37,11 @@
 
     "pokemon_hp": {"anchor": "left_hud_icons", "offset": [112, -16], "size": [90, 17]},
     "team_column": {"anchor": "left_hud_icons", "offset": [-88, -22], "size": [360, 440]},
-    "team_bar_first": {"anchor": "left_hud_icons", "offset": [-10, 99], "size": [84, 7]}
+    "team_bar_first": {"anchor": "left_hud_icons", "offset": [-10, 99], "size": [84, 7]},
+
+    "mini_game": {
+      "fixed": [3067, 800, 28, 479],
+      "note": "FIXED, not anchored: the fishing mini-game bar is drawn inside the game viewport near its right edge, not in a dock panel. Proof: this rect is from Lucas's 2-moni-8skill profile, measured when the battle panel sat at y=287; he later enlarged the minimap and pushed that panel to y=460, and the strip stayed correct. Anchoring it to the battle header would have dragged it 173px down."
+    }
   }
 }

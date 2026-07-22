@@ -111,6 +111,10 @@ defmodule Pokex.Perception.Feed do
       Logger.warning(
         "feed #{state.spec.key}: #{failures} capturas seguidas falharam — última: #{inspect(error)}"
       )
+
+      # a capture-failure streak is what a moved/closed panel looks like from
+      # here — the sentinel decides whether the HUD needs re-locating
+      Pokex.Layout.Sentinel.suspect(state.spec.key)
     else
       Logger.debug("feed #{state.spec.key} tick failed: #{inspect(error)}")
     end

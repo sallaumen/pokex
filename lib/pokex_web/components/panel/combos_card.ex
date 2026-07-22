@@ -22,11 +22,11 @@ defmodule PokexWeb.Panel.CombosCard do
 
   def combos_card(assigns) do
     ~H"""
-    <section id="combos-card" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+    <section id="combos-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
       <div class="flex items-center justify-between">
         <div class="min-w-0">
-          <p class="text-xs font-semibold">Combos</p>
-          <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
+          <p class="text-pk-body font-semibold">Combos</p>
+          <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">
             sequências que ele joga sozinho ao engajar
           </p>
         </div>
@@ -45,7 +45,7 @@ defmodule PokexWeb.Panel.CombosCard do
       <p
         :if={@skip}
         id="combo-skip"
-        class="mt-2 rounded-lg border border-[#674f20] bg-[#211b0d] px-2.5 py-1.5 text-[11px] text-[#e7ca82]"
+        class="mt-2 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-2.5 py-1.5 text-pk-body text-pk-warn"
       >
         <.icon name="hero-exclamation-triangle" class="size-3.5 shrink-0" />
         {skip_text(@skip)}
@@ -55,16 +55,16 @@ defmodule PokexWeb.Panel.CombosCard do
         <li
           :for={combo <- @combos}
           id={"combo-#{Phoenix.HTML.html_escape(combo.name) |> Phoenix.HTML.safe_to_string()}"}
-          class="rounded-lg border border-[#232b30] bg-[#101418] px-2.5 py-2"
+          class="rounded-lg border border-pk-line bg-pk-sunken px-2.5 py-2"
         >
           <div class="flex items-center gap-2">
             <p class={[
-              "min-w-0 flex-1 truncate text-[13px] font-semibold",
-              if(combo.enabled?, do: "text-[#d9dde1]", else: "text-[#6d7780] line-through")
+              "min-w-0 flex-1 truncate text-pk-body font-semibold",
+              if(combo.enabled?, do: "text-pk-text", else: "text-pk-text-3 line-through")
             ]}>
               {combo.name}
             </p>
-            <span class="shrink-0 font-mono text-[9px] text-[#7f8992]">
+            <span class="shrink-0 font-mono text-pk-meta text-pk-text-2">
               {trigger_text(combo.trigger)}
             </span>
             <input
@@ -79,7 +79,7 @@ defmodule PokexWeb.Panel.CombosCard do
               phx-click="delete_combo"
               phx-value-name={combo.name}
               data-confirm={"Excluir o combo \"#{combo.name}\"?"}
-              class="shrink-0 text-[#7f8992] transition hover:text-[#ff9ca4]"
+              class="shrink-0 text-pk-text-2 transition hover:text-pk-danger"
               aria-label={"Excluir o combo #{combo.name}"}
             >
               <.icon name="hero-trash" class="size-3.5" />
@@ -89,7 +89,7 @@ defmodule PokexWeb.Panel.CombosCard do
             <span
               :for={{step, index} <- Enum.with_index(combo.steps)}
               class={[
-                "rounded border px-1.5 py-0.5 font-mono text-[9px]",
+                "rounded border px-1.5 py-0.5 font-mono text-pk-meta",
                 step_class(step, @team)
               ]}
               title={step_detail(step, @team)}
@@ -100,16 +100,16 @@ defmodule PokexWeb.Panel.CombosCard do
         </li>
       </ul>
 
-      <p :if={@combos == []} class="mt-2 text-[11px] text-[#69737b]">
+      <p :if={@combos == []} class="mt-2 text-pk-body text-pk-text-3">
         Nenhum combo ainda. Monte o primeiro abaixo.
       </p>
 
-      <details id="combo-builder" class="group mt-2.5 border-t border-[#222a2f] pt-2.5">
-        <summary class="flex cursor-pointer list-none items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[#69737b] transition hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
+      <details id="combo-builder" class="group mt-2.5 border-t border-pk-line pt-2.5">
+        <summary class="flex cursor-pointer list-none items-center gap-1.5 font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3 transition hover:text-pk-text-2 [&::-webkit-details-marker]:hidden">
           <.icon name="hero-plus-circle" class="size-3" /> Novo combo
         </summary>
 
-        <p :if={@team == []} class="mt-2 text-[11px] text-[#e7ca82]">
+        <p :if={@team == []} class="mt-2 text-pk-body text-pk-warn">
           Ainda não li teu time na tela — sem isso não dá pra escolher pra quem trocar.
           Ensine os retratos em <.link navigate={~p"/time"} class="underline">Time</.link>.
         </p>
@@ -124,12 +124,12 @@ defmodule PokexWeb.Panel.CombosCard do
             name="name"
             placeholder="nome (ex.: dorme)"
             required
-            class="input input-bordered h-8 w-full bg-[#090d0f] text-[12px]"
+            class="input input-bordered h-8 w-full bg-pk-bg text-pk-body"
           />
           <div class="flex gap-1.5">
             <select
               name="trigger_kind"
-              class="h-8 flex-1 rounded border border-[#293238] bg-[#090d0f] px-1.5 text-[12px] text-[#dce1e4]"
+              class="h-8 flex-1 rounded border border-pk-line-strong bg-pk-bg px-1.5 text-pk-body text-pk-text"
             >
               <option value="element">quando o inimigo for do tipo</option>
               <option value="species">quando o inimigo for</option>
@@ -138,14 +138,14 @@ defmodule PokexWeb.Panel.CombosCard do
               name="trigger_value"
               placeholder="Water"
               required
-              class="input input-bordered h-8 w-28 bg-[#090d0f] text-[12px]"
+              class="input input-bordered h-8 w-28 bg-pk-bg text-pk-body"
             />
           </div>
           <div class="flex gap-1.5">
             <%!-- the team as READ, so a swap to someone with no hotkey is not offerable --%>
             <select
               name="member"
-              class="h-8 flex-1 rounded border border-[#293238] bg-[#090d0f] px-1.5 text-[12px] text-[#dce1e4]"
+              class="h-8 flex-1 rounded border border-pk-line-strong bg-pk-bg px-1.5 text-pk-body text-pk-text"
             >
               <option :for={name <- @team} value={name}>trocar pra {name}</option>
             </select>
@@ -153,14 +153,14 @@ defmodule PokexWeb.Panel.CombosCard do
               name="skill"
               placeholder="skill"
               required
-              class="input input-bordered h-8 w-20 bg-[#090d0f] text-center font-mono text-[12px]"
+              class="input input-bordered h-8 w-20 bg-pk-bg text-center font-mono text-pk-body"
             />
           </div>
-          <label class="flex items-center gap-1.5 text-[11px] text-[#8b949d]">
+          <label class="flex items-center gap-1.5 text-pk-body text-pk-text-2">
             <input type="checkbox" name="counter" checked class="checkbox checkbox-xs" />
             no fim, trazer quem tem vantagem contra o inimigo
           </label>
-          <button class="btn h-8 border-0 bg-[#37d07d] text-[11px] font-bold text-[#06140c] hover:bg-[#45dd88]">
+          <button class="btn h-8 border border-pk-ok-line bg-transparent text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim">
             Salvar combo
           </button>
         </form>
@@ -184,11 +184,11 @@ defmodule PokexWeb.Panel.CombosCard do
   # the chip instead of letting him find out mid-fight (or never).
   defp step_class({:swap_member, name}, team) do
     if name in team,
-      do: "border-[#293238] text-[#98a1a8]",
-      else: "border-[#5f292f] bg-[#241114] text-[#ff9ca4]"
+      do: "border-pk-line-strong text-pk-text-2",
+      else: "border-pk-danger-line bg-pk-danger-dim text-pk-danger"
   end
 
-  defp step_class(_step, _team), do: "border-[#293238] text-[#98a1a8]"
+  defp step_class(_step, _team), do: "border-pk-line-strong text-pk-text-2"
 
   defp step_detail({:swap_member, name}, team) do
     if name in team,

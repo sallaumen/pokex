@@ -69,7 +69,7 @@ defmodule PokexWeb.PanelLiveTest do
       {:stock, %{slot: :f1, count: 28, low?: true}}
     )
 
-    assert view |> element("#stock-badge-f1") |> render() =~ "ff9ca4"
+    assert view |> element("#stock-badge-f1") |> render() =~ "pk-danger"
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
@@ -77,7 +77,7 @@ defmodule PokexWeb.PanelLiveTest do
       {:stock, %{slot: :f1, count: 200, low?: false}}
     )
 
-    refute view |> element("#stock-badge-f1") |> render() =~ "ff9ca4"
+    refute view |> element("#stock-badge-f1") |> render() =~ "pk-danger"
   end
 
   test "losing the HUD raises a banner that says nothing is being clicked blind", %{conn: conn} do
@@ -1076,7 +1076,9 @@ defmodule PokexWeb.PanelLiveTest do
       on_exit(fn ->
         Application.delete_env(:pokex, :home_dir)
         File.rm_rf!(tmp)
-        Pokex.Perception.WorldState.forget(:team)
+        # mounting the panel attaches the display feeds, which can leave a
+        # :layout fact behind — and a test elsewhere asserts on NOT having one
+        Enum.each([:team, :layout], &Pokex.Perception.WorldState.forget/1)
       end)
 
       :ok

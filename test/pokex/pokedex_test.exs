@@ -77,6 +77,59 @@ defmodule Pokex.PokedexTest do
     :ok
   end
 
+  describe "normalização dos elementos (a wiki escreve tipo duplo de 5 jeitos)" do
+    @tag :tmp_dir
+    test "separadores e caixa viram sempre a mesma lista de elementos", %{tmp_dir: tmp} do
+      dataset =
+        put_in(@dataset["species"], [
+          %{"name" => "Rayquaza", "elements" => ["Dragon &amp; Flying"], "number" => 384},
+          %{"name" => "Girafarig", "elements" => ["Normal e Psychic"], "number" => 203},
+          %{"name" => "Qwilfish", "elements" => ["water"], "number" => 211},
+          %{"name" => "Delibird", "elements" => ["Ice. Poison"], "number" => 225},
+          %{"name" => "Beautifly", "elements" => ["flying and\nbug"], "number" => 267},
+          %{"name" => "Qwilfish2", "elements" => ["Ice Poison"], "number" => 212},
+          %{
+            "name" => "Typo",
+            "elements" => ["Groud"],
+            "weak_to" => ["Posion", "Fly"],
+            "number" => 999
+          },
+          %{"name" => "Venusaur", "elements" => ["Grass / Poison"], "number" => 3}
+        ])
+
+      File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(dataset))
+      Pokex.Pokedex.reload()
+
+      assert %{elements: ["Dragon", "Flying"]} = Pokedex.get("Rayquaza")
+      assert %{elements: ["Normal", "Psychic"]} = Pokedex.get("Girafarig")
+      assert %{elements: ["Water"]} = Pokedex.get("Qwilfish")
+      assert %{elements: ["Ice", "Poison"]} = Pokedex.get("Delibird")
+      assert %{elements: ["Flying", "Bug"]} = Pokedex.get("Beautifly")
+      assert %{elements: ["Grass", "Poison"]} = Pokedex.get("Venusaur")
+
+      # "Ice Poison" sem separador nenhum, e os typos de uma ocorrência
+      assert %{elements: ["Ice", "Poison"]} = Pokedex.get("Qwilfish2")
+      assert %{elements: ["Ground"], weak_to: ["Poison", "Flying"]} = Pokedex.get("Typo")
+
+      # a lista de opções do filtro fica limpa: nada de "Dragon &amp; Flying"
+      assert Pokedex.elements() == [
+               "Bug",
+               "Dragon",
+               "Flying",
+               "Grass",
+               "Ground",
+               "Ice",
+               "Normal",
+               "Poison",
+               "Psychic",
+               "Water"
+             ]
+
+      # e o filtro ACHA o que antes sumia
+      assert "Rayquaza" in (Pokedex.search(%{elements: ["Flying"]}) |> Enum.map(& &1.name))
+    end
+  end
+
   describe "clãs derivados da matéria" do
     @tag :tmp_dir
     test "cada entrada nasce com seus clãs; shiny sem matéria herda do base-form" do

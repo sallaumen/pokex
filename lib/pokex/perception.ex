@@ -101,13 +101,6 @@ defmodule Pokex.Perception do
         interpret: &Interpret.battle/3
       },
       %{
-        key: :arena,
-        region: fn calib -> calib.arena_region end,
-        interval_setting: :feed_arena_ms,
-        filename: "feed_arena.png",
-        interpret: &Interpret.arena/3
-      },
-      %{
         key: :skill_bar,
         region: fn calib -> calib.skill_bar_region end,
         interval_setting: :feed_skill_bar_ms,
@@ -116,21 +109,21 @@ defmodule Pokex.Perception do
       },
       %{
         key: :hud,
-        region: fn _calib -> Pokex.Layout.region(:hud_bottom) end,
+        region: fn calib -> Pokex.Layout.region(:hud_bottom, calib.layout) end,
         interval_setting: :feed_hud_ms,
         filename: "feed_hud.png",
         interpret: &Interpret.Hud.interpret/3
       },
       %{
         key: :team,
-        region: fn _calib -> Pokex.Layout.region(:team_column) end,
+        region: fn calib -> Pokex.Layout.region(:team_column, calib.layout) end,
         interval_setting: :feed_team_ms,
         filename: "feed_team.png",
         interpret: &Interpret.Team.interpret/3
       },
       %{
         key: :minimap,
-        region: fn _calib -> Pokex.Layout.region(:minimap) end,
+        region: fn calib -> Pokex.Layout.region(:minimap, calib.layout) end,
         interval_setting: :feed_minimap_ms,
         filename: "feed_minimap.png",
         interpret: &Interpret.Minimap.interpret/4

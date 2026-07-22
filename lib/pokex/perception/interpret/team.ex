@@ -21,8 +21,8 @@ defmodule Pokex.Perception.Interpret.Team do
   @rows 5
   @first_slot 2
 
-  def interpret(frame, _calib, _settings) do
-    fix = Layout.current()
+  def interpret(frame, calib, _settings) do
+    fix = calib && calib.layout
 
     case fix && Layout.region(:team_column, fix) do
       nil -> empty()

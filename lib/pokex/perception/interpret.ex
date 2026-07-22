@@ -77,17 +77,6 @@ defmodule Pokex.Perception.Interpret do
     end
   end
 
-  @doc "The arena: the hostile's floating-name point in SCREEN coordinates, or nil."
-  def arena(frame, calib, _settings) do
-    hostile =
-      case Vision.find_hostile(frame) do
-        {:ok, pixel} -> Calibration.frame_to_screen(calib, calib.arena_region, pixel)
-        :not_found -> nil
-      end
-
-    %{hostile: hostile}
-  end
-
   # Bucket frame-Ys into distinct 0-based battle rows (same math as the lock sensor).
   defp rows_of(ys, top, band, rows) do
     ys

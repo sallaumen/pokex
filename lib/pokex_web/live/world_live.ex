@@ -23,6 +23,9 @@ defmodule PokexWeb.WorldLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
+      # feeds only capture while someone is attached — a watching page IS a
+      # consumer, so :team and :minimap run exactly while they are looked at
+      Pokex.Perception.DisplayFeeds.attach_all()
       Process.send_after(self(), :refresh, @refresh_ms)
     end
 

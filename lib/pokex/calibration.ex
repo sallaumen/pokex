@@ -33,6 +33,11 @@ defmodule Pokex.Calibration do
     # skill bar became part of the main wizard.
     :skill_bar_region,
     :skill_bar_count,
+    # The auto-located HUD layout (Pokex.Layout.Fix) in force for this load.
+    # Resolved ONCE here so a feed's capture region and its interpreter's
+    # offsets always come from the same fix — a re-locate between the two
+    # would otherwise silently shift every reading.
+    :layout,
     # Optional: per-slot READY colour references ({r,g,b} of the non-white pixels, one per
     # slot, captured from the calibration screenshot with every skill ready). When present,
     # SkillBar matches each live slot against its own reference instead of universal
@@ -111,6 +116,7 @@ defmodule Pokex.Calibration do
          skill_bar_region: to_tuple(map["skill_bar_region"]),
          skill_bar_count: map["skill_bar_count"],
          skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),
+         layout: Pokex.Layout.current(),
          pokemon_hp_region: to_tuple(map["pokemon_hp_region"]),
          pokemon_photo_point: to_tuple(map["pokemon_photo_point"]),
          glow_baselines: map["glow_baselines"] || [],

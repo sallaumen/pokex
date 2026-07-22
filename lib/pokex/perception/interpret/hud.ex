@@ -15,8 +15,8 @@ defmodule Pokex.Perception.Interpret.Hud do
   @slots [:f1, :f2, :e, :s_q]
 
   @doc "Reads the bottom bar. `frame` is the `hud_bottom` region; rects are absolute."
-  def interpret(frame, _calib, _settings, fix \\ nil) do
-    fix = fix || Layout.current()
+  def interpret(frame, calib, _settings) do
+    fix = calib && calib.layout
 
     case fix && Layout.region(:hud_bottom, fix) do
       nil ->

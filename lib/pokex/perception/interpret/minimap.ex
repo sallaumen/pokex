@@ -18,9 +18,9 @@ defmodule Pokex.Perception.Interpret.Minimap do
   @max_floor 15
   @max_jump 50
 
-  def interpret(frame, _calib, _settings, state \\ nil) do
+  def interpret(frame, calib, _settings, state \\ nil) do
     state = state || %{last: nil, pending: nil}
-    fix = Layout.current()
+    fix = calib && calib.layout
 
     read =
       case fix && Layout.region(:minimap_coord, fix) do

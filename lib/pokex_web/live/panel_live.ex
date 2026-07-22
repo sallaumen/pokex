@@ -56,6 +56,10 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Layout.Sentinel.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.StockAlerts.topic())
+      # feeds only capture while someone is attached — a watching page IS a
+      # consumer, so :team and :minimap run exactly while they are looked at
+      Pokex.Perception.DisplayFeeds.attach_all()
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Perception.topic())
       # Keep the cooldown display LIVE while the fishing gate is on, so it never goes stale —
       # you can watch the reading flip to ready the instant your skills come off cooldown (the
       # SAME SkillBar read the fishing gate uses each tick).
@@ -77,6 +81,7 @@ defmodule PokexWeb.PanelLive do
        calib_stale?: calib_stale?(),
        layout_lost?: false,
        stocks: %{},
+       world: Pokex.World.snapshot(),
        now_ms: now_ms(),
        threshold: Settings.get(:glow_threshold),
        mini_game_sound: Settings.get(:mini_game_sound),
@@ -270,6 +275,10 @@ defmodule PokexWeb.PanelLive do
         do: assign(socket, cooldowns_states: read_cooldown_states()),
         else: socket
 
+    # the same 1s cadence keeps the world card honest when a fact goes stale
+    # without anything new being published
+    socket = assign(socket, world: Pokex.World.snapshot())
+
     Process.send_after(self(), :refresh_cooldowns, @cooldown_poll_ms)
     # now_ms anchors the "há Xs" ages of the pills' last actions AND the session
     # clock — the same 1s cadence keeps both ticking without any extra timer.
@@ -361,6 +370,11 @@ defmodule PokexWeb.PanelLive do
     do: {:noreply, assign(socket, layout_lost?: not ok?)}
 
   def handle_info({:layout_suspect, _key}, socket), do: {:noreply, socket}
+
+  # Any world fact moving re-reads the snapshot — the blackboard is the truth,
+  # and re-assembling it is a handful of ETS lookups.
+  def handle_info({:world, _key, _obs}, socket),
+    do: {:noreply, assign(socket, world: Pokex.World.snapshot())}
 
   # A slot's stock crossed its threshold — the badge stays until he restocks.
   def handle_info({:stock, %{slot: slot} = reading}, socket),
@@ -1054,6 +1068,38 @@ defmodule PokexWeb.PanelLive do
       _no_session -> nil
     end
   end
+
+  # --- world card (the blackboard, where he is already looking) ---------------
+
+  defp world_num(nil), do: "?"
+  defp world_num(value), do: to_string(value)
+
+  defp world_hp(nil), do: "?"
+  defp world_hp({current, max}), do: "#{current}/#{max}"
+
+  defp world_pct(nil), do: "?"
+  defp world_pct(fraction), do: "#{round(fraction * 100)}%"
+
+  defp world_pos(nil), do: "?"
+  defp world_pos({x, y, z}), do: "#{x}, #{y} · andar #{z}"
+
+  defp world_enemies(%{enemies: [], shiny?: false}), do: "livre"
+  defp world_enemies(%{enemies: [], shiny?: true}), do: "✨ SHINY"
+
+  defp world_enemies(%{enemies: enemies, shiny?: shiny?}) do
+    names = Enum.map_join(enemies, ", ", &(&1[:name] || "?"))
+    if shiny?, do: "✨ " <> names, else: names
+  end
+
+  defp hp_bar_class(nil), do: "bg-[#3a4249]"
+  defp hp_bar_class(pct) when pct >= 0.5, do: "bg-[#37d07d]"
+  defp hp_bar_class(pct) when pct >= 0.25, do: "bg-[#f2c45b]"
+  defp hp_bar_class(_low), do: "bg-[#ff6b74]"
+
+  defp team_chip_class(nil), do: "border-[#293238] text-[#5d6670]"
+  defp team_chip_class(pct) when pct >= 0.5, do: "border-[#293238] text-[#8b949d]"
+  defp team_chip_class(pct) when pct >= 0.25, do: "border-[#674f20] text-[#f2c45b]"
+  defp team_chip_class(_low), do: "border-[#5f292f] bg-[#241114] text-[#ff9ca4]"
 
   # --- shiny guard (star meter + trophy shelf) --------------------------------
 
@@ -2004,29 +2050,104 @@ defmodule PokexWeb.PanelLive do
 
           <div class="min-w-0 space-y-3">
             <section
-              :if={@stocks != %{}}
-              id="stock-badges"
+              id="world-card"
               class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
             >
-              <p class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-                estoques
-              </p>
-              <ul class="mt-2 flex flex-wrap gap-2">
-                <li
-                  :for={{slot, label, _setting} <- Pokex.Bots.StockAlerts.slots()}
-                  :if={@stocks[slot]}
-                  id={"stock-badge-#{slot}"}
-                  class={[
-                    "rounded border px-2 py-1 font-mono text-[10px]",
-                    if(@stocks[slot].low?,
-                      do: "border-[#5f292f] bg-[#241114] text-[#ff9ca4]",
-                      else: "border-[#293238] text-[#7f8992]"
-                    )
-                  ]}
+              <div class="flex items-baseline justify-between">
+                <p class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                  o que a IA vê
+                </p>
+                <.link
+                  navigate={~p"/world"}
+                  class="font-mono text-[9px] text-[#68727a] hover:text-[#9aa3aa]"
                 >
-                  {label} {@stocks[slot].count}
-                </li>
-              </ul>
+                  detalhes →
+                </.link>
+              </div>
+
+              <p
+                :if={not @world.layout?}
+                class="mt-1 font-mono text-[9px] text-[#ff9ca4]"
+              >
+                HUD não localizado — nada está sendo lido
+              </p>
+
+              <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
+                <div>
+                  <p class="font-mono text-[9px] uppercase text-[#69737b]">Pokémon ativo</p>
+                  <p class="font-mono text-sm text-[#d9dde1]">
+                    {world_hp(@world.me.pokemon_hp)}
+                  </p>
+                  <div class="mt-1 h-1 overflow-hidden rounded-full bg-[#222a2f]">
+                    <div
+                      class={[
+                        "h-full rounded-full transition-[width]",
+                        hp_bar_class(Pokex.World.pokemon_hp_pct(@world))
+                      ]}
+                      style={"width: #{round((Pokex.World.pokemon_hp_pct(@world) || 0) * 100)}%"}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <p class="font-mono text-[9px] uppercase text-[#69737b]">Level · pesca</p>
+                  <p class="font-mono text-sm text-[#d9dde1]">
+                    {world_num(@world.me.level)} · {world_num(@world.me.fishing)}
+                  </p>
+                  <p class="mt-1 font-mono text-[9px] text-[#737d85]">
+                    comida {world_num(@world.me.food)}
+                  </p>
+                </div>
+
+                <div>
+                  <p class="font-mono text-[9px] uppercase text-[#69737b]">Posição</p>
+                  <p class="font-mono text-[11px] text-[#d9dde1]">{world_pos(@world.pos)}</p>
+                </div>
+
+                <div>
+                  <p class="font-mono text-[9px] uppercase text-[#69737b]">Batalha</p>
+                  <p class={[
+                    "font-mono text-[11px]",
+                    if(@world.shiny?, do: "text-[#f2c45b]", else: "text-[#d9dde1]")
+                  ]}>
+                    {world_enemies(@world)}
+                  </p>
+                </div>
+              </div>
+
+              <div class="mt-2 border-t border-[#222a2f] pt-2">
+                <p class="font-mono text-[9px] uppercase text-[#69737b]">Estoques</p>
+                <ul class="mt-1 flex flex-wrap gap-1.5">
+                  <li
+                    :for={{slot, label, _setting} <- Pokex.Bots.StockAlerts.slots()}
+                    id={"stock-badge-#{slot}"}
+                    class={[
+                      "rounded border px-2 py-0.5 font-mono text-[10px]",
+                      if(@stocks[slot] && @stocks[slot].low?,
+                        do: "border-[#5f292f] bg-[#241114] text-[#ff9ca4]",
+                        else: "border-[#293238] text-[#8b949d]"
+                      )
+                    ]}
+                  >
+                    {label} {world_num(@world.inventory[slot])}
+                  </li>
+                </ul>
+              </div>
+
+              <div :if={@world.team != []} class="mt-2 border-t border-[#222a2f] pt-2">
+                <p class="font-mono text-[9px] uppercase text-[#69737b]">Time</p>
+                <ul class="mt-1 flex flex-wrap gap-1.5">
+                  <li
+                    :for={row <- @world.team}
+                    class={[
+                      "rounded border px-2 py-0.5 font-mono text-[10px]",
+                      team_chip_class(row.hp_pct)
+                    ]}
+                  >
+                    C+{row.slot} {world_pct(row.hp_pct)}
+                  </li>
+                </ul>
+              </div>
             </section>
 
             <section id="shiny-guard-card" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">

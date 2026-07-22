@@ -79,9 +79,10 @@ defmodule Pokex.LayoutLiveTest do
     assert [first.f1, second.f1, third.f1] == [322, 561, 457]
     assert [first.e, second.e, third.e] == [7, 404, 401]
 
-    # NOTE: the "level" field reads 90, 91, 90 — it goes DOWN, so it is not the
-    # character's level. It tracks whatever pokémon is out. Kept as-is until
-    # Lucas confirms what the game means by it.
+    # The level reads 90, 91, 90 — it goes DOWN, and that is the game, not a
+    # misread: dying in PXG costs experience, and Lucas died between the second
+    # capture and the third. Worth pinning precisely because a reader who
+    # assumes levels only climb would "fix" a correct reading.
     assert [first.level, second.level, third.level] == [90, 91, 90]
   end
 

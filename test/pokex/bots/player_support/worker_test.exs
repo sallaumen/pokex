@@ -373,7 +373,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "a battle read mid-window RESETS the clear clock", %{tmp: tmp, body: body} do
+  test "a LOCKED fight mid-window RESETS the clear clock", %{tmp: tmp, body: body} do
     Settings.put(:rescue_enabled, false)
     Settings.put(:potion_enabled, true)
     Settings.put(:potion_cooldown_ms, 60_000)
@@ -386,16 +386,69 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
 
-    # halfway through the window a fished enemy re-aggresses → the clock must restart
+    # halfway through the window a real fight engages (lock ring) → clock restarts.
+    # A creature merely LISTED no longer counts — hunting always has one listed,
+    # and that used to block the sip forever (the reported bug).
     Process.sleep(200)
-    fresh_battle!(enemies: [0])
+    fresh_battle!(enemies: [0], locked?: true, locked_row: 0)
     Process.sleep(100)
-    fresh_battle!(enemies: [])
+    fresh_battle!(enemies: [0], locked?: false)
 
     # 400ms after the ORIGINAL clear would be now — but the reset means nothing yet
     refute_receive {:performed, :high, _}, 250
-    # a full uninterrupted window after the reset → sip
+    # a full uninterrupted window after the lock cleared → sip, even with the enemy still listed
     assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
+  end
+
+  @tag :tmp_dir
+  test "sips while HUNTING: an enemy merely listed no longer blocks the potion", %{
+    tmp: tmp,
+    body: body
+  } do
+    # THE reported bug: potion configured and on, HP low, but a creature sits in
+    # the Battle list (the normal state of hunting) and the sip never came.
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+    Settings.put(:potion_cooldown_ms, 60_000)
+    Settings.put(:potion_battle_clear_ms, 0)
+
+    fresh_battle!(enemies: [%{row: 1, name: "Tentacool"}], locked?: false)
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :high, [{:press, "e"}]}, 1_000
+    assert Worker.status(worker).counters.potions >= 1
+  end
+
+  @tag :tmp_dir
+  test "holds the sip while HP is dropping — a re-aggro with no lock ring", %{
+    tmp: tmp,
+    body: body
+  } do
+    # The re-aggro the old any-enemy rule protected against, now caught by the
+    # thing that actually interrupts a heal: the player's own HP going DOWN.
+    # Window 0 removes the clear-window as a confound — ONLY the damage guard can
+    # hold the sip here. Every frame is lower than the last, so every tick reads
+    # as "being hit" and holds.
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:potion_enabled, true)
+    Settings.put(:potion_cooldown_ms, 60_000)
+    Settings.put(:potion_battle_clear_ms, 0)
+
+    fresh_battle!(enemies: [%{row: 1, name: "Tentacool"}], locked?: false)
+
+    # a long continuous bleed, no lock ring — the sip must never land while it drops
+    frames = for fill <- 13..2//-1, do: {:ok, hp_png(tmp, "hp#{fill}.png", fill)}
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: frames})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, :high, _}, 150
+    assert Worker.status(worker).hold_reason =~ "há luta"
   end
 
   @tag :tmp_dir
@@ -595,7 +648,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Settings.put(:rescue_enabled, false)
     Settings.put(:potion_enabled, true)
 
-    fresh_battle!(enemies: [0])
+    # a LOCKED fight in the fact (the new gate's combat signal) — the potion holds
+    fresh_battle!(enemies: [0], locked?: true, locked_row: 0)
     low = hp_png(tmp, "low.png", 6)
     # ONLY the HP frame is scripted: if the gate tried a battle capture it would consume a
     # repeat of this entry (a warm frame) and misread it — the blackboard answer must win.
@@ -632,5 +686,62 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     refute_receive {:performed, _priority, _actions}, 200
     assert Worker.status(worker).counters.rescues == 0
+  end
+
+  # Every one of these was a SILENT hold before: the toggle was on, the HP was
+  # low, and the panel said nothing at all — indistinguishable from a broken
+  # feature. Measured 2026-07-22 with a probe: HP 32%, potion enabled, zero
+  # sips, hold_reason nil.
+  describe "quando uma porta fechada segura o suporte, o painel diz qual" do
+    @tag :tmp_dir
+    test "jogo fora de foco: nada é digitado, e a linha explica", %{tmp: tmp, body: body} do
+      Settings.put(:rescue_enabled, true)
+      Settings.put(:potion_enabled, true)
+      fresh_battle!(enemies: [])
+
+      Pokex.Bots.InputGate.set_focus_ok(false)
+      on_exit(fn -> Pokex.Bots.InputGate.set_focus_ok(true) end)
+
+      low = hp_png(tmp, "low.png", 6)
+      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      # o gate é fail-safe: nada sai
+      refute_receive {:performed, _priority, _actions}, 200
+
+      status = Worker.status(worker)
+      assert status.counters.rescues == 0
+      # ...mas agora dá pra saber POR QUE
+      assert status.hold_reason =~ "fora de foco"
+      # a leitura continua acontecendo, senão o resume seria cego
+      assert status.hp_pct != nil
+    end
+
+    @tag :tmp_dir
+    test "poção devida mas a leitura vê luta REAL: a linha diz isso", %{tmp: tmp, body: body} do
+      Settings.put(:rescue_enabled, false)
+      Settings.put(:potion_enabled, true)
+      Settings.put(:potion_cooldown_ms, 60_000)
+
+      # luta de verdade: alvo travado (lock ring). Uma criatura só listada NÃO
+      # basta mais — caçar sempre tem uma listada, e isso segurava a poção pra
+      # sempre (o bug que ele relatou).
+      fresh_battle!(enemies: [%{row: 1, name: "Tentacool"}], locked?: true, locked_row: 1)
+
+      low = hp_png(tmp, "low.png", 6)
+      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, :high, _actions}, 200
+
+      status = Worker.status(worker)
+      assert status.counters.potions == 0
+      assert status.hp_pct == 32
+      assert status.hold_reason =~ "há luta"
+    end
   end
 end

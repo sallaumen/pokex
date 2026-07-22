@@ -1537,15 +1537,27 @@ defmodule PokexWeb.PanelLive do
   attr :label, :string, required: true
   attr :accent, :string, required: true
   attr :note, :string, default: nil
+  attr :badge, :string, default: nil
 
+  # The header has to carry the SCOPE, not whisper it: which of these switches
+  # apply to the mode you are in is the whole reason the groups exist, and a
+  # side-note in 11px grey lost that argument (Lucas, 2026-07-22: "não tá muito
+  # claro que isso são pontos gerais"). So the scope is a full sentence on its
+  # own line, under a label that is no longer a mono-caps whisper.
   defp group_header(assigns) do
     ~H"""
-    <div class="flex items-center gap-2 border-b border-pk-line bg-pk-sunken px-3 py-1.5">
-      <span class={["h-3 w-0.5 rounded-full", @accent]} />
-      <span class="font-mono text-pk-meta font-bold uppercase tracking-[0.14em] text-pk-text-3">
-        {@label}
+    <div class="flex items-start gap-2 border-y border-pk-line bg-pk-sunken px-3 py-2 first:border-t-0">
+      <span class={["mt-1 h-3 w-0.5 shrink-0 rounded-full", @accent]} />
+      <div class="min-w-0 flex-1">
+        <p class="text-pk-body font-semibold text-pk-text-2">{@label}</p>
+        <p :if={@note} class="text-pk-meta text-pk-text-3">{@note}</p>
+      </div>
+      <span
+        :if={@badge}
+        class="shrink-0 rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta text-pk-text-3"
+      >
+        {@badge}
       </span>
-      <span :if={@note} class="ml-auto font-mono text-pk-meta text-pk-text-3">{@note}</span>
     </div>
     """
   end
@@ -1912,9 +1924,9 @@ defmodule PokexWeb.PanelLive do
                 </summary>
                 <div class="overflow-hidden rounded-lg border border-pk-line bg-pk-sunken">
                   <.group_header
-                    label="Sempre"
+                    label="Valem sempre"
                     accent="bg-[#6c7780]"
-                    note="vale nos dois modos"
+                    note="ligam ou desligam nos dois modos, Parado e Movimento"
                   />
                   <.automation_row
                     id="automation-combat"
@@ -1931,10 +1943,20 @@ defmodule PokexWeb.PanelLive do
                     active={@loot_enabled}
                     event="toggle_loot_enabled"
                   />
+                  <%!-- Revive e poção NÃO são automações do bot: o monitor de suporte
+                       roda sozinho, então protegem o Pokémon nos dois modos e também
+                       com todo o resto parado, você jogando na mão. Estavam no mesmo
+                       balaio de "luta automática" e isso escondia o ponto. --%>
+                  <.group_header
+                    label="Proteção do Pokémon"
+                    accent="bg-[#c9772f]"
+                    note="valem nos dois modos — e continuam valendo com o bot parado, você jogando na mão"
+                  />
                   <.automation_row
                     id="automation-rescue"
                     title="Revive automático"
                     description={"revive abaixo de #{@rescue_pct}%"}
+                    detail="O monitor de suporte lê a vida sozinho: isso vale mesmo com pesca e batalha desligadas."
                     active={@rescue_enabled}
                     event="toggle_rescue"
                   />
@@ -1942,7 +1964,7 @@ defmodule PokexWeb.PanelLive do
                     id="automation-potion"
                     title="Poção automática"
                     description={"tecla #{Settings.get(:potion_key)} abaixo de #{@potion_pct}%"}
-                    detail="Só fora de luta."
+                    detail="Bebe enquanto você caça; só segura numa luta travada ou quando está tomando dano (a cura é interrompida por dano)."
                     active={@potion_enabled}
                     event="toggle_potion"
                   />
@@ -1956,11 +1978,12 @@ defmodule PokexWeb.PanelLive do
                   />
 
                   <.group_header
-                    label="Só no parado"
+                    label="Só no modo Parado"
                     accent="bg-[#1D9E75]"
-                    note={
+                    note="desligam sozinhas quando você troca pro Movimento"
+                    badge={
                       if @mode_overrides == [],
-                        do: "no padrão do modo",
+                        do: "no padrão",
                         else: "#{length(@mode_overrides)} exceção(ões)"
                     }
                   />

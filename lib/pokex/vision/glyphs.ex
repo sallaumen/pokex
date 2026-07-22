@@ -27,6 +27,18 @@ defmodule Pokex.Vision.Glyphs do
 
   @default_ink 120
   @max_spread 60
+  # Hysteresis: a pixel is ink when it is strong on its own, OR merely weak but
+  # CONNECTED to something strong. Lucas spotted why this matters — "acho que o
+  # 0 está sendo quebrado em 2": a zero's vertical strokes are bright while its
+  # curves fade over a busy background, so a single floor keeps the two bars and
+  # drops the arcs that join them, and the glyph segments as two fragments. The
+  # dark outline the client draws around its text is what keeps the weak pass
+  # from leaking into the sprite behind it.
+  # Measured: 20 is where every labelled region still segments correctly AND
+  # the "404" that broke into five fragments over the potion sprite becomes
+  # three digits. At 30 the weak pass starts welding neighbouring characters
+  # together; at 0 the arcs are lost again.
+  @weak_drop 20
   @atlas_key {:pokex, :glyph_atlas}
   @index_key {:pokex, :glyph_atlas_index}
   # A glyph drawn over a red pokeball and the SAME glyph over a yellow one
@@ -46,37 +58,71 @@ defmodule Pokex.Vision.Glyphs do
   the signature the atlas is keyed by.
   """
   def segment(%Frame{} = frame, {x, y, w, h}, opts \\ []) do
-    ink = Keyword.get(opts, :ink, @default_ink)
+    strong = Keyword.get(opts, :ink, @default_ink)
+    drop = Keyword.get(opts, :weak_drop, @weak_drop)
+    cells = ink_cells(frame, {x, y, w, h}, strong, max(strong - drop, 40))
 
-    x..(x + w - 1)//1
-    |> Enum.map(fn cx -> {cx, Enum.map(y..(y + h - 1)//1, &ink?(frame, cx, &1, ink))} end)
-    |> Enum.chunk_by(fn {_cx, col} -> Enum.any?(col) end)
-    |> Enum.filter(fn [{_cx, col} | _] -> Enum.any?(col) end)
-    |> Enum.map(&to_glyph/1)
+    0..(w - 1)//1
+    |> Enum.map(fn i -> {x + i, Enum.filter(0..(h - 1)//1, &MapSet.member?(cells, {i, &1}))} end)
+    |> Enum.chunk_by(fn {_cx, rows} -> rows != [] end)
+    |> Enum.filter(fn [{_cx, rows} | _] -> rows != [] end)
+    |> Enum.map(&to_glyph(&1, h))
   end
 
-  defp to_glyph(columns) do
+  # Strong pixels seed; weak pixels join only when they touch the growing blob.
+  defp ink_cells(frame, {x, y, w, h}, strong_floor, weak_floor) do
+    {strong, weak} =
+      for j <- 0..(h - 1)//1, i <- 0..(w - 1)//1, reduce: {MapSet.new(), MapSet.new()} do
+        {s, k} ->
+          {r, g, b} = Frame.at(frame, x + i, y + j)
+          lo = min(r, min(g, b))
+
+          cond do
+            max(r, max(g, b)) - lo > @max_spread -> {s, k}
+            lo >= strong_floor -> {MapSet.put(s, {i, j}), k}
+            lo >= weak_floor -> {s, MapSet.put(k, {i, j})}
+            true -> {s, k}
+          end
+      end
+
+    grow(MapSet.to_list(strong), strong, weak)
+  end
+
+  defp grow([], ink, _weak), do: ink
+
+  defp grow([{i, j} | rest], ink, weak) do
+    {joined, weak} =
+      for di <- -1..1//1, dj <- -1..1//1, reduce: {[], weak} do
+        {acc, remaining} ->
+          neighbour = {i + di, j + dj}
+
+          if MapSet.member?(remaining, neighbour),
+            do: {[neighbour | acc], MapSet.delete(remaining, neighbour)},
+            else: {acc, remaining}
+      end
+
+    grow(joined ++ rest, Enum.reduce(joined, ink, &MapSet.put(&2, &1)), weak)
+  end
+
+  defp to_glyph(columns, height) do
     {x0, _} = hd(columns)
     {x1, _} = List.last(columns)
+    filled = Map.new(columns, fn {cx, rows} -> {cx, MapSet.new(rows)} end)
 
     bitmap =
-      columns
-      |> Enum.map(fn {_cx, col} -> col end)
-      |> transpose()
-      |> trim_rows()
+      for row <- 0..(height - 1)//1 do
+        for {cx, _} <- columns, do: if(MapSet.member?(filled[cx], row), do: 1, else: 0)
+      end
 
-    %{x0: x0, x1: x1, bitmap: bitmap}
+    %{x0: x0, x1: x1, bitmap: trim_rows(bitmap)}
   end
-
-  defp transpose(columns), do: columns |> Enum.zip() |> Enum.map(&Tuple.to_list/1)
 
   defp trim_rows(rows) do
     rows
-    |> Enum.drop_while(&(not Enum.any?(&1)))
+    |> Enum.drop_while(&(Enum.sum(&1) == 0))
     |> Enum.reverse()
-    |> Enum.drop_while(&(not Enum.any?(&1)))
+    |> Enum.drop_while(&(Enum.sum(&1) == 0))
     |> Enum.reverse()
-    |> Enum.map(fn row -> Enum.map(row, &if(&1, do: 1, else: 0)) end)
   end
 
   @doc "The atlas key for a glyph bitmap: rows of 0/1, columns comma-joined, rows semicolon-joined."
@@ -361,10 +407,4 @@ defmodule Pokex.Vision.Glyphs do
   defp maybe_space(_g, nil, _gap), do: ""
   defp maybe_space(_g, _next, nil), do: ""
   defp maybe_space(g, next, gap), do: if(next.x0 - g.x1 > gap, do: " ", else: "")
-
-  defp ink?(%Frame{width: w, rgba: rgba}, x, y, floor) do
-    <<r, g, b, _a>> = binary_part(rgba, (y * w + x) * 4, 4)
-    lo = min(r, min(g, b))
-    lo >= floor and max(r, max(g, b)) - lo <= @max_spread
-  end
 end

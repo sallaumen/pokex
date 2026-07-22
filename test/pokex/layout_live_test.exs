@@ -17,7 +17,11 @@ defmodule Pokex.LayoutLiveTest do
   alias Pokex.{Layout, ScreenFixtures}
   alias Pokex.Vision.Glyphs
 
-  @captures ["ultrawide_3440x1440_full", "ultrawide_3440x1440_outro_mapa"]
+  @captures [
+    "ultrawide_3440x1440_full",
+    "ultrawide_3440x1440_outro_mapa",
+    "ultrawide_3440x1440_terceiro"
+  ]
 
   test "locates on every real capture" do
     for name <- @captures do
@@ -52,7 +56,7 @@ defmodule Pokex.LayoutLiveTest do
     end
   end
 
-  test "he levelled up and restocked between the two captures — the readings follow" do
+  test "the readings track his session across all three captures" do
     reads =
       for name <- @captures do
         frame = ScreenFixtures.frame!(name)
@@ -60,16 +64,54 @@ defmodule Pokex.LayoutLiveTest do
 
         %{
           level: Glyphs.read_int(frame, fix.regions.level),
-          f1: Glyphs.read_int(frame, fix.regions.slot_f1, ink: 200),
+          f1: Glyphs.read_int(frame, fix.regions.slot_f1, Layout.region_opts(fix, :slot_f1)),
+          e: Glyphs.read_int(frame, fix.regions.slot_e, Layout.region_opts(fix, :slot_e)),
           hp: Glyphs.read_line(frame, fix.regions.pokemon_hp).text
         }
       end
 
-    [before, later] = reads
+    assert [first, second, third] = reads
 
-    assert before.level == 90 and later.level == 91
-    assert before.f1 == 322 and later.f1 == 561
-    assert before.hp == "5559/6410" and later.hp == "9300/9300"
+    # different pokémon out, different stock, different health — all read
+    assert first.hp == "5559/6410"
+    assert second.hp == "9300/9300"
+    assert third.hp == "8932/9215"
+    assert [first.f1, second.f1, third.f1] == [322, 561, 457]
+    assert [first.e, second.e, third.e] == [7, 404, 401]
+
+    # NOTE: the "level" field reads 90, 91, 90 — it goes DOWN, so it is not the
+    # character's level. It tracks whatever pokémon is out. Kept as-is until
+    # Lucas confirms what the game means by it.
+    assert [first.level, second.level, third.level] == [90, 91, 90]
+  end
+
+  test "no HUD field comes back unreadable on any real capture" do
+    # The eye is only useful if it reads what is actually there. A "?" here is
+    # a glyph this atlas has never seen — which is what Lucas kept seeing in
+    # the panel, and what hysteresis plus the teachable atlas exist to end.
+    for name <- @captures do
+      frame = ScreenFixtures.frame!(name)
+      {:ok, fix} = Layout.locate(frame)
+
+      for region <- [:level, :food, :fishing, :slot_f1, :slot_f2, :slot_e, :slot_s_q] do
+        assert %{confidence: 1.0} =
+                 Glyphs.read_line(frame, fix.regions[region], Layout.region_opts(fix, region)),
+               "#{region} ilegível em #{name}"
+      end
+
+      assert %{confidence: 1.0} = Glyphs.read_line(frame, fix.regions.pokemon_hp)
+      assert Glyphs.read_coord(frame, fix.regions.minimap_coord)
+    end
+  end
+
+  test "a zero keeps its curves — the glyph that was breaking in two" do
+    # Lucas, reading the teach screen: "acho que o 0 está sendo quebrado em 2".
+    # He was right: a zero's strokes are strong and its arcs fade, so a single
+    # floor left two bars and no way to tell they were one character.
+    frame = ScreenFixtures.frame!("ultrawide_3440x1440_outro_mapa")
+    {:ok, fix} = Layout.locate(frame)
+
+    assert Glyphs.read_int(frame, fix.regions.slot_e, Layout.region_opts(fix, :slot_e)) == 404
   end
 
   test "every anchor template must come from OPAQUE chrome" do

@@ -247,7 +247,9 @@ defmodule Pokex.Bots.BotSupervisorTest do
         mini_game_min_confidence: 0.6,
         mini_game_min_dark_ratio: 0.34,
         mini_game_play_tick_ms: 20,
-        mini_game_min_toggle_ms: 0
+        mini_game_min_toggle_ms: 0,
+        # only the PILOT can leave a Space held — the safe default never presses
+        mini_game_mode: "auto"
       },
       fn {k, v} -> Settings.put(k, v) end
     )

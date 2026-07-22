@@ -336,6 +336,18 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:mini_game_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🎮", text: text})}
 
+  # A game is sitting there waiting for a HUMAN, and every worker is held while
+  # it does — so this repeats until the overlay is gone. Muting silences it, the
+  # same switch that mutes the enter/leave chirp.
+  def handle_info({:mini_game_alert, %{text: text}}, socket) do
+    socket =
+      if Settings.get(:mini_game_sound),
+        do: push_event(socket, "mini-game-transition", %{transition: :entered, state: :playing}),
+        else: socket
+
+    {:noreply, append_log(socket, %{level: :macro, source: "🎮", text: text})}
+  end
+
   def handle_info({:catcher_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🎯", text: text})}
 
@@ -1741,6 +1753,7 @@ defmodule PokexWeb.PanelLive do
                   active?={@mini_game.state == :playing}
                   tone="bg-pk-warn"
                   label={mini_game_label(@mini_game.state)}
+                  counters={@mini_game[:mode_label]}
                   title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
                   snapshot={@mini_game}
                   now_ms={@now_ms}
@@ -1785,6 +1798,19 @@ defmodule PokexWeb.PanelLive do
               </div>
 
               <div class="space-y-1">
+                <div
+                  :if={@mini_game[:awaiting_manual?]}
+                  data-testid="mini-game-manual-banner"
+                  role="status"
+                  class="rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+                >
+                  <p class="font-semibold">🎮 {@mini_game[:manual_text]}</p>
+                  <p class="mt-0.5 text-pk-text-2">
+                    Resolva na janela do jogo — pesca, batalha e captura voltam sozinhas
+                    quando o overlay sumir.
+                    <.link navigate={~p"/mini-game"} class="underline">ver diagnóstico</.link>
+                  </p>
+                </div>
                 <p
                   :if={@fishing.error}
                   class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"

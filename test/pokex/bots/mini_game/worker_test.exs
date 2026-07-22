@@ -20,14 +20,20 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       mini_game_min_confidence: 0.6,
       mini_game_min_dark_ratio: 0.34,
       mini_game_play_tick_ms: 20,
-      mini_game_min_toggle_ms: 0
+      mini_game_min_toggle_ms: 0,
+      # This file's play tests are about the PILOT flying the capsule, which is
+      # no longer the default: :manual_assist is. The manual-assist tests at the
+      # bottom pin the safe default itself.
+      mini_game_mode: "auto"
     )
 
-    # put mid-test by the calibrated-anchor test — must restore too
+    # put mid-test by these tests — must restore too
     SettingsStash.stash_keys!([
       :mini_game_anchor_tolerance,
       :mini_game_no_capsule_exit_ticks,
-      :mini_game_max_game_ms
+      :mini_game_max_game_ms,
+      :mini_game_mode,
+      :mini_game_manual_alert_ms
     ])
 
     Calibration.save(%Calibration{
@@ -59,7 +65,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
 
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
     assert_receive {:mini_game_log, :macro, enter_log}, 1_000
-    assert enter_log =~ "jogando"
+    assert enter_log =~ "detectado"
 
     assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
 
@@ -238,12 +244,9 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
 
-    wait_for(fn -> {:key_up, "space"} in Pokex.Rig.Fake.calls() end)
-
-    calls = Pokex.Rig.Fake.calls()
-    down = Enum.find_index(calls, &(&1 == {:key_down, "space"}))
-    up = Enum.find_index(calls, &(&1 == {:key_up, "space"}))
-    assert down != nil and up != nil and down < up
+    # The entry guard already sent one preventive key_up BEFORE the first tick,
+    # so the release we are proving must be a LATER one — after the key_down.
+    wait_for(&released_after_holding?/0)
   end
 
   @tag :tmp_dir
@@ -280,11 +283,11 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "leaving the game dumps a physics trace to exports", %{tmp: tmp} do
+  test "a finished game writes a complete evidence bundle to exports", %{tmp: tmp} do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
     calm = png!(tmp, "calm.png", false)
 
-    # several play ticks (trace needs >= 5 samples), then the overlay vanishes
+    # several play ticks (a bundle needs >= 5 samples), then the overlay vanishes
     captures = List.duplicate({:ok, game}, 8) ++ [{:ok, calm}]
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: captures})
 
@@ -294,14 +297,55 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :watching, transition: :left}}, 2_000
 
-    assert [path] = Path.wildcard(Path.join([tmp, "exports", "mini_game_trace-*.json"]))
+    assert [bundle] = Path.wildcard(Path.join([tmp, "exports", "mini_game-*"]))
 
-    assert %{"settings" => settings, "samples" => samples} =
-             path |> File.read!() |> JSON.decode!()
+    summary = bundle |> Path.join("summary.json") |> File.read!() |> JSON.decode!()
 
-    assert length(samples) >= 5
-    assert is_number(settings["brake_up"])
-    assert Enum.all?(samples, &(is_number(&1["fish"]) and is_number(&1["bar"])))
+    assert summary["mode"] == "auto"
+    assert summary["ticks"] >= 5
+    assert summary["exit_reason"] == "exit_streak"
+    assert is_number(summary["duration_ms"])
+    assert is_number(summary["capture_ms"]["p95"])
+    assert is_number(summary["tick_ms"]["p50"])
+    assert is_number(summary["error_mean"])
+    assert summary["key_down"] + summary["key_up"] > 0
+    # the entry guard's preventive release is recorded, whatever it returned
+    assert [_entry_release | _] = summary["safety_key_ups"]
+
+    samples =
+      bundle
+      |> Path.join("samples.jsonl")
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&JSON.decode!/1)
+
+    assert length(samples) == summary["samples_recorded"]
+
+    # every tick carries its timing and its pixel evidence...
+    assert Enum.all?(samples, fn sample ->
+             is_number(sample["cap_ms"]) and is_number(sample["tick_ms"]) and
+               is_number(sample["dark_px"]) and is_number(sample["blue_px"]) and
+               is_boolean(sample["hold"]) and is_binary(sample["read"])
+           end)
+
+    # ...and a READABLE tick carries the full reading it flew on
+    readable = Enum.filter(samples, &(&1["read"] == "ok"))
+    assert readable != []
+
+    assert Enum.all?(readable, fn sample ->
+             is_number(sample["fish_y"]) and is_number(sample["bar_y"]) and
+               is_number(sample["fish_aim"]) and is_number(sample["fish_vy"]) and
+               is_number(sample["bar_vy"]) and is_number(sample["top"]) and
+               is_number(sample["bottom"]) and is_boolean(sample["accepted"]) and
+               sample["bar_source"] in ["blue", "fish"]
+           end)
+
+    # frames are EVIDENCE, not a screen recording: far fewer than one per tick
+    frames = Path.wildcard(Path.join([bundle, "frames", "*.png"]))
+    assert frames != []
+    assert length(frames) < length(samples)
+    assert Enum.any?(frames, &(Path.basename(&1) =~ "first"))
+    assert Enum.any?(frames, &(Path.basename(&1) =~ "last"))
   end
 
   @tag :tmp_dir
@@ -336,7 +380,150 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
     wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
 
-    wait_for(fn -> {:key_up, "space"} in Pokex.Rig.Fake.calls() end)
+    # a release AFTER the hold — not the entry guard's preventive one
+    wait_for(&released_after_holding?/0)
+  end
+
+  describe "assistência manual (o padrão seguro)" do
+    setup do
+      Settings.put(:mini_game_mode, "manual_assist")
+      :ok
+    end
+
+    @tag :tmp_dir
+    test "never presses Space — Lucas plays, the bot only watches", %{tmp: tmp} do
+      # A fish far above the capsule: in :auto this frame holds Space on the
+      # very first play tick. Here it must never be pressed, no matter how long.
+      game = play_png!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
+      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 30)})
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_supervised!({Worker, name: nil})
+
+      assert :ok = Worker.run(worker)
+      assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+
+      # let a good number of play ticks go by (20ms each in this suite)
+      Process.sleep(300)
+
+      refute {:key_down, "space"} in Pokex.Rig.Fake.calls()
+      assert :ok = Worker.halt(worker)
+      refute {:key_down, "space"} in Pokex.Rig.Fake.calls()
+    end
+
+    @tag :tmp_dir
+    test "entering releases Space preventively, before the first play tick", %{tmp: tmp} do
+      game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 10)})
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_supervised!({Worker, name: nil})
+
+      assert :ok = Worker.run(worker)
+      assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+      wait_for(fn -> {:key_up, "space"} in Pokex.Rig.Fake.calls() end)
+
+      calls = Pokex.Rig.Fake.calls()
+      release = Enum.find_index(calls, &(&1 == {:key_up, "space"}))
+
+      strip =
+        Enum.find_index(calls, fn
+          {:capture, _region, "mini_game_strip.png"} -> true
+          _other -> false
+        end)
+
+      assert release != nil
+      assert strip == nil or release < strip
+    end
+
+    @tag :tmp_dir
+    test "holds the peers through the :mini_game fact and frees them on exit", %{tmp: tmp} do
+      game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+      calm = png!(tmp, "calm.png", false)
+
+      {:ok, _} =
+        Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 6) ++ [{:ok, calm}]})
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_supervised!({Worker, name: nil})
+
+      assert :ok = Worker.run(worker)
+      assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+      wait_for(fn -> Pokex.Perception.mini_game_playing?() end)
+
+      assert_receive {:mini_game, %{state: :watching, transition: :left}}, 2_000
+      wait_for(fn -> not Pokex.Perception.mini_game_playing?() end)
+      assert Pokex.Perception.mini_game_gate() == :ok
+    end
+
+    @tag :tmp_dir
+    test "alerts, and keeps alerting while the game waits", %{tmp: tmp} do
+      Settings.put(:mini_game_manual_alert_ms, 30)
+
+      game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 30)})
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_supervised!({Worker, name: nil})
+
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:mini_game_alert, %{mode: :manual_assist, text: text}}, 1_000
+      assert text =~ "aguardando resolução manual"
+      assert_receive {:mini_game_alert, _repeat}, 1_000
+
+      assert %{awaiting_manual?: true, mode_label: "assistência manual"} = Worker.status(worker)
+      assert :ok = Worker.halt(worker)
+    end
+
+    @tag :tmp_dir
+    test "records a full bundle for the game Lucas played by hand", %{tmp: tmp} do
+      game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+      calm = png!(tmp, "calm.png", false)
+
+      {:ok, _} =
+        Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 8) ++ [{:ok, calm}]})
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_supervised!({Worker, name: nil})
+
+      assert :ok = Worker.run(worker)
+      assert_receive {:mini_game, %{state: :watching, transition: :left}}, 2_000
+
+      assert [bundle] = Path.wildcard(Path.join([tmp, "exports", "mini_game-*"]))
+      summary = bundle |> Path.join("summary.json") |> File.read!() |> JSON.decode!()
+
+      assert summary["mode"] == "manual_assist"
+      assert summary["key_down"] == 0
+      assert summary["ticks"] >= 5
+      # the reading pipeline ran in full even though nothing was actuated
+      assert is_number(summary["error_mean"])
+    end
+  end
+
+  @tag :tmp_dir
+  test "auto mode does not raise the manual alert", %{tmp: tmp} do
+    Settings.put(:mini_game_manual_alert_ms, 10)
+    game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 20)})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil})
+
+    assert :ok = Worker.run(worker)
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+
+    refute_receive {:mini_game_alert, _payload}, 200
+    assert %{awaiting_manual?: false, mode: :auto} = Worker.status(worker)
+  end
+
+  defp released_after_holding? do
+    calls = Pokex.Rig.Fake.calls()
+
+    case Enum.find_index(calls, &(&1 == {:key_down, "space"})) do
+      nil -> false
+      down -> calls |> Enum.drop(down) |> Enum.any?(&(&1 == {:key_up, "space"}))
+    end
   end
 
   defp wait_for(fun, tries \\ 100) do

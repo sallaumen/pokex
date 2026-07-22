@@ -138,6 +138,23 @@ defmodule Pokex.Bots.Capture do
   end
 
   @doc """
+  `frame/3` plus the PATH of the PNG it decoded — `{:ok, frame, path}`.
+
+  The file on disk IS the frame that was analysed. The mini-game diagnostics
+  keep evidence frames and refresh the live preview by COPYING that file, so
+  the picture Lucas looks at is exactly the picture the code read: no second
+  capture (which would show a DIFFERENT moment) and no re-encoding.
+  """
+  def frame_with_path(region, filename, server \\ __MODULE__) do
+    requested_at = now()
+
+    case GenServer.whereis(server) do
+      nil -> direct_frame_with_path(region, filename)
+      pid -> GenServer.call(pid, {:frame_with_path, region, filename, requested_at}, :infinity)
+    end
+  end
+
+  @doc """
   Serialized capture plus PNG decode, bypassing the short decoded-frame cache.
 
   Use this only for guard reads where a just-triggered screen transition must not
@@ -213,6 +230,26 @@ defmodule Pokex.Bots.Capture do
     end
   end
 
+  def handle_call({:frame_with_path, region, filename, requested_at}, _from, state) do
+    record_queue(:frame_with_path, filename, requested_at)
+    key = {:frame_path, region}
+
+    case cached(state, key) do
+      {:ok, {frame, path}, state} ->
+        Perf.count("capture.cache_hit.frame_path:#{filename}")
+        {:reply, {:ok, frame, path}, state}
+
+      :miss ->
+        case frame_and_path_from_backend(state, region, filename) do
+          {{:ok, %Frame{} = frame, path}, state} ->
+            {:reply, {:ok, frame, path}, put_cache(state, key, {frame, path})}
+
+          {error, state} ->
+            {:reply, error, prune_cache(state)}
+        end
+    end
+  end
+
   def handle_call({:frame_uncached, region, filename, requested_at}, _from, state) do
     record_queue(:frame_uncached, filename, requested_at)
     {reply, state} = frame_from_backend(state, region, filename)
@@ -275,6 +312,26 @@ defmodule Pokex.Bots.Capture do
   defp direct_frame(region, filename) do
     with {:ok, path} <- timed_capture_path(:direct, region, filename) do
       timed_decode(path, filename)
+    end
+  end
+
+  defp direct_frame_with_path(region, filename) do
+    with {:ok, path} <- timed_capture_path(:direct, region, filename),
+         {:ok, frame} <- timed_decode(path, filename) do
+      {:ok, frame, path}
+    end
+  end
+
+  defp frame_and_path_from_backend(state, region, filename) do
+    case capture_path(state, region, filename) do
+      {{:ok, path}, state} ->
+        case timed_decode(path, filename) do
+          {:ok, frame} -> {{:ok, frame, path}, state}
+          error -> {error, state}
+        end
+
+      {error, state} ->
+        {error, state}
     end
   end
 

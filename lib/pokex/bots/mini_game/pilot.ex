@@ -148,6 +148,16 @@ defmodule Pokex.Bots.MiniGame.Pilot do
     {clamp(predicted_y + lead, 0.0, 1.0), age_ms}
   end
 
+  @doc """
+  The TARGET's estimated velocity (track/s) — the very number the predictive
+  pilot aims with, exposed for diagnostics. Not a second estimator: it is the
+  same `blended_velocity/1` the decision path uses, so a report can never
+  disagree with the flight it is explaining.
+  """
+  @spec target_velocity([observation]) :: float
+  def target_velocity([]), do: 0.0
+  def target_velocity(observations), do: blended_velocity(observations)
+
   # Reactive uses ONLY the newest pair — the lab logic verbatim.
   defp last_pair_velocity(observations) when length(observations) < 2, do: 0.0
 
@@ -200,10 +210,23 @@ defmodule Pokex.Bots.MiniGame.Pilot do
   `:reacquire_ms` (#{@default_reacquire_ms}).
   """
   @spec accept_target([observation], observation, keyword) :: [observation]
-  def accept_target(history, obs, opts \\ []) do
+  def accept_target(history, obs, opts \\ []),
+    do: history |> judge_target(obs, opts) |> elem(1)
+
+  @typedoc "Why the gate did what it did — the verdict `accept_target/3` discards."
+  @type verdict :: :accepted | {:rejected, :impossible_speed} | {:restarted, :reacquired}
+
+  @doc """
+  `accept_target/3` plus the REASON, for diagnostics: the gate's verdict is the
+  single most informative thing about a bad game (a rejection spell means the
+  aim FROZE while the fish moved), and the plain call throws it away. Same
+  math, same history — `accept_target/3` is this function's second element.
+  """
+  @spec judge_target([observation], observation, keyword) :: {verdict, [observation]}
+  def judge_target(history, obs, opts \\ []) do
     case List.last(history) do
       nil ->
-        history ++ [obs]
+        {:accepted, history ++ [obs]}
 
       last ->
         max_speed = opts[:max_speed] || @default_max_target_speed
@@ -215,12 +238,12 @@ defmodule Pokex.Bots.MiniGame.Pilot do
           # widens the dt to the last ACCEPTED reading, so a PERSISTENT
           # disagreement dilutes below the ceiling by itself and lands in the
           # restart branch: blindness is bounded without trusting any phantom.
-          speed > max_speed -> history
+          speed > max_speed -> {{:rejected, :impossible_speed}, history}
           # Plausible, but the last accepted reading is old (a rejection spell
           # or a blind gap): restart at the new reading — appending would blend
           # a velocity across the gap and aim at a ghost in between.
-          obs.at - last.at >= reacquire_ms -> [obs]
-          true -> history ++ [obs]
+          obs.at - last.at >= reacquire_ms -> {{:restarted, :reacquired}, [obs]}
+          true -> {:accepted, history ++ [obs]}
         end
     end
   end

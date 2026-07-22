@@ -322,7 +322,16 @@ defmodule Pokex.Bots.BotSupervisor do
     |> status(combat, catcher)
     # confidence included because the panel template reads @mini_game.confidence STRICTLY —
     # a placeholder without it would crash the very render this fallback exists to protect.
-    |> Map.put(:mini_game, safe_status(mini_game, %{in_game?: false, confidence: 0.0}))
+    |> Map.put(
+      :mini_game,
+      safe_status(mini_game, %{
+        in_game?: false,
+        confidence: 0.0,
+        mode: MiniGame.Mode.default(),
+        mode_label: MiniGame.Mode.label(MiniGame.Mode.default()),
+        awaiting_manual?: false
+      })
+    )
   end
 
   @spec status(

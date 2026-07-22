@@ -28,6 +28,15 @@ defmodule Pokex.Vision.Glyphs do
   @default_ink 120
   @max_spread 60
   @atlas_key {:pokex, :glyph_atlas}
+  @index_key {:pokex, :glyph_atlas_index}
+  # A glyph drawn over a red pokeball and the SAME glyph over a yellow one
+  # differ at their anti-aliased edges. Exact matching alone therefore loses
+  # characters the instant an item sprite changes — which is what made Lucas's
+  # stock counts and HP flicker to "?". Accept the closest known glyph of the
+  # same shape when it is both close enough and clearly better than the
+  # runner-up; anything else stays unknown.
+  @max_diff_ratio 0.12
+  @min_diff_slack 2
 
   @doc """
   Splits a region into glyphs, left to right.
@@ -93,7 +102,73 @@ defmodule Pokex.Vision.Glyphs do
   end
 
   @doc "Drops the cached atlas (tests, and after `mix glyphs.learn`)."
-  def clear, do: :persistent_term.erase(@atlas_key)
+  def clear do
+    :persistent_term.erase(@atlas_key)
+    :persistent_term.erase(@index_key)
+  end
+
+  # Glyphs grouped by shape, decoded once: the nearest-match pass only ever
+  # compares bitmaps of identical dimensions.
+  defp index do
+    case :persistent_term.get(@index_key, nil) do
+      nil ->
+        index =
+          Enum.group_by(
+            Enum.map(atlas(), fn {sig, char} -> {decode(sig), char} end),
+            fn {bitmap, _char} -> {length(bitmap), length(hd(bitmap))} end
+          )
+
+        :persistent_term.put(@index_key, index)
+        index
+
+      index ->
+        index
+    end
+  end
+
+  defp decode(signature) do
+    signature
+    |> String.split(";")
+    |> Enum.map(fn row -> row |> String.split(",") |> Enum.map(&String.to_integer/1) end)
+  end
+
+  @doc false
+  def lookup(bitmap, atlas) do
+    case Map.get(atlas, signature(bitmap)) do
+      nil -> nearest(bitmap)
+      char -> char
+    end
+  end
+
+  defp nearest(bitmap) do
+    shape = {length(bitmap), length(hd(bitmap))}
+    cells = elem(shape, 0) * elem(shape, 1)
+    ceiling = max(@min_diff_slack, round(cells * @max_diff_ratio))
+
+    index()
+    |> Map.get(shape, [])
+    |> Enum.map(fn {candidate, char} -> {char, difference(bitmap, candidate)} end)
+    |> Enum.sort_by(&elem(&1, 1))
+    |> case do
+      [{char, best} | rest] ->
+        # a near tie means two glyphs explain the pixels equally well — refuse
+        runner_up = rest |> Enum.map(&elem(&1, 1)) |> List.first()
+
+        if best <= ceiling and (runner_up == nil or runner_up > best + @min_diff_slack),
+          do: char,
+          else: nil
+
+      [] ->
+        nil
+    end
+  end
+
+  defp difference(a, b) do
+    Enum.zip(a, b)
+    |> Enum.reduce(0, fn {row_a, row_b}, acc ->
+      acc + Enum.count(Enum.zip(row_a, row_b), fn {x, y} -> x != y end)
+    end)
+  end
 
   @doc """
   Reads a line of text. `confidence` is the share of glyphs the atlas knew;
@@ -109,7 +184,7 @@ defmodule Pokex.Vision.Glyphs do
       |> Enum.chunk_every(2, 1, [nil])
       |> Enum.reduce({[], 0}, fn [g, next], {acc, known} ->
         {char, known} =
-          case Map.get(atlas, signature(g.bitmap)) do
+          case lookup(g.bitmap, atlas) do
             nil -> {"?", known}
             char -> {char, known + 1}
           end

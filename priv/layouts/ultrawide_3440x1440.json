@@ -108,37 +108,38 @@
     },
     "slot_f1": {
       "fixed": [
-        1272,
-        1405,
-        34,
-        22
+        1265,
+        1402,
+        42,
+        28
       ],
+      "note": "Sized for the FIELD, not for the first value seen: the counts are right-aligned in a 51px-pitch box, so a rect cut to fit '7' silently truncated '402' to '2'. The vertical band is tight to the digits (measured y 1412..1423) because the item sprite above them has grey highlights that survive the ink floor and segment as extra glyphs.",
       "ink": 200
     },
     "slot_f2": {
       "fixed": [
-        1323,
-        1405,
-        35,
-        22
+        1316,
+        1402,
+        42,
+        28
       ],
       "ink": 200
     },
     "slot_e": {
       "fixed": [
-        1397,
-        1405,
-        13,
-        22
+        1367,
+        1402,
+        42,
+        28
       ],
       "ink": 200
     },
     "slot_s_q": {
       "fixed": [
-        1429,
-        1405,
-        30,
-        22
+        1418,
+        1402,
+        42,
+        28
       ],
       "ink": 200
     },
@@ -163,9 +164,10 @@
       "fixed": [
         78,
         1121,
-        84,
+        82,
         7
-      ]
+      ],
+      "note": "Width is the FULL-FILL extent (measured on both captures), so a healthy member reads 100% instead of 98%."
     },
     "mini_game": {
       "fixed": [

@@ -7,9 +7,12 @@ defmodule Pokex.Bots.ShinyGuard do
   for ANY shiny (not only the configured names), and it rides the region
   combat already captures every ~120ms.
 
-  It debounces over `shiny_streak_needed` consecutive frames, LOGS the
-  encounter (Pokex.Pokedex.ShinyLog — the trophy shelf), and acts per
-  `shiny_action`:
+  Debounce is a TIME window, not a message count: the feed dedupes identical
+  observations, so a calm list with a shiny broadcasts ONCE — the guard arms a
+  `shiny_confirm_ms` timer on the sighting and fires only if no clean frame
+  refutes it in the window (a one-frame glitch is refuted ~120ms later by the
+  next capture). It LOGS the encounter (Pokex.Pokedex.ShinyLog — the trophy
+  shelf) and acts per `shiny_action`:
 
     * `"fugir"` — the emergency-escape protocol (latch, click-walk to the
       calibrated staircase, full stop, alarm) via the injected `escape_fun`;
@@ -53,7 +56,9 @@ defmodule Pokex.Bots.ShinyGuard do
       active?: Keyword.get(opts, :active, Application.get_env(:pokex, :shiny_guard_active, true)),
       attached?: false,
       feed_ref: nil,
-      streak: 0,
+      # a sighting awaiting its confirm window; ref ties the timer to THIS pending
+      pending_ref: nil,
+      pending_px: 0,
       last_fired_at: nil,
       last_reading_at: nil
     }
@@ -68,6 +73,10 @@ defmodule Pokex.Bots.ShinyGuard do
 
   @impl true
   def init(state) do
+    # Feeds deliver observations by PubSub on the world topic — attach only
+    # creates demand. Without THIS subscribe the guard is attached but deaf
+    # (the bug behind the silent Kingler sighting of 2026-07-21).
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     # combat's kill broadcast closes an open encounter as "morto"
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.kill_topic())
     schedule_poll()
@@ -80,7 +89,7 @@ defmodule Pokex.Bots.ShinyGuard do
      %{
        enabled?: state.active? and Settings.get(:shiny_guard_enabled),
        attached?: state.attached?,
-       streak: state.streak,
+       pending?: state.pending_ref != nil,
        star_min_px: Settings.get(:shiny_star_min_px)
      }, state}
   end
@@ -93,11 +102,24 @@ defmodule Pokex.Bots.ShinyGuard do
   end
 
   def handle_info({:world, :battle, obs}, state) do
-    px = Map.get(obs, :shiny_star_px, 0)
-    state = broadcast_reading(state, px)
-    seen? = Map.get(obs, :shiny_rows, []) != []
-    {:noreply, advance(state, seen?, px)}
+    # the world topic carries battle obs whenever ANYONE (combat included)
+    # attaches the feed — a disabled guard must stay inert
+    if state.active? and Settings.get(:shiny_guard_enabled) do
+      px = Map.get(obs, :shiny_star_px, 0)
+      state = broadcast_reading(state, px)
+      seen? = Map.get(obs, :shiny_rows, []) != []
+      {:noreply, advance(state, seen?, px)}
+    else
+      {:noreply, %{state | pending_ref: nil}}
+    end
   end
+
+  # The confirm window closed. Still pending (no clean frame refuted it) →
+  # a real shiny is on the list.
+  def handle_info({:confirm_shiny, ref}, %{pending_ref: ref} = state),
+    do: {:noreply, fire(%{state | pending_ref: nil}, state.pending_px)}
+
+  def handle_info({:confirm_shiny, _stale}, state), do: {:noreply, state}
 
   def handle_info({:world, _key, _obs}, state), do: {:noreply, state}
 
@@ -116,7 +138,7 @@ defmodule Pokex.Bots.ShinyGuard do
   # The :battle feed died — mark detached; the next poll re-attaches (a fresh
   # feed starts with nobody attached, same liveness pattern as the catcher's).
   def handle_info({:DOWN, ref, :process, _obj, _reason}, %{feed_ref: ref} = state),
-    do: {:noreply, %{state | attached?: false, feed_ref: nil, streak: 0}}
+    do: {:noreply, %{state | attached?: false, feed_ref: nil, pending_ref: nil}}
 
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -131,12 +153,12 @@ defmodule Pokex.Bots.ShinyGuard do
       enabled? and not state.attached? ->
         Perception.attach(:battle)
         ref = Process.monitor(Feed.name(:battle))
-        %{state | attached?: true, feed_ref: ref, streak: 0}
+        %{state | attached?: true, feed_ref: ref, pending_ref: nil}
 
       not enabled? and state.attached? ->
         safe_detach()
         demonitor(state.feed_ref)
-        %{state | attached?: false, feed_ref: nil, streak: 0}
+        %{state | attached?: false, feed_ref: nil, pending_ref: nil}
 
       true ->
         state
@@ -154,17 +176,21 @@ defmodule Pokex.Bots.ShinyGuard do
 
   # -- detection ---------------------------------------------------------------
 
-  defp advance(state, false, _px), do: %{state | streak: 0}
+  # a clean frame refutes any pending sighting
+  defp advance(state, false, _px), do: %{state | pending_ref: nil}
 
-  defp advance(state, true, px) do
-    streak = state.streak + 1
-
-    if streak >= Settings.get(:shiny_streak_needed) and cooled_down?(state) do
-      fire(state, px)
+  defp advance(%{pending_ref: nil} = state, true, px) do
+    if cooled_down?(state) do
+      ref = make_ref()
+      Process.send_after(self(), {:confirm_shiny, ref}, Settings.get(:shiny_confirm_ms))
+      %{state | pending_ref: ref, pending_px: px}
     else
-      %{state | streak: streak}
+      state
     end
   end
+
+  # already pending: keep the freshest px for the log
+  defp advance(state, true, px), do: %{state | pending_px: px}
 
   # the encounter is "open" for a while after the sighting — long enough for a
   # fight to end, short enough not to claim an unrelated kill
@@ -222,7 +248,7 @@ defmodule Pokex.Bots.ShinyGuard do
       {:shiny_seen, %{px: px, action: action}}
     )
 
-    %{state | streak: 0, last_fired_at: System.monotonic_time(:millisecond)}
+    %{state | pending_ref: nil, last_fired_at: System.monotonic_time(:millisecond)}
   end
 
   defp schedule_poll, do: Process.send_after(self(), :poll, @poll_ms)

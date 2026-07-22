@@ -386,6 +386,10 @@ defmodule Pokex.Settings do
     feed_hud_ms: 500,
     feed_team_ms: 500,
     feed_minimap_ms: 250,
+    # MEASURED, not guessed: between two captures the coordinate moved (-5,-11)
+    # tiles while the map image shifted (+10,+22) pixels — 2px per tile on both
+    # axes, at 98.5% correlation.
+    minimap_px_per_tile: 2,
     # --- Combat: Tab targeting ------------------------------------------------------------------
     # Tab selects the first attackable enemy; pressing again CYCLES to the next. The confirm
     # window counts from the Tab press against frames captured AFTER it, so capture latency can't

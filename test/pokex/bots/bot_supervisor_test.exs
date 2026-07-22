@@ -86,12 +86,23 @@ defmodule Pokex.Bots.BotSupervisorTest do
        player_support: player_support}
     )
 
+    %{
+      fishing: fishing,
+      combat: combat,
+      catcher: catcher,
+      mini_game: mini_game,
+      player_support: player_support
+    }
+  end
+
+  defp start_isolated_trio(tag) do
+    %{fishing: fishing, combat: combat, catcher: catcher} = start_isolated_supervisor(tag)
     {fishing, combat, catcher}
   end
 
   @tag :tmp_dir
   test "start_all/0 runs the workers, reflected in status/0" do
-    {fishing, combat, catcher} = start_isolated_supervisor(:start_all_test)
+    {fishing, combat, catcher} = start_isolated_trio(:start_all_test)
 
     assert :ok = BotSupervisor.start_all(fishing, combat, catcher)
 
@@ -104,7 +115,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
   @tag :tmp_dir
   test "stop_all/0 idles all workers and is idempotent on a second call" do
-    {fishing, combat, catcher} = start_isolated_supervisor(:stop_all_test)
+    {fishing, combat, catcher} = start_isolated_trio(:stop_all_test)
 
     assert :ok = BotSupervisor.start_all(fishing, combat, catcher)
     assert :ok = BotSupervisor.stop_all(fishing, combat, catcher)
@@ -129,7 +140,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   test "start_all/0 surfaces a preflight/calibration error instead of starting any worker" do
     File.rm!(Pokex.Home.calibration_file())
 
-    {fishing, combat, catcher} = start_isolated_supervisor(:error_test)
+    {fishing, combat, catcher} = start_isolated_trio(:error_test)
 
     assert {:error, [msg]} = BotSupervisor.start_all(fishing, combat, catcher)
     assert msg =~ "calibração"
@@ -144,7 +155,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   test "start_all/5 stamps the :calibration fact; stop_all/5 forgets it" do
     alias Pokex.Perception.WorldState
 
-    {fishing, combat, catcher} = start_isolated_supervisor(:stamp_test)
+    {fishing, combat, catcher} = start_isolated_trio(:stamp_test)
     mini_game = :stamp_test_mini_game
     player_support = :stamp_test_player_support
 
@@ -166,6 +177,32 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert :ok = BotSupervisor.stop_all(fishing, combat, catcher, mini_game, player_support)
     assert WorldState.get(:calibration, 4_000_000_000, now) == :missing
     assert WorldState.get(:session, 4_000_000_000, now) == :missing
+  end
+
+  # The mode is what "Iniciar" means. Walking around, the rod and the mini-game
+  # watcher have nothing to do — starting them would cast a line at whatever
+  # water he happens to be passing.
+  @tag :tmp_dir
+  test "start_all/5 em movimento NÃO liga a pesca nem o mini game, e ainda liga a luta" do
+    servers = start_isolated_supervisor(:movimento_test)
+    Settings.put(:player_mode, "movimento")
+
+    assert :ok =
+             BotSupervisor.start_all(
+               servers.fishing,
+               servers.combat,
+               servers.catcher,
+               servers.mini_game,
+               servers.player_support
+             )
+
+    status = BotSupervisor.status(servers.fishing, servers.combat, servers.catcher)
+    assert status.fishing.state == :idle
+    assert Pokex.Bots.MiniGame.Worker.status(servers.mini_game).state == :off
+
+    # what movimento IS: the bot fights, and the catcher stays up for the Space loot
+    assert status.combat.state != :idle
+    assert status.catcher.state != :idle
   end
 
   @tag :tmp_dir
@@ -195,7 +232,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # asked everything to stop.
   @tag :tmp_dir
   test "panic stop_all releases a Space held by the mini-game player", %{tmp_dir: tmp} do
-    {fishing, combat, catcher} = start_isolated_supervisor(:panic_release_test)
+    {fishing, combat, catcher} = start_isolated_trio(:panic_release_test)
     mini_game = :panic_release_test_mini_game
     player_support = :panic_release_test_player_support
 

@@ -321,6 +321,50 @@
       "kind": "int",
       "expected": "404",
       "ink": 200
+    },
+    {
+      "fixture": "ultrawide_3440x1440_outro_mapa",
+      "region": [
+        3223,
+        547,
+        132,
+        21
+      ],
+      "kind": "line",
+      "expected": "Sceptile"
+    },
+    {
+      "fixture": "ultrawide_3440x1440_outro_mapa",
+      "region": [
+        3223,
+        593,
+        132,
+        21
+      ],
+      "kind": "line",
+      "expected": "Magikarp"
+    },
+    {
+      "fixture": "ultrawide_3440x1440_outro_mapa",
+      "region": [
+        3223,
+        685,
+        132,
+        21
+      ],
+      "kind": "line",
+      "expected": "Smeargle"
+    },
+    {
+      "fixture": "ultrawide_3440x1440_full",
+      "region": [
+        3223,
+        547,
+        132,
+        21
+      ],
+      "kind": "line",
+      "expected": "Pidgeot"
     }
   ]
 }

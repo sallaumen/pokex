@@ -95,7 +95,13 @@ defmodule Pokex.Perception do
     [
       %{
         key: :battle,
-        region: fn calib -> calib.battle_region end,
+        # The auto-located panel wins over the hand-marked one: his calibration
+        # still points where the battle list sat before he enlarged his map, so
+        # combat was reading the MINIMAP and saw one enemy where there were six.
+        # The manual region stays as the fallback for an uncalibrated layout.
+        region: fn calib ->
+          Pokex.Layout.region(:battle_list, calib.layout) || calib.battle_region
+        end,
         interval_setting: :feed_battle_ms,
         filename: "feed_battle.png",
         interpret: &Interpret.battle/3

@@ -58,6 +58,22 @@ defmodule Pokex.Vision.Glyphs do
   the signature the atlas is keyed by.
   """
   def segment(%Frame{} = frame, {x, y, w, h}, opts \\ []) do
+    # A region can outrun its frame — a battle row past the end of the list, a
+    # layout located while the panel was mid-resize. Clamping keeps a bad rect
+    # from taking a whole feed down; reading nothing is the honest answer.
+    x = max(x, 0)
+    y = max(y, 0)
+    w = min(w, frame.width - x)
+    h = min(h, frame.height - y)
+
+    if w <= 0 or h <= 0 do
+      []
+    else
+      do_segment(frame, {x, y, w, h}, opts)
+    end
+  end
+
+  defp do_segment(%Frame{} = frame, {x, y, w, h}, opts) do
     strong = Keyword.get(opts, :ink, @default_ink)
     drop = Keyword.get(opts, :weak_drop, @weak_drop)
     cells = ink_cells(frame, {x, y, w, h}, strong, max(strong - drop, 40))

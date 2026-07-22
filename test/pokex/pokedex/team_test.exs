@@ -88,9 +88,10 @@ defmodule Pokex.Pokedex.TeamTest do
       JSON.encode!(%{members: ["Seadra", "Venusaur"]})
     )
 
+    # v3 adds the hotkey slot; a v1 file simply has none yet
     assert Team.members() == [
-             %{name: "Seadra", level: nil},
-             %{name: "Venusaur", level: nil}
+             %{name: "Seadra", level: nil, slot: nil},
+             %{name: "Venusaur", level: nil, slot: nil}
            ]
 
     assert Team.bank() == []

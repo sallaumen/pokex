@@ -15,6 +15,9 @@ defmodule Pokex.Pokedex.Team do
 
   alias Pokex.{Home, Pokedex}
 
+  # The in-game hotkey slots a team member can answer to: C+2..C+6 on screen.
+  @slots 2..6//1 |> Enum.to_list()
+
   @default_margin 15
 
   @doc "The active team, in insertion order: [%{name, level}] (level nil = not set)."
@@ -51,7 +54,11 @@ defmodule Pokex.Pokedex.Team do
         else
           # relocating from the other list keeps the level too
           entry =
-            Enum.find(data.members ++ data.bank, %{name: name, level: nil}, &(&1.name == name))
+            Enum.find(
+              data.members ++ data.bank,
+              %{name: name, level: nil, slot: nil},
+              &(&1.name == name)
+            )
 
           data = drop(data, name)
 
@@ -87,6 +94,80 @@ defmodule Pokex.Pokedex.Team do
           end
         )
     end
+  end
+
+  @doc """
+  Assigns the in-game hotkey slot (C+2..C+6) a member answers to.
+
+  A slot holds ONE pokémon, so giving it to somebody takes it from whoever had
+  it — otherwise a combo would swap to a slot the game has since reassigned and
+  send out the wrong creature mid-fight. `nil` clears.
+  """
+  def set_slot(name, slot) when slot in @slots or is_nil(slot) do
+    persist(
+      update_entries(read(), fn entry ->
+        cond do
+          entry.name == name -> Map.put(entry, :slot, slot)
+          slot != nil and Map.get(entry, :slot) == slot -> Map.put(entry, :slot, nil)
+          true -> entry
+        end
+      end)
+    )
+  end
+
+  @doc "Team members by slot: %{2 => member | nil, ... 6 => member | nil}."
+  def by_slot do
+    assigned = Map.new(members(), fn m -> {Map.get(m, :slot), m} end)
+    Map.new(@slots, fn slot -> {slot, Map.get(assigned, slot)} end)
+  end
+
+  @doc "The slot a member sits in, or nil."
+  def slot_of(name) do
+    case Enum.find(members() ++ bank(), &(&1.name == name)) do
+      nil -> nil
+      entry -> Map.get(entry, :slot)
+    end
+  end
+
+  @doc ~S'The key that swaps a slot in: C+2 on screen is "ctrl+2" to the Rig.'
+  def swap_key(slot) when slot in @slots, do: "ctrl+#{slot}"
+
+  @doc """
+  Which slot best answers `enemy_name`: the member whose elements hit its
+  weaknesses hardest, minus what it resists. nil when nobody in a slot has an
+  advantage — a combo that cannot pick a counter must not run.
+  """
+  def best_counter(enemy_name) do
+    with %{} = enemy <- Pokedex.get(enemy_name) do
+      by_slot()
+      |> Enum.reject(fn {_slot, member} -> is_nil(member) end)
+      |> Enum.map(fn {slot, member} -> {slot, advantage(member.name, enemy)} end)
+      |> Enum.filter(fn {_slot, score} -> score > 0 end)
+      |> Enum.max_by(fn {_slot, score} -> score end, fn -> nil end)
+      |> case do
+        nil -> nil
+        {slot, _score} -> slot
+      end
+    else
+      _unknown -> nil
+    end
+  end
+
+  # Same shape as the hunt scoring: hits are worth what resistances take away.
+  defp advantage(member_name, enemy) do
+    case Pokedex.get(member_name) do
+      nil ->
+        0
+
+      member ->
+        hits = Enum.count(member.elements, &(&1 in enemy.weak_to))
+        resisted = Enum.count(member.elements, &(&1 in enemy.resists))
+        2 * hits - 2 * resisted
+    end
+  end
+
+  defp update_entries(data, fun) do
+    %{data | members: Enum.map(data.members, fun), bank: Enum.map(data.bank, fun)}
   end
 
   @doc "Sets an entry's level wherever it lives (nil clears). No-op if absent."
@@ -128,15 +209,15 @@ defmodule Pokex.Pokedex.Team do
     end
   end
 
-  # v1 stored bare name strings; v2 stores %{"name", "level"} maps — both load.
+  # v1 stored bare name strings; v2 added "level"; v3 adds "slot" — all load.
   defp entries(list) when is_list(list) do
     list
     |> Enum.map(fn
       name when is_binary(name) ->
-        %{name: name, level: nil}
+        %{name: name, level: nil, slot: nil}
 
       %{"name" => name} = map when is_binary(name) ->
-        %{name: name, level: int_or_nil(map["level"])}
+        %{name: name, level: int_or_nil(map["level"]), slot: slot_or_nil(map["slot"])}
 
       _corrupt ->
         nil
@@ -148,6 +229,9 @@ defmodule Pokex.Pokedex.Team do
 
   defp int_or_nil(value) when is_integer(value), do: value
   defp int_or_nil(_other), do: nil
+
+  defp slot_or_nil(value) when value in 2..6, do: value
+  defp slot_or_nil(_other), do: nil
 
   defp drop(data, name) do
     %{

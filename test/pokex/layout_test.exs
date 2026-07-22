@@ -7,12 +7,13 @@ defmodule Pokex.LayoutTest do
 
   defp screen, do: ScreenFixtures.frame!("ultrawide_3440x1440_full")
 
-  test "locates all three anchors exactly where they were measured" do
+  test "locates the anchor exactly where it was measured" do
     assert {:ok, fix} = Layout.locate(screen())
 
-    assert fix.anchors.battle_header == {3184, 460}
-    assert fix.anchors.hotbar_sto == {1216, 1372}
-    assert fix.anchors.left_hud_icons == {88, 1022}
+    # ONE anchor: the opaque right dock. The bottom bar and the left HUD are
+    # semi-transparent, so pixel templates of them carry the map behind them —
+    # see Pokex.LayoutLiveTest for the two-capture proof.
+    assert fix.anchors == %{battle_header: {3184, 460}}
   end
 
   test "the derived regions actually contain what they claim — read them back" do

@@ -18,6 +18,25 @@ defmodule Pokex.Layout.SentinelTest do
     assert Process.alive?(pid)
   end
 
+  test "keeps retrying while blind — nothing else would ever ask" do
+    # With no layout the feeds HOLD (a nil region is not a capture failure), so
+    # the failure streaks that normally trigger a re-locate never arrive. A
+    # sentinel that gave up here would leave the app blind until a restart.
+    test = self()
+
+    defmodule FailingLayout do
+      def apply!, do: {:error, {:anchor_not_found, :battle_header}}
+    end
+
+    {:ok, pid} = Sentinel.start_link(name: nil, active: false)
+    send(pid, :retry)
+
+    # inert instance: the retry must be a no-op, not a crash
+    assert Process.alive?(pid)
+    refute_receive {:layout, _}, 100
+    send(test, :ok)
+  end
+
   test "a feed's failure streak reaches the sentinel as a suspicion" do
     Sentinel.suspect(:hud)
 

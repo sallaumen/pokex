@@ -1,46 +1,179 @@
 {
   "_comment": "HUD layout for Lucas's ultrawide, measured from test/fixtures/screen/ultrawide_3440x1440_full.png (2026-07-22). Every region is an offset from an ANCHOR — a unique piece of UI chrome located at runtime — so the panels can move without a manual wizard. Offsets and sizes are pixels; `ink` is the text brightness floor a region needs (see Vision.Glyphs).",
   "name": "ultrawide_3440x1440",
-  "resolution": [3440, 1440],
+  "resolution": [
+    3440,
+    1440
+  ],
   "anchors": {
     "battle_header": {
       "template": "battle_header.png",
-      "measured_at": [3184, 460],
-      "tolerance": [160, 220]
-    },
-    "hotbar_sto": {
-      "template": "hotbar_sto.png",
-      "measured_at": [1216, 1372],
-      "tolerance": [200, 60]
-    },
-    "left_hud_icons": {
-      "template": "left_hud_icons.png",
-      "measured_at": [88, 1022],
-      "tolerance": [120, 160]
+      "measured_at": [
+        3184,
+        460
+      ],
+      "tolerance": [
+        160,
+        220
+      ],
+      "note": "The only anchor that survives live: the right dock is OPAQUE, so its pixels do not change with the map behind it. The bottom bar and the left HUD are semi-transparent — templates cut from them matched the fixture and matched NOTHING once Lucas walked onto different ground."
     }
   },
   "regions": {
-    "battle_header": {"anchor": "battle_header", "offset": [26, 9], "size": [64, 19]},
-    "battle_list": {"anchor": "battle_header", "offset": [-44, 45], "size": [300, 290]},
-    "minimap": {"anchor": "battle_header", "offset": [-34, -460], "size": [290, 458]},
-    "minimap_coord": {"anchor": "battle_header", "offset": [-7, -448], "size": [142, 23]},
-
-    "hud_bottom": {"anchor": "hotbar_sto", "offset": [-16, -42], "size": [1140, 110]},
-    "food": {"anchor": "hotbar_sto", "offset": [54, -17], "size": [54, 21]},
-    "level": {"anchor": "hotbar_sto", "offset": [271, -17], "size": [29, 21]},
-    "clock": {"anchor": "hotbar_sto", "offset": [647, -17], "size": [59, 21]},
-    "fishing": {"anchor": "hotbar_sto", "offset": [821, -17], "size": [29, 21]},
-    "slot_f1": {"anchor": "hotbar_sto", "offset": [56, 33], "size": [34, 22], "ink": 200},
-    "slot_f2": {"anchor": "hotbar_sto", "offset": [107, 33], "size": [35, 22], "ink": 200},
-    "slot_e": {"anchor": "hotbar_sto", "offset": [181, 33], "size": [13, 22], "ink": 200},
-    "slot_s_q": {"anchor": "hotbar_sto", "offset": [213, 33], "size": [30, 22], "ink": 200},
-
-    "pokemon_hp": {"anchor": "left_hud_icons", "offset": [112, -16], "size": [90, 17]},
-    "team_column": {"anchor": "left_hud_icons", "offset": [-88, -22], "size": [360, 440]},
-    "team_bar_first": {"anchor": "left_hud_icons", "offset": [-10, 99], "size": [84, 7]},
-
+    "battle_header": {
+      "anchor": "battle_header",
+      "offset": [
+        26,
+        9
+      ],
+      "size": [
+        64,
+        19
+      ]
+    },
+    "battle_list": {
+      "anchor": "battle_header",
+      "offset": [
+        -44,
+        45
+      ],
+      "size": [
+        300,
+        290
+      ]
+    },
+    "minimap": {
+      "anchor": "battle_header",
+      "offset": [
+        -34,
+        -460
+      ],
+      "size": [
+        290,
+        458
+      ]
+    },
+    "minimap_coord": {
+      "anchor": "battle_header",
+      "offset": [
+        -13,
+        -454
+      ],
+      "size": [
+        160,
+        30
+      ],
+      "note": "Sized for the LONGEST coordinate seen, not the first one measured — the original rect fit '(337, 46107, 4)' and cut the ')' off '(2782, 30571, 5)'."
+    },
+    "hud_bottom": {
+      "fixed": [
+        1200,
+        1330,
+        1140,
+        110
+      ],
+      "note": "FIXED, not anchored: this panel is docked to a screen edge at this resolution AND is semi-transparent, so it can be neither anchored by pixels nor derived from the dock. Verified against two captures taken hours apart on different maps: every rect below still read its value."
+    },
+    "food": {
+      "fixed": [
+        1270,
+        1355,
+        54,
+        21
+      ]
+    },
+    "level": {
+      "fixed": [
+        1487,
+        1355,
+        29,
+        21
+      ]
+    },
+    "clock": {
+      "fixed": [
+        1863,
+        1355,
+        59,
+        21
+      ]
+    },
+    "fishing": {
+      "fixed": [
+        2037,
+        1355,
+        29,
+        21
+      ]
+    },
+    "slot_f1": {
+      "fixed": [
+        1272,
+        1405,
+        34,
+        22
+      ],
+      "ink": 200
+    },
+    "slot_f2": {
+      "fixed": [
+        1323,
+        1405,
+        35,
+        22
+      ],
+      "ink": 200
+    },
+    "slot_e": {
+      "fixed": [
+        1397,
+        1405,
+        13,
+        22
+      ],
+      "ink": 200
+    },
+    "slot_s_q": {
+      "fixed": [
+        1429,
+        1405,
+        30,
+        22
+      ],
+      "ink": 200
+    },
+    "pokemon_hp": {
+      "fixed": [
+        200,
+        1006,
+        90,
+        17
+      ]
+    },
+    "team_column": {
+      "fixed": [
+        0,
+        1000,
+        360,
+        440
+      ],
+      "note": "FIXED, not anchored: this panel is docked to a screen edge at this resolution AND is semi-transparent, so it can be neither anchored by pixels nor derived from the dock. Verified against two captures taken hours apart on different maps: every rect below still read its value."
+    },
+    "team_bar_first": {
+      "fixed": [
+        78,
+        1121,
+        84,
+        7
+      ]
+    },
     "mini_game": {
-      "fixed": [3067, 800, 28, 479],
+      "fixed": [
+        3067,
+        800,
+        28,
+        479
+      ],
       "note": "FIXED, not anchored: the fishing mini-game bar is drawn inside the game viewport near its right edge, not in a dock panel. Proof: this rect is from Lucas's 2-moni-8skill profile, measured when the battle panel sat at y=287; he later enlarged the minimap and pushed that panel to y=460, and the strip stayed correct. Anchoring it to the battle header would have dragged it 173px down."
     }
   }

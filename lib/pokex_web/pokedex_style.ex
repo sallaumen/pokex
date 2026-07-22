@@ -50,6 +50,29 @@ defmodule PokexWeb.PokedexStyle do
     "color: #{text}; background-color: #{background};"
   end
 
+  # Clan → the element whose palette it wears (PXG's own pairing: Volcanic is
+  # the Fire clan, Seavell the Water one…). Reusing the element colours means
+  # the eye learns ONE palette, not two.
+  @clan_elements %{
+    "volcanic" => "fire",
+    "seavell" => "water",
+    "orebound" => "rock",
+    "wingeon" => "flying",
+    "raibolt" => "electric",
+    "gardestrike" => "fighting",
+    "naturia" => "grass",
+    "malefic" => "ghost",
+    "psycraft" => "psychic",
+    "ironhard" => "steel"
+  }
+
+  @doc "Inline style for a clan chip — wears its element's palette."
+  def clan_style(clan) do
+    @clan_elements
+    |> Map.get(String.downcase(to_string(clan)))
+    |> element_style()
+  end
+
   @doc """
   Path to the wiki's own icon for this element, or nil when it was never
   downloaded (the chip then shows the coloured name alone).

@@ -27,6 +27,28 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "#calib-stale-banner button[phx-click='restart_bots']")
   end
 
+  test "a low stock lights a red badge that stays until he restocks", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+    refute has_element?(view, "#stock-badges")
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      Pokex.Bots.StockAlerts.topic(),
+      {:stock, %{slot: :f1, count: 28, low?: true}}
+    )
+
+    assert view |> element("#stock-badge-f1") |> render() =~ "28"
+    assert view |> element("#stock-badge-f1") |> render() =~ "ff9ca4"
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      Pokex.Bots.StockAlerts.topic(),
+      {:stock, %{slot: :f1, count: 200, low?: false}}
+    )
+
+    refute view |> element("#stock-badge-f1") |> render() =~ "ff9ca4"
+  end
+
   test "losing the HUD raises a banner that says nothing is being clicked blind", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
     refute has_element?(view, "#layout-banner")

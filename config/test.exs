@@ -57,6 +57,8 @@ config :pokex, :front_game_cmd, false
 config :pokex, :shiny_guard_active, false
 # the sentinel captures the REAL screen on boot — never in tests
 config :pokex, :layout_sentinel_active, false
+# stock alerts attach the :hud feed (a real capture) — never in tests
+config :pokex, :stock_alerts_active, false
 # The app-wide Guardian must NOT act on session rules (stop conditions / anti-stagnation)
 # during tests: a test planting a global :session fact + limits would wake its REAL
 # stop_all, racing the test's own scoped Guardian (measured flaky). Guardian tests opt

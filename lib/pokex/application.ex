@@ -34,6 +34,7 @@ defmodule Pokex.Application do
       # arena-feed attachment from the shiny_guard_enabled setting).
       Pokex.Bots.ShinyGuard,
       Pokex.Layout.Sentinel,
+      Pokex.Bots.StockAlerts,
       # Pauses everything when the game window loses focus (and resumes on refocus). After the
       # BotSupervisor so it can halt/resume those workers.
       Pokex.Bots.Focus,

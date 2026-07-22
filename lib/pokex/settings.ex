@@ -363,6 +363,13 @@ defmodule Pokex.Settings do
     feed_failure_warn_streak: 10,
     # HUD numbers change slowly (stocks, level); position changes as fast as
     # Lucas walks, so the minimap is read more often than the rest.
+    # The four slots that keep him alive and hunting: alarm ONCE when a stock
+    # crosses below its threshold, re-arm when it climbs back. 0 = off.
+    stock_alerts_enabled: true,
+    stock_alert_f1: 30,
+    stock_alert_f2: 10,
+    stock_alert_e: 5,
+    stock_alert_s_q: 10,
     feed_hud_ms: 500,
     feed_team_ms: 500,
     feed_minimap_ms: 250,

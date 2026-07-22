@@ -18,11 +18,13 @@ defmodule PokexWeb.Router do
     pipe_through :browser
 
     get "/captures/:name", CapturesController, :show
-    get "/exports/:name", ExportsController, :show
+    # a wildcard so a mini-game evidence BUNDLE (a directory) is browsable too
+    get "/exports/*path", ExportsController, :show
 
     live_session :pokex do
       live "/", PanelLive
       live "/diagnostics", DiagnosticsLive
+      live "/mini-game", MiniGameLive
       live "/calibration", CalibrationLive
       live "/fishing-lab", FishingLabLive
       live "/world", WorldLive

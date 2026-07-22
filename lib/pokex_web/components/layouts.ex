@@ -27,7 +27,8 @@ defmodule PokexWeb.Layouts do
 
   attr :current_page, :atom,
     default: nil,
-    doc: "the active nav item: :panel | :calibration | :diagnostics | :fishing_lab | :world"
+    doc:
+      "the active nav item: :panel | :calibration | :diagnostics | :fishing_lab | :mini_game | :world"
 
   slot :inner_block, required: true
 
@@ -73,6 +74,13 @@ defmodule PokexWeb.Layouts do
               icon="hero-sparkles"
             >
               Laboratório
+            </.nav_link>
+            <.nav_link
+              navigate={~p"/mini-game"}
+              active={@current_page == :mini_game}
+              icon="hero-puzzle-piece"
+            >
+              Mini-game
             </.nav_link>
             <.nav_link navigate={~p"/world"} active={@current_page == :world} icon="hero-eye">
               Mundo

@@ -27,39 +27,88 @@ defmodule Pokex.Bots.MiniGame.Track do
   @spec read(Frame.t(), %{:x => integer, :width => integer, optional(any) => any}) ::
           {:ok, %{fish_y: float, bar_y: float, bar_source: :blue | :fish}}
           | {:error, :no_track | :no_fish}
-  def read(%Frame{} = frame, %{x: x, width: width}) do
+  def read(%Frame{} = frame, bar), do: frame |> read_diag(bar) |> elem(0)
+
+  @typedoc """
+  What the read SAW, beside what it concluded: the sampled column, the bounds
+  it settled on, the fish rows it elected and the raw pixel evidence behind the
+  row classification. `read/2` never needed any of it — a bad game is
+  unexplainable without it.
+  """
+  @type stats :: %{
+          column: {integer, integer},
+          rows: non_neg_integer,
+          dark_px: non_neg_integer,
+          blue_px: non_neg_integer,
+          dark_rows: non_neg_integer,
+          blue_rows: non_neg_integer,
+          other_rows: non_neg_integer,
+          top: integer | nil,
+          bottom: integer | nil,
+          fish_rows: {integer, integer} | nil
+        }
+
+  @doc """
+  `read/2` plus the evidence. ONE reading path for both, so a diagnostic report
+  can never describe a different read than the one that flew the capsule.
+  """
+  @spec read_diag(Frame.t(), %{:x => integer, :width => integer, optional(any) => any}) ::
+          {{:ok, %{fish_y: float, bar_y: float, bar_source: :blue | :fish}}
+           | {:error, :no_track | :no_fish}, stats}
+  def read_diag(%Frame{} = frame, %{x: x, width: width}) do
     half = div(width, 2) + @column_margin
     left = clamp_int(x - half, 0, frame.width - 1)
     right = clamp_int(x + half, 0, frame.width - 1)
-    classes = frame |> row_classes(left, right) |> List.to_tuple()
+    {rows, pixels} = row_classes(frame, left, right)
+    classes = List.to_tuple(rows)
+    stats = base_stats(rows, pixels, {left, right})
 
     case longest_dark_run(classes) do
       nil ->
-        {:error, :no_track}
+        {{:error, :no_track}, stats}
 
       {run_top, run_bottom} ->
         top = extend(classes, run_top, -1)
         bottom = extend(classes, run_bottom, +1)
-        read_bounds(classes, top, bottom)
+        {result, fish_rows} = read_bounds(classes, top, bottom)
+        {result, %{stats | top: top, bottom: bottom, fish_rows: fish_rows}}
     end
+  end
+
+  defp base_stats(rows, pixels, column) do
+    counts = Enum.frequencies(rows)
+
+    %{
+      column: column,
+      rows: length(rows),
+      dark_px: pixels.dark,
+      blue_px: pixels.blue,
+      dark_rows: Map.get(counts, :dark, 0),
+      blue_rows: Map.get(counts, :blue, 0),
+      other_rows: Map.get(counts, :other, 0),
+      top: nil,
+      bottom: nil,
+      fish_rows: nil
+    }
   end
 
   defp read_bounds(classes, top, bottom) do
     case largest_other_run(classes, top, bottom) || edge_fish_run(classes, top, bottom) do
       nil ->
-        {:error, :no_fish}
+        {{:error, :no_fish}, nil}
 
-      {fish_top, fish_bottom} ->
+      {fish_top, fish_bottom} = fish_rows ->
         span = max(bottom - top, 1)
         fish_y = clamp_float(((fish_top + fish_bottom) / 2 - top) / span)
 
         case blue_mean(classes, top, bottom) do
           nil ->
             # Fish drawn OVER the capsule: full occlusion = the success state.
-            {:ok, %{fish_y: fish_y, bar_y: fish_y, bar_source: :fish}}
+            {{:ok, %{fish_y: fish_y, bar_y: fish_y, bar_source: :fish}}, fish_rows}
 
           mean ->
-            {:ok, %{fish_y: fish_y, bar_y: clamp_float((mean - top) / span), bar_source: :blue}}
+            {{:ok, %{fish_y: fish_y, bar_y: clamp_float((mean - top) / span), bar_source: :blue}},
+             fish_rows}
         end
     end
   end
@@ -115,10 +164,13 @@ defmodule Pokex.Bots.MiniGame.Track do
 
   # -- row classification -----------------------------------------------------
 
+  # Returns the per-row classes AND the pixel tallies behind them: the counts
+  # are free here (already summed per row) and they are the only way to tell a
+  # "no blue anywhere" frame from a "blue just below the row threshold" one.
   defp row_classes(frame, left, right) do
     ncols = right - left + 1
 
-    for y <- 0..(frame.height - 1) do
+    Enum.map_reduce(0..(frame.height - 1), %{dark: 0, blue: 0}, fn y, totals ->
       {dark, blue} =
         Enum.reduce(left..right, {0, 0}, fn x, {dark, blue} ->
           pixel = Frame.at(frame, x, y)
@@ -130,12 +182,15 @@ defmodule Pokex.Bots.MiniGame.Track do
           end
         end)
 
-      cond do
-        blue * 2 >= ncols -> :blue
-        dark * 2 >= ncols -> :dark
-        true -> :other
-      end
-    end
+      class =
+        cond do
+          blue * 2 >= ncols -> :blue
+          dark * 2 >= ncols -> :dark
+          true -> :other
+        end
+
+      {class, %{totals | dark: totals.dark + dark, blue: totals.blue + blue}}
+    end)
   end
 
   # The Detector's dark predicate, duplicated on purpose — the modules stay

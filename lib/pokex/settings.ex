@@ -173,6 +173,29 @@ defmodule Pokex.Settings do
     # Consecutive ticks the enemy must be GONE from the Battle list before the fight is
     # declared over — filters a 1-frame HP-bar blink on a hit/death animation.
     target_lost_streak: 2,
+    # What the bot DOES when the overlay opens (see Pokex.Bots.MiniGame.Mode):
+    # "manual_assist" (default, safe: detect + hold the other workers + alert, Lucas plays),
+    # "diagnostic" (same, silent) or "auto" (the Pilot plays). A STRING because settings.json
+    # round-trips through JSON — an atom seed would never match the persisted string.
+    mini_game_mode: "manual_assist",
+    # How often the "resolve o minigame" alert repeats while a manual game waits. It is easy to
+    # miss one chirp with the game window unfocused, and a mini-game left unplayed stalls the
+    # whole session (every worker is held by the :mini_game fact). 0 = only the entry alert.
+    mini_game_manual_alert_ms: 5_000,
+    # Per-game diagnostics (always collected, in every mode — a game Lucas played by hand is the
+    # most informative recording there is). Caps are memory guards: at the 80ms play tick 3000
+    # samples is ~4min, well past the hard duration cap.
+    mini_game_diag_samples_max: 3_000,
+    # Frames kept per game beyond the fixed first/last/worst-error slots (source flips, rejected
+    # readings, :no_track, :no_fish). Ring buffer: newest wins, oldest is dropped.
+    mini_game_diag_frames_max: 8,
+    # How often the /mini-game page's preview image is refreshed from the frame that was
+    # ACTUALLY analysed (a file copy of the captured PNG — never a second capture). 0 = off.
+    mini_game_preview_ms: 500,
+    # Export bundle retention, applied after each game, oldest first: at most this many bundles
+    # and at most this many MB total under ~/.pokex/exports.
+    mini_game_export_keep: 20,
+    mini_game_export_max_mb: 200,
     # Fishing mini-game monitor. It only detects the overlay and coordinates worker pause/resume.
     mini_game_tick_ms: 150,
     # 2 consecutive present frames (~300ms) before entering: the overlay lasts many seconds,

@@ -19,14 +19,18 @@ defmodule Pokex.Bots.MiniGame.Worker do
   require Logger
 
   alias Pokex.Bots.Capture
-  alias Pokex.Bots.MiniGame.{Detector, Player}
+  alias Pokex.Bots.MiniGame.{Detector, Mode, Player}
   alias Pokex.Perception.WorldState
   alias Pokex.{Calibration, Settings}
 
   @topic "mini_game"
+  # Per-tick diagnostics go on their own topic: the panel must not re-render at
+  # the 80ms play cadence just because a diagnostics page is open somewhere.
+  @diag_topic "mini_game_diag"
   @default_counters %{detections: 0, clears: 0, failures: 0}
 
   def topic, do: @topic
+  def diag_topic, do: @diag_topic
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -42,6 +46,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
       confidence: 0.0,
       error: nil,
       counters: @default_counters,
+      alerted_at: nil,
       play: Player.new()
     }
 
@@ -101,6 +106,10 @@ defmodule Pokex.Bots.MiniGame.Worker do
   end
 
   def handle_call(:halt, _from, state) do
+    # A halt mid-game still ENDS a game: the evidence is worth keeping, and it
+    # is the only bundle a Lucas-interrupted match would ever produce.
+    if state.in_game?, do: log_export(Player.export(state.play, :halted))
+
     state =
       %{state | play: Player.force_release(state.play)}
       |> cancel_timer()
@@ -110,7 +119,8 @@ defmodule Pokex.Bots.MiniGame.Worker do
         present_streak: 0,
         absent_streak: 0,
         confidence: 0.0,
-        error: nil
+        error: nil,
+        alerted_at: nil
       })
 
     publish_fact(state)
@@ -130,6 +140,8 @@ defmodule Pokex.Bots.MiniGame.Worker do
     # readers fail open once it ages past mini_game_fact_max_age_ms
     publish_fact(state)
     if transition, do: broadcast(state, transition), else: :ok
+    broadcast_diag(state)
+    state = maybe_alert(state)
 
     tick_ms =
       if state.in_game?,
@@ -204,7 +216,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
         enter_game(state)
 
       state.in_game? and state.absent_streak >= Settings.get(:mini_game_exit_streak) ->
-        leave_game(state)
+        leave_game(state, :exit_streak)
 
       true ->
         {state, nil}
@@ -217,38 +229,48 @@ defmodule Pokex.Bots.MiniGame.Worker do
   defp update_streaks(state, false),
     do: %{state | present_streak: 0, absent_streak: state.absent_streak + 1}
 
+  # The mode is resolved ONCE per game (in Player.arm/4, which also releases
+  # Space): flipping the setting mid-match must not hand the keyboard to the
+  # Pilot while Lucas is playing.
   defp enter_game(state) do
     state =
       state
       |> Map.put(:in_game?, true)
       |> Map.put(:game_entered_at, System.monotonic_time(:millisecond))
       |> Map.put(:play, Player.new())
+      |> Map.put(:alerted_at, nil)
       |> update_in([:counters, :detections], &(&1 + 1))
 
-    broadcast_log(:macro, "mini game detectado — jogando (workers se seguram pelo fato)")
+    broadcast_log(:macro, "mini game detectado — workers se seguram pelo fato")
     {state, :entered}
   end
 
-  defp leave_game(state) do
-    log_trace_dump(Player.dump_trace(state.play))
+  defp leave_game(state, reason) do
+    broadcast_summary(state, reason)
+    log_export(Player.export(state.play, reason))
 
     state =
       %{state | play: Player.force_release(state.play)}
       |> Map.put(:in_game?, false)
       |> Map.put(:game_entered_at, nil)
+      |> Map.put(:alerted_at, nil)
       |> update_in([:counters, :clears], &(&1 + 1))
 
-    broadcast_log(:macro, "mini game saiu — workers retomam sozinhos")
+    broadcast_log(:macro, "mini game saiu (#{reason}) — workers retomam sozinhos")
     {state, :left}
   end
 
-  defp log_trace_dump({:ok, path, samples}),
-    do: broadcast_log(:macro, "trace do mini game salvo (#{samples} ticks): #{path}")
+  defp log_export({:ok, path, %{samples: samples, frames: frames}}),
+    do:
+      broadcast_log(
+        :macro,
+        "diagnóstico do mini game salvo (#{samples} ticks, #{frames} frames): #{path}"
+      )
 
-  defp log_trace_dump(:skip), do: :ok
+  defp log_export(:skip), do: :ok
 
-  defp log_trace_dump({:error, reason}),
-    do: Logger.warning("mini-game trace dump failed: #{inspect(reason)}")
+  defp log_export({:error, reason}),
+    do: Logger.warning("mini-game diagnostics export failed: #{inspect(reason)}")
 
   # --- playing (delegated to the Player engine) ------------------------------
 
@@ -259,14 +281,14 @@ defmodule Pokex.Bots.MiniGame.Worker do
         # no real game lasts minutes — a "game" that does is a stuck reading,
         # and a stuck in_game? self-holds the ENTIRE bot (2026-07-20 hang).
         broadcast_log(:macro, "mini game excedeu o teto de duração — encerrando à força")
-        leave_game(state)
+        leave_game(state, :duration_cap)
 
       Player.armed?(state.play) ->
         state.play |> Player.tick() |> apply_play_result(state)
 
       true ->
         # Defensive: entered without a bar candidate — nothing to play from.
-        leave_game(state)
+        leave_game(state, :not_armed)
     end
   end
 
@@ -285,7 +307,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
     state = %{state | play: play, absent_streak: state.absent_streak + 1}
 
     if state.absent_streak >= Settings.get(:mini_game_exit_streak),
-      do: leave_game(state),
+      do: leave_game(state, :exit_streak),
       else: {state, nil}
   end
 
@@ -321,32 +343,61 @@ defmodule Pokex.Bots.MiniGame.Worker do
   defp anchor_tolerance(frame, {_rx, _ry, rw, _rh}) when rw > 0,
     do: round(Settings.get(:mini_game_anchor_tolerance) * frame.width / rw)
 
-  defp snapshot(%{running?: false} = state),
-    do: %{
-      state: :off,
-      in_game?: false,
-      confidence: state.confidence,
-      counters: state.counters,
-      error: state.error
-    }
+  # --- manual assistance -----------------------------------------------------
 
-  defp snapshot(%{in_game?: true} = state),
-    do: %{
-      state: :playing,
-      in_game?: true,
-      confidence: state.confidence,
-      counters: state.counters,
-      error: state.error
-    }
+  # A mini-game nobody plays stalls the WHOLE session (every worker is held by
+  # the :mini_game fact), and one chirp is easy to miss with the game window
+  # unfocused — so the alert repeats until the overlay is gone.
+  defp maybe_alert(%{in_game?: true} = state) do
+    if Mode.alerts?(Player.mode(state.play)) and alert_due?(state) do
+      broadcast_alert(state)
+      %{state | alerted_at: now_ms()}
+    else
+      state
+    end
+  end
 
-  defp snapshot(state),
-    do: %{
-      state: :watching,
-      in_game?: false,
+  defp maybe_alert(state), do: state
+
+  defp alert_due?(%{alerted_at: nil}), do: true
+
+  defp alert_due?(%{alerted_at: alerted_at}) do
+    every_ms = Settings.get(:mini_game_manual_alert_ms)
+    every_ms > 0 and now_ms() - alerted_at >= every_ms
+  end
+
+  defp broadcast_alert(state) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:mini_game_alert, %{mode: Player.mode(state.play), text: manual_text()}}
+    )
+  end
+
+  defp manual_text, do: "minigame aguardando resolução manual"
+
+  # --- snapshots -------------------------------------------------------------
+
+  defp snapshot(%{running?: false} = state), do: base_snapshot(state, :off)
+  defp snapshot(%{in_game?: true} = state), do: base_snapshot(state, :playing)
+  defp snapshot(state), do: base_snapshot(state, :watching)
+
+  defp base_snapshot(state, worker_state) do
+    mode = if state.in_game?, do: Player.mode(state.play), else: Mode.current()
+    awaiting? = worker_state == :playing and Mode.alerts?(mode)
+
+    %{
+      state: worker_state,
+      in_game?: state.in_game?,
       confidence: state.confidence,
       counters: state.counters,
-      error: state.error
+      error: state.error,
+      mode: mode,
+      mode_label: Mode.label(mode),
+      awaiting_manual?: awaiting?,
+      manual_text: if(awaiting?, do: manual_text())
     }
+  end
 
   defp broadcast(state, transition \\ nil) do
     snapshot =
@@ -359,6 +410,45 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   defp broadcast_log(level, text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:mini_game_log, level, text})
+
+  # The per-tick diagnostic feed: the sample that was just recorded, plus the
+  # version of the preview PNG on disk (which IS the frame that sample came
+  # from). Only sent while a game is running.
+  defp broadcast_diag(%{in_game?: true} = state) do
+    case Player.last_sample(state.play) do
+      nil ->
+        :ok
+
+      sample ->
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @diag_topic,
+          {:mini_game_tick,
+           %{
+             sample: sample,
+             mode: Player.mode(state.play),
+             preview_version: Player.preview_version(state.play),
+             preview_file: Player.preview_file()
+           }}
+        )
+    end
+  end
+
+  defp broadcast_diag(_watching), do: :ok
+
+  defp broadcast_summary(state, reason) do
+    case Player.summary(state.play) do
+      nil ->
+        :ok
+
+      summary ->
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @diag_topic,
+          {:mini_game_summary, Map.put(summary, :exit_reason, reason)}
+        )
+    end
+  end
 
   defp publish_fact(state) do
     WorldState.put(

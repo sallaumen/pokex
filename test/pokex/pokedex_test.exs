@@ -17,6 +17,7 @@ defmodule Pokex.PokedexTest do
         "sprite" => "images/pokedex/seadra.gif",
         "shiny_of" => nil,
         "shiny_name" => "Shiny Seadra",
+        "materia" => "Seavell",
         "edited_at" => "2026-02-06"
       },
       %{
@@ -41,7 +42,8 @@ defmodule Pokex.PokedexTest do
         "evolutions" => [],
         "sprite" => nil,
         "shiny_of" => nil,
-        "shiny_name" => nil
+        "shiny_name" => nil,
+        "materia" => "Volcanic Superior"
       },
       %{
         "name" => "Venusaur",
@@ -73,6 +75,124 @@ defmodule Pokex.PokedexTest do
     Application.put_env(:pokex, :pokedex_path, path)
     on_exit(fn -> Application.delete_env(:pokex, :pokedex_path) end)
     :ok
+  end
+
+  describe "normalização dos elementos (a wiki escreve tipo duplo de 5 jeitos)" do
+    @tag :tmp_dir
+    test "separadores e caixa viram sempre a mesma lista de elementos", %{tmp_dir: tmp} do
+      dataset =
+        put_in(@dataset["species"], [
+          %{"name" => "Rayquaza", "elements" => ["Dragon &amp; Flying"], "number" => 384},
+          %{"name" => "Girafarig", "elements" => ["Normal e Psychic"], "number" => 203},
+          %{"name" => "Qwilfish", "elements" => ["water"], "number" => 211},
+          %{"name" => "Delibird", "elements" => ["Ice. Poison"], "number" => 225},
+          %{"name" => "Beautifly", "elements" => ["flying and\nbug"], "number" => 267},
+          %{"name" => "Qwilfish2", "elements" => ["Ice Poison"], "number" => 212},
+          %{
+            "name" => "Typo",
+            "elements" => ["Groud"],
+            "weak_to" => ["Posion", "Fly"],
+            "number" => 999
+          },
+          %{"name" => "Venusaur", "elements" => ["Grass / Poison"], "number" => 3}
+        ])
+
+      File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(dataset))
+      Pokex.Pokedex.reload()
+
+      assert %{elements: ["Dragon", "Flying"]} = Pokedex.get("Rayquaza")
+      assert %{elements: ["Normal", "Psychic"]} = Pokedex.get("Girafarig")
+      assert %{elements: ["Water"]} = Pokedex.get("Qwilfish")
+      assert %{elements: ["Ice", "Poison"]} = Pokedex.get("Delibird")
+      assert %{elements: ["Flying", "Bug"]} = Pokedex.get("Beautifly")
+      assert %{elements: ["Grass", "Poison"]} = Pokedex.get("Venusaur")
+
+      # "Ice Poison" sem separador nenhum, e os typos de uma ocorrência
+      assert %{elements: ["Ice", "Poison"]} = Pokedex.get("Qwilfish2")
+      assert %{elements: ["Ground"], weak_to: ["Poison", "Flying"]} = Pokedex.get("Typo")
+
+      # a lista de opções do filtro fica limpa: nada de "Dragon &amp; Flying"
+      assert Pokedex.elements() == [
+               "Bug",
+               "Dragon",
+               "Flying",
+               "Grass",
+               "Ground",
+               "Ice",
+               "Normal",
+               "Poison",
+               "Psychic",
+               "Water"
+             ]
+
+      # e o filtro ACHA o que antes sumia
+      assert "Rayquaza" in (Pokedex.search(%{elements: ["Flying"]}) |> Enum.map(& &1.name))
+    end
+  end
+
+  describe "clãs derivados da matéria" do
+    @tag :tmp_dir
+    test "cada entrada nasce com seus clãs; shiny sem matéria herda do base-form" do
+      assert %{clans: ["Seavell"]} = Pokedex.get("Seadra")
+      assert %{clans: ["Volcanic"]} = Pokedex.get("Charizard")
+
+      # Shiny Seadra não tem materia no JSON — herda do Seadra
+      assert %{clans: ["Seavell"]} = Pokedex.get("Shiny Seadra")
+    end
+
+    @tag :tmp_dir
+    test "entrada sem matéria e sem base-form fica honestamente sem clã" do
+      assert %{clans: []} = Pokedex.get("Venusaur")
+    end
+  end
+
+  describe "filtros multi-valor — OR dentro do grupo, AND entre grupos" do
+    @tag :tmp_dir
+    test "elements: [Grass, Water] é a UNIÃO (planta E veneno do pedido do Lucas)" do
+      names = Pokedex.search(%{elements: ["Grass", "Water"]}) |> Enum.map(& &1.name)
+
+      assert "Venusaur" in names
+      assert "Seadra" in names
+      refute "Charizard" in names
+    end
+
+    @tag :tmp_dir
+    test "lista vazia é filtro desligado" do
+      assert length(Pokedex.search(%{elements: []})) == length(Pokedex.search(%{}))
+    end
+
+    @tag :tmp_dir
+    test "grupos diferentes continuam compondo com AND" do
+      names =
+        Pokedex.search(%{elements: ["Grass", "Water"], min_level: 55})
+        |> Enum.map(& &1.name)
+
+      assert "Venusaur" in names
+      refute "Seadra" in names
+    end
+
+    @tag :tmp_dir
+    test "weak_to como lista: fraco a QUALQUER um dos elementos" do
+      names = Pokedex.search(%{weak_to: ["Rock", "Electric"]}) |> Enum.map(& &1.name)
+
+      assert "Charizard" in names
+      assert "Seadra" in names
+    end
+
+    @tag :tmp_dir
+    test "clans filtra pelo clã derivado" do
+      names = Pokedex.search(%{clans: ["Seavell"]}) |> Enum.map(& &1.name)
+
+      assert "Seadra" in names
+      assert "Shiny Seadra" in names
+      refute "Charizard" in names
+    end
+
+    @tag :tmp_dir
+    test "as chaves singulares antigas continuam valendo (URLs marcadas)" do
+      assert Pokedex.search(%{element: "Water"}) |> Enum.map(& &1.name) |> Enum.member?("Seadra")
+      assert Pokedex.search(%{weak_to: "Rock"}) |> Enum.map(& &1.name) == ["Charizard"]
+    end
   end
 
   @tag :tmp_dir

@@ -220,6 +220,17 @@ defmodule PokexWeb.PokedexDetailLive do
                     lv {@entry.level || "?"}
                   </span>
                   <.element_chip :for={el <- @entry.elements} element={el} />
+                  <span :if={@entry.clans != []} id="entry-clans" class="contents">
+                    <.link
+                      :for={clan <- @entry.clans}
+                      navigate={~p"/pokedex?#{%{"clans" => [clan]}}"}
+                      title={"ver todos do clã #{clan}"}
+                      class="rounded px-1.5 py-0.5 transition hover:ring-1 hover:ring-[#37d07d]/60"
+                      style={PokedexStyle.clan_style(clan)}
+                    >
+                      ⚑ {clan}
+                    </.link>
+                  </span>
                   <span :if={@entry.boost} class="rounded bg-[#211b0d] px-1.5 py-0.5 text-[#f3ba4e]">
                     boost {@entry.boost}
                   </span>

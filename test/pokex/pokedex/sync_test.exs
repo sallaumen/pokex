@@ -44,4 +44,30 @@ defmodule Pokex.Pokedex.SyncTest do
                ])
     end
   end
+
+  describe "download_sprite/3 — skip_sprites preserva, nunca esquece" do
+    @tag :tmp_dir
+    test "com skip_sprites, sprite já no disco mantém o path", %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :pokedex_sprites_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :pokedex_sprites_dir) end)
+
+      File.write!(Path.join(tmp, "seadra.gif"), "gif")
+
+      assert Sync.download_sprite("/images/f/f0/117_-_Seadra.gif", "Seadra", skip_sprites: true) ==
+               "images/pokedex/seadra.gif"
+    end
+
+    @tag :tmp_dir
+    test "com skip_sprites e NADA no disco, aí sim nil", %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :pokedex_sprites_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :pokedex_sprites_dir) end)
+
+      assert Sync.download_sprite("/images/f/f0/117_-_Seadra.gif", "Seadra", skip_sprites: true) ==
+               nil
+    end
+
+    test "sem URL não há sprite, com ou sem skip" do
+      assert Sync.download_sprite(nil, "Seadra", skip_sprites: true) == nil
+    end
+  end
 end

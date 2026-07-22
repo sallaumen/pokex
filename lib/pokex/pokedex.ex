@@ -10,6 +10,8 @@ defmodule Pokex.Pokedex do
   it up on the next restart.
   """
 
+  alias Pokex.Pokedex.Clans
+
   @doc "Every species entry (shiny variants included, `shiny_of` set on them)."
   def species, do: data().species
 
@@ -69,8 +71,11 @@ defmodule Pokex.Pokedex do
   Filtered species search. Filters compose (all must match):
 
     * `:name` — case-insensitive substring
-    * `:element` — species has this element
-    * `:weak_to` — this element hits the species hard (Muito Efetivo)
+    * `:elements` — species has ANY of these elements (list; the old singular
+      `:element` binary still works, for bookmarked URLs)
+    * `:weak_to` — ANY of these elements hits the species hard (list, or the
+      old singular binary)
+    * `:clans` — species belongs to ANY of these PXG clans (derived from materia)
     * `:min_level` / `:max_level` — inclusive bounds (species without a level drop)
     * `:only_shiny` — only Shiny variants
     * `:edited_after` — wiki page edited on/after this "YYYY-MM-DD" (entries
@@ -368,6 +373,18 @@ defmodule Pokex.Pokedex do
       {:weak_to, element} when is_binary(element) and element != "" ->
         element in entry.weak_to
 
+      # Multi-value groups (the non-exclusive filters): the entry matches when
+      # it has ANY of the selected values — "todos de planta E todos de veneno"
+      # is ONE group with two values, not two exclusive searches.
+      {:elements, list} when is_list(list) and list != [] ->
+        Enum.any?(list, &(&1 in entry.elements))
+
+      {:weak_to, list} when is_list(list) and list != [] ->
+        Enum.any?(list, &(&1 in entry.weak_to))
+
+      {:clans, list} when is_list(list) and list != [] ->
+        Enum.any?(list, &(&1 in entry.clans))
+
       {:min_level, min} when is_integer(min) ->
         is_integer(entry.level) and entry.level >= min
 
@@ -415,7 +432,7 @@ defmodule Pokex.Pokedex do
     with {:ok, bin} <- File.read(path),
          {:ok, json} <- JSON.decode(bin) do
       %{
-        species: Enum.map(json["species"] || [], &species_entry/1),
+        species: (json["species"] || []) |> Enum.map(&species_entry/1) |> inherit_clans(),
         lures: Enum.map(json["lures"] || [], &lure_entry/1),
         synced_at: json["scraped_at"]
       }
@@ -424,29 +441,87 @@ defmodule Pokex.Pokedex do
     end
   end
 
+  # The wiki writes a dual type five different ways — "Grass / Poison",
+  # "Normal e Psychic", "Dragon &amp; Flying", "Ice. Poison", "flying and bug"
+  # — and sometimes in lowercase. Unsplit, 30 entries carried a single bogus
+  # element: filtering by Flying simply MISSED Rayquaza, and the filter's own
+  # option list showed 40 phantom "elements". Normalising here (not in the
+  # scraper) heals the base already on disk, with no re-sync.
+  # No PXG element name has a space, so whitespace is a separator too — that is
+  # what rescues "Ice Poison", written with no separator at all.
+  @element_separators ~r{\s*(?:/|&amp;|&|,|\.|\be\b|\band\b)\s*|\s+}
+
+  # One-off wiki misspellings, each measured at 1-5 occurrences in the whole
+  # base (against Crystal's 865, which is a REAL PXG type, not a typo).
+  @element_aliases %{
+    "Gound" => "Ground",
+    "Groud" => "Ground",
+    "Earth" => "Ground",
+    "Posion" => "Poison",
+    "Fly" => "Flying",
+    "Metal" => "Steel"
+  }
+
+  defp normalize_elements(list) do
+    (list || [])
+    |> Enum.flat_map(&String.split(&1, @element_separators, trim: true))
+    |> Enum.map(fn element ->
+      element = element |> String.trim() |> String.capitalize()
+      Map.get(@element_aliases, element, element)
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  # 18 of the 80 materia-less entries are Shiny variants whose base form HAS
+  # one — same creature, same clan, so inherit it instead of showing "no clan".
+  defp inherit_clans(species) do
+    by_name = Map.new(species, &{&1.name, &1})
+
+    Enum.map(species, fn
+      %{clans: [], shiny_of: base_name} = entry when is_binary(base_name) ->
+        case by_name[base_name] do
+          %{clans: clans} -> %{entry | clans: clans}
+          nil -> entry
+        end
+
+      entry ->
+        entry
+    end)
+  end
+
   defp species_entry(map) do
     %{
       name: map["name"],
       number: map["number"],
       level: map["level"],
-      # scrapes prior to the dual-type fix stored "Grass / Poison" as one item
-      elements: Enum.flat_map(map["elements"] || [], &String.split(&1, ~r{\s*/\s*}, trim: true)),
+      elements: normalize_elements(map["elements"]),
       boost: map["boost"],
       habilidades: map["habilidades"] || [],
       materia: map["materia"],
+      # PXG clan(s), derived from materia at load time — filterable, with no
+      # hand-marking of 866 entries; a shiny without materia inherits from its
+      # base form (see inherit_clans/1)
+      clans: Clans.parse(map["materia"]),
       evolution_stones: map["evolution_stones"] || [],
       description: map["description"],
-      weak_to: map["weak_to"] || [],
-      resists: map["resists"] || [],
-      neutral: map["neutral"] || [],
+      # effectiveness lines are element lists too — same five spellings, same
+      # normalisation, or "fraco contra Flying" misses "Flying e Rock"
+      weak_to: normalize_elements(map["weak_to"]),
+      resists: normalize_elements(map["resists"]),
+      neutral: normalize_elements(map["neutral"]),
       # elements that do NOTHING to it ("Nulo"/"Imune") — absent from older
       # scrapes, which simply never read that line
-      immune: map["immune"] || [],
+      immune: normalize_elements(map["immune"]),
       # the tiers as the page words them ("Efetivo" vs "Muito Efetivo"), so the
       # detail page can show two strengths instead of one flattened list
       effectiveness:
         Enum.map(map["effectiveness"] || [], fn tier ->
-          %{label: tier["label"], kind: tier["kind"], elements: tier["elements"] || []}
+          %{
+            label: tier["label"],
+            kind: tier["kind"],
+            elements: normalize_elements(tier["elements"])
+          }
         end),
       evolutions:
         Enum.map(map["evolutions"] || [], fn evo ->

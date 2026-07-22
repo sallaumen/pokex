@@ -18,6 +18,7 @@ defmodule PokexWeb.PokedexLive do
   use PokexWeb, :live_view
 
   alias Pokex.Pokedex
+  alias Pokex.Pokedex.Clans
   alias Pokex.Pokedex.Sync
   alias PokexWeb.PanelForms
   alias PokexWeb.PokedexStyle
@@ -36,6 +37,7 @@ defmodule PokexWeb.PokedexLive do
        sync_msg: nil,
        loaded?: Pokedex.loaded?(),
        elements: Pokedex.elements(),
+       clans: Clans.all(),
        lures: Pokedex.lures(),
        species_names: Enum.map(Pokedex.search(%{}), & &1.name)
      )}
@@ -49,8 +51,9 @@ defmodule PokexWeb.PokedexLive do
     filters =
       %{
         name: params["name"] || "",
-        element: params["element"] || "",
-        weak_to: params["weak_to"] || "",
+        elements: multi_param(params, "elements", "element"),
+        weak_to: multi_param(params, "weak_to"),
+        clans: multi_param(params, "clans"),
         only_shiny: params["only_shiny"] == "true",
         edited_after: params["edited_after"] || ""
       }
@@ -71,11 +74,19 @@ defmodule PokexWeb.PokedexLive do
     {:noreply,
      socket
      |> assign(
+       # the canonical (plural) shape — a legacy singular URL normalises into
+       # it on the next navigation instead of lingering half-and-half
        raw_filters:
-         Map.take(
-           params,
-           ~w(name element weak_to min_level max_level only_shiny edited_after sort desc novidades)
-         ),
+         params
+         |> Map.take(
+           ~w(name elements weak_to clans min_level max_level only_shiny edited_after sort desc novidades)
+         )
+         |> Map.merge(%{
+           "elements" => filters.elements,
+           "weak_to" => filters.weak_to,
+           "clans" => filters.clans
+         })
+         |> clean_query(),
        filters: filters,
        form: filter_form(params),
        sort: sort,
@@ -134,9 +145,27 @@ defmodule PokexWeb.PokedexLive do
     {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
   end
 
+  # A chip toggles its value in or out of the group — "todos de planta E todos
+  # de veneno" is two chips on. OR inside the group, AND across groups.
+  def handle_event("toggle_filter", %{"key" => key, "value" => value}, socket)
+      when key in ~w(elements weak_to clans) do
+    current = socket.assigns.raw_filters[key] || []
+    updated = if value in current, do: List.delete(current, value), else: current ++ [value]
+
+    {:noreply, patch_with(socket, %{key => updated})}
+  end
+
+  def handle_event("clear_filter", %{"key" => key}, socket)
+      when key in ~w(elements weak_to clans) do
+    {:noreply, patch_with(socket, %{key => []})}
+  end
+
   @impl true
   def handle_event("filter", %{"f" => params}, socket) do
-    keep = Map.take(socket.assigns.raw_filters, ~w(sort desc novidades))
+    # sort/novelty AND the chip groups survive a form change — typing a name
+    # must never wipe the elements/clans he just toggled on
+    keep =
+      Map.take(socket.assigns.raw_filters, ~w(sort desc novidades elements weak_to clans))
 
     query =
       params
@@ -199,15 +228,38 @@ defmodule PokexWeb.PokedexLive do
          sync_msg: "sync falhou: #{String.slice(reason, 0, 200)}"
        )}
 
+  # Every filter change goes through here: merge onto the current URL state,
+  # keep the lure, drop the empties, patch.
+  defp patch_with(socket, changes) do
+    query =
+      socket.assigns.raw_filters
+      |> Map.merge(changes)
+      |> Map.put("isca", current_lure_name(socket))
+      |> clean_query()
+
+    push_patch(socket, to: ~p"/pokedex?#{query}")
+  end
+
   # Only meaningful values reach the URL — clean, shareable links.
   defp clean_query(params) do
     params
-    |> Enum.reject(fn {_k, v} -> v in [nil, "", "false"] end)
+    |> Enum.reject(fn {_k, v} -> v in [nil, "", "false", []] end)
     |> Map.new()
   end
 
   defp current_lure_name(socket),
     do: socket.assigns.selected_lure && socket.assigns.selected_lure.name
+
+  # Multi-value filters ride the URL as lists (?elements[]=Grass&elements[]=
+  # Poison). `legacy` reads the pre-chips singular param so old bookmarks keep
+  # working; a lone binary under the plural key (hand-typed URL) counts too.
+  defp multi_param(params, key, legacy \\ nil) do
+    case params[key] || (legacy && params[legacy]) do
+      list when is_list(list) -> Enum.reject(list, &(&1 in [nil, ""]))
+      value when is_binary(value) and value != "" -> [value]
+      _absent -> []
+    end
+  end
 
   defp put_level(filters, key, raw) do
     case PanelForms.parse_int(raw, 1..999) do
@@ -220,8 +272,6 @@ defmodule PokexWeb.PokedexLive do
     to_form(
       %{
         "name" => params["name"] || "",
-        "element" => params["element"] || "",
-        "weak_to" => params["weak_to"] || "",
         "min_level" => params["min_level"] || "",
         "max_level" => params["max_level"] || "",
         "only_shiny" => params["only_shiny"] || "false",
@@ -266,6 +316,53 @@ defmodule PokexWeb.PokedexLive do
       _unparsable ->
         String.slice(iso, 0, 10)
     end
+  end
+
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :hint, :string, default: nil
+  attr :param, :string, required: true
+  attr :options, :list, required: true
+  attr :selected, :list, required: true
+  attr :style_fun, :any, required: true
+
+  # One row of toggle chips = one NON-EXCLUSIVE filter: any number of them on
+  # at once, matching entries that have ANY of them ("quero buscar todos de
+  # planta e todos de veneno"). Empty selection = todos.
+  defp filter_chips(assigns) do
+    ~H"""
+    <div id={@id} class="flex flex-wrap items-center gap-1" title={@hint}>
+      <span class="mr-0.5 w-24 shrink-0">
+        {@label}<span :if={@selected != []} class="text-[#3de083]">({length(@selected)})</span>
+      </span>
+      <button
+        :for={option <- @options}
+        type="button"
+        phx-click="toggle_filter"
+        phx-value-key={@param}
+        phx-value-value={option}
+        style={@style_fun.(option)}
+        class={[
+          "rounded px-1.5 py-0.5 font-mono text-[10px] transition",
+          if(option in @selected,
+            do: "ring-1 ring-[#37d07d]/70",
+            else: "opacity-40 hover:opacity-90"
+          )
+        ]}
+      >
+        {option}
+      </button>
+      <button
+        :if={@selected != []}
+        type="button"
+        phx-click="clear_filter"
+        phx-value-key={@param}
+        class="rounded px-1 py-0.5 text-[#89939a] hover:bg-[#161b1f] hover:text-white"
+      >
+        limpar ×
+      </button>
+    </div>
+    """
   end
 
   attr :element, :string, required: true
@@ -368,30 +465,6 @@ defmodule PokexWeb.PokedexLive do
               />
             </label>
             <label class="flex flex-col gap-1">
-              elemento
-              <select
-                name="f[element]"
-                class="select select-bordered h-9 w-32 bg-[#090d0f] font-mono text-sm"
-              >
-                <option value="">todos</option>
-                <option :for={el <- @elements} value={el} selected={@form[:element].value == el}>
-                  {el}
-                </option>
-              </select>
-            </label>
-            <label class="flex flex-col gap-1" title="ataques deste elemento batem FORTE nele">
-              fraco contra
-              <select
-                name="f[weak_to]"
-                class="select select-bordered h-9 w-32 bg-[#090d0f] font-mono text-sm"
-              >
-                <option value="">—</option>
-                <option :for={el <- @elements} value={el} selected={@form[:weak_to].value == el}>
-                  {el}
-                </option>
-              </select>
-            </label>
-            <label class="flex flex-col gap-1">
               level ≥
               <input
                 type="number"
@@ -431,6 +504,36 @@ defmodule PokexWeb.PokedexLive do
               /> só shinies ✨
             </label>
           </.form>
+
+          <div class="mt-2 space-y-1.5 border-t border-[#1d2429] pt-2 font-mono text-[10px] text-[#77828a]">
+            <.filter_chips
+              id="filter-elements"
+              label="elemento"
+              hint="liga quantos quiser — mostra quem é de QUALQUER um deles"
+              param="elements"
+              options={@elements}
+              selected={@filters.elements}
+              style_fun={&PokedexStyle.element_style/1}
+            />
+            <.filter_chips
+              id="filter-weak-to"
+              label="fraco contra"
+              hint="ataques de QUALQUER um destes elementos batem forte nele"
+              param="weak_to"
+              options={@elements}
+              selected={@filters.weak_to}
+              style_fun={&PokedexStyle.element_style/1}
+            />
+            <.filter_chips
+              id="filter-clans"
+              label="clã"
+              hint="derivado da matéria do Pokémon na wiki"
+              param="clans"
+              options={@clans}
+              selected={@filters.clans}
+              style_fun={&PokedexStyle.clan_style/1}
+            />
+          </div>
 
           <div
             id="pokedex-sort"
@@ -525,6 +628,13 @@ defmodule PokexWeb.PokedexLive do
                         lv {entry.level || "?"}
                       </span>
                       <.element_chip :for={el <- entry.elements} element={el} />
+                      <span
+                        :for={clan <- entry.clans}
+                        class="rounded px-1 py-0.5"
+                        style={PokedexStyle.clan_style(clan)}
+                      >
+                        ⚑ {clan}
+                      </span>
                     </p>
                     <p
                       :if={@sort in [:edited, :changed] and (entry.edited_at || entry.changed_at)}

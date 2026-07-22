@@ -299,6 +299,19 @@ defmodule PokexWeb.PokedexDetailLiveTest do
   end
 
   @tag :tmp_dir
+  test "o clã aparece no cabeçalho e clica pra lista filtrada", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/pokedex/Seadra")
+
+    chip = view |> element("#entry-clans") |> render()
+    assert chip =~ "Seavell"
+    assert chip =~ "clans[]=Seavell"
+
+    # o shiny herdeiro (sem materia própria) também mostra
+    {:ok, shiny, _} = live(conn, ~p"/pokedex/#{"Shiny Seadra"}")
+    assert shiny |> element("#entry-clans") |> render() =~ "Seavell"
+  end
+
+  @tag :tmp_dir
   test "toda página leva pra wiki original, com o nome composto codificado", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex/Seadra")
 

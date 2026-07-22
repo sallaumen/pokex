@@ -9,6 +9,11 @@ defmodule Pokex.Vision.GlyphsTest do
       flunk("no label for #{expected}")
   end
 
+  defp parse_coord(text) do
+    [_all, x, y, z] = Regex.run(~r"\((\d+), (\d+), (\d+)\)", text)
+    {String.to_integer(x), String.to_integer(y), String.to_integer(z)}
+  end
+
   defp segment!(expected) do
     %{"fixture" => f, "region" => [x, y, w, h]} = label = label!(expected)
     Glyphs.segment(ScreenFixtures.frame!(f), {x, y, w, h}, ScreenFixtures.opts(label))
@@ -56,7 +61,7 @@ defmodule Pokex.Vision.GlyphsTest do
           assert Glyphs.read_int(frame, region, opts) == String.to_integer(exp), "int #{exp}"
 
         "coord" ->
-          assert Glyphs.read_coord(frame, region, opts) == {337, 46107, 4}
+          assert Glyphs.read_coord(frame, region, opts) == parse_coord(exp)
 
         "line" ->
           assert %{text: ^exp, confidence: 1.0} = Glyphs.read_line(frame, region, opts),

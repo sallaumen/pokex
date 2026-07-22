@@ -2077,6 +2077,12 @@ defmodule PokexWeb.PanelLive do
                   <p class="font-mono text-[9px] uppercase text-[#69737b]">Pokémon ativo</p>
                   <p class="font-mono text-sm text-[#d9dde1]">
                     {world_hp(@world.me.pokemon_hp)}
+                    <span
+                      :if={Pokex.World.pokemon_hp_pct(@world)}
+                      class="text-[11px] text-[#8b949d]"
+                    >
+                      {world_pct(Pokex.World.pokemon_hp_pct(@world))}
+                    </span>
                   </p>
                   <div class="mt-1 h-1 overflow-hidden rounded-full bg-[#222a2f]">
                     <div

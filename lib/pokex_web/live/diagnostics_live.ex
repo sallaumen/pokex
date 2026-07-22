@@ -16,6 +16,7 @@ defmodule PokexWeb.DiagnosticsLive do
        capture_src: nil,
        preview: nil,
        xray: nil,
+       unknown_glyphs: [],
        calibrated?: Calibration.exists?()
      )}
   end
@@ -83,6 +84,52 @@ defmodule PokexWeb.DiagnosticsLive do
        )}
     else
       error -> {:noreply, assign(socket, msg: "erro: #{inspect(error)}")}
+    end
+  end
+
+  # Every "?" in the panel is one glyph this install has never seen. Rather
+  # than wait for a developer to catch a screenshot with that digit in it, scan
+  # the HUD, show whatever came back unreadable, and let him name it.
+  def handle_event("scan_glyphs", _params, socket) do
+    case Pokex.Layout.locate() do
+      {:ok, fix} ->
+        unknown =
+          [:level, :food, :fishing, :slot_f1, :slot_f2, :slot_e, :slot_s_q]
+          |> Enum.flat_map(&unknown_in_region(fix, &1, "feed_hud.png", :hud_bottom))
+          |> Kernel.++(unknown_in_region(fix, :pokemon_hp, "feed_team.png", :team_column))
+          |> Kernel.++(unknown_in_region(fix, :minimap_coord, "feed_minimap.png", :minimap))
+          |> Enum.uniq_by(& &1.signature)
+
+        msg =
+          if unknown == [],
+            do: "nenhum glifo desconhecido — tudo que está na tela é legível",
+            else: "#{length(unknown)} glifo(s) que eu não sei ler: diga o que são"
+
+        {:noreply, assign(socket, unknown_glyphs: unknown, msg: msg)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, msg: "HUD não localizado (#{inspect(reason)})")}
+    end
+  end
+
+  def handle_event("teach_glyph", %{"signature" => signature, "char" => char}, socket) do
+    char = String.trim(char)
+
+    case char != "" && Pokex.Vision.Glyphs.teach(signature, char) do
+      {:ok, total} ->
+        remaining = Enum.reject(socket.assigns.unknown_glyphs, &(&1.signature == signature))
+
+        {:noreply,
+         assign(socket,
+           unknown_glyphs: remaining,
+           msg: "aprendi \"#{char}\" — #{total} glifos conhecidos agora"
+         )}
+
+      {:error, :already_known} ->
+        {:noreply, assign(socket, msg: "esse glifo já era conhecido")}
+
+      _blank ->
+        {:noreply, socket}
     end
   end
 
@@ -312,6 +359,24 @@ defmodule PokexWeb.DiagnosticsLive do
   defp parse_button("right"), do: {:ok, :right}
   defp parse_button(_), do: :error
 
+  # The region rects are absolute; a feed frame is the panel crop, so each read
+  # shifts by that panel's own origin.
+  defp unknown_in_region(fix, region, filename, panel) do
+    with {panel_rect, region_rect} when not is_nil(panel_rect) and not is_nil(region_rect) <-
+           {Pokex.Layout.region(panel, fix), Pokex.Layout.region(region, fix)},
+         {px, py, pw, ph} = panel_rect,
+         {rx, ry, rw, rh} = region_rect,
+         {:ok, frame} <- Pokex.Bots.Capture.frame({px, py, pw, ph}, filename) do
+      Pokex.Vision.Glyphs.unknown_in(
+        frame,
+        {rx - px, ry - py, rw, rh},
+        Pokex.Layout.region_opts(fix, region)
+      )
+    else
+      _unavailable -> []
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -324,6 +389,52 @@ defmodule PokexWeb.DiagnosticsLive do
             Nada aqui liga o bot — são disparos avulsos.
           </p>
         </header>
+
+        <section class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-sm font-bold">Ensinar glifos</h2>
+              <p class="mt-0.5 text-xs leading-relaxed opacity-60">
+                Todo "?" no painel é UM caractere que esta instalação nunca viu — um dígito que
+                nunca esteve na tela quando as capturas foram feitas. Varra o HUD, olhe o
+                desenho e diga o que é: fica sabido pra sempre, e sobrevive a atualizações.
+              </p>
+            </div>
+            <button class="btn btn-sm btn-primary shrink-0" phx-click="scan_glyphs">
+              Varrer HUD
+            </button>
+          </div>
+
+          <ul :if={@unknown_glyphs != []} class="flex flex-wrap gap-3">
+            <li
+              :for={glyph <- @unknown_glyphs}
+              class="flex items-center gap-3 rounded-lg border border-base-content/20 bg-base-300 p-3"
+            >
+              <div class="flex flex-col gap-px">
+                <div :for={row <- glyph.bitmap} class="flex gap-px">
+                  <span
+                    :for={cell <- row}
+                    class={[
+                      "size-1.5",
+                      if(cell == 1, do: "bg-base-content", else: "bg-transparent")
+                    ]}
+                  />
+                </div>
+              </div>
+              <form phx-submit="teach_glyph" class="flex items-center gap-2">
+                <input type="hidden" name="signature" value={glyph.signature} />
+                <input
+                  name="char"
+                  maxlength="2"
+                  autocomplete="off"
+                  placeholder="?"
+                  class="input input-bordered input-sm w-14 text-center font-mono"
+                />
+                <button class="btn btn-sm">Aprender</button>
+              </form>
+            </li>
+          </ul>
+        </section>
 
         <div class="flex min-h-10 items-center gap-2 rounded-lg border border-base-content/10 bg-base-300 px-3 py-2 font-mono text-sm">
           <.icon name="hero-chevron-right" class="size-4 shrink-0 text-primary" />

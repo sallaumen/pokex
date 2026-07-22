@@ -1067,7 +1067,7 @@ defmodule PokexWeb.PanelLive do
     end)
   end
 
-  defp log_class(:macro), do: "text-base-content"
+  defp log_class(:macro), do: "text-pk-title-content"
   defp log_class(_debug), do: "opacity-50"
 
   # A one-shot read of the per-slot skill states (:ready | :cooldown), or nil when the bar
@@ -1150,14 +1150,14 @@ defmodule PokexWeb.PanelLive do
     <p
       :if={Map.get(@snapshot, :hold_reason)}
       title={Map.get(@snapshot, :hold_reason)}
-      class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#f2c45b]"
+      class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-warn"
     >
       🔒 {Map.get(@snapshot, :hold_reason)}
     </p>
     <p
       :if={last_action_text(@snapshot, @now_ms)}
       title={last_action_text(@snapshot, @now_ms)}
-      class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#5d6670]"
+      class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3"
     >
       ⚡ {last_action_text(@snapshot, @now_ms)}
     </p>
@@ -1199,15 +1199,15 @@ defmodule PokexWeb.PanelLive do
     if shiny?, do: "✨ " <> names, else: names
   end
 
-  defp hp_bar_class(nil), do: "bg-[#3a4249]"
-  defp hp_bar_class(pct) when pct >= 0.5, do: "bg-[#37d07d]"
-  defp hp_bar_class(pct) when pct >= 0.25, do: "bg-[#f2c45b]"
-  defp hp_bar_class(_low), do: "bg-[#ff6b74]"
+  defp hp_bar_class(nil), do: "bg-pk-line-strong"
+  defp hp_bar_class(pct) when pct >= 0.5, do: "bg-pk-ok"
+  defp hp_bar_class(pct) when pct >= 0.25, do: "bg-pk-warn"
+  defp hp_bar_class(_low), do: "bg-pk-danger"
 
-  defp team_chip_class(nil), do: "border-[#293238] text-[#5d6670]"
-  defp team_chip_class(pct) when pct >= 0.5, do: "border-[#293238] text-[#8b949d]"
-  defp team_chip_class(pct) when pct >= 0.25, do: "border-[#674f20] text-[#f2c45b]"
-  defp team_chip_class(_low), do: "border-[#5f292f] bg-[#241114] text-[#ff9ca4]"
+  defp team_chip_class(nil), do: "border-pk-line-strong text-pk-text-3"
+  defp team_chip_class(pct) when pct >= 0.5, do: "border-pk-line-strong text-pk-text-2"
+  defp team_chip_class(pct) when pct >= 0.25, do: "border-pk-warn-line text-pk-warn"
+  defp team_chip_class(_low), do: "border-pk-danger-line bg-pk-danger-dim text-pk-danger"
 
   # --- shiny guard (star meter + trophy shelf) --------------------------------
 
@@ -1246,10 +1246,10 @@ defmodule PokexWeb.PanelLive do
 
   defp shiny_px_class(px, min) do
     case shiny_zone(px, min) do
-      :hit -> "text-[#ff6b74]"
-      :warn -> "text-[#f2c45b]"
-      :safe -> "text-[#37d07d]"
-      :none -> "text-[#5d6670]"
+      :hit -> "text-pk-danger"
+      :warn -> "text-pk-warn"
+      :safe -> "text-pk-ok"
+      :none -> "text-pk-text-3"
     end
   end
 
@@ -1324,14 +1324,23 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # What "Iniciar" will actually bring up, spelled out under the button — the
-  # answer to "liguei o bot e ele começou a pescar enquanto eu andava".
+  # What "Iniciar" will actually bring up, spelled out under the button.
+  #
+  # These say what each worker DOES, not what the code calls it. Lucas read
+  # "suporte" under the movimento button and concluded the bot would not heal or
+  # revive him while walking. It does — the word just told him nothing.
   defp mode_worker_labels(mode) do
     mode
     |> Pokex.Modes.workers()
-    |> Enum.map(&worker_name/1)
+    |> Enum.map(&worker_job/1)
     |> Enum.join(" · ")
   end
+
+  defp worker_job(:fishing), do: "pesca"
+  defp worker_job(:combat), do: "luta"
+  defp worker_job(:catcher), do: "saque e captura"
+  defp worker_job(:mini_game), do: "mini game"
+  defp worker_job(:player_support), do: "revive e poção"
 
   defp worker_name(:player_support), do: "suporte"
   defp worker_name(:fishing), do: "pesca"
@@ -1431,23 +1440,23 @@ defmodule PokexWeb.PanelLive do
     <div
       id={@id}
       class={[
-        "flex min-h-12 items-center gap-3 border-b border-[#222a2f] px-3 py-2 last:border-b-0",
-        @active && "bg-[#102019]"
+        "flex min-h-12 items-center gap-3 border-b border-pk-line px-3 py-2 last:border-b-0",
+        @active && "bg-pk-ok-dim"
       ]}
     >
       <span class={[
         "h-7 w-0.5 shrink-0 rounded-full",
-        if(@active, do: "bg-[#37d07d]", else: "bg-transparent")
+        if(@active, do: "bg-pk-ok", else: "bg-transparent")
       ]} />
       <div class="min-w-0 flex-1">
-        <p class="flex items-center gap-1.5 text-[13px] font-semibold text-[#d9dde1]">
+        <p class="flex items-center gap-1.5 text-pk-body font-semibold text-pk-text">
           <span class="truncate">{@title}</span>
           <%!-- YOUR exception to what the mode promises. Without this, the mode and
                 the switch can disagree and only the bot knows which won. --%>
           <span
             :if={@override}
             data-testid="override-badge"
-            class="shrink-0 rounded border border-[#674f20] bg-[#211b0d] px-1 font-mono text-[9px] text-[#f2c45b]"
+            class="shrink-0 rounded border border-pk-warn-line bg-pk-warn-dim px-1 font-mono text-pk-meta text-pk-warn"
             title="Você mudou esta chave: ela não está no padrão do modo."
           >
             manual
@@ -1455,7 +1464,7 @@ defmodule PokexWeb.PanelLive do
         </p>
         <%!-- one short line; the long explanation lives in the tooltip so it stays
               a hover away instead of in the way --%>
-        <p class="mt-0.5 truncate text-[11px] leading-tight text-[#7f8992]" title={@detail}>
+        <p class="mt-0.5 truncate text-pk-body leading-tight text-pk-text-2" title={@detail}>
           {@description}
         </p>
       </div>
@@ -1477,12 +1486,12 @@ defmodule PokexWeb.PanelLive do
 
   defp group_header(assigns) do
     ~H"""
-    <div class="flex items-center gap-2 border-b border-[#222a2f] bg-[#0c1013] px-3 py-1.5">
+    <div class="flex items-center gap-2 border-b border-pk-line bg-pk-sunken px-3 py-1.5">
       <span class={["h-3 w-0.5 rounded-full", @accent]} />
-      <span class="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-[#7d8790]">
+      <span class="font-mono text-pk-meta font-bold uppercase tracking-[0.14em] text-pk-text-3">
         {@label}
       </span>
-      <span :if={@note} class="ml-auto font-mono text-[9px] text-[#6d7780]">{@note}</span>
+      <span :if={@note} class="ml-auto font-mono text-pk-meta text-pk-text-3">{@note}</span>
     </div>
     """
   end
@@ -1491,18 +1500,18 @@ defmodule PokexWeb.PanelLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_page={:panel}>
-      <div id="panel-dashboard" class="min-h-dvh bg-[#080b0d] text-[#d9dde1]">
+      <div id="panel-dashboard" class="min-h-dvh bg-[#080b0d] text-pk-text">
         <header class="sticky top-0 z-30 border-b border-[#1f262b] bg-[#090c0f]/95 backdrop-blur">
           <div class="mx-auto flex h-12 max-w-[520px] items-center justify-between px-2 xl:max-w-[1600px]">
             <div class="flex items-center gap-2">
               <.link navigate={~p"/"} class="flex items-center gap-2.5" aria-label="Ir ao painel">
-                <span class="grid size-7 place-items-center rounded-lg bg-[#36cf78] text-sm font-black text-[#06150c]">P</span>
-                <span class="text-sm font-bold">Pokex</span>
+                <span class="grid size-7 place-items-center rounded-lg bg-pk-ok text-pk-title font-black text-[#06150c]">P</span>
+                <span class="text-pk-title font-bold">Pokex</span>
               </.link>
               <span
                 :if={not @focused?}
                 id="focus-pause-badge"
-                class="grid size-6 place-items-center rounded-full border border-[#674f20] bg-[#211b0d] text-[#f2c45b]"
+                class="grid size-6 place-items-center rounded-full border border-pk-warn-line bg-pk-warn-dim text-pk-warn"
                 title="Pausado por segurança — a janela do jogo perdeu o foco. Nada é digitado/clicado até você voltar pro jogo; aí os workers religam sozinhos."
                 aria-label="Pausado por segurança: a janela do jogo perdeu o foco"
               >
@@ -1510,12 +1519,12 @@ defmodule PokexWeb.PanelLive do
               </span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="flex items-center gap-2 rounded-full border border-[#293137] px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b949d]">
+              <span class="flex items-center gap-2 rounded-full border border-pk-line-strong px-2.5 py-1 font-mono text-pk-meta font-bold uppercase tracking-[0.14em] text-pk-text-2">
                 <span class={[
                   "size-1.5 rounded-full",
                   if(overall_active?(@fishing, @combat),
-                    do: "bg-[#37d07d]",
-                    else: "bg-[#68727b]"
+                    do: "bg-pk-ok",
+                    else: "bg-pk-text-3"
                   )
                 ]} />
                 {if(overall_active?(@fishing, @combat), do: "Ativo", else: "Parado")}
@@ -1523,7 +1532,7 @@ defmodule PokexWeb.PanelLive do
               <details id="panel-navigation" phx-update="ignore" class="group relative">
                 <summary
                   id="panel-navigation-toggle"
-                  class="grid size-8 cursor-pointer list-none place-items-center rounded-lg border border-[#293137] text-[#a4adb4] transition hover:border-[#37d07d]/60 hover:bg-[#14191d] hover:text-white [&::-webkit-details-marker]:hidden"
+                  class="grid size-8 cursor-pointer list-none place-items-center rounded-lg border border-pk-line-strong text-pk-text-2 transition hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white [&::-webkit-details-marker]:hidden"
                   title="Abrir navegação"
                   aria-label="Abrir navegação"
                 >
@@ -1531,50 +1540,50 @@ defmodule PokexWeb.PanelLive do
                 </summary>
                 <nav
                   aria-label="Navegação principal"
-                  class="absolute right-0 top-10 z-50 w-48 overflow-hidden rounded-lg border border-[#293238] bg-[#111519] p-1 shadow-2xl shadow-black/50"
+                  class="absolute right-0 top-10 z-50 w-48 overflow-hidden rounded-lg border border-pk-line-strong bg-pk-surface p-1 shadow-2xl shadow-black/50"
                 >
                   <.link
                     id="panel-nav-home"
                     navigate={~p"/"}
                     aria-current="page"
-                    class="flex items-center gap-2 rounded-md bg-[#17231c] px-3 py-2.5 text-xs font-semibold text-[#4ade86]"
+                    class="flex items-center gap-2 rounded-md bg-pk-ok-dim px-3 py-2.5 text-pk-body font-semibold text-pk-ok"
                   >
                     <.icon name="hero-play-circle" class="size-4" /> Painel
                   </.link>
                   <.link
                     id="panel-nav-calibration"
                     navigate={~p"/calibration"}
-                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-xs text-[#c7cdd2] transition hover:bg-[#1a2024] hover:text-white"
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body text-pk-text transition hover:bg-pk-raised hover:text-white"
                   >
-                    <.icon name="hero-viewfinder-circle" class="size-4 text-[#7f8992]" /> Calibração
+                    <.icon name="hero-viewfinder-circle" class="size-4 text-pk-text-2" /> Calibração
                   </.link>
                   <.link
                     id="panel-nav-diagnostics"
                     navigate={~p"/diagnostics"}
-                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-xs text-[#c7cdd2] transition hover:bg-[#1a2024] hover:text-white"
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body text-pk-text transition hover:bg-pk-raised hover:text-white"
                   >
-                    <.icon name="hero-beaker" class="size-4 text-[#7f8992]" /> Diagnóstico
+                    <.icon name="hero-beaker" class="size-4 text-pk-text-2" /> Diagnóstico
                   </.link>
                   <.link
                     id="panel-nav-fishing-lab"
                     navigate={~p"/fishing-lab"}
-                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-xs text-[#c7cdd2] transition hover:bg-[#1a2024] hover:text-white"
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body text-pk-text transition hover:bg-pk-raised hover:text-white"
                   >
-                    <.icon name="hero-sparkles" class="size-4 text-[#7f8992]" /> Laboratório
+                    <.icon name="hero-sparkles" class="size-4 text-pk-text-2" /> Laboratório
                   </.link>
                   <.link
                     id="panel-nav-world"
                     navigate={~p"/world"}
-                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-xs text-[#c7cdd2] transition hover:bg-[#1a2024] hover:text-white"
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body text-pk-text transition hover:bg-pk-raised hover:text-white"
                   >
-                    <.icon name="hero-eye" class="size-4 text-[#7f8992]" /> Mundo
+                    <.icon name="hero-eye" class="size-4 text-pk-text-2" /> Mundo
                   </.link>
                   <.link
                     id="panel-nav-pokedex"
                     navigate={~p"/pokedex"}
-                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-xs text-[#c7cdd2] transition hover:bg-[#1a2024] hover:text-white"
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body text-pk-text transition hover:bg-pk-raised hover:text-white"
                   >
-                    <.icon name="hero-book-open" class="size-4 text-[#7f8992]" /> Pokédex
+                    <.icon name="hero-book-open" class="size-4 text-pk-text-2" /> Pokédex
                   </.link>
                 </nav>
               </details>
@@ -1589,22 +1598,22 @@ defmodule PokexWeb.PanelLive do
             <div class="min-w-0 space-y-3">
               <div
                 :if={not @calibrated?}
-                class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
+                class="flex items-center gap-3 rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3 text-pk-body"
               >
-                <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-[#f2c45b]" />
-                <p class="flex-1 text-[#c8cdd1]">
+                <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-pk-warn" />
+                <p class="flex-1 text-pk-text">
                   Calibre água, Battle, arena e skills antes de iniciar.
                 </p>
-                <.link navigate={~p"/calibration"} class="font-semibold text-[#37d07d]">Calibrar</.link>
+                <.link navigate={~p"/calibration"} class="font-semibold text-pk-ok">Calibrar</.link>
               </div>
 
               <div
                 :if={@layout_lost?}
                 id="layout-banner"
-                class="flex items-center gap-3 rounded-lg border border-[#5f292f] bg-[#241114] p-3 text-xs"
+                class="flex items-center gap-3 rounded-lg border border-pk-danger-line bg-pk-danger-dim p-3 text-pk-body"
               >
-                <.icon name="hero-eye-slash" class="size-5 shrink-0 text-[#ff9ca4]" />
-                <p class="flex-1 text-[#c8cdd1]">
+                <.icon name="hero-eye-slash" class="size-5 shrink-0 text-pk-danger" />
+                <p class="flex-1 text-pk-text">
                   Não achei o HUD na tela — o jogo está em tela cheia no monitor principal? Os
                   feeds estão segurando: nada é lido nem clicado às cegas.
                 </p>
@@ -1613,15 +1622,15 @@ defmodule PokexWeb.PanelLive do
               <div
                 :if={@calib_stale?}
                 id="calib-stale-banner"
-                class="flex items-center gap-3 rounded-lg border border-[#674f20] bg-[#211b0d] p-3 text-xs"
+                class="flex items-center gap-3 rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3 text-pk-body"
               >
-                <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-[#f2c45b]" />
-                <p class="flex-1 text-[#c8cdd1]">
+                <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-pk-warn" />
+                <p class="flex-1 text-pk-text">
                   A calibração mudou depois do último Start — os bots ainda usam a ANTIGA.
                 </p>
                 <button
                   phx-click="restart_bots"
-                  class="btn btn-xs border-0 bg-[#37d07d] font-bold text-[#06140c] hover:bg-[#45dd88]"
+                  class="btn btn-xs border border-pk-ok-line bg-transparent font-semibold text-pk-ok hover:bg-pk-ok-dim"
                 >
                   Parar e Iniciar
                 </button>
@@ -1631,15 +1640,15 @@ defmodule PokexWeb.PanelLive do
                 <div
                   data-testid="fishing-pill"
                   data-state={@fishing.state}
-                  class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
                 >
-                  <div class="flex items-center gap-1.5 text-[11px] font-semibold">
+                  <div class="flex items-center gap-1.5 text-pk-body font-semibold">
                     <span class={[
                       "size-1.5 shrink-0 rounded-full",
-                      if(active?(@fishing.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                      if(active?(@fishing.state), do: "bg-pk-ok", else: "bg-pk-text-3")
                     ]} /> Pesca
                   </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
                     {fishing_label(@fishing.state)}
                   </p>
                   <.pill_details snapshot={@fishing} now_ms={@now_ms} />
@@ -1647,15 +1656,15 @@ defmodule PokexWeb.PanelLive do
                 <div
                   data-testid="combat-pill"
                   data-state={@combat.state}
-                  class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
                 >
-                  <div class="flex items-center gap-1.5 text-[11px] font-semibold">
+                  <div class="flex items-center gap-1.5 text-pk-body font-semibold">
                     <span class={[
                       "size-1.5 shrink-0 rounded-full",
-                      if(active?(@combat.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                      if(active?(@combat.state), do: "bg-pk-ok", else: "bg-pk-text-3")
                     ]} /> Batalha
                   </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
                     {combat_label(@combat.state, Map.get(@combat, :locked_row))}
                   </p>
                   <.pill_details snapshot={@combat} now_ms={@now_ms} />
@@ -1663,18 +1672,19 @@ defmodule PokexWeb.PanelLive do
                 <div
                   data-testid="catcher-pill"
                   data-state={@catcher.state}
-                  class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
                 >
-                  <div class="flex items-center gap-1.5 text-[11px] font-semibold">
+                  <div class="flex items-center gap-1.5 text-pk-body font-semibold">
                     <span class={[
                       "size-1.5 shrink-0 rounded-full",
-                      if(active?(@catcher.state), do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                      if(active?(@catcher.state), do: "bg-pk-ok", else: "bg-pk-text-3")
                     ]} /> Captura
                   </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
-                    {catcher_label(@catcher.state)} · {catcher_captures(@catcher)}🎯 {catcher_loots(
-                      @catcher
-                    )}🧰
+                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                    {catcher_label(@catcher.state)}
+                    <span class="pk-num">
+                      · {catcher_captures(@catcher)} bola · {catcher_loots(@catcher)} saque
+                    </span>
                   </p>
                   <.pill_details snapshot={@catcher} now_ms={@now_ms} />
                 </div>
@@ -1682,13 +1692,13 @@ defmodule PokexWeb.PanelLive do
                   data-testid="mini-game-pill"
                   data-state={@mini_game.state}
                   title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
-                  class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
                 >
-                  <div class="flex items-center justify-between text-[11px] font-semibold">
+                  <div class="flex items-center justify-between text-pk-body font-semibold">
                     <span class="flex items-center gap-1.5">
                       <span class={[
                         "size-1.5 shrink-0 rounded-full",
-                        if(@mini_game.state == :playing, do: "bg-[#f3ba4e]", else: "bg-[#68717a]")
+                        if(@mini_game.state == :playing, do: "bg-pk-warn", else: "bg-pk-text-3")
                       ]} /> Mini game
                     </span>
                     <button
@@ -1702,8 +1712,8 @@ defmodule PokexWeb.PanelLive do
                       class={[
                         "cursor-pointer",
                         if(@mini_game_sound,
-                          do: "text-[#7d8790] hover:text-[#e8ecef]",
-                          else: "text-[#f3ba4e] hover:text-[#ffd27a]"
+                          do: "text-pk-text-3 hover:text-pk-text",
+                          else: "text-pk-warn hover:text-pk-warn"
                         )
                       ]}
                     >
@@ -1715,7 +1725,7 @@ defmodule PokexWeb.PanelLive do
                       />
                     </button>
                   </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
+                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
                     {mini_game_label(@mini_game.state)}
                   </p>
                 </div>
@@ -1723,16 +1733,19 @@ defmodule PokexWeb.PanelLive do
                   data-testid="support-pill"
                   data-state={@game.state}
                   title="revive + poção — protege o Pokémon principal, até jogando manual"
-                  class="rounded-lg border border-[#232a30] bg-[#111519] px-2 py-2"
+                  class="rounded-lg border border-pk-line bg-pk-surface px-2 py-2"
                 >
-                  <div class="flex items-center gap-1.5 text-[11px] font-semibold">
+                  <div class="flex items-center gap-1.5 text-pk-body font-semibold">
                     <span class={[
                       "size-1.5 shrink-0 rounded-full",
-                      if(@game.state == :monitoring, do: "bg-[#37d07d]", else: "bg-[#68717a]")
+                      if(@game.state == :monitoring, do: "bg-pk-ok", else: "bg-pk-text-3")
                     ]} /> Suporte
                   </div>
-                  <p class="mt-0.5 truncate pl-3 font-mono text-[8px] uppercase tracking-[0.1em] text-[#7d8790]">
-                    {support_label(@game.state)} · {rescue_count(@game)}🚑 {potion_count(@game)}🧪
+                  <p class="mt-0.5 truncate pl-3 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                    {support_label(@game.state)}
+                    <span class="pk-num">
+                      · {rescue_count(@game)} revive · {potion_count(@game)} poção
+                    </span>
                   </p>
                   <.pill_details snapshot={@game} now_ms={@now_ms} />
                 </div>
@@ -1741,37 +1754,37 @@ defmodule PokexWeb.PanelLive do
               <div class="space-y-1">
                 <p
                   :if={@fishing.error}
-                  class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+                  class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
                 >
                   {@fishing.error}
                 </p>
                 <p
                   :if={@combat.error}
-                  class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+                  class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
                 >
                   {@combat.error}
                 </p>
                 <p
                   :if={@mini_game.error}
-                  class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+                  class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
                 >
                   {@mini_game.error}
                 </p>
                 <p
                   :if={@catcher.error}
-                  class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+                  class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
                 >
                   {@catcher.error}
                 </p>
                 <p
                   :if={@game.error}
-                  class="rounded-lg border border-[#5f292f] bg-[#241114] px-3 py-2 text-xs text-[#ff9ca4]"
+                  class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
                 >
                   {@game.error}
                 </p>
                 <ul
                   :if={@errors != []}
-                  class="rounded-lg border border-[#674f20] bg-[#211b0d] px-3 py-2 text-xs text-[#e7ca82]"
+                  class="rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
                 >
                   <li :for={message <- @errors}>{message}</li>
                 </ul>
@@ -1794,8 +1807,8 @@ defmodule PokexWeb.PanelLive do
                   class={[
                     "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition",
                     if(@player_mode == mode,
-                      do: "border-[#237d4d] bg-[#0d3822]",
-                      else: "border-[#293238] hover:border-[#3a464e]"
+                      do: "border-pk-ok-line bg-pk-ok-dim",
+                      else: "border-pk-line-strong hover:border-[#3a464e]"
                     )
                   ]}
                 >
@@ -1803,15 +1816,15 @@ defmodule PokexWeb.PanelLive do
                     name={icon}
                     class={[
                       "size-4 shrink-0",
-                      if(@player_mode == mode, do: "text-[#3de083]", else: "text-[#68727a]")
+                      if(@player_mode == mode, do: "text-pk-ok", else: "text-pk-text-3")
                     ]}
                   />
                   <span class="min-w-0">
                     <span class={[
-                      "block truncate text-[13px] font-semibold",
-                      if(@player_mode == mode, do: "text-[#3de083]", else: "text-[#98a1a8]")
+                      "block truncate text-pk-body font-semibold",
+                      if(@player_mode == mode, do: "text-pk-ok", else: "text-pk-text-2")
                     ]}>{label}</span>
-                    <span class="block truncate text-[10px] text-[#6d7780]">{hint}</span>
+                    <span class="block truncate text-pk-meta text-pk-text-3">{hint}</span>
                   </span>
                 </button>
               </div>
@@ -1819,19 +1832,19 @@ defmodule PokexWeb.PanelLive do
               <div :if={not overall_active?(@fishing, @combat)}>
                 <button
                   id="start-bot"
-                  class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#39cd76] text-sm font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
+                  class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-pk-ok text-pk-title font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
                   phx-click="start"
                 >
                   <.icon name="hero-play-solid" class="size-4" /> Iniciar — modo {@player_mode}
                 </button>
-                <p id="start-plan" class="mt-1 text-center font-mono text-[10px] text-[#6d7780]">
+                <p id="start-plan" class="mt-1 text-center font-mono text-pk-meta text-pk-text-3">
                   liga {mode_worker_labels(@player_mode)}
                 </p>
               </div>
               <button
                 :if={overall_active?(@fishing, @combat)}
                 id="stop-bot"
-                class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#703136] bg-[#281114] text-sm font-bold text-[#ff9ca4] transition hover:bg-[#35171b] active:scale-[0.99]"
+                class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#703136] bg-[#281114] text-pk-title font-bold text-pk-danger transition hover:bg-[#35171b] active:scale-[0.99]"
                 phx-click="stop"
               >
                 <.icon name="hero-stop-solid" class="size-4" /> Parar bot
@@ -1840,12 +1853,12 @@ defmodule PokexWeb.PanelLive do
 
             <div class="min-w-0 space-y-3">
               <details id="automations-panel" open class="group">
-                <summary class="mb-2 flex cursor-pointer list-none items-center justify-between px-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b] transition hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
+                <summary class="mb-2 flex cursor-pointer list-none items-center justify-between px-0.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3 transition hover:text-pk-text-2 [&::-webkit-details-marker]:hidden">
                   <h2 class="flex items-center gap-1.5">
                     Automações
                     <.icon
                       name="hero-chevron-down"
-                      class="size-3 text-[#68727a] transition group-open:rotate-180"
+                      class="size-3 text-pk-text-3 transition group-open:rotate-180"
                     />
                   </h2>
                   <span>{automation_count(
@@ -1858,7 +1871,7 @@ defmodule PokexWeb.PanelLive do
                     @potion_enabled
                   )}/6 on</span>
                 </summary>
-                <div class="overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]">
+                <div class="overflow-hidden rounded-lg border border-pk-line bg-pk-sunken">
                   <.group_header
                     label="Sempre"
                     accent="bg-[#6c7780]"
@@ -1940,7 +1953,7 @@ defmodule PokexWeb.PanelLive do
                   <button
                     :if={@player_mode == "parado"}
                     phx-click="relearn_ground"
-                    class="mx-3 my-2 flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
+                    class="mx-3 my-2 flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 font-mono text-pk-meta text-pk-text-2 hover:text-white"
                   >
                     <.icon name="hero-arrow-path" class="size-3" /> Reaprender chão (mudou de spot)
                   </button>
@@ -1948,7 +1961,7 @@ defmodule PokexWeb.PanelLive do
                     :if={@mode_overrides != []}
                     id="restore-mode-defaults"
                     phx-click="restore_mode_defaults"
-                    class="mx-3 my-2 flex h-8 items-center gap-1.5 rounded-lg border border-[#674f20] px-3 font-mono text-[10px] text-[#e7ca82] hover:bg-[#211b0d]"
+                    class="mx-3 my-2 flex h-8 items-center gap-1.5 rounded-lg border border-pk-warn-line px-3 font-mono text-pk-meta text-pk-warn hover:bg-pk-warn-dim"
                   >
                     <.icon name="hero-arrow-uturn-left" class="size-3" /> Restaurar padrão do modo
                   </button>
@@ -1962,9 +1975,9 @@ defmodule PokexWeb.PanelLive do
                   <form
                     id="hook-skills-form"
                     phx-submit="save_hook_skills"
-                    class="border-b border-[#222a2f] px-3 py-2.5"
+                    class="border-b border-pk-line px-3 py-2.5"
                   >
-                    <label class="font-mono text-[10px] text-[#77828a]">
+                    <label class="font-mono text-pk-meta text-pk-text-3">
                       Skills necessárias pra matar
                     </label>
                     <div class="mt-1.5 flex gap-2">
@@ -1972,9 +1985,9 @@ defmodule PokexWeb.PanelLive do
                         name="hook_skills"
                         value={@hook_skills}
                         placeholder="4 5 6 7"
-                        class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                        class="input input-bordered h-9 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
                       />
-                      <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+                      <button class="btn h-9 border border-pk-ok-line bg-transparent px-4 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim">
                         Salvar
                       </button>
                     </div>
@@ -1986,11 +1999,11 @@ defmodule PokexWeb.PanelLive do
                     active={@require_pokemon_hp}
                     event="toggle_require_pokemon_hp"
                   />
-                  <div id="automation-escape" class="border-b border-[#222a2f] px-3 py-2.5">
+                  <div id="automation-escape" class="border-b border-pk-line px-3 py-2.5">
                     <div class="flex min-h-10 items-center gap-3">
                       <div class="min-w-0 flex-1">
-                        <p class="text-sm font-semibold text-[#d9dde1]">Fuga de emergência</p>
-                        <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
+                        <p class="text-pk-title font-semibold text-pk-text">Fuga de emergência</p>
+                        <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">
                           anda até o tile calibrado (Calibração → Escada de fuga), entra na escada
                           de seta, para TUDO e toca o alarme — vai ser o protocolo anti-shiny
                         </p>
@@ -1999,22 +2012,22 @@ defmodule PokexWeb.PanelLive do
                         id="test-escape"
                         phx-click="test_escape"
                         data-confirm="Vai CLICAR NO JOGO (no tile calibrado), dar os passos de seta e PARAR todos os bots. Testar a fuga agora?"
-                        class="btn btn-xs h-8 shrink-0 border border-[#674f20] bg-transparent px-3 text-[11px] text-[#e7ca82] hover:bg-[#211b0d]"
+                        class="btn btn-xs h-8 shrink-0 border border-pk-warn-line bg-transparent px-3 text-pk-body text-pk-warn hover:bg-pk-warn-dim"
                       >
-                        🧪 Testar fuga
+                        <.icon name="hero-beaker" class="size-3" /> Testar fuga
                       </button>
                     </div>
                     <form
                       id="escape-cfg-form"
                       phx-change="save_escape_cfg"
                       title="Depois do clique no tile, espera o personagem ANDAR até lá e então dá os passos de seta pra dentro da escada."
-                      class="mt-1.5 flex flex-wrap items-center gap-1 font-mono text-[9px] text-[#737d85]"
+                      class="mt-1.5 flex flex-wrap items-center gap-1 font-mono text-pk-meta text-pk-text-3"
                     >
                       <span>entra pra</span>
                       <select
                         id="escape-direction"
                         name="escape_direction"
-                        class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                        class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                       >
                         <option value="left" selected={@escape_direction == "left"}>
                           ← esquerda
@@ -2034,7 +2047,7 @@ defmodule PokexWeb.PanelLive do
                         max="10"
                         value={@escape_steps}
                         phx-debounce="500"
-                        class="h-6 w-10 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                        class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                       />
                       <span>passos · espera a caminhada por</span>
                       <input
@@ -2046,13 +2059,13 @@ defmodule PokexWeb.PanelLive do
                         step="100"
                         value={@escape_walk_wait_ms}
                         phx-debounce="500"
-                        class="h-6 w-14 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                        class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                       />
                       <span>ms</span>
                     </form>
                   </div>
                   <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
-                    <label class="font-mono text-[10px] text-[#77828a]">
+                    <label class="font-mono text-pk-meta text-pk-text-3">
                       Vida mínima pra puxar a vara (%)
                     </label>
                     <div class="mt-1.5 flex gap-2">
@@ -2060,9 +2073,9 @@ defmodule PokexWeb.PanelLive do
                         name="fishing_hp_pct"
                         inputmode="numeric"
                         value={@fishing_hp_pct}
-                        class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                        class="input input-bordered h-9 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
                       />
-                      <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+                      <button class="btn h-9 border border-pk-ok-line bg-transparent px-4 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim">
                         Salvar
                       </button>
                     </div>
@@ -2070,12 +2083,12 @@ defmodule PokexWeb.PanelLive do
                 </div>
               </details>
 
-              <section id="presets-card" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
-                <div class="flex items-center justify-between text-xs font-semibold">
+              <section id="presets-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
+                <div class="flex items-center justify-between text-pk-body font-semibold">
                   <span>Presets por Pokémon</span>
-                  <span class="font-mono text-[9px] text-[#737d85]">skills · bolas · suporte</span>
+                  <span class="font-mono text-pk-meta text-pk-text-3">skills · bolas · suporte</span>
                 </div>
-                <p class="mt-1 text-[11px] leading-tight text-[#7f8992]">
+                <p class="mt-1 text-pk-body leading-tight text-pk-text-2">
                   Salva o conjunto atual de skills, captura e suporte com o nome do Pokémon —
                   trocar de Pokémon vira um clique.
                 </p>
@@ -2083,34 +2096,34 @@ defmodule PokexWeb.PanelLive do
                   <input
                     name="name"
                     placeholder="ex.: charizard"
-                    class="input input-bordered h-9 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
+                    class="input input-bordered h-9 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
                   />
-                  <button class="btn h-9 border-0 bg-[#37d07d] px-4 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+                  <button class="btn h-9 border border-pk-ok-line bg-transparent px-4 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim">
                     Salvar preset
                   </button>
                 </form>
-                <p :if={@preset_msg} id="preset-msg" class="mt-2 text-[11px] text-[#e7ca82]">
+                <p :if={@preset_msg} id="preset-msg" class="mt-2 text-pk-body text-pk-warn">
                   {@preset_msg}
                 </p>
                 <ul
                   :if={@presets != []}
                   id="preset-list"
-                  class="mt-2 divide-y divide-[#222a2f] overflow-hidden rounded-lg border border-[#232b30]"
+                  class="mt-2 divide-y divide-pk-line overflow-hidden rounded-lg border border-pk-line"
                 >
                   <li
                     :for={preset <- @presets}
-                    class="flex items-center gap-2 bg-[#101418] px-3 py-2"
+                    class="flex items-center gap-2 bg-pk-sunken px-3 py-2"
                   >
                     <div class="min-w-0 flex-1">
-                      <p class="truncate text-sm font-semibold text-[#d9dde1]">{preset.slug}</p>
-                      <p class="truncate font-mono text-[9px] text-[#737d85]">
+                      <p class="truncate text-pk-title font-semibold text-pk-text">{preset.slug}</p>
+                      <p class="truncate font-mono text-pk-meta text-pk-text-3">
                         {preset_summary(preset)}
                       </p>
                     </div>
                     <button
                       phx-click="apply_preset"
                       phx-value-slug={preset.slug}
-                      class="btn btn-xs h-7 border-0 bg-[#37d07d] px-3 text-[11px] font-bold text-[#06140c] hover:bg-[#45dd88]"
+                      class="btn btn-xs h-7 border border-pk-ok-line bg-transparent px-3 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim"
                     >
                       Aplicar
                     </button>
@@ -2118,7 +2131,7 @@ defmodule PokexWeb.PanelLive do
                       phx-click="delete_preset"
                       phx-value-slug={preset.slug}
                       data-confirm={"Excluir o preset \"#{preset.slug}\"?"}
-                      class="btn btn-xs h-7 border border-[#5f292f] bg-transparent px-2 text-[11px] text-[#ff9ca4] hover:bg-[#241114]"
+                      class="btn btn-xs h-7 border border-pk-danger-line bg-transparent px-2 text-pk-body text-pk-danger hover:bg-pk-danger-dim"
                     >
                       Excluir
                     </button>
@@ -2126,19 +2139,19 @@ defmodule PokexWeb.PanelLive do
                 </ul>
               </section>
 
-              <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
-                <div class="flex items-center justify-between text-xs font-semibold">
-                  <span>Vida do Pokémon principal</span><span class="font-mono text-[#36d47c]">{hp_label(
+              <section class="rounded-lg border border-pk-line bg-pk-surface p-3">
+                <div class="flex items-center justify-between text-pk-body font-semibold">
+                  <span>Vida do Pokémon principal</span><span class="font-mono text-pk-ok">{hp_label(
                     @game
                   )}</span>
                 </div>
-                <div class="mt-2 h-2 overflow-hidden rounded-full bg-[#273037]">
+                <div class="mt-2 h-2 overflow-hidden rounded-full bg-pk-line-strong">
                   <div
                     class="h-full rounded-full transition-[width] duration-300"
                     style={hp_bar_style(@game)}
                   />
                 </div>
-                <div class="mt-2 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
+                <div class="mt-2 flex items-center justify-between font-mono text-pk-meta text-pk-text-3">
                   <form
                     id="rescue-cfg-form"
                     phx-change="save_rescue_cfg"
@@ -2153,7 +2166,7 @@ defmodule PokexWeb.PanelLive do
                       max="90"
                       value={@rescue_pct}
                       phx-debounce="500"
-                      class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                      class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                     />
                     <span>% · a cada</span>
                     <input
@@ -2164,13 +2177,13 @@ defmodule PokexWeb.PanelLive do
                       max="600"
                       value={@rescue_cooldown_s}
                       phx-debounce="500"
-                      class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                      class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                     />
                     <span>s</span>
                   </form>
                   <span>revives: {rescue_count(@game)}</span>
                 </div>
-                <div class="mt-1.5 flex items-center justify-between font-mono text-[9px] text-[#737d85]">
+                <div class="mt-1.5 flex items-center justify-between font-mono text-pk-meta text-pk-text-3">
                   <form
                     id="potion-cfg-form"
                     phx-change="save_potion_cfg"
@@ -2185,7 +2198,7 @@ defmodule PokexWeb.PanelLive do
                       max="99"
                       value={@potion_pct}
                       phx-debounce="500"
-                      class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                      class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                     />
                     <span>% · a cada</span>
                     <input
@@ -2196,7 +2209,7 @@ defmodule PokexWeb.PanelLive do
                       max="600"
                       value={@potion_cooldown_s}
                       phx-debounce="500"
-                      class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                      class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                     />
                     <span>s</span>
                   </form>
@@ -2205,18 +2218,18 @@ defmodule PokexWeb.PanelLive do
                 <button
                   id="use-potion"
                   phx-click="use_potion"
-                  class="mt-2.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[#293238] text-[11px] font-semibold text-[#a4adb4] transition hover:border-[#37d07d]/60 hover:bg-[#14191d] hover:text-white active:scale-[0.99]"
+                  class="mt-2.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-pk-line-strong text-pk-body font-semibold text-pk-text-2 transition hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white active:scale-[0.99]"
                 >
-                  🧪 Usar poção agora
+                  <.icon name="hero-beaker" class="size-3.5" /> Usar poção agora
                 </button>
 
-                <div class="mt-3 border-t border-[#222a2f] pt-2.5">
+                <div class="mt-3 border-t border-pk-line pt-2.5">
                   <div class="flex items-center justify-between">
-                    <h3 class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                    <h3 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                       Cooldowns das skills
                     </h3>
                     <button
-                      class="flex h-6 items-center gap-1 rounded-md border border-[#293238] px-2 font-mono text-[9px] text-[#89939a] transition hover:text-white"
+                      class="flex h-6 items-center gap-1 rounded-md border border-pk-line-strong px-2 font-mono text-pk-meta text-pk-text-2 transition hover:text-white"
                       phx-click="read_cooldowns"
                     >
                       <.icon name="hero-arrow-path" class="size-2.5" /> Ler
@@ -2232,14 +2245,14 @@ defmodule PokexWeb.PanelLive do
                           )
                       }
                       class={[
-                        "grid size-8 place-items-center rounded-md border font-mono text-[11px] font-bold",
+                        "grid size-8 place-items-center rounded-md border font-mono text-pk-body font-bold",
                         if(state == :ready,
-                          do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
-                          else: "border-[#313a40] bg-[#171c20] text-[#626c74]"
+                          do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                          else: "border-pk-line-strong bg-pk-raised text-pk-text-3"
                         )
                       ]}
                     >{key}</span>
-                    <span :if={is_nil(@cooldowns_states)} class="py-1.5 text-[10px] text-[#69737b]">
+                    <span :if={is_nil(@cooldowns_states)} class="py-1.5 text-pk-meta text-pk-text-3">
                       Clique em Ler para verificar a barra calibrada.
                     </span>
                   </div>
@@ -2251,15 +2264,15 @@ defmodule PokexWeb.PanelLive do
           <div class="min-w-0 space-y-3">
             <section
               id="world-card"
-              class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+              class="rounded-lg border border-pk-line bg-pk-surface p-3"
             >
               <div class="flex items-baseline justify-between">
-                <p class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                <p class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                   o que a IA vê
                 </p>
                 <.link
                   navigate={~p"/world"}
-                  class="font-mono text-[9px] text-[#68727a] hover:text-[#9aa3aa]"
+                  class="font-mono text-pk-meta text-pk-text-3 hover:text-pk-text-2"
                 >
                   detalhes →
                 </.link>
@@ -2267,24 +2280,24 @@ defmodule PokexWeb.PanelLive do
 
               <p
                 :if={not @world.layout?}
-                class="mt-1 font-mono text-[9px] text-[#ff9ca4]"
+                class="mt-1 font-mono text-pk-meta text-pk-danger"
               >
                 HUD não localizado — nada está sendo lido
               </p>
 
               <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
                 <div>
-                  <p class="font-mono text-[9px] uppercase text-[#69737b]">Pokémon ativo</p>
-                  <p class="font-mono text-sm text-[#d9dde1]">
+                  <p class="font-mono text-pk-meta uppercase text-pk-text-3">Pokémon ativo</p>
+                  <p class="font-mono text-pk-title text-pk-text">
                     {world_hp(@world.me.pokemon_hp)}
                     <span
                       :if={Pokex.World.pokemon_hp_pct(@world)}
-                      class="text-[11px] text-[#8b949d]"
+                      class="text-pk-body text-pk-text-2"
                     >
                       {world_pct(Pokex.World.pokemon_hp_pct(@world))}
                     </span>
                   </p>
-                  <div class="mt-1 h-1 overflow-hidden rounded-full bg-[#222a2f]">
+                  <div class="mt-1 h-1 overflow-hidden rounded-full bg-pk-line">
                     <div
                       class={[
                         "h-full rounded-full transition-[width]",
@@ -2296,42 +2309,42 @@ defmodule PokexWeb.PanelLive do
                 </div>
 
                 <div>
-                  <p class="font-mono text-[9px] uppercase text-[#69737b]">Level · pesca</p>
-                  <p class="font-mono text-sm text-[#d9dde1]">
+                  <p class="font-mono text-pk-meta uppercase text-pk-text-3">Level · pesca</p>
+                  <p class="font-mono text-pk-title text-pk-text">
                     {world_num(@world.me.level)} · {world_num(@world.me.fishing)}
                   </p>
-                  <p class="mt-1 font-mono text-[9px] text-[#737d85]">
+                  <p class="mt-1 font-mono text-pk-meta text-pk-text-3">
                     comida {world_num(@world.me.food)}
                   </p>
                 </div>
 
                 <div>
-                  <p class="font-mono text-[9px] uppercase text-[#69737b]">Posição</p>
-                  <p class="font-mono text-[11px] text-[#d9dde1]">{world_pos(@world.pos)}</p>
+                  <p class="font-mono text-pk-meta uppercase text-pk-text-3">Posição</p>
+                  <p class="font-mono text-pk-body text-pk-text">{world_pos(@world.pos)}</p>
                 </div>
 
                 <div>
-                  <p class="font-mono text-[9px] uppercase text-[#69737b]">Batalha</p>
+                  <p class="font-mono text-pk-meta uppercase text-pk-text-3">Batalha</p>
                   <p class={[
-                    "font-mono text-[11px]",
-                    if(@world.shiny?, do: "text-[#f2c45b]", else: "text-[#d9dde1]")
+                    "font-mono text-pk-body",
+                    if(@world.shiny?, do: "text-pk-warn", else: "text-pk-text")
                   ]}>
                     {world_enemies(@world)}
                   </p>
                 </div>
               </div>
 
-              <div class="mt-2 border-t border-[#222a2f] pt-2">
-                <p class="font-mono text-[9px] uppercase text-[#69737b]">Estoques</p>
+              <div class="mt-2 border-t border-pk-line pt-2">
+                <p class="font-mono text-pk-meta uppercase text-pk-text-3">Estoques</p>
                 <ul class="mt-1 flex flex-wrap gap-1.5">
                   <li
                     :for={{slot, label, _setting} <- Pokex.Bots.StockAlerts.slots()}
                     id={"stock-badge-#{slot}"}
                     class={[
-                      "rounded border px-2 py-0.5 font-mono text-[10px]",
+                      "rounded border px-2 py-0.5 font-mono text-pk-meta",
                       if(@stocks[slot] && @stocks[slot].low?,
-                        do: "border-[#5f292f] bg-[#241114] text-[#ff9ca4]",
-                        else: "border-[#293238] text-[#8b949d]"
+                        do: "border-pk-danger-line bg-pk-danger-dim text-pk-danger",
+                        else: "border-pk-line-strong text-pk-text-2"
                       )
                     ]}
                   >
@@ -2340,13 +2353,13 @@ defmodule PokexWeb.PanelLive do
                 </ul>
               </div>
 
-              <div :if={@world.team != []} class="mt-2 border-t border-[#222a2f] pt-2">
-                <p class="font-mono text-[9px] uppercase text-[#69737b]">Time</p>
+              <div :if={@world.team != []} class="mt-2 border-t border-pk-line pt-2">
+                <p class="font-mono text-pk-meta uppercase text-pk-text-3">Time</p>
                 <ul class="mt-1 flex flex-wrap gap-1.5">
                   <li
                     :for={row <- @world.team}
                     class={[
-                      "rounded border px-2 py-0.5 font-mono text-[10px]",
+                      "rounded border px-2 py-0.5 font-mono text-pk-meta",
                       team_chip_class(row.hp_pct)
                     ]}
                   >
@@ -2363,11 +2376,11 @@ defmodule PokexWeb.PanelLive do
               team={team_names(@world)}
             />
 
-            <section id="shiny-guard-card" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+            <section id="shiny-guard-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <div class="flex min-h-10 items-center gap-3">
                 <div class="min-w-0 flex-1">
-                  <p class="text-sm font-semibold text-[#d9dde1]">Guarda anti-shiny ✨</p>
-                  <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
+                  <p class="text-pk-title font-semibold text-pk-text">Guarda anti-shiny ✨</p>
+                  <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">
                     vê a ESTRELA dourada que a lista de batalha põe no shiny — vale pra
                     QUALQUER shiny, e a bola sempre voa (mesmo com captura desligada)
                   </p>
@@ -2384,13 +2397,13 @@ defmodule PokexWeb.PanelLive do
                 <form
                   id="shiny-cfg-form"
                   phx-change="save_shiny_cfg"
-                  class="flex items-center gap-1 font-mono text-[9px] text-[#737d85]"
+                  class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
                 >
                   <span>ao ver →</span>
                   <select
                     id="shiny-action"
                     name="shiny_action"
-                    class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                    class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                   >
                     <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
                     <option value="alarme" selected={@shiny_action == "alarme"}>
@@ -2401,20 +2414,20 @@ defmodule PokexWeb.PanelLive do
 
                 <div class="flex min-w-[9rem] flex-1 items-center gap-2">
                   <span class={[
-                    "font-mono text-sm font-bold tabular-nums",
+                    "font-mono text-pk-title font-bold tabular-nums",
                     shiny_px_class(@shiny_star_run, @shiny_star_min_columns)
                   ]}>
-                    {shiny_px_label(@shiny_star_run)}<span class="text-[9px] font-normal text-[#737d85]">/{@shiny_star_min_columns} col</span>
+                    {shiny_px_label(@shiny_star_run)}<span class="text-pk-meta font-normal text-pk-text-3">/{@shiny_star_min_columns} col</span>
                   </span>
-                  <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#222a2f]">
+                  <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-pk-line">
                     <div
                       class={[
                         "h-full rounded-full transition-[width]",
                         case shiny_zone(@shiny_star_run, @shiny_star_min_columns) do
-                          :hit -> "bg-[#ff6b74]"
-                          :warn -> "bg-[#f2c45b]"
-                          :safe -> "bg-[#37d07d]"
-                          :none -> "bg-[#3a4249]"
+                          :hit -> "bg-pk-danger"
+                          :warn -> "bg-pk-warn"
+                          :safe -> "bg-pk-ok"
+                          :none -> "bg-pk-line-strong"
                         end
                       ]}
                       style={"width: #{shiny_bar_pct(@shiny_star_run, @shiny_star_min_columns)}%"}
@@ -2427,25 +2440,25 @@ defmodule PokexWeb.PanelLive do
                   type="button"
                   phx-click="shiny_probe"
                   title="lê a lista de batalha AGORA e mostra a pontuação da estrela por linha — sem shiny na lista tudo deve ler 0px"
-                  class="btn btn-xs h-6 shrink-0 border border-[#293238] bg-transparent px-2 text-[10px] text-[#89939a] hover:text-white"
+                  class="btn btn-xs h-6 shrink-0 border border-pk-line-strong bg-transparent px-2 text-pk-meta text-pk-text-2 hover:text-white"
                 >
                   🔬 Sonda
                 </button>
               </div>
 
-              <p :if={@shiny_msg} id="shiny-msg" class="mt-1 font-mono text-[9px] text-[#e7ca82]">
+              <p :if={@shiny_msg} id="shiny-msg" class="mt-1 font-mono text-pk-meta text-pk-warn">
                 {@shiny_msg}
               </p>
 
               <div :if={@shiny_log != []} id="shiny-log" class="mt-2">
                 <div class="flex items-center justify-between">
-                  <p class="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-[#c9a227]">
+                  <p class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-[#c9a227]">
                     ✨ shinies encontrados ({length(@shiny_log)})
                   </p>
                   <button
                     phx-click="shiny_log_clear"
                     data-confirm="Apagar o registro de shinies encontrados?"
-                    class="cursor-pointer font-mono text-[9px] text-[#68727a] hover:text-[#ff9ca4]"
+                    class="cursor-pointer font-mono text-pk-meta text-pk-text-3 hover:text-pk-danger"
                   >
                     limpar
                   </button>
@@ -2453,22 +2466,22 @@ defmodule PokexWeb.PanelLive do
                 <ul class="mt-1 space-y-0.5">
                   <li
                     :for={entry <- Enum.take(@shiny_log, 5)}
-                    class="flex items-center gap-2 rounded border border-[#3a3320] bg-[#181509] px-2 py-1 font-mono text-[9px]"
+                    class="flex items-center gap-2 rounded border border-[#3a3320] bg-[#181509] px-2 py-1 font-mono text-pk-meta"
                   >
                     <span class="text-[#c9a227]">✨</span>
                     <span class="text-[#a8b0b7]">{shiny_log_when(entry)}</span>
                     <span class={[
                       "rounded px-1",
                       case entry.outcome do
-                        "morto" -> "bg-[#241114] text-[#ff9ca4]"
+                        "morto" -> "bg-pk-danger-dim text-pk-danger"
                         "bola" -> "bg-[#101d24] text-[#7cc0e8]"
-                        "fugiu" -> "bg-[#211b0d] text-[#f3ba4e]"
-                        _visto -> "bg-[#14191d] text-[#8b949d]"
+                        "fugiu" -> "bg-pk-warn-dim text-pk-warn"
+                        _visto -> "bg-pk-raised text-pk-text-2"
                       end
                     ]}>
                       {entry.outcome}
                     </span>
-                    <span class="text-[#5d6670]">{entry.star_px}px · {entry.action}</span>
+                    <span class="text-pk-text-3">{entry.star_px}px · {entry.action}</span>
                   </li>
                 </ul>
               </div>
@@ -2476,14 +2489,14 @@ defmodule PokexWeb.PanelLive do
 
             <section>
               <div class="mb-2 flex items-center justify-between px-0.5">
-                <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                   Sessão<span
                     :if={session_duration(@session_started_at, @now_ms)}
                     id="session-duration"
-                    class="text-[#9aa3aa]"
+                    class="text-pk-text-2"
                   > · {session_duration(@session_started_at, @now_ms)}</span>
                 </h2>
-                <span class="flex items-center gap-2 font-mono text-[9px] text-[#758089]">
+                <span class="flex items-center gap-2 font-mono text-pk-meta text-pk-text-3">
                   <span :if={@session_started_at} id="session-rates">
                     {session_rate(
                       Map.get(merged_counters(@fishing, @combat, @catcher), :fights, 0),
@@ -2507,8 +2520,8 @@ defmodule PokexWeb.PanelLive do
                     class={[
                       "cursor-pointer",
                       if(@alarm_sound,
-                        do: "text-[#7d8790] hover:text-[#e8ecef]",
-                        else: "text-[#f3ba4e] hover:text-[#ffd27a]"
+                        do: "text-pk-text-3 hover:text-pk-text",
+                        else: "text-pk-warn hover:text-pk-warn"
                       )
                     ]}
                   >
@@ -2523,12 +2536,12 @@ defmodule PokexWeb.PanelLive do
                 <div
                   :for={{label, key, _icon} <- counters()}
                   id={"counter-#{key}"}
-                  class="rounded-lg border border-[#232b30] bg-[#111519] px-1 py-2 text-center"
+                  class="rounded-lg border border-pk-line bg-pk-surface px-1 py-2 text-center"
                 >
-                  <div class="text-base font-bold tabular-nums leading-tight text-[#dce1e4]">
+                  <div class="text-pk-title font-bold tabular-nums leading-tight text-pk-text">
                     {Map.get(merged_counters(@fishing, @combat, @catcher), key, 0)}
                   </div>
-                  <div class="mt-0.5 truncate font-mono text-[8px] uppercase tracking-[0.08em] text-[#758089]">
+                  <div class="mt-0.5 truncate font-mono text-pk-meta uppercase tracking-[0.08em] text-pk-text-3">
                     {label}
                   </div>
                 </div>
@@ -2537,7 +2550,7 @@ defmodule PokexWeb.PanelLive do
                 id="stop-conditions-form"
                 phx-change="save_stop_conditions"
                 title="Condições de parada: ao bater o limite, TUDO para (como o Stop) e o alarme toca; nada religa até você apertar Iniciar. 0 = nunca."
-                class="mt-1.5 flex items-center gap-1 px-0.5 font-mono text-[9px] text-[#737d85]"
+                class="mt-1.5 flex items-center gap-1 px-0.5 font-mono text-pk-meta text-pk-text-3"
               >
                 <span>🛑 parar após</span>
                 <input
@@ -2548,7 +2561,7 @@ defmodule PokexWeb.PanelLive do
                   max="999"
                   value={@stop_after_minutes}
                   phx-debounce="500"
-                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>min ·</span>
                 <input
@@ -2559,7 +2572,7 @@ defmodule PokexWeb.PanelLive do
                   max="9999"
                   value={@stop_after_kills}
                   phx-debounce="500"
-                  class="h-6 w-14 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>kills (0 = nunca)</span>
               </form>
@@ -2567,7 +2580,7 @@ defmodule PokexWeb.PanelLive do
                 id="stagnation-form"
                 phx-change="save_stagnation"
                 title="Anti-estagnação: sessão rodando mas sem NENHUM kill nem fisgada pela janela toda = bot travado (água vazia, detector preso). Alarme re-toca a cada janela de silêncio; Parar usa a mesma trava do Stop. 0 = desligado."
-                class="mt-1 flex items-center gap-1 px-0.5 font-mono text-[9px] text-[#737d85]"
+                class="mt-1 flex items-center gap-1 px-0.5 font-mono text-pk-meta text-pk-text-3"
               >
                 <span>😴 sem atividade por</span>
                 <input
@@ -2578,13 +2591,13 @@ defmodule PokexWeb.PanelLive do
                   max="999"
                   value={@stagnation_minutes}
                   phx-debounce="500"
-                  class="h-6 w-12 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>min →</span>
                 <select
                   id="stagnation-action"
                   name="stagnation_action"
-                  class="h-6 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 >
                   <option value="alarme" selected={@stagnation_action == "alarme"}>alarme</option>
                   <option value="parar" selected={@stagnation_action == "parar"}>parar tudo</option>
@@ -2592,47 +2605,47 @@ defmodule PokexWeb.PanelLive do
               </form>
             </section>
 
-            <section class="overflow-hidden rounded-lg border border-[#232b30] bg-[#111519]">
-              <div class="flex h-10 items-center justify-between border-b border-[#222a2f] px-3">
-                <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#9099a1]">
+            <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-surface">
+              <div class="flex h-10 items-center justify-between border-b border-pk-line px-3">
+                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-[#9099a1]">
                   O que ele está fazendo
                 </h2>
-                <label class="flex cursor-pointer items-center gap-2 font-mono text-[10px] text-[#79838b]"><input
+                <label class="flex cursor-pointer items-center gap-2 font-mono text-pk-meta text-pk-text-3"><input
                   type="checkbox"
                   class="toggle toggle-success toggle-xs"
                   checked={@show_debug}
                   phx-click="toggle_debug"
                 /> debug</label>
               </div>
-              <div class="flex items-center gap-1 border-b border-[#222a2f] px-3 py-1.5">
+              <div class="flex items-center gap-1 border-b border-pk-line px-3 py-1.5">
                 <button
                   :for={source <- feed_sources()}
                   phx-click="filter_feed"
                   phx-value-source={source}
                   class={[
-                    "rounded-md px-1.5 py-0.5 text-[11px] transition",
+                    "rounded-md px-1.5 py-0.5 text-pk-body transition",
                     if(@feed_filter == source,
-                      do: "bg-[#17231c] ring-1 ring-[#37d07d]",
+                      do: "bg-pk-ok-dim ring-1 ring-pk-ok",
                       else: "opacity-50 hover:opacity-100"
                     )
                   ]}
                 >
                   {source}
                 </button>
-                <span :if={@feed_filter} class="ml-1 font-mono text-[9px] text-[#79838b]">
+                <span :if={@feed_filter} class="ml-1 font-mono text-pk-meta text-pk-text-3">
                   só {@feed_filter} — clique de novo pra limpar
                 </span>
               </div>
               <p
                 :if={@export_msg}
-                class="border-b border-[#222a2f] px-3 py-1.5 text-[10px] text-[#37d07d]"
+                class="border-b border-pk-line px-3 py-1.5 text-pk-meta text-pk-ok"
               >
                 {@export_msg}
                 <a :if={@export_src} href={@export_src} download class="underline">baixar</a>
               </p>
               <div
                 id="activity-feed"
-                class="h-64 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed text-[#9aa3aa] xl:h-[30rem]"
+                class="h-64 overflow-y-auto p-3 font-mono text-pk-meta leading-relaxed text-pk-text-2 xl:h-[30rem]"
               >
                 <p
                   :if={visible_logs(@logs, @show_debug, @feed_filter) == []}
@@ -2647,12 +2660,12 @@ defmodule PokexWeb.PanelLive do
                   <span class="shrink-0 text-[#59636b]">{entry.at}</span><span>{entry.source}</span><span>{entry.text}</span>
                 </p>
               </div>
-              <div class="grid grid-cols-2 border-t border-[#222a2f]">
+              <div class="grid grid-cols-2 border-t border-pk-line">
                 <button
-                  class="h-9 border-r border-[#222a2f] text-[11px] text-[#858f97] hover:bg-[#171c20] hover:text-white"
+                  class="h-9 border-r border-pk-line text-pk-body text-[#858f97] hover:bg-pk-raised hover:text-white"
                   phx-click="export_events"
                 >Exportar</button><button
-                  class="h-9 text-[11px] text-[#858f97] hover:bg-[#171c20] hover:text-white"
+                  class="h-9 text-pk-body text-[#858f97] hover:bg-pk-raised hover:text-white"
                   phx-click="clear_logs"
                 >Limpar</button>
               </div>
@@ -2660,45 +2673,45 @@ defmodule PokexWeb.PanelLive do
 
             <details
               id="advanced-panel"
-              class="group overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]"
+              class="group overflow-hidden rounded-lg border border-pk-line bg-pk-sunken"
             >
-              <summary class="flex h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-semibold [&::-webkit-details-marker]:hidden">
+              <summary class="flex h-11 cursor-pointer list-none items-center justify-between px-3 text-pk-body font-semibold [&::-webkit-details-marker]:hidden">
                 <span class="flex items-center gap-2"><.icon
                   name="hero-wrench-screwdriver"
-                  class="size-3.5 text-[#758089]"
+                  class="size-3.5 text-pk-text-3"
                 /> Avançado &amp; calibragem</span><.icon
                   name="hero-chevron-down"
-                  class="size-3.5 text-[#68727a] transition group-open:rotate-180"
+                  class="size-3.5 text-pk-text-3 transition group-open:rotate-180"
                 />
               </summary>
-              <div class="space-y-5 border-t border-[#232b30] p-3">
+              <div class="space-y-5 border-t border-pk-line p-3">
                 <section>
                   <div class="flex items-center justify-between">
-                    <h3 class="text-xs font-semibold">Captura de tela</h3><button
-                      class="flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
+                    <h3 class="text-pk-body font-semibold">Captura de tela</h3><button
+                      class="flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 font-mono text-pk-meta text-pk-text-2 hover:text-white"
                       phx-click="read_capture_stats"
                     ><.icon name="hero-arrow-path" class="size-3" /> Medir</button>
                   </div>
-                  <div :if={@capture_info} class="mt-2 space-y-1 font-mono text-[10px]">
-                    <p class="text-[#9aa3aa]">
+                  <div :if={@capture_info} class="mt-2 space-y-1 font-mono text-pk-meta">
+                    <p class="text-pk-text-2">
                       backend:
                       <span class={
                         if @capture_info.backend.backend == :screen_capture_kit,
-                          do: "text-[#3de083]",
+                          do: "text-pk-ok",
                           else: "text-[#e0b43d]"
                       }>
                         {if @capture_info.backend.backend == :screen_capture_kit,
                           do: "ScreenCaptureKit (rápido)",
                           else: "screencapture CLI (lento — fallback)"}
                       </span>
-                      <span :if={@capture_info.backend.recovering?} class="text-[#79838b]">
+                      <span :if={@capture_info.backend.recovering?} class="text-pk-text-3">
                         · tentando recuperar o SCK…
                       </span>
                     </p>
-                    <p :if={@capture_info.stats == []} class="text-[#69737b]">
+                    <p :if={@capture_info.stats == []} class="text-pk-text-3">
                       sem capturas na última janela — ligue um bot e clique Medir de novo
                     </p>
-                    <p :for={{key, stat} <- @capture_info.stats} class="text-[#79838b]">
+                    <p :for={{key, stat} <- @capture_info.stats} class="text-pk-text-3">
                       {String.replace_prefix(key, "capture.backend.", "")} · n={stat.count}
                       <span :if={stat.total > 0}>
                         avg={Float.round(stat.total / stat.count, 1)}ms max={stat.max}ms
@@ -2707,35 +2720,35 @@ defmodule PokexWeb.PanelLive do
                   </div>
                 </section>
 
-                <section class="grid gap-4 border-t border-[#232b30] pt-4">
+                <section class="grid gap-4 border-t border-pk-line pt-4">
                   <div>
-                    <h3 class="text-xs font-semibold">Sensibilidade do brilho</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                    <h3 class="text-pk-body font-semibold">Sensibilidade do brilho</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
                       Valor sugerido pela calibração.
                     </p><form id="threshold-form" phx-submit="save_threshold" class="mt-2 flex gap-2">
                       <input
                         name="threshold"
                         value={@threshold}
                         placeholder="sugerido"
-                        class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
-                      /><button class="btn btn-outline h-10 border-[#303940] px-4 text-xs">Salvar</button>
+                        class="input input-bordered h-10 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
+                      /><button class="btn btn-outline h-10 border-[#303940] px-4 text-pk-body">Salvar</button>
                     </form>
                   </div>
                   <div>
-                    <h3 class="text-xs font-semibold">Ordem das skills</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                    <h3 class="text-pk-body font-semibold">Ordem das skills</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
                       Prioridade de ataque, as mais fortes primeiro.
                     </p><form id="skills-form" phx-submit="save_skills" class="mt-2 flex gap-2">
                       <input
                         name="skills"
                         value={@skill_order}
                         placeholder="1 2 3"
-                        class="input input-bordered h-10 min-w-0 flex-1 bg-[#090d0f] font-mono text-sm"
-                      /><button class="btn btn-outline h-10 border-[#303940] px-4 text-xs">Salvar</button>
+                        class="input input-bordered h-10 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
+                      /><button class="btn btn-outline h-10 border-[#303940] px-4 text-pk-body">Salvar</button>
                     </form>
                   </div>
                 </section>
 
-                <section class="border-t border-[#232b30] pt-4">
-                  <h3 class="text-xs font-semibold">Timing do combate</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                <section class="border-t border-pk-line pt-4">
+                  <h3 class="text-pk-body font-semibold">Timing do combate</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
                     Ajuste fino da velocidade de busca e de morte.
                   </p>
                   <form
@@ -2745,20 +2758,20 @@ defmodule PokexWeb.PanelLive do
                   >
                     <label
                       :for={{key, label, _hint} <- timing_fields()}
-                      class="block font-mono text-[9px] text-[#7d8790]"
+                      class="block font-mono text-pk-meta text-pk-text-3"
                     ><span>{label}</span><input
                       type="number"
                       min={if(positive_timing_key?(key), do: "1", else: "0")}
                       name={key}
                       value={@timing[key]}
-                      class="input input-bordered mt-1 h-9 w-full bg-[#090d0f] font-mono text-xs"
+                      class="input input-bordered mt-1 h-9 w-full bg-pk-bg font-mono text-pk-body"
                     /></label>
-                    <button class="col-span-2 mt-1 h-10 rounded-lg bg-[#37d07d] text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar timing</button>
+                    <button class="col-span-2 mt-1 h-10 rounded-lg bg-pk-ok text-pk-body font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar timing</button>
                   </form>
                 </section>
 
-                <section :if={@calibrated?} class="border-t border-[#232b30] pt-4">
-                  <h3 class="text-xs font-semibold">Prints &amp; diagnóstico</h3><p class="mt-0.5 text-[10px] text-[#78828a]">
+                <section :if={@calibrated?} class="border-t border-pk-line pt-4">
+                  <h3 class="text-pk-body font-semibold">Prints &amp; diagnóstico</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
                     Gera um JSON com tudo que o bot enxerga para diagnosticar sem foto.
                   </p>
                   <div class="mt-2 flex flex-wrap gap-2">
@@ -2772,37 +2785,37 @@ defmodule PokexWeb.PanelLive do
                           {"Skills", "skills"}
                         ]
                       }
-                      class="h-8 rounded-lg border border-[#2b353b] px-3 text-[10px] text-[#a3abb1] hover:border-[#37d07d]/60"
+                      class="h-8 rounded-lg border border-[#2b353b] px-3 text-pk-meta text-[#a3abb1] hover:border-pk-ok/60"
                       phx-click="shot"
                       phx-value-region={region}
                     >{label}</button>
                   </div>
                   <button
-                    class="mt-3 h-10 w-full rounded-lg border border-[#30cf75] text-xs font-bold text-[#38dc80] hover:bg-[#102019]"
+                    class="mt-3 h-10 w-full rounded-lg border border-[#30cf75] text-pk-body font-bold text-[#38dc80] hover:bg-pk-ok-dim"
                     phx-click="export_diagnostic"
                   >Exportar diagnóstico (JSON)</button>
                   <figure :if={@capture_src} class="mt-3">
-                    <figcaption class="mb-1 text-[10px] text-[#7d8790]">{@capture_label}</figcaption><img
+                    <figcaption class="mb-1 text-pk-meta text-pk-text-3">{@capture_label}</figcaption><img
                       src={@capture_src}
                       class="max-h-64 rounded-lg border border-[#283138]"
                     />
                   </figure>
                   <p
                     :if={@capture_label && is_nil(@capture_src)}
-                    class="mt-2 text-[10px] text-[#ff929b]"
+                    class="mt-2 text-pk-meta text-[#ff929b]"
                   >
                     {@capture_label}
                   </p>
                   <div
                     :if={@report}
-                    class="mt-3 rounded-lg border border-[#263038] bg-[#090d0f] p-3 text-[10px] text-[#89939a]"
+                    class="mt-3 rounded-lg border border-[#263038] bg-pk-bg p-3 text-pk-meta text-pk-text-2"
                   >
                     <div class="flex justify-between">
-                      <span class="font-semibold text-[#37d07d]">{@report_msg}</span><a
+                      <span class="font-semibold text-pk-ok">{@report_msg}</span><a
                         :if={@report_src}
                         href={@report_src}
                         download
-                        class="text-[#37d07d] underline"
+                        class="text-pk-ok underline"
                       >baixar JSON</a>
                     </div>
                     <% matrix = gi(@report, [:regions, :battle_body, :matrix]) %>
@@ -2822,22 +2835,22 @@ defmodule PokexWeb.PanelLive do
                   </div>
                 </section>
 
-                <nav class="grid grid-cols-3 gap-2 border-t border-[#232b30] pt-4 text-center text-[10px]">
+                <nav class="grid grid-cols-3 gap-2 border-t border-pk-line pt-4 text-center text-pk-meta">
                   <.link
                     navigate={~p"/calibration"}
-                    class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
+                    class="rounded-lg border border-pk-line-strong px-2 py-2 hover:text-pk-ok"
                   >Calibração</.link><.link
                     navigate={~p"/diagnostics"}
-                    class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
+                    class="rounded-lg border border-pk-line-strong px-2 py-2 hover:text-pk-ok"
                   >Diagnóstico</.link><.link
                     navigate={~p"/fishing-lab"}
-                    class="rounded-lg border border-[#293238] px-2 py-2 hover:text-[#37d07d]"
+                    class="rounded-lg border border-pk-line-strong px-2 py-2 hover:text-pk-ok"
                   >Laboratório</.link>
                 </nav>
               </div>
             </details>
 
-            <div class="flex items-start gap-2 rounded-lg border border-[#6b2b32] bg-[#241114] px-3 py-3 text-[10px] leading-relaxed text-[#f0a0a7]">
+            <div class="flex items-start gap-2 rounded-lg border border-[#6b2b32] bg-pk-danger-dim px-3 py-3 text-pk-meta leading-relaxed text-[#f0a0a7]">
               <.icon name="hero-hand-raised" class="mt-0.5 size-4 shrink-0 text-[#ffbf51]" /><p>
                 <strong>Botão de pânico:</strong>
                 jogue o mouse no canto superior-esquerdo e o bot para na hora.

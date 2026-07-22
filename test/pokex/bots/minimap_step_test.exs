@@ -54,7 +54,16 @@ defmodule Pokex.Bots.MinimapStepTest do
     assert Enum.any?(Pokex.Rig.Fake.calls(), &match?({:click, :left, ^point}, &1))
   end
 
-  test "with no layout it refuses instead of clicking somewhere plausible" do
+  # A test that asserts an ABSENCE has to create that absence. `layout: nil` does
+  # not disable the fallback — Body falls through to Layout.current(), which reads
+  # the global fact and then the persisted file. So this passed only while no
+  # other test happened to leave a layout behind, and broke the day one did.
+  @tag :tmp_dir
+  test "with no layout it refuses instead of clicking somewhere plausible", %{tmp_dir: tmp} do
+    Pokex.Perception.WorldState.forget(:layout)
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
     assert Body.minimap_step(1, 1, layout: nil) == {:error, :no_layout}
   end
 end

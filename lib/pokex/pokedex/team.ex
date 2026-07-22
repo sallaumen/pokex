@@ -96,52 +96,22 @@ defmodule Pokex.Pokedex.Team do
     end
   end
 
-  @doc """
-  Assigns the in-game hotkey slot (C+2..C+6) a member answers to.
-
-  A slot holds ONE pokémon, so giving it to somebody takes it from whoever had
-  it — otherwise a combo would swap to a slot the game has since reassigned and
-  send out the wrong creature mid-fight. `nil` clears.
-  """
-  def set_slot(name, slot) when slot in @slots or is_nil(slot) do
-    persist(
-      update_entries(read(), fn entry ->
-        cond do
-          entry.name == name -> Map.put(entry, :slot, slot)
-          slot != nil and Map.get(entry, :slot) == slot -> Map.put(entry, :slot, nil)
-          true -> entry
-        end
-      end)
-    )
-  end
-
-  @doc "Team members by slot: %{2 => member | nil, ... 6 => member | nil}."
-  def by_slot do
-    assigned = Map.new(members(), fn m -> {Map.get(m, :slot), m} end)
-    Map.new(@slots, fn slot -> {slot, Map.get(assigned, slot)} end)
-  end
-
-  @doc "The slot a member sits in, or nil."
-  def slot_of(name) do
-    case Enum.find(members() ++ bank(), &(&1.name == name)) do
-      nil -> nil
-      entry -> Map.get(entry, :slot)
-    end
-  end
-
   @doc ~S'The key that swaps a slot in: C+2 on screen is "ctrl+2" to the Rig.'
   def swap_key(slot) when slot in @slots, do: "ctrl+#{slot}"
 
   @doc """
-  Which slot best answers `enemy_name`: the member whose elements hit its
-  weaknesses hardest, minus what it resists. nil when nobody in a slot has an
-  advantage — a combo that cannot pick a counter must not run.
+  Which slot best answers `enemy_name`, given the team as it is RIGHT NOW.
+
+  `live_rows` comes from the `:team` feed — `[%{slot, name}]` — because the
+  C+N order changes as Lucas plays and a configured slot would send out
+  whoever happens to be sitting there now. nil when nobody on screen has an
+  advantage: a combo that cannot pick a counter must not run.
   """
-  def best_counter(enemy_name) do
+  def best_counter(enemy_name, live_rows) do
     with %{} = enemy <- Pokedex.get(enemy_name) do
-      by_slot()
-      |> Enum.reject(fn {_slot, member} -> is_nil(member) end)
-      |> Enum.map(fn {slot, member} -> {slot, advantage(member.name, enemy)} end)
+      live_rows
+      |> Enum.filter(&(is_map(&1) and is_binary(Map.get(&1, :name))))
+      |> Enum.map(fn row -> {row.slot, advantage(row.name, enemy)} end)
       |> Enum.filter(fn {_slot, score} -> score > 0 end)
       |> Enum.max_by(fn {_slot, score} -> score end, fn -> nil end)
       |> case do
@@ -164,10 +134,6 @@ defmodule Pokex.Pokedex.Team do
         resisted = Enum.count(member.elements, &(&1 in enemy.resists))
         2 * hits - 2 * resisted
     end
-  end
-
-  defp update_entries(data, fun) do
-    %{data | members: Enum.map(data.members, fun), bank: Enum.map(data.bank, fun)}
   end
 
   @doc "Sets an entry's level wherever it lives (nil clears). No-op if absent."

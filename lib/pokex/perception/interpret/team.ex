@@ -14,7 +14,8 @@ defmodule Pokex.Perception.Interpret.Team do
   """
 
   alias Pokex.Layout
-  alias Pokex.Vision.Frame
+  alias Pokex.Pokedex.TeamIcons
+  alias Pokex.Vision.{Frame, Icons}
 
   # measured on the real capture: rows are 67px apart, the track is 84px wide
   @row_pitch 67
@@ -25,8 +26,11 @@ defmodule Pokex.Perception.Interpret.Team do
     fix = calib && calib.layout
 
     case fix && Layout.region(:team_column, fix) do
-      nil -> empty()
-      {ox, oy, _w, _h} = _column -> %{pokemon_hp: pokemon_hp(frame, fix, ox, oy), rows: rows(frame, fix, ox, oy)}
+      nil ->
+        empty()
+
+      {ox, oy, _w, _h} = _column ->
+        %{pokemon_hp: pokemon_hp(frame, fix, ox, oy), rows: rows(frame, fix, ox, oy)}
     end
   end
 
@@ -62,12 +66,35 @@ defmodule Pokex.Perception.Interpret.Team do
         []
 
       {bx, by, bw, bh} ->
+        learned = TeamIcons.all()
+        portrait = Layout.region(:team_icon_first, fix)
+
         for i <- 0..(@rows - 1)//1 do
           track = {bx - ox, by - oy + i * @row_pitch, bw, bh}
           fill = fill_fraction(frame, track)
 
-          %{slot: @first_slot + i, present?: fill != nil, hp_pct: fill}
+          %{
+            slot: @first_slot + i,
+            present?: fill != nil,
+            hp_pct: fill,
+            name: identify(frame, portrait, i, ox, oy, learned)
+          }
         end
+    end
+  end
+
+  # WHO is in this row. The slot order changes as Lucas plays, so this is read
+  # every tick rather than configured — see Vision.Icons for why the portraits
+  # are learned from his own screen instead of matched against wiki art.
+  defp identify(_frame, nil, _row, _ox, _oy, _learned), do: nil
+  defp identify(_frame, _portrait, _row, _ox, _oy, learned) when map_size(learned) == 0, do: nil
+
+  defp identify(frame, {px, py, pw, ph}, row, ox, oy, learned) do
+    centre = {px - ox + div(pw, 2), py - oy + div(ph, 2) + row * @row_pitch, div(ph, 2)}
+
+    case Icons.match(Icons.signature(frame, centre), learned) do
+      {name, _score} -> name
+      nil -> nil
     end
   end
 

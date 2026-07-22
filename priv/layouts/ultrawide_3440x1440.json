@@ -179,6 +179,15 @@
         479
       ],
       "note": "FIXED, not anchored: the fishing mini-game bar is drawn inside the game viewport near its right edge, not in a dock panel. Proof: this rect is from Lucas's 2-moni-8skill profile, measured when the battle panel sat at y=287; he later enlarged the minimap and pushed that panel to y=460, and the strip stayed correct. Anchoring it to the battle header would have dragged it 173px down."
+    },
+    "team_icon_first": {
+      "fixed": [
+        28,
+        1110,
+        56,
+        56
+      ],
+      "note": "The first C+N row's circular portrait (measured: discs at x 18..94, 56px tall, repeating every 67px). Its centre is the rect's centre and its radius half the height."
     }
   },
   "battle_rows": {

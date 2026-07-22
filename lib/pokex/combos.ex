@@ -58,44 +58,89 @@ defmodule Pokex.Combos do
   defp triggered?(_combo, _enemy), do: false
 
   @doc """
-  Turns a combo into the exact steps to perform against `enemy_name`.
+  Checks a combo can run, and returns its steps with the DYNAMIC ones still
+  symbolic.
 
-  Returns `{:ok, steps}` where every step is `{:press, key}` or `{:wait, ms}`,
-  or `{:skip, reason}` when something cannot be resolved — an unslotted
-  pokémon, or an enemy nobody on the team answers.
+  This is the subtle part. A swap is not just an action, it is what REORDERS
+  the rows: the pokémon sent out leaves its C+N row and the one coming back
+  drops into another. So resolving the whole sequence against a single reading
+  computes the last key for a layout the first key destroys — and the sing
+  combo waits ~3.4s between them, which is an eternity in that panel.
+
+  Fixed steps (`{:skill, _}`, `{:wait, _}`) resolve now. Swaps stay symbolic
+  and are turned into keys by `key_for/2` at the instant they are pressed,
+  against a fresh reading. Validation still happens up front, so a combo that
+  could never finish is never started.
   """
-  def resolve(%Combo{} = combo, enemy_name) do
-    Enum.reduce_while(combo.steps, {:ok, []}, fn step, {:ok, acc} ->
-      case resolve_step(step, enemy_name) do
-        {:ok, resolved} -> {:cont, {:ok, acc ++ [resolved]}}
-        {:skip, reason} -> {:halt, {:skip, reason}}
+  def plan(%Combo{} = combo, enemy_name, live_rows) do
+    with :ok <- validate(combo, enemy_name, live_rows) do
+      {:ok, Enum.map(combo.steps, &plan_step/1)}
+    end
+  end
+
+  defp plan_step({:swap_member, name}), do: {:swap_member, name}
+  defp plan_step({:swap_counter}), do: {:swap_counter}
+  defp plan_step({:skill, key}), do: {:press, key}
+  defp plan_step({:wait, setting}) when is_atom(setting), do: {:wait, Settings.get(setting)}
+  defp plan_step({:wait, ms}) when is_integer(ms) and ms >= 0, do: {:wait, ms}
+  defp plan_step(unknown), do: {:bad, unknown}
+
+  # Everything that could make the sequence unfinishable, checked BEFORE the
+  # first key: a pokémon nowhere on screen, an enemy nobody answers, a step
+  # nobody understands. Half a combo strands whoever it just sent out.
+  defp validate(%Combo{steps: steps}, enemy_name, live_rows) do
+    Enum.reduce_while(steps, :ok, fn step, :ok ->
+      case check(step, enemy_name, live_rows) do
+        :ok -> {:cont, :ok}
+        {:skip, _reason} = skip -> {:halt, skip}
       end
     end)
   end
 
-  defp resolve_step({:swap_member, name}, _enemy) do
-    case Team.slot_of(name) do
-      nil -> {:skip, {:no_slot, name}}
-      slot -> {:ok, {:press, Team.swap_key(slot)}}
+  defp check({:swap_member, name}, _enemy, live_rows) do
+    if find_slot(live_rows, name), do: :ok, else: {:skip, {:not_on_screen, name}}
+  end
+
+  defp check({:swap_counter}, enemy_name, live_rows) do
+    if Team.best_counter(enemy_name, live_rows), do: :ok, else: {:skip, {:no_counter, enemy_name}}
+  end
+
+  defp check({:skill, _key}, _enemy, _rows), do: :ok
+  defp check({:wait, setting}, _enemy, _rows) when is_atom(setting), do: :ok
+  defp check({:wait, ms}, _enemy, _rows) when is_integer(ms) and ms >= 0, do: :ok
+  defp check(unknown, _enemy, _rows), do: {:skip, {:bad_step, unknown}}
+
+  @doc """
+  The key a step means RIGHT NOW, given the team as it is at this instant.
+
+  Fixed steps pass through. A swap is looked up against `live_rows` — which
+  the runner must re-read after every swap, because that is precisely what
+  moves everyone around.
+  """
+  def key_for({:press, key}, _enemy, _live_rows), do: {:ok, key}
+
+  def key_for({:swap_member, name}, _enemy, live_rows) do
+    case find_slot(live_rows, name) do
+      nil -> {:skip, {:not_on_screen, name}}
+      slot -> {:ok, Team.swap_key(slot)}
     end
   end
 
-  defp resolve_step({:swap_counter}, enemy_name) do
-    case Team.best_counter(enemy_name) do
+  def key_for({:swap_counter}, enemy_name, live_rows) do
+    case Team.best_counter(enemy_name, live_rows) do
       nil -> {:skip, {:no_counter, enemy_name}}
-      slot -> {:ok, {:press, Team.swap_key(slot)}}
+      slot -> {:ok, Team.swap_key(slot)}
     end
   end
 
-  defp resolve_step({:skill, key}, _enemy), do: {:ok, {:press, key}}
+  def key_for(step, _enemy, _live_rows), do: {:skip, {:bad_step, step}}
 
-  defp resolve_step({:wait, setting}, _enemy) when is_atom(setting),
-    do: {:ok, {:wait, Settings.get(setting)}}
-
-  defp resolve_step({:wait, ms}, _enemy) when is_integer(ms) and ms >= 0,
-    do: {:ok, {:wait, ms}}
-
-  defp resolve_step(unknown, _enemy), do: {:skip, {:bad_step, unknown}}
+  defp find_slot(live_rows, name) do
+    case Enum.find(live_rows, &(is_map(&1) and Map.get(&1, :name) == name)) do
+      nil -> nil
+      row -> row.slot
+    end
+  end
 
   @doc "How long the whole sequence will take, so a caller can budget for it."
   def duration(steps),

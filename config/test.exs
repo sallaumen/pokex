@@ -59,6 +59,8 @@ config :pokex, :shiny_guard_active, false
 config :pokex, :layout_sentinel_active, false
 # stock alerts attach the :hud feed (a real capture) — never in tests
 config :pokex, :stock_alerts_active, false
+# the combo runner presses keys through the Body — never in tests
+config :pokex, :combos_active, false
 # The app-wide Guardian must NOT act on session rules (stop conditions / anti-stagnation)
 # during tests: a test planting a global :session fact + limits would wake its REAL
 # stop_all, racing the test's own scoped Guardian (measured flaky). Guardian tests opt

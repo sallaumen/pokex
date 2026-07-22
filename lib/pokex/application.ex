@@ -35,6 +35,7 @@ defmodule Pokex.Application do
       Pokex.Bots.ShinyGuard,
       Pokex.Layout.Sentinel,
       Pokex.Bots.StockAlerts,
+      Pokex.Combos.Runner,
       # Pauses everything when the game window loses focus (and resumes on refocus). After the
       # BotSupervisor so it can halt/resume those workers.
       Pokex.Bots.Focus,

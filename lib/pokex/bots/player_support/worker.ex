@@ -49,6 +49,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       capture_busy_since: nil,
       # last performed actuation as %{text, at} (monotonic ms; nil until the first) — panel-facing
       last_action: nil,
+      # which guard, if any, stopped this tick from acting (nil = nothing was blocked)
+      gate: nil,
       error: nil,
       counters: @default_counters
     }
@@ -280,11 +282,24 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp act(state, calib) do
     if InputGate.allowed?() do
       case Logic.decide(decision_input(state)) do
-        :rescue -> fire_combo(state, calib)
-        :hold -> maybe_potion(state, calib)
+        :rescue -> fire_combo(%{state | gate: nil}, calib)
+        :hold -> maybe_potion(%{state | gate: nil}, calib)
       end
     else
-      state
+      # Everything this worker exists for is blocked here, and until now the ONLY
+      # sign was a small badge in the panel header. "Liguei o revive e não fez
+      # nada" is unanswerable when the closed gate is invisible: name it.
+      %{state | gate: closed_gate()}
+    end
+  end
+
+  # WHICH guard is closed — they mean very different things to the human: one is
+  # "volte pro jogo", the other is "você mesmo mandou parar".
+  defp closed_gate do
+    case InputGate.state() do
+      %{corner_ok: false} -> :panic_corner
+      %{focus_ok: false} -> :unfocused
+      _both_open -> nil
     end
   end
 
@@ -295,9 +310,15 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # in-combat/unknown read — or the potion not being due — resets the streak.
   defp maybe_potion(state, calib) do
     if Logic.potion_wanted?(potion_input(state)) do
-      case in_combat?(calib) do
-        {:ok, false} -> potion_after_clear_window(state)
-        _in_combat_or_unknown -> %{state | battle_clear_since: nil}
+      case interrupt?(state, calib) do
+        {:ok, false} ->
+          potion_after_clear_window(state)
+
+        # The sip is DUE and the read says a heal would be interrupted. Without
+        # this the panel showed nothing while a potion sat blocked (measured
+        # 2026-07-22: HP 32%, potion on, zero sips, hold_reason nil).
+        _interrupted_or_unknown ->
+          %{state | battle_clear_since: nil, gate: :potion_in_combat}
       end
     else
       %{state | battle_clear_since: nil}
@@ -443,30 +464,62 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     }
   end
 
-  # "In combat" for the potion gate is the GAME's notion, not ours: the heal channel is
-  # interrupted the moment anything is fighting you — with or without a lock ring (the ring
-  # only exists after a target is SELECTED, but fished enemies aggress you before any Tab,
-  # and the post-kill gap has no ring either; the old ring-only read drank potions exactly
-  # there). Engaged = lock ring present OR any enemy row in the battle list.
+  # Would a heal be interrupted right now? Only that question matters for the
+  # potion — a sip drunk mid-interrupt is wasted.
   #
-  # The :battle feed already interprets this every ~120ms while combat runs — read the
-  # blackboard first (zero extra capture); fall back to a direct capture+interpret when the
-  # entry is stale/missing (manual play, bots off).
-  defp in_combat?(calib) do
-    case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now()) do
-      {:ok, obs} -> {:ok, engaged?(obs)}
-      _stale_or_missing -> direct_battle_read(calib)
+  # The trigger is DAMAGE, and damage has two readable faces:
+  #   * a lock ring — a selected target, i.e. a fight you are trading blows in;
+  #   * the player's own HP DROPPING since the last read — the direct proof that
+  #     something is hitting you, which is exactly the re-aggro the old rule was
+  #     built for (a fished enemy attacks in the post-kill gap, no ring yet).
+  #
+  # The OLD rule counted "any enemy row in the battle list" as combat. But
+  # hunting means an enemy is listed essentially always, so the potion NEVER
+  # fired while hunting (measured 2026-07-22: enemy listed, not locked, nothing
+  # attacking → zero sips forever). A creature merely on screen is not damage;
+  # the two faces above are. The skill-bar cooldown would be a third face, but
+  # its feed is demand-driven and absent during manual play — the very case this
+  # worker protects — so it is deliberately not used here.
+  #
+  # The :battle feed interprets the ring/list every ~120ms while combat runs —
+  # read the blackboard first (zero extra capture); fall back to a direct
+  # capture+interpret when the entry is stale/missing (manual play, bots off).
+  defp interrupt?(state, calib) do
+    if taking_damage?(state) do
+      {:ok, true}
+    else
+      case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now()) do
+        {:ok, obs} -> {:ok, locked?(obs)}
+        _stale_or_missing -> direct_battle_read(calib)
+      end
     end
   catch
     kind, reason -> {:error, {kind, reason}}
   end
 
+  # A confirmed drop, not a single garbage frame: prev and current are both real
+  # readings (the reader clears both to nil on an unrecognized bar), and any drop
+  # only RESETS the clear window — the fail-safe direction, so a spurious dip
+  # costs one delayed sip, never a missed interrupt.
+  defp taking_damage?(%{hp_pct: hp, prev_hp_pct: prev})
+       when is_integer(hp) and is_integer(prev),
+       do: hp < prev
+
+  defp taking_damage?(_no_pair), do: false
+
   defp direct_battle_read(calib) do
     with {:ok, frame} <- Capture.frame(calib.battle_region, "potion_battle.png") do
-      {:ok, engaged?(Interpret.battle(frame, calib, Settings.all()))}
+      {:ok, locked?(Interpret.battle(frame, calib, Settings.all()))}
     end
   end
 
+  defp locked?(obs), do: obs[:locked?] == true
+
+  # Reposition keeps the BROADER notion — "any enemy nearby" — on purpose: it
+  # sends the Pokémon back to its tile only when things are truly quiet, and a
+  # listed-but-unlocked creature is still a reason not to walk into it. Only the
+  # POTION gate narrowed to lock-ring-or-damage; the two answer different
+  # questions ("would a heal be wasted?" vs "is it safe to walk?").
   defp engaged?(obs), do: obs[:locked?] == true or (obs[:enemies] || []) != []
 
   # Stamp last_potion_at BEFORE dispatch (same rationale as the combo): if the press errors, the
@@ -554,11 +607,28 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       last_action: state.last_action
     }
 
-  # The support worker's "why am I waiting": each armed clear-window clock is a
-  # reason; both waiting at once join in one text. nil = nothing pending. The
-  # capture wait only shows while something is actually due (a bare pending
-  # count with nothing to do isn't a hold).
+  # The support worker's "why am I waiting". A closed GATE comes first — it
+  # blocks everything, so the clock reasons behind it are noise. Then each armed
+  # clear-window clock; both waiting at once join in one text. nil = nothing
+  # pending.
+  #
+  # A silent hold is the worst outcome this worker can produce: it looks exactly
+  # like a broken toggle, and Lucas spent a session unable to tell them apart.
   defp hold_reason(state) do
+    case gate_text(state.gate) do
+      nil -> clock_reason(state)
+      text -> text
+    end
+  end
+
+  defp gate_text(:unfocused), do: "jogo fora de foco — nada é digitado até você voltar pra ele"
+  defp gate_text(:panic_corner), do: "parado pelo canto de pânico"
+  defp gate_text(:potion_in_combat), do: "poção devida, mas a leitura diz que há luta"
+  defp gate_text(_none), do: nil
+
+  # The capture wait only shows while something is actually due (a bare pending
+  # count with nothing to do isn't a hold).
+  defp clock_reason(state) do
     waiting? = state.battle_clear_since != nil or state.reposition_pending?
 
     reasons =

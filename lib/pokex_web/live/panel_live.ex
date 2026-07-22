@@ -133,6 +133,7 @@ defmodule PokexWeb.PanelLive do
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
        presets: Settings.list_presets(),
+       mode_overrides: mode_override_keys(),
        preset_msg: nil
      )}
   end
@@ -177,8 +178,17 @@ defmodule PokexWeb.PanelLive do
       potion_pct: Settings.get(:pokemon_hp_potion_pct),
       reposition_enabled: Settings.get(:reposition_enabled),
       support_waits_capture: Settings.get(:support_waits_capture),
-      presets: Settings.list_presets()
+      presets: Settings.list_presets(),
+      # the bundle keys whose value in force is NOT what the mode promises —
+      # each one gets a "manual" badge instead of silently disagreeing
+      mode_overrides: mode_override_keys()
     )
+  end
+
+  defp mode_override_keys do
+    Settings.get(:player_mode)
+    |> Pokex.Modes.overrides()
+    |> Enum.map(&elem(&1, 0))
   end
 
   # The workers load the calibration at Start; edits after that (a quick fix, an
@@ -495,11 +505,28 @@ defmodule PokexWeb.PanelLive do
   def handle_event("toggle_combat", _params, socket),
     do: toggle_worker(socket, :combat, Combat.Worker)
 
-  def handle_event("set_player_mode", %{"mode" => mode}, socket)
-      when mode in ~w(parado movimento) do
-    Settings.put(:player_mode, mode)
+  # Switching mode REAPPLIES that mode's defaults, discarding any exception made
+  # under the previous one. The button says so; hiding it would leave him with a
+  # bot quietly doing something the mode does not promise.
+  def handle_event("set_player_mode", %{"mode" => mode}, socket) do
+    case Pokex.Modes.apply!(mode) do
+      :ok ->
+        Catcher.Worker.mode_changed()
+
+        {:noreply,
+         socket
+         |> assign(player_mode: mode)
+         |> refresh_setting_assigns()}
+
+      {:error, :unknown_mode} ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("restore_mode_defaults", _params, socket) do
+    :ok = Pokex.Modes.apply!(socket.assigns.player_mode)
     Catcher.Worker.mode_changed()
-    {:noreply, assign(socket, player_mode: mode)}
+    {:noreply, refresh_setting_assigns(socket)}
   end
 
   def handle_event("toggle_loot_enabled", _params, socket) do
@@ -508,11 +535,13 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, loot_enabled: value)}
   end
 
+  # capture and reposition are the two keys the MODE has an opinion about, so
+  # flipping them by hand may create an exception — recompute the badges.
   def handle_event("toggle_capture_enabled", _params, socket) do
     value = not Settings.get(:capture_enabled)
     Settings.put(:capture_enabled, value)
     Catcher.Worker.mode_changed()
-    {:noreply, assign(socket, capture_enabled: value)}
+    {:noreply, assign(socket, capture_enabled: value, mode_overrides: mode_override_keys())}
   end
 
   def handle_event("relearn_ground", _params, socket) do
@@ -658,7 +687,7 @@ defmodule PokexWeb.PanelLive do
     value = not Settings.get(:reposition_enabled)
     Settings.put(:reposition_enabled, value)
     if value, do: arm_support()
-    {:noreply, assign(socket, reposition_enabled: value)}
+    {:noreply, assign(socket, reposition_enabled: value, mode_overrides: mode_override_keys())}
   end
 
   def handle_event("toggle_support_waits_capture", _params, socket) do
@@ -1216,6 +1245,16 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
+  # What "Iniciar" will actually bring up, spelled out under the button — the
+  # answer to "liguei o bot e ele começou a pescar enquanto eu andava".
+  defp mode_worker_labels(mode) do
+    mode
+    |> Pokex.Modes.workers()
+    |> Enum.map(&worker_name/1)
+    |> Enum.join(" · ")
+  end
+
+  defp worker_name(:player_support), do: "suporte"
   defp worker_name(:fishing), do: "pesca"
   defp worker_name(:combat), do: "batalha"
   defp worker_name(:catcher), do: "captura"
@@ -1305,23 +1344,41 @@ defmodule PokexWeb.PanelLive do
   attr :description, :string, required: true
   attr :active, :boolean, required: true
   attr :event, :string, required: true
+  attr :detail, :string, default: nil
+  attr :override, :boolean, default: false
 
   defp automation_row(assigns) do
     ~H"""
     <div
       id={@id}
       class={[
-        "flex min-h-14 items-center gap-3 border-b border-[#222a2f] px-3 py-2.5 last:border-b-0",
+        "flex min-h-12 items-center gap-3 border-b border-[#222a2f] px-3 py-2 last:border-b-0",
         @active && "bg-[#102019]"
       ]}
     >
       <span class={[
-        "h-8 w-0.5 shrink-0 rounded-full",
+        "h-7 w-0.5 shrink-0 rounded-full",
         if(@active, do: "bg-[#37d07d]", else: "bg-transparent")
       ]} />
       <div class="min-w-0 flex-1">
-        <p class="text-sm font-semibold text-[#d9dde1]">{@title}</p>
-        <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">{@description}</p>
+        <p class="flex items-center gap-1.5 text-[13px] font-semibold text-[#d9dde1]">
+          <span class="truncate">{@title}</span>
+          <%!-- YOUR exception to what the mode promises. Without this, the mode and
+                the switch can disagree and only the bot knows which won. --%>
+          <span
+            :if={@override}
+            data-testid="override-badge"
+            class="shrink-0 rounded border border-[#674f20] bg-[#211b0d] px-1 font-mono text-[9px] text-[#f2c45b]"
+            title="Você mudou esta chave: ela não está no padrão do modo."
+          >
+            manual
+          </span>
+        </p>
+        <%!-- one short line; the long explanation lives in the tooltip so it stays
+              a hover away instead of in the way --%>
+        <p class="mt-0.5 truncate text-[11px] leading-tight text-[#7f8992]" title={@detail}>
+          {@description}
+        </p>
       </div>
       <input
         id={"#{@id}-toggle"}
@@ -1335,13 +1392,29 @@ defmodule PokexWeb.PanelLive do
     """
   end
 
+  attr :label, :string, required: true
+  attr :accent, :string, required: true
+  attr :note, :string, default: nil
+
+  defp group_header(assigns) do
+    ~H"""
+    <div class="flex items-center gap-2 border-b border-[#222a2f] bg-[#0c1013] px-3 py-1.5">
+      <span class={["h-3 w-0.5 rounded-full", @accent]} />
+      <span class="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-[#7d8790]">
+        {@label}
+      </span>
+      <span :if={@note} class="ml-auto font-mono text-[9px] text-[#6d7780]">{@note}</span>
+    </div>
+    """
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_page={:panel}>
       <div id="panel-dashboard" class="min-h-dvh bg-[#080b0d] text-[#d9dde1]">
         <header class="sticky top-0 z-30 border-b border-[#1f262b] bg-[#090c0f]/95 backdrop-blur">
-          <div class="mx-auto flex h-12 max-w-[520px] items-center justify-between px-2 xl:max-w-[1080px] 2xl:max-w-[1800px]">
+          <div class="mx-auto flex h-12 max-w-[520px] items-center justify-between px-2 xl:max-w-[1600px]">
             <div class="flex items-center gap-2">
               <.link navigate={~p"/"} class="flex items-center gap-2.5" aria-label="Ir ao painel">
                 <span class="grid size-7 place-items-center rounded-lg bg-[#36cf78] text-sm font-black text-[#06150c]">P</span>
@@ -1430,8 +1503,10 @@ defmodule PokexWeb.PanelLive do
           </div>
         </header>
 
-        <main class="mx-auto max-w-[520px] space-y-3 px-2 py-3 xl:grid xl:max-w-[1080px] xl:grid-cols-2 xl:items-start xl:gap-4 xl:space-y-0 2xl:max-w-[1800px] 2xl:grid-cols-3">
-          <div class="min-w-0 space-y-3 2xl:contents 2xl:space-y-0">
+        <%!-- TWO columns, always: three was tested on his 3440×1440 and read as
+             noise. Left is Comando (what the bot does), right is Percepção e ajustes. --%>
+        <main class="mx-auto max-w-[520px] space-y-3 px-2 py-3 xl:grid xl:max-w-[1600px] xl:grid-cols-2 xl:items-start xl:gap-4 xl:space-y-0">
+          <div class="min-w-0 space-y-3">
             <div class="min-w-0 space-y-3">
               <div
                 :if={not @calibrated?}
@@ -1623,14 +1698,57 @@ defmodule PokexWeb.PanelLive do
                 </ul>
               </div>
 
-              <button
-                :if={not overall_active?(@fishing, @combat)}
-                id="start-bot"
-                class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#39cd76] text-sm font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
-                phx-click="start"
-              >
-                <.icon name="hero-play-solid" class="size-4" /> Iniciar bot
-              </button>
+              <%!-- The MODE is what Iniciar means, so it sits on the button, not buried
+                   in a list of eleven switches. Switching reapplies its defaults. --%>
+              <div id="mode-picker" class="grid grid-cols-2 gap-1.5">
+                <button
+                  :for={
+                    {mode, label, hint, icon} <- [
+                      {"parado", "Parado", "pesca no spot", "hero-map-pin"},
+                      {"movimento", "Movimento", "você anda, ele briga", "hero-arrow-trending-up"}
+                    ]
+                  }
+                  id={"mode-#{mode}"}
+                  phx-click="set_player_mode"
+                  phx-value-mode={mode}
+                  aria-pressed={to_string(@player_mode == mode)}
+                  class={[
+                    "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition",
+                    if(@player_mode == mode,
+                      do: "border-[#237d4d] bg-[#0d3822]",
+                      else: "border-[#293238] hover:border-[#3a464e]"
+                    )
+                  ]}
+                >
+                  <.icon
+                    name={icon}
+                    class={[
+                      "size-4 shrink-0",
+                      if(@player_mode == mode, do: "text-[#3de083]", else: "text-[#68727a]")
+                    ]}
+                  />
+                  <span class="min-w-0">
+                    <span class={[
+                      "block truncate text-[13px] font-semibold",
+                      if(@player_mode == mode, do: "text-[#3de083]", else: "text-[#98a1a8]")
+                    ]}>{label}</span>
+                    <span class="block truncate text-[10px] text-[#6d7780]">{hint}</span>
+                  </span>
+                </button>
+              </div>
+
+              <div :if={not overall_active?(@fishing, @combat)}>
+                <button
+                  id="start-bot"
+                  class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#39cd76] text-sm font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
+                  phx-click="start"
+                >
+                  <.icon name="hero-play-solid" class="size-4" /> Iniciar — modo {@player_mode}
+                </button>
+                <p id="start-plan" class="mt-1 text-center font-mono text-[10px] text-[#6d7780]">
+                  liga {mode_worker_labels(@player_mode)}
+                </p>
+              </div>
               <button
                 :if={overall_active?(@fishing, @combat)}
                 id="stop-bot"
@@ -1662,100 +1780,103 @@ defmodule PokexWeb.PanelLive do
                   )}/6 on</span>
                 </summary>
                 <div class="overflow-hidden rounded-lg border border-[#232b30] bg-[#101418]">
-                  <.automation_row
-                    id="automation-fishing"
-                    title="Pesca automática"
-                    description="Lança e fisga sozinho"
-                    active={active?(@fishing.state)}
-                    event="toggle_fishing"
+                  <.group_header
+                    label="Sempre"
+                    accent="bg-[#6c7780]"
+                    note="vale nos dois modos"
                   />
                   <.automation_row
                     id="automation-combat"
                     title="Luta automática"
-                    description="Ataca inimigos com as skills"
+                    description="ataca com as skills configuradas"
                     active={active?(@combat.state)}
                     event="toggle_combat"
                   />
-                  <div
-                    id="automation-mode"
-                    class="flex min-h-14 items-center gap-3 border-b border-[#222a2f] px-3 py-2.5"
-                  >
-                    <div class="min-w-0 flex-1">
-                      <p class="text-sm font-semibold text-[#d9dde1]">Modo</p>
-                      <p class="mt-0.5 text-[11px] leading-tight text-[#7f8992]">
-                        {if @player_mode == "parado",
-                          do: "parado no spot — loot e captura agem sozinhos",
-                          else: "você saqueia e captura manualmente — em movimento o bot não age"}
-                      </p>
-                    </div>
-                    <div class="flex shrink-0 gap-1">
-                      <button
-                        :for={{mode, label} <- [{"parado", "Parado"}, {"movimento", "Em movimento"}]}
-                        phx-click="set_player_mode"
-                        phx-value-mode={mode}
-                        class={[
-                          "h-8 rounded-lg border px-2.5 text-[11px]",
-                          if(@player_mode == mode,
-                            do: "border-[#237d4d] bg-[#0d3822] text-[#3de083]",
-                            else: "border-[#293238] text-[#89939a] hover:text-white"
-                          )
-                        ]}
-                      >{label}</button>
-                    </div>
-                  </div>
                   <.automation_row
                     id="automation-loot"
                     title="Pegar loot (Espaço)"
-                    description="Espaço após cada kill (o corpo cai do teu lado)"
+                    description="Espaço a cada kill"
+                    detail="O corpo cai no tile ao lado, onde a luta aconteceu — Espaço alcança ele parado ou andando."
                     active={@loot_enabled}
                     event="toggle_loot_enabled"
                   />
                   <.automation_row
-                    id="automation-capture"
-                    title="Capturar (Pokébola)"
-                    description="joga bola nos corpos detectados ao redor"
-                    active={@capture_enabled}
-                    event="toggle_capture_enabled"
-                  />
-                  <button
-                    :if={@player_mode == "parado"}
-                    phx-click="relearn_ground"
-                    class="mx-3 mb-2 flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
-                  >
-                    <.icon name="hero-arrow-path" class="size-3" /> Reaprender chão (mudou de spot)
-                  </button>
-                  <.automation_row
                     id="automation-rescue"
                     title="Revive automático"
-                    description={"Revive quando a vida cai abaixo de #{@rescue_pct}%"}
+                    description={"revive abaixo de #{@rescue_pct}%"}
                     active={@rescue_enabled}
                     event="toggle_rescue"
                   />
                   <.automation_row
                     id="automation-potion"
                     title="Poção automática"
-                    description={"Poção (tecla #{Settings.get(:potion_key)}) abaixo de #{@potion_pct}%, só fora de luta"}
+                    description={"tecla #{Settings.get(:potion_key)} abaixo de #{@potion_pct}%"}
+                    detail="Só fora de luta."
                     active={@potion_enabled}
                     event="toggle_potion"
                   />
                   <.automation_row
-                    id="automation-reposition"
-                    title="Reposicionar após lutas"
-                    description="clique do meio no tile calibrado (Calibração → Posição do Pokémon) 2s depois da luta acabar"
-                    active={@reposition_enabled}
-                    event="toggle_reposition"
-                  />
-                  <.automation_row
                     id="automation-support-waits-capture"
                     title="Suporte espera a captura"
-                    description="ordem pós-luta: loot → bola → suporte — poção e reposição só agem quando os corpos foram resolvidos (teto de 10s pra nunca segurar a cura)"
+                    description="ordem pós-luta: loot → bola → suporte"
+                    detail="Poção e reposição só agem quando os corpos foram resolvidos, com teto de 10s pra nunca segurar a cura."
                     active={@support_waits_capture}
                     event="toggle_support_waits_capture"
                   />
+
+                  <.group_header
+                    label="Só no parado"
+                    accent="bg-[#1D9E75]"
+                    note={
+                      if @mode_overrides == [],
+                        do: "no padrão do modo",
+                        else: "#{length(@mode_overrides)} exceção(ões)"
+                    }
+                  />
+                  <.automation_row
+                    id="automation-fishing"
+                    title="Pesca automática"
+                    description="lança e fisga sozinho"
+                    active={active?(@fishing.state)}
+                    event="toggle_fishing"
+                  />
+                  <.automation_row
+                    id="automation-capture"
+                    title="Capturar (Pokébola)"
+                    description="joga bola nos corpos ao redor"
+                    detail="Mira contra uma baseline do chão aprendida parado — por isso não existe em movimento."
+                    active={@capture_enabled}
+                    override={:capture_enabled in @mode_overrides}
+                    event="toggle_capture_enabled"
+                  />
+                  <.automation_row
+                    id="automation-reposition"
+                    title="Reposicionar após lutas"
+                    description="clique do meio no tile calibrado"
+                    detail="2s depois da luta acabar, volta pro tile de Calibração → Posição do Pokémon. Andando, isso te arrastaria de volta pro spot."
+                    active={@reposition_enabled}
+                    override={:reposition_enabled in @mode_overrides}
+                    event="toggle_reposition"
+                  />
+                  <button
+                    :if={@player_mode == "parado"}
+                    phx-click="relearn_ground"
+                    class="mx-3 my-2 flex h-8 items-center gap-1.5 rounded-lg border border-[#293238] px-3 font-mono text-[10px] text-[#89939a] hover:text-white"
+                  >
+                    <.icon name="hero-arrow-path" class="size-3" /> Reaprender chão (mudou de spot)
+                  </button>
+                  <button
+                    :if={@mode_overrides != []}
+                    id="restore-mode-defaults"
+                    phx-click="restore_mode_defaults"
+                    class="mx-3 my-2 flex h-8 items-center gap-1.5 rounded-lg border border-[#674f20] px-3 font-mono text-[10px] text-[#e7ca82] hover:bg-[#211b0d]"
+                  >
+                    <.icon name="hero-arrow-uturn-left" class="size-3" /> Restaurar padrão do modo
+                  </button>
                   <.automation_row
                     id="automation-require-cooldowns"
                     title="Só pescar quando dá pra matar"
-                    description="segura a fisga até pelo menos UMA das skills abaixo estar pronta"
+                    description="segura a fisga até uma skill estar pronta"
                     active={@require_cooldowns}
                     event="toggle_require_cooldowns"
                   />

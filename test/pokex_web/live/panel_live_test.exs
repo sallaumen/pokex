@@ -541,18 +541,47 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "[data-testid=catcher-pill][data-state=armed]")
   end
 
-  test "the global player mode selector persists and gates the toggles' hints", %{conn: conn} do
-    mode = Pokex.Settings.get(:player_mode)
-    on_exit(fn -> Pokex.Settings.put(:player_mode, mode) end)
+  test "trocar de modo aplica o pacote inteiro e o botão anuncia o que vai ligar", %{conn: conn} do
+    Pokex.SettingsStash.stash_keys!([:player_mode, :capture_enabled, :reposition_enabled])
 
     {:ok, view, _} = live(conn, ~p"/")
 
-    view |> element(~s(button[phx-value-mode="movimento"])) |> render_click()
+    view |> element("#mode-movimento") |> render_click()
     assert Pokex.Settings.get(:player_mode) == "movimento"
-    assert render(view) =~ "você saqueia e captura manualmente"
+    # the bundle rides along: no ball (no ground baseline) and no reposition
+    # (it would drag him back to the fishing tile mid-trip)
+    refute Pokex.Settings.get(:capture_enabled)
+    refute Pokex.Settings.get(:reposition_enabled)
 
-    view |> element(~s(button[phx-value-mode="parado"])) |> render_click()
+    html = render(view)
+    assert html =~ "Iniciar — modo movimento"
+    # and it says which workers, so no more starting the rod while walking
+    assert html =~ "batalha"
+    refute html =~ "liga pesca"
+
+    view |> element("#mode-parado") |> render_click()
+    assert Pokex.Settings.get(:capture_enabled)
     assert render(view) =~ "Reaprender chão"
+  end
+
+  # The escape hatch he asked for: a switch may disagree with the mode, but the
+  # panel must SAY so rather than let the two quietly differ.
+  test "uma exceção manual ao padrão do modo é marcada e restaurável", %{conn: conn} do
+    Pokex.SettingsStash.stash_keys!([:player_mode, :capture_enabled, :reposition_enabled])
+
+    {:ok, view, _} = live(conn, ~p"/")
+    view |> element("#mode-parado") |> render_click()
+    refute has_element?(view, "[data-testid=override-badge]")
+
+    view |> element(~s(#automation-reposition input)) |> render_click()
+
+    assert has_element?(view, "#automation-reposition [data-testid=override-badge]")
+    assert render(view) =~ "1 exceção"
+    refute Pokex.Settings.get(:reposition_enabled)
+
+    view |> element("#restore-mode-defaults") |> render_click()
+    assert Pokex.Settings.get(:reposition_enabled)
+    refute render(view) =~ "restore-mode-defaults"
   end
 
   test "loot and capture toggles persist independently", %{conn: conn} do

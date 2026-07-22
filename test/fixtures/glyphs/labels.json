@@ -309,7 +309,18 @@
       "kind": "int",
       "expected": "457",
       "ink": 200
+    },
+    {
+      "fixture": "ultrawide_3440x1440_outro_mapa",
+      "region": [
+        1367,
+        1402,
+        42,
+        28
+      ],
+      "kind": "int",
+      "expected": "404",
+      "ink": 200
     }
-  ],
-  "_known_gap": "The E slot's count over the potion sprite cannot be segmented cleanly at any single brightness floor: those digits are grey (204) with edges that fall below it, so a '0' breaks into pieces. It therefore reads as unknown -> nil -> the panel shows '?' and NOTHING alarms. That is the safe failure: Lucas's bug report was a rect sized for one digit reading '2' out of 404 and raising a false low-stock alarm."
+  ]
 }

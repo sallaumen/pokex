@@ -87,13 +87,13 @@ defmodule PokexWeb.PokedexLiveTest do
     test "dois elementos ligados = união (planta E veneno), na URL como lista", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex")
 
-      view |> element(~s(#filter-elements button[phx-value-value="Water"])) |> render_click()
+      view |> element(~s(#filter-elements button[phx-value-option="Water"])) |> render_click()
       assert_patch(view)
       results = view |> element("#pokedex-results") |> render()
       assert results =~ "Seadra"
       refute results =~ "Charizard"
 
-      view |> element(~s(#filter-elements button[phx-value-value="Fire"])) |> render_click()
+      view |> element(~s(#filter-elements button[phx-value-option="Fire"])) |> render_click()
       path = assert_patch(view)
       assert path =~ "elements[]=Water"
       assert path =~ "elements[]=Fire"
@@ -107,7 +107,7 @@ defmodule PokexWeb.PokedexLiveTest do
     test "clicar de novo desliga o chip; 'limpar ×' zera o grupo", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"elements" => ["Water"]}}")
 
-      view |> element(~s(#filter-elements button[phx-value-value="Water"])) |> render_click()
+      view |> element(~s(#filter-elements button[phx-value-option="Water"])) |> render_click()
       path = assert_patch(view)
       refute path =~ "elements"
 
@@ -144,6 +144,17 @@ defmodule PokexWeb.PokedexLiveTest do
     end
 
     @tag :tmp_dir
+    test "nenhum chip usa phx-value-value — o LiveView sobrescreve essa chave", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/pokedex")
+
+      # extractMeta lê os phx-value-* e DEPOIS faz meta.value = el.value, que
+      # num <button> é "" — então phx-value-value chega vazio no servidor.
+      # render_click/1 não reproduz isso (lê só os atributos), então o guard
+      # tem que ser no markup: qualquer nome serve, menos "value".
+      refute html =~ "phx-value-value"
+    end
+
+    @tag :tmp_dir
     test "digitar um nome NÃO apaga os chips ligados", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"elements" => ["Water"]}}")
 
@@ -162,7 +173,7 @@ defmodule PokexWeb.PokedexLiveTest do
     assert html =~ "Charizard"
     assert html =~ "4 resultado(s)"
 
-    view |> element(~s(#filter-weak-to button[phx-value-value="Water"])) |> render_click()
+    view |> element(~s(#filter-weak-to button[phx-value-option="Water"])) |> render_click()
 
     html = render(view)
     assert html =~ "1 resultado(s)"
@@ -195,7 +206,7 @@ defmodule PokexWeb.PokedexLiveTest do
   test "filtros vivem na URL: mudar patcheia, link direto restaura, isca inclusa", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex")
 
-    view |> element(~s(#filter-weak-to button[phx-value-value="Water"])) |> render_click()
+    view |> element(~s(#filter-weak-to button[phx-value-option="Water"])) |> render_click()
     assert_patch(view, "/pokedex?weak_to[]=Water")
     assert render(view) =~ "1 resultado(s)"
 
@@ -245,7 +256,7 @@ defmodule PokexWeb.PokedexLiveTest do
     assert view |> element("#pokedex-results li:first-child") |> render() =~ "Charizard"
 
     # e a ordenação sobrevive a um filtro novo (os dois viajam na URL)
-    view |> element(~s(#filter-elements button[phx-value-value="Water"])) |> render_click()
+    view |> element(~s(#filter-elements button[phx-value-option="Water"])) |> render_click()
     path = assert_patch(view)
     assert path =~ "sort=level"
     assert path =~ "elements[]=Water"

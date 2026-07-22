@@ -27,6 +27,49 @@ defmodule Pokex.Bots.Body do
   @spec cursor(GenServer.server()) :: {:ok, {integer, integer}} | {:error, term}
   def cursor(server \\ __MODULE__), do: GenServer.call(server, :cursor)
 
+  @doc """
+  Walks by clicking the minimap: `dx`/`dy` are TILES from where he stands.
+
+  The minimap is the cheapest way to move in this game — the client walks the
+  character there itself, around obstacles, without the bot having to
+  understand the map. Arrival is confirmed by the `:minimap` fact, since PXG
+  prints the position as text.
+
+  The click is clamped inside the map area: a click on the frame does nothing,
+  and a click outside it lands on whatever is behind. Returns `{:error,
+  :no_layout}` rather than guessing when the HUD has not been located.
+  """
+  def minimap_step(dx, dy, opts \\ [])
+
+  def minimap_step(dx, dy, opts) when is_integer(dx) and is_integer(dy) do
+    server = Keyword.get(opts, :server, __MODULE__)
+
+    case Pokex.Layout.region(:minimap_map, Keyword.get(opts, :layout) || Pokex.Layout.current()) do
+      nil ->
+        {:error, :no_layout}
+
+      {x, y, w, h} ->
+        scale = Pokex.Settings.get(:minimap_px_per_tile)
+        point = clamp({x + div(w, 2) + dx * scale, y + div(h, 2) + dy * scale}, {x, y, w, h})
+
+        case perform([{:click, :left, point}], :normal, server) do
+          :ok -> {:ok, point}
+          error -> error
+        end
+    end
+  end
+
+  # A few pixels of margin: the outermost ring of the map area is under the
+  # frame's antialiasing, where a click reads as the frame rather than the map.
+  @minimap_margin 6
+
+  defp clamp({px, py}, {x, y, w, h}) do
+    {
+      px |> max(x + @minimap_margin) |> min(x + w - 1 - @minimap_margin),
+      py |> max(y + @minimap_margin) |> min(y + h - 1 - @minimap_margin)
+    }
+  end
+
   @impl true
   def init(_opts),
     do:

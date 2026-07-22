@@ -197,6 +197,18 @@
         22
       ],
       "note": "The first row's 'C+N' hotkey label, drawn ON TOP of the portrait. Read rather than assumed from the row's position: in captures from earlier the same day the fifth row carried NO label at all, and a row with no hotkey cannot be swapped to."
+    },
+    "minimap_map": {
+      "anchor": "battle_header",
+      "offset": [
+        -18,
+        -457
+      ],
+      "size": [
+        270,
+        454
+      ],
+      "note": "The minimap's MAP area proper (inside its frame), measured: x 3166..3435, y 3..456. The player is always at its centre — cross-checked against the orange marker, which sits at (3301..3304, 229..233) across three captures."
     }
   },
   "battle_rows": {

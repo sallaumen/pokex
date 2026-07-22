@@ -67,8 +67,13 @@ Phase→PR mapping: F1 = Tasks 1–4, F2 = 5–7, F3 = 9–12, F4 = 13, F5 = 14�
 | Leitura robusta | #58, #59, #60 | ✅ merged — campos, vizinho próximo, histerese, ensinar glifos |
 | Estrela por colunas densas | #62 | ✅ merged — Magikarp não é shiny |
 | **Task 8** battle names+HP | #63 | ✅ merged — região derivada, pitch 46, nomes+vida |
-| F5 Team slots + combos | — | ⏳ NEXT |
-| F6 minimap_step | — | ⏳ pending |
+| F5 identidade do time + combos | #66, #67, #68, #69 | ✅ merged — retratos aprendidos, executor par do combate |
+| F6 minimap_step | #70 | ✅ merged — 2px/tile MEDIDO |
+
+**O plano está completo.** O próximo salto é o cavebot, que agora tem tudo de que precisa:
+a posição impressa pelo jogo (`:minimap`), o primitivo de andar (`Body.minimap_step/3`), quem
+está na tela (`enemies_detail`), quem está no time (retratos) e um Body com pânico, foco e
+InputGate no caminho.
 
 ### Deviations from the original plan, and why
 

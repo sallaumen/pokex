@@ -1067,8 +1067,15 @@ defmodule PokexWeb.PanelLive do
     end)
   end
 
-  defp log_class(:macro), do: "text-pk-title-content"
-  defp log_class(_debug), do: "opacity-50"
+  # "text-pk-title-content" esteve aqui: uma substituição em massa de classes
+  # comeu o `text-base-content` do daisyUI e cuspiu um nome que não existe em
+  # lugar nenhum do repositório. As linhas de log macro ficaram sem cor e nenhum
+  # teste percebeu — classe inexistente não quebra, só some.
+  #
+  # E `opacity-50` compunha 1.64:1 com o timestamp: ilegível. Um nível de texto
+  # já apagado não precisa ficar meio transparente por cima.
+  defp log_class(:macro), do: "text-pk-body font-semibold text-pk-text"
+  defp log_class(_debug), do: "text-pk-meta text-pk-text-3"
 
   # A one-shot read of the per-slot skill states (:ready | :cooldown), or nil when the bar
   # isn't calibrated / the capture fails. This is exactly the read SkillBar does for the gate.
@@ -1500,12 +1507,12 @@ defmodule PokexWeb.PanelLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_page={:panel}>
-      <div id="panel-dashboard" class="min-h-dvh bg-[#080b0d] text-pk-text">
-        <header class="sticky top-0 z-30 border-b border-[#1f262b] bg-[#090c0f]/95 backdrop-blur">
+      <div id="panel-dashboard" class="min-h-dvh bg-pk-bg text-pk-text">
+        <header class="sticky top-0 z-30 border-b border-pk-line bg-pk-surface/95 backdrop-blur">
           <div class="mx-auto flex h-12 max-w-[520px] items-center justify-between px-2 xl:max-w-[1600px]">
             <div class="flex items-center gap-2">
               <.link navigate={~p"/"} class="flex items-center gap-2.5" aria-label="Ir ao painel">
-                <span class="grid size-7 place-items-center rounded-lg bg-pk-ok text-pk-title font-black text-[#06150c]">P</span>
+                <span class="grid size-7 place-items-center rounded-lg bg-pk-ok text-pk-title font-black text-pk-bg">P</span>
                 <span class="text-pk-title font-bold">Pokex</span>
               </.link>
               <span
@@ -1832,7 +1839,7 @@ defmodule PokexWeb.PanelLive do
               <div :if={not overall_active?(@fishing, @combat)}>
                 <button
                   id="start-bot"
-                  class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-pk-ok text-pk-title font-bold text-[#041109] shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
+                  class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-pk-ok text-pk-title font-bold text-pk-bg shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
                   phx-click="start"
                 >
                   <.icon name="hero-play-solid" class="size-4" /> Iniciar — modo {@player_mode}
@@ -1977,11 +1984,12 @@ defmodule PokexWeb.PanelLive do
                     phx-submit="save_hook_skills"
                     class="border-b border-pk-line px-3 py-2.5"
                   >
-                    <label class="font-mono text-pk-meta text-pk-text-3">
+                    <label for="hook-skills-input" class="font-mono text-pk-meta text-pk-text-3">
                       Skills necessárias pra matar
                     </label>
                     <div class="mt-1.5 flex gap-2">
                       <input
+                        id="hook-skills-input"
                         name="hook_skills"
                         value={@hook_skills}
                         placeholder="4 5 6 7"
@@ -2027,6 +2035,7 @@ defmodule PokexWeb.PanelLive do
                       <select
                         id="escape-direction"
                         name="escape_direction"
+                        aria-label="Direção de entrada na escada"
                         class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                       >
                         <option value="left" selected={@escape_direction == "left"}>
@@ -2043,6 +2052,7 @@ defmodule PokexWeb.PanelLive do
                         id="escape-steps"
                         name="escape_steps"
                         type="number"
+                        aria-label="Quantos passos de seta dar para dentro da escada"
                         min="1"
                         max="10"
                         value={@escape_steps}
@@ -2054,6 +2064,7 @@ defmodule PokexWeb.PanelLive do
                         id="escape-walk-wait"
                         name="escape_walk_wait_ms"
                         type="number"
+                        aria-label="Espera pela caminhada até a escada, em milissegundos"
                         min="0"
                         max="10000"
                         step="100"
@@ -2065,11 +2076,12 @@ defmodule PokexWeb.PanelLive do
                     </form>
                   </div>
                   <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
-                    <label class="font-mono text-pk-meta text-pk-text-3">
+                    <label for="fishing-hp-input" class="font-mono text-pk-meta text-pk-text-3">
                       Vida mínima pra puxar a vara (%)
                     </label>
                     <div class="mt-1.5 flex gap-2">
                       <input
+                        id="fishing-hp-input"
                         name="fishing_hp_pct"
                         inputmode="numeric"
                         value={@fishing_hp_pct}
@@ -2162,6 +2174,7 @@ defmodule PokexWeb.PanelLive do
                       id="rescue-pct"
                       name="rescue_pct"
                       type="number"
+                      aria-label="Vida mínima para revive, em por cento"
                       min="1"
                       max="90"
                       value={@rescue_pct}
@@ -2173,6 +2186,7 @@ defmodule PokexWeb.PanelLive do
                       id="rescue-cooldown"
                       name="rescue_cooldown_s"
                       type="number"
+                      aria-label="Intervalo mínimo entre revives, em segundos"
                       min="2"
                       max="600"
                       value={@rescue_cooldown_s}
@@ -2194,6 +2208,7 @@ defmodule PokexWeb.PanelLive do
                       id="potion-pct"
                       name="potion_pct"
                       type="number"
+                      aria-label="Vida mínima para poção, em por cento"
                       min="1"
                       max="99"
                       value={@potion_pct}
@@ -2205,6 +2220,7 @@ defmodule PokexWeb.PanelLive do
                       id="potion-cooldown"
                       name="potion_cooldown_s"
                       type="number"
+                      aria-label="Intervalo mínimo entre poções, em segundos"
                       min="1"
                       max="600"
                       value={@potion_cooldown_s}
@@ -2403,6 +2419,7 @@ defmodule PokexWeb.PanelLive do
                   <select
                     id="shiny-action"
                     name="shiny_action"
+                    aria-label="O que fazer ao ver um shiny"
                     class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                   >
                     <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
@@ -2587,6 +2604,7 @@ defmodule PokexWeb.PanelLive do
                   id="stagnation-minutes"
                   name="stagnation_minutes"
                   type="number"
+                  aria-label="Minutos sem progresso até agir"
                   min="0"
                   max="999"
                   value={@stagnation_minutes}
@@ -2607,7 +2625,7 @@ defmodule PokexWeb.PanelLive do
 
             <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-surface">
               <div class="flex h-10 items-center justify-between border-b border-pk-line px-3">
-                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-[#9099a1]">
+                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-2">
                   O que ele está fazendo
                 </h2>
                 <label class="flex cursor-pointer items-center gap-2 font-mono text-pk-meta text-pk-text-3"><input
@@ -2649,7 +2667,7 @@ defmodule PokexWeb.PanelLive do
               >
                 <p
                   :if={visible_logs(@logs, @show_debug, @feed_filter) == []}
-                  class="max-w-[300px] text-[#59636b]"
+                  class="max-w-[300px] text-pk-text-3"
                 >
                   a atividade aparece aqui quando o bot roda<br />(marque "debug" pra ver cada tick)
                 </p>
@@ -2657,15 +2675,15 @@ defmodule PokexWeb.PanelLive do
                   :for={entry <- visible_logs(@logs, @show_debug, @feed_filter)}
                   class={["flex gap-1.5", log_class(entry.level)]}
                 >
-                  <span class="shrink-0 text-[#59636b]">{entry.at}</span><span>{entry.source}</span><span>{entry.text}</span>
+                  <span class="shrink-0 text-pk-text-3">{entry.at}</span><span>{entry.source}</span><span>{entry.text}</span>
                 </p>
               </div>
               <div class="grid grid-cols-2 border-t border-pk-line">
                 <button
-                  class="h-9 border-r border-pk-line text-pk-body text-[#858f97] hover:bg-pk-raised hover:text-white"
+                  class="h-9 border-r border-pk-line text-pk-body text-pk-text-2 hover:bg-pk-raised hover:text-white"
                   phx-click="export_events"
                 >Exportar</button><button
-                  class="h-9 text-pk-body text-[#858f97] hover:bg-pk-raised hover:text-white"
+                  class="h-9 text-pk-body text-pk-text-2 hover:bg-pk-raised hover:text-white"
                   phx-click="clear_logs"
                 >Limpar</button>
               </div>
@@ -2766,7 +2784,7 @@ defmodule PokexWeb.PanelLive do
                       value={@timing[key]}
                       class="input input-bordered mt-1 h-9 w-full bg-pk-bg font-mono text-pk-body"
                     /></label>
-                    <button class="col-span-2 mt-1 h-10 rounded-lg bg-pk-ok text-pk-body font-bold text-[#06140c] hover:bg-[#45dd88]">Salvar timing</button>
+                    <button class="col-span-2 mt-1 h-10 rounded-lg bg-pk-ok text-pk-body font-bold text-pk-bg hover:bg-pk-ok">Salvar timing</button>
                   </form>
                 </section>
 

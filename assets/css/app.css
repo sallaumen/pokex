@@ -129,7 +129,10 @@
   /* texto: três níveis e nada além */
   --color-pk-text: #dfe3e7;
   --color-pk-text-2: #97a1a9;
-  --color-pk-text-3: #6d7780;
+  /* #6d7780 dava 4.02:1 sobre a superfície e 3.76:1 sobre o elevado — reprova
+     nos 4.5:1 da WCAG AA. #838d95 dá 5.42:1 e continua sendo o nível mais
+     apagado dos três. */
+  --color-pk-text-3: #838d95;
 
   /* estados — sempre com ícone ou rótulo junto, nunca cor sozinha */
   --color-pk-ok: #37d07d;
@@ -142,11 +145,10 @@
   --color-pk-danger-dim: #241114;
   --color-pk-danger-line: #5f292f;
 
-  /* Escala: TRÊS degraus mais um de dados. Corpo nunca abaixo de 12px. */
+  /* Escala: TRÊS degraus. Corpo nunca abaixo de 12px. */
   --text-pk-meta: 0.6875rem;
   --text-pk-body: 0.8125rem;
   --text-pk-title: 0.9375rem;
-  --text-pk-data: 1.125rem;
 }
 
 /* Números tabulares: sem isso uma contagem que vai de 99 pra 100 empurra a

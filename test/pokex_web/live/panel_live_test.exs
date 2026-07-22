@@ -678,7 +678,15 @@ defmodule PokexWeb.PanelLiveTest do
     # the mute button silences the event at the SOURCE (no push at all)
     view |> element(~s(button[phx-click="toggle_mini_game_sound"])) |> render_click()
     assert Pokex.Settings.get(:mini_game_sound) == false
-    assert render(view) =~ "mudo"
+
+    # Isto afirmava `render(view) =~ "mudo"` — e passava por acidente: não existe
+    # "mudo" minúsculo no painel, mas "mudou" (em três textos sem relação
+    # nenhuma com o mini game) contém a substring. O teste nunca verificou o
+    # mudo. Agora ele olha o botão de verdade.
+    assert has_element?(
+             view,
+             ~s(button[phx-click="toggle_mini_game_sound"][title*="MUDO"])
+           )
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game, snapshot})
     assert render(view) =~ "em jogo"

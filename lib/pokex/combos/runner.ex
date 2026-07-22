@@ -45,7 +45,10 @@ defmodule Pokex.Combos.Runner do
       active?: Keyword.get(opts, :active, Application.get_env(:pokex, :combos_active, true)),
       body: Keyword.get(opts, :body, Body),
       engaged?: false,
-      running: nil
+      running: nil,
+      # the last combo that matched and could NOT run — the panel's answer to
+      # "liguei os combos e não aconteceu nada"
+      last_skip: nil
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -70,7 +73,8 @@ defmodule Pokex.Combos.Runner do
      %{
        enabled?: state.active? and Settings.get(:combos_enabled),
        engaged?: state.engaged?,
-       running: state.running && %{combo: state.running.combo.name, step: state.running.index}
+       running: state.running && %{combo: state.running.combo.name, step: state.running.index},
+       last_skip: state.last_skip
      }, state}
   end
 
@@ -118,23 +122,39 @@ defmodule Pokex.Combos.Runner do
     world = World.snapshot()
 
     with {:ok, enemy} <- enemy_name(world),
-         %Combos.Combo{} = combo <- Combos.match(Store.all(), enemy),
-         {:ok, steps} <- Combos.plan(combo, enemy, world.team) do
-      Logger.info("Combos: #{combo.name} contra #{enemy} (#{length(steps)} passos)")
-      broadcast({:combo_started, %{combo: combo.name, enemy: enemy}})
-
-      %{state | running: %{combo: combo, enemy: enemy, steps: steps, index: 0, ref: make_ref()}}
-      |> perform_current()
+         %Combos.Combo{} = combo <- Combos.match(Store.all(), enemy) do
+      case Combos.plan(combo, enemy, world.team) do
+        {:ok, steps} -> begin(state, combo, enemy, steps)
+        {:skip, reason} -> refuse(state, combo, enemy, reason)
+      end
     else
-      # every refusal is silent by design: no combo matched, or the one that
-      # did could not be finished. Only a STARTED combo that breaks is loud.
-      {:skip, reason} ->
-        Logger.debug("Combos: não rodou (#{inspect(reason)})")
-        state
-
-      _no_combo ->
-        state
+      # No enemy name read, or no combo describes this enemy: nothing to say.
+      # "Nenhum combo casou" is the normal case, not an event.
+      _nothing_to_run -> state
     end
+  end
+
+  defp begin(state, combo, enemy, steps) do
+    Logger.info("Combos: #{combo.name} contra #{enemy} (#{length(steps)} passos)")
+    broadcast({:combo_started, %{combo: combo.name, enemy: enemy}})
+
+    %{
+      state
+      | last_skip: nil,
+        running: %{combo: combo, enemy: enemy, steps: steps, index: 0, ref: make_ref()}
+    }
+    |> perform_current()
+  end
+
+  # A combo MATCHED and could not run. This used to be a Logger.debug, which made
+  # it indistinguishable from "no combo applied" — he would flip the switch, fight
+  # all night and never learn that the sing wanted a pokémon his hotkeys do not
+  # have. It is kept in state too, so a panel opened afterwards still sees it.
+  defp refuse(state, combo, enemy, reason) do
+    skip = %{combo: combo.name, enemy: enemy, reason: reason}
+    Logger.info("Combos: #{combo.name} não rodou contra #{enemy} (#{inspect(reason)})")
+    broadcast({:combo_skipped, skip})
+    %{state | last_skip: skip}
   end
 
   defp enemy_name(%{enemies: enemies}) do

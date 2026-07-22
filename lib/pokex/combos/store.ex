@@ -57,6 +57,29 @@ defmodule Pokex.Combos.Store do
     :ok
   end
 
+  @doc """
+  Adds a combo, replacing any existing one of the same name.
+
+  The name is the identity `set_enabled/2` and `delete/1` work by, so two combos
+  sharing one would make both unreachable. Replacing is the honest reading of
+  "salvar" onto a name already in the list.
+  """
+  def add(%Combo{name: name} = combo) when is_binary(name) and name != "" do
+    all()
+    |> Enum.reject(&(&1.name == name))
+    |> Kernel.++([combo])
+    |> put()
+  end
+
+  def add(_nameless), do: {:error, :invalid_name}
+
+  @doc "Removes one combo by name."
+  def delete(name) do
+    all()
+    |> Enum.reject(&(&1.name == name))
+    |> put()
+  end
+
   @doc "Flips one combo on or off by name."
   def set_enabled(name, enabled?) when is_boolean(enabled?) do
     all()

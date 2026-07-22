@@ -76,7 +76,7 @@ defmodule Pokex.Perception.Feed do
 
   defp observe(state) do
     with {:ok, calib} <- Calibration.load(),
-         region = state.spec.region.(calib),
+         {:region, region} when not is_nil(region) <- {:region, state.spec.region.(calib)},
          {:ok, frame} <- Capture.frame(region, state.spec.filename) do
       at = now()
 
@@ -91,6 +91,9 @@ defmodule Pokex.Perception.Feed do
 
       %{state | last_obs: obs, interp_state: interp_state, failures: 0}
     else
+      # no region yet: the layout has not been located (or this feed's panel is
+      # gone). Holding is correct — reading a guessed rect would feed lies.
+      {:region, nil} -> state
       error -> tick_failed(state, error)
     end
   catch

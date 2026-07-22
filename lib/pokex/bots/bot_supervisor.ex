@@ -86,18 +86,15 @@ defmodule Pokex.Bots.BotSupervisor do
   failed `start_all/0` never leaves a partial set running. Catcher is event-driven (armed in
   `parado` mode, idle waiting on the corpse feed), so its `run` just readies it.
   """
+  # The order a run must follow: the mini-game watcher first (it owns Space, so a
+  # loot press before it is watching would drive the capsule), then fishing →
+  # combat → catcher.
+  @run_order [:mini_game, :fishing, :combat, :catcher]
+
   @spec start_all(GenServer.server(), GenServer.server(), GenServer.server()) ::
           :ok | {:error, [String.t()]}
   def start_all(fishing, combat, catcher) do
-    with :ok <- Fishing.Worker.run(fishing),
-         :ok <- Combat.Worker.run(combat),
-         :ok <- Catcher.Worker.run(catcher) do
-      :ok
-    else
-      {:error, _messages} = error ->
-        stop_all(fishing, combat, catcher)
-        error
-    end
+    run_chain(%{fishing: fishing, combat: combat, catcher: catcher}, [:fishing, :combat, :catcher])
   end
 
   @spec start_all(
@@ -107,15 +104,53 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server()
         ) :: :ok | {:error, [String.t()]}
   def start_all(fishing, combat, catcher, mini_game) do
-    with :ok <- MiniGame.Worker.run(mini_game),
-         :ok <- start_all(fishing, combat, catcher) do
-      :ok
-    else
-      {:error, _messages} = error ->
-        stop_all(fishing, combat, catcher, mini_game)
-        error
+    run_chain(
+      %{fishing: fishing, combat: combat, catcher: catcher, mini_game: mini_game},
+      @run_order
+    )
+  end
+
+  # Runs exactly the workers `wanted` names, in @run_order, skipping the rest.
+  # A failure anywhere halts everything this map can reach: a half-started fleet
+  # is worse than a stopped one, because the half that IS running keeps touching
+  # the game.
+  defp run_chain(servers, wanted) do
+    result =
+      @run_order
+      |> Enum.filter(&(&1 in wanted and is_map_key(servers, &1)))
+      |> Enum.reduce_while(:ok, fn worker, :ok ->
+        case run_worker(worker, servers) do
+          :ok -> {:cont, :ok}
+          {:error, _messages} = error -> {:halt, error}
+        end
+      end)
+
+    with {:error, _messages} <- result do
+      halt_chain(servers)
+      result
     end
   end
+
+  defp run_worker(:mini_game, %{mini_game: server}), do: MiniGame.Worker.run(server)
+  defp run_worker(:fishing, %{fishing: server}), do: Fishing.Worker.run(server)
+  defp run_worker(:combat, %{combat: server}), do: Combat.Worker.run(server)
+  defp run_worker(:catcher, %{catcher: server}), do: Catcher.Worker.run(server)
+
+  # Halting an idle worker is a no-op, so this halts every worker the map names —
+  # not only the ones the mode asked to start.
+  defp halt_chain(servers) do
+    Enum.each(@run_order, fn worker ->
+      case servers do
+        %{^worker => server} -> halt_worker(worker, server)
+        _not_named -> :ok
+      end
+    end)
+  end
+
+  defp halt_worker(:mini_game, server), do: MiniGame.Worker.halt(server)
+  defp halt_worker(:fishing, server), do: Fishing.Worker.halt(server)
+  defp halt_worker(:combat, server), do: Combat.Worker.halt(server)
+  defp halt_worker(:catcher, server), do: Catcher.Worker.halt(server)
 
   @spec start_all(
           GenServer.server(),
@@ -138,7 +173,19 @@ defmodule Pokex.Bots.BotSupervisor do
     if Application.get_env(:pokex, :player_support_auto_monitor, true),
       do: :ok = PlayerSupport.Worker.run(player_support)
 
-    case start_all(fishing, combat, catcher, mini_game) do
+    # The MODE decides which workers this is: standing on a spot runs the rod and
+    # the mini-game watcher; walking runs neither. Reading it here rather than at
+    # the button means the focus guard's auto-resume obeys it too.
+    wanted = Pokex.Modes.workers(Pokex.Modes.current())
+
+    servers = %{
+      fishing: fishing,
+      combat: combat,
+      catcher: catcher,
+      mini_game: mini_game
+    }
+
+    case run_chain(servers, wanted) do
       :ok ->
         at = System.monotonic_time(:millisecond)
 

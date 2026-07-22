@@ -134,6 +134,39 @@ defmodule Pokex.Combos.RunnerTest do
     assert FakeBody.pressed() == []
   end
 
+  # "Liguei os combos e não aconteceu nada" has two very different causes, and
+  # they used to look identical: no combo described the enemy, or one did and
+  # could not run. The second is now said out loud.
+  test "um combo que casou e não pôde rodar ANUNCIA o motivo" do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Runner.topic())
+
+    # the sing triggers on any Water enemy, but Jigglypuff is nowhere in the
+    # hotkeys — exactly Lucas's case, whose team carries Wigglytuff instead
+    world("Tentacool", [row(2, "Xatu"), row(3, "Sceptile")])
+    runner = start_runner()
+
+    engage(runner)
+
+    assert_receive {:combo_skipped,
+                    %{combo: "sing", enemy: "Tentacool", reason: {:not_on_screen, "Jigglypuff"}}},
+                   1_000
+
+    assert FakeBody.pressed() == []
+    # and a panel opened AFTER the refusal still learns about it
+    assert %{last_skip: %{reason: {:not_on_screen, "Jigglypuff"}}} = settle(runner)
+  end
+
+  test "nenhum combo casou continua silencioso — isso é o caso normal" do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Runner.topic())
+
+    world("Pidgey", [row(2, "Xatu")])
+    runner = start_runner()
+
+    engage(runner)
+    refute_receive {:combo_skipped, _any}, 300
+    assert settle(runner).last_skip == nil
+  end
+
   test "the fight ending mid-combo stops it where it stands" do
     world("Magikarp", [row(5, "Jigglypuff"), row(4, "Sceptile")])
     runner = start_runner()

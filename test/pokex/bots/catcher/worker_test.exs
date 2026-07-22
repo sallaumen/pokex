@@ -268,8 +268,29 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "movimento: kills loot nothing", %{worker: worker} do
+  # Space reaches the corpse on the tile where the kill landed, wherever he
+  # happens to be standing at that instant — so walking must not cost him the
+  # drops. Only the BALL needs the standing-still ground baseline.
+  @tag :tmp_dir
+  test "movimento: o kill SAQUEIA, mas nunca joga bola", %{worker: worker} do
     Settings.put(:player_mode, "movimento")
+    :ok = Worker.mode_changed(worker)
+
+    obs = corpses_obs([{140, 230}])
+    WorldState.put(:corpses, obs, obs.captured_at)
+    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
+
+    assert_receive {:performed, :high, [{:press, "space"}, {:wait, 250}, {:press, "space"}]},
+                   1_000
+
+    assert Worker.status(worker).counters.loots == 1
+    refute_receive {:performed, _p, [{:capture_sequence, _} | _]}, 300
+  end
+
+  @tag :tmp_dir
+  test "movimento com o saque desligado: o kill não faz nada", %{worker: worker} do
+    Settings.put(:player_mode, "movimento")
+    Settings.put(:loot_enabled, false)
     :ok = Worker.mode_changed(worker)
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})

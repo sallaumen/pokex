@@ -541,18 +541,47 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "[data-testid=catcher-pill][data-state=armed]")
   end
 
-  test "the global player mode selector persists and gates the toggles' hints", %{conn: conn} do
-    mode = Pokex.Settings.get(:player_mode)
-    on_exit(fn -> Pokex.Settings.put(:player_mode, mode) end)
+  test "trocar de modo aplica o pacote inteiro e o botão anuncia o que vai ligar", %{conn: conn} do
+    Pokex.SettingsStash.stash_keys!([:player_mode, :capture_enabled, :reposition_enabled])
 
     {:ok, view, _} = live(conn, ~p"/")
 
-    view |> element(~s(button[phx-value-mode="movimento"])) |> render_click()
+    view |> element("#mode-movimento") |> render_click()
     assert Pokex.Settings.get(:player_mode) == "movimento"
-    assert render(view) =~ "você saqueia e captura manualmente"
+    # the bundle rides along: no ball (no ground baseline) and no reposition
+    # (it would drag him back to the fishing tile mid-trip)
+    refute Pokex.Settings.get(:capture_enabled)
+    refute Pokex.Settings.get(:reposition_enabled)
 
-    view |> element(~s(button[phx-value-mode="parado"])) |> render_click()
+    html = render(view)
+    assert html =~ "Iniciar — modo movimento"
+    # and it says which workers, so no more starting the rod while walking
+    assert html =~ "batalha"
+    refute html =~ "liga pesca"
+
+    view |> element("#mode-parado") |> render_click()
+    assert Pokex.Settings.get(:capture_enabled)
     assert render(view) =~ "Reaprender chão"
+  end
+
+  # The escape hatch he asked for: a switch may disagree with the mode, but the
+  # panel must SAY so rather than let the two quietly differ.
+  test "uma exceção manual ao padrão do modo é marcada e restaurável", %{conn: conn} do
+    Pokex.SettingsStash.stash_keys!([:player_mode, :capture_enabled, :reposition_enabled])
+
+    {:ok, view, _} = live(conn, ~p"/")
+    view |> element("#mode-parado") |> render_click()
+    refute has_element?(view, "[data-testid=override-badge]")
+
+    view |> element(~s(#automation-reposition input)) |> render_click()
+
+    assert has_element?(view, "#automation-reposition [data-testid=override-badge]")
+    assert render(view) =~ "1 exceção"
+    refute Pokex.Settings.get(:reposition_enabled)
+
+    view |> element("#restore-mode-defaults") |> render_click()
+    assert Pokex.Settings.get(:reposition_enabled)
+    refute render(view) =~ "restore-mode-defaults"
   end
 
   test "loot and capture toggles persist independently", %{conn: conn} do
@@ -1034,5 +1063,94 @@ defmodule PokexWeb.PanelLiveTest do
     html = view |> element(~s(button[phx-click="read_capture_stats"])) |> render_click()
     assert html =~ "backend:"
     assert html =~ "screencapture CLI" or html =~ "ScreenCaptureKit"
+  end
+
+  describe "o card de combos" do
+    setup do
+      tmp =
+        Path.join(System.tmp_dir!(), "pokex-panel-combos-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp)
+      Application.put_env(:pokex, :home_dir, tmp)
+
+      on_exit(fn ->
+        Application.delete_env(:pokex, :home_dir)
+        File.rm_rf!(tmp)
+        Pokex.Perception.WorldState.forget(:team)
+      end)
+
+      :ok
+    end
+
+    defp team_on_screen(rows) do
+      Pokex.Perception.WorldState.put(
+        :team,
+        %{pokemon_hp: nil, rows: rows},
+        System.monotonic_time(:millisecond)
+      )
+    end
+
+    test "lista o combo semeado e marca o passo que NÃO pode rodar", %{conn: conn} do
+      # his real team: Wigglytuff, not the Jigglypuff the seed asks for
+      team_on_screen([
+        %{slot: 2, name: "Xatu", present?: true, hp_pct: 1.0},
+        %{slot: 5, name: "Wigglytuff", present?: true, hp_pct: 1.0}
+      ])
+
+      {:ok, view, _} = live(conn, ~p"/")
+
+      assert has_element?(view, "#combos-card")
+      assert render(view) =~ "sing"
+      # the chip turns red and says why, instead of him finding out mid-fight
+      assert has_element?(view, ~s([title*="Jigglypuff NÃO está nos atalhos"]))
+    end
+
+    test "criar um combo usa o time lido da tela e ele passa a valer", %{conn: conn} do
+      team_on_screen([%{slot: 5, name: "Wigglytuff", present?: true, hp_pct: 1.0}])
+
+      {:ok, view, _} = live(conn, ~p"/")
+
+      view
+      |> form("#combo-form", %{
+        "name" => "dorme",
+        "trigger_kind" => "element",
+        "trigger_value" => "Water",
+        "member" => "Wigglytuff",
+        "skill" => "4",
+        "counter" => "on"
+      })
+      |> render_submit()
+
+      saved = Enum.find(Pokex.Combos.Store.all(), &(&1.name == "dorme"))
+      assert saved.trigger == {:enemy_element, "Water"}
+      assert {:swap_member, "Wigglytuff"} in saved.steps
+      assert {:swap_counter} in saved.steps
+      # and now the chip is green, because Wigglytuff IS in the hotkeys
+      refute has_element?(view, ~s([title*="Wigglytuff NÃO está nos atalhos"]))
+    end
+
+    test "excluir tira o combo da lista", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      view |> element(~s([phx-click="delete_combo"][phx-value-name="sing"])) |> render_click()
+
+      refute Enum.any?(Pokex.Combos.Store.all(), &(&1.name == "sing"))
+    end
+
+    # The whole point: "liguei os combos e não aconteceu nada" gets an answer.
+    test "uma recusa transmitida aparece no painel em português", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        Pokex.Combos.Runner.topic(),
+        {:combo_skipped,
+         %{combo: "sing", enemy: "Tentacool", reason: {:not_on_screen, "Jigglypuff"}}}
+      )
+
+      html = render(view)
+      assert html =~ "sing não rodou contra Tentacool"
+      assert html =~ "Jigglypuff não está nos atalhos"
+    end
   end
 end

@@ -71,8 +71,11 @@ defmodule Pokex.Pokedex do
   Filtered species search. Filters compose (all must match):
 
     * `:name` — case-insensitive substring
-    * `:element` — species has this element
-    * `:weak_to` — this element hits the species hard (Muito Efetivo)
+    * `:elements` — species has ANY of these elements (list; the old singular
+      `:element` binary still works, for bookmarked URLs)
+    * `:weak_to` — ANY of these elements hits the species hard (list, or the
+      old singular binary)
+    * `:clans` — species belongs to ANY of these PXG clans (derived from materia)
     * `:min_level` / `:max_level` — inclusive bounds (species without a level drop)
     * `:only_shiny` — only Shiny variants
     * `:edited_after` — wiki page edited on/after this "YYYY-MM-DD" (entries
@@ -369,6 +372,18 @@ defmodule Pokex.Pokedex do
 
       {:weak_to, element} when is_binary(element) and element != "" ->
         element in entry.weak_to
+
+      # Multi-value groups (the non-exclusive filters): the entry matches when
+      # it has ANY of the selected values — "todos de planta E todos de veneno"
+      # is ONE group with two values, not two exclusive searches.
+      {:elements, list} when is_list(list) and list != [] ->
+        Enum.any?(list, &(&1 in entry.elements))
+
+      {:weak_to, list} when is_list(list) and list != [] ->
+        Enum.any?(list, &(&1 in entry.weak_to))
+
+      {:clans, list} when is_list(list) and list != [] ->
+        Enum.any?(list, &(&1 in entry.clans))
 
       {:min_level, min} when is_integer(min) ->
         is_integer(entry.level) and entry.level >= min

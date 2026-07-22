@@ -93,6 +93,55 @@ defmodule Pokex.PokedexTest do
     end
   end
 
+  describe "filtros multi-valor — OR dentro do grupo, AND entre grupos" do
+    @tag :tmp_dir
+    test "elements: [Grass, Water] é a UNIÃO (planta E veneno do pedido do Lucas)" do
+      names = Pokedex.search(%{elements: ["Grass", "Water"]}) |> Enum.map(& &1.name)
+
+      assert "Venusaur" in names
+      assert "Seadra" in names
+      refute "Charizard" in names
+    end
+
+    @tag :tmp_dir
+    test "lista vazia é filtro desligado" do
+      assert length(Pokedex.search(%{elements: []})) == length(Pokedex.search(%{}))
+    end
+
+    @tag :tmp_dir
+    test "grupos diferentes continuam compondo com AND" do
+      names =
+        Pokedex.search(%{elements: ["Grass", "Water"], min_level: 55})
+        |> Enum.map(& &1.name)
+
+      assert "Venusaur" in names
+      refute "Seadra" in names
+    end
+
+    @tag :tmp_dir
+    test "weak_to como lista: fraco a QUALQUER um dos elementos" do
+      names = Pokedex.search(%{weak_to: ["Rock", "Electric"]}) |> Enum.map(& &1.name)
+
+      assert "Charizard" in names
+      assert "Seadra" in names
+    end
+
+    @tag :tmp_dir
+    test "clans filtra pelo clã derivado" do
+      names = Pokedex.search(%{clans: ["Seavell"]}) |> Enum.map(& &1.name)
+
+      assert "Seadra" in names
+      assert "Shiny Seadra" in names
+      refute "Charizard" in names
+    end
+
+    @tag :tmp_dir
+    test "as chaves singulares antigas continuam valendo (URLs marcadas)" do
+      assert Pokedex.search(%{element: "Water"}) |> Enum.map(& &1.name) |> Enum.member?("Seadra")
+      assert Pokedex.search(%{weak_to: "Rock"}) |> Enum.map(& &1.name) == ["Charizard"]
+    end
+  end
+
   @tag :tmp_dir
   test "search composes name/element/weakness/level/shiny filters" do
     assert [%{name: "Seadra"}, %{name: "Shiny Seadra"}] =

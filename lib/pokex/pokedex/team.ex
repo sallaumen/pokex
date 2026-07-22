@@ -110,7 +110,9 @@ defmodule Pokex.Pokedex.Team do
   def best_counter(enemy_name, live_rows) do
     with %{} = enemy <- Pokedex.get(enemy_name) do
       live_rows
-      |> Enum.filter(&(is_map(&1) and is_binary(Map.get(&1, :name))))
+      |> Enum.filter(
+        &(is_map(&1) and is_binary(Map.get(&1, :name)) and is_integer(Map.get(&1, :slot)))
+      )
       |> Enum.map(fn row -> {row.slot, advantage(row.name, enemy)} end)
       |> Enum.filter(fn {_slot, score} -> score > 0 end)
       |> Enum.max_by(fn {_slot, score} -> score end, fn -> nil end)

@@ -15,12 +15,12 @@ defmodule Pokex.Perception.Interpret.Team do
 
   alias Pokex.Layout
   alias Pokex.Pokedex.TeamIcons
-  alias Pokex.Vision.{Frame, Icons}
+  alias Pokex.Vision.{Frame, Glyphs, Icons}
 
   # measured on the real capture: rows are 67px apart, the track is 84px wide
   @row_pitch 67
   @rows 5
-  @first_slot 2
+  @slots 2..6//1 |> Enum.to_list()
 
   def interpret(frame, calib, _settings) do
     fix = calib && calib.layout
@@ -68,13 +68,14 @@ defmodule Pokex.Perception.Interpret.Team do
       {bx, by, bw, bh} ->
         learned = TeamIcons.all()
         portrait = Layout.region(:team_icon_first, fix)
+        label = Layout.region(:team_label_first, fix)
 
         for i <- 0..(@rows - 1)//1 do
           track = {bx - ox, by - oy + i * @row_pitch, bw, bh}
           fill = fill_fraction(frame, track)
 
           %{
-            slot: @first_slot + i,
+            slot: read_slot(frame, label, i, ox, oy),
             present?: fill != nil,
             hp_pct: fill,
             name: identify(frame, portrait, i, ox, oy, learned)
@@ -82,6 +83,32 @@ defmodule Pokex.Perception.Interpret.Team do
         end
     end
   end
+
+  # WHICH hotkey this row answers to, read rather than counted from its
+  # position. Measured on the committed captures: earlier the same day the
+  # fifth row carried no label at all, and a row with no hotkey must never be
+  # a swap target — pressing a key that is not bound does something else.
+  defp read_slot(_frame, nil, _row, _ox, _oy), do: nil
+
+  defp read_slot(frame, {lx, ly, lw, lh}, row, ox, oy) do
+    frame
+    |> Glyphs.read_line({lx - ox, ly - oy + row * @row_pitch, lw, lh})
+    |> case do
+      %{text: text, confidence: 1.0} -> parse_slot(text)
+      _uncertain -> nil
+    end
+  end
+
+  @doc ~S'Parses the hotkey label: "C+4" -> 4. Anything else is no hotkey at all.'
+  def parse_slot(text) do
+    case Regex.run(~r"^C\+(\d)$", String.trim(text)) do
+      [_all, digit] -> slot_in_range(String.to_integer(digit))
+      nil -> nil
+    end
+  end
+
+  defp slot_in_range(slot) when slot in @slots, do: slot
+  defp slot_in_range(_out_of_range), do: nil
 
   # WHO is in this row. The slot order changes as Lucas plays, so this is read
   # every tick rather than configured — see Vision.Icons for why the portraits

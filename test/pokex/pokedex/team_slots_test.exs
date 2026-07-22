@@ -51,4 +51,13 @@ defmodule Pokex.Pokedex.TeamSlotsTest do
   test "an empty reading answers nothing rather than raising" do
     assert Team.best_counter("Magikarp", []) == nil
   end
+
+  test "a row with no hotkey label is unreachable, however well it was identified" do
+    # measured on the committed captures: earlier the same day the fifth row
+    # carried no "C+N" at all. Pressing a key that is not bound does something
+    # else entirely, so the row is not a candidate.
+    rows = [%{slot: nil, name: "Sceptile"}]
+
+    assert Team.best_counter("Magikarp", rows) == nil
+  end
 end

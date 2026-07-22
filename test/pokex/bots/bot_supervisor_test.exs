@@ -185,7 +185,10 @@ defmodule Pokex.Bots.BotSupervisorTest do
   @tag :tmp_dir
   test "start_all/5 em movimento NÃO liga a pesca nem o mini game, e ainda liga a luta" do
     servers = start_isolated_supervisor(:movimento_test)
-    Settings.put(:player_mode, "movimento")
+    # per-key restore: the blanket "put every default back" in setup writes to
+    # the GLOBAL test settings file, and a mode left behind there poisons every
+    # later run of the suite — this one cost an afternoon to trace.
+    Pokex.SettingsStash.stash!(player_mode: "movimento")
 
     assert :ok =
              BotSupervisor.start_all(

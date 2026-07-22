@@ -277,10 +277,16 @@ defmodule Pokex.Bots.Catcher.Worker do
   # of this cycle (the ball additionally waits on detector confirmation, ≥800ms later — and
   # the ball consumes the corpse WITH its loot, so the order is load-bearing).
   defp loot_kill(state) do
+    # Looting works in BOTH modes: Space reaches the corpse on the tile where the
+    # kill just happened, wherever he is standing at that instant. Only the BALL
+    # needs him still — it is aimed from a ground baseline learned while standing
+    # — and that is gated separately in advance/2. The mode check that used to
+    # sit here was inherited from the capture design and silently cost him every
+    # drop while walking.
+    #
     # Space is the MINI-GAME's control key: looting mid-game would drive the
     # capsule (the Body gate also blocks it — this keeps the log honest too).
-    if not Perception.mini_game_playing?() and
-         Settings.get(:player_mode) == "parado" and Settings.get(:loot_enabled) do
+    if not Perception.mini_game_playing?() and Settings.get(:loot_enabled) do
       presses = max(Settings.get(:loot_presses), 1)
       gap = Settings.get(:loot_press_gap_ms)
 

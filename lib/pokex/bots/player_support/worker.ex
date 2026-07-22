@@ -311,8 +311,14 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # so no combat running = no battles seen = nothing to undo. The click needs the
   # native key-event helper (cliclick has no middle button); a failed click keeps
   # reposition_pending? so the next clear window retries.
+  #
+  # Only while STANDING. The calibrated tile is his fishing spot: walking, this
+  # would middle-click him back to it after every fight and undo the whole trip.
+  # The mode bundle switches the setting off when he moves, but the check lives
+  # here too — the worker must not depend on the panel having applied a preset.
   defp maybe_reposition(state) do
-    with true <- Settings.get(:reposition_enabled),
+    with "parado" <- Settings.get(:player_mode),
+         true <- Settings.get(:reposition_enabled),
          {:ok, %Calibration{pokemon_spot_point: point}} when is_tuple(point) <-
            Calibration.load(),
          true <- InputGate.allowed?() do

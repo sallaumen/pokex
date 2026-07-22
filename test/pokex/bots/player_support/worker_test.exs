@@ -43,6 +43,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :pokemon_hp_potion_pct,
       :reposition_enabled,
       :reposition_battle_clear_ms,
+      :player_mode,
       :support_waits_capture,
       :support_capture_wait_max_ms,
       :escape_direction,
@@ -501,6 +502,30 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     worker = start_worker(body)
     assert {:error, :panic_corner} = Worker.flee_to_escape(worker)
     refute_receive {:performed, _p, _a}, 150
+  end
+
+  # The calibrated tile is his fishing spot. Walking, sending the Pokémon back to
+  # it after every fight would drag him home and undo the whole trip.
+  @tag :tmp_dir
+  test "em movimento nunca reposiciona, mesmo com a chave ligada", %{tmp: tmp, body: body} do
+    Settings.put(:rescue_enabled, false)
+    Settings.put(:reposition_enabled, true)
+    Settings.put(:reposition_battle_clear_ms, 50)
+    Settings.put(:player_mode, "movimento")
+
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | pokemon_spot_point: {450, 380}})
+
+    full = hp_png(tmp, "full.png", 20)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}]})
+
+    fresh_battle!(enemies: [0])
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    fresh_battle!(enemies: [])
+    refute_receive {:performed, _p, [{:click, :middle, _} | _]}, 500
+    assert Worker.status(worker).counters.repositions == 0
   end
 
   @tag :tmp_dir

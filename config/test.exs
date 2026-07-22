@@ -55,6 +55,8 @@ config :pokex, :front_game_cmd, false
 # The app-wide ShinyGuard must NOT attach the real arena feed when a test flips
 # the global shiny_guard_enabled setting. Guard tests opt back in with `active: true`.
 config :pokex, :shiny_guard_active, false
+# the sentinel captures the REAL screen on boot — never in tests
+config :pokex, :layout_sentinel_active, false
 # The app-wide Guardian must NOT act on session rules (stop conditions / anti-stagnation)
 # during tests: a test planting a global :session fact + limits would wake its REAL
 # stop_all, racing the test's own scoped Guardian (measured flaky). Guardian tests opt

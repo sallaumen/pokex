@@ -8,10 +8,24 @@ defmodule Pokex.ScreenFixtures do
   @dir "test/fixtures/screen"
   @labels "test/fixtures/glyphs/labels.json"
 
-  @doc "A committed screen capture as a Frame (name without extension)."
+  @doc """
+  A committed screen capture as a Frame (name without extension).
+
+  Cached: decoding the full 3440×1440 capture costs ~7s, so a test suite that
+  re-decoded it per test would spend minutes doing nothing else.
+  """
   def frame!(name) do
-    {:ok, frame} = Pokex.Vision.Frame.from_png_file(Path.join(@dir, "#{name}.png"))
-    frame
+    key = {__MODULE__, name}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        {:ok, frame} = Pokex.Vision.Frame.from_png_file(Path.join(@dir, "#{name}.png"))
+        :persistent_term.put(key, frame)
+        frame
+
+      frame ->
+        frame
+    end
   end
 
   @doc "The labeled text regions the atlas is learned from."

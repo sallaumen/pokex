@@ -54,6 +54,7 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @body_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @focus_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Layout.Sentinel.topic())
       # Keep the cooldown display LIVE while the fishing gate is on, so it never goes stale —
       # you can watch the reading flip to ready the instant your skills come off cooldown (the
       # SAME SkillBar read the fishing gate uses each tick).
@@ -73,6 +74,7 @@ defmodule PokexWeb.PanelLive do
        errors: [],
        calibrated?: Calibration.exists?(),
        calib_stale?: calib_stale?(),
+       layout_lost?: false,
        now_ms: now_ms(),
        threshold: Settings.get(:glow_threshold),
        mini_game_sound: Settings.get(:mini_game_sound),
@@ -351,6 +353,13 @@ defmodule PokexWeb.PanelLive do
   # the feed doesn't fill up with duplicate spam.
   # A rule fired with the ALARM action (Guardian, e.g. anti-stagnation): ring
   # the F7 pipeline — nothing was halted, the sound + 🔔 line ARE the action.
+  # The HUD could not be located: every feed is holding rather than reading
+  # (or clicking) blind coordinates — say so loudly and permanently.
+  def handle_info({:layout, %{ok?: ok?}}, socket),
+    do: {:noreply, assign(socket, layout_lost?: not ok?)}
+
+  def handle_info({:layout_suspect, _key}, socket), do: {:noreply, socket}
+
   def handle_info({:rule_alarm, reason}, socket),
     do: {:noreply, alarm(socket, :rule_alarm, "⏰ #{reason}")}
 
@@ -1381,6 +1390,18 @@ defmodule PokexWeb.PanelLive do
                   Calibre água, Battle, arena e skills antes de iniciar.
                 </p>
                 <.link navigate={~p"/calibration"} class="font-semibold text-[#37d07d]">Calibrar</.link>
+              </div>
+
+              <div
+                :if={@layout_lost?}
+                id="layout-banner"
+                class="flex items-center gap-3 rounded-lg border border-[#5f292f] bg-[#241114] p-3 text-xs"
+              >
+                <.icon name="hero-eye-slash" class="size-5 shrink-0 text-[#ff9ca4]" />
+                <p class="flex-1 text-[#c8cdd1]">
+                  Não achei o HUD na tela — o jogo está em tela cheia no monitor principal? Os
+                  feeds estão segurando: nada é lido nem clicado às cegas.
+                </p>
               </div>
 
               <div

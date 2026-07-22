@@ -27,6 +27,27 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "#calib-stale-banner button[phx-click='restart_bots']")
   end
 
+  test "losing the HUD raises a banner that says nothing is being clicked blind", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/")
+    refute has_element?(view, "#layout-banner")
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      Pokex.Layout.Sentinel.topic(),
+      {:layout, %{ok?: false, reason: {:anchor_not_found, :battle_header}, anchors: %{}}}
+    )
+
+    assert view |> element("#layout-banner") |> render() =~ "tela cheia no monitor principal"
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      Pokex.Layout.Sentinel.topic(),
+      {:layout, %{ok?: true, reason: nil, anchors: %{}}}
+    )
+
+    refute has_element?(view, "#layout-banner")
+  end
+
   test "no stamp (bots never started) → no stale banner", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
     refute has_element?(view, "#calib-stale-banner")

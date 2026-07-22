@@ -61,8 +61,13 @@ Phase→PR mapping: F1 = Tasks 1–4, F2 = 5–7, F3 = 9–12, F4 = 13, F5 = 14�
 | F2 Layout | #51 | ✅ merged — 3 anchors, unique screen-wide; sentinel + banner |
 | F3 Feeds + snapshot | #52 | ✅ merged — :hud/:team/:minimap, World.snapshot, /world v2 |
 | F4 Stock alerts | #53 | ✅ merged — F1/F2/E/S+Q, one alarm per crossing |
-| **Task 8** battle names+HP | — | ⏳ NEXT, moved into F5 (see below) |
-| F5 Team slots + combos | — | ⏳ pending |
+| Revisão de qualidade | #55 | ✅ merged — 4 defeitos com teste verde |
+| Minigame auto + preview | #56 | ✅ merged |
+| Âncoras opacas + fixture 2 | #57 | ✅ merged — a percepção estava morta na tela dele |
+| Leitura robusta | #58, #59, #60 | ✅ merged — campos, vizinho próximo, histerese, ensinar glifos |
+| Estrela por colunas densas | #62 | ✅ merged — Magikarp não é shiny |
+| **Task 8** battle names+HP | #63 | ✅ merged — região derivada, pitch 46, nomes+vida |
+| F5 Team slots + combos | — | ⏳ NEXT |
 | F6 minimap_step | — | ⏳ pending |
 
 ### Deviations from the original plan, and why

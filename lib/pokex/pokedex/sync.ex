@@ -351,14 +351,18 @@ defmodule Pokex.Pokedex.Sync do
 
   # -- sprites -----------------------------------------------------------------
 
-  defp download_sprite(nil, _name, _opts), do: nil
+  # Public only for the test. skip_sprites must mean "don't FETCH", never
+  # "forget": a --fresh --skip-sprites run once nulled the sprite of every
+  # entry in the base, and PR #46 had to restore 824 paths by hand from the
+  # previous JSON. What is already on disk stays claimed either way.
+  @doc false
+  def download_sprite(nil, _name, _opts), do: nil
 
-  defp download_sprite(url, name, opts) do
-    if opts[:skip_sprites] do
-      nil
-    else
-      file = slug(name) <> Path.extname(url)
-      dest = Path.join(sprites_dir(), file)
+  def download_sprite(url, name, opts) do
+    file = slug(name) <> Path.extname(url)
+    dest = Path.join(sprites_dir(), file)
+
+    unless opts[:skip_sprites] do
       File.mkdir_p!(sprites_dir())
 
       unless File.exists?(dest) do
@@ -367,9 +371,9 @@ defmodule Pokex.Pokedex.Sync do
           _error -> :skip
         end
       end
-
-      if File.exists?(dest), do: "images/pokedex/" <> file
     end
+
+    if File.exists?(dest), do: "images/pokedex/" <> file
   end
 
   defp slug(name), do: name |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "-")
@@ -391,5 +395,7 @@ defmodule Pokex.Pokedex.Sync do
   # Relative to the repo root — where both `mix pokedex.scrape` and the dev
   # server run from (dev-only tooling; priv/ is symlinked into _build).
   defp out_dir, do: "priv/pokedex"
-  defp sprites_dir, do: "priv/static/images/pokedex"
+
+  defp sprites_dir,
+    do: Application.get_env(:pokex, :pokedex_sprites_dir, "priv/static/images/pokedex")
 end

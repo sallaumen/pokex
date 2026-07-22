@@ -56,6 +56,7 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Layout.Sentinel.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.StockAlerts.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Combos.Runner.topic())
       # feeds only capture while someone is attached — a watching page IS a
       # consumer, so :team and :minimap run exactly while they are looked at
       Pokex.Perception.DisplayFeeds.attach_all()
@@ -134,6 +135,9 @@ defmodule PokexWeb.PanelLive do
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
        presets: Settings.list_presets(),
        mode_overrides: mode_override_keys(),
+       combos: Pokex.Combos.Store.all(),
+       combos_enabled: Settings.get(:combos_enabled),
+       combo_skip: combo_skip(),
        preset_msg: nil
      )}
   end
@@ -184,6 +188,29 @@ defmodule PokexWeb.PanelLive do
       mode_overrides: mode_override_keys()
     )
   end
+
+  defp build_trigger("species", value), do: {:enemy_species, String.trim(value || "")}
+  defp build_trigger(_element, value), do: {:enemy_element, String.trim(value || "")}
+
+  # The runner keeps the last refusal, so a panel opened after the fight still
+  # learns why nothing happened.
+  defp combo_skip do
+    Pokex.Combos.Runner.status().last_skip
+  catch
+    _kind, _reason -> nil
+  end
+
+  # Who is in the hotkeys RIGHT NOW, read from the screen. Only these can be
+  # swap targets: a row with no portrait could be anyone, and a row with no C+N
+  # label has no key to press.
+  defp team_names(%{team: rows}) when is_list(rows) do
+    rows
+    |> Enum.filter(&(is_binary(&1[:name]) and is_integer(&1[:slot])))
+    |> Enum.map(& &1.name)
+    |> Enum.uniq()
+  end
+
+  defp team_names(_no_world), do: []
 
   defp mode_override_keys do
     Settings.get(:player_mode)
@@ -381,6 +408,17 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:layout_suspect, _key}, socket), do: {:noreply, socket}
 
+  # A combo that MATCHED and could not run — the difference between "nenhum combo
+  # casou" and "o combo casou e falhou", which used to look identical.
+  def handle_info({:combo_skipped, skip}, socket),
+    do: {:noreply, assign(socket, combo_skip: skip)}
+
+  def handle_info({:combo_started, _info}, socket),
+    do: {:noreply, assign(socket, combo_skip: nil)}
+
+  def handle_info({:combo_done, _info}, socket), do: {:noreply, socket}
+  def handle_info({:combo_aborted, _info}, socket), do: {:noreply, socket}
+
   # Any world fact moving re-reads the snapshot — the blackboard is the truth,
   # and re-assembling it is a handful of ETS lookups.
   def handle_info({:world, _key, _obs}, socket),
@@ -520,6 +558,47 @@ defmodule PokexWeb.PanelLive do
 
       {:error, :unknown_mode} ->
         {:noreply, socket}
+    end
+  end
+
+  def handle_event("toggle_combos_enabled", _params, socket) do
+    value = not Settings.get(:combos_enabled)
+    Settings.put(:combos_enabled, value)
+    {:noreply, assign(socket, combos_enabled: value)}
+  end
+
+  def handle_event("toggle_combo", %{"name" => name}, socket) do
+    enabled? = Enum.find_value(socket.assigns.combos, &(&1.name == name and &1.enabled?))
+    :ok = Pokex.Combos.Store.set_enabled(name, not enabled?)
+    {:noreply, assign(socket, combos: Pokex.Combos.Store.all())}
+  end
+
+  def handle_event("delete_combo", %{"name" => name}, socket) do
+    :ok = Pokex.Combos.Store.delete(name)
+    {:noreply, assign(socket, combos: Pokex.Combos.Store.all())}
+  end
+
+  # The builder writes the shape Lucas described: swap somebody in, use a skill,
+  # then bring back whoever answers this enemy. The waits are the tuned settings,
+  # not numbers typed into a form.
+  def handle_event("save_combo", params, socket) do
+    steps =
+      [
+        {:swap_member, params["member"]},
+        {:wait, :combo_swap_wait_ms},
+        {:skill, String.trim(params["skill"] || "")},
+        {:wait, :combo_sing_wait_ms}
+      ] ++ if(params["counter"], do: [{:swap_counter}], else: [])
+
+    combo = %Pokex.Combos.Combo{
+      name: String.trim(params["name"] || ""),
+      trigger: build_trigger(params["trigger_kind"], params["trigger_value"]),
+      steps: steps
+    }
+
+    case Pokex.Combos.Store.add(combo) do
+      :ok -> {:noreply, assign(socket, combos: Pokex.Combos.Store.all())}
+      {:error, :invalid_name} -> {:noreply, socket}
     end
   end
 
@@ -2276,6 +2355,13 @@ defmodule PokexWeb.PanelLive do
                 </ul>
               </div>
             </section>
+
+            <PokexWeb.Panel.CombosCard.combos_card
+              combos={@combos}
+              enabled={@combos_enabled}
+              skip={@combo_skip}
+              team={team_names(@world)}
+            />
 
             <section id="shiny-guard-card" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
               <div class="flex min-h-10 items-center gap-3">

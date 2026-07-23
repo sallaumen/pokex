@@ -276,6 +276,37 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "não lê HP enquanto um minigame está em jogo — libera o broker pro strip", %{
+    tmp: tmp,
+    body: body
+  } do
+    # Durante o minigame o Body está travado, então o suporte não pode agir de
+    # qualquer jeito — e a leitura de HP a cada 120ms só entra na fila à frente
+    # da captura do strip do jogo (medido: cadência de 80ms → ~250ms). Cala e
+    # libera o broker; retoma quando o overlay sai.
+    Settings.put(:rescue_enabled, true)
+
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+    Pokex.Perception.WorldState.put(
+      :mini_game,
+      %{playing?: true, confidence: 0.9},
+      System.monotonic_time(:millisecond)
+    )
+
+    on_exit(fn -> Pokex.Perception.WorldState.forget(:mini_game) end)
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    # não age (não pode) E não captura HP (não afoga o strip)
+    refute_receive {:performed, _priority, _actions}, 250
+    assert Worker.status(worker).counters.reads == 0
+    assert Worker.status(worker).hold_reason =~ "minigame"
+  end
+
+  @tag :tmp_dir
   test "sips a potion when HP is below the potion threshold and no fight is engaged", %{
     tmp: tmp,
     body: body

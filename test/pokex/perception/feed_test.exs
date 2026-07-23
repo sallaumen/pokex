@@ -76,6 +76,32 @@ defmodule Pokex.Perception.FeedTest do
   end
 
   @tag :tmp_dir
+  test "pausa a captura enquanto um minigame está em jogo e retoma na saída", %{tmp_dir: tmp} do
+    # Durante um minigame o broker de captura é 100% do strip do jogo — todo mundo
+    # age está congelado (nada usa o fato deste feed). Se o feed continuar
+    # capturando, ele afoga a única captura que importa (medido: cadência do jogo
+    # foi de 80ms pra ~250ms por causa dessa fila). Enquanto o jogo roda, cala.
+    a = png!(tmp, "a.png", 8)
+    b = png!(tmp, "b.png", 12)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}, {:ok, b}, {:ok, b}]})
+
+    WorldState.put(:mini_game, %{playing?: true, confidence: 0.9}, now())
+    on_exit(fn -> WorldState.forget(:mini_game) end)
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "world")
+    {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
+    :ok = Feed.attach(feed)
+
+    # em jogo: NADA é capturado (sem broadcast, sem entrada no mundo)
+    refute_receive {:world, :feed_test, _}, 300
+    assert WorldState.get(:feed_test, 60_000, now()) == :missing
+
+    # o jogo sai → o feed retoma na hora, sem precisar reanexar
+    WorldState.put(:mini_game, %{playing?: false, confidence: 0.0}, now())
+    assert_receive {:world, :feed_test, %{width: 8}}, 1_000
+  end
+
+  @tag :tmp_dir
   test "a capture error keeps the last good entry and does not crash", %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}, {:error, :boom}]})

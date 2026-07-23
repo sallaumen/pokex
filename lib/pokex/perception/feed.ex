@@ -69,9 +69,21 @@ defmodule Pokex.Perception.Feed do
   def handle_info(:tick, %{consumers: consumers} = state) when consumers == %{},
     do: {:noreply, %{state | timer: nil}}
 
+  # While the fishing mini-game is being played, the ONE serialized capture broker
+  # belongs to the game's strip captures (every ~80ms). Everything that acts is
+  # frozen, so NOTHING reads this feed's fact meanwhile — capturing here only
+  # queues ahead of the strip and starves it (measured 2026-07-23: the game's
+  # capture cadence blew out from 80ms to ~250ms sitting behind ~6 feed/support
+  # captures per 250ms). Skip the capture, keep the timer alive, resume the
+  # instant the overlay clears. The fact going stale for those seconds is fine:
+  # the staleness gate covers it and a resuming consumer relearns from scratch.
   def handle_info(:tick, state) do
-    state = state |> observe() |> reschedule(Settings.get(state.spec.interval_setting))
-    {:noreply, state}
+    state =
+      if Pokex.Perception.mini_game_playing?(),
+        do: state,
+        else: observe(state)
+
+    {:noreply, reschedule(state, Settings.get(state.spec.interval_setting))}
   end
 
   defp observe(state) do

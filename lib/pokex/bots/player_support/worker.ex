@@ -172,7 +172,43 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # loop — the running? flag is the source of truth, not the timer.
   def handle_info(:tick, %{running?: false} = state), do: {:noreply, state}
 
+  # While the fishing mini-game is being played, the Body is gated — this worker
+  # cannot revive or potion anyway — so its HP capture every 120ms is pure waste
+  # that queues ahead of the game's strip captures in the single serialized
+  # broker and starves them (measured 2026-07-23: the game's cadence blew from
+  # 80ms to ~250ms behind ~6 feed/support captures per 250ms). Skip the capture,
+  # say so on the pill, and resume the instant the overlay clears.
   def handle_info(:tick, state) do
+    if Pokex.Perception.mini_game_playing?() do
+      handle_mini_game_tick(state)
+    else
+      run_tick(state)
+    end
+  end
+
+  # The catcher's pending-corpse count rides its snapshots (see init/1). The
+  # busy clock starts on the FIRST busy snapshot of an episode and never
+  # refreshes mid-episode — that's what the fail-open cap measures.
+  def handle_info({:catcher, snapshot}, state) do
+    pending = Map.get(snapshot, :pending_corpses, 0)
+    busy_since = if pending > 0, do: state.capture_busy_since || now(), else: nil
+    {:noreply, %{state | capture_pending: pending, capture_busy_since: busy_since}}
+  end
+
+  # The catcher topic also carries {:catcher_log, ...} chatter — not ours.
+  def handle_info(_msg, state), do: {:noreply, state}
+
+  # Nothing here can act (Body gated) and nothing reads our fact (peers frozen),
+  # so we do NOT capture — that only starves the game's strip captures. Announce
+  # once on the entering edge, then stay silent until the overlay clears.
+  defp handle_mini_game_tick(state) do
+    entered? = state.gate != :mini_game
+    state = %{state | gate: :mini_game}
+    if entered?, do: broadcast(state)
+    {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
+  end
+
+  defp run_tick(state) do
     previous = state
 
     state =
@@ -224,18 +260,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
   end
-
-  # The catcher's pending-corpse count rides its snapshots (see init/1). The
-  # busy clock starts on the FIRST busy snapshot of an episode and never
-  # refreshes mid-episode — that's what the fail-open cap measures.
-  def handle_info({:catcher, snapshot}, state) do
-    pending = Map.get(snapshot, :pending_corpses, 0)
-    busy_since = if pending > 0, do: state.capture_busy_since || now(), else: nil
-    {:noreply, %{state | capture_pending: pending, capture_busy_since: busy_since}}
-  end
-
-  # The catcher topic also carries {:catcher_log, ...} chatter — not ours.
-  def handle_info(_msg, state), do: {:noreply, state}
 
   # Uncrashable: this monitor runs forever, so a transient capture failure (the broker or the Rig
   # momentarily down/restarting) must come back as {:error}, not take the whole worker down with it.
@@ -624,6 +648,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp gate_text(:unfocused), do: "jogo fora de foco — nada é digitado até você voltar pra ele"
   defp gate_text(:panic_corner), do: "parado pelo canto de pânico"
   defp gate_text(:potion_in_combat), do: "poção devida, mas a leitura diz que há luta"
+  defp gate_text(:mini_game), do: "minigame em jogo — retoma quando o overlay sair"
   defp gate_text(_none), do: nil
 
   # The capture wait only shows while something is actually due (a bare pending

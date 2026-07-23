@@ -138,7 +138,9 @@ defmodule PokexWeb.PanelLive do
        combos: Pokex.Combos.Store.all(),
        combos_enabled: Settings.get(:combos_enabled),
        combo_skip: combo_skip(),
-       preset_msg: nil
+       preset_msg: nil,
+       characters: Pokex.Characters.list(),
+       active_character: Pokex.Characters.active()
      )}
   end
 
@@ -503,6 +505,22 @@ defmodule PokexWeb.PanelLive do
        mini_game: status.mini_game,
        game: status.player_support
      )}
+  end
+
+  def handle_event("set_character", %{"character" => slug}, socket) do
+    :ok = Pokex.Characters.set_active(slug)
+    {:noreply, assign(socket, active_character: slug)}
+  end
+
+  def handle_event("create_character", %{"name" => name}, socket) do
+    case Pokex.Characters.create(name) do
+      {:ok, slug} ->
+        :ok = Pokex.Characters.set_active(slug)
+        {:noreply, assign(socket, characters: Pokex.Characters.list(), active_character: slug)}
+
+      {:error, _reason} ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("toggle_mini_game_sound", _params, socket) do
@@ -1597,6 +1615,53 @@ defmodule PokexWeb.PanelLive do
               </span>
             </div>
             <div class="flex items-center gap-2">
+              <form id="character-picker-form" phx-change="set_character">
+                <select
+                  id="character-picker"
+                  name="character"
+                  aria-label="Personagem ativo"
+                  class="select h-8 min-h-0 w-36 rounded-lg border border-pk-line-strong bg-pk-surface px-2 text-pk-meta text-pk-text-2 focus:border-pk-ok/60 focus:outline-none"
+                >
+                  <option value="" selected={@active_character == ""}>sem personagem</option>
+                  <option
+                    :for={c <- @characters}
+                    value={c.slug}
+                    selected={@active_character == c.slug}
+                  >
+                    {c.name}
+                  </option>
+                </select>
+              </form>
+              <details id="character-create" class="relative">
+                <summary
+                  class="grid size-8 cursor-pointer list-none place-items-center rounded-lg border border-pk-line-strong text-pk-text-2 transition hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white [&::-webkit-details-marker]:hidden"
+                  title="Criar personagem"
+                  aria-label="Criar personagem"
+                >
+                  <.icon name="hero-user-plus" class="size-4" />
+                </summary>
+                <form
+                  id="character-create-form"
+                  phx-submit="create_character"
+                  class="absolute right-0 top-10 z-50 flex w-56 items-center gap-2 rounded-lg border border-pk-line-strong bg-pk-surface p-2 shadow-2xl shadow-black/50"
+                >
+                  <input
+                    type="text"
+                    name="name"
+                    placeholder="nome do personagem"
+                    aria-label="Nome do novo personagem"
+                    autocomplete="off"
+                    required
+                    class="input h-8 min-h-0 w-full rounded-lg border border-pk-line-strong bg-pk-raised px-2 text-pk-meta text-pk-text placeholder:text-pk-text-3 focus:border-pk-ok/60 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    class="btn btn-outline h-8 min-h-0 shrink-0 rounded-lg border-pk-line-strong px-2.5 text-pk-meta font-semibold text-pk-text-2 hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white"
+                  >
+                    Criar
+                  </button>
+                </form>
+              </details>
               <span class="flex items-center gap-2 rounded-full border border-pk-line-strong px-2.5 py-1 font-mono text-pk-meta font-bold uppercase tracking-[0.14em] text-pk-text-2">
                 <span class={[
                   "size-1.5 rounded-full",

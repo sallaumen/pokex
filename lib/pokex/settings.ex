@@ -12,6 +12,9 @@ defmodule Pokex.Settings do
   require Logger
 
   @seed_settings %{
+    # Active character slug (see Pokex.Characters). "" = no character selected —
+    # per-character files (chars/<slug>/…) fall back to the legacy shared ones.
+    active_character: "",
     rod_key: "shift+v",
     skill_keys: ["1", "2", "3"],
     # Combat does not need the mouse once a target is locked. Fire a short keyboard-only burst

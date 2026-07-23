@@ -1732,6 +1732,13 @@ defmodule PokexWeb.PanelLive do
                     <.icon name="hero-eye" class="size-4 text-pk-text-2" /> Mundo
                   </.link>
                   <.link
+                    id="panel-nav-cavebot"
+                    navigate={~p"/cavebot"}
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body text-pk-text transition hover:bg-pk-raised hover:text-white"
+                  >
+                    <.icon name="hero-map" class="size-4 text-pk-text-2" /> Cavebot
+                  </.link>
+                  <.link
                     id="panel-nav-pokedex"
                     navigate={~p"/pokedex"}
                     class="flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body text-pk-text transition hover:bg-pk-raised hover:text-white"

@@ -11,6 +11,7 @@ defmodule PokexWeb.WorldLive do
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
   alias Pokex.World
+  alias PokexWeb.PositionReadout
 
   @refresh_ms 500
 
@@ -25,16 +26,37 @@ defmodule PokexWeb.WorldLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
       # feeds only capture while someone is attached — a watching page IS a
       # consumer, so :team and :minimap run exactly while they are looked at
+      # (:minimap included — without it the position on this page would be
+      # frozen at whatever the last OTHER consumer happened to publish)
       Pokex.Perception.DisplayFeeds.attach_all()
       Process.send_after(self(), :refresh, @refresh_ms)
     end
 
-    {:ok, assign(socket, page_title: "Mundo", entries: entries(), snapshot: World.snapshot())}
+    {:ok,
+     assign(socket,
+       page_title: "Mundo",
+       entries: entries(),
+       snapshot: World.snapshot(),
+       minimap_reads: 0,
+       minimap_misses: 0
+     )}
   end
 
   @impl true
   def handle_info(:refresh, socket) do
     Process.send_after(self(), :refresh, @refresh_ms)
+    {:noreply, assign(socket, entries: entries(), snapshot: World.snapshot())}
+  end
+
+  # The minimap publishes whether or not the coordinate came out readable
+  # (`pos: nil` IS the miss), so counting its publishes is the only place the
+  # good/bad ratio can come from — a fact that gets overwritten keeps no history.
+  def handle_info({:world, :minimap, obs}, socket) do
+    socket =
+      if Map.get(obs, :pos) == nil,
+        do: assign(socket, minimap_misses: socket.assigns.minimap_misses + 1),
+        else: assign(socket, minimap_reads: socket.assigns.minimap_reads + 1)
+
     {:noreply, assign(socket, entries: entries(), snapshot: World.snapshot())}
   end
 
@@ -105,9 +127,6 @@ defmodule PokexWeb.WorldLive do
 
   defp summary(_key, obs), do: inspect(obs, limit: 8, printable_limit: 120)
 
-  defp pos_text(nil), do: "?"
-  defp pos_text({x, y, z}), do: "#{x}, #{y} · andar #{z}"
-
   defp enemies_text(%{enemies: [], shiny?: false}), do: "livre"
   defp enemies_text(%{enemies: [], shiny?: true}), do: "✨ SHINY"
 
@@ -158,9 +177,24 @@ defmodule PokexWeb.WorldLive do
                 {num(@snapshot.me.level)} · {num(@snapshot.me.fishing)}
               </dd>
             </div>
-            <div>
+            <%!-- A posição é o campo que ele acompanha o tempo todo (é como ele
+                  confere se o bot sabe onde está), então ela não pode ser só um
+                  número mudo: vem com a IDADE e com a frase que separa "não
+                  estou lendo" de "estou lendo, e você está aqui". --%>
+            <div id="world-position">
               <dt class="font-mono text-[10px] uppercase text-[#69737b]">Posição</dt>
-              <dd class="font-mono text-sm text-[#d9dde1]">{pos_text(@snapshot.pos)}</dd>
+              <dd class="font-mono text-sm text-[#d9dde1]">
+                {PositionReadout.coords(@snapshot.pos)}
+              </dd>
+              <p class={[
+                "mt-0.5 font-mono text-[10px]",
+                PositionReadout.note_class(@snapshot.pos, @snapshot.pos_age_ms)
+              ]}>
+                {PositionReadout.note(@snapshot.pos, @snapshot.pos_age_ms)}
+              </p>
+              <p id="world-read-health" class="font-mono text-[10px] text-[#69737b]">
+                {PositionReadout.read_health(@minimap_reads, @minimap_misses)}
+              </p>
             </div>
             <div>
               <dt class="font-mono text-[10px] uppercase text-[#69737b]">Batalha</dt>

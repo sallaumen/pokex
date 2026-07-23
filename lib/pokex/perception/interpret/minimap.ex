@@ -29,7 +29,13 @@ defmodule Pokex.Perception.Interpret.Minimap do
 
         {x, y, w, h} ->
           {ox, oy, _, _} = Layout.region(:minimap, fix)
-          Glyphs.read_coord(frame, {x - ox, y - oy, w, h})
+          # com as opções que a REGIÃO declara: ignorá-las é como o piso de
+          # tinta de um slot do HUD deixar de valer justamente ao vivo
+          Glyphs.read_coord(
+            frame,
+            {x - ox, y - oy, w, h},
+            Layout.region_opts(fix, :minimap_coord)
+          )
       end
 
     accept(read, state)

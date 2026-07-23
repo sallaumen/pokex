@@ -369,6 +369,18 @@
     {
       "fixture": "ultrawide_3440x1440_time",
       "region": [
+        3171,
+        6,
+        160,
+        30
+      ],
+      "kind": "coord",
+      "expected": "(2597, 30640, 6)",
+      "note": "A ÚNICA captura cuja coordenada tem um 9. Sem este rótulo o atlas jamais aprendia o '9' da fonte da coordenada (15 linhas), e QUALQUER posição contendo um 9 lia '?' — read_coord exige confiança 1.0, então a coordenada simplesmente sumia. Era a metade sistemática do 'lê intermitente'."
+    },
+    {
+      "fixture": "ultrawide_3440x1440_time",
+      "region": [
         49,
         1109,
         50,

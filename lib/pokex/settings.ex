@@ -299,6 +299,18 @@ defmodule Pokex.Settings do
     escape_direction: "right",
     escape_steps: 2,
     escape_walk_wait_ms: 2_000,
+    # Logout automático: encerrar a sessão de verdade, porque PARAR o bot não
+    # economiza estamina — estamina queima enquanto o personagem está online.
+    # A tecla é ajuste (e não constante) pelo mesmo motivo que defense_mode_key
+    # é: o Lucas remapeia teclas no jogo. O padrão NUNCA é cmd+q, que no macOS
+    # fecharia o cliente inteiro.
+    logout_key: "ctrl+q",
+    logout_confirm_key: "enter",
+    logout_confirm_delay_ms: 300,
+    # Tempo dado à tela para trocar antes da primeira conferência. Se a tela do
+    # Lucas demorar mais, ele gasta uma tentativa à toa — ainda converge.
+    logout_verify_delay_ms: 1_500,
+    logout_attempts: 3,
     # Max age of the :mini_game WorldState fact before readers treat it as unknown
     # (= not playing, fail-open). The worker republishes every tick (80-150ms), so
     # 2s only trips when the worker is dead or a capture is badly stuck — exactly

@@ -33,6 +33,9 @@ defmodule Pokex.Application do
       # The anti-shiny watchdog (always-on like Guardian; manages its own
       # arena-feed attachment from the shiny_guard_enabled setting).
       Pokex.Bots.ShinyGuard,
+      # Encerra a sessão de verdade quando uma regra manda (ociosidade, meta) ou
+      # quando o Lucas aperta o botão. Depois do BotSupervisor porque para a frota.
+      Pokex.Bots.Logout,
       Pokex.Layout.Sentinel,
       Pokex.Bots.StockAlerts,
       Pokex.Combos.Runner,

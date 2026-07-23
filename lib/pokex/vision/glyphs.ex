@@ -310,6 +310,18 @@ defmodule Pokex.Vision.Glyphs do
     %{text: chars |> Enum.reverse() |> Enum.join(), confidence: confidence(known, glyphs)}
   end
 
+  @doc """
+  Whether the region has NO ink at all — confidently blank, not merely unread.
+
+  `read_int/3` answers nil both for "there is nothing here" and for "there is
+  something here I could not read", and those mean opposite things to a caller:
+  an empty hotbar slot genuinely holds zero items, while an unreadable one holds
+  an unknown number that must NEVER be reported as zero — a bad read of 561
+  potions turning into 0 would fire a false low-stock alarm.
+  """
+  def blank?(%Frame{} = frame, region, opts \\ []),
+    do: segment(frame, region, opts) == []
+
   @doc "An integer, or nil when anything at all was uncertain — never a guess."
   def read_int(%Frame{} = frame, region, opts \\ []) do
     case read_line(frame, region, opts) do

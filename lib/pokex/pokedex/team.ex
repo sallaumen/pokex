@@ -210,7 +210,7 @@ defmodule Pokex.Pokedex.Team do
   end
 
   defp persist(data) do
-    File.mkdir_p!(Home.dir())
+    File.mkdir_p!(Path.dirname(file()))
 
     File.write!(
       file(),
@@ -225,5 +225,14 @@ defmodule Pokex.Pokedex.Team do
     data
   end
 
-  defp file, do: Path.join(Home.dir(), "team.json")
+  @doc """
+  Where the team lives NOW: the legacy shared `team.json` when no character is
+  selected, or the active character's own `chars/<slug>/team.json`.
+  """
+  def file do
+    case Pokex.Characters.active() do
+      "" -> Path.join(Home.dir(), "team.json")
+      slug -> Path.join([Home.dir(), "chars", slug, "team.json"])
+    end
+  end
 end

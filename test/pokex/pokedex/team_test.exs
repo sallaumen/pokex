@@ -110,4 +110,41 @@ defmodule Pokex.Pokedex.TeamTest do
     assert Team.members() == []
     assert Team.bank() == []
   end
+
+  # file/0 reads the GLOBAL Settings (via Characters.active/0), so these tests
+  # set :active_character globally — SettingsStash restores it on exit.
+  @tag :tmp_dir
+  test "sem personagem lê o team.json legado; com personagem lê chars/<slug>", %{tmp_dir: tmp} do
+    Pokex.SettingsStash.stash_keys!([:active_character])
+
+    Pokex.Settings.put(:active_character, "")
+    assert Team.file() == Path.join(tmp, "team.json")
+
+    Pokex.Settings.put(:active_character, "lowbie")
+    assert Team.file() == Path.join([tmp, "chars", "lowbie", "team.json"])
+  end
+
+  @tag :tmp_dir
+  test "round-trip por personagem: grava em chars/<slug> e o legado reaparece ao voltar",
+       %{tmp_dir: tmp} do
+    Pokex.SettingsStash.stash_keys!([:active_character])
+
+    # no character selected: the legacy team
+    Pokex.Settings.put(:active_character, "")
+    assert {:ok, _} = Team.add("Venusaur")
+    assert Team.member_names() == ["Venusaur"]
+
+    # switching to a character starts from ITS OWN (empty) team...
+    Pokex.Settings.put(:active_character, "lowbie")
+    assert Team.members() == []
+
+    # ...and writes land under chars/<slug>/team.json
+    assert {:ok, _} = Team.add("Seadra")
+    assert Team.member_names() == ["Seadra"]
+    assert File.exists?(Path.join([tmp, "chars", "lowbie", "team.json"]))
+
+    # back to no character: the legacy team reappears untouched
+    Pokex.Settings.put(:active_character, "")
+    assert Team.member_names() == ["Venusaur"]
+  end
 end

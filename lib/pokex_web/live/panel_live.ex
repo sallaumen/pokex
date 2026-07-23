@@ -66,6 +66,7 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Layout.Sentinel.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.StockAlerts.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Combos.Runner.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Logout.topic())
       # feeds only capture while someone is attached — a watching page IS a
       # consumer, so :team and :minimap run exactly while they are looked at
       Pokex.Perception.DisplayFeeds.attach_all()
@@ -105,6 +106,8 @@ defmodule PokexWeb.PanelLive do
        stop_after_kills: Settings.get(:stop_after_kills),
        stagnation_minutes: Settings.get(:stagnation_minutes),
        stagnation_action: Settings.get(:stagnation_action),
+       stop_after_action: Settings.get(:stop_after_action),
+       logout: safe_logout_status(),
        escape_direction: Settings.get(:escape_direction),
        escape_steps: Settings.get(:escape_steps),
        escape_walk_wait_ms: Settings.get(:escape_walk_wait_ms),
@@ -509,6 +512,8 @@ defmodule PokexWeb.PanelLive do
     {:noreply, socket}
   end
 
+  def handle_info({:logout, snapshot}, socket), do: {:noreply, assign(socket, logout: snapshot)}
+
   # A REDE DE SEGURANÇA, e ela faltava: sem esta cláusula, a primeira mensagem
   # de um tópico novo derruba a LiveView inteira com FunctionClauseError. Não é
   # hipótese — o painel assina nove tópicos, e o mais novo deles (a caçada) fala
@@ -576,6 +581,21 @@ defmodule PokexWeb.PanelLive do
       |> save_int(params["stop_minutes"], 0..999, :stop_after_minutes, :stop_after_minutes)
       |> save_int(params["stop_kills"], 0..9999, :stop_after_kills, :stop_after_kills)
 
+    socket =
+      case params["stop_after_action"] do
+        action when action in ["parar", "deslogar"] ->
+          Settings.put(:stop_after_action, action)
+          assign(socket, stop_after_action: action)
+
+        _invalid ->
+          socket
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("logout_now", _params, socket) do
+    safe_logout_request()
     {:noreply, socket}
   end
 
@@ -591,7 +611,7 @@ defmodule PokexWeb.PanelLive do
 
     socket =
       case params["stagnation_action"] do
-        action when action in ["alarme", "parar"] ->
+        action when action in ["alarme", "parar", "deslogar"] ->
           Settings.put(:stagnation_action, action)
           assign(socket, stagnation_action: action)
 
@@ -1029,6 +1049,47 @@ defmodule PokexWeb.PanelLive do
         {:noreply, assign(socket, report: nil, report_msg: "erro: #{inspect(reason)}")}
     end
   end
+
+  # O Logout global fica inerte na suíte (:logout_active), então nem o mount nem
+  # o botão podem depender de o processo responder — um call pra processo ausente
+  # derrubaria a página inteira.
+  defp safe_logout_status do
+    Pokex.Bots.Logout.status()
+  catch
+    :exit, _reason ->
+      %{
+        state: :idle,
+        reason: nil,
+        attempt: 0,
+        attempts: 0,
+        error: nil,
+        finished_at: nil,
+        duplicates: 0
+      }
+  end
+
+  defp safe_logout_request do
+    Pokex.Bots.Logout.request("manual (painel)")
+  catch
+    :exit, _reason -> :ok
+  end
+
+  # O painel nunca diz "deslogado" por omissão: cada estado tem seu texto, e a
+  # falha diz POR QUE falhou.
+  defp logout_label(%{state: :idle}), do: "nenhum logout ainda"
+
+  defp logout_label(%{state: :pressing, attempt: n, attempts: total}),
+    do: "apertando… tentativa #{n}/#{total}"
+
+  defp logout_label(%{state: :verifying, attempt: n, attempts: total}),
+    do: "conferindo a tela… tentativa #{n}/#{total}"
+
+  defp logout_label(%{state: :out, reason: motivo}), do: "deslogado — #{motivo}"
+
+  defp logout_label(%{state: :failed, error: erro, reason: motivo}),
+    do: "FALHOU (#{erro}) — #{motivo}"
+
+  defp logout_label(_desconhecido), do: "—"
 
   # Turning a support feature ON re-arms the (idempotent) monitor — the natural re-enable after
   # a panic halted it. Gated by the same env flag as the boot auto-start so the app-global
@@ -2750,12 +2811,22 @@ defmodule PokexWeb.PanelLive do
                 phx-debounce="500"
                 class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
               />
-              <span>kills (0 = nunca)</span>
+              <span>kills (0 = nunca) →</span>
+              <select
+                id="stop-after-action"
+                name="stop_after_action"
+                class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+              >
+                <option value="parar" selected={@stop_after_action == "parar"}>parar tudo</option>
+                <option value="deslogar" selected={@stop_after_action == "deslogar"}>
+                  deslogar
+                </option>
+              </select>
             </form>
             <form
               id="stagnation-form"
               phx-change="save_stagnation"
-              title="Anti-estagnação: sessão rodando mas sem NENHUM kill nem fisgada pela janela toda = bot travado (água vazia, detector preso). Alarme re-toca a cada janela de silêncio; Parar usa a mesma trava do Stop. 0 = desligado."
+              title="Anti-estagnação: sessão rodando mas sem NENHUM kill nem peixe (minigame vencido) pela janela toda = bot travado. Fisgada não conta enquanto o vigia do minigame está ligado: com o minigame travado a vara fisga a noite toda sem pegar nada. Alarme re-toca a cada janela; Parar usa a trava do Stop; Deslogar encerra a conta — o único que economiza estamina."
               class="mt-1 flex items-center gap-1 px-0.5 font-mono text-pk-meta text-pk-text-3"
             >
               <span>😴 sem atividade por</span>
@@ -2778,8 +2849,24 @@ defmodule PokexWeb.PanelLive do
               >
                 <option value="alarme" selected={@stagnation_action == "alarme"}>alarme</option>
                 <option value="parar" selected={@stagnation_action == "parar"}>parar tudo</option>
+                <option value="deslogar" selected={@stagnation_action == "deslogar"}>
+                  deslogar
+                </option>
               </select>
             </form>
+            <div class="mt-1 flex items-center gap-2 px-0.5">
+              <button
+                type="button"
+                phx-click="logout_now"
+                title="Encerra a sessão no jogo (Ctrl+Q + Enter), para tudo e confere na tela se saiu mesmo. Parar o bot não economiza estamina; deslogar economiza."
+                class="h-6 shrink-0 rounded border border-pk-line-strong px-2 font-mono text-pk-meta text-pk-text-2 hover:border-pk-warn hover:text-pk-warn focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-pk-warn"
+              >
+                🚪 Deslogar agora
+              </button>
+              <span class="truncate font-mono text-pk-meta text-pk-text-3">
+                {logout_label(@logout)}
+              </span>
+            </div>
           </section>
 
           <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-surface">

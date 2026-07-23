@@ -1458,4 +1458,95 @@ defmodule PokexWeb.PanelLiveTest do
       assert Pokex.Settings.get(:active_character) == "lowbie"
     end
   end
+
+  describe "logout" do
+    setup do
+      on_exit(fn ->
+        Pokex.Settings.put(:stagnation_action, "alarme")
+        Pokex.Settings.put(:stop_after_action, "parar")
+      end)
+
+      :ok
+    end
+
+    test "o botão 'Deslogar agora' existe e clicar nele não derruba a página", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, ~s(button[phx-click="logout_now"]))
+
+      # o Logout global fica inerte na suíte — o clique tem que sobreviver a isso
+      render_click(view, "logout_now")
+      assert render(view) =~ "Deslogar agora"
+    end
+
+    test "o painel mostra o desfecho do logout, e uma mensagem estranha não o derruba", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      send(
+        view.pid,
+        {:logout,
+         %{
+           state: :out,
+           reason: "manual (painel)",
+           attempt: 1,
+           attempts: 3,
+           error: nil,
+           finished_at: 1,
+           duplicates: 0
+         }}
+      )
+
+      assert render(view) =~ "deslogado — manual (painel)"
+
+      # e uma falha diz POR QUE falhou, nunca só "falhou"
+      send(
+        view.pid,
+        {:logout,
+         %{
+           state: :failed,
+           reason: "estagnação",
+           attempt: 3,
+           attempts: 3,
+           error: :ainda_logado,
+           finished_at: 2,
+           duplicates: 0
+         }}
+      )
+
+      assert render(view) =~ "FALHOU (ainda_logado)"
+
+      # qualquer coisa sem cláusula continua sendo ignorada em vez de derrubar
+      send(view.pid, {:mensagem_que_ninguem_espera, 42})
+      assert render(view) =~ "Deslogar agora"
+    end
+
+    test "os dois seletores de ação oferecem deslogar", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, ~s(select#stagnation-action option[value="deslogar"]))
+      assert has_element?(view, ~s(select#stop-after-action option[value="deslogar"]))
+    end
+
+    test "escolher deslogar nos dois seletores grava o ajuste", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view
+      |> element("#stagnation-form")
+      |> render_change(%{"stagnation_minutes" => "5", "stagnation_action" => "deslogar"})
+
+      assert Pokex.Settings.get(:stagnation_action) == "deslogar"
+
+      view
+      |> element("#stop-conditions-form")
+      |> render_change(%{
+        "stop_minutes" => "0",
+        "stop_kills" => "0",
+        "stop_after_action" => "deslogar"
+      })
+
+      assert Pokex.Settings.get(:stop_after_action) == "deslogar"
+    end
+  end
 end

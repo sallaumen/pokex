@@ -59,9 +59,14 @@ defmodule Pokex.Bots.LogoutTest do
       snap = Logout.status(pid)
 
       cond do
-        snap.state == wanted -> snap
-        System.monotonic_time(:millisecond) > deadline -> flunk("ficou em #{snap.state}, esperava #{wanted}")
-        true -> Process.sleep(10) && poll.(poll)
+        snap.state == wanted ->
+          snap
+
+        System.monotonic_time(:millisecond) > deadline ->
+          flunk("ficou em #{snap.state}, esperava #{wanted}")
+
+        true ->
+          Process.sleep(10) && poll.(poll)
       end
     end
 

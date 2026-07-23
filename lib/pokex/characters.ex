@@ -13,6 +13,7 @@ defmodule Pokex.Characters do
   alias Pokex.Settings
 
   @name_file "name.txt"
+  @topic "characters"
 
   def chars_dir, do: Path.join(Pokex.Home.dir(), "chars")
 
@@ -78,15 +79,65 @@ defmodule Pokex.Characters do
     end
   end
 
-  def delete(slug) do
+  @doc """
+  Apaga o personagem — e larga o ponteiro se era ele que estava ativo.
+
+  Sem a segunda parte, apagar o ativo deixava `:active_character` apontando pra
+  uma pasta que não existe mais: o time some da tela (o arquivo dele sumiu) e as
+  configurações do painel voltam pra base — sem nada dizendo por quê.
+  """
+  def delete(slug, server \\ Settings) do
     File.rm_rf!(char_dir(slug))
+    if active(server) == slug, do: set_active("", server)
+    :ok
+  end
+
+  @doc """
+  Zera um ponteiro órfão: `:active_character` apontando pra pasta que não existe.
+
+  Acontece de verdade — a pasta apagada por fora, um slug escrito à mão, uma
+  build antiga. O estrago é silencioso e confuso: o `/time` mostra um time
+  VAZIO em vez do seu (Lucas, 2026-07-23 — o `team.json` dele estava intacto o
+  tempo todo), e o painel edita a configuração de um personagem que não existe.
+  Rodado no boot, depois que o Settings sobe.
+  """
+  def heal_active(server \\ Settings) do
+    slug = active(server)
+
+    if slug != "" and not File.dir?(char_dir(slug)) do
+      set_active("", server)
+    end
+
     :ok
   end
 
   @doc "The active character's slug (\"\" = no character selected)."
   def active(server \\ Settings), do: Settings.get(:active_character, server)
 
-  def set_active(slug, server \\ Settings), do: Settings.put(:active_character, slug, server)
+  @doc "PubSub topic that announces `{:character, slug}` whenever the active one changes."
+  def topic, do: @topic
+
+  @doc """
+  Switches the active character AND announces it on `topic/0`.
+
+  The announcement lives HERE, not in the header that happens to own the picker:
+  a page showing the wrong character's team is wrong no matter who flipped the
+  switch. Whoever changes it, everyone hears.
+  """
+  def set_active(slug, server \\ Settings) do
+    :ok = Settings.put(:active_character, slug, server)
+    announce(slug)
+    :ok
+  end
+
+  # The bot must keep running on a machine where PubSub is not up (early boot,
+  # a tmp-scoped test instance): a failed announcement is not a failed switch.
+  defp announce(slug) do
+    Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:character, slug})
+    :ok
+  catch
+    _kind, _reason -> :ok
+  end
 
   defp char_dir(slug), do: Path.join(chars_dir(), slug)
   defp name_path(slug), do: Path.join(char_dir(slug), @name_file)

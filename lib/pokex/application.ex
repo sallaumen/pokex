@@ -46,7 +46,13 @@ defmodule Pokex.Application do
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Pokex.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children, opts) do
+      # Depois do Settings: um `:active_character` apontando pra pasta que não
+      # existe mais faz o time e as configurações do painel sumirem sem aviso.
+      Pokex.Characters.heal_active()
+      {:ok, pid}
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration

@@ -10,6 +10,7 @@ defmodule PokexWeb.TeamLive do
   still computes it for whoever wants it back.
   """
   use PokexWeb, :live_view
+  @behaviour PokexWeb.CharacterAware
 
   alias Pokex.Pokedex
   alias Pokex.Pokedex.Team
@@ -28,6 +29,11 @@ defmodule PokexWeb.TeamLive do
      )
      |> assign_team()}
   end
+
+  # Cada personagem tem o SEU time (chars/<slug>/team.json). Trocar no header
+  # tem que trocar a lista aqui na hora — era a página que mais mentia sem isso.
+  @impl PokexWeb.CharacterAware
+  def on_character_change(socket), do: assign_team(socket)
 
   @impl true
   def handle_event("add", %{"member" => name, "where" => where}, socket) do

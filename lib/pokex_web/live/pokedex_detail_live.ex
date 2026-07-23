@@ -9,6 +9,7 @@ defmodule PokexWeb.PokedexDetailLive do
   back button always meaningful.
   """
   use PokexWeb, :live_view
+  @behaviour PokexWeb.CharacterAware
 
   alias Pokex.Pokedex
   alias Pokex.Pokedex.Team
@@ -17,6 +18,14 @@ defmodule PokexWeb.PokedexDetailLive do
   @impl true
   def mount(_params, _session, socket),
     do: {:ok, assign(socket, species_names: Enum.map(Pokedex.search(%{}), & &1.name))}
+
+  # "Está no meu time?" e o confronto contra o time são do personagem ativo —
+  # trocar de personagem muda as duas respostas nesta página.
+  @impl PokexWeb.CharacterAware
+  def on_character_change(%{assigns: %{entry: %{name: name}}} = socket),
+    do: assign_entry(socket, name)
+
+  def on_character_change(socket), do: socket
 
   # handle_params (not mount) owns the lookup so evolution/shiny links between
   # detail pages patch in place — no full remount, "bem ágil".

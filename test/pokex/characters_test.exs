@@ -28,4 +28,44 @@ defmodule Pokex.CharactersTest do
     :ok = Characters.set_active("lowbie", s)
     assert Characters.active(s) == "lowbie"
   end
+
+  test "trocar de personagem avisa quem estiver ouvindo", %{settings: s} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Characters.topic())
+
+    :ok = Characters.set_active("lowbie", s)
+
+    assert_receive {:character, "lowbie"}
+  end
+
+  test "apagar o personagem ATIVO larga o ponteiro", %{settings: s} do
+    {:ok, slug} = Characters.create("Lowbie")
+    :ok = Characters.set_active(slug, s)
+
+    :ok = Characters.delete(slug, s)
+
+    # senão o ponteiro fica apontando pra uma pasta que não existe mais: o time
+    # aparece vazio e o painel edita a config de um personagem inexistente
+    assert Characters.active(s) == ""
+  end
+
+  test "apagar um personagem QUALQUER não mexe em quem está ativo", %{settings: s} do
+    {:ok, main} = Characters.create("Main")
+    {:ok, outro} = Characters.create("Outro")
+    :ok = Characters.set_active(main, s)
+
+    :ok = Characters.delete(outro, s)
+
+    assert Characters.active(s) == main
+  end
+
+  test "heal_active zera um ponteiro órfão e preserva um válido", %{settings: s} do
+    :ok = Characters.set_active("fantasma", s)
+    :ok = Characters.heal_active(s)
+    assert Characters.active(s) == ""
+
+    {:ok, slug} = Characters.create("De Verdade")
+    :ok = Characters.set_active(slug, s)
+    :ok = Characters.heal_active(s)
+    assert Characters.active(s) == slug
+  end
 end

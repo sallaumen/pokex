@@ -13,6 +13,11 @@ defmodule PokexWeb.HeaderState do
   (`:cont`); nas outras páginas ele assina e para a mensagem aqui (`:halt`) —
   uma página sem cláusula pra `{:fishing, _}` levantaria FunctionClauseError no
   `handle_info/2`.
+
+  Trocar de personagem também passa por aqui: o header ouve
+  `Pokex.Characters.topic/0` e manda a página se recarregar via
+  `PokexWeb.CharacterAware` — inclusive uma aba aberta em outra página, que
+  antes ficava mostrando os dados do personagem antigo.
   """
   import Phoenix.Component, only: [assign: 2, assign: 3]
   import Phoenix.LiveView, only: [attach_hook: 4, connected?: 1]
@@ -28,6 +33,7 @@ defmodule PokexWeb.HeaderState do
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @focus_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Characters.topic())
 
       if owns_workers?,
         do: Enum.each(@worker_topics, &Phoenix.PubSub.subscribe(Pokex.PubSub, &1))
@@ -64,6 +70,12 @@ defmodule PokexWeb.HeaderState do
   defp info({:focus, %{focused?: focused?}}, socket),
     do: {:halt, assign(socket, focused?: focused?)}
 
+  # Sempre `:halt`: nenhuma página trata `{:character, _}` no próprio
+  # `handle_info/2` — quem tem dados de personagem implementa
+  # `PokexWeb.CharacterAware` e é chamado aqui. Deixar passar levantaria
+  # FunctionClauseError em toda página que não conhece a mensagem.
+  defp info({:character, slug}, socket), do: {:halt, apply_character(socket, slug)}
+
   defp info({:fishing, %{state: state}}, socket), do: worker_state(socket, :fishing, state)
   defp info({:combat, %{state: state}}, socket), do: worker_state(socket, :combat, state)
   defp info(_msg, socket), do: {:cont, socket}
@@ -79,14 +91,14 @@ defmodule PokexWeb.HeaderState do
 
   defp event("set_character", %{"character" => slug}, socket) do
     :ok = Characters.set_active(slug)
-    {:halt, assign(socket, active_character: slug)}
+    {:halt, apply_character(socket, slug)}
   end
 
   defp event("create_character", %{"name" => name}, socket) do
     case Characters.create(name) do
       {:ok, slug} ->
         :ok = Characters.set_active(slug)
-        {:halt, assign(socket, characters: Characters.list(), active_character: slug)}
+        {:halt, apply_character(socket, slug)}
 
       {:error, _reason} ->
         {:halt, socket}
@@ -94,6 +106,26 @@ defmodule PokexWeb.HeaderState do
   end
 
   defp event(_event, _params, socket), do: {:cont, socket}
+
+  # Aplicado nos DOIS caminhos (a troca feita aqui e o aviso que chega pelo
+  # PubSub) de propósito: a troca não pode depender do broadcast voltar, e o
+  # broadcast é o que faz uma aba parada acompanhar a troca feita em outra.
+  # Reaplicar é inofensivo — tudo aqui é releitura da fonte.
+  defp apply_character(socket, slug) do
+    socket
+    |> assign(characters: Characters.list(), active_character: slug)
+    |> reload_page()
+  end
+
+  defp reload_page(socket) do
+    view = socket.view
+
+    if Code.ensure_loaded?(view) and function_exported?(view, :on_character_change, 1) do
+      view.on_character_change(socket)
+    else
+      socket
+    end
+  end
 
   # O Catcher fica de fora de propósito: em modo "movimento" ele reporta :manual sempre
   # — escolha de exibição, não sinal de ligado/parado. Mesma regra que o painel usa.

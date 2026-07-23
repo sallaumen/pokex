@@ -24,10 +24,11 @@ defmodule Pokex.Perception.Interpret.Hud do
 
       {ox, oy, _w, _h} ->
         read = &read_int(frame, fix, &1, {ox, oy})
+        count = &read_count(frame, fix, :"slot_#{&1}", {ox, oy})
 
         @fields
         |> Map.new(&{&1, read.(&1)})
-        |> Map.put(:slots, Map.new(@slots, &{&1, read.(:"slot_#{&1}")}))
+        |> Map.put(:slots, Map.new(@slots, &{&1, count.(&1)}))
     end
   end
 
@@ -43,6 +44,30 @@ defmodule Pokex.Perception.Interpret.Hud do
 
       {x, y, w, h} ->
         Glyphs.read_int(frame, {x - ox, y - oy, w, h}, Layout.region_opts(fix, region))
+    end
+  end
+
+  # Um slot de atalho VAZIO não desenha número nenhum — e isso é uma leitura
+  # confiante de zero, não uma falha. Só que ele vale zero apenas quando a região
+  # não tem tinta NENHUMA: se há algo escrito ali que não deu pra ler, continua
+  # nil. Reportar um 561 mal lido como 0 dispararia alarme falso de estoque, que
+  # é pior do que o "?" honesto.
+  #
+  # Vale só pros slots: level, comida e pesca SEMPRE têm número na tela, então
+  # região vazia ali significa região errada — nunca zero.
+  defp read_count(frame, fix, region, {ox, oy}) do
+    case Layout.region(region, fix) do
+      nil ->
+        nil
+
+      {x, y, w, h} ->
+        rect = {x - ox, y - oy, w, h}
+        opts = Layout.region_opts(fix, region)
+
+        case Glyphs.read_int(frame, rect, opts) do
+          nil -> if Glyphs.blank?(frame, rect, opts), do: 0, else: nil
+          count -> count
+        end
     end
   end
 end

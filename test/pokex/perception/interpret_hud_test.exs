@@ -52,6 +52,22 @@ defmodule Pokex.Perception.InterpretHudTest do
       assert obs.slots == %{f1: 322, f2: 36, e: 7, s_q: 43}
     end
 
+    # Ele testou num personagem novo: só o F1 tem item, os outros estão vazios.
+    # Vazio não é falha de leitura — é zero. Mas SÓ quando não há tinta nenhuma:
+    # um 561 mal lido virando 0 dispararia alarme falso de estoque.
+    test "slot vazio lê 0; level/comida/pesca vazios continuam nil", %{fix: fix, calib: calib} do
+      {_x, _y, w, h} = Layout.region(:hud_bottom, fix)
+      blank = Pokex.FrameFixtures.of(w, h, fn _x, _y -> {0, 0, 0} end)
+
+      obs = Hud.interpret(blank, calib, %{})
+
+      assert obs.slots == %{f1: 0, f2: 0, e: 0, s_q: 0}
+      # estes SEMPRE têm número na tela: vazio ali é região errada, nunca zero
+      assert obs.level == nil
+      assert obs.food == nil
+      assert obs.fishing == nil
+    end
+
     test "an uncalibrated system yields nils, never invented numbers" do
       blind = %Calibration{scale: 1.0, layout: nil}
       obs = Hud.interpret(Pokex.FrameFixtures.of(10, 10, fn _x, _y -> {0, 0, 0} end), blind, %{})

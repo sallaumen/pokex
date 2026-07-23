@@ -22,6 +22,11 @@ defmodule Pokex.World do
               shiny?: false,
               engaged?: false,
               pos: nil,
+              # Age of the :minimap fact ITSELF, gate or no gate — nil only when
+              # nothing was ever published. `pos` alone cannot tell "o feed
+              # parou" from "o feed está lendo e a coordenada saiu ilegível":
+              # both arrive as nil, and they have opposite fixes.
+              pos_age_ms: nil,
               layout?: false,
               at: nil
   end
@@ -29,6 +34,9 @@ defmodule Pokex.World do
   # A fact older than this is not the present any more. Generous next to the
   # feed cadences (250-500ms) so a single slow tick never blanks the page.
   @max_age_ms 5_000
+
+  @doc "The age past which a fact stops counting as the present."
+  def max_age_ms, do: @max_age_ms
 
   @doc "The current world, assembled from every fact a feed has published."
   def snapshot(now \\ nil) do
@@ -56,6 +64,7 @@ defmodule Pokex.World do
       shiny?: (battle[:shiny_rows] || []) != [],
       engaged?: battle[:locked?] == true,
       pos: minimap[:pos],
+      pos_age_ms: WorldState.age(:minimap, now),
       # NOT time-limited: the layout is configuration, not an observation. It
       # stops being true when the panels MOVE (the sentinel's job to notice),
       # never merely because it was located a while ago.

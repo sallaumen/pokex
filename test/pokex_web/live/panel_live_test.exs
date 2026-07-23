@@ -1073,6 +1073,187 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "screencapture CLI" or html =~ "ScreenCaptureKit"
   end
 
+  describe "a caçada no painel" do
+    # A caçada morria em ~6s "sem dizer nada" — e não dizia mesmo: o worker
+    # emitia snapshot, log e alarme, e o painel não assinava o tópico. Estes
+    # testes guardam o consumo dessas três mensagens.
+    @cavebot_topic Pokex.Bots.Cavebot.Worker.topic()
+
+    defp walking_snapshot(overrides \\ %{}) do
+      Map.merge(
+        %{
+          state: :walking,
+          route: "cavena",
+          wp_index: 2,
+          wp_total: 9,
+          wp_target: %{x: 337, y: 46_107, z: 4},
+          pos: {332, 46_106, 4},
+          pos_age_ms: 120,
+          distance_tiles: %{dx: 5, dy: 1},
+          hold_reason: nil,
+          last_action: %{text: "passo 5,1", at: System.monotonic_time(:millisecond)},
+          counters: %{waypoints: 2, steps: 41}
+        },
+        overrides
+      )
+    end
+
+    test "a pílula da caçada existe no mount e conta a rota quando ele anda", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/")
+
+      assert html =~ "Caçada"
+      assert has_element?(view, "[data-testid=cavebot-pill]")
+
+      Phoenix.PubSub.broadcast(Pokex.PubSub, @cavebot_topic, {:cavebot, walking_snapshot()})
+
+      row = view |> element("[data-testid=cavebot-pill]") |> render()
+
+      assert row =~ "andando"
+      assert row =~ "cavena"
+      # o índice é 0-based no worker e 1-based na tela: é o número que ele
+      # reconhece na lista de waypoints do /cavebot
+      assert row =~ "wp 3/9"
+      assert row =~ "faltam 5,1 tiles"
+      assert row =~ "41 passos"
+      assert has_element?(view, "[data-testid=cavebot-pill][data-state=walking]")
+    end
+
+    test "uma linha da caçada aparece no feed", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @cavebot_topic,
+        {:cavebot_log, :macro, "caçada: waypoint 3/9"}
+      )
+
+      feed = view |> element("#activity-feed") |> render()
+      assert feed =~ "caçada: waypoint 3/9"
+      assert feed =~ "🧭"
+    end
+
+    test "o chip 🧭 filtra o feed da caçada (comparação exata de binário)", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @cavebot_topic,
+        {:cavebot_log, :macro, "caçada: waypoint 3/9"}
+      )
+
+      Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, :macro, "arremesso"})
+
+      # o filtro compara a fonte por igualdade EXATA: um emoji com variation
+      # selector digitado diferente nos dois lugares filtraria um feed vazio
+      view
+      |> element(~s(button[phx-click="filter_feed"][phx-value-source="🧭"]))
+      |> render_click()
+
+      feed = view |> element("#activity-feed") |> render()
+      assert feed =~ "caçada: waypoint 3/9"
+      refute feed =~ "arremesso"
+    end
+
+    test "um bloqueio não derruba a LiveView e vira linha visível", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      Phoenix.PubSub.broadcast(Pokex.PubSub, @cavebot_topic, {:cavebot_alarm, :stuck})
+
+      # a LiveView continua de pé — sem catch-all de handle_info isto era um
+      # FunctionClauseError no PIOR momento possível: o do bloqueio
+      assert render(view) =~ "Caçada"
+      assert view |> element("#activity-feed") |> render() =~ "caçada parada: travado"
+    end
+
+    test "um estado parado NUNCA acende a bolinha de ativo", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      for state <- [:blocked, :stuck, :fight_stalled] do
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @cavebot_topic,
+          {:cavebot,
+           walking_snapshot(%{state: state, hold_reason: "parei: travado, sem sair do lugar"})}
+        )
+
+        row = view |> element("[data-testid=cavebot-pill]") |> render()
+
+        refute row =~ "bg-pk-ok",
+               "#{state} acendeu verde — um cavebot parado não pode parecer saudável"
+
+        assert row =~ "bg-pk-text-3"
+        assert row =~ "🔒 parei: travado"
+      end
+    end
+
+    test "uma mensagem desconhecida no tópico não derruba o painel", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      send(view.pid, {:cavebot_something_new, %{}})
+
+      assert render(view) =~ "Caçada"
+    end
+  end
+
+  describe "a posição no painel" do
+    setup do
+      on_exit(fn -> Pokex.Perception.WorldState.forget(:minimap) end)
+      :ok
+    end
+
+    test "uma leitura boa diz ONDE ele está e há quanto tempo", %{conn: conn} do
+      now = System.monotonic_time(:millisecond)
+      Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now)
+
+      {:ok, view, _} = live(conn, ~p"/")
+
+      position = view |> element("#world-position") |> render()
+      assert position =~ "337, 46107 · andar 4"
+      assert position =~ "lendo tua posição"
+      assert position =~ "agora"
+    end
+
+    test "parar de ler é dito com todas as letras, com a idade da última leitura", %{conn: conn} do
+      now = System.monotonic_time(:millisecond)
+      Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now - 20_000)
+
+      {:ok, view, _} = live(conn, ~p"/")
+
+      position = view |> element("#world-position") |> render()
+      assert position =~ "NÃO estou lendo tua posição"
+      assert position =~ "há 20s"
+    end
+
+    test "coordenada ilegível é diferente de feed parado", %{conn: conn} do
+      # o feed está lendo AGORA; quem falhou foi a coordenada (a leitura é
+      # tudo-ou-nada, um glifo duvidoso derruba as três casas)
+      now = System.monotonic_time(:millisecond)
+      Pokex.Perception.WorldState.put(:minimap, %{pos: nil}, now)
+
+      {:ok, view, _} = live(conn, ~p"/")
+
+      position = view |> element("#world-position") |> render()
+      assert position =~ "coordenada saiu ilegível"
+      refute position =~ "NÃO estou lendo"
+    end
+
+    test "a proporção de leitura boa/ruim conta as publicações do feed", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      assert view |> element("#world-read-health") |> render() =~ "aguardando a primeira leitura"
+
+      for obs <- [%{pos: {1, 2, 3}}, %{pos: {1, 2, 3}}, %{pos: nil}] do
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          Pokex.Perception.topic(),
+          {:world, :minimap, obs}
+        )
+      end
+
+      assert view |> element("#world-read-health") |> render() =~ "67% (2 ok, 1 falhas)"
+    end
+  end
+
   describe "o card de combos" do
     setup do
       tmp =
@@ -1207,7 +1388,7 @@ defmodule PokexWeb.PanelLiveTest do
     test "o estado dos workers não é escrito em caixa alta espaçada", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
-      for testid <- ~w(fishing combat catcher mini-game support) do
+      for testid <- ~w(fishing combat catcher mini-game support cavebot) do
         row = view |> element(~s([data-testid="#{testid}-pill"])) |> render()
 
         refute row =~ "uppercase",

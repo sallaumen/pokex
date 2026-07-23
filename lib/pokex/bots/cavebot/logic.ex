@@ -15,6 +15,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
   Estados: `:walking` → `:fighting` → `:post_fight` → `:walking`, com os
   desvios `:stuck` (sem progresso andando), `:fight_stalled` (luta que não
   termina) e `:blocked` (terminal: mudança de andar ou retries esgotados).
+
+  Cegueira (posição desconhecida) NÃO é estado: segurar o passo é o certo, e um
+  segundo de leitura ruim é rotina — virar `{:block, _}` seria pior que o mal.
+  Mas ela fica MARCADA em `since[:blind]` e legível por `blind_ms/2`, porque
+  "parado porque não sei onde estou" e "parado porque travou" são a mesma coisa
+  vistos de fora, e não podem ser.
   """
 
   alias Pokex.Bots.Cavebot.Route
@@ -108,6 +114,18 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   def step(%__MODULE__{state: :post_fight} = logic, world, now), do: post_fight(logic, world, now)
 
+  @doc """
+  Há quantos ms a máquina está sem saber onde o personagem está — `nil` quando a
+  coordenada está sendo lida. É o que o Worker transforma em motivo visível.
+  """
+  @spec blind_ms(t, integer) :: non_neg_integer | nil
+  def blind_ms(%__MODULE__{since: since}, now) do
+    case Map.get(since, :blind) do
+      nil -> nil
+      at -> max(now - at, 0)
+    end
+  end
+
   # --- :walking ---
 
   # Inimigo na tela: o Combat (sempre rodando) já luta — só muda de estado.
@@ -116,10 +134,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
     {%{logic | state: :fighting, since: since}, :none}
   end
 
-  # Posição desconhecida: segura — nunca anda às cegas.
-  defp walk(logic, %{pos: nil}, _now), do: {logic, :none}
+  # Posição desconhecida: segura — nunca anda às cegas. E MARCA a cegueira, pra
+  # o Worker poder dizer há quanto tempo está assim.
+  defp walk(logic, %{pos: nil}, now), do: {blind(logic, now), :none}
 
   defp walk(logic, %{pos: {x, y, _} = pos}, now) do
+    logic = sighted(logic)
     wp = current_wp(logic)
     dx = wp.x - x
     dy = wp.y - y
@@ -143,9 +163,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   # --- :stuck ---
 
-  defp stuck(logic, %{pos: nil}, _now), do: {logic, :none}
+  defp stuck(logic, %{pos: nil}, now), do: {blind(logic, now), :none}
 
   defp stuck(logic, %{pos: pos} = world, now) do
+    logic = sighted(logic)
+
     if pos != logic.last_pos do
       # Voltou a se mexer: retoma a rota com os retries zerados.
       walk(%{logic | state: :walking, retries: 0}, world, now)
@@ -203,16 +225,37 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   # --- :fight_stalled ---
 
-  # Primeiro corte: nudge 0,0 — o que importa é o gate de retries até o block.
-  defp fight_stalled(logic, _world, _now) do
+  # O nudge é a tentativa de destravar uma luta que não termina — então tem que
+  # MEXER o personagem. `{:nudge, 0, 0}` não mexia: o Worker traduz o nudge em
+  # `Body.minimap_step/3`, que clica no centro da região do minimapa — o tile
+  # onde o personagem já está. Era um no-op garantido, gastando os retries até o
+  # `{:block, :fight_stalled}` sem nunca ter tentado nada.
+  defp fight_stalled(logic, world, _now) do
     retries = logic.retries + 1
 
     if retries > logic.config.stuck_max_retries do
       {%{logic | state: :blocked}, {:block, :fight_stalled}}
     else
-      {%{logic | retries: retries}, {:nudge, 0, 0}}
+      {dx, dy} = nudge_step(logic, world)
+      {%{logic | retries: retries}, {:nudge, dx, dy}}
     end
   end
+
+  # UM tile na direção do waypoint atual. Sem posição lida — ou já em cima do
+  # waypoint — desempata pelo eixo x: qualquer direção serve, (0,0) não.
+  defp nudge_step(logic, %{pos: {x, y, _}}) do
+    wp = current_wp(logic)
+    one_tile(wp.x - x, wp.y - y)
+  end
+
+  defp nudge_step(_logic, _world), do: {1, 0}
+
+  defp one_tile(0, 0), do: {1, 0}
+  defp one_tile(dx, dy), do: {sign(dx), sign(dy)}
+
+  defp sign(0), do: 0
+  defp sign(n) when n > 0, do: 1
+  defp sign(_n), do: -1
 
   # --- :post_fight ---
 
@@ -237,5 +280,19 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp note_progress(logic, pos, now) do
     %{logic | last_pos: pos, since: Map.put(logic.since, :walk_progress, now)}
+  end
+
+  # O relógio da cegueira marca a PRIMEIRA leitura sem posição e não reinicia
+  # nos ticks seguintes — o que interessa é o tempo total às escuras.
+  defp blind(%__MODULE__{since: since} = logic, now) do
+    if Map.has_key?(since, :blind),
+      do: logic,
+      else: %{logic | since: Map.put(since, :blind, now)}
+  end
+
+  defp sighted(%__MODULE__{since: since} = logic) do
+    if Map.has_key?(since, :blind),
+      do: %{logic | since: Map.delete(since, :blind)},
+      else: logic
   end
 end

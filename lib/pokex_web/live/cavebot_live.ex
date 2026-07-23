@@ -36,19 +36,71 @@ defmodule PokexWeb.CavebotLive do
        routes: routes,
        active_route: default_active(routes),
        pos: World.snapshot().pos,
+       recording?: false,
        notice: nil,
        notice_kind: :warn
      )}
   end
 
-  # Every minimap publish refreshes the position readout; other facts are
-  # irrelevant here and fall through.
+  # Every minimap publish refreshes the position readout — and, while RECORDING,
+  # is what actually lays the route down.
+  #
+  # A button pressed per waypoint could never work: to click it Lucas has to
+  # bring the browser forward, which takes the game out of focus AND can cover
+  # the very minimap the capture reads his position from. So recording happens
+  # while he is IN the game: he arms it here, walks the whole route, and comes
+  # back. The page keeps receiving positions in the background — captures never
+  # depended on focus — and lays the waypoints itself.
   @impl true
   def handle_info({:world, :minimap, _obs}, socket) do
-    {:noreply, assign(socket, pos: World.snapshot().pos)}
+    pos = World.snapshot().pos
+    socket = assign(socket, pos: pos)
+
+    if socket.assigns.recording? and pos != nil and socket.assigns.active_route,
+      do: {:noreply, maybe_record(socket, pos)},
+      else: {:noreply, socket}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # A waypoint per tile would be noise — the client pathfinds between points, so
+  # what serves the walker are the CORNERS. Only record once he has walked
+  # `cavebot_record_min_tiles` away from the last one.
+  defp maybe_record(socket, {x, y, _z} = pos) do
+    route = socket.assigns.active_route
+    min_tiles = Pokex.Settings.get(:cavebot_record_min_tiles)
+
+    far_enough? =
+      case List.last(route.waypoints) do
+        nil -> true
+        %{x: lx, y: ly} -> abs(x - lx) >= min_tiles or abs(y - ly) >= min_tiles
+      end
+
+    if far_enough?, do: record_waypoint(socket, route, pos), else: socket
+  end
+
+  defp record_waypoint(socket, route, pos) do
+    case Route.append(route, pos) do
+      {:ok, updated} ->
+        :ok = Store.add(updated)
+
+        socket
+        |> assign(
+          notice: "gravando — #{length(updated.waypoints)} waypoints",
+          notice_kind: :ok
+        )
+        |> reload_routes(updated.name)
+
+      # mudou de andar no meio da gravação: PARA, em vez de engolir waypoints de
+      # outro andar (a rota é de um andar só)
+      {:error, :floor_mismatch} ->
+        assign(socket,
+          recording?: false,
+          notice: "mudou de andar — parei a gravação (a rota é do andar #{route.z})",
+          notice_kind: :warn
+        )
+    end
+  end
 
   @impl true
   def handle_event("mark_waypoint", _params, socket) do
@@ -63,7 +115,9 @@ defmodule PokexWeb.CavebotLive do
       {_route, nil} ->
         {:noreply,
          assign(socket,
-           notice: "ainda não li tua posição — o jogo está em foco no monitor principal?",
+           notice:
+             "não estou lendo tua posição — o HUD foi localizado? " <>
+               "a janela do navegador está cobrindo o minimapa do jogo?",
            notice_kind: :warn,
            pos: nil
          )}
@@ -91,6 +145,37 @@ defmodule PokexWeb.CavebotLive do
                pos: pos
              )}
         end
+    end
+  end
+
+  # Arma/desarma a gravação. Armar exige rota ativa — sem ela não há onde pôr os
+  # waypoints, e gravar "pro nada" seria a pior falha silenciosa possível.
+  def handle_event("toggle_recording", _params, socket) do
+    cond do
+      socket.assigns.recording? ->
+        n = length((socket.assigns.active_route && socket.assigns.active_route.waypoints) || [])
+
+        {:noreply,
+         assign(socket,
+           recording?: false,
+           notice: "gravação parada — #{n} waypoints na rota",
+           notice_kind: :ok
+         )}
+
+      socket.assigns.active_route == nil ->
+        {:noreply,
+         assign(socket,
+           notice: "crie ou selecione uma rota antes de gravar",
+           notice_kind: :warn
+         )}
+
+      true ->
+        {:noreply,
+         assign(socket,
+           recording?: true,
+           notice: "gravando — volte pro jogo e ande a rota; eu marco sozinho",
+           notice_kind: :ok
+         )}
     end
   end
 
@@ -156,9 +241,9 @@ defmodule PokexWeb.CavebotLive do
         <header>
           <h1 class="text-xl font-bold">Cavebot — rotas</h1>
           <p class="mt-1 text-sm opacity-70">
-            Grave a rota andando: escolha (ou crie) uma rota, ande no jogo e
-            marque um waypoint em cada canto do caminho. A rota é de um andar
-            só — waypoints de outro andar são recusados.
+            Escolha (ou crie) uma rota, clique <strong>Gravar andando</strong>, volte pro
+            jogo e ande o caminho — os waypoints são marcados sozinhos. A rota é
+            de um andar só; se você trocar de andar, a gravação para.
           </p>
         </header>
 
@@ -168,14 +253,36 @@ defmodule PokexWeb.CavebotLive do
               <p class="font-mono text-pk-meta uppercase text-pk-text-3">Posição atual</p>
               <p id="cavebot-pos" class="font-mono text-sm text-pk-text">{pos_text(@pos)}</p>
             </div>
-            <button
-              id="mark-waypoint"
-              phx-click="mark_waypoint"
-              aria-label="Marcar waypoint na posição atual"
-              class="cursor-pointer rounded-lg border-0 bg-pk-ok px-4 py-2 text-pk-body font-bold text-pk-ok-dim transition hover:brightness-110"
-            >
-              Marcar waypoint aqui
-            </button>
+            <div class="flex items-center gap-2">
+              <%!-- O jeito que REALMENTE funciona: armar aqui, ir pro jogo, andar
+                   a rota. Clicar um botão por waypoint é impossível — o clique
+                   traz o navegador pra frente, tirando o jogo do foco e podendo
+                   cobrir o minimapa de onde a posição é lida. --%>
+              <button
+                id="toggle-recording"
+                phx-click="toggle_recording"
+                aria-label={
+                  if @recording?, do: "Parar de gravar a rota", else: "Gravar a rota andando"
+                }
+                class={[
+                  "cursor-pointer rounded-lg px-4 py-2 text-pk-body font-bold transition",
+                  if(@recording?,
+                    do: "border border-pk-danger-line bg-pk-danger-dim text-pk-danger",
+                    else: "border-0 bg-pk-ok text-pk-ok-dim hover:brightness-110"
+                  )
+                ]}
+              >
+                {if @recording?, do: "Parar de gravar", else: "Gravar andando"}
+              </button>
+              <button
+                id="mark-waypoint"
+                phx-click="mark_waypoint"
+                aria-label="Marcar um waypoint só, na posição atual"
+                class="cursor-pointer rounded-lg border border-pk-line-strong px-3 py-2 text-pk-body text-pk-text-2 transition hover:border-pk-ok hover:text-pk-text"
+              >
+                Marcar um só
+              </button>
+            </div>
           </div>
           <p
             :if={@notice}

@@ -28,6 +28,7 @@ defmodule PokexWeb.Router do
       live "/calibration", CalibrationLive
       live "/fishing-lab", FishingLabLive
       live "/world", WorldLive
+      live "/cavebot", CavebotLive
       live "/pokedex", PokedexLive
       live "/time", TeamLive
       live "/pokedex/:name", PokedexDetailLive

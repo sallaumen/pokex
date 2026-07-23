@@ -194,6 +194,14 @@ defmodule PokexWeb.PanelLive do
   defp build_trigger("species", value), do: {:enemy_species, String.trim(value || "")}
   defp build_trigger(_element, value), do: {:enemy_element, String.trim(value || "")}
 
+  # An empty dungeon field means "vale em todas" — the combo stays global.
+  defp build_dungeon(value) do
+    case String.trim(value || "") do
+      "" -> nil
+      dungeon -> dungeon
+    end
+  end
+
   # The runner keeps the last refusal, so a panel opened after the fight still
   # learns why nothing happened.
   defp combo_skip do
@@ -623,7 +631,8 @@ defmodule PokexWeb.PanelLive do
     combo = %Pokex.Combos.Combo{
       name: String.trim(params["name"] || ""),
       trigger: build_trigger(params["trigger_kind"], params["trigger_value"]),
-      steps: steps
+      steps: steps,
+      dungeon: build_dungeon(params["dungeon"])
     }
 
     case Pokex.Combos.Store.add(combo) do
@@ -1424,6 +1433,7 @@ defmodule PokexWeb.PanelLive do
   defp worker_job(:catcher), do: "saque e captura"
   defp worker_job(:mini_game), do: "mini game"
   defp worker_job(:player_support), do: "revive e poção"
+  defp worker_job(:cavebot), do: "anda a rota e luta"
 
   defp worker_name(:player_support), do: "suporte"
   defp worker_name(:fishing), do: "pesca"
@@ -1722,6 +1732,13 @@ defmodule PokexWeb.PanelLive do
                     <.icon name="hero-eye" class="size-4 text-pk-text-2" /> Mundo
                   </.link>
                   <.link
+                    id="panel-nav-cavebot"
+                    navigate={~p"/cavebot"}
+                    class="flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body text-pk-text transition hover:bg-pk-raised hover:text-white"
+                  >
+                    <.icon name="hero-map" class="size-4 text-pk-text-2" /> Cavebot
+                  </.link>
+                  <.link
                     id="panel-nav-pokedex"
                     navigate={~p"/pokedex"}
                     class="flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body text-pk-text transition hover:bg-pk-raised hover:text-white"
@@ -1926,13 +1943,14 @@ defmodule PokexWeb.PanelLive do
                 id="mode-picker"
                 role="radiogroup"
                 aria-label="Modo de jogo"
-                class="grid grid-cols-2 gap-1 rounded-lg border border-pk-line-strong bg-pk-sunken p-1"
+                class="grid grid-cols-3 gap-1 rounded-lg border border-pk-line-strong bg-pk-sunken p-1"
               >
                 <button
                   :for={
                     {mode, label, hint, icon} <- [
                       {"parado", "Parado", "pesca no spot", "hero-map-pin"},
-                      {"movimento", "Movimento", "você anda, ele briga", "hero-arrow-trending-up"}
+                      {"movimento", "Movimento", "você anda, ele briga", "hero-arrow-trending-up"},
+                      {"caçada", "Caçada", "ele anda a rota e caça", "hero-map"}
                     ]
                   }
                   id={"mode-#{mode}"}

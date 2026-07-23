@@ -49,6 +49,18 @@ defmodule Pokex.CombosTest do
 
       assert Combos.match([off], "Magikarp") == nil
     end
+
+    test "um combo com dungeon só casa na DG certa; global casa sempre" do
+      glob = %Combo{name: "g", trigger: {:enemy_element, "Water"}, steps: [], dungeon: nil}
+      dg = %Combo{name: "d", trigger: {:enemy_element, "Water"}, steps: [], dungeon: "cavena"}
+
+      assert Combos.match([dg], "Magikarp", "cavena").name == "d"
+      assert Combos.match([dg], "Magikarp", "outra") == nil
+      # fora do cavebot (nenhuma dungeon publicada), um combo restrito não vale
+      assert Combos.match([dg], "Magikarp") == nil
+      assert Combos.match([glob], "Magikarp", "qualquer").name == "g"
+      assert Combos.match([glob], "Magikarp").name == "g"
+    end
   end
 
   describe "planning and pressing" do

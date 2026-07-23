@@ -33,6 +33,7 @@ defmodule Pokex.Combos.Runner do
   alias Pokex.Combos
   alias Pokex.Combos.Store
   alias Pokex.Perception
+  alias Pokex.Perception.WorldState
   alias Pokex.Settings
   alias Pokex.World
 
@@ -122,7 +123,7 @@ defmodule Pokex.Combos.Runner do
     world = World.snapshot()
 
     with {:ok, enemy} <- enemy_name(world),
-         %Combos.Combo{} = combo <- Combos.match(Store.all(), enemy) do
+         %Combos.Combo{} = combo <- Combos.match(Store.all(), enemy, current_dungeon()) do
       case Combos.plan(combo, enemy, world.team) do
         {:ok, steps} -> begin(state, combo, enemy, steps)
         {:skip, reason} -> refuse(state, combo, enemy, reason)
@@ -155,6 +156,16 @@ defmodule Pokex.Combos.Runner do
     Logger.info("Combos: #{combo.name} não rodou contra #{enemy} (#{inspect(reason)})")
     broadcast({:combo_skipped, skip})
     %{state | last_skip: skip}
+  end
+
+  # The :dungeon fact is CONFIGURATION published by the cavebot (run publishes,
+  # halt forgets), not an observation — hence max_age :infinity: it never goes
+  # stale, it disappears. Absent = not hunting a dungeon = only global combos.
+  defp current_dungeon do
+    case WorldState.get(:dungeon, :infinity, System.monotonic_time(:millisecond)) do
+      {:ok, %{id: id}} -> id
+      _no_dungeon -> nil
+    end
   end
 
   defp enemy_name(%{enemies: enemies}) do

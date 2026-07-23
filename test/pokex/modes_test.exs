@@ -19,15 +19,26 @@ defmodule Pokex.ModesTest do
       refute :mini_game in Modes.bundle("movimento").workers
     end
 
-    test "both modes fight, loot and keep the pokémon alive" do
+    test "every mode loots and keeps the pokémon alive" do
       for mode <- Modes.all() do
         workers = Modes.bundle(mode).workers
-        assert :combat in workers
-        # the catcher stays up in movimento for the SPACE loot — only its ball
+        # the catcher stays up in every mode for the SPACE loot — only its ball
         # needs the standing-still ground baseline
         assert :catcher in workers
         assert :player_support in workers
       end
+
+      # parado and movimento arm the fight directly; caçada hands it to the cavebot
+      assert :combat in Modes.bundle("parado").workers
+      assert :combat in Modes.bundle("movimento").workers
+    end
+
+    test "caçada roda catcher/suporte/cavebot, sem combat direto" do
+      w = Pokex.Modes.bundle("caçada").workers
+      assert :cavebot in w
+      assert :catcher in w
+      assert :player_support in w
+      refute :combat in w
     end
 
     test "the ball and the reposition are the only settings the mode decides" do

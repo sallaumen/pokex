@@ -73,6 +73,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     catcher = :"#{tag}_catcher"
     mini_game = :"#{tag}_mini_game"
     player_support = :"#{tag}_player_support"
+    cavebot = :"#{tag}_cavebot"
 
     start_supervised!(
       {BotSupervisor,
@@ -83,7 +84,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
        combat: combat,
        catcher: catcher,
        mini_game: mini_game,
-       player_support: player_support}
+       player_support: player_support,
+       cavebot: cavebot}
     )
 
     %{
@@ -91,7 +93,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
       combat: combat,
       catcher: catcher,
       mini_game: mini_game,
-      player_support: player_support
+      player_support: player_support,
+      cavebot: cavebot
     }
   end
 
@@ -206,6 +209,70 @@ defmodule Pokex.Bots.BotSupervisorTest do
     # what movimento IS: the bot fights, and the catcher stays up for the Space loot
     assert status.combat.state != :idle
     assert status.catcher.state != :idle
+  end
+
+  # Caçada is the cavebot's mode: it walks the route and drives the Combat
+  # itself, so start_all must NOT arm the fight directly — only the cavebot,
+  # the catcher (Space loot) and the support come up.
+  @tag :tmp_dir
+  test "start_all em caçada sobe o cavebot, sem pesca nem combat direto; stop_all o derruba" do
+    alias Pokex.Bots.Cavebot
+
+    servers = start_isolated_supervisor(:cacada_test)
+    Pokex.SettingsStash.stash!(player_mode: "caçada")
+
+    # a valid, enabled route — without one the cavebot's run fails preflight
+    {:ok, route} = Cavebot.Route.append(Cavebot.Route.new("rota de teste"), {10, 12, 5})
+    :ok = Cavebot.Store.add(route)
+
+    assert :ok =
+             BotSupervisor.start_all(
+               servers.fishing,
+               servers.combat,
+               servers.catcher,
+               servers.mini_game,
+               servers.player_support,
+               servers.cavebot
+             )
+
+    status =
+      BotSupervisor.status(
+        servers.fishing,
+        servers.combat,
+        servers.catcher,
+        servers.mini_game,
+        servers.player_support,
+        servers.cavebot
+      )
+
+    assert status.cavebot.state != :idle
+    assert status.cavebot.route == "rota de teste"
+    # the cavebot OWNS combat's run/halt — start_all must not arm it directly
+    assert status.combat.state == :idle
+    assert status.fishing.state == :idle
+    assert Pokex.Bots.MiniGame.Worker.status(servers.mini_game).state == :off
+
+    assert :ok =
+             BotSupervisor.stop_all(
+               servers.fishing,
+               servers.combat,
+               servers.catcher,
+               servers.mini_game,
+               servers.player_support,
+               servers.cavebot
+             )
+
+    status =
+      BotSupervisor.status(
+        servers.fishing,
+        servers.combat,
+        servers.catcher,
+        servers.mini_game,
+        servers.player_support,
+        servers.cavebot
+      )
+
+    assert status.cavebot.state == :idle
   end
 
   @tag :tmp_dir

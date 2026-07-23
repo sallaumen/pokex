@@ -1,7 +1,7 @@
 defmodule Pokex.Modes do
   @moduledoc """
-  The two ways Lucas plays, as data: standing on a fishing spot, or walking
-  around hunting.
+  The ways Lucas plays, as data: standing on a fishing spot, walking around
+  hunting by hand, or letting the cavebot walk a route (caçada).
 
   A mode is a BUILT-IN PRESET, not a second owner of the truth. `Settings`
   stays the only place a value lives; this module only says which values a mode
@@ -38,6 +38,13 @@ defmodule Pokex.Modes do
       # ball, gated separately, needs him still.
       workers: [:combat, :catcher, :player_support],
       settings: %{capture_enabled: false, reposition_enabled: false}
+    },
+    "caçada" => %{
+      # NO :combat here — the cavebot OWNS the Combat's run/halt (it arms the
+      # fight on its first tick and only drops it when it blocks). Starting the
+      # fight directly would leave two owners disagreeing about it.
+      workers: [:catcher, :player_support, :cavebot],
+      settings: %{}
     }
   }
 

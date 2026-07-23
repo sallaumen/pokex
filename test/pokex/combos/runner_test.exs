@@ -10,7 +10,7 @@ defmodule Pokex.Combos.RunnerTest do
   # async: false — stashes global Settings and writes the blackboard
   use ExUnit.Case, async: false
 
-  alias Pokex.Combos.Runner
+  alias Pokex.Combos.{Combo, Runner, Store}
   alias Pokex.Perception.WorldState
   alias Pokex.{Settings, SettingsStash}
 
@@ -44,7 +44,7 @@ defmodule Pokex.Combos.RunnerTest do
     on_exit(fn ->
       Application.delete_env(:pokex, :home_dir)
       File.rm_rf!(tmp)
-      Enum.each([:battle, :team], &WorldState.forget/1)
+      Enum.each([:battle, :team, :dungeon], &WorldState.forget/1)
     end)
 
     :ok
@@ -217,6 +217,52 @@ defmodule Pokex.Combos.RunnerTest do
     settle(runner)
 
     assert FakeBody.pressed() == pressed
+  end
+
+  # The cavebot publishes the :dungeon fact on run and forgets it on halt, so a
+  # combo restricted to one dungeon only exists while the hunt is inside it.
+  test "combo restrito a uma dungeon dispara quando o fato :dungeon bate" do
+    WorldState.put(:dungeon, %{id: "cavena"}, System.monotonic_time(:millisecond))
+
+    :ok =
+      Store.put([
+        %Combo{
+          name: "dg",
+          trigger: {:enemy_species, "Tentacool"},
+          steps: [{:skill, "4"}],
+          dungeon: "cavena"
+        }
+      ])
+
+    world("Tentacool", [row(5, "Jigglypuff")])
+    runner = start_runner()
+
+    engage(runner)
+    settle(runner)
+
+    assert [{:press, "4"}] = FakeBody.pressed()
+  end
+
+  test "combo de OUTRA dungeon não dispara nesta" do
+    WorldState.put(:dungeon, %{id: "cavena"}, System.monotonic_time(:millisecond))
+
+    :ok =
+      Store.put([
+        %Combo{
+          name: "dg",
+          trigger: {:enemy_species, "Tentacool"},
+          steps: [{:skill, "4"}],
+          dungeon: "outra"
+        }
+      ])
+
+    world("Tentacool", [row(5, "Jigglypuff")])
+    runner = start_runner()
+
+    engage(runner)
+    settle(runner)
+
+    assert FakeBody.pressed() == []
   end
 
   test "a row whose portrait was not read is never a target" do

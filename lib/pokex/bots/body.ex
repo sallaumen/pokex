@@ -8,7 +8,7 @@ defmodule Pokex.Bots.Body do
   here — they are read-only and each worker senses on its own.
   """
   use GenServer
-  alias Pokex.Bots.Perf
+  alias Pokex.Bots.{InputGate, Perf}
   alias Pokex.{Perception, Rig}
 
   @topic "body"
@@ -37,7 +37,11 @@ defmodule Pokex.Bots.Body do
 
   The click is clamped inside the map area: a click on the frame does nothing,
   and a click outside it lands on whatever is behind. Returns `{:error,
-  :no_layout}` rather than guessing when the HUD has not been located.
+  :no_layout}` rather than guessing when the HUD has not been located, and
+  `{:error, :input_gate_closed}` when the safety gate would swallow the click.
+
+  `{:ok, point}` therefore means the click was REALLY emitted — see the gate
+  note below for why walking, alone among the primitives, needs that promise.
   """
   def minimap_step(dx, dy, opts \\ [])
 
@@ -52,9 +56,24 @@ defmodule Pokex.Bots.Body do
         scale = Pokex.Settings.get(:minimap_px_per_tile)
         point = clamp({x + div(w, 2) + dx * scale, y + div(h, 2) + dy * scale}, {x, y, w, h})
 
-        case perform([{:click, :left, point}], :normal, server) do
-          :ok -> {:ok, point}
-          error -> error
+        # Rig.Mac.gated/1 SWALLOWS a suppressed input and answers `:ok` — the global
+        # contract every other worker relies on ("held for safety" is not an I/O
+        # failure). For walking that answer is a lie with teeth: the cavebot confirms
+        # each step by watching the position change, so a suppressed click reported as
+        # taken makes it believe in progress that never happened (2026-07-23: Iniciar
+        # was clicked in the BROWSER → game lost focus → gate shut → every step came
+        # back `:ok` → position frozen → `:stuck` → panic latch → whole fleet dead in
+        # silence). So we ask the gate ourselves and refuse out loud.
+        #
+        # Best effort by nature: the gate can still shut between this read and the
+        # click. That race costs one wasted step, not a false `:ok` every time.
+        if InputGate.allowed?() do
+          case perform([{:click, :left, point}], :normal, server) do
+            :ok -> {:ok, point}
+            error -> error
+          end
+        else
+          {:error, :input_gate_closed}
         end
     end
   end

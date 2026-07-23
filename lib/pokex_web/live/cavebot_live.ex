@@ -18,6 +18,7 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.Cavebot.{Route, Store}
   alias Pokex.Perception
   alias Pokex.World
+  alias PokexWeb.PositionReadout
 
   @impl true
   def mount(_params, _session, socket) do
@@ -240,24 +241,11 @@ defmodule PokexWeb.CavebotLive do
 
   defp default_active(routes), do: Enum.find(routes, & &1.enabled?)
 
-  defp pos_text(nil), do: "?"
-  defp pos_text({x, y, z}), do: "#{x}, #{y} · andar #{z}"
-
-  # Quanto da coordenada está sendo lido. A leitura é tudo-ou-nada, então uma
-  # falha aqui e ali é normal e NÃO atrapalha gravar (o waypoint só entra depois
-  # de 4 tiles, e o feed publica ~4x por segundo). O que importa é a proporção:
-  # se quase tudo falha, gravar vai render uma rota cheia de buracos.
-  defp read_health(0, 0), do: "aguardando a primeira leitura…"
-
-  defp read_health(reads, misses) do
-    pct = round(reads * 100 / (reads + misses))
-
-    cond do
-      pct >= 80 -> "leitura boa — #{pct}% (#{reads} ok, #{misses} falhas)"
-      pct >= 40 -> "leitura instável — #{pct}% (#{reads} ok, #{misses} falhas)"
-      true -> "leitura ruim — #{pct}% (#{reads} ok, #{misses} falhas)"
-    end
-  end
+  # A coordenada e a saúde da leitura agora vêm do `PositionReadout`: as MESMAS
+  # palavras aqui, no painel e na /world. Três páginas mostrando a posição com
+  # três frases diferentes era a receita pra ele não confiar em nenhuma.
+  defp pos_text(pos), do: PositionReadout.coords(pos)
+  defp read_health(reads, misses), do: PositionReadout.read_health(reads, misses)
 
   @impl true
   def render(assigns) do

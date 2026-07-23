@@ -100,6 +100,44 @@ defmodule PokexWeb.WorldLiveTest do
     assert html =~ "anything"
   end
 
+  describe "a posição" do
+    test "aparece com a idade e diz que ESTÁ sendo lida", %{conn: conn} do
+      now = System.monotonic_time(:millisecond)
+      WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now)
+
+      {:ok, view, _html} = live(conn, ~p"/world")
+
+      position = view |> element("#world-position") |> render()
+      assert position =~ "337, 46107 · andar 4"
+      assert position =~ "lendo tua posição"
+      assert position =~ "agora"
+    end
+
+    # "?" não dizia QUAL dos dois problemas era, e eles têm consertos opostos.
+    test "parar de ler é dito com todas as letras", %{conn: conn} do
+      now = System.monotonic_time(:millisecond)
+      WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now - 20_000)
+
+      {:ok, view, _html} = live(conn, ~p"/world")
+
+      position = view |> element("#world-position") |> render()
+      assert position =~ "NÃO estou lendo tua posição"
+      assert position =~ "há 20s"
+    end
+
+    test "a proporção de leitura boa/ruim conta as publicações do minimapa", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/world")
+
+      assert view |> element("#world-read-health") |> render() =~ "aguardando a primeira leitura"
+
+      for obs <- [%{pos: {1, 2, 3}}, %{pos: {1, 2, 3}}, %{pos: nil}] do
+        Phoenix.PubSub.broadcast(Pokex.PubSub, Pokex.Perception.topic(), {:world, :minimap, obs})
+      end
+
+      assert view |> element("#world-read-health") |> render() =~ "67% (2 ok, 1 falhas)"
+    end
+  end
+
   test "the periodic refresh picks up facts published after mount", %{conn: conn} do
     Enum.each([:battle, :arena, :corpses, :mini_game], &WorldState.forget/1)
 

@@ -2,8 +2,9 @@ defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.{BotSupervisor, Catcher, Combat, Fishing, PlayerSupport, SkillBar}
+  alias Pokex.Bots.Cavebot
   alias Pokex.Diagnostics.Report
-  alias PokexWeb.{HeaderState, PanelForms}
+  alias PokexWeb.{HeaderState, PanelForms, PositionReadout}
   alias Pokex.{Calibration, Rig, Settings}
 
   @fishing_topic "fishing"
@@ -13,6 +14,15 @@ defmodule PokexWeb.PanelLive do
   @game_topic "game"
   @body_topic "body"
   @cooldown_poll_ms 1000
+
+  # A fonte da caçada no feed, definida UMA VEZ e referenciada nos dois lugares
+  # que precisam dela (a linha de log e a lista de chips do filtro). O filtro
+  # compara a fonte por igualdade EXATA de binário, então um emoji digitado duas
+  # vezes é um bug esperando acontecer: 🗺️ é U+1F5FA + U+FE0F (variation
+  # selector) e sobrevive a um copiar-e-colar como U+1F5FA sozinho — visualmente
+  # igual, binário diferente, chip que filtra um feed vazio. 🧭 (U+1F9ED) não tem
+  # variação nenhuma, e mesmo assim o literal só existe aqui.
+  @cavebot_source "🧭"
 
   @counters [
     {"Ciclos", :cycles, "hero-arrow-path"},
@@ -51,6 +61,7 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @mini_game_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @game_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @body_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Cavebot.Worker.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Layout.Sentinel.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.StockAlerts.topic())
@@ -75,6 +86,9 @@ defmodule PokexWeb.PanelLive do
        catcher: status.catcher,
        mini_game: status.mini_game,
        game: status.player_support,
+       cavebot: status.cavebot,
+       minimap_reads: 0,
+       minimap_misses: 0,
        errors: [],
        calibrated?: Calibration.exists?(),
        calib_stale?: calib_stale?(),
@@ -156,7 +170,8 @@ defmodule PokexWeb.PanelLive do
           combat: status.combat,
           catcher: status.catcher,
           mini_game: status.mini_game,
-          game: status.player_support
+          game: status.player_support,
+          cavebot: status.cavebot
         )
 
       {:error, messages} ->
@@ -350,6 +365,23 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:catcher_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: "🎯", text: text})}
 
+  # --- a caçada (cavebot) -----------------------------------------------------
+  #
+  # O worker já emitia as três mensagens; o painel é que não escutava. A caçada
+  # morria em ~6s "sem dizer nada" porque nada do que ela dizia chegava aqui.
+  def handle_info({:cavebot, snapshot}, socket),
+    do: {:noreply, assign(socket, cavebot: snapshot)}
+
+  def handle_info({:cavebot_log, level, text}, socket),
+    do: {:noreply, append_log(socket, %{level: level, source: @cavebot_source, text: text})}
+
+  # Bloqueio: entra no MESMO pipeline de alarme do {:rule_alarm, _} e do
+  # {:panic, _} — linha :macro no feed, som (se não estiver mudo) e o anti-spam
+  # por tipo. A chave inclui o motivo: dois bloqueios diferentes são dois fatos,
+  # e o segundo não pode ser engolido pelo intervalo do primeiro.
+  def handle_info({:cavebot_alarm, reason}, socket),
+    do: {:noreply, alarm(socket, {:cavebot, reason}, cavebot_alarm_text(reason))}
+
   def handle_info({:game, snapshot}, socket) do
     socket =
       socket
@@ -427,6 +459,20 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:combo_done, _info}, socket), do: {:noreply, socket}
   def handle_info({:combo_aborted, _info}, socket), do: {:noreply, socket}
 
+  # The minimap publishes on EVERY capture, readable coordinate or not (`pos:
+  # nil` IS the miss) — counting its publishes is the only place the good/bad
+  # ratio can come from, since the fact itself is overwritten and keeps no
+  # history. It is what turns "a posição está velha" into "ele quase nunca
+  # consegue ler".
+  def handle_info({:world, :minimap, obs}, socket) do
+    socket =
+      if Map.get(obs, :pos) == nil,
+        do: assign(socket, minimap_misses: socket.assigns.minimap_misses + 1),
+        else: assign(socket, minimap_reads: socket.assigns.minimap_reads + 1)
+
+    {:noreply, assign(socket, world: Pokex.World.snapshot())}
+  end
+
   # Any world fact moving re-reads the snapshot — the blackboard is the truth,
   # and re-assembling it is a handful of ETS lookups.
   def handle_info({:world, _key, _obs}, socket),
@@ -462,6 +508,14 @@ defmodule PokexWeb.PanelLive do
 
     {:noreply, socket}
   end
+
+  # A REDE DE SEGURANÇA, e ela faltava: sem esta cláusula, a primeira mensagem
+  # de um tópico novo derruba a LiveView inteira com FunctionClauseError. Não é
+  # hipótese — o painel assina nove tópicos, e o mais novo deles (a caçada) fala
+  # exatamente no pior momento possível: no bloqueio, quando ele está olhando pra
+  # tela pra descobrir o que houve. Ignorar o desconhecido é sempre melhor do que
+  # levar o painel junto.
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   # Each log entry is a map {level, source, text, at}; the feed keeps the last
   # 200 (newest first) so it stays light, and macro vs debug lets the UI hide
@@ -499,7 +553,8 @@ defmodule PokexWeb.PanelLive do
        combat: status.combat,
        catcher: status.catcher,
        mini_game: status.mini_game,
-       game: status.player_support
+       game: status.player_support,
+       cavebot: status.cavebot
      )}
   end
 
@@ -1068,8 +1123,29 @@ defmodule PokexWeb.PanelLive do
 
   defp cell_style(%{rgb: [r, g, b]}), do: "background: rgb(#{r}, #{g}, #{b})"
 
-  @feed_sources ["🎣", "⚔️", "🎮", "🎯", "🚑", "🧤", "🔔"]
+  # Emoji + NOME, porque um botão cujo conteúdo inteiro é um emoji não tem
+  # rótulo acessível nenhum — e porque o nome também vira o texto do "só X" e o
+  # title. O emoji continua sendo o valor comparado no filtro, digitado UMA vez
+  # aqui (o da caçada nem isso: vem de @cavebot_source).
+  @feed_sources [
+    {"🎣", "pesca"},
+    {"⚔️", "batalha"},
+    {"🎮", "mini game"},
+    {"🎯", "captura"},
+    {"🚑", "suporte"},
+    {"🧤", "corpo"},
+    {@cavebot_source, "caçada"},
+    {"🔔", "alarmes"}
+  ]
+
   defp feed_sources, do: @feed_sources
+
+  defp feed_source_name(source) do
+    case List.keyfind(@feed_sources, source, 0) do
+      {_source, name} -> name
+      nil -> source
+    end
+  end
 
   defp visible_logs(logs, show_debug, source_filter) do
     Enum.filter(logs, fn entry ->
@@ -1160,6 +1236,68 @@ defmodule PokexWeb.PanelLive do
   defp mini_game_label(:error), do: "erro"
   defp mini_game_label(other), do: to_string(other)
 
+  # 🧭 Caçada (cavebot): anda a rota e cede a vez pro combate quando aparece
+  # inimigo. Os três estados de PARADA têm nomes distintos de propósito — "não
+  # anda" tem causas diferentes, e cada uma tem um conserto diferente.
+  defp cavebot_label(:idle), do: "parado"
+  defp cavebot_label(:walking), do: "andando"
+  defp cavebot_label(:fighting), do: "lutando"
+  defp cavebot_label(:post_fight), do: "pós-luta"
+  defp cavebot_label(:stuck), do: "travado"
+  defp cavebot_label(:fight_stalled), do: "luta travada"
+  defp cavebot_label(:blocked), do: "bloqueado"
+  defp cavebot_label(:ocupado), do: "ocupado"
+  defp cavebot_label(other), do: to_string(other)
+
+  # A BOLINHA HONESTA. `BotSupervisor.active?/1` responde "não é :idle/:off/
+  # :ocupado", e por essa régua os três estados em que a caçada PAROU
+  # (:blocked, :stuck, :fight_stalled) acendiam verde — exatamente o instante em
+  # que ele precisa ver que algo está errado pintado como saúde.
+  defp cavebot_active?(state) when state in [:blocked, :stuck, :fight_stalled], do: false
+  defp cavebot_active?(state), do: active?(state)
+
+  defp cavebot_counters(%{counters: %{waypoints: waypoints, steps: steps}}),
+    do: "#{waypoints} wp · #{steps} passos"
+
+  defp cavebot_counters(_no_counters), do: nil
+
+  # Onde ele está na rota, em uma linha: sem isto o painel dizia "andando" e mais
+  # nada — e "andando" há dez minutos no mesmo waypoint parece igualzinho a
+  # "andando" progredindo.
+  defp cavebot_route_line(%{route: nil}), do: nil
+
+  defp cavebot_route_line(%{route: route, wp_index: index, wp_total: total} = snapshot) do
+    progress = "rota \"#{route}\" · wp #{index + 1}/#{total}"
+
+    case Map.get(snapshot, :distance_tiles) do
+      %{dx: dx, dy: dy} -> "#{progress} · faltam #{dx},#{dy} tiles (x,y)"
+      _no_distance -> progress
+    end
+  end
+
+  defp cavebot_route_line(_no_route), do: nil
+
+  # O texto do alarme de bloqueio. Diz o que aconteceu E o que isso custou: um
+  # bloqueio PERIGOSO parou a frota inteira, um LOCAL parou só a caçada — e a
+  # diferença é a primeira coisa que ele quer saber. A linha sai com a fonte
+  # 🔔 (é alarme), então leva o 🧭 no texto pra se identificar — e mesmo aqui o
+  # emoji vem da constante, nunca de um literal repetido.
+  defp cavebot_alarm_text(reason), do: "#{@cavebot_source} #{cavebot_block_text(reason)}"
+
+  defp cavebot_block_text(:floor_changed),
+    do: "caçada BLOQUEADA: mudou de andar — a rota é de outro andar, parei tudo"
+
+  defp cavebot_block_text(:combat_preflight_failed),
+    do: "caçada BLOQUEADA: o combate recusou o arranque — parei tudo"
+
+  defp cavebot_block_text(:stuck),
+    do: "caçada parada: travado, sem sair do lugar (o resto da frota segue)"
+
+  defp cavebot_block_text(:fight_stalled),
+    do: "caçada parada: a luta não termina (o resto da frota segue)"
+
+  defp cavebot_block_text(reason), do: "caçada parada: #{inspect(reason)}"
+
   attr :testid, :string, required: true
   attr :name, :string, required: true
   attr :state, :atom, required: true
@@ -1170,6 +1308,10 @@ defmodule PokexWeb.PanelLive do
   attr :snapshot, :map, required: true
   attr :now_ms, :integer, required: true
   attr :title, :string, default: nil
+  # Uma linha neutra de contexto, do lado do 🔒 do hold_reason mas sem a cor de
+  # aviso: hoje é a rota/waypoint da caçada, que não cabe na linha do estado (e
+  # que, truncada, perde justamente o número que interessa).
+  attr :detail, :string, default: nil
   slot :aside
 
   # One worker, one row: dot, name, what it is doing, what it did last, and — on
@@ -1211,6 +1353,9 @@ defmodule PokexWeb.PanelLive do
         </span>
         {render_slot(@aside)}
       </div>
+      <p :if={@detail} class="mt-1 pl-[1.125rem] text-pk-meta text-pk-text-2">
+        {@detail}
+      </p>
       <%!-- the lock is the most useful line on the panel (it says why nothing is
             happening), so it gets the full width instead of a truncated sliver --%>
       <p
@@ -1251,9 +1396,6 @@ defmodule PokexWeb.PanelLive do
 
   defp world_pct(nil), do: @unknown
   defp world_pct(fraction), do: "#{round(fraction * 100)}%"
-
-  defp world_pos(nil), do: @unknown
-  defp world_pos({x, y, z}), do: "#{x}, #{y} · andar #{z}"
 
   defp world_enemies(%{enemies: [], shiny?: false}), do: "livre"
   defp world_enemies(%{enemies: [], shiny?: true}), do: "✨ SHINY"
@@ -1436,11 +1578,10 @@ defmodule PokexWeb.PanelLive do
   end
 
   # Ages come from monotonic timestamps (may be negative numbers — nil, never 0,
-  # is the "no action yet" sentinel, handled above).
-  defp format_age(ms) when ms < 1_000, do: "agora"
-  defp format_age(ms) when ms < 60_000, do: "há #{div(ms, 1000)}s"
-  defp format_age(ms) when ms < 3_600_000, do: "há #{div(ms, 60_000)}min"
-  defp format_age(_ms), do: "há 1h+"
+  # is the "no action yet" sentinel, handled above). The same wording the
+  # position readout uses, from the same function: two age formats on one screen
+  # would read as two different clocks.
+  defp format_age(ms), do: PositionReadout.age_text(ms)
 
   defp now_ms, do: System.monotonic_time(:millisecond)
 
@@ -1698,6 +1839,22 @@ defmodule PokexWeb.PanelLive do
                 counters={"#{rescue_count(@game)} revive · #{potion_count(@game)} poção"}
                 title="revive + poção — protege o Pokémon principal, até jogando manual"
                 snapshot={@game}
+                now_ms={@now_ms}
+              />
+              <%!-- A caçada é o único worker que ANDA, então é o único que pode
+                   parar num lugar onde ninguém foi. Sem esta linha o painel não
+                   dizia uma palavra sobre ela: nem rota, nem waypoint, nem por
+                   que parou. --%>
+              <.worker_row
+                testid="cavebot-pill"
+                name="Caçada"
+                state={@cavebot.state}
+                active?={cavebot_active?(@cavebot.state)}
+                label={cavebot_label(@cavebot.state)}
+                counters={cavebot_counters(@cavebot)}
+                detail={cavebot_route_line(@cavebot)}
+                title="anda a rota do cavebot e cede a vez pro combate quando aparece inimigo"
+                snapshot={@cavebot}
                 now_ms={@now_ms}
               />
             </div>
@@ -2321,9 +2478,24 @@ defmodule PokexWeb.PanelLive do
                 </p>
               </div>
 
-              <div>
+              <%!-- Ele acompanha a posição o tempo todo pra conferir se o bot sabe
+                   onde está, então o número sozinho não basta: vem com a IDADE e
+                   com a frase que separa "não estou lendo" de "estou lendo, e
+                   você está aqui" — um "—" mudo não dizia qual dos dois era. --%>
+              <div id="world-position" class="col-span-2">
                 <p class="font-mono text-pk-meta uppercase text-pk-text-3">Posição</p>
-                <p class="font-mono text-pk-body text-pk-text">{world_pos(@world.pos)}</p>
+                <p class="font-mono text-pk-body text-pk-text">
+                  {PositionReadout.coords(@world.pos)}
+                </p>
+                <p class={[
+                  "font-mono text-pk-meta",
+                  PositionReadout.note_class(@world.pos, @world.pos_age_ms)
+                ]}>
+                  {PositionReadout.note(@world.pos, @world.pos_age_ms)}
+                </p>
+                <p id="world-read-health" class="font-mono text-pk-meta text-pk-text-3">
+                  {PositionReadout.read_health(@minimap_reads, @minimap_misses)}
+                </p>
               </div>
 
               <div>
@@ -2624,9 +2796,12 @@ defmodule PokexWeb.PanelLive do
             </div>
             <div class="flex items-center gap-1 border-b border-pk-line px-3 py-1.5">
               <button
-                :for={source <- feed_sources()}
+                :for={{source, name} <- feed_sources()}
                 phx-click="filter_feed"
                 phx-value-source={source}
+                aria-label={"Só as linhas de #{name}"}
+                aria-pressed={to_string(@feed_filter == source)}
+                title={name}
                 class={[
                   "rounded-md px-1.5 py-0.5 text-pk-body transition",
                   if(@feed_filter == source,
@@ -2638,7 +2813,7 @@ defmodule PokexWeb.PanelLive do
                 {source}
               </button>
               <span :if={@feed_filter} class="ml-1 font-mono text-pk-meta text-pk-text-3">
-                só {@feed_filter} — clique de novo pra limpar
+                só {feed_source_name(@feed_filter)} — clique de novo pra limpar
               </span>
             </div>
             <p

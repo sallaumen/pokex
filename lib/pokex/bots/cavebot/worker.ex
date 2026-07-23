@@ -15,10 +15,22 @@ defmodule Pokex.Bots.Cavebot.Worker do
       enquanto houver inimigo na tela.
 
   Fail-safe em camadas: posição desconhecida (fato ausente/velho/anchor não
-  lida) segura o passo — nunca anda às cegas; e um `{:block, _}` da Logic
-  (mudança de andar, stuck esgotado) é o freio de mão completo — latch de
-  pânico, frota inteira parada, alarme no tópico, e o worker fica em
-  `:blocked` até um humano religar.
+  lida) segura o passo — nunca anda às cegas; e um `{:block, _}` da Logic tem
+  DOIS níveis (ver `translate/2`): o perigoso, que é o freio de mão completo da
+  frota, e o local, que para só esta caçada.
+
+  Toda parada tem NOME: o resultado de cada passo fica em `last_step` e vira o
+  `hold_reason` do snapshot (junto com a cegueira que a Logic marca e com o
+  `hold_note` dos motivos que nascem fora do tick). Um cavebot parado sem motivo
+  escrito é indistinguível de um cavebot quebrado — foi assim que um clique
+  suprimido pelo portão de input derrubou a frota em silêncio.
+
+  Duas saídas para a tela, e elas são diferentes: o SNAPSHOT (`{:cavebot, map}`)
+  é o estado atual completo, reemitido quando um FATO muda; os LOGS
+  (`{:cavebot_log, level, texto}`) são a narrativa das bordas — rota carregada,
+  waypoint alcançado, bloqueio, motivo de espera aparecendo. Nada aqui pode
+  falar por tick: a cadência é de 200ms e uma linha por tick é ruído que esconde
+  o fato.
 
   O `body` injetado é um MÓDULO (produção: `Pokex.Bots.Body`; testes: um fake
   com a mesma assinatura), porque `minimap_step/3` é função de módulo — a
@@ -40,6 +52,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
   @topic "cavebot"
   @tick_ms 200
   @no_route_error "nenhuma rota de caçada configurada"
+  @max_reattach 20
+  @feed_lost "perdi o feed do minimapa e desisti de reconectar"
+
+  # Os bloqueios em que o personagem pode estar em um lugar que a rota não
+  # descreve, ou lutando sem ninguém para lutar — ver `translate/2`.
+  @dangerous_blocks [:floor_changed, :combat_preflight_failed]
 
   @config_keys %{
     arrival_tolerance: :cavebot_arrival_tolerance_tiles,
@@ -62,7 +80,14 @@ defmodule Pokex.Bots.Cavebot.Worker do
       attached?: false,
       feed_ref: nil,
       reattach_attempts: 0,
-      combat_state: :idle
+      combat_state: :idle,
+      last_step: nil,
+      pos: nil,
+      pos_at: nil,
+      counters: %{waypoints: 0, steps: 0},
+      last_action: nil,
+      hold_note: nil,
+      logged_holds: []
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -77,7 +102,25 @@ defmodule Pokex.Bots.Cavebot.Worker do
   @spec halt(GenServer.server()) :: :ok
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
 
-  @spec status(GenServer.server()) :: %{state: atom, wp_index: non_neg_integer, route: term}
+  @typedoc """
+  O que a tela precisa para contar a caçada inteira sem adivinhar: onde ele
+  está, para onde vai, quanto falta, o que segurou e o que ele fez por último.
+  """
+  @type snapshot :: %{
+          state: atom,
+          route: String.t() | nil,
+          wp_index: non_neg_integer,
+          wp_total: non_neg_integer,
+          wp_target: Route.waypoint() | nil,
+          pos: {integer, integer, integer} | nil,
+          pos_age_ms: non_neg_integer | nil,
+          distance_tiles: %{dx: integer, dy: integer} | nil,
+          hold_reason: String.t() | nil,
+          last_action: %{text: String.t(), at: integer} | nil,
+          counters: %{waypoints: non_neg_integer, steps: non_neg_integer}
+        }
+
+  @spec status(GenServer.server()) :: snapshot
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
   @impl true
@@ -94,6 +137,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
       route ->
         Logger.info("Cavebot: rota \"#{route.name}\" (#{length(route.waypoints)} waypoints)")
+        log(:macro, "rota \"#{route.name}\": #{length(route.waypoints)} waypoints")
 
         # O gate de combos por dungeon lê este fato (Combos.Runner). Publicado
         # mesmo com dungeon nil — o Runner trata nil como "só combos globais".
@@ -101,6 +145,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
         state =
           %{cancel_timer(state) | logic: Logic.new(route, config())}
+          |> reset_session()
           |> attach()
           |> schedule_tick()
 
@@ -114,7 +159,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def handle_call(:halt, _from, state) do
     Combat.Worker.halt(state.combat)
     WorldState.forget(:dungeon)
-    state = %{detach(cancel_timer(state)) | logic: nil, reattach_attempts: 0}
+
+    state =
+      %{detach(cancel_timer(state)) | logic: nil, reattach_attempts: 0}
+      |> end_session()
+
     broadcast_status(state)
     {:reply, :ok, state}
   end
@@ -127,10 +176,19 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   def handle_info(:tick, state) do
     now = now()
-    before = state.logic.state
-    {logic, action} = Logic.step(state.logic, world(state, now), now)
-    state = translate(%{state | logic: logic}, action)
-    if state.logic.state != before, do: broadcast_status(state)
+    {world, state} = observe(state, now)
+    before = broadcast_key(state, now)
+    wp_before = state.logic.wp_index
+
+    {logic, action} = Logic.step(state.logic, world, now)
+
+    state =
+      %{state | logic: logic}
+      |> translate(action)
+      |> note_arrival(wp_before, now)
+      |> log_hold_edge(now)
+
+    if broadcast_key(state, now) != before, do: broadcast_status(state)
     {:noreply, schedule_tick(state)}
   end
 
@@ -163,8 +221,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   # -- o mundo observado ---------------------------------------------------------
 
-  defp world(state, now) do
-    %{pos: position(now), enemies: enemy_count(now), combat_state: state.combat_state}
+  # A posição lida fica GUARDADA com a hora da leitura: durante um lapso de
+  # cegueira o mundo que a Logic recebe tem `pos: nil` (ela não pode andar num
+  # palpite), mas a tela continua mostrando a última coordenada conhecida COM A
+  # IDADE dela — "estava em 100,100 há 4s" é diagnóstico, "sem posição" não é.
+  defp observe(state, now) do
+    pos = position(now)
+    world = %{pos: pos, enemies: enemy_count(now), combat_state: state.combat_state}
+
+    if pos, do: {world, %{state | pos: pos, pos_at: now}}, else: {world, state}
   end
 
   defp position(now) do
@@ -193,7 +258,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # --warnings-as-errors derruba o build; pública, o contrato inteiro fica
   # implementado e testável.
   @doc false
-  def translate(state, :none), do: state
+  # `last_step` descreve a tentativa de passo DESTE tick: quando a Logic não pede
+  # passo nenhum, não há tentativa — e um erro velho não pode ficar pendurado na
+  # tela explicando uma parada que já tem outro motivo.
+  def translate(state, :none), do: %{state | last_step: nil}
 
   def translate(state, {:walk, dx, dy}), do: minimap_step(state, dx, dy)
   def translate(state, {:nudge, dx, dy}), do: minimap_step(state, dx, dy)
@@ -206,6 +274,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def translate(state, :run_combat) do
     case Combat.Worker.run(state.combat) do
       :ok ->
+        log(:debug, "combate ligado")
         state
 
       {:error, messages} ->
@@ -219,36 +288,93 @@ defmodule Pokex.Bots.Cavebot.Worker do
     state
   end
 
-  # O freio de mão completo, na ordem do emergency_escape: latch PRIMEIRO
-  # (nada pode auto-retomar por cima de um bloqueio — mudou de andar, retomar
-  # a caçada seria andar num mapa errado), depois o combate que este worker
-  # dirige, depois a frota inteira, depois o alarme. A Logic já está em
-  # :blocked (terminal), então nenhum tick futuro é agendado e os feeds são
-  # soltos — capturar para ninguém só pesa o broker.
-  def translate(state, {:block, reason}) do
+  # BLOQUEIO PERIGOSO × BLOQUEIO LOCAL — a divisão existe porque tratar os dois
+  # como emergência foi o que apagou a caçada inteira em silêncio: uma parede
+  # (:stuck) derrubava a frota TODA e ainda ligava o latch de pânico, que veta
+  # até o auto-resume do Focus — captura e suporte só voltavam com um "Iniciar"
+  # humano, por causa de um obstáculo de um tile.
+  #
+  # PERIGOSO (@dangerous_blocks) é quando o mundo deixou de bater com a rota: o
+  # personagem mudou de andar (a rota descreve OUTRO mapa — andar seria andar às
+  # cegas em lugar errado) ou o combate recusou o arranque (seguir a rota seria
+  # colecionar inimigos que ninguém vai matar). Aí vale o freio de mão completo,
+  # na ordem do emergency_escape: latch PRIMEIRO (nada pode auto-retomar por
+  # cima), depois o combate que este worker dirige, depois a frota inteira.
+  def translate(state, {:block, reason}) when reason in @dangerous_blocks do
     Logger.warning("Cavebot: BLOQUEADO (#{inspect(reason)}) — parando a frota")
     Pokex.Bots.InputGate.set_panic_latch(true)
     Combat.Worker.halt(state.combat)
     Pokex.Bots.BotSupervisor.stop_all()
+    stop_hunt(state, reason)
+  end
+
+  # LOCAL (:stuck, :fight_stalled) é o cavebot que bateu numa parede ou numa luta
+  # que não acaba: um problema DELE, não do personagem. Nada aí ameaça a captura
+  # nem o suporte, e um bot parado com vida é melhor que uma frota morta — então
+  # sem latch (o Focus segue podendo retomar sozinho) e sem `stop_all`. Só esta
+  # caçada para: o tick, os feeds e o combate — que em caçada é dirigido daqui, e
+  # ficaria brigando sozinho para sempre se sobrevivesse ao dono.
+  def translate(state, {:block, reason}) do
+    Logger.warning("Cavebot: parei (#{inspect(reason)}) — o resto da frota segue")
+    Combat.Worker.halt(state.combat)
+    stop_hunt(state, reason)
+  end
+
+  # O que os dois níveis têm em comum: alarme, motivo escrito na tela, tick
+  # cancelado e feeds soltos (capturar para ninguém só pesa o broker). A Logic
+  # vai para :blocked à força porque o bloqueio pode vir dela (mudou de andar) OU
+  # do Worker (o combate recusou o arranque) — nos dois o estado reportado tem
+  # que ser :blocked, terminal até um humano religar.
+  defp stop_hunt(state, reason) do
     broadcast({:cavebot_alarm, reason})
-    # força a Logic pra :blocked também: um bloqueio pode vir da própria Logic
-    # (mudou de andar) OU do Worker (o combate recusou o arranque). Nos dois o
-    # estado reportado tem que ser :blocked — terminal nos dois níveis.
-    state = %{cancel_timer(detach(state)) | logic: %{state.logic | state: :blocked}}
+    log(:macro, block_text(reason))
+
+    state =
+      %{
+        cancel_timer(detach(state))
+        | logic: %{state.logic | state: :blocked},
+          hold_note: block_text(reason)
+      }
+      |> mark_logged(:note)
+
     broadcast_status(state)
     state
   end
 
-  # Falha de passo (ex.: {:error, :no_layout} sem HUD localizado) não derruba
-  # nada: o próximo tick relê o mundo e tenta de novo.
-  defp minimap_step(state, dx, dy) do
-    case state.body.minimap_step(dx, dy, []) do
-      {:ok, _point} -> :ok
-      error -> Logger.debug("Cavebot: passo (#{dx},#{dy}) falhou: #{inspect(error)}")
-    end
+  defp block_text(:floor_changed), do: "BLOQUEADO: mudou de andar"
+  defp block_text(:combat_preflight_failed), do: "BLOQUEADO: o combate recusou o arranque"
+  defp block_text(:stuck), do: "parei: travado, sem sair do lugar"
+  defp block_text(:fight_stalled), do: "parei: a luta não termina"
+  defp block_text(reason), do: "parei: #{inspect(reason)}"
 
-    state
+  # Falha de passo (ex.: {:error, :no_layout} sem HUD localizado) não derruba
+  # nada: o próximo tick relê o mundo e tenta de novo. Mas ela FICA REGISTRADA —
+  # um passo que não saiu contando como passo dado é exatamente o que matou a
+  # frota calada em 2026-07-23 (portão fechado → clique engolido → a Logic
+  # acreditou no passo → posição parada → :stuck → pânico). Um Logger.debug não
+  # é visibilidade: ninguém está lendo o log quando o bot para.
+  defp minimap_step(state, dx, dy) do
+    at = now()
+    result = step_result(state.body.minimap_step(dx, dy, []))
+    text = "passo #{dx},#{dy}"
+    stepped = %{state | last_step: %{dx: dx, dy: dy, result: result, at: at}}
+
+    if result == :ok do
+      # o passo é o evento mais frequente que existe aqui (5/s): só vira linha
+      # quando MUDA — repetir "passo 90,80" tick após tick não conta nada novo.
+      if action_text(state) != text,
+        do: log(:debug, "#{text} → wp #{stepped.logic.wp_index + 1}/#{wp_total(stepped)}")
+
+      %{stepped | counters: bump(stepped.counters, :steps), last_action: %{text: text, at: at}}
+    else
+      Logger.debug("Cavebot: passo (#{dx},#{dy}) falhou: #{inspect(result)}")
+      stepped
+    end
   end
+
+  defp step_result({:ok, _point}), do: :ok
+  defp step_result({:error, reason}), do: {:error, reason}
+  defp step_result(other), do: {:error, other}
 
   # -- rota e config -------------------------------------------------------------
 
@@ -274,7 +400,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     safe(fn -> Perception.attach(:battle) end)
     demonitor_feed(state.feed_ref)
     ref = Process.monitor(Feed.name(:minimap))
-    %{state | attached?: true, feed_ref: ref, reattach_attempts: 0}
+    %{state | attached?: true, feed_ref: ref, reattach_attempts: 0, hold_note: nil}
   end
 
   defp detach(%{attached?: false} = state), do: state
@@ -291,12 +417,24 @@ defmodule Pokex.Bots.Cavebot.Worker do
     safe(fn -> Perception.attach(:battle) end)
     demonitor_feed(state.feed_ref)
     ref = Process.monitor(Feed.name(:minimap))
-    %{state | attached?: true, feed_ref: ref, reattach_attempts: 0}
+    %{state | attached?: true, feed_ref: ref, reattach_attempts: 0, hold_note: nil}
   catch
     :exit, _reason -> schedule_reattach(state)
   end
 
-  defp schedule_reattach(%{reattach_attempts: attempts} = state) when attempts >= 20, do: state
+  # Desistir depois de 20×250ms era MUDO: o state voltava intocado e o cavebot
+  # ficava parado para sempre sem posição e sem ninguém saber por quê. Desistência
+  # é um fato — vira motivo na tela e linha no feed, uma vez só.
+  defp schedule_reattach(%{reattach_attempts: attempts} = state) when attempts >= @max_reattach do
+    unless state.hold_note == @feed_lost do
+      Logger.warning("Cavebot: #{@feed_lost}")
+      log(:macro, @feed_lost)
+    end
+
+    state = mark_logged(%{state | hold_note: @feed_lost}, :note)
+    broadcast_status(state)
+    state
+  end
 
   defp schedule_reattach(state) do
     Process.send_after(self(), :reattach_minimap, 250)
@@ -336,10 +474,179 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   # -- panel-facing ---------------------------------------------------------------
 
-  defp snapshot(%{logic: nil}), do: %{state: :idle, wp_index: 0, route: nil}
+  # A caçada parada é o snapshot vazio COM TODAS AS CHAVES: a tela lê os campos
+  # direto, e um mapa que muda de forma entre parado e rodando quebraria o
+  # template no pior momento — quando o bot acabou de parar.
+  @idle_snapshot %{
+    state: :idle,
+    route: nil,
+    wp_index: 0,
+    wp_total: 0,
+    wp_target: nil,
+    pos: nil,
+    pos_age_ms: nil,
+    distance_tiles: nil,
+    hold_reason: nil,
+    last_action: nil,
+    counters: %{waypoints: 0, steps: 0}
+  }
 
-  defp snapshot(%{logic: logic}),
-    do: %{state: logic.state, wp_index: logic.wp_index, route: logic.route.name}
+  @doc """
+  A forma COMPLETA do snapshot com tudo zerado — o placeholder que o
+  `BotSupervisor` usa quando o worker não responde a tempo.
+  """
+  @spec idle_snapshot() :: snapshot
+  def idle_snapshot, do: @idle_snapshot
+
+  defp snapshot(%{logic: nil} = state), do: %{@idle_snapshot | counters: state.counters}
+
+  defp snapshot(%{logic: logic} = state) do
+    now = now()
+
+    %{
+      state: logic.state,
+      route: logic.route.name,
+      wp_index: logic.wp_index,
+      wp_total: wp_total(state),
+      wp_target: wp_target(state),
+      pos: state.pos,
+      pos_age_ms: state.pos_at && now - state.pos_at,
+      distance_tiles: distance_tiles(state),
+      hold_reason: hold_reason(state, now),
+      last_action: state.last_action,
+      counters: state.counters
+    }
+  end
+
+  defp wp_total(%{logic: %Logic{route: route}}), do: length(route.waypoints)
+  defp wp_total(_state), do: 0
+
+  defp wp_target(%{logic: %Logic{} = logic}), do: Enum.at(logic.route.waypoints, logic.wp_index)
+  defp wp_target(_state), do: nil
+
+  # Quanto falta em TILES, com sinal — é a leitura que responde "ele está indo
+  # para lá mesmo?" olhando dois snapshots seguidos.
+  defp distance_tiles(%{pos: {x, y, _z}} = state) do
+    case wp_target(state) do
+      %{x: wx, y: wy} -> %{dx: wx - x, dy: wy - y}
+      nil -> nil
+    end
+  end
+
+  defp distance_tiles(_state), do: nil
+
+  # O gatilho do broadcast compara o que muda por FATO, nunca por relógio:
+  # `pos_age_ms` e o `at` do last_action andam sozinhos e emitiriam 5 mapas por
+  # segundo para sempre — ruído que enterra a mudança de verdade.
+  defp broadcast_key(state, now) do
+    {logic_state(state), state.logic && state.logic.wp_index, hold_reason(state, now),
+     action_text(state)}
+  end
+
+  defp logic_state(%{logic: %Logic{state: s}}), do: s
+  defp logic_state(_state), do: :idle
+
+  defp action_text(%{last_action: %{text: text}}), do: text
+  defp action_text(_state), do: nil
+
+  # "por que não está andando", no molde dos outros workers (fishing,
+  # player_support): o motivo de fora do tick primeiro (feed perdido, bloqueio),
+  # porque ele é o mais grave; o passo recusado depois, porque é o obstáculo
+  # concreto do tick; a cegueira por último, porque explica os ticks em que nem
+  # se tenta andar. Todos juntos quando todos valem. nil = nada segurando.
+  #
+  # Cada motivo vem com um TIPO, e o tipo é o que decide se ele já foi contado no
+  # feed: o texto da cegueira muda a cada segundo (o contador anda) sem nenhum
+  # fato novo, e comparar texto viraria uma linha de log por segundo.
+  defp holds(%{logic: nil}, _now), do: []
+
+  defp holds(state, now) do
+    Enum.reject(
+      [note_hold(state.hold_note), step_hold(state.last_step), blind_hold(state.logic, now)],
+      &is_nil/1
+    )
+  end
+
+  defp hold_reason(state, now) do
+    case holds(state, now) do
+      [] -> nil
+      reasons -> reasons |> Enum.map_join(" + ", &elem(&1, 1))
+    end
+  end
+
+  defp note_hold(nil), do: nil
+  defp note_hold(text), do: {:note, text}
+
+  defp step_hold(%{result: {:error, reason}}), do: {{:step, reason}, step_hold_text(reason)}
+  defp step_hold(_ok_or_no_step), do: nil
+
+  defp step_hold_text(:input_gate_closed), do: "jogo sem foco (ou pânico) — nada é clicado"
+  defp step_hold_text(:no_layout), do: "HUD não localizado — não sei onde fica o minimapa"
+  defp step_hold_text(reason), do: "o passo no minimapa falhou: #{inspect(reason)}"
+
+  defp blind_hold(logic, now) do
+    case Logic.blind_ms(logic, now) do
+      nil ->
+        nil
+
+      ms ->
+        {:blind,
+         "não sei onde estou há #{div(ms, 1000)}s — a coordenada do minimapa não está sendo lida"}
+    end
+  end
+
+  # -- narrativa (o feed do painel) -----------------------------------------------
+
+  # Chegar num waypoint é o único progresso que a caçada tem: a Logic já avançou
+  # o índice, então quem chegou é o waypoint ANTERIOR — é o número dele que o
+  # humano reconhece na lista da rota.
+  defp note_arrival(%{logic: %Logic{wp_index: same}} = state, same, _now), do: state
+
+  defp note_arrival(state, wp_before, now) do
+    text = "waypoint #{wp_before + 1}/#{wp_total(state)}"
+    log(:macro, text)
+    %{state | counters: bump(state.counters, :waypoints), last_action: %{text: text, at: now}}
+  end
+
+  # O motivo da espera é informação na BORDA: uma linha quando ele APARECE, e
+  # silêncio enquanto continua valendo. Repetir a cada 200ms afogaria o feed
+  # exatamente quando ele mais precisa ser lido. Some e volta = borda nova, linha
+  # nova — é fato diferente.
+  defp log_hold_edge(state, now) do
+    holds = holds(state, now)
+
+    for {kind, text} <- holds, kind not in state.logged_holds, do: log(:macro, text)
+
+    %{state | logged_holds: Enum.map(holds, &elem(&1, 0))}
+  end
+
+  # Um motivo que já foi anunciado por quem o criou (bloqueio, feed perdido) não
+  # pode ser anunciado de novo pela borda no tick seguinte.
+  defp mark_logged(state, kind), do: %{state | logged_holds: [kind | state.logged_holds]}
+
+  defp log(level, text), do: broadcast({:cavebot_log, level, "caçada: " <> text})
+
+  defp bump(counters, key), do: Map.update(counters, key, 1, &(&1 + 1))
+
+  # Parar guarda só os CONTADORES: "a caçada fez 12 waypoints e 340 passos" é o
+  # resumo que interessa depois do halt. Motivo, última ação e posição são do
+  # tick — e um tick que não existe mais não pode continuar explicando a tela.
+  defp end_session(state), do: %{reset_session(state) | counters: state.counters}
+
+  # Uma caçada nova não herda nada da anterior: contadores, última ação, motivos
+  # e a posição conhecida são todos daquela sessão.
+  defp reset_session(state) do
+    %{
+      state
+      | last_step: nil,
+        pos: nil,
+        pos_at: nil,
+        counters: %{waypoints: 0, steps: 0},
+        last_action: nil,
+        hold_note: nil,
+        logged_holds: []
+    }
+  end
 
   defp broadcast_status(state), do: broadcast({:cavebot, snapshot(state)})
 

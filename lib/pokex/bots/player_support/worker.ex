@@ -123,7 +123,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # the WHOLE sequence enters the Body ahead of everything, atomically.
   def handle_call(:flee_to_escape, _from, state) do
     with {:ok, %Calibration{escape_point: point}} when is_tuple(point) <- Calibration.load(),
-         :ok <- ensure_game_front() do
+         :ok <- Pokex.Bots.Focus.ensure_front() do
       case Body.perform(flee_actions(point), :critical, state.body) do
         :ok ->
           broadcast_log(
@@ -142,28 +142,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     else
       {:error, :panic_corner} -> {:reply, {:error, :panic_corner}, state}
       _no_point_or_no_calib -> {:reply, {:error, :not_calibrated}, state}
-    end
-  end
-
-  # Fronting + gate: if the game already has focus this is a no-op; otherwise
-  # front it (same System Events call the calibration uses), give the window a
-  # beat, and reflect reality on the gate NOW — the Focus poller would take a
-  # tick to notice, and the Rig would silently swallow the click meanwhile.
-  # If fronting silently failed, the poller flips the gate back and the Rig
-  # swallows the rest — the fail-safe still rules.
-  defp ensure_game_front do
-    cond do
-      not InputGate.state().corner_ok ->
-        {:error, :panic_corner}
-
-      InputGate.state().focus_ok ->
-        :ok
-
-      true ->
-        Pokex.Bots.Focus.front_game()
-        Process.sleep(Settings.get(:calibration_front_delay_ms))
-        InputGate.set_focus_ok(true)
-        :ok
     end
   end
 

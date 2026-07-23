@@ -186,6 +186,34 @@ defmodule Pokex.Bots.Focus do
     _oascript_unavailable -> :ok
   end
 
+  @doc """
+  Garante que o jogo pode receber uma sequência DELIBERADA de teclas: recusa se
+  o canto do pânico está acionado (a ordem humana vence tudo), passa direto se o
+  jogo já está na frente, e senão traz o jogo para a frente e abre a porteira
+  na hora.
+
+  Abrir a porteira aqui, em vez de esperar o poller notar, é o ponto: o poller
+  levaria um tick, e nesse meio-tempo o Rig engoliria a tecla EM SILÊNCIO. Se o
+  fronting falhar de verdade, o poller fecha a porteira de volta no tick
+  seguinte e o Rig volta a engolir — a rede de segurança continua valendo.
+  """
+  @spec ensure_front() :: :ok | {:error, :panic_corner}
+  def ensure_front do
+    cond do
+      not InputGate.state().corner_ok ->
+        {:error, :panic_corner}
+
+      InputGate.state().focus_ok ->
+        :ok
+
+      true ->
+        front_game()
+        Process.sleep(Settings.get(:calibration_front_delay_ms))
+        InputGate.set_focus_ok(true)
+        :ok
+    end
+  end
+
   # Frontmost process name via System Events. `{:ok, name}` or `:error` (unreadable → hold).
   defp default_frontmost do
     case System.cmd(

@@ -163,4 +163,28 @@ defmodule Pokex.Bots.FocusTest do
     assert InputGate.state().focus_ok == true
     refute :stop in calls(agent)
   end
+
+  describe "ensure_front/0" do
+    setup do
+      on_exit(fn ->
+        Pokex.Bots.InputGate.set_corner_ok(true)
+        Pokex.Bots.InputGate.set_focus_ok(true)
+      end)
+
+      :ok
+    end
+
+    test "recusa enquanto o cursor está no canto do pânico" do
+      Pokex.Bots.InputGate.set_corner_ok(false)
+
+      assert Pokex.Bots.Focus.ensure_front() == {:error, :panic_corner}
+    end
+
+    test "não faz nada quando o jogo já está na frente" do
+      Pokex.Bots.InputGate.set_corner_ok(true)
+      Pokex.Bots.InputGate.set_focus_ok(true)
+
+      assert Pokex.Bots.Focus.ensure_front() == :ok
+    end
+  end
 end

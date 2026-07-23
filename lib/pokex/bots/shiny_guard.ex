@@ -36,6 +36,7 @@ defmodule Pokex.Bots.ShinyGuard do
   use GenServer
   require Logger
 
+  alias Pokex.Bots.InputGate
   alias Pokex.Perception
   alias Pokex.Perception.Feed
   alias Pokex.Pokedex.ShinyLog
@@ -233,9 +234,27 @@ defmodule Pokex.Bots.ShinyGuard do
 
     case action do
       "fugir" ->
-        Logger.warning("ShinyGuard: #{reason} — fugindo pela escada")
-        state.escape_fun.(reason)
-        ShinyLog.resolve_last("fugiu")
+        # O latch é a ordem de parada em vigor (canto do pânico, logout, meta
+        # batida). Com ele travado o guarda NÃO atua — mas continua gritando:
+        # quando o Lucas vai pro canto pra jogar na mão, ele QUER saber que
+        # apareceu uma shiny; o que ele não quer é o bot arrastando o personagem
+        # pra escada enquanto ele joga. Sem isso, uma shiny avistada move o
+        # personagem com tudo "parado", porque este guarda é filho da aplicação
+        # e stop_all/0 não o alcança — ele não aperta tecla, mas a fuga que ele
+        # chama traz o jogo pra frente DE PROPÓSITO e anda até a escada.
+        if InputGate.panic_latched?() do
+          Logger.warning("ShinyGuard: #{reason} — parada em vigor, NÃO foge; só avisa")
+
+          Phoenix.PubSub.broadcast(
+            Pokex.PubSub,
+            @combat_topic,
+            {:rule_alarm, reason <> " — bot parado, decida você"}
+          )
+        else
+          Logger.warning("ShinyGuard: #{reason} — fugindo pela escada")
+          state.escape_fun.(reason)
+          ShinyLog.resolve_last("fugiu")
+        end
 
       _alarme_ou_lutar ->
         Logger.warning("ShinyGuard: #{reason} — modo lutar, só alarmando")

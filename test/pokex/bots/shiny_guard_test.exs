@@ -114,4 +114,45 @@ defmodule Pokex.Bots.ShinyGuardTest do
     refute_receive {:shiny_reading, _}, 100
     _ = ShinyGuard.status(guard)
   end
+
+  describe "parada em vigor (latch travado)" do
+    setup do
+      on_exit(fn -> Pokex.Bots.InputGate.set_panic_latch(false) end)
+      :ok
+    end
+
+    @tag :tmp_dir
+    test "com o latch travado e ação fugir, NÃO foge" do
+      SettingsStash.stash!(shiny_action: "fugir")
+      Pokex.Bots.InputGate.set_panic_latch(true)
+
+      world_broadcast(shiny_obs())
+
+      refute_receive {:escaped, _}, 500
+    end
+
+    @tag :tmp_dir
+    test "com o latch travado, o alarme SAI mesmo assim" do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+      SettingsStash.stash!(shiny_action: "fugir")
+      Pokex.Bots.InputGate.set_panic_latch(true)
+
+      world_broadcast(shiny_obs())
+
+      assert_receive {:rule_alarm, reason}, 1_000
+      assert reason =~ "SHINY na lista de batalha"
+      assert reason =~ "decida você"
+    end
+
+    @tag :tmp_dir
+    test "com o latch LIVRE e ação fugir, foge — sem regressão" do
+      SettingsStash.stash!(shiny_action: "fugir")
+      Pokex.Bots.InputGate.set_panic_latch(false)
+
+      world_broadcast(shiny_obs())
+
+      assert_receive {:escaped, reason}, 1_000
+      assert reason =~ "SHINY na lista de batalha"
+    end
+  end
 end

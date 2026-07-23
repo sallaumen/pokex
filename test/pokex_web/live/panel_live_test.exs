@@ -321,7 +321,7 @@ defmodule PokexWeb.PanelLiveTest do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "combat",
-      {:rule_alarm, "estagnação: sem kills nem fisgadas há 10min"}
+      {:rule_alarm, "estagnação: sem kills nem peixes há 10min"}
     )
 
     assert_push_event(view, "alarm", %{text: text})

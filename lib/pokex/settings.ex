@@ -262,6 +262,9 @@ defmodule Pokex.Settings do
     # — when the running session crosses a limit. 0 = condition off.
     stop_after_minutes: 0,
     stop_after_kills: 0,
+    # O que fazer ao bater uma meta: "parar" trava tudo como o Stop; "deslogar"
+    # encerra a conta, que é o que de fato economiza estamina.
+    stop_after_action: "parar",
     # Shiny guard (Lucas's anti-shiny protocol): watch the arena feed for the
     # COLOR signature of the watched Shinies (built from the wiki sprites — a
     # PXG shiny is a full recolor, so no in-game photo is needed). Action on a
@@ -284,11 +287,14 @@ defmodule Pokex.Settings do
     # A sighting must survive this long without a clean frame refuting it.
     # The feed captures every ~120ms, so a one-frame glitch dies in ~120-240ms.
     shiny_confirm_ms: 400,
-    # Anti-stagnation rule (Actions & Rules): an ACTIVE session with neither a
-    # kill nor a hooked fish for this many minutes is a wedged bot (empty
-    # water, stuck detector, dead spot). 0 = off. Action "alarme" re-rings
-    # after every silent window (the rule's own cooldown); "parar" halts the
-    # fleet through the same latch as the stop conditions.
+    # Anti-estagnação (Ações & Regras): uma sessão ATIVA sem nenhum sinal de
+    # vida por esta janela é um bot travado (água vazia, detector preso, spot
+    # morto). Sinal de vida é kill + MINIGAME VENCIDO — não fisgada: com o
+    # minigame travado a vara fisga a noite toda sem pegar peixe nenhum, e foi
+    # assim que uma madrugada de estamina foi embora. A fisgada só volta a valer
+    # com o vigia do minigame desligado. 0 = desligado. "alarme" re-toca a cada
+    # janela de silêncio (o cooldown da própria regra); "parar" trava tudo pela
+    # mesma trava das metas; "deslogar" encerra a conta.
     stagnation_minutes: 0,
     stagnation_action: "alarme",
     # Escape WALK (the flee protocol): clicking ON a ladder tries to USE it,

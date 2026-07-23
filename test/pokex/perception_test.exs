@@ -8,6 +8,7 @@ defmodule Pokex.PerceptionTest do
   setup do
     on_exit(fn ->
       WorldState.forget(:mini_game)
+      WorldState.forget(:minimap)
       WorldState.forget(:pokemon)
       WorldState.forget(:skill_bar)
     end)
@@ -23,6 +24,22 @@ defmodule Pokex.PerceptionTest do
 
     stale_at = 10_000 + Pokex.Settings.get(:pokemon_fact_max_age_ms) + 1
     assert Perception.pokemon(stale_at) == :unknown
+  end
+
+  test "minimap devolve a posição fresca e é :unknown quando ausente/nil/velha" do
+    assert Perception.minimap(10_000) == :unknown
+
+    WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, 10_000)
+    assert Perception.minimap(10_100) == {:ok, %{pos: {337, 46_107, 4}}}
+
+    # âncora não localizada no frame → o feed publica pos: nil — ainda :unknown
+    # (fail-open: posição desconhecida nunca vira posição conhecida)
+    WorldState.put(:minimap, %{pos: nil}, 10_200)
+    assert Perception.minimap(10_300) == :unknown
+
+    WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, 10_000)
+    stale_at = 10_000 + Pokex.Settings.get(:cavebot_minimap_fact_max_age_ms) + 1
+    assert Perception.minimap(stale_at) == :unknown
   end
 
   test "mini_game_playing? mirrors a fresh fact" do

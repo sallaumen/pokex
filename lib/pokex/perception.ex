@@ -76,6 +76,22 @@ defmodule Pokex.Perception do
   end
 
   @doc """
+  The player's map position per the `:minimap` fact its feed publishes:
+  `{:ok, %{pos: {x, y, z}}}` when the fact is fresh (within
+  `cavebot_minimap_fact_max_age_ms`) and the position was actually read.
+  `:unknown` when the fact is missing, stale, or carries `pos: nil` (anchor
+  not located in the frame) — fail-open: an unknown position is never
+  reported as a known one, so the cavebot stops instead of walking blind.
+  """
+  @spec minimap(integer) :: {:ok, %{pos: {integer, integer, integer}}} | :unknown
+  def minimap(now_ms \\ System.monotonic_time(:millisecond)) do
+    case WorldState.get(:minimap, Settings.get(:cavebot_minimap_fact_max_age_ms), now_ms) do
+      {:ok, %{pos: {_x, _y, _z}} = obs} -> {:ok, obs}
+      _stale_missing_or_nil -> :unknown
+    end
+  end
+
+  @doc """
   The ready hotbar keys per the `:skill_bar` fact its feed publishes, or nil when the
   fact is missing, stale (`skill_bar_fact_max_age_ms`) or unreadable — UNKNOWN, and
   consumers must fail OPEN on it (combat falls back to the blind rotation; nothing may

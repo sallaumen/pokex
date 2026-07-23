@@ -1,5 +1,6 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
+  @behaviour PokexWeb.CharacterAware
 
   alias Pokex.Bots.{BotSupervisor, Catcher, Combat, Fishing, PlayerSupport, SkillBar}
   alias Pokex.Diagnostics.Report
@@ -139,6 +140,12 @@ defmodule PokexWeb.PanelLive do
      )}
   end
 
+  # Skills, gates, bolas e suporte agora seguem o personagem (Settings resolve a
+  # camada dele): trocar no header tem que redesenhar os controles com os valores
+  # DELE, senão a tela mostra os ajustes de um e o bot roda com os do outro.
+  @impl PokexWeb.CharacterAware
+  def on_character_change(socket), do: refresh_setting_assigns(socket)
+
   defp start_bots(socket) do
     case BotSupervisor.start_all() do
       :ok ->
@@ -164,10 +171,21 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # The Settings-derived assigns a preset can change — re-read after apply_preset
-  # so every toggle/field on screen matches what was just applied.
+  # Quem manda nos ajustes que esta tela edita — o nome do personagem ativo, ou
+  # nil pra base. Derivado dos assigns do header em vez de virar assign próprio:
+  # um terceiro lugar guardando "quem é o ativo" é um terceiro lugar pra ficar
+  # desatualizado.
+  defp settings_owner(characters, active_character) do
+    Enum.find_value(characters, fn %{slug: slug, name: name} ->
+      slug == active_character && name
+    end)
+  end
+
+  # The Settings-derived assigns a preset — or a character switch — can change.
+  # Re-read them so every toggle/field on screen matches what is in force.
   defp refresh_setting_assigns(socket) do
     assign(socket,
+      player_mode: Settings.get(:player_mode),
       skill_order: Enum.join(Settings.get(:skill_keys), " "),
       hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
       loot_enabled: Settings.get(:loot_enabled),
@@ -2081,6 +2099,25 @@ defmodule PokexWeb.PanelLive do
                 </form>
               </div>
             </details>
+
+            <%!-- Sem isto, "mudei aqui e o outro personagem mudou junto?" só se
+            responde testando. O painel diz de quem é o ajuste que você está mexendo. --%>
+            <section
+              id="settings-owner"
+              class="flex items-start gap-2 rounded-lg border border-pk-line bg-pk-sunken px-3 py-2.5"
+            >
+              <.icon name="hero-user-circle" class="mt-0.5 size-4 shrink-0 text-pk-text-3" />
+              <p class="text-pk-body leading-tight text-pk-text-2">
+                <%= if owner = settings_owner(@characters, @active_character) do %>
+                  Estes ajustes são de <strong class="text-pk-ok">{owner}</strong>
+                  — skills, gates, bolas e suporte. Outro personagem tem os dele.
+                <% else %>
+                  Sem personagem selecionado: você está editando a
+                  <strong class="text-pk-text">configuração base</strong>
+                  — a que todo personagem novo herda e que os outros seguem no que nunca mexeram.
+                <% end %>
+              </p>
+            </section>
 
             <section id="presets-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <div class="flex items-center justify-between text-pk-body font-semibold">

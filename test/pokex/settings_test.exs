@@ -158,6 +158,175 @@ defmodule Pokex.SettingsTest do
     assert :ets.lookup(:pokex_settings_overrides, :glow_threshold) == []
   end
 
+  describe "camada do personagem" do
+    # Uma instância própria por teste, num tmp: a camada do personagem mexe em
+    # arquivos, e o Settings global é compartilhado pela suíte inteira.
+    defp char_server(tmp) do
+      {:ok, server} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+      server
+    end
+
+    defp char_file(tmp, slug), do: Path.join([tmp, "chars", slug, "settings.json"])
+
+    @tag :tmp_dir
+    test "sem personagem, editar é editar a BASE — como sempre foi", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:rod_key, "shift+z", server)
+
+      assert Path.join(tmp, "settings.json") |> File.read!() |> JSON.decode!() ==
+               %{"rod_key" => "shift+z"}
+
+      assert Settings.get(:rod_key, server) == "shift+z"
+    end
+
+    @tag :tmp_dir
+    test "com personagem ativo, a chave do painel vai pro arquivo DELE", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:active_character, "lowbie", server)
+      :ok = Settings.put(:skill_keys, ["8", "9"], server)
+
+      assert char_file(tmp, "lowbie") |> File.read!() |> JSON.decode!() ==
+               %{"skill_keys" => ["8", "9"]}
+
+      # a base não foi tocada — só quem está ativo mudou
+      assert Path.join(tmp, "settings.json") |> File.read!() |> JSON.decode!() ==
+               %{"active_character" => "lowbie"}
+    end
+
+    @tag :tmp_dir
+    test "dois personagens não enxergam a configuração um do outro", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:active_character, "main", server)
+      :ok = Settings.put(:hook_skill_keys, ["4", "5"], server)
+      :ok = Settings.put(:require_pokemon_hp, true, server)
+
+      :ok = Settings.put(:active_character, "lowbie", server)
+      :ok = Settings.put(:hook_skill_keys, ["1"], server)
+
+      assert Settings.get(:hook_skill_keys, server) == ["1"]
+      # o lowbie não herdou o gate do main: nunca sobrescreveu, então segue a base
+      assert Settings.get(:require_pokemon_hp, server) == Settings.defaults()[:require_pokemon_hp]
+
+      :ok = Settings.put(:active_character, "main", server)
+      assert Settings.get(:hook_skill_keys, server) == ["4", "5"]
+      assert Settings.get(:require_pokemon_hp, server) == true
+    end
+
+    @tag :tmp_dir
+    test "personagem novo HERDA a base e só diverge no que ele mexe", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      # a base do Lucas, montada sem personagem selecionado
+      :ok = Settings.put(:rod_key, "shift+z", server)
+      :ok = Settings.put(:potion_key, "9", server)
+
+      :ok = Settings.put(:active_character, "novato", server)
+      assert Settings.get(:rod_key, server) == "shift+z"
+      assert Settings.get(:potion_key, server) == "9"
+
+      :ok = Settings.put(:potion_key, "0", server)
+      assert Settings.get(:potion_key, server) == "0"
+      # e o que ele não mexeu continua seguindo a base
+      assert Settings.get(:rod_key, server) == "shift+z"
+    end
+
+    @tag :tmp_dir
+    test "o personagem consegue voltar uma chave ao PADRÃO DO CÓDIGO", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+      seed = Settings.defaults()[:rod_key]
+
+      :ok = Settings.put(:rod_key, "shift+z", server)
+      :ok = Settings.put(:active_character, "purista", server)
+      :ok = Settings.put(:rod_key, seed, server)
+
+      # não é "igual ao seed, logo não é override": aqui a base é shift+z, e
+      # querer o padrão do código É uma divergência que precisa ser guardada
+      assert Settings.get(:rod_key, server) == seed
+      assert char_file(tmp, "purista") |> File.read!() |> JSON.decode!() == %{"rod_key" => seed}
+
+      # e sobrevive ao restart
+      {:ok, reboot} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+      assert Settings.get(:rod_key, reboot) == seed
+    end
+
+    @tag :tmp_dir
+    test "voltar ao valor da base LIMPA o override do personagem", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:rod_key, "shift+z", server)
+      :ok = Settings.put(:active_character, "seguidor", server)
+      :ok = Settings.put(:rod_key, "1", server)
+      :ok = Settings.put(:rod_key, "shift+z", server)
+
+      assert char_file(tmp, "seguidor") |> File.read!() |> JSON.decode!() == %{}
+
+      # voltou a SEGUIR a base: mudar a base agora chega nele
+      :ok = Settings.put(:active_character, "", server)
+      :ok = Settings.put(:rod_key, "shift+x", server)
+      :ok = Settings.put(:active_character, "seguidor", server)
+      assert Settings.get(:rod_key, server) == "shift+x"
+    end
+
+    @tag :tmp_dir
+    test "o que descreve a MÁQUINA continua global mesmo com personagem ativo", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:active_character, "main", server)
+      :ok = Settings.put(:glow_threshold, 1234, server)
+
+      assert Path.join(tmp, "settings.json") |> File.read!() |> JSON.decode!() ==
+               %{"active_character" => "main", "glow_threshold" => 1234}
+
+      refute File.exists?(char_file(tmp, "main"))
+
+      # e o outro personagem lê o mesmo limiar — é a mesma tela
+      :ok = Settings.put(:active_character, "lowbie", server)
+      assert Settings.get(:glow_threshold, server) == 1234
+    end
+
+    @tag :tmp_dir
+    test "reiniciar volta no personagem que estava ativo, com os valores dele", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:active_character, "main", server)
+      :ok = Settings.put(:skill_keys, ["5", "6"], server)
+      :ok = Settings.put(:player_mode, "movimento", server)
+
+      {:ok, reboot} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+
+      assert Settings.get(:active_character, reboot) == "main"
+      assert Settings.get(:skill_keys, reboot) == ["5", "6"]
+      assert Settings.get(:player_mode, reboot) == "movimento"
+    end
+
+    @tag :tmp_dir
+    test "all/1 mostra a camada em vigor, não a base", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:rod_key, "shift+z", server)
+      :ok = Settings.put(:active_character, "main", server)
+      :ok = Settings.put(:rod_key, "1", server)
+
+      all = Settings.all(server)
+      assert all.rod_key == "1"
+      assert all.glow_threshold == Settings.defaults()[:glow_threshold]
+    end
+
+    @tag :tmp_dir
+    test "um settings.json de personagem corrompido lê como 'sem override'", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+      File.mkdir_p!(Path.dirname(char_file(tmp, "quebrado")))
+      File.write!(char_file(tmp, "quebrado"), "{ isto não é json")
+
+      :ok = Settings.put(:active_character, "quebrado", server)
+
+      assert Settings.get(:rod_key, server) == Settings.defaults()[:rod_key]
+    end
+  end
+
   describe "presets por Pokémon" do
     defp preset_server(tmp) do
       Application.put_env(:pokex, :home_dir, tmp)

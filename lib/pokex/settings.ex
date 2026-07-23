@@ -7,6 +7,21 @@ defmodule Pokex.Settings do
   that isn't overridden always comes from code — changing a seed default in a new build takes
   effect for everyone who hasn't overridden that key. (Persisting a full snapshot instead would
   freeze every default at its first-boot value and silently shadow later code changes.)
+
+  ## Três camadas: personagem ⊕ base ⊕ seed
+
+  As chaves de `character_keys/0` (o que o painel ajusta: skills, gates da
+  pesca, poção/revive, bolas, modo de jogo) pertencem ao PERSONAGEM e moram em
+  `chars/<slug>/settings.json`. As outras — limiares de visão, timings,
+  calibração, sons — descrevem o Mac e o jogo, não quem está jogando, e
+  continuam únicas em `settings.json`.
+
+  A leitura desce as camadas: o que o personagem sobrescreveu, senão o global
+  (a BASE), senão o seed. Escrever segue a mesma régua — com personagem ativo,
+  uma chave dele cai no arquivo dele; sem personagem, você está editando a base,
+  que é o que todo personagem novo herda.
+
+  Nenhum consumidor precisa saber disso: `get/2` e `put/3` são os mesmos.
   """
   use GenServer
   require Logger
@@ -566,11 +581,25 @@ defmodule Pokex.Settings do
     :support_waits_capture
   ]
 
+  # As configurações que pertencem ao PERSONAGEM, não à máquina.
+  #
+  # A régua: muda quando você senta como OUTRO personagem? Quais teclas ele
+  # aperta, quais pokémon ele tem, quais gates fazem sentido no nível dele —
+  # isso é dele. O que descreve o Mac e os pixels do jogo (limiares de visão,
+  # timings, calibração, sons, shiny guard) é da máquina e continua único.
+  #
+  # É a lista dos presets mais o modo de jogo: um lowbie caça andando enquanto
+  # o principal pesca parado, e ter que reajustar isso a cada troca era o
+  # mesmo trabalho manual que os presets já existiam pra evitar.
+  @character_keys @preset_keys ++ [:player_mode]
+
   # ETS mirror of the GLOBAL instance's overrides. Worker ticks read several
   # settings every 80-400ms across many processes; funnelling those through one
   # GenServer serializes every hot loop behind a single mailbox. Reads against
   # the global name hit this table instead; the GenServer stays the only WRITER
   # (:protected), so the "overrides + seed fallback" semantics are unchanged.
+  # O espelho guarda a camada JÁ RESOLVIDA (global ⊕ personagem), então a troca
+  # de personagem não custa nada no caminho quente: continua um lookup.
   @mirror_table :pokex_settings_overrides
 
   def defaults, do: @seed_settings
@@ -618,6 +647,9 @@ defmodule Pokex.Settings do
   # --- presets por Pokémon ---------------------------------------------------
 
   def preset_keys, do: @preset_keys
+
+  @doc "As chaves que seguem o personagem ativo (ver o moduledoc)."
+  def character_keys, do: @character_keys
 
   @doc "Saves the CURRENT per-Pokémon settings under `name`. {:ok, slug} | {:error, reason}."
   def save_preset(name, server \\ __MODULE__) do
@@ -692,53 +724,109 @@ defmodule Pokex.Settings do
     # instances must not clobber it.
     mirror? = Keyword.get(opts, :name, __MODULE__) == __MODULE__
 
+    state = %{
+      path: path,
+      data: overrides,
+      char: Map.get(overrides, :active_character, ""),
+      char_data: %{},
+      mirror?: mirror?
+    }
+
+    state = %{state | char_data: load_char(state, state.char)}
+
     if mirror? do
       :ets.new(@mirror_table, [:named_table, :set, :protected, read_concurrency: true])
-      :ets.insert(@mirror_table, Map.to_list(overrides))
+      :ets.insert(@mirror_table, Map.to_list(effective(state)))
     end
 
-    {:ok, %{path: path, data: overrides, mirror?: mirror?}}
+    {:ok, state}
   end
 
   @impl true
-  # Any key the user hasn't overridden falls back to the code seed — this is what lets a later
-  # change to a @seed_settings default actually take effect.
-  def handle_call({:get, key}, _from, state),
-    do: {:reply, Map.get(state.data, key, Map.get(@seed_settings, key)), state}
+  # Três camadas, sempre nesta ordem: personagem ⊕ global ⊕ seed. Um valor que o
+  # personagem não sobrescreveu cai no seu global (a "base"), e um que ninguém
+  # sobrescreveu cai no seed do código — que é o que faz mudar um default numa
+  # build nova chegar em quem nunca mexeu na chave.
+  def handle_call({:get, key}, _from, state), do: {:reply, resolve(state, key), state}
 
   def handle_call(:all, _from, state),
-    do: {:reply, Map.merge(@seed_settings, state.data), state}
+    do: {:reply, Map.merge(@seed_settings, effective(state)), state}
+
+  # Trocar de personagem: a chave é global (senão não haveria como saber quem
+  # está ativo antes de saber quem está ativo), e recarrega a camada dele.
+  def handle_call({:put, :active_character, slug}, _from, state) do
+    state = put_global(state, :active_character, slug)
+    state = %{state | char: slug, char_data: load_char(state, slug)}
+
+    # A própria `:active_character` entra na lista: ela é lida pelo espelho como
+    # qualquer outra (é assim que `Team.file/0` sabe de quem é o time), e
+    # sincronizar só as chaves do personagem deixava o espelho apontando pro
+    # personagem ANTERIOR — trocar não trocava nada fora do painel.
+    {:reply, :ok, mirror_sync(state, [:active_character | @character_keys])}
+  end
+
+  def handle_call({:put, key, value}, _from, state) when key in @character_keys do
+    if state.char == "" do
+      # Sem personagem selecionado, o painel edita a BASE — que é exatamente o
+      # comportamento de antes deste layer existir, e o que todo personagem
+      # novo herda.
+      {:reply, :ok, state |> put_global(key, value) |> mirror_sync([key])}
+    else
+      {:reply, :ok, state |> put_char(key, value) |> mirror_sync([key])}
+    end
+  end
+
+  def handle_call({:put, key, value}, _from, state),
+    do: {:reply, :ok, state |> put_global(key, value) |> mirror_sync([key])}
 
   # Setting a value back to the current default is NOT an override — drop it so the key keeps
   # tracking the code default afterwards.
-  def handle_call({:put, key, value}, _from, state) do
+  defp put_global(state, key, value) do
     data =
       if value == Map.fetch!(@seed_settings, key),
         do: Map.delete(state.data, key),
         else: Map.put(state.data, key, value)
 
-    if state.mirror? do
-      if is_map_key(data, key),
-        do: :ets.insert(@mirror_table, {key, value}),
-        else: :ets.delete(@mirror_table, key)
-    end
-
     persist!(state.path, data)
-    {:reply, :ok, %{state | data: data}}
+    %{state | data: data}
+  end
+
+  # Mesma disciplina uma camada acima: o que o personagem "sobrescreve" com o
+  # valor que já vinha da base não é override nenhum — sai do arquivo dele e
+  # volta a seguir a base. Sem isso, criar um personagem e salvar o formulário
+  # congelaria nele TODA a configuração atual, e mexer na base nunca mais
+  # chegaria nele.
+  defp put_char(state, key, value) do
+    char_data =
+      if value == base_value(state, key),
+        do: Map.delete(state.char_data, key),
+        else: Map.put(state.char_data, key, value)
+
+    persist!(char_path(state, state.char), char_data)
+    %{state | char_data: char_data}
   end
 
   # Keep ONLY the keys whose value differs from the current seed default. Restores the
   # "store overrides, not a snapshot" contract and self-heals an older materialized file.
   defp load(path) do
+    load(path, @setting_keys, &Map.fetch!(@seed_settings, &1))
+  end
+
+  # `base_fun` diz contra o que "isto é override?" é medido: o seed do código
+  # para o arquivo global, o valor-base já resolvido para o de um personagem.
+  # Medir o arquivo do personagem contra o seed seria um bug silencioso — ele
+  # não conseguiria voltar uma chave ao padrão do código quando a sua base
+  # global sobrescreve essa mesma chave.
+  defp load(path, keys, base_fun) do
     with {:ok, bin} <- File.read(path),
          {:ok, json} <- JSON.decode(bin) do
       for {key_string, value} <- json,
           key = known_key(key_string),
-          key != nil,
+          key in keys,
           # A JSON null is file corruption, never a legitimate override — keeping
           # it would make Settings.get return nil to code expecting a number.
           not is_nil(value),
-          value != Map.fetch!(@seed_settings, key),
+          value != base_fun.(key),
           into: %{},
           do: {key, value}
     else
@@ -762,6 +850,44 @@ defmodule Pokex.Settings do
   rescue
     error -> Logger.warning("Settings: could not rewrite #{path}: #{inspect(error)}")
   end
+
+  # --- camada do personagem --------------------------------------------------
+
+  defp resolve(state, key) do
+    case state.char_data do
+      %{^key => value} -> value
+      _no_char_override -> base_value(state, key)
+    end
+  end
+
+  defp base_value(state, key), do: Map.get(state.data, key, Map.get(@seed_settings, key))
+
+  # Os overrides EM VIGOR — o que o espelho ETS guarda e o que `all/1` mostra.
+  defp effective(state), do: Map.merge(state.data, state.char_data)
+
+  # Só as chaves que mudaram: reescrever a tabela inteira teria uma janela em que
+  # um worker lendo no meio da troca cairia no seed em vez do valor do personagem.
+  defp mirror_sync(%{mirror?: false} = state, _keys), do: state
+
+  defp mirror_sync(state, keys) do
+    effective = effective(state)
+    {present, absent} = Enum.split_with(keys, &is_map_key(effective, &1))
+
+    :ets.insert(@mirror_table, Enum.map(present, &{&1, Map.fetch!(effective, &1)}))
+    Enum.each(absent, &:ets.delete(@mirror_table, &1))
+
+    state
+  end
+
+  # Deriva de `state.path` (não de `Home.dir/0`) pra uma instância de teste
+  # apontada num tmp guardar os personagens dela no mesmo tmp.
+  defp char_path(state, slug),
+    do: Path.join([Path.dirname(state.path), "chars", slug, "settings.json"])
+
+  defp load_char(_state, ""), do: %{}
+
+  defp load_char(state, slug),
+    do: load(char_path(state, slug), @character_keys, &base_value(state, &1))
 
   # --- preset helpers --------------------------------------------------------
 

@@ -510,7 +510,23 @@ defmodule Pokex.Settings do
     corpse_max_balls: 2,
     corpse_ignore_ttl_ms: 120_000,
     corpse_confirm_after_ms: 800,
-    catcher_world_max_age_ms: 1_200
+    catcher_world_max_age_ms: 1_200,
+    # --- Cavebot (caçada por rotas de waypoints) -------------------------------------------------
+    hunt_style: "constante",
+    defense_mode_key: "shift+3",
+    attack_mode_key: "shift+1",
+    cavebot_arrival_tolerance_tiles: 1,
+    cavebot_walk_timeout_ms: 3000,
+    cavebot_minimap_fact_max_age_ms: 800,
+    cavebot_stuck_max_retries: 4,
+    cavebot_group_min_enemies: 3,
+    cavebot_group_max_wait_ms: 4000,
+    cavebot_stance_settle_ms: 400,
+    cavebot_post_kill_dwell_ms: 1200,
+    cavebot_clear_debounce_ms: 800,
+    cavebot_fight_timeout_ms: 20000,
+    cavebot_combo_timeout_ms: 6000,
+    cavebot_cleanup_timeout_ms: 8000
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

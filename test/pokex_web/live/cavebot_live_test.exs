@@ -69,7 +69,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     html = view |> element("#mark-waypoint") |> render_click()
 
-    assert html =~ "ainda não li tua posição"
+    assert html =~ "não estou lendo tua posição"
     assert [%Route{waypoints: []}] = Store.all()
   end
 
@@ -118,5 +118,49 @@ defmodule PokexWeb.CavebotLiveTest do
 
     assert html =~ "já existe"
     assert [%Route{waypoints: [%{x: 1, y: 2, z: 7}]}] = Store.all()
+  end
+
+  # O fluxo que REALMENTE funciona: armar a gravação, ir pro jogo, andar. Um
+  # clique por waypoint é impossível — clicar traz o navegador pra frente, tira
+  # o jogo do foco e pode cobrir o minimapa de onde a posição é lida.
+  test "gravando andando: waypoints entram sozinhos conforme a posição muda", %{conn: conn} do
+    put_pos({10, 20, 7})
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    view
+    |> form("#new-route-form", %{"name" => "cavena", "dungeon" => ""})
+    |> render_submit()
+
+    view |> element("#toggle-recording") |> render_click()
+
+    # anda: cada publicação do minimapa com distância suficiente vira waypoint
+    # render/1 entre os passos força o flush: o LiveView processa mensagens
+    # async, e sem isso os três handle_info leriam a MESMA posição (a última)
+    put_pos({10, 20, 7})
+    send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
+    render(view)
+    put_pos({20, 20, 7})
+    send(view.pid, {:world, :minimap, %{pos: {20, 20, 7}}})
+    render(view)
+    # perto demais do último (< cavebot_record_min_tiles): NÃO entra
+    put_pos({21, 20, 7})
+    send(view.pid, {:world, :minimap, %{pos: {21, 20, 7}}})
+    render(view)
+
+    assert [%Route{waypoints: waypoints}] = Store.all()
+    assert waypoints == [%{x: 10, y: 20, z: 7}, %{x: 20, y: 20, z: 7}]
+
+    view |> element("#toggle-recording") |> render_click()
+    assert render(view) =~ "gravação parada"
+  end
+
+  test "gravar sem rota ativa avisa em vez de gravar pro nada", %{conn: conn} do
+    put_pos({10, 20, 7})
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    html = view |> element("#toggle-recording") |> render_click()
+
+    assert html =~ "crie ou selecione uma rota"
+    assert Store.all() == []
   end
 end

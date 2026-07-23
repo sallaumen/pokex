@@ -524,6 +524,11 @@ defmodule Pokex.Settings do
     cavebot_stance_settle_ms: 400,
     cavebot_post_kill_dwell_ms: 1200,
     cavebot_clear_debounce_ms: 800,
+    # Gravando a rota ANDANDO: um waypoint novo só entra depois de andar esta
+    # distância desde o último. Sem isso a rota viraria um waypoint por tile —
+    # o cliente já faz pathfinding entre pontos, então o que serve é marcar os
+    # cantos do caminho, não cada passo.
+    cavebot_record_min_tiles: 4,
     cavebot_fight_timeout_ms: 20000,
     cavebot_combo_timeout_ms: 6000,
     cavebot_cleanup_timeout_ms: 8000

@@ -387,9 +387,10 @@ defmodule Pokex.Bots.BotSupervisor do
     fishing
     |> status(combat, catcher, mini_game)
     |> Map.put(:player_support, safe_status(player_support, %{hp_pct: nil}))
-    # wp_index/route included so the busy placeholder keeps the cavebot's full
-    # snapshot shape — the panel and Focus read it without special-casing.
-    |> Map.put(:cavebot, safe_status(cavebot, %{wp_index: 0, route: nil}))
+    # wp_index/route/hold_reason included so the busy placeholder keeps the
+    # cavebot's full snapshot shape — the panel and Focus read it without
+    # special-casing.
+    |> Map.put(:cavebot, safe_status(cavebot, %{wp_index: 0, route: nil, hold_reason: nil}))
   end
 
   def status do

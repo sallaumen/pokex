@@ -7,11 +7,23 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeBody do
   """
   use Agent
 
-  def start_link(test), do: Agent.start_link(fn -> test end, name: __MODULE__)
+  def start_link(test),
+    do: Agent.start_link(fn -> %{test: test, reply: :ok} end, name: __MODULE__)
+
+  @doc "Faz os passos seguintes serem RECUSADOS (portão fechado, HUD não localizado…)."
+  def refuse(reason), do: Agent.update(__MODULE__, &%{&1 | reply: {:error, reason}})
+
+  @doc "Volta a aceitar os passos."
+  def allow, do: Agent.update(__MODULE__, &%{&1 | reply: :ok})
 
   def minimap_step(dx, dy, _opts \\ []) do
-    send(test_pid(), {:stepped, dx, dy})
-    {:ok, {dx, dy}}
+    fake = Agent.get(__MODULE__, & &1)
+    send(fake.test, {:stepped, dx, dy})
+
+    case fake.reply do
+      :ok -> {:ok, {dx, dy}}
+      error -> error
+    end
   end
 
   def perform(actions, priority, _server \\ nil) do
@@ -19,7 +31,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeBody do
     :ok
   end
 
-  defp test_pid, do: Agent.get(__MODULE__, & &1)
+  defp test_pid, do: Agent.get(__MODULE__, & &1.test)
 end
 
 defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCombat do
@@ -112,7 +124,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   test "primeiro tick liga o combate; o seguinte anda até o waypoint", %{worker: worker} do
     route!()
     assert :ok = Worker.run(worker)
-    assert Worker.status(worker) == %{state: :walking, wp_index: 0, route: "cavena"}
+
+    assert Worker.status(worker) ==
+             %{state: :walking, wp_index: 0, route: "cavena", hold_reason: nil}
 
     minimap!({10, 20, 7})
 
@@ -147,7 +161,79 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     send(worker, :tick)
     refute_receive {:stepped, _dx, _dy}, 300
+
+    status = Worker.status(worker)
+    assert status.state == :walking
+    # e DIZ que está cego: "walking" parado, sem motivo escrito, é igualzinho a
+    # um bot travado
+    assert status.hold_reason =~ "não sei onde estou"
+  end
+
+  # A regressão que matou a frota: o Iniciar foi clicado no navegador, o jogo
+  # perdeu o foco, o portão fechou e cada clique de passo virou um `:ok` mudo.
+  # A Logic acreditou nos passos, a posição não mudou, e 6s depois veio o
+  # :stuck → pânico. O passo recusado tem que ser VISÍVEL.
+  test "passo recusado pelo portão vira motivo visível, e some quando volta", %{worker: worker} do
+    route!()
+    :ok = Worker.run(worker)
+    minimap!({10, 20, 7})
+
+    send(worker, :tick)
+    assert_receive {:combat_cmd, :run}, 1_000
+
+    FakeBody.refuse(:input_gate_closed)
+    minimap!({10, 20, 7})
+    send(worker, :tick)
+    assert_receive {:stepped, 90, 80}, 1_000
+
+    status = Worker.status(worker)
+    assert status.hold_reason =~ "jogo sem foco"
+    # visibilidade, não freio: o cavebot segue tentando a cada tick
+    assert status.state == :walking
+
+    FakeBody.allow()
+    minimap!({10, 20, 7})
+    send(worker, :tick)
+    assert_receive {:stepped, 90, 80}, 1_000
+    assert Worker.status(worker).hold_reason == nil
+  end
+
+  test "HUD não localizado tem motivo próprio", %{worker: worker} do
+    route!()
+    :ok = Worker.run(worker)
+    minimap!({10, 20, 7})
+
+    send(worker, :tick)
+    assert_receive {:combat_cmd, :run}, 1_000
+
+    FakeBody.refuse(:no_layout)
+    minimap!({10, 20, 7})
+    send(worker, :tick)
+    assert_receive {:stepped, 90, 80}, 1_000
+
+    assert Worker.status(worker).hold_reason =~ "HUD não localizado"
+  end
+
+  test "o motivo é anunciado no tópico mesmo sem o estado mudar", %{worker: worker} do
+    route!()
+    :ok = Worker.run(worker)
+    minimap!({10, 20, 7})
+
+    send(worker, :tick)
+    assert_receive {:combat_cmd, :run}, 1_000
+    # call síncrono: garante que o tick do :run_combat terminou antes de assinar
     assert Worker.status(worker).state == :walking
+
+    # daqui pra frente o ESTADO não muda mais — só o motivo. Sem ele no gatilho
+    # do broadcast, a tela ficaria mostrando "walking" pra sempre.
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    FakeBody.refuse(:input_gate_closed)
+    minimap!({10, 20, 7})
+    send(worker, :tick)
+
+    assert_receive {:cavebot, %{state: :walking, hold_reason: reason}}, 1_000
+    assert reason =~ "jogo sem foco"
   end
 
   test "mudança de andar bloqueia TUDO: latch, combate, alarme", %{worker: worker} do
@@ -209,7 +295,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     assert :ok = Worker.halt(worker)
     assert_receive {:combat_cmd, :halt}, 1_000
-    assert Worker.status(worker) == %{state: :idle, wp_index: 0, route: nil}
+    assert Worker.status(worker) == %{state: :idle, wp_index: 0, route: nil, hold_reason: nil}
 
     # halted: um tick perdido é inócuo
     minimap!({10, 20, 7})

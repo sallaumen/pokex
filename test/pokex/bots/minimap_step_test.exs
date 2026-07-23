@@ -9,7 +9,7 @@ defmodule Pokex.Bots.MinimapStepTest do
   use ExUnit.Case, async: false
 
   alias Pokex.{Layout, ScreenFixtures, Settings}
-  alias Pokex.Bots.Body
+  alias Pokex.Bots.{Body, InputGate}
 
   setup do
     {:ok, fix} = Layout.locate(ScreenFixtures.frame!("ultrawide_3440x1440_time"))
@@ -65,5 +65,19 @@ defmodule Pokex.Bots.MinimapStepTest do
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
     assert Body.minimap_step(1, 1, layout: nil) == {:error, :no_layout}
+  end
+
+  # O Rig engole o input com o portão fechado e responde `:ok` — de propósito, e
+  # o resto da frota depende disso. Quem ANDA não pode herdar essa resposta: o
+  # passo é confirmado pela posição mudar, então um clique suprimido devolvido
+  # como `{:ok, point}` faz a Logic acreditar em progresso que não houve (foi
+  # o que derrubou a frota em silêncio quando o Iniciar foi clicado no
+  # navegador e o jogo perdeu o foco).
+  test "com o portão de input fechado ele RECUSA em vez de mentir que clicou", %{fix: fix} do
+    InputGate.set_focus_ok(false)
+    on_exit(fn -> InputGate.set_focus_ok(true) end)
+
+    assert Body.minimap_step(3, -4, layout: fix) == {:error, :input_gate_closed}
+    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:click, :left, _point}, &1))
   end
 end

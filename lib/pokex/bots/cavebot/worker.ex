@@ -198,9 +198,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def translate(state, {:walk, dx, dy}), do: minimap_step(state, dx, dy)
   def translate(state, {:nudge, dx, dy}), do: minimap_step(state, dx, dy)
 
+  # Ligar o combate PODE falhar no preflight (sem calibração, p.ex.). Se falhar,
+  # não dá pra seguir andando cego contra inimigos que ninguém vai matar — a
+  # Logic acharia que o combate está de pé. Melhor bloquear pelo mesmo freio, na
+  # hora, com um motivo claro, do que degradar via fight_stalled vários segundos
+  # depois.
   def translate(state, :run_combat) do
-    Combat.Worker.run(state.combat)
-    state
+    case Combat.Worker.run(state.combat) do
+      :ok ->
+        state
+
+      {:error, messages} ->
+        Logger.warning("Cavebot: combate recusou o arranque (#{inspect(messages)})")
+        translate(state, {:block, :combat_preflight_failed})
+    end
   end
 
   def translate(state, :halt_combat) do
@@ -220,7 +231,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
     Combat.Worker.halt(state.combat)
     Pokex.Bots.BotSupervisor.stop_all()
     broadcast({:cavebot_alarm, reason})
-    state = detach(cancel_timer(state))
+    # força a Logic pra :blocked também: um bloqueio pode vir da própria Logic
+    # (mudou de andar) OU do Worker (o combate recusou o arranque). Nos dois o
+    # estado reportado tem que ser :blocked — terminal nos dois níveis.
+    state = %{cancel_timer(detach(state)) | logic: %{state.logic | state: :blocked}}
     broadcast_status(state)
     state
   end

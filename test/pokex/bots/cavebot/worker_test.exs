@@ -29,15 +29,21 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCombat do
   """
   use GenServer
 
-  def start_link(test), do: GenServer.start_link(__MODULE__, test)
+  def start_link(test, run_reply \\ :ok),
+    do: GenServer.start_link(__MODULE__, {test, run_reply})
 
   @impl true
-  def init(test), do: {:ok, test}
+  def init(state), do: {:ok, state}
 
   @impl true
-  def handle_call(cmd, _from, test) when cmd in [:run, :halt] do
-    send(test, {:combat_cmd, cmd})
-    {:reply, :ok, test}
+  def handle_call(:run, _from, {test, run_reply} = state) do
+    send(test, {:combat_cmd, :run})
+    {:reply, run_reply, state}
+  end
+
+  def handle_call(:halt, _from, {test, _} = state) do
+    send(test, {:combat_cmd, :halt})
+    {:reply, :ok, state}
   end
 end
 
@@ -162,6 +168,27 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     send(worker, :tick)
     refute_receive {:stepped, _dx, _dy}, 300
     refute_receive {:combat_cmd, :run}, 100
+  end
+
+  test "combate recusa o arranque (preflight): bloqueia em vez de andar cego", %{tmp_dir: _tmp} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    {:ok, failing} = FakeCombat.start_link(self(), {:error, ["sem calibração"]})
+
+    own =
+      start_supervised!(
+        {Worker, name: :cavebot_preflight, body: FakeBody, combat: failing, active: false},
+        id: :cavebot_preflight
+      )
+
+    route!()
+    :ok = Worker.run(own)
+    # primeiro tick manda :run_combat; o combate recusa → freio de mão
+    send(own, :tick)
+
+    assert_receive {:combat_cmd, :run}, 1_000
+    assert_receive {:cavebot_alarm, :combat_preflight_failed}, 1_000
+    assert InputGate.panic_latched?()
+    assert Worker.status(own).state == :blocked
   end
 
   # O gate de combos por dungeon lê este fato: run publica, halt esquece.

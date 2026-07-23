@@ -37,6 +37,12 @@ defmodule PokexWeb.CavebotLive do
        active_route: default_active(routes),
        pos: World.snapshot().pos,
        recording?: false,
+       # Saúde da leitura: read_coord é tudo-ou-nada (exige confiança 1.0), então
+       # UM glifo duvidoso derruba a coordenada inteira pra nil. Falha ocasional
+       # não atrapalha gravar — mas sem contador ele não tem como saber se está
+       # lendo bem ou quase nunca.
+       reads: 0,
+       misses: 0,
        notice: nil,
        notice_kind: :warn
      )}
@@ -54,7 +60,11 @@ defmodule PokexWeb.CavebotLive do
   @impl true
   def handle_info({:world, :minimap, _obs}, socket) do
     pos = World.snapshot().pos
-    socket = assign(socket, pos: pos)
+
+    socket =
+      if pos == nil,
+        do: assign(socket, pos: nil, misses: socket.assigns.misses + 1),
+        else: assign(socket, pos: pos, reads: socket.assigns.reads + 1)
 
     if socket.assigns.recording? and pos != nil and socket.assigns.active_route,
       do: {:noreply, maybe_record(socket, pos)},
@@ -233,6 +243,22 @@ defmodule PokexWeb.CavebotLive do
   defp pos_text(nil), do: "?"
   defp pos_text({x, y, z}), do: "#{x}, #{y} · andar #{z}"
 
+  # Quanto da coordenada está sendo lido. A leitura é tudo-ou-nada, então uma
+  # falha aqui e ali é normal e NÃO atrapalha gravar (o waypoint só entra depois
+  # de 4 tiles, e o feed publica ~4x por segundo). O que importa é a proporção:
+  # se quase tudo falha, gravar vai render uma rota cheia de buracos.
+  defp read_health(0, 0), do: "aguardando a primeira leitura…"
+
+  defp read_health(reads, misses) do
+    pct = round(reads * 100 / (reads + misses))
+
+    cond do
+      pct >= 80 -> "leitura boa — #{pct}% (#{reads} ok, #{misses} falhas)"
+      pct >= 40 -> "leitura instável — #{pct}% (#{reads} ok, #{misses} falhas)"
+      true -> "leitura ruim — #{pct}% (#{reads} ok, #{misses} falhas)"
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -252,6 +278,12 @@ defmodule PokexWeb.CavebotLive do
             <div>
               <p class="font-mono text-pk-meta uppercase text-pk-text-3">Posição atual</p>
               <p id="cavebot-pos" class="font-mono text-sm text-pk-text">{pos_text(@pos)}</p>
+              <%!-- Sem isto ele não tem como saber se a coordenada está sendo
+                   lida bem ou quase nunca: a leitura é tudo-ou-nada, então um
+                   glifo duvidoso vira "?" e a falha some sem deixar rastro. --%>
+              <p id="cavebot-read-health" class="mt-0.5 font-mono text-pk-meta text-pk-text-3">
+                {read_health(@reads, @misses)}
+              </p>
             </div>
             <div class="flex items-center gap-2">
               <%!-- O jeito que REALMENTE funciona: armar aqui, ir pro jogo, andar

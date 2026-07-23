@@ -11,18 +11,34 @@ defmodule PokexWeb.Layouts do
   # and other static content.
   embed_templates "layouts/*"
 
-  # Uma lista, não nove blocos de markup: o menu é o mesmo em toda página, e
+  # O Painel é a BASE: é onde o bot liga e desliga, então fica fora dos grupos —
+  # visível no header e no topo do menu, sempre a um clique.
+  @home {:panel, "Painel", "hero-play-circle"}
+
+  # Dados, não blocos de markup repetidos: o menu é o mesmo em toda página, e
   # esquecer uma rota aqui é o jeito de uma página sumir do app.
-  @nav [
-    {:panel, "Painel", "hero-play-circle"},
-    {:calibration, "Calibração", "hero-viewfinder-circle"},
-    {:diagnostics, "Diagnóstico", "hero-beaker"},
-    {:fishing_lab, "Laboratório", "hero-sparkles"},
-    {:mini_game, "Mini-game", "hero-puzzle-piece"},
-    {:world, "Mundo", "hero-eye"},
-    {:cavebot, "Cavebot", "hero-map"},
-    {:pokedex, "Pokédex", "hero-book-open"},
-    {:team, "Time", "hero-user-group"}
+  #
+  # Nove destinos numa lista chapada viram uma gaveta — o olho procura item por
+  # item. Agrupados, a pergunta que você faz antes de abrir o menu ("meus
+  # pokémon? o que o bot vê? ajustar a máquina?") já é a resposta.
+  @groups [
+    {"Pokémon",
+     [
+       {:pokedex, "Pokédex", "hero-book-open"},
+       {:team, "Time", "hero-user-group"}
+     ]},
+    {"Mundo",
+     [
+       {:world, "Mundo", "hero-eye"},
+       {:cavebot, "Cavebot", "hero-map"}
+     ]},
+    {"Configurações",
+     [
+       {:calibration, "Calibração", "hero-viewfinder-circle"},
+       {:diagnostics, "Diagnóstico", "hero-beaker"},
+       {:fishing_lab, "Laboratório", "hero-sparkles"},
+       {:mini_game, "Mini-game", "hero-puzzle-piece"}
+     ]}
   ]
 
   @doc """
@@ -151,6 +167,8 @@ defmodule PokexWeb.Layouts do
               {if @bot_active?, do: "Ativo", else: "Parado"}
             </span>
 
+            <.nav_link entry={nav_home()} current_page={@current_page} id="app-home" show_label />
+
             <details id="app-navigation" phx-update="ignore" class="group relative">
               <summary
                 id="app-navigation-toggle"
@@ -162,26 +180,19 @@ defmodule PokexWeb.Layouts do
               </summary>
               <nav
                 aria-label="Navegação principal"
-                class="absolute right-0 top-10 z-50 w-48 overflow-hidden rounded-lg border border-pk-line-strong bg-pk-surface p-1 shadow-2xl shadow-black/50"
+                class="absolute right-0 top-10 z-50 w-52 overflow-hidden rounded-lg border border-pk-line-strong bg-pk-surface p-1 shadow-2xl shadow-black/50"
               >
-                <.link
-                  :for={{key, label, icon} <- nav_items()}
-                  id={nav_id(key)}
-                  navigate={nav_path(key)}
-                  aria-current={key == @current_page && "page"}
-                  class={[
-                    "flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body transition",
-                    if(key == @current_page,
-                      do: "bg-pk-ok-dim font-semibold text-pk-ok",
-                      else: "text-pk-text hover:bg-pk-raised hover:text-white"
-                    )
-                  ]}
+                <.nav_link entry={nav_home()} current_page={@current_page} />
+
+                <div
+                  :for={{title, entries} <- nav_groups()}
+                  class="mt-1 border-t border-pk-line pt-1"
                 >
-                  <.icon
-                    name={icon}
-                    class={["size-4", if(key == @current_page, do: "", else: "text-pk-text-2")]}
-                  /> {label}
-                </.link>
+                  <p class="px-3 pb-0.5 pt-1 text-pk-meta font-semibold uppercase tracking-[0.14em] text-pk-text-3">
+                    {title}
+                  </p>
+                  <.nav_link :for={entry <- entries} entry={entry} current_page={@current_page} />
+                </div>
               </nav>
             </details>
           </div>
@@ -197,8 +208,63 @@ defmodule PokexWeb.Layouts do
     """
   end
 
-  @doc "Os destinos da navegação, na ordem em que aparecem: `{key, label, icon}`."
-  def nav_items, do: @nav
+  # Um destino do menu. Existe como componente porque o Painel aparece TRÊS
+  # vezes (botão do header, topo do menu) e um item marcado como página atual
+  # num lugar e não no outro é exatamente o tipo de divergência que o header
+  # unificado veio matar.
+  attr :entry, :any, required: true, doc: "`{key, label, icon}` de `nav_items/0`"
+  attr :current_page, :atom, default: nil
+  attr :id, :string, default: nil, doc: "sobrescreve o id (o menu usa o padrão `app-nav-*`)"
+  attr :show_label, :boolean, default: false, doc: "botão compacto: texto some no mobile"
+
+  def nav_link(%{entry: {key, label, icon}} = assigns) do
+    assigns =
+      assign(assigns,
+        key: key,
+        label: label,
+        icon: icon,
+        current?: key == assigns.current_page,
+        id: assigns.id || nav_id(key)
+      )
+
+    ~H"""
+    <.link
+      id={@id}
+      navigate={nav_path(@key)}
+      aria-current={@current? && "page"}
+      title={@label}
+      class={[
+        "flex items-center gap-2 rounded-lg px-3 py-2.5 text-pk-body transition",
+        @show_label && "h-8 shrink-0 rounded-lg border px-2.5 py-0 text-pk-meta font-semibold",
+        cond do
+          @current? and @show_label ->
+            "border-pk-ok/60 bg-pk-ok-dim text-pk-ok"
+
+          @current? ->
+            "bg-pk-ok-dim font-semibold text-pk-ok"
+
+          @show_label ->
+            "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white"
+
+          true ->
+            "text-pk-text hover:bg-pk-raised hover:text-white"
+        end
+      ]}
+    >
+      <.icon name={@icon} class={["size-4 shrink-0", not @current? && "text-pk-text-2"]} />
+      <span class={@show_label && "hidden sm:inline"}>{@label}</span>
+    </.link>
+    """
+  end
+
+  @doc "Os destinos da navegação, chapados, na ordem em que aparecem: `{key, label, icon}`."
+  def nav_items, do: [@home | Enum.flat_map(@groups, fn {_title, entries} -> entries end)]
+
+  @doc "Os grupos do menu (o Painel fica FORA deles): `{título, [{key, label, icon}]}`."
+  def nav_groups, do: @groups
+
+  @doc "O destino base — o Painel."
+  def nav_home, do: @home
 
   @doc """
   Os assigns que o `PokexWeb.HeaderState` mantém, prontos pra repassar em bloco:
@@ -228,7 +294,7 @@ defmodule PokexWeb.Layouts do
   defp page_label(nil), do: nil
 
   defp page_label(current_page) do
-    Enum.find_value(@nav, fn {key, label, _icon} -> key == current_page && label end)
+    Enum.find_value(nav_items(), fn {key, label, _icon} -> key == current_page && label end)
   end
 
   @doc """

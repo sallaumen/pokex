@@ -11,6 +11,8 @@ defmodule PokexWeb.AppHeaderTest do
   use PokexWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
 
+  alias PokexWeb.Layouts
+
   @routes [
     {"/", :panel},
     {"/calibration", :calibration},
@@ -42,6 +44,32 @@ defmodule PokexWeb.AppHeaderTest do
 
       for id <- @nav_ids do
         assert has_element?(view, "##{id}"), "#{path}: falta #{id} no menu"
+      end
+    end
+  end
+
+  test "o menu vem agrupado, e o Painel fica FORA dos grupos", %{conn: conn} do
+    # a estrutura primeiro: um item que caia em dois grupos (ou em nenhum) é
+    # exatamente o tipo de erro que passa despercebido olhando o markup
+    grouped = Enum.flat_map(Layouts.nav_groups(), fn {_title, entries} -> entries end)
+    keys = Enum.map(grouped, fn {key, _label, _icon} -> key end)
+
+    assert Enum.map(Layouts.nav_groups(), fn {title, _} -> title end) ==
+             ["Pokémon", "Mundo", "Configurações"]
+
+    assert keys == Enum.uniq(keys), "um destino aparece em mais de um grupo"
+    refute :panel in keys, "o Painel é a base — não mora dentro de grupo nenhum"
+    assert Layouts.nav_items() == [Layouts.nav_home() | grouped]
+    assert length(Layouts.nav_items()) == length(@routes)
+
+    # e o Painel tem que estar a um clique EM TODA página, não só no menu
+    for {path, _page} <- @routes do
+      {:ok, view, html} = live(conn, path)
+
+      assert has_element?(view, "#app-home"), "#{path} não tem o atalho do Painel"
+
+      for {title, _entries} <- Layouts.nav_groups() do
+        assert html =~ title, "#{path}: o menu não mostra o grupo #{title}"
       end
     end
   end

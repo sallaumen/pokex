@@ -90,7 +90,9 @@ produz um punhado de mensagens, não uma por captura.
 **Opções de `start_link/1`** (todas injetáveis para teste):
 
 * `:name` — nome registrado, `nil` para instâncias de teste;
-* `:body` — o módulo cujo `perform/3` ele chama (padrão `Pokex.Bots.Body`);
+* `:perform_fun` — `fn actions, priority -> :ok | {:error, term} end` (padrão
+  `&Body.perform(&1, &2)`); uma função em vez de um módulo porque o teste só
+  precisa gravar a sequência recebida;
 * `:stop_fun` — `fn -> :ok end` que para a frota (padrão `&BotSupervisor.stop_all/0`);
 * `:front_fun` — `fn -> :ok | {:error, term} end` (padrão `&Focus.ensure_front/0`);
 * `:read_fun` — `fn -> :gone | :present | :unreadable end` (padrão: lê o fato `:hud`);

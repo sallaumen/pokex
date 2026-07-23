@@ -163,4 +163,24 @@ defmodule PokexWeb.CavebotLiveTest do
     assert html =~ "crie ou selecione uma rota"
     assert Store.all() == []
   end
+
+  # A leitura da coordenada é tudo-ou-nada: um glifo duvidoso vira "?". Falha
+  # ocasional não atrapalha gravar — mas ele precisa VER a proporção pra saber
+  # se pode confiar na rota que gravou.
+  test "mostra a saúde da leitura: quantas leituras deram certo e quantas falharam",
+       %{conn: conn} do
+    put_pos({10, 20, 7})
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    put_pos({10, 20, 7})
+    send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
+    render(view)
+
+    Pokex.Perception.WorldState.put(:minimap, %{pos: nil}, System.monotonic_time(:millisecond))
+    send(view.pid, {:world, :minimap, %{pos: nil}})
+
+    html = render(view)
+    assert html =~ "1 ok"
+    assert html =~ "1 falhas"
+  end
 end

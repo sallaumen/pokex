@@ -154,12 +154,19 @@ defmodule PokexWeb.PokedexDetailLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-dvh bg-[#080b0d] px-3 py-4 text-[#d9dde1]">
-      <div class="mx-auto max-w-[1080px] space-y-3">
-        <header class="flex flex-wrap items-center justify-between gap-2">
+    <Layouts.app
+      flash={@flash}
+      current_page={:pokedex}
+      {Layouts.header(assigns)}
+      max_width="max-w-[1080px]"
+    >
+      <div class="space-y-3">
+        <%!-- Voltar pra lista e pular pra outra espécie são ações DESTA página, não
+              navegação do app: ficam aqui no corpo, sob o header padrão. --%>
+        <section class="flex flex-wrap items-center gap-3">
           <.link
             navigate={~p"/pokedex"}
-            class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
+            class="font-mono text-[11px] text-pk-text-2 underline hover:text-white"
           >
             ← pokédex
           </.link>
@@ -170,25 +177,19 @@ defmodule PokexWeb.PokedexDetailLive do
               placeholder="pular pra outro…"
               autocomplete="off"
               data-quick-search
-              class="input input-bordered h-8 w-44 bg-[#090d0f] font-mono text-xs"
+              class="input input-bordered h-8 w-44 bg-pk-sunken font-mono text-xs"
             />
             <datalist id="species-names">
               <option :for={name <- @species_names} value={name} />
             </datalist>
-            <button class="btn h-8 border border-[#293238] bg-transparent px-2.5 text-xs text-[#c7cdd2] hover:border-[#37d07d]/60 hover:text-white">
+            <button class="btn h-8 border border-pk-line-strong bg-transparent px-2.5 text-xs text-pk-text-2 hover:border-pk-ok/60 hover:text-white">
               ir
             </button>
-            <span :if={@jump_msg} id="jump-msg" class="font-mono text-[10px] text-[#e7ca82]">
+            <span :if={@jump_msg} id="jump-msg" class="font-mono text-[10px] text-pk-warn">
               {@jump_msg}
             </span>
           </form>
-          <.link
-            navigate={~p"/"}
-            class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
-          >
-            painel
-          </.link>
-        </header>
+        </section>
 
         <section
           :if={@entry == nil}
@@ -537,7 +538,7 @@ defmodule PokexWeb.PokedexDetailLive do
           </div>
         </article>
       </div>
-    </div>
+    </Layouts.app>
     """
   end
 end

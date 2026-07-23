@@ -82,7 +82,7 @@ defmodule PokexWeb.MiniGameLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_page={:mini_game}>
+    <Layouts.app flash={@flash} current_page={:mini_game} {Layouts.header(assigns)}>
       <div class="space-y-5">
         <section class="rounded-2xl border border-base-content/10 bg-base-200 p-5">
           <div class="flex flex-wrap items-center justify-between gap-3">

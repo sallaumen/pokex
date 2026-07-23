@@ -184,26 +184,13 @@ defmodule PokexWeb.TeamLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-dvh bg-[#080b0d] px-3 py-4 text-[#d9dde1]">
-      <div class="mx-auto max-w-[900px] space-y-3">
-        <header class="flex flex-wrap items-center justify-between gap-2">
-          <h1 class="text-lg font-bold">🧢 Meu Time</h1>
-          <div class="flex items-center gap-3">
-            <.link
-              navigate={~p"/pokedex"}
-              class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
-            >
-              pokédex
-            </.link>
-            <.link
-              navigate={~p"/"}
-              class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
-            >
-              painel
-            </.link>
-          </div>
-        </header>
-
+    <Layouts.app
+      flash={@flash}
+      current_page={:team}
+      {Layouts.header(assigns)}
+      max_width="max-w-[900px]"
+    >
+      <div class="space-y-3">
         <section id="portraits" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
           <div class="flex items-start justify-between gap-3">
             <div>
@@ -413,7 +400,7 @@ defmodule PokexWeb.TeamLive do
           </ul>
         </section>
       </div>
-    </div>
+    </Layouts.app>
     """
   end
 

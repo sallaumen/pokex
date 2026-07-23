@@ -882,7 +882,7 @@ defmodule PokexWeb.CalibrationLive do
       assign(assigns, instr: @instructions, total_steps: @total_steps, zoom_factor: @zoom_factor)
 
     ~H"""
-    <Layouts.app flash={@flash} current_page={:calibration}>
+    <Layouts.app flash={@flash} current_page={:calibration} {Layouts.header(assigns)}>
       <div class="space-y-4">
         <header>
           <h1 class="text-xl font-bold">Calibração</h1>

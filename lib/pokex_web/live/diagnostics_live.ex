@@ -380,7 +380,7 @@ defmodule PokexWeb.DiagnosticsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_page={:diagnostics}>
+    <Layouts.app flash={@flash} current_page={:diagnostics} {Layouts.header(assigns)}>
       <div class="space-y-4">
         <header>
           <h1 class="text-xl font-bold">Diagnóstico</h1>

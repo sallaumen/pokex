@@ -1424,6 +1424,7 @@ defmodule PokexWeb.PanelLive do
   defp worker_job(:catcher), do: "saque e captura"
   defp worker_job(:mini_game), do: "mini game"
   defp worker_job(:player_support), do: "revive e poção"
+  defp worker_job(:cavebot), do: "anda a rota e luta"
 
   defp worker_name(:player_support), do: "suporte"
   defp worker_name(:fishing), do: "pesca"
@@ -1926,13 +1927,14 @@ defmodule PokexWeb.PanelLive do
                 id="mode-picker"
                 role="radiogroup"
                 aria-label="Modo de jogo"
-                class="grid grid-cols-2 gap-1 rounded-lg border border-pk-line-strong bg-pk-sunken p-1"
+                class="grid grid-cols-3 gap-1 rounded-lg border border-pk-line-strong bg-pk-sunken p-1"
               >
                 <button
                   :for={
                     {mode, label, hint, icon} <- [
                       {"parado", "Parado", "pesca no spot", "hero-map-pin"},
-                      {"movimento", "Movimento", "você anda, ele briga", "hero-arrow-trending-up"}
+                      {"movimento", "Movimento", "você anda, ele briga", "hero-arrow-trending-up"},
+                      {"caçada", "Caçada", "ele anda a rota e caça", "hero-map"}
                     ]
                   }
                   id={"mode-#{mode}"}

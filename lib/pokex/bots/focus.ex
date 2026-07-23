@@ -204,8 +204,8 @@ defmodule Pokex.Bots.Focus do
   end
 
   defp default_running? do
-    %{fishing: f, combat: c, catcher: cat} = BotSupervisor.status()
-    active?(f) or active?(c) or active?(cat)
+    %{fishing: f, combat: c, catcher: cat, cavebot: cv} = BotSupervisor.status()
+    active?(f) or active?(c) or active?(cat) or active?(cv)
   catch
     _kind, _reason -> false
   end

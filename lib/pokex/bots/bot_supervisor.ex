@@ -19,7 +19,7 @@ defmodule Pokex.Bots.BotSupervisor do
   """
   use Supervisor
 
-  alias Pokex.Bots.{Body, Catcher, Combat, Fishing, PlayerSupport, Guardian, MiniGame}
+  alias Pokex.Bots.{Body, Catcher, Cavebot, Combat, Fishing, PlayerSupport, Guardian, MiniGame}
 
   def start_link(opts \\ []) do
     body = Keyword.get(opts, :body, Body)
@@ -29,6 +29,7 @@ defmodule Pokex.Bots.BotSupervisor do
     catcher = Keyword.get(opts, :catcher, Catcher.Worker)
     mini_game = Keyword.get(opts, :mini_game, MiniGame.Worker)
     player_support = Keyword.get(opts, :player_support, PlayerSupport.Worker)
+    cavebot = Keyword.get(opts, :cavebot, Cavebot.Worker)
 
     state = %{
       body: body,
@@ -37,7 +38,8 @@ defmodule Pokex.Bots.BotSupervisor do
       combat: combat,
       catcher: catcher,
       mini_game: mini_game,
-      player_support: player_support
+      player_support: player_support,
+      cavebot: cavebot
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -54,14 +56,15 @@ defmodule Pokex.Bots.BotSupervisor do
         combat: combat,
         catcher: catcher,
         mini_game: mini_game,
-        player_support: player_support
+        player_support: player_support,
+        cavebot: cavebot
       }) do
     # The panic corner halts EVERY automated worker — including the mini-game watcher (its
     # halt clears the :mini_game fact, so nobody stays self-held) and the PlayerSupport
     # (Lucas: a support gone wrong, e.g. a minimized window misread burning potions, must be
     # killable by mouse-to-corner like everything else; it re-arms on boot, Iniciar bot, or a
     # support toggle).
-    on_panic = fn -> stop_all(fishing, combat, catcher, mini_game, player_support) end
+    on_panic = fn -> stop_all(fishing, combat, catcher, mini_game, player_support, cavebot) end
 
     children = [
       Supervisor.child_spec({Body, name: body}, id: body),
@@ -74,6 +77,12 @@ defmodule Pokex.Bots.BotSupervisor do
       Supervisor.child_spec({MiniGame.Worker, name: mini_game}, id: mini_game),
       Supervisor.child_spec({PlayerSupport.Worker, name: player_support, body: body},
         id: player_support
+      ),
+      # The cavebot's :body is the MODULE whose minimap_step/3 it calls — in
+      # production the fleet's body name IS Pokex.Bots.Body, so passing it
+      # through works; its :combat is the fleet's Combat.Worker it runs/halts.
+      Supervisor.child_spec({Cavebot.Worker, name: cavebot, body: body, combat: combat},
+        id: cavebot
       )
     ]
 
@@ -88,8 +97,9 @@ defmodule Pokex.Bots.BotSupervisor do
   """
   # The order a run must follow: the mini-game watcher first (it owns Space, so a
   # loot press before it is watching would drive the capsule), then fishing →
-  # combat → catcher.
-  @run_order [:mini_game, :fishing, :combat, :catcher]
+  # combat → catcher, and the cavebot LAST — it starts walking (and arming the
+  # Combat it drives) only once everything it leans on is already up.
+  @run_order [:mini_game, :fishing, :combat, :catcher, :cavebot]
 
   @spec start_all(GenServer.server(), GenServer.server(), GenServer.server()) ::
           :ok | {:error, [String.t()]}
@@ -135,6 +145,7 @@ defmodule Pokex.Bots.BotSupervisor do
   defp run_worker(:fishing, %{fishing: server}), do: Fishing.Worker.run(server)
   defp run_worker(:combat, %{combat: server}), do: Combat.Worker.run(server)
   defp run_worker(:catcher, %{catcher: server}), do: Catcher.Worker.run(server)
+  defp run_worker(:cavebot, %{cavebot: server}), do: Cavebot.Worker.run(server)
 
   # Halting an idle worker is a no-op, so this halts every worker the map names —
   # not only the ones the mode asked to start.
@@ -151,15 +162,17 @@ defmodule Pokex.Bots.BotSupervisor do
   defp halt_worker(:fishing, server), do: Fishing.Worker.halt(server)
   defp halt_worker(:combat, server), do: Combat.Worker.halt(server)
   defp halt_worker(:catcher, server), do: Catcher.Worker.halt(server)
+  defp halt_worker(:cavebot, server), do: Cavebot.Worker.halt(server)
 
   @spec start_all(
           GenServer.server(),
           GenServer.server(),
           GenServer.server(),
           GenServer.server(),
+          GenServer.server(),
           GenServer.server()
         ) :: :ok | {:error, [String.t()]}
-  def start_all(fishing, combat, catcher, mini_game, player_support) do
+  def start_all(fishing, combat, catcher, mini_game, player_support, cavebot \\ Cavebot.Worker) do
     # Iniciar bot is the ONE act that clears a standing panic order — the human explicitly
     # asked for the bot again. Cleared even if preflight fails below: the intent to resume
     # was expressed either way.
@@ -182,7 +195,8 @@ defmodule Pokex.Bots.BotSupervisor do
       fishing: fishing,
       combat: combat,
       catcher: catcher,
-      mini_game: mini_game
+      mini_game: mini_game,
+      cavebot: cavebot
     }
 
     case run_chain(servers, wanted) do
@@ -217,7 +231,8 @@ defmodule Pokex.Bots.BotSupervisor do
       Combat.Worker,
       Catcher.Worker,
       MiniGame.Worker,
-      PlayerSupport.Worker
+      PlayerSupport.Worker,
+      Cavebot.Worker
     )
   end
 
@@ -247,9 +262,16 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server(),
           GenServer.server(),
+          GenServer.server(),
           GenServer.server()
         ) :: :ok
-  def stop_all(fishing, combat, catcher, mini_game, player_support) do
+  def stop_all(fishing, combat, catcher, mini_game, player_support, cavebot \\ Cavebot.Worker) do
+    # The cavebot goes down FIRST: it drives Combat.run itself, so halting it
+    # after Combat would leave a tick free to re-arm the fight in between.
+    # The self() guard is for its {:block, _} brake, which calls the global
+    # stop_all/0 from INSIDE the cavebot's own process — a halt call back into
+    # itself would deadlock, and it has already stopped itself at that point.
+    unless GenServer.whereis(cavebot) == self(), do: Cavebot.Worker.halt(cavebot)
     stop_all(fishing, combat, catcher, mini_game)
     PlayerSupport.Worker.halt(player_support)
     # nothing is running an old calibration anymore — the banner has no meaning
@@ -281,7 +303,8 @@ defmodule Pokex.Bots.BotSupervisor do
       Combat.Worker,
       Catcher.Worker,
       MiniGame.Worker,
-      PlayerSupport.Worker
+      PlayerSupport.Worker,
+      Cavebot.Worker
     )
   end
 
@@ -339,15 +362,33 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server(),
           GenServer.server(),
+          GenServer.server(),
           GenServer.server()
-        ) :: %{fishing: map, combat: map, catcher: map, mini_game: map, player_support: map}
-  def status(fishing, combat, catcher, mini_game, player_support) do
+        ) :: %{
+          fishing: map,
+          combat: map,
+          catcher: map,
+          mini_game: map,
+          player_support: map,
+          cavebot: map
+        }
+  def status(fishing, combat, catcher, mini_game, player_support, cavebot \\ Cavebot.Worker) do
     fishing
     |> status(combat, catcher, mini_game)
     |> Map.put(:player_support, safe_status(player_support, %{hp_pct: nil}))
+    # wp_index/route included so the busy placeholder keeps the cavebot's full
+    # snapshot shape — the panel and Focus read it without special-casing.
+    |> Map.put(:cavebot, safe_status(cavebot, %{wp_index: 0, route: nil}))
   end
 
   def status do
-    status(Fishing.Worker, Combat.Worker, Catcher.Worker, MiniGame.Worker, PlayerSupport.Worker)
+    status(
+      Fishing.Worker,
+      Combat.Worker,
+      Catcher.Worker,
+      MiniGame.Worker,
+      PlayerSupport.Worker,
+      Cavebot.Worker
+    )
   end
 end

@@ -1313,7 +1313,28 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Consumes: `Logout.request/2`, `Logout.status/1`, `Logout.topic/0`, e o broadcast `{:logout, snapshot}` (Task 3); o ajuste `stop_after_action` (Task 5).
 - Produces: nada que outras tarefas consumam.
 
-**Risco que este passo resolve:** o painel NÃO tem um `handle_info` pega-tudo hoje (30 cláusulas, nenhuma genérica). Assinar um tópico novo sem ele derrubaria a LiveView na primeira mensagem `{:logout, _}` — exatamente no momento do logout, quando o Lucas mais precisa ver a tela.
+**LEIA ISTO ANTES DE COMEÇAR — o alvo mudou depois que o plano foi escrito.**
+
+O PR #86 foi mergeado no `main` durante a execução deste plano. Ele mexeu **+191 linhas** em `panel_live.ex` e, entre outras coisas, **já adicionou o `handle_info` pega-tudo** que este plano mandava criar. Duas consequências, as duas obrigatórias:
+
+1. **Sua PRIMEIRA ação é trazer o `main` para a branch** (Passo 0 abaixo). As tarefas 1 a 5 não tocam em `panel_live.ex`, então a fusão deve ser limpa; se houver conflito, resolva mantendo AS DUAS mudanças.
+2. **NÃO crie um segundo pega-tudo.** Ele já existe (`def handle_info(_msg, socket), do: {:noreply, socket}`). Uma segunda cláusula genérica seria inalcançável, o compilador avisa, e `mix lint` reprova. Sua cláusula `{:logout, snapshot}` tem que ficar **ANTES** dele.
+
+Os números de linha citados nos passos abaixo são da versão ANTIGA do arquivo e não valem mais. Localize os pontos pelo nome da função e pelo `id` do elemento, nunca pela linha.
+
+- [ ] **Passo 0: trazer o main para a branch**
+
+```bash
+cd /Users/tavano/projects/pokex-logout && git status --short && git fetch origin && git merge origin/main
+```
+
+Esperado: árvore limpa antes da fusão, e uma fusão sem conflito. Depois:
+
+```bash
+cd /Users/tavano/projects/pokex-logout && mix test
+```
+
+Esperado: zero falhas. Se algum teste das tarefas 1-5 quebrar com a fusão, conserte antes de seguir — é uma interação real entre as duas linhas de trabalho, não ruído.
 
 - [ ] **Passo 1: escrever os testes que falham**
 
@@ -1390,21 +1411,19 @@ E a leitura defensiva, junto dos outros helpers privados (o `Logout` global fica
   end
 ```
 
-Acrescente a cláusula do logout junto das outras `handle_info`:
+Acrescente a cláusula do logout junto das outras `handle_info`, **imediatamente antes** da cláusula pega-tudo que já existe:
 
 ```elixir
   def handle_info({:logout, snapshot}, socket), do: {:noreply, assign(socket, logout: snapshot)}
 ```
 
-E, **como ÚLTIMA cláusula de `handle_info` do módulo**, o pega-tudo:
+Confirme que o pega-tudo continua sendo a ÚLTIMA cláusula de `handle_info` do módulo:
 
-```elixir
-  # Pega-tudo, e ele é obrigatório: esta página assina onze tópicos, e uma
-  # mensagem sem cláusula derruba a LiveView. Derrubar justo no momento do
-  # logout — quando o Lucas mais precisa ver o que aconteceu — seria o pior
-  # momento possível.
-  def handle_info(_msg, socket), do: {:noreply, socket}
+```bash
+cd /Users/tavano/projects/pokex-logout && grep -n "def handle_info(_" lib/pokex_web/live/panel_live.ex
 ```
+
+Esperado: **exatamente uma** linha. Se aparecerem duas, você criou uma duplicata — apague a sua. Se a cláusula genérica não for a última do módulo, mova-a para o fim: qualquer `handle_info` depois dela é código morto que o compilador vai denunciar.
 
 - [ ] **Passo 4: o botão e o evento**
 

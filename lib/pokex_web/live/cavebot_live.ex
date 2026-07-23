@@ -36,7 +36,8 @@ defmodule PokexWeb.CavebotLive do
        routes: routes,
        active_route: default_active(routes),
        pos: World.snapshot().pos,
-       notice: nil
+       notice: nil,
+       notice_kind: :warn
      )}
   end
 
@@ -53,12 +54,17 @@ defmodule PokexWeb.CavebotLive do
   def handle_event("mark_waypoint", _params, socket) do
     case {socket.assigns.active_route, World.snapshot().pos} do
       {nil, _pos} ->
-        {:noreply, assign(socket, notice: "nenhuma rota ativa — crie ou selecione uma primeiro")}
+        {:noreply,
+         assign(socket,
+           notice: "nenhuma rota ativa — crie ou selecione uma primeiro",
+           notice_kind: :warn
+         )}
 
       {_route, nil} ->
         {:noreply,
          assign(socket,
            notice: "ainda não li tua posição — o jogo está em foco no monitor principal?",
+           notice_kind: :warn,
            pos: nil
          )}
 
@@ -66,13 +72,22 @@ defmodule PokexWeb.CavebotLive do
         case Route.append(route, pos) do
           {:ok, updated} ->
             :ok = Store.add(updated)
-            {:noreply, socket |> assign(notice: nil, pos: pos) |> reload_routes(updated.name)}
+
+            {:noreply,
+             socket
+             |> assign(
+               notice: "waypoint #{length(updated.waypoints)} marcado (andar #{updated.z})",
+               notice_kind: :ok,
+               pos: pos
+             )
+             |> reload_routes(updated.name)}
 
           {:error, :floor_mismatch} ->
             {:noreply,
              assign(socket,
                notice:
                  "essa posição é de outro andar — a rota \"#{route.name}\" é do andar #{route.z}",
+               notice_kind: :warn,
                pos: pos
              )}
         end
@@ -101,14 +116,15 @@ defmodule PokexWeb.CavebotLive do
 
     cond do
       name == "" ->
-        {:noreply, assign(socket, notice: "dá um nome pra rota antes de criar")}
+        {:noreply,
+         assign(socket, notice: "dá um nome pra rota antes de criar", notice_kind: :warn)}
 
       Enum.any?(socket.assigns.routes, &(&1.name == name)) ->
         # Store.add replaces by name — creating over an existing route would
         # silently wipe its waypoints, so we just select it instead
         {:noreply,
          socket
-         |> assign(notice: "já existe uma rota \"#{name}\" — selecionei ela")
+         |> assign(notice: "já existe uma rota \"#{name}\" — selecionei ela", notice_kind: :warn)
          |> reload_routes(name)}
 
       true ->
@@ -161,7 +177,14 @@ defmodule PokexWeb.CavebotLive do
               Marcar waypoint aqui
             </button>
           </div>
-          <p :if={@notice} id="cavebot-notice" class="mt-3 font-mono text-pk-meta text-pk-warn">
+          <p
+            :if={@notice}
+            id="cavebot-notice"
+            class={[
+              "mt-3 font-mono text-pk-meta",
+              if(@notice_kind == :ok, do: "text-pk-ok", else: "text-pk-warn")
+            ]}
+          >
             {@notice}
           </p>
         </section>
@@ -258,6 +281,7 @@ defmodule PokexWeb.CavebotLive do
                 id={"waypoint-delete-#{index}"}
                 phx-click="delete_waypoint"
                 phx-value-index={index}
+                data-confirm={"Apagar o waypoint #{index + 1} (#{wp.x}, #{wp.y})?"}
                 aria-label={"Apagar waypoint #{index + 1}"}
                 class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-danger"
               >

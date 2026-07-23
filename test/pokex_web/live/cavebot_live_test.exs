@@ -34,13 +34,16 @@ defmodule PokexWeb.CavebotLiveTest do
     |> form("#new-route-form", %{"name" => "cavena", "dungeon" => "cavena-dg"})
     |> render_submit()
 
-    view |> element("#mark-waypoint") |> render_click()
+    html = view |> element("#mark-waypoint") |> render_click()
 
     assert [%Route{name: "cavena", dungeon: "cavena-dg", z: 7, waypoints: waypoints}] =
              Store.all()
 
     assert waypoints == [%{x: 10, y: 20, z: 7}]
     assert has_element?(view, "#waypoint-0")
+    # feedback de sucesso explícito, em verde (text-pk-ok), não só o waypoint na lista
+    assert html =~ "waypoint 1 marcado"
+    assert view |> element("#cavebot-notice") |> render() =~ "text-pk-ok"
   end
 
   test "apagar waypoint remove da lista e do Store", %{conn: conn} do

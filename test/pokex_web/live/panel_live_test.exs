@@ -1229,4 +1229,30 @@ defmodule PokexWeb.PanelLiveTest do
       assert world =~ "—"
     end
   end
+
+  describe "seletor de personagem" do
+    test "o seletor de personagem troca o active_character", %{conn: conn} do
+      Pokex.SettingsStash.stash_keys!([:active_character])
+      {:ok, view, _} = live(conn, ~p"/")
+      assert has_element?(view, "#character-picker")
+      view |> element("form[phx-change=set_character]") |> render_change(%{"character" => ""})
+      assert Pokex.Settings.get(:active_character) == ""
+    end
+
+    test "criar um personagem seleciona ele", %{conn: conn} do
+      tmp = Path.join(System.tmp_dir!(), "pokex-char-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      Application.put_env(:pokex, :home_dir, tmp)
+      Pokex.SettingsStash.stash_keys!([:active_character])
+
+      on_exit(fn ->
+        Application.delete_env(:pokex, :home_dir)
+        File.rm_rf!(tmp)
+      end)
+
+      {:ok, view, _} = live(conn, ~p"/")
+      view |> element("form[phx-submit=create_character]") |> render_submit(%{"name" => "Lowbie"})
+      assert Pokex.Settings.get(:active_character) == "lowbie"
+    end
+  end
 end

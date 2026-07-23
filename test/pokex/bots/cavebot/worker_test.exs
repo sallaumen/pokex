@@ -67,7 +67,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     on_exit(fn ->
       Application.delete_env(:pokex, :home_dir)
-      Enum.each([:minimap, :battle], &WorldState.forget/1)
+      Enum.each([:minimap, :battle, :dungeon], &WorldState.forget/1)
       InputGate.set_panic_latch(false)
     end)
 
@@ -162,6 +162,19 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     send(worker, :tick)
     refute_receive {:stepped, _dx, _dy}, 300
     refute_receive {:combat_cmd, :run}, 100
+  end
+
+  # O gate de combos por dungeon lê este fato: run publica, halt esquece.
+  test "run publica o fato :dungeon da rota; halt esquece", %{worker: worker} do
+    {:ok, route} = Route.append(Route.new("cavena", "cavena-dg"), {100, 100, 7})
+    :ok = Store.add(route)
+
+    :ok = Worker.run(worker)
+    now = System.monotonic_time(:millisecond)
+    assert {:ok, %{id: "cavena-dg"}} = WorldState.get(:dungeon, :infinity, now)
+
+    :ok = Worker.halt(worker)
+    assert WorldState.get(:dungeon, :infinity, now) == :missing
   end
 
   test "halt desliga o combate e volta a idle", %{worker: worker} do

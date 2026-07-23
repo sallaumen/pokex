@@ -95,6 +95,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
       route ->
         Logger.info("Cavebot: rota \"#{route.name}\" (#{length(route.waypoints)} waypoints)")
 
+        # O gate de combos por dungeon lê este fato (Combos.Runner). Publicado
+        # mesmo com dungeon nil — o Runner trata nil como "só combos globais".
+        WorldState.put(:dungeon, %{id: route.dungeon}, now())
+
         state =
           %{cancel_timer(state) | logic: Logic.new(route, config())}
           |> attach()
@@ -109,6 +113,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   def handle_call(:halt, _from, state) do
     Combat.Worker.halt(state.combat)
+    WorldState.forget(:dungeon)
     state = %{detach(cancel_timer(state)) | logic: nil, reattach_attempts: 0}
     broadcast_status(state)
     {:reply, :ok, state}

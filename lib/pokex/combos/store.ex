@@ -100,7 +100,9 @@ defmodule Pokex.Combos.Store do
       name: map["name"],
       trigger: decode_trigger(map["trigger"]),
       steps: Enum.map(map["steps"] || [], &decode_step/1),
-      enabled?: map["enabled"] != false
+      enabled?: map["enabled"] != false,
+      # absent or null (every file written before the field existed) = global
+      dungeon: map["dungeon"]
     }
   end
 
@@ -123,7 +125,8 @@ defmodule Pokex.Combos.Store do
       "name" => combo.name,
       "trigger" => encode_trigger(combo.trigger),
       "steps" => Enum.map(combo.steps, &encode_step/1),
-      "enabled" => combo.enabled?
+      "enabled" => combo.enabled?,
+      "dungeon" => combo.dungeon
     }
   end
 

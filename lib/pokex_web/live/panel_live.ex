@@ -194,6 +194,14 @@ defmodule PokexWeb.PanelLive do
   defp build_trigger("species", value), do: {:enemy_species, String.trim(value || "")}
   defp build_trigger(_element, value), do: {:enemy_element, String.trim(value || "")}
 
+  # An empty dungeon field means "vale em todas" — the combo stays global.
+  defp build_dungeon(value) do
+    case String.trim(value || "") do
+      "" -> nil
+      dungeon -> dungeon
+    end
+  end
+
   # The runner keeps the last refusal, so a panel opened after the fight still
   # learns why nothing happened.
   defp combo_skip do
@@ -623,7 +631,8 @@ defmodule PokexWeb.PanelLive do
     combo = %Pokex.Combos.Combo{
       name: String.trim(params["name"] || ""),
       trigger: build_trigger(params["trigger_kind"], params["trigger_value"]),
-      steps: steps
+      steps: steps,
+      dungeon: build_dungeon(params["dungeon"])
     }
 
     case Pokex.Combos.Store.add(combo) do

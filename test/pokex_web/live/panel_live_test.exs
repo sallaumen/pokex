@@ -1135,8 +1135,30 @@ defmodule PokexWeb.PanelLiveTest do
       assert saved.trigger == {:enemy_element, "Water"}
       assert {:swap_member, "Wigglytuff"} in saved.steps
       assert {:swap_counter} in saved.steps
+      # dungeon em branco = combo global
+      assert saved.dungeon == nil
       # and now the chip is green, because Wigglytuff IS in the hotkeys
       refute has_element?(view, ~s([title*="Wigglytuff NÃO está nos atalhos"]))
+    end
+
+    test "um combo pode valer só numa dungeon, e a linha mostra qual", %{conn: conn} do
+      team_on_screen([%{slot: 5, name: "Wigglytuff", present?: true, hp_pct: 1.0}])
+
+      {:ok, view, _} = live(conn, ~p"/")
+
+      view
+      |> form("#combo-form", %{
+        "name" => "na-dg",
+        "trigger_kind" => "element",
+        "trigger_value" => "Water",
+        "member" => "Wigglytuff",
+        "skill" => "4",
+        "dungeon" => "  cavena  "
+      })
+      |> render_submit()
+
+      assert Enum.find(Pokex.Combos.Store.all(), &(&1.name == "na-dg")).dungeon == "cavena"
+      assert view |> element(~s(#combo-na-dg)) |> render() =~ "cavena"
     end
 
     test "excluir tira o combo da lista", %{conn: conn} do

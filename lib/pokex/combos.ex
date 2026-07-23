@@ -27,23 +27,38 @@ defmodule Pokex.Combos do
   alias Pokex.Settings
 
   defmodule Combo do
-    @moduledoc "One named sequence and what sets it off."
-    defstruct [:name, :trigger, :steps, enabled?: true]
+    @moduledoc """
+    One named sequence and what sets it off.
+
+    `dungeon: nil` means global — the combo applies anywhere. A named dungeon
+    restricts it to fights inside that dungeon (the cavebot's route), which
+    only exists while the cavebot publishes it.
+    """
+    defstruct [:name, :trigger, :steps, enabled?: true, dungeon: nil]
   end
 
   @doc """
-  The combo that applies to `enemy_name`, or nil.
+  The combo that applies to `enemy_name` in `current_dungeon`, or nil.
 
   A species trigger beats an element trigger: naming the creature is a more
   specific statement than naming what it is made of.
+
+  A combo with a dungeon only applies inside it; with none, it applies
+  anywhere — including when no dungeon is published at all (`nil`).
   """
-  def match(combos, enemy_name) when is_binary(enemy_name) do
-    applicable = Enum.filter(combos, &(&1.enabled? and triggered?(&1, enemy_name)))
+  def match(combos, enemy_name, current_dungeon \\ nil)
+
+  def match(combos, enemy_name, current_dungeon) when is_binary(enemy_name) do
+    applicable =
+      Enum.filter(combos, fn combo ->
+        combo.enabled? and triggered?(combo, enemy_name) and
+          (combo.dungeon == nil or combo.dungeon == current_dungeon)
+      end)
 
     Enum.find(applicable, &match?({:enemy_species, _}, &1.trigger)) || List.first(applicable)
   end
 
-  def match(_combos, _no_enemy), do: nil
+  def match(_combos, _no_enemy, _dungeon), do: nil
 
   defp triggered?(%Combo{trigger: {:enemy_species, species}}, enemy_name),
     do: String.downcase(species) == String.downcase(enemy_name)

@@ -67,6 +67,13 @@ defmodule PokexWeb.Panel.CombosCard do
             <span class="shrink-0 font-mono text-pk-meta text-pk-text-2">
               {trigger_text(combo.trigger)}
             </span>
+            <span
+              :if={combo.dungeon}
+              class="shrink-0 rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta text-pk-text-2"
+              title={"Só vale na dungeon #{combo.dungeon}"}
+            >
+              DG {combo.dungeon}
+            </span>
             <input
               type="checkbox"
               class="toggle toggle-success toggle-xs shrink-0"
@@ -141,6 +148,11 @@ defmodule PokexWeb.Panel.CombosCard do
               class="input input-bordered h-8 w-28 bg-pk-bg text-pk-body"
             />
           </div>
+          <input
+            name="dungeon"
+            placeholder="dungeon (vazio = todas)"
+            class="input input-bordered h-8 w-full bg-pk-bg text-pk-body"
+          />
           <div class="flex gap-1.5">
             <%!-- the team as READ, so a swap to someone with no hotkey is not offerable --%>
             <select

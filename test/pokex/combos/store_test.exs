@@ -66,4 +66,12 @@ defmodule Pokex.Combos.StoreTest do
     :ok = Store.set_enabled("sing", false)
     refute Enum.find(Store.all(), &(&1.name == "sing")).enabled?
   end
+
+  test "o campo dungeon sobrevive ao round-trip; ausente no JSON lê como nil" do
+    :ok = Store.add(%Combo{combo("na-dg", "Wigglytuff") | dungeon: "cavena"})
+
+    assert Enum.find(Store.all(), &(&1.name == "na-dg")).dungeon == "cavena"
+    # o seed nunca teve dungeon — ausente lê como nil (vale em todas)
+    assert Enum.find(Store.all(), &(&1.name == "sing")).dungeon == nil
+  end
 end

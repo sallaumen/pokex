@@ -21,6 +21,24 @@ defmodule Pokex.Vision.Glyphs do
   slot counts sit ON TOP of bright item sprites: a loose floor lets the
   pokeball's grey highlights merge with the digits. The layout profile and the
   label file declare the floor each region needs.
+
+  ## What counts as BACKGROUND
+
+  "Bright AND neutral" is not enough over the MINIMAP. Measured on the real
+  captures: the minimap is drawn in greyscale (saturation 0 on nearly every
+  pixel of the coordinate band), so the colour test filters nothing there, and
+  9-10% of the map's pixels — the lit walkable floor, measured at 140..159 —
+  clear the 120 floor and count as ink. The `minimap_coord` band is 30px tall
+  for 20px of text, so its margin rows are pure map: walk onto lit ground and
+  those rows fill with ink, no column of the band is empty any more, and the
+  "one empty column separates two glyphs" rule finds no separator at all. The
+  whole coordinate then comes out as ONE glyph — the giant rectangle Lucas found
+  on the teach screen, flanked by a few 2-3 pixel crumbs.
+
+  What the client does give us is a dark outline (measured at 14..17) around
+  every character, so leaked map NEVER touches the text — it is a blob of its
+  own. `segment/3` therefore drops background blobs BEFORE projecting onto
+  columns; see `drop_background/1`.
   """
 
   alias Pokex.Vision.Frame
@@ -49,6 +67,10 @@ defmodule Pokex.Vision.Glyphs do
   # runner-up; anything else stays unknown.
   @max_diff_ratio 0.12
   @min_diff_slack 2
+  # Measured over the whole atlas: the smallest character the client draws is
+  # the comma, at 14 ink pixels. The crumbs the minimap leaves behind are 1-3.
+  # Anything under this is not a character in any font we read.
+  @min_glyph_ink 4
 
   @doc """
   Splits a region into glyphs, left to right.
@@ -56,6 +78,9 @@ defmodule Pokex.Vision.Glyphs do
   A glyph is a maximal run of columns containing ink; one fully empty column
   separates two glyphs. Each glyph carries its tight bitmap (rows trimmed) —
   the signature the atlas is keyed by.
+
+  Background that leaked in (see the moduledoc) is discarded first, so a strip
+  of lit map cannot bridge one character into the next.
   """
   def segment(%Frame{} = frame, {x, y, w, h}, opts \\ []) do
     # A region can outrun its frame — a battle row past the end of the list, a
@@ -76,13 +101,147 @@ defmodule Pokex.Vision.Glyphs do
   defp do_segment(%Frame{} = frame, {x, y, w, h}, opts) do
     strong = Keyword.get(opts, :ink, @default_ink)
     drop = Keyword.get(opts, :weak_drop, @weak_drop)
-    cells = ink_cells(frame, {x, y, w, h}, strong, max(strong - drop, 40))
+
+    cells =
+      frame
+      |> ink_cells({x, y, w, h}, strong, max(strong - drop, 40))
+      |> drop_background()
 
     0..(w - 1)//1
     |> Enum.map(fn i -> {x + i, Enum.filter(0..(h - 1)//1, &MapSet.member?(cells, {i, &1}))} end)
     |> Enum.chunk_by(fn {_cx, rows} -> rows != [] end)
     |> Enum.filter(fn [{_cx, rows} | _] -> rows != [] end)
     |> Enum.map(&to_glyph(&1, h))
+  end
+
+  # Throws away the ink that is not text, so the column projection above sees
+  # the separators again. Deliberately conservative: when nothing is dropped the
+  # cells come back untouched and segmentation is bit-for-bit what it always
+  # was — every HUD, HP and battle-list reading is unaffected by construction.
+  #
+  # Two rules, both measured:
+  #
+  #   1. a blob under `@min_glyph_ink` pixels is a crumb, never a character;
+  #   2. a blob that sits OUTSIDE the text band is only kept while it cannot
+  #      BRIDGE two characters. The band is the rows the characters share, which
+  #      the map cannot fake: a line of text puts many blobs on the same rows,
+  #      while leaked map is alone on the margin rows it arrived in.
+  #
+  # Rule 2 discards nothing but bridges. A blob outside the band that lives over
+  # a single character is kept — that is what the dot of an "i" looks like, and
+  # dropping it would silently redraw a glyph the atlas already knows. The test
+  # is applied one blob at a time against what has been accepted so far, because
+  # two crumbs that are each innocent alone can close a gap together.
+  defp drop_background(cells) do
+    blobs =
+      cells
+      |> blobs()
+      |> Enum.reject(&(MapSet.size(&1) < @min_glyph_ink))
+
+    band = text_band(blobs)
+    {text, stray} = Enum.split_with(blobs, &in_band?(&1, band))
+
+    (text ++ admit(stray, columns_of(text)))
+    |> Enum.reduce(MapSet.new(), &MapSet.union(&2, &1))
+  end
+
+  # Accepts the strays that leave the number of column runs unchanged. Biggest
+  # first, so the blob most likely to be part of a character wins the gap.
+  defp admit(strays, columns) do
+    strays
+    |> Enum.sort_by(fn blob -> {-MapSet.size(blob), elem(span(blob, 0), 0)} end)
+    |> Enum.reduce({[], columns}, fn blob, {kept, columns} ->
+      if bridges?(blob, columns),
+        do: {kept, columns},
+        else: {[blob | kept], MapSet.union(columns, columns_of([blob]))}
+    end)
+    |> elem(0)
+  end
+
+  defp bridges?(blob, columns) do
+    {left, right} = span(blob, 0)
+    columns |> runs() |> Enum.count(fn {a, b} -> a <= right + 1 and left - 1 <= b end) > 1
+  end
+
+  defp columns_of(blobs) do
+    for blob <- blobs, {column, _row} <- blob, into: MapSet.new(), do: column
+  end
+
+  # The contiguous column ranges — the very runs the projection below turns into
+  # glyphs. One empty column between them is what keeps two characters apart.
+  defp runs(columns) do
+    case Enum.sort(columns) do
+      [] ->
+        []
+
+      [first | rest] ->
+        rest
+        |> Enum.reduce([{first, first}], fn column, [{a, b} | acc] ->
+          if column == b + 1, do: [{a, column} | acc], else: [{column, column}, {a, b} | acc]
+        end)
+        |> Enum.reverse()
+    end
+  end
+
+  # The rows carrying at least half as many blobs as the busiest row does — and
+  # never fewer than two blobs, so a region holding a single glyph yields NO
+  # band at all and nothing is ever filtered out of it.
+  defp text_band(blobs) do
+    coverage =
+      for blob <- blobs, row <- blob |> Enum.map(&elem(&1, 1)) |> Enum.uniq(), reduce: %{} do
+        acc -> Map.update(acc, row, 1, &(&1 + 1))
+      end
+
+    busiest = coverage |> Map.values() |> Enum.max(&>=/2, fn -> 0 end)
+    shared = for {row, n} <- coverage, n >= max(2, div(busiest + 1, 2)), do: row
+
+    case shared do
+      [] -> nil
+      rows -> {Enum.min(rows), Enum.max(rows)}
+    end
+  end
+
+  defp in_band?(_blob, nil), do: true
+
+  defp in_band?(blob, {top, bottom}) do
+    rows = Enum.map(blob, &elem(&1, 1))
+    Enum.min(rows) <= bottom and Enum.max(rows) >= top
+  end
+
+  defp span(blob, index) do
+    values = Enum.map(blob, &elem(&1, index))
+    {Enum.min(values), Enum.max(values)}
+  end
+
+  # 8-connected groups of ink. The client's dark outline is what makes this
+  # trustworthy: text is never connected to whatever is drawn behind it.
+  defp blobs(cells), do: blobs(MapSet.to_list(cells), cells, [])
+
+  defp blobs([], _left, acc), do: acc
+
+  defp blobs([cell | rest], left, acc) do
+    if MapSet.member?(left, cell) do
+      {blob, left} = flood([cell], MapSet.delete(left, cell), MapSet.new([cell]))
+      blobs(rest, left, [blob | acc])
+    else
+      blobs(rest, left, acc)
+    end
+  end
+
+  defp flood([], left, blob), do: {blob, left}
+
+  defp flood([{i, j} | rest], left, blob) do
+    {found, left} =
+      for di <- -1..1//1, dj <- -1..1//1, reduce: {[], left} do
+        {acc, remaining} ->
+          neighbour = {i + di, j + dj}
+
+          if MapSet.member?(remaining, neighbour),
+            do: {[neighbour | acc], MapSet.delete(remaining, neighbour)},
+            else: {acc, remaining}
+      end
+
+    flood(found ++ rest, left, Enum.reduce(found, blob, &MapSet.put(&2, &1)))
   end
 
   # Strong pixels seed; weak pixels join only when they touch the growing blob.

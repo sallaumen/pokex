@@ -387,10 +387,14 @@ defmodule Pokex.Bots.BotSupervisor do
     fishing
     |> status(combat, catcher, mini_game)
     |> Map.put(:player_support, safe_status(player_support, %{hp_pct: nil}))
-    # wp_index/route/hold_reason included so the busy placeholder keeps the
-    # cavebot's full snapshot shape — the panel and Focus read it without
-    # special-casing.
-    |> Map.put(:cavebot, safe_status(cavebot, %{wp_index: 0, route: nil, hold_reason: nil}))
+    # The cavebot's FULL snapshot shape (route/waypoints/pos/hold_reason/counters)
+    # rides on the busy placeholder — the panel and Focus read those fields
+    # without special-casing, and a half-shaped map would break the screen exactly
+    # when the worker is too busy to answer. The worker owns the shape; we borrow
+    # it, so a new field can never be forgotten here.
+    # (minus :state — the placeholder's own :ocupado means UNKNOWN, and must never
+    # be downgraded to the worker's :idle, which reads as "stopped")
+    |> Map.put(:cavebot, safe_status(cavebot, Map.delete(Cavebot.Worker.idle_snapshot(), :state)))
   end
 
   def status do

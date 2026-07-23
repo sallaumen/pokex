@@ -59,7 +59,7 @@ defmodule Pokex.Bots.Capture do
     requested_at = now()
 
     case GenServer.whereis(server) do
-      nil -> Rig.impl().capture_screen()
+      nil -> guard_capture(fn -> Rig.impl().capture_screen() end)
       pid -> GenServer.call(pid, {:screen, filename, requested_at}, :infinity)
     end
   end
@@ -206,7 +206,7 @@ defmodule Pokex.Bots.Capture do
         {:reply, reply, prune_cache(state)}
 
       :unknown ->
-        {:reply, Rig.impl().capture_screen(), state}
+        {:reply, guard_capture(fn -> Rig.impl().capture_screen() end), state}
     end
   end
 
@@ -372,9 +372,25 @@ defmodule Pokex.Bots.Capture do
 
   defp timed_capture_path(kind, region, filename) do
     started_at = now()
-    result = Rig.impl().capture(region, filename)
+    result = guard_capture(fn -> Rig.impl().capture(region, filename) end)
     Perf.record("capture.backend.#{kind}:#{filename}", now() - started_at)
     result
+  end
+
+  # A raise from the capture backend must NOT take this broker down. The feeds
+  # tick against this GenServer forever; in tests the Rig.Fake Agent they read
+  # through dies with the test that created it, so a tick landing in the window
+  # between tests hit a dead Agent and raised. An unguarded raise crashed the
+  # broker, and 4 crashes inside the supervisor's 5s restart window took the
+  # WHOLE app down mid-suite — the source of the order-dependent flakiness. The
+  # feeds already treat {:error, _} as a failed tick (`tick_failed`), so a dead
+  # backend becomes one skipped frame instead of a cascade.
+  defp guard_capture(fun) do
+    fun.()
+  rescue
+    error -> {:error, {:capture_backend, {:error, Exception.message(error)}}}
+  catch
+    kind, reason -> {:error, {:capture_backend, {kind, reason}}}
   end
 
   defp timed_decode(path, filename) do

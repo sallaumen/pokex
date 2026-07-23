@@ -316,6 +316,17 @@ defmodule Pokex.Bots.BotSupervisor do
   @status_timeout_ms 1_000
   @busy_snapshot %{state: :ocupado, counters: %{}, error: "sem resposta (captura lenta?)"}
 
+  @doc """
+  Este estado de worker significa RODANDO?
+
+  Uma regra só, aqui, porque duas telas fazem a mesma pergunta (o pill do header
+  e os botões do painel) e discordar seria pintar de verde um bot parado.
+  `:ocupado` é "perdi a janela de status" — DESCONHECIDO, nunca ligado.
+  """
+  def active?(%{state: state}), do: active?(state)
+  def active?(state) when state in [:idle, :off, :ocupado], do: false
+  def active?(_state), do: true
+
   defp safe_status(server, extra \\ %{}) do
     GenServer.call(server, :status, @status_timeout_ms)
   catch

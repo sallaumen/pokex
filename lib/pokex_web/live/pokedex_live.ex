@@ -396,49 +396,50 @@ defmodule PokexWeb.PokedexLive do
       |> assign(:today, Date.utc_today())
 
     ~H"""
-    <div class="min-h-dvh bg-[#080b0d] px-3 py-4 text-[#d9dde1]">
-      <div class="mx-auto max-w-[1080px] space-y-4">
-        <header class="flex flex-wrap items-center justify-between gap-2">
-          <h1 class="text-lg font-bold">Pokédex</h1>
-          <div class="flex items-center gap-3">
-            <form id="sync-form" phx-submit="sync_wiki" class="flex items-center gap-2">
-              <input
-                name="only"
-                list="species-names"
-                placeholder="só estes nomes (vazio = tudo)"
-                autocomplete="off"
-                class="input input-bordered h-8 w-52 bg-[#090d0f] font-mono text-xs"
-              />
-              <button
-                disabled={@sync_running?}
-                title="raspa a wiki de novo: dados (upsert) + imagens novas. Vazio = base inteira (~10min); com nomes = segundos."
-                class="btn h-8 border border-[#293238] bg-transparent px-3 text-xs text-[#c7cdd2] hover:border-[#37d07d]/60 hover:text-white disabled:opacity-40"
-              >
-                {if @sync_running?, do: "⏳ sincronizando…", else: "🔄 Sincronizar wiki"}
-              </button>
-            </form>
-            <.link
-              navigate={~p"/time"}
-              class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
-            >
-              🧢 time
-            </.link>
-            <.link
-              navigate={~p"/"}
-              class="font-mono text-[11px] text-[#89939a] underline hover:text-white"
-            >
-              ← painel
-            </.link>
-          </div>
-        </header>
+    <Layouts.app
+      flash={@flash}
+      current_page={:pokedex}
+      {Layouts.header(assigns)}
+      max_width="max-w-[1080px]"
+    >
+      <div class="space-y-4">
         <datalist id="species-names">
           <option :for={name <- @species_names} value={name} />
         </datalist>
 
+        <%!-- Sincronizar a wiki é manutenção desta página, não navegação: por isso
+              mora aqui no corpo e não no header (que é igual em toda página). --%>
+        <section
+          id="pokedex-tools"
+          class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-pk-line bg-pk-surface px-3 py-2.5"
+        >
+          <div class="min-w-0">
+            <h2 class="text-pk-body font-semibold text-pk-text">Sincronizar com a wiki</h2>
+            <p class="text-pk-meta text-pk-text-3">
+              raspa dados (upsert) + imagens novas. Vazio = base inteira (~10min); com nomes = segundos.
+            </p>
+          </div>
+          <form id="sync-form" phx-submit="sync_wiki" class="flex items-center gap-2">
+            <input
+              name="only"
+              list="species-names"
+              placeholder="só estes nomes (vazio = tudo)"
+              autocomplete="off"
+              class="input input-bordered h-8 w-52 bg-pk-sunken font-mono text-xs"
+            />
+            <button
+              disabled={@sync_running?}
+              class="btn h-8 border border-pk-line-strong bg-transparent px-3 text-xs text-pk-text-2 hover:border-pk-ok/60 hover:text-white disabled:opacity-40"
+            >
+              {if @sync_running?, do: "⏳ sincronizando…", else: "🔄 Sincronizar wiki"}
+            </button>
+          </form>
+        </section>
+
         <p
           :if={@sync_msg}
           id="sync-status"
-          class="rounded-lg border border-[#232b30] bg-[#111519] px-3 py-1.5 font-mono text-[10px] text-[#8b949d]"
+          class="rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5 font-mono text-[10px] text-pk-text-2"
         >
           {@sync_msg}
         </p>
@@ -734,7 +735,7 @@ defmodule PokexWeb.PokedexLive do
           </ul>
         </section>
       </div>
-    </div>
+    </Layouts.app>
     """
   end
 end

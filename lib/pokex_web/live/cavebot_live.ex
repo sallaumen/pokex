@@ -262,7 +262,7 @@ defmodule PokexWeb.CavebotLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_page={:cavebot}>
+    <Layouts.app flash={@flash} current_page={:cavebot} {Layouts.header(assigns)}>
       <div class="space-y-4">
         <header>
           <h1 class="text-xl font-bold">Cavebot — rotas</h1>

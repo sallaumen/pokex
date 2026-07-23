@@ -167,13 +167,13 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "Só pescar com vida"
     assert html =~ "Reposicionar após lutas"
     assert has_element?(view, "#fishing-hp-form")
-    assert has_element?(view, "#panel-navigation[phx-update=ignore]")
-    assert has_element?(view, "#panel-navigation-toggle[aria-label='Abrir navegação']")
-    assert has_element?(view, "#panel-nav-calibration[href='/calibration']")
-    assert has_element?(view, "#panel-nav-diagnostics[href='/diagnostics']")
-    assert has_element?(view, "#panel-nav-fishing-lab[href='/fishing-lab']")
-    assert has_element?(view, "#panel-nav-world[href='/world']")
-    assert has_element?(view, "#panel-nav-pokedex[href='/pokedex']")
+    assert has_element?(view, "#app-navigation[phx-update=ignore]")
+    assert has_element?(view, "#app-navigation-toggle[aria-label='Abrir navegação']")
+    assert has_element?(view, "#app-nav-calibration[href='/calibration']")
+    assert has_element?(view, "#app-nav-diagnostics[href='/diagnostics']")
+    assert has_element?(view, "#app-nav-fishing-lab[href='/fishing-lab']")
+    assert has_element?(view, "#app-nav-world[href='/world']")
+    assert has_element?(view, "#app-nav-pokedex[href='/pokedex']")
   end
 
   test "a fishing broadcast updates only the fishing pill", %{conn: conn} do

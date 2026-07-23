@@ -9,7 +9,7 @@ defmodule PokexWeb.FishingLabLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_page={:fishing_lab}>
+    <Layouts.app flash={@flash} current_page={:fishing_lab} {Layouts.header(assigns)}>
       <div class="space-y-5">
         <section class="overflow-hidden rounded-2xl border border-base-content/10 bg-base-200">
           <div class="grid gap-0 lg:grid-cols-[minmax(0,1fr)_16rem]">

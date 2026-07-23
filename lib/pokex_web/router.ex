@@ -21,7 +21,9 @@ defmodule PokexWeb.Router do
     # a wildcard so a mini-game evidence BUNDLE (a directory) is browsable too
     get "/exports/*path", ExportsController, :show
 
-    live_session :pokex do
+    # O header é o mesmo em toda página, então o estado dele é montado uma vez
+    # aqui, para a sessão inteira — nenhuma LiveView monta o seu próprio.
+    live_session :pokex, on_mount: PokexWeb.HeaderState do
       live "/", PanelLive
       live "/diagnostics", DiagnosticsLive
       live "/mini-game", MiniGameLive

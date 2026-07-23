@@ -129,7 +129,7 @@ defmodule PokexWeb.WorldLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_page={:world}>
+    <Layouts.app flash={@flash} current_page={:world} {Layouts.header(assigns)}>
       <div class="space-y-4">
         <section
           id="world-snapshot"

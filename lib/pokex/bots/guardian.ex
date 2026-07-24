@@ -9,16 +9,31 @@ defmodule Pokex.Bots.Guardian do
   ALSO the watchdog for the session STOP CONDITIONS (hunt goals) and the
   ANTI-STAGNATION rule: the same poll checks the `:session` fact against
   `stop_after_minutes` / `stop_after_kills`, and against
-  `stagnation_minutes` of silence — no kill, no hooked fish — whose action
-  is an `{:rule_alarm, _}` broadcast (re-armed per window) or the same full
-  stop (kills/hooks ride the snapshots combat and fishing already
-  broadcast; this process subscribes to both). A hit halts the fleet through the SAME latch + on_panic
-  path as the corner — a reached goal is a standing order to stay stopped
-  until the human presses Iniciar — but broadcasts `{:session_stop, reason}`
-  instead of `{:panic, _}`, so the panel reports a met goal, not an
-  emergency. Being external to every worker, the stop can never deadlock on
-  a worker halting itself; and since `on_panic` (stop_all) forgets the
-  `:session` fact, a fired condition cannot re-fire.
+  `stagnation_minutes` of silence, whose action is an `{:rule_alarm, _}`
+  broadcast (re-armed per window), the same full stop, or a LOGOUT. A hit
+  halts the fleet through the SAME latch + on_panic path as the corner — a
+  reached goal is a standing order to stay stopped until the human presses
+  Iniciar — but broadcasts `{:session_stop, reason}` instead of
+  `{:panic, _}`, so the panel reports a met goal, not an emergency. Being
+  external to every worker, the stop can never deadlock on a worker halting
+  itself; and since `on_panic` (stop_all) forgets the `:session` fact, a
+  fired condition cannot re-fire.
+
+  ## O que conta como sinal de vida
+
+  Kill + MINIGAME VENCIDO. **Não** fisgada: uma fisgada é o puxão da vara, e
+  com o minigame travado a vara fisga a noite inteira sem pegar peixe nenhum —
+  o contador sobe, o relógio zera, e a regra dorme feliz enquanto a estamina
+  queima. Foi exatamente assim que uma madrugada da conta principal do Lucas
+  foi embora. A fisgada só volta a valer quando o vigia do minigame está
+  parado (ele jogando o minigame na mão), senão a regra dispararia no meio de
+  uma pescaria que ia bem. Os três contadores pegam carona nos snapshots que
+  combate, pesca e minigame já publicam; este processo assina os três.
+
+  Deslogar é a ação que de fato economiza estamina: parar o bot não economiza
+  nada, porque o personagem continua online. O `Pokex.Bots.Logout` (injetável
+  por `:logout_fun`) trava o latch e para a frota por conta própria — aqui não
+  se duplica nenhum dos dois.
 
   `on_panic` is injected (not a hard dependency on the bot supervisor) so
   this module doesn't need to know about `BotSupervisor` — callers pass e.g.
@@ -75,9 +90,15 @@ defmodule Pokex.Bots.Guardian do
       body: body,
       poll_ms: poll_ms,
       session_rules?: session_rules?,
+      logout_fun: Keyword.get(opts, :logout_fun, &Pokex.Bots.Logout.request/1),
       fights: 0,
       hooked: 0,
-      # last time a kill or a hooked fish was SEEN (monotonic ms; nil = none
+      clears: 0,
+      # o vigia do minigame está rodando? Enquanto nunca ouvimos falar dele,
+      # assumimos que NÃO — o padrão seguro, porque é ele que faz a fisgada
+      # voltar a contar como sinal de vida.
+      mini_game_running?: false,
+      # last time a REAL sign of life was SEEN (monotonic ms; nil = none
       # yet this run) — the anti-stagnation rule measures silence from here
       last_activity_at: nil
     }
@@ -94,6 +115,8 @@ defmodule Pokex.Bots.Guardian do
     # the snapshots the workers already broadcast
     Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
+    # o peixe DE VERDADE (minigame vencido) e se o vigia está de pé
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.MiniGame.Worker.topic())
     schedule_poll(state.poll_ms)
     {:ok, state}
   end
@@ -121,8 +144,24 @@ defmodule Pokex.Bots.Guardian do
   def handle_info({:combat, snapshot}, state),
     do: {:noreply, track_counter(state, :fights, get_in(snapshot, [:counters, :fights]))}
 
-  def handle_info({:fishing, snapshot}, state),
-    do: {:noreply, track_counter(state, :hooked, get_in(snapshot, [:counters, :hooked]))}
+  # Uma FISGADA é o puxão da vara, não o peixe. Com o vigia do minigame rodando,
+  # o peixe de verdade é o `clears`: um minigame travado fisga a noite inteira e
+  # pega nada — foi exatamente assim que uma madrugada de estamina foi embora.
+  # Com o vigia desligado (o Lucas jogando o minigame na mão) a fisgada volta a
+  # ser o melhor sinal que temos; sem esse recuo, a regra deslogaria ele no meio
+  # de uma pescaria que ia bem.
+  def handle_info({:fishing, snapshot}, state) do
+    hooked = get_in(snapshot, [:counters, :hooked])
+
+    if state.mini_game_running?,
+      do: {:noreply, store_counter(state, :hooked, hooked)},
+      else: {:noreply, track_counter(state, :hooked, hooked)}
+  end
+
+  def handle_info({:mini_game, snapshot}, state) do
+    state = %{state | mini_game_running?: Map.get(snapshot, :state) != :off}
+    {:noreply, track_counter(state, :clears, get_in(snapshot, [:counters, :clears]))}
+  end
 
   # the subscribed topics also carry {:*_log, ...} / {:panic, ...} chatter — not ours
   def handle_info(_msg, state), do: {:noreply, state}
@@ -144,6 +183,12 @@ defmodule Pokex.Bots.Guardian do
         Map.put(state, key, value)
     end
   end
+
+  # Guarda o contador SEM marcar atividade. Existe para que desligar o vigia do
+  # minigame no meio de uma sessão não faça o salto acumulado de fisgadas passar
+  # por um sinal de vida que nunca houve.
+  defp store_counter(state, key, value) when is_integer(value), do: Map.put(state, key, value)
+  defp store_counter(state, _key, _value), do: state
 
   defp panic(state) do
     # LATCH FIRST, halt second: the latch is what forbids every auto-resume path (the Focus
@@ -169,11 +214,11 @@ defmodule Pokex.Bots.Guardian do
 
         cond do
           is_integer(minutes) and minutes > 0 and now - started_at >= minutes * 60_000 ->
-            session_stop(state, "tempo de caçada atingido (#{minutes}min)")
+            session_end(state, "tempo de caçada atingido (#{minutes}min)")
             state
 
           is_integer(kills) and kills > 0 and state.fights >= kills ->
-            session_stop(state, "meta de kills atingida (#{state.fights}/#{kills})")
+            session_end(state, "meta de kills atingida (#{state.fights}/#{kills})")
             state
 
           true ->
@@ -185,7 +230,23 @@ defmodule Pokex.Bots.Guardian do
     end
   end
 
-  # The anti-stagnation rule: silence (no kill, no hooked fish) measured from
+  # Uma meta batida ENCERRA a sessão. "parar" trava tudo como sempre;
+  # "deslogar" encerra a conta, que é o que de fato economiza estamina — parar
+  # o bot não economiza nada, o personagem segue online queimando.
+  # O Logout trava o latch e para a frota por conta própria; aqui não se duplica
+  # nenhum dos dois.
+  defp session_end(state, reason) do
+    case Settings.get(:stop_after_action) do
+      "deslogar" ->
+        Logger.info("Guardian: #{reason} — deslogando")
+        state.logout_fun.(reason)
+
+      _parar ->
+        session_stop(state, reason)
+    end
+  end
+
+  # The anti-stagnation rule: silence (no kill, no won mini-game) measured from
   # the LATER of session start / last activity / last ring — so the alarm
   # action re-rings only after ANOTHER full silent window (its own cooldown),
   # and a fresh session never inherits old silence.
@@ -194,11 +255,16 @@ defmodule Pokex.Bots.Guardian do
     baseline = max(state.last_activity_at || started_at, started_at)
 
     if is_integer(minutes) and minutes > 0 and now - baseline >= minutes * 60_000 do
-      reason = "estagnação: sem kills nem fisgadas há #{minutes}min"
+      reason = "estagnação: sem kills nem peixes há #{minutes}min"
 
       case Settings.get(:stagnation_action) do
         "parar" ->
           session_stop(state, reason)
+          state
+
+        "deslogar" ->
+          Logger.info("Guardian: #{reason} — deslogando")
+          state.logout_fun.(reason)
           state
 
         _alarme ->

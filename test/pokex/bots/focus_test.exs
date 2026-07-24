@@ -163,4 +163,52 @@ defmodule Pokex.Bots.FocusTest do
     assert InputGate.state().focus_ok == true
     refute :stop in calls(agent)
   end
+
+  describe "ensure_front/0" do
+    setup do
+      on_exit(fn ->
+        Pokex.Bots.InputGate.set_corner_ok(true)
+        Pokex.Bots.InputGate.set_focus_ok(true)
+      end)
+
+      :ok
+    end
+
+    test "recusa enquanto o cursor está no canto do pânico" do
+      Pokex.Bots.InputGate.set_corner_ok(false)
+
+      assert Pokex.Bots.Focus.ensure_front() == {:error, :panic_corner}
+    end
+
+    # Os dois ramos devolvem :ok, então asserir só o retorno não prova nada —
+    # uma implementação que SEMPRE frontasse passaria nos dois testes. O que
+    # distingue é o efeito: o ramo que fronta dorme calibration_front_delay_ms
+    # e abre a porteira; o que passa direto não faz nem um nem outro.
+    test "quando o jogo já está na frente, passa direto — sem pagar a espera" do
+      # A margem é ABSURDA de propósito: 3s de espera contra um teto de 1s. Uma
+      # implementação que frontasse à toa dormiria os 3s inteiros, e nenhum pico
+      # de carga da suíte fecha essa distância — o teste distingue os dois ramos
+      # sem virar um piscante.
+      Pokex.SettingsStash.stash!(calibration_front_delay_ms: 3_000)
+      Pokex.Bots.InputGate.set_corner_ok(true)
+      Pokex.Bots.InputGate.set_focus_ok(true)
+
+      {micros, resultado} = :timer.tc(&Pokex.Bots.Focus.ensure_front/0)
+
+      assert resultado == :ok
+      assert div(micros, 1000) < 1_000, "pagou a espera do fronting sem precisar"
+    end
+
+    test "quando o jogo NÃO está na frente, fronta e abre a porteira na hora" do
+      Pokex.SettingsStash.stash!(calibration_front_delay_ms: 0)
+      Pokex.Bots.InputGate.set_corner_ok(true)
+      Pokex.Bots.InputGate.set_focus_ok(false)
+
+      assert Pokex.Bots.Focus.ensure_front() == :ok
+
+      # abrir a porteira AQUI, e não esperar o poller notar, é o ponto: senão o
+      # Rig engoliria a tecla seguinte em silêncio
+      assert Pokex.Bots.InputGate.state().focus_ok
+    end
+  end
 end

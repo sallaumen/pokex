@@ -291,7 +291,7 @@ defmodule Pokex.Bots.GuardianTest do
       start_guardian!(on_panic)
 
       assert_receive {:rule_alarm, reason}, 1_000
-      assert reason =~ "sem kills nem fisgadas há 1min"
+      assert reason =~ "sem kills nem peixes há 1min"
 
       # firing re-armed the window — no second ring, and NEVER a fleet stop
       refute_receive {:rule_alarm, _}, 150
@@ -323,6 +323,117 @@ defmodule Pokex.Bots.GuardianTest do
       assert_receive :panicked, 1_000
       assert_receive {:session_stop, reason}, 1_000
       assert reason =~ "estagnação"
+    end
+  end
+
+  describe "sinal de vida e ação de deslogar" do
+    setup do
+      on_exit(fn ->
+        Pokex.Perception.WorldState.forget(:session)
+        Pokex.Settings.put(:stagnation_minutes, 0)
+        Pokex.Settings.put(:stagnation_action, "alarme")
+        Pokex.Settings.put(:stop_after_action, "parar")
+        Pokex.Settings.put(:stop_after_minutes, 0)
+        Pokex.Settings.put(:stop_after_kills, 0)
+        Pokex.Bots.InputGate.set_panic_latch(false)
+      end)
+
+      :ok
+    end
+
+    defp start_guardian_com_logout!(on_panic, logout_fun) do
+      {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
+
+      {:ok, guardian} =
+        Guardian.start_link(
+          name: nil,
+          body: body,
+          on_panic: on_panic,
+          poll_ms: 5,
+          session_rules: true,
+          logout_fun: logout_fun
+        )
+
+      guardian
+    end
+
+    test "estagnação com ação deslogar chama o logout, com o motivo", %{on_panic: on_panic} do
+      dono = self()
+      active_session!(61_000)
+      Pokex.Settings.put(:stagnation_minutes, 1)
+      Pokex.Settings.put(:stagnation_action, "deslogar")
+
+      start_guardian_com_logout!(on_panic, fn motivo -> send(dono, {:deslogou, motivo}) end)
+
+      assert_receive {:deslogou, motivo}, 1_000
+      assert motivo =~ "estagnação"
+      # o Logout trava o latch e para a frota por conta própria — o Guardian não duplica
+      refute_receive :panicked, 100
+    end
+
+    test "meta de kills com ação deslogar chama o logout", %{on_panic: on_panic} do
+      dono = self()
+      active_session!(0)
+      Pokex.Settings.put(:stop_after_kills, 2)
+      Pokex.Settings.put(:stop_after_action, "deslogar")
+
+      guardian =
+        start_guardian_com_logout!(on_panic, fn motivo -> send(dono, {:deslogou, motivo}) end)
+
+      send(guardian, {:combat, %{state: :hunting, counters: %{fights: 2}, error: nil}})
+
+      assert_receive {:deslogou, motivo}, 1_000
+      assert motivo =~ "meta de kills atingida"
+    end
+
+    test "meta de kills com ação parar continua parando como sempre", %{on_panic: on_panic} do
+      active_session!(0)
+      Pokex.Settings.put(:stop_after_kills, 2)
+      Pokex.Settings.put(:stop_after_action, "parar")
+
+      guardian =
+        start_guardian_com_logout!(on_panic, fn _motivo -> flunk("não devia deslogar") end)
+
+      send(guardian, {:combat, %{state: :hunting, counters: %{fights: 2}, error: nil}})
+
+      assert_receive :panicked, 1_000
+    end
+
+    test "um minigame VENCIDO zera o relógio da estagnação", %{on_panic: on_panic} do
+      active_session!(61_000)
+      Pokex.Settings.put(:stagnation_minutes, 1)
+      Pokex.Settings.put(:stagnation_action, "parar")
+
+      guardian = start_guardian_com_logout!(on_panic, fn _motivo -> :ok end)
+      send(guardian, {:mini_game, %{state: :watching, counters: %{clears: 1}}})
+
+      refute_receive :panicked, 400
+    end
+
+    test "com o vigia do minigame PARADO, uma fisgada zera o relógio", %{on_panic: on_panic} do
+      active_session!(61_000)
+      Pokex.Settings.put(:stagnation_minutes, 1)
+      Pokex.Settings.put(:stagnation_action, "parar")
+
+      guardian = start_guardian_com_logout!(on_panic, fn _motivo -> :ok end)
+      send(guardian, {:mini_game, %{state: :off, counters: %{clears: 0}}})
+      send(guardian, {:fishing, %{counters: %{hooked: 1}}})
+
+      refute_receive :panicked, 400
+    end
+
+    test "com o vigia do minigame RODANDO, uma fisgada NÃO zera o relógio", %{on_panic: on_panic} do
+      active_session!(61_000)
+      Pokex.Settings.put(:stagnation_minutes, 1)
+      Pokex.Settings.put(:stagnation_action, "parar")
+
+      guardian = start_guardian_com_logout!(on_panic, fn _motivo -> :ok end)
+      send(guardian, {:mini_game, %{state: :watching, counters: %{clears: 0}}})
+      send(guardian, {:fishing, %{counters: %{hooked: 1}}})
+
+      # este é O teste da madrugada perdida: a vara fisgando sem o minigame
+      # vencer NÃO é sinal de vida, e a regra tem que disparar mesmo assim
+      assert_receive :panicked, 1_000
     end
   end
 end

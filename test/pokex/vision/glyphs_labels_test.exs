@@ -13,7 +13,18 @@ defmodule Pokex.Vision.GlyphsLabelsTest do
   test "the label set covers every field the HUD feeds will read" do
     expected = Pokex.ScreenFixtures.labels() |> Enum.map(& &1["expected"]) |> MapSet.new()
 
-    for must <- ["1525", "90", "96", "322", "36", "7", "43", "5559/6410", "(337, 46107, 4)", "Pidgeot"] do
+    for must <- [
+          "1525",
+          "90",
+          "96",
+          "322",
+          "36",
+          "7",
+          "43",
+          "5559/6410",
+          "(337, 46107, 4)",
+          "Pidgeot"
+        ] do
       assert must in expected, "the atlas would never learn #{must}"
     end
   end

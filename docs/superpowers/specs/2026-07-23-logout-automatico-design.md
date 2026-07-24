@@ -209,6 +209,29 @@ end
 `@hud_max_age_ms` é `2_000` — o feed publica a cada 250-500ms, então dois segundos
 já significa "parou de chegar".
 
+### A testemunha (achado da revisão adversarial, 2026-07-23)
+
+O desenho original tinha um furo na direção exatamente errada. `Hud.interpret`
+devolve `nil` nos três campos também quando as sub-regiões `:level` / `:food` /
+`:fishing` não estão calibradas, ou quando o atlas de glifos não conhece algum
+dígito — **o "9" que faltava até o PR #85 é um caso real e vivido**. Nesse mundo
+o fato `:hud` chega FRESCO com os três campos nulos, `read_hud` responde
+`:gone`, e o bot confirma um logout que nunca aconteceu. Silenciosamente. Que é
+precisamente o prejuízo que essa feature existe para matar.
+
+A correção é tornar a medida **diferencial**: o worker lê a barra ANTES de
+mexer em qualquer coisa e passa a leitura como `baseline` para
+`Logic.start/3`. Só quando ela era `:present` — a HUD estava legível, temos
+testemunha — um `:gone` posterior significa alguma coisa.
+
+Sem testemunha o logout **ainda tenta**: as teclas são enviadas do mesmo jeito,
+porque não tentar deixaria o Lucas logado com certeza. O que muda é o desfecho:
+termina em `{:failed, :sem_testemunha}` e toca o alarme, dizendo "mandei as
+teclas mas não consigo afirmar que funcionou" em vez de mentir.
+
+`Logic.start/3` **não tem valor padrão** para o `baseline`: um padrão otimista
+ali seria exatamente o bug que a testemunha existe para impedir.
+
 ### Por que essa é a leitura certa
 
 * **Os três campos juntos.** Deslogado = nível, comida *e* pesca param de dar número.

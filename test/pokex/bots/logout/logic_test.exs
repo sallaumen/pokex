@@ -5,7 +5,8 @@ defmodule Pokex.Bots.Logout.LogicTest do
 
   @config %{attempts: 3}
 
-  defp start, do: Logic.start("manual", @config)
+  # O caso normal: a HUD estava legível antes de apertar, então temos testemunha.
+  defp start, do: Logic.start("manual", @config, :present)
 
   # Alimenta uma sequência de leituras, devolvendo {logic, ultima_acao}.
   defp read_all(logic, readings) do
@@ -102,10 +103,49 @@ defmodule Pokex.Bots.Logout.LogicTest do
   end
 
   test "com uma tentativa só, uma tecla que não saiu já é falha" do
-    {logic, _} = Logic.start("manual", %{attempts: 1})
+    {logic, _} = Logic.start("manual", %{attempts: 1}, :present)
     {logic, action} = Logic.after_press(logic, {:error, :panic_corner})
 
     assert action == {:finish, {:failed, :panic_corner}}
     assert logic.state == :failed
+  end
+
+  describe "a testemunha" do
+    # A HUD devolve nil nos três campos tanto para "deslogado" quanto para
+    # "sub-região descalibrada" / "atlas sem o dígito". Se ela já estava
+    # ausente ANTES de apertar, um :gone depois não distingue as duas coisas —
+    # e confirmar por ele seria inventar um logout que nunca aconteceu.
+    test "sem HUD legível antes, NENHUM :gone confirma — por mais que se repita" do
+      {logic, _} = Logic.start("manual", %{attempts: 2}, :gone)
+      refute logic.witness?
+
+      logic =
+        Enum.reduce(1..2, logic, fn _tentativa, logic ->
+          {logic, _} = Logic.after_press(logic, :ok)
+          {logic, _} = read_all(logic, List.duplicate(:gone, Logic.reads_per_attempt()))
+          logic
+        end)
+
+      assert logic.state == :failed
+      assert logic.error == :sem_testemunha
+    end
+
+    test "baseline ilegível também não dá testemunha" do
+      {logic, _} = Logic.start("manual", @config, :unreadable)
+
+      refute logic.witness?
+    end
+
+    test "com testemunha, o mesmo par de :gone confirma" do
+      {logic, _} = Logic.start("manual", @config, :present)
+      assert logic.witness?
+
+      {logic, _} = Logic.after_press(logic, :ok)
+      {logic, _} = Logic.after_read(logic, :gone)
+      {logic, action} = Logic.after_read(logic, :gone)
+
+      assert action == {:finish, :out}
+      assert logic.state == :out
+    end
   end
 end

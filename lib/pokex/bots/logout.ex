@@ -145,12 +145,27 @@ defmodule Pokex.Bots.Logout do
   # cima desta ordem. Ele CONTINUA travado depois de um logout bem-sucedido —
   # só o Iniciar bot limpa.
   defp begin(state, reason) do
+    # A TESTEMUNHA, lida antes de mexer em qualquer coisa: se a barra de baixo
+    # não está legível AGORA, ela também não estará depois, e um "sumiu" não
+    # provaria nada. A HUD devolve nil nos três campos tanto para "deslogado"
+    # quanto para "sub-região descalibrada" ou "atlas sem o dígito" — o "9" que
+    # faltava é caso real. Sem essa medida diferencial, um atlas incompleto faria
+    # o bot jurar que deslogou sem ter apertado nada que funcionasse.
+    baseline = state.read_fun.()
+
+    if baseline != :present do
+      Logger.warning(
+        "Logout: a barra de baixo já estava ilegível ANTES de apertar (#{baseline}) — " <>
+          "vou tentar mesmo assim, mas não vou conseguir confirmar"
+      )
+    end
+
     InputGate.set_panic_latch(true)
     state.stop_fun.()
     attach_hud()
 
     reason
-    |> Logic.start(%{attempts: attempts(state)})
+    |> Logic.start(%{attempts: attempts(state)}, baseline)
     |> advance(%{state | finished_at: nil})
   end
 

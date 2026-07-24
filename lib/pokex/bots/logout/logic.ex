@@ -12,6 +12,20 @@ defmodule Pokex.Bots.Logout.Logic do
 
   Só uma leitura `:gone` DUAS VEZES SEGUIDAS confirma. Um glifo lido errado
   sozinho não consegue forjar um logout.
+
+  ## A testemunha
+
+  `:gone` sozinho não prova nada. A barra de baixo também devolve `nil` nos três
+  campos quando as sub-regiões não estão calibradas, ou quando o atlas de glifos
+  não conhece algum dígito — o "9" que faltava até 2026-07-23 é um caso real e
+  vivido. Nesse mundo a HUD já estava "ausente" ANTES de qualquer tecla, e
+  confirmar por ela seria inventar um logout.
+
+  Por isso a medida é DIFERENCIAL: o worker lê a barra antes de agir e passa a
+  leitura como `baseline`. Só quando ela era `:present` — a HUD estava legível,
+  temos testemunha — um `:gone` posterior significa alguma coisa. Sem testemunha
+  o logout termina em falha (`:sem_testemunha`), que grita: as teclas foram
+  enviadas do mesmo jeito, só não dá para AFIRMAR que funcionaram.
   """
 
   # Quantas leituras uma tentativa ganha antes de apertar as teclas de novo.
@@ -25,7 +39,10 @@ defmodule Pokex.Bots.Logout.Logic do
             reads: 0,
             confirms: 0,
             config: %{},
-            error: nil
+            error: nil,
+            # a HUD estava legível ANTES de apertar? sem isso, um :gone não é
+            # prova de nada — ver "A testemunha" no moduledoc
+            witness?: false
 
   @type reading :: :gone | :present | :unreadable
   @type action :: :press | :verify | {:finish, :out} | {:finish, {:failed, term()}}
@@ -35,10 +52,25 @@ defmodule Pokex.Bots.Logout.Logic do
   @spec reads_per_attempt() :: pos_integer()
   def reads_per_attempt, do: @reads_per_attempt
 
-  @doc "Começa um logout. A primeira ação é sempre apertar as teclas."
-  @spec start(String.t(), %{attempts: pos_integer()}) :: {t(), action()}
-  def start(reason, config) do
-    {%__MODULE__{state: :pressing, reason: reason, attempt: 1, config: config}, :press}
+  @doc """
+  Começa um logout. A primeira ação é sempre apertar as teclas.
+
+  `baseline` é a leitura da barra ANTES de agir. Só `:present` dá testemunha —
+  qualquer outra coisa e nenhum `:gone` posterior poderá confirmar. Sem valor
+  padrão de propósito: quem chama tem que decidir, e um padrão otimista aqui
+  seria exatamente o bug que essa testemunha existe para impedir.
+  """
+  @spec start(String.t(), %{attempts: pos_integer()}, reading()) :: {t(), action()}
+  def start(reason, config, baseline) do
+    logic = %__MODULE__{
+      state: :pressing,
+      reason: reason,
+      attempt: 1,
+      config: config,
+      witness?: baseline == :present
+    }
+
+    {logic, :press}
   end
 
   @doc """
@@ -54,7 +86,16 @@ defmodule Pokex.Bots.Logout.Logic do
 
   @doc "Uma leitura da tela."
   @spec after_read(t(), reading()) :: {t(), action()}
-  def after_read(%__MODULE__{} = logic, :gone) do
+  def after_read(%__MODULE__{} = logic, reading) do
+    case {reading, logic.witness?} do
+      {:gone, true} -> confirma(logic)
+      {:gone, false} -> nao_confirma(logic, :sem_testemunha)
+      {:present, _} -> nao_confirma(logic, :ainda_logado)
+      {:unreadable, _} -> nao_confirma(logic, :ilegivel)
+    end
+  end
+
+  defp confirma(logic) do
     logic = %{logic | reads: logic.reads + 1, confirms: logic.confirms + 1}
 
     cond do
@@ -64,9 +105,8 @@ defmodule Pokex.Bots.Logout.Logic do
     end
   end
 
-  def after_read(%__MODULE__{} = logic, reading) when reading in [:present, :unreadable] do
+  defp nao_confirma(logic, motivo) do
     logic = %{logic | reads: logic.reads + 1, confirms: 0}
-    motivo = if reading == :present, do: :ainda_logado, else: :ilegivel
 
     if logic.reads >= @reads_per_attempt,
       do: retry(logic, motivo),

@@ -30,6 +30,14 @@ defmodule Pokex.Bots.Fishing.Logic do
             # last PERFORMED actuation as %{text: String.t(), at: monotonic_ms} —
             # nil until the first cast (never a 0 sentinel).
             last_action: nil,
+            # A TESTEMUNHA do arremesso: alguma bolha (glow assentado) foi vista
+            # neste ciclo? Nasce true de propósito — o primeiro cast não herda
+            # secura de um ciclo que não existiu. Cada cast zera pra false.
+            glow_seen?: true,
+            # arremessos SEGUIDOS que terminaram sem nenhuma bolha — quando bate
+            # config.dry_casts_alarm, o cast emite {:alarm, _} (a tecla da vara
+            # provavelmente não está chegando no jogo) e a contagem recomeça.
+            dry_casts: 0,
             failures: 0,
             error: nil,
             counters: %{cycles: 0, hooked: 0, failures: 0}
@@ -145,6 +153,7 @@ defmodule Pokex.Bots.Fishing.Logic do
            logic
            | glow_streak: streak,
              dead_streak: 0,
+             glow_seen?: true,
              holding?: false,
              holding_since: nil,
              hold_reason: nil
@@ -168,6 +177,7 @@ defmodule Pokex.Bots.Fishing.Logic do
            logic
            | glow_streak: streak,
              dead_streak: 0,
+             glow_seen?: true,
              holding?: true,
              holding_since: logic.holding_since || now,
              # refreshed per peak, so a reason that changes mid-hold (cooldown
@@ -192,6 +202,7 @@ defmodule Pokex.Bots.Fishing.Logic do
            %{
              logic
              | glow_streak: 0,
+               glow_seen?: true,
                holding?: false,
                holding_since: nil,
                hold_reason: nil,
@@ -295,6 +306,29 @@ defmodule Pokex.Bots.Fishing.Logic do
   defp cast(logic, now, prefix_actions \\ []) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
 
+    # O ARREMESSO SECO: um ciclo inteiro sem NENHUMA bolha vista. Uma tecla de
+    # vara engolida (portão, foco, helper) devolve :ok e a água simplesmente
+    # nunca borbulha — a tela é a única testemunha de que o cast aconteceu.
+    # N ciclos secos seguidos → alarme, e a contagem recomeça (re-alarma se
+    # continuar seco). O cast segue acontecendo: alarme acorda o Lucas, não
+    # para a vara — parar é decisão dele.
+    dry = if logic.glow_seen?, do: 0, else: logic.dry_casts + 1
+    threshold = Map.get(logic.config, :dry_casts_alarm, 0)
+
+    {dry, alarm_actions} =
+      if threshold > 0 and dry >= threshold do
+        {0,
+         [
+           {:alarm,
+            "🎣 #{dry} arremessos sem NENHUMA bolha — a tecla da vara pode não estar " <>
+              "chegando no jogo (foco? portão? helper de teclas?)"}
+         ]}
+      else
+        {dry, []}
+      end
+
+    logic = %{logic | glow_seen?: false, dry_casts: dry}
+
     # Enter watching NOT settled: the cast splash also flashes cyan, so we must
     # first see the water go calm (splash gone) before a cyan spike counts as a
     # real bite. Settling now requires N CONSECUTIVE calm frames (not one), so an
@@ -320,6 +354,7 @@ defmodule Pokex.Bots.Fishing.Logic do
 
     actions =
       prefix_actions ++
+        alarm_actions ++
         [
           {:move, logic.config.water_point},
           {:wait, logic.config.wait_after_equip_ms},

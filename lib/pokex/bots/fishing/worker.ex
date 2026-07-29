@@ -16,7 +16,7 @@ defmodule Pokex.Bots.Fishing.Worker do
 
   alias Pokex.Bots.Fishing.Logic
   alias Pokex.Bots.Fisher.{Config, Sensors}
-  alias Pokex.Bots.Body
+  alias Pokex.Bots.{Body, InputGate}
   alias Pokex.{Calibration, Perception, Preflight, Settings}
 
   @topic "fishing"
@@ -38,7 +38,8 @@ defmodule Pokex.Bots.Fishing.Worker do
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
   @impl true
-  def init(body), do: {:ok, %{logic: nil, calib: nil, body: body, timer: nil, held?: false}}
+  def init(body),
+    do: {:ok, %{logic: nil, calib: nil, body: body, timer: nil, held?: false, gated?: false}}
 
   @impl true
   def handle_call(:run, _from, state) do
@@ -88,6 +89,33 @@ defmodule Pokex.Bots.Fishing.Worker do
       # cast cycle fresh, exactly what the old external halt+run pair produced.
       state.held? ->
         {:noreply, resume_from_hold(state)}
+
+      # Portão de entrada fechado: toda tecla seria ENGOLIDA com :ok e a Logic
+      # acreditaria — contaria um arremesso de isca que nunca entrou na água
+      # (foi assim que o cavebot "andou" sem andar). Congela o ciclo INTEIRO,
+      # sensor incluído, como o freeze do mini-game; avisa UMA vez na borda e
+      # segue pollando até reabrir.
+      not InputGate.allowed?() ->
+        if not state.gated? do
+          Phoenix.PubSub.broadcast(
+            Pokex.PubSub,
+            @topic,
+            {:fishing_log, :macro,
+             "🚫 portão de entrada fechado (foco/canto) — segurando a vara; nada foi apertado"}
+          )
+        end
+
+        {:noreply, reschedule(%{state | gated?: true}, Logic.tick_interval(previous))}
+
+      # portão reabriu: anuncia e o MESMO tick já volta ao trabalho
+      state.gated? ->
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @topic,
+          {:fishing_log, :macro, "portão reaberto — a pesca segue"}
+        )
+
+        run_tick(%{state | gated?: false}, previous)
 
       # In a post-action pause there's nothing to sense — skip the capture (so
       # the kill corner isn't polled THIS tick either; Fishing.Logic.step/3 is
@@ -156,6 +184,12 @@ defmodule Pokex.Bots.Fishing.Worker do
         {:error, reason} ->
           {elem(Logic.io_failed(previous, inspect(reason), now()), 0), [], %{}}
       end
+
+    # alarmes decididos pela Logic (ex.: arremessos secos) tocam a sirene do
+    # painel — a mesma dos guardas de regra
+    for {:alarm, msg} <- actions do
+      Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:rule_alarm, msg})
+    end
 
     # A tick is MACRO when the state or a counter changed (a hook, a recast, an
     # error) OR the hold latched/released — the events worth keeping; every other
@@ -350,6 +384,7 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp describe_action({:capture_sequence, {x, y}}), do: "ball #{x},#{y}"
   defp describe_action({:wait, _ms}), do: nil
   defp describe_action({:log, msg}), do: msg
+  defp describe_action({:alarm, msg}), do: msg
 
   defp snapshot(nil),
     do: %{

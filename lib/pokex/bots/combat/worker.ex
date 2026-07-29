@@ -23,6 +23,7 @@ defmodule Pokex.Bots.Combat.Worker do
 
   @config_keys [
     :tab_confirm_ms,
+    :tab_confirm_frames,
     :tab_max_attempts,
     :hunt_cooldown_ms,
     :hunt_probe_window_ms,

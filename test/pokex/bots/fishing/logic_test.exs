@@ -17,7 +17,8 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       watch_dead_streak_needed: 10,
       max_consecutive_failures: 3,
       glow_streak_needed: 1,
-      calm_streak_needed: 1
+      calm_streak_needed: 1,
+      dry_casts_alarm: 0
     }
   end
 
@@ -33,6 +34,81 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   def advance_to(:watching) do
     {l, _} = Logic.step(advance_to(:casting), cursor_obs(), 600)
     l
+  end
+
+  describe "arremessos secos (a testemunha do cast)" do
+    # Uma tecla de vara engolida (portão, foco, helper caído) devolve :ok e a
+    # água simplesmente nunca borbulha. A tela é a única testemunha de que o
+    # cast aconteceu — N ciclos SEM NENHUMA bolha tocam o alarme.
+    defp dry_config, do: Map.put(config(), :dry_casts_alarm, 3)
+
+    # um ciclo inteiro: assenta, nunca vê bolha, estoura o watch_timeout → recast
+    defp dry_cycle({logic, _actions}, base) do
+      {logic, _} = Logic.step(logic, %{glow: false, line?: false}, base)
+      Logic.step(logic, %{glow: false, line?: false}, base + logic.config.watch_timeout_ms + 1)
+    end
+
+    test "3 ciclos sem NENHUMA bolha tocam o alarme no 3º recast — e recomeçam" do
+      {l, _} =
+        Logic.step(advance_to(:focusing) |> Map.put(:config, dry_config()), cursor_obs(), 200)
+
+      first_cast = Logic.step(l, cursor_obs(), 600)
+
+      # o PRIMEIRO cast nunca alarma (não herda secura de ciclo que não existiu)
+      {_l, actions} = first_cast
+      refute Enum.any?(actions, &match?({:alarm, _}, &1))
+
+      # secos 1 e 2: recasts sem alarme
+      {l, actions} = dry_cycle(first_cast, 1_000)
+      refute Enum.any?(actions, &match?({:alarm, _}, &1))
+      assert l.dry_casts == 1
+
+      {l, actions} = dry_cycle({l, []}, 40_000)
+      refute Enum.any?(actions, &match?({:alarm, _}, &1))
+      assert l.dry_casts == 2
+
+      # seco 3: ALARME no recast, e a contagem recomeça (re-alarma se seguir seco)
+      {l, actions} = dry_cycle({l, []}, 80_000)
+      assert Enum.any?(actions, &match?({:alarm, "🎣 3 arremessos" <> _}, &1))
+      assert l.dry_casts == 0
+    end
+
+    test "UMA bolha vista zera a secura acumulada" do
+      {l, _} =
+        Logic.step(advance_to(:focusing) |> Map.put(:config, dry_config()), cursor_obs(), 200)
+
+      cast = Logic.step(l, cursor_obs(), 600)
+
+      {l, _} = dry_cycle(cast, 1_000)
+      {l, _} = dry_cycle({l, []}, 40_000)
+      assert l.dry_casts == 2
+
+      # o ciclo seguinte VÊ uma bolha (assentado + glow) antes de estourar
+      {l, _} = Logic.step(l, %{glow: false, line?: false}, 80_000)
+      {l, _} = Logic.step(l, %{glow: true, line?: false}, 80_100)
+      assert l.glow_seen?
+
+      # o próximo recast não é seco: houve bolha no ciclo → a contagem ZERA
+      {l, actions} =
+        Logic.step(l, %{glow: false, line?: false}, 80_000 + l.config.watch_timeout_ms + 200)
+
+      refute Enum.any?(actions, &match?({:alarm, _}, &1))
+      assert l.dry_casts == 0
+    end
+
+    test "com dry_casts_alarm 0 (desligado) nunca alarma, por mais seco que fique" do
+      {l, _} = Logic.step(advance_to(:focusing), cursor_obs(), 200)
+      cast = Logic.step(l, cursor_obs(), 600)
+
+      {_l, actions} =
+        Enum.reduce(1..6, cast, fn i, acc ->
+          {l, actions} = dry_cycle(acc, i * 40_000)
+          refute Enum.any?(actions, &match?({:alarm, _}, &1))
+          {l, actions}
+        end)
+
+      refute Enum.any?(actions, &match?({:alarm, _}, &1))
+    end
   end
 
   test "start only from idle or error" do

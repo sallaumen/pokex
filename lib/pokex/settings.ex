@@ -103,6 +103,11 @@ defmodule Pokex.Settings do
     wait_cast_settle_ms: 1600,
     wait_assess_ms: 1500,
     watch_timeout_ms: 30_000,
+    # N arremessos SEGUIDOS sem NENHUMA bolha = a vara provavelmente não está
+    # chegando no jogo (tecla engolida, foco, helper) — a tela é a única
+    # testemunha de que um cast aconteceu. Ao bater, toca o alarme e recomeça a
+    # contagem. 0 = desligado.
+    dry_casts_alarm: 3,
     # Auto-recovery: consecutive NEAR-EMPTY-water frames (bubble px below
     # line_present_min_px — no line in the water) before we assume the cast FAILED
     # (a dropped rod press, or the game itself just not casting, which happens even
@@ -442,6 +447,12 @@ defmodule Pokex.Settings do
     # cause a Tab storm. skill_burst_every_ms throttles bursts below the feed cadence.
     tab_key: "tab",
     tab_confirm_ms: 700,
+    # Quantos frames PÓS-Tab sem lock precisam ser VISTOS antes de re-Tab.
+    # Re-Tab é ciclar alvo (cada Tab pula pro próximo inimigo): fazer isso no
+    # relógio, sem evidência de frame, era o "fica dando tab sem focar no
+    # primeiro" quando a captura atrasava. 1 = exige ao menos um frame real;
+    # suba pra 2 se o anel de lock estiver pintando devagar na sua máquina.
+    tab_confirm_frames: 1,
     tab_max_attempts: 3,
     hunt_cooldown_ms: 1_500,
     skill_burst_every_ms: 300,

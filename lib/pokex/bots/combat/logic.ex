@@ -29,6 +29,9 @@ defmodule Pokex.Bots.Combat.Logic do
             entered_at: 0,
             tabbed_at: nil,
             tab_attempts: 0,
+            # frames pós-Tab SEM lock efetivamente VISTOS — a evidência que
+            # autoriza um re-Tab (re-Tab cego cicla o alvo; ver :tabbing)
+            post_tab_frames: 0,
             hold_until: nil,
             probe_until: nil,
             last_obs_at: nil,
@@ -125,6 +128,8 @@ defmodule Pokex.Bots.Combat.Logic do
   end
 
   defp do_step(%{state: :tabbing} = logic, obs, now) do
+    logic = count_post_tab_frame(logic, obs)
+
     cond do
       fresh_lock?(obs, logic.tabbed_at) ->
         # confirmed on a post-Tab frame → fight, and don't waste this event: first burst now.
@@ -139,11 +144,17 @@ defmodule Pokex.Bots.Combat.Logic do
 
         press_next_skill(logic, now, obs[:ready_skills])
 
+      # Re-Tab SÓ com evidência: a janela venceu E vimos frame(s) pós-Tab sem
+      # lock. Cada Tab extra CICLA o alvo pro próximo inimigo — re-Tab no
+      # relógio, sem frame nenhum (captura lenta/travada), era o "fica dando
+      # tab sem focar no primeiro e demora pra usar skill" com a lista cheia.
       now - logic.tabbed_at > logic.config.tab_confirm_ms and
+        logic.post_tab_frames >= logic.config.tab_confirm_frames and
           logic.tab_attempts < logic.config.tab_max_attempts ->
         {tab(logic, now), [{:tab}, {:log, "sem lock; Tab #{logic.tab_attempts + 1}"}]}
 
-      now - logic.tabbed_at > logic.config.tab_confirm_ms ->
+      now - logic.tabbed_at > logic.config.tab_confirm_ms and
+          logic.post_tab_frames >= logic.config.tab_confirm_frames ->
         {%{
            logic
            | state: :hunting,
@@ -152,6 +163,20 @@ defmodule Pokex.Bots.Combat.Logic do
              tab_attempts: 0,
              hold_until: now + logic.config.hunt_cooldown_ms
          }, [{:log, "Tab não lockou; pausa na caça"}]}
+
+      # A janela venceu mas a evidência NÃO veio (nenhum frame pós-Tab): não
+      # se cicla alvo às cegas — mas também não se espera pra sempre por uma
+      # captura que pode estar morta. 4× a janela sem frame → recua pro
+      # hunt-hold dizendo o porquê, e a caça tenta de novo depois.
+      now - logic.tabbed_at > logic.config.tab_confirm_ms * 4 ->
+        {%{
+           logic
+           | state: :hunting,
+             entered_at: now,
+             tabbed_at: nil,
+             tab_attempts: 0,
+             hold_until: now + logic.config.hunt_cooldown_ms
+         }, [{:log, "sem frame pós-Tab (captura lenta?); pausa na caça"}]}
 
       true ->
         {logic, []}
@@ -178,6 +203,16 @@ defmodule Pokex.Bots.Combat.Logic do
         # timer wake without a fresh frame: only the timeout above may act.
         {logic, []}
     end
+  end
+
+  # Um frame genuinamente novo (o dedup já filtrou repetição), capturado DEPOIS
+  # do Tab e sem lock — a testemunha de que o jogo teve chance de pintar o anel
+  # e não pintou. Só isso autoriza ciclar o alvo.
+  defp count_post_tab_frame(logic, obs) do
+    if obs != nil and is_integer(obs[:captured_at]) and obs[:captured_at] > logic.tabbed_at and
+         obs[:locked?] != true,
+       do: %{logic | post_tab_frames: logic.post_tab_frames + 1},
+       else: logic
   end
 
   @doc """
@@ -229,7 +264,8 @@ defmodule Pokex.Bots.Combat.Logic do
       | state: :tabbing,
         entered_at: now,
         tabbed_at: now,
-        tab_attempts: logic.tab_attempts + 1
+        tab_attempts: logic.tab_attempts + 1,
+        post_tab_frames: 0
     }
 
   # Every rehunt (kill landed, fight timed out, io failure) opens the probe window: "not

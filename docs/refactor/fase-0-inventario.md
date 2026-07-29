@@ -1,5 +1,12 @@
 # Fase 0 — Inventário e baseline
 
+> **DOCUMENTO HISTÓRICO (marcado em 2026-07-29).** Retrata a main de 2026-07-20
+> (`9a69b44`, 484 testes) — antes de percepção por feeds/blackboard, modos,
+> personagens, cavebot e logout. Não parta daqui: o retrato atual e a direção
+> estão em [plano-consolidacao-2026-07-29.md](plano-consolidacao-2026-07-29.md),
+> e os donos de cada decisão em [donos-e-contratos.md](donos-e-contratos.md).
+
+
 > Executada em 2026-07-20 sobre `main` @ `9a69b44` (pós PR #14).
 > Baseline de testes: **484 testes, 0 falhas** (53 arquivos, `mix test`).
 > Roteiro: [handoff-kizubot.md](handoff-kizubot.md), Prompt 0. Sem implementação, sem arquitetura-alvo.

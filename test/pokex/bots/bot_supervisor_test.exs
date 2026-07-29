@@ -348,6 +348,31 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert Pokex.Bots.MiniGame.Worker.status(mini_game).state == :off
   end
 
+  # CARACTERIZAÇÃO (Etapa 0 do plano de consolidação, alvo da Frente 1).
+  # Duas telas fazem "este worker está RODANDO?" por esta função (o pill do
+  # header e os botões do painel), e a resposta ATUAL tem uma pegadinha
+  # documentada desde o PR #86: os estados de PARADA do cavebot (:blocked,
+  # :stuck, :fight_stalled) contam como ATIVO — um pill que consultasse o
+  # cavebot por aqui pintaria de verde um bot morto. Hoje ninguém morde porque
+  # o header só olha pesca e combate; quem for ligar a caçada no indicador
+  # global (Frente 1, snapshot único de sessão) precisa resolver ESTE teste.
+  @tag :tmp_dir
+  test "CARACTERIZAÇÃO: active?/1 — e a pegadinha dos estados de parada do cavebot" do
+    for parado <- [:idle, :off, :ocupado] do
+      refute BotSupervisor.active?(parado)
+      refute BotSupervisor.active?(%{state: parado})
+    end
+
+    for rodando <- [:pescando, :hunting, :walking, :fighting, :watching] do
+      assert BotSupervisor.active?(rodando)
+    end
+
+    # a pegadinha: parado-com-motivo é "ativo" para esta função
+    for parada_do_cavebot <- [:blocked, :stuck, :fight_stalled] do
+      assert BotSupervisor.active?(parada_do_cavebot)
+    end
+  end
+
   defp wait_for(fun, tries \\ 100) do
     cond do
       fun.() ->

@@ -348,17 +348,13 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert Pokex.Bots.MiniGame.Worker.status(mini_game).state == :off
   end
 
-  # CARACTERIZAÇÃO (Etapa 0 do plano de consolidação, alvo da Frente 1).
-  # Duas telas fazem "este worker está RODANDO?" por esta função (o pill do
-  # header e os botões do painel), e a resposta ATUAL tem uma pegadinha
-  # documentada desde o PR #86: os estados de PARADA do cavebot (:blocked,
-  # :stuck, :fight_stalled) contam como ATIVO — um pill que consultasse o
-  # cavebot por aqui pintaria de verde um bot morto. Hoje ninguém morde porque
-  # o header só olha pesca e combate; quem for ligar a caçada no indicador
-  # global (Frente 1, snapshot único de sessão) precisa resolver ESTE teste.
+  # A caracterização da Etapa 0 cravava a pegadinha (parada-com-motivo contava
+  # como ATIVO) e prometia que este teste viraria quando a Frente 1 unificasse
+  # o snapshot. Virou: active?/1 é a régua ÚNICA de "está rodando" — header,
+  # painel e Focus consultam a mesma, e parado-com-motivo é PARADO.
   @tag :tmp_dir
-  test "CARACTERIZAÇÃO: active?/1 — e a pegadinha dos estados de parada do cavebot" do
-    for parado <- [:idle, :off, :ocupado] do
+  test "FRENTE 1: active?/1 é a régua única — parado-com-motivo é PARADO" do
+    for parado <- [:idle, :off, :ocupado, :error, :manual] do
       refute BotSupervisor.active?(parado)
       refute BotSupervisor.active?(%{state: parado})
     end
@@ -367,10 +363,15 @@ defmodule Pokex.Bots.BotSupervisorTest do
       assert BotSupervisor.active?(rodando)
     end
 
-    # a pegadinha: parado-com-motivo é "ativo" para esta função
+    # o fim da pegadinha: a caçada parada com motivo NUNCA acende verde
     for parada_do_cavebot <- [:blocked, :stuck, :fight_stalled] do
-      assert BotSupervisor.active?(parada_do_cavebot)
+      refute BotSupervisor.active?(parada_do_cavebot)
+      refute BotSupervisor.active?(%{state: parada_do_cavebot})
     end
+
+    # e a pergunta de frota inteira usa a mesma régua
+    assert BotSupervisor.any_active?([%{state: :idle}, %{state: :walking}])
+    refute BotSupervisor.any_active?([%{state: :idle}, %{state: :blocked}])
   end
 
   # FRENTE 1: os funis de produção são ORDENS — todo Iniciar/Parar/pânico/

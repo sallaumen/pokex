@@ -267,13 +267,15 @@ defmodule Pokex.Bots.Focus do
     _ -> :error
   end
 
+  # A MESMA régua de "está rodando?" que o header e o painel usam — este módulo
+  # tinha uma lista própria, e duas verdades sobre a mesma pergunta é como um
+  # pill verde e um botão "Iniciar" aparecem juntos na mesma tela. Diferença
+  # herdada e mantida de propósito: :ocupado (status desconhecido) agora conta
+  # como PARADO também aqui — não se agenda retomada do que não se provou vivo.
   defp default_running? do
     %{fishing: f, combat: c, catcher: cat, cavebot: cv} = BotSupervisor.status()
-    active?(f) or active?(c) or active?(cat) or active?(cv)
+    BotSupervisor.any_active?([f, c, cat, cv])
   catch
     _kind, _reason -> false
   end
-
-  defp active?(%{state: state}), do: state not in [:idle, :error, :manual, nil]
-  defp active?(_), do: false
 end

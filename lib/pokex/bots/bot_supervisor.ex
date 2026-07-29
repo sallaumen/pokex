@@ -369,13 +369,29 @@ defmodule Pokex.Bots.BotSupervisor do
   @doc """
   Este estado de worker significa RODANDO?
 
-  Uma regra só, aqui, porque duas telas fazem a mesma pergunta (o pill do header
-  e os botões do painel) e discordar seria pintar de verde um bot parado.
-  `:ocupado` é "perdi a janela de status" — DESCONHECIDO, nunca ligado.
+  Uma regra só, aqui, porque três lugares fazem a mesma pergunta (o pill do
+  header, os botões do painel e o Focus decidindo se lembra uma retomada) e
+  discordar seria pintar de verde um bot parado — ou religar um que ninguém
+  tinha ligado. A régua: RODANDO é "vai agir sozinho". Portanto:
+
+    * `:ocupado` — "perdi a janela de status" — é DESCONHECIDO, nunca ligado;
+    * `:error` e `:manual` — parado com erro / exibição do catcher — não agem;
+    * `:blocked`, `:stuck`, `:fight_stalled` — a caçada PAROU com motivo.
+      Contavam como ativo (pegadinha caracterizada na Etapa 0): o pill pintava
+      de verde exatamente o instante em que o Lucas precisava ver que algo deu
+      errado. O painel carregava um contorno local (`cavebot_active?`) desde o
+      PR #86 — promovido aqui pra verdade compartilhada e apagado de lá.
   """
   def active?(%{state: state}), do: active?(state)
-  def active?(state) when state in [:idle, :off, :ocupado], do: false
-  def active?(_state), do: true
+
+  def active?(state)
+      when state in [:idle, :off, :ocupado, :error, :manual, :blocked, :stuck, :fight_stalled],
+      do: false
+
+  def active?(state), do: is_atom(state) and state != nil
+
+  @doc "Algum destes snapshots/estados significa RODANDO? A mesma régua de active?/1."
+  def any_active?(states), do: Enum.any?(states, &active?/1)
 
   defp safe_status(server, extra \\ %{}) do
     GenServer.call(server, :status, @status_timeout_ms)

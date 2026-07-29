@@ -173,8 +173,15 @@ defmodule Pokex.Layout do
 
   defp path, do: Path.join(Home.dir(), "layout_fix.json")
 
-  defp load_persisted do
-    with {:ok, body} <- File.read(path()),
+  defp load_persisted, do: load_file(path())
+
+  @doc false
+  # O round-trip arquivo→Fix por caminho EXPLÍCITO. Existe como seam de teste:
+  # o caminho padrão depende do env global :home_dir, que testes async mudam
+  # concorrentemente — um teste de persistência que dependa dele testa a sorte
+  # da corrida, não o código (flakou de verdade no CI, 2026-07-29).
+  def load_file(path) do
+    with {:ok, body} <- File.read(path),
          {:ok, fact} <- Jason.decode(body) do
       from_fact(fact)
     else

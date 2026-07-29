@@ -87,6 +87,26 @@ defmodule PokexWeb.AppHeaderTest do
     assert render(view) =~ "Ativo"
   end
 
+  # CARACTERIZAÇÃO (Etapa 0 do plano de consolidação, evidência nº 3 do Sol).
+  # O header só acompanha pesca e combate ("fishing"/"combat"): numa caçada, o
+  # cavebot anda a rota com o combate DESLIGADO entre lutas — então o pill jura
+  # "Parado" com o bot trabalhando. Este teste crava a divergência ATUAL; a
+  # Frente 1 a resolve fazendo header e painel consumirem o MESMO snapshot
+  # global de sessão. Quando isso existir, este teste deve afirmar "Ativo".
+  test "CARACTERIZAÇÃO: a caçada anda e o header jura que está Parado", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/pokedex")
+    assert view |> element("#app-bot-state") |> render() =~ "Parado"
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "cavebot",
+      {:cavebot, %{state: :walking, wp_index: 2, wp_total: 9, counters: %{}}}
+    )
+
+    # HOJE: o snapshot da caçada nem chega ao header — ele não assina o tópico
+    assert view |> element("#app-bot-state") |> render() =~ "Parado"
+  end
+
   @tag :tmp_dir
   test "trocar de personagem funciona FORA do painel", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

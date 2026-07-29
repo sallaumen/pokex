@@ -1,0 +1,63 @@
+# CI mínimo (Etapa 0 do plano de consolidação, docs/refactor/plano-consolidacao-2026-07-29.md).
+# Espelha o alias `mix precommit` — com as variantes --check-* que verificam em vez
+# de mutar. Roda em Linux de propósito: todo caminho que toca macOS de verdade
+# (SCK, osascript, helper de teclas) é desligado no env de teste, e é exatamente
+# isso que este workflow também prova a cada PR.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "27"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+
+      - run: mix deps.get
+      - run: mix deps.unlock --check-unused
+      - run: mix compile --warnings-as-errors
+      - run: mix format --check-formatted
+      - run: mix test
+
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "27"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-dev-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-dev-${{ runner.os }}-
+
+      - run: mix deps.get
+      - run: mix assets.setup
+      - run: mix assets.build

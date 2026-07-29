@@ -62,6 +62,12 @@ defmodule Pokex.LayoutTest do
     File.mkdir_p!(tmp)
     File.write!(Path.join(tmp, "layout_fix.json"), Jason.encode!(fact))
 
+    # Um RESTART é exatamente isto: a memória (o fato :layout) morre e só o
+    # arquivo sobrevive. Sem este forget o teste lia o fato — que qualquer
+    # locate de OUTRO teste async pode ter acabado de sobrescrever no singleton
+    # global (flake real: battle_header veio 387 de uma fixture alheia).
+    Pokex.Perception.WorldState.forget(:layout)
+
     assert %Layout.Fix{} = restored = Layout.current()
     assert restored.regions.level == fix.regions.level
     assert restored.anchors.battle_header == {3184, 460}

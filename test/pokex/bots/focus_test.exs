@@ -15,9 +15,19 @@ defmodule Pokex.Bots.FocusTest do
       InputGate.set_focus_ok(true)
     end)
 
-    {:ok, agent} = Agent.start_link(fn -> %{frontmost: "wine", running: false, calls: []} end)
+    # O agente simula o Session também: `generation` é o contador de ordens, e
+    # a pausa (hold) devolve a geração que ela mesma criou — o mesmo contrato
+    # de BotSupervisor.hold_for_focus/0.
+    {:ok, agent} =
+      Agent.start_link(fn -> %{frontmost: "wine", running: false, calls: [], generation: 0} end)
 
     record = fn tag -> Agent.update(agent, &%{&1 | calls: [tag | &1.calls]}) end
+
+    bump = fn ->
+      Agent.get_and_update(agent, fn s ->
+        {s.generation + 1, %{s | generation: s.generation + 1}}
+      end)
+    end
 
     opts = [
       name: nil,
@@ -25,11 +35,15 @@ defmodule Pokex.Bots.FocusTest do
       poll_ms: 20,
       frontmost_fun: fn -> {:ok, Agent.get(agent, & &1.frontmost)} end,
       running_fun: fn -> Agent.get(agent, & &1.running) end,
-      stop_all: fn -> record.(:stop) end,
-      start_all: fn -> record.(:start) end
+      hold_fun: fn ->
+        record.(:stop)
+        bump.()
+      end,
+      start_all: fn -> record.(:start) end,
+      generation_fun: fn -> Agent.get(agent, & &1.generation) end
     ]
 
-    %{agent: agent, opts: opts}
+    %{agent: agent, opts: opts, bump: bump}
   end
 
   defp set(agent, fields), do: Agent.update(agent, &Map.merge(&1, fields))
@@ -140,6 +154,50 @@ defmodule Pokex.Bots.FocusTest do
     set(agent, %{frontmost: "wine"})
     assert eventually(fn -> InputGate.state().focus_ok == true end)
     refute :start in calls(agent)
+  end
+
+  test "FRENTE 1: um Stop manual entre a perda e a volta do foco NUNCA religa",
+       %{agent: agent, opts: opts, bump: bump} do
+    # bot rodando, jogo focado
+    set(agent, %{frontmost: "wine", running: true})
+    start_focus!(opts)
+    assert eventually(fn -> InputGate.state().focus_ok == true end)
+
+    # 1. o jogo perde o foco → o Focus pausa e guarda a geração da pausa
+    set(agent, %{frontmost: "Google Chrome"})
+    assert eventually(fn -> InputGate.state().focus_ok == false end)
+    assert :stop in calls(agent)
+
+    # 2. o humano aperta PARAR no painel — uma ORDEM: a geração muda.
+    #    (Era o buraco: um booleano esquecia esta ordem, e só o pânico vetava.)
+    bump.()
+
+    # 3. o foco volta → a retomada é de uma geração VELHA e é descartada
+    set(agent, %{frontmost: "wine"})
+    assert eventually(fn -> InputGate.state().focus_ok == true end)
+    refute :start in calls(agent)
+
+    # 4. o descarte é permanente — outro vai-e-volta de foco não religa nada
+    set(agent, %{frontmost: "Finder", running: false})
+    assert eventually(fn -> InputGate.state().focus_ok == false end)
+    set(agent, %{frontmost: "wine"})
+    assert eventually(fn -> InputGate.state().focus_ok == true end)
+    refute :start in calls(agent)
+  end
+
+  test "sem ordem no meio, a retomada da MESMA geração continua religando",
+       %{agent: agent, opts: opts} do
+    # o espelho do teste acima: a geração não pode transformar toda pausa em
+    # descarte — perder e recuperar o foco sem nenhuma ordem no meio retoma.
+    set(agent, %{frontmost: "Finder", running: true})
+    start_focus!(opts)
+
+    assert eventually(fn -> InputGate.state().focus_ok == false end)
+    assert :stop in calls(agent)
+
+    set(agent, %{frontmost: "wine"})
+    assert eventually(fn -> InputGate.state().focus_ok == true end)
+    assert eventually(fn -> :start in calls(agent) end)
   end
 
   test "an unreadable frontmost holds the last verdict (no gate flapping)", %{

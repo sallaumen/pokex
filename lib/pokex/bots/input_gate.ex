@@ -12,8 +12,21 @@ defmodule Pokex.Bots.InputGate do
   Why this exists: with only the "re-front the game then fire the key" guard, a modal menu that
   stole focus (and could not be re-fronted) still received hundreds of stray keystrokes/clicks
   overnight. The gate flips the model to FAIL-SAFE — when we can't confirm it's safe to act, we
-  don't act. Defaults to allowed so early boot and the faked-Rig tests are never blocked; the
-  pollers set the flags definitively once running.
+  don't act.
+
+  FAIL-CLOSED (Frente 1 do plano de consolidação): flag ausente — tabela recém-criada num boot
+  ou num RESTART deste processo — significa BLOQUEADO, não liberado. "Não sei se é seguro" e
+  "é seguro" eram a mesma resposta, e um restart abria uma janela em que input passava até os
+  pollers notarem. Agora o gate nasce fechado e são os guardiões que o abrem ao confirmar o
+  mundo: o Guardian escreve `corner_ok` a cada 100ms e o Focus escreve `focus_ok` a cada tick
+  (~250ms) — em produção a janela fechada de um restart dura no máximo isso. Na suíte os
+  pollers ficam desligados de propósito, então o `test_helper` abre o gate uma vez, simulando
+  o regime permanente; testes que precisam dele fechado escrevem e restauram.
+
+  O latch do pânico é a exceção deliberada: ausente = SEM pânico. Ele registra uma ordem
+  humana, não uma condição viva — persisti-lo através de um restart exigiria disco, e a
+  mitigação real é a geração de sessão (`Pokex.Bots.Session`): o reinício também zera o
+  contador, e retomadas velhas nunca casam com a geração nova.
 
   Reads are lock-free straight off ETS (this is a hot path — every actuation checks it); the
   GenServer exists only to own the table across caller crashes.
@@ -32,7 +45,7 @@ defmodule Pokex.Bots.InputGate do
     {:ok, %{}}
   end
 
-  @doc "True only when BOTH guards allow actuation. Missing table (pre-boot) → true (fail-open)."
+  @doc "True only when BOTH guards allow actuation. Missing table or flag → false (fail-closed)."
   def allowed?, do: flag(:corner_ok) and flag(:focus_ok)
 
   @doc "The panic-corner guard: set false while the cursor is parked in the kill corner."
@@ -53,8 +66,11 @@ defmodule Pokex.Bots.InputGate do
   game to fight manually → Focus's pending resume RESTARTED everything over his panic, and he
   died to it. A panic now outranks every remembered intention.
   """
-  # Not via put/2: its change-detection reads flag/1, whose missing-key default is TRUE (right
-  # for the gate flags, wrong here) — the very first set_panic_latch(true) would be skipped.
+  # Not via put/2 by history: when the gate flags still defaulted OPEN, put/2's change
+  # detection (which reads flag/1) would have skipped the very first set_panic_latch(true).
+  # Today both default to false, but the latch keeps its own path — its semantics (missing =
+  # no panic) are deliberately different from the gate's (missing = blocked), and sharing
+  # put/2 would couple the two defaults again.
   def set_panic_latch(on?) when is_boolean(on?) do
     if panic_latched?() != on?, do: :ets.insert(@table, {:panic_latch, on?})
     :ok
@@ -85,12 +101,15 @@ defmodule Pokex.Bots.InputGate do
     :error, :badarg -> :ok
   end
 
+  # FAIL-CLOSED: sem tabela (restart em curso) ou sem a chave (ninguém confirmou
+  # ainda) a resposta é BLOQUEADO. Quem abre é o poller dono da flag, provando a
+  # condição de verdade — nunca um default otimista.
   defp flag(key) do
     case :ets.lookup(@table, key) do
       [{^key, ok?}] -> ok?
-      _ -> true
+      _ -> false
     end
   catch
-    :error, :badarg -> true
+    :error, :badarg -> false
   end
 end

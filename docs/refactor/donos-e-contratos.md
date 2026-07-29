@@ -11,8 +11,8 @@
 |---|---|---|
 | Execução | `Pokex.Rig.Mac` (via `Pokex.Rig.impl/0`) | Único lugar que fala com o SO. `gated/1` devolve `:ok` para chamada SUPRIMIDA — nunca trate `:ok` como prova de que a tecla chegou; a tela é a testemunha. |
 | Fila/prioridade | `Pokex.Bots.Body` | Toda atuação de worker passa por ele (`:critical` > `:high` > `:normal`). Exceção deliberada: o player do mini-game segura Space direto pelo Rig (latência). |
-| Veto | `Pokex.Bots.InputGate` | AND de `corner_ok` × `focus_ok`, consultado pelo Rig antes de CADA input. Hoje é **fail-open** quando a tabela não existe (janela de restart — caracterizada em teste; a Frente 1 inverte). |
-| Ordem humana | latch do pânico (`InputGate.set_panic_latch/1`) | Proíbe AUTO-retomada, não a atuação manual. Só o "Iniciar bot" limpa. Guardian (canto), Logout e metas de sessão o travam. |
+| Veto | `Pokex.Bots.InputGate` | AND de `corner_ok` × `focus_ok`, consultado pelo Rig antes de CADA input. **Fail-closed** (Frente 1): flag ausente = bloqueado; um restart fecha o gate até Guardian (100ms) e Focus (~250ms) republicarem. Na suíte, o `test_helper` abre o regime permanente. |
+| Ordem humana | latch do pânico (`InputGate.set_panic_latch/1`) | Proíbe AUTO-retomada, não a atuação manual. Só o "Iniciar bot" limpa. Guardian (canto), Logout e metas de sessão o travam. Um restart do gate o esquece (deliberado — persistir exigiria disco); a mitigação é a geração de sessão. |
 
 ## Ciclo de vida da frota
 
@@ -20,7 +20,8 @@
 |---|---|---|
 | Iniciar/parar tudo | `Pokex.Bots.BotSupervisor.start_all/stop_all` | Ordem importa: cavebot cai primeiro (ele re-arma o combate). |
 | Quais workers o modo liga | `Pokex.Modes` | Presets embutidos ("parado", "movimento", "caçada"); Settings continua o dono dos valores. |
-| Pausa/retomada por foco | `Pokex.Bots.Focus` | Guarda um booleano `resume?` — sem identidade de sessão (é O problema da Frente 1). |
+| Pausa/retomada por foco | `Pokex.Bots.Focus` | A pausa é um `:hold` com geração (`BotSupervisor.hold_for_focus/0`); a retomada só religa a geração da própria pausa — qualquer ordem no meio a invalida. |
+| Ordenação de intenção | `Pokex.Bots.Session` | Contador de ordens (start/stop/hold); todo Iniciar/Parar/pânico/logout/freio bumpa via funis do BotSupervisor. `last_order/0` guarda quem mandou o quê. |
 | Metas e estagnação | `Pokex.Bots.Guardian` | Sinal de vida = kill + minigame VENCIDO (fisgada só conta com o vigia desligado). Ações: alarme/parar/deslogar. |
 | Fim de sessão de verdade | `Pokex.Bots.Logout` | Ctrl+Q + Enter e CONFERE a tela, com testemunha (baseline legível antes). |
 | "Está rodando?" | `BotSupervisor.active?/1` | Pegadinha caracterizada: estados de parada do cavebot (`:blocked`/`:stuck`/`:fight_stalled`) contam como ATIVO. Header só acompanha pesca+combate. |

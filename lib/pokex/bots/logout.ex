@@ -60,7 +60,7 @@ defmodule Pokex.Bots.Logout do
       # a suíte; instâncias de teste optam por entrar.
       active?: Keyword.get(opts, :active, Application.get_env(:pokex, :logout_active, true)),
       perform_fun: Keyword.get(opts, :perform_fun, &Body.perform(&1, &2)),
-      stop_fun: Keyword.get(opts, :stop_fun, &BotSupervisor.stop_all/0),
+      stop_fun: Keyword.get(opts, :stop_fun, fn -> BotSupervisor.stop_all("deslogando") end),
       front_fun: Keyword.get(opts, :front_fun, &Focus.ensure_front/0),
       read_fun: Keyword.get(opts, :read_fun, &__MODULE__.read_hud/0),
       # Sobrescrevem o número de tentativas e o ritmo entre leituras. Existem

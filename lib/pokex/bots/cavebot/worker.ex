@@ -304,7 +304,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     Logger.warning("Cavebot: BLOQUEADO (#{inspect(reason)}) — parando a frota")
     Pokex.Bots.InputGate.set_panic_latch(true)
     Combat.Worker.halt(state.combat)
-    Pokex.Bots.BotSupervisor.stop_all()
+    Pokex.Bots.BotSupervisor.stop_all("caçada — " <> block_text(reason))
     stop_hunt(state, reason)
   end
 

@@ -125,6 +125,31 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "portão fechado SEGURA o tick — nada apertado, nada acreditado", %{worker: worker} do
+    # Com o portão fechado o Rig engoliria cada tecla com :ok e a Logic
+    # acreditaria no arremesso — contaria o ciclo e vigiaria uma isca fora
+    # d'água. O worker agora segura o tick inteiro e avisa UMA vez na borda.
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    on_exit(fn -> Pokex.Bots.InputGate.set_focus_ok(true) end)
+
+    Pokex.Bots.InputGate.set_focus_ok(false)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:fishing_log, :macro, "🚫 portão de entrada fechado" <> _}, 2_000
+
+    # nada tocou o Rig e a Logic não avançou: zero cliques, zero ciclos
+    assert Pokex.Rig.Fake.calls() == []
+    assert Worker.status(worker).counters.cycles == 0
+
+    # o portão reabre → o fluxo segue inteiro até a fisgada, como sempre
+    Pokex.Bots.InputGate.set_focus_ok(true)
+    assert_receive {:fishing_log, :macro, "portão reaberto" <> _}, 2_000
+    assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
+
+    assert :ok = Worker.halt(worker)
+  end
+
+  @tag :tmp_dir
   test "runs focus -> equip -> cast -> watch -> hook, submitting to the Body at :normal", %{
     worker: worker
   } do

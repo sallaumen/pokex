@@ -309,6 +309,8 @@ defmodule Pokex.Bots.Body do
   defp execute({:wait, ms}) when is_integer(ms) and ms > 0, do: Process.sleep(ms)
   defp execute({:wait, _ms}), do: :ok
   defp execute({:log, _}), do: :ok
+  # alarmes viajam na lista de ações como os logs: quem toca é o worker, não o Body
+  defp execute({:alarm, _}), do: :ok
 
   # Lock-free ETS read of the :mini_game blackboard fact — the input hot path never
   # blocks on the mini-game worker's mailbox (which is busy capturing). Checked before

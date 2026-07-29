@@ -6,6 +6,7 @@ defmodule Pokex.Bots.Combat.LogicTest do
   defp config(overrides) do
     Enum.into(overrides, %{
       tab_confirm_ms: 700,
+      tab_confirm_frames: 1,
       tab_max_attempts: 3,
       hunt_cooldown_ms: 1_500,
       skill_burst_every_ms: 300,
@@ -93,6 +94,57 @@ defmodule Pokex.Bots.Combat.LogicTest do
     # after the hold, they do
     {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 4_000), 4_000)
     assert logic.state == :tabbing
+    assert {:tab} in actions
+  end
+
+  # O re-Tab passou a exigir EVIDÊNCIA: frame(s) capturados depois do Tab, sem
+  # lock. Cada Tab extra cicla o alvo pro próximo inimigo — re-Tab no relógio,
+  # sem frame nenhum (captura lenta/travada), era o "fica dando tab sem focar
+  # no primeiro" com a lista cheia.
+  test "tabbing: janela vencida SEM frame pós-Tab NÃO re-Tab às cegas" do
+    {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
+    assert logic.state == :tabbing and logic.tab_attempts == 1
+
+    # a janela venceu (700ms), mas só chegaram wakes de timer — nenhum frame
+    {logic, actions} = Logic.step(logic, nil, 811)
+    assert logic.state == :tabbing
+    assert logic.tab_attempts == 1
+    refute {:tab} in actions
+
+    # continua sem frame: ainda nada de Tab cego
+    {logic, actions} = Logic.step(logic, nil, 1_900)
+    assert logic.tab_attempts == 1
+    refute {:tab} in actions
+
+    # 4× a janela sem evidência → recua pro hunt-hold dizendo o porquê,
+    # em vez de ciclar alvo ou esperar pra sempre uma captura morta
+    {logic, actions} = Logic.step(logic, nil, 2_900)
+    assert logic.state == :hunting
+    assert logic.hold_until == 2_900 + 1_500
+    assert Enum.any?(actions, &match?({:log, "sem frame pós-Tab" <> _}, &1))
+  end
+
+  test "tabbing: um frame VELHO (pré-Tab) não conta como evidência" do
+    {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
+
+    # frame capturado ANTES do Tab (captured_at 5 < tabbed_at 10) chega atrasado
+    {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 5), 811)
+    assert logic.tab_attempts == 1
+    refute {:tab} in actions
+  end
+
+  test "tabbing: com tab_confirm_frames 2, UM frame não autoriza — DOIS sim" do
+    {logic, _} =
+      Logic.step(hunting(0, tab_confirm_frames: 2), obs(enemies: [0], captured_at: 10), 10)
+
+    # um frame pós-Tab sem lock: evidência insuficiente, sem Tab
+    {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 750), 811)
+    assert logic.tab_attempts == 1
+    refute {:tab} in actions
+
+    # o segundo frame fecha a evidência → re-Tab normal
+    {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 900), 905)
+    assert logic.tab_attempts == 2
     assert {:tab} in actions
   end
 

@@ -1310,13 +1310,6 @@ defmodule PokexWeb.PanelLive do
   defp cavebot_label(:ocupado), do: "ocupado"
   defp cavebot_label(other), do: to_string(other)
 
-  # A BOLINHA HONESTA. `BotSupervisor.active?/1` responde "não é :idle/:off/
-  # :ocupado", e por essa régua os três estados em que a caçada PAROU
-  # (:blocked, :stuck, :fight_stalled) acendiam verde — exatamente o instante em
-  # que ele precisa ver que algo está errado pintado como saúde.
-  defp cavebot_active?(state) when state in [:blocked, :stuck, :fight_stalled], do: false
-  defp cavebot_active?(state), do: active?(state)
-
   defp cavebot_counters(%{counters: %{waypoints: waypoints, steps: steps}}),
     do: "#{waypoints} wp · #{steps} passos"
 
@@ -1910,7 +1903,7 @@ defmodule PokexWeb.PanelLive do
                 testid="cavebot-pill"
                 name="Caçada"
                 state={@cavebot.state}
-                active?={cavebot_active?(@cavebot.state)}
+                active?={active?(@cavebot.state)}
                 label={cavebot_label(@cavebot.state)}
                 counters={cavebot_counters(@cavebot)}
                 detail={cavebot_route_line(@cavebot)}

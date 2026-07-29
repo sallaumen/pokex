@@ -24,7 +24,7 @@
 | Ordenação de intenção | `Pokex.Bots.Session` | Contador de ordens (start/stop/hold); todo Iniciar/Parar/pânico/logout/freio bumpa via funis do BotSupervisor. `last_order/0` guarda quem mandou o quê. |
 | Metas e estagnação | `Pokex.Bots.Guardian` | Sinal de vida = kill + minigame VENCIDO (fisgada só conta com o vigia desligado). Ações: alarme/parar/deslogar. |
 | Fim de sessão de verdade | `Pokex.Bots.Logout` | Ctrl+Q + Enter e CONFERE a tela, com testemunha (baseline legível antes). |
-| "Está rodando?" | `BotSupervisor.active?/1` | Pegadinha caracterizada: estados de parada do cavebot (`:blocked`/`:stuck`/`:fight_stalled`) contam como ATIVO. Header só acompanha pesca+combate. |
+| "Está rodando?" | `BotSupervisor.active?/1` (+ `any_active?/1`) | A régua ÚNICA (Frente 1): parado-com-motivo (`:blocked`/`:stuck`/`:fight_stalled`), `:error`, `:manual` e `:ocupado` são PARADO. Header, painel e Focus consultam a mesma; o header acompanha pesca+combate+caçada. |
 
 ## Fatos (percepção)
 

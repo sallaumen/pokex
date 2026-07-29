@@ -87,13 +87,11 @@ defmodule PokexWeb.AppHeaderTest do
     assert render(view) =~ "Ativo"
   end
 
-  # CARACTERIZAÇÃO (Etapa 0 do plano de consolidação, evidência nº 3 do Sol).
-  # O header só acompanha pesca e combate ("fishing"/"combat"): numa caçada, o
-  # cavebot anda a rota com o combate DESLIGADO entre lutas — então o pill jura
-  # "Parado" com o bot trabalhando. Este teste crava a divergência ATUAL; a
-  # Frente 1 a resolve fazendo header e painel consumirem o MESMO snapshot
-  # global de sessão. Quando isso existir, este teste deve afirmar "Ativo".
-  test "CARACTERIZAÇÃO: a caçada anda e o header jura que está Parado", %{conn: conn} do
+  # A caracterização da Etapa 0 cravava a divergência (o header não assinava a
+  # caçada e jurava "Parado" com o cavebot andando) e prometia virar quando a
+  # Frente 1 unificasse o snapshot. Virou: o header acompanha a mesma frota que
+  # o painel, com a mesma régua — andando acende, parado-com-motivo NUNCA.
+  test "FRENTE 1: a caçada anda e o header diz Ativo; travada, diz Parado", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/pokedex")
     assert view |> element("#app-bot-state") |> render() =~ "Parado"
 
@@ -103,8 +101,25 @@ defmodule PokexWeb.AppHeaderTest do
       {:cavebot, %{state: :walking, wp_index: 2, wp_total: 9, counters: %{}}}
     )
 
-    # HOJE: o snapshot da caçada nem chega ao header — ele não assina o tópico
-    assert view |> element("#app-bot-state") |> render() =~ "Parado"
+    assert eventually_renders(view, "Ativo")
+
+    # a caçada TRAVOU (parada-com-motivo): verde aqui seria pintar de saúde o
+    # exato instante em que algo deu errado
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "cavebot",
+      {:cavebot, %{state: :blocked, wp_index: 2, wp_total: 9, counters: %{}}}
+    )
+
+    assert eventually_renders(view, "Parado")
+  end
+
+  defp eventually_renders(view, texto, tries \\ 50) do
+    cond do
+      view |> element("#app-bot-state") |> render() =~ texto -> true
+      tries == 0 -> false
+      true -> Process.sleep(10) && eventually_renders(view, texto, tries - 1)
+    end
   end
 
   @tag :tmp_dir

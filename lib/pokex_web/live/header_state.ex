@@ -21,7 +21,11 @@ defmodule PokexWeb.HeaderState do
   alias Pokex.Characters
 
   @focus_topic "focus"
-  @worker_topics ["fishing", "combat"]
+  # A frota que o pill representa: os três workers cujo estado significa "o bot
+  # está trabalhando". A caçada entrou na Frente 1 — o cavebot anda a rota com o
+  # combate DESLIGADO entre lutas, e sem ele o header jurava "Parado" com o bot
+  # caçando (caracterizado na Etapa 0; o teste virou junto com esta linha).
+  @worker_topics ["fishing", "combat", "cavebot"]
 
   def on_mount(:default, _params, _session, socket) do
     owns_workers? = socket.view != PokexWeb.PanelLive
@@ -57,7 +61,11 @@ defmodule PokexWeb.HeaderState do
   """
   def sync_workers(socket, status) do
     socket
-    |> assign(:header_states, %{fishing: status.fishing.state, combat: status.combat.state})
+    |> assign(:header_states, %{
+      fishing: status.fishing.state,
+      combat: status.combat.state,
+      cavebot: status.cavebot.state
+    })
     |> assign_bot_active()
   end
 
@@ -66,6 +74,7 @@ defmodule PokexWeb.HeaderState do
 
   defp info({:fishing, %{state: state}}, socket), do: worker_state(socket, :fishing, state)
   defp info({:combat, %{state: state}}, socket), do: worker_state(socket, :combat, state)
+  defp info({:cavebot, %{state: state}}, socket), do: worker_state(socket, :cavebot, state)
   defp info(_msg, socket), do: {:cont, socket}
 
   defp worker_state(socket, key, state) do
@@ -97,9 +106,14 @@ defmodule PokexWeb.HeaderState do
 
   # O Catcher fica de fora de propósito: em modo "movimento" ele reporta :manual sempre
   # — escolha de exibição, não sinal de ligado/parado. Mesma regra que o painel usa.
+  # A régua do que conta como RODANDO é uma só, BotSupervisor.active?/1 — os
+  # estados de parada da caçada (:blocked/:stuck/:fight_stalled) NÃO acendem.
   defp assign_bot_active(socket) do
-    %{fishing: fishing, combat: combat} = socket.assigns.header_states
-    assign(socket, :bot_active?, BotSupervisor.active?(fishing) or BotSupervisor.active?(combat))
+    assign(
+      socket,
+      :bot_active?,
+      BotSupervisor.any_active?(Map.values(socket.assigns.header_states))
+    )
   end
 
   # O poller de foco pode não ter publicado nada ainda no mount; pergunta direto

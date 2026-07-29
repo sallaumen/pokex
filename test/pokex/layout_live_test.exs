@@ -14,11 +14,6 @@ defmodule Pokex.LayoutLiveTest do
   """
   use ExUnit.Case, async: true
 
-  # Estes testes mastigam TODAS as fixtures de captura real com Vision.Glyphs —
-  # ~21s num Apple Silicon, bem além dos 60s default no runner de 2 núcleos do
-  # CI. A folga acomoda hardware lento sem esconder um travamento de verdade.
-  @moduletag timeout: 300_000
-
   alias Pokex.{Layout, ScreenFixtures}
   alias Pokex.Vision.Glyphs
 

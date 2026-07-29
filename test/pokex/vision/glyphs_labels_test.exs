@@ -1,11 +1,6 @@
 defmodule Pokex.Vision.GlyphsLabelsTest do
   use ExUnit.Case, async: true
 
-  # Estes testes mastigam TODAS as fixtures de captura real com Vision.Glyphs —
-  # ~21s num Apple Silicon, bem além dos 60s default no runner de 2 núcleos do
-  # CI. A folga acomoda hardware lento sem esconder um travamento de verdade.
-  @moduletag timeout: 300_000
-
   test "every labeled region fits inside its fixture" do
     for %{"fixture" => name, "region" => [x, y, w, h]} = label <- Pokex.ScreenFixtures.labels() do
       frame = Pokex.ScreenFixtures.frame!(name)

@@ -29,6 +29,9 @@ defmodule Pokex.Application do
       # balloon on macOS; one-at-a-time keeps each ~0.28s and the sample cadence steady.
       Pokex.Bots.Capture,
       Pokex.Perception,
+      # A geração da sessão (Frente 1): contador de ordens que invalida
+      # retomadas velhas. Antes do BotSupervisor porque toda ordem passa por ele.
+      Pokex.Bots.Session,
       Pokex.Bots.BotSupervisor,
       # The anti-shiny watchdog (always-on like Guardian; manages its own
       # arena-feed attachment from the shiny_guard_enabled setting).

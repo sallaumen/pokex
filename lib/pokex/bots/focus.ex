@@ -30,17 +30,23 @@ defmodule Pokex.Bots.Focus do
 
     state = %{
       frontmost_fun: Keyword.get(opts, :frontmost_fun, &default_frontmost/0),
-      stop_all: Keyword.get(opts, :stop_all, &BotSupervisor.stop_all/0),
+      # A pausa é um HOLD com identidade: para a frota e devolve a geração da
+      # ordem — que fica guardada em resume_generation.
+      hold_fun: Keyword.get(opts, :hold_fun, &BotSupervisor.hold_for_focus/0),
       start_all: Keyword.get(opts, :start_all, &BotSupervisor.start_all/0),
       running_fun: Keyword.get(opts, :running_fun, &default_running?/0),
+      generation_fun: Keyword.get(opts, :generation_fun, &Pokex.Bots.Session.generation/0),
       poll_ms: Keyword.get(opts, :poll_ms, nil),
       # tests inject their own frontmost reader, so they opt into polling explicitly rather than
       # via the env gate that keeps the app-wide instance quiet during unrelated tests.
       auto_start: Keyword.get(opts, :auto_start, nil),
       focused?: true,
-      # remembers whether the bot was running when focus was lost, so refocus resumes only what
-      # the user actually had going (never auto-starts a bot they never started).
-      resume?: false
+      # A geração da MINHA pausa, ou nil (nada pra retomar). Um booleano aqui já
+      # religou a frota por cima de um Stop manual dado entre a perda e a volta
+      # do foco — a ordem dele não tinha como invalidar a retomada pendente.
+      # Agora tem: qualquer ordem posterior muda a geração, e a retomada só vale
+      # se a geração atual ainda for a da pausa.
+      resume_generation: nil
     }
 
     case name do
@@ -76,7 +82,7 @@ defmodule Pokex.Bots.Focus do
         # Master switch off: never hold input for focus. Leave the gate open and forget any
         # pending resume so flipping the switch on later starts from a clean slate.
         InputGate.set_focus_ok(true)
-        %{state | focused?: true, resume?: false}
+        %{state | focused?: true, resume_generation: nil}
       end
 
     {:noreply, schedule(state, Settings.get(:focus_poll_ms))}
@@ -93,20 +99,34 @@ defmodule Pokex.Bots.Focus do
 
   defp apply_focus(%{focused?: true} = state, false) do
     # focus just LOST → shut the gate, halt the workers, remember to resume them.
+    # A lembrança carrega a GERAÇÃO da pausa: só uma frota que estava rodando
+    # merece retomada, e só se nenhuma ordem chegar no meio.
     InputGate.set_focus_ok(false)
     running? = safe_running?(state)
-    state.stop_all.()
+    generation = safe_hold(state)
     broadcast(false)
     Logger.info("focus lost — input suppressed and workers halted")
-    %{state | focused?: false, resume?: running?}
+    %{state | focused?: false, resume_generation: if(running?, do: generation)}
   end
 
   defp apply_focus(%{focused?: false} = state, true) do
-    # focus just REGAINED → open the gate, resume what was running — UNLESS a panic order
-    # stands. The panic latch outranks every remembered intention: resuming over a human's
-    # mouse-to-corner is exactly the incident that killed Lucas's Pokémon (2026-07-11). The
-    # pending resume is DROPPED, not deferred — after a panic only Iniciar bot restarts.
-    resume? = state.resume? and not InputGate.panic_latched?()
+    # focus just REGAINED → open the gate, resume what was running — se a retomada
+    # ainda VALE. Duas coisas a invalidam, e as duas vêm de incidente real:
+    #
+    #   * o latch do pânico (2026-07-11): retomar por cima do mouse-no-canto
+    #     matou o Pokémon do Lucas. O latch continua aqui como cinto E
+    #     suspensório, mesmo o pânico também mudando a geração;
+    #   * QUALQUER ordem entre a perda e a volta do foco (Frente 1): um Stop
+    #     manual do painel, um logout, um freio do cavebot — todos mudam a
+    #     geração, e a retomada só religa a geração da PRÓPRIA pausa. Antes,
+    #     um booleano esquecia a ordem do humano e religava por cima.
+    #
+    # A retomada inválida é DESCARTADA, nunca adiada.
+    resume? =
+      state.resume_generation != nil and
+        safe_generation(state) == state.resume_generation and
+        not InputGate.panic_latched?()
+
     InputGate.set_focus_ok(true)
     if resume?, do: safe_resume(state)
     broadcast(true)
@@ -115,7 +135,7 @@ defmodule Pokex.Bots.Focus do
       "focus regained — input allowed" <> if(resume?, do: " and workers resumed", else: "")
     )
 
-    %{state | focused?: true, resume?: false}
+    %{state | focused?: true, resume_generation: nil}
   end
 
   # steady state (no edge): keep the gate consistent with the verdict, nothing else.
@@ -134,6 +154,22 @@ defmodule Pokex.Bots.Focus do
     state.running_fun.()
   catch
     _kind, _reason -> false
+  end
+
+  # A pausa nunca pode falhar em PARAR por causa da geração — se o hold quebrar
+  # no meio, devolve nil e a retomada simplesmente não existe (o lado seguro).
+  defp safe_hold(state) do
+    state.hold_fun.()
+  catch
+    _kind, _reason -> nil
+  end
+
+  # Geração ilegível → retomada descartada (compara contra :unavailable, que
+  # nunca é igual a uma geração guardada). Falhar pro lado de NÃO religar.
+  defp safe_generation(state) do
+    state.generation_fun.()
+  catch
+    _kind, _reason -> :unavailable
   end
 
   defp safe_resume(state) do

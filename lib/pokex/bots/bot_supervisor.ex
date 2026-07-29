@@ -173,6 +173,12 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server()
         ) :: :ok | {:error, [String.t()]}
   def start_all(fishing, combat, catcher, mini_game, player_support, cavebot \\ Cavebot.Worker) do
+    # Toda ordem incrementa a GERAÇÃO — inclusive um Iniciar que vai falhar no
+    # preflight logo abaixo: a intenção foi expressa, e qualquer retomada
+    # pendente de antes dela (o Focus guardando "religar depois") fica velha e
+    # é descartada. Antes do preflight de propósito.
+    safe_order(:start, "iniciar (modo #{Pokex.Modes.current()})")
+
     # Iniciar bot is the ONE act that clears a standing panic order — the human explicitly
     # asked for the bot again. Cleared even if preflight fails below: the intent to resume
     # was expressed either way.
@@ -266,6 +272,40 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server()
         ) :: :ok
   def stop_all(fishing, combat, catcher, mini_game, player_support, cavebot \\ Cavebot.Worker) do
+    # Um Stop de frota é uma ORDEM: incrementa a geração, e com isso mata
+    # qualquer retomada pendente mais antiga (o Focus só religa a geração da
+    # própria pausa). É este bump que fecha o buraco do "Stop manual entre a
+    # perda e a volta do foco era esquecido". Todos os chamadores de produção
+    # afunilam aqui (painel, pânico do Guardian, logout, freio do cavebot).
+    safe_order(:stop, "parar")
+    halt_fleet(fishing, combat, catcher, mini_game, player_support, cavebot)
+  end
+
+  @doc """
+  A PAUSA do Focus: para a frota igual ao `stop_all/6`, mas registra a ordem
+  como `:hold` e devolve a geração DELA — é esse valor que o Focus guarda e
+  compara na volta do foco. Devolver a geração da própria ordem (em vez de o
+  Focus ler o contador num segundo passo) fecha a janela em que outra ordem se
+  intromete entre a pausa e a leitura e a retomada compararia contra a geração
+  errada — na direção errada.
+  """
+  @spec hold_for_focus() :: non_neg_integer()
+  def hold_for_focus do
+    generation = safe_order(:hold, "foco perdido")
+
+    halt_fleet(
+      Fishing.Worker,
+      Combat.Worker,
+      Catcher.Worker,
+      MiniGame.Worker,
+      PlayerSupport.Worker,
+      Cavebot.Worker
+    )
+
+    generation
+  end
+
+  defp halt_fleet(fishing, combat, catcher, mini_game, player_support, cavebot) do
     # The cavebot goes down FIRST: it drives Combat.run itself, so halting it
     # after Combat would leave a tick free to re-arm the fight in between.
     # The self() guard is for its {:block, _} brake, which calls the global
@@ -279,6 +319,16 @@ defmodule Pokex.Bots.BotSupervisor do
     # the hunt session ended with the workers
     Pokex.Perception.WorldState.forget(:session)
     :ok
+  end
+
+  # A geração nunca pode ser o motivo de um stop falhar: se o Session estiver
+  # fora do ar (boot parcial, teste isolado sem o filho), a ordem segue sem
+  # bump — o pior caso é uma retomada pendente sobreviver, que é exatamente o
+  # comportamento de antes desta fatia, nunca pior que ele.
+  defp safe_order(kind, reason) do
+    Pokex.Bots.Session.order(kind, reason)
+  catch
+    :exit, _reason -> 0
   end
 
   @doc """

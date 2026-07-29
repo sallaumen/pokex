@@ -373,6 +373,38 @@ defmodule Pokex.Bots.BotSupervisorTest do
     end
   end
 
+  # FRENTE 1: os funis de produção são ORDENS — todo Iniciar/Parar/pânico/
+  # logout/freio passa por stop_all/0 ou start_all/0, e cada um muda a geração.
+  # É o bump daqui que mata a retomada pendente do Focus quando qualquer ordem
+  # chega entre a perda e a volta do foco.
+  @tag :tmp_dir
+  test "FRENTE 1: stop_all/0 e start_all/0 mudam a geração — até um Iniciar que falha" do
+    antes = Pokex.Bots.Session.generation()
+
+    :ok = BotSupervisor.stop_all()
+    depois_do_stop = Pokex.Bots.Session.generation()
+    assert depois_do_stop > antes
+
+    # o RESULTADO do Iniciar não importa pra geração: sucesso ou preflight
+    # falhado, a intenção foi expressa e uma retomada pendente de antes dela
+    # não pode sobreviver. (No env de teste ele SOBE a frota de verdade contra
+    # o Rig fake — parar na sequência é obrigatório, ou o worker global fica
+    # tickando contra um sensor morto pelo resto da suíte.)
+    on_exit(fn -> BotSupervisor.stop_all() end)
+    _resultado = BotSupervisor.start_all()
+    assert Pokex.Bots.Session.generation() > depois_do_stop
+
+    :ok = BotSupervisor.stop_all()
+  end
+
+  @tag :tmp_dir
+  test "FRENTE 1: hold_for_focus devolve a geração da própria pausa" do
+    generation = BotSupervisor.hold_for_focus()
+
+    assert is_integer(generation)
+    assert generation == Pokex.Bots.Session.generation()
+  end
+
   defp wait_for(fun, tries \\ 100) do
     cond do
       fun.() ->

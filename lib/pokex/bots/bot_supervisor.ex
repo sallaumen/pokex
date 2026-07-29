@@ -64,7 +64,17 @@ defmodule Pokex.Bots.BotSupervisor do
     # (Lucas: a support gone wrong, e.g. a minimized window misread burning potions, must be
     # killable by mouse-to-corner like everything else; it re-arms on boot, Iniciar bot, or a
     # support toggle).
-    on_panic = fn -> stop_all(fishing, combat, catcher, mini_game, player_support, cavebot) end
+    on_panic = fn ->
+      order_and_halt(
+        "Guardian: pânico ou meta batida",
+        fishing,
+        combat,
+        catcher,
+        mini_game,
+        player_support,
+        cavebot
+      )
+    end
 
     children = [
       Supervisor.child_spec({Body, name: body}, id: body),
@@ -272,12 +282,15 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server()
         ) :: :ok
   def stop_all(fishing, combat, catcher, mini_game, player_support, cavebot \\ Cavebot.Worker) do
-    # Um Stop de frota é uma ORDEM: incrementa a geração, e com isso mata
-    # qualquer retomada pendente mais antiga (o Focus só religa a geração da
-    # própria pausa). É este bump que fecha o buraco do "Stop manual entre a
-    # perda e a volta do foco era esquecido". Todos os chamadores de produção
-    # afunilam aqui (painel, pânico do Guardian, logout, freio do cavebot).
-    safe_order(:stop, "parar")
+    order_and_halt("parar", fishing, combat, catcher, mini_game, player_support, cavebot)
+  end
+
+  # Um Stop de frota é uma ORDEM: incrementa a geração (matando qualquer
+  # retomada pendente mais antiga — o Focus só religa a geração da própria
+  # pausa) e REGISTRA o motivo, que o painel mostra como "parado por quê".
+  # Todos os chamadores de produção afunilam aqui.
+  defp order_and_halt(reason, fishing, combat, catcher, mini_game, player_support, cavebot) do
+    safe_order(:stop, reason)
     halt_fleet(fishing, combat, catcher, mini_game, player_support, cavebot)
   end
 
@@ -342,13 +355,21 @@ defmodule Pokex.Bots.BotSupervisor do
   def emergency_escape(reason) do
     Pokex.Bots.InputGate.set_panic_latch(true)
     flee = PlayerSupport.Worker.flee_to_escape()
-    stop_all()
+    stop_all("fuga de emergência: #{reason}")
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:escape, reason, flee})
     flee
   end
 
-  def stop_all do
-    stop_all(
+  def stop_all, do: stop_all("parar")
+
+  @doc """
+  Para a frota global dizendo POR QUÊ. O motivo vai pro `Session.last_order`
+  e é o que o painel responde quando o Lucas pergunta "quem parou e por quê" —
+  "parar" genérico é o fallback de quem não sabe dizer mais.
+  """
+  def stop_all(reason) when is_binary(reason) do
+    order_and_halt(
+      reason,
       Fishing.Worker,
       Combat.Worker,
       Catcher.Worker,

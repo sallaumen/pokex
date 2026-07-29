@@ -108,6 +108,7 @@ defmodule PokexWeb.PanelLive do
        stagnation_action: Settings.get(:stagnation_action),
        stop_after_action: Settings.get(:stop_after_action),
        logout: safe_logout_status(),
+       last_order: safe_last_order(),
        escape_direction: Settings.get(:escape_direction),
        escape_steps: Settings.get(:escape_steps),
        escape_walk_wait_ms: Settings.get(:escape_walk_wait_ms),
@@ -287,12 +288,16 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:fishing, snapshot}, socket),
     do:
       {:noreply,
-       socket |> alarm_on_error(:fishing, snapshot) |> assign(fishing: snapshot, panicked?: false)}
+       socket
+       |> alarm_on_error(:fishing, snapshot)
+       |> assign(fishing: snapshot, panicked?: false, last_order: safe_last_order())}
 
   def handle_info({:combat, snapshot}, socket),
     do:
       {:noreply,
-       socket |> alarm_on_error(:combat, snapshot) |> assign(combat: snapshot, panicked?: false)}
+       socket
+       |> alarm_on_error(:combat, snapshot)
+       |> assign(combat: snapshot, panicked?: false, last_order: safe_last_order())}
 
   def handle_info({:catcher, snapshot}, socket),
     do: {:noreply, socket |> alarm_on_error(:catcher, snapshot) |> assign(catcher: snapshot)}
@@ -373,7 +378,7 @@ defmodule PokexWeb.PanelLive do
   # O worker já emitia as três mensagens; o painel é que não escutava. A caçada
   # morria em ~6s "sem dizer nada" porque nada do que ela dizia chegava aqui.
   def handle_info({:cavebot, snapshot}, socket),
-    do: {:noreply, assign(socket, cavebot: snapshot)}
+    do: {:noreply, assign(socket, cavebot: snapshot, last_order: safe_last_order())}
 
   def handle_info({:cavebot_log, level, text}, socket),
     do: {:noreply, append_log(socket, %{level: level, source: @cavebot_source, text: text})}
@@ -541,12 +546,12 @@ defmodule PokexWeb.PanelLive do
   # The stale-calibration banner's one-click fix: full stop + fresh start, so the
   # workers reload whatever is on disk (quick fixes, an applied profile).
   def handle_event("restart_bots", _params, socket) do
-    BotSupervisor.stop_all()
+    BotSupervisor.stop_all("reinício pra recarregar a calibração")
     {:noreply, start_bots(socket)}
   end
 
   def handle_event("stop", _params, socket) do
-    BotSupervisor.stop_all()
+    BotSupervisor.stop_all("Parar (painel)")
     status = BotSupervisor.status()
 
     {:noreply,
@@ -554,6 +559,7 @@ defmodule PokexWeb.PanelLive do
      |> HeaderState.sync_workers(status)
      |> assign(
        calib_stale?: false,
+       last_order: safe_last_order(),
        fishing: status.fishing,
        combat: status.combat,
        catcher: status.catcher,
@@ -1053,6 +1059,41 @@ defmodule PokexWeb.PanelLive do
   # O Logout global fica inerte na suíte (:logout_active), então nem o mount nem
   # o botão podem depender de o processo responder — um call pra processo ausente
   # derrubaria a página inteira.
+  # A resposta de "quem parou, por quê, há quanto tempo" — o critério de aceite
+  # da Frente 1. O Session registra a ordem; aqui só se mostra. Session fora do
+  # ar (teste isolado, boot parcial) → sem linha, nunca uma página caída.
+  defp safe_last_order do
+    Pokex.Bots.Session.last_order()
+  catch
+    :exit, _reason -> nil
+  end
+
+  defp last_order_line(nil), do: nil
+
+  defp last_order_line(%{kind: :hold, at: at}),
+    do: "pausado por foco perdido #{ago(at)} — retoma sozinho ao voltar pro jogo"
+
+  defp last_order_line(%{kind: :stop, reason: reason, at: at}),
+    do: "parado #{ago(at)} — #{reason || "sem motivo registrado"}"
+
+  # :start com a frota PARADA = um Iniciar que falhou no preflight (a ordem foi
+  # dada, os workers não subiram) — dizer isso é melhor que fingir que não houve
+  defp last_order_line(%{kind: :start, at: at}),
+    do: "um Iniciar #{ago(at)} não vingou (preflight?) — veja o alarme acima"
+
+  defp last_order_line(_desconhecido), do: nil
+
+  defp ago(at) do
+    min = div(System.monotonic_time(:millisecond) - at, 60_000)
+
+    cond do
+      min < 1 -> "agora há pouco"
+      min == 1 -> "há 1min"
+      min < 120 -> "há #{min}min"
+      true -> "há #{div(min, 60)}h"
+    end
+  end
+
   defp safe_logout_status do
     Pokex.Bots.Logout.status()
   catch
@@ -2033,6 +2074,14 @@ defmodule PokexWeb.PanelLive do
               </button>
               <p id="start-plan" class="mt-1 text-center font-mono text-pk-meta text-pk-text-3">
                 liga {mode_worker_labels(@player_mode)}
+              </p>
+              <p
+                :if={last_order_line(@last_order)}
+                id="last-order"
+                class="mt-1 truncate text-center font-mono text-pk-meta text-pk-text-3"
+                title="A última ordem registrada na sessão — quem parou o bot e por quê."
+              >
+                ⏹ {last_order_line(@last_order)}
               </p>
             </div>
             <button

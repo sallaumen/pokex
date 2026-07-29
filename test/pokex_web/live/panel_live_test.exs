@@ -1459,6 +1459,62 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
+  describe "motivo da parada (Frente 1, fatia 4)" do
+    # O critério de aceite do plano de consolidação: com o bot parado, a tela
+    # responde "quem parou, por quê, há quanto tempo" — sem arqueologia de log.
+    test "um Stop com motivo aparece sob o botão Iniciar", %{conn: conn} do
+      Pokex.Bots.Session.order(:stop, "teste: o Guardian bateu a meta")
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert view |> element("#last-order") |> render() =~ "teste: o Guardian bateu a meta"
+      assert view |> element("#last-order") |> render() =~ "parado"
+    end
+
+    test "uma pausa por foco diz que retoma sozinha", %{conn: conn} do
+      Pokex.Bots.Session.order(:hold, "foco perdido")
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert view |> element("#last-order") |> render() =~ "retoma sozinho ao voltar"
+    end
+
+    test "o botão Parar do painel registra o próprio motivo", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      render_click(view, "stop")
+
+      assert %{kind: :stop, reason: "Parar (painel)"} = Pokex.Bots.Session.last_order()
+      assert view |> element("#last-order") |> render() =~ "Parar (painel)"
+    end
+
+    test "com a frota ATIVA a linha some — motivo de parada é coisa de parado", %{conn: conn} do
+      Pokex.Bots.Session.order(:stop, "teste: some quando roda")
+      {:ok, view, _html} = live(conn, ~p"/")
+      assert has_element?(view, "#last-order")
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        "fishing",
+        {:fishing, %{state: :pescando, counters: %{}, error: nil}}
+      )
+
+      # a linha mora no bloco do botão Iniciar, que só existe com o bot parado
+      refute eventually_has(view, "#last-order")
+    end
+
+    defp eventually_has(view, selector, tries \\ 30) do
+      cond do
+        has_element?(view, selector) and tries > 0 ->
+          Process.sleep(10)
+          eventually_has(view, selector, tries - 1)
+
+        true ->
+          has_element?(view, selector)
+      end
+    end
+  end
+
   describe "logout" do
     setup do
       on_exit(fn ->

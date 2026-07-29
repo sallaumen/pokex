@@ -21,7 +21,7 @@
 | Iniciar/parar tudo | `Pokex.Bots.BotSupervisor.start_all/stop_all` | Ordem importa: cavebot cai primeiro (ele re-arma o combate). |
 | Quais workers o modo liga | `Pokex.Modes` | Presets embutidos ("parado", "movimento", "caçada"); Settings continua o dono dos valores. |
 | Pausa/retomada por foco | `Pokex.Bots.Focus` | A pausa é um `:hold` com geração (`BotSupervisor.hold_for_focus/0`); a retomada só religa a geração da própria pausa — qualquer ordem no meio a invalida. |
-| Ordenação de intenção | `Pokex.Bots.Session` | Contador de ordens (start/stop/hold); todo Iniciar/Parar/pânico/logout/freio bumpa via funis do BotSupervisor. `last_order/0` guarda quem mandou o quê. |
+| Ordenação de intenção | `Pokex.Bots.Session` | Contador de ordens (start/stop/hold); todo Iniciar/Parar/pânico/logout/freio bumpa via funis do BotSupervisor — cada um com MOTIVO (`stop_all/1`). `last_order/0` guarda quem mandou o quê, e o painel mostra sob o botão Iniciar ("parado há Xmin — motivo"). |
 | Metas e estagnação | `Pokex.Bots.Guardian` | Sinal de vida = kill + minigame VENCIDO (fisgada só conta com o vigia desligado). Ações: alarme/parar/deslogar. |
 | Fim de sessão de verdade | `Pokex.Bots.Logout` | Ctrl+Q + Enter e CONFERE a tela, com testemunha (baseline legível antes). |
 | "Está rodando?" | `BotSupervisor.active?/1` (+ `any_active?/1`) | A régua ÚNICA (Frente 1): parado-com-motivo (`:blocked`/`:stuck`/`:fight_stalled`), `:error`, `:manual` e `:ocupado` são PARADO. Header, painel e Focus consultam a mesma; o header acompanha pesca+combate+caçada. |

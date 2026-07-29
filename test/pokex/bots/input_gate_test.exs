@@ -50,24 +50,42 @@ defmodule Pokex.Bots.InputGateTest do
     refute InputGate.panic_latched?()
   end
 
-  # CARACTERIZAÇÃO (Etapa 0 do plano de consolidação, alvo da Frente 1 item 7).
-  # Este teste crava o comportamento ATUAL, não o desejado: a tabela ETS morre
-  # com o processo, e sem tabela todo flag responde o default ABERTO — inclusive
-  # o latch do pânico, que volta a "sem pânico". É uma janela fail-open real
-  # entre o restart e a próxima batida dos pollers (Guardian a cada 100ms,
-  # Focus no tick seguinte). A Frente 1 quer inverter isso pra fail-closed;
-  # quando inverter, é ESTE teste que deve passar a afirmar o contrário.
-  test "CARACTERIZAÇÃO: restart do dono da tabela reabre o gate e esquece o pânico" do
-    InputGate.set_corner_ok(false)
-    InputGate.set_focus_ok(false)
+  # A caracterização da Etapa 0 cravava o comportamento antigo (fail-open) e
+  # prometia: "quando a Frente 1 inverter, é ESTE teste que deve passar a
+  # afirmar o contrário". Inverteu. Um restart agora BLOQUEIA input até os
+  # pollers republicarem — no app real, Guardian (100ms) e Focus (~250ms);
+  # aqui, as duas escritas explícitas fazem o papel deles.
+  test "FRENTE 1: restart do dono da tabela FECHA o gate até os pollers republicarem" do
+    InputGate.set_corner_ok(true)
+    InputGate.set_focus_ok(true)
     InputGate.set_panic_latch(true)
-    refute InputGate.allowed?()
+    assert InputGate.allowed?()
 
     :ok = Supervisor.terminate_child(Pokex.Supervisor, Pokex.Bots.InputGate)
     {:ok, _pid} = Supervisor.restart_child(Pokex.Supervisor, Pokex.Bots.InputGate)
 
-    # HOJE: tudo esquecido, input liberado — até a ordem humana de pânico.
-    assert InputGate.allowed?()
+    # FAIL-CLOSED: "não sei se é seguro" deixou de ser a mesma resposta que
+    # "é seguro". Nada atua até os donos das flags confirmarem o mundo.
+    refute InputGate.allowed?()
+
+    # Limitação DELIBERADA e documentada: o latch (ordem humana) é esquecido —
+    # persisti-lo exigiria disco. A mitigação real é a geração de sessão: o
+    # restart do Session também zera o contador e retomadas velhas não casam.
     refute InputGate.panic_latched?()
+
+    # os pollers republicam → o gate reabre
+    InputGate.set_corner_ok(true)
+    InputGate.set_focus_ok(true)
+    assert InputGate.allowed?()
+  end
+
+  test "FRENTE 1: flag que ninguém confirmou é BLOQUEADO, não liberado" do
+    :ok = Supervisor.terminate_child(Pokex.Supervisor, Pokex.Bots.InputGate)
+    {:ok, _pid} = Supervisor.restart_child(Pokex.Supervisor, Pokex.Bots.InputGate)
+
+    # só UM dos donos confirmou — o AND continua fechado
+    InputGate.set_corner_ok(true)
+    refute InputGate.allowed?()
+    assert InputGate.state() == %{corner_ok: true, focus_ok: false, panic_latch: false}
   end
 end

@@ -500,6 +500,15 @@ defmodule Pokex.Settings do
     tab_confirm_frames: 1,
     tab_max_attempts: 3,
     hunt_cooldown_ms: 1_500,
+    # Pokémon de CENÁRIO (inatacável) parado na lista: N caçadas completas
+    # seguidas — cada uma com tab_max_attempts Tabs COM evidência de frame e
+    # nenhum lock — promovem aqueles alvos a "cenário presumido": deixam de ser
+    # motivo pra Tab, como a própria posição. Um alvo A MAIS caça na hora; a
+    # lista encolher esquece; o presumido expira em scenery_ttl_ms e re-sonda
+    # (auto-corrige). 3 caçadas × 3 Tabs ≈ as ~10 tentativas do pedido do
+    # Lucas (2026-07-30). 0 = desligado.
+    scenery_hunts_needed: 3,
+    scenery_ttl_ms: 60_000,
     skill_burst_every_ms: 300,
     # After every kill/timeout rehunt (and on a fish hook), hunting keeps PROBING with blind
     # Tabs for this long even when the HP-bar detector reports no enemy — "idle while fished
@@ -707,6 +716,8 @@ defmodule Pokex.Settings do
     logout_attempts: 1..99,
     tab_confirm_frames: 1..99,
     tab_max_attempts: 1..99,
+    scenery_hunts_needed: 0..99,
+    scenery_ttl_ms: 1_000..3_600_000,
     target_lost_streak: 1..99,
     dry_casts_alarm: 0..999,
     corpse_sprite_box_px: 8..512,

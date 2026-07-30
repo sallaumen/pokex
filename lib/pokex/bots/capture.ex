@@ -179,8 +179,22 @@ defmodule Pokex.Bots.Capture do
 
   # The capture runs INSIDE handle_call, so the GenServer processes one at a time — that IS the
   # serialization. A slow capture only delays the next queued capture, never the Body/panic path.
+  # Frente 3, Etapa 1 (medir ANTES de mexer no escalonamento): a espera que o
+  # CALLER sentiu na fila — requested_at já viajava em cada chamada, mas só o
+  # tempo de backend era medido, e foi exatamente a espera invisível que afogou
+  # o combate ao vivo (logs 2026-07-29: pesca tickando a 2-6s, "sem frame
+  # pós-Tab" em todo ciclo). O tamanho da fila no instante do atendimento vai
+  # junto: espera alta + fila funda = demanda demais; espera alta + fila rasa =
+  # backend lento. O baseline sai no /diagnostics e no export.
+  defp note_wait(filename, requested_at) do
+    Perf.record("capture.espera:#{filename}", now() - requested_at)
+    {:message_queue_len, depth} = Process.info(self(), :message_queue_len)
+    Perf.record("capture.fila:#{filename}", depth)
+  end
+
   @impl true
   def handle_call({:grab, region, filename, requested_at}, _from, state) do
+    note_wait(filename, requested_at)
     record_queue(:grab, filename, requested_at)
     key = {:path, region, filename}
 
@@ -211,6 +225,7 @@ defmodule Pokex.Bots.Capture do
   end
 
   def handle_call({:frame, region, filename, requested_at}, _from, state) do
+    note_wait(filename, requested_at)
     record_queue(:frame, filename, requested_at)
     key = {:frame, region}
 
@@ -231,6 +246,7 @@ defmodule Pokex.Bots.Capture do
   end
 
   def handle_call({:frame_with_path, region, filename, requested_at}, _from, state) do
+    note_wait(filename, requested_at)
     record_queue(:frame_with_path, filename, requested_at)
     key = {:frame_path, region}
 
@@ -251,6 +267,7 @@ defmodule Pokex.Bots.Capture do
   end
 
   def handle_call({:frame_uncached, region, filename, requested_at}, _from, state) do
+    note_wait(filename, requested_at)
     record_queue(:frame_uncached, filename, requested_at)
     {reply, state} = frame_from_backend(state, region, filename)
     {:reply, reply, prune_cache(state)}

@@ -1939,7 +1939,10 @@ defmodule PokexWeb.PanelLive do
     com_alvo = get_in(catcher, [:counters, :com_alvo]) || 0
     cegas = get_in(catcher, [:counters, :cegas]) || 0
 
+    tardias = get_in(catcher, [:counters, :tardias]) || 0
+
     base = "#{com_alvo}/#{varreduras} varredura"
+    base = if tardias > 0, do: base <> " · #{tardias} tardia", else: base
     if cegas > 0, do: base <> " · #{cegas} cega", else: base
   end
 

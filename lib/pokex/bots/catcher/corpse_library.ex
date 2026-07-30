@@ -16,15 +16,26 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   sprite domina o recorte e sobrevive ao fundo. O limiar é ajuste
   (`corpse_match_min_similarity`).
 
+  Cada corpo aceita até `@max_samples` AMOSTRAS (Lucas, 2026-07-30): o mesmo
+  Seadra fotografado em chões diferentes — o chão é o ruído do histograma, e
+  casar contra a MELHOR amostra é o que devolve a precisão que um recorte só
+  não tem. Ensinar o mesmo nome de novo adiciona amostra (a mais velha cai ao
+  passar do teto); as miniaturas na calibração mostram quais chões já foram
+  cobertos.
+
   Sem processo: o arquivo `~/.pokex/corpses.json` é a verdade, e um cache em
   `:persistent_term` chaveado pelo mtime evita reler e re-hidratar a cada
-  candidato. Recortes ficam como rgba cru em base64 — nada de encoder de PNG.
+  candidato. Recortes ficam como rgba cru em base64 — miniatura vira BMP em
+  data-URL (24bpp, sem compressão), então nada de encoder de PNG.
   """
 
   alias Pokex.Home
   alias Pokex.Vision.Frame
 
   @cache_key {__MODULE__, :cache}
+  @max_samples 3
+
+  def max_samples, do: @max_samples
 
   def file, do: Path.join(Home.dir(), "corpses.json")
 
@@ -42,24 +53,76 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     if name == "" do
       {:error, :nome_vazio}
     else
-      entry = %{
-        "name" => name,
-        "slug" => slug(name),
+      sample = %{
         "w" => crop.width,
         "h" => crop.height,
         "rgba" => Base.encode64(crop.rgba),
         "added_at" => DateTime.to_iso8601(DateTime.utc_now())
       }
 
-      entries = [entry | Enum.reject(raw_entries(), &(&1["slug"] == entry["slug"]))]
-      persist(entries)
-      :ok
+      slug = slug(name)
+      {existing, others} = Enum.split_with(raw_entries(), &(&1["slug"] == slug))
+
+      samples =
+        case existing do
+          [entry | _] -> Enum.take([sample | entry["samples"]], @max_samples)
+          [] -> [sample]
+        end
+
+      persist([%{"name" => name, "slug" => slug, "samples" => samples} | others])
+      {:ok, length(samples)}
     end
   end
 
   def delete(slug) do
     persist(Enum.reject(raw_entries(), &(&1["slug"] == slug)))
     :ok
+  end
+
+  @doc "Apaga UMA amostra (uma foto ruim); a última amostra derruba o corpo inteiro."
+  def delete_sample(slug, index) do
+    entries =
+      raw_entries()
+      |> Enum.map(fn
+        %{"slug" => ^slug} = entry ->
+          %{entry | "samples" => List.delete_at(entry["samples"], index)}
+
+        entry ->
+          entry
+      end)
+      |> Enum.reject(&(&1["samples"] == []))
+
+    persist(entries)
+    :ok
+  end
+
+  @doc """
+  A miniatura de uma amostra como data-URL BMP (24bpp sem compressão, linhas de
+  baixo pra cima, cada linha alinhada em 4 bytes) — o navegador renderiza sem
+  este projeto carregar um encoder de PNG.
+  """
+  def thumb(%{"w" => w, "h" => h, "rgba" => rgba_b64}) do
+    rgba = Base.decode64!(rgba_b64)
+    row_size = div(w * 3 + 3, 4) * 4
+    data_size = row_size * h
+
+    rows =
+      for y <- (h - 1)..0//-1, into: <<>> do
+        row =
+          for x <- 0..(w - 1), into: <<>> do
+            <<r, g, b, _a>> = binary_part(rgba, (y * w + x) * 4, 4)
+            <<b, g, r>>
+          end
+
+        row <> :binary.copy(<<0>>, row_size - w * 3)
+      end
+
+    bmp =
+      <<"BM", 14 + 40 + data_size::little-32, 0::32, 54::little-32, 40::little-32, w::little-32,
+        h::little-32, 1::little-16, 24::little-16, 0::little-32, data_size::little-32,
+        2835::little-32, 2835::little-32, 0::little-32, 0::little-32>> <> rows
+
+    "data:image/bmp;base64," <> Base.encode64(bmp)
   end
 
   @doc """
@@ -71,7 +134,9 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     sig = signature(crop.rgba)
 
     library().signatures
-    |> Enum.map(fn {name, ref_sig} -> {name, intersection(sig, ref_sig)} end)
+    |> Enum.map(fn {name, ref_sigs} ->
+      {name, ref_sigs |> Enum.map(&intersection(sig, &1)) |> Enum.max(fn -> 0.0 end)}
+    end)
     |> Enum.max_by(fn {_name, score} -> score end, fn -> nil end)
     |> case do
       {name, score} when score >= min_similarity -> {:ok, %{name: name, score: score}}
@@ -109,21 +174,24 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   # -- acervo ------------------------------------------------------------------
 
   defp library do
-    mtime = file_mtime()
+    # mtime posix tem granularidade de 1s — duas escritas no MESMO segundo
+    # (testes em sequência, edição manual rápida) colidiriam; o tamanho junto
+    # desempata na prática.
+    stamp = file_stamp()
 
     case :persistent_term.get(@cache_key, nil) do
-      %{mtime: ^mtime} = cache ->
+      %{stamp: ^stamp} = cache ->
         cache
 
       _stale_ou_nada ->
         entries = raw_entries()
 
         cache = %{
-          mtime: mtime,
+          stamp: stamp,
           entries: entries,
           signatures:
             Enum.map(entries, fn e ->
-              {e["name"], signature(Base.decode64!(e["rgba"]))}
+              {e["name"], Enum.map(e["samples"], &signature(Base.decode64!(&1["rgba"])))}
             end)
         }
 
@@ -135,10 +203,19 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   defp raw_entries do
     with {:ok, body} <- File.read(file()),
          {:ok, entries} when is_list(entries) <- Jason.decode(body) do
-      entries
+      Enum.map(entries, &migrate/1)
     else
       _sem_acervo -> []
     end
+  end
+
+  # O formato do #101 tinha UMA amostra achatada no topo do registro. Lê os
+  # dois; grava sempre o novo.
+  defp migrate(%{"samples" => _} = entry), do: entry
+
+  defp migrate(%{"rgba" => _} = entry) do
+    sample = Map.take(entry, ["w", "h", "rgba", "added_at"])
+    entry |> Map.drop(["w", "h", "rgba", "added_at"]) |> Map.put("samples", [sample])
   end
 
   defp persist(entries) do
@@ -148,9 +225,9 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     :ok
   end
 
-  defp file_mtime do
+  defp file_stamp do
     case File.stat(file(), time: :posix) do
-      {:ok, %{mtime: mtime}} -> mtime
+      {:ok, %{mtime: mtime, size: size}} -> {mtime, size}
       _sem_arquivo -> nil
     end
   end

@@ -69,13 +69,37 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
           [] -> [sample]
         end
 
-      persist([%{"name" => name, "slug" => slug, "samples" => samples} | others])
+      # re-ensinar não pode religar um corpo que o Lucas desligou de propósito
+      ligado? = Enum.all?(existing, &enabled?/1)
+
+      persist([
+        %{"name" => name, "slug" => slug, "samples" => samples, "enabled" => ligado?} | others
+      ])
+
       {:ok, length(samples)}
     end
   end
 
   def delete(slug) do
     persist(Enum.reject(raw_entries(), &(&1["slug"] == slug)))
+    :ok
+  end
+
+  @doc """
+  Liga/desliga um corpo na mira SEM apagá-lo.
+
+  Pedido do Lucas (2026-07-30): "poder colocar um botãozinho, se tá ligado ou
+  desligado". Um corpo que dá falso-positivo sai da busca com um clique e volta
+  com outro — apagar as amostras e refotografar era o único jeito antes.
+  """
+  def set_enabled(slug, ligado?) when is_boolean(ligado?) do
+    entries =
+      Enum.map(raw_entries(), fn
+        %{"slug" => ^slug} = entry -> Map.put(entry, "enabled", ligado?)
+        outro -> outro
+      end)
+
+    persist(entries)
     :ok
   end
 
@@ -238,8 +262,14 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
         cache = %{
           stamp: stamp,
           entries: entries,
+          # Só os corpos LIGADOS entram na mira. `entries` continua inteiro pra
+          # UI mostrar os desligados — desligar é um filtro na busca, não um
+          # apagar. É o ponto ÚNICO por onde o casamento enxerga o acervo,
+          # então uma linha aqui basta.
           signatures:
-            Enum.map(entries, fn e ->
+            entries
+            |> Enum.filter(&enabled?/1)
+            |> Enum.map(fn e ->
               {e["name"], Enum.map(e["samples"], &signature(Base.decode64!(&1["rgba"])))}
             end)
         }
@@ -260,12 +290,20 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
 
   # O formato do #101 tinha UMA amostra achatada no topo do registro. Lê os
   # dois; grava sempre o novo.
-  defp migrate(%{"samples" => _} = entry), do: entry
+  defp migrate(%{"samples" => _} = entry), do: Map.put_new(entry, "enabled", true)
 
   defp migrate(%{"rgba" => _} = entry) do
     sample = Map.take(entry, ["w", "h", "rgba", "added_at"])
-    entry |> Map.drop(["w", "h", "rgba", "added_at"]) |> Map.put("samples", [sample])
+
+    entry
+    |> Map.drop(["w", "h", "rgba", "added_at"])
+    |> Map.put("samples", [sample])
+    |> Map.put_new("enabled", true)
   end
+
+  @doc "Um corpo está participando da mira? (acervo antigo, sem o campo, participa)"
+  def enabled?(%{"enabled" => false}), do: false
+  def enabled?(_entry), do: true
 
   defp persist(entries) do
     File.mkdir_p!(Path.dirname(file()))

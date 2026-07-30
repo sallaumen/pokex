@@ -539,6 +539,55 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       assert render(view) =~ "precisa da arena calibrada"
     end
+
+    @tag :tmp_dir
+    test "R4: cada corpo tem switch de mira e contador da sessão", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, 1} =
+        Pokex.Bots.Catcher.CorpseLibrary.add("Kingler", %Pokex.Vision.Frame{
+          width: 4,
+          height: 4,
+          rgba: :binary.copy(<<180, 120, 200, 255>>, 16)
+        })
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      # nasce na mira
+      assert has_element?(view, "#corpse-toggle-kingler", "na mira")
+
+      # um clique tira, outro devolve — sem apagar amostra nenhuma
+      view |> element("#corpse-toggle-kingler") |> render_click()
+      assert has_element?(view, "#corpse-toggle-kingler", "fora")
+      assert has_element?(view, "#corpse-list", "Kingler")
+
+      view |> element("#corpse-toggle-kingler") |> render_click()
+      assert has_element?(view, "#corpse-toggle-kingler", "na mira")
+
+      # o contador aparece quando o Catcher publica a contagem da sessão
+      refute render(view) =~ "nesta sessão"
+      send(view.pid, {:catcher_contagem, %{"Kingler" => 3}})
+      assert render(view) =~ "3× nesta sessão"
+    end
+
+    @tag :tmp_dir
+    test "o resto do tráfego do catcher não derruba a página", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      # a página assina o tópico "catcher" só pela contagem; tudo mais que
+      # trafega ali (snapshots, logs, alarmes) tem que morrer sem crash — a
+      # classe do PR #111
+      send(view.pid, {:catcher, %{state: :armed, counters: %{}}})
+      send(view.pid, {:catcher_log, :macro, "captura: bola em 1,2"})
+      send(view.pid, {:rule_alarm, :captura, "sirene"})
+
+      send(view.pid, {:catcher_contagem, %{"Kingler" => 1}})
+      assert render(view) =~ "Calibração"
+    end
   end
 
   describe "posição & minimapa (5 cliques, a mão manda)" do

@@ -86,6 +86,10 @@ defmodule Pokex.Bots.Catcher.Worker do
        loots: 0,
        # o portão fechado já foi anunciado nesta rodada? (log por BORDA)
        segurada?: false,
+       # R4: quantos de cada corpo foram ENCONTRADOS nesta sessão, e o conjunto
+       # visto na varredura anterior (dedup consecutivo)
+       contagem: %{},
+       vistos: MapSet.new(),
        # o placar da sessão (zerado em cada Iniciar): quantas varreduras
        # aconteceram, quantas acharam alvo, e quantas cegaram
        varreduras: 0,
@@ -109,6 +113,8 @@ defmodule Pokex.Bots.Catcher.Worker do
         varreduras: 0,
         com_alvo: 0,
         cegas: 0,
+        contagem: %{},
+        vistos: MapSet.new(),
         combat_engaged?: seed_combat_engaged()
     }
 
@@ -264,15 +270,44 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp contar(state, %{scanning?: true} = obs) do
     achou? = Map.get(obs, :corpses, []) != []
 
-    %{
-      state
-      | varreduras: state.varreduras + 1,
-        com_alvo: state.com_alvo + if(achou?, do: 1, else: 0)
-    }
+    state
+    |> Map.merge(%{
+      varreduras: state.varreduras + 1,
+      com_alvo: state.com_alvo + if(achou?, do: 1, else: 0)
+    })
+    |> contar_por_corpo(obs)
   end
 
   defp contar(state, %{scanning?: false}), do: %{state | cegas: state.cegas + 1}
   defp contar(state, _sem_varredura), do: state
+
+  # "Quantos Kingler eu encontrei nesta sessão?" — o pedido R4 do Lucas.
+  #
+  # Dedup CONSECUTIVO (a mesma ideia do Journal): a confirmação de uma bola
+  # re-escaneia os mesmos tiles, e sem isto um corpo parado ali contaria de novo
+  # a cada varredura. Só o que ENTROU desde a varredura anterior soma. Não sai
+  # de `counters.captures` de propósito: aquele número mede "o ponto parou de
+  # casar", não captura — mentiria pelo mesmo motivo que os logs mentiam.
+  defp contar_por_corpo(state, obs) do
+    vistos =
+      obs
+      |> Map.get(:known, %{})
+      |> MapSet.new(fn {ponto, %{name: nome}} -> {nome, ponto} end)
+
+    novos = MapSet.difference(vistos, state.vistos)
+
+    contagem =
+      Enum.reduce(novos, state.contagem, fn {nome, _ponto}, acc ->
+        Map.update(acc, nome, 1, &(&1 + 1))
+      end)
+
+    if contagem != state.contagem, do: broadcast_contagem(contagem)
+
+    %{state | vistos: vistos, contagem: contagem}
+  end
+
+  defp broadcast_contagem(contagem),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_contagem, contagem})
 
   # A fight is on: everything reaching here is contaminated by the live enemy sprite
   # (tile-locked, stands still — indistinguishable from a corpse). No admissions, no throws,

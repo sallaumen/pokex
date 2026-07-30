@@ -138,4 +138,59 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
     {:ok, 1} = CorpseLibrary.add("Zubat", solid(60, 60, 220))
     assert length(CorpseLibrary.list()) == 2
   end
+
+  describe "liga/desliga por corpo (R4)" do
+    @tag :tmp_dir
+    test "desligado sai da MIRA mas continua no acervo" do
+      {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
+      {:ok, 1} = CorpseLibrary.add("Zubat", solid(60, 60, 220))
+
+      assert {:ok, %{name: "Rattata"}} = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+
+      :ok = CorpseLibrary.set_enabled("rattata", false)
+
+      # some da busca...
+      assert :nomatch = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+      # ...mas continua na lista, pra UI mostrar e o Lucas religar
+      assert length(CorpseLibrary.list()) == 2
+
+      assert Enum.any?(
+               CorpseLibrary.list(),
+               &(&1["slug"] == "rattata" and not CorpseLibrary.enabled?(&1))
+             )
+
+      # o vizinho segue mirando normalmente
+      assert {:ok, %{name: "Zubat"}} = CorpseLibrary.match(solid(60, 60, 220), 0.7)
+
+      # e religar devolve
+      :ok = CorpseLibrary.set_enabled("rattata", true)
+      assert {:ok, %{name: "Rattata"}} = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+    end
+
+    @tag :tmp_dir
+    test "acervo ANTIGO (sem o campo) participa da mira" do
+      {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
+
+      # simula um corpses.json gravado antes de o campo existir
+      antigo =
+        CorpseLibrary.file()
+        |> File.read!()
+        |> Jason.decode!()
+        |> Enum.map(&Map.delete(&1, "enabled"))
+
+      File.write!(CorpseLibrary.file(), Jason.encode!(antigo))
+
+      assert {:ok, %{name: "Rattata"}} = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+    end
+
+    @tag :tmp_dir
+    test "re-ensinar NÃO religa um corpo desligado de propósito" do
+      {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
+      :ok = CorpseLibrary.set_enabled("rattata", false)
+
+      {:ok, 2} = CorpseLibrary.add("Rattata", solid(181, 121, 201))
+
+      assert :nomatch = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+    end
+  end
 end

@@ -176,24 +176,31 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   def handle_info(:tick, state) do
     now = now()
-    {world, state} = observe(state, now)
-    before = broadcast_key(state, now)
-    wp_before = state.logic.wp_index
 
-    {logic, action} = Logic.step(state.logic, world, now)
+    if not Pokex.Bots.InputGate.allowed?() do
+      # Portão fechado = nenhum passo sai (o Body recusa), mas os relógios de
+      # paciência da Logic continuavam correndo — 3s sem "progresso" viravam
+      # :stuck e a caçada morria ANTES de o Lucas alcançar o jogo depois de
+      # clicar Iniciar no navegador (a regressão real do fail-closed,
+      # 2026-07-29). Congela os relógios: pina cada carimbo de `since` em
+      # `now`, registra o motivo visível e espera o portão reabrir.
+      frozen = %{
+        state.logic
+        | since: Map.new(state.logic.since, fn {k, _at} -> {k, now} end)
+      }
 
-    state =
-      %{state | logic: logic}
-      |> translate(action)
-      |> note_arrival(wp_before, now)
-      |> log_hold_edge(now)
+      state = %{
+        state
+        | logic: frozen,
+          last_step: %{dx: 0, dy: 0, result: {:error, :input_gate_closed}, at: now}
+      }
 
-    if broadcast_key(state, now) != before, do: broadcast_status(state)
-    {:noreply, schedule_tick(state)}
+      {:noreply, schedule_tick(state)}
+    else
+      run_cavebot_tick(state, now)
+    end
   end
 
-  # O snapshot do combate, guardado do jeito do Combos.Runner: a Logic recebe
-  # o último estado ouvido como world.combat_state.
   def handle_info({:combat, %{state: combat_state}}, state),
     do: {:noreply, %{state | combat_state: combat_state}}
 
@@ -225,6 +232,25 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # cegueira o mundo que a Logic recebe tem `pos: nil` (ela não pode andar num
   # palpite), mas a tela continua mostrando a última coordenada conhecida COM A
   # IDADE dela — "estava em 100,100 há 4s" é diagnóstico, "sem posição" não é.
+  defp run_cavebot_tick(state, now) do
+    {world, state} = observe(state, now)
+    before = broadcast_key(state, now)
+    wp_before = state.logic.wp_index
+
+    {logic, action} = Logic.step(state.logic, world, now)
+
+    state =
+      %{state | logic: logic}
+      |> translate(action)
+      |> note_arrival(wp_before, now)
+      |> log_hold_edge(now)
+
+    if broadcast_key(state, now) != before, do: broadcast_status(state)
+    {:noreply, schedule_tick(state)}
+  end
+
+  # O snapshot do combate, guardado do jeito do Combos.Runner: a Logic recebe
+  # o último estado ouvido como world.combat_state.
   defp observe(state, now) do
     pos = position(now)
     world = %{pos: pos, enemies: enemy_count(now), combat_state: state.combat_state}

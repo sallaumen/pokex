@@ -436,4 +436,77 @@ defmodule Pokex.Bots.GuardianTest do
       assert_receive :panicked, 1_000
     end
   end
+
+  describe "canto de comando (ligar/desligar de dentro do jogo)" do
+    setup do
+      on_exit(fn ->
+        Pokex.Settings.put(:command_corner, true)
+        Pokex.Settings.put(:command_corner_dwell_ms, 600)
+      end)
+
+      :ok
+    end
+
+    defp guardian_no_canto!(on_panic, body, opts) do
+      {:ok, guardian} =
+        Guardian.start_link(
+          Keyword.merge(
+            [name: nil, body: body, on_panic: on_panic, poll_ms: 5],
+            opts
+          )
+        )
+
+      guardian
+    end
+
+    test "segurar o mouse no canto dispara UMA vez; sair e voltar rearma", %{on_panic: on_panic} do
+      dono = self()
+      Pokex.Settings.put(:command_corner, true)
+      Pokex.Settings.put(:command_corner_dwell_ms, 30)
+      {:ok, body} = FakeBody.start_link({:ok, {3435, 5}})
+
+      guardian_no_canto!(on_panic, body,
+        screen_w_fun: fn -> 3440 end,
+        command_toggle: fn -> send(dono, :toggled) end
+      )
+
+      # a demora de braço passa → dispara; parado no canto NÃO repete
+      assert_receive :toggled, 1_000
+      refute_receive :toggled, 200
+
+      # sai do canto (rearma) e volta: segundo comando
+      FakeBody.set_reply(body, {:ok, {500, 500}})
+      Process.sleep(50)
+      FakeBody.set_reply(body, {:ok, {3435, 5}})
+      assert_receive :toggled, 1_000
+    end
+
+    test "só passar o mouse pelo canto (menos que a demora) NÃO dispara", %{on_panic: on_panic} do
+      dono = self()
+      Pokex.Settings.put(:command_corner, true)
+      Pokex.Settings.put(:command_corner_dwell_ms, 5_000)
+      {:ok, body} = FakeBody.start_link({:ok, {3435, 5}})
+
+      guardian_no_canto!(on_panic, body,
+        screen_w_fun: fn -> 3440 end,
+        command_toggle: fn -> send(dono, :toggled) end
+      )
+
+      refute_receive :toggled, 300
+    end
+
+    test "sem calibração (largura desconhecida) o canto não existe", %{on_panic: on_panic} do
+      dono = self()
+      Pokex.Settings.put(:command_corner, true)
+      Pokex.Settings.put(:command_corner_dwell_ms, 10)
+      {:ok, body} = FakeBody.start_link({:ok, {3435, 5}})
+
+      guardian_no_canto!(on_panic, body,
+        screen_w_fun: fn -> nil end,
+        command_toggle: fn -> send(dono, :toggled) end
+      )
+
+      refute_receive :toggled, 300
+    end
+  end
 end

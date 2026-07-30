@@ -324,6 +324,41 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     refute_receive {:combat_cmd, _cmd}, 100
   end
 
+  # A regressão do fail-closed (2026-07-29): clicar Iniciar no NAVEGADOR tira o
+  # foco do jogo → portão fechado → nenhum passo sai, mas os relógios de
+  # paciência corriam → :stuck antes de o Lucas alcançar o jogo. Agora o portão
+  # fechado CONGELA a paciência.
+  test "portão fechado congela a paciência — a caçada espera em vez de morrer :stuck", %{
+    worker: worker
+  } do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    on_exit(fn -> InputGate.set_focus_ok(true) end)
+    # zero paciência: se os relógios corressem, o primeiro tick já viraria :stuck
+    SettingsStash.stash!(cavebot_walk_timeout_ms: 0, cavebot_stuck_max_retries: 0)
+    route!()
+    :ok = Worker.run(worker)
+    minimap!({10, 20, 7})
+
+    InputGate.set_focus_ok(false)
+    Enum.each(1..4, fn _ -> send(worker, :tick) end)
+
+    status = Worker.status(worker)
+    refute status.state in [:stuck, :blocked]
+    assert status.hold_reason =~ "sem foco"
+    refute_receive {:cavebot_alarm, :stuck}, 300
+    # e nenhum passo saiu — o Body nem foi consultado
+    refute_receive {:stepped, _dx, _dy}, 100
+
+    # portão reabre (com paciência de gente) → a caçada segue de onde estava
+    # (replanta a posição: o fato do minimapa envelheceu durante as esperas)
+    Pokex.Settings.put(:cavebot_walk_timeout_ms, 60_000)
+    InputGate.set_focus_ok(true)
+    minimap!({10, 20, 7})
+    # o primeiro tick pós-reabertura arma o combate; o passo vem nos seguintes
+    Enum.each(1..3, fn _ -> send(worker, :tick) end)
+    assert_receive {:stepped, _dx, _dy}, 1_000
+  end
+
   # O bloqueio LOCAL: o cavebot bateu numa parede. Isso é problema DELE — tratar
   # igual a uma mudança de andar apagava a captura, o suporte E o auto-resume do
   # Focus (o latch de pânico veta até ele), por causa de um obstáculo de um tile.

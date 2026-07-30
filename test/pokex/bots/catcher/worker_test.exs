@@ -86,6 +86,40 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "a bola diz QUAL pokémon o acervo reconheceu", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    obs =
+      corpses_obs([{130, 224}])
+      |> Map.put(:known, %{{130, 224} => %{name: "Corsola", score: 0.87}})
+
+    world!(worker, obs)
+
+    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert_log_eventually("🎯 Corsola reconhecido (87%)")
+  end
+
+  @tag :tmp_dir
+  test "o start anuncia o acervo — vazio é sirene, não silêncio", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    # o tmp deste teste não tem corpses.json: acervo vazio = captura cega
+    :ok = Worker.run(worker)
+
+    assert_receive {:rule_alarm, msg}, 1_000
+    assert msg =~ "acervo de corpos VAZIO"
+  end
+
+  defp assert_log_eventually(fragment, timeout \\ 1_000) do
+    receive do
+      {:catcher_log, :macro, msg} ->
+        if msg =~ fragment, do: :ok, else: assert_log_eventually(fragment, timeout)
+    after
+      timeout -> flunk("nenhum catcher_log contendo #{inspect(fragment)} chegou")
+    end
+  end
+
+  @tag :tmp_dir
   test "polling alone confirms a vanished corpse (no further events)", %{worker: worker} do
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, _}, 1_000

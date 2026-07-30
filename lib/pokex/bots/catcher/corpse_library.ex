@@ -6,9 +6,9 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   rende clique errado e falso positivo — cada um mexendo o mouse do Lucas à toa
   (queixa ao vivo de 2026-07-30: "tenta capturar pontos errados... mexe demais
   o meu mouse"). Aqui o Lucas fotografa o corpo REAL na tela, dá o nome do
-  Pokémon, e o recorte vira verdade no acervo: com
-  `catcher_require_known_corpse` ligado, só candidato PARECIDO com um corpo
-  ensinado recebe Pokébola.
+  Pokémon, e o recorte vira verdade no acervo — que desde 2026-07-30 É a mira:
+  só candidato PARECIDO com um corpo ensinado recebe Pokébola (o modo que
+  adivinhava sem acervo foi aposentado; acervo vazio = nenhum alvo).
 
   O casamento é por ASSINATURA DE COR (histograma RGB quantizado em 512
   cubos, interseção normalizada 0..1), não por pixel exato: o corpo compõe

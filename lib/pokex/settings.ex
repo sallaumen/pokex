@@ -119,12 +119,11 @@ defmodule Pokex.Settings do
     # testemunha de que um cast aconteceu. Ao bater, toca o alarme e recomeça a
     # contagem. 0 = desligado.
     dry_casts_alarm: 3,
-    # Corpos MAPEADOS (a virada dos glifos aplicada à captura): com o acervo
-    # ensinado na calibração e require_known ligado, só candidato cuja paleta
-    # casa com um corpo conhecido recebe Pokébola — mata o falso positivo que
-    # mexia o mouse à toa. Nasce DESLIGADO: liga quando o acervo tiver os
-    # monstros do teu spot.
-    catcher_require_known_corpse: false,
+    # Corpos MAPEADOS (a virada dos glifos aplicada à captura): o acervo
+    # ensinado na calibração É a mira — só candidato cuja paleta casa com um
+    # corpo conhecido recebe Pokébola. O modo que adivinhava sem acervo foi
+    # aposentado (2026-07-30); acervo vazio = nenhum alvo, e o Catcher avisa
+    # alto no start.
     corpse_match_min_similarity: 0.72,
     # lado do recorte quadrado (px CRUS do frame) ao fotografar/validar um corpo
     corpse_sprite_box_px: 56,

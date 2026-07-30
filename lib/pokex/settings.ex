@@ -127,11 +127,19 @@ defmodule Pokex.Settings do
     corpse_match_min_similarity: 0.72,
     # lado do recorte quadrado (px CRUS do frame) ao fotografar/validar um corpo
     corpse_sprite_box_px: 56,
-    # Raio (em tiles) do anel escaneado ao redor do personagem/ponto do pokémon
-    # quando um kill acontece — o combate é tile-locked, o corpo só pode estar
-    # ali (ver Catcher.SpotScan). 1 = os 8 vizinhos; suba se corpos caírem mais
-    # longe no teu spot.
-    corpse_scan_radius_tiles: 1,
+    # O QUADRADÃO da captura: raio em tiles do quadrado varrido ao redor do
+    # personagem quando um kill acontece. 3 = 7×7 tiles ≈ 616pt na tela do
+    # Lucas — cobre o corpo caído em qualquer vizinhança plausível sem varrer a
+    # tela inteira. Era 1 (só os 8 vizinhos) e, com a arena recortando, sobravam
+    # 11 janelas das 16 (medido ao vivo 2026-07-30).
+    corpse_scan_radius_tiles: 3,
+    # Varredura DENSA em duas fases: passo grosso por toda a região, refino fino
+    # ao redor dos N melhores picos. O score cai ~0,05 a cada 7px de
+    # deslocamento (medido nas amostras do Lucas), então o refino é onde a
+    # diferença entre 0,63 e 0,95 é recuperada. Passo grosso = meio tile.
+    corpse_scan_step_px: 44,
+    corpse_scan_refine_px: 7,
+    corpse_scan_refine_peaks: 4,
     # Auto-recovery: consecutive NEAR-EMPTY-water frames (bubble px below
     # line_present_min_px — no line in the water) before we assume the cast FAILED
     # (a dropped rod press, or the game itself just not casting, which happens even
@@ -759,7 +767,10 @@ defmodule Pokex.Settings do
     target_lost_streak: 1..99,
     dry_casts_alarm: 0..999,
     corpse_sprite_box_px: 8..512,
-    corpse_scan_radius_tiles: 1..5,
+    corpse_scan_radius_tiles: 1..8,
+    corpse_scan_step_px: 2..256,
+    corpse_scan_refine_px: 1..64,
+    corpse_scan_refine_peaks: 0..32,
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,
     settle_max_ms: 100..600_000,

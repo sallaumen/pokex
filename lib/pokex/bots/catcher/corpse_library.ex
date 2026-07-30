@@ -131,6 +131,24 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   acervo vazio — quem decide o que fazer nesse caso é o chamador).
   """
   def match(%Frame{} = crop, min_similarity) do
+    case best(crop) do
+      %{score: score} = info when score >= min_similarity -> {:ok, info}
+      _abaixo_ou_vazio -> :nomatch
+    end
+  end
+
+  @doc """
+  O melhor par `%{name, score}` do acervo pra este recorte — SEM limiar; `nil`
+  só quando o acervo está vazio.
+
+  Existe porque um score REPROVADO ainda é informação, e jogá-la fora foi o que
+  deixou o Lucas validando às cegas (2026-07-30): quando nada casava, o
+  `match/2` devolvia `:nomatch` e ninguém sabia se tinha faltado 0,01 ou 0,40 —
+  nem contra qual pokémon. Medido nas amostras dele, o score cai ~0,05 a cada
+  7px de deslocamento do recorte, então a distância até o limiar É o diagnóstico
+  da mira.
+  """
+  def best(%Frame{} = crop) do
     sig = signature(crop.rgba)
 
     library().signatures
@@ -139,8 +157,8 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     end)
     |> Enum.max_by(fn {_name, score} -> score end, fn -> nil end)
     |> case do
-      {name, score} when score >= min_similarity -> {:ok, %{name: name, score: score}}
-      _abaixo_ou_vazio -> :nomatch
+      {name, score} -> %{name: name, score: score}
+      nil -> nil
     end
   end
 

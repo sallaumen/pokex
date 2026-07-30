@@ -132,7 +132,65 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
     assert_received {:region, _region}
   end
 
-  test "sem calibração de arena, o scan é nil (passo cego, nunca crash)" do
-    assert SpotScan.scan(calib(arena_region: nil), capture_with_corpses_at([])) == nil
+  describe "diagnóstico da varredura (parar de validar às cegas)" do
+    # 2026-07-30: "não varri", "varri e não achei" e "varri e achei" produziam o
+    # MESMO silêncio. A observação passa a carregar o porquê.
+
+    test "cegueira tem NOME, não vira nil — e nunca confirma bola em voo" do
+      obs = SpotScan.scan(calib(arena_region: nil), capture_with_corpses_at([]))
+
+      assert %{scanning?: false, motivo: :sem_arena, corpses: []} = obs
+      # scanning?: false é o que faz a Logic tratar como passo que não prova nada
+      refute obs.scanning?
+    end
+
+    test "o anel inteiro fora da arena se denuncia (o caso real do Lucas)" do
+      # arena ACIMA do personagem, como na calibração viva dele (arena até
+      # y=642, personagem em y=697): não sobra interseção nenhuma
+      c = calib(arena_region: {100, 100, 200, 60}, player_point: {200, 600})
+
+      assert %{scanning?: false, motivo: :fora_da_arena} =
+               SpotScan.scan(c, capture_with_corpses_at([]))
+    end
+
+    test "conta os tiles olhados e os que caíram fora do quadro" do
+      teach_red!()
+      # personagem colado na borda de baixo da arena: metade do anel some
+      c = calib(player_point: {200, 380})
+
+      obs = SpotScan.scan(c, capture_with_corpses_at([]))
+
+      assert obs.tiles_pedidos == 8
+      assert obs.tiles_olhados < obs.tiles_pedidos
+      assert obs.tiles_olhados > 0
+    end
+
+    test "o melhor candidato REPROVADO ainda vem com nome e score" do
+      teach_red!("Corsola")
+
+      # corpo verde: existe blob, mas a paleta não é a ensinada
+      verde = fn {rx, ry, rw, rh}, _f ->
+        {:ok,
+         Pokex.FrameFixtures.of(rw, rh, fn x, y ->
+           if abs(x + rx - 240) <= 12 and abs(y + ry - 300) <= 12,
+             do: {40, 230, 40},
+             else: @ground
+         end)}
+      end
+
+      obs = SpotScan.scan(calib(), verde)
+
+      assert obs.corpses == []
+      assert %{name: "Corsola", score: score, ponto: {_x, _y}} = obs.melhor
+      assert score < obs.limiar, "o melhor tem que estar ABAIXO do limiar neste cenário"
+      assert obs.limiar == 0.72
+    end
+
+    test "acervo vazio: melhor é nil, e isso é dizível" do
+      obs = SpotScan.scan(calib(), capture_with_corpses_at([{240, 300}]))
+
+      assert obs.melhor == nil
+      assert obs.tiles_olhados > 0
+    end
   end
 end

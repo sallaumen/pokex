@@ -313,6 +313,46 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "toda varredura vira uma linha no feed — e o placar da sessão anda", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    world!(worker, corpses_obs([{130, 224}]))
+    assert_receive {:performed, :high, [{:capture_sequence, _}]}, 1_000
+
+    assert %{varreduras: v, com_alvo: c} = Worker.status(worker).counters
+    assert v > 0, "a varredura tem que ser contada"
+    assert c > 0, "esta varredura achou alvo"
+  end
+
+  @tag :tmp_dir
+  test "varredura CEGA é contada e narrada, e não confirma bola nenhuma", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    # primeiro uma bola no ar
+    world!(worker, corpses_obs([{130, 224}]))
+    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert Worker.status(worker).pending_corpses == 1
+
+    # agora a visão cega (motivo real do campo: o anel fora da arena)
+    cega = %{
+      scanning?: false,
+      corpses: [],
+      known: %{},
+      captured_at: System.monotonic_time(:millisecond) + 5_000,
+      motivo: :fora_da_arena
+    }
+
+    WorldState.put(:corpses, cega, cega.captured_at)
+    send(worker, {:world, :corpses, cega})
+
+    assert_log_eventually("cego")
+
+    # a bola em voo NÃO virou "capturado" por causa de uma varredura que falhou
+    assert Worker.status(worker).pending_corpses == 1
+    assert Worker.status(worker).counters.cegas > 0
+  end
+
+  @tag :tmp_dir
   test "captura desligada DIZ O NOME — no motivo de espera e num alarme no start",
        %{worker: worker} do
     # O silêncio de 2026-07-30: o bot rodava, o saque saía, e a única pista de

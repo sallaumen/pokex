@@ -23,6 +23,15 @@ defmodule Pokex.Calibration do
     # dependency on arena coverage. Without it, detection anchors in
     # arena_region as before.
     :mini_game_region,
+    # Posição & minimapa marcados À MÃO (2026-07-30): o retângulo do mapa, a
+    # cruz FIXA do personagem (o mapa desliza por baixo dela) e a faixa da
+    # coordenada textual. As regiões do layout automático são ancoradas e
+    # morrem quando a janela do jogo muda de lugar — a classe de drift que
+    # derrubou o cavebot. Manual vence; layout vira fallback (resolvedores
+    # minimap_*_region/1 e minimap_player_point/1 abaixo).
+    :minimap_region,
+    :minimap_player_point,
+    :minimap_coord_region,
     # Optional: where the active Pokémon should STAND (the strategic attack tile).
     # PlayerSupport middle-clicks this point after battles to send it back there.
     :pokemon_spot_point,
@@ -99,6 +108,45 @@ defmodule Pokex.Calibration do
 
   defp centered_box(x, y, w, h), do: {x + div(w, 4), y + div(h, 4), div(w, 2), div(h, 2)}
 
+  @doc """
+  Onde o MINIMAPA está, resolvido — a MÃO manda, o layout automático é o
+  fallback (a mesma inversão do mini-game): as regiões do layout são ancoradas
+  em `battle_header` e morrem quando a janela do jogo muda de lugar, e foi
+  exatamente essa classe de drift que cegou o cavebot (2026-07-30).
+  """
+  def minimap_region(%__MODULE__{minimap_region: region}) when is_tuple(region), do: region
+  def minimap_region(%__MODULE__{layout: fix}), do: Pokex.Layout.region(:minimap, fix)
+
+  @doc "A faixa da coordenada textual \"(x, y, z)\", resolvida — mão > layout."
+  def minimap_coord_region(%__MODULE__{minimap_coord_region: region}) when is_tuple(region),
+    do: region
+
+  def minimap_coord_region(%__MODULE__{layout: fix}),
+    do: Pokex.Layout.region(:minimap_coord, fix)
+
+  @doc """
+  O retângulo CLICÁVEL do mapa (onde o passo do cavebot cai): com marcação
+  manual é a própria `minimap_region` — o Lucas marca o mapa em si; sem ela, o
+  `:minimap_map` do layout, como sempre.
+  """
+  def minimap_map_region(%__MODULE__{minimap_region: region}) when is_tuple(region), do: region
+  def minimap_map_region(%__MODULE__{layout: fix}), do: Pokex.Layout.region(:minimap_map, fix)
+
+  @doc """
+  A cruz do personagem no minimapa — FIXA na janela, o mapa desliza por baixo
+  dela (Lucas, 2026-07-30). Sem marcação, o centro do retângulo do mapa: era o
+  que o passo assumia desde sempre, agora como fallback em vez de dogma.
+  """
+  def minimap_player_point(%__MODULE__{minimap_player_point: point}) when is_tuple(point),
+    do: point
+
+  def minimap_player_point(%__MODULE__{} = calib) do
+    case minimap_map_region(calib) do
+      {x, y, w, h} -> {x + div(w, 2), y + div(h, 2)}
+      nil -> nil
+    end
+  end
+
   def save(%__MODULE__{} = calib, path \\ nil) do
     path = path || Pokex.Home.calibration_file()
     File.mkdir_p!(Path.dirname(path))
@@ -114,6 +162,11 @@ defmodule Pokex.Calibration do
       "neutral_point" => Tuple.to_list(calib.neutral_point),
       "player_point" => calib.player_point && Tuple.to_list(calib.player_point),
       "mini_game_region" => calib.mini_game_region && Tuple.to_list(calib.mini_game_region),
+      "minimap_region" => calib.minimap_region && Tuple.to_list(calib.minimap_region),
+      "minimap_player_point" =>
+        calib.minimap_player_point && Tuple.to_list(calib.minimap_player_point),
+      "minimap_coord_region" =>
+        calib.minimap_coord_region && Tuple.to_list(calib.minimap_coord_region),
       "pokemon_spot_point" => calib.pokemon_spot_point && Tuple.to_list(calib.pokemon_spot_point),
       "escape_point" => calib.escape_point && Tuple.to_list(calib.escape_point),
       "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
@@ -146,6 +199,9 @@ defmodule Pokex.Calibration do
          neutral_point: to_tuple(map["neutral_point"]),
          player_point: to_tuple(map["player_point"]),
          mini_game_region: to_tuple(map["mini_game_region"]),
+         minimap_region: to_tuple(map["minimap_region"]),
+         minimap_player_point: to_tuple(map["minimap_player_point"]),
+         minimap_coord_region: to_tuple(map["minimap_coord_region"]),
          pokemon_spot_point: to_tuple(map["pokemon_spot_point"]),
          escape_point: to_tuple(map["escape_point"]),
          skill_bar_region: to_tuple(map["skill_bar_region"]),

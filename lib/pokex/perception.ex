@@ -145,7 +145,8 @@ defmodule Pokex.Perception do
       },
       %{
         key: :minimap,
-        region: fn calib -> Pokex.Layout.region(:minimap, calib.layout) end,
+        # a mão manda: região manual da calibração vence; layout é fallback
+        region: fn calib -> Pokex.Calibration.minimap_region(calib) end,
         interval_setting: :feed_minimap_ms,
         filename: "feed_minimap.png",
         interpret: &Interpret.Minimap.interpret/4

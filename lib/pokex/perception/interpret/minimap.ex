@@ -12,33 +12,37 @@ defmodule Pokex.Perception.Interpret.Minimap do
   (stairs, boat) re-baselines as soon as a second read agrees with the first.
   """
 
-  alias Pokex.Layout
+  alias Pokex.{Calibration, Layout, Settings}
   alias Pokex.Vision.Glyphs
 
   @max_floor 15
   @max_jump 50
 
-  def interpret(frame, calib, _settings, state \\ nil) do
+  def interpret(frame, calib, settings, state \\ nil) do
     state = state || %{last: nil, pending: nil}
-    fix = calib && calib.layout
 
+    # A MÃO manda nas regiões (Calibration resolve manual > layout); o frame
+    # que chega é o crop da minimap_region resolvida, então a faixa da
+    # coordenada vira relativa à origem DELA.
     read =
-      case fix && Layout.region(:minimap_coord, fix) do
-        nil ->
-          nil
-
-        {x, y, w, h} ->
-          {ox, oy, _, _} = Layout.region(:minimap, fix)
-          # com as opções que a REGIÃO declara: ignorá-las é como o piso de
-          # tinta de um slot do HUD deixar de valer justamente ao vivo
-          Glyphs.read_coord(
-            frame,
-            {x - ox, y - oy, w, h},
-            Layout.region_opts(fix, :minimap_coord)
-          )
+      with %Calibration{} <- calib,
+           {x, y, w, h} <- Calibration.minimap_coord_region(calib),
+           {ox, oy, _, _} <- Calibration.minimap_region(calib) do
+        Glyphs.read_coord(frame, {x - ox, y - oy, w, h}, coord_opts(calib, settings))
+      else
+        _sem_regiao -> nil
       end
 
     accept(read, state)
+  end
+
+  # O piso de tinta da faixa é AFINÁVEL (minimap_coord_ink): o default global
+  # (120) deixava o chão iluminado do mapa competir com os dígitos. As opções
+  # que a região do layout declara continuam valendo por baixo — ignorá-las é
+  # como o piso de tinta de um slot do HUD deixar de valer justamente ao vivo.
+  defp coord_opts(calib, settings) do
+    layout_opts = if calib.layout, do: Layout.region_opts(calib.layout, :minimap_coord), else: []
+    Keyword.merge(layout_opts, ink: Settings.value(settings, :minimap_coord_ink))
   end
 
   @doc """

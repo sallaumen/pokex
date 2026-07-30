@@ -505,6 +505,14 @@ defmodule Pokex.Settings do
     # tiles while the map image shifted (+10,+22) pixels — 2px per tile on both
     # axes, at 98.5% correlation.
     minimap_px_per_tile: 2,
+    # Piso de tinta da FAIXA DA COORDENADA do minimapa. MEDIDO (2026-07-30):
+    # os dígitos têm núcleo 240+ mas o anti-alias espalha por 160-239, e o
+    # atlas de glifos foi ensinado com as formas do piso 120 — subir o piso
+    # EMAGRECE as formas e o atlas para de reconhecê-las (testado: 165 cega as
+    # quatro capturas reais). 120 = comportamento atual, que os fixtures
+    # provam funcionar com o drop_background. Só mexa com a tela "Ensinar
+    # glifos" à mão pra re-ensinar as formas novas.
+    minimap_coord_ink: 120,
     # --- Combat: Tab targeting ------------------------------------------------------------------
     # Tab selects the first attackable enemy; pressing again CYCLES to the next. The confirm
     # window counts from the Tab press against frames captured AFTER it, so capture latency can't
@@ -747,6 +755,7 @@ defmodule Pokex.Settings do
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,
     settle_max_ms: 100..600_000,
+    minimap_coord_ink: 40..255,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,
     logout_verify_delay_ms: 0..600_000,

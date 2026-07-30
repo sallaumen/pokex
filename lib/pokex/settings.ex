@@ -89,7 +89,11 @@ defmodule Pokex.Settings do
     # No delays for now — everything runs as fast as the screen captures allow.
     # A tiny post-success pause (10–50ms) is all that stays, so the game has a
     # frame to register the previous input before the next one.
-    tick_ms_watching: 100,
+    # 100 → 150: cada tick do vigia é UMA captura na fila serializada, e a 100ms
+    # a pesca sozinha pedia ~10 capturas/s — afogando o feed de batalha (logs de
+    # 2026-07-29: combate sem frame pós-Tab por 3s DIRETO, pesca tickando a 2-6s).
+    # A bolha oscila continuamente; 150ms ainda pega a fisgada no frame seguinte.
+    tick_ms_watching: 150,
     tick_ms_default: 80,
     wait_focus_ms: 20,
     wait_after_equip_ms: 30,
@@ -425,7 +429,8 @@ defmodule Pokex.Settings do
     feed_arena_ms: 300,
     # The skill hotbar changes at ~1s granularity (countdown numbers), so its feed runs far
     # slower than battle; it only captures while combat is attached anyway.
-    feed_skill_bar_ms: 250,
+    # 250 → 400: cooldown continua vivo; a fila de captura, menos sufocada
+    feed_skill_bar_ms: 400,
     # How old the :skill_bar fact may be before combat treats it as UNKNOWN (→ blind
     # rotation). Generous vs the 250ms cadence so one slow/failed capture doesn't flap the
     # rotation between filtered and blind.
@@ -453,9 +458,12 @@ defmodule Pokex.Settings do
     stock_alert_f2: 10,
     stock_alert_e: 5,
     stock_alert_s_q: 10,
-    feed_hud_ms: 500,
-    feed_team_ms: 500,
-    feed_minimap_ms: 250,
+    # 500 → 1000: alerta de estoque não precisa de 2 leituras/s — a fila precisa de folga
+    feed_hud_ms: 1000,
+    # 500 → 1200: exibição do time e swaps de combo seguem frescos; a batalha agradece
+    feed_team_ms: 1200,
+    # 250 → 500: a 5 passos/s a posição a cada meio segundo ainda guia a rota
+    feed_minimap_ms: 500,
     # MEASURED, not guessed: between two captures the coordinate moved (-5,-11)
     # tiles while the map image shifted (+10,+22) pixels — 2px per tile on both
     # axes, at 98.5% correlation.

@@ -14,7 +14,7 @@ defmodule Pokex.SettingsTest do
     assert path |> File.read!() |> JSON.decode!() == %{}
 
     # reads fall back to the seed defaults
-    assert Settings.get(:tick_ms_watching, server) == 100
+    assert Settings.get(:tick_ms_watching, server) == 150
     assert Settings.get(:skill_keys, server) == ["1", "2", "3"]
     assert Settings.get(:rod_key, server) == "shift+v"
     assert Settings.get(:wait_assess_ms, server) == 700
@@ -98,7 +98,7 @@ defmodule Pokex.SettingsTest do
 
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
-    assert Settings.get(:tick_ms_watching, server) == 100
+    assert Settings.get(:tick_ms_watching, server) == 150
     assert Settings.get(:rod_key, server) == "shift+v"
   end
 

@@ -984,7 +984,14 @@ defmodule PokexWeb.PanelLive do
 
     stats =
       window
-      |> Enum.filter(fn {key, _v} -> String.starts_with?(key, "capture.backend.") end)
+      |> Enum.filter(fn {key, _v} ->
+        # backend = quanto o SO demorou; espera = quanto o LEITOR ficou na fila
+        # antes de ser atendido (Frente 3, Etapa 1) — é a espera, não o backend,
+        # que afogou o combate ao vivo (2026-07-29). As duas lado a lado dizem
+        # quem está sofrendo e por causa de quê.
+        String.starts_with?(key, "capture.backend.") or
+          String.starts_with?(key, "capture.espera:")
+      end)
       |> Enum.sort_by(fn {key, _v} -> key end)
 
     info = %{backend: Pokex.Bots.Capture.backend_info(), stats: stats}
@@ -3021,7 +3028,7 @@ defmodule PokexWeb.PanelLive do
                     sem capturas na última janela — ligue um bot e clique Medir de novo
                   </p>
                   <p :for={{key, stat} <- @capture_info.stats} class="text-pk-text-3">
-                    {String.replace_prefix(key, "capture.backend.", "")} · n={stat.count}
+                    {String.replace_prefix(key, "capture.", "")} · n={stat.count}
                     <span :if={stat.total > 0}>
                       avg={Float.round(stat.total / stat.count, 1)}ms max={stat.max}ms
                     </span>

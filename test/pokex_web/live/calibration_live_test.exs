@@ -500,4 +500,42 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert {:ok, restored} = Calibration.load()
     assert restored.screen_w == 3440
   end
+
+  describe "corpos mapeados" do
+    @tag :tmp_dir
+    test "a seção de ensino existe e lista o acervo", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      :ok =
+        Pokex.Bots.Catcher.CorpseLibrary.add("Rattata", %Pokex.Vision.Frame{
+          width: 4,
+          height: 4,
+          rgba: :binary.copy(<<180, 120, 200, 255>>, 16)
+        })
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      assert has_element?(view, "#corpse-shot-btn")
+      assert has_element?(view, "#corpse-list", "Rattata")
+
+      # apagar remove da lista na hora
+      view
+      |> element(~s(#corpse-list button[phx-value-slug="rattata"]))
+      |> render_click()
+
+      refute has_element?(view, "#corpse-list")
+    end
+
+    @tag :tmp_dir
+    test "fotografar sem arena calibrada explica em vez de quebrar", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      render_click(view, "corpse_shot")
+
+      assert render(view) =~ "precisa da arena calibrada"
+    end
+  end
 end

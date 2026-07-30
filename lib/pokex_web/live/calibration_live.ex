@@ -3,6 +3,7 @@ defmodule PokexWeb.CalibrationLive do
 
   alias Pokex.{Calibration, Home, Rig, Settings, Vision}
   alias Pokex.Bots.{Capture, SkillBar}
+  alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Vision.Frame
 
   import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
@@ -77,7 +78,11 @@ defmodule PokexWeb.CalibrationLive do
        skill_count: skill_count,
        skill_count_form: skill_count_form(skill_count),
        row_height: Settings.get(:battle_row_height),
-       max_rows: Settings.get(:battle_max_rows)
+       max_rows: Settings.get(:battle_max_rows),
+       corpse_shot: nil,
+       corpse_crop: nil,
+       corpse_msg: nil,
+       corpse_list: CorpseLibrary.list()
      )}
   end
 
@@ -305,6 +310,77 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("cancel_zoom", _params, socket) do
     {:noreply, assign(socket, zoom_at: nil)}
+  end
+
+  # -- corpos mapeados (o ensino que substitui a adivinhação da captura) -------
+
+  # Fotografa a ARENA (onde os corpos caem). A foto vai pro navegador; o clique
+  # do Lucas em cima do corpo vira recorte no evento seguinte.
+  def handle_event("corpse_shot", _params, socket) do
+    with {:ok, %Calibration{arena_region: region}} when is_tuple(region) <- Calibration.load(),
+         {:ok, frame, _path} <- Capture.frame_with_path(region, "corpse_teach.png") do
+      {:noreply,
+       assign(socket,
+         corpse_shot: %{frame: frame, v: System.system_time(:millisecond)},
+         corpse_crop: nil,
+         corpse_msg: nil
+       )}
+    else
+      _sem_calibracao_ou_captura ->
+        {:noreply,
+         assign(socket, corpse_msg: {:error, "precisa da arena calibrada e da captura viva"})}
+    end
+  end
+
+  # O clique na foto: recorta a caixa do sprite em px CRUS do frame (a foto é
+  # servida no tamanho natural, então x*nw/cw já É a coordenada do frame).
+  def handle_event("corpse_click", %{"x" => x, "y" => y, "cw" => cw, "nw" => nw}, socket) do
+    case socket.assigns.corpse_shot do
+      nil ->
+        {:noreply, socket}
+
+      %{frame: frame} ->
+        px = round(x * nw / cw)
+        py = round(y * nw / cw)
+        box = Settings.get(:corpse_sprite_box_px)
+        half = div(box, 2)
+        cx = px |> max(half) |> min(max(frame.width - half, half))
+        cy = py |> max(half) |> min(max(frame.height - half, half))
+
+        crop =
+          Frame.crop(
+            frame,
+            {cx - half, cy - half, min(box, frame.width), min(box, frame.height)}
+          )
+
+        {:noreply, assign(socket, corpse_crop: %{frame: crop, at: {cx, cy}}, corpse_msg: nil)}
+    end
+  end
+
+  def handle_event("corpse_save", %{"name" => name}, socket) do
+    case socket.assigns.corpse_crop do
+      nil ->
+        {:noreply, socket}
+
+      %{frame: crop} ->
+        case CorpseLibrary.add(name, crop) do
+          :ok ->
+            {:noreply,
+             assign(socket,
+               corpse_crop: nil,
+               corpse_msg: {:ok, "corpo salvo: #{String.trim(name)}"},
+               corpse_list: CorpseLibrary.list()
+             )}
+
+          {:error, :nome_vazio} ->
+            {:noreply, assign(socket, corpse_msg: {:error, "dê um nome ao corpo"})}
+        end
+    end
+  end
+
+  def handle_event("corpse_delete", %{"slug" => slug}, socket) do
+    CorpseLibrary.delete(slug)
+    {:noreply, assign(socket, corpse_list: CorpseLibrary.list())}
   end
 
   def handle_event("capture_baselines", _params, socket) do
@@ -1194,6 +1270,84 @@ defmodule PokexWeb.CalibrationLive do
             <.link navigate={~p"/"} class="btn btn-success btn-sm">Ir ao painel →</.link>
           </div>
         </div>
+
+        <section
+          id="corpse-teach"
+          class="space-y-3 rounded-2xl border border-base-300 p-4"
+        >
+          <div>
+            <h2 class="font-semibold">Corpos mapeados (captura)</h2>
+            <p class="mt-1 text-sm opacity-70">
+              O ensino que substitui a adivinhação: mate um monstro, deixe o corpo no chão,
+              fotografe a arena e clique EM CIMA do corpo. Com o acervo do teu spot pronto,
+              ligue <code>catcher_require_known_corpse</code> — só corpo conhecido recebe
+              Pokébola, e o mouse para de passear atrás de falso positivo.
+            </p>
+          </div>
+
+          <button id="corpse-shot-btn" class="btn btn-sm" phx-click="corpse_shot">
+            📸 Fotografar arena
+          </button>
+
+          <p
+            :if={@corpse_msg}
+            class={[
+              "rounded-lg px-3 py-2 text-sm",
+              elem(@corpse_msg, 0) == :ok && "bg-success/15 text-success",
+              elem(@corpse_msg, 0) == :error && "bg-error/15 text-error"
+            ]}
+          >
+            {elem(@corpse_msg, 1)}
+          </p>
+
+          <img
+            :if={@corpse_shot}
+            id="corpse-shot"
+            src={"/captures/corpse_teach.png?v=#{@corpse_shot.v}"}
+            phx-hook="ImgClick"
+            data-click-event="corpse_click"
+            class="max-w-full cursor-crosshair rounded-lg border border-base-300"
+          />
+
+          <form
+            :if={@corpse_crop}
+            id="corpse-name-form"
+            phx-submit="corpse_save"
+            class="flex flex-wrap items-center gap-2"
+          >
+            <span class="font-mono text-sm opacity-70">
+              corpo {@corpse_crop.frame.width}×{@corpse_crop.frame.height} @ {elem(
+                @corpse_crop.at,
+                0
+              )},{elem(@corpse_crop.at, 1)} —
+            </span>
+            <input
+              name="name"
+              placeholder="nome do Pokémon"
+              autocomplete="off"
+              class="input input-sm input-bordered"
+            />
+            <button class="btn btn-sm btn-success">Salvar corpo</button>
+          </form>
+
+          <ul :if={@corpse_list != []} id="corpse-list" class="space-y-1">
+            <li
+              :for={c <- @corpse_list}
+              class="flex items-center gap-2 font-mono text-sm"
+            >
+              <span>{c["name"]}</span>
+              <span class="opacity-50">{c["w"]}×{c["h"]}</span>
+              <button
+                class="btn btn-ghost btn-xs text-error"
+                phx-click="corpse_delete"
+                phx-value-slug={c["slug"]}
+                data-confirm={"Apagar o corpo de #{c["name"]}?"}
+              >
+                apagar
+              </button>
+            </li>
+          </ul>
+        </section>
       </div>
     </Layouts.app>
     """

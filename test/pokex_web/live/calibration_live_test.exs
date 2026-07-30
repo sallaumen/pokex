@@ -507,7 +507,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
-      :ok =
+      {:ok, 1} =
         Pokex.Bots.Catcher.CorpseLibrary.add("Rattata", %Pokex.Vision.Frame{
           width: 4,
           height: 4,
@@ -518,10 +518,12 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       assert has_element?(view, "#corpse-shot-btn")
       assert has_element?(view, "#corpse-list", "Rattata")
+      # a miniatura BMP do corpo aparece na lista
+      assert render(view) =~ "data:image/bmp;base64,"
 
       # apagar remove da lista na hora
       view
-      |> element(~s(#corpse-list button[phx-value-slug="rattata"]))
+      |> element(~s(#corpse-list button[phx-click="corpse_delete"][phx-value-slug="rattata"]))
       |> render_click()
 
       refute has_element?(view, "#corpse-list")

@@ -364,11 +364,13 @@ defmodule PokexWeb.CalibrationLive do
 
       %{frame: crop} ->
         case CorpseLibrary.add(name, crop) do
-          :ok ->
+          {:ok, n} ->
             {:noreply,
              assign(socket,
                corpse_crop: nil,
-               corpse_msg: {:ok, "corpo salvo: #{String.trim(name)}"},
+               corpse_msg:
+                 {:ok,
+                  "amostra #{n}/#{CorpseLibrary.max_samples()} de #{String.trim(name)} salva"},
                corpse_list: CorpseLibrary.list()
              )}
 
@@ -380,6 +382,11 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("corpse_delete", %{"slug" => slug}, socket) do
     CorpseLibrary.delete(slug)
+    {:noreply, assign(socket, corpse_list: CorpseLibrary.list())}
+  end
+
+  def handle_event("corpse_delete_sample", %{"slug" => slug, "idx" => idx}, socket) do
+    CorpseLibrary.delete_sample(slug, String.to_integer(idx))
     {:noreply, assign(socket, corpse_list: CorpseLibrary.list())}
   end
 
@@ -1330,20 +1337,41 @@ defmodule PokexWeb.CalibrationLive do
             <button class="btn btn-sm btn-success">Salvar corpo</button>
           </form>
 
-          <ul :if={@corpse_list != []} id="corpse-list" class="space-y-1">
+          <ul :if={@corpse_list != []} id="corpse-list" class="space-y-2">
             <li
               :for={c <- @corpse_list}
-              class="flex items-center gap-2 font-mono text-sm"
+              class="flex flex-wrap items-center gap-2 font-mono text-sm"
             >
-              <span>{c["name"]}</span>
-              <span class="opacity-50">{c["w"]}×{c["h"]}</span>
+              <span class="min-w-24">{c["name"]}</span>
+              <span
+                :for={{sample, idx} <- Enum.with_index(c["samples"])}
+                class="group relative inline-block"
+              >
+                <img
+                  src={CorpseLibrary.thumb(sample)}
+                  title={"amostra #{idx + 1} · #{sample["added_at"]}"}
+                  class="h-10 w-10 rounded border border-base-300 [image-rendering:pixelated]"
+                />
+                <button
+                  class="absolute -right-1 -top-1 hidden size-4 items-center justify-center rounded-full bg-error text-[10px] leading-none text-white group-hover:flex"
+                  phx-click="corpse_delete_sample"
+                  phx-value-slug={c["slug"]}
+                  phx-value-idx={idx}
+                  data-confirm="Apagar esta amostra?"
+                >
+                  ✕
+                </button>
+              </span>
+              <span class="opacity-50">
+                {length(c["samples"])}/{CorpseLibrary.max_samples()} chãos
+              </span>
               <button
                 class="btn btn-ghost btn-xs text-error"
                 phx-click="corpse_delete"
                 phx-value-slug={c["slug"]}
-                data-confirm={"Apagar o corpo de #{c["name"]}?"}
+                data-confirm={"Apagar o corpo de #{c["name"]} inteiro?"}
               >
-                apagar
+                apagar tudo
               </button>
             </li>
           </ul>

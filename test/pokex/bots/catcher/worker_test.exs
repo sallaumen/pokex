@@ -313,6 +313,28 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "captura desligada DIZ O NOME — no motivo de espera e num alarme no start",
+       %{worker: worker} do
+    # O silêncio de 2026-07-30: o bot rodava, o saque saía, e a única pista de
+    # que a bola estava desligada era uma pílula discreta que se lia como estado
+    # normal. Agora o portão se anuncia por duas vias.
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+    Settings.put(:capture_enabled, false)
+    :ok = Worker.mode_changed(worker)
+
+    assert Worker.status(worker).hold_reason == "captura DESLIGADA — só saque"
+
+    :ok = Worker.run(worker)
+    assert_receive {:rule_alarm, :captura, msg}, 1_000
+    assert msg =~ "captura DESLIGADA"
+
+    # e some sozinho quando religa
+    Settings.put(:capture_enabled, true)
+    :ok = Worker.mode_changed(worker)
+    assert Worker.status(worker).hold_reason == nil
+  end
+
+  @tag :tmp_dir
   # Space reaches the corpse on the tile where the kill landed, wherever he
   # happens to be standing at that instant — so walking must not cost him the
   # drops. Only the BALL needs the standing-still ground baseline.

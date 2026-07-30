@@ -186,6 +186,30 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
+    test "um preset NUNCA desliga a captura — a chave tem um dono só", %{tmp_dir: tmp} do
+      # O bug de 2026-07-30: :capture_enabled morava nos presets E em Pokex.Modes.
+      # Os quatro presets do Lucas carregavam false, e trocar o preset de ataque
+      # matava a captura em silêncio — 1015 kills, 1015 saques, zero varredura.
+      # Presets antigos no disco AINDA têm a chave; aplicar um deles não pode
+      # mais tocar nela.
+      server = preset_server(tmp)
+      File.mkdir_p!(Path.join(tmp, "presets"))
+
+      File.write!(
+        Path.join(tmp, "presets/4attk.json"),
+        JSON.encode!(%{"skill_keys" => ["3", "4"], "capture_enabled" => false})
+      )
+
+      :ok = Settings.put(:capture_enabled, true, server)
+
+      assert {:ok, %{applied: 1}} = Settings.apply_preset("4attk", server)
+
+      assert Settings.get(:skill_keys, server) == ["3", "4"]
+      assert Settings.get(:capture_enabled, server) == true
+      refute :capture_enabled in Settings.preset_keys()
+    end
+
+    @tag :tmp_dir
     test "apply ignores unknown keys, non-preset keys and wrong-shaped values", %{tmp_dir: tmp} do
       server = preset_server(tmp)
 

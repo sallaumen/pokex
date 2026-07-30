@@ -1929,6 +1929,20 @@ defmodule PokexWeb.PanelLive do
   defp catcher_captures(catcher), do: get_in(catcher, [:counters, :captures]) || 0
   defp catcher_loots(catcher), do: get_in(catcher, [:counters, :loots]) || 0
 
+  # O placar que transforma "acho que não tá funcionando" em número: quantas
+  # varreduras a sessão fez e quantas acharam alvo. Medido em 2026-07-30, o bot
+  # fez 242 kills pra 1 reconhecimento — sem essa razão na tela, invisível.
+  # `cegas` só aparece quando existe: cegueira é anormal e merece destaque, não
+  # uma coluna de zeros permanente.
+  defp catcher_scan_counters(catcher) do
+    varreduras = get_in(catcher, [:counters, :varreduras]) || 0
+    com_alvo = get_in(catcher, [:counters, :com_alvo]) || 0
+    cegas = get_in(catcher, [:counters, :cegas]) || 0
+
+    base = "#{com_alvo}/#{varreduras} varredura"
+    if cegas > 0, do: base <> " · #{cegas} cega", else: base
+  end
+
   # As seções que MUDARAM DE LUGAR no PR 2 (2026-07-30): combos, presets, shiny,
   # as regras de sessão e o avançado saíram do dashboard e agora moram dentro do
   # ⚙️. A markup é a MESMA — mesmos eventos, mesmos assigns — só que atrás de um
@@ -2480,7 +2494,9 @@ defmodule PokexWeb.PanelLive do
                 state={@catcher.state}
                 active?={active?(@catcher.state)}
                 label={catcher_label(@catcher.state)}
-                counters={"#{catcher_captures(@catcher)} bola · #{catcher_loots(@catcher)} saque"}
+                counters={
+                  "#{catcher_captures(@catcher)} bola · #{catcher_loots(@catcher)} saque · #{catcher_scan_counters(@catcher)}"
+                }
                 snapshot={@catcher}
                 now_ms={@now_ms}
               />

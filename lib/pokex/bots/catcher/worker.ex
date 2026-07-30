@@ -19,6 +19,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   worker re-attach right away — the ground is back to normal.
   """
   use GenServer
+  require Logger
 
   alias Pokex.Bots.Body
   alias Pokex.Bots.Catcher.Logic
@@ -83,6 +84,11 @@ defmodule Pokex.Bots.Catcher.Worker do
        feed_ref: nil,
        reattach_attempts: 0,
        loots: 0,
+       # o placar da sessão (zerado em cada Iniciar): quantas varreduras
+       # aconteceram, quantas acharam alvo, e quantas cegaram
+       varreduras: 0,
+       com_alvo: 0,
+       cegas: 0,
        # a shiny was just seen: the NEXT ball ignores capture_enabled
        shiny_pending?: false,
        # last performed actuation as %{text, at} (monotonic ms; nil until the first) — panel-facing
@@ -93,7 +99,17 @@ defmodule Pokex.Bots.Catcher.Worker do
   @impl true
   def handle_call(:run, _from, state) do
     {logic, _} = Logic.start(Logic.new(config()), now())
-    state = %{state | logic: logic, loots: 0, combat_engaged?: seed_combat_engaged()}
+
+    state = %{
+      state
+      | logic: logic,
+        loots: 0,
+        varreduras: 0,
+        com_alvo: 0,
+        cegas: 0,
+        combat_engaged?: seed_combat_engaged()
+    }
+
     state = sync_mode(state)
     announce_library()
     broadcast(state)
@@ -230,12 +246,31 @@ defmodule Pokex.Bots.Catcher.Worker do
   # plays. The catcher is event-driven — the next corpse/kill/combat event after
   # the fact clears resumes the flow on its own.
   defp advance(state, obs) do
+    state = contar(state, obs)
+
     cond do
       Perception.mini_game_playing?() -> state
       Settings.get(:player_mode) == "parado" -> do_advance(state, obs)
       true -> state
     end
   end
+
+  # Os números que faltavam pra medir uma mudança em vez de torcer por ela: a
+  # sessão inteira em três contadores no card. `com_alvo` sobe quando ALGUM
+  # corpo do acervo passou do limiar — a razão varreduras:com_alvo é o
+  # termômetro da mira (medido em 2026-07-30: 242 kills → 1 reconhecimento).
+  defp contar(state, %{scanning?: true} = obs) do
+    achou? = Map.get(obs, :corpses, []) != []
+
+    %{
+      state
+      | varreduras: state.varreduras + 1,
+        com_alvo: state.com_alvo + if(achou?, do: 1, else: 0)
+    }
+  end
+
+  defp contar(state, %{scanning?: false}), do: %{state | cegas: state.cegas + 1}
+  defp contar(state, _sem_varredura), do: state
 
   # A fight is on: everything reaching here is contaminated by the live enemy sprite
   # (tile-locked, stands still — indistinguishable from a corpse). No admissions, no throws,
@@ -348,18 +383,77 @@ defmodule Pokex.Bots.Catcher.Worker do
     if state.combat_engaged? or Settings.get(:player_mode) != "parado" or
          not capture_allowed?(state) or Perception.mini_game_playing?(),
        do: nil,
-       else: safe_scan(state.scanner)
+       else: state.scanner |> safe_scan() |> narrar()
   end
 
   # Um scanner que morra (captura falhou, calibração corrompida) vira um passo
-  # cego — jamais derruba o worker no meio da frota.
+  # cego — jamais derruba o worker no meio da frota. Mas a exceção é LOGADA: um
+  # rescue silencioso é exatamente como uma varredura que nunca aconteceu vira
+  # indistinguível de uma que não achou nada.
   defp safe_scan(scanner) do
     scanner.()
   rescue
-    _erro -> nil
+    erro ->
+      Logger.warning("captura: varredura explodiu — #{Exception.message(erro)}")
+      nil
   catch
-    :exit, _reason -> nil
+    :exit, reason ->
+      Logger.warning("captura: varredura morreu — #{inspect(reason)}")
+      nil
   end
+
+  # Toda varredura vira UMA linha no feed. Antes, os três desfechos possíveis —
+  # não varri, varri e não achei, varri e achei — produziam o mesmo silêncio, e
+  # o Lucas ficou horas sem saber em qual deles estava (2026-07-30). O score do
+  # melhor candidato vai junto mesmo REPROVADO: a distância até o limiar é o
+  # diagnóstico da mira.
+  defp narrar(nil), do: nil
+
+  defp narrar(%{scanning?: false} = obs) do
+    # cegueira é rara e precisa sobreviver ao restart → :macro (vai pro JSONL)
+    log(:macro, "🔎 cego: #{motivo_texto(Map.get(obs, :motivo))}")
+    obs
+  end
+
+  defp narrar(%{tiles_olhados: olhados, tiles_pedidos: pedidos} = obs) do
+    fora = pedidos - olhados
+
+    # rotina em :debug — vive no feed, não infla o histórico em disco
+    log(
+      :debug,
+      "🔎 olhei #{olhados}/#{pedidos} tiles#{if fora > 0, do: " (#{fora} fora do quadro)", else: ""} · " <>
+        melhor_texto(obs)
+    )
+
+    obs
+  end
+
+  defp narrar(obs), do: obs
+
+  defp melhor_texto(%{melhor: nil}), do: "acervo vazio"
+
+  defp melhor_texto(%{melhor: %{name: nome, score: score, ponto: {x, y}}, limiar: limiar}) do
+    veredicto = if score >= limiar, do: "✓", else: "✗"
+    "melhor: #{nome} #{fmt(score)} #{veredicto} em #{x},#{y} (limiar #{fmt(limiar)})"
+  end
+
+  defp melhor_texto(_sem_campo), do: "sem leitura"
+
+  defp fmt(n) when is_number(n), do: :erlang.float_to_binary(n / 1, decimals: 2)
+  defp fmt(_outro), do: "?"
+
+  defp motivo_texto(:sem_calibracao), do: "sem calibração"
+  defp motivo_texto(:sem_ancora), do: "sem personagem nem ponto do pokémon calibrados"
+  defp motivo_texto(:sem_arena), do: "sem arena calibrada"
+
+  defp motivo_texto(:fora_da_arena),
+    do: "os tiles ao redor do personagem caem FORA da arena calibrada — recalibre a arena"
+
+  defp motivo_texto({:captura_falhou, motivo}), do: "captura falhou (#{inspect(motivo)})"
+  defp motivo_texto(outro), do: inspect(outro)
+
+  defp log(level, texto),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, level, "captura: #{texto}"})
 
   # O acervo é a mira — um start com acervo vazio vai passar a sessão inteira
   # sem mirar NADA, e isso merece sirene, não silêncio (era exatamente o tipo
@@ -534,7 +628,10 @@ defmodule Pokex.Bots.Catcher.Worker do
       mode: mode,
       counters:
         ((state.logic && state.logic.counters) || %Logic{}.counters)
-        |> Map.put(:loots, state.loots),
+        |> Map.put(:loots, state.loots)
+        |> Map.put(:varreduras, state.varreduras)
+        |> Map.put(:com_alvo, state.com_alvo)
+        |> Map.put(:cegas, state.cegas),
       error: state.logic && state.logic.error,
       hold_reason: hold_reason(state),
       last_action: state.last_action,

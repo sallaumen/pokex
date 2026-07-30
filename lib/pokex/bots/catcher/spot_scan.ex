@@ -34,17 +34,30 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   def scan do
     case Calibration.load() do
       {:ok, calib} -> scan(calib)
-      _sem_calibracao -> nil
+      _sem_calibracao -> cego(:sem_calibracao)
     end
   end
 
   @doc """
   Escaneia os tiles vizinhos dos âncoras contra o acervo.
 
-  `capture` é injetável nos testes (mesma seam do resto dos workers); o
-  default é o broker serializado. nil quando a captura falha ou não há
-  âncora/arena — uma observação nil é um passo que não prova nada, nunca uma
-  confirmação falsa.
+  SEMPRE devolve uma observação — nunca `nil`. Uma varredura que não achou nada
+  e uma varredura que não ACONTECEU eram o mesmo silêncio, e foi esse silêncio
+  que fez o Lucas passar o dia sem saber se o problema era mira, acervo ou
+  portão (2026-07-30). Agora a observação carrega o diagnóstico:
+
+    * `tiles_pedidos` / `tiles_olhados` — a diferença são tiles que caíram fora
+      do quadro capturado (arena recortando o anel);
+    * `melhor` — o melhor par `%{name, score, ponto}` mesmo REPROVADO, pra a
+      distância até o limiar virar número em vez de fé;
+    * `motivo` — quando cegou de vez: `:sem_calibracao | :sem_ancora |
+      :sem_arena | :fora_da_arena | {:captura_falhou, _}`.
+
+  Observação cega sai com `scanning?: false`: a `Catcher.Logic` já trata isso
+  como passo que não prova nada, então uma falha de visão nunca confirma uma
+  bola em voo como captura.
+
+  `capture` é injetável nos testes (mesma seam do resto dos workers).
   """
   def scan(%Calibration{} = calib, capture \\ &Capture.frame/2) do
     points = candidate_points(calib)
@@ -52,27 +65,65 @@ defmodule Pokex.Bots.Catcher.SpotScan do
     with [_ | _] <- points,
          {:ok, region} <- scan_region(points, calib),
          {:ok, %Frame{} = frame} <- capture.(region, "corpse_scan.png") do
-      box = Settings.get(:corpse_sprite_box_px)
-      min = Settings.get(:corpse_match_min_similarity)
-
-      known =
-        for point <- points,
-            crop = tile_crop(frame, calib, region, point, box),
-            crop != nil,
-            {:ok, info} <- [CorpseLibrary.match(crop, min)],
-            into: %{} do
-          {point, info}
-        end
-
-      %{
-        scanning?: true,
-        corpses: known |> Map.keys() |> Enum.sort(),
-        known: known,
-        captured_at: System.monotonic_time(:millisecond)
-      }
+      ler(frame, calib, region, points)
     else
-      _sem_visao -> nil
+      [] -> cego(:sem_ancora)
+      {:erro, motivo} -> cego(motivo)
+      {:error, motivo} -> cego({:captura_falhou, motivo})
+      outro -> cego({:captura_falhou, outro})
     end
+  end
+
+  defp ler(frame, calib, region, points) do
+    box = Settings.get(:corpse_sprite_box_px)
+    min = Settings.get(:corpse_match_min_similarity)
+
+    leituras =
+      for ponto <- points,
+          crop = tile_crop(frame, calib, region, ponto, box),
+          crop != nil,
+          do: {ponto, CorpseLibrary.best(crop)}
+
+    known =
+      for {ponto, %{score: score} = info} <- leituras, score >= min, into: %{}, do: {ponto, info}
+
+    %{
+      scanning?: true,
+      corpses: known |> Map.keys() |> Enum.sort(),
+      known: known,
+      captured_at: System.monotonic_time(:millisecond),
+      tiles_pedidos: length(points),
+      tiles_olhados: length(leituras),
+      regiao: region,
+      limiar: min,
+      melhor: melhor(leituras)
+    }
+  end
+
+  # O campeão da varredura, passando ou não do limiar — com o ponto onde estava.
+  defp melhor(leituras) do
+    leituras
+    |> Enum.reject(fn {_ponto, info} -> is_nil(info) end)
+    |> Enum.max_by(fn {_ponto, %{score: score}} -> score end, fn -> nil end)
+    |> case do
+      {ponto, info} -> Map.put(info, :ponto, ponto)
+      nil -> nil
+    end
+  end
+
+  defp cego(motivo) do
+    %{
+      scanning?: false,
+      corpses: [],
+      known: %{},
+      captured_at: System.monotonic_time(:millisecond),
+      tiles_pedidos: 0,
+      tiles_olhados: 0,
+      regiao: nil,
+      limiar: nil,
+      melhor: nil,
+      motivo: motivo
+    }
   end
 
   # Os tiles onde um corpo PODE ter caído: o anel de vizinhança (raio em
@@ -113,10 +164,10 @@ defmodule Pokex.Bots.Catcher.SpotScan do
 
     if right > left and bottom > top,
       do: {:ok, {left, top, right - left, bottom - top}},
-      else: :fora_da_arena
+      else: {:erro, :fora_da_arena}
   end
 
-  defp scan_region(_points, _sem_arena), do: :sem_arena
+  defp scan_region(_points, _sem_arena), do: {:erro, :sem_arena}
 
   # Ponto de TELA → px do frame da REGIÃO capturada (o inverso de
   # frame_to_screen, com a origem da região no lugar da arena). Tile fora do

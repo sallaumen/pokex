@@ -96,9 +96,26 @@ defmodule Pokex.Bots.Fishing.Logic do
         {logic, []}
 
       true ->
-        do_step(%{logic | waiting_until: nil}, obs, now)
+        do_step(maybe_settle_by_time(%{logic | waiting_until: nil}, now), obs, now)
     end
   end
+
+  # O assentamento por FRAMES (calm_streak) assume ticks de ~150ms. Com a
+  # captura faminta os frames chegam a SEGUNDOS de distância: o peixe morde
+  # antes de calm_streak_needed frames calmos e cada pico de mordida ZERA o
+  # calm — settled? nunca trava, a vara nunca puxa e o watch_timeout re-lança
+  # em cima de um peixe vivo (logs 2026-07-30: bol 2843/1150 por 16s, "settle"
+  # eterno, timeout, peixe queimado). Mas o splash é FÍSICA, não frames: ele
+  # dura ~1-1,5s e acabou. Passado settle_max_ms do arremesso (entered_at só é
+  # tocado de novo depois de settled), a água assentou por TEMPO — o mesmo
+  # frame que chegou atrasado já pode ser a mordida que fisga.
+  defp maybe_settle_by_time(%{state: :watching, settled?: false} = logic, now) do
+    if now - logic.entered_at >= Map.get(logic.config, :settle_max_ms, 2_500),
+      do: %{logic | settled?: true},
+      else: logic
+  end
+
+  defp maybe_settle_by_time(logic, _now), do: logic
 
   # Resuming over a LIVE line (the Focus pause-and-return, a re-Start right
   # after a cast): the resting line's indicator ring pulses continuously, so

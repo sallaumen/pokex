@@ -23,6 +23,7 @@ defmodule Pokex.Bots.Fisher.Config do
     :max_consecutive_failures,
     :glow_streak_needed,
     :calm_streak_needed,
+    :settle_max_ms,
     :require_cooldowns,
     :hook_hold_max_ms,
     :target_locked_min_pixels,

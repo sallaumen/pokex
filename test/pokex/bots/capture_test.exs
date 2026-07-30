@@ -424,6 +424,140 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(server)
   end
 
+  describe "região impossível (fora da tela)" do
+    # O erro real de 2026-07-30: minimapa calibrado com y=-132 depois da janela
+    # do jogo mudar de lugar. Determinístico — o helper responde isso pra sempre.
+    @outside_frame "region 3150,-132,290,458 -> 3150,-132,290,458 outside frame 3440x1440"
+    @bad_region {3150, -132, 290, 458}
+
+    test "sem retry, sem fallback CLI e sem matar o SCK saudável" do
+      sck_outside_frame!()
+
+      {:ok, pid} =
+        Capture.start_link(
+          name: :cap_regiao,
+          screen_capture_kit: Pokex.CaptureBackendFake,
+          sck_retry_sleep_ms: 0
+        )
+
+      assert {:error, {:screen_capture_kit, @outside_frame}} =
+               Capture.grab(@bad_region, "feed_minimap.png", :cap_regiao)
+
+      # UMA ida ao helper (os retries default não aconteceram)...
+      assert length(sck_capture_calls()) == 1
+      # ...nenhum fallback pro CLI (seria lixo, mais devagar)...
+      refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, _}, &1))
+      # ...e o backend SCK segue VIVO (antes, fallback_backend o matava).
+      refute Enum.any?(Pokex.CaptureBackendFake.calls(), &match?({:stop, _}, &1))
+
+      GenServer.stop(pid)
+    end
+
+    test "quarentena: a segunda tentativa nem chega no helper; outra região ainda tenta" do
+      sck_outside_frame!([{:ok, "/tmp/fake/ok.png"}])
+
+      {:ok, pid} =
+        Capture.start_link(
+          name: :cap_quarentena,
+          screen_capture_kit: Pokex.CaptureBackendFake,
+          sck_retry_sleep_ms: 0
+        )
+
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_quarentena)
+
+      assert {:error, {:screen_capture_kit, @outside_frame}} =
+               Capture.grab(@bad_region, "feed_minimap.png", :cap_quarentena)
+
+      assert length(sck_capture_calls()) == 1
+
+      # uma região DIFERENTE (recalibrada) não herda a quarentena da errada
+      assert {:ok, "/tmp/fake/ok.png"} =
+               Capture.grab({100, 100, 290, 458}, "feed_minimap.png", :cap_quarentena)
+
+      assert length(sck_capture_calls()) == 2
+
+      GenServer.stop(pid)
+    end
+
+    test "a recuperação do SCK dá nova chance às regiões em quarentena" do
+      sck_outside_frame!()
+
+      {:ok, pid} =
+        Capture.start_link(
+          name: :cap_rec_quarentena,
+          screen_capture_kit: Pokex.CaptureBackendFake,
+          sck_retry_sleep_ms: 0
+        )
+
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_rec_quarentena)
+      assert length(sck_capture_calls()) == 1
+
+      send(pid, {:sck_recovery_result, {:ok, :sck_backend_novo}})
+      # o call abaixo entra na fila DEPOIS do info acima — sincroniza sozinho
+      assert %{backend: :screen_capture_kit} = Capture.backend_info(:cap_rec_quarentena)
+
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_rec_quarentena)
+      assert length(sck_capture_calls()) == 2
+
+      GenServer.stop(pid)
+    end
+
+    test "alarma UMA vez mandando recalibrar (painel + journal via \"game\")" do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
+      sck_outside_frame!()
+
+      {:ok, pid} =
+        Capture.start_link(
+          name: :cap_alarme_regiao,
+          screen_capture_kit: Pokex.CaptureBackendFake,
+          sck_retry_sleep_ms: 0
+        )
+
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_alarme_regiao)
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_alarme_regiao)
+
+      assert_receive {:rule_alarm, msg}
+      assert msg =~ "feed_minimap.png"
+      assert msg =~ "Recalibre"
+      refute_receive {:rule_alarm, _}, 50
+
+      GenServer.stop(pid)
+    end
+  end
+
+  describe "alarme de fome na fila" do
+    test "espera acima do teto alarma no painel — com rate limit" do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
+      {:ok, pid} = Capture.start_link(name: :cap_fome)
+
+      # simula um pedido que ficou 10s na fila (requested_at viaja na mensagem)
+      atrasado = System.monotonic_time(:millisecond) - 10_000
+      GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento.png", atrasado})
+
+      assert_receive {:rule_alarm, msg}
+      assert msg =~ "captura saturada"
+
+      # a fila afogada estoura o teto em TODO pedido — sem rate limit seria sirene
+      GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento2.png", atrasado})
+      refute_receive {:rule_alarm, _}, 50
+
+      GenServer.stop(pid)
+    end
+  end
+
+  defp sck_outside_frame!(extra_script \\ []) do
+    start_supervised!(
+      {Pokex.CaptureBackendFake,
+       %{
+         start: [{:ok, :sck_backend}],
+         capture: [{:error, {:screen_capture_kit, @outside_frame}} | extra_script]
+       }}
+    )
+  end
+
+  defp sck_capture_calls,
+    do: Enum.filter(Pokex.CaptureBackendFake.calls(), &match?({:capture, _, _, _}, &1))
+
   defp png!(dir, name, {r, g, b}) do
     rows = for _ <- 1..2, do: for(_ <- 1..3, do: {r, g, b, 255})
     Pokex.PngFixtures.write!(Path.join(dir, name), rows)

@@ -117,7 +117,14 @@ defmodule Pokex.Bots.Capture do
            opts,
            :cache_ttl_ms,
            Application.get_env(:pokex, :capture_cache_ttl_ms, @default_cache_ttl_ms)
-         )
+         ),
+       # Regiões em QUARENTENA: pedidas fora da tela (a janela do jogo mudou de
+       # lugar desde a calibração). O helper responde o mesmo erro para sempre —
+       # cada tentativa custava retries + fallback + a MORTE do SCK saudável
+       # (fallback_backend), afogando o broker inteiro. Chave = a região exata;
+       # recalibrar gera outra chave e volta a funcionar sozinho.
+       impossible_regions: %{},
+       starvation_alarm_at: nil
      }}
   end
 
@@ -186,15 +193,46 @@ defmodule Pokex.Bots.Capture do
   # pós-Tab" em todo ciclo). O tamanho da fila no instante do atendimento vai
   # junto: espera alta + fila funda = demanda demais; espera alta + fila rasa =
   # backend lento. O baseline sai no /diagnostics e no export.
-  defp note_wait(filename, requested_at) do
-    Perf.record("capture.espera:#{filename}", now() - requested_at)
+  defp note_wait(state, filename, requested_at) do
+    wait_ms = now() - requested_at
+    Perf.record("capture.espera:#{filename}", wait_ms)
     {:message_queue_len, depth} = Process.info(self(), :message_queue_len)
     Perf.record("capture.fila:#{filename}", depth)
+    maybe_starvation_alarm(state, wait_ms)
   end
+
+  # A fome da fila era INVISÍVEL fora do /diagnostics: ao vivo, a pesca demorava
+  # ~7s pra ver a fisgada e ninguém sabia POR QUÊ (logs 2026-07-30). Espera acima
+  # do teto vira alarme no painel/journal — com rate limit, porque numa fila
+  # afogada TODO pedido estoura o teto e um alarme por captura seria uma sirene
+  # contínua.
+  @starvation_wait_ms 3_000
+  @starvation_alarm_gap_ms 60_000
+
+  defp maybe_starvation_alarm(state, wait_ms) when wait_ms >= @starvation_wait_ms do
+    last = state.starvation_alarm_at
+
+    if last == nil or now() - last >= @starvation_alarm_gap_ms do
+      alarm(
+        "⏳ captura saturada: um pedido esperou #{Float.round(wait_ms / 1000, 1)}s na fila — " <>
+          "os bots estão reagindo com atraso (SCK caído? região impossível? demanda demais?)"
+      )
+
+      %{state | starvation_alarm_at: now()}
+    else
+      state
+    end
+  end
+
+  defp maybe_starvation_alarm(state, _wait_ms), do: state
+
+  # O mesmo funil de alarme dos workers: painel (som/anti-spam) e journal
+  # assinam "game" e tratam {:rule_alarm, _}.
+  defp alarm(text), do: Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:rule_alarm, text})
 
   @impl true
   def handle_call({:grab, region, filename, requested_at}, _from, state) do
-    note_wait(filename, requested_at)
+    state = note_wait(state, filename, requested_at)
     record_queue(:grab, filename, requested_at)
     key = {:path, region, filename}
 
@@ -225,7 +263,7 @@ defmodule Pokex.Bots.Capture do
   end
 
   def handle_call({:frame, region, filename, requested_at}, _from, state) do
-    note_wait(filename, requested_at)
+    state = note_wait(state, filename, requested_at)
     record_queue(:frame, filename, requested_at)
     key = {:frame, region}
 
@@ -246,7 +284,7 @@ defmodule Pokex.Bots.Capture do
   end
 
   def handle_call({:frame_with_path, region, filename, requested_at}, _from, state) do
-    note_wait(filename, requested_at)
+    state = note_wait(state, filename, requested_at)
     record_queue(:frame_with_path, filename, requested_at)
     key = {:frame_path, region}
 
@@ -267,7 +305,7 @@ defmodule Pokex.Bots.Capture do
   end
 
   def handle_call({:frame_uncached, region, filename, requested_at}, _from, state) do
-    note_wait(filename, requested_at)
+    state = note_wait(state, filename, requested_at)
     record_queue(:frame_uncached, filename, requested_at)
     {reply, state} = frame_from_backend(state, region, filename)
     {:reply, reply, prune_cache(state)}
@@ -299,7 +337,11 @@ defmodule Pokex.Bots.Capture do
        | backend: {:screen_capture_kit, backend},
          recovering?: false,
          sck_recover_at: nil,
-         sck_recover_backoff_ms: state.sck_recover_interval_ms
+         sck_recover_backoff_ms: state.sck_recover_interval_ms,
+         # Um SCK novo pode enxergar outro display/escala — dá UMA chance nova a
+         # cada região em quarentena (se seguir fora da tela, um roundtrip
+         # barato re-quarentena).
+         impossible_regions: %{}
      }}
   end
 
@@ -359,24 +401,53 @@ defmodule Pokex.Bots.Capture do
   end
 
   defp capture_path(%{backend: {:screen_capture_kit, backend}} = state, region, filename) do
-    path = Path.join(Pokex.Home.captures_dir(), Path.basename(filename))
+    case state.impossible_regions do
+      %{^region => reason} ->
+        # Quarentena: nem toca no helper. Antes, CADA tick desse feed pagava
+        # retries + fallback CLI (~1,5s) e derrubava o SCK — a região errada de
+        # UM feed afogava todos os outros.
+        Perf.count("capture.regiao_impossivel:#{filename}")
+        {{:error, {:screen_capture_kit, reason}}, state}
 
-    started_at = now()
+      _sem_quarentena ->
+        path = Path.join(Pokex.Home.captures_dir(), Path.basename(filename))
 
-    case capture_with_sck(state, backend, region, path, filename) do
-      {:ok, path} ->
-        Perf.record("capture.backend.sck:#{filename}", now() - started_at)
-        {{:ok, path}, state}
+        started_at = now()
 
-      {:error, reason} ->
-        Perf.record("capture.backend.sck_error:#{filename}", now() - started_at)
+        case capture_with_sck(state, backend, region, path, filename) do
+          {:ok, path} ->
+            Perf.record("capture.backend.sck:#{filename}", now() - started_at)
+            {{:ok, path}, state}
 
-        Logger.warning(
-          "ScreenCaptureKit capture failed; falling back to screencapture: #{inspect(reason)}"
-        )
+          {:error, {:screen_capture_kit, reason}} = error when is_binary(reason) ->
+            Perf.record("capture.backend.sck_error:#{filename}", now() - started_at)
 
-        fallback = fallback_backend(state)
-        {timed_capture_path(:fallback, region, filename), fallback}
+            if region_impossible_reason?(reason) do
+              # Erro DETERMINÍSTICO de geometria: a região está (parcialmente)
+              # fora da tela — a janela do jogo mudou de lugar desde a
+              # calibração. O SCK está SAUDÁVEL; matá-lo (fallback_backend) ou
+              # tentar o CLI só produz lixo mais devagar. Quarentena + alarme:
+              # consertar é humano (recalibrar), não é retry.
+              {error, quarantine_region(state, region, filename, reason)}
+            else
+              Logger.warning(
+                "ScreenCaptureKit capture failed; falling back to screencapture: #{inspect({:screen_capture_kit, reason})}"
+              )
+
+              fallback = fallback_backend(state)
+              {timed_capture_path(:fallback, region, filename), fallback}
+            end
+
+          {:error, reason} ->
+            Perf.record("capture.backend.sck_error:#{filename}", now() - started_at)
+
+            Logger.warning(
+              "ScreenCaptureKit capture failed; falling back to screencapture: #{inspect(reason)}"
+            )
+
+            fallback = fallback_backend(state)
+            {timed_capture_path(:fallback, region, filename), fallback}
+        end
     end
   end
 
@@ -471,9 +542,23 @@ defmodule Pokex.Bots.Capture do
   # error forever. Retrying only delays the real cure — fall back NOW and let the scheduled
   # recovery start a fresh helper.
   defp sck_retryable_capture_error?({:screen_capture_kit, reason}) when is_binary(reason),
-    do: not String.contains?(reason, "stream stopped")
+    do: not String.contains?(reason, "stream stopped") and not region_impossible_reason?(reason)
 
   defp sck_retryable_capture_error?(_reason), do: false
+
+  # O helper valida a geometria e responde "outside frame" quando a região cai
+  # fora do display — um erro que NUNCA muda sozinho (só recalibração ou troca
+  # de display resolvem). String do NOSSO helper nativo, protocolo estável.
+  defp region_impossible_reason?(reason), do: String.contains?(reason, "outside frame")
+
+  defp quarantine_region(state, region, filename, reason) do
+    alarm(
+      "🖥️ captura de #{filename} impossível: #{reason} — a janela do jogo mudou de lugar? " <>
+        "Recalibre. Parei de tentar essa região (recalibrar ou o SCK reiniciar liberam)."
+    )
+
+    %{state | impossible_regions: Map.put(state.impossible_regions, region, reason)}
+  end
 
   defp start_backend(opts, sck) do
     case start_sck_backend(opts, sck, sck_start_retries(opts)) do

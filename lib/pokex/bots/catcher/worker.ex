@@ -22,7 +22,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   require Logger
 
   alias Pokex.Bots.Body
-  alias Pokex.Bots.Catcher.Logic
+  alias Pokex.Bots.Catcher.{Ball, Logic}
   alias Pokex.Perception
   alias Pokex.Perception.Feed
   alias Pokex.Settings
@@ -84,6 +84,8 @@ defmodule Pokex.Bots.Catcher.Worker do
        feed_ref: nil,
        reattach_attempts: 0,
        loots: 0,
+       # o portão fechado já foi anunciado nesta rodada? (log por BORDA)
+       segurada?: false,
        # o placar da sessão (zerado em cada Iniciar): quantas varreduras
        # aconteceram, quantas acharam alvo, e quantas cegaram
        varreduras: 0,
@@ -281,14 +283,63 @@ defmodule Pokex.Bots.Catcher.Worker do
   # no throws, no confirms. The feed is also detached (see should_be_attached?/1); this
   # gate only catches stragglers (a late event right after the toggle flip).
   defp do_advance(state, obs) do
-    if capture_allowed?(state), do: run_step(state, obs), else: state
+    cond do
+      not capture_allowed?(state) ->
+        state
+
+      # Perguntar ao PORTÃO antes de decidir — a mesma lição que o cavebot
+      # aprendeu (Body.step_minimap): `Rig.Mac.gated/1` devolve `:ok` quando
+      # SUPRIME, então agir e depois olhar o retorno faria a Logic contar uma
+      # bola que nunca saiu, gastar a fila e abrir janela de confirmação contra
+      # um corpo intocado. Pular o passo inteiro deixa o corpo lá pro próximo
+      # kill, que é a verdade.
+      not gate_aberto?() ->
+        segurar(state)
+
+      true ->
+        run_step(%{state | segurada?: false}, obs)
+    end
+  end
+
+  defp gate_aberto? do
+    Pokex.Bots.InputGate.allowed?()
+  catch
+    :exit, _reason -> false
+  end
+
+  # Uma linha por BORDA, não por evento: com o navegador em foco o portão fica
+  # fechado por minutos, e um alarme por kill viraria sirene.
+  defp segurar(%{segurada?: true} = state), do: state
+
+  defp segurar(state) do
+    log(:macro, "🔒 bola SEGURADA — o jogo não está em foco (ou o pânico está armado)")
+    %{state | segurada?: true}
   end
 
   defp run_step(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())
 
     performs = Enum.filter(actions, &match?({:capture_sequence, _}, &1))
-    if performs != [], do: Body.perform(performs, :high, state.body)
+
+    # A Logic fala "arremesse em X"; QUEM SABE COMO é o Catcher.Ball (posicionar,
+    # bater, acionar o atalho configurado, segurar o cursor). Cada passo passa
+    # pelo portão e pelo gate do mini-game em vez de um primitivo opaco do Rig.
+    resultado =
+      if performs != [] do
+        performs
+        |> Enum.flat_map(fn {:capture_sequence, ponto} -> Ball.sequence(ponto) end)
+        |> Body.perform(:high, state.body)
+      end
+
+    # O retorno era DESCARTADO — um erro real da atuação sumia e o feed escrevia
+    # "bola arremessada" do mesmo jeito.
+    case resultado do
+      {:error, motivo} ->
+        log(:macro, "⚠️ a bola não saiu: #{inspect(motivo)}")
+
+      _ok_ou_sem_bola ->
+        :ok
+    end
 
     state =
       if performs != [] do
@@ -297,7 +348,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
         %{
           state
-          | last_action: %{text: "bola arremessada", at: now()},
+          | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()},
             shiny_pending?: false
         }
       else

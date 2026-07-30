@@ -79,7 +79,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).pending_corpses == 0
 
     world!(worker, corpses_obs([{150, 250}]))
-    assert_receive {:performed, :high, [{:capture_sequence, {150, 250}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {150, 250}} | _]}, 1_000
     assert Worker.status(worker).pending_corpses == 1
 
     # the corpse vanished past the flight window → capture confirmed, nothing pending
@@ -92,7 +92,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   @tag :tmp_dir
   test "a corpse observation makes it throw a ball at :high", %{worker: worker} do
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
     assert Worker.status(worker).counters.throws == 1
   end
 
@@ -106,7 +106,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     world!(worker, obs)
 
-    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
     assert_log_eventually("🎯 Corsola reconhecido (87%)")
   end
 
@@ -155,7 +155,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     # no {:world,...} event — only the kill accelerator
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
-    assert_receive {:performed, :high, [{:capture_sequence, {140, 230}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {140, 230}} | _]}, 1_000
   end
 
   @tag :tmp_dir
@@ -202,9 +202,9 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     WorldState.put(:corpses, fresh, fresh.captured_at)
     send(worker, {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}})
 
-    assert_receive {:performed, :high, [{:capture_sequence, {150, 250}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {150, 250}} | _]}, 1_000
     assert Worker.status(worker).hold_reason == nil
-    assert %{text: "bola arremessada", at: at} = Worker.status(worker).last_action
+    assert %{text: "bola arremessada" <> _, at: at} = Worker.status(worker).last_action
     assert is_integer(at)
   end
 
@@ -229,13 +229,13 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     # game over: the catcher is event-driven — the next corpse event acts normally
     WorldState.forget(:mini_game)
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end
 
   @tag :tmp_dir
   test "relearn resets pending state", %{worker: worker} do
     world!(worker, corpses_obs([{160, 260}]))
-    assert_receive {:performed, :high, [{:capture_sequence, {160, 260}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {160, 260}} | _]}, 1_000
     assert Worker.status(worker).counters.throws == 1
 
     :ok = Worker.relearn(worker)
@@ -260,7 +260,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     # global Combat.Worker is idle in tests → seed is false → the gate is open again
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end
 
   @tag :tmp_dir
@@ -275,10 +275,10 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:performed, :high, loot_actions}, 1_000
     assert loot_actions == [{:press, "space"}, {:wait, 250}, {:press, "space"}]
 
-    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
     assert Worker.status(worker).counters.loots == 1
     # the ball lands after the loot, so it owns the pill's "última ação"
-    assert %{text: "bola arremessada", at: _} = Worker.status(worker).last_action
+    assert %{text: "bola arremessada" <> _, at: _} = Worker.status(worker).last_action
   end
 
   @tag :tmp_dir
@@ -290,7 +290,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
     assert_receive {:performed, :high, actions}, 1_000
-    assert actions == [{:capture_sequence, {130, 224}}]
+    assert [{:move, {130, 224}} | _] = actions
     assert Worker.status(worker).counters.loots == 0
   end
 
@@ -305,11 +305,11 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
     assert_receive {:performed, :high, [{:press, "space"} | _]}, 1_000
-    refute_receive {:performed, _, [{:capture_sequence, _} | _]}, 400
+    refute_receive {:performed, _, [{:move, _} | _]}, 400
 
     # a direct corpse event is also gated
     world!(worker, corpses_obs([{140, 230}]))
-    refute_receive {:performed, _, [{:capture_sequence, _} | _]}, 300
+    refute_receive {:performed, _, [{:move, _} | _]}, 300
   end
 
   @tag :tmp_dir
@@ -317,7 +317,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
 
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:capture_sequence, _}]}, 1_000
+    assert_receive {:performed, :high, [{:move, _} | _]}, 1_000
 
     assert %{varreduras: v, com_alvo: c} = Worker.status(worker).counters
     assert v > 0, "a varredura tem que ser contada"
@@ -330,7 +330,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     # primeiro uma bola no ar
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
     assert Worker.status(worker).pending_corpses == 1
 
     # agora a visão cega (motivo real do campo: o anel fora da arena)
@@ -350,6 +350,31 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     # a bola em voo NÃO virou "capturado" por causa de uma varredura que falhou
     assert Worker.status(worker).pending_corpses == 1
     assert Worker.status(worker).counters.cegas > 0
+  end
+
+  @tag :tmp_dir
+  test "portão fechado: a bola é SEGURADA, não contada — e a Logic nem sabe", %{worker: worker} do
+    # A lição que o cavebot já aprendeu: Rig.Mac.gated/1 devolve :ok quando
+    # SUPRIME. Agir e olhar o retorno depois faria a Logic contar uma bola que
+    # nunca saiu, gastar a fila e abrir janela de confirmação contra um corpo
+    # intocado. Perguntamos ao portão ANTES e pulamos o passo inteiro.
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+    Pokex.Bots.InputGate.set_focus_ok(false)
+    on_exit(fn -> Pokex.Bots.InputGate.set_focus_ok(true) end)
+
+    world!(worker, corpses_obs([{130, 224}]))
+
+    refute_receive {:performed, _p, [{:move, _} | _]}, 300
+    assert_log_eventually("SEGURADA")
+
+    # nenhuma bola contada, nenhuma fila gasta
+    assert Worker.status(worker).counters.throws == 0
+    assert Worker.status(worker).pending_corpses == 0
+
+    # e ao reabrir o portão, o mesmo corpo é arremessado normalmente
+    Pokex.Bots.InputGate.set_focus_ok(true)
+    world!(worker, corpses_obs([{130, 224}]))
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end
 
   @tag :tmp_dir
@@ -391,7 +416,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
                    1_000
 
     assert Worker.status(worker).counters.loots == 1
-    refute_receive {:performed, _p, [{:capture_sequence, _} | _]}, 300
+    refute_receive {:performed, _p, [{:move, _} | _]}, 300
   end
 
   @tag :tmp_dir
@@ -426,7 +451,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     # FIRST perform must be the Space loot; the ball comes on the disengage advance
     assert_receive {:performed, :high, [{:press, "space"} | _]}, 1_000
-    assert_receive {:performed, :high, [{:capture_sequence, {130, 224}}]}, 1_000
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end
 
   defp eventually(fun, timeout) do

@@ -137,6 +137,19 @@ defmodule Pokex.Settings do
     # ao redor dos N melhores picos. O score cai ~0,05 a cada 7px de
     # deslocamento (medido nas amostras do Lucas), então o refino é onde a
     # diferença entre 0,63 e 0,95 é recuperada. Passo grosso = meio tile.
+    # O ATALHO da Pokébola. Era "f1" cravado em Rig.Mac — a única tecla do bot
+    # que não era setting, e ela já mudou de mão uma vez sem o código
+    # acompanhar. `ball_needs_click` cobre a dúvida que só o jogo responde: se
+    # o atalho usa a bola direto ou arma uma mira que espera clique.
+    ball_key: "f1",
+    ball_needs_click: false,
+    # A batida entre posicionar o cursor e acionar o atalho. A vara tem a MESMA
+    # forma e usa 30ms (wait_after_equip_ms) — a bola não tinha batida nenhuma.
+    capture_aim_settle_ms: 30,
+    # Quanto o cursor fica parado no alvo depois do arremesso, antes de o Body
+    # devolvê-lo pro lugar do Lucas (restore_mouse_after_actions). Sem isso ele
+    # era puxado ~2ms depois da tecla.
+    capture_hold_ms: 120,
     corpse_scan_step_px: 44,
     corpse_scan_refine_px: 7,
     corpse_scan_refine_peaks: 4,
@@ -769,6 +782,8 @@ defmodule Pokex.Settings do
     corpse_sprite_box_px: 8..512,
     corpse_scan_radius_tiles: 1..8,
     corpse_scan_step_px: 2..256,
+    capture_aim_settle_ms: 0..5_000,
+    capture_hold_ms: 0..5_000,
     corpse_scan_refine_px: 1..64,
     corpse_scan_refine_peaks: 0..32,
     tick_ms_watching: 20..600_000,

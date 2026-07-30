@@ -157,6 +157,35 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:stepped, 90, 80}, 1_000
   end
 
+  test "passo em área PRETA do minimapa avisa no journal — e o passo acontece mesmo assim", %{
+    worker: worker,
+    tmp_dir: tmp
+  } do
+    # a escolha do Lucas (2026-07-30): área não descoberta = clica e SÓ avisa.
+    # O probe pós-clique lê um 3×3 no ponto; aqui a "tela" devolve preto puro.
+    dark =
+      Pokex.PngFixtures.write!(
+        Path.join(tmp, "dark.png"),
+        List.duplicate(List.duplicate({0, 0, 0, 255}, 3), 3)
+      )
+
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, dark}]})
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "cavebot")
+
+    route!()
+    assert :ok = Worker.run(worker)
+    minimap!({10, 20, 7})
+
+    send(worker, :tick)
+    assert_receive {:combat_cmd, :run}, 1_000
+
+    send(worker, :tick)
+    # o passo ACONTECEU (nunca é bloqueado pelo preto)...
+    assert_receive {:stepped, 90, 80}, 1_000
+    # ...e o aviso saiu
+    assert_receive {:cavebot_log, :macro, "caçada: 🕳️" <> _resto}, 1_000
+  end
+
   test "inimigos na tela: NÃO anda — a Logic cede a vez pra luta", %{worker: worker} do
     route!()
     :ok = Worker.run(worker)

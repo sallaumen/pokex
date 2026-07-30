@@ -47,33 +47,63 @@ defmodule Pokex.Bots.Body do
 
   def minimap_step(dx, dy, opts) when is_integer(dx) and is_integer(dy) do
     server = Keyword.get(opts, :server, __MODULE__)
+    calib = step_calib(opts)
 
-    case Pokex.Layout.region(:minimap_map, Keyword.get(opts, :layout) || Pokex.Layout.current()) do
-      nil ->
-        {:error, :no_layout}
+    with {x, y, w, h} <- calib && Pokex.Calibration.minimap_map_region(calib),
+         {px, py} <- Pokex.Calibration.minimap_player_point(calib) do
+      scale = Pokex.Settings.get(:minimap_px_per_tile)
+      # O passo parte da CRUZ do personagem (calibrada; fixa — o mapa desliza
+      # por baixo dela), não do centro geométrico do retângulo: um marcador
+      # fora do centro dava viés a TODO passo (Lucas, 2026-07-30). Sem cruz
+      # marcada, minimap_player_point/1 devolve o centro — o comportamento de
+      # sempre, agora como fallback em vez de dogma.
+      point = clamp({px + dx * scale, py + dy * scale}, {x, y, w, h})
 
-      {x, y, w, h} ->
-        scale = Pokex.Settings.get(:minimap_px_per_tile)
-        point = clamp({x + div(w, 2) + dx * scale, y + div(h, 2) + dy * scale}, {x, y, w, h})
+      # Rig.Mac.gated/1 SWALLOWS a suppressed input and answers `:ok` — the global
+      # contract every other worker relies on ("held for safety" is not an I/O
+      # failure). For walking that answer is a lie with teeth: the cavebot confirms
+      # each step by watching the position change, so a suppressed click reported as
+      # taken makes it believe in progress that never happened (2026-07-23: Iniciar
+      # was clicked in the BROWSER → game lost focus → gate shut → every step came
+      # back `:ok` → position frozen → `:stuck` → panic latch → whole fleet dead in
+      # silence). So we ask the gate ourselves and refuse out loud.
+      #
+      # Best effort by nature: the gate can still shut between this read and the
+      # click. That race costs one wasted step, not a false `:ok` every time.
+      if InputGate.allowed?() do
+        case perform([{:click, :left, point}], :normal, server) do
+          :ok -> {:ok, point}
+          error -> error
+        end
+      else
+        {:error, :input_gate_closed}
+      end
+    else
+      _sem_regiao -> {:error, :no_layout}
+    end
+  end
 
-        # Rig.Mac.gated/1 SWALLOWS a suppressed input and answers `:ok` — the global
-        # contract every other worker relies on ("held for safety" is not an I/O
-        # failure). For walking that answer is a lie with teeth: the cavebot confirms
-        # each step by watching the position change, so a suppressed click reported as
-        # taken makes it believe in progress that never happened (2026-07-23: Iniciar
-        # was clicked in the BROWSER → game lost focus → gate shut → every step came
-        # back `:ok` → position frozen → `:stuck` → panic latch → whole fleet dead in
-        # silence). So we ask the gate ourselves and refuse out loud.
-        #
-        # Best effort by nature: the gate can still shut between this read and the
-        # click. That race costs one wasted step, not a false `:ok` every time.
-        if InputGate.allowed?() do
-          case perform([{:click, :left, point}], :normal, server) do
-            :ok -> {:ok, point}
-            error -> error
-          end
-        else
-          {:error, :input_gate_closed}
+  # De onde vem a geometria do passo: a CALIBRAÇÃO (a mão manda nas regiões do
+  # minimapa desde o PR #119; recarregada do disco a cada passo, então uma
+  # recalibração vale sem restart — o mesmo contrato do PlayerSupport). O opt
+  # :calib injeta direto; o opt :layout (testes do passo) vira uma calibração
+  # só-layout SEM tocar no disco — um teste sem home_dir não pode cair no
+  # ~/.pokex real.
+  defp step_calib(opts) do
+    cond do
+      calib = Keyword.get(opts, :calib) ->
+        calib
+
+      Keyword.has_key?(opts, :layout) ->
+        %Pokex.Calibration{
+          scale: 1.0,
+          layout: Keyword.get(opts, :layout) || Pokex.Layout.current()
+        }
+
+      true ->
+        case Pokex.Calibration.load() do
+          {:ok, calib} -> calib
+          _sem_calibracao -> %Pokex.Calibration{scale: 1.0, layout: Pokex.Layout.current()}
         end
     end
   end

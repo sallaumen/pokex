@@ -117,7 +117,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     # o tmp deste teste não tem corpses.json: acervo vazio = captura cega
     :ok = Worker.run(worker)
 
-    assert_receive {:rule_alarm, msg}, 1_000
+    assert_receive {:rule_alarm, :captura, msg}, 1_000
     assert msg =~ "acervo de corpos VAZIO"
   end
 

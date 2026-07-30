@@ -248,7 +248,7 @@ defmodule Pokex.Bots.ShinyGuard do
           Phoenix.PubSub.broadcast(
             Pokex.PubSub,
             @combat_topic,
-            {:rule_alarm, reason <> " — bot parado, decida você"}
+            {:rule_alarm, :shiny, reason <> " — bot parado, decida você"}
           )
         else
           Logger.warning("ShinyGuard: #{reason} — fugindo pela escada")
@@ -258,7 +258,12 @@ defmodule Pokex.Bots.ShinyGuard do
 
       _alarme_ou_lutar ->
         Logger.warning("ShinyGuard: #{reason} — modo lutar, só alarmando")
-        Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, reason <> " — LUTA!"})
+
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @combat_topic,
+          {:rule_alarm, :shiny, reason <> " — LUTA!"}
+        )
     end
 
     Phoenix.PubSub.broadcast(

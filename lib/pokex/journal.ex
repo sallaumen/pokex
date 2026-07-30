@@ -109,6 +109,12 @@ defmodule Pokex.Journal do
       when log in [:fishing_log, :combat_log] and is_binary(text),
       do: {:noreply, record(state, source_of(log), :macro, text)}
 
+  # Categoria (2026-07-30, mudo por setor no header) — o journal registra o
+  # TEXTO igual; a categoria só decide se o painel TOCA o som, não se o fato
+  # entra na história.
+  def handle_info({:rule_alarm, _category, reason}, state),
+    do: {:noreply, record(state, :regra, :alarm, reason)}
+
   def handle_info({:rule_alarm, reason}, state),
     do: {:noreply, record(state, :regra, :alarm, reason)}
 

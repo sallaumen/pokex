@@ -5,6 +5,8 @@ defmodule PokexWeb.Layouts do
   """
   use PokexWeb, :html
 
+  alias Pokex.Bots.AlarmCategories
+
   # Embed all files in layouts/* within this module.
   # The default root.html.heex file contains the HTML
   # skeleton of your application, namely HTML headers
@@ -50,6 +52,11 @@ defmodule PokexWeb.Layouts do
   attr :bot_active?, :boolean, default: false, doc: "algum worker rodando (HeaderState)"
   attr :characters, :list, default: [], doc: "personagens cadastrados (HeaderState)"
   attr :active_character, :string, default: "", doc: "slug do personagem ativo (HeaderState)"
+  attr :alarm_sound, :boolean, default: true, doc: "som geral dos alarmes ligado (HeaderState)"
+
+  attr :alarm_muted_categories, :list,
+    default: [],
+    doc: "setores de alarme silenciados, como texto (HeaderState)"
 
   attr :max_width, :string,
     default: "max-w-3xl",
@@ -151,6 +158,68 @@ defmodule PokexWeb.Layouts do
               {if @bot_active?, do: "Ativo", else: "Parado"}
             </span>
 
+            <details id="app-alarm-menu" class="relative">
+              <summary
+                id="app-alarm-toggle"
+                class={[
+                  "grid size-8 cursor-pointer list-none place-items-center rounded-lg border transition [&::-webkit-details-marker]:hidden",
+                  if(@alarm_sound,
+                    do:
+                      "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white",
+                    else: "border-pk-warn-line bg-pk-warn-dim text-pk-warn"
+                  )
+                ]}
+                title={
+                  if @alarm_sound,
+                    do: "Som dos alarmes ligado — clique pra ajustar",
+                    else: "Som dos alarmes MUDO — clique pra reativar (o feed 🔔 continua registrando)"
+                }
+                aria-label="Configurar som dos alarmes"
+              >
+                <.icon
+                  name={if @alarm_sound, do: "hero-bell-alert", else: "hero-bell-slash"}
+                  class="size-4"
+                />
+              </summary>
+              <div class="absolute right-0 top-10 z-50 w-72 space-y-2 rounded-lg border border-pk-line-strong bg-pk-surface p-2 shadow-2xl shadow-black/50">
+                <button
+                  type="button"
+                  id="app-alarm-sound-toggle"
+                  phx-click="toggle_alarm_sound"
+                  class="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-pk-body text-pk-text hover:bg-pk-raised"
+                >
+                  <span class="font-semibold">Som geral</span>
+                  <span class={[
+                    "font-mono text-pk-meta",
+                    if(@alarm_sound, do: "text-pk-ok", else: "text-pk-warn")
+                  ]}>
+                    {if @alarm_sound, do: "ligado", else: "mudo"}
+                  </span>
+                </button>
+
+                <p class="px-2 text-pk-meta text-pk-text-3">
+                  Setores (o feed 🔔 sempre registra; isto só decide o SOM):
+                </p>
+
+                <div class="max-h-64 space-y-0.5 overflow-y-auto">
+                  <label
+                    :for={{key, label} <- AlarmCategories.all()}
+                    id={"app-alarm-category-#{key}"}
+                    class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-pk-body text-pk-text-2 hover:bg-pk-raised"
+                  >
+                    <input
+                      type="checkbox"
+                      phx-click="toggle_alarm_category"
+                      phx-value-category={key}
+                      checked={to_string(key) not in @alarm_muted_categories}
+                      class="checkbox checkbox-sm"
+                    />
+                    {label}
+                  </label>
+                </div>
+              </div>
+            </details>
+
             <details id="app-navigation" phx-update="ignore" class="group relative">
               <summary
                 id="app-navigation-toggle"
@@ -209,7 +278,15 @@ defmodule PokexWeb.Layouts do
   meio morto — sem personagem, ou com o pill congelado em "Parado".
   """
   def header(assigns),
-    do: Map.take(assigns, [:focused?, :bot_active?, :characters, :active_character])
+    do:
+      Map.take(assigns, [
+        :focused?,
+        :bot_active?,
+        :characters,
+        :active_character,
+        :alarm_sound,
+        :alarm_muted_categories
+      ])
 
   # o id vira DOM: `:fishing_lab` -> "app-nav-fishing-lab" (underscore em id de
   # markup é ruído, e um teste que faz `refute html =~ "mini_game"` acha o id)

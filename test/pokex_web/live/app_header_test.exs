@@ -37,6 +37,9 @@ defmodule PokexWeb.AppHeaderTest do
       assert has_element?(view, "#character-picker"), "#{path} não tem o personagem ativo"
       assert has_element?(view, "#app-bot-state"), "#{path} não diz se o bot roda ou está parado"
 
+      assert has_element?(view, "#app-alarm-toggle"),
+             "#{path} não tem o controle de som dos alarmes"
+
       assert has_element?(view, "#app-navigation-toggle"),
              "#{path} não tem a navegação"
 
@@ -206,5 +209,72 @@ defmodule PokexWeb.AppHeaderTest do
     # e o topo é a marca do software, não o nome da página
     assert html =~ "Pokex"
     assert has_element?(view, "#app-page-label")
+  end
+
+  describe "som dos alarmes (header, 2026-07-30)" do
+    # O pedido do Lucas: um botão "de forma geral" NO HEADER (visível em
+    # qualquer página) + poder configurar setor por setor — Shiny é o único
+    # que ele quer sempre ligado. O painel tinha um botão pequeno só de som
+    # geral; este substitui, e funciona em QUALQUER rota, não só no painel.
+    test "o som geral liga/desliga em qualquer página — a mesma configuração global", %{
+      conn: conn
+    } do
+      sound = Pokex.Settings.get(:alarm_sound)
+      on_exit(fn -> Pokex.Settings.put(:alarm_sound, sound) end)
+      Pokex.Settings.put(:alarm_sound, true)
+
+      {:ok, view, _html} = live(conn, "/pokedex")
+      assert has_element?(view, "#app-alarm-sound-toggle", "ligado")
+
+      view |> element("#app-alarm-sound-toggle") |> render_click()
+
+      assert has_element?(view, "#app-alarm-sound-toggle", "mudo")
+      refute Pokex.Settings.get(:alarm_sound)
+
+      view |> element("#app-alarm-sound-toggle") |> render_click()
+      assert has_element?(view, "#app-alarm-sound-toggle", "ligado")
+      assert Pokex.Settings.get(:alarm_sound)
+    end
+
+    test "um setor liga/desliga sozinho, sem tocar no som geral nem nos outros setores", %{
+      conn: conn
+    } do
+      muted = Pokex.Settings.get(:alarm_muted_categories)
+      on_exit(fn -> Pokex.Settings.put(:alarm_muted_categories, muted) end)
+      Pokex.Settings.put(:alarm_muted_categories, [])
+
+      {:ok, view, _html} = live(conn, "/world")
+
+      view
+      |> element("#app-alarm-category-estoque input")
+      |> render_click(%{"category" => "estoque"})
+
+      assert Pokex.Settings.get(:alarm_muted_categories) == ["estoque"]
+      refute has_element?(view, "#app-alarm-category-estoque input[checked]")
+      assert has_element?(view, "#app-alarm-category-shiny input[checked]")
+      assert Pokex.Settings.get(:alarm_sound)
+
+      # clicar de novo religa SÓ aquele setor
+      view
+      |> element("#app-alarm-category-estoque input")
+      |> render_click(%{"category" => "estoque"})
+
+      assert Pokex.Settings.get(:alarm_muted_categories) == []
+      assert has_element?(view, "#app-alarm-category-estoque input[checked]")
+    end
+
+    test "uma categoria desconhecida nunca é gravada — a fronteira do Settings continua valendo",
+         %{conn: conn} do
+      muted = Pokex.Settings.get(:alarm_muted_categories)
+      on_exit(fn -> Pokex.Settings.put(:alarm_muted_categories, muted) end)
+      Pokex.Settings.put(:alarm_muted_categories, [])
+
+      {:ok, view, _html} = live(conn, "/")
+
+      # dispara o evento diretamente com um valor que NÃO existe na lista fechada
+      render_click(view, "toggle_alarm_category", %{"category" => "invente-se"})
+
+      assert Pokex.Settings.get(:alarm_muted_categories) == []
+    end
   end
 end

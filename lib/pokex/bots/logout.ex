@@ -200,7 +200,7 @@ defmodule Pokex.Bots.Logout do
   defp do_action({:finish, {:failed, motivo}}, state) do
     texto = "logout FALHOU (#{motivo}) — #{state.logic.reason}"
     Logger.warning("Logout: #{texto}")
-    Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, "🚪 " <> texto})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :logout, "🚪 " <> texto})
     {:noreply, finish(state)}
   end
 

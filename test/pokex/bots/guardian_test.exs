@@ -290,11 +290,11 @@ defmodule Pokex.Bots.GuardianTest do
 
       start_guardian!(on_panic)
 
-      assert_receive {:rule_alarm, reason}, 1_000
+      assert_receive {:rule_alarm, :sessao, reason}, 1_000
       assert reason =~ "sem kills nem peixes há 1min"
 
       # firing re-armed the window — no second ring, and NEVER a fleet stop
-      refute_receive {:rule_alarm, _}, 150
+      refute_receive {:rule_alarm, _, _}, 150
       refute_receive :panicked, 10
     end
 
@@ -307,7 +307,7 @@ defmodule Pokex.Bots.GuardianTest do
       # the hook arrives BEFORE the first poll can fire the rule
       send(guardian, {:fishing, %{state: :watching, counters: %{hooked: 1}, error: nil}})
 
-      refute_receive {:rule_alarm, _}, 150
+      refute_receive {:rule_alarm, _, _}, 150
     end
 
     test "ação parar: estagnação derruba a frota pelo caminho do session_stop", %{

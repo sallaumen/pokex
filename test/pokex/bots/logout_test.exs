@@ -113,7 +113,7 @@ defmodule Pokex.Bots.LogoutTest do
     assert snap.error == :ainda_logado
     assert snap.attempt == 2
 
-    assert_receive {:rule_alarm, texto}, 1_000
+    assert_receive {:rule_alarm, :logout, texto}, 1_000
     assert texto =~ "logout"
   end
 
@@ -182,7 +182,7 @@ defmodule Pokex.Bots.LogoutTest do
     # e as teclas foram enviadas do mesmo jeito — só não dá pra AFIRMAR que
     # funcionaram; o alarme é que acorda o Lucas
     assert [{_actions, :critical} | _] = calls(ctx.body)
-    assert_receive {:rule_alarm, texto}, 1_000
+    assert_receive {:rule_alarm, :logout, texto}, 1_000
     assert texto =~ "sem_testemunha"
   end
 end

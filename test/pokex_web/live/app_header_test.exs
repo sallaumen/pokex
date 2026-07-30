@@ -122,6 +122,45 @@ defmodule PokexWeb.AppHeaderTest do
     end
   end
 
+  test "o ruído dos workers (logs/alarmes) NÃO derruba página nenhuma", %{conn: conn} do
+    # Com o bot pescando e qualquer outra tela aberta, os {:fishing_log, _, _}
+    # que viajam no MESMO tópico dos snapshots chegavam numa LiveView sem
+    # cláusula pra eles → FunctionClauseError derrubava a página (Lucas,
+    # 2026-07-30, na calibração). O hook do header — que foi quem assinou o
+    # tópico — agora engole o que a página não pediu.
+    ruido = [
+      {"fishing", {:fishing_log, :debug, "delay 532ms → kill corner — parado"}},
+      {"fishing", {:fishing_log, "legado de 2 elementos"}},
+      {"combat", {:combat_log, :macro, "combate: alvo na lista; Tab"}},
+      {"combat", {:rule_alarm, "🎣 3 arremessos sem NENHUMA bolha"}},
+      {"cavebot", {:cavebot_log, :macro, "caçada: passo"}},
+      {"cavebot", {:cavebot_alarm, "algo estranho"}}
+    ]
+
+    for {path, _page} <- @routes do
+      {:ok, view, _html} = live(conn, path)
+
+      for {topic, msg} <- ruido do
+        Phoenix.PubSub.broadcast(Pokex.PubSub, topic, msg)
+      end
+
+      # um snapshot depois do ruído prova que a view segue viva e processando
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        "fishing",
+        {:fishing, %{state: :pescando, counters: %{}, error: nil}}
+      )
+
+      assert eventually_renders(view, "Ativo"), "#{path} morreu com o ruído dos workers"
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        "fishing",
+        {:fishing, %{state: :idle, counters: %{}, error: nil}}
+      )
+    end
+  end
+
   @tag :tmp_dir
   test "trocar de personagem funciona FORA do painel", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

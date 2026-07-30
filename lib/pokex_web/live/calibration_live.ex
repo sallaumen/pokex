@@ -3,7 +3,7 @@ defmodule PokexWeb.CalibrationLive do
 
   alias Pokex.{Calibration, Home, Rig, Settings, Vision}
   alias Pokex.Bots.{Capture, SkillBar}
-  alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.Catcher.{CorpseLibrary, SpotScan}
   alias Pokex.Vision.Frame
 
   import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
@@ -354,21 +354,29 @@ defmodule PokexWeb.CalibrationLive do
 
   # -- corpos mapeados (o ensino que substitui a adivinhação da captura) -------
 
-  # Fotografa a ARENA (onde os corpos caem). A foto vai pro navegador; o clique
-  # do Lucas em cima do corpo vira recorte no evento seguinte.
+  # Fotografa EXATAMENTE a região que a busca varre (SpotScan.regiao/1). Usava
+  # `arena_region`, e isso quebrava o ensino desde que a busca virou o
+  # quadradão: um corpo caído perto do personagem — fora da arena estreita — não
+  # cabia na foto, então não dava nem pra clicar nele. O Lucas bateu de frente
+  # nisso tentando ensinar um Gyarados cortado na borda de baixo (2026-07-30).
+  # Ensinar e buscar têm que enxergar o MESMO pedaço de tela.
   def handle_event("corpse_shot", _params, socket) do
-    with {:ok, %Calibration{arena_region: region}} when is_tuple(region) <- Calibration.load(),
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, region} <- SpotScan.regiao(calib),
          {:ok, frame, _path} <- Capture.frame_with_path(region, "corpse_teach.png") do
       {:noreply,
        assign(socket,
-         corpse_shot: %{frame: frame, v: System.system_time(:millisecond)},
+         corpse_shot: %{frame: frame, v: System.system_time(:millisecond), regiao: region},
          corpse_crop: nil,
          corpse_msg: nil
        )}
     else
+      {:erro, motivo} ->
+        {:noreply, assign(socket, corpse_msg: {:error, foto_erro(motivo)})}
+
       _sem_calibracao_ou_captura ->
         {:noreply,
-         assign(socket, corpse_msg: {:error, "precisa da arena calibrada e da captura viva"})}
+         assign(socket, corpse_msg: {:error, "precisa de calibração e da captura viva"})}
     end
   end
 
@@ -531,6 +539,16 @@ defmodule PokexWeb.CalibrationLive do
   # LiveView sem cláusula pra uma mensagem que ela mesma pediu cai com
   # FunctionClauseError — a classe exata do PR #111, com o bot ligado.
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp foto_erro(:sem_ancora),
+    do: "marque o seu personagem na calibração (ou salve a resolução da tela) antes de ensinar"
+
+  defp foto_erro(:sem_tela), do: "a calibração não sabe o tamanho da tela — refaça o passo 1"
+
+  defp foto_erro(:quadro_pequeno_demais),
+    do: "o quadro da busca ficou menor que o recorte do corpo"
+
+  defp foto_erro(outro), do: "não deu pra fotografar: #{inspect(outro)}"
 
   # Hand focus back to whatever was frontmost before the baselines fronted the game.
   defp return_focus(socket) do
@@ -1443,15 +1461,24 @@ defmodule PokexWeb.CalibrationLive do
             <h2 class="font-semibold">Corpos mapeados (captura)</h2>
             <p class="mt-1 text-sm opacity-70">
               O acervo É a mira da captura: mate um monstro, deixe o corpo no chão,
-              fotografe a arena e clique EM CIMA do corpo. Só corpo conhecido recebe
-              Pokébola — sem nenhum corpo mapeado, a captura não mira nada. O log da
-              bola diz QUAL pokémon foi reconhecido.
+              fotografe e clique EM CIMA do corpo. A foto mostra <b>exatamente o
+              quadro que a busca varre</b> — o quadradão ao redor do seu personagem,
+              não a arena antiga. Só corpo conhecido recebe Pokébola; o log da bola
+              diz QUAL pokémon foi reconhecido, e o switch de cada corpo tira ele da
+              mira sem apagar as fotos.
             </p>
           </div>
 
           <button id="corpse-shot-btn" class="btn btn-sm" phx-click="corpse_shot">
-            📸 Fotografar arena
+            📸 Fotografar o quadro da busca
           </button>
+
+          <p :if={@corpse_shot[:regiao]} class="font-mono text-xs opacity-60">
+            quadro varrido: {elem(@corpse_shot.regiao, 2)}×{elem(@corpse_shot.regiao, 3)} pt em {elem(
+              @corpse_shot.regiao,
+              0
+            )},{elem(@corpse_shot.regiao, 1)}
+          </p>
 
           <p
             :if={@corpse_msg}

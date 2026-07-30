@@ -97,6 +97,22 @@ defmodule Pokex.Bots.Catcher.SpotScan do
     end
   end
 
+  @doc """
+  A região que a busca varre — a MESMA que a calibração precisa fotografar pra
+  ensinar um corpo.
+
+  Existe porque ensinar e buscar precisam enxergar o mesmo pedaço de tela. A
+  foto do ensino usava `arena_region` enquanto a busca já usava o quadradão:
+  um corpo caído perto do personagem (fora da arena) simplesmente não cabia na
+  foto, e o Lucas não conseguia clicar nele pra ensinar — visto ao vivo com um
+  Gyarados cortado na borda de baixo (2026-07-30).
+
+  `{:ok, {x, y, w, h}}` ou `{:erro, motivo}`.
+  """
+  def regiao(%Calibration{} = calib) do
+    with {:ok, centro} <- centro(calib), do: scan_region(centro, calib)
+  end
+
   # O centro da busca. O ponto marcado à mão manda; sem ele, o CENTRO DA TELA —
   # que na tela do Lucas cai a menos de meia casa do personagem real (medido:
   # (1720,720) contra (1688,697)). O fallback antigo era o centro da ARENA, que

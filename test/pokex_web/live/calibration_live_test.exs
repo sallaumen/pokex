@@ -530,14 +530,56 @@ defmodule PokexWeb.CalibrationLiveTest do
     end
 
     @tag :tmp_dir
-    test "fotografar sem arena calibrada explica em vez de quebrar", %{conn: conn, tmp_dir: tmp} do
+    test "fotografar sem calibração explica em vez de quebrar", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
       {:ok, view, _html} = live(conn, "/calibration")
       render_click(view, "corpse_shot")
 
-      assert render(view) =~ "precisa da arena calibrada"
+      assert render(view) =~ "precisa de calibração"
+    end
+
+    @tag :tmp_dir
+    test "a foto do ensino é o MESMO quadro que a busca varre", %{conn: conn, tmp_dir: tmp} do
+      # O bug que o Lucas bateu de frente (2026-07-30): a foto usava
+      # arena_region enquanto a busca já usava o quadradão. Um Gyarados caído
+      # perto dele ficava CORTADO na borda de baixo da foto — não dava nem pra
+      # clicar em cima pra ensinar. Ensinar e buscar têm que ver o mesmo pedaço.
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      # arena ESTREITA e ACIMA do personagem — a calibração real dele
+      calib = %Pokex.Calibration{
+        scale: 1.0,
+        screen_w: 3440,
+        screen_h: 1440,
+        water_point: {1, 1},
+        glow_region: {0, 0, 8, 8},
+        battle_region: {3173, 403, 261, 380},
+        arena_region: {1227, 217, 1111, 425},
+        neutral_point: {500, 500},
+        player_point: {1688, 697}
+      }
+
+      Pokex.Calibration.save(calib)
+      {:ok, esperada} = Pokex.Bots.Catcher.SpotScan.regiao(calib)
+
+      {:ok, _} = Pokex.Rig.Fake.start_link(%{})
+      {:ok, view, _html} = live(conn, "/calibration")
+      render_click(view, "corpse_shot")
+
+      # a foto pedida é a região da BUSCA, não a arena
+      assert {:capture, ^esperada, "corpse_teach.png"} =
+               Enum.find(Pokex.Rig.Fake.calls(), &match?({:capture, _, "corpse_teach.png"}, &1))
+
+      refute esperada == calib.arena_region
+
+      # e o quadro fotografado CONTÉM o personagem (a arena antiga não continha)
+      {rx, ry, rw, rh} = esperada
+      {px, py} = calib.player_point
+      assert px > rx and px < rx + rw
+      assert py > ry and py < ry + rh
     end
 
     @tag :tmp_dir

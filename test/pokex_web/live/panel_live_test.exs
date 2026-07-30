@@ -218,6 +218,33 @@ defmodule PokexWeb.PanelLiveTest do
       assert has_element?(view, "#escape-cfg-form")
     end
 
+    test "o dashboard ficou só com operação; a configuração toda está no ⚙️", %{conn: conn} do
+      {:ok, dash, _html} = live(conn, ~p"/")
+
+      # o que se olha COM O BOT RODANDO ficou
+      assert has_element?(dash, ~s([data-testid="fishing-pill"]))
+      assert has_element?(dash, "#quick-toggles")
+      assert has_element?(dash, "#session-duration") or render(dash) =~ "Sessão"
+      assert has_element?(dash, "#world-card")
+
+      # o que se ajusta uma vez, não
+      refute has_element?(dash, "#presets-card")
+      refute has_element?(dash, "#combos-card")
+      refute has_element?(dash, "#shiny-guard-card")
+      refute has_element?(dash, "#advanced-panel")
+      refute has_element?(dash, "#stop-conditions-form")
+
+      {:ok, cfg, _html} = live(conn, ~p"/config")
+
+      assert has_element?(cfg, "#presets-card")
+      assert has_element?(cfg, "#combos-card")
+      assert has_element?(cfg, "#shiny-guard-card")
+      assert has_element?(cfg, "#advanced-panel")
+      assert has_element?(cfg, "#stop-conditions-form")
+      # e o relógio da sessão NÃO foi junto: ele é operação
+      assert has_element?(cfg, "#quick-toggles")
+    end
+
     test "no dashboard puro o overlay não existe", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
@@ -258,7 +285,7 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   test "a fishing broadcast updates only the fishing pill", %{conn: conn} do
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     snapshot = %{
       state: :watching,
@@ -471,7 +498,7 @@ defmodule PokexWeb.PanelLiveTest do
     File.mkdir_p!("/tmp/fake")
     File.cp!("test/fixtures/battle/shiny_star_list.png", "/tmp/fake/shiny_probe.png")
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     view |> element(~s(input[phx-click="toggle_shiny_guard"])) |> render_click()
     refute Pokex.Settings.get(:shiny_guard_enabled) == enabled
@@ -531,7 +558,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.Settings.put(:stagnation_action, action)
     end)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     view
     |> form("#stagnation-form", %{"stagnation_minutes" => "10", "stagnation_action" => "parar"})
@@ -550,7 +577,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.Settings.put(:stop_after_kills, kills)
     end)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     view
     |> form("#stop-conditions-form", %{"stop_minutes" => "120", "stop_kills" => "200"})
@@ -874,7 +901,7 @@ defmodule PokexWeb.PanelLiveTest do
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
     save_calibration()
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
     assert has_element?(view, ~s(button[phx-click="export_diagnostic"]))
     assert has_element?(view, ~s(button[phx-value-region="battle"]))
     assert has_element?(view, ~s(button[phx-value-region="screen"]))
@@ -905,7 +932,7 @@ defmodule PokexWeb.PanelLiveTest do
         capture_screen: [{:ok, png!(tmp, "scr.png", 60, 40, {0, 0, 0})}]
       })
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
     view |> element(~s(button[phx-click="export_diagnostic"])) |> render_click()
 
     html = render(view)
@@ -947,7 +974,7 @@ defmodule PokexWeb.PanelLiveTest do
     keys = Pokex.Settings.get(:hook_skill_keys)
     on_exit(fn -> Pokex.Settings.put(:hook_skill_keys, keys) end)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     # save captures the CURRENT settings under the Pokémon's name
     Pokex.Settings.put(:hook_skill_keys, ["8", "9"])
@@ -1137,7 +1164,7 @@ defmodule PokexWeb.PanelLiveTest do
     threshold = Pokex.Settings.get(:glow_threshold)
     on_exit(fn -> Pokex.Settings.put(:glow_threshold, threshold) end)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
     view |> form("#threshold-form", %{"threshold" => "21.5"}) |> render_submit()
     assert Pokex.Settings.get(:glow_threshold) == 21.5
   end
@@ -1155,7 +1182,7 @@ defmodule PokexWeb.PanelLiveTest do
     Pokex.SettingsStash.stash_keys!(keys)
     original_streak = Pokex.Settings.get(:target_lost_streak)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     view
     |> form("#timing-form", %{
@@ -1179,7 +1206,7 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   test "capture metrics block reports the backend on demand", %{conn: conn} do
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     html = view |> element(~s(button[phx-click="read_capture_stats"])) |> render_click()
     assert html =~ "backend:"
@@ -1400,7 +1427,7 @@ defmodule PokexWeb.PanelLiveTest do
         %{slot: 5, name: "Wigglytuff", present?: true, hp_pct: 1.0}
       ])
 
-      {:ok, view, _} = live(conn, ~p"/")
+      {:ok, view, _} = live(conn, ~p"/config")
 
       assert has_element?(view, "#combos-card")
       assert render(view) =~ "sing"
@@ -1411,7 +1438,7 @@ defmodule PokexWeb.PanelLiveTest do
     test "criar um combo usa o time lido da tela e ele passa a valer", %{conn: conn} do
       team_on_screen([%{slot: 5, name: "Wigglytuff", present?: true, hp_pct: 1.0}])
 
-      {:ok, view, _} = live(conn, ~p"/")
+      {:ok, view, _} = live(conn, ~p"/config")
 
       # o editor de 2026-07-30: passos livres, um de cada vez
       view
@@ -1446,7 +1473,7 @@ defmodule PokexWeb.PanelLiveTest do
     test "um combo pode valer só numa dungeon, e a linha mostra qual", %{conn: conn} do
       team_on_screen([%{slot: 5, name: "Wigglytuff", present?: true, hp_pct: 1.0}])
 
-      {:ok, view, _} = live(conn, ~p"/")
+      {:ok, view, _} = live(conn, ~p"/config")
 
       view
       |> element("#combo-form")
@@ -1467,7 +1494,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     test "excluir tira o combo da lista", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/")
+      {:ok, view, _} = live(conn, ~p"/config")
 
       view |> element(~s([phx-click="delete_combo"][phx-value-name="sing"])) |> render_click()
 
@@ -1476,7 +1503,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     # The whole point: "liguei os combos e não aconteceu nada" gets an answer.
     test "uma recusa transmitida aparece no painel em português", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/")
+      {:ok, view, _} = live(conn, ~p"/config")
 
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
@@ -1491,7 +1518,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     test "um passo de espera mostra os milissegundos, não o nome da setting", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/")
+      {:ok, view, _} = live(conn, ~p"/config")
 
       # "espera combo_swap_wait_ms" is an internal name printed on his screen, and
       # it does not answer the only question the chip exists to answer: how long?
@@ -1749,7 +1776,7 @@ defmodule PokexWeb.PanelLiveTest do
       # O bug de 2026-07-30: os campos não tinham valor no servidor e o painel
       # re-renderiza a cada snapshot (~10×/s) — tudo que ele digitava sumia ao
       # sair do campo. Este teste É o bug: escrever, receber um snapshot, olhar.
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       view |> element("#combo-form") |> render_change(%{"name" => "resgate"})
       assert has_element?(view, ~s(#combo-name[value="resgate"]))
@@ -1767,7 +1794,7 @@ defmodule PokexWeb.PanelLiveTest do
     test "monta a sequência livre que antes era impossível (skill 1 → espera → skill 2)", %{
       conn: conn
     } do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       view
       |> element("#combo-form")
@@ -1790,7 +1817,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     test "um passo pode ser removido antes de salvar", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       add_step(view, "skill", "9")
       assert render(view) =~ "skill 9"
@@ -1800,7 +1827,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     test "passo inválido (skill sem tecla, espera sem número) não entra", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       add_step(view, "skill", "")
       add_step(view, "wait", "logo ali")
@@ -1809,7 +1836,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     test "combo sem passo nenhum não é salvo", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       view |> element("#combo-form") |> render_change(%{"name" => "vazio"})
       view |> element("#combo-form") |> render_submit(%{})
@@ -1837,7 +1864,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     test "o botão 'Deslogar agora' existe e clicar nele não derruba a página", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       assert has_element?(view, ~s(button[phx-click="logout_now"]))
 
@@ -1849,7 +1876,7 @@ defmodule PokexWeb.PanelLiveTest do
     test "o painel mostra o desfecho do logout, e uma mensagem estranha não o derruba", %{
       conn: conn
     } do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       send(
         view.pid,
@@ -1890,14 +1917,14 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     test "os dois seletores de ação oferecem deslogar", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       assert has_element?(view, ~s(select#stagnation-action option[value="deslogar"]))
       assert has_element?(view, ~s(select#stop-after-action option[value="deslogar"]))
     end
 
     test "escolher deslogar nos dois seletores grava o ajuste", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       view
       |> element("#stagnation-form")

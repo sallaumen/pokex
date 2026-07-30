@@ -1929,6 +1929,472 @@ defmodule PokexWeb.PanelLive do
   defp catcher_captures(catcher), do: get_in(catcher, [:counters, :captures]) || 0
   defp catcher_loots(catcher), do: get_in(catcher, [:counters, :loots]) || 0
 
+  # As seções que MUDARAM DE LUGAR no PR 2 (2026-07-30): combos, presets, shiny,
+  # as regras de sessão e o avançado saíram do dashboard e agora moram dentro do
+  # ⚙️. A markup é a MESMA — mesmos eventos, mesmos assigns — só que atrás de um
+  # clique em vez de empilhada sobre o que ele olha com o bot rodando. Da Sessão
+  # migraram só os FORMULÁRIOS: o relógio, as taxas e os contadores continuam no
+  # dashboard, porque são exatamente o que se olha rodando.
+  #
+  # Recebe os assigns inteiros do painel (`{assigns}`): declarar ~25 attrs aqui
+  # seria cerimônia sem leitor, e nenhum deles muda de significado no caminho.
+  defp settings_sections(assigns) do
+    ~H"""
+    <div class="space-y-3">
+      <PokexWeb.Panel.CombosCard.combos_card
+        combos={@combos}
+        enabled={@combos_enabled}
+        skip={@combo_skip}
+        team={team_names(@world)}
+        draft={@combo_draft}
+        rescue_combo={@rescue_combo}
+      />
+
+      <section id="presets-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
+        <div class="flex items-center justify-between text-pk-body font-semibold">
+          <span>Presets por Pokémon</span>
+          <span class="font-mono text-pk-meta text-pk-text-3">skills · bolas · suporte</span>
+        </div>
+        <p class="mt-1 text-pk-body leading-tight text-pk-text-2">
+          Salva o conjunto atual de skills, captura e suporte com o nome do Pokémon —
+          trocar de Pokémon vira um clique.
+        </p>
+        <form id="preset-save-form" phx-submit="save_preset" class="mt-2 flex gap-2">
+          <input
+            name="name"
+            placeholder="ex.: charizard"
+            class="input input-bordered h-9 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
+          />
+          <button class="btn h-9 border border-pk-ok-line bg-transparent px-4 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim">
+            Salvar preset
+          </button>
+        </form>
+        <p :if={@preset_msg} id="preset-msg" class="mt-2 text-pk-body text-pk-warn">
+          {@preset_msg}
+        </p>
+        <ul
+          :if={@presets != []}
+          id="preset-list"
+          class="mt-2 divide-y divide-pk-line overflow-hidden rounded-lg border border-pk-line"
+        >
+          <li
+            :for={preset <- @presets}
+            class="flex items-center gap-2 bg-pk-sunken px-3 py-2"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-pk-title font-semibold text-pk-text">{preset.slug}</p>
+              <p class="truncate font-mono text-pk-meta text-pk-text-3">
+                {preset_summary(preset)}
+              </p>
+            </div>
+            <button
+              phx-click="apply_preset"
+              phx-value-slug={preset.slug}
+              class="btn btn-xs h-7 border border-pk-ok-line bg-transparent px-3 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim"
+            >
+              Aplicar
+            </button>
+            <button
+              phx-click="delete_preset"
+              phx-value-slug={preset.slug}
+              data-confirm={"Excluir o preset \"#{preset.slug}\"?"}
+              class="btn btn-xs h-7 border border-pk-danger-line bg-transparent px-2 text-pk-body text-pk-danger hover:bg-pk-danger-dim"
+            >
+              Excluir
+            </button>
+          </li>
+        </ul>
+      </section>
+
+      <section id="shiny-guard-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
+        <div class="flex min-h-10 items-center gap-3">
+          <div class="min-w-0 flex-1">
+            <p class="text-pk-title font-semibold text-pk-text">Guarda anti-shiny ✨</p>
+            <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">
+              vê a ESTRELA dourada que a lista de batalha põe no shiny — vale pra
+              QUALQUER shiny, e a bola sempre voa (mesmo com captura desligada)
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            class="toggle toggle-success toggle-sm shrink-0"
+            checked={@shiny_guard_enabled}
+            phx-click="toggle_shiny_guard"
+          />
+        </div>
+
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <form
+            id="shiny-cfg-form"
+            phx-change="save_shiny_cfg"
+            class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
+          >
+            <span>ao ver →</span>
+            <select
+              id="shiny-action"
+              name="shiny_action"
+              aria-label="O que fazer ao ver um shiny"
+              class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            >
+              <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
+              <option value="alarme" selected={@shiny_action == "alarme"}>
+                lutar (só alarme) ⚔️
+              </option>
+            </select>
+          </form>
+
+          <div class="flex min-w-[9rem] flex-1 items-center gap-2">
+            <span class={[
+              "font-mono text-pk-title font-bold tabular-nums",
+              shiny_px_class(@shiny_star_run, @shiny_star_min_columns)
+            ]}>
+              {shiny_px_label(@shiny_star_run)}<span class="text-pk-meta font-normal text-pk-text-3">/{@shiny_star_min_columns} col</span>
+            </span>
+            <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-pk-line">
+              <div
+                class={[
+                  "h-full rounded-full transition-[width]",
+                  case shiny_zone(@shiny_star_run, @shiny_star_min_columns) do
+                    :hit -> "bg-pk-danger"
+                    :warn -> "bg-pk-warn"
+                    :safe -> "bg-pk-ok"
+                    :none -> "bg-pk-line-strong"
+                  end
+                ]}
+                style={"width: #{shiny_bar_pct(@shiny_star_run, @shiny_star_min_columns)}%"}
+              />
+            </div>
+          </div>
+
+          <button
+            id="shiny-probe"
+            type="button"
+            phx-click="shiny_probe"
+            title="lê a lista de batalha AGORA e mostra a pontuação da estrela por linha — sem shiny na lista tudo deve ler 0px"
+            class="btn btn-xs h-6 shrink-0 border border-pk-line-strong bg-transparent px-2 text-pk-meta text-pk-text-2 hover:text-white"
+          >
+            🔬 Sonda
+          </button>
+        </div>
+
+        <p :if={@shiny_msg} id="shiny-msg" class="mt-1 font-mono text-pk-meta text-pk-warn">
+          {@shiny_msg}
+        </p>
+
+        <div :if={@shiny_log != []} id="shiny-log" class="mt-2">
+          <div class="flex items-center justify-between">
+            <p class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-[#c9a227]">
+              ✨ shinies encontrados ({length(@shiny_log)})
+            </p>
+            <button
+              phx-click="shiny_log_clear"
+              data-confirm="Apagar o registro de shinies encontrados?"
+              class="cursor-pointer font-mono text-pk-meta text-pk-text-3 hover:text-pk-danger"
+            >
+              limpar
+            </button>
+          </div>
+          <ul class="mt-1 space-y-0.5">
+            <li
+              :for={entry <- Enum.take(@shiny_log, 5)}
+              class="flex items-center gap-2 rounded border border-[#3a3320] bg-[#181509] px-2 py-1 font-mono text-pk-meta"
+            >
+              <span class="text-[#c9a227]">✨</span>
+              <span class="text-[#a8b0b7]">{shiny_log_when(entry)}</span>
+              <span class={[
+                "rounded px-1",
+                case entry.outcome do
+                  "morto" -> "bg-pk-danger-dim text-pk-danger"
+                  "bola" -> "bg-[#101d24] text-[#7cc0e8]"
+                  "fugiu" -> "bg-pk-warn-dim text-pk-warn"
+                  _visto -> "bg-pk-raised text-pk-text-2"
+                end
+              ]}>
+                {entry.outcome}
+              </span>
+              <span class="text-pk-text-3">{entry.star_px}px · {entry.action}</span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <div class="mb-2 px-0.5">
+          <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+            Sessão &amp; segurança
+          </h2>
+          <p class="text-pk-body leading-tight text-pk-text-2">
+            Quando parar sozinho, o que fazer ao estagnar e como deslogar.
+          </p>
+        </div>
+        <form
+          id="stop-conditions-form"
+          phx-change="save_stop_conditions"
+          title="Condições de parada: ao bater o limite, TUDO para (como o Stop) e o alarme toca; nada religa até você apertar Iniciar. 0 = nunca."
+          class="mt-1.5 flex items-center gap-1 px-0.5 font-mono text-pk-meta text-pk-text-3"
+        >
+          <span>🛑 parar após</span>
+          <input
+            id="stop-minutes"
+            name="stop_minutes"
+            type="number"
+            min="0"
+            max="999"
+            value={@stop_after_minutes}
+            phx-debounce="500"
+            class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+          />
+          <span>min ·</span>
+          <input
+            id="stop-kills"
+            name="stop_kills"
+            type="number"
+            min="0"
+            max="9999"
+            value={@stop_after_kills}
+            phx-debounce="500"
+            class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+          />
+          <span>kills (0 = nunca) →</span>
+          <select
+            id="stop-after-action"
+            name="stop_after_action"
+            class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+          >
+            <option value="parar" selected={@stop_after_action == "parar"}>parar tudo</option>
+            <option value="deslogar" selected={@stop_after_action == "deslogar"}>
+              deslogar
+            </option>
+          </select>
+        </form>
+        <form
+          id="stagnation-form"
+          phx-change="save_stagnation"
+          title="Anti-estagnação: sessão rodando mas sem NENHUM kill nem peixe (minigame vencido) pela janela toda = bot travado. Fisgada não conta enquanto o vigia do minigame está ligado: com o minigame travado a vara fisga a noite toda sem pegar nada. Alarme re-toca a cada janela; Parar usa a trava do Stop; Deslogar encerra a conta — o único que economiza estamina."
+          class="mt-1 flex items-center gap-1 px-0.5 font-mono text-pk-meta text-pk-text-3"
+        >
+          <span>😴 sem atividade por</span>
+          <input
+            id="stagnation-minutes"
+            name="stagnation_minutes"
+            type="number"
+            aria-label="Minutos sem progresso até agir"
+            min="0"
+            max="999"
+            value={@stagnation_minutes}
+            phx-debounce="500"
+            class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+          />
+          <span>min →</span>
+          <select
+            id="stagnation-action"
+            name="stagnation_action"
+            class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+          >
+            <option value="alarme" selected={@stagnation_action == "alarme"}>alarme</option>
+            <option value="parar" selected={@stagnation_action == "parar"}>parar tudo</option>
+            <option value="deslogar" selected={@stagnation_action == "deslogar"}>
+              deslogar
+            </option>
+          </select>
+        </form>
+        <div class="mt-1 flex items-center gap-2 px-0.5">
+          <button
+            type="button"
+            phx-click="logout_now"
+            title="Encerra a sessão no jogo (Ctrl+Q + Enter), para tudo e confere na tela se saiu mesmo. Parar o bot não economiza estamina; deslogar economiza."
+            class="h-6 shrink-0 rounded border border-pk-line-strong px-2 font-mono text-pk-meta text-pk-text-2 hover:border-pk-warn hover:text-pk-warn focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-pk-warn"
+          >
+            🚪 Deslogar agora
+          </button>
+          <span class="truncate font-mono text-pk-meta text-pk-text-3">
+            {logout_label(@logout)}
+          </span>
+        </div>
+      </section>
+
+      <details
+        id="advanced-panel"
+        class="group overflow-hidden rounded-lg border border-pk-line bg-pk-sunken"
+      >
+        <summary class="flex h-11 cursor-pointer list-none items-center justify-between px-3 text-pk-body font-semibold [&::-webkit-details-marker]:hidden">
+          <span class="flex items-center gap-2"><.icon
+            name="hero-wrench-screwdriver"
+            class="size-3.5 text-pk-text-3"
+          /> Avançado &amp; calibragem</span><.icon
+            name="hero-chevron-down"
+            class="size-3.5 text-pk-text-3 transition group-open:rotate-180"
+          />
+        </summary>
+        <div class="space-y-5 border-t border-pk-line p-3">
+          <section>
+            <div class="flex items-center justify-between">
+              <h3 class="text-pk-body font-semibold">Captura de tela</h3><button
+                class="flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 font-mono text-pk-meta text-pk-text-2 hover:text-white"
+                phx-click="read_capture_stats"
+              ><.icon name="hero-arrow-path" class="size-3" /> Medir</button>
+            </div>
+            <div :if={@capture_info} class="mt-2 space-y-1 font-mono text-pk-meta">
+              <p class="text-pk-text-2">
+                backend:
+                <span class={
+                  if @capture_info.backend.backend == :screen_capture_kit,
+                    do: "text-pk-ok",
+                    else: "text-[#e0b43d]"
+                }>
+                  {if @capture_info.backend.backend == :screen_capture_kit,
+                    do: "ScreenCaptureKit (rápido)",
+                    else: "screencapture CLI (lento — fallback)"}
+                </span>
+                <span :if={@capture_info.backend.recovering?} class="text-pk-text-3">
+                  · tentando recuperar o SCK…
+                </span>
+              </p>
+              <p :if={@capture_info.stats == []} class="text-pk-text-3">
+                sem capturas na última janela — ligue um bot e clique Medir de novo
+              </p>
+              <p :for={{key, stat} <- @capture_info.stats} class="text-pk-text-3">
+                {String.replace_prefix(key, "capture.", "")} · n={stat.count}
+                <span :if={stat.total > 0}>
+                  avg={Float.round(stat.total / stat.count, 1)}ms max={stat.max}ms
+                </span>
+              </p>
+            </div>
+          </section>
+
+          <section class="grid gap-4 border-t border-pk-line pt-4">
+            <div>
+              <h3 class="text-pk-body font-semibold">Sensibilidade do brilho</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
+                Valor sugerido pela calibração.
+              </p><form id="threshold-form" phx-submit="save_threshold" class="mt-2 flex gap-2">
+                <input
+                  name="threshold"
+                  value={@threshold}
+                  placeholder="sugerido"
+                  class="input input-bordered h-10 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
+                /><button class="btn btn-outline h-10 border-[#303940] px-4 text-pk-body">Salvar</button>
+              </form>
+            </div>
+            <div>
+              <h3 class="text-pk-body font-semibold">Ordem das skills</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
+                Prioridade de ataque, as mais fortes primeiro.
+              </p><form id="skills-form" phx-submit="save_skills" class="mt-2 flex gap-2">
+                <input
+                  name="skills"
+                  value={@skill_order}
+                  placeholder="1 2 3"
+                  class="input input-bordered h-10 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
+                /><button class="btn btn-outline h-10 border-[#303940] px-4 text-pk-body">Salvar</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="border-t border-pk-line pt-4">
+            <h3 class="text-pk-body font-semibold">Timing do combate</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
+              Ajuste fino da velocidade de busca e de morte.
+            </p>
+            <form
+              id="timing-form"
+              phx-submit="save_timing"
+              class="mt-3 grid grid-cols-2 gap-2.5"
+            >
+              <label
+                :for={{key, label, _hint} <- timing_fields()}
+                class="block font-mono text-pk-meta text-pk-text-3"
+              ><span>{label}</span><input
+                type="number"
+                min={if(positive_timing_key?(key), do: "1", else: "0")}
+                name={key}
+                value={@timing[key]}
+                class="input input-bordered mt-1 h-9 w-full bg-pk-bg font-mono text-pk-body"
+              /></label>
+              <button class="col-span-2 mt-1 h-10 rounded-lg bg-pk-ok text-pk-body font-bold text-pk-bg hover:bg-pk-ok">Salvar timing</button>
+            </form>
+          </section>
+
+          <section :if={@calibrated?} class="border-t border-pk-line pt-4">
+            <h3 class="text-pk-body font-semibold">Prints &amp; diagnóstico</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
+              Gera um JSON com tudo que o bot enxerga para diagnosticar sem foto.
+            </p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <button
+                :for={
+                  {label, region} <- [
+                    {"Tela cheia", "screen"},
+                    {"Água", "glow"},
+                    {"Batalha", "battle"},
+                    {"Arena", "arena"},
+                    {"Skills", "skills"}
+                  ]
+                }
+                class="h-8 rounded-lg border border-[#2b353b] px-3 text-pk-meta text-[#a3abb1] hover:border-pk-ok/60"
+                phx-click="shot"
+                phx-value-region={region}
+              >{label}</button>
+            </div>
+            <button
+              class="mt-3 h-10 w-full rounded-lg border border-[#30cf75] text-pk-body font-bold text-[#38dc80] hover:bg-pk-ok-dim"
+              phx-click="export_diagnostic"
+            >Exportar diagnóstico (JSON)</button>
+            <figure :if={@capture_src} class="mt-3">
+              <figcaption class="mb-1 text-pk-meta text-pk-text-3">{@capture_label}</figcaption><img
+                src={@capture_src}
+                class="max-h-64 rounded-lg border border-[#283138]"
+              />
+            </figure>
+            <p
+              :if={@capture_label && is_nil(@capture_src)}
+              class="mt-2 text-pk-meta text-[#ff929b]"
+            >
+              {@capture_label}
+            </p>
+            <div
+              :if={@report}
+              class="mt-3 rounded-lg border border-[#263038] bg-pk-bg p-3 text-pk-meta text-pk-text-2"
+            >
+              <div class="flex justify-between">
+                <span class="font-semibold text-pk-ok">{@report_msg}</span><a
+                  :if={@report_src}
+                  href={@report_src}
+                  download
+                  class="text-pk-ok underline"
+                >baixar JSON</a>
+              </div>
+              <% matrix = gi(@report, [:regions, :battle_body, :matrix]) %>
+              <div :if={matrix} class="mt-3">
+                <p class="mb-1">matriz do painel Batalha ({matrix.cols}×{matrix.rows})</p><div
+                  class="inline-grid gap-px rounded border border-[#263038] bg-black p-1"
+                  style={"grid-template-columns: repeat(#{matrix.cols}, 8px)"}
+                >
+                  <div
+                    :for={cell <- List.flatten(matrix.cells)}
+                    class="size-2"
+                    style={cell_style(cell)}
+                    title={to_string(cell.class)}
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <nav class="grid grid-cols-3 gap-2 border-t border-pk-line pt-4 text-center text-pk-meta">
+            <.link
+              navigate={~p"/calibration"}
+              class="rounded-lg border border-pk-line-strong px-2 py-2 hover:text-pk-ok"
+            >Calibração</.link><.link
+              navigate={~p"/diagnostics"}
+              class="rounded-lg border border-pk-line-strong px-2 py-2 hover:text-pk-ok"
+            >Diagnóstico</.link><.link
+              navigate={~p"/fishing-lab"}
+              class="rounded-lg border border-pk-line-strong px-2 py-2 hover:text-pk-ok"
+            >Laboratório</.link>
+          </nav>
+        </div>
+      </details>
+    </div>
+    """
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -2292,62 +2758,6 @@ defmodule PokexWeb.PanelLive do
           </div>
 
           <div class="min-w-0 space-y-3">
-            <section id="presets-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
-              <div class="flex items-center justify-between text-pk-body font-semibold">
-                <span>Presets por Pokémon</span>
-                <span class="font-mono text-pk-meta text-pk-text-3">skills · bolas · suporte</span>
-              </div>
-              <p class="mt-1 text-pk-body leading-tight text-pk-text-2">
-                Salva o conjunto atual de skills, captura e suporte com o nome do Pokémon —
-                trocar de Pokémon vira um clique.
-              </p>
-              <form id="preset-save-form" phx-submit="save_preset" class="mt-2 flex gap-2">
-                <input
-                  name="name"
-                  placeholder="ex.: charizard"
-                  class="input input-bordered h-9 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
-                />
-                <button class="btn h-9 border border-pk-ok-line bg-transparent px-4 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim">
-                  Salvar preset
-                </button>
-              </form>
-              <p :if={@preset_msg} id="preset-msg" class="mt-2 text-pk-body text-pk-warn">
-                {@preset_msg}
-              </p>
-              <ul
-                :if={@presets != []}
-                id="preset-list"
-                class="mt-2 divide-y divide-pk-line overflow-hidden rounded-lg border border-pk-line"
-              >
-                <li
-                  :for={preset <- @presets}
-                  class="flex items-center gap-2 bg-pk-sunken px-3 py-2"
-                >
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate text-pk-title font-semibold text-pk-text">{preset.slug}</p>
-                    <p class="truncate font-mono text-pk-meta text-pk-text-3">
-                      {preset_summary(preset)}
-                    </p>
-                  </div>
-                  <button
-                    phx-click="apply_preset"
-                    phx-value-slug={preset.slug}
-                    class="btn btn-xs h-7 border border-pk-ok-line bg-transparent px-3 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim"
-                  >
-                    Aplicar
-                  </button>
-                  <button
-                    phx-click="delete_preset"
-                    phx-value-slug={preset.slug}
-                    data-confirm={"Excluir o preset \"#{preset.slug}\"?"}
-                    class="btn btn-xs h-7 border border-pk-danger-line bg-transparent px-2 text-pk-body text-pk-danger hover:bg-pk-danger-dim"
-                  >
-                    Excluir
-                  </button>
-                </li>
-              </ul>
-            </section>
-
             <section class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <div class="flex items-center justify-between text-pk-body font-semibold">
                 <span>Vida do Pokémon principal</span><span class="font-mono text-pk-ok">{hp_label(
@@ -2535,127 +2945,6 @@ defmodule PokexWeb.PanelLive do
             </div>
           </section>
 
-          <PokexWeb.Panel.CombosCard.combos_card
-            combos={@combos}
-            enabled={@combos_enabled}
-            skip={@combo_skip}
-            team={team_names(@world)}
-            draft={@combo_draft}
-            rescue_combo={@rescue_combo}
-          />
-
-          <section id="shiny-guard-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
-            <div class="flex min-h-10 items-center gap-3">
-              <div class="min-w-0 flex-1">
-                <p class="text-pk-title font-semibold text-pk-text">Guarda anti-shiny ✨</p>
-                <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">
-                  vê a ESTRELA dourada que a lista de batalha põe no shiny — vale pra
-                  QUALQUER shiny, e a bola sempre voa (mesmo com captura desligada)
-                </p>
-              </div>
-              <input
-                type="checkbox"
-                class="toggle toggle-success toggle-sm shrink-0"
-                checked={@shiny_guard_enabled}
-                phx-click="toggle_shiny_guard"
-              />
-            </div>
-
-            <div class="mt-2 flex flex-wrap items-center gap-2">
-              <form
-                id="shiny-cfg-form"
-                phx-change="save_shiny_cfg"
-                class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
-              >
-                <span>ao ver →</span>
-                <select
-                  id="shiny-action"
-                  name="shiny_action"
-                  aria-label="O que fazer ao ver um shiny"
-                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                >
-                  <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
-                  <option value="alarme" selected={@shiny_action == "alarme"}>
-                    lutar (só alarme) ⚔️
-                  </option>
-                </select>
-              </form>
-
-              <div class="flex min-w-[9rem] flex-1 items-center gap-2">
-                <span class={[
-                  "font-mono text-pk-title font-bold tabular-nums",
-                  shiny_px_class(@shiny_star_run, @shiny_star_min_columns)
-                ]}>
-                  {shiny_px_label(@shiny_star_run)}<span class="text-pk-meta font-normal text-pk-text-3">/{@shiny_star_min_columns} col</span>
-                </span>
-                <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-pk-line">
-                  <div
-                    class={[
-                      "h-full rounded-full transition-[width]",
-                      case shiny_zone(@shiny_star_run, @shiny_star_min_columns) do
-                        :hit -> "bg-pk-danger"
-                        :warn -> "bg-pk-warn"
-                        :safe -> "bg-pk-ok"
-                        :none -> "bg-pk-line-strong"
-                      end
-                    ]}
-                    style={"width: #{shiny_bar_pct(@shiny_star_run, @shiny_star_min_columns)}%"}
-                  />
-                </div>
-              </div>
-
-              <button
-                id="shiny-probe"
-                type="button"
-                phx-click="shiny_probe"
-                title="lê a lista de batalha AGORA e mostra a pontuação da estrela por linha — sem shiny na lista tudo deve ler 0px"
-                class="btn btn-xs h-6 shrink-0 border border-pk-line-strong bg-transparent px-2 text-pk-meta text-pk-text-2 hover:text-white"
-              >
-                🔬 Sonda
-              </button>
-            </div>
-
-            <p :if={@shiny_msg} id="shiny-msg" class="mt-1 font-mono text-pk-meta text-pk-warn">
-              {@shiny_msg}
-            </p>
-
-            <div :if={@shiny_log != []} id="shiny-log" class="mt-2">
-              <div class="flex items-center justify-between">
-                <p class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-[#c9a227]">
-                  ✨ shinies encontrados ({length(@shiny_log)})
-                </p>
-                <button
-                  phx-click="shiny_log_clear"
-                  data-confirm="Apagar o registro de shinies encontrados?"
-                  class="cursor-pointer font-mono text-pk-meta text-pk-text-3 hover:text-pk-danger"
-                >
-                  limpar
-                </button>
-              </div>
-              <ul class="mt-1 space-y-0.5">
-                <li
-                  :for={entry <- Enum.take(@shiny_log, 5)}
-                  class="flex items-center gap-2 rounded border border-[#3a3320] bg-[#181509] px-2 py-1 font-mono text-pk-meta"
-                >
-                  <span class="text-[#c9a227]">✨</span>
-                  <span class="text-[#a8b0b7]">{shiny_log_when(entry)}</span>
-                  <span class={[
-                    "rounded px-1",
-                    case entry.outcome do
-                      "morto" -> "bg-pk-danger-dim text-pk-danger"
-                      "bola" -> "bg-[#101d24] text-[#7cc0e8]"
-                      "fugiu" -> "bg-pk-warn-dim text-pk-warn"
-                      _visto -> "bg-pk-raised text-pk-text-2"
-                    end
-                  ]}>
-                    {entry.outcome}
-                  </span>
-                  <span class="text-pk-text-3">{entry.star_px}px · {entry.action}</span>
-                </li>
-              </ul>
-            </div>
-          </section>
-
           <section>
             <div class="mb-2 flex items-center justify-between px-0.5">
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -2692,90 +2981,6 @@ defmodule PokexWeb.PanelLive do
                   {label}
                 </div>
               </div>
-            </div>
-            <form
-              id="stop-conditions-form"
-              phx-change="save_stop_conditions"
-              title="Condições de parada: ao bater o limite, TUDO para (como o Stop) e o alarme toca; nada religa até você apertar Iniciar. 0 = nunca."
-              class="mt-1.5 flex items-center gap-1 px-0.5 font-mono text-pk-meta text-pk-text-3"
-            >
-              <span>🛑 parar após</span>
-              <input
-                id="stop-minutes"
-                name="stop_minutes"
-                type="number"
-                min="0"
-                max="999"
-                value={@stop_after_minutes}
-                phx-debounce="500"
-                class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-              />
-              <span>min ·</span>
-              <input
-                id="stop-kills"
-                name="stop_kills"
-                type="number"
-                min="0"
-                max="9999"
-                value={@stop_after_kills}
-                phx-debounce="500"
-                class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-              />
-              <span>kills (0 = nunca) →</span>
-              <select
-                id="stop-after-action"
-                name="stop_after_action"
-                class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-              >
-                <option value="parar" selected={@stop_after_action == "parar"}>parar tudo</option>
-                <option value="deslogar" selected={@stop_after_action == "deslogar"}>
-                  deslogar
-                </option>
-              </select>
-            </form>
-            <form
-              id="stagnation-form"
-              phx-change="save_stagnation"
-              title="Anti-estagnação: sessão rodando mas sem NENHUM kill nem peixe (minigame vencido) pela janela toda = bot travado. Fisgada não conta enquanto o vigia do minigame está ligado: com o minigame travado a vara fisga a noite toda sem pegar nada. Alarme re-toca a cada janela; Parar usa a trava do Stop; Deslogar encerra a conta — o único que economiza estamina."
-              class="mt-1 flex items-center gap-1 px-0.5 font-mono text-pk-meta text-pk-text-3"
-            >
-              <span>😴 sem atividade por</span>
-              <input
-                id="stagnation-minutes"
-                name="stagnation_minutes"
-                type="number"
-                aria-label="Minutos sem progresso até agir"
-                min="0"
-                max="999"
-                value={@stagnation_minutes}
-                phx-debounce="500"
-                class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-              />
-              <span>min →</span>
-              <select
-                id="stagnation-action"
-                name="stagnation_action"
-                class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-              >
-                <option value="alarme" selected={@stagnation_action == "alarme"}>alarme</option>
-                <option value="parar" selected={@stagnation_action == "parar"}>parar tudo</option>
-                <option value="deslogar" selected={@stagnation_action == "deslogar"}>
-                  deslogar
-                </option>
-              </select>
-            </form>
-            <div class="mt-1 flex items-center gap-2 px-0.5">
-              <button
-                type="button"
-                phx-click="logout_now"
-                title="Encerra a sessão no jogo (Ctrl+Q + Enter), para tudo e confere na tela se saiu mesmo. Parar o bot não economiza estamina; deslogar economiza."
-                class="h-6 shrink-0 rounded border border-pk-line-strong px-2 font-mono text-pk-meta text-pk-text-2 hover:border-pk-warn hover:text-pk-warn focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-pk-warn"
-              >
-                🚪 Deslogar agora
-              </button>
-              <span class="truncate font-mono text-pk-meta text-pk-text-3">
-                {logout_label(@logout)}
-              </span>
             </div>
           </section>
 
@@ -2855,185 +3060,6 @@ defmodule PokexWeb.PanelLive do
             </div>
           </section>
 
-          <details
-            id="advanced-panel"
-            class="group overflow-hidden rounded-lg border border-pk-line bg-pk-sunken"
-          >
-            <summary class="flex h-11 cursor-pointer list-none items-center justify-between px-3 text-pk-body font-semibold [&::-webkit-details-marker]:hidden">
-              <span class="flex items-center gap-2"><.icon
-                name="hero-wrench-screwdriver"
-                class="size-3.5 text-pk-text-3"
-              /> Avançado &amp; calibragem</span><.icon
-                name="hero-chevron-down"
-                class="size-3.5 text-pk-text-3 transition group-open:rotate-180"
-              />
-            </summary>
-            <div class="space-y-5 border-t border-pk-line p-3">
-              <section>
-                <div class="flex items-center justify-between">
-                  <h3 class="text-pk-body font-semibold">Captura de tela</h3><button
-                    class="flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 font-mono text-pk-meta text-pk-text-2 hover:text-white"
-                    phx-click="read_capture_stats"
-                  ><.icon name="hero-arrow-path" class="size-3" /> Medir</button>
-                </div>
-                <div :if={@capture_info} class="mt-2 space-y-1 font-mono text-pk-meta">
-                  <p class="text-pk-text-2">
-                    backend:
-                    <span class={
-                      if @capture_info.backend.backend == :screen_capture_kit,
-                        do: "text-pk-ok",
-                        else: "text-[#e0b43d]"
-                    }>
-                      {if @capture_info.backend.backend == :screen_capture_kit,
-                        do: "ScreenCaptureKit (rápido)",
-                        else: "screencapture CLI (lento — fallback)"}
-                    </span>
-                    <span :if={@capture_info.backend.recovering?} class="text-pk-text-3">
-                      · tentando recuperar o SCK…
-                    </span>
-                  </p>
-                  <p :if={@capture_info.stats == []} class="text-pk-text-3">
-                    sem capturas na última janela — ligue um bot e clique Medir de novo
-                  </p>
-                  <p :for={{key, stat} <- @capture_info.stats} class="text-pk-text-3">
-                    {String.replace_prefix(key, "capture.", "")} · n={stat.count}
-                    <span :if={stat.total > 0}>
-                      avg={Float.round(stat.total / stat.count, 1)}ms max={stat.max}ms
-                    </span>
-                  </p>
-                </div>
-              </section>
-
-              <section class="grid gap-4 border-t border-pk-line pt-4">
-                <div>
-                  <h3 class="text-pk-body font-semibold">Sensibilidade do brilho</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
-                    Valor sugerido pela calibração.
-                  </p><form id="threshold-form" phx-submit="save_threshold" class="mt-2 flex gap-2">
-                    <input
-                      name="threshold"
-                      value={@threshold}
-                      placeholder="sugerido"
-                      class="input input-bordered h-10 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
-                    /><button class="btn btn-outline h-10 border-[#303940] px-4 text-pk-body">Salvar</button>
-                  </form>
-                </div>
-                <div>
-                  <h3 class="text-pk-body font-semibold">Ordem das skills</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
-                    Prioridade de ataque, as mais fortes primeiro.
-                  </p><form id="skills-form" phx-submit="save_skills" class="mt-2 flex gap-2">
-                    <input
-                      name="skills"
-                      value={@skill_order}
-                      placeholder="1 2 3"
-                      class="input input-bordered h-10 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
-                    /><button class="btn btn-outline h-10 border-[#303940] px-4 text-pk-body">Salvar</button>
-                  </form>
-                </div>
-              </section>
-
-              <section class="border-t border-pk-line pt-4">
-                <h3 class="text-pk-body font-semibold">Timing do combate</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
-                  Ajuste fino da velocidade de busca e de morte.
-                </p>
-                <form
-                  id="timing-form"
-                  phx-submit="save_timing"
-                  class="mt-3 grid grid-cols-2 gap-2.5"
-                >
-                  <label
-                    :for={{key, label, _hint} <- timing_fields()}
-                    class="block font-mono text-pk-meta text-pk-text-3"
-                  ><span>{label}</span><input
-                    type="number"
-                    min={if(positive_timing_key?(key), do: "1", else: "0")}
-                    name={key}
-                    value={@timing[key]}
-                    class="input input-bordered mt-1 h-9 w-full bg-pk-bg font-mono text-pk-body"
-                  /></label>
-                  <button class="col-span-2 mt-1 h-10 rounded-lg bg-pk-ok text-pk-body font-bold text-pk-bg hover:bg-pk-ok">Salvar timing</button>
-                </form>
-              </section>
-
-              <section :if={@calibrated?} class="border-t border-pk-line pt-4">
-                <h3 class="text-pk-body font-semibold">Prints &amp; diagnóstico</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
-                  Gera um JSON com tudo que o bot enxerga para diagnosticar sem foto.
-                </p>
-                <div class="mt-2 flex flex-wrap gap-2">
-                  <button
-                    :for={
-                      {label, region} <- [
-                        {"Tela cheia", "screen"},
-                        {"Água", "glow"},
-                        {"Batalha", "battle"},
-                        {"Arena", "arena"},
-                        {"Skills", "skills"}
-                      ]
-                    }
-                    class="h-8 rounded-lg border border-[#2b353b] px-3 text-pk-meta text-[#a3abb1] hover:border-pk-ok/60"
-                    phx-click="shot"
-                    phx-value-region={region}
-                  >{label}</button>
-                </div>
-                <button
-                  class="mt-3 h-10 w-full rounded-lg border border-[#30cf75] text-pk-body font-bold text-[#38dc80] hover:bg-pk-ok-dim"
-                  phx-click="export_diagnostic"
-                >Exportar diagnóstico (JSON)</button>
-                <figure :if={@capture_src} class="mt-3">
-                  <figcaption class="mb-1 text-pk-meta text-pk-text-3">{@capture_label}</figcaption><img
-                    src={@capture_src}
-                    class="max-h-64 rounded-lg border border-[#283138]"
-                  />
-                </figure>
-                <p
-                  :if={@capture_label && is_nil(@capture_src)}
-                  class="mt-2 text-pk-meta text-[#ff929b]"
-                >
-                  {@capture_label}
-                </p>
-                <div
-                  :if={@report}
-                  class="mt-3 rounded-lg border border-[#263038] bg-pk-bg p-3 text-pk-meta text-pk-text-2"
-                >
-                  <div class="flex justify-between">
-                    <span class="font-semibold text-pk-ok">{@report_msg}</span><a
-                      :if={@report_src}
-                      href={@report_src}
-                      download
-                      class="text-pk-ok underline"
-                    >baixar JSON</a>
-                  </div>
-                  <% matrix = gi(@report, [:regions, :battle_body, :matrix]) %>
-                  <div :if={matrix} class="mt-3">
-                    <p class="mb-1">matriz do painel Batalha ({matrix.cols}×{matrix.rows})</p><div
-                      class="inline-grid gap-px rounded border border-[#263038] bg-black p-1"
-                      style={"grid-template-columns: repeat(#{matrix.cols}, 8px)"}
-                    >
-                      <div
-                        :for={cell <- List.flatten(matrix.cells)}
-                        class="size-2"
-                        style={cell_style(cell)}
-                        title={to_string(cell.class)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <nav class="grid grid-cols-3 gap-2 border-t border-pk-line pt-4 text-center text-pk-meta">
-                <.link
-                  navigate={~p"/calibration"}
-                  class="rounded-lg border border-pk-line-strong px-2 py-2 hover:text-pk-ok"
-                >Calibração</.link><.link
-                  navigate={~p"/diagnostics"}
-                  class="rounded-lg border border-pk-line-strong px-2 py-2 hover:text-pk-ok"
-                >Diagnóstico</.link><.link
-                  navigate={~p"/fishing-lab"}
-                  class="rounded-lg border border-pk-line-strong px-2 py-2 hover:text-pk-ok"
-                >Laboratório</.link>
-              </nav>
-            </div>
-          </details>
-
           <div class="flex items-start gap-2 rounded-lg border border-[#6b2b32] bg-pk-danger-dim px-3 py-3 text-pk-meta leading-relaxed text-[#f0a0a7]">
             <.icon name="hero-hand-raised" class="mt-0.5 size-4 shrink-0 text-[#ffbf51]" /><p>
               <strong>Botão de pânico:</strong>
@@ -3078,7 +3104,9 @@ defmodule PokexWeb.PanelLive do
         player_mode={@player_mode}
         mode_overrides={@mode_overrides}
         combos={@combos}
-      />
+      >
+        <.settings_sections {assigns} />
+      </PokexWeb.Panel.SettingsOverlay.settings_overlay>
     </Layouts.app>
     """
   end

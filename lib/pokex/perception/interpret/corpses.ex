@@ -73,10 +73,37 @@ defmodule Pokex.Perception.Interpret.Corpses do
 
     corpses =
       confirmed
+      |> require_known(frame, settings)
       |> Enum.map(&Calibration.frame_to_screen(calib, calib.arena_region, &1))
       |> Enum.sort()
 
     {%{scanning?: true, corpses: corpses}, %{st | tracks: tracks}}
+  end
+
+  # O acervo de corpos ensinados como FILTRO (opt-in): o detector continua
+  # achando os blobs, mas só vira alvo o candidato cuja paleta casa com um
+  # corpo que o Lucas fotografou e nomeou na calibração. Acervo vazio com o
+  # filtro ligado = NENHUM alvo — deliberado: ligar o filtro é dizer "só
+  # capture o que eu mapeei".
+  defp require_known(candidates, frame, settings) do
+    if Settings.value(settings, :catcher_require_known_corpse) do
+      box = Settings.value(settings, :corpse_sprite_box_px)
+      min = Settings.value(settings, :corpse_match_min_similarity)
+
+      Enum.filter(candidates, fn {x, y} ->
+        crop = crop_around(frame, x, y, box)
+        match?({:ok, _}, Pokex.Bots.Catcher.CorpseLibrary.match(crop, min))
+      end)
+    else
+      candidates
+    end
+  end
+
+  defp crop_around(%Frame{width: w, height: h} = frame, x, y, box) do
+    half = div(box, 2)
+    cx = x |> max(half) |> min(max(w - half, half))
+    cy = y |> max(half) |> min(max(h - half, half))
+    Frame.crop(frame, {cx - half, cy - half, min(box, w), min(box, h)})
   end
 
   # -- sampling ---------------------------------------------------------------

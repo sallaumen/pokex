@@ -32,7 +32,7 @@ const ImgClick = {
   mounted() {
     this.el.addEventListener("click", e => {
       const rect = this.el.getBoundingClientRect()
-      this.pushEvent("img_click", {
+      this.pushEvent(this.el.dataset.clickEvent || "img_click", {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
         cw: rect.width,

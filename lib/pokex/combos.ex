@@ -73,6 +73,16 @@ defmodule Pokex.Combos do
   defp triggered?(_combo, _enemy), do: false
 
   @doc """
+  Se o combo serve de PREFIXO do resgate (auto-revive com stun): só passos de
+  skill e espera. Trocas de time (`swap_member`/`swap_counter`) dependem de
+  leitura fresca do painel e do runner de lutas — o resgate é uma sequência
+  atômica cega a `:critical`, e meio swap deixaria o bicho errado fora bem no
+  momento mais vulnerável.
+  """
+  def rescue_eligible?(%Combo{steps: steps}),
+    do: Enum.all?(steps, &(match?({:skill, _}, &1) or match?({:wait, _}, &1)))
+
+  @doc """
   Checks a combo can run, and returns its steps with the DYNAMIC ones still
   symbolic.
 

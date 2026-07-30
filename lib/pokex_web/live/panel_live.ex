@@ -137,6 +137,8 @@ defmodule PokexWeb.PanelLive do
        rescue_enabled: Settings.get(:rescue_enabled),
        rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
        rescue_cooldown_s: div(Settings.get(:rescue_cooldown_ms), 1000),
+       rescue_mode: Settings.get(:rescue_mode),
+       rescue_combo: Settings.get(:rescue_combo),
        potion_enabled: Settings.get(:potion_enabled),
        reposition_enabled: Settings.get(:reposition_enabled),
        support_waits_capture: Settings.get(:support_waits_capture),
@@ -197,6 +199,8 @@ defmodule PokexWeb.PanelLive do
       fishing_hp_pct: Settings.get(:pokemon_hp_fishing_pct),
       rescue_enabled: Settings.get(:rescue_enabled),
       rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
+      rescue_mode: Settings.get(:rescue_mode),
+      rescue_combo: Settings.get(:rescue_combo),
       potion_enabled: Settings.get(:potion_enabled),
       potion_pct: Settings.get(:pokemon_hp_potion_pct),
       reposition_enabled: Settings.get(:reposition_enabled),
@@ -857,6 +861,18 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, rescue_enabled: value)}
   end
 
+  # O modo do resgate (direto × com combo de stun) e o combo escolhido — um
+  # form só, os dois selects mandam ambos os campos em toda mudança.
+  def handle_event("save_rescue_combo_cfg", params, socket) do
+    mode = params["rescue_mode"] || "direto"
+    combo = params["rescue_combo"] || ""
+
+    Settings.put(:rescue_mode, mode)
+    Settings.put(:rescue_combo, combo)
+
+    {:noreply, assign(socket, rescue_mode: mode, rescue_combo: combo)}
+  end
+
   # Threshold + cooldown are expensive to get wrong in BOTH directions: a too-eager rescue burns
   # revives on scratches, a too-slow one revives a corpse. The form sends both fields on every
   # change; each is validated on its own range and an invalid value simply leaves that setting
@@ -1364,6 +1380,58 @@ defmodule PokexWeb.PanelLive do
   defp support_label(:monitoring), do: "monitorando"
   defp support_label(:idle), do: "parado"
   defp support_label(other), do: to_string(other)
+
+  # O preview da sequência COMPLETA do resgate com o combo escolhido — estático
+  # (não consulta cooldown: na hora, skills não prontas são puladas). Esperas
+  # simbólicas resolvem pra ms só pra leitura.
+  defp rescue_combo_preview(combos, name) do
+    case Enum.find(combos, &(&1.name == name)) do
+      nil ->
+        nil
+
+      combo ->
+        if Pokex.Combos.rescue_eligible?(combo) do
+          stun =
+            Enum.map(combo.steps, fn
+              {:skill, key} -> key
+              {:wait, ms} when is_integer(ms) -> "#{ms}ms"
+              {:wait, setting} -> "#{preview_wait_ms(setting)}ms"
+            end)
+
+          tail = [
+            Settings.get(:rescue_key),
+            "retrato",
+            Settings.get(:max_revive_key),
+            Settings.get(:rescue_key)
+          ]
+
+          Enum.join(stun ++ tail, " → ")
+        end
+    end
+  end
+
+  defp preview_wait_ms(setting) do
+    case Settings.get(setting) do
+      ms when is_integer(ms) -> ms
+      _estranho -> Settings.get(:rescue_step_ms)
+    end
+  rescue
+    _sem_seed -> Settings.get(:rescue_step_ms)
+  end
+
+  # As teclas do combo de resgate que TAMBÉM estão na rotação do combate —
+  # aviso escolhido pelo Lucas (sem exclusão automática): reservar é papel
+  # dele, avisar é papel do painel.
+  defp rescue_combo_conflicts(combos, name) do
+    case Enum.find(combos, &(&1.name == name)) do
+      nil ->
+        []
+
+      combo ->
+        combat_keys = Settings.get(:skill_keys)
+        for {:skill, key} <- combo.steps, key in combat_keys, uniq: true, do: "skill #{key}"
+    end
+  end
 
   # 🎮 Mini game: desligado / observando a arena / jogando (os outros workers se
   # seguram sozinhos lendo o fato :mini_game no blackboard).
@@ -2478,6 +2546,65 @@ defmodule PokexWeb.PanelLive do
                   <span>s</span>
                 </form>
                 <span>revives: {rescue_count(@game)}</span>
+              </div>
+              <%!-- O modo do resgate: direto (a sequência de sempre) ou com um
+                   combo de STUN antes — as skills reservadas seguram os mobs
+                   enquanto o revive acontece. O combo é autorado no editor de
+                   combos; aqui só se escolhe. Inelegíveis (com troca de time)
+                   aparecem desabilitados dizendo o porquê. --%>
+              <div class="mt-1.5 space-y-1 font-mono text-pk-meta text-pk-text-3">
+                <form
+                  id="rescue-combo-form"
+                  phx-change="save_rescue_combo_cfg"
+                  class="flex items-center gap-1"
+                >
+                  <label for="rescue-mode">revive</label>
+                  <select
+                    id="rescue-mode"
+                    name="rescue_mode"
+                    aria-label="Modo do auto-revive"
+                    class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  >
+                    <option value="direto" selected={@rescue_mode == "direto"}>direto</option>
+                    <option value="combo" selected={@rescue_mode == "combo"}>com combo</option>
+                  </select>
+                  <select
+                    :if={@rescue_mode == "combo"}
+                    id="rescue-combo"
+                    name="rescue_combo"
+                    aria-label="Combo de stun do resgate"
+                    class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  >
+                    <option value="" selected={@rescue_combo == ""}>escolha o combo…</option>
+                    <option
+                      :for={combo <- @combos}
+                      value={combo.name}
+                      selected={@rescue_combo == combo.name}
+                      disabled={not Pokex.Combos.rescue_eligible?(combo)}
+                    >
+                      {combo.name}{if not Pokex.Combos.rescue_eligible?(combo),
+                        do: " (tem troca de time)"}
+                    </option>
+                  </select>
+                </form>
+                <p
+                  :if={@rescue_mode == "combo" and rescue_combo_preview(@combos, @rescue_combo)}
+                  data-testid="rescue-combo-preview"
+                  class="text-pk-text-3"
+                >
+                  {rescue_combo_preview(@combos, @rescue_combo)}
+                </p>
+                <p
+                  :if={
+                    @rescue_mode == "combo" and rescue_combo_conflicts(@combos, @rescue_combo) != []
+                  }
+                  data-testid="rescue-combo-conflict"
+                  class="rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1 text-pk-warn"
+                >
+                  ⚠️ {Enum.join(rescue_combo_conflicts(@combos, @rescue_combo), ", ")} também na
+                  rotação do combate — pode estar em cooldown na hora do resgate. Reserve tirando
+                  de "skills" ali em cima.
+                </p>
               </div>
               <div class="mt-1.5 flex items-center justify-between font-mono text-pk-meta text-pk-text-3">
                 <form

@@ -557,7 +557,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # a dying-Pokémon loop must never re-fire and burn the expensive revives.
   defp fire_combo(state, calib) do
     at = now()
-    Body.perform(Logic.combo(combo_config(calib)), :critical, state.body)
+    {stun_steps, notes} = rescue_stun_steps()
+
+    Body.perform(
+      Logic.combo(Map.put(combo_config(calib), :stun_steps, stun_steps)),
+      :critical,
+      state.body
+    )
 
     state = %{
       state
@@ -566,8 +572,76 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
         last_action: %{text: "combo de sobrevivência", at: at}
     }
 
+    Enum.each(notes, fn
+      {:alarm, text} -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, text})
+      {:log, text} -> broadcast_log(:macro, text)
+    end)
+
     broadcast_log(:macro, "🚑 combo de sobrevivência — Pokémon com #{state.hp_pct}% de vida")
     state
+  end
+
+  # O prefixo de STUN do resgate (Lucas, 2026-07-30): no modo "combo", os
+  # passos do combo escolhido viram presses/esperas ANTES do recall — skills
+  # em cooldown são puladas contra uma leitura FRESCA da barra (sem leitura,
+  # todas às cegas). Toda falha cai na direção de SALVAR: combo sumido,
+  # desligado ou inelegível = prefixo vazio + alarme, o revive acontece do
+  # mesmo jeito.
+  defp rescue_stun_steps do
+    case Settings.get(:rescue_mode) do
+      "combo" -> compile_rescue_combo(Settings.get(:rescue_combo))
+      _direto -> {[], []}
+    end
+  end
+
+  defp compile_rescue_combo(name) do
+    combo = Enum.find(Pokex.Combos.Store.all(), &(&1.name == name))
+
+    cond do
+      combo == nil ->
+        {[], [alarm: "🚑 combo de resgate \"#{name}\" não existe — revivendo direto"]}
+
+      not combo.enabled? ->
+        {[], [alarm: "🚑 combo de resgate \"#{name}\" está desligado — revivendo direto"]}
+
+      not Pokex.Combos.rescue_eligible?(combo) ->
+        {[], [alarm: "🚑 combo de resgate \"#{name}\" tem troca de time — revivendo direto"]}
+
+      true ->
+        {actions, skipped} =
+          combo.steps
+          |> resolve_waits()
+          |> Logic.stun_prefix(Pokex.Perception.ready_skills())
+
+        notes =
+          if skipped == [],
+            do: [],
+            else: [log: "🚑 stun do resgate: pulei #{Enum.join(skipped, ", ")} (cooldown)"]
+
+        {actions, notes}
+    end
+  end
+
+  # Esperas simbólicas ({:wait, :setting}) viram ms antes da compilação pura.
+  # Um setting que não existe mais cai no rescue_step_ms — um combo velho
+  # jamais derruba um resgate por causa de uma espera.
+  defp resolve_waits(steps) do
+    Enum.map(steps, fn
+      {:wait, setting} when is_atom(setting) ->
+        {:wait, safe_wait_ms(setting)}
+
+      other ->
+        other
+    end)
+  end
+
+  defp safe_wait_ms(setting) do
+    case Settings.get(setting) do
+      ms when is_integer(ms) and ms >= 0 -> ms
+      _estranho -> Settings.get(:rescue_step_ms)
+    end
+  rescue
+    _sem_seed -> Settings.get(:rescue_step_ms)
   end
 
   defp combo_config(calib) do

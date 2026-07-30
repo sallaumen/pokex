@@ -131,6 +131,31 @@ defmodule Pokex.CombosTest do
     end
   end
 
+  describe "rescue_eligible?/1" do
+    test "só skills e esperas servem de prefixo do resgate" do
+      eligible = %Combo{
+        name: "stun",
+        trigger: nil,
+        steps: [{:skill, "1"}, {:wait, 500}, {:skill, "2"}, {:wait, :combo_sing_wait_ms}]
+      }
+
+      assert Combos.rescue_eligible?(eligible)
+    end
+
+    test "qualquer troca de time torna o combo inelegível" do
+      with_swap = %Combo{name: "sing", trigger: nil, steps: [{:skill, "1"}, {:swap_counter}]}
+      refute Combos.rescue_eligible?(with_swap)
+
+      with_member = %Combo{
+        name: "jiggly",
+        trigger: nil,
+        steps: [{:swap_member, "Jigglypuff"}, {:skill, "4"}]
+      }
+
+      refute Combos.rescue_eligible?(with_member)
+    end
+  end
+
   describe "the store" do
     test "seeds itself, round-trips, and survives a corrupt file" do
       assert [%Combo{name: "sing"}] = Store.all()

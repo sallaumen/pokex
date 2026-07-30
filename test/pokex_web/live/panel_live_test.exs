@@ -1536,6 +1536,70 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
+  describe "auto-revive com combo de stun" do
+    setup do
+      tmp =
+        Path.join(System.tmp_dir!(), "pokex-panel-resgate-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp)
+      Application.put_env(:pokex, :home_dir, tmp)
+      Pokex.SettingsStash.stash_keys!([:rescue_mode, :rescue_combo])
+
+      on_exit(fn ->
+        Application.delete_env(:pokex, :home_dir)
+        File.rm_rf!(tmp)
+        Enum.each([:team, :layout], &Pokex.Perception.WorldState.forget/1)
+      end)
+
+      Pokex.Combos.Store.put([
+        %Pokex.Combos.Combo{
+          name: "stun-area",
+          trigger: nil,
+          steps: [{:skill, "1"}, {:wait, 500}, {:skill, "2"}],
+          enabled?: true
+        },
+        %Pokex.Combos.Combo{
+          name: "com-troca",
+          trigger: nil,
+          steps: [{:swap_member, "Jigglypuff"}, {:skill, "4"}],
+          enabled?: true
+        }
+      ])
+
+      :ok
+    end
+
+    test "no modo combo: dropdown, preview da sequência e o aviso de conflito", %{conn: conn} do
+      Pokex.Settings.put(:rescue_mode, "combo")
+      Pokex.Settings.put(:rescue_combo, "stun-area")
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, "#rescue-mode")
+      assert has_element?(view, "#rescue-combo")
+
+      # o preview mostra a sequência COMPLETA (stun + revive)
+      assert has_element?(view, ~s([data-testid="rescue-combo-preview"]))
+      assert render(view) =~ "1 → 500ms → 2"
+
+      # skills 1/2 seguem na rotação do combate (seed) → aviso, sem bloquear
+      assert has_element?(view, ~s([data-testid="rescue-combo-conflict"]))
+
+      # o combo com troca de time está no dropdown, mas DESABILITADO
+      assert has_element?(view, ~s(#rescue-combo option[disabled]))
+    end
+
+    test "no modo direto o dropdown e o preview nem existem", %{conn: conn} do
+      Pokex.Settings.put(:rescue_mode, "direto")
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, "#rescue-mode")
+      refute has_element?(view, "#rescue-combo")
+      refute has_element?(view, ~s([data-testid="rescue-combo-preview"]))
+    end
+  end
+
   describe "logout" do
     setup do
       on_exit(fn ->

@@ -44,6 +44,10 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       glow_region: {0, 0, 20, 20},
       battle_region: {0, 0, 20, 20},
       arena_region: {0, 0, 220, 220},
+      # A mão manda (2026-07-30): sem marcação, a busca vira uma caixa CENTRAL
+      # dentro da arena — mas estes testes desenham o jogo na arena INTEIRA,
+      # então a marcam como faixa (o que o Lucas faz na calibração real).
+      mini_game_region: {0, 0, 220, 220},
       neutral_point: {100, 100}
     })
 

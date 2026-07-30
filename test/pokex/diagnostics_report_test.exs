@@ -136,4 +136,36 @@ defmodule Pokex.Diagnostics.ReportTest do
     row = for _ <- 1..w, do: {r, g, b, 255}
     for _ <- 1..h, do: row
   end
+
+  describe "a metade operacional do bundle (Frente 4)" do
+    @tag :tmp_dir
+    test "operacao entra no relatório, sanitizada e Jason-codificável", %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      # uma ordem e um evento reais, pra seção não sair vazia
+      Pokex.Bots.Session.order(:stop, "teste do bundle")
+      Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "linha do bundle"})
+
+      {:ok, report, _path} =
+        Pokex.Diagnostics.Report.capture(
+          rig: Pokex.Rig.Fake,
+          calib: @calib,
+          settings: @settings,
+          exports_dir: Path.join(tmp, "exports"),
+          now: 1_700_000_000_000
+        )
+
+      op = report.operacao
+      assert is_integer(op.sessao.generation) and op.sessao.generation > 0
+      assert %{kind: :stop, reason: "teste do bundle"} = op.sessao.last_order
+      assert is_list(op.journal)
+      assert Map.has_key?(op.portoes, :input_gate)
+      assert is_map(op.settings_diff)
+
+      # a prova de fogo: o relatório INTEIRO codifica pra JSON (snapshots têm
+      # tuplas; a sanitização existe exatamente pra isso)
+      assert {:ok, _json} = Jason.encode(report)
+    end
+  end
 end

@@ -173,6 +173,13 @@ defmodule Pokex.Settings do
     # Consecutive below-threshold (resting/splash level) frames before a cyan spike
     # counts as a bite. Guards against a splash that briefly clears glow_threshold.
     calm_streak_needed: 3,
+    # Teto em TEMPO pro assentamento: passado isto desde o arremesso, a água já
+    # assentou POR FÍSICA (o splash dura ~1-1,5s) mesmo que os frames calmos
+    # nunca tenham acumulado. Contar só frames assume ticks de ~150ms — com a
+    # captura faminta (frames a segundos de distância) o peixe morde antes de 3
+    # frames calmos, cada pico ZERA o calm e a vara nunca puxa (logs
+    # 2026-07-30: bol 2843/1150 por 16s sem fisgar, timeout, peixe queimado).
+    settle_max_ms: 2_500,
     # Height (points) of ONE battle-list row = the vertical spacing between rows.
     # MEASURED live via hp_bar_rows: HP bars at frame-y 42 and 95 → ~53px apart
     # (matches the documented 52-53px rows). The old 30 compressed the click grid
@@ -705,6 +712,7 @@ defmodule Pokex.Settings do
     corpse_sprite_box_px: 8..512,
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,
+    settle_max_ms: 100..600_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,
     logout_verify_delay_ms: 0..600_000,

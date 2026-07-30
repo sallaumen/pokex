@@ -613,4 +613,51 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert killed.state == :idle
     assert [{:log, _}] = actions
   end
+
+  describe "assentamento por TEMPO (captura faminta)" do
+    # Os logs de 2026-07-30: frames a ~5s de distância, o peixe morde antes de
+    # calm_streak_needed frames calmos, cada pico zera o calm — settled? nunca
+    # travava por frames, a vara nunca puxava e o timeout re-lançava em cima de
+    # um peixe vivo. O splash é física (~1-1,5s): passado settle_max_ms do
+    # arremesso, ciano É mordida.
+    defp starved_config,
+      do: config() |> Map.put(:calm_streak_needed, 3) |> Map.put(:settle_max_ms, 2_500)
+
+    defp watching_at(cast_at, cfg) do
+      %Logic{state: :watching, config: cfg, entered_at: cast_at, settled?: false}
+    end
+
+    test "frame de mordida chegando ATRASADO (depois do teto) fisga na hora" do
+      watching = watching_at(0, starved_config())
+
+      # a captura faminta entrega o primeiro frame só aos 5s — e ele já é a
+      # mordida; zero frames calmos aconteceram
+      {hooked, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 5_000)
+
+      assert {:press, "shift+v"} in actions
+      assert hooked.counters.hooked == 1
+      assert hooked.state == :casting
+    end
+
+    test "antes do teto, ciano ainda é splash — nada muda no caminho rápido" do
+      watching = watching_at(0, starved_config())
+
+      {crest, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 1_000)
+
+      refute crest.settled?
+      refute Enum.any?(actions, &match?({:press, _}, &1))
+      assert crest.counters.hooked == 0
+    end
+
+    test "com frames saudáveis, o assentamento por frames chega ANTES do teto" do
+      cfg = config() |> Map.put(:calm_streak_needed, 2) |> Map.put(:settle_max_ms, 2_500)
+      watching = watching_at(0, cfg)
+
+      {a, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 150)
+      {settled, []} = Logic.step(a, Map.put(cursor_obs(), :glow, false), 300)
+
+      # 300ms < 2500ms: quem travou foi o caminho por FRAMES, como sempre
+      assert settled.settled?
+    end
+  end
 end

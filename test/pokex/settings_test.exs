@@ -231,4 +231,56 @@ defmodule Pokex.SettingsTest do
       assert Settings.list_presets() == []
     end
   end
+
+  describe "a fronteira valida (Frente 2): nenhum valor impossível chega ao disco" do
+    defp start_isolated(tmp),
+      do: Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+
+    @tag :tmp_dir
+    test "tipo errado é rejeitado com explicação", %{tmp_dir: tmp} do
+      {:ok, server} = start_isolated(tmp)
+
+      assert {:error, msg} = Settings.put(:tick_ms_watching, "rápido", server)
+      assert msg =~ "esperava inteiro"
+
+      assert {:error, _} = Settings.put(:capture_enabled, "sim", server)
+      assert {:error, _} = Settings.put(:rod_key, 42, server)
+
+      # e nada disso virou override
+      assert Settings.get(:tick_ms_watching, server) == Settings.defaults().tick_ms_watching
+    end
+
+    @tag :tmp_dir
+    test "enum fechado rejeita valor de fora; aceita os conhecidos", %{tmp_dir: tmp} do
+      {:ok, server} = start_isolated(tmp)
+
+      assert {:error, msg} = Settings.put(:stagnation_action, "explodir", server)
+      assert msg =~ "alarme, parar, deslogar"
+
+      assert :ok = Settings.put(:stagnation_action, "deslogar", server)
+      assert Settings.get(:stagnation_action, server) == "deslogar"
+    end
+
+    @tag :tmp_dir
+    test "faixa pega o impossível, não o gosto", %{tmp_dir: tmp} do
+      {:ok, server} = start_isolated(tmp)
+
+      assert {:error, msg} = Settings.put(:logout_attempts, -1, server)
+      assert msg =~ "fora da faixa"
+      assert {:error, _} = Settings.put(:tick_ms_watching, 5, server)
+
+      # valores estranhos-mas-possíveis passam — afinar é papel do painel
+      assert :ok = Settings.put(:tick_ms_watching, 5_000, server)
+    end
+
+    @tag :tmp_dir
+    test "limiar aceita fração (a calibração sugere 45.0); similaridade é 0..1", %{tmp_dir: tmp} do
+      {:ok, server} = start_isolated(tmp)
+
+      assert :ok = Settings.put(:glow_threshold, 45.5, server)
+      assert :ok = Settings.put(:corpse_match_min_similarity, 0.9, server)
+      assert {:error, msg} = Settings.put(:corpse_match_min_similarity, 1.5, server)
+      assert msg =~ "0..1"
+    end
+  end
 end

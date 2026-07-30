@@ -678,9 +678,89 @@ defmodule Pokex.Settings do
   # corruption) — rejecting it here keeps a bad caller from poisoning reads
   # until the next reboot (a panel_live_test cleanup did exactly that: the nil
   # landed in the ETS mirror and randomly broke settings_test — 2026-07-20).
+  # Enums e faixas por cima do tipo (Frente 2 do plano de consolidação). A
+  # régua das faixas: pegar o IMPOSSÍVEL (negativo, absurdo), nunca o gosto —
+  # afinar valor é papel do painel; aqui é a fronteira que impede um valor
+  # inválido de chegar ao disco. player_mode/mini_game_mode ficam de fora:
+  # seus módulos donos (Modes/Mode) já validam no caminho de escrita deles.
+  @enums %{
+    stagnation_action: ~w(alarme parar deslogar),
+    stop_after_action: ~w(parar deslogar),
+    shiny_action: ~w(alarme fugir),
+    escape_direction: ~w(up down left right),
+    hunt_style: ~w(constante mobada)
+  }
+
+  # Chaves de LIMIAR cujo seed é inteiro mas que aceitam fração (a calibração
+  # sugere 45.0 e o teste de 2026-07 crava esse uso). Um tick_ms fracionário
+  # quebraria send_after — por isso a exceção é nominal, não geral.
+  @number_keys [:glow_threshold]
+
+  @ranges %{
+    logout_attempts: 1..99,
+    tab_confirm_frames: 1..99,
+    tab_max_attempts: 1..99,
+    target_lost_streak: 1..99,
+    dry_casts_alarm: 0..999,
+    corpse_sprite_box_px: 8..512,
+    tick_ms_watching: 20..600_000,
+    tick_ms_default: 20..600_000,
+    command_corner_dwell_ms: 0..600_000,
+    logout_confirm_delay_ms: 0..600_000,
+    logout_verify_delay_ms: 0..600_000,
+    alarm_min_gap_ms: 0..600_000
+  }
+
+  @doc """
+  Grava um override. A FRONTEIRA valida (Frente 2): tipo compatível com o seed,
+  enum quando a chave é uma escolha fechada, faixa quando um número impossível
+  quebraria um worker. `{:error, texto}` explica em português; nenhum valor
+  inválido chega ao disco — antes disso, um caller podia persistir qualquer
+  coisa e o formato só quebrava no consumidor.
+  """
   def put(key, value, server \\ __MODULE__)
-      when is_map_key(@seed_settings, key) and not is_nil(value),
-      do: GenServer.call(server, {:put, key, value})
+      when is_map_key(@seed_settings, key) and not is_nil(value) do
+    case validate(key, value) do
+      :ok -> GenServer.call(server, {:put, key, value})
+      {:error, _texto} = error -> error
+    end
+  end
+
+  defp validate(key, value) do
+    cond do
+      key in @number_keys and is_number(value) ->
+        :ok
+
+      not valid_type?(key, value) ->
+        {:error, "#{key}: esperava #{seed_type(key)}, veio #{inspect(value)}"}
+
+      is_map_key(@enums, key) and value not in @enums[key] ->
+        {:error, "#{key}: precisa ser um de #{Enum.join(@enums[key], ", ")}"}
+
+      is_map_key(@ranges, key) and is_integer(value) and value not in @ranges[key] ->
+        {:error,
+         "#{key}: fora da faixa #{inspect(@ranges[key])} — valor impossível não vai pro disco"}
+
+      key == :corpse_match_min_similarity and (value < 0 or value > 1) ->
+        {:error, "corpse_match_min_similarity: similaridade é 0..1"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp seed_type(key) do
+    seed = Map.fetch!(@seed_settings, key)
+
+    cond do
+      is_boolean(seed) -> "boolean"
+      is_integer(seed) -> "inteiro"
+      is_float(seed) -> "número"
+      is_binary(seed) -> "texto"
+      is_list(seed) -> "lista de textos"
+      true -> "?"
+    end
+  end
 
   # --- presets por Pokémon ---------------------------------------------------
 
@@ -860,12 +940,17 @@ defmodule Pokex.Settings do
   # integers stay integers, key strings stay strings, key LISTS stay lists of
   # strings. This is the whole validation the aceite asks for — enough to keep
   # a hand-edited preset from feeding Settings a value no consumer expects.
-  defp valid_preset_value?(key, value) do
+  # A MESMA régua de tipo do put/3 — o preset validava sozinho desde antes;
+  # agora a fronteira é uma só (o seed diz o tipo; float aceita inteiro).
+  defp valid_preset_value?(key, value), do: valid_type?(key, value)
+
+  defp valid_type?(key, value) do
     seed = Map.fetch!(@seed_settings, key)
 
     cond do
       is_boolean(seed) -> is_boolean(value)
       is_integer(seed) -> is_integer(value)
+      is_float(seed) -> is_number(value)
       is_binary(seed) -> is_binary(value)
       is_list(seed) -> is_list(value) and Enum.all?(value, &is_binary/1)
       true -> false

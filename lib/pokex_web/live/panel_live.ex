@@ -160,6 +160,13 @@ defmodule PokexWeb.PanelLive do
      )}
   end
 
+  # Abrir e fechar o ⚙️ é `patch` entre "/" e "/config" — a mesma LiveView, sem
+  # remontar (é o que mantém o dashboard vivo atrás e as pílulas se mexendo).
+  # `patch` EXIGE handle_params/3: sem esta cláusula o clique de fechar derruba
+  # a LiveView. O @live_action já vem do router; não há nada a assinar aqui.
+  @impl true
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
   # O RASCUNHO do combo novo mora aqui, no servidor. Antes os campos do form não
   # tinham valor nenhum, e como o painel re-renderiza a cada snapshot dos
   # workers (~10×/s), tudo que o Lucas digitava era apagado assim que ele saía
@@ -1495,67 +1502,6 @@ defmodule PokexWeb.PanelLive do
   defp support_label(:idle), do: "parado"
   defp support_label(other), do: to_string(other)
 
-  # O combo escolhido pro revive existe E serve? (o worker faz a mesma pergunta
-  # na hora do resgate, e cai pro revive direto quando a resposta é não.)
-  defp rescue_combo_ready?(combos, name) do
-    case Enum.find(combos, &(&1.name == name)) do
-      nil -> false
-      combo -> combo.enabled? and Pokex.Combos.rescue_eligible?(combo)
-    end
-  end
-
-  # O preview da sequência COMPLETA do resgate com o combo escolhido — estático
-  # (não consulta cooldown: na hora, skills não prontas são puladas). Esperas
-  # simbólicas resolvem pra ms só pra leitura.
-  defp rescue_combo_preview(combos, name) do
-    case Enum.find(combos, &(&1.name == name)) do
-      nil ->
-        nil
-
-      combo ->
-        if Pokex.Combos.rescue_eligible?(combo) do
-          stun =
-            Enum.map(combo.steps, fn
-              {:skill, key} -> key
-              {:wait, ms} when is_integer(ms) -> "#{ms}ms"
-              {:wait, setting} -> "#{preview_wait_ms(setting)}ms"
-            end)
-
-          tail = [
-            Settings.get(:rescue_key),
-            "retrato",
-            Settings.get(:max_revive_key),
-            Settings.get(:rescue_key)
-          ]
-
-          Enum.join(stun ++ tail, " → ")
-        end
-    end
-  end
-
-  defp preview_wait_ms(setting) do
-    case Settings.get(setting) do
-      ms when is_integer(ms) -> ms
-      _estranho -> Settings.get(:rescue_step_ms)
-    end
-  rescue
-    _sem_seed -> Settings.get(:rescue_step_ms)
-  end
-
-  # As teclas do combo de resgate que TAMBÉM estão na rotação do combate —
-  # aviso escolhido pelo Lucas (sem exclusão automática): reservar é papel
-  # dele, avisar é papel do painel.
-  defp rescue_combo_conflicts(combos, name) do
-    case Enum.find(combos, &(&1.name == name)) do
-      nil ->
-        []
-
-      combo ->
-        combat_keys = Settings.get(:skill_keys)
-        for {:skill, key} <- combo.steps, key in combat_keys, uniq: true, do: "skill #{key}"
-    end
-  end
-
   # 🎮 Mini game: desligado / observando a arena / jogando (os outros workers se
   # seguram sozinhos lendo o fato :mini_game no blackboard).
   defp mini_game_label(:off), do: "parado"
@@ -1942,92 +1888,46 @@ defmodule PokexWeb.PanelLive do
     |> Enum.count(& &1)
   end
 
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :active, :boolean, required: true
+  attr :event, :string, required: true
+  attr :override, :boolean, default: false
+
+  # Uma chave da faixa rápida: alvo grande (o chip inteiro clica), estado legível
+  # de longe pela cor, e nada além do nome — a explicação de cada uma mora no ⚙️,
+  # onde há espaço pra ela.
+  defp quick_toggle(assigns) do
+    ~H"""
+    <button
+      id={@id}
+      phx-click={@event}
+      aria-pressed={to_string(@active)}
+      class={[
+        "flex h-9 items-center justify-center gap-1 rounded-lg border text-pk-body font-semibold transition",
+        if(@active,
+          do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+          else: "border-pk-line-strong text-pk-text-3 hover:text-pk-text-2"
+        )
+      ]}
+    >
+      {@label}
+      <span
+        :if={@override}
+        data-testid="override-badge"
+        class="rounded border border-pk-warn-line px-1 font-mono text-pk-meta text-pk-warn"
+        title="Você mudou esta chave: ela não está no padrão do modo."
+      >
+        manual
+      </span>
+    </button>
+    """
+  end
+
   defp rescue_count(game), do: get_in(game, [:counters, :rescues]) || 0
   defp potion_count(game), do: get_in(game, [:counters, :potions]) || 0
   defp catcher_captures(catcher), do: get_in(catcher, [:counters, :captures]) || 0
   defp catcher_loots(catcher), do: get_in(catcher, [:counters, :loots]) || 0
-
-  attr :id, :string, required: true
-  attr :title, :string, required: true
-  attr :description, :string, required: true
-  attr :active, :boolean, required: true
-  attr :event, :string, required: true
-  attr :detail, :string, default: nil
-  attr :override, :boolean, default: false
-
-  defp automation_row(assigns) do
-    ~H"""
-    <div
-      id={@id}
-      class={[
-        "flex min-h-12 items-center gap-3 border-b border-pk-line px-3 py-2 last:border-b-0",
-        @active && "bg-pk-ok-dim"
-      ]}
-    >
-      <span class={[
-        "h-7 w-0.5 shrink-0 rounded-full",
-        if(@active, do: "bg-pk-ok", else: "bg-transparent")
-      ]} />
-      <div class="min-w-0 flex-1">
-        <p class="flex items-center gap-1.5 text-pk-body font-semibold text-pk-text">
-          <span class="truncate">{@title}</span>
-          <%!-- YOUR exception to what the mode promises. Without this, the mode and
-                the switch can disagree and only the bot knows which won. --%>
-          <span
-            :if={@override}
-            data-testid="override-badge"
-            class="shrink-0 rounded border border-pk-warn-line bg-pk-warn-dim px-1 font-mono text-pk-meta text-pk-warn"
-            title="Você mudou esta chave: ela não está no padrão do modo."
-          >
-            manual
-          </span>
-        </p>
-        <%!-- the description WRAPS instead of truncating: a sentence cut mid-word
-              ("segura a fisga se o Pokémon está com pou…") tells him less than no
-              sentence at all. The long-form explanation still lives in the tooltip. --%>
-        <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2" title={@detail}>
-          {@description}
-        </p>
-      </div>
-      <input
-        id={"#{@id}-toggle"}
-        type="checkbox"
-        class="toggle toggle-success toggle-sm shrink-0"
-        checked={@active}
-        phx-click={@event}
-        aria-label={@title}
-      />
-    </div>
-    """
-  end
-
-  attr :label, :string, required: true
-  attr :accent, :string, required: true
-  attr :note, :string, default: nil
-  attr :badge, :string, default: nil
-
-  # The header has to carry the SCOPE, not whisper it: which of these switches
-  # apply to the mode you are in is the whole reason the groups exist, and a
-  # side-note in 11px grey lost that argument (Lucas, 2026-07-22: "não tá muito
-  # claro que isso são pontos gerais"). So the scope is a full sentence on its
-  # own line, under a label that is no longer a mono-caps whisper.
-  defp group_header(assigns) do
-    ~H"""
-    <div class="flex items-start gap-2 border-y border-pk-line bg-pk-sunken px-3 py-2 first:border-t-0">
-      <span class={["mt-1 h-3 w-0.5 shrink-0 rounded-full", @accent]} />
-      <div class="min-w-0 flex-1">
-        <p class="text-pk-body font-semibold text-pk-text-2">{@label}</p>
-        <p :if={@note} class="text-pk-meta text-pk-text-3">{@note}</p>
-      </div>
-      <span
-        :if={@badge}
-        class="shrink-0 rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta text-pk-text-3"
-      >
-        {@badge}
-      </span>
-    </div>
-    """
-  end
 
   @impl true
   def render(assigns) do
@@ -2321,256 +2221,77 @@ defmodule PokexWeb.PanelLive do
             >
               <.icon name="hero-stop-solid" class="size-4" /> Parar bot
             </button>
-          </div>
 
-          <div class="min-w-0 space-y-3">
-            <details id="automations-panel" open class="group">
-              <summary class="mb-2 flex cursor-pointer list-none items-center justify-between px-0.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3 transition hover:text-pk-text-2 [&::-webkit-details-marker]:hidden">
-                <h2 class="flex items-center gap-1.5">
+            <%!-- A FAIXA RÁPIDA: as seis chaves que mudam por SESSÃO (2026-07-30).
+                  Todo número, tecla e limiar foi pro ⚙️; estas seis ficaram porque
+                  desligar a pesca no meio da caçada não pode custar abrir uma tela. --%>
+            <div id="quick-toggles" class="rounded-xl border border-pk-line bg-pk-surface p-2">
+              <div class="mb-1.5 flex items-center justify-between px-1">
+                <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
                   Automações
-                  <.icon
-                    name="hero-chevron-down"
-                    class="size-3 text-pk-text-3 transition group-open:rotate-180"
-                  />
-                </h2>
-                <span>{automation_count(
-                  @fishing,
-                  @combat,
-                  @player_mode,
-                  @loot_enabled,
-                  @capture_enabled,
-                  @rescue_enabled,
-                  @potion_enabled
-                )}/6 on</span>
-              </summary>
-              <div class="overflow-hidden rounded-lg border border-pk-line bg-pk-sunken">
-                <.group_header
-                  label="Valem sempre"
-                  accent="bg-[#6c7780]"
-                  note="ligam ou desligam nos dois modos, Parado e Movimento"
-                />
-                <.automation_row
-                  id="automation-combat"
-                  title="Luta automática"
-                  description="ataca com as skills configuradas"
-                  active={active?(@combat.state)}
-                  event="toggle_combat"
-                />
-                <.automation_row
-                  id="automation-loot"
-                  title="Pegar loot (Espaço)"
-                  description="Espaço a cada kill"
-                  detail="O corpo cai no tile ao lado, onde a luta aconteceu — Espaço alcança ele parado ou andando."
-                  active={@loot_enabled}
-                  event="toggle_loot_enabled"
-                />
-                <%!-- Revive e poção NÃO são automações do bot: o monitor de suporte
-                     roda sozinho, então protegem o Pokémon nos dois modos e também
-                     com todo o resto parado, você jogando na mão. Estavam no mesmo
-                     balaio de "luta automática" e isso escondia o ponto. --%>
-                <.group_header
-                  label="Proteção do Pokémon"
-                  accent="bg-[#c9772f]"
-                  note="valem nos dois modos — e continuam valendo com o bot parado, você jogando na mão"
-                />
-                <.automation_row
-                  id="automation-rescue"
-                  title="Revive automático"
-                  description={"revive abaixo de #{@rescue_pct}%"}
-                  detail="O monitor de suporte lê a vida sozinho: isso vale mesmo com pesca e batalha desligadas."
-                  active={@rescue_enabled}
-                  event="toggle_rescue"
-                />
-                <.automation_row
-                  id="automation-potion"
-                  title="Poção automática"
-                  description={"tecla #{Settings.get(:potion_key)} abaixo de #{@potion_pct}%"}
-                  detail="Bebe enquanto você caça; só segura numa luta travada ou quando está tomando dano (a cura é interrompida por dano)."
-                  active={@potion_enabled}
-                  event="toggle_potion"
-                />
-                <.automation_row
-                  id="automation-support-waits-capture"
-                  title="Suporte espera a captura"
-                  description="ordem pós-luta: loot → bola → suporte"
-                  detail="Poção e reposição só agem quando os corpos foram resolvidos, com teto de 10s pra nunca segurar a cura."
-                  active={@support_waits_capture}
-                  event="toggle_support_waits_capture"
-                />
-
-                <.group_header
-                  label="Só no modo Parado"
-                  accent="bg-[#1D9E75]"
-                  note="desligam sozinhas quando você troca pro Movimento"
-                  badge={
-                    if @mode_overrides == [],
-                      do: "no padrão",
-                      else: "#{length(@mode_overrides)} exceção(ões)"
-                  }
-                />
-                <.automation_row
-                  id="automation-fishing"
-                  title="Pesca automática"
-                  description="lança e fisga sozinho"
+                </span>
+                <span class="font-mono text-pk-meta text-pk-text-3">
+                  {automation_count(
+                    @fishing,
+                    @combat,
+                    @player_mode,
+                    @loot_enabled,
+                    @capture_enabled,
+                    @rescue_enabled,
+                    @potion_enabled
+                  )}/6 on
+                </span>
+              </div>
+              <div class="grid grid-cols-3 gap-1.5">
+                <.quick_toggle
+                  id="quick-fishing"
+                  label="Pesca"
                   active={active?(@fishing.state)}
                   event="toggle_fishing"
                 />
-                <.automation_row
-                  id="automation-capture"
-                  title="Capturar (Pokébola)"
-                  description="joga bola nos corpos ao redor"
-                  detail="Mira contra uma baseline do chão aprendida parado — por isso não existe em movimento."
+                <.quick_toggle
+                  id="quick-combat"
+                  label="Luta"
+                  active={active?(@combat.state)}
+                  event="toggle_combat"
+                />
+                <.quick_toggle
+                  id="quick-capture"
+                  label="Captura"
                   active={@capture_enabled}
                   override={:capture_enabled in @mode_overrides}
                   event="toggle_capture_enabled"
                 />
-                <.automation_row
-                  id="automation-reposition"
-                  title="Reposicionar após lutas"
-                  description="clique do meio no tile calibrado"
-                  detail="2s depois da luta acabar, volta pro tile de Calibração → Posição do Pokémon. Andando, isso te arrastaria de volta pro spot."
-                  active={@reposition_enabled}
-                  override={:reposition_enabled in @mode_overrides}
-                  event="toggle_reposition"
+                <.quick_toggle
+                  id="quick-loot"
+                  label="Loot"
+                  active={@loot_enabled}
+                  event="toggle_loot_enabled"
                 />
-                <button
-                  :if={@player_mode == "parado"}
-                  phx-click="relearn_ground"
-                  class="mx-3 my-2 flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 font-mono text-pk-meta text-pk-text-2 hover:text-white"
-                >
-                  <.icon name="hero-arrow-path" class="size-3" /> Reaprender chão (mudou de spot)
-                </button>
-                <button
-                  :if={@mode_overrides != []}
-                  id="restore-mode-defaults"
-                  phx-click="restore_mode_defaults"
-                  class="mx-3 my-2 flex h-8 items-center gap-1.5 rounded-lg border border-pk-warn-line px-3 font-mono text-pk-meta text-pk-warn hover:bg-pk-warn-dim"
-                >
-                  <.icon name="hero-arrow-uturn-left" class="size-3" /> Restaurar padrão do modo
-                </button>
-                <.automation_row
-                  id="automation-require-cooldowns"
-                  title="Só pescar quando dá pra matar"
-                  description="segura a fisga até uma skill estar pronta"
-                  active={@require_cooldowns}
-                  event="toggle_require_cooldowns"
+                <.quick_toggle
+                  id="quick-rescue"
+                  label="Revive"
+                  active={@rescue_enabled}
+                  event="toggle_rescue"
                 />
-                <form
-                  id="hook-skills-form"
-                  phx-submit="save_hook_skills"
-                  class="border-b border-pk-line px-3 py-2.5"
-                >
-                  <label for="hook-skills-input" class="font-mono text-pk-meta text-pk-text-3">
-                    Skills necessárias pra matar
-                  </label>
-                  <div class="mt-1.5 flex gap-2">
-                    <input
-                      id="hook-skills-input"
-                      name="hook_skills"
-                      value={@hook_skills}
-                      placeholder="4 5 6 7"
-                      class="input input-bordered h-9 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
-                    />
-                    <button class="btn h-9 border border-pk-ok-line bg-transparent px-4 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim">
-                      Salvar
-                    </button>
-                  </div>
-                </form>
-                <.automation_row
-                  id="automation-require-pokemon-hp"
-                  title="Só pescar com vida"
-                  description="segura a fisga se o Pokémon está com pouca vida ou fora da pokébola (lê o monitor de suporte)"
-                  active={@require_pokemon_hp}
-                  event="toggle_require_pokemon_hp"
+                <.quick_toggle
+                  id="quick-potion"
+                  label="Poção"
+                  active={@potion_enabled}
+                  event="toggle_potion"
                 />
-                <div id="automation-escape" class="border-b border-pk-line px-3 py-2.5">
-                  <div class="flex min-h-10 items-center gap-3">
-                    <div class="min-w-0 flex-1">
-                      <p class="text-pk-title font-semibold text-pk-text">Fuga de emergência</p>
-                      <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">
-                        anda até o tile calibrado (Calibração → Escada de fuga), entra na escada
-                        de seta, para TUDO e toca o alarme — vai ser o protocolo anti-shiny
-                      </p>
-                    </div>
-                    <button
-                      id="test-escape"
-                      phx-click="test_escape"
-                      data-confirm="Vai CLICAR NO JOGO (no tile calibrado), dar os passos de seta e PARAR todos os bots. Testar a fuga agora?"
-                      class="btn btn-xs h-8 shrink-0 border border-pk-warn-line bg-transparent px-3 text-pk-body text-pk-warn hover:bg-pk-warn-dim"
-                    >
-                      <.icon name="hero-beaker" class="size-3" /> Testar fuga
-                    </button>
-                  </div>
-                  <form
-                    id="escape-cfg-form"
-                    phx-change="save_escape_cfg"
-                    title="Depois do clique no tile, espera o personagem ANDAR até lá e então dá os passos de seta pra dentro da escada."
-                    class="mt-1.5 flex flex-wrap items-center gap-1 font-mono text-pk-meta text-pk-text-3"
-                  >
-                    <span>entra pra</span>
-                    <select
-                      id="escape-direction"
-                      name="escape_direction"
-                      aria-label="Direção de entrada na escada"
-                      class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                    >
-                      <option value="left" selected={@escape_direction == "left"}>
-                        ← esquerda
-                      </option>
-                      <option value="right" selected={@escape_direction == "right"}>
-                        → direita
-                      </option>
-                      <option value="up" selected={@escape_direction == "up"}>↑ cima</option>
-                      <option value="down" selected={@escape_direction == "down"}>↓ baixo</option>
-                    </select>
-                    <span>×</span>
-                    <input
-                      id="escape-steps"
-                      name="escape_steps"
-                      type="number"
-                      aria-label="Quantos passos de seta dar para dentro da escada"
-                      min="1"
-                      max="10"
-                      value={@escape_steps}
-                      phx-debounce="500"
-                      class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                    />
-                    <span>passos · espera a caminhada por</span>
-                    <input
-                      id="escape-walk-wait"
-                      name="escape_walk_wait_ms"
-                      type="number"
-                      aria-label="Espera pela caminhada até a escada, em milissegundos"
-                      min="0"
-                      max="10000"
-                      step="100"
-                      value={@escape_walk_wait_ms}
-                      phx-debounce="500"
-                      class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                    />
-                    <span>ms</span>
-                  </form>
-                </div>
-                <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
-                  <label for="fishing-hp-input" class="font-mono text-pk-meta text-pk-text-3">
-                    Vida mínima pra puxar a vara (%)
-                  </label>
-                  <div class="mt-1.5 flex gap-2">
-                    <input
-                      id="fishing-hp-input"
-                      name="fishing_hp_pct"
-                      inputmode="numeric"
-                      value={@fishing_hp_pct}
-                      class="input input-bordered h-9 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
-                    />
-                    <button class="btn h-9 border border-pk-ok-line bg-transparent px-4 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim">
-                      Salvar
-                    </button>
-                  </div>
-                </form>
               </div>
-            </details>
+              <.link
+                patch={~p"/config"}
+                id="open-settings"
+                class="mt-1.5 flex h-8 items-center justify-center gap-1.5 rounded-lg border border-pk-line-strong font-mono text-pk-meta text-pk-text-2 transition hover:text-white"
+              >
+                <.icon name="hero-cog-6-tooth" class="size-3" /> Configurações
+              </.link>
+            </div>
+          </div>
 
+          <div class="min-w-0 space-y-3">
             <section id="presets-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <div class="flex items-center justify-between text-pk-body font-semibold">
                 <span>Presets por Pokémon</span>
@@ -2639,152 +2360,11 @@ defmodule PokexWeb.PanelLive do
                   style={hp_bar_style(@game)}
                 />
               </div>
+              <%!-- Os limiares mudaram de lugar (⚙️): aqui viraram LEITURA — você vê
+                   o que está valendo sem esbarrar num número no meio da caçada. --%>
               <div class="mt-2 flex items-center justify-between font-mono text-pk-meta text-pk-text-3">
-                <form
-                  id="rescue-cfg-form"
-                  phx-change="save_rescue_cfg"
-                  class="flex items-center gap-1"
-                >
-                  <label for="rescue-pct">revive &lt;</label>
-                  <input
-                    id="rescue-pct"
-                    name="rescue_pct"
-                    type="number"
-                    aria-label="Vida mínima para revive, em por cento"
-                    min="1"
-                    max="90"
-                    value={@rescue_pct}
-                    phx-debounce="500"
-                    class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                  />
-                  <span>% · a cada</span>
-                  <input
-                    id="rescue-cooldown"
-                    name="rescue_cooldown_s"
-                    type="number"
-                    aria-label="Intervalo mínimo entre revives, em segundos"
-                    min="2"
-                    max="600"
-                    value={@rescue_cooldown_s}
-                    phx-debounce="500"
-                    class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                  />
-                  <span>s</span>
-                </form>
-                <span>revives: {rescue_count(@game)}</span>
-              </div>
-              <%!-- O modo do resgate: direto (a sequência de sempre) ou com um
-                   combo de STUN antes — as skills reservadas seguram os mobs
-                   enquanto o revive acontece. O combo é autorado no editor de
-                   combos; aqui só se escolhe. Inelegíveis (com troca de time)
-                   aparecem desabilitados dizendo o porquê. --%>
-              <div class="mt-1.5 space-y-1 font-mono text-pk-meta text-pk-text-3">
-                <form
-                  id="rescue-combo-form"
-                  phx-change="save_rescue_combo_cfg"
-                  class="flex items-center gap-1"
-                >
-                  <label for="rescue-mode">revive</label>
-                  <select
-                    id="rescue-mode"
-                    name="rescue_mode"
-                    aria-label="Modo do auto-revive"
-                    class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                  >
-                    <option value="direto" selected={@rescue_mode == "direto"}>direto</option>
-                    <option value="combo" selected={@rescue_mode == "combo"}>com combo</option>
-                  </select>
-                  <select
-                    :if={@rescue_mode == "combo"}
-                    id="rescue-combo"
-                    name="rescue_combo"
-                    aria-label="Combo de stun do resgate"
-                    class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                  >
-                    <option value="" selected={@rescue_combo == ""}>escolha o combo…</option>
-                    <option
-                      :for={combo <- @combos}
-                      value={combo.name}
-                      selected={@rescue_combo == combo.name}
-                      disabled={not Pokex.Combos.rescue_eligible?(combo)}
-                    >
-                      {combo.name}{if not Pokex.Combos.rescue_eligible?(combo),
-                        do: " (tem troca de time)"}
-                    </option>
-                  </select>
-                </form>
-                <%!-- O modo combo LIGADO sem combo válido escolhido é o pior
-                      dos mundos: ele acha que reservou as skills e o revive
-                      acontece direto (foi exatamente onde a configuração do
-                      Lucas travou em 2026-07-30). Diz isso, e oferece o combo
-                      pronto num clique. --%>
-                <div
-                  :if={@rescue_mode == "combo" and not rescue_combo_ready?(@combos, @rescue_combo)}
-                  data-testid="rescue-combo-missing"
-                  class="space-y-1 rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1.5 text-pk-warn"
-                >
-                  <p>⚠️ modo com combo, mas nenhum combo válido escolhido — o revive vai direto.</p>
-                  <button
-                    id="create-rescue-combo"
-                    type="button"
-                    phx-click="create_rescue_combo"
-                    class="btn h-7 w-full border border-pk-ok-line bg-transparent text-pk-meta font-semibold text-pk-ok hover:bg-pk-ok-dim"
-                  >
-                    criar o combo "resgate" (skill 1 → 2) e usar
-                  </button>
-                </div>
-                <p
-                  :if={@rescue_mode == "combo" and rescue_combo_preview(@combos, @rescue_combo)}
-                  data-testid="rescue-combo-preview"
-                  class="text-pk-text-3"
-                >
-                  {rescue_combo_preview(@combos, @rescue_combo)}
-                </p>
-                <p
-                  :if={
-                    @rescue_mode == "combo" and rescue_combo_conflicts(@combos, @rescue_combo) != []
-                  }
-                  data-testid="rescue-combo-conflict"
-                  class="rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1 text-pk-warn"
-                >
-                  ⚠️ {Enum.join(rescue_combo_conflicts(@combos, @rescue_combo), ", ")} também na
-                  rotação do combate — pode estar em cooldown na hora do resgate. Reserve tirando
-                  de "skills" ali em cima.
-                </p>
-              </div>
-              <div class="mt-1.5 flex items-center justify-between font-mono text-pk-meta text-pk-text-3">
-                <form
-                  id="potion-cfg-form"
-                  phx-change="save_potion_cfg"
-                  class="flex items-center gap-1"
-                >
-                  <label for="potion-pct">poção &lt;</label>
-                  <input
-                    id="potion-pct"
-                    name="potion_pct"
-                    type="number"
-                    aria-label="Vida mínima para poção, em por cento"
-                    min="1"
-                    max="99"
-                    value={@potion_pct}
-                    phx-debounce="500"
-                    class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                  />
-                  <span>% · a cada</span>
-                  <input
-                    id="potion-cooldown"
-                    name="potion_cooldown_s"
-                    type="number"
-                    aria-label="Intervalo mínimo entre poções, em segundos"
-                    min="1"
-                    max="600"
-                    value={@potion_cooldown_s}
-                    phx-debounce="500"
-                    class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                  />
-                  <span>s</span>
-                </form>
-                <span>poções: {potion_count(@game)}</span>
+                <span>revive &lt; {@rescue_pct}% · poção &lt; {@potion_pct}%</span>
+                <span>{rescue_count(@game)} revives · {potion_count(@game)} poções</span>
               </div>
               <button
                 id="use-potion"
@@ -3462,6 +3042,43 @@ defmodule PokexWeb.PanelLive do
           </div>
         </div>
       </div>
+
+      <%!-- O ⚙️ é a MESMA LiveView (live_action): o dashboard segue montado e
+            vivo atrás, com as pílulas se mexendo enquanto ele configura. Rota
+            própria é o que dá URL, F5 e voltar — um modal de assign não daria
+            nenhum dos três. --%>
+      <PokexWeb.Panel.SettingsOverlay.settings_overlay
+        :if={@live_action == :config}
+        rescue_cfg={
+          %{
+            pct: @rescue_pct,
+            cooldown_s: @rescue_cooldown_s,
+            mode: @rescue_mode,
+            combo: @rescue_combo
+          }
+        }
+        potion_cfg={%{pct: @potion_pct, cooldown_s: @potion_cooldown_s}}
+        fishing_cfg={
+          %{
+            require_cooldowns: @require_cooldowns,
+            require_pokemon_hp: @require_pokemon_hp,
+            hook_skills: @hook_skills,
+            hp_pct: @fishing_hp_pct
+          }
+        }
+        escape_cfg={
+          %{
+            direction: @escape_direction,
+            steps: @escape_steps,
+            walk_wait_ms: @escape_walk_wait_ms
+          }
+        }
+        support_waits_capture={@support_waits_capture}
+        reposition_enabled={@reposition_enabled}
+        player_mode={@player_mode}
+        mode_overrides={@mode_overrides}
+        combos={@combos}
+      />
     </Layouts.app>
     """
   end

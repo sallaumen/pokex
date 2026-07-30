@@ -187,9 +187,12 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "Mini game"
     assert html =~ "Automações"
     assert html =~ "parado"
-    assert html =~ "Só pescar com vida"
-    assert html =~ "Reposicionar após lutas"
-    assert has_element?(view, "#fishing-hp-form")
+    # a faixa rápida: as seis chaves de sessão ficaram; todo ajuste foi pro ⚙️
+    assert has_element?(view, "#quick-toggles")
+    assert has_element?(view, "#quick-fishing")
+    assert has_element?(view, "#open-settings[href='/config']")
+    refute has_element?(view, "#fishing-hp-form")
+    refute html =~ "Só pescar com vida"
     assert has_element?(view, "#app-navigation[phx-update=ignore]")
     assert has_element?(view, "#app-navigation-toggle[aria-label='Abrir navegação']")
     assert has_element?(view, "#app-nav-calibration[href='/calibration']")
@@ -197,6 +200,61 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "#app-nav-fishing-lab[href='/fishing-lab']")
     assert has_element?(view, "#app-nav-world[href='/world']")
     assert has_element?(view, "#app-nav-pokedex[href='/pokedex']")
+    assert has_element?(view, "#app-nav-config[href='/config']")
+  end
+
+  describe "o ⚙️ por cima do dashboard" do
+    test "abre em /config COM o dashboard vivo atrás", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/config")
+
+      assert has_element?(view, "#settings-overlay")
+      # o dashboard não foi embora: as pílulas e a faixa continuam montadas atrás
+      assert has_element?(view, ~s([data-testid="fishing-pill"]))
+      assert has_element?(view, "#quick-toggles")
+      # e os ajustes que saíram do dashboard estão aqui
+      assert has_element?(view, "#rescue-pct")
+      assert has_element?(view, "#hook-skills-form")
+      assert has_element?(view, "#automation-require-pokemon-hp")
+      assert has_element?(view, "#escape-cfg-form")
+    end
+
+    test "no dashboard puro o overlay não existe", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      refute has_element?(view, "#settings-overlay")
+      refute has_element?(view, "#rescue-pct")
+      assert has_element?(view, "#open-settings")
+    end
+
+    test "fechar volta pro dashboard sem remontar a LiveView", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/config")
+      assert has_element?(view, "#settings-overlay")
+
+      view |> element("#close-settings") |> render_click()
+
+      refute has_element?(view, "#settings-overlay")
+      assert has_element?(view, "#quick-toggles")
+    end
+
+    test "as seis chaves rápidas disparam os mesmos eventos de sempre", %{conn: conn} do
+      antes = %{
+        loot: Pokex.Settings.get(:loot_enabled),
+        rescue: Pokex.Settings.get(:rescue_enabled)
+      }
+
+      on_exit(fn ->
+        Pokex.Settings.put(:loot_enabled, antes.loot)
+        Pokex.Settings.put(:rescue_enabled, antes.rescue)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("#quick-loot") |> render_click()
+      refute Pokex.Settings.get(:loot_enabled) == antes.loot
+
+      view |> element("#quick-rescue") |> render_click()
+      refute Pokex.Settings.get(:rescue_enabled) == antes.rescue
+    end
   end
 
   test "a fishing broadcast updates only the fishing pill", %{conn: conn} do
@@ -323,7 +381,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.Settings.put(:escape_walk_wait_ms, wait)
     end)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     view
     |> form("#escape-cfg-form", %{
@@ -448,7 +506,7 @@ defmodule PokexWeb.PanelLiveTest do
 
   test "o protocolo de fuga: botão presente e o {:escape, _, _} toca o alarme com o resultado",
        %{conn: conn} do
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     assert has_element?(view, "#test-escape[data-confirm]")
 
@@ -613,7 +671,10 @@ defmodule PokexWeb.PanelLiveTest do
 
     view |> element("#mode-parado") |> render_click()
     assert Pokex.Settings.get(:capture_enabled)
-    assert render(view) =~ "Reaprender chão"
+
+    # o "reaprender chão" só existe no modo Parado — e mora no ⚙️ desde 2026-07-30
+    {:ok, config, _} = live(conn, ~p"/config")
+    assert render(config) =~ "Reaprender chão"
   end
 
   # The escape hatch he asked for: a switch may disagree with the mode, but the
@@ -621,7 +682,7 @@ defmodule PokexWeb.PanelLiveTest do
   test "uma exceção manual ao padrão do modo é marcada e restaurável", %{conn: conn} do
     Pokex.SettingsStash.stash_keys!([:player_mode, :capture_enabled, :reposition_enabled])
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
     view |> element("#mode-parado") |> render_click()
     refute has_element?(view, "[data-testid=override-badge]")
 
@@ -647,10 +708,10 @@ defmodule PokexWeb.PanelLiveTest do
 
     {:ok, view, _} = live(conn, ~p"/")
 
-    view |> element(~s(input[phx-click="toggle_loot_enabled"])) |> render_click()
+    view |> element("#quick-loot") |> render_click()
     refute Pokex.Settings.get(:loot_enabled) == loot
 
-    view |> element(~s(input[phx-click="toggle_capture_enabled"])) |> render_click()
+    view |> element("#quick-capture") |> render_click()
     refute Pokex.Settings.get(:capture_enabled) == cap
   end
 
@@ -658,7 +719,7 @@ defmodule PokexWeb.PanelLiveTest do
     value = Pokex.Settings.get(:support_waits_capture)
     on_exit(fn -> Pokex.Settings.put(:support_waits_capture, value) end)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     view |> element(~s(input[phx-click="toggle_support_waits_capture"])) |> render_click()
     refute Pokex.Settings.get(:support_waits_capture) == value
@@ -869,7 +930,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.Settings.put(:hook_skill_keys, keys)
     end)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     view |> element(~s(input[phx-click="toggle_require_cooldowns"])) |> render_click()
     refute Pokex.Settings.get(:require_cooldowns) == req
@@ -923,7 +984,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.Settings.put(:rescue_cooldown_ms, cooldown)
     end)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     view
     |> form("#rescue-cfg-form", %{"rescue_pct" => "30", "rescue_cooldown_s" => "20"})
@@ -932,7 +993,8 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:pokemon_hp_rescue_pct) == 30
     # the UI speaks seconds, the setting stores milliseconds
     assert Pokex.Settings.get(:rescue_cooldown_ms) == 20_000
-    assert render(view) =~ "abaixo de 30%"
+    # o campo do ⚙️ passa a mostrar o que foi salvo
+    assert has_element?(view, ~s(#rescue-pct[value="30"]))
 
     # out-of-range and garbage inputs must not touch the saved values — but a valid field
     # beside an invalid one still saves
@@ -966,7 +1028,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.Settings.put(:potion_enabled, enabled)
     end)
 
-    {:ok, view, _} = live(conn, ~p"/")
+    {:ok, view, _} = live(conn, ~p"/config")
 
     view
     |> form("#potion-cfg-form", %{"potion_pct" => "65", "potion_cooldown_s" => "8"})
@@ -974,7 +1036,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     assert Pokex.Settings.get(:pokemon_hp_potion_pct) == 65
     assert Pokex.Settings.get(:potion_cooldown_ms) == 8_000
-    assert render(view) =~ "abaixo de 65%"
+    assert has_element?(view, ~s(#potion-pct[value="65"]))
 
     view
     |> form("#potion-cfg-form", %{"potion_pct" => "0", "potion_cooldown_s" => "700"})
@@ -983,7 +1045,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:pokemon_hp_potion_pct) == 65
     assert Pokex.Settings.get(:potion_cooldown_ms) == 8_000
 
-    view |> element(~s(#automation-potion input[phx-click="toggle_potion"])) |> render_click()
+    view |> element(~s(#quick-potion)) |> render_click()
     refute Pokex.Settings.get(:potion_enabled) == enabled
   end
 
@@ -1614,7 +1676,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.Settings.put(:rescue_mode, "combo")
       Pokex.Settings.put(:rescue_combo, "stun-area")
 
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       assert has_element?(view, "#rescue-mode")
       assert has_element?(view, "#rescue-combo")
@@ -1633,7 +1695,7 @@ defmodule PokexWeb.PanelLiveTest do
     test "no modo direto o dropdown e o preview nem existem", %{conn: conn} do
       Pokex.Settings.put(:rescue_mode, "direto")
 
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       assert has_element?(view, "#rescue-mode")
       refute has_element?(view, "#rescue-combo")
@@ -1646,7 +1708,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.Settings.put(:rescue_mode, "combo")
       Pokex.Settings.put(:rescue_combo, "")
 
-      {:ok, view, _html} = live(conn, ~p"/")
+      {:ok, view, _html} = live(conn, ~p"/config")
 
       assert has_element?(view, ~s([data-testid="rescue-combo-missing"]))
 

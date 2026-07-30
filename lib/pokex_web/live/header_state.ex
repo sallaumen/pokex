@@ -75,6 +75,20 @@ defmodule PokexWeb.HeaderState do
   defp info({:fishing, %{state: state}}, socket), do: worker_state(socket, :fishing, state)
   defp info({:combat, %{state: state}}, socket), do: worker_state(socket, :combat, state)
   defp info({:cavebot, %{state: state}}, socket), do: worker_state(socket, :cavebot, state)
+
+  # O RESTO do tráfego dos tópicos que ESTE hook assinou — logs e alarmes que
+  # viajam junto com os snapshots ({:fishing_log, _, _}, {:rule_alarm, _}...) —
+  # morre aqui nas páginas que não são o painel: a página não pediu essas
+  # mensagens e não tem cláusula pra elas (com o bot pescando e a calibração
+  # aberta, cada log era um FunctionClauseError que derrubava a LiveView —
+  # Lucas, 2026-07-30). No painel (:cont) tudo segue pros handlers dele, que
+  # assinou por conta própria.
+  @worker_noise [:fishing_log, :combat_log, :cavebot_log, :cavebot_alarm, :rule_alarm]
+
+  defp info(msg, socket)
+       when is_tuple(msg) and tuple_size(msg) >= 1 and elem(msg, 0) in @worker_noise,
+       do: {if(socket.assigns.header_owns_workers?, do: :halt, else: :cont), socket}
+
   defp info(_msg, socket), do: {:cont, socket}
 
   defp worker_state(socket, key, state) do

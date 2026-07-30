@@ -47,7 +47,18 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{})
     {:ok, body} = FakeBody.start_link(self())
-    worker = start_supervised!({Worker, name: nil, body: body})
+
+    # O scanner injetado lê o MESMO WorldState que os testes populam via
+    # world!/1 — o kill e os wakes de confirmação enxergam exatamente a cena
+    # que o teste montou (na produção o default é o SpotScan de verdade).
+    scanner = fn ->
+      case WorldState.get(:corpses, 60_000, System.monotonic_time(:millisecond)) do
+        {:ok, obs} -> obs
+        _nada -> nil
+      end
+    end
+
+    worker = start_supervised!({Worker, name: nil, body: body, scanner: scanner})
     :ok = Worker.run(worker)
     %{worker: worker}
   end

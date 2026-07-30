@@ -23,7 +23,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.Body
   alias Pokex.Bots.Catcher.Logic
   alias Pokex.Perception
-  alias Pokex.Perception.{Feed, WorldState}
+  alias Pokex.Perception.Feed
   alias Pokex.Settings
 
   @topic "catcher"
@@ -41,11 +41,15 @@ defmodule Pokex.Bots.Catcher.Worker do
   def kill_topic, do: @kill_topic
 
   def start_link(opts \\ []) do
-    body = Keyword.get(opts, :body, Body)
+    init_arg = %{
+      body: Keyword.get(opts, :body, Body),
+      # a visão ancorada no kill; injetável nos testes como o Body
+      scanner: Keyword.get(opts, :scanner, &Pokex.Bots.Catcher.SpotScan.scan/0)
+    }
 
     case Keyword.get(opts, :name, __MODULE__) do
-      nil -> GenServer.start_link(__MODULE__, body)
-      name -> GenServer.start_link(__MODULE__, body, name: name)
+      nil -> GenServer.start_link(__MODULE__, init_arg)
+      name -> GenServer.start_link(__MODULE__, init_arg, name: name)
     end
   end
 
@@ -60,7 +64,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   def relearn(server \\ __MODULE__), do: GenServer.call(server, :relearn)
 
   @impl true
-  def init(body) do
+  def init(%{body: body, scanner: scanner}) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
@@ -72,6 +76,7 @@ defmodule Pokex.Bots.Catcher.Worker do
      %{
        logic: nil,
        body: body,
+       scanner: scanner,
        timer: nil,
        attached?: false,
        combat_engaged?: false,
@@ -127,20 +132,22 @@ defmodule Pokex.Bots.Catcher.Worker do
   def handle_info({:world, _key, _obs}, state), do: {:noreply, state}
 
   def handle_info(:wake, %{logic: %Logic{state: :armed}} = state),
-    do: {:noreply, advance(state, current_obs())}
+    do: {:noreply, advance(state, scan_obs(state))}
 
   def handle_info(:wake, state), do: {:noreply, state}
 
   # kill = accelerator (both shapes: Task 5 drops the payload; tolerate the old one meanwhile).
   # loot_kill runs BEFORE advance: the Space presses must land ahead of any ball this cycle.
+  # A visão é ANCORADA AQUI: o kill diz que um corpo acabou de cair num tile
+  # vizinho — o SpotScan pergunta ao acervo qual (ver Catcher.SpotScan).
   def handle_info({:kill}, %{logic: %Logic{state: :armed}} = state) do
     state = loot_kill(state)
-    {:noreply, advance(state, current_obs())}
+    {:noreply, advance(state, scan_obs(state))}
   end
 
   def handle_info({:kill, _corpse}, %{logic: %Logic{state: :armed}} = state) do
     state = loot_kill(state)
-    {:noreply, advance(state, current_obs())}
+    {:noreply, advance(state, scan_obs(state))}
   end
 
   # Combat-engagement gate: track the live fight so a stationary enemy sprite never gets
@@ -163,7 +170,9 @@ defmodule Pokex.Bots.Catcher.Worker do
     # logic to drive — nil/halted must never reach Logic.step/3.
     state =
       if disengaged? and match?(%Logic{state: :armed}, state.logic) do
-        state |> maybe_attach_after_disengage() |> advance(current_obs())
+        # o kill pode ter chegado com a luta ainda "engajada" no nosso espelho
+        # (ordem dos broadcasts) — a borda do desengate re-escaneia na hora
+        advance(state, scan_obs(state))
       else
         state
       end
@@ -330,11 +339,26 @@ defmodule Pokex.Bots.Catcher.Worker do
     end
   end
 
-  defp current_obs do
-    case WorldState.get(:corpses, Settings.get(:catcher_world_max_age_ms), now()) do
-      {:ok, obs} -> obs
-      _stale_or_missing -> nil
-    end
+  # A observação ancorada no kill. Portões ANTES da captura: escanear com luta
+  # engajada casaria o sprite VIVO adjacente (a paleta de um pokémon em pé é a
+  # mesma do corpo ensinado dele); movimento/captura-desligada nem olham; o
+  # mini-game é dono do momento. nil = um passo que não prova nada (a Logic
+  # ignora), nunca uma confirmação falsa.
+  defp scan_obs(state) do
+    if state.combat_engaged? or Settings.get(:player_mode) != "parado" or
+         not capture_allowed?(state) or Perception.mini_game_playing?(),
+       do: nil,
+       else: safe_scan(state.scanner)
+  end
+
+  # Um scanner que morra (captura falhou, calibração corrompida) vira um passo
+  # cego — jamais derruba o worker no meio da frota.
+  defp safe_scan(scanner) do
+    scanner.()
+  rescue
+    _erro -> nil
+  catch
+    :exit, _reason -> nil
   end
 
   # O acervo é a mira — um start com acervo vazio vai passar a sessão inteira
@@ -351,10 +375,13 @@ defmodule Pokex.Bots.Catcher.Worker do
         )
 
       n ->
+        # "N pokémon ensinados", não "N corpos" — o Lucas leu "acervo com 10
+        # corpos" como "10 corpos na tela agora" (2026-07-30)
         Phoenix.PubSub.broadcast(
           Pokex.PubSub,
           @topic,
-          {:catcher_log, :macro, "captura: 🎯 acervo com #{n} corpo(s) mapeado(s)"}
+          {:catcher_log, :macro,
+           "captura: 🎯 mira pronta — #{n} pokémon ensinado(s) no acervo da calibração"}
         )
     end
   end
@@ -381,9 +408,13 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp known_at(_obs, _point), do: nil
 
-  # parado + running → attached; movimento or halted → detached. Never attaches mid-fight (see
-  # should_be_attached?/1) — a mid-fight attach would warm the baseline up on the live enemy
-  # sprite and mask the melee tile forever.
+  # O feed do detector de chão foi APOSENTADO (2026-07-30): a visão agora é o
+  # SpotScan ancorado no kill — a operação real (pesca + combate contínuos)
+  # nunca tem a janela quieta que o aquecimento do baseline exigia; o warmup
+  # acontecia com luta na tela, mascarava os tiles dos corpos e a captura
+  # ficava muda a sessão inteira. O maquinário de attach/reattach abaixo fica
+  # inerte (nada nunca anexa); a remoção do Interpret.Corpses/feed é faxina
+  # separada.
   defp sync_mode(state) do
     if should_be_attached?(state), do: attach(state), else: cancel_timer(detach(state))
   end
@@ -391,12 +422,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp armed_parado?(state),
     do: Settings.get(:player_mode) == "parado" and match?(%Logic{state: :armed}, state.logic)
 
-  defp should_be_attached?(state),
-    do: armed_parado?(state) and not state.combat_engaged? and capture_allowed?(state)
-
-  defp maybe_attach_after_disengage(state) do
-    if should_be_attached?(state) and not state.attached?, do: attach(state), else: state
-  end
+  defp should_be_attached?(_state), do: false
 
   defp attach(%{attached?: true} = state), do: state
 

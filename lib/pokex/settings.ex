@@ -641,8 +641,11 @@ defmodule Pokex.Settings do
     loot_press_gap_ms: 250,
     corpse_match_tolerance_px: 32,
     corpse_max_balls: 2,
-    corpse_ignore_ttl_ms: 120_000,
+    corpse_ignore_ttl_ms: 45_000,
     corpse_confirm_after_ms: 800,
+    # N bolas seguidas resolvidas SEM captura confirmada → alarme :captura (o
+    # espelho do dry_casts_alarm da pesca). 0 = desligado.
+    dry_balls_alarm: 4,
     catcher_world_max_age_ms: 1_200,
     # --- Cavebot (caçada por rotas de waypoints) -------------------------------------------------
     hunt_style: "constante",
@@ -786,6 +789,7 @@ defmodule Pokex.Settings do
     capture_hold_ms: 0..5_000,
     corpse_scan_refine_px: 1..64,
     corpse_scan_refine_peaks: 0..32,
+    dry_balls_alarm: 0..999,
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,
     settle_max_ms: 100..600_000,

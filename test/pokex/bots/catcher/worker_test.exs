@@ -353,6 +353,37 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
+  test "kill sem alvo REPICA a varredura — o corpo ganha mais chances", %{worker: _worker} do
+    # O primeiro frame pós-kill costuma estar sujo (animação de morte, o saque,
+    # o pokémon passando por cima) e o corpo dura minutos: uma chance só era
+    # desperdício. Sem NENHUM evento novo, o worker re-olha o chão sozinho.
+    {:ok, contador} = Agent.start_link(fn -> 0 end)
+
+    scanner = fn ->
+      Agent.update(contador, &(&1 + 1))
+
+      %{
+        scanning?: true,
+        corpses: [],
+        known: %{},
+        captured_at: System.monotonic_time(:millisecond)
+      }
+    end
+
+    {:ok, body} = FakeBody.start_link(self())
+    {:ok, worker} = Worker.start_link(name: nil, body: body, scanner: scanner)
+    :ok = Worker.run(worker)
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
+
+    # a varredura do kill + ao menos a primeira re-varredura (+400ms), sem
+    # nenhum kill novo no meio
+    assert eventually(fn -> Agent.get(contador, & &1) >= 2 end, 1_500)
+
+    GenServer.stop(worker)
+  end
+
+  @tag :tmp_dir
   test "portão fechado: a bola é SEGURADA, não contada — e a Logic nem sabe", %{worker: worker} do
     # A lição que o cavebot já aprendeu: Rig.Mac.gated/1 devolve :ok quando
     # SUPRIME. Agir e olhar o retorno depois faria a Logic contar uma bola que

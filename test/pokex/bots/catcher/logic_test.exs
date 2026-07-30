@@ -98,14 +98,119 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     assert actions == []
   end
 
-  test "next_wake polls while a throw or queue is pending, sleeps when idle-empty" do
+  test "next_wake mira o PRAZO da confirmação com bola em voo; dorme quando vazio" do
     logic = armed()
     assert Logic.next_wake(logic, 0) == nil
 
+    # bola arremessada em t=10, janela de 800 → acordar em t=810 (acordar antes
+    # rende uma varredura que a confirmação descarta como "ainda voando")
     {logic, _} = Logic.step(logic, obs([{100, 200}], 10), 10)
-    assert Logic.next_wake(logic, 10) == 400
+    assert Logic.next_wake(logic, 10) == 800
+    assert Logic.next_wake(logic, 700) == 110
+
+    # prazo já passou → acorda JÁ (1ms), nunca 0/negativo
+    assert Logic.next_wake(logic, 2_000) == 1
 
     {logic, _} = Logic.step(logic, obs([], 900), 900)
     assert Logic.next_wake(logic, 900) == nil
+  end
+
+  describe "ciclo de vida (fatia 6)" do
+    defp config_seca(teto), do: Map.put(config(), :dry_balls_alarm, teto)
+
+    test "ball_flown move a janela pra ATUAÇÃO, não pra decisão" do
+      {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
+
+      # a sequência do Body levou 250ms pra sair
+      logic = Logic.ball_flown(logic, 260)
+
+      # uma leitura que chegaria "depois da janela" contada da DECISÃO ainda
+      # está dentro do voo contado da atuação — não confirma nada
+      {logic, actions} = Logic.step(logic, obs([], 900), 900)
+      assert actions == []
+      assert logic.counters.captures == 0
+
+      # da atuação em diante a janela vale normalmente
+      {logic, _} = Logic.step(logic, obs([], 1_100), 1_100)
+      assert logic.counters.captures == 1
+    end
+
+    test "observação TARDIA demais é inconclusiva: não conta captura nem gasta bola" do
+      {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
+
+      # 6× a janela depois: o chão provavelmente já é outro
+      tarde = 10 + 800 * 6 + 100
+      {logic, actions} = Logic.step(logic, obs([], tarde), tarde)
+
+      assert logic.counters.captures == 0
+      assert logic.throw == nil
+      assert Enum.any?(actions, &match?({:log, "confirmação inconclusiva" <> _}, &1))
+    end
+
+    test "N bolas sem captura confirmada tocam o alarme e recomeçam" do
+      {logic, []} = Logic.start(Logic.new(config_seca(2)), 0)
+
+      # bola 1 e 2 no ponto A: sobrevive às duas → "não é corpo" (seca 1)
+      {logic, _} = Logic.step(logic, obs([{100, 200}], 10), 10)
+      {logic, _} = Logic.step(logic, obs([{100, 200}], 900), 900)
+      {logic, actions} = Logic.step(logic, obs([{100, 200}], 1_800), 1_800)
+      assert Enum.any?(actions, &match?({:log, "não é corpo" <> _}, &1))
+      refute Enum.any?(actions, &match?({:alarm, _}, &1))
+
+      # ponto B, mesma história → seca 2 = alarme
+      {logic, _} = Logic.step(logic, obs([{100, 200}, {400, 400}], 2_000), 2_000)
+      {logic, _} = Logic.step(logic, obs([{100, 200}, {400, 400}], 2_900), 2_900)
+      {logic, actions} = Logic.step(logic, obs([{100, 200}, {400, 400}], 3_800), 3_800)
+
+      assert Enum.any?(actions, &match?({:alarm, "🥎" <> _}, &1))
+      assert logic.dry_balls == 0
+
+      # uma captura de verdade zera a contagem
+      {logic, _} = Logic.step(logic, obs([{100, 200}, {400, 400}, {50, 50}], 4_000), 4_000)
+      {logic, _} = Logic.step(logic, obs([{100, 200}, {400, 400}], 4_900), 4_900)
+      assert logic.counters.captures == 1
+      assert logic.dry_balls == 0
+    end
+
+    test "ignore é por IDENTIDADE: outro pokémon no mesmo tile não herda o veto" do
+      {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
+      {logic, _} = Logic.step(logic, obs([{100, 200}], 900), 900)
+
+      # sobreviveu a corpse_max_balls (2) → vetado, com o nome que a varredura via
+      obs_pet = %{
+        scanning?: true,
+        corpses: [{100, 200}],
+        captured_at: 1_800,
+        known: %{{100, 200} => %{name: "Pet", score: 0.9}}
+      }
+
+      {logic, actions} = Logic.step(logic, obs_pet, 1_800)
+      assert Enum.any?(actions, &match?({:log, "não é corpo" <> _}, &1))
+
+      # o MESMO nome no mesmo ponto continua vetado
+      {logic, actions} = Logic.step(logic, %{obs_pet | captured_at: 2_000}, 2_000)
+      refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
+
+      # um Kingler recém-caído no mesmo tile NÃO herda o veto do Pet
+      obs_kingler = %{
+        scanning?: true,
+        corpses: [{100, 200}],
+        captured_at: 2_200,
+        known: %{{100, 200} => %{name: "Kingler", score: 0.95}}
+      }
+
+      {_logic, actions} = Logic.step(logic, obs_kingler, 2_200)
+      assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}}, &1))
+    end
+
+    test "sem identidade dos dois lados, o veto por ponto segue valendo" do
+      {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
+      {logic, _} = Logic.step(logic, obs([{100, 200}], 900), 900)
+      {logic, _} = Logic.step(logic, obs([{100, 200}], 1_800), 1_800)
+
+      # leitura sem :known (fluxo antigo): conservador, não readmite
+      {_logic, actions} = Logic.step(logic, obs([{100, 200}], 2_000), 2_000)
+      refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
+    end
   end
 end

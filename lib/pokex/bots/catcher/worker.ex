@@ -30,11 +30,19 @@ defmodule Pokex.Bots.Catcher.Worker do
   @topic "catcher"
   @kill_topic "combat:kill"
 
+  # Depois de um kill cuja varredura não achou nada, re-olhar nestes atrasos.
+  # Não é knob: é a física do corpo — ele dura minutos no chão, e o PRIMEIRO
+  # frame pós-kill costuma estar sujo (animação de morte, o saque, o próprio
+  # pokémon passando por cima). Três chances em 2s resolvem; mais é captura
+  # queimada à toa.
+  @repiques [400, 1_000, 2_000]
+
   @config_keys [
     :corpse_match_tolerance_px,
     :corpse_max_balls,
     :corpse_ignore_ttl_ms,
     :corpse_confirm_after_ms,
+    :dry_balls_alarm,
     :feed_corpses_ms
   ]
 
@@ -86,6 +94,13 @@ defmodule Pokex.Bots.Catcher.Worker do
        loots: 0,
        # o portão fechado já foi anunciado nesta rodada? (log por BORDA)
        segurada?: false,
+       # re-varreduras agendadas depois de um kill que não achou nada: o corpo
+       # fica MINUTOS no chão, uma chance só era pouco (a animação de morte, o
+       # saque e o próprio pokémon em cima atrapalham o primeiro frame)
+       repiques: [],
+       # monitor do Combat.Worker: se ele cair, combat_engaged? não pode ficar
+       # travado em true — seria um catcher mudo até o próximo broadcast
+       combat_ref: nil,
        # R4: quantos de cada corpo foram ENCONTRADOS nesta sessão, e o conjunto
        # visto na varredura anterior (dedup consecutivo)
        contagem: %{},
@@ -118,7 +133,7 @@ defmodule Pokex.Bots.Catcher.Worker do
         combat_engaged?: seed_combat_engaged()
     }
 
-    state = sync_mode(state)
+    state = state |> monitorar_combate() |> sync_mode()
     announce_library()
     broadcast(state)
     {:reply, :ok, state}
@@ -165,12 +180,12 @@ defmodule Pokex.Bots.Catcher.Worker do
   # A visão é ANCORADA AQUI: o kill diz que um corpo acabou de cair num tile
   # vizinho — o SpotScan pergunta ao acervo qual (ver Catcher.SpotScan).
   def handle_info({:kill}, %{logic: %Logic{state: :armed}} = state) do
-    state = loot_kill(state)
+    state = loot_kill(%{state | repiques: @repiques})
     {:noreply, advance(state, scan_obs(state))}
   end
 
   def handle_info({:kill, _corpse}, %{logic: %Logic{state: :armed}} = state) do
-    state = loot_kill(state)
+    state = loot_kill(%{state | repiques: @repiques})
     {:noreply, advance(state, scan_obs(state))}
   end
 
@@ -215,6 +230,15 @@ defmodule Pokex.Bots.Catcher.Worker do
     {:noreply, state}
   end
 
+  # O Combat.Worker caiu: FAIL-OPEN no espelho de engajamento. Um crash entre o
+  # engage e o disengage deixaria combat_engaged? travado em true — um catcher
+  # mudo até o broadcast de um combate que talvez nem volte. O supervisor recria
+  # o combate, que re-broadcasta o estado; até lá, melhor arriscar uma varredura
+  # contaminada (o acervo filtra) do que nenhuma.
+  def handle_info({:DOWN, ref, :process, _obj, _reason}, %{combat_ref: ref} = state) do
+    {:noreply, monitorar_combate(%{state | combat_engaged?: false})}
+  end
+
   def handle_info({:DOWN, _ref, :process, _obj, _reason}, state), do: {:noreply, state}
 
   def handle_info(:reattach_corpses, state) do
@@ -256,11 +280,41 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp advance(state, obs) do
     state = contar(state, obs)
 
-    cond do
-      Perception.mini_game_playing?() -> state
-      Settings.get(:player_mode) == "parado" -> do_advance(state, obs)
-      true -> state
+    state =
+      cond do
+        Perception.mini_game_playing?() -> state
+        Settings.get(:player_mode) == "parado" -> do_advance(state, obs)
+        true -> state
+      end
+
+    reagendar(state, obs)
+  end
+
+  # O reagendamento mora AQUI, não dentro do run_step: os ramos que seguravam o
+  # passo (luta engajada, portão fechado, mini-game) saíam sem agendar nada, e
+  # uma bola em voo ficava pendente pra sempre se nenhum evento novo chegasse.
+  # Prioridade: (1) a Logic tem pendência → wake no prazo real dela; (2) a
+  # varredura do kill não achou nada e há repiques restantes → re-olhar o chão.
+  defp reagendar(state, obs) do
+    case state.logic && Logic.next_wake(state.logic, now()) do
+      ms when is_integer(ms) ->
+        agendar(%{state | repiques: []}, ms)
+
+      _sem_pendencia ->
+        repicar(state, obs)
     end
+  end
+
+  # Só uma varredura REAL e vazia consome um repique — obs nil (portão/luta) ou
+  # cega não gasta a chance: o motivo do vazio não foi "o chão está limpo".
+  defp repicar(%{repiques: [ms | resto]} = state, %{scanning?: true, corpses: []}),
+    do: agendar(%{state | repiques: resto}, ms)
+
+  defp repicar(state, _obs_sem_repique), do: state
+
+  defp agendar(state, ms) do
+    state = cancel_timer(state)
+    %{state | timer: Process.send_after(self(), :wake, max(ms, 1))}
   end
 
   # Os números que faltavam pra medir uma mudança em vez de torcer por ela: a
@@ -368,12 +422,24 @@ defmodule Pokex.Bots.Catcher.Worker do
 
     # O retorno era DESCARTADO — um erro real da atuação sumia e o feed escrevia
     # "bola arremessada" do mesmo jeito.
-    case resultado do
-      {:error, motivo} ->
-        log(:macro, "⚠️ a bola não saiu: #{inspect(motivo)}")
+    logic =
+      case resultado do
+        {:error, motivo} ->
+          log(:macro, "⚠️ a bola não saiu: #{inspect(motivo)}")
+          logic
 
-      _ok_ou_sem_bola ->
-        :ok
+        :ok when performs != [] ->
+          # a janela de confirmação conta da ATUAÇÃO (a sequência leva ~200ms),
+          # não da decisão — senão a primeira leitura julga cedo demais
+          Logic.ball_flown(logic, now())
+
+        _sem_bola ->
+          logic
+      end
+
+    # o alarme de bola seca sai pela categoria :captura (silenciável no sino)
+    for {:alarm, msg} <- actions do
+      Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :captura, msg})
     end
 
     state =
@@ -412,7 +478,7 @@ defmodule Pokex.Bots.Catcher.Worker do
          Logic.pending(logic) != Logic.pending(state.logic),
        do: broadcast(%{state | logic: logic})
 
-    schedule_wake(%{state | logic: logic})
+    %{state | logic: logic}
   end
 
   # A confirmed kill just dropped a corpse on the ADJACENT melee tile — Space reaches it from
@@ -675,15 +741,6 @@ defmodule Pokex.Bots.Catcher.Worker do
     :exit, _reason -> :ok
   end
 
-  defp schedule_wake(state) do
-    state = cancel_timer(state)
-
-    case Logic.next_wake(state.logic, now()) do
-      nil -> state
-      ms -> %{state | timer: Process.send_after(self(), :wake, ms)}
-    end
-  end
-
   defp cancel_timer(%{timer: nil} = state), do: state
 
   defp cancel_timer(%{timer: timer} = state) do
@@ -752,6 +809,15 @@ defmodule Pokex.Bots.Catcher.Worker do
   # combat only broadcasts on transitions — a catcher arming MID-FIGHT would otherwise
   # believe the field is clear. Best-effort: an unreachable combat reads as not engaged
   # (fail-open matches the boot default; the next transition broadcast corrects it).
+  defp monitorar_combate(state) do
+    if state.combat_ref, do: Process.demonitor(state.combat_ref, [:flush])
+
+    case Process.whereis(Pokex.Bots.Combat.Worker) do
+      pid when is_pid(pid) -> %{state | combat_ref: Process.monitor(pid)}
+      nil -> %{state | combat_ref: nil}
+    end
+  end
+
   defp seed_combat_engaged do
     %{state: s} = Pokex.Bots.Combat.Worker.status()
     s in [:tabbing, :fighting]

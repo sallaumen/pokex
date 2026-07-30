@@ -41,6 +41,10 @@ defmodule Pokex.Application do
       Pokex.Bots.Logout,
       Pokex.Layout.Sentinel,
       Pokex.Bots.StockAlerts,
+      # O histórico que sobrevive ao reload da página (Frente 4): assina os
+      # tópicos dos workers e guarda o ring buffer fora da LiveView. Passivo —
+      # só escuta, nunca captura nem atua.
+      Pokex.Journal,
       Pokex.Combos.Runner,
       # Pauses everything when the game window loses focus (and resumes on refocus). After the
       # BotSupervisor so it can halt/resume those workers.

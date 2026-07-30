@@ -100,8 +100,15 @@ defmodule Pokex.Settings do
     # fallback to recover.
     # Widened to fully outlast the ~1-1.5s splash so most ambiguous frames never
     # even enter the sample stream (an independent second layer of defense).
-    wait_cast_settle_ms: 1600,
-    wait_assess_ms: 1500,
+    # Espera pós-arremesso antes de olhar a água. Era 1600 — mas o settle JÁ
+    # exige calm_streak_needed frames calmos em sequência depois disto, então a
+    # espera longa era cinto E suspensório pagos em dobro, em TODO ciclo (e
+    # atrasava também a detecção de arremesso falho, que só conta a partir
+    # daqui). 800 pula o grosso do splash; os frames calmos provam o resto.
+    wait_cast_settle_ms: 800,
+    # Pausa entre puxar o peixe e o próximo arremesso. Era 1500 — meio segundo
+    # cobre a animação da captura; o resto era peixe/minuto jogado fora.
+    wait_assess_ms: 700,
     watch_timeout_ms: 30_000,
     # N arremessos SEGUIDOS sem NENHUMA bolha = a vara provavelmente não está
     # chegando no jogo (tecla engolida, foco, helper) — a tela é a única
@@ -338,13 +345,19 @@ defmodule Pokex.Settings do
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the
     # bot doesn't fish on a perfectly fixed cadence.
-    cast_delay_max_ms: 450,
+    # Jitter anti-robô do arremesso (0..N ms). Era 450; 250 ainda quebra o
+    # metrônomo sem custar um quarto de segundo por ciclo.
+    cast_delay_max_ms: 250,
     # Anti-bot: once a bite is confirmed, wait a RANDOM hook_delay_min..max ms
     # before pulling. The bubbles keep flashing until we pull — the bite window
     # NEVER closes — so a human-like 0.5-1s reaction is safe AND avoids a robotic
     # instant yank.
-    hook_delay_min_ms: 500,
-    hook_delay_max_ms: 1000,
+    # A "reação humana" antes de puxar a fisgada. Era 500..1000 — mais lento
+    # que o próprio Lucas pescando na mão (~250-400ms de reação real). 250..550
+    # continua dentro do humano e devolve ~350ms por peixe. Se a paranoia
+    # anti-ban apertar, é só subir de volta no painel.
+    hook_delay_min_ms: 250,
+    hook_delay_max_ms: 550,
     # --- PlayerSupport: keep the main Pokémon alive ------------------------------------------
     # When its HP bar drops below pokemon_hp_rescue_pct, run the survival combo at :critical:
     # recall (rescue_key) → max-revive on the portrait (max_revive_key) → release (rescue_key).

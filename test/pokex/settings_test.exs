@@ -17,7 +17,7 @@ defmodule Pokex.SettingsTest do
     assert Settings.get(:tick_ms_watching, server) == 100
     assert Settings.get(:skill_keys, server) == ["1", "2", "3"]
     assert Settings.get(:rod_key, server) == "shift+v"
-    assert Settings.get(:wait_assess_ms, server) == 1500
+    assert Settings.get(:wait_assess_ms, server) == 700
   end
 
   @tag :tmp_dir

@@ -127,6 +127,11 @@ defmodule Pokex.Settings do
     corpse_match_min_similarity: 0.72,
     # lado do recorte quadrado (px CRUS do frame) ao fotografar/validar um corpo
     corpse_sprite_box_px: 56,
+    # Raio (em tiles) do anel escaneado ao redor do personagem/ponto do pokémon
+    # quando um kill acontece — o combate é tile-locked, o corpo só pode estar
+    # ali (ver Catcher.SpotScan). 1 = os 8 vizinhos; suba se corpos caírem mais
+    # longe no teu spot.
+    corpse_scan_radius_tiles: 1,
     # Auto-recovery: consecutive NEAR-EMPTY-water frames (bubble px below
     # line_present_min_px — no line in the water) before we assume the cast FAILED
     # (a dropped rod press, or the game itself just not casting, which happens even
@@ -720,6 +725,7 @@ defmodule Pokex.Settings do
     target_lost_streak: 1..99,
     dry_casts_alarm: 0..999,
     corpse_sprite_box_px: 8..512,
+    corpse_scan_radius_tiles: 1..5,
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,
     settle_max_ms: 100..600_000,

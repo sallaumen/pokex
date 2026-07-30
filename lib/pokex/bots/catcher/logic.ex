@@ -7,6 +7,11 @@ defmodule Pokex.Bots.Catcher.Logic do
   no clock: the driver supplies observations and monotonic `now`.
   """
 
+  # O teto duro da confirmação: além disto nem a ausência vale como prova — o
+  # mundo já virou outro (o ignore-TTL inteiro já passou). Não é knob: 60s é
+  # física da operação (4× o fight_timeout que segura as varreduras).
+  @teto_confirmacao_ms 60_000
+
   defstruct state: :idle,
             config: nil,
             queue: [],
@@ -18,7 +23,7 @@ defmodule Pokex.Bots.Catcher.Logic do
             # e recomeço — o espelho do arremesso seco da pesca.
             dry_balls: 0,
             error: nil,
-            counters: %{captures: 0, throws: 0, ignored: 0}
+            counters: %{captures: 0, tardias: 0, throws: 0, ignored: 0}
 
   def new(config), do: %__MODULE__{config: config}
 
@@ -49,7 +54,7 @@ defmodule Pokex.Bots.Catcher.Logic do
 
     {logic, confirm_actions} = confirm(logic, obs, now)
     logic = admit(logic, obs)
-    {logic, throw_actions} = maybe_throw(logic, now)
+    {logic, throw_actions} = maybe_throw(logic, obs, now)
 
     {logic, confirm_actions ++ throw_actions}
   end
@@ -65,8 +70,14 @@ defmodule Pokex.Bots.Catcher.Logic do
   def next_wake(%__MODULE__{state: :idle}, _now), do: nil
   def next_wake(%__MODULE__{throw: nil, queue: []}, _now), do: nil
 
-  def next_wake(%__MODULE__{throw: %{at: at}, config: config}, now),
-    do: max(at + config.corpse_confirm_after_ms - now, 1)
+  # Prazo vencido ≠ acordar em loop: quando a varredura está sendo SEGURADA
+  # (luta engajada, portão), o prazo passa e um wake de 1ms virava metralhadora
+  # — medido em 2026-07-30: ~15.000 acordadas numa luta de 15s. Vencido o
+  # prazo, tenta na cadência do feed.
+  def next_wake(%__MODULE__{throw: %{at: at}, config: config}, now) do
+    restante = at + config.corpse_confirm_after_ms - now
+    if restante > 0, do: restante, else: max(config.feed_corpses_ms, 1)
+  end
 
   def next_wake(%__MODULE__{config: config}, _now), do: max(config.feed_corpses_ms, 1)
 
@@ -100,14 +111,22 @@ defmodule Pokex.Bots.Catcher.Logic do
       obs.captured_at < throw.at + config.corpse_confirm_after_ms ->
         {logic, []}
 
-      # A observação chegou TARDE demais (luta longa no meio, captura
-      # travada): o chão que ela mostra provavelmente já é OUTRO — julgar
-      # agora contaria captura de um corpo que talvez nem seja o mesmo.
-      # Inconclusiva: descarta o throw sem contar captura nem gastar bola.
-      obs.captured_at > throw.at + config.corpse_confirm_after_ms * 6 ->
+      # Só além do TETO DURO a observação é lixo de verdade: o campo provou
+      # (2026-07-30: 27 de 80 bolas resolveram DEPOIS de 6× a janela, porque o
+      # fight_timeout de 15s segura as varreduras — e as 7 "inconclusivas" do
+      # dia eram capturas REAIS jogadas fora). Dentro do teto, a evidência
+      # julga: ausente = capturado (tardio); presente da MESMA espécie = retry;
+      # presente de OUTRA espécie = o original foi capturado e um corpo novo
+      # caiu ali (o admit deste mesmo passo o enfileira).
+      obs.captured_at > throw.at + @teto_confirmacao_ms ->
         seca(%{logic | throw: nil}, [
           {:log, "confirmação inconclusiva (observação tardia) em #{point_str(throw.point)}"}
         ])
+
+      # presente de OUTRA espécie no ponto: o corpo original SUMIU — capturado.
+      # (Sem nome de um dos lados, cai nos ramos de presença abaixo: conservador.)
+      outra_especie?(obs, throw, config.corpse_match_tolerance_px) ->
+        capturado(logic, obs, now)
 
       # past the flight window, still there (moved-or-not is irrelevant) → retry
       present?(obs.corpses, throw.point, config.corpse_match_tolerance_px) and
@@ -138,11 +157,36 @@ defmodule Pokex.Bots.Catcher.Logic do
 
       # past the window, gone → captured
       true ->
-        logic = update_in(logic.counters.captures, &(&1 + 1))
-
-        {%{logic | throw: nil, dry_balls: 0}, [{:log, "capturado em #{point_str(throw.point)}"}]}
+        capturado(logic, obs, now)
     end
   end
+
+  defp capturado(%{throw: throw, config: config} = logic, obs, _now) do
+    logic = update_in(logic.counters.captures, &(&1 + 1))
+    tardio? = obs.captured_at > throw.at + config.corpse_confirm_after_ms * 6
+
+    logic =
+      if tardio?,
+        do: update_in(logic.counters.tardias, &(&1 + 1)),
+        else: logic
+
+    selo = if tardio?, do: " (tardio)", else: ""
+
+    {%{logic | throw: nil, dry_balls: 0},
+     [{:log, "capturado#{selo} em #{point_str(throw.point)}"}]}
+  end
+
+  # Um corpo de OUTRA espécie exatamente onde a bola voou: prova de que o alvo
+  # original foi consumido e o chão reciclou. Exige nome dos DOIS lados.
+  defp outra_especie?(obs, %{nome: nome_da_bola, point: ponto}, tol)
+       when is_binary(nome_da_bola) do
+    case nome_em(obs, ponto, tol) do
+      nil -> false
+      nome_agora -> nome_agora != nome_da_bola
+    end
+  end
+
+  defp outra_especie?(_obs, _throw_sem_nome, _tol), do: false
 
   # O espelho do arremesso seco da pesca: N bolas seguidas resolvidas SEM
   # captura confirmada = ou o atalho não chega no jogo, ou a mira está errada,
@@ -208,14 +252,23 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   defp mesma_identidade?(_entrada_antiga, _obs, _candidato, _tol), do: true
 
-  defp maybe_throw(%{throw: nil, queue: [point | rest]} = logic, now) do
+  defp maybe_throw(%{throw: nil, queue: [point | rest]} = logic, obs, now) do
     logic = update_in(logic.counters.throws, &(&1 + 1))
 
-    {%{logic | throw: %{point: point, balls: 1, at: now}, queue: rest},
+    # o nome que a varredura via no ponto viaja com a bola: é ele que permite
+    # julgar por identidade na confirmação (outra espécie ali = capturado)
+    throw = %{
+      point: point,
+      balls: 1,
+      at: now,
+      nome: nome_em(obs, point, logic.config.corpse_match_tolerance_px)
+    }
+
+    {%{logic | throw: throw, queue: rest},
      [{:capture_sequence, point}, {:log, "bola em #{point_str(point)}"}]}
   end
 
-  defp maybe_throw(logic, _now), do: {logic, []}
+  defp maybe_throw(logic, _obs, _now), do: {logic, []}
 
   defp prune_ignored(logic, now) do
     %{logic | ignored: Map.filter(logic.ignored, fn {_point, entrada} -> ate(entrada) > now end)}

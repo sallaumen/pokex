@@ -108,8 +108,9 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     assert Logic.next_wake(logic, 10) == 800
     assert Logic.next_wake(logic, 700) == 110
 
-    # prazo já passou → acorda JÁ (1ms), nunca 0/negativo
-    assert Logic.next_wake(logic, 2_000) == 1
+    # prazo já passou (varredura sendo segurada) → cadência do feed, NUNCA 1ms
+    # em loop (medido: ~15.000 acordadas numa luta de 15s)
+    assert Logic.next_wake(logic, 2_000) == 400
 
     {logic, _} = Logic.step(logic, obs([], 900), 900)
     assert Logic.next_wake(logic, 900) == nil
@@ -135,16 +136,57 @@ defmodule Pokex.Bots.Catcher.LogicTest do
       assert logic.counters.captures == 1
     end
 
-    test "observação TARDIA demais é inconclusiva: não conta captura nem gasta bola" do
+    test "AUSENTE tardio dentro do teto = capturado (tardio) — o campo provou" do
+      # 2026-07-30: 27 de 80 bolas resolveram depois de 6× a janela (o
+      # fight_timeout de 15s segura as varreduras) e as "inconclusivas" eram
+      # capturas reais jogadas fora. Ausência ainda é prova até o teto duro.
       {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
 
-      # 6× a janela depois: o chão provavelmente já é outro
       tarde = 10 + 800 * 6 + 100
       {logic, actions} = Logic.step(logic, obs([], tarde), tarde)
+
+      assert logic.counters.captures == 1
+      assert logic.counters.tardias == 1
+      assert Enum.any?(actions, &match?({:log, "capturado (tardio)" <> _}, &1))
+    end
+
+    test "além do TETO DURO (60s) nem a ausência prova nada: inconclusiva" do
+      {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
+
+      tarde_demais = 10 + 60_000 + 100
+      {logic, actions} = Logic.step(logic, obs([], tarde_demais), tarde_demais)
 
       assert logic.counters.captures == 0
       assert logic.throw == nil
       assert Enum.any?(actions, &match?({:log, "confirmação inconclusiva" <> _}, &1))
+    end
+
+    test "OUTRA espécie no ponto da bola = o original foi capturado; o novo entra na fila" do
+      obs_kingler = %{
+        scanning?: true,
+        corpses: [{100, 200}],
+        captured_at: 10,
+        known: %{{100, 200} => %{name: "Kingler", score: 0.9}}
+      }
+
+      {logic, _} = Logic.step(armed(), obs_kingler, 10)
+      assert logic.throw.nome == "Kingler"
+
+      # na confirmação, um GYARADOS está exatamente ali: o Kingler sumiu
+      obs_gyarados = %{
+        scanning?: true,
+        corpses: [{100, 200}],
+        captured_at: 900,
+        known: %{{100, 200} => %{name: "Gyarados", score: 0.9}}
+      }
+
+      {logic, actions} = Logic.step(logic, obs_gyarados, 900)
+
+      assert logic.counters.captures == 1
+      assert Enum.any?(actions, &match?({:log, "capturado" <> _}, &1))
+      # e o Gyarados já ganhou a bola dele no MESMO passo
+      assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}}, &1))
+      assert logic.throw.nome == "Gyarados"
     end
 
     test "N bolas sem captura confirmada tocam o alarme e recomeçam" do

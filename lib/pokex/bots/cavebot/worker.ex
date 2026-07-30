@@ -381,11 +381,14 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # é visibilidade: ninguém está lendo o log quando o bot para.
   defp minimap_step(state, dx, dy) do
     at = now()
-    result = step_result(state.body.minimap_step(dx, dy, []))
+    raw = state.body.minimap_step(dx, dy, [])
+    result = step_result(raw)
     text = "passo #{dx},#{dy}"
     stepped = %{state | last_step: %{dx: dx, dy: dy, result: result, at: at}}
 
     if result == :ok do
+      with {:ok, point} <- raw, do: warn_if_unexplored(point)
+
       # o passo é o evento mais frequente que existe aqui (5/s): só vira linha
       # quando MUDA — repetir "passo 90,80" tick após tick não conta nada novo.
       if action_text(state) != text,
@@ -396,6 +399,33 @@ defmodule Pokex.Bots.Cavebot.Worker do
       Logger.debug("Cavebot: passo (#{dx},#{dy}) falhou: #{inspect(result)}")
       stepped
     end
+  end
+
+  # A escolha do Lucas pras áreas PRETAS do minimapa (mapa não descoberto):
+  # clicar mesmo assim e SÓ AVISAR (2026-07-30). O probe é um crop 3×3 no
+  # ponto clicado, DEPOIS do clique — nunca atrasa nem bloqueia um passo; o
+  # dedup do journal segura o spam se a rota insistir na borda. Qualquer falha
+  # de captura é silêncio: o aviso é bônus, o passo é o serviço.
+  defp warn_if_unexplored({x, y}) do
+    case Pokex.Bots.Capture.frame_uncached({x - 1, y - 1, 3, 3}, "cavebot_step_probe.png") do
+      {:ok, frame} ->
+        if dark_frame?(frame),
+          do: log(:macro, "🕳️ passo caiu em área não descoberta do minimapa")
+
+      _falhou ->
+        :ok
+    end
+  end
+
+  defp warn_if_unexplored(_sem_ponto), do: :ok
+
+  defp dark_frame?(frame) do
+    coords = for i <- 0..(frame.width - 1), j <- 0..(frame.height - 1), do: {i, j}
+
+    Enum.all?(coords, fn {i, j} ->
+      {r, g, b} = Pokex.Vision.Frame.at(frame, i, j)
+      max(r, max(g, b)) < 12
+    end)
   end
 
   defp step_result({:ok, _point}), do: :ok

@@ -80,4 +80,40 @@ defmodule Pokex.Bots.MinimapStepTest do
     assert Body.minimap_step(3, -4, layout: fix) == {:error, :input_gate_closed}
     refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:click, :left, _point}, &1))
   end
+
+  describe "a cruz calibrada (a mão manda no passo)" do
+    test "o passo parte da CRUZ marcada, não do centro do retângulo", %{fix: fix} do
+      # a cruz 8px acima e 5 à direita do centro — o viés que todo passo tinha
+      {x, y, w, h} = Layout.region(:minimap_map, fix)
+      cross = {x + div(w, 2) + 5, y + div(h, 2) - 8}
+
+      calib = %Pokex.Calibration{
+        scale: 1.0,
+        layout: fix,
+        minimap_player_point: cross
+      }
+
+      scale = Settings.get(:minimap_px_per_tile)
+      assert {:ok, point} = Body.minimap_step(0, 0, calib: calib)
+      assert point == cross
+
+      assert {:ok, east} = Body.minimap_step(1, 0, calib: calib)
+      assert east == {elem(cross, 0) + scale, elem(cross, 1)}
+    end
+
+    test "região manual do minimapa vale como área de clique — sem layout nenhum" do
+      calib = %Pokex.Calibration{
+        scale: 1.0,
+        layout: nil,
+        minimap_region: {3000, 100, 200, 200},
+        minimap_player_point: {3100, 200}
+      }
+
+      assert {:ok, {3100, 200}} = Body.minimap_step(0, 0, calib: calib)
+
+      # o clamp continua valendo, agora sobre a região MANUAL
+      assert {:ok, {cx, _cy}} = Body.minimap_step(500, 0, calib: calib)
+      assert cx <= 3000 + 200 - 1 - 6
+    end
+  end
 end

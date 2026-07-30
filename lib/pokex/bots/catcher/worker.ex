@@ -415,20 +415,16 @@ defmodule Pokex.Bots.Catcher.Worker do
     obs
   end
 
-  defp narrar(%{tiles_olhados: olhados, tiles_pedidos: pedidos} = obs) do
-    fora = pedidos - olhados
-
+  defp narrar(%{janelas: janelas} = obs) do
     # rotina em :debug — vive no feed, não infla o histórico em disco
-    log(
-      :debug,
-      "🔎 olhei #{olhados}/#{pedidos} tiles#{if fora > 0, do: " (#{fora} fora do quadro)", else: ""} · " <>
-        melhor_texto(obs)
-    )
-
+    log(:debug, "🔎 varri #{janelas} janelas#{quadro_texto(obs)} · " <> melhor_texto(obs))
     obs
   end
 
   defp narrar(obs), do: obs
+
+  defp quadro_texto(%{regiao: {_x, _y, w, h}}), do: " (#{w}×#{h})"
+  defp quadro_texto(_sem_regiao), do: ""
 
   defp melhor_texto(%{melhor: nil}), do: "acervo vazio"
 

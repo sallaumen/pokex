@@ -148,9 +148,28 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   7px de deslocamento do recorte, então a distância até o limiar É o diagnóstico
   da mira.
   """
-  def best(%Frame{} = crop) do
-    sig = signature(crop.rgba)
+  def best(%Frame{} = crop), do: crop.rgba |> signature() |> best_of()
 
+  @doc """
+  O mesmo `best/1`, mas pra uma JANELA dentro de um frame maior — sem alocar
+  recorte nenhum.
+
+  A varredura densa (`Catcher.SpotScan`) pontua centenas de janelas por
+  varredura; `Frame.crop` em cada uma copiaria centenas de binários só pra
+  jogá-los fora. Aqui as linhas da janela são sub-binários (fatias sem cópia)
+  somados direto no histograma.
+
+  `{x, y}` é o canto superior-esquerdo em px do frame. Fora dos limites devolve
+  `nil` — quem varre não precisa checar borda.
+  """
+  def best_in(%Frame{width: fw, height: fh} = frame, {x, y, w, h})
+      when x >= 0 and y >= 0 and w > 0 and h > 0 and x + w <= fw and y + h <= fh do
+    frame |> window_signature(x, y, w, h) |> best_of()
+  end
+
+  def best_in(_frame, _janela_fora), do: nil
+
+  defp best_of(sig) do
     library().signatures
     |> Enum.map(fn {name, ref_sigs} ->
       {name, ref_sigs |> Enum.map(&intersection(sig, &1)) |> Enum.max(fn -> 0.0 end)}
@@ -162,13 +181,25 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     end
   end
 
+  defp window_signature(%Frame{width: fw, rgba: rgba}, x0, y0, w, h) do
+    counts =
+      Enum.reduce(y0..(y0 + h - 1), %{}, fn y, acc ->
+        skip = (y * fw + x0) * 4
+        <<_::binary-size(skip), linha::binary-size(w * 4), _rest::binary>> = rgba
+        count_bins(linha, acc)
+      end)
+
+    normalize(counts, w * h)
+  end
+
   # -- assinatura de cor -------------------------------------------------------
 
   # Histograma RGB quantizado (3 bits por canal → 512 cubos), normalizado pra
   # somar 1.0 — tamanho do recorte não pesa no casamento.
-  defp signature(rgba) do
-    counts = count_bins(rgba, %{})
-    total = max(byte_size(rgba) / 4, 1)
+  defp signature(rgba), do: normalize(count_bins(rgba, %{}), byte_size(rgba) / 4)
+
+  defp normalize(counts, total) do
+    total = max(total, 1)
     Map.new(counts, fn {bin, n} -> {bin, n / total} end)
   end
 

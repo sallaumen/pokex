@@ -365,6 +365,24 @@ defmodule Pokex.Bots.Catcher.Worker do
   # sem mirar NADA, e isso merece sirene, não silêncio (era exatamente o tipo
   # de "parece ligado mas não faz nada" que corroía a confiança do Lucas).
   defp announce_library do
+    # Antes de falar do acervo: se a bola está desligada, o acervo é irrelevante
+    # e o que o Lucas precisa ouvir é OUTRA coisa. Um alarme, não um sussurro —
+    # a captura passou horas "ligada" (o bot rodando, o saque saindo) com a
+    # chave em false, e nada na tela dizia isso em voz alta.
+    if not Settings.get(:capture_enabled) do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:rule_alarm, :captura,
+         "🔒 captura DESLIGADA (só saque) — ligue o botão Captura no painel; " <>
+           "nenhuma Pokébola será arremessada"}
+      )
+    end
+
+    announce_corpses()
+  end
+
+  defp announce_corpses do
     case length(Pokex.Bots.Catcher.CorpseLibrary.list()) do
       0 ->
         Phoenix.PubSub.broadcast(
@@ -531,9 +549,21 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp hold_reason(state) do
     cond do
-      Perception.mini_game_playing?() -> "mini-game em jogo"
-      state.combat_engaged? -> "esperando fim da luta"
-      true -> nil
+      Perception.mini_game_playing?() ->
+        "mini-game em jogo"
+
+      state.combat_engaged? ->
+        "esperando fim da luta"
+
+      # O portão que passou o dia inteiro fechado sem dizer o nome (2026-07-30:
+      # 1015 kills, 1015 saques, zero varredura — a chave estava false e a única
+      # pista era a pílula "só saque"). O motivo agora é o primeiro da lista de
+      # espera, não uma sutileza que se lê como estado normal.
+      not Settings.get(:capture_enabled) ->
+        "captura DESLIGADA — só saque"
+
+      true ->
+        nil
     end
   end
 

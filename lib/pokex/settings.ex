@@ -652,6 +652,15 @@ defmodule Pokex.Settings do
   # combat/hook skills, ball and support setup for ONE Pokémon — switchable as a
   # set (mirrors Calibration profiles). Everything else (timings, vision
   # thresholds, calibration) is rig-specific and stays out.
+  #
+  # `:capture_enabled` SAIU daqui (2026-07-30). Ela tinha DOIS donos — os presets
+  # e `Pokex.Modes` — e os quatro presets do Lucas (4attk, 8attk, svileplume,
+  # reset) carregavam `false`. Trocar o preset de ataque desligava a captura em
+  # silêncio, e nada a religava: o botão Iniciar não reaplica o bundle do modo.
+  # Resultado medido no journal de 2026-07-30: 1015 kills, 1015 saques, ZERO
+  # varreduras. Preset é sobre QUAL POKÉMON está lutando; ligar e desligar um
+  # subsistema é decisão de operação, e agora tem um dono só (o botão do painel,
+  # com o modo como preset inicial).
   @preset_keys [
     # combate
     :skill_keys,
@@ -663,7 +672,6 @@ defmodule Pokex.Settings do
     :rod_key,
     # bolas / pós-luta
     :loot_enabled,
-    :capture_enabled,
     :corpse_max_balls,
     # suporte
     :rescue_enabled,

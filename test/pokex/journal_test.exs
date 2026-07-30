@@ -79,4 +79,76 @@ defmodule Pokex.JournalTest do
 
     assert Journal.recent([], journal) == []
   end
+
+  describe "persistência JSONL (sobrevive ao RESTART)" do
+    @tag :tmp_dir
+    setup %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      :ok
+    end
+
+    @tag :tmp_dir
+    test "macro vira linha JSONL; debug e repeats não" do
+      {:ok, journal} = Journal.start_link(name: nil, persist: true)
+      emit("fishing", {:fishing_log, :macro, "fisgada"})
+      emit("fishing", {:fishing_log, :macro, "fisgada"})
+      emit("fishing", {:fishing_log, :debug, "bol 3px"})
+      # serializa atrás dos broadcasts
+      _ = Journal.recent([], journal)
+
+      arquivo = Path.join(Journal.dir(), Date.to_iso8601(Date.utc_today()) <> ".jsonl")
+      linhas = arquivo |> File.read!() |> String.split("\n", trim: true)
+
+      assert [linha] = linhas
+      assert %{"text" => "fisgada", "severity" => "macro"} = Jason.decode!(linha)
+    end
+
+    @tag :tmp_dir
+    test "um journal novo ressemeia o ring do disco — a história sobrevive ao restart" do
+      {:ok, primeiro} = Journal.start_link(name: nil, persist: true)
+      emit("combat", {:rule_alarm, "alarme da madrugada"})
+      _ = Journal.recent([], primeiro)
+      GenServer.stop(primeiro)
+
+      {:ok, segundo} = Journal.start_link(name: nil, persist: true)
+
+      assert [evento] = Journal.recent([], segundo)
+      assert evento.text == "alarme da madrugada"
+      assert evento.severity == :alarm
+      assert evento.source == :regra
+    end
+
+    @tag :tmp_dir
+    test "linha corrompida no arquivo é pulada, nunca derruba o boot" do
+      File.mkdir_p!(Journal.dir())
+
+      File.write!(
+        Path.join(Journal.dir(), Date.to_iso8601(Date.utc_today()) <> ".jsonl"),
+        "isto nao é json\n" <>
+          Jason.encode!(%{at: 1, source: "fishing", severity: "macro", text: "sobreviveu"}) <>
+          "\n"
+      )
+
+      {:ok, journal} = Journal.start_link(name: nil, persist: true)
+      assert [%{text: "sobreviveu", source: :fishing}] = Journal.recent([], journal)
+    end
+
+    @tag :tmp_dir
+    test "arquivos velhos são podados no boot; sem persist nada é escrito" do
+      File.mkdir_p!(Journal.dir())
+      velho = Path.join(Journal.dir(), "2020-01-01.jsonl")
+      File.write!(velho, "{}\n")
+
+      {:ok, _} = Journal.start_link(name: nil, persist: true)
+      refute File.exists?(velho)
+
+      {:ok, sem} = Journal.start_link(name: nil, persist: false)
+      emit("fishing", {:fishing_log, :macro, "não persiste"})
+      _ = Journal.recent([], sem)
+
+      hoje = Path.join(Journal.dir(), Date.to_iso8601(Date.utc_today()) <> ".jsonl")
+      refute File.exists?(hoje)
+    end
+  end
 end

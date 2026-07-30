@@ -58,6 +58,9 @@ config :pokex, :shiny_guard_active, false
 # O Logout global fica inerte na suíte: um pedido acidental travaria o latch e
 # pararia a frota compartilhada. Testes optam por entrar com `active: true`.
 config :pokex, :logout_active, false
+# o journal NUNCA escreve no ~/.pokex real durante a suíte; instâncias de
+# teste optam por entrar com persist: true + home temporário
+config :pokex, :journal_persist, false
 # the sentinel captures the REAL screen on boot — never in tests
 config :pokex, :layout_sentinel_active, false
 # stock alerts attach the :hud feed (a real capture) — never in tests

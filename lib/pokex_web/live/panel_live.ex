@@ -67,6 +67,7 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.StockAlerts.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Combos.Runner.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Logout.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Journal.topic())
       # feeds only capture while someone is attached — a watching page IS a
       # consumer, so :team and :minimap run exactly while they are looked at
       Pokex.Perception.DisplayFeeds.attach_all()
@@ -117,7 +118,7 @@ defmodule PokexWeb.PanelLive do
        loot_enabled: Settings.get(:loot_enabled),
        capture_enabled: Settings.get(:capture_enabled),
        panicked?: false,
-       logs: [],
+       logs: journal_seed(),
        show_debug: false,
        feed_filter: nil,
        export_src: nil,
@@ -166,7 +167,7 @@ defmodule PokexWeb.PanelLive do
         |> HeaderState.sync_workers(status)
         |> assign(
           errors: [],
-          logs: [],
+          logs: journal_seed(),
           panicked?: false,
           calib_stale?: calib_stale?(),
           session_started_at: session_started_at(),
@@ -349,15 +350,6 @@ defmodule PokexWeb.PanelLive do
      )}
   end
 
-  def handle_info({:fishing_log, level, text}, socket),
-    do: {:noreply, append_log(socket, %{level: level, source: "🎣", text: text})}
-
-  def handle_info({:combat_log, level, text}, socket),
-    do: {:noreply, append_log(socket, %{level: level, source: "⚔️", text: text})}
-
-  def handle_info({:mini_game_log, level, text}, socket),
-    do: {:noreply, append_log(socket, %{level: level, source: "🎮", text: text})}
-
   # A game is sitting there waiting for a HUMAN, and every worker is held while
   # it does — so this repeats until the overlay is gone. Muting silences it, the
   # same switch that mutes the enter/leave chirp.
@@ -370,18 +362,12 @@ defmodule PokexWeb.PanelLive do
     {:noreply, append_log(socket, %{level: :macro, source: "🎮", text: text})}
   end
 
-  def handle_info({:catcher_log, level, text}, socket),
-    do: {:noreply, append_log(socket, %{level: level, source: "🎯", text: text})}
-
   # --- a caçada (cavebot) -----------------------------------------------------
   #
   # O worker já emitia as três mensagens; o painel é que não escutava. A caçada
   # morria em ~6s "sem dizer nada" porque nada do que ela dizia chegava aqui.
   def handle_info({:cavebot, snapshot}, socket),
     do: {:noreply, assign(socket, cavebot: snapshot, last_order: safe_last_order())}
-
-  def handle_info({:cavebot_log, level, text}, socket),
-    do: {:noreply, append_log(socket, %{level: level, source: @cavebot_source, text: text})}
 
   # Bloqueio: entra no MESMO pipeline de alarme do {:rule_alarm, _} e do
   # {:panic, _} — linha :macro no feed, som (se não estiver mudo) e o anti-spam
@@ -423,24 +409,20 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:shiny_reading, %{star_run: px, min_px: min_px}}, socket),
     do: {:noreply, assign(socket, shiny_star_run: px, shiny_star_min_columns: min_px)}
 
+  # O FEED vem do journal (Frente 4): os logs dos workers chegam normalizados,
+  # com repeats deduplicado, e o mount ressemeia o histórico — recarregar a
+  # página parou de apagar a história. Alarmes de regra/sistema NÃO entram por
+  # aqui: eles seguem no pipeline de alarme (som + anti-spam) que também
+  # escreve no feed — entrar pelos dois caminhos duplicaria a linha.
+  def handle_info({:journal_event, %{source: source} = event}, socket)
+      when source not in [:regra, :sistema],
+      do: {:noreply, merge_log(socket, journal_entry(event))}
+
+  def handle_info({:journal_event, _alarme}, socket), do: {:noreply, socket}
+
   # A confirmed sighting: refresh the trophy shelf so the encounter shows up.
   def handle_info({:shiny_seen, _info}, socket),
     do: {:noreply, assign(socket, shiny_log: Pokex.Pokedex.ShinyLog.entries())}
-
-  def handle_info({:game_log, level, text}, socket),
-    do: {:noreply, append_log(socket, %{level: level, source: "🚑", text: text})}
-
-  def handle_info({:body_log, level, text}, socket),
-    do: {:noreply, append_log(socket, %{level: level, source: "🧤", text: text})}
-
-  # Backward-compat: a worker still running an OLD build (mid hot-reload) may
-  # broadcast the pre-level 2-tuple form. Treat it as debug so the panel never
-  # crashes on the stale shape.
-  def handle_info({:fishing_log, text}, socket),
-    do: {:noreply, append_log(socket, %{level: :debug, source: "🎣", text: text})}
-
-  def handle_info({:combat_log, text}, socket),
-    do: {:noreply, append_log(socket, %{level: :debug, source: "⚔️", text: text})}
 
   # The Guardian re-broadcasts {:panic} on EVERY poll tick (~10x/sec) while
   # the cursor stays in the kill corner — a human parked there wants the bot
@@ -533,6 +515,52 @@ defmodule PokexWeb.PanelLive do
   defp append_log(socket, entry) do
     entry = Map.put(entry, :at, timestamp())
     assign(socket, logs: Enum.take([entry | socket.assigns.logs], 200))
+  end
+
+  # O histórico ressemeado do journal no mount — é isto que faz o reload parar
+  # de apagar a história. Journal fora do ar (teste isolado) → feed vazio.
+  defp journal_seed do
+    Pokex.Journal.recent(limit: 200) |> Enum.map(&journal_entry/1)
+  catch
+    :exit, _reason -> []
+  end
+
+  defp journal_entry(event) do
+    %{
+      level: event.severity,
+      source: journal_emoji(event.source),
+      text: event.text,
+      at: format_wall(event.at),
+      repeats: event.repeats
+    }
+  end
+
+  # O journal já deduplicou chatter em repeats: quando o evento do topo é o
+  # MESMO (origem+texto), troca a linha em vez de empilhar.
+  defp merge_log(socket, %{source: source, text: text} = entry) do
+    logs =
+      case socket.assigns.logs do
+        [%{source: ^source, text: ^text} | rest] -> [entry | rest]
+        logs -> Enum.take([entry | logs], 200)
+      end
+
+    assign(socket, logs: logs)
+  end
+
+  defp journal_emoji(:fishing), do: "🎣"
+  defp journal_emoji(:combat), do: "⚔️"
+  defp journal_emoji(:catcher), do: "🎯"
+  defp journal_emoji(:mini_game), do: "🎮"
+  defp journal_emoji(:suporte), do: "🚑"
+  defp journal_emoji(:body), do: "🧤"
+  defp journal_emoji(:cavebot), do: @cavebot_source
+  defp journal_emoji(:regra), do: "⏰"
+  defp journal_emoji(:sistema), do: "🛑"
+  defp journal_emoji(_outro), do: "•"
+
+  defp format_wall(ms) do
+    {_, {h, m, s}} = :calendar.system_time_to_local_time(ms, :millisecond)
+    :io_lib.format(~c"~2..0B:~2..0B:~2..0B", [h, m, s]) |> List.to_string()
   end
 
   defp timestamp do
@@ -2974,6 +3002,13 @@ defmodule PokexWeb.PanelLive do
                 class={["flex gap-1.5", log_class(entry.level)]}
               >
                 <span class="shrink-0 text-pk-text-3">{entry.at}</span><span>{entry.source}</span><span>{entry.text}</span>
+                <span
+                  :if={Map.get(entry, :repeats, 1) > 1}
+                  class="shrink-0 rounded bg-pk-raised px-1 text-pk-text-3"
+                  title="a mesma linha repetiu — deduplicada pelo journal"
+                >
+                  ×{entry.repeats}
+                </span>
               </p>
             </div>
             <div class="grid grid-cols-2 border-t border-pk-line">

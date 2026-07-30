@@ -2,6 +2,29 @@ defmodule PokexWeb.PanelLiveTest do
   use PokexWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
 
+  # O feed agora chega pelo journal: broadcast → Pokex.Journal → {:journal_event}
+  # → painel. Dois saltos assíncronos — o render precisa esperar a corrente.
+  defp eventually_html(view, texto, tries \\ 50) do
+    cond do
+      render(view) =~ texto -> true
+      tries == 0 -> false
+      true -> Process.sleep(10) && eventually_html(view, texto, tries - 1)
+    end
+  end
+
+  defp journal_event(source, severity, text) do
+    {:journal_event,
+     %{
+       id: 1,
+       at: System.system_time(:millisecond),
+       source: source,
+       severity: severity,
+       text: text,
+       generation: nil,
+       repeats: 1
+     }}
+  end
+
   setup do
     {:ok, _} = Pokex.Rig.Fake.start_link()
 
@@ -127,8 +150,8 @@ defmodule PokexWeb.PanelLiveTest do
   test "the feed filter isolates one worker's lines and toggles off", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
-    send(view.pid, {:fishing_log, :macro, "linha-da-pesca"})
-    send(view.pid, {:combat_log, :macro, "linha-do-combate"})
+    send(view.pid, journal_event(:fishing, :macro, "linha-da-pesca"))
+    send(view.pid, journal_event(:combat, :macro, "linha-do-combate"))
 
     html = render(view)
     assert html =~ "linha-da-pesca"
@@ -700,10 +723,9 @@ defmodule PokexWeb.PanelLiveTest do
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "mirando linha 0"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game_log, :macro, "pausando"})
 
-    html = render(view)
-    assert html =~ "lançando a linha"
-    assert html =~ "mirando linha 0"
-    assert html =~ "pausando"
+    assert eventually_html(view, "lançando a linha")
+    assert eventually_html(view, "mirando linha 0")
+    assert eventually_html(view, "pausando")
   end
 
   test "debug logs are hidden until the debug toggle is on", %{conn: conn} do
@@ -1127,9 +1149,8 @@ defmodule PokexWeb.PanelLiveTest do
         {:cavebot_log, :macro, "caçada: waypoint 3/9"}
       )
 
-      feed = view |> element("#activity-feed") |> render()
-      assert feed =~ "caçada: waypoint 3/9"
-      assert feed =~ "🧭"
+      assert eventually_html(view, "caçada: waypoint 3/9")
+      assert view |> element("#activity-feed") |> render() =~ "🧭"
     end
 
     test "o chip 🧭 filtra o feed da caçada (comparação exata de binário)", %{conn: conn} do

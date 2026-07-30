@@ -1,13 +1,19 @@
 defmodule Pokex.CalibrationMiniGameTest do
   @moduledoc """
-  The mini-game strip is auto-located, not hand-marked.
+  A região do mini-game: a MÃO manda (inversão de 2026-07-30).
 
-  It looked like a world point (it is inside the game viewport), which is why
-  the original design left it manual — but it is FIXED on screen, proven by
-  Lucas's own profiles: `2-moni-8skill` was calibrated when the battle panel
-  sat at y=287, he later enlarged the minimap and pushed that panel to y=460,
-  and the strip stayed correct. Its rect here IS that profile's measured
-  value.
+  A faixa do layout parecia a autoridade certa: "fixed" na tela, provada
+  estável quando os painéis do jogo se mexiam (perfil 2-moni-8skill). Mas a
+  prova assumia que a JANELA do jogo nunca mudava de lugar — e ela mudou (a
+  mesma raiz do minimapa calibrado em y=-132). Resultado no campo: a faixa
+  apontando pro lugar errado E vetando silenciosamente a calibração manual
+  do Lucas ("me mostra calibrado num ponto que não fui eu que calibrei").
+
+  Agora o valor marcado à mão vence sempre; sem ele, a busca padrão é uma
+  caixa CENTRAL (metade × metade, centrada na arena — o meio do jogo — ou na
+  tela), não a faixa colada na battle list. O layout continua carregando a
+  faixa medida (caracterizado abaixo), mas ela não participa mais da
+  resolução.
   """
   use ExUnit.Case, async: false
 
@@ -22,7 +28,7 @@ defmodule Pokex.CalibrationMiniGameTest do
     %{fix: fix}
   end
 
-  test "the layout carries the measured strip", %{fix: fix} do
+  test "the layout still carries the measured strip (data, not authority)", %{fix: fix} do
     assert Layout.region(:mini_game, fix) == @measured
   end
 
@@ -42,34 +48,38 @@ defmodule Pokex.CalibrationMiniGameTest do
     assert Layout.region(:mini_game, then_) == @measured
   end
 
-  test "the located layout WINS over a drifted hand-marked value", %{fix: fix} do
+  test "a marcação manual VENCE a faixa do layout", %{fix: fix} do
     hand_marked = %Calibration{
       scale: 1.0,
       screen_w: 3440,
       screen_h: 1440,
-      # the value that had drifted in his live calibration.json
+      # o valor que o Lucas marcou — antes da inversão, o layout o vetava
       mini_game_region: {2976, 555, 113, 773},
       layout: fix
     }
 
-    assert Calibration.mini_game_region(hand_marked) == @measured
+    assert Calibration.mini_game_region(hand_marked) == {2976, 555, 113, 773}
   end
 
-  test "the override is never silent — the page says the layout is in charge", %{fix: fix} do
-    # a user who marks the strip by hand must not be left wondering why the bot
-    # searches somewhere else
-    assert Layout.region(:mini_game, fix) != nil
-    assert Layout.region(:mini_game, nil) == nil
+  test "sem marcação manual, a busca padrão é a caixa CENTRAL — nunca a faixa do layout", %{
+    fix: fix
+  } do
+    unmarked = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, layout: fix}
+
+    # metade × metade, centrada na tela (sem arena calibrada)
+    assert Calibration.mini_game_region(unmarked) == {860, 360, 1720, 720}
   end
 
-  test "without a layout it falls back to the hand-marked value, then the arena" do
+  test "a caixa central prefere o meio da ARENA (o meio do jogo) ao meio da tela" do
+    arena_only = %Calibration{scale: 1.0, arena_region: {1000, 100, 2000, 1200}, layout: nil}
+    assert Calibration.mini_game_region(arena_only) == {1500, 400, 1000, 600}
+
+    whole_screen = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, layout: nil}
+    assert Calibration.mini_game_region(whole_screen) == {860, 360, 1720, 720}
+
     blind = %Calibration{scale: 1.0, mini_game_region: {1, 2, 3, 4}, layout: nil}
     assert Calibration.mini_game_region(blind) == {1, 2, 3, 4}
 
-    arena_only = %Calibration{scale: 1.0, arena_region: {10, 20, 30, 40}, layout: nil}
-    assert Calibration.mini_game_region(arena_only) == {10, 20, 30, 40}
-
-    whole_screen = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, layout: nil}
-    assert Calibration.mini_game_region(whole_screen) == {0, 0, 3440, 1440}
+    assert Calibration.mini_game_region(%Calibration{scale: 1.0}) == nil
   end
 end

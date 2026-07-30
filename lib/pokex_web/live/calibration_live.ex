@@ -989,13 +989,9 @@ defmodule PokexWeb.CalibrationLive do
             <button class="btn btn-ghost btn-xs" phx-click="close_review">Fechar</button>
           </div>
           <.legend />
-          <p
-            :if={Pokex.Layout.region(:mini_game, @review.calib.layout)}
-            class="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs"
-          >
-            A faixa do <b>mini game</b> vem do calibrador automático (é fixa na tela, não muda
-            com os painéis) — marcar ela à mão aqui não tem efeito enquanto o HUD estiver
-            localizado.
+          <p class="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs">
+            A faixa do <b>mini game</b>: a SUA marcação manda. Sem ela, o bot procura numa
+            caixa no centro do jogo — marque a faixa pra busca ficar barata e certeira.
           </p>
           <div class="relative overflow-hidden rounded-lg border border-base-content/20">
             <img src={@review.src} class="w-full" />

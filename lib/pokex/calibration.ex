@@ -67,28 +67,37 @@ defmodule Pokex.Calibration do
   @doc """
   Where the fishing mini-game bar is, resolved.
 
-  The auto-located layout WINS over the hand-marked field. That is deliberate
-  and unlike the other manual fields: the strip is a fixed part of the game
-  viewport (see the layout profile's note), Lucas's measured value lives in
-  the profile, and his hand-marked one has drifted. The manual field is the
-  fallback for an uncalibrated layout; after that comes the arena, then the
-  whole screen — the mini-game worker searches whatever it is given.
+  A MÃO manda. A faixa "fixa" do layout automático era coordenada ABSOLUTA de
+  tela ({3067, 800, ...}, colada na battle list) — provada estável quando os
+  PAINÉIS do jogo se mexiam, mas a prova assumia que a JANELA nunca mudava de
+  lugar. Em 2026-07-30 ela mudou (a mesma raiz do minimapa em y=-132): a faixa
+  passou a apontar pro lugar errado e ainda VETAVA silenciosamente a
+  calibração manual do Lucas (a página até avisava que marcar não teria
+  efeito). Inversão: o valor marcado à mão vence sempre; sem ele, uma caixa
+  CENTRAL (metade da largura × metade da altura, centrada na arena — o meio do
+  jogo — ou na tela) — o mini-game aparece no meio do viewport, não no canto.
+  O worker procura no que receber; marcar a faixa é o que deixa a busca
+  barata e certeira.
   """
   def mini_game_region(%__MODULE__{} = calib) do
-    Pokex.Layout.region(:mini_game, calib.layout) || manual_mini_game_region(calib)
+    manual_mini_game_region(calib) || centered_mini_game_region(calib)
   end
 
   defp manual_mini_game_region(%__MODULE__{mini_game_region: region}) when is_tuple(region),
     do: region
 
-  defp manual_mini_game_region(%__MODULE__{arena_region: region}) when is_tuple(region),
-    do: region
+  defp manual_mini_game_region(_sem_marcacao), do: nil
 
-  defp manual_mini_game_region(%__MODULE__{screen_w: w, screen_h: h})
+  defp centered_mini_game_region(%__MODULE__{arena_region: {x, y, w, h}}),
+    do: centered_box(x, y, w, h)
+
+  defp centered_mini_game_region(%__MODULE__{screen_w: w, screen_h: h})
        when is_integer(w) and is_integer(h),
-       do: {0, 0, w, h}
+       do: centered_box(0, 0, w, h)
 
-  defp manual_mini_game_region(_uncalibrated), do: nil
+  defp centered_mini_game_region(_uncalibrated), do: nil
+
+  defp centered_box(x, y, w, h), do: {x + div(w, 4), y + div(h, 4), div(w, 2), div(h, 2)}
 
   def save(%__MODULE__{} = calib, path \\ nil) do
     path = path || Pokex.Home.calibration_file()

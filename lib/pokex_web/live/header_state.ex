@@ -17,8 +17,9 @@ defmodule PokexWeb.HeaderState do
   import Phoenix.Component, only: [assign: 2, assign: 3]
   import Phoenix.LiveView, only: [attach_hook: 4, connected?: 1]
 
-  alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.{AlarmCategories, BotSupervisor}
   alias Pokex.Characters
+  alias Pokex.Settings
 
   @focus_topic "focus"
   # A frota que o pill representa: os três workers cujo estado significa "o bot
@@ -43,7 +44,9 @@ defmodule PokexWeb.HeaderState do
         header_owns_workers?: owns_workers?,
         focused?: focused?(),
         characters: Characters.list(),
-        active_character: Characters.active()
+        active_character: Characters.active(),
+        alarm_sound: Settings.get(:alarm_sound),
+        alarm_muted_categories: Settings.get(:alarm_muted_categories)
       )
       |> sync_workers(BotSupervisor.status())
       |> attach_hook(:header_state, :handle_info, &info/2)
@@ -113,6 +116,34 @@ defmodule PokexWeb.HeaderState do
 
       {:error, _reason} ->
         {:halt, socket}
+    end
+  end
+
+  # Som geral: silencia TUDO de uma vez, sem tocar nos setores individuais —
+  # reativar o geral devolve o painel exatamente como estava por setor.
+  defp event("toggle_alarm_sound", _params, socket) do
+    next = not Settings.get(:alarm_sound)
+    Settings.put(:alarm_sound, next)
+    {:halt, assign(socket, alarm_sound: next)}
+  end
+
+  # Mudo POR SETOR (Lucas, 2026-07-30): "canto de comando"/"sessão" costumam
+  # ser os barulhentos; Shiny é o que ele quer sempre ligado. `from_string/1`
+  # rejeita qualquer valor que não seja um setor conhecido — o clique nunca
+  # grava lixo no disco (mesma fronteira do Settings.put/3).
+  defp event("toggle_alarm_category", %{"category" => category_text}, socket) do
+    if AlarmCategories.from_string(category_text) do
+      current = Settings.get(:alarm_muted_categories)
+
+      next =
+        if category_text in current,
+          do: List.delete(current, category_text),
+          else: [category_text | current]
+
+      Settings.put(:alarm_muted_categories, next)
+      {:halt, assign(socket, alarm_muted_categories: next)}
+    else
+      {:halt, socket}
     end
   end
 

@@ -100,7 +100,6 @@ defmodule PokexWeb.PanelLive do
        now_ms: now_ms(),
        threshold: Settings.get(:glow_threshold),
        mini_game_sound: Settings.get(:mini_game_sound),
-       alarm_sound: Settings.get(:alarm_sound),
        alarm_last: %{},
        session_started_at: session_started_at(),
        stop_after_minutes: Settings.get(:stop_after_minutes),
@@ -374,7 +373,7 @@ defmodule PokexWeb.PanelLive do
   # por tipo. A chave inclui o motivo: dois bloqueios diferentes são dois fatos,
   # e o segundo não pode ser engolido pelo intervalo do primeiro.
   def handle_info({:cavebot_alarm, reason}, socket),
-    do: {:noreply, alarm(socket, {:cavebot, reason}, cavebot_alarm_text(reason))}
+    do: {:noreply, alarm(socket, {:cavebot, reason}, :cavebot, cavebot_alarm_text(reason))}
 
   def handle_info({:game, snapshot}, socket) do
     socket =
@@ -399,7 +398,7 @@ defmodule PokexWeb.PanelLive do
 
     socket =
       socket
-      |> alarm(:escape, "🏃 FUGA: #{reason} — #{note}")
+      |> alarm(:escape, :fuga, "🏃 FUGA: #{reason} — #{note}")
       |> assign(session_started_at: nil)
 
     {:noreply, socket}
@@ -472,8 +471,19 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:stock, %{slot: slot} = reading}, socket),
     do: {:noreply, assign(socket, stocks: Map.put(socket.assigns.stocks, slot, reading))}
 
+  # A categoria viaja na mensagem desde a origem (ShinyGuard/StockAlerts/
+  # Guardian/Logout/Catcher/Capture/Fishing — ver Pokex.Bots.AlarmCategories):
+  # antes, TODO rule_alarm soava pelo mesmo botão "som geral" e caía na MESMA
+  # chave de anti-spam (um Shiny podia engolir um alerta de estoque 1s depois).
+  # A chave agora leva categoria+motivo — precisão que o setor ganha de graça.
+  def handle_info({:rule_alarm, category, reason}, socket),
+    do: {:noreply, alarm(socket, {:rule_alarm, category, reason}, category, "⏰ #{reason}")}
+
+  # Legado (2 elementos): qualquer emissor que ainda não marcou setor cai no
+  # geral — sempre soa se o som geral estiver ligado, nunca silenciado por
+  # setor (não sabemos qual é).
   def handle_info({:rule_alarm, reason}, socket),
-    do: {:noreply, alarm(socket, :rule_alarm, "⏰ #{reason}")}
+    do: {:noreply, alarm(socket, {:rule_alarm, reason}, :geral, "⏰ #{reason}")}
 
   # A stop condition fired (Guardian): the fleet is already halting (workers
   # broadcast their own idle snapshots) — ring the alarm with the MET GOAL and
@@ -481,7 +491,7 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:session_stop, reason}, socket) do
     socket =
       socket
-      |> alarm(:session_stop, "🛑 caçada parada: #{reason}")
+      |> alarm(:session_stop, :sessao, "🛑 caçada parada: #{reason}")
       |> assign(session_started_at: nil)
 
     {:noreply, socket}
@@ -601,12 +611,6 @@ defmodule PokexWeb.PanelLive do
     next = not Settings.get(:mini_game_sound)
     Settings.put(:mini_game_sound, next)
     {:noreply, assign(socket, mini_game_sound: next)}
-  end
-
-  def handle_event("toggle_alarm_sound", _params, socket) do
-    next = not Settings.get(:alarm_sound)
-    Settings.put(:alarm_sound, next)
-    {:noreply, assign(socket, alarm_sound: next)}
   end
 
   def handle_event("save_stop_conditions", params, socket) do
@@ -1617,7 +1621,7 @@ defmodule PokexWeb.PanelLive do
 
     case Map.get(snapshot, :error) do
       error when is_binary(error) and is_nil(previous_error) ->
-        alarm(socket, {:error, key}, "#{worker_name(key)} em erro: #{error}")
+        alarm(socket, {:error, key}, :erro, "#{worker_name(key)} em erro: #{error}")
 
       _no_edge ->
         socket
@@ -1632,7 +1636,7 @@ defmodule PokexWeb.PanelLive do
 
     if is_integer(current) and current < threshold and
          (previous == nil or previous >= threshold) do
-      alarm(socket, :hp_critical, "vida crítica: #{current}% (limiar #{threshold}%)")
+      alarm(socket, :hp_critical, :vida, "vida crítica: #{current}% (limiar #{threshold}%)")
     else
       socket
     end
@@ -1640,9 +1644,9 @@ defmodule PokexWeb.PanelLive do
 
   # One pipeline for every alarm: the per-type min gap (KizuBot's
   # antiSpamInterval) dedupes a flapping source; inside the gap NOTHING happens
-  # (no line, no sound). Mute only silences the sound — the 🔔 feed line stays,
-  # so a muted panel still keeps the record.
-  defp alarm(socket, key, text) do
+  # (no line, no sound). Mute (geral OU por setor) só silencia o SOM — a linha
+  # 🔔 do feed fica, então um painel mudo continua registrando.
+  defp alarm(socket, key, category, text) do
     last = Map.get(socket.assigns.alarm_last, key)
     at = now_ms()
 
@@ -1654,11 +1658,14 @@ defmodule PokexWeb.PanelLive do
         |> assign(alarm_last: Map.put(socket.assigns.alarm_last, key, at))
         |> append_log(%{level: :macro, source: "🔔", text: text})
 
-      if Settings.get(:alarm_sound),
+      if Settings.get(:alarm_sound) and category_enabled?(category),
         do: push_event(socket, "alarm", %{text: text}),
         else: socket
     end
   end
+
+  defp category_enabled?(category),
+    do: to_string(category) not in Settings.get(:alarm_muted_categories)
 
   # What "Iniciar" will actually bring up, spelled out under the button.
   #
@@ -2822,28 +2829,6 @@ defmodule PokexWeb.PanelLive do
                     @now_ms
                   )} capturas/h
                 </span>
-                <button
-                  type="button"
-                  phx-click="toggle_alarm_sound"
-                  title={
-                    if @alarm_sound,
-                      do:
-                        "Alarmes sonoros ligados (erro de worker, vida crítica) — clique para silenciar",
-                      else: "Alarmes MUDOS — clique para reativar (o feed 🔔 continua registrando)"
-                  }
-                  class={[
-                    "cursor-pointer",
-                    if(@alarm_sound,
-                      do: "text-pk-text-3 hover:text-pk-text",
-                      else: "text-pk-warn hover:text-pk-warn"
-                    )
-                  ]}
-                >
-                  <.icon
-                    name={if @alarm_sound, do: "hero-bell-alert", else: "hero-bell-slash"}
-                    class="size-3.5"
-                  />
-                </button>
               </span>
             </div>
             <div class="grid grid-cols-4 gap-1.5">

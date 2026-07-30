@@ -34,26 +34,26 @@ defmodule Pokex.Bots.StockAlertsTest do
   test "alarms ONCE when a stock crosses below, then stays quiet", %{alerts: alerts} do
     hud(%{f1: 28, f2: 36, e: 7, s_q: 43})
 
-    assert_receive {:rule_alarm, reason}, 500
+    assert_receive {:rule_alarm, :estoque, reason}, 500
     assert reason =~ "F1 com 28"
     assert reason =~ "limiar 30"
     assert_receive {:stock, %{slot: :f1, low?: true}}, 500
 
     # an alarm that repeats every 500ms is one he learns to ignore
     hud(%{f1: 27, f2: 36, e: 7, s_q: 43})
-    refute_receive {:rule_alarm, _}, 200
+    refute_receive {:rule_alarm, _, _}, 200
     settle(alerts)
   end
 
   test "re-arms when he restocks", %{alerts: alerts} do
     hud(%{f1: 10, f2: 36, e: 7, s_q: 43})
-    assert_receive {:rule_alarm, _}, 500
+    assert_receive {:rule_alarm, :estoque, _}, 500
 
     hud(%{f1: 200, f2: 36, e: 7, s_q: 43})
     assert_receive {:stock, %{slot: :f1, low?: false}}, 500
 
     hud(%{f1: 9, f2: 36, e: 7, s_q: 43})
-    assert_receive {:rule_alarm, reason}, 500
+    assert_receive {:rule_alarm, :estoque, reason}, 500
     assert reason =~ "F1 com 9"
     settle(alerts)
   end
@@ -65,14 +65,14 @@ defmodule Pokex.Bots.StockAlertsTest do
     # a wrong number is far worse than a missing one.
     hud(%{f1: nil, f2: nil, e: nil, s_q: nil})
 
-    refute_receive {:rule_alarm, _}, 200
+    refute_receive {:rule_alarm, _, _}, 200
     assert %{low: []} = StockAlerts.status(alerts)
   end
 
   test "a slot with threshold 0 is off", %{alerts: alerts} do
     hud(%{f1: 322, f2: 36, e: 7, s_q: 0})
 
-    refute_receive {:rule_alarm, _}, 200
+    refute_receive {:rule_alarm, _, _}, 200
     settle(alerts)
   end
 
@@ -81,15 +81,15 @@ defmodule Pokex.Bots.StockAlertsTest do
 
     hud(%{f1: 1, f2: 1, e: 1, s_q: 1})
 
-    refute_receive {:rule_alarm, _}, 200
+    refute_receive {:rule_alarm, _, _}, 200
     assert %{enabled?: false} = StockAlerts.status(alerts)
   end
 
   test "each of the four slots alarms with its own label", %{alerts: alerts} do
     hud(%{f1: 322, f2: 3, e: 2, s_q: 43})
 
-    assert_receive {:rule_alarm, first}, 500
-    assert_receive {:rule_alarm, second}, 500
+    assert_receive {:rule_alarm, :estoque, first}, 500
+    assert_receive {:rule_alarm, :estoque, second}, 500
     labels = Enum.map([first, second], &(String.split(&1, " ") |> Enum.at(2)))
 
     assert "F2" in labels

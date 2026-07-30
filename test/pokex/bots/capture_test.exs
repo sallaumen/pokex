@@ -516,10 +516,10 @@ defmodule Pokex.Bots.CaptureTest do
       assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_alarme_regiao)
       assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_alarme_regiao)
 
-      assert_receive {:rule_alarm, msg}
+      assert_receive {:rule_alarm, :captura, msg}
       assert msg =~ "feed_minimap.png"
       assert msg =~ "Recalibre"
-      refute_receive {:rule_alarm, _}, 50
+      refute_receive {:rule_alarm, _, _}, 50
 
       GenServer.stop(pid)
     end
@@ -534,12 +534,12 @@ defmodule Pokex.Bots.CaptureTest do
       atrasado = System.monotonic_time(:millisecond) - 10_000
       GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento.png", atrasado})
 
-      assert_receive {:rule_alarm, msg}
+      assert_receive {:rule_alarm, :captura, msg}
       assert msg =~ "captura saturada"
 
       # a fila afogada estoura o teto em TODO pedido — sem rate limit seria sirene
       GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento2.png", atrasado})
-      refute_receive {:rule_alarm, _}, 50
+      refute_receive {:rule_alarm, _, _}, 50
 
       GenServer.stop(pid)
     end

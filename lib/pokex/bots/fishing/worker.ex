@@ -188,7 +188,7 @@ defmodule Pokex.Bots.Fishing.Worker do
     # alarmes decididos pela Logic (ex.: arremessos secos) tocam a sirene do
     # painel — a mesma dos guardas de regra
     for {:alarm, msg} <- actions do
-      Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:rule_alarm, msg})
+      Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:rule_alarm, :pesca, msg})
     end
 
     # A tick is MACRO when the state or a counter changed (a hook, a recast, an

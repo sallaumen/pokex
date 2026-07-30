@@ -370,7 +370,7 @@ defmodule Pokex.Bots.Catcher.Worker do
         Phoenix.PubSub.broadcast(
           Pokex.PubSub,
           @topic,
-          {:rule_alarm,
+          {:rule_alarm, :captura,
            "🎯 acervo de corpos VAZIO — a captura não vai mirar nada; fotografe corpos na calibração"}
         )
 

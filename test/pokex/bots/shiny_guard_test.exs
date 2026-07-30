@@ -52,13 +52,13 @@ defmodule Pokex.Bots.ShinyGuardTest do
     # message must be enough once the confirm window passes clean
     world_broadcast(shiny_obs())
 
-    assert_receive {:rule_alarm, reason}, 500
+    assert_receive {:rule_alarm, :shiny, reason}, 500
     assert reason =~ "SHINY na lista de batalha"
     assert reason =~ "LUTA"
 
     # refractory: more sightings right after stay silent
     world_broadcast(shiny_obs())
-    refute_receive {:rule_alarm, _}, 150
+    refute_receive {:rule_alarm, _, _}, 150
     _ = ShinyGuard.status(guard)
   end
 
@@ -69,7 +69,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     world_broadcast(shiny_obs())
     world_broadcast(clean_obs())
 
-    refute_receive {:rule_alarm, _}, 200
+    refute_receive {:rule_alarm, _, _}, 200
     _ = ShinyGuard.status(guard)
   end
 
@@ -82,7 +82,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
     world_broadcast(shiny_obs())
 
-    refute_receive {:rule_alarm, _}, 200
+    refute_receive {:rule_alarm, _, _}, 200
     _ = ShinyGuard.status(guard)
   end
 
@@ -139,7 +139,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
       world_broadcast(shiny_obs())
 
-      assert_receive {:rule_alarm, reason}, 1_000
+      assert_receive {:rule_alarm, :shiny, reason}, 1_000
       assert reason =~ "SHINY na lista de batalha"
       assert reason =~ "decida você"
     end

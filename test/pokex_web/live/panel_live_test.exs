@@ -352,6 +352,35 @@ defmodule PokexWeb.PanelLiveTest do
     assert render(view) =~ "⏰ estagnação"
   end
 
+  test "setor MUDO cala o som — mas o feed 🔔 registra igual, e outro setor segue soando", %{
+    conn: conn
+  } do
+    muted = Pokex.Settings.get(:alarm_muted_categories)
+    on_exit(fn -> Pokex.Settings.put(:alarm_muted_categories, muted) end)
+    Pokex.Settings.put(:alarm_muted_categories, ["estoque"])
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "combat",
+      {:rule_alarm, :estoque, "estoque baixo: F1 com 9 (limiar 30)"}
+    )
+
+    refute_push_event(view, "alarm", %{text: _})
+    assert render(view) =~ "⏰ estoque baixo"
+
+    # um setor DIFERENTE (não mudo) segue tocando normalmente
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "combat",
+      {:rule_alarm, :shiny, "✨ SHINY na lista de batalha — LUTA!"}
+    )
+
+    assert_push_event(view, "alarm", %{text: text})
+    assert text =~ "SHINY"
+  end
+
   @tag :tmp_dir
   test "guarda anti-shiny: ação persiste, sonda lê a lista de batalha, registro aparece", %{
     conn: conn,

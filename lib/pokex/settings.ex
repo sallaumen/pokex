@@ -293,6 +293,13 @@ defmodule Pokex.Settings do
     # turn the panel into a siren. Muting stops the push entirely.
     alarm_sound: true,
     alarm_min_gap_ms: 30_000,
+    # Mudo POR SETOR (Lucas, 2026-07-30: "tá sendo muito barulhento... talvez
+    # fosse muito legal poder configurar em vários setores de alertas"). Lista
+    # de categorias (texto, ver Pokex.Bots.AlarmCategories) silenciadas — vazia
+    # por padrão (nada muda pra quem já usa: som geral continua a única
+    # chave). O botão do header liga/desliga cada setor SEM tocar no som geral
+    # — os dois se multiplicam (mudo = geral desligado OU setor na lista).
+    alarm_muted_categories: [],
     # Stop conditions (hunt goals): the Guardian halts the WHOLE fleet — with
     # the same latch as the panic corner, so nothing auto-resumes until Iniciar
     # — when the running session crosses a limit. 0 = condition off.

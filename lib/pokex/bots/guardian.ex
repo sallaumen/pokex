@@ -264,7 +264,7 @@ defmodule Pokex.Bots.Guardian do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @combat_topic,
-        {:rule_alarm, "🕹️ canto de comando: parando o bot"}
+        {:rule_alarm, :comando, "🕹️ canto de comando: parando o bot"}
       )
 
       Pokex.Bots.BotSupervisor.stop_all("canto de comando")
@@ -272,7 +272,7 @@ defmodule Pokex.Bots.Guardian do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @combat_topic,
-        {:rule_alarm, "🕹️ canto de comando: ligando o modo #{Pokex.Modes.current()}"}
+        {:rule_alarm, :comando, "🕹️ canto de comando: ligando o modo #{Pokex.Modes.current()}"}
       )
 
       {:ok, _pid} = Task.start(fn -> Pokex.Bots.BotSupervisor.start_all() end)
@@ -359,7 +359,7 @@ defmodule Pokex.Bots.Guardian do
 
         _alarme ->
           Logger.info("Guardian: #{reason}")
-          Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, reason})
+          Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :sessao, reason})
           %{state | last_activity_at: now}
       end
     else

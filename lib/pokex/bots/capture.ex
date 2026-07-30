@@ -228,7 +228,8 @@ defmodule Pokex.Bots.Capture do
 
   # O mesmo funil de alarme dos workers: painel (som/anti-spam) e journal
   # assinam "game" e tratam {:rule_alarm, _}.
-  defp alarm(text), do: Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:rule_alarm, text})
+  defp alarm(text),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:rule_alarm, :captura, text})
 
   @impl true
   def handle_call({:grab, region, filename, requested_at}, _from, state) do

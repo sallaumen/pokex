@@ -37,6 +37,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     SettingsStash.stash_keys!([
       :rescue_cooldown_ms,
+      :rescue_mode,
+      :rescue_combo,
       :pokemon_hp_rescue_pct,
       :potion_enabled,
       :potion_cooldown_ms,
@@ -190,6 +192,59 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert {:move, {500, 500}} in actions
 
     assert Worker.status(worker).counters.rescues >= 1
+  end
+
+  @tag :tmp_dir
+  test "modo combo: o stun vem ANTES do recall, na MESMA sequência :critical", %{
+    tmp: tmp,
+    body: body
+  } do
+    Pokex.Combos.Store.put([
+      %Pokex.Combos.Combo{
+        name: "stun-do-resgate",
+        trigger: nil,
+        steps: [{:skill, "1"}, {:wait, 5}, {:skill, "2"}],
+        enabled?: true
+      }
+    ])
+
+    Settings.put(:rescue_mode, "combo")
+    Settings.put(:rescue_combo, "stun-do-resgate")
+
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, actions}, 1_000
+    # sem leitura da barra de skills (nil): tudo às cegas, na ordem — stun
+    # primeiro, cola (rescue_step_ms 0), depois o recall de sempre
+    assert [{:press, "1"}, {:wait, 5}, {:press, "2"}, {:wait, 0}, {:press, "q"} | _] = actions
+    assert {:press, "shift+q"} in actions
+    assert {:move, {40, 620}} in actions
+  end
+
+  @tag :tmp_dir
+  test "combo pendurado: revive DIRETO mesmo assim, com alarme dizendo o porquê", %{
+    tmp: tmp,
+    body: body
+  } do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
+    Settings.put(:rescue_mode, "combo")
+    Settings.put(:rescue_combo, "sumiu")
+
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    # a sequência é a DIRETA (nenhum prefixo) — um nome pendurado jamais pula o revive
+    assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_000
+    assert_receive {:rule_alarm, msg}, 1_000
+    assert msg =~ "sumiu"
+    assert msg =~ "revivendo direto"
   end
 
   @tag :tmp_dir

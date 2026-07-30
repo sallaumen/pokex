@@ -63,30 +63,71 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
     do: now - last >= cooldown
 
   @doc """
-  The atomic combo, as a Body action list: recall (`rescue_key`), move onto the portrait, max-revive
-  (`max_revive_key`), release (`rescue_key`), recentre the cursor. `step_ms` waits sit between the
-  presses so the game registers each — the whole list runs as ONE Body perform so nothing (not even
-  a fishing/loot click — combat is keyboard-only via Tab targeting and never touches the Body) can
-  move the cursor off the portrait mid-combo.
+  The atomic combo, as a Body action list: an optional STUN PREFIX (`stun_steps`, already-compiled
+  `{:press, _}`/`{:wait, _}` actions — see `stun_prefix/2`), then recall (`rescue_key`), move onto
+  the portrait, max-revive (`max_revive_key`), release (`rescue_key`), recentre the cursor.
+  `step_ms` waits sit between the presses so the game registers each — the whole list runs as ONE
+  Body perform so nothing (not even a fishing/loot click — combat is keyboard-only via Tab
+  targeting and never touches the Body) can move the cursor off the portrait mid-combo. The stun
+  prefix rides INSIDE that same perform: caçando bicho forte, os stuns em área compram o tempo do
+  revive — nada pode se enfiar entre o stun e o recall (Lucas, 2026-07-30).
   """
   @spec combo(map) :: [tuple]
-  def combo(%{
-        rescue_key: rescue_key,
-        max_revive_key: max_revive_key,
-        photo_point: photo_point,
-        neutral_point: neutral_point,
-        step_ms: step_ms
-      }) do
-    [
-      {:press, rescue_key},
-      {:wait, step_ms},
-      {:move, photo_point},
-      {:wait, step_ms},
-      {:press, max_revive_key},
-      {:wait, step_ms},
-      {:press, rescue_key},
-      {:wait, step_ms},
-      {:move, neutral_point}
-    ]
+  def combo(
+        %{
+          rescue_key: rescue_key,
+          max_revive_key: max_revive_key,
+          photo_point: photo_point,
+          neutral_point: neutral_point,
+          step_ms: step_ms
+        } = config
+      ) do
+    stun = Map.get(config, :stun_steps, [])
+    glue = if stun == [], do: [], else: [{:wait, step_ms}]
+
+    stun ++
+      glue ++
+      [
+        {:press, rescue_key},
+        {:wait, step_ms},
+        {:move, photo_point},
+        {:wait, step_ms},
+        {:press, max_revive_key},
+        {:wait, step_ms},
+        {:press, rescue_key},
+        {:wait, step_ms},
+        {:move, neutral_point}
+      ]
+  end
+
+  @doc """
+  Compila os passos de stun de um combo em ações de Body, contra a leitura da barra de skills.
+
+  `ready` é a lista de teclas prontas — ou `nil` quando a leitura está indisponível, e aí TODAS
+  entram às cegas (tecla em cooldown é no-op no jogo; segurar o resgate esperando leitura custa
+  HP). Skill em cooldown é PULADA e devolvida em `skipped` para o log dizer qual (decisão do
+  Lucas: pular, nunca esperar). Esperas são sempre mantidas (custo de ms, risco zero). Um passo
+  que não é skill/espera é ignorado — a elegibilidade filtra antes, e um combo editado entre a
+  escolha e o disparo JAMAIS pode derrubar um resgate.
+
+  Devolve `{actions, skipped}`.
+  """
+  @spec stun_prefix([tuple], [String.t()] | nil) :: {[tuple], [String.t()]}
+  def stun_prefix(steps, ready) do
+    {actions, skipped} =
+      Enum.reduce(steps, {[], []}, fn
+        {:skill, key}, {actions, skipped} ->
+          if ready == nil or key in ready,
+            do: {[{:press, key} | actions], skipped},
+            else: {actions, [key | skipped]}
+
+        {:wait, ms}, {actions, skipped} when is_integer(ms) ->
+          {[{:wait, ms} | actions], skipped}
+
+        _passo_estranho, acc ->
+          acc
+      end)
+
+    {Enum.reverse(actions), Enum.reverse(skipped)}
   end
 end

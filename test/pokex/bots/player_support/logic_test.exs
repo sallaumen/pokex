@@ -116,5 +116,71 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
                {:move, {1457, 666}}
              ]
     end
+
+    test "com stun_steps: o stun vem ANTES do recall, na MESMA lista atômica" do
+      config = %{
+        rescue_key: "q",
+        max_revive_key: "shift+q",
+        photo_point: {70, 934},
+        neutral_point: {1457, 666},
+        step_ms: 40,
+        stun_steps: [{:press, "1"}, {:wait, 500}, {:press, "2"}]
+      }
+
+      assert Logic.combo(config) == [
+               {:press, "1"},
+               {:wait, 500},
+               {:press, "2"},
+               # a cola entre o stun e o recall
+               {:wait, 40},
+               {:press, "q"},
+               {:wait, 40},
+               {:move, {70, 934}},
+               {:wait, 40},
+               {:press, "shift+q"},
+               {:wait, 40},
+               {:press, "q"},
+               {:wait, 40},
+               {:move, {1457, 666}}
+             ]
+    end
+
+    test "stun_steps vazio não adiciona cola — sequência idêntica ao modo direto" do
+      config = %{
+        rescue_key: "q",
+        max_revive_key: "shift+q",
+        photo_point: {70, 934},
+        neutral_point: {1457, 666},
+        step_ms: 40
+      }
+
+      assert Logic.combo(Map.put(config, :stun_steps, [])) == Logic.combo(config)
+    end
+  end
+
+  describe "stun_prefix/2" do
+    @stun_steps [{:skill, "1"}, {:wait, 500}, {:skill, "2"}, {:wait, 500}]
+
+    test "leitura indisponível (nil): aperta tudo às cegas — nunca segura o resgate" do
+      assert Logic.stun_prefix(@stun_steps, nil) ==
+               {[{:press, "1"}, {:wait, 500}, {:press, "2"}, {:wait, 500}], []}
+    end
+
+    test "só as skills PRONTAS entram; as em cooldown são puladas e NOMEADAS" do
+      assert Logic.stun_prefix(@stun_steps, ["2", "3"]) ==
+               {[{:wait, 500}, {:press, "2"}, {:wait, 500}], ["1"]}
+    end
+
+    test "nenhuma pronta: sobram só as esperas, todas as skills nomeadas no pulo" do
+      assert {actions, ["1", "2"]} = Logic.stun_prefix(@stun_steps, [])
+      refute Enum.any?(actions, &match?({:press, _}, &1))
+    end
+
+    test "um passo que não é skill/espera é ignorado — jamais derruba um resgate" do
+      # a elegibilidade filtra antes; isto é o cinto pro caso do combo mudar
+      # entre a escolha e o disparo
+      steps = [{:swap_member, "Jigglypuff"}, {:skill, "1"}]
+      assert Logic.stun_prefix(steps, nil) == {[{:press, "1"}], []}
+    end
   end
 end

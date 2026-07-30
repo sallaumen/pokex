@@ -402,6 +402,16 @@ defmodule Pokex.Settings do
     rescue_cooldown_ms: 60_000,
     # ms between the presses/moves of the combo so the game registers each.
     rescue_step_ms: 40,
+    # Auto-revive com combo de STUN (Lucas, 2026-07-30): caçando bicho forte,
+    # as skills de stun em área ficam reservadas pro momento do resgate — o
+    # combo escolhido (só passos de skill/espera; ver Combos.rescue_eligible?)
+    # vira o PREFIXO da mesma sequência atômica de revive. "direto" = a
+    # sequência de sempre; "combo" = prefixo + revive. Skill em cooldown na
+    # hora é PULADA (leitura da barra; sem leitura, aperta às cegas). Combo
+    # sumido/inelegível na hora → revive direto + alarme (falha na direção de
+    # SALVAR).
+    rescue_mode: "direto",
+    rescue_combo: "",
     # How often the PlayerSupport samples the main Pokémon's HP bar.
     support_tick_ms: 120,
     # HP-bar fill detection is COLOUR-AGNOSTIC: a column counts as filled when it holds a COLOURED
@@ -715,7 +725,8 @@ defmodule Pokex.Settings do
     stop_after_action: ~w(parar deslogar),
     shiny_action: ~w(alarme fugir),
     escape_direction: ~w(up down left right),
-    hunt_style: ~w(constante mobada)
+    hunt_style: ~w(constante mobada),
+    rescue_mode: ~w(direto combo)
   }
 
   # Chaves de LIMIAR cujo seed é inteiro mas que aceitam fração (a calibração

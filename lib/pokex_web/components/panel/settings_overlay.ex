@@ -32,6 +32,10 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   attr :mode_overrides, :list, required: true
   attr :combos, :list, required: true
 
+  slot :inner_block,
+    doc:
+      "as demais seções (combos, presets, sessão, avançado) — vêm do painel com os assigns dele"
+
   def settings_overlay(assigns) do
     ~H"""
     <div
@@ -371,6 +375,8 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               </form>
             </div>
           </section>
+
+          {render_slot(@inner_block)}
 
           <%!-- Calibração e diagnóstico NÃO moram aqui (cada um é um trabalho
                 próprio), mas é aqui que ele vem procurar — então o caminho fica

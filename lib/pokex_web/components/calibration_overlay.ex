@@ -32,6 +32,9 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :pokemon_hp_region, :any, default: nil
   attr :pokemon_photo_point, :any, default: nil
   attr :mini_game_region, :any, default: nil
+  attr :minimap_region, :any, default: nil
+  attr :minimap_coord_region, :any, default: nil
+  attr :minimap_player_point, :any, default: nil
   attr :bands, :list, default: []
 
   def overlays(assigns) do
@@ -61,6 +64,24 @@ defmodule PokexWeb.CalibrationOverlay do
     >
       <span class="absolute -top-4 left-0 rounded bg-primary px-1 text-[10px] font-bold text-primary-content">
         mini game
+      </span>
+    </div>
+    <div
+      :if={@minimap_region}
+      class="absolute rounded border-2 border-info bg-info/5"
+      style={region_style(@minimap_region, @screen)}
+    >
+      <span class="absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content">
+        minimapa
+      </span>
+    </div>
+    <div
+      :if={@minimap_coord_region}
+      class="absolute rounded border-2 border-error bg-error/10"
+      style={region_style(@minimap_coord_region, @screen)}
+    >
+      <span class="absolute -top-4 left-0 rounded bg-error px-1 text-[10px] font-bold text-error-content">
+        coordenada
       </span>
     </div>
     <div
@@ -123,6 +144,14 @@ defmodule PokexWeb.CalibrationOverlay do
       style={point_style(@pokemon_photo_point, @screen)}
       title="foto do Pokémon"
     />
+    <div
+      :if={@minimap_player_point}
+      class="absolute -ml-2 -mt-2 grid size-4 place-items-center rounded-full border-2 border-info bg-info/30 text-[10px] font-black leading-none text-info shadow"
+      style={point_style(@minimap_player_point, @screen)}
+      title="cruz do personagem no minimapa — a origem de todo passo do cavebot"
+    >
+      +
+    </div>
     """
   end
 
@@ -155,6 +184,12 @@ defmodule PokexWeb.CalibrationOverlay do
       </span>
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-sm border-2 border-accent" /> vida + foto do Pokémon
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-sm border-2 border-info" /> minimapa + cruz
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-sm border-2 border-error" /> faixa da coordenada
       </span>
     </div>
     """

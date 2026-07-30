@@ -540,4 +540,82 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert render(view) =~ "precisa da arena calibrada"
     end
   end
+
+  describe "posição & minimapa (5 cliques, a mão manda)" do
+    @tag :tmp_dir
+    test "marca minimapa+cruz+coordenada, salva e LÊ a coordenada da própria foto", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      Calibration.save(%Calibration{
+        scale: 1.0,
+        screen_w: 3440,
+        screen_h: 1440,
+        water_point: {50, 30},
+        glow_region: {18, 2, 64, 64},
+        battle_region: {70, 10, 20, 30},
+        arena_region: {20, 20, 60, 40},
+        neutral_point: {52, 36}
+      })
+
+      # a "foto" da calibração é uma captura REAL: o veredito no fim tem que
+      # ler a coordenada verdadeira dela — o teste do botão é o teste do bot
+      screen_png = "test/fixtures/screen/ultrawide_3440x1440_full.png"
+      frame = Pokex.ScreenFixtures.frame!("ultrawide_3440x1440_full")
+      {:ok, fix} = Pokex.Layout.locate(frame)
+      {mx, my, mw, mh} = Pokex.Layout.region(:minimap, fix)
+      {cx, cy, cw, ch} = Pokex.Layout.region(:minimap_coord, fix)
+
+      probe =
+        Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+
+      {:ok, _} =
+        Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen_png}]})
+
+      {:ok, view, _} = live(conn, ~p"/calibration")
+
+      view |> element("button", "Posição & minimapa") |> render_click()
+      assert render(view) =~ "MINIMAPA"
+      assert has_element?(view, "#calibration-screen")
+
+      click = fn x, y ->
+        params = %{
+          "x" => x / 1,
+          "y" => y / 1,
+          "cw" => 3440.0,
+          "ch" => 1440.0,
+          "nw" => 3440.0,
+          "nh" => 1440.0
+        }
+
+        render_hook(view, "img_click", params)
+        render_hook(view, "img_click", params)
+      end
+
+      # minimapa (2 cantos) → cruz (centro) → faixa da coordenada (2 cantos)
+      click.(mx, my)
+      assert render(view) =~ "INFERIOR-DIREITO"
+      click.(mx + mw, my + mh)
+      assert render(view) =~ "CRUZ"
+      click.(mx + div(mw, 2), my + div(mh, 2))
+      assert render(view) =~ "COORDENADA"
+      click.(cx, cy)
+      click.(cx + cw, cy + ch)
+
+      html = render(view)
+      assert html =~ "salvos"
+      # o veredito leu a coordenada REAL da captura com as regiões recém-marcadas
+      assert html =~ "li a coordenada da foto: (337, 46107, 4)"
+
+      assert {:ok, calib} = Calibration.load()
+      assert calib.minimap_region == {mx, my, mw, mh}
+      assert calib.minimap_player_point == {mx + div(mw, 2), my + div(mh, 2)}
+      assert calib.minimap_coord_region == {cx, cy, cw, ch}
+      # o resto da calibração fica intacto
+      assert calib.water_point == {50, 30}
+    end
+  end
 end

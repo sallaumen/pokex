@@ -20,15 +20,22 @@ defmodule Pokex.Journal do
   evento do topo ganha `repeats` e um `at` novo. Um detector piscando a noite
   toda vira UMA linha honesta ("×340"), não quinhentas.
 
-  Passivo de ponta a ponta: só escuta PubSub, nunca captura nem atua — por
-  isso não precisa do gate de env que os vigias ativos têm. O buffer é
-  limitado (@max_events); persistência em disco (JSONL) é fatia futura.
+  Quase passivo: só escuta PubSub, nunca captura nem atua — mas PERSISTE.
+  Eventos `:macro` e `:alarm` viram linhas JSONL em `~/.pokex/journal/` (um
+  arquivo por dia, chatter `:debug` fica só na memória), e o boot ressemeia o
+  ring dos arquivos de hoje e de ontem — a história agora sobrevive também ao
+  RESTART do app, que é como as madrugadas com problema costumam terminar.
+  Arquivos com mais de @keep_days dias são apagados no boot. A escrita em
+  disco é gateada por env (`:journal_persist`, false na suíte) para testes
+  jamais escreverem no `~/.pokex` real; instâncias de teste optam por entrar
+  com `persist: true` + home temporário.
   """
   use GenServer
 
   @topics ~w(fishing combat catcher mini_game game body cavebot logout)
   @journal_topic "journal"
   @max_events 500
+  @keep_days 14
 
   def topic, do: @journal_topic
 
@@ -39,7 +46,8 @@ defmodule Pokex.Journal do
       events: [],
       count: 0,
       next_id: 1,
-      max_events: Keyword.get(opts, :max_events, @max_events)
+      max_events: Keyword.get(opts, :max_events, @max_events),
+      persist?: Keyword.get(opts, :persist, Application.get_env(:pokex, :journal_persist, true))
     }
 
     case name do
@@ -60,6 +68,7 @@ defmodule Pokex.Journal do
   @impl true
   def init(state) do
     Enum.each(@topics, &Phoenix.PubSub.subscribe(Pokex.PubSub, &1))
+    state = if state.persist?, do: state |> prune_old_files() |> reload_from_disk(), else: state
     {:ok, state}
   end
 
@@ -145,6 +154,7 @@ defmodule Pokex.Journal do
         }
 
         broadcast(event)
+        persist_event(state, event)
 
         %{
           state
@@ -180,4 +190,105 @@ defmodule Pokex.Journal do
 
   defp broadcast(event),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @journal_topic, {:journal_event, event})
+
+  # -- persistência ------------------------------------------------------------
+
+  @doc false
+  def dir, do: Path.join(Pokex.Home.dir(), "journal")
+
+  # Só evento NOVO de :macro pra cima vira linha — o chatter :debug e as
+  # atualizações de repeats ficam na memória (a linha já existe no disco; o ×N
+  # é conforto da tela, não fato novo). Uma escrita que falhar jamais derruba o
+  # journal: o disco é o bônus, o ring é o serviço.
+  defp persist_event(%{persist?: false}, _event), do: :ok
+  defp persist_event(_state, %{severity: :debug}), do: :ok
+
+  defp persist_event(_state, event) do
+    File.mkdir_p!(dir())
+
+    line =
+      Jason.encode!(%{
+        at: event.at,
+        source: event.source,
+        severity: event.severity,
+        text: event.text,
+        generation: event.generation
+      })
+
+    File.write!(day_file(Date.utc_today()), line <> "\n", [:append])
+  rescue
+    _disco_indisponivel -> :ok
+  end
+
+  defp day_file(date), do: Path.join(dir(), Date.to_iso8601(date) <> ".jsonl")
+
+  # O boot ressemeia o ring de ontem+hoje (na ordem, o mais novo primeiro no
+  # ring) — a história sobrevive ao RESTART, não só ao reload da página.
+  defp reload_from_disk(state) do
+    events =
+      [Date.add(Date.utc_today(), -1), Date.utc_today()]
+      |> Enum.flat_map(&read_day/1)
+      |> Enum.take(-state.max_events)
+      |> Enum.with_index(1)
+      |> Enum.map(fn {e, id} ->
+        %{
+          id: id,
+          at: e["at"],
+          source: safe_atom(e["source"]),
+          severity: safe_atom(e["severity"]),
+          text: e["text"],
+          generation: e["generation"],
+          repeats: 1
+        }
+      end)
+      |> Enum.reverse()
+
+    %{state | events: events, count: length(events), next_id: length(events) + 1}
+  end
+
+  defp read_day(date) do
+    case File.read(day_file(date)) do
+      {:ok, body} ->
+        body
+        |> String.split("\n", trim: true)
+        |> Enum.flat_map(fn line ->
+          case Jason.decode(line) do
+            {:ok, %{"text" => _} = e} -> [e]
+            _linha_corrompida -> []
+          end
+        end)
+
+      _sem_arquivo ->
+        []
+    end
+  end
+
+  # source/severity voltam do JSON como string; só atoms JÁ EXISTENTES passam
+  # (to_existing_atom) — um arquivo adulterado não infla a tabela de atoms.
+  defp safe_atom(s) when is_binary(s) do
+    String.to_existing_atom(s)
+  rescue
+    ArgumentError -> :sistema
+  end
+
+  defp safe_atom(_outro), do: :sistema
+
+  defp prune_old_files(state) do
+    cutoff = Date.add(Date.utc_today(), -@keep_days)
+
+    case File.ls(dir()) do
+      {:ok, files} ->
+        for f <- files, Path.extname(f) == ".jsonl" do
+          case Date.from_iso8601(Path.rootname(f)) do
+            {:ok, date} -> if Date.before?(date, cutoff), do: File.rm(Path.join(dir(), f))
+            _mantém -> :ok
+          end
+        end
+
+      _sem_dir ->
+        :ok
+    end
+
+    state
+  end
 end

@@ -17,6 +17,9 @@ defmodule PokexWeb.Layouts do
   # esquecer uma rota aqui é o jeito de uma página sumir do app.
   @nav [
     {:panel, "Painel", "hero-play-circle"},
+    # O ⚙️ não é uma página: cai no painel com o overlay aberto (rota /config,
+    # mesma LiveView). Fica no menu porque é de onde ele vai procurar.
+    {:config, "Configurações", "hero-cog-6-tooth"},
     {:calibration, "Calibração", "hero-viewfinder-circle"},
     {:diagnostics, "Diagnóstico", "hero-beaker"},
     {:fishing_lab, "Laboratório", "hero-sparkles"},
@@ -293,6 +296,7 @@ defmodule PokexWeb.Layouts do
   defp nav_id(key), do: "app-nav-" <> String.replace(to_string(key), "_", "-")
 
   defp nav_path(:panel), do: ~p"/"
+  defp nav_path(:config), do: ~p"/config"
   defp nav_path(:calibration), do: ~p"/calibration"
   defp nav_path(:diagnostics), do: ~p"/diagnostics"
   defp nav_path(:fishing_lab), do: ~p"/fishing-lab"

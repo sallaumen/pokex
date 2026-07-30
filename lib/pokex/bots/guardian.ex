@@ -91,6 +91,14 @@ defmodule Pokex.Bots.Guardian do
       poll_ms: poll_ms,
       session_rules?: session_rules?,
       logout_fun: Keyword.get(opts, :logout_fun, &Pokex.Bots.Logout.request/1),
+      # canto de COMANDO (superior direito): dependências injetáveis pro teste
+      # nunca ligar a frota real nem ler calibração de verdade
+      command_toggle: Keyword.get(opts, :command_toggle, &__MODULE__.default_command_toggle/0),
+      screen_w_fun: Keyword.get(opts, :screen_w_fun, &__MODULE__.default_screen_w/0),
+      # quando o cursor ENTROU no canto de comando (nil = fora dele) e se o
+      # comando desta visita já disparou — exige SAIR do canto pra rearmar
+      command_since: nil,
+      command_fired?: false,
       fights: 0,
       hooked: 0,
       clears: 0,
@@ -123,18 +131,21 @@ defmodule Pokex.Bots.Guardian do
 
   @impl true
   def handle_info(:poll, state) do
-    case Body.cursor(state.body) do
-      {:ok, point} ->
-        in_corner? = Corner.in_kill_corner?(point)
-        # The gate closes the moment the cursor enters the corner, so it ALSO suppresses the
-        # always-on PlayerSupport's revive/potion — not just the Start/Stop workers on_panic
-        # halts. It reopens when the cursor leaves, so manual-play protection comes right back.
-        InputGate.set_corner_ok(not in_corner?)
-        if in_corner?, do: panic(state)
+    state =
+      case Body.cursor(state.body) do
+        {:ok, point} ->
+          in_corner? = Corner.in_kill_corner?(point)
+          # The gate closes the moment the cursor enters the corner, so it ALSO suppresses the
+          # always-on PlayerSupport's revive/potion — not just the Start/Stop workers on_panic
+          # halts. It reopens when the cursor leaves, so manual-play protection comes right back.
+          InputGate.set_corner_ok(not in_corner?)
+          if in_corner?, do: panic(state)
 
-      _error ->
-        :ok
-    end
+          check_command_corner(state, point)
+
+        _error ->
+          state
+      end
 
     state = check_session_limits(state)
     schedule_poll(state.poll_ms)
@@ -198,6 +209,85 @@ defmodule Pokex.Bots.Guardian do
     state.on_panic.()
     Phoenix.PubSub.broadcast(Pokex.PubSub, @fishing_topic, {:panic, "kill corner"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:panic, "kill corner"})
+  end
+
+  # O canto de COMANDO (superior direito): segurar o mouse ali por
+  # command_corner_dwell_ms liga/desliga o último modo usado — de DENTRO do
+  # jogo. Existe porque clicar Iniciar no navegador TIRA o foco do jogo, e o
+  # portão (fail-closed, certo) engolia os primeiros passos da frota — a
+  # regressão real de 2026-07-29. Mover o mouse não muda foco.
+  #
+  # Anti-acidente em três camadas: a DEMORA (passar o mouse pelo canto não
+  # dispara), o REARME (é preciso SAIR do canto antes de outro comando) e o
+  # canto OPOSTO ao do pânico (os dois nunca se confundem — pânico continua
+  # sendo instantâneo e soberano).
+  defp check_command_corner(state, point) do
+    enabled? = Settings.get(:command_corner) == true
+    screen_w = state.screen_w_fun.()
+
+    cond do
+      not enabled? or screen_w == nil ->
+        %{state | command_since: nil, command_fired?: false}
+
+      not Corner.in_command_corner?(point, screen_w) ->
+        %{state | command_since: nil, command_fired?: false}
+
+      state.command_fired? ->
+        state
+
+      state.command_since == nil ->
+        %{state | command_since: System.monotonic_time(:millisecond)}
+
+      System.monotonic_time(:millisecond) - state.command_since >=
+          Settings.get(:command_corner_dwell_ms) ->
+        state.command_toggle.()
+        %{state | command_fired?: true}
+
+      true ->
+        state
+    end
+  end
+
+  @doc false
+  # Liga se está tudo parado; para se algo roda. O start vai num Task porque o
+  # preflight faz capturas (segundos) e o poll do canto de pânico NUNCA pode
+  # ficar surdo esperando — a lição do Logout.
+  def default_command_toggle do
+    status = Pokex.Bots.BotSupervisor.status()
+
+    if Pokex.Bots.BotSupervisor.any_active?([
+         status.fishing,
+         status.combat,
+         status.cavebot,
+         status.mini_game
+       ]) do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @combat_topic,
+        {:rule_alarm, "🕹️ canto de comando: parando o bot"}
+      )
+
+      Pokex.Bots.BotSupervisor.stop_all("canto de comando")
+    else
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @combat_topic,
+        {:rule_alarm, "🕹️ canto de comando: ligando o modo #{Pokex.Modes.current()}"}
+      )
+
+      {:ok, _pid} = Task.start(fn -> Pokex.Bots.BotSupervisor.start_all() end)
+      :ok
+    end
+  end
+
+  @doc false
+  # A largura da tela vem da calibração (o canto de pânico não precisa — {0,0}
+  # é universal; o canto oposto não é). Sem calibração → canto desligado.
+  def default_screen_w do
+    case Pokex.Calibration.load() do
+      {:ok, calib} -> Map.get(calib, :screen_w)
+      _sem_calibracao -> nil
+    end
   end
 
   # No running session (no fact) = nothing to measure; 0 = condition off.

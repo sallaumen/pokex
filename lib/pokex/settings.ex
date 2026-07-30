@@ -270,6 +270,14 @@ defmodule Pokex.Settings do
     # O que fazer ao bater uma meta: "parar" trava tudo como o Stop; "deslogar"
     # encerra a conta, que é o que de fato economiza estamina.
     stop_after_action: "parar",
+    # O canto de COMANDO (superior direito): segurar o mouse ali por
+    # command_corner_dwell_ms liga/desliga o último modo usado — de DENTRO do
+    # jogo, sem clicar no navegador (clicar tira o foco e fecha o portão no
+    # exato instante do arranque; regressão real de 2026-07-29). A demora de
+    # braço é o anti-acidente: passar o mouse pelo canto não dispara nada, e é
+    # preciso SAIR do canto antes de um segundo comando.
+    command_corner: true,
+    command_corner_dwell_ms: 600,
     # Shiny guard (Lucas's anti-shiny protocol): watch the arena feed for the
     # COLOR signature of the watched Shinies (built from the wiki sprites — a
     # PXG shiny is a full recolor, so no in-game photo is needed). Action on a

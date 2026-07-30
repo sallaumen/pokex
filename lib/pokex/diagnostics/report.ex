@@ -69,6 +69,7 @@ defmodule Pokex.Diagnostics.Report do
       captured_at: iso8601(now_ms),
       calibration: calibration_map(calib),
       settings: settings,
+      operacao: operacao_report(settings),
       regions: %{
         glow:
           region_report(
@@ -103,6 +104,73 @@ defmodule Pokex.Diagnostics.Report do
       screen: screen_report(rig)
     }
   end
+
+  # A metade OPERACIONAL do bundle de suporte (Frente 4 do plano de
+  # consolidação): o que estava acontecendo — não só o que a tela mostrava.
+  # Cada fonte é blindada isoladamente: um processo fora do ar vira {"erro": _}
+  # naquela chave, nunca um bundle que falha inteiro (o bundle existe
+  # exatamente pros momentos em que algo está quebrado).
+  defp operacao_report(settings) do
+    %{
+      journal: safe_source(fn -> Pokex.Journal.recent(limit: 300, min_severity: :macro) end),
+      sessao:
+        safe_source(fn ->
+          %{
+            generation: Pokex.Bots.Session.generation(),
+            last_order: Pokex.Bots.Session.last_order()
+          }
+        end),
+      workers: safe_source(fn -> Pokex.Bots.BotSupervisor.status() end),
+      portoes:
+        safe_source(fn ->
+          %{input_gate: Pokex.Bots.InputGate.state(), focus: Pokex.Bots.Focus.status()}
+        end),
+      # o DIFF contra os seeds: só o que o Lucas mudou — a resposta rápida de
+      # "que ajuste está diferente do padrão?" sem caçar em ~180 chaves
+      settings_diff:
+        safe_source(fn ->
+          defaults = Pokex.Settings.defaults()
+
+          settings
+          |> Enum.filter(fn {k, v} -> Map.get(defaults, k) != v end)
+          |> Map.new()
+        end),
+      calibration_mtime: safe_source(fn -> Pokex.Calibration.mtime() end),
+      captura:
+        safe_source(fn ->
+          %{
+            backend: Pokex.Bots.Capture.backend_info(),
+            metricas:
+              Pokex.Bots.Perf.snapshot().last_window
+              |> Enum.filter(fn {k, _v} -> String.starts_with?(k, "capture.") end)
+              |> Map.new()
+          }
+        end)
+    }
+    |> jsonable()
+  end
+
+  defp safe_source(fun) do
+    fun.()
+  catch
+    kind, reason -> %{erro: "#{kind}: #{inspect(reason)}"}
+  end
+
+  # Snapshots carregam tuplas (pontos, rects) e o bundle vira JSON — converte
+  # fundo: tupla → lista, o resto que o Jason não conhece → inspect.
+  defp jsonable(%_struct{} = s), do: s |> Map.from_struct() |> jsonable()
+
+  defp jsonable(map) when is_map(map),
+    do: Map.new(map, fn {k, v} -> {jsonable_key(k), jsonable(v)} end)
+
+  defp jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)
+  defp jsonable(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> jsonable()
+
+  defp jsonable(v) when is_binary(v) or is_number(v) or is_atom(v) or is_nil(v), do: v
+  defp jsonable(outro), do: inspect(outro)
+
+  defp jsonable_key(k) when is_atom(k) or is_binary(k), do: k
+  defp jsonable_key(k), do: inspect(k)
 
   defp glow_region(calib, settings) do
     Calibration.glow_search_region(calib, Settings.value(settings, :glow_search_margin))

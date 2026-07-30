@@ -1,9 +1,20 @@
 defmodule Pokex.Perception.Interpret.CorpsesTest do
-  use ExUnit.Case, async: true
+  # async: false — o acervo (CorpseLibrary) mora no home global (:home_dir) com
+  # cache em :persistent_term; cada teste usa um tmp próprio via put_env.
+  use ExUnit.Case, async: false
 
+  alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Perception.Interpret.Corpses
   alias Pokex.{Calibration, Settings}
   alias Pokex.Vision.Frame
+
+  @moduletag :tmp_dir
+
+  setup %{tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    :ok
+  end
 
   # 64x64 frame = 4x4 grid of 16px cells at scale 1.0.
   defp calib do
@@ -34,6 +45,15 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
     end
   end
 
+  # O acervo É a mira (2026-07-30): sem corpo ensinado NADA vira alvo, então
+  # os testes de detecção ensinam o vermelho-sobre-chão que os frames pintam —
+  # o mesmo gesto do Lucas na calibração (fotografar o corpo real).
+  defp teach_red!(name \\ "Corsola") do
+    crop = Frame.crop(frame(with_corpse(1, 1)), {4, 0, 56, 56})
+    {:ok, _n} = CorpseLibrary.add(name, crop)
+    :ok
+  end
+
   defp warm_up(settings) do
     {_obs, st} = Corpses.interpret(frame(&ground/2), calib(), settings, nil)
 
@@ -47,7 +67,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
   test "warmup publishes scanning?: false, then flips to scanning" do
     s = settings()
     {obs, st} = Corpses.interpret(frame(&ground/2), calib(), s, nil)
-    assert obs == %{scanning?: false, corpses: []}
+    assert obs == %{scanning?: false, corpses: [], known: %{}}
 
     {_obs, st} = Corpses.interpret(frame(&ground/2), calib(), s, st)
     {obs, _st} = Corpses.interpret(frame(&ground/2), calib(), s, st)
@@ -55,6 +75,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
   end
 
   test "a new static blob becomes a corpse only after the stationary frames, in screen points" do
+    teach_red!()
     s = settings()
     st = warm_up(s)
 
@@ -70,7 +91,53 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
     assert sy in 220..232
   end
 
+  test "o alvo confirmado chega com NOME e score no :known" do
+    teach_red!("Corsola")
+    s = settings()
+    st = warm_up(s)
+
+    {_obs, st} = Corpses.interpret(frame(with_corpse(1, 1)), calib(), s, st)
+    {obs, _st} = Corpses.interpret(frame(with_corpse(1, 1)), calib(), s, st)
+
+    assert [point] = obs.corpses
+    assert %{name: "Corsola", score: score} = obs.known[point]
+    assert score >= Settings.get(:corpse_match_min_similarity)
+  end
+
+  test "um blob que NÃO casa com o acervo nunca vira alvo" do
+    # acervo conhece o corpo VERMELHO; o blob parado é de outra paleta.
+    # O blob precisa ser GRANDE no recorte: o chão compartilhado também pontua
+    # no histograma (aqui ~84% de um recorte com blob de 2 células — acima do
+    # limiar 0.72 sozinho!), então um sprite minúsculo sobre o chão ensinado
+    # casaria com qualquer corpo. No jogo real o sprite ocupa a maior parte da
+    # caixa de 56px; este blob de 48×32 reproduz isso (chão ≈ 51%).
+    teach_red!()
+    s = settings()
+    st = warm_up(s)
+
+    green = fn x, y ->
+      if div(x, 16) in [1, 2, 3] and div(y, 16) in [1, 2], do: {40, 230, 40}, else: ground(x, y)
+    end
+
+    {obs, st} = Corpses.interpret(frame(green), calib(), s, st)
+    assert obs.corpses == []
+    {obs, _st} = Corpses.interpret(frame(green), calib(), s, st)
+    assert obs.corpses == []
+    assert obs.known == %{}
+  end
+
+  test "acervo VAZIO = nenhum alvo, por mais parado que o blob esteja" do
+    s = settings()
+    st = warm_up(s)
+
+    {obs, st} = Corpses.interpret(frame(with_corpse(1, 1)), calib(), s, st)
+    assert obs.corpses == []
+    {obs, _st} = Corpses.interpret(frame(with_corpse(1, 1)), calib(), s, st)
+    assert obs.corpses == []
+  end
+
   test "a blob that moves every frame never becomes a corpse" do
+    teach_red!()
     s = settings()
     st = warm_up(s)
 
@@ -83,6 +150,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
   end
 
   test "cells that flicker during warmup are masked and never produce corpses" do
+    teach_red!()
     s = settings()
 
     # 'water' in the bottom row of cells flickers during warmup
@@ -108,6 +176,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
   end
 
   test "a new blob near a mature track does not inherit its maturity" do
+    teach_red!()
     s = settings()
     st = warm_up(s)
 
@@ -135,6 +204,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
   end
 
   test "two brand-new blobs competing for one vacated mature track: at most one inherits it" do
+    teach_red!()
     s = settings()
     st = warm_up(s)
 
@@ -165,6 +235,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
 
   test "a blob smaller than corpse_min_cells is noise" do
     # min 2 cells; paint a single-cell blob
+    teach_red!()
     s = settings()
     st = warm_up(s)
 

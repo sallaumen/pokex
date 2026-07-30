@@ -1281,10 +1281,10 @@ defmodule PokexWeb.CalibrationLive do
           <div>
             <h2 class="font-semibold">Corpos mapeados (captura)</h2>
             <p class="mt-1 text-sm opacity-70">
-              O ensino que substitui a adivinhação: mate um monstro, deixe o corpo no chão,
-              fotografe a arena e clique EM CIMA do corpo. Com o acervo do teu spot pronto,
-              ligue <code>catcher_require_known_corpse</code> — só corpo conhecido recebe
-              Pokébola, e o mouse para de passear atrás de falso positivo.
+              O acervo É a mira da captura: mate um monstro, deixe o corpo no chão,
+              fotografe a arena e clique EM CIMA do corpo. Só corpo conhecido recebe
+              Pokébola — sem nenhum corpo mapeado, a captura não mira nada. O log da
+              bola diz QUAL pokémon foi reconhecido.
             </p>
           </div>
 

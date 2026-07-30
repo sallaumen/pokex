@@ -90,6 +90,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     {logic, _} = Logic.start(Logic.new(config()), now())
     state = %{state | logic: logic, loots: 0, combat_engaged?: seed_combat_engaged()}
     state = sync_mode(state)
+    announce_library()
     broadcast(state)
     {:reply, :ok, state}
   end
@@ -263,6 +264,18 @@ defmodule Pokex.Bots.Catcher.Worker do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, :macro, "captura: #{text}"})
     end
 
+    # A bola diz QUEM está na mira: o interpretador já reconheceu o corpo pelo
+    # acervo (só corpo mapeado vira alvo desde 2026-07-30) e o nome viaja na
+    # observação — jogar a informação fora deixava o Lucas validando às cegas.
+    for {:capture_sequence, point} <- performs, info = known_at(obs, point), info != nil do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:catcher_log, :macro,
+         "captura: 🎯 #{info.name} reconhecido (#{trunc(info.score * 100)}%)"}
+      )
+    end
+
     # pending_corpses joins the change condition: suporte holds on that number,
     # so its transitions must reach the wire even on an action-less step
     if logic.counters != state.logic.counters or actions != [] or
@@ -323,6 +336,50 @@ defmodule Pokex.Bots.Catcher.Worker do
       _stale_or_missing -> nil
     end
   end
+
+  # O acervo é a mira — um start com acervo vazio vai passar a sessão inteira
+  # sem mirar NADA, e isso merece sirene, não silêncio (era exatamente o tipo
+  # de "parece ligado mas não faz nada" que corroía a confiança do Lucas).
+  defp announce_library do
+    case length(Pokex.Bots.Catcher.CorpseLibrary.list()) do
+      0 ->
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @topic,
+          {:rule_alarm,
+           "🎯 acervo de corpos VAZIO — a captura não vai mirar nada; fotografe corpos na calibração"}
+        )
+
+      n ->
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @topic,
+          {:catcher_log, :macro, "captura: 🎯 acervo com #{n} corpo(s) mapeado(s)"}
+        )
+    end
+  end
+
+  # A bola voa contra um ponto ADMITIDO em observação anterior; o centro do
+  # track pode ter derivado alguns px até aqui — o vizinho mais próximo dentro
+  # da tolerância é o mesmo corpo.
+  defp known_at(%{known: known}, {px, py}) when is_map(known) and map_size(known) > 0 do
+    tolerance = Settings.get(:corpse_match_tolerance_px)
+
+    known
+    |> Enum.filter(fn {{x, y}, _info} ->
+      abs(x - px) <= tolerance and abs(y - py) <= tolerance
+    end)
+    |> Enum.min_by(
+      fn {{x, y}, _info} -> (x - px) * (x - px) + (y - py) * (y - py) end,
+      fn -> nil end
+    )
+    |> case do
+      {_point, info} -> info
+      nil -> nil
+    end
+  end
+
+  defp known_at(_obs, _point), do: nil
 
   # parado + running → attached; movimento or halted → detached. Never attaches mid-fight (see
   # should_be_attached?/1) — a mid-fight attach would warm the baseline up on the live enemy

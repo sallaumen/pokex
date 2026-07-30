@@ -22,7 +22,7 @@ defmodule Pokex.Perception.Interpret.Corpses do
   @stride 4
 
   def interpret(%Frame{} = frame, _calib, settings, nil) do
-    {%{scanning?: false, corpses: []},
+    {%{scanning?: false, corpses: [], known: %{}},
      %{phase: :warmup, baseline: grid(frame, cell_px(settings)), bad: MapSet.new(), frames: 1}}
   end
 
@@ -41,10 +41,10 @@ defmodule Pokex.Perception.Interpret.Corpses do
     frames = st.frames + 1
 
     if frames >= Settings.value(settings, :corpse_warmup_frames) do
-      {%{scanning?: true, corpses: []},
+      {%{scanning?: true, corpses: [], known: %{}},
        %{phase: :scanning, baseline: st.baseline, bad: bad, tracks: %{}}}
     else
-      {%{scanning?: false, corpses: []}, %{st | bad: bad, frames: frames}}
+      {%{scanning?: false, corpses: [], known: %{}}, %{st | bad: bad, frames: frames}}
     end
   end
 
@@ -71,31 +71,34 @@ defmodule Pokex.Perception.Interpret.Corpses do
 
     {tracks, confirmed} = advance_tracks(st.tracks, centers, tolerance, needed)
 
-    corpses =
+    known =
       confirmed
-      |> require_known(frame, settings)
-      |> Enum.map(&Calibration.frame_to_screen(calib, calib.arena_region, &1))
-      |> Enum.sort()
+      |> match_known(frame, settings)
+      |> Map.new(fn {center, info} ->
+        {Calibration.frame_to_screen(calib, calib.arena_region, center), info}
+      end)
 
-    {%{scanning?: true, corpses: corpses}, %{st | tracks: tracks}}
+    corpses = known |> Map.keys() |> Enum.sort()
+
+    {%{scanning?: true, corpses: corpses, known: known}, %{st | tracks: tracks}}
   end
 
-  # O acervo de corpos ensinados como FILTRO (opt-in): o detector continua
-  # achando os blobs, mas só vira alvo o candidato cuja paleta casa com um
-  # corpo que o Lucas fotografou e nomeou na calibração. Acervo vazio com o
-  # filtro ligado = NENHUM alvo — deliberado: ligar o filtro é dizer "só
-  # capture o que eu mapeei".
-  defp require_known(candidates, frame, settings) do
-    if Settings.value(settings, :catcher_require_known_corpse) do
-      box = Settings.value(settings, :corpse_sprite_box_px)
-      min = Settings.value(settings, :corpse_match_min_similarity)
+  # O acervo ensinado É a mira (2026-07-30): o detector estrutural continua
+  # achando os blobs parados, mas só vira alvo o candidato cuja paleta casa
+  # com um corpo que o Lucas fotografou e nomeou na calibração — o modo que
+  # adivinhava sem acervo foi aposentado a pedido dele ("usar os corpos
+  # realmente mapeados ao invés de um algoritmo que nunca funciona"). Acervo
+  # vazio = NENHUM alvo (o Catcher avisa alto no start). O nome e o score
+  # viajam na observação (:known) — o log da bola diz QUEM está na mira e o
+  # /world mostra o que a IA reconheceu.
+  defp match_known(candidates, frame, settings) do
+    box = Settings.value(settings, :corpse_sprite_box_px)
+    min = Settings.value(settings, :corpse_match_min_similarity)
 
-      Enum.filter(candidates, fn {x, y} ->
-        crop = crop_around(frame, x, y, box)
-        match?({:ok, _}, Pokex.Bots.Catcher.CorpseLibrary.match(crop, min))
-      end)
-    else
-      candidates
+    for {x, y} = center <- candidates,
+        {:ok, info} <-
+          [Pokex.Bots.Catcher.CorpseLibrary.match(crop_around(frame, x, y, box), min)] do
+      {center, info}
     end
   end
 

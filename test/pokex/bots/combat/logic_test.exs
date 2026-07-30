@@ -390,6 +390,130 @@ defmodule Pokex.Bots.Combat.LogicTest do
     end
   end
 
+  describe "cenário presumido (o mob inatacável deixa de ser motivo pra Tab)" do
+    # O pedido do Lucas (2026-07-30): pokémon de CENÁRIO parado na lista fazia
+    # o combate "achar que tá lutando" apertando Tab em loop. Depois de N
+    # caçadas completas sem lock, aqueles alvos viram aliados de fato — como a
+    # própria posição — até a lista crescer, encolher ou o TTL vencer.
+    defp scenery_config do
+      [
+        tab_max_attempts: 1,
+        tab_confirm_ms: 100,
+        hunt_cooldown_ms: 100,
+        scenery_hunts_needed: 2,
+        scenery_ttl_ms: 10_000
+      ]
+    end
+
+    # uma caçada COMPLETA que falha: Tab no alvo, um frame pós-Tab sem lock,
+    # janela vencida → esgota (tab_max_attempts: 1) e desiste
+    defp failed_hunt(logic, enemies_list, t0) do
+      {logic, actions} = Logic.step(logic, obs(enemies: enemies_list, captured_at: t0), t0)
+      assert {:tab} in actions
+      Logic.step(logic, obs(enemies: enemies_list, captured_at: t0 + 50), t0 + 150)
+    end
+
+    defp latched(enemies_list) do
+      logic = hunting(0, scenery_config())
+      {logic, _} = failed_hunt(logic, enemies_list, 10)
+      {logic, _} = failed_hunt(logic, enemies_list, 500)
+      assert logic.scenery_rows == length(enemies_list)
+      logic
+    end
+
+    test "N caçadas sem lock promovem os alvos a cenário — e a caça fica QUIETA" do
+      logic = hunting(0, scenery_config())
+
+      {logic, actions} = failed_hunt(logic, [0], 10)
+
+      assert Enum.any?(actions, fn
+               {:log, msg} -> msg =~ "pausa na caça (1/2)"
+               _other -> false
+             end)
+
+      {logic, actions} = failed_hunt(logic, [0], 500)
+
+      assert Enum.any?(actions, fn
+               {:log, msg} -> msg =~ "cenário presumido"
+               _other -> false
+             end)
+
+      assert logic.scenery_rows == 1
+
+      # o mesmo alvo segue na lista — e NÃO é mais motivo pra Tab
+      {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 1_000), 1_000)
+      assert logic.state == :hunting
+      refute {:tab} in actions
+    end
+
+    test "um alvo A MAIS que o cenário caça na hora" do
+      logic = latched([0])
+
+      {logic, actions} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 1_000), 1_000)
+      assert logic.state == :tabbing
+      assert {:tab} in actions
+    end
+
+    test "a lista ENCOLHENDO esquece o presumido (a composição mudou)" do
+      logic = latched([0, 1])
+
+      {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 1_000), 1_000)
+      assert logic.scenery_rows == nil
+      assert {:tab} in actions
+    end
+
+    test "o TTL vencido volta a sondar" do
+      logic = latched([0])
+
+      {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 11_000), 11_000)
+      assert logic.scenery_rows == nil
+      assert {:tab} in actions
+    end
+
+    test "sonda às cegas (lista vazia) nunca aprende cenário" do
+      logic = hunting(0, scenery_config()) |> Logic.rescan(0)
+
+      {logic, actions} = Logic.step(logic, obs(enemies: [], captured_at: 10), 10)
+      assert {:tab} in actions
+
+      {logic, actions} = Logic.step(logic, obs(enemies: [], captured_at: 60), 200)
+
+      assert logic.failed_hunts == 0
+      assert logic.scenery_rows == nil
+
+      assert Enum.any?(actions, fn
+               {:log, msg} -> msg == "Tab não lockou; pausa na caça"
+               _other -> false
+             end)
+    end
+
+    test "um lock real zera a contagem de caçadas falhas" do
+      logic = hunting(0, scenery_config())
+      {logic, _} = failed_hunt(logic, [0], 10)
+      assert logic.failed_hunts == 1
+
+      {logic, _} = Logic.step(logic, obs(enemies: [0], captured_at: 500), 500)
+      {logic, _} = Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 550), 560)
+
+      assert logic.state == :fighting
+      assert logic.failed_hunts == 0
+    end
+
+    test "config sem as chaves de cenário = comportamento antigo, log limpo" do
+      logic = hunting(0, tab_max_attempts: 1, tab_confirm_ms: 100)
+
+      {logic, actions} = failed_hunt(logic, [0], 10)
+
+      assert logic.scenery_rows == nil
+      assert logic.failed_hunts == 0
+
+      assert Enum.any?(actions, fn
+               {:log, msg} -> msg == "Tab não lockou; pausa na caça"
+               _other -> false
+             end)
+    end
+  end
+
   # hunting --Tab--> tabbing --locked frame--> fighting (first burst already fired at t=40)
   defp confirmed(config_overrides \\ []) do
     {logic, _} = Logic.step(hunting(0, config_overrides), obs(enemies: [0], captured_at: 10), 10)

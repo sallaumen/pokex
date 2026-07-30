@@ -6,7 +6,10 @@ defmodule Pokex.Bots.Combat.Logic do
 
   hunting  — enemies visible in the battle list → press Tab (the game selects the first
              attackable enemy) → tabbing. A hunt hold (after exhausted Tab attempts)
-             throttles retries against an unattackable-but-visible row.
+             throttles retries against an unattackable-but-visible row; N held hunts in a
+             row promote those rows to PRESUMED SCENERY (see give_up_hunt/2) — they stop
+             being a reason to Tab, like the player's own row, until the list grows, the
+             presumption expires, or it shrinks.
   tabbing  — wait for the lock ring on a frame captured AFTER the Tab (the confirm window
              counts from the press, so capture latency can't eat it — the old click flow's
              500ms window expired before its first read). No lock in tab_confirm_ms →
@@ -39,6 +42,17 @@ defmodule Pokex.Bots.Combat.Logic do
             last_burst_at: nil,
             lost_streak: 0,
             locked_row: nil,
+            # Aprendizado do CENÁRIO (Lucas, 2026-07-30: mob inatacável na
+            # lista = Tab em loop achando que luta): caçadas seguidas que
+            # esgotaram os Tabs com evidência de frame e nenhum lock
+            # (failed_hunts), a quantidade de alvos vista ao abrir a caçada
+            # (hunt_enemies; 0 = sonda às cegas, nunca aprende) e o "cenário
+            # presumido" — scenery_rows alvos tratados como aliados (como a
+            # própria posição) até scenery_until.
+            failed_hunts: 0,
+            hunt_enemies: 0,
+            scenery_rows: nil,
+            scenery_until: nil,
             failures: 0,
             error: nil,
             # `captures` stays 0 here forever — captures live on Catcher.Logic since the
@@ -65,6 +79,11 @@ defmodule Pokex.Bots.Combat.Logic do
          last_burst_at: nil,
          lost_streak: 0,
          locked_row: nil,
+         # um Start novo pode ser um spot novo — o cenário presumido não viaja
+         failed_hunts: 0,
+         hunt_enemies: 0,
+         scenery_rows: nil,
+         scenery_until: nil,
          failures: 0,
          error: nil
      }, []}
@@ -106,12 +125,18 @@ defmodule Pokex.Bots.Combat.Logic do
     do: {logic, []}
 
   defp do_step(%{state: :hunting} = logic, obs, now) do
+    logic = refresh_scenery(logic, obs, now)
+
     cond do
       logic.hold_until != nil and now < logic.hold_until ->
         {logic, []}
 
-      enemies(obs) != [] ->
-        {tab(%{logic | hold_until: nil}, now), [{:tab}, {:log, "alvo na lista; Tab"}]}
+      # Só alvo ALÉM do cenário presumido é motivo pra Tab — os presumidos são
+      # aliados de fato (como a própria posição). Sem presunção ativa, qualquer
+      # alvo conta, como sempre.
+      length(enemies(obs)) > (logic.scenery_rows || 0) ->
+        {tab(%{logic | hold_until: nil, hunt_enemies: length(enemies(obs))}, now),
+         [{:tab}, {:log, "alvo na lista; Tab"}]}
 
       # Probe window (opened by a kill/timeout rehunt or a fish hook): press Tab even with NO
       # detected enemy. The HP-bar row detector going momentarily blind right after a kill left
@@ -120,7 +145,8 @@ defmodule Pokex.Bots.Combat.Logic do
       # is what confirms a real target in :tabbing. The window bounds the extra presses; probes
       # are naturally throttled by the tab-confirm/hunt-hold cycle itself.
       logic.probe_until != nil and now < logic.probe_until ->
-        {tab(%{logic | hold_until: nil}, now), [{:tab}, {:log, "sonda pós-kill; Tab às cegas"}]}
+        {tab(%{logic | hold_until: nil, hunt_enemies: 0}, now),
+         [{:tab}, {:log, "sonda pós-kill; Tab às cegas"}]}
 
       true ->
         {%{logic | hold_until: nil, probe_until: nil, locked_row: nil}, []}
@@ -133,13 +159,15 @@ defmodule Pokex.Bots.Combat.Logic do
     cond do
       fresh_lock?(obs, logic.tabbed_at) ->
         # confirmed on a post-Tab frame → fight, and don't waste this event: first burst now.
+        # Um lock real zera o aprendizado de cenário: tinha inimigo de verdade.
         logic = %{
           logic
           | state: :fighting,
             entered_at: now,
             lost_streak: 0,
             locked_row: obs.locked_row,
-            last_burst_at: nil
+            last_burst_at: nil,
+            failed_hunts: 0
         }
 
         press_next_skill(logic, now, obs[:ready_skills])
@@ -155,14 +183,7 @@ defmodule Pokex.Bots.Combat.Logic do
 
       now - logic.tabbed_at > logic.config.tab_confirm_ms and
           logic.post_tab_frames >= logic.config.tab_confirm_frames ->
-        {%{
-           logic
-           | state: :hunting,
-             entered_at: now,
-             tabbed_at: nil,
-             tab_attempts: 0,
-             hold_until: now + logic.config.hunt_cooldown_ms
-         }, [{:log, "Tab não lockou; pausa na caça"}]}
+        give_up_hunt(logic, now)
 
       # A janela venceu mas a evidência NÃO veio (nenhum frame pós-Tab): não
       # se cicla alvo às cegas — mas também não se espera pra sempre por uma
@@ -257,6 +278,67 @@ defmodule Pokex.Bots.Combat.Logic do
   def next_wake(_logic, _now), do: nil
 
   # -- helpers ----------------------------------------------------------------
+
+  # Toda a caçada esgotada COM evidência de frame e nenhum lock — o mob visível
+  # que não deixa lockar (Lucas, 2026-07-30: pokémon de CENÁRIO na lista; o
+  # combate "achava que tá lutando, quando na verdade tá usando Tab para atacar
+  # um inimigo que nem pode atacar"). Uma sonda às cegas (hunt_enemies=0) não
+  # aprende nada — lista vazia não tem cenário. Uma caçada real conta; na
+  # scenery_hunts_needed-ésima seguida (cada uma custou tab_max_attempts Tabs),
+  # os alvos daquela contagem viram CENÁRIO PRESUMIDO: deixam de ser motivo pra
+  # Tab, como a própria posição. Um alvo A MAIS caça na hora; a lista encolher
+  # limpa; o TTL re-sonda de tempos em tempos (auto-corrige um presumido
+  # errado). Um lock real zera a contagem (cláusula do fresh_lock).
+  defp give_up_hunt(logic, now) do
+    hold = %{
+      logic
+      | state: :hunting,
+        entered_at: now,
+        tabbed_at: nil,
+        tab_attempts: 0,
+        hold_until: now + logic.config.hunt_cooldown_ms
+    }
+
+    needed = Map.get(logic.config, :scenery_hunts_needed, 0)
+
+    cond do
+      logic.hunt_enemies == 0 or needed == 0 ->
+        {hold, [{:log, "Tab não lockou; pausa na caça"}]}
+
+      logic.failed_hunts + 1 >= needed ->
+        ttl = Map.get(logic.config, :scenery_ttl_ms, 60_000)
+
+        {%{
+           hold
+           | failed_hunts: 0,
+             scenery_rows: logic.hunt_enemies,
+             scenery_until: now + ttl
+         },
+         [
+           {:log,
+            "🗿 #{logic.hunt_enemies} alvo(s) sem lock em #{needed} caçadas — " <>
+              "cenário presumido por #{div(ttl, 1000)}s; Tab só com alvo novo"}
+         ]}
+
+      true ->
+        {%{hold | failed_hunts: logic.failed_hunts + 1},
+         [{:log, "Tab não lockou; pausa na caça (#{logic.failed_hunts + 1}/#{needed})"}]}
+    end
+  end
+
+  # O presumido se auto-corrige sem ajuda: expira no TTL (re-sonda), e uma
+  # lista MENOR que ele significa que a composição mudou (o cenário saiu) —
+  # esquece e volta a caçar normal. Só frames reais votam no encolhimento.
+  defp refresh_scenery(%{scenery_rows: nil} = logic, _obs, _now), do: logic
+
+  defp refresh_scenery(logic, obs, now) do
+    if now >= logic.scenery_until or
+         (observed?(obs) and length(enemies(obs)) < logic.scenery_rows) do
+      %{logic | scenery_rows: nil, scenery_until: nil, failed_hunts: 0}
+    else
+      logic
+    end
+  end
 
   defp tab(logic, now),
     do: %{

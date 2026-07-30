@@ -69,6 +69,11 @@ defmodule PokexWeb.CalibrationLive do
   def mount(_params, _session, socket) do
     skill_count = configured_skill_count()
 
+    # O contador por corpo (R4) anda sozinho: o Catcher publica a contagem da
+    # sessão a cada varredura que encontra algo novo.
+    if connected?(socket),
+      do: Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.topic())
+
     {:ok,
      assign(socket,
        page_title: "Calibração",
@@ -92,7 +97,8 @@ defmodule PokexWeb.CalibrationLive do
        corpse_shot: nil,
        corpse_crop: nil,
        corpse_msg: nil,
-       corpse_list: CorpseLibrary.list()
+       corpse_list: CorpseLibrary.list(),
+       corpse_counts: %{}
      )}
   end
 
@@ -414,6 +420,18 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  # R4: desligar tira o corpo da MIRA sem apagar as amostras — o caminho pra
+  # silenciar um falso-positivo era refotografar tudo.
+  def handle_event("corpse_toggle", %{"slug" => slug}, socket) do
+    ligado? =
+      socket.assigns.corpse_list
+      |> Enum.find(&(&1["slug"] == slug))
+      |> then(&(&1 && CorpseLibrary.enabled?(&1)))
+
+    CorpseLibrary.set_enabled(slug, not ligado?)
+    {:noreply, assign(socket, corpse_list: CorpseLibrary.list())}
+  end
+
   def handle_event("corpse_delete", %{"slug" => slug}, socket) do
     CorpseLibrary.delete(slug)
     {:noreply, assign(socket, corpse_list: CorpseLibrary.list())}
@@ -444,6 +462,12 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   @impl true
+  # A contagem por corpo publicada pelo Catcher (R4). O resto do tráfego do
+  # tópico dele (snapshots, logs) não interessa a esta página — o catch-all
+  # abaixo engole, como o header já faz nas outras.
+  def handle_info({:catcher_contagem, contagem}, socket),
+    do: {:noreply, assign(socket, corpse_counts: contagem)}
+
   def handle_info({:baseline, index}, socket) when index < @baseline_count do
     destination = Path.join(Home.baselines_dir(), "glow_#{index}.png")
 
@@ -501,6 +525,12 @@ defmodule PokexWeb.CalibrationLive do
     persist_skill_settings(draft.skill_bar_count)
     {:noreply, socket |> return_focus() |> assign(done: true, step: nil, calibrated?: true)}
   end
+
+  # O resto do tráfego do tópico "catcher" (snapshots, logs, alarmes) morre
+  # aqui: esta página assinou o tópico só pela contagem por corpo, e uma
+  # LiveView sem cláusula pra uma mensagem que ela mesma pediu cai com
+  # FunctionClauseError — a classe exata do PR #111, com o bot ligado.
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   # Hand focus back to whatever was frontmost before the baselines fronted the game.
   defp return_focus(socket) do
@@ -1491,6 +1521,25 @@ defmodule PokexWeb.CalibrationLive do
               </span>
               <span class="opacity-50">
                 {length(c["samples"])}/{CorpseLibrary.max_samples()} chãos
+              </span>
+              <button
+                id={"corpse-toggle-#{c["slug"]}"}
+                class={[
+                  "btn btn-xs",
+                  if(CorpseLibrary.enabled?(c), do: "btn-success", else: "btn-outline opacity-60")
+                ]}
+                phx-click="corpse_toggle"
+                phx-value-slug={c["slug"]}
+                title="Participa da mira da captura?"
+              >
+                {if CorpseLibrary.enabled?(c), do: "● na mira", else: "○ fora"}
+              </button>
+              <span
+                :if={Map.get(@corpse_counts, c["name"], 0) > 0}
+                class="rounded bg-primary/15 px-1.5 text-primary"
+                title="encontrados nesta sessão"
+              >
+                {Map.get(@corpse_counts, c["name"])}× nesta sessão
               </span>
               <button
                 class="btn btn-ghost btn-xs text-error"

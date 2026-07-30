@@ -52,7 +52,17 @@ defmodule PokexWeb.CalibrationLive do
     escape_point:
       "Clique num TILE LIVRE DO CAMINHO colado na escada (NÃO na escada: clicar nela tenta " <>
         "USÁ-LA, e usar só funciona do lado). A fuga anda até esse tile e aí dá os passos " <>
-        "de seta (direção configurada no painel) pra ENTRAR na escada."
+        "de seta (direção configurada no painel) pra ENTRAR na escada.",
+    minimap_a: "Canto SUPERIOR-ESQUERDO do MINIMAPA (só o mapa em si, sem a moldura).",
+    minimap_b: "Canto INFERIOR-DIREITO do mesmo minimapa.",
+    minimap_cross:
+      "Clique bem no CENTRO da CRUZ do personagem no minimapa — ela é fixa (o mapa " <>
+        "desliza por baixo), então este ponto vira a origem de todo passo do cavebot.",
+    minimap_coord_a:
+      "Canto SUPERIOR-ESQUERDO da faixa da COORDENADA — o texto \"(x, y, z)\" no topo do " <>
+        "minimapa. Deixe folga pra direita: a faixa precisa caber a coordenada mais " <>
+        "LONGA (ex.: \"(2782, 30571, 5)\").",
+    minimap_coord_b: "Canto INFERIOR-DIREITO da mesma faixa, fechando o texto inteiro."
   }
 
   @impl true
@@ -154,6 +164,30 @@ defmodule PokexWeb.CalibrationLive do
   # Standalone correction: mark only the strip where the mini-game bar shows up
   # (2 corners) on an existing calibration. From then on the mini-game worker
   # watches THAT region instead of hunting the bar inside the arena.
+  # Posição & minimapa (2026-07-30): minimapa (2 cliques) + cruz do personagem
+  # (1) + faixa da coordenada (2), salvos como calibração MANUAL — a mão manda,
+  # o layout automático vira fallback. Ao salvar, a coordenada é lida DA MESMA
+  # FOTO com as regiões recém-marcadas: o feedback vem antes do campo.
+  def handle_event("calibrate_minimap", _params, socket) do
+    with {:ok, screen} <- grab_screen("minimap_probe.png") do
+      {:noreply,
+       assign(socket,
+         scale: screen.scale,
+         screen: screen,
+         step: :minimap_a,
+         mode: :minimap_only,
+         draft: %{},
+         done: false,
+         review: nil,
+         error: nil,
+         skillbar_msg: nil,
+         zoom_at: nil
+       )}
+    else
+      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    end
+  end
+
   def handle_event("calibrate_mini_game", _params, socket) do
     with {:ok, screen} <- grab_screen("mini_game_probe.png") do
       {:noreply,
@@ -674,6 +708,27 @@ defmodule PokexWeb.CalibrationLive do
       :mini_game_b ->
         save_mini_game_region(socket, region_from(draft.mini_game_a, point))
 
+      :minimap_a ->
+        assign(socket, draft: Map.put(draft, :minimap_a, point), step: :minimap_b)
+
+      :minimap_b ->
+        assign(socket,
+          draft: Map.put(draft, :minimap_region, region_from(draft.minimap_a, point)),
+          step: :minimap_cross
+        )
+
+      :minimap_cross ->
+        assign(socket,
+          draft: Map.put(draft, :minimap_player_point, point),
+          step: :minimap_coord_a
+        )
+
+      :minimap_coord_a ->
+        assign(socket, draft: Map.put(draft, :minimap_coord_a, point), step: :minimap_coord_b)
+
+      :minimap_coord_b ->
+        save_minimap(socket, region_from(draft.minimap_coord_a, point))
+
       :pokemon_spot ->
         save_pokemon_spot(socket, point)
 
@@ -739,6 +794,68 @@ defmodule PokexWeb.CalibrationLive do
           screen: nil,
           error: "não deu pra salvar a barra: #{inspect(reason)}"
         )
+    end
+  end
+
+  defp save_minimap(socket, coord_region) do
+    draft = socket.assigns.draft
+
+    case Calibration.load() do
+      {:ok, calib} ->
+        calib = %{
+          calib
+          | minimap_region: draft.minimap_region,
+            minimap_player_point: draft.minimap_player_point,
+            minimap_coord_region: coord_region
+        }
+
+        Calibration.save(calib)
+
+        assign(socket,
+          draft: %{},
+          step: nil,
+          screen: nil,
+          calibrated?: true,
+          skillbar_msg:
+            "Posição & minimapa salvos — " <> minimap_read_verdict(socket, calib, coord_region)
+        )
+
+      {:error, reason} ->
+        assign(socket,
+          step: nil,
+          screen: nil,
+          error: "não deu pra salvar o minimapa: #{inspect(reason)}"
+        )
+    end
+  end
+
+  # O veredito na hora: lê a coordenada DA FOTO que acabou de ser marcada, com
+  # as regiões novas — "li (x, y, z)" prova a calibração antes do bot precisar
+  # dela; "não li" manda ajustar a faixa agora, não numa caçada às cegas.
+  defp minimap_read_verdict(socket, calib, coord_region) do
+    with path when is_binary(path) <- socket.assigns.screen && socket.assigns.screen.path,
+         {:ok, frame} <- Vision.Frame.from_png_file(path) do
+      {mx, my, mw, mh} = calib.minimap_region
+      {cx, cy, cw, ch} = coord_region
+      scale = socket.assigns.scale || 1.0
+      to_px = fn v -> round(v * scale) end
+
+      panel =
+        Vision.Frame.crop(frame, {to_px.(mx), to_px.(my), to_px.(mw), to_px.(mh)})
+
+      read =
+        Vision.Glyphs.read_coord(
+          panel,
+          {to_px.(cx - mx), to_px.(cy - my), to_px.(cw), to_px.(ch)},
+          ink: Settings.get(:minimap_coord_ink)
+        )
+
+      case read do
+        {x, y, z} -> "li a coordenada da foto: (#{x}, #{y}, #{z}) ✓"
+        nil -> "mas NÃO li a coordenada da foto — ajuste a faixa do texto e marque de novo."
+      end
+    else
+      _sem_frame -> "não deu pra reler a foto pra testar — valide no /world."
     end
   end
 
@@ -919,6 +1036,11 @@ defmodule PokexWeb.CalibrationLive do
         :photo,
         :mini_game_a,
         :mini_game_b,
+        :minimap_a,
+        :minimap_b,
+        :minimap_cross,
+        :minimap_coord_a,
+        :minimap_coord_b,
         :pokemon_spot,
         :escape_point
       ]
@@ -1007,6 +1129,9 @@ defmodule PokexWeb.CalibrationLive do
               pokemon_hp_region={@review.calib.pokemon_hp_region}
               pokemon_photo_point={@review.calib.pokemon_photo_point}
               mini_game_region={Calibration.mini_game_region(@review.calib)}
+              minimap_region={Calibration.minimap_region(@review.calib)}
+              minimap_coord_region={Calibration.minimap_coord_region(@review.calib)}
+              minimap_player_point={Calibration.minimap_player_point(@review.calib)}
               bands={Calibration.battle_row_bands(@review.calib, @row_height, @max_rows)}
             />
           </div>
@@ -1081,6 +1206,12 @@ defmodule PokexWeb.CalibrationLive do
                 icon="hero-flag"
                 title="Só o minigame"
                 hint="a faixa onde a barra do minigame aparece (2 cliques) — detecção direta"
+              />
+              <.quick_fix
+                event="calibrate_minimap"
+                icon="hero-map"
+                title="Posição & minimapa"
+                hint="o minimapa, a cruz do personagem e a faixa da coordenada (5 cliques) — a fundação do cavebot"
               />
               <.quick_fix
                 event="calibrate_pokemon_spot"

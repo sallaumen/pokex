@@ -1,17 +1,24 @@
 defmodule PokexWeb.Panel.CombosCard do
   @moduledoc """
-  The combos card: what sequences exist, whether they are on, and — the part
-  that was missing — WHY one did not run.
+  O card dos combos: o que existe, se está ligado, POR QUE um não rodou — e o
+  editor onde eles nascem.
 
-  Until now combos lived only in `~/.pokex/combos.json`. Worse, a combo that
-  matched and could not be played refused in a `Logger.debug`, so switching the
-  feature on and seeing nothing happen was indistinguishable from having no
-  combo for that enemy. The refusal is shown here in his own words.
+  O editor foi refeito em 2026-07-30 por dois defeitos que o Lucas sentiu na
+  mão. O primeiro era um bug de verdade: os campos não tinham valor no
+  servidor, e o painel re-renderiza a cada snapshot dos workers (~10×/s), então
+  tudo que ele digitava sumia assim que saía do campo. Agora existe um
+  RASCUNHO nos assigns — o que ele escreveu é estado do servidor, e nenhum
+  re-render o apaga.
 
-  The builder offers the team READ FROM THE SCREEN rather than a free text
-  field: a swap to a name that is in no hotkey can never run, and the seeded
-  combo is exactly that mistake (it asks for Jigglypuff; his team carries
-  Wigglytuff).
+  O segundo era mais fundo: o form só sabia montar UMA forma de combo (trocar
+  pra alguém → uma skill → trazer o counter), então uma sequência simples como
+  "skill 1, espera, skill 2" — o stun do auto-revive — era literalmente
+  impossível de criar aqui. Agora os passos são livres: escolhe o tipo, o
+  valor, adiciona; e a lista do rascunho mostra a sequência crescendo.
+
+  A troca continua oferecendo o time LIDO DA TELA (uma troca pra quem não está
+  nos atalhos nunca roda), mas isso deixou de bloquear o editor inteiro: um
+  combo só de skills não precisa de time nenhum.
   """
   use PokexWeb, :html
 
@@ -19,6 +26,8 @@ defmodule PokexWeb.Panel.CombosCard do
   attr :enabled, :boolean, required: true
   attr :skip, :map, default: nil
   attr :team, :list, default: []
+  attr :draft, :map, required: true
+  attr :rescue_combo, :string, default: ""
 
   def combos_card(assigns) do
     ~H"""
@@ -64,6 +73,17 @@ defmodule PokexWeb.Panel.CombosCard do
             ]}>
               {combo.name}
             </p>
+            <%!-- Qual combo está pendurado no revive: o card do Suporte escolhe,
+                  mas é AQUI que ele olha a sequência — o selo evita editar o
+                  combo errado. --%>
+            <span
+              :if={combo.name == @rescue_combo}
+              data-testid="combo-rescue-badge"
+              class="shrink-0 rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 py-0.5 font-mono text-pk-meta text-pk-ok"
+              title="Este combo é o stun que roda antes do revive automático"
+            >
+              🚑 no revive
+            </span>
             <span class="shrink-0 font-mono text-pk-meta text-pk-text-2">
               {trigger_text(combo.trigger)}
             </span>
@@ -116,62 +136,155 @@ defmodule PokexWeb.Panel.CombosCard do
           <.icon name="hero-plus-circle" class="size-3" /> Novo combo
         </summary>
 
-        <p :if={@team == []} class="mt-2 text-pk-body text-pk-warn">
-          Ainda não li teu time na tela — sem isso não dá pra escolher pra quem trocar.
-          Ensine os retratos em <.link navigate={~p"/time"} class="underline">Time</.link>.
-        </p>
-
         <form
-          :if={@team != []}
           id="combo-form"
+          phx-change="combo_draft"
           phx-submit="save_combo"
           class="mt-2 grid gap-1.5"
         >
           <input
+            id="combo-name"
             name="name"
-            placeholder="nome (ex.: dorme)"
-            required
+            value={@draft.name}
+            phx-debounce="blur"
+            placeholder="nome (ex.: resgate)"
             class="input input-bordered h-8 w-full bg-pk-bg text-pk-body"
           />
+
           <div class="flex gap-1.5">
             <select
+              id="combo-trigger-kind"
               name="trigger_kind"
               class="h-8 flex-1 rounded border border-pk-line-strong bg-pk-bg px-1.5 text-pk-body text-pk-text"
             >
-              <option value="element">quando o inimigo for do tipo</option>
-              <option value="species">quando o inimigo for</option>
+              <option value="element" selected={@draft.trigger_kind == "element"}>
+                quando o inimigo for do tipo
+              </option>
+              <option value="species" selected={@draft.trigger_kind == "species"}>
+                quando o inimigo for
+              </option>
+              <option value="any" selected={@draft.trigger_kind == "any"}>
+                contra qualquer inimigo
+              </option>
+              <option value="rescue_only" selected={@draft.trigger_kind == "rescue_only"}>
+                só no resgate (nunca em luta)
+              </option>
             </select>
             <input
+              :if={@draft.trigger_kind in ["element", "species"]}
+              id="combo-trigger-value"
               name="trigger_value"
-              placeholder="Water"
-              required
+              value={@draft.trigger_value}
+              phx-debounce="blur"
+              placeholder={if @draft.trigger_kind == "element", do: "Water", else: "Magikarp"}
               class="input input-bordered h-8 w-28 bg-pk-bg text-pk-body"
             />
           </div>
+
+          <%!-- O gatilho que reserva as skills: um combo "só no resgate" não é
+                gasto numa luta comum — ele espera o momento em que o pokémon
+                cai. --%>
+          <p
+            :if={@draft.trigger_kind == "rescue_only"}
+            class="text-pk-body leading-tight text-pk-text-2"
+          >
+            Este combo nunca roda numa luta. Escolha ele no card do <b>Suporte</b>
+            para ele virar o stun que acontece antes do revive.
+          </p>
+
           <input
+            :if={@draft.trigger_kind != "rescue_only"}
+            id="combo-dungeon"
             name="dungeon"
+            value={@draft.dungeon}
+            phx-debounce="blur"
             placeholder="dungeon (vazio = todas)"
             class="input input-bordered h-8 w-full bg-pk-bg text-pk-body"
           />
-          <div class="flex gap-1.5">
-            <%!-- the team as READ, so a swap to someone with no hotkey is not offerable --%>
-            <select
-              name="member"
-              class="h-8 flex-1 rounded border border-pk-line-strong bg-pk-bg px-1.5 text-pk-body text-pk-text"
+
+          <%!-- Os passos, livres: o combo é uma sequência, não um formulário de
+                forma fixa (o stun 1→2 era impossível de montar antes). --%>
+          <div class="rounded-lg border border-pk-line bg-pk-sunken p-2">
+            <div :if={@draft.steps != []} class="mb-1.5 flex flex-wrap gap-1">
+              <span
+                :for={{step, index} <- Enum.with_index(@draft.steps)}
+                class="flex items-center gap-1 rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta text-pk-text-2"
+              >
+                {index + 1}. {step_text(step)}
+                <button
+                  type="button"
+                  phx-click="remove_combo_step"
+                  phx-value-index={index}
+                  class="text-pk-text-3 transition hover:text-pk-danger"
+                  aria-label={"Remover passo #{index + 1}"}
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+            <p :if={@draft.steps == []} class="mb-1.5 text-pk-body text-pk-text-3">
+              Sem passos ainda — monte a sequência abaixo.
+            </p>
+
+            <div class="flex gap-1.5">
+              <select
+                id="combo-step-kind"
+                name="step_kind"
+                class="h-8 flex-1 rounded border border-pk-line-strong bg-pk-bg px-1.5 text-pk-body text-pk-text"
+              >
+                <option value="skill" selected={@draft.step_kind == "skill"}>usar skill</option>
+                <option value="wait" selected={@draft.step_kind == "wait"}>esperar</option>
+                <option value="swap_member" selected={@draft.step_kind == "swap_member"}>
+                  trocar pra
+                </option>
+                <option value="swap_counter" selected={@draft.step_kind == "swap_counter"}>
+                  trazer quem tem vantagem
+                </option>
+              </select>
+
+              <select
+                :if={@draft.step_kind == "swap_member" and @team != []}
+                id="combo-step-member"
+                name="step_value"
+                class="h-8 w-32 rounded border border-pk-line-strong bg-pk-bg px-1.5 text-pk-body text-pk-text"
+              >
+                <option :for={name <- @team} value={name} selected={@draft.step_value == name}>
+                  {name}
+                </option>
+              </select>
+              <input
+                :if={@draft.step_kind in ["skill", "wait"]}
+                id="combo-step-value"
+                name="step_value"
+                value={@draft.step_value}
+                phx-debounce="blur"
+                placeholder={if @draft.step_kind == "skill", do: "1", else: "500"}
+                class="input input-bordered h-8 w-20 bg-pk-bg text-center font-mono text-pk-body"
+              />
+
+              <button
+                type="button"
+                id="combo-add-step"
+                phx-click="add_combo_step"
+                class="btn h-8 border border-pk-line-strong bg-transparent px-2.5 text-pk-body font-semibold text-pk-text-2 hover:bg-pk-raised hover:text-white"
+              >
+                + passo
+              </button>
+            </div>
+
+            <p
+              :if={@draft.step_kind == "swap_member" and @team == []}
+              class="mt-1.5 text-pk-body text-pk-warn"
             >
-              <option :for={name <- @team} value={name}>trocar pra {name}</option>
-            </select>
-            <input
-              name="skill"
-              placeholder="skill"
-              required
-              class="input input-bordered h-8 w-20 bg-pk-bg text-center font-mono text-pk-body"
-            />
+              Ainda não li teu time na tela — ensine os retratos em
+              <.link navigate={~p"/time"} class="underline">Time</.link>
+              pra poder trocar. Skills e esperas funcionam sem isso.
+            </p>
+            <p :if={@draft.step_kind == "wait"} class="mt-1.5 text-pk-body text-pk-text-3">
+              Espera em milissegundos (500 = meio segundo).
+            </p>
           </div>
-          <label class="flex items-center gap-1.5 text-pk-body text-pk-text-2">
-            <input type="checkbox" name="counter" checked class="checkbox checkbox-xs" />
-            no fim, trazer quem tem vantagem contra o inimigo
-          </label>
+
           <button class="btn h-8 border border-pk-ok-line bg-transparent text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim">
             Salvar combo
           </button>
@@ -183,6 +296,8 @@ defmodule PokexWeb.Panel.CombosCard do
 
   defp trigger_text({:enemy_element, element}), do: "tipo #{element}"
   defp trigger_text({:enemy_species, species}), do: species
+  defp trigger_text({:any_enemy}), do: "qualquer inimigo"
+  defp trigger_text({:rescue_only}), do: "só no resgate"
   defp trigger_text(_none), do: "sem gatilho"
 
   defp step_text({:swap_member, name}), do: "troca #{name}"

@@ -35,8 +35,26 @@ defmodule Pokex.Combos.Store do
           {:swap_counter}
         ],
         enabled?: true
-      }
+      },
+      rescue_seed()
     ]
+  end
+
+  @doc """
+  O combo de resgate: stun em área antes do revive.
+
+  Nasce com gatilho `{:rescue_only}` — NUNCA roda numa luta comum. É isso que
+  deixa as skills 1 e 2 reservadas pro único momento em que o Lucas quer
+  gastá-las: o revive, quando o pokémon caiu e os mobs estão em cima
+  (2026-07-30). O painel monta este mesmo combo num clique.
+  """
+  def rescue_seed do
+    %Combo{
+      name: "resgate",
+      trigger: {:rescue_only},
+      steps: [{:skill, "1"}, {:wait, 500}, {:skill, "2"}],
+      enabled?: true
+    }
   end
 
   @doc "Every combo, seeded on first read."
@@ -108,6 +126,8 @@ defmodule Pokex.Combos.Store do
 
   defp decode_trigger(%{"kind" => "species", "value" => value}), do: {:enemy_species, value}
   defp decode_trigger(%{"kind" => "element", "value" => value}), do: {:enemy_element, value}
+  defp decode_trigger(%{"kind" => "any"}), do: {:any_enemy}
+  defp decode_trigger(%{"kind" => "rescue_only"}), do: {:rescue_only}
   defp decode_trigger(_unknown), do: nil
 
   defp decode_step(%{"do" => "swap_member", "value" => name}), do: {:swap_member, name}
@@ -132,6 +152,8 @@ defmodule Pokex.Combos.Store do
 
   defp encode_trigger({:enemy_species, value}), do: %{"kind" => "species", "value" => value}
   defp encode_trigger({:enemy_element, value}), do: %{"kind" => "element", "value" => value}
+  defp encode_trigger({:any_enemy}), do: %{"kind" => "any"}
+  defp encode_trigger({:rescue_only}), do: %{"kind" => "rescue_only"}
   defp encode_trigger(_none), do: nil
 
   defp encode_step({:swap_member, name}), do: %{"do" => "swap_member", "value" => name}

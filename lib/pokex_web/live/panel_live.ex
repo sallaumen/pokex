@@ -155,8 +155,25 @@ defmodule PokexWeb.PanelLive do
        combos: Pokex.Combos.Store.all(),
        combos_enabled: Settings.get(:combos_enabled),
        combo_skip: combo_skip(),
+       combo_draft: empty_combo_draft(),
        preset_msg: nil
      )}
+  end
+
+  # O RASCUNHO do combo novo mora aqui, no servidor. Antes os campos do form não
+  # tinham valor nenhum, e como o painel re-renderiza a cada snapshot dos
+  # workers (~10×/s), tudo que o Lucas digitava era apagado assim que ele saía
+  # do campo (2026-07-30) — o editor era literalmente inusável.
+  defp empty_combo_draft do
+    %{
+      name: "",
+      trigger_kind: "element",
+      trigger_value: "",
+      dungeon: "",
+      steps: [],
+      step_kind: "skill",
+      step_value: ""
+    }
   end
 
   defp start_bots(socket) do
@@ -212,7 +229,46 @@ defmodule PokexWeb.PanelLive do
   end
 
   defp build_trigger("species", value), do: {:enemy_species, String.trim(value || "")}
+  defp build_trigger("any", _value), do: {:any_enemy}
+  defp build_trigger("rescue_only", _value), do: {:rescue_only}
   defp build_trigger(_element, value), do: {:enemy_element, String.trim(value || "")}
+
+  # Um passo do construtor: o tipo escolhido + o valor digitado viram o passo
+  # que a Combos entende. Skill sem tecla e espera sem número não viram passo
+  # nenhum (`:invalid`) — melhor não adicionar do que adicionar quebrado.
+  defp build_step("skill", value) do
+    case String.trim(value || "") do
+      "" -> :invalid
+      key -> {:skill, key}
+    end
+  end
+
+  defp build_step("wait", value) do
+    case Integer.parse(String.trim(value || "")) do
+      {ms, _rest} when ms >= 0 -> {:wait, ms}
+      _nao_e_numero -> :invalid
+    end
+  end
+
+  defp build_step("swap_member", value) do
+    case String.trim(value || "") do
+      "" -> :invalid
+      name -> {:swap_member, name}
+    end
+  end
+
+  defp build_step("swap_counter", _value), do: {:swap_counter}
+  defp build_step(_unknown, _value), do: :invalid
+
+  # phx-change manda só os campos que EXISTEM no DOM agora (o valor do gatilho
+  # some quando o tipo não pede um, a espera some no passo de troca). Um campo
+  # ausente é "não mexeu", nunca "apagou".
+  defp merge_draft_field(draft, params, param_key, draft_key) do
+    case Map.fetch(params, param_key) do
+      {:ok, value} when is_binary(value) -> Map.put(draft, draft_key, value)
+      _ausente -> draft
+    end
+  end
 
   # An empty dungeon field means "vale em todas" — the combo stays global.
   defp build_dungeon(value) do
@@ -705,29 +761,83 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, combos: Pokex.Combos.Store.all())}
   end
 
-  # The builder writes the shape Lucas described: swap somebody in, use a skill,
-  # then bring back whoever answers this enemy. The waits are the tuned settings,
-  # not numbers typed into a form.
-  def handle_event("save_combo", params, socket) do
-    steps =
-      [
-        {:swap_member, params["member"]},
-        {:wait, :combo_swap_wait_ms},
-        {:skill, String.trim(params["skill"] || "")},
-        {:wait, :combo_sing_wait_ms}
-      ] ++ if(params["counter"], do: [{:swap_counter}], else: [])
+  # Cada tecla/escolha do editor vira ESTADO DO SERVIDOR. É o que impede o
+  # re-render dos workers (~10×/s) de apagar o que o Lucas está escrevendo —
+  # o bug que tornava o editor inusável.
+  def handle_event("combo_draft", params, socket) do
+    draft =
+      socket.assigns.combo_draft
+      |> merge_draft_field(params, "name", :name)
+      |> merge_draft_field(params, "trigger_kind", :trigger_kind)
+      |> merge_draft_field(params, "trigger_value", :trigger_value)
+      |> merge_draft_field(params, "dungeon", :dungeon)
+      |> merge_draft_field(params, "step_kind", :step_kind)
+      |> merge_draft_field(params, "step_value", :step_value)
+
+    {:noreply, assign(socket, combo_draft: draft)}
+  end
+
+  def handle_event("add_combo_step", _params, socket) do
+    draft = socket.assigns.combo_draft
+
+    case build_step(draft.step_kind, draft.step_value) do
+      :invalid ->
+        {:noreply, socket}
+
+      step ->
+        draft = %{draft | steps: draft.steps ++ [step], step_value: ""}
+        {:noreply, assign(socket, combo_draft: draft)}
+    end
+  end
+
+  def handle_event("remove_combo_step", %{"index" => index}, socket) do
+    draft = socket.assigns.combo_draft
+    steps = List.delete_at(draft.steps, String.to_integer(index))
+    {:noreply, assign(socket, combo_draft: %{draft | steps: steps})}
+  end
+
+  # Salvar é só materializar o rascunho — a sequência já está montada na tela,
+  # exatamente como vai rodar. Um combo sem nome ou sem passo nenhum não é
+  # salvo (e o rascunho sobrevive pro Lucas completar).
+  def handle_event("save_combo", _params, socket) do
+    draft = socket.assigns.combo_draft
 
     combo = %Pokex.Combos.Combo{
-      name: String.trim(params["name"] || ""),
-      trigger: build_trigger(params["trigger_kind"], params["trigger_value"]),
-      steps: steps,
-      dungeon: build_dungeon(params["dungeon"])
+      name: String.trim(draft.name),
+      trigger: build_trigger(draft.trigger_kind, draft.trigger_value),
+      steps: draft.steps,
+      dungeon: build_dungeon(draft.dungeon)
     }
 
-    case Pokex.Combos.Store.add(combo) do
-      :ok -> {:noreply, assign(socket, combos: Pokex.Combos.Store.all())}
-      {:error, :invalid_name} -> {:noreply, socket}
+    if draft.steps == [] do
+      {:noreply, socket}
+    else
+      case Pokex.Combos.Store.add(combo) do
+        :ok ->
+          {:noreply,
+           assign(socket, combos: Pokex.Combos.Store.all(), combo_draft: empty_combo_draft())}
+
+        {:error, :invalid_name} ->
+          {:noreply, socket}
+      end
     end
+  end
+
+  # O combo de resgate em UM clique (o Lucas penou pra montar na mão): cria a
+  # sequência de stun com gatilho "só no resgate" e já a pendura no revive.
+  # Idempotente — clicar de novo só re-seleciona.
+  def handle_event("create_rescue_combo", _params, socket) do
+    combo = Pokex.Combos.Store.rescue_seed()
+    :ok = Pokex.Combos.Store.add(combo)
+    Settings.put(:rescue_mode, "combo")
+    Settings.put(:rescue_combo, combo.name)
+
+    {:noreply,
+     assign(socket,
+       combos: Pokex.Combos.Store.all(),
+       rescue_mode: "combo",
+       rescue_combo: combo.name
+     )}
   end
 
   def handle_event("restore_mode_defaults", _params, socket) do
@@ -1384,6 +1494,15 @@ defmodule PokexWeb.PanelLive do
   defp support_label(:monitoring), do: "monitorando"
   defp support_label(:idle), do: "parado"
   defp support_label(other), do: to_string(other)
+
+  # O combo escolhido pro revive existe E serve? (o worker faz a mesma pergunta
+  # na hora do resgate, e cai pro revive direto quando a resposta é não.)
+  defp rescue_combo_ready?(combos, name) do
+    case Enum.find(combos, &(&1.name == name)) do
+      nil -> false
+      combo -> combo.enabled? and Pokex.Combos.rescue_eligible?(combo)
+    end
+  end
 
   # O preview da sequência COMPLETA do resgate com o combo escolhido — estático
   # (não consulta cooldown: na hora, skills não prontas são puladas). Esperas
@@ -2594,6 +2713,26 @@ defmodule PokexWeb.PanelLive do
                     </option>
                   </select>
                 </form>
+                <%!-- O modo combo LIGADO sem combo válido escolhido é o pior
+                      dos mundos: ele acha que reservou as skills e o revive
+                      acontece direto (foi exatamente onde a configuração do
+                      Lucas travou em 2026-07-30). Diz isso, e oferece o combo
+                      pronto num clique. --%>
+                <div
+                  :if={@rescue_mode == "combo" and not rescue_combo_ready?(@combos, @rescue_combo)}
+                  data-testid="rescue-combo-missing"
+                  class="space-y-1 rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1.5 text-pk-warn"
+                >
+                  <p>⚠️ modo com combo, mas nenhum combo válido escolhido — o revive vai direto.</p>
+                  <button
+                    id="create-rescue-combo"
+                    type="button"
+                    phx-click="create_rescue_combo"
+                    class="btn h-7 w-full border border-pk-ok-line bg-transparent text-pk-meta font-semibold text-pk-ok hover:bg-pk-ok-dim"
+                  >
+                    criar o combo "resgate" (skill 1 → 2) e usar
+                  </button>
+                </div>
                 <p
                   :if={@rescue_mode == "combo" and rescue_combo_preview(@combos, @rescue_combo)}
                   data-testid="rescue-combo-preview"
@@ -2821,6 +2960,8 @@ defmodule PokexWeb.PanelLive do
             enabled={@combos_enabled}
             skip={@combo_skip}
             team={team_names(@world)}
+            draft={@combo_draft}
+            rescue_combo={@rescue_combo}
           />
 
           <section id="shiny-guard-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">

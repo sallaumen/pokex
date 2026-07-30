@@ -131,6 +131,31 @@ defmodule Pokex.CombosTest do
     end
   end
 
+  describe "gatilhos" do
+    test "\"qualquer inimigo\" vale contra tudo que engajar" do
+      qualquer = %Combo{name: "abertura", trigger: {:any_enemy}, steps: [{:skill, "1"}]}
+
+      assert %Combo{name: "abertura"} = Combos.match([qualquer], "Magikarp")
+      assert %Combo{name: "abertura"} = Combos.match([qualquer], "Pidgey")
+    end
+
+    test "especificidade: espécie > tipo > qualquer inimigo" do
+      qualquer = %Combo{name: "abertura", trigger: {:any_enemy}, steps: []}
+      especie = %Combo{name: "só-magikarp", trigger: {:enemy_species, "Magikarp"}, steps: []}
+
+      assert %Combo{name: "sing"} = Combos.match([qualquer, sing()], "Magikarp")
+      assert %Combo{name: "só-magikarp"} = Combos.match([qualquer, sing(), especie], "Magikarp")
+    end
+
+    test "\"só no resgate\" NUNCA roda numa luta — é o que reserva as skills" do
+      resgate = %Combo{name: "resgate", trigger: {:rescue_only}, steps: [{:skill, "1"}]}
+
+      assert Combos.match([resgate], "Magikarp") == nil
+      # ...mas serve de prefixo do revive
+      assert Combos.rescue_eligible?(resgate)
+    end
+  end
+
   describe "rescue_eligible?/1" do
     test "só skills e esperas servem de prefixo do resgate" do
       eligible = %Combo{
@@ -158,19 +183,19 @@ defmodule Pokex.CombosTest do
 
   describe "the store" do
     test "seeds itself, round-trips, and survives a corrupt file" do
-      assert [%Combo{name: "sing"}] = Store.all()
+      assert [%Combo{name: "sing"}, %Combo{name: "resgate"}] = Store.all()
 
       Store.set_enabled("sing", false)
-      assert [%Combo{name: "sing", enabled?: false}] = Store.all()
+      assert [%Combo{name: "sing", enabled?: false}, %Combo{name: "resgate"}] = Store.all()
 
       # every step shape must survive the trip
-      assert [%Combo{steps: steps}] = Store.all()
+      assert [%Combo{steps: steps} | _resgate] = Store.all()
       assert {:swap_member, "Jigglypuff"} in steps
       assert {:wait, :combo_sing_wait_ms} in steps
       assert {:swap_counter} in steps
 
       File.write!(Path.join(Application.get_env(:pokex, :home_dir), "combos.json"), "{[nope")
-      assert [%Combo{name: "sing", enabled?: true}] = Store.all()
+      assert [%Combo{name: "sing", enabled?: true}, %Combo{name: "resgate"}] = Store.all()
     end
   end
 end

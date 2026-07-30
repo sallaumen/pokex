@@ -40,8 +40,9 @@ defmodule Pokex.Combos do
   @doc """
   The combo that applies to `enemy_name` in `current_dungeon`, or nil.
 
-  A species trigger beats an element trigger: naming the creature is a more
-  specific statement than naming what it is made of.
+  Specificity decides between rivals: naming the CREATURE beats naming what it
+  is made of, and both beat "qualquer inimigo" — a catch-all is a floor, not a
+  competitor.
 
   A combo with a dungeon only applies inside it; with none, it applies
   anywhere — including when no dungeon is published at all (`nil`).
@@ -55,7 +56,9 @@ defmodule Pokex.Combos do
           (combo.dungeon == nil or combo.dungeon == current_dungeon)
       end)
 
-    Enum.find(applicable, &match?({:enemy_species, _}, &1.trigger)) || List.first(applicable)
+    Enum.find(applicable, &match?({:enemy_species, _}, &1.trigger)) ||
+      Enum.find(applicable, &match?({:enemy_element, _}, &1.trigger)) ||
+      List.first(applicable)
   end
 
   def match(_combos, _no_enemy, _dungeon), do: nil
@@ -69,6 +72,15 @@ defmodule Pokex.Combos do
       _unknown -> false
     end
   end
+
+  # Vale contra qualquer coisa que engajar — o gatilho de quem quer uma abertura
+  # padrão, não uma resposta a um bicho específico.
+  defp triggered?(%Combo{trigger: {:any_enemy}}, _enemy_name), do: true
+
+  # NUNCA em luta: existe só pra ser emprestado a outra coisa (hoje, o prefixo
+  # de stun do auto-revive). É o gatilho que deixa as skills 1/2 ficarem
+  # RESERVADAS — elas não podem ser gastas numa luta comum (Lucas, 2026-07-30).
+  defp triggered?(%Combo{trigger: {:rescue_only}}, _enemy_name), do: false
 
   defp triggered?(_combo, _enemy), do: false
 

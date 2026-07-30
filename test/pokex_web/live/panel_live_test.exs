@@ -1351,16 +1351,25 @@ defmodule PokexWeb.PanelLiveTest do
 
       {:ok, view, _} = live(conn, ~p"/")
 
+      # o editor de 2026-07-30: passos livres, um de cada vez
       view
-      |> form("#combo-form", %{
+      |> element("#combo-form")
+      |> render_change(%{
         "name" => "dorme",
         "trigger_kind" => "element",
-        "trigger_value" => "Water",
-        "member" => "Wigglytuff",
-        "skill" => "4",
-        "counter" => "on"
+        "trigger_value" => "Water"
       })
-      |> render_submit()
+
+      view
+      |> element("#combo-form")
+      |> render_change(%{"step_kind" => "swap_member", "step_value" => "Wigglytuff"})
+
+      view |> element("#combo-add-step") |> render_click()
+
+      view |> element("#combo-form") |> render_change(%{"step_kind" => "swap_counter"})
+      view |> element("#combo-add-step") |> render_click()
+
+      view |> element("#combo-form") |> render_submit(%{})
 
       saved = Enum.find(Pokex.Combos.Store.all(), &(&1.name == "dorme"))
       assert saved.trigger == {:enemy_element, "Water"}
@@ -1378,15 +1387,18 @@ defmodule PokexWeb.PanelLiveTest do
       {:ok, view, _} = live(conn, ~p"/")
 
       view
-      |> form("#combo-form", %{
+      |> element("#combo-form")
+      |> render_change(%{
         "name" => "na-dg",
         "trigger_kind" => "element",
         "trigger_value" => "Water",
-        "member" => "Wigglytuff",
-        "skill" => "4",
-        "dungeon" => "  cavena  "
+        "dungeon" => "  cavena  ",
+        "step_kind" => "skill",
+        "step_value" => "4"
       })
-      |> render_submit()
+
+      view |> element("#combo-add-step") |> render_click()
+      view |> element("#combo-form") |> render_submit(%{})
 
       assert Enum.find(Pokex.Combos.Store.all(), &(&1.name == "na-dg")).dungeon == "cavena"
       assert view |> element(~s(#combo-na-dg)) |> render() =~ "cavena"
@@ -1626,6 +1638,129 @@ defmodule PokexWeb.PanelLiveTest do
       assert has_element?(view, "#rescue-mode")
       refute has_element?(view, "#rescue-combo")
       refute has_element?(view, ~s([data-testid="rescue-combo-preview"]))
+    end
+
+    test "modo combo SEM combo válido avisa — e o botão configura tudo num clique", %{conn: conn} do
+      # o estado real do Lucas em 2026-07-30: mode "combo" com rescue_combo
+      # vazio — ele achava que tinha reservado as skills, e o revive ia direto
+      Pokex.Settings.put(:rescue_mode, "combo")
+      Pokex.Settings.put(:rescue_combo, "")
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, ~s([data-testid="rescue-combo-missing"]))
+
+      view |> element("#create-rescue-combo") |> render_click()
+
+      # o combo existe, com a sequência que ele pediu...
+      assert %Pokex.Combos.Combo{steps: steps, trigger: {:rescue_only}} =
+               Enum.find(Pokex.Combos.Store.all(), &(&1.name == "resgate"))
+
+      assert [{:skill, "1"}, {:wait, _}, {:skill, "2"}] = steps
+
+      # ...e já está pendurado no revive
+      assert Pokex.Settings.get(:rescue_combo) == "resgate"
+      assert Pokex.Settings.get(:rescue_mode) == "combo"
+      refute has_element?(view, ~s([data-testid="rescue-combo-missing"]))
+      assert has_element?(view, ~s([data-testid="combo-rescue-badge"]))
+    end
+  end
+
+  describe "editor de combos" do
+    setup do
+      tmp =
+        Path.join(System.tmp_dir!(), "pokex-panel-editor-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp)
+      Application.put_env(:pokex, :home_dir, tmp)
+
+      on_exit(fn ->
+        Application.delete_env(:pokex, :home_dir)
+        File.rm_rf!(tmp)
+        Enum.each([:team, :layout], &Pokex.Perception.WorldState.forget/1)
+      end)
+
+      :ok
+    end
+
+    test "o que ele escreve SOBREVIVE ao re-render dos workers", %{conn: conn} do
+      # O bug de 2026-07-30: os campos não tinham valor no servidor e o painel
+      # re-renderiza a cada snapshot (~10×/s) — tudo que ele digitava sumia ao
+      # sair do campo. Este teste É o bug: escrever, receber um snapshot, olhar.
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("#combo-form") |> render_change(%{"name" => "resgate"})
+      assert has_element?(view, ~s(#combo-name[value="resgate"]))
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        "fishing",
+        {:fishing, %{state: :pescando, counters: %{}, error: nil}}
+      )
+
+      # o rascunho é estado do SERVIDOR — nenhum re-render o apaga
+      assert has_element?(view, ~s(#combo-name[value="resgate"]))
+    end
+
+    test "monta a sequência livre que antes era impossível (skill 1 → espera → skill 2)", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view
+      |> element("#combo-form")
+      |> render_change(%{"name" => "stun", "trigger_kind" => "rescue_only"})
+
+      # três passos, um de cada vez — o construtor livre
+      add_step(view, "skill", "1")
+      add_step(view, "wait", "500")
+      add_step(view, "skill", "2")
+
+      view |> element("#combo-form") |> render_submit(%{})
+
+      assert %Pokex.Combos.Combo{trigger: {:rescue_only}, steps: steps} =
+               Enum.find(Pokex.Combos.Store.all(), &(&1.name == "stun"))
+
+      assert steps == [{:skill, "1"}, {:wait, 500}, {:skill, "2"}]
+
+      # salvou → o rascunho volta a zero, pronto pro próximo
+      assert has_element?(view, ~s(#combo-name[value=""]))
+    end
+
+    test "um passo pode ser removido antes de salvar", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      add_step(view, "skill", "9")
+      assert render(view) =~ "skill 9"
+
+      view |> element(~s([phx-click="remove_combo_step"][phx-value-index="0"])) |> render_click()
+      refute render(view) =~ "skill 9"
+    end
+
+    test "passo inválido (skill sem tecla, espera sem número) não entra", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      add_step(view, "skill", "")
+      add_step(view, "wait", "logo ali")
+
+      assert render(view) =~ "Sem passos ainda"
+    end
+
+    test "combo sem passo nenhum não é salvo", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("#combo-form") |> render_change(%{"name" => "vazio"})
+      view |> element("#combo-form") |> render_submit(%{})
+
+      refute Enum.any?(Pokex.Combos.Store.all(), &(&1.name == "vazio"))
+    end
+
+    defp add_step(view, kind, value) do
+      view
+      |> element("#combo-form")
+      |> render_change(%{"step_kind" => kind, "step_value" => value})
+
+      view |> element("#combo-add-step") |> render_click()
     end
   end
 

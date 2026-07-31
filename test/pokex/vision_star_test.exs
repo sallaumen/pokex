@@ -64,8 +64,8 @@ defmodule Pokex.VisionStarTest do
     # fired "star". Two defenses, each proved by a fixture the OTHER cannot cure:
     #   - color floor (b>=50, g<=r) → kills the Shuckle/Vileplume class;
     #   - name zone (min_x)         → kills the genuinely gold icons.
-    defp fixture!(nome) do
-      {:ok, frame} = Frame.from_png_file("test/fixtures/shiny/#{nome}")
+    defp fixture!(name) do
+      {:ok, frame} = Frame.from_png_file("test/fixtures/shiny/#{name}")
       frame
     end
 

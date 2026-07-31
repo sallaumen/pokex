@@ -10,7 +10,7 @@ defmodule Pokex.Bots.Catcher.Logic do
   # Hard confirmation ceiling: past this not even absence counts as proof — the
   # world already changed (a full ignore-TTL elapsed). Not a knob: 60s is
   # operational physics (4x the fight_timeout that holds scans).
-  @teto_confirmacao_ms 60_000
+  @confirmation_cap_ms 60_000
 
   defstruct state: :idle,
             config: nil,
@@ -115,15 +115,15 @@ defmodule Pokex.Bots.Catcher.Logic do
       # absent = captured (late); present SAME species = retry; present OTHER
       # species = the original was captured and a new corpse fell there (this
       # same step's admit queues it).
-      obs.captured_at > throw.at + @teto_confirmacao_ms ->
-        seca(%{logic | throw: nil}, [
+      obs.captured_at > throw.at + @confirmation_cap_ms ->
+        dry(%{logic | throw: nil}, [
           {:log, "confirmação inconclusiva (observação tardia) em #{point_str(throw.point)}"}
         ])
 
       # OTHER species present at the point: the original corpse is GONE — captured.
       # (Missing a name on either side falls to the presence branches below: conservative.)
       outra_especie?(obs, throw, config.corpse_match_tolerance_px) ->
-        capturado(logic, obs, now)
+        captured(logic, obs, now)
 
       # past the flight window, still there (moved-or-not is irrelevant) → retry
       present?(obs.corpses, throw.point, config.corpse_match_tolerance_px) and
@@ -144,21 +144,21 @@ defmodule Pokex.Bots.Catcher.Logic do
 
         entrada = %{
           ate: now + config.corpse_ignore_ttl_ms,
-          nome: nome_em(obs, throw.point, config.corpse_match_tolerance_px)
+          name: name_in(obs, throw.point, config.corpse_match_tolerance_px)
         }
 
-        seca(
+        dry(
           %{logic | throw: nil, ignored: Map.put(logic.ignored, throw.point, entrada)},
           [{:log, "não é corpo (#{point_str(throw.point)}); ignorando"}]
         )
 
       # past the window, gone → captured
       true ->
-        capturado(logic, obs, now)
+        captured(logic, obs, now)
     end
   end
 
-  defp capturado(%{throw: throw, config: config} = logic, obs, _now) do
+  defp captured(%{throw: throw, config: config} = logic, obs, _now) do
     logic = update_in(logic.counters.captures, &(&1 + 1))
     tardio? = obs.captured_at > throw.at + config.corpse_confirm_after_ms * 6
 
@@ -175,24 +175,24 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   # A corpse of ANOTHER species exactly where the ball flew: proof the original
   # target was consumed and the ground recycled. Requires a name on BOTH sides.
-  defp outra_especie?(obs, %{nome: nome_da_bola, point: ponto}, tol)
-       when is_binary(nome_da_bola) do
-    case nome_em(obs, ponto, tol) do
+  defp outra_especie?(obs, %{name: ball_name, point: ponto}, tol)
+       when is_binary(ball_name) do
+    case name_in(obs, ponto, tol) do
       nil -> false
-      nome_agora -> nome_agora != nome_da_bola
+      current_name -> current_name != ball_name
     end
   end
 
-  defp outra_especie?(_obs, _throw_sem_nome, _tol), do: false
+  defp outra_especie?(_obs, _throw_without_name, _tol), do: false
 
   # Mirror of fishing's dry cast: N consecutive balls resolved WITHOUT a
   # confirmed capture = the hotkey isn't reaching the game, the aim is wrong, or
   # a library false-positive is eating the queue. Alarm and reset; 0 = off.
-  defp seca(logic, actions) do
+  defp dry(logic, actions) do
     dry = logic.dry_balls + 1
-    teto = Map.get(logic.config, :dry_balls_alarm, 0)
+    cap = Map.get(logic.config, :dry_balls_alarm, 0)
 
-    if teto > 0 and dry >= teto do
+    if cap > 0 and dry >= cap do
       {%{logic | dry_balls: 0},
        actions ++
          [
@@ -207,19 +207,19 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   # The identity the scan already knows at the point — so the ignore veto never
   # contaminates a future corpse of ANOTHER species on the same tile.
-  defp nome_em(obs, ponto, tolerancia) do
+  defp name_in(obs, ponto, tolerancia) do
     obs
     |> Map.get(:known, %{})
-    |> Enum.find_value(fn {p, %{name: nome}} -> if near?(p, ponto, tolerancia), do: nome end)
+    |> Enum.find_value(fn {p, %{name: name}} -> if near?(p, ponto, tolerancia), do: name end)
   end
 
   defp admit(logic, obs) do
     tolerance = logic.config.corpse_match_tolerance_px
-    ocupados = logic.queue ++ if logic.throw, do: [logic.throw.point], else: []
+    busy = logic.queue ++ if logic.throw, do: [logic.throw.point], else: []
 
     fresh =
       Enum.reject(obs.corpses, fn c ->
-        Enum.any?(ocupados, &near?(&1, c, tolerance)) or vetado?(logic, obs, c, tolerance)
+        Enum.any?(busy, &near?(&1, c, tolerance)) or vetoed?(logic, obs, c, tolerance)
       end)
 
     %{logic | queue: logic.queue ++ fresh}
@@ -229,22 +229,22 @@ defmodule Pokex.Bots.Catcher.Logic do
   # not hold a Kingler freshly fallen on the same tile. Without names on both
   # sides (old library, read without known) the point veto still applies —
   # fails conservative.
-  defp vetado?(logic, obs, candidato, tolerance) do
+  defp vetoed?(logic, obs, candidato, tolerance) do
     Enum.any?(logic.ignored, fn {ponto, entrada} ->
-      near?(ponto, candidato, tolerance) and mesma_identidade?(entrada, obs, candidato, tolerance)
+      near?(ponto, candidato, tolerance) and same_identity?(entrada, obs, candidato, tolerance)
     end)
   end
 
-  defp mesma_identidade?(%{nome: nil}, _obs, _candidato, _tol), do: true
+  defp same_identity?(%{name: nil}, _obs, _candidato, _tol), do: true
 
-  defp mesma_identidade?(%{nome: nome_vetado}, obs, candidato, tol) do
-    case nome_em(obs, candidato, tol) do
+  defp same_identity?(%{name: vetoed_name}, obs, candidato, tol) do
+    case name_in(obs, candidato, tol) do
       nil -> true
-      nome_novo -> nome_novo == nome_vetado
+      new_name -> new_name == vetoed_name
     end
   end
 
-  defp mesma_identidade?(_entrada_antiga, _obs, _candidato, _tol), do: true
+  defp same_identity?(_entrada_antiga, _obs, _candidato, _tol), do: true
 
   defp maybe_throw(%{throw: nil, queue: [point | rest]} = logic, obs, now) do
     logic = update_in(logic.counters.throws, &(&1 + 1))
@@ -255,7 +255,7 @@ defmodule Pokex.Bots.Catcher.Logic do
       point: point,
       balls: 1,
       at: now,
-      nome: nome_em(obs, point, logic.config.corpse_match_tolerance_px)
+      name: name_in(obs, point, logic.config.corpse_match_tolerance_px)
     }
 
     {%{logic | throw: throw, queue: rest},

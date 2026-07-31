@@ -468,7 +468,7 @@ defmodule Pokex.Settings do
     # (cliclick has no middle button).
     reposition_enabled: false,
     reposition_battle_clear_ms: 2_000,
-    # Post-fight ORDER policy (loot → bola → suporte): with this on, a due
+    # Post-fight ORDER policy (loot → ball → support): with this on, a due
     # potion/reposition ALSO waits for the catcher to resolve its pending
     # corpses (queued + ball in flight) before acting. The cap below bails the
     # wait so a stuck detector can never starve the heal — fail-open, loudly.
@@ -598,7 +598,7 @@ defmodule Pokex.Settings do
     # teleporting the cursor around while you share the computer with it. ~65ms per mouse
     # sequence (one read + one move); key-only sequences skip it entirely.
     restore_mouse_after_actions: true,
-    # --- Corpse capture (parado mode) -------------------------------------------------------------
+    # --- Corpse capture ("parado" mode) -------------------------------------------------------------
     # The :corpses feed learns the EMPTY ground at attach: the first warmup frame is the baseline
     # and any 16px cell that deviates during the remaining warmup frames (animated water, sparkles,
     # the character) is masked out forever. After warmup, a masked-diff blob that holds still for
@@ -807,7 +807,7 @@ defmodule Pokex.Settings do
       when is_map_key(@seed_settings, key) and not is_nil(value) do
     case validate(key, value) do
       :ok -> GenServer.call(server, {:put, key, value})
-      {:error, _texto} = error -> error
+      {:error, _text} = error -> error
     end
   end
 

@@ -105,8 +105,8 @@ defmodule PokexWeb.WorldLive do
 
   defp summary(:corpses, %{corpses: corpses} = obs) do
     scan = if Map.get(obs, :scanning?), do: "varrendo", else: "parado"
-    corpo = if length(corpses) == 1, do: "corpo", else: "corpos"
-    "#{length(corpses)} #{corpo} · #{scan}"
+    corpse = if length(corpses) == 1, do: "corpo", else: "corpos"
+    "#{length(corpses)} #{corpse} · #{scan}"
   end
 
   defp summary(:arena, obs) when is_map(obs) do

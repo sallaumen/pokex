@@ -332,7 +332,7 @@ defmodule Pokex.Bots.GuardianTest do
       :ok
     end
 
-    defp start_guardian_com_logout!(on_panic, logout_fun) do
+    defp start_guardian_with_logout!(on_panic, logout_fun) do
       {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
 
       {:ok, guardian} =
@@ -350,31 +350,31 @@ defmodule Pokex.Bots.GuardianTest do
 
     # Logout latches and stops the fleet on its own — the Guardian must not duplicate it.
     test "stagnation with action deslogar calls logout with the reason", %{on_panic: on_panic} do
-      dono = self()
+      owner = self()
       active_session!(61_000)
       Pokex.Settings.put(:stagnation_minutes, 1)
       Pokex.Settings.put(:stagnation_action, "deslogar")
 
-      start_guardian_com_logout!(on_panic, fn motivo -> send(dono, {:deslogou, motivo}) end)
+      start_guardian_with_logout!(on_panic, fn reason -> send(owner, {:logged_out, reason}) end)
 
-      assert_receive {:deslogou, motivo}, 1_000
-      assert motivo =~ "estagnação"
+      assert_receive {:logged_out, reason}, 1_000
+      assert reason =~ "estagnação"
       refute_receive :panicked, 100
     end
 
     test "the kills goal with action deslogar calls logout", %{on_panic: on_panic} do
-      dono = self()
+      owner = self()
       active_session!(0)
       Pokex.Settings.put(:stop_after_kills, 2)
       Pokex.Settings.put(:stop_after_action, "deslogar")
 
       guardian =
-        start_guardian_com_logout!(on_panic, fn motivo -> send(dono, {:deslogou, motivo}) end)
+        start_guardian_with_logout!(on_panic, fn reason -> send(owner, {:logged_out, reason}) end)
 
       send(guardian, {:combat, %{state: :hunting, counters: %{fights: 2}, error: nil}})
 
-      assert_receive {:deslogou, motivo}, 1_000
-      assert motivo =~ "meta de kills atingida"
+      assert_receive {:logged_out, reason}, 1_000
+      assert reason =~ "meta de kills atingida"
     end
 
     test "the kills goal with action parar still stops as always", %{on_panic: on_panic} do
@@ -383,7 +383,7 @@ defmodule Pokex.Bots.GuardianTest do
       Pokex.Settings.put(:stop_after_action, "parar")
 
       guardian =
-        start_guardian_com_logout!(on_panic, fn _motivo -> flunk("must not log out") end)
+        start_guardian_with_logout!(on_panic, fn _reason -> flunk("must not log out") end)
 
       send(guardian, {:combat, %{state: :hunting, counters: %{fights: 2}, error: nil}})
 
@@ -395,7 +395,7 @@ defmodule Pokex.Bots.GuardianTest do
       Pokex.Settings.put(:stagnation_minutes, 1)
       Pokex.Settings.put(:stagnation_action, "parar")
 
-      guardian = start_guardian_com_logout!(on_panic, fn _motivo -> :ok end)
+      guardian = start_guardian_with_logout!(on_panic, fn _reason -> :ok end)
       send(guardian, {:mini_game, %{state: :watching, counters: %{clears: 1}}})
 
       refute_receive :panicked, 400
@@ -406,7 +406,7 @@ defmodule Pokex.Bots.GuardianTest do
       Pokex.Settings.put(:stagnation_minutes, 1)
       Pokex.Settings.put(:stagnation_action, "parar")
 
-      guardian = start_guardian_com_logout!(on_panic, fn _motivo -> :ok end)
+      guardian = start_guardian_with_logout!(on_panic, fn _reason -> :ok end)
       send(guardian, {:mini_game, %{state: :off, counters: %{clears: 0}}})
       send(guardian, {:fishing, %{counters: %{hooked: 1}}})
 
@@ -422,7 +422,7 @@ defmodule Pokex.Bots.GuardianTest do
       Pokex.Settings.put(:stagnation_minutes, 1)
       Pokex.Settings.put(:stagnation_action, "parar")
 
-      guardian = start_guardian_com_logout!(on_panic, fn _motivo -> :ok end)
+      guardian = start_guardian_with_logout!(on_panic, fn _reason -> :ok end)
       send(guardian, {:mini_game, %{state: :watching, counters: %{clears: 0}}})
       send(guardian, {:fishing, %{counters: %{hooked: 1}}})
 
@@ -455,14 +455,14 @@ defmodule Pokex.Bots.GuardianTest do
     test "holding the mouse in the corner fires once; leaving and returning re-arms", %{
       on_panic: on_panic
     } do
-      dono = self()
+      owner = self()
       Pokex.Settings.put(:command_corner, true)
       Pokex.Settings.put(:command_corner_dwell_ms, 30)
       {:ok, body} = FakeBody.start_link({:ok, {3435, 5}})
 
       guardian_no_canto!(on_panic, body,
         screen_w_fun: fn -> 3440 end,
-        command_toggle: fn -> send(dono, :toggled) end
+        command_toggle: fn -> send(owner, :toggled) end
       )
 
       assert_receive :toggled, 1_000
@@ -477,14 +477,14 @@ defmodule Pokex.Bots.GuardianTest do
     test "just passing the mouse through the corner (under the dwell) does not fire", %{
       on_panic: on_panic
     } do
-      dono = self()
+      owner = self()
       Pokex.Settings.put(:command_corner, true)
       Pokex.Settings.put(:command_corner_dwell_ms, 5_000)
       {:ok, body} = FakeBody.start_link({:ok, {3435, 5}})
 
       guardian_no_canto!(on_panic, body,
         screen_w_fun: fn -> 3440 end,
-        command_toggle: fn -> send(dono, :toggled) end
+        command_toggle: fn -> send(owner, :toggled) end
       )
 
       refute_receive :toggled, 300
@@ -493,14 +493,14 @@ defmodule Pokex.Bots.GuardianTest do
     test "without calibration (unknown screen width) the corner does not exist", %{
       on_panic: on_panic
     } do
-      dono = self()
+      owner = self()
       Pokex.Settings.put(:command_corner, true)
       Pokex.Settings.put(:command_corner_dwell_ms, 10)
       {:ok, body} = FakeBody.start_link({:ok, {3435, 5}})
 
       guardian_no_canto!(on_panic, body,
         screen_w_fun: fn -> nil end,
-        command_toggle: fn -> send(dono, :toggled) end
+        command_toggle: fn -> send(owner, :toggled) end
       )
 
       refute_receive :toggled, 300

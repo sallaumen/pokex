@@ -493,9 +493,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       assert_receive {:stepped, 90, 80}, 1_000
     end)
 
-    assert_receive {:cavebot_log, :macro, motivo}, 1_000
-    assert motivo =~ "jogo sem foco"
-    refute_receive {:cavebot_log, :macro, _repetido}, 200
+    assert_receive {:cavebot_log, :macro, reason}, 1_000
+    assert reason =~ "jogo sem foco"
+    refute_receive {:cavebot_log, :macro, _repeated}, 200
   end
 
   # Giving up on reattach used to be mute: the worker sat forever with no position, no

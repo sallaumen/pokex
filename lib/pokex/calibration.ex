@@ -93,7 +93,7 @@ defmodule Pokex.Calibration do
   defp manual_mini_game_region(%__MODULE__{mini_game_region: region}) when is_tuple(region),
     do: region
 
-  defp manual_mini_game_region(_sem_marcacao), do: nil
+  defp manual_mini_game_region(_no_mark), do: nil
 
   defp centered_mini_game_region(%__MODULE__{arena_region: {x, y, w, h}}),
     do: centered_box(x, y, w, h)

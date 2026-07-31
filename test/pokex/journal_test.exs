@@ -34,19 +34,19 @@ defmodule Pokex.JournalTest do
     for _ <- 1..4, do: emit("cavebot", {:cavebot_log, :debug, "passo 90,80"})
     emit("cavebot", {:cavebot_log, :debug, "chegou no wp 2"})
 
-    assert [novo, repetido] = Journal.recent([], journal)
+    assert [novo, repeated] = Journal.recent([], journal)
     assert novo.text == "chegou no wp 2"
-    assert repetido.text == "passo 90,80"
-    assert repetido.repeats == 4
+    assert repeated.text == "passo 90,80"
+    assert repeated.repeats == 4
   end
 
   test "rule alarms and panic land as :alarm events", %{journal: journal} do
     emit("combat", {:rule_alarm, "🎣 3 arremessos sem NENHUMA bolha"})
     emit("combat", {:panic, "kill corner"})
 
-    assert [panico, alarme] = Journal.recent([], journal)
+    assert [panico, alarm] = Journal.recent([], journal)
     assert panico.severity == :alarm and panico.text =~ "PÂNICO"
-    assert alarme.severity == :alarm and alarme.source == :regra
+    assert alarm.severity == :alarm and alarm.source == :regra
   end
 
   test "min_severity :macro hides debug chatter", %{journal: journal} do
@@ -76,8 +76,8 @@ defmodule Pokex.JournalTest do
   test "snapshots and unknown messages on the same topics are ignored", %{
     journal: journal
   } do
-    emit("fishing", {:fishing, %{state: :pescando, counters: %{}}})
-    emit("combat", {:mensagem_que_ninguem_espera, 42})
+    emit("fishing", {:fishing, %{state: :fishing, counters: %{}}})
+    emit("combat", {:unexpected_message, 42})
 
     assert Journal.recent([], journal) == []
   end
@@ -99,10 +99,10 @@ defmodule Pokex.JournalTest do
       _ = Journal.recent([], journal)
 
       arquivo = Path.join(Journal.dir(), Date.to_iso8601(Date.utc_today()) <> ".jsonl")
-      linhas = arquivo |> File.read!() |> String.split("\n", trim: true)
+      lines = arquivo |> File.read!() |> String.split("\n", trim: true)
 
-      assert [linha] = linhas
-      assert %{"text" => "fisgada", "severity" => "macro"} = Jason.decode!(linha)
+      assert [line] = lines
+      assert %{"text" => "fisgada", "severity" => "macro"} = Jason.decode!(line)
     end
 
     @tag :tmp_dir

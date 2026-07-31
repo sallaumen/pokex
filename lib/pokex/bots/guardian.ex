@@ -284,7 +284,7 @@ defmodule Pokex.Bots.Guardian do
   def default_screen_w do
     case Pokex.Calibration.load() do
       {:ok, calib} -> Map.get(calib, :screen_w)
-      _sem_calibracao -> nil
+      _no_calibration -> nil
     end
   end
 
@@ -354,7 +354,7 @@ defmodule Pokex.Bots.Guardian do
           state.logout_fun.(reason)
           state
 
-        _alarme ->
+        _alarm ->
           Logger.info("Guardian: #{reason}")
           Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :sessao, reason})
           %{state | last_activity_at: now}

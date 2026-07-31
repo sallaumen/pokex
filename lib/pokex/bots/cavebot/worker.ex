@@ -409,7 +409,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  defp warn_if_unexplored(_sem_ponto), do: :ok
+  defp warn_if_unexplored(_no_point), do: :ok
 
   defp dark_frame?(frame) do
     coords = for i <- 0..(frame.width - 1), j <- 0..(frame.height - 1), do: {i, j}

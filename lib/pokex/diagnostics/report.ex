@@ -69,7 +69,7 @@ defmodule Pokex.Diagnostics.Report do
       captured_at: iso8601(now_ms),
       calibration: calibration_map(calib),
       settings: settings,
-      operacao: operacao_report(settings),
+      operation: operation_report(settings),
       regions: %{
         glow:
           region_report(
@@ -109,7 +109,7 @@ defmodule Pokex.Diagnostics.Report do
   # what the screen showed. Each source is shielded individually: a process
   # that is down becomes {"erro": _} under its key, never a bundle that fails
   # whole (the bundle exists exactly for the moments something is broken).
-  defp operacao_report(settings) do
+  defp operation_report(settings) do
     %{
       journal: safe_source(fn -> Pokex.Journal.recent(limit: 300, min_severity: :macro) end),
       sessao:
@@ -120,7 +120,7 @@ defmodule Pokex.Diagnostics.Report do
           }
         end),
       workers: safe_source(fn -> Pokex.Bots.BotSupervisor.status() end),
-      portoes:
+      gates:
         safe_source(fn ->
           %{input_gate: Pokex.Bots.InputGate.state(), focus: Pokex.Bots.Focus.status()}
         end),

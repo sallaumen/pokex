@@ -4,11 +4,11 @@ defmodule PokexWeb.PanelLiveTest do
 
   # the feed arrives via the journal: broadcast → Pokex.Journal → {:journal_event}
   # → panel. Two async hops — the render must wait for the chain.
-  defp eventually_html(view, texto, tries \\ 50) do
+  defp eventually_html(view, text, tries \\ 50) do
     cond do
-      render(view) =~ texto -> true
+      render(view) =~ text -> true
       tries == 0 -> false
-      true -> Process.sleep(10) && eventually_html(view, texto, tries - 1)
+      true -> Process.sleep(10) && eventually_html(view, text, tries - 1)
     end
   end
 
@@ -742,7 +742,7 @@ defmodule PokexWeb.PanelLiveTest do
        %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
-    busy = %{state: :ocupado, counters: %{}, error: "sem resposta (captura lenta?)"}
+    busy = %{state: :busy, counters: %{}, error: "sem resposta (captura lenta?)"}
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, busy})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat, Map.put(busy, :locked_row, nil)})
@@ -982,7 +982,7 @@ defmodule PokexWeb.PanelLiveTest do
     conn: conn
   } do
     originais =
-      for chave <- [
+      for key <- [
             :corpse_match_min_similarity,
             :ball_key,
             :ball_needs_click,
@@ -991,7 +991,7 @@ defmodule PokexWeb.PanelLiveTest do
             :dry_balls_alarm
           ],
           into: %{},
-          do: {chave, Pokex.Settings.get(chave)}
+          do: {key, Pokex.Settings.get(key)}
 
     on_exit(fn -> Enum.each(originais, fn {k, v} -> Pokex.Settings.put(k, v) end) end)
 
@@ -1023,9 +1023,9 @@ defmodule PokexWeb.PanelLiveTest do
 
   test "the ⚙️ saves the stock thresholds", %{conn: conn} do
     originais =
-      for chave <- [:stock_alert_f1, :stock_alert_f2, :stock_alert_e, :stock_alert_s_q],
+      for key <- [:stock_alert_f1, :stock_alert_f2, :stock_alert_e, :stock_alert_s_q],
           into: %{},
-          do: {chave, Pokex.Settings.get(chave)}
+          do: {key, Pokex.Settings.get(key)}
 
     on_exit(fn -> Enum.each(originais, fn {k, v} -> Pokex.Settings.put(k, v) end) end)
 
@@ -1672,7 +1672,7 @@ defmodule PokexWeb.PanelLiveTest do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         "fishing",
-        {:fishing, %{state: :pescando, counters: %{}, error: nil}}
+        {:fishing, %{state: :fishing, counters: %{}, error: nil}}
       )
 
       refute eventually_has(view, "#last-order")
@@ -1803,7 +1803,7 @@ defmodule PokexWeb.PanelLiveTest do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         "fishing",
-        {:fishing, %{state: :pescando, counters: %{}, error: nil}}
+        {:fishing, %{state: :fishing, counters: %{}, error: nil}}
       )
 
       assert has_element?(view, ~s(#combo-name[value="resgate"]))
@@ -1922,7 +1922,7 @@ defmodule PokexWeb.PanelLiveTest do
            reason: "estagnação",
            attempt: 3,
            attempts: 3,
-           error: :ainda_logado,
+           error: :still_logged_in,
            finished_at: 2,
            duplicates: 0
          }}
@@ -1930,7 +1930,7 @@ defmodule PokexWeb.PanelLiveTest do
 
       assert render(view) =~ "FALHOU (ainda_logado)"
 
-      send(view.pid, {:mensagem_que_ninguem_espera, 42})
+      send(view.pid, {:unexpected_message, 42})
       assert render(view) =~ "Deslogar agora"
     end
 

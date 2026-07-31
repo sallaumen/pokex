@@ -47,6 +47,16 @@ defmodule Pokex.Bots.Logout do
 
   def topic, do: @topic
 
+  @doc """
+  Portuguese wording of a failure reason. The reason atoms are internal, but the
+  alarm and the panel print them to Lucas — this is the boundary where they turn
+  back into the words he already knows.
+  """
+  def failure_text(:no_witness), do: "sem_testemunha"
+  def failure_text(:still_logged_in), do: "ainda_logado"
+  def failure_text(:unreadable), do: "ilegivel"
+  def failure_text(other), do: to_string(other)
+
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
 
@@ -93,7 +103,7 @@ defmodule Pokex.Bots.Logout do
     case WorldState.get(:hud, @hud_max_age_ms, System.monotonic_time(:millisecond)) do
       {:ok, %{level: nil, food: nil, fishing: nil}} -> :gone
       {:ok, _algum_numero} -> :present
-      _sem_fato_fresco -> :unreadable
+      _no_fresh_fact -> :unreadable
     end
   end
 
@@ -187,10 +197,10 @@ defmodule Pokex.Bots.Logout do
     {:noreply, finish(state)}
   end
 
-  defp do_action({:finish, {:failed, motivo}}, state) do
-    texto = "logout FALHOU (#{motivo}) — #{state.logic.reason}"
-    Logger.warning("Logout: #{texto}")
-    Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :logout, "🚪 " <> texto})
+  defp do_action({:finish, {:failed, reason}}, state) do
+    text = "logout FALHOU (#{failure_text(reason)}) — #{state.logic.reason}"
+    Logger.warning("Logout: #{text}")
+    Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :logout, "🚪 " <> text})
     {:noreply, finish(state)}
   end
 

@@ -382,7 +382,7 @@ defmodule Pokex.Bots.BotSupervisor do
   # take the page down: ask with a short timeout and fall back to a placeholder snapshot that
   # renders as "ocupado" (every panel label/class has a catch-all for unknown states).
   @status_timeout_ms 1_000
-  @busy_snapshot %{state: :ocupado, counters: %{}, error: "sem resposta (captura lenta?)"}
+  @busy_snapshot %{state: :busy, counters: %{}, error: "sem resposta (captura lenta?)"}
 
   @doc """
   Does this worker state mean RUNNING? One rule, because three places ask (header
@@ -396,7 +396,7 @@ defmodule Pokex.Bots.BotSupervisor do
   def active?(%{state: state}), do: active?(state)
 
   def active?(state)
-      when state in [:idle, :off, :ocupado, :error, :manual, :blocked, :stuck, :fight_stalled],
+      when state in [:idle, :off, :busy, :error, :manual, :blocked, :stuck, :fight_stalled],
       do: false
 
   def active?(state), do: is_atom(state) and state != nil
@@ -469,7 +469,7 @@ defmodule Pokex.Bots.BotSupervisor do
     # without special-casing, and a half-shaped map would break the screen exactly
     # when the worker is too busy to answer. The worker owns the shape; we borrow
     # it, so a new field can never be forgotten here.
-    # (minus :state — the placeholder's own :ocupado means UNKNOWN, and must never
+    # (minus :state — the placeholder's own :busy means UNKNOWN, and must never
     # be downgraded to the worker's :idle, which reads as "stopped")
     |> Map.put(:cavebot, safe_status(cavebot, Map.delete(Cavebot.Worker.idle_snapshot(), :state)))
   end

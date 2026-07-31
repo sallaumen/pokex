@@ -533,18 +533,18 @@ defmodule PokexWeb.CalibrationLiveTest do
       }
 
       Pokex.Calibration.save(calib)
-      {:ok, esperada} = Pokex.Bots.Catcher.SpotScan.regiao(calib)
+      {:ok, expected} = Pokex.Bots.Catcher.SpotScan.region(calib)
 
       {:ok, _} = Pokex.Rig.Fake.start_link(%{})
       {:ok, view, _html} = live(conn, "/calibration")
       render_click(view, "corpse_shot")
 
-      assert {:capture, ^esperada, "corpse_teach.png"} =
+      assert {:capture, ^expected, "corpse_teach.png"} =
                Enum.find(Pokex.Rig.Fake.calls(), &match?({:capture, _, "corpse_teach.png"}, &1))
 
-      refute esperada == calib.arena_region
+      refute expected == calib.arena_region
 
-      {rx, ry, rw, rh} = esperada
+      {rx, ry, rw, rh} = expected
       {px, py} = calib.player_point
       assert px > rx and px < rx + rw
       assert py > ry and py < ry + rh
@@ -574,7 +574,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert has_element?(view, "#corpse-toggle-kingler", "na mira")
 
       refute render(view) =~ "nesta sessão"
-      send(view.pid, {:catcher_contagem, %{"Kingler" => 3}})
+      send(view.pid, {:catcher_count, %{"Kingler" => 3}})
       assert render(view) =~ "3× nesta sessão"
     end
 
@@ -591,7 +591,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       send(view.pid, {:catcher_log, :macro, "captura: bola em 1,2"})
       send(view.pid, {:rule_alarm, :captura, "sirene"})
 
-      send(view.pid, {:catcher_contagem, %{"Kingler" => 1}})
+      send(view.pid, {:catcher_count, %{"Kingler" => 1}})
       assert render(view) =~ "Calibração"
     end
   end

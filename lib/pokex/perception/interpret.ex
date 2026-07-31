@@ -70,7 +70,7 @@ defmodule Pokex.Perception.Interpret do
         band: band,
         rows: rows,
         min_cluster: Settings.value(settings, :shiny_star_min_columns),
-        min_x: zona_da_estrela(measured)
+        min_x: star_zone(measured)
       )
 
     detail = enemies_detail(body, measured, creatures, Enum.map(stars, &elem(&1, 0)))
@@ -107,8 +107,8 @@ defmodule Pokex.Perception.Interpret do
   # x<=52, and the slack covers the whole star glyph even if it starts before
   # the name. Without a measured layout, no restriction — the predicate's color
   # floor stands alone as the defense (covers the Shuckle/Vileplume class).
-  defp zona_da_estrela(%{name: {[nx, _ny], _size}}), do: max(nx - 20, 0)
-  defp zona_da_estrela(_sem_layout), do: 0
+  defp star_zone(%{name: {[nx, _ny], _size}}), do: max(nx - 20, 0)
+  defp star_zone(_no_layout), do: 0
 
   # Only rows that actually hold a creature are described — an empty row has no
   # name to read and no bar to measure.

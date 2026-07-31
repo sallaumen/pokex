@@ -270,7 +270,7 @@ defmodule Pokex.Bots.Focus do
   # The SAME "is it running?" rule the header and panel use — this module had
   # its own list, and two truths for one question is how a green pill and an
   # "Iniciar" button appear on the same screen. Kept difference, on purpose:
-  # :ocupado (unknown status) counts as STOPPED here too — never schedule a
+  # :busy (unknown status) counts as STOPPED here too — never schedule a
   # resume for what wasn't proven alive.
   defp default_running? do
     %{fishing: f, combat: c, catcher: cat, cavebot: cv} = BotSupervisor.status()

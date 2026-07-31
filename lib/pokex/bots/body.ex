@@ -78,7 +78,7 @@ defmodule Pokex.Bots.Body do
         {:error, :input_gate_closed}
       end
     else
-      _sem_regiao -> {:error, :no_layout}
+      _no_region -> {:error, :no_layout}
     end
   end
 
@@ -101,7 +101,7 @@ defmodule Pokex.Bots.Body do
       true ->
         case Pokex.Calibration.load() do
           {:ok, calib} -> calib
-          _sem_calibracao -> %Pokex.Calibration{scale: 1.0, layout: Pokex.Layout.current()}
+          _no_calibration -> %Pokex.Calibration{scale: 1.0, layout: Pokex.Layout.current()}
         end
     end
   end

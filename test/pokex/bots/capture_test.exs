@@ -420,13 +420,13 @@ defmodule Pokex.Bots.CaptureTest do
 
       {:ok, pid} =
         Capture.start_link(
-          name: :cap_regiao,
+          name: :cap_region,
           screen_capture_kit: Pokex.CaptureBackendFake,
           sck_retry_sleep_ms: 0
         )
 
       assert {:error, {:screen_capture_kit, @outside_frame}} =
-               Capture.grab(@bad_region, "feed_minimap.png", :cap_regiao)
+               Capture.grab(@bad_region, "feed_minimap.png", :cap_region)
 
       assert length(sck_capture_calls()) == 1
       refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, _}, &1))
@@ -489,13 +489,13 @@ defmodule Pokex.Bots.CaptureTest do
 
       {:ok, pid} =
         Capture.start_link(
-          name: :cap_alarme_regiao,
+          name: :cap_region_alarm,
           screen_capture_kit: Pokex.CaptureBackendFake,
           sck_retry_sleep_ms: 0
         )
 
-      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_alarme_regiao)
-      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_alarme_regiao)
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_region_alarm)
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_region_alarm)
 
       assert_receive {:rule_alarm, :captura, msg}
       assert msg =~ "feed_minimap.png"
@@ -513,18 +513,18 @@ defmodule Pokex.Bots.CaptureTest do
 
       {:ok, pid} =
         Capture.start_link(
-          name: :cap_realarme_regiao,
+          name: :cap_region_realarm,
           screen_capture_kit: Pokex.CaptureBackendFake,
           sck_retry_sleep_ms: 0
         )
 
-      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_realarme_regiao)
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_region_realarm)
       assert_receive {:rule_alarm, :captura, _}
 
       send(pid, {:sck_recovery_result, {:ok, :sck_novo}})
-      assert %{backend: :screen_capture_kit} = Capture.backend_info(:cap_realarme_regiao)
+      assert %{backend: :screen_capture_kit} = Capture.backend_info(:cap_region_realarm)
 
-      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_realarme_regiao)
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_region_realarm)
       refute_receive {:rule_alarm, _, _}, 50
       assert_receive {:game_log, :macro, msg}
       assert msg =~ "feed_minimap.png"
@@ -539,13 +539,13 @@ defmodule Pokex.Bots.CaptureTest do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
       {:ok, pid} = Capture.start_link(name: :cap_fome)
 
-      atrasado = System.monotonic_time(:millisecond) - 10_000
-      GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento.png", atrasado})
+      late = System.monotonic_time(:millisecond) - 10_000
+      GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento.png", late})
 
       assert_receive {:rule_alarm, :captura, msg}
       assert msg =~ "captura saturada"
 
-      GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento2.png", atrasado})
+      GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento2.png", late})
       refute_receive {:rule_alarm, _, _}, 50
 
       GenServer.stop(pid)

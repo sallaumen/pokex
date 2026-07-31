@@ -61,7 +61,7 @@ defmodule Pokex.Bots.ShinyGuard do
       pending_ref: nil,
       pending_px: 0,
       # NAMES read from the starred rows — the alarm says who it is
-      pending_nomes: [],
+      pending_names: [],
       last_fired_at: nil,
       last_reading_at: nil
     }
@@ -111,7 +111,7 @@ defmodule Pokex.Bots.ShinyGuard do
       px = Map.get(obs, :shiny_star_run, 0)
       state = broadcast_reading(state, px)
       seen? = Map.get(obs, :shiny_rows, []) != []
-      {:noreply, advance(state, seen?, px, nomes_shiny(obs))}
+      {:noreply, advance(state, seen?, px, shiny_names(obs))}
     else
       {:noreply, %{state | pending_ref: nil}}
     end
@@ -176,25 +176,25 @@ defmodule Pokex.Bots.ShinyGuard do
   defp demonitor(ref), do: Process.demonitor(ref, [:flush])
 
   # a clean frame refutes any pending sighting
-  defp advance(state, false, _px, _nomes), do: %{state | pending_ref: nil}
+  defp advance(state, false, _px, _names), do: %{state | pending_ref: nil}
 
-  defp advance(%{pending_ref: nil} = state, true, px, nomes) do
+  defp advance(%{pending_ref: nil} = state, true, px, names) do
     if cooled_down?(state) do
       ref = make_ref()
       Process.send_after(self(), {:confirm_shiny, ref}, Settings.get(:shiny_confirm_ms))
-      %{state | pending_ref: ref, pending_px: px, pending_nomes: nomes}
+      %{state | pending_ref: ref, pending_px: px, pending_names: names}
     else
       state
     end
   end
 
   # already pending: keep the freshest px (and names) for the log
-  defp advance(state, true, px, nomes), do: %{state | pending_px: px, pending_nomes: nomes}
+  defp advance(state, true, px, names), do: %{state | pending_px: px, pending_names: names}
 
   # WHO the shiny is: the interpreter already reads each row's name
   # (enemies_detail + shiny?) — the alarm used to say only "estrela 40px",
   # forcing a run to the screen to know whether to drop everything.
-  defp nomes_shiny(obs) do
+  defp shiny_names(obs) do
     obs
     |> Map.get(:enemies_detail, [])
     |> Enum.filter(&(Map.get(&1, :shiny?) == true))
@@ -236,7 +236,7 @@ defmodule Pokex.Bots.ShinyGuard do
 
   defp fire(state, px) do
     action = Settings.get(:shiny_action)
-    quem = if state.pending_nomes == [], do: "", else: " #{Enum.join(state.pending_nomes, ", ")}"
+    quem = if state.pending_names == [], do: "", else: " #{Enum.join(state.pending_names, ", ")}"
     reason = "✨ SHINY#{quem} na lista de batalha (estrela #{px}px)"
 
     # the trophy shelf first: the encounter is logged even if the action fails.
@@ -273,7 +273,7 @@ defmodule Pokex.Bots.ShinyGuard do
           ShinyLog.resolve_last("fugiu")
         end
 
-      _alarme_ou_lutar ->
+      _alarm_or_fight ->
         Logger.warning("ShinyGuard: #{reason} — modo lutar, só alarmando")
 
         Phoenix.PubSub.broadcast(

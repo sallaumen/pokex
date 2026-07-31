@@ -79,7 +79,7 @@ defmodule PokexWeb.AppHeaderTest do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "fishing",
-      {:fishing, %{state: :pescando, counters: %{}, error: nil}}
+      {:fishing, %{state: :fishing, counters: %{}, error: nil}}
     )
 
     assert render(view) =~ "Ativo"
@@ -108,11 +108,11 @@ defmodule PokexWeb.AppHeaderTest do
     assert eventually_renders(view, "Parado")
   end
 
-  defp eventually_renders(view, texto, tries \\ 50) do
+  defp eventually_renders(view, text, tries \\ 50) do
     cond do
-      view |> element("#app-bot-state") |> render() =~ texto -> true
+      view |> element("#app-bot-state") |> render() =~ text -> true
       tries == 0 -> false
-      true -> Process.sleep(10) && eventually_renders(view, texto, tries - 1)
+      true -> Process.sleep(10) && eventually_renders(view, text, tries - 1)
     end
   end
 
@@ -120,7 +120,7 @@ defmodule PokexWeb.AppHeaderTest do
   # LiveViews with no clause for it — a FunctionClauseError took the page down;
   # the header hook that subscribed now swallows what the page did not ask for
   test "worker noise (logs/alarms) does not crash any page", %{conn: conn} do
-    ruido = [
+    noise = [
       {"fishing", {:fishing_log, :debug, "delay 532ms → kill corner — parado"}},
       {"fishing", {:fishing_log, "legado de 2 elementos"}},
       {"combat", {:combat_log, :macro, "combate: alvo na lista; Tab"}},
@@ -132,14 +132,14 @@ defmodule PokexWeb.AppHeaderTest do
     for {path, _page} <- @routes do
       {:ok, view, _html} = live(conn, path)
 
-      for {topic, msg} <- ruido do
+      for {topic, msg} <- noise do
         Phoenix.PubSub.broadcast(Pokex.PubSub, topic, msg)
       end
 
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         "fishing",
-        {:fishing, %{state: :pescando, counters: %{}, error: nil}}
+        {:fishing, %{state: :fishing, counters: %{}, error: nil}}
       )
 
       assert eventually_renders(view, "Ativo"), "#{path} died under worker noise"

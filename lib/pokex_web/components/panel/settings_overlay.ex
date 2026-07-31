@@ -31,11 +31,11 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   attr :mode_overrides, :list, required: true
   attr :combos, :list, required: true
 
-  attr :captura_cfg, :map,
+  attr :capture_cfg, :map,
     required: true,
     doc: "match_pct, ball_key, ball_needs_click, max_balls, radius_tiles, dry_balls_alarm"
 
-  attr :estoque_cfg, :map, required: true, doc: "f1, f2, e, s_q"
+  attr :stock_cfg, :map, required: true, doc: "f1, f2, e, s_q"
 
   slot :inner_block,
     doc: "the remaining sections (combos, presets, session, advanced) — from the panel's assigns"
@@ -337,7 +337,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Similaridade mínima pro corpo casar com o acervo, em por cento"
                   min="30"
                   max="99"
-                  value={@captura_cfg.match_pct}
+                  value={@capture_cfg.match_pct}
                   phx-debounce="500"
                   class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
@@ -347,7 +347,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   name="ball_key"
                   type="text"
                   aria-label="Atalho da Pokébola"
-                  value={@captura_cfg.ball_key}
+                  value={@capture_cfg.ball_key}
                   phx-debounce="700"
                   class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
@@ -359,7 +359,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Bolas por corpo antes de desistir"
                   min="1"
                   max="9"
-                  value={@captura_cfg.max_balls}
+                  value={@capture_cfg.max_balls}
                   phx-debounce="500"
                   class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
@@ -371,7 +371,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Raio da varredura ao redor do personagem, em tiles"
                   min="1"
                   max="8"
-                  value={@captura_cfg.radius_tiles}
+                  value={@capture_cfg.radius_tiles}
                   phx-debounce="500"
                   class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
@@ -383,7 +383,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Bolas seguidas sem captura confirmada antes do alarme (0 desliga)"
                   min="0"
                   max="999"
-                  value={@captura_cfg.dry_balls_alarm}
+                  value={@capture_cfg.dry_balls_alarm}
                   phx-debounce="500"
                   class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
@@ -395,7 +395,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               title="Atalho precisa de CLIQUE"
               description="ligue se o atalho da bola armar uma mira que espera clique no alvo"
               detail="A sequência passa a clicar no corpo depois da tecla. Deixe desligado se a bola sai direto (Quick Cast)."
-              active={@captura_cfg.ball_needs_click}
+              active={@capture_cfg.ball_needs_click}
               event="toggle_ball_needs_click"
             />
           </section>
@@ -420,7 +420,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Limiar de estoque do slot F1"
                   min="0"
                   max="9999"
-                  value={@estoque_cfg.f1}
+                  value={@stock_cfg.f1}
                   phx-debounce="500"
                   class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
@@ -432,7 +432,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Limiar de estoque do slot F2"
                   min="0"
                   max="9999"
-                  value={@estoque_cfg.f2}
+                  value={@stock_cfg.f2}
                   phx-debounce="500"
                   class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
@@ -444,7 +444,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Limiar de estoque do slot E"
                   min="0"
                   max="9999"
-                  value={@estoque_cfg.e}
+                  value={@stock_cfg.e}
                   phx-debounce="500"
                   class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
@@ -456,7 +456,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Limiar de estoque dos slots S e Q"
                   min="0"
                   max="9999"
-                  value={@estoque_cfg.s_q}
+                  value={@stock_cfg.s_q}
                   phx-debounce="500"
                   class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
@@ -678,7 +678,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
       _estranho -> Pokex.Settings.get(:rescue_step_ms)
     end
   rescue
-    _sem_seed -> Pokex.Settings.get(:rescue_step_ms)
+    _no_seed -> Pokex.Settings.get(:rescue_step_ms)
   end
 
   defp rescue_combo_conflicts(combos, name) do

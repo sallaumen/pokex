@@ -614,7 +614,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Settings.put(:rescue_enabled, false)
     Settings.put(:reposition_enabled, true)
     Settings.put(:reposition_battle_clear_ms, 50)
-    Settings.put(:player_mode, "movimento")
+    Settings.put(:player_mode, "moving")
 
     {:ok, calib} = Calibration.load()
     Calibration.save(%{calib | pokemon_spot_point: {450, 380}})

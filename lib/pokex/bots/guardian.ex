@@ -262,7 +262,7 @@ defmodule Pokex.Bots.Guardian do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @combat_topic,
-        {:rule_alarm, :comando, "🕹️ canto de comando: parando o bot"}
+        {:rule_alarm, :command, "🕹️ canto de comando: parando o bot"}
       )
 
       Pokex.Bots.BotSupervisor.stop_all("canto de comando")
@@ -270,7 +270,7 @@ defmodule Pokex.Bots.Guardian do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @combat_topic,
-        {:rule_alarm, :comando, "🕹️ canto de comando: ligando o modo #{Pokex.Modes.current()}"}
+        {:rule_alarm, :command, "🕹️ canto de comando: ligando o modo #{Pokex.Modes.current()}"}
       )
 
       {:ok, _pid} = Task.start(fn -> Pokex.Bots.BotSupervisor.start_all() end)
@@ -318,13 +318,13 @@ defmodule Pokex.Bots.Guardian do
     end
   end
 
-  # A met goal ENDS the session. "parar" locks everything as usual; "deslogar"
+  # A met goal ENDS the session. "stop" locks everything as usual; "logout"
   # ends the account session, which is what actually saves stamina — a stopped
   # bot saves nothing, the character stays online burning. Logout sets the
   # latch and halts the fleet on its own; neither is duplicated here.
   defp session_end(state, reason) do
     case Settings.get(:stop_after_action) do
-      "deslogar" ->
+      "logout" ->
         Logger.info("Guardian: #{reason} — deslogando")
         state.logout_fun.(reason)
 
@@ -345,18 +345,18 @@ defmodule Pokex.Bots.Guardian do
       reason = "estagnação: sem kills nem peixes há #{minutes}min"
 
       case Settings.get(:stagnation_action) do
-        "parar" ->
+        "stop" ->
           session_stop(state, reason)
           state
 
-        "deslogar" ->
+        "logout" ->
           Logger.info("Guardian: #{reason} — deslogando")
           state.logout_fun.(reason)
           state
 
         _alarm ->
           Logger.info("Guardian: #{reason}")
-          Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :sessao, reason})
+          Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :session, reason})
           %{state | last_activity_at: now}
       end
     else

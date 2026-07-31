@@ -185,7 +185,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   @tag :tmp_dir
   test "start_all/5 in movimento mode starts combat but not fishing or the mini game" do
     servers = start_isolated_supervisor(:moving_test)
-    Pokex.SettingsStash.stash!(player_mode: "movimento")
+    Pokex.SettingsStash.stash!(player_mode: "moving")
 
     assert :ok =
              BotSupervisor.start_all(
@@ -212,7 +212,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     alias Pokex.Bots.Cavebot
 
     servers = start_isolated_supervisor(:cacada_test)
-    Pokex.SettingsStash.stash!(player_mode: "caçada")
+    Pokex.SettingsStash.stash!(player_mode: "hunt")
 
     {:ok, route} = Cavebot.Route.append(Cavebot.Route.new("rota de teste"), {10, 12, 5})
     :ok = Cavebot.Store.add(route)

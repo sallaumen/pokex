@@ -279,7 +279,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     state =
       cond do
         Perception.mini_game_playing?() -> state
-        Settings.get(:player_mode) == "parado" -> do_advance(state, obs)
+        Settings.get(:player_mode) == "still" -> do_advance(state, obs)
         true -> state
       end
 
@@ -340,7 +340,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     vistos =
       obs
       |> Map.get(:known, %{})
-      |> MapSet.new(fn {ponto, %{name: name}} -> {name, ponto} end)
+      |> MapSet.new(fn {point, %{name: name}} -> {name, point} end)
 
     novos = MapSet.difference(vistos, state.vistos)
 
@@ -409,7 +409,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     result =
       if performs != [] do
         performs
-        |> Enum.flat_map(fn {:capture_sequence, ponto} -> Ball.sequence(ponto) end)
+        |> Enum.flat_map(fn {:capture_sequence, point} -> Ball.sequence(point) end)
         |> Body.perform(:high, state.body)
       end
 
@@ -430,15 +430,15 @@ defmodule Pokex.Bots.Catcher.Worker do
           logic
       end
 
-    # the dry-ball alarm goes out under :captura (mutable in the bell)
+    # the dry-ball alarm goes out under :capture (mutable in the bell)
     for {:alarm, msg} <- actions do
-      Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :captura, msg})
+      Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :capture, msg})
     end
 
     state =
       if performs != [] do
         # a ball that flew because a SHINY was seen closes that log entry
-        if state.shiny_pending?, do: Pokex.Pokedex.ShinyLog.resolve_last("bola")
+        if state.shiny_pending?, do: Pokex.Pokedex.ShinyLog.resolve_last("ball")
 
         %{
           state
@@ -525,7 +525,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # the mini-game owns the moment. nil = a step that proves nothing (Logic
   # ignores it), never a false confirmation.
   defp scan_obs(state) do
-    if state.combat_engaged? or Settings.get(:player_mode) != "parado" or
+    if state.combat_engaged? or Settings.get(:player_mode) != "still" or
          not capture_allowed?(state) or Perception.mini_game_playing?(),
        do: nil,
        else: state.scanner |> safe_scan() |> narrate()
@@ -572,7 +572,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp best_text(%{best: nil}), do: "acervo vazio"
 
-  defp best_text(%{best: %{name: name, score: score, ponto: {x, y}}, threshold: threshold}) do
+  defp best_text(%{best: %{name: name, score: score, point: {x, y}}, threshold: threshold}) do
     verdict = if score >= threshold, do: "✓", else: "✗"
     "melhor: #{name} #{fmt(score)} #{verdict} em #{x},#{y} (limiar #{fmt(threshold)})"
   end
@@ -606,7 +606,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @topic,
-        {:rule_alarm, :captura,
+        {:rule_alarm, :capture,
          "🔒 captura DESLIGADA (só saque) — ligue o botão Captura no painel; " <>
            "nenhuma Pokébola será arremessada"}
       )
@@ -621,7 +621,7 @@ defmodule Pokex.Bots.Catcher.Worker do
         Phoenix.PubSub.broadcast(
           Pokex.PubSub,
           @topic,
-          {:rule_alarm, :captura,
+          {:rule_alarm, :capture,
            "🎯 acervo de corpos VAZIO — a captura não vai mirar nada; fotografe corpos na calibração"}
         )
 
@@ -669,7 +669,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   defp armed_idle?(state),
-    do: Settings.get(:player_mode) == "parado" and match?(%Logic{state: :armed}, state.logic)
+    do: Settings.get(:player_mode) == "still" and match?(%Logic{state: :armed}, state.logic)
 
   defp should_be_attached?(_state), do: false
 
@@ -740,7 +740,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp config, do: Settings.all() |> Map.take(@config_keys)
 
   defp mode_state(nil, _mode), do: :idle
-  defp mode_state(_logic, "movimento"), do: :manual
+  defp mode_state(_logic, "moving"), do: :manual
 
   defp mode_state(%Logic{state: :armed}, _mode) do
     if Settings.get(:capture_enabled), do: :armed, else: :looting

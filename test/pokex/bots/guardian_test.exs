@@ -253,7 +253,7 @@ defmodule Pokex.Bots.GuardianTest do
       on_exit(fn ->
         Pokex.Perception.WorldState.forget(:session)
         Pokex.Settings.put(:stagnation_minutes, 0)
-        Pokex.Settings.put(:stagnation_action, "alarme")
+        Pokex.Settings.put(:stagnation_action, "alarm")
       end)
 
       :ok
@@ -283,7 +283,7 @@ defmodule Pokex.Bots.GuardianTest do
 
       start_guardian!(on_panic)
 
-      assert_receive {:rule_alarm, :sessao, reason}, 1_000
+      assert_receive {:rule_alarm, :session, reason}, 1_000
       assert reason =~ "sem kills nem peixes há 1min"
 
       refute_receive {:rule_alarm, _, _}, 150
@@ -306,7 +306,7 @@ defmodule Pokex.Bots.GuardianTest do
     } do
       active_session!(61_000)
       Pokex.Settings.put(:stagnation_minutes, 1)
-      Pokex.Settings.put(:stagnation_action, "parar")
+      Pokex.Settings.put(:stagnation_action, "stop")
       Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
 
       start_guardian!(on_panic)
@@ -322,8 +322,8 @@ defmodule Pokex.Bots.GuardianTest do
       on_exit(fn ->
         Pokex.Perception.WorldState.forget(:session)
         Pokex.Settings.put(:stagnation_minutes, 0)
-        Pokex.Settings.put(:stagnation_action, "alarme")
-        Pokex.Settings.put(:stop_after_action, "parar")
+        Pokex.Settings.put(:stagnation_action, "alarm")
+        Pokex.Settings.put(:stop_after_action, "stop")
         Pokex.Settings.put(:stop_after_minutes, 0)
         Pokex.Settings.put(:stop_after_kills, 0)
         Pokex.Bots.InputGate.set_panic_latch(false)
@@ -353,7 +353,7 @@ defmodule Pokex.Bots.GuardianTest do
       owner = self()
       active_session!(61_000)
       Pokex.Settings.put(:stagnation_minutes, 1)
-      Pokex.Settings.put(:stagnation_action, "deslogar")
+      Pokex.Settings.put(:stagnation_action, "logout")
 
       start_guardian_with_logout!(on_panic, fn reason -> send(owner, {:logged_out, reason}) end)
 
@@ -366,7 +366,7 @@ defmodule Pokex.Bots.GuardianTest do
       owner = self()
       active_session!(0)
       Pokex.Settings.put(:stop_after_kills, 2)
-      Pokex.Settings.put(:stop_after_action, "deslogar")
+      Pokex.Settings.put(:stop_after_action, "logout")
 
       guardian =
         start_guardian_with_logout!(on_panic, fn reason -> send(owner, {:logged_out, reason}) end)
@@ -380,7 +380,7 @@ defmodule Pokex.Bots.GuardianTest do
     test "the kills goal with action parar still stops as always", %{on_panic: on_panic} do
       active_session!(0)
       Pokex.Settings.put(:stop_after_kills, 2)
-      Pokex.Settings.put(:stop_after_action, "parar")
+      Pokex.Settings.put(:stop_after_action, "stop")
 
       guardian =
         start_guardian_with_logout!(on_panic, fn _reason -> flunk("must not log out") end)
@@ -393,7 +393,7 @@ defmodule Pokex.Bots.GuardianTest do
     test "a cleared minigame resets the stagnation clock", %{on_panic: on_panic} do
       active_session!(61_000)
       Pokex.Settings.put(:stagnation_minutes, 1)
-      Pokex.Settings.put(:stagnation_action, "parar")
+      Pokex.Settings.put(:stagnation_action, "stop")
 
       guardian = start_guardian_with_logout!(on_panic, fn _reason -> :ok end)
       send(guardian, {:mini_game, %{state: :watching, counters: %{clears: 1}}})
@@ -404,7 +404,7 @@ defmodule Pokex.Bots.GuardianTest do
     test "with the minigame watcher stopped, a hook resets the clock", %{on_panic: on_panic} do
       active_session!(61_000)
       Pokex.Settings.put(:stagnation_minutes, 1)
-      Pokex.Settings.put(:stagnation_action, "parar")
+      Pokex.Settings.put(:stagnation_action, "stop")
 
       guardian = start_guardian_with_logout!(on_panic, fn _reason -> :ok end)
       send(guardian, {:mini_game, %{state: :off, counters: %{clears: 0}}})
@@ -420,7 +420,7 @@ defmodule Pokex.Bots.GuardianTest do
     } do
       active_session!(61_000)
       Pokex.Settings.put(:stagnation_minutes, 1)
-      Pokex.Settings.put(:stagnation_action, "parar")
+      Pokex.Settings.put(:stagnation_action, "stop")
 
       guardian = start_guardian_with_logout!(on_panic, fn _reason -> :ok end)
       send(guardian, {:mini_game, %{state: :watching, counters: %{clears: 0}}})

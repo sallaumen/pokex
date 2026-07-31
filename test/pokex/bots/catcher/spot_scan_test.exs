@@ -155,8 +155,8 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
 
       obs = SpotScan.scan(calib(), capture_with_corpses_at([{537, 417}]))
 
-      assert [ponto] = obs.corpses
-      assert %{name: "Kingler", score: score} = obs.known[ponto]
+      assert [point] = obs.corpses
+      assert %{name: "Kingler", score: score} = obs.known[point]
       assert score > 0.9, "a janela vencedora deve enquadrar quase igual ao ensino"
     end
 

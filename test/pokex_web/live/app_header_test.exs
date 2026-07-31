@@ -230,20 +230,20 @@ defmodule PokexWeb.AppHeaderTest do
       {:ok, view, _html} = live(conn, "/world")
 
       view
-      |> element("#app-alarm-category-estoque input")
-      |> render_click(%{"category" => "estoque"})
+      |> element("#app-alarm-category-stock input")
+      |> render_click(%{"category" => "stock"})
 
-      assert Pokex.Settings.get(:alarm_muted_categories) == ["estoque"]
-      refute has_element?(view, "#app-alarm-category-estoque input[checked]")
+      assert Pokex.Settings.get(:alarm_muted_categories) == ["stock"]
+      refute has_element?(view, "#app-alarm-category-stock input[checked]")
       assert has_element?(view, "#app-alarm-category-shiny input[checked]")
       assert Pokex.Settings.get(:alarm_sound)
 
       view
-      |> element("#app-alarm-category-estoque input")
-      |> render_click(%{"category" => "estoque"})
+      |> element("#app-alarm-category-stock input")
+      |> render_click(%{"category" => "stock"})
 
       assert Pokex.Settings.get(:alarm_muted_categories) == []
-      assert has_element?(view, "#app-alarm-category-estoque input[checked]")
+      assert has_element?(view, "#app-alarm-category-stock input[checked]")
     end
 
     test "an unknown category is never persisted — the Settings boundary still holds",

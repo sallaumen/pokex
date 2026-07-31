@@ -13,7 +13,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     SettingsStash.stash!(
       shiny_guard_enabled: true,
       shiny_confirm_ms: 40,
-      shiny_action: "alarme"
+      shiny_action: "alarm"
     )
 
     test = self()
@@ -113,7 +113,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
   @tag :tmp_dir
   test "action fugir triggers the injected escape protocol", %{guard: _guard} do
-    Settings.put(:shiny_action, "fugir")
+    Settings.put(:shiny_action, "escape")
 
     world_broadcast(shiny_obs(77))
 
@@ -147,7 +147,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
     @tag :tmp_dir
     test "with the latch set and action fugir, it does not flee" do
-      SettingsStash.stash!(shiny_action: "fugir")
+      SettingsStash.stash!(shiny_action: "escape")
       Pokex.Bots.InputGate.set_panic_latch(true)
 
       world_broadcast(shiny_obs())
@@ -158,7 +158,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     @tag :tmp_dir
     test "with the latch set, the alarm still goes out" do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
-      SettingsStash.stash!(shiny_action: "fugir")
+      SettingsStash.stash!(shiny_action: "escape")
       Pokex.Bots.InputGate.set_panic_latch(true)
 
       world_broadcast(shiny_obs())
@@ -170,7 +170,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
     @tag :tmp_dir
     test "with the latch free and action fugir, it flees — no regression" do
-      SettingsStash.stash!(shiny_action: "fugir")
+      SettingsStash.stash!(shiny_action: "escape")
       Pokex.Bots.InputGate.set_panic_latch(false)
 
       world_broadcast(shiny_obs())

@@ -489,7 +489,7 @@ defmodule PokexWeb.PanelLive do
 
     socket =
       socket
-      |> alarm(:escape, :fuga, "🏃 FUGA: #{reason} — #{note}")
+      |> alarm(:escape, :escape, "🏃 FUGA: #{reason} — #{note}")
       |> assign(session_started_at: nil)
 
     {:noreply, socket}
@@ -582,7 +582,7 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:session_stop, reason}, socket) do
     socket =
       socket
-      |> alarm(:session_stop, :sessao, "🛑 caçada parada: #{reason}")
+      |> alarm(:session_stop, :session, "🛑 caçada parada: #{reason}")
       |> assign(session_started_at: nil)
 
     {:noreply, socket}
@@ -712,7 +712,7 @@ defmodule PokexWeb.PanelLive do
 
     socket =
       case params["stop_after_action"] do
-        action when action in ["parar", "deslogar"] ->
+        action when action in ["stop", "logout"] ->
           Settings.put(:stop_after_action, action)
           assign(socket, stop_after_action: action)
 
@@ -740,7 +740,7 @@ defmodule PokexWeb.PanelLive do
 
     socket =
       case params["stagnation_action"] do
-        action when action in ["alarme", "parar", "deslogar"] ->
+        action when action in ["alarm", "stop", "logout"] ->
           Settings.put(:stagnation_action, action)
           assign(socket, stagnation_action: action)
 
@@ -1009,7 +1009,7 @@ defmodule PokexWeb.PanelLive do
   # The rescue mode (direct vs stun combo) and the chosen combo — one form,
   # both selects send both fields on every change.
   def handle_event("save_rescue_combo_cfg", params, socket) do
-    mode = params["rescue_mode"] || "direto"
+    mode = params["rescue_mode"] || "direct"
     combo = params["rescue_combo"] || ""
 
     Settings.put(:rescue_mode, mode)
@@ -1040,7 +1040,7 @@ defmodule PokexWeb.PanelLive do
   # radius, dry-ball alarm — with the real scores hugging the ruler (median
   # 75% vs threshold 72%), tuning meant editing JSON. The threshold speaks
   # PERCENT on screen and becomes a fraction in the setting.
-  def handle_event("save_captura_cfg", params, socket) do
+  def handle_event("save_capture_cfg", params, socket) do
     socket =
       socket
       |> save_similarity(params["corpse_match_pct"])
@@ -1063,7 +1063,7 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, ball_needs_click: value)}
   end
 
-  def handle_event("save_estoque_cfg", params, socket) do
+  def handle_event("save_stock_cfg", params, socket) do
     socket =
       socket
       |> save_int(params["stock_alert_f1"], 0..9_999, :stock_alert_f1, :stock_alert_f1)
@@ -1103,7 +1103,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("save_shiny_cfg", params, socket) do
     socket =
       case params["shiny_action"] do
-        action when action in ["fugir", "alarme"] ->
+        action when action in ["escape", "alarm"] ->
           Settings.put(:shiny_action, action)
           assign(socket, shiny_action: action)
 
@@ -1846,7 +1846,7 @@ defmodule PokexWeb.PanelLive do
 
     case Map.get(snapshot, :error) do
       error when is_binary(error) and is_nil(previous_error) ->
-        alarm(socket, {:error, key}, :erro, "#{worker_name(key)} em erro: #{error}")
+        alarm(socket, {:error, key}, :error, "#{worker_name(key)} em erro: #{error}")
 
       _no_edge ->
         socket
@@ -1861,7 +1861,7 @@ defmodule PokexWeb.PanelLive do
 
     if is_integer(current) and current < threshold and
          (previous == nil or previous >= threshold) do
-      alarm(socket, :hp_critical, :vida, "vida crítica: #{current}% (limiar #{threshold}%)")
+      alarm(socket, :hp_critical, :hp, "vida crítica: #{current}% (limiar #{threshold}%)")
     else
       socket
     end
@@ -1972,8 +1972,8 @@ defmodule PokexWeb.PanelLive do
     [
       active?(fishing.state),
       active?(combat.state),
-      loot_enabled and player_mode == "parado",
-      capture_enabled and player_mode == "parado",
+      loot_enabled and player_mode == "still",
+      capture_enabled and player_mode == "still",
       rescue_enabled,
       potion_enabled
     ]
@@ -2145,8 +2145,8 @@ defmodule PokexWeb.PanelLive do
               aria-label="O que fazer ao ver um shiny"
               class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
             >
-              <option value="fugir" selected={@shiny_action == "fugir"}>fugir 🏃</option>
-              <option value="alarme" selected={@shiny_action == "alarme"}>
+              <option value="escape" selected={@shiny_action == "escape"}>fugir 🏃</option>
+              <option value="alarm" selected={@shiny_action == "alarm"}>
                 lutar (só alarme) ⚔️
               </option>
             </select>
@@ -2213,15 +2213,17 @@ defmodule PokexWeb.PanelLive do
               <span class={[
                 "rounded px-1",
                 case entry.outcome do
-                  "morto" -> "bg-pk-danger-dim text-pk-danger"
-                  "bola" -> "bg-[#101d24] text-[#7cc0e8]"
-                  "fugiu" -> "bg-pk-warn-dim text-pk-warn"
-                  _visto -> "bg-pk-raised text-pk-text-2"
+                  "killed" -> "bg-pk-danger-dim text-pk-danger"
+                  "ball" -> "bg-[#101d24] text-[#7cc0e8]"
+                  "fled" -> "bg-pk-warn-dim text-pk-warn"
+                  _seen -> "bg-pk-raised text-pk-text-2"
                 end
               ]}>
-                {entry.outcome}
+                {Pokex.Pokedex.ShinyLog.outcome_label(entry.outcome)}
               </span>
-              <span class="text-pk-text-3">{entry.star_px}px · {entry.action}</span>
+              <span class="text-pk-text-3">{entry.star_px}px · {Pokex.Pokedex.ShinyLog.action_label(
+                entry.action
+              )}</span>
             </li>
           </ul>
         </div>
@@ -2270,8 +2272,8 @@ defmodule PokexWeb.PanelLive do
             name="stop_after_action"
             class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
           >
-            <option value="parar" selected={@stop_after_action == "parar"}>parar tudo</option>
-            <option value="deslogar" selected={@stop_after_action == "deslogar"}>
+            <option value="stop" selected={@stop_after_action == "stop"}>parar tudo</option>
+            <option value="logout" selected={@stop_after_action == "logout"}>
               deslogar
             </option>
           </select>
@@ -2300,9 +2302,9 @@ defmodule PokexWeb.PanelLive do
             name="stagnation_action"
             class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
           >
-            <option value="alarme" selected={@stagnation_action == "alarme"}>alarme</option>
-            <option value="parar" selected={@stagnation_action == "parar"}>parar tudo</option>
-            <option value="deslogar" selected={@stagnation_action == "deslogar"}>
+            <option value="alarm" selected={@stagnation_action == "alarm"}>alarme</option>
+            <option value="stop" selected={@stagnation_action == "stop"}>parar tudo</option>
+            <option value="logout" selected={@stagnation_action == "logout"}>
               deslogar
             </option>
           </select>
@@ -2729,9 +2731,9 @@ defmodule PokexWeb.PanelLive do
               <button
                 :for={
                   {mode, label, hint, icon} <- [
-                    {"parado", "Parado", "pesca no spot", "hero-map-pin"},
-                    {"movimento", "Movimento", "você anda, ele briga", "hero-arrow-trending-up"},
-                    {"caçada", "Caçada", "ele anda a rota e caça", "hero-map"}
+                    {"still", "Parado", "pesca no spot", "hero-map-pin"},
+                    {"moving", "Movimento", "você anda, ele briga", "hero-arrow-trending-up"},
+                    {"hunt", "Caçada", "ele anda a rota e caça", "hero-map"}
                   ]
                 }
                 id={"mode-#{mode}"}
@@ -2776,7 +2778,8 @@ defmodule PokexWeb.PanelLive do
                 class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-pk-ok text-pk-title font-bold text-pk-bg shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
                 phx-click="start"
               >
-                <.icon name="hero-play-solid" class="size-4" /> Iniciar — modo {@player_mode}
+                <.icon name="hero-play-solid" class="size-4" />
+                Iniciar — modo {Pokex.Modes.label(@player_mode)}
               </button>
               <p id="start-plan" class="mt-1 text-center font-mono text-pk-meta text-pk-text-3">
                 liga {mode_worker_labels(@player_mode)}

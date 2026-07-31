@@ -25,21 +25,25 @@ defmodule Pokex.Modes do
 
   alias Pokex.Settings
 
-  @default "parado"
+  @default "still"
+
+  # The mode is a stored value, so it is English like the rest of the code; the
+  # panel shows `label/1` instead of the raw value.
+  @labels %{"still" => "Parado", "moving" => "Movimento", "hunt" => "Caçada"}
 
   @bundles %{
-    "parado" => %{
+    "still" => %{
       workers: [:fishing, :combat, :catcher, :mini_game, :player_support],
       settings: %{capture_enabled: true, reposition_enabled: true}
     },
-    "movimento" => %{
+    "moving" => %{
       # The catcher stays UP: its Space-loot fires on the kill edge and reaches
       # the corpse on the adjacent tile from wherever he is standing. Only the
       # ball, gated separately, needs him still.
       workers: [:combat, :catcher, :player_support],
       settings: %{capture_enabled: false, reposition_enabled: false}
     },
-    "caçada" => %{
+    "hunt" => %{
       # NO :combat here — the cavebot OWNS the Combat's run/halt (it arms the
       # fight on its first tick and only drops it when it blocks). Starting the
       # fight directly would leave two owners disagreeing about it.
@@ -55,6 +59,9 @@ defmodule Pokex.Modes do
 
   @doc "Whether `mode` is one this bot knows how to run."
   def known?(mode), do: mode in @modes
+
+  @doc "How the panel names `mode` — the value itself if it is not one of ours."
+  def label(mode), do: Map.get(@labels, mode, to_string(mode))
 
   @doc "The mode in force."
   def current(server \\ Settings), do: Settings.get(:player_mode, server)

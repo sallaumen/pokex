@@ -497,7 +497,7 @@ defmodule Pokex.Bots.CaptureTest do
       assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_region_alarm)
       assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_region_alarm)
 
-      assert_receive {:rule_alarm, :captura, msg}
+      assert_receive {:rule_alarm, :capture, msg}
       assert msg =~ "feed_minimap.png"
       assert msg =~ "Recalibre"
       refute_receive {:rule_alarm, _, _}, 50
@@ -519,7 +519,7 @@ defmodule Pokex.Bots.CaptureTest do
         )
 
       assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_region_realarm)
-      assert_receive {:rule_alarm, :captura, _}
+      assert_receive {:rule_alarm, :capture, _}
 
       send(pid, {:sck_recovery_result, {:ok, :sck_novo}})
       assert %{backend: :screen_capture_kit} = Capture.backend_info(:cap_region_realarm)
@@ -542,7 +542,7 @@ defmodule Pokex.Bots.CaptureTest do
       late = System.monotonic_time(:millisecond) - 10_000
       GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento.png", late})
 
-      assert_receive {:rule_alarm, :captura, msg}
+      assert_receive {:rule_alarm, :capture, msg}
       assert msg =~ "captura saturada"
 
       GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento2.png", late})

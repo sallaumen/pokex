@@ -340,7 +340,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # The mode bundle switches the setting off when he moves, but the check lives
   # here too — the worker must not depend on the panel having applied a preset.
   defp maybe_reposition(state) do
-    with "parado" <- Settings.get(:player_mode),
+    with "still" <- Settings.get(:player_mode),
          true <- Settings.get(:reposition_enabled),
          {:ok, %Calibration{pokemon_spot_point: point}} when is_tuple(point) <-
            Calibration.load(),

@@ -59,4 +59,52 @@ defmodule Pokex.VisionStarTest do
 
     assert Vision.star_rows(red, top: 0, band: 20, rows: 2, min_cluster: 3) == []
   end
+
+  describe "os falsos alarmes do campo (2026-07-30) — as capturas REAIS do Lucas" do
+    # O guarda alarmou tanto que foi DESLIGADO. Reproduzido offline nas
+    # capturas dele: o ícone do Shuckle (a lâmpada amarela, b chegando a 0 e
+    # g>r) e ícones genuinamente dourados disparavam "estrela". Duas defesas,
+    # cada uma provada por um fixture que a OUTRA não cura:
+    #   - piso de cor (b>=50, g<=r) → mata a classe Shuckle/Vileplume;
+    #   - zona do nome (min_x)      → mata os ícones genuinamente dourados.
+    defp fixture!(nome) do
+      {:ok, frame} = Frame.from_png_file("test/fixtures/shiny/#{nome}")
+      frame
+    end
+
+    test "o ícone do Shuckle não é mais estrela — o piso de cor basta" do
+      # antes do piso: estrela falsa na fileira 0 com run 7, nas DUAS capturas
+      assert Vision.star_rows(fixture!("shuckle_falsa_estrela.png"),
+               top: 30,
+               band: 46,
+               rows: 6,
+               min_cluster: 3
+             ) == []
+
+      assert Vision.star_rows(fixture!("shuckle_falsa_estrela_2.png"),
+               top: 30,
+               band: 46,
+               rows: 6,
+               min_cluster: 3
+             ) == []
+    end
+
+    test "ícones GENUINAMENTE dourados (g<=r em 976/976 px) só morrem pela ZONA" do
+      frame = fixture!("icones_falsa_estrela_3fileiras.png")
+      opts = [top: 30, band: 46, rows: 6, min_cluster: 3]
+
+      # sem zona, o piso de cor não separa: 3 fileiras falsas sobrevivem
+      assert length(Vision.star_rows(frame, opts)) == 3
+
+      # os ícones terminam em x<=52; a zona do nome (63 = 83-20) os corta
+      assert Vision.star_rows(frame, opts ++ [min_x: 63]) == []
+    end
+
+    test "a estrela REAL da Shiny Seadra sobrevive ao predicado endurecido" do
+      # medida no campo: b 70..148, r>=g — o piso (b>=50, g<=r) passa 36/36 px
+      {:ok, seadra} = Frame.from_png_file(@fixture)
+      assert [{1, run}] = Vision.star_rows(seadra, top: 8, band: 47, rows: 2, min_cluster: 3)
+      assert run >= 5
+    end
+  end
 end

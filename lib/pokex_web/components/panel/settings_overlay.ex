@@ -32,6 +32,12 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   attr :mode_overrides, :list, required: true
   attr :combos, :list, required: true
 
+  attr :captura_cfg, :map,
+    required: true,
+    doc: "match_pct, ball_key, ball_needs_click, max_balls, radius_tiles, dry_balls_alarm"
+
+  attr :estoque_cfg, :map, required: true, doc: "f1, f2, e, s_q"
+
   slot :inner_block,
     doc:
       "as demais seções (combos, presets, sessão, avançado) — vêm do painel com os assigns dele"
@@ -309,6 +315,155 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                 </button>
               </div>
             </form>
+          </section>
+
+          <%!-- A captura inteira era só-arquivo — com os scores reais colados na
+                régua (mediana 75% vs limiar 72%), ajustar exigia editar JSON. --%>
+          <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-sunken">
+            <.group_header
+              label="Captura (Pokébola)"
+              accent="bg-[#8f6ad1]"
+              note="a linha 🔎 do feed mostra o melhor score de cada varredura — ajuste o limiar por ela"
+            />
+            <div class="space-y-1.5 px-3 py-2.5 font-mono text-pk-meta text-pk-text-3">
+              <form
+                id="captura-cfg-form"
+                phx-change="save_captura_cfg"
+                class="flex flex-wrap items-center gap-x-1 gap-y-1.5"
+              >
+                <label for="captura-match">reconhece com ≥</label>
+                <input
+                  id="captura-match"
+                  name="corpse_match_pct"
+                  type="number"
+                  aria-label="Similaridade mínima pro corpo casar com o acervo, em por cento"
+                  min="30"
+                  max="99"
+                  value={@captura_cfg.match_pct}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span>% · tecla</span>
+                <input
+                  id="captura-ball-key"
+                  name="ball_key"
+                  type="text"
+                  aria-label="Atalho da Pokébola"
+                  value={@captura_cfg.ball_key}
+                  phx-debounce="700"
+                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span>· até</span>
+                <input
+                  id="captura-max-balls"
+                  name="corpse_max_balls"
+                  type="number"
+                  aria-label="Bolas por corpo antes de desistir"
+                  min="1"
+                  max="9"
+                  value={@captura_cfg.max_balls}
+                  phx-debounce="500"
+                  class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span>bola(s)/corpo · varre</span>
+                <input
+                  id="captura-radius"
+                  name="corpse_scan_radius_tiles"
+                  type="number"
+                  aria-label="Raio da varredura ao redor do personagem, em tiles"
+                  min="1"
+                  max="8"
+                  value={@captura_cfg.radius_tiles}
+                  phx-debounce="500"
+                  class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span>tile(s) · alarme após</span>
+                <input
+                  id="captura-dry-alarm"
+                  name="dry_balls_alarm"
+                  type="number"
+                  aria-label="Bolas seguidas sem captura confirmada antes do alarme (0 desliga)"
+                  min="0"
+                  max="999"
+                  value={@captura_cfg.dry_balls_alarm}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span>bola(s) seca(s)</span>
+              </form>
+            </div>
+            <.automation_row
+              id="automation-ball-click"
+              title="Atalho precisa de CLIQUE"
+              description="ligue se o atalho da bola armar uma mira que espera clique no alvo"
+              detail="A sequência passa a clicar no corpo depois da tecla. Deixe desligado se a bola sai direto (Quick Cast)."
+              active={@captura_cfg.ball_needs_click}
+              event="toggle_ball_needs_click"
+            />
+          </section>
+
+          <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-sunken">
+            <.group_header
+              label="Estoque — alarmes de suprimento"
+              accent="bg-[#b8933d]"
+              note="alarma quando a contagem lida no HUD cai abaixo do limiar"
+            />
+            <div class="px-3 py-2.5 font-mono text-pk-meta text-pk-text-3">
+              <form
+                id="estoque-cfg-form"
+                phx-change="save_estoque_cfg"
+                class="flex flex-wrap items-center gap-x-1 gap-y-1.5"
+              >
+                <label for="estoque-f1">F1 &lt;</label>
+                <input
+                  id="estoque-f1"
+                  name="stock_alert_f1"
+                  type="number"
+                  aria-label="Limiar de estoque do slot F1"
+                  min="0"
+                  max="9999"
+                  value={@estoque_cfg.f1}
+                  phx-debounce="500"
+                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <label for="estoque-f2">· F2 &lt;</label>
+                <input
+                  id="estoque-f2"
+                  name="stock_alert_f2"
+                  type="number"
+                  aria-label="Limiar de estoque do slot F2"
+                  min="0"
+                  max="9999"
+                  value={@estoque_cfg.f2}
+                  phx-debounce="500"
+                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <label for="estoque-e">· E &lt;</label>
+                <input
+                  id="estoque-e"
+                  name="stock_alert_e"
+                  type="number"
+                  aria-label="Limiar de estoque do slot E"
+                  min="0"
+                  max="9999"
+                  value={@estoque_cfg.e}
+                  phx-debounce="500"
+                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <label for="estoque-sq">· S/Q &lt;</label>
+                <input
+                  id="estoque-sq"
+                  name="stock_alert_s_q"
+                  type="number"
+                  aria-label="Limiar de estoque dos slots S e Q"
+                  min="0"
+                  max="9999"
+                  value={@estoque_cfg.s_q}
+                  phx-debounce="500"
+                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+              </form>
+            </div>
           </section>
 
           <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-sunken">

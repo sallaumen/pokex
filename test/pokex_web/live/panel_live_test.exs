@@ -1002,6 +1002,75 @@ defmodule PokexWeb.PanelLiveTest do
     refute render(view) =~ "fisga 8 9"
   end
 
+  test "o ⚙️ salva os knobs da CAPTURA — o limiar fala %, o setting guarda fração", %{conn: conn} do
+    originais =
+      for chave <- [
+            :corpse_match_min_similarity,
+            :ball_key,
+            :ball_needs_click,
+            :corpse_max_balls,
+            :corpse_scan_radius_tiles,
+            :dry_balls_alarm
+          ],
+          into: %{},
+          do: {chave, Pokex.Settings.get(chave)}
+
+    on_exit(fn -> Enum.each(originais, fn {k, v} -> Pokex.Settings.put(k, v) end) end)
+
+    {:ok, view, _} = live(conn, ~p"/config")
+
+    view
+    |> form("#captura-cfg-form", %{
+      "corpse_match_pct" => "80",
+      "ball_key" => "F3",
+      "corpse_max_balls" => "3",
+      "corpse_scan_radius_tiles" => "4",
+      "dry_balls_alarm" => "6"
+    })
+    |> render_change()
+
+    assert Pokex.Settings.get(:corpse_match_min_similarity) == 0.8
+    # a tecla é normalizada pra minúscula (o Rig fala minúsculo)
+    assert Pokex.Settings.get(:ball_key) == "f3"
+    assert Pokex.Settings.get(:corpse_max_balls) == 3
+    assert Pokex.Settings.get(:corpse_scan_radius_tiles) == 4
+    assert Pokex.Settings.get(:dry_balls_alarm) == 6
+
+    # tecla vazia no meio da digitação NÃO apaga o atalho
+    view |> form("#captura-cfg-form", %{"ball_key" => "  "}) |> render_change()
+    assert Pokex.Settings.get(:ball_key) == "f3"
+
+    # o clique opcional da bola liga e desliga
+    refute Pokex.Settings.get(:ball_needs_click)
+    view |> element("#automation-ball-click-toggle") |> render_click()
+    assert Pokex.Settings.get(:ball_needs_click)
+  end
+
+  test "o ⚙️ salva os limiares de ESTOQUE", %{conn: conn} do
+    originais =
+      for chave <- [:stock_alert_f1, :stock_alert_f2, :stock_alert_e, :stock_alert_s_q],
+          into: %{},
+          do: {chave, Pokex.Settings.get(chave)}
+
+    on_exit(fn -> Enum.each(originais, fn {k, v} -> Pokex.Settings.put(k, v) end) end)
+
+    {:ok, view, _} = live(conn, ~p"/config")
+
+    view
+    |> form("#estoque-cfg-form", %{
+      "stock_alert_f1" => "50",
+      "stock_alert_f2" => "15",
+      "stock_alert_e" => "8",
+      "stock_alert_s_q" => "12"
+    })
+    |> render_change()
+
+    assert Pokex.Settings.get(:stock_alert_f1) == 50
+    assert Pokex.Settings.get(:stock_alert_f2) == 15
+    assert Pokex.Settings.get(:stock_alert_e) == 8
+    assert Pokex.Settings.get(:stock_alert_s_q) == 12
+  end
+
   test "saves the rescue threshold + cooldown and rejects nonsense values", %{conn: conn} do
     original = Pokex.Settings.get(:pokemon_hp_rescue_pct)
     cooldown = Pokex.Settings.get(:rescue_cooldown_ms)

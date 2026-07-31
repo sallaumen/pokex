@@ -142,6 +142,16 @@ defmodule PokexWeb.PanelLive do
        reposition_enabled: Settings.get(:reposition_enabled),
        support_waits_capture: Settings.get(:support_waits_capture),
        shiny_guard_enabled: Settings.get(:shiny_guard_enabled),
+       corpse_match_pct: round(Settings.get(:corpse_match_min_similarity) * 100),
+       ball_key: Settings.get(:ball_key),
+       ball_needs_click: Settings.get(:ball_needs_click),
+       corpse_max_balls: Settings.get(:corpse_max_balls),
+       corpse_scan_radius_tiles: Settings.get(:corpse_scan_radius_tiles),
+       dry_balls_alarm: Settings.get(:dry_balls_alarm),
+       stock_alert_f1: Settings.get(:stock_alert_f1),
+       stock_alert_f2: Settings.get(:stock_alert_f2),
+       stock_alert_e: Settings.get(:stock_alert_e),
+       stock_alert_s_q: Settings.get(:stock_alert_s_q),
        shiny_action: Settings.get(:shiny_action),
        shiny_msg: nil,
        shiny_star_run: nil,
@@ -228,6 +238,16 @@ defmodule PokexWeb.PanelLive do
       potion_pct: Settings.get(:pokemon_hp_potion_pct),
       reposition_enabled: Settings.get(:reposition_enabled),
       support_waits_capture: Settings.get(:support_waits_capture),
+      corpse_match_pct: round(Settings.get(:corpse_match_min_similarity) * 100),
+      ball_key: Settings.get(:ball_key),
+      ball_needs_click: Settings.get(:ball_needs_click),
+      corpse_max_balls: Settings.get(:corpse_max_balls),
+      corpse_scan_radius_tiles: Settings.get(:corpse_scan_radius_tiles),
+      dry_balls_alarm: Settings.get(:dry_balls_alarm),
+      stock_alert_f1: Settings.get(:stock_alert_f1),
+      stock_alert_f2: Settings.get(:stock_alert_f2),
+      stock_alert_e: Settings.get(:stock_alert_e),
+      stock_alert_s_q: Settings.get(:stock_alert_s_q),
       presets: Settings.list_presets(),
       # the bundle keys whose value in force is NOT what the mode promises —
       # each one gets a "manual" badge instead of silently disagreeing
@@ -1012,6 +1032,44 @@ defmodule PokexWeb.PanelLive do
     {:noreply, socket}
   end
 
+  # A captura inteira era só-arquivo: limiar, tecla, bolas por corpo, raio da
+  # varredura, alarme de bola seca — com os scores reais colados na régua
+  # (mediana 75% vs limiar 72%), ajustar exigia editar JSON. O limiar fala em
+  # PORCENTAGEM na tela e vira fração no setting.
+  def handle_event("save_captura_cfg", params, socket) do
+    socket =
+      socket
+      |> save_similaridade(params["corpse_match_pct"])
+      |> save_ball_key(params["ball_key"])
+      |> save_int(params["corpse_max_balls"], 1..9, :corpse_max_balls, :corpse_max_balls)
+      |> save_int(
+        params["corpse_scan_radius_tiles"],
+        1..8,
+        :corpse_scan_radius_tiles,
+        :corpse_scan_radius_tiles
+      )
+      |> save_int(params["dry_balls_alarm"], 0..999, :dry_balls_alarm, :dry_balls_alarm)
+
+    {:noreply, socket}
+  end
+
+  def handle_event("toggle_ball_needs_click", _params, socket) do
+    value = not Settings.get(:ball_needs_click)
+    Settings.put(:ball_needs_click, value)
+    {:noreply, assign(socket, ball_needs_click: value)}
+  end
+
+  def handle_event("save_estoque_cfg", params, socket) do
+    socket =
+      socket
+      |> save_int(params["stock_alert_f1"], 0..9_999, :stock_alert_f1, :stock_alert_f1)
+      |> save_int(params["stock_alert_f2"], 0..9_999, :stock_alert_f2, :stock_alert_f2)
+      |> save_int(params["stock_alert_e"], 0..9_999, :stock_alert_e, :stock_alert_e)
+      |> save_int(params["stock_alert_s_q"], 0..9_999, :stock_alert_s_q, :stock_alert_s_q)
+
+    {:noreply, socket}
+  end
+
   def handle_event("toggle_potion", _params, socket) do
     value = not Settings.get(:potion_enabled)
     Settings.put(:potion_enabled, value)
@@ -1326,6 +1384,30 @@ defmodule PokexWeb.PanelLive do
         socket
     end
   end
+
+  # A UI fala PORCENTAGEM (limiar 72%); o setting guarda a fração 0..1.
+  defp save_similaridade(socket, raw) do
+    case PanelForms.parse_int(raw, 30..99) do
+      {:ok, value} ->
+        Settings.put(:corpse_match_min_similarity, value / 100)
+        assign(socket, corpse_match_pct: value)
+
+      :error ->
+        socket
+    end
+  end
+
+  # Tecla vazia não vira setting — apagar o campo no meio da digitação não pode
+  # deixar a bola sem atalho.
+  defp save_ball_key(socket, raw) when is_binary(raw) do
+    tecla = raw |> String.trim() |> String.downcase()
+
+    if tecla != "" and Settings.put(:ball_key, tecla) == :ok,
+      do: assign(socket, ball_key: tecla),
+      else: socket
+  end
+
+  defp save_ball_key(socket, _ausente), do: socket
 
   # The UI speaks SECONDS (what Lucas reasons in); the settings store milliseconds.
   defp save_seconds(socket, raw, range, setting_key, assign_key) do
@@ -3123,6 +3205,24 @@ defmodule PokexWeb.PanelLive do
         player_mode={@player_mode}
         mode_overrides={@mode_overrides}
         combos={@combos}
+        captura_cfg={
+          %{
+            match_pct: @corpse_match_pct,
+            ball_key: @ball_key,
+            ball_needs_click: @ball_needs_click,
+            max_balls: @corpse_max_balls,
+            radius_tiles: @corpse_scan_radius_tiles,
+            dry_balls_alarm: @dry_balls_alarm
+          }
+        }
+        estoque_cfg={
+          %{
+            f1: @stock_alert_f1,
+            f2: @stock_alert_f2,
+            e: @stock_alert_e,
+            s_q: @stock_alert_s_q
+          }
+        }
       >
         <.settings_sections {assigns} />
       </PokexWeb.Panel.SettingsOverlay.settings_overlay>

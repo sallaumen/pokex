@@ -352,7 +352,7 @@ defmodule Pokex.Vision do
     rows = Keyword.fetch!(opts, :rows)
     min_run = Keyword.get(opts, :min_cluster, @star_min_run)
 
-    cells = gold_cells(rgba, 0, w, top, band, rows, %{})
+    cells = gold_cells(rgba, 0, w, Keyword.get(opts, :min_x, 0), top, band, rows, %{})
 
     for row <- 0..(rows - 1)//1,
         run = dense_run(cells, row, w),
@@ -368,7 +368,7 @@ defmodule Pokex.Vision do
     top = Keyword.fetch!(opts, :top)
     band = Keyword.fetch!(opts, :band)
     rows = Keyword.fetch!(opts, :rows)
-    cells = gold_cells(rgba, 0, w, top, band, rows, %{})
+    cells = gold_cells(rgba, 0, w, Keyword.get(opts, :min_x, 0), top, band, rows, %{})
 
     for row <- 0..(rows - 1)//1, do: dense_run(cells, row, w)
   end
@@ -391,8 +391,17 @@ defmodule Pokex.Vision do
     |> elem(0)
   end
 
-  defp gold_cells(<<r, g, b, _a, rest::binary>>, index, width, top, band, rows, acc)
-       when r >= 190 and g >= 130 and b <= 150 and r - b >= 80 and g - b >= 40 and g * 10 >= r * 6 do
+  # O predicado do OURO, endurecido pelo campo (2026-07-30, reproduzido nas
+  # capturas reais do Lucas): a versão antiga aceitava b=0 e verde acima do
+  # vermelho — o ícone do Shuckle (a lâmpada amarela) e as pétalas do Vileplume
+  # passavam como estrela, e o guarda alarmou tanto que foi DESLIGADO. A
+  # estrela real mede b 70..148 com r>=g; o piso b>=50 e g<=r cortam os
+  # impostores sem tocar nela. E `min_x` restringe a busca à ZONA DO NOME (os
+  # ícones das criaturas terminam em x<=72; TODO falso positivo medido estava
+  # em x 45..71) — a estrela mora colada no início do nome.
+  defp gold_cells(<<r, g, b, _a, rest::binary>>, index, width, min_x, top, band, rows, acc)
+       when r >= 190 and g >= 130 and b <= 150 and b >= 50 and g <= r and r - b >= 80 and
+              g - b >= 40 and g * 10 >= r * 6 and rem(index, width) >= min_x do
     y = div(index, width)
     row = if y >= top, do: div(y - top, band), else: -1
 
@@ -401,13 +410,13 @@ defmodule Pokex.Vision do
         do: Map.update(acc, {row, rem(index, width)}, 1, &(&1 + 1)),
         else: acc
 
-    gold_cells(rest, index + 1, width, top, band, rows, acc)
+    gold_cells(rest, index + 1, width, min_x, top, band, rows, acc)
   end
 
-  defp gold_cells(<<_::32, rest::binary>>, index, width, top, band, rows, acc),
-    do: gold_cells(rest, index + 1, width, top, band, rows, acc)
+  defp gold_cells(<<_::32, rest::binary>>, index, width, min_x, top, band, rows, acc),
+    do: gold_cells(rest, index + 1, width, min_x, top, band, rows, acc)
 
-  defp gold_cells(<<>>, _index, _width, _top, _band, _rows, acc), do: acc
+  defp gold_cells(<<>>, _index, _width, _min_x, _top, _band, _rows, acc), do: acc
 
   @doc """
   The single locked battle row: the loudest band whose red count reaches

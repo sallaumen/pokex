@@ -60,13 +60,17 @@ defmodule Pokex.Perception.Interpret do
       end
 
     # The SHINY star (gold ★ before a shiny's name) — the game telling us
-    # outright, on the region combat already captures every ~120ms.
+    # outright, on the region combat already captures every ~120ms. A busca é
+    # restrita à ZONA DO NOME: os ícones das criaturas (x<=72) têm amarelos que
+    # passavam como estrela (Shuckle, Vileplume — os falsos alarmes que fizeram
+    # o Lucas DESLIGAR o guarda; reproduzido nas capturas reais dele).
     stars =
       Vision.star_rows(body,
         top: top,
         band: band,
         rows: rows,
-        min_cluster: Settings.value(settings, :shiny_star_min_columns)
+        min_cluster: Settings.value(settings, :shiny_star_min_columns),
+        min_x: zona_da_estrela(measured)
       )
 
     detail = enemies_detail(body, measured, creatures, Enum.map(stars, &elem(&1, 0)))
@@ -98,6 +102,15 @@ defmodule Pokex.Perception.Interpret do
   end
 
   # Who is in the list: the name the game prints and how hurt they are. Only
+  # A estrela mora colada no início do nome (nome em x=83 no perfil medido).
+  # 20px de folga: os ícones GENUINAMENTE dourados — que o piso de cor não
+  # separa (medido: 976/976 px com g<=r num ícone dourado real) — terminam em
+  # x<=52, e a folga cobre o glifo da estrela inteiro mesmo que ele comece
+  # antes do nome. Sem layout medido, sem restrição — o piso de cor do
+  # predicado segue sozinho como defesa (cura a classe Shuckle/Vileplume).
+  defp zona_da_estrela(%{name: {[nx, _ny], _size}}), do: max(nx - 20, 0)
+  defp zona_da_estrela(_sem_layout), do: 0
+
   # rows that actually hold a creature are described — an empty row has no name
   # to read and no bar to measure.
   defp enemies_detail(_body, nil, _creatures, _shiny_rows), do: []

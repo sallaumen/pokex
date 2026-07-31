@@ -60,6 +60,8 @@ defmodule Pokex.Bots.ShinyGuard do
       # a sighting awaiting its confirm window; ref ties the timer to THIS pending
       pending_ref: nil,
       pending_px: 0,
+      # os NOMES lidos nas fileiras com estrela — o alarme diz quem é
+      pending_nomes: [],
       last_fired_at: nil,
       last_reading_at: nil
     }
@@ -109,7 +111,7 @@ defmodule Pokex.Bots.ShinyGuard do
       px = Map.get(obs, :shiny_star_run, 0)
       state = broadcast_reading(state, px)
       seen? = Map.get(obs, :shiny_rows, []) != []
-      {:noreply, advance(state, seen?, px)}
+      {:noreply, advance(state, seen?, px, nomes_shiny(obs))}
     else
       {:noreply, %{state | pending_ref: nil}}
     end
@@ -178,20 +180,31 @@ defmodule Pokex.Bots.ShinyGuard do
   # -- detection ---------------------------------------------------------------
 
   # a clean frame refutes any pending sighting
-  defp advance(state, false, _px), do: %{state | pending_ref: nil}
+  defp advance(state, false, _px, _nomes), do: %{state | pending_ref: nil}
 
-  defp advance(%{pending_ref: nil} = state, true, px) do
+  defp advance(%{pending_ref: nil} = state, true, px, nomes) do
     if cooled_down?(state) do
       ref = make_ref()
       Process.send_after(self(), {:confirm_shiny, ref}, Settings.get(:shiny_confirm_ms))
-      %{state | pending_ref: ref, pending_px: px}
+      %{state | pending_ref: ref, pending_px: px, pending_nomes: nomes}
     else
       state
     end
   end
 
-  # already pending: keep the freshest px for the log
-  defp advance(state, true, px), do: %{state | pending_px: px}
+  # already pending: keep the freshest px (and names) for the log
+  defp advance(state, true, px, nomes), do: %{state | pending_px: px, pending_nomes: nomes}
+
+  # QUEM é a shiny: o interpretador já lê o nome de cada fileira
+  # (enemies_detail + shiny?) — o alarme dizia só "estrela 40px" e o Lucas
+  # tinha que correr pra tela pra saber se valia largar tudo.
+  defp nomes_shiny(obs) do
+    obs
+    |> Map.get(:enemies_detail, [])
+    |> Enum.filter(&(Map.get(&1, :shiny?) == true))
+    |> Enum.map(&Map.get(&1, :name))
+    |> Enum.reject(&is_nil/1)
+  end
 
   # the encounter is "open" for a while after the sighting — long enough for a
   # fight to end, short enough not to claim an unrelated kill
@@ -227,10 +240,18 @@ defmodule Pokex.Bots.ShinyGuard do
 
   defp fire(state, px) do
     action = Settings.get(:shiny_action)
-    reason = "✨ SHINY na lista de batalha (estrela #{px}px)"
+    quem = if state.pending_nomes == [], do: "", else: " #{Enum.join(state.pending_nomes, ", ")}"
+    reason = "✨ SHINY#{quem} na lista de batalha (estrela #{px}px)"
 
-    # the trophy shelf first: the encounter is logged even if the action fails
-    ShinyLog.record(star_run: px, action: action, outcome: "visto")
+    # the trophy shelf first: the encounter is logged even if the action fails.
+    # star_px, não star_run: o record/1 lê attrs[:star_px] — a chave errada
+    # deixou TODO troféu do log sem a medida da estrela desde sempre.
+    ShinyLog.record(
+      star_px: px,
+      action: action,
+      outcome: "visto",
+      note: if(quem == "", do: nil, else: String.trim(quem))
+    )
 
     case action do
       "fugir" ->

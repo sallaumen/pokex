@@ -63,6 +63,33 @@ defmodule Pokex.Bots.ShinyGuardTest do
   end
 
   @tag :tmp_dir
+  test "o alarme diz QUEM é a shiny, e o troféu grava a estrela (star_px)", %{guard: guard} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    # o interpretador já lê o nome da fileira estrelada (enemies_detail);
+    # o alarme dizia só "estrela 40px" e o Lucas corria pra tela pra saber
+    # se valia largar tudo
+    obs =
+      shiny_obs()
+      |> Map.put(:enemies_detail, [
+        %{row: 0, name: "Wigglytuff", hp_pct: 90, shiny?: false},
+        %{row: 1, name: "Golduck", hp_pct: 100, shiny?: true}
+      ])
+
+    world_broadcast(obs)
+
+    assert_receive {:rule_alarm, :shiny, reason}, 500
+    assert reason =~ "SHINY Golduck"
+
+    # e o troféu: star_px preenchido (o bug antigo gravava star_run:, chave
+    # que o record/1 nunca leu — TODO troféu ficou sem a medida da estrela)
+    assert [trofeu | _] = Pokex.Pokedex.ShinyLog.entries()
+    assert trofeu.star_px == 40
+    assert trofeu.note =~ "Golduck"
+    _ = ShinyGuard.status(guard)
+  end
+
+  @tag :tmp_dir
   test "um frame limpo dentro da janela refuta o avistamento (debounce real)", %{guard: guard} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
 

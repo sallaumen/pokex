@@ -9,6 +9,14 @@ This is a web application written using the Phoenix web framework.
 - **Test names follow `~/elixir-references/tavano_rfc.txt`:** state the behavior directly ("returns X when Y"), never "should", underscore numbering for variants.
 - **User-visible product strings stay pt-BR** (feed logs, alarm reasons, UI copy) — they are product, not code. Assertions matching those strings keep the pt-BR text.
 
+### Workspace rules (hard requirement)
+
+- **Never compile or run anything in `~/projects/pokex`.** Lucas keeps a live `phx.server` there; `mix compile`/`mix test` in that tree disrupts it. That checkout is for him, not for AIs.
+- **AI work happens in a git worktree under `~/projects/worktrees/<name>`** — never as a sibling of the main checkout. Create one with:
+  `git -C ~/projects/pokex worktree add ~/projects/worktrees/<name> -b <branch>`
+  `~/projects/worktrees/claude` is the standing general-purpose worktree.
+- **Remove the worktree when its PR merges** (`git worktree remove <path>` from the main checkout, then `git worktree prune`). Merged branches — local and remote — get deleted too. Stale worktrees piled up to 15 folders once; they are workspace litter, not history.
+
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 

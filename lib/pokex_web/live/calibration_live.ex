@@ -69,8 +69,8 @@ defmodule PokexWeb.CalibrationLive do
   def mount(_params, _session, socket) do
     skill_count = configured_skill_count()
 
-    # O contador por corpo (R4) anda sozinho: o Catcher publica a contagem da
-    # sessão a cada varredura que encontra algo novo.
+    # The per-corpse counter (R4) updates on its own: the Catcher publishes the
+    # session count on every sweep that finds something new.
     if connected?(socket),
       do: Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.topic())
 
@@ -167,13 +167,11 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  # Standalone correction: mark only the strip where the mini-game bar shows up
-  # (2 corners) on an existing calibration. From then on the mini-game worker
-  # watches THAT region instead of hunting the bar inside the arena.
-  # Posição & minimapa (2026-07-30): minimapa (2 cliques) + cruz do personagem
-  # (1) + faixa da coordenada (2), salvos como calibração MANUAL — a mão manda,
-  # o layout automático vira fallback. Ao salvar, a coordenada é lida DA MESMA
-  # FOTO com as regiões recém-marcadas: o feedback vem antes do campo.
+  # Position & minimap (2026-07-30): minimap (2 clicks) + player cross (1) +
+  # coordinate strip (2), saved as MANUAL calibration — the hand wins, the
+  # automatic layout becomes the fallback. On save, the coordinate is read
+  # FROM THE SAME SHOT with the freshly marked regions: feedback arrives
+  # before any field run.
   def handle_event("calibrate_minimap", _params, socket) do
     with {:ok, screen} <- grab_screen("minimap_probe.png") do
       {:noreply,
@@ -194,6 +192,9 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  # Standalone correction: mark only the strip where the mini-game bar shows up
+  # (2 corners) on an existing calibration. From then on the mini-game worker
+  # watches THAT region instead of hunting the bar inside the arena.
   def handle_event("calibrate_mini_game", _params, socket) do
     with {:ok, screen} <- grab_screen("mini_game_probe.png") do
       {:noreply,
@@ -352,14 +353,14 @@ defmodule PokexWeb.CalibrationLive do
     {:noreply, assign(socket, zoom_at: nil)}
   end
 
-  # -- corpos mapeados (o ensino que substitui a adivinhação da captura) -------
+  # -- mapped corpses (the teaching that replaced capture guessing) ------------
 
-  # Fotografa EXATAMENTE a região que a busca varre (SpotScan.regiao/1). Usava
-  # `arena_region`, e isso quebrava o ensino desde que a busca virou o
-  # quadradão: um corpo caído perto do personagem — fora da arena estreita — não
-  # cabia na foto, então não dava nem pra clicar nele. O Lucas bateu de frente
-  # nisso tentando ensinar um Gyarados cortado na borda de baixo (2026-07-30).
-  # Ensinar e buscar têm que enxergar o MESMO pedaço de tela.
+  # Photographs EXACTLY the region the search sweeps (SpotScan.regiao/1). It
+  # used `arena_region`, which broke teaching once the search became the scan
+  # square: a corpse near the character — outside the narrow arena — did not
+  # fit in the photo, so it couldn't even be clicked. Lucas hit this head-on
+  # teaching a Gyarados cropped at the bottom edge (2026-07-30). Teaching and
+  # searching must see the SAME piece of screen.
   def handle_event("corpse_shot", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
          {:ok, region} <- SpotScan.regiao(calib),
@@ -380,8 +381,8 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  # O clique na foto: recorta a caixa do sprite em px CRUS do frame (a foto é
-  # servida no tamanho natural, então x*nw/cw já É a coordenada do frame).
+  # The click on the photo: crops the sprite box in RAW frame px (the photo is
+  # served at natural size, so x*nw/cw already IS the frame coordinate).
   def handle_event("corpse_click", %{"x" => x, "y" => y, "cw" => cw, "nw" => nw}, socket) do
     case socket.assigns.corpse_shot do
       nil ->
@@ -428,8 +429,8 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  # R4: desligar tira o corpo da MIRA sem apagar as amostras — o caminho pra
-  # silenciar um falso-positivo era refotografar tudo.
+  # R4: disabling removes the corpse from the AIM without deleting its samples
+  # — previously, silencing a false positive meant re-photographing everything.
   def handle_event("corpse_toggle", %{"slug" => slug}, socket) do
     ligado? =
       socket.assigns.corpse_list
@@ -470,9 +471,9 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   @impl true
-  # A contagem por corpo publicada pelo Catcher (R4). O resto do tráfego do
-  # tópico dele (snapshots, logs) não interessa a esta página — o catch-all
-  # abaixo engole, como o header já faz nas outras.
+  # The per-corpse count the Catcher publishes (R4). The topic's other traffic
+  # (snapshots, logs) doesn't matter to this page — the catch-all below
+  # swallows it, as the header already does on the other pages.
   def handle_info({:catcher_contagem, contagem}, socket),
     do: {:noreply, assign(socket, corpse_counts: contagem)}
 
@@ -534,10 +535,10 @@ defmodule PokexWeb.CalibrationLive do
     {:noreply, socket |> return_focus() |> assign(done: true, step: nil, calibrated?: true)}
   end
 
-  # O resto do tráfego do tópico "catcher" (snapshots, logs, alarmes) morre
-  # aqui: esta página assinou o tópico só pela contagem por corpo, e uma
-  # LiveView sem cláusula pra uma mensagem que ela mesma pediu cai com
-  # FunctionClauseError — a classe exata do PR #111, com o bot ligado.
+  # The rest of the "catcher" topic traffic (snapshots, logs, alarms) dies
+  # here: this page subscribed only for the per-corpse count, and a LiveView
+  # without a clause for a message it asked for crashes with
+  # FunctionClauseError — the exact bug class of PR #111, with the bot on.
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   defp foto_erro(:sem_ancora),
@@ -877,9 +878,9 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  # O veredito na hora: lê a coordenada DA FOTO que acabou de ser marcada, com
-  # as regiões novas — "li (x, y, z)" prova a calibração antes do bot precisar
-  # dela; "não li" manda ajustar a faixa agora, não numa caçada às cegas.
+  # The on-the-spot verdict: reads the coordinate FROM THE SHOT just marked,
+  # with the new regions — "read (x, y, z)" proves the calibration before the
+  # bot needs it; "couldn't read" says fix the strip now, not on a blind hunt.
   defp minimap_read_verdict(socket, calib, coord_region) do
     with path when is_binary(path) <- socket.assigns.screen && socket.assigns.screen.path,
          {:ok, frame} <- Vision.Frame.from_png_file(path) do

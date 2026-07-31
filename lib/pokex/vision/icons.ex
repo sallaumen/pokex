@@ -2,10 +2,10 @@ defmodule Pokex.Vision.Icons do
   @moduledoc """
   Recognising WHICH pokémon a team row is showing, by its portrait.
 
-  Lucas's constraint: "a posição dos pokémons nos atalhos C+N nunca é fixa,
-  conforme vou usando pokemons a ordem vai mudando". A configured slot is
-  therefore a lie waiting to happen — by the time a combo fires, C+5 may hold
-  somebody else. The slot has to be READ, every tick.
+  Lucas's constraint: the pokémon order in the C+N hotkeys is never fixed —
+  it keeps changing as he plays. A configured slot is therefore a lie waiting
+  to happen — by the time a combo fires, C+5 may hold somebody else. The slot
+  has to be READ, every tick.
 
   Matching against the scraped wiki sprites was measured and is not good
   enough: colour histograms over his own six pokémon scored 4 of 5 with

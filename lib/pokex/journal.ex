@@ -1,34 +1,31 @@
 defmodule Pokex.Journal do
   @moduledoc """
-  O histórico de eventos que NÃO mora na aba do navegador (Frente 4 do plano
-  de consolidação).
+  The event history that does NOT live in the browser tab.
 
-  O problema real: o feed de atividade vivia nos assigns da LiveView do painel
-  — fechar ou recarregar a página apagava a história. "O que aconteceu de
-  madrugada?" só tinha resposta se a aba tivesse ficado aberta, e madrugada é
-  exatamente quando as coisas dão errado (a estamina queimada de 2026-07-23
-  não deixou rastro nenhum).
+  The real problem: the activity feed lived in the panel LiveView's assigns —
+  closing or reloading the page erased the history. "What happened overnight?"
+  only had an answer if the tab stayed open, and overnight is exactly when
+  things go wrong (the 2026-07-23 burned stamina left no trace).
 
-  Este processo assina os MESMOS tópicos que o painel e normaliza tudo num
-  ring buffer: cada evento vira `%{id, at, source, severity, text, generation,
-  repeats}`. `at` é relógio de PAREDE (o painel pergunta "que horas isso
-  aconteceu?"); `generation` amarra o evento à ordem de sessão vigente
-  (`Pokex.Bots.Session`) — "isso foi antes ou depois do meu Stop?" vira
-  comparação de inteiro.
+  This process subscribes to the SAME topics as the panel and normalizes
+  everything into a ring buffer: each event becomes `%{id, at, source,
+  severity, text, generation, repeats}`. `at` is WALL clock (the panel asks
+  "what time did this happen?"); `generation` ties the event to the current
+  session order (`Pokex.Bots.Session`) — "was this before or after my Stop?"
+  becomes integer comparison.
 
-  Chatter idêntico consecutivo (mesma origem + mesmo texto) não acumula: o
-  evento do topo ganha `repeats` e um `at` novo. Um detector piscando a noite
-  toda vira UMA linha honesta ("×340"), não quinhentas.
+  Consecutive identical chatter (same source + same text) doesn't accumulate:
+  the top event gets `repeats` and a fresh `at`. A detector blinking all night
+  is ONE honest line ("×340"), not five hundred.
 
-  Quase passivo: só escuta PubSub, nunca captura nem atua — mas PERSISTE.
-  Eventos `:macro` e `:alarm` viram linhas JSONL em `~/.pokex/journal/` (um
-  arquivo por dia, chatter `:debug` fica só na memória), e o boot ressemeia o
-  ring dos arquivos de hoje e de ontem — a história agora sobrevive também ao
-  RESTART do app, que é como as madrugadas com problema costumam terminar.
-  Arquivos com mais de @keep_days dias são apagados no boot. A escrita em
-  disco é gateada por env (`:journal_persist`, false na suíte) para testes
-  jamais escreverem no `~/.pokex` real; instâncias de teste optam por entrar
-  com `persist: true` + home temporário.
+  Almost passive: it only listens on PubSub, never captures or actuates — but
+  it PERSISTS. `:macro` and `:alarm` events become JSONL lines under
+  `~/.pokex/journal/` (one file per day; `:debug` chatter stays in memory),
+  and boot reseeds the ring from today's and yesterday's files — the history
+  survives an app RESTART too, which is how broken overnights usually end.
+  Files older than @keep_days are deleted on boot. Disk writes are env-gated
+  (`:journal_persist`, false in the suite) so tests never write to the real
+  `~/.pokex`; test instances opt in with `persist: true` + a temp home.
   """
   use GenServer
 
@@ -57,11 +54,11 @@ defmodule Pokex.Journal do
   end
 
   @doc """
-  Os eventos mais recentes, do mais novo pro mais velho.
+  The most recent events, newest first.
 
-  Opções: `limit` (padrão 100), `sources` (lista; padrão todas) e
-  `min_severity` (`:debug` mostra tudo, `:macro` esconde o chatter,
-  `:alarm` só as sirenes).
+  Options: `limit` (default 100), `sources` (list; default all) and
+  `min_severity` (`:debug` shows everything, `:macro` hides chatter,
+  `:alarm` sirens only).
   """
   def recent(opts \\ [], server \\ __MODULE__), do: GenServer.call(server, {:recent, opts})
 
@@ -89,8 +86,6 @@ defmodule Pokex.Journal do
     {:reply, events, state}
   end
 
-  # -- a normalização: cada tupla que os workers já publicam vira um evento ----
-
   @impl true
   def handle_info({log, level, text}, state)
       when log in [
@@ -104,14 +99,14 @@ defmodule Pokex.Journal do
            ],
       do: {:noreply, record(state, source_of(log), level, text)}
 
-  # legado de 2 elementos (pesca/combate antigos): severidade macro
+  # 2-element legacy shape (old fishing/combat): macro severity
   def handle_info({log, text}, state)
       when log in [:fishing_log, :combat_log] and is_binary(text),
       do: {:noreply, record(state, source_of(log), :macro, text)}
 
-  # Categoria (2026-07-30, mudo por setor no header) — o journal registra o
-  # TEXTO igual; a categoria só decide se o painel TOCA o som, não se o fato
-  # entra na história.
+  # Category (2026-07-30, per-sector mute in the header) — the journal records
+  # the TEXT the same; the category only decides whether the panel PLAYS the
+  # sound, not whether the fact enters the history.
   def handle_info({:rule_alarm, _category, reason}, state),
     do: {:noreply, record(state, :regra, :alarm, reason)}
 
@@ -132,13 +127,11 @@ defmodule Pokex.Journal do
       {:noreply,
        record(state, :sistema, :alarm, "logout #{s}: #{snap.reason || "?"} #{snap.error || ""}")}
 
-  # snapshots, leituras e todo o resto dos mesmos tópicos: não são eventos
+  # snapshots, readings and everything else on the same topics: not events
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # -- internos ----------------------------------------------------------------
-
-  # Chatter idêntico consecutivo vira repeats no evento do topo — um detector
-  # piscando a noite toda é UMA linha ("×340"), não quinhentas.
+  # Consecutive identical chatter becomes repeats on the top event — a detector
+  # blinking all night is ONE line ("×340"), not five hundred.
   defp record(state, source, severity, text) do
     at = System.system_time(:millisecond)
 
@@ -186,8 +179,8 @@ defmodule Pokex.Journal do
   defp severity_rank(:macro), do: 1
   defp severity_rank(:alarm), do: 2
 
-  # A geração amarra o evento à ordem vigente; Session fora do ar → nil, nunca
-  # um journal que derruba quem escreve nele.
+  # The generation ties the event to the current order; Session down → nil,
+  # never a journal that takes its writers down.
   defp safe_generation do
     Pokex.Bots.Session.generation()
   catch
@@ -197,15 +190,13 @@ defmodule Pokex.Journal do
   defp broadcast(event),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @journal_topic, {:journal_event, event})
 
-  # -- persistência ------------------------------------------------------------
-
   @doc false
   def dir, do: Path.join(Pokex.Home.dir(), "journal")
 
-  # Só evento NOVO de :macro pra cima vira linha — o chatter :debug e as
-  # atualizações de repeats ficam na memória (a linha já existe no disco; o ×N
-  # é conforto da tela, não fato novo). Uma escrita que falhar jamais derruba o
-  # journal: o disco é o bônus, o ring é o serviço.
+  # Only a NEW event of :macro or above becomes a line — :debug chatter and
+  # repeat bumps stay in memory (the line already exists on disk; the ×N is
+  # screen comfort, not a new fact). A failing write never takes the journal
+  # down: disk is the bonus, the ring is the service.
   defp persist_event(%{persist?: false}, _event), do: :ok
   defp persist_event(_state, %{severity: :debug}), do: :ok
 
@@ -228,8 +219,8 @@ defmodule Pokex.Journal do
 
   defp day_file(date), do: Path.join(dir(), Date.to_iso8601(date) <> ".jsonl")
 
-  # O boot ressemeia o ring de ontem+hoje (na ordem, o mais novo primeiro no
-  # ring) — a história sobrevive ao RESTART, não só ao reload da página.
+  # Boot reseeds the ring from yesterday+today (newest first in the ring) —
+  # the history survives a RESTART, not just a page reload.
   defp reload_from_disk(state) do
     events =
       [Date.add(Date.utc_today(), -1), Date.utc_today()]
@@ -269,8 +260,8 @@ defmodule Pokex.Journal do
     end
   end
 
-  # source/severity voltam do JSON como string; só atoms JÁ EXISTENTES passam
-  # (to_existing_atom) — um arquivo adulterado não infla a tabela de atoms.
+  # source/severity come back from JSON as strings; only EXISTING atoms pass
+  # (to_existing_atom) — a tampered file cannot inflate the atom table.
   defp safe_atom(s) when is_binary(s) do
     String.to_existing_atom(s)
   rescue

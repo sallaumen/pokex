@@ -1,31 +1,33 @@
 defmodule PokexWeb.PositionReadout do
   @moduledoc """
-  A posição do personagem contada honestamente — a MESMA leitura no painel, na
-  /world e no /cavebot.
+  The character's position, told honestly — the SAME reading on the panel,
+  /world and /cavebot.
 
-  Um "?" mudo escondia a única pergunta que importa quando o bot não anda: eu
-  não estou lendo o minimapa, ou estou lendo e você está mesmo aí? As duas
-  causas ficavam idênticas na tela e têm consertos opostos (janela do navegador
-  cobrindo o minimapa × HUD perdido × glifo duvidoso numa leitura só).
+  A mute "?" hid the only question that matters when the bot doesn't walk:
+  am I not reading the minimap, or am I reading it and you really are there?
+  The two causes looked identical on screen and have opposite fixes (browser
+  window covering the minimap vs lost HUD vs one doubtful glyph in a single
+  read).
 
-  A idade vem do carimbo do fato `:minimap` no `WorldState`, e NÃO do
-  `pos_age_ms` do snapshot do cavebot, de propósito: o fato existe com a caçada
-  desligada (e a /world nem conhece o cavebot), então uma fonte só responde
-  igual nas três páginas. O `pos_age_ms` do cavebot continua sendo dele — lá
-  ele responde "há quanto tempo a LOGIC não vê posição", que é outra coisa.
+  The age comes from the `:minimap` fact's stamp in `WorldState`, and NOT
+  from the cavebot snapshot's `pos_age_ms`, on purpose: the fact exists with
+  the hunt off (and /world doesn't even know the cavebot), so one source
+  answers the same on all three pages. The cavebot's `pos_age_ms` stays its
+  own — there it answers "how long has the LOGIC not seen a position", which
+  is a different question.
   """
 
   alias Pokex.World
 
   @doc """
-  Em que pé está a leitura da coordenada:
+  Where the coordinate read stands:
 
-    * `:ok` — lida (fato fresco, com posição)
-    * `:illegible` — o minimapa ESTÁ sendo lido agora, mas a coordenada saiu
-      ilegível: `Glyphs.read_coord/2` é tudo-ou-nada, então um glifo duvidoso
-      derruba a coordenada inteira
-    * `:stale` — parou de chegar leitura (feed parado, ou ninguém atachado)
-    * `:never` — nada foi publicado ainda
+    * `:ok` — read (fresh fact, with a position)
+    * `:illegible` — the minimap IS being read right now, but the coordinate
+      came out unreadable: `Glyphs.read_coord/2` is all-or-nothing, so one
+      doubtful glyph drops the whole coordinate
+    * `:stale` — reads stopped arriving (feed stopped, or nobody attached)
+    * `:never` — nothing was ever published
   """
   @spec status({integer, integer, integer} | nil, non_neg_integer | nil) ::
           :ok | :illegible | :stale | :never
@@ -38,14 +40,15 @@ defmodule PokexWeb.PositionReadout do
 
   def status(nil, _never), do: :never
 
-  @doc "A coordenada em si — travessão, nunca \"?\", quando não há o que mostrar."
+  @doc ~S'The coordinate itself — an em-dash, never "?", when there is nothing to show.'
   @spec coords({integer, integer, integer} | nil) :: String.t()
   def coords(nil), do: "—"
   def coords({x, y, z}), do: "#{x}, #{y} · andar #{z}"
 
   @doc """
-  A frase que acompanha a coordenada. É ela que distingue "não estou lendo" de
-  "estou lendo, você está aí" — o resto da tela só mostra o número.
+  The phrase accompanying the coordinate. It is what distinguishes "not
+  reading" from "reading, and you are there" — the rest of the screen only
+  shows the number.
   """
   @spec note({integer, integer, integer} | nil, non_neg_integer | nil) :: String.t()
   def note(pos, age_ms) do
@@ -64,7 +67,7 @@ defmodule PokexWeb.PositionReadout do
     end
   end
 
-  @doc "Cor do estado da leitura, nos tokens do painel."
+  @doc "The read-status color, in the panel's tokens."
   @spec note_class({integer, integer, integer} | nil, non_neg_integer | nil) :: String.t()
   def note_class(pos, age_ms) do
     case status(pos, age_ms) do
@@ -75,7 +78,7 @@ defmodule PokexWeb.PositionReadout do
     end
   end
 
-  @doc "Idade em palavras. Ages vêm de relógio monotônico, então nunca são datas."
+  @doc "Age in words. Ages come from the monotonic clock, so they are never dates."
   @spec age_text(integer | nil) :: String.t()
   def age_text(nil), do: "—"
   def age_text(ms) when ms < 1_000, do: "agora"
@@ -84,9 +87,10 @@ defmodule PokexWeb.PositionReadout do
   def age_text(_ms), do: "há 1h+"
 
   @doc """
-  Quanto da coordenada está saindo legível. A leitura é tudo-ou-nada, então uma
-  falha aqui e ali é normal; o que importa é a PROPORÇÃO — se quase tudo falha,
-  o bot anda às cegas (e o /cavebot grava uma rota cheia de buracos).
+  How much of the coordinate is coming out legible. The read is
+  all-or-nothing, so a miss here and there is normal; what matters is the
+  RATIO — if almost everything fails, the bot walks blind (and /cavebot
+  records a route full of holes).
   """
   @spec read_health(non_neg_integer, non_neg_integer) :: String.t()
   def read_health(0, 0), do: "aguardando a primeira leitura…"

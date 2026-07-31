@@ -52,11 +52,10 @@ defmodule Pokex.Bots.Body do
     with {x, y, w, h} <- calib && Pokex.Calibration.minimap_map_region(calib),
          {px, py} <- Pokex.Calibration.minimap_player_point(calib) do
       scale = Pokex.Settings.get(:minimap_px_per_tile)
-      # O passo parte da CRUZ do personagem (calibrada; fixa — o mapa desliza
-      # por baixo dela), não do centro geométrico do retângulo: um marcador
-      # fora do centro dava viés a TODO passo (Lucas, 2026-07-30). Sem cruz
-      # marcada, minimap_player_point/1 devolve o centro — o comportamento de
-      # sempre, agora como fallback em vez de dogma.
+      # The step starts from the character's calibrated CROSS (fixed — the map
+      # slides under it), not the rect's geometric center: an off-center marker
+      # biased EVERY step (2026-07-30). With no cross marked,
+      # minimap_player_point/1 falls back to the center.
       point = clamp({px + dx * scale, py + dy * scale}, {x, y, w, h})
 
       # Rig.Mac.gated/1 SWALLOWS a suppressed input and answers `:ok` — the global
@@ -83,12 +82,11 @@ defmodule Pokex.Bots.Body do
     end
   end
 
-  # De onde vem a geometria do passo: a CALIBRAÇÃO (a mão manda nas regiões do
-  # minimapa desde o PR #119; recarregada do disco a cada passo, então uma
-  # recalibração vale sem restart — o mesmo contrato do PlayerSupport). O opt
-  # :calib injeta direto; o opt :layout (testes do passo) vira uma calibração
-  # só-layout SEM tocar no disco — um teste sem home_dir não pode cair no
-  # ~/.pokex real.
+  # Step geometry comes from the CALIBRATION (hand-marked minimap regions since
+  # PR #119; reloaded from disk each step, so a recalibration applies without a
+  # restart — same contract as PlayerSupport). The :calib opt injects directly;
+  # the :layout opt (step tests) builds a layout-only calibration WITHOUT touching
+  # disk — a test without home_dir must not fall through to the real ~/.pokex.
   defp step_calib(opts) do
     cond do
       calib = Keyword.get(opts, :calib) ->
@@ -339,7 +337,7 @@ defmodule Pokex.Bots.Body do
   defp execute({:wait, ms}) when is_integer(ms) and ms > 0, do: Process.sleep(ms)
   defp execute({:wait, _ms}), do: :ok
   defp execute({:log, _}), do: :ok
-  # alarmes viajam na lista de ações como os logs: quem toca é o worker, não o Body
+  # Alarms ride the action list like logs: the worker plays them, not the Body.
   defp execute({:alarm, _}), do: :ok
 
   # Lock-free ETS read of the :mini_game blackboard fact — the input hot path never

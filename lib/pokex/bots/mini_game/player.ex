@@ -198,8 +198,6 @@ defmodule Pokex.Bots.MiniGame.Player do
     end
   end
 
-  # --- one frame -------------------------------------------------------------
-
   defp play_frame(%__MODULE__{} = player, frame, path, captured_at, capture_ms) do
     bar = track_bar(player, frame)
     # The replay cannot read these frames without the geometry they were read
@@ -373,8 +371,6 @@ defmodule Pokex.Bots.MiniGame.Player do
       result
     end
   end
-
-  # --- recording -------------------------------------------------------------
 
   defp record(%__MODULE__{diag: nil} = player, _sample, _path), do: player
 

@@ -1,11 +1,8 @@
 defmodule PokexWeb.PokedexStyle do
   @moduledoc """
   The Pokédex's visual language: one colour per element, and the wiki's own
-  type icon when the sync managed to download it.
-
-  Lucas: "seria muito legal a gente ter alguns ícones… talvez até roubar da
-  wiki, como por exemplo para falar sobre os elementos… usar algumas cores,
-  algo para realmente deixar um pouco mais bonitinho". Colours are the
+  type icon when the sync managed to download it (Lucas asked for the wiki's
+  element icons and colours to pretty the pages up). Colours are the
   guaranteed layer (pure data, always available); the icon is the bonus that
   appears once `priv/static/images/pokedex/elements/<element>.png` exists.
   """

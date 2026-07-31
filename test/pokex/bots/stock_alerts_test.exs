@@ -39,17 +39,15 @@ defmodule Pokex.Bots.StockAlertsTest do
     assert reason =~ "limiar 30"
     assert_receive {:stock, %{slot: :f1, low?: true}}, 500
 
-    # an alarm that repeats every 500ms is one he learns to ignore
     hud(%{f1: 27, f2: 36, e: 7, s_q: 43})
     refute_receive {:rule_alarm, _, _}, 200
     settle(alerts)
   end
 
-  test "re-arma quando ele repõe — depois de 3 leituras SEGUIDAS acima", %{alerts: alerts} do
+  test "re-arms on restock — after 3 consecutive reads above the threshold", %{alerts: alerts} do
     hud(%{f1: 10, f2: 36, e: 7, s_q: 43})
     assert_receive {:rule_alarm, :estoque, _}, 500
 
-    # o restock de verdade: 3 leituras consecutivas acima do limiar
     hud(%{f1: 200, f2: 36, e: 7, s_q: 43})
     hud(%{f1: 200, f2: 36, e: 7, s_q: 43})
     hud(%{f1: 200, f2: 36, e: 7, s_q: 43})
@@ -61,30 +59,26 @@ defmodule Pokex.Bots.StockAlertsTest do
     settle(alerts)
   end
 
-  test "UMA leitura espúria acima do limiar NÃO re-arma — o alarme não vira metralhadora",
+  # Journal 2026-07-30: F2 stuck at 0 fired 56 times — a wrong OCR frame read high,
+  # re-armed, and the next correct read alarmed again; 322 alarms in 9.7h muted 10 of 11
+  # sectors.
+  test "a single spurious read above the threshold does not re-arm — no machine-gun alarm",
        %{alerts: alerts} do
-    # O journal de 2026-07-30: F2 parado em 0 disparou 56 vezes — o OCR pegava
-    # um frame errado, lia um número alto, re-armava, e a leitura correta
-    # seguinte alarmava DE NOVO. 322 alarmes em 9,7h mutaram 10 dos 11 setores.
     hud(%{f1: 10, f2: 36, e: 7, s_q: 43})
     assert_receive {:rule_alarm, :estoque, _}, 500
 
-    # leitura espúria (OCR errado) e a volta pro valor real, em loop
     for _ <- 1..5 do
       hud(%{f1: 150, f2: 36, e: 7, s_q: 43})
       hud(%{f1: 9, f2: 36, e: 7, s_q: 43})
     end
 
-    # nenhum re-alarme: uma leitura isolada acima nunca re-armou
     refute_receive {:rule_alarm, :estoque, _}, 300
     settle(alerts)
   end
 
+  # Field: 404 potions, but a rect sized for one digit read "2" and alarmed — a reading the
+  # eye cannot fully resolve must arrive as nil, and nil must be silent.
   test "an unread slot is never an alarm — a misread must not cry wolf", %{alerts: alerts} do
-    # This is the safety property behind every "?" in the panel. Lucas had 404
-    # potions; a rect sized for a single digit read "2" and alarmed. A reading
-    # the eye cannot fully resolve must arrive as nil, and nil must be silent —
-    # a wrong number is far worse than a missing one.
     hud(%{f1: nil, f2: nil, e: nil, s_q: nil})
 
     refute_receive {:rule_alarm, _, _}, 200

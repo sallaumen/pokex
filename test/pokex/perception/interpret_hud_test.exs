@@ -52,17 +52,16 @@ defmodule Pokex.Perception.InterpretHudTest do
       assert obs.slots == %{f1: 322, f2: 36, e: 7, s_q: 43}
     end
 
-    # Ele testou num personagem novo: só o F1 tem item, os outros estão vazios.
-    # Vazio não é falha de leitura — é zero. Mas SÓ quando não há tinta nenhuma:
-    # um 561 mal lido virando 0 dispararia alarme falso de estoque.
-    test "slot vazio lê 0; level/comida/pesca vazios continuam nil", %{fix: fix, calib: calib} do
+    # empty means 0 only when there is NO ink at all (a misread 561 turning into 0
+    # would fire a false stock alarm); level/food/fishing always show a number
+    # in-game, so blank there is a wrong region, never zero
+    test "an empty slot reads 0; empty level/food/fishing stay nil", %{fix: fix, calib: calib} do
       {_x, _y, w, h} = Layout.region(:hud_bottom, fix)
       blank = Pokex.FrameFixtures.of(w, h, fn _x, _y -> {0, 0, 0} end)
 
       obs = Hud.interpret(blank, calib, %{})
 
       assert obs.slots == %{f1: 0, f2: 0, e: 0, s_q: 0}
-      # estes SEMPRE têm número na tela: vazio ali é região errada, nunca zero
       assert obs.level == nil
       assert obs.food == nil
       assert obs.fishing == nil
@@ -83,18 +82,16 @@ defmodule Pokex.Perception.InterpretHudTest do
       assert obs.pokemon_hp == {5559, 6410}
     end
 
+    # the fifth row in this capture has no C+N label (hotkey is read, not
+    # positional) and row C+2's green fill measures 8px short of the others
     test "measures all five C+N rows; the damaged one reads lower", %{fix: fix, calib: calib} do
       obs = Team.interpret(region_frame(fix, :team_column), calib, %{})
 
       assert length(obs.rows) == 5
 
-      # The hotkey is READ, not counted from the row's position — and in this
-      # capture the fifth row carries no "C+N" label at all, so it has no key
-      # to press and reads as nil rather than as a confident C+6.
       assert Enum.map(obs.rows, & &1.slot) == [2, 3, 4, 5, nil]
       assert Enum.all?(obs.rows, & &1.present?)
 
-      # measured: row C+2's green fill stops 8px short of the others
       [first | rest] = obs.rows
       assert first.hp_pct < 1.0
       assert Enum.all?(rest, &(&1.hp_pct > first.hp_pct))
@@ -153,10 +150,8 @@ defmodule Pokex.Perception.InterpretHudTest do
     test "a wild jump is refused ONCE, then accepted when the next read agrees" do
       far = {900, 46107, 4}
 
-      # one garbled frame must not teleport the world model
       assert {%{pos: @home}, state} = Minimap.accept(far, %{last: @home, pending: nil})
 
-      # ...but stairs and boats are real: a second agreeing read re-baselines
       assert {%{pos: ^far}, %{last: ^far, pending: nil}} = Minimap.accept(far, state)
     end
 

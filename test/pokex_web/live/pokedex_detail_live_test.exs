@@ -159,7 +159,7 @@ defmodule PokexWeb.PokedexDetailLiveTest do
   end
 
   @tag :tmp_dir
-  test "a página individual mostra tudo do Pokémon: chips, fraquezas, iscas e shiny", %{
+  test "the detail page shows everything: chips, weaknesses, lures and shiny", %{
     conn: conn
   } do
     {:ok, view, html} = live(conn, ~p"/pokedex/Seadra")
@@ -170,24 +170,20 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     assert html =~ "boost +50 hp"
     assert html =~ "wiki editada em 2026-02-06"
 
-    # weaknesses/resists in their sections
     assert view |> element("#entry-card") |> render() =~ "Grass"
     assert render(view) =~ "ele RESISTE"
 
-    # fishable + the shiny cross-link
     assert view |> element("#entry-lures") |> render() =~ "Shrimp · lv 50"
     assert view |> element("#entry-shiny-links") |> render() =~ "ver Shiny Seadra (lv 80)"
   end
 
   @tag :tmp_dir
-  test "navegar entre páginas: card da lista → detalhe, evolução → detalhe, shiny → base", %{
+  test "navigation: list card → detail, evolution → detail, shiny → base form", %{
     conn: conn
   } do
-    # the list card is a real link now
     {:ok, list, _} = live(conn, ~p"/pokedex")
     assert has_element?(list, ~s(#pokedex-results a[href="/pokedex/Horsea"]))
 
-    # evolution hop patches in place ("bem ágil")
     {:ok, view, _} = live(conn, ~p"/pokedex/Horsea")
     assert view |> element("#entry-evolutions") |> render() =~ "Seadra"
 
@@ -195,16 +191,14 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     assert_patch(view, "/pokedex/Seadra")
     assert render(view) =~ "ver Shiny Seadra"
 
-    # the shiny page links back to the base form (name with a space, URL-encoded)
     {:ok, shiny, _} = live(conn, ~p"/pokedex/#{"Shiny Seadra"}")
     assert shiny |> element("#entry-shiny-links") |> render() =~ "forma base: Seadra"
   end
 
   @tag :tmp_dir
-  test "contexto do MEU time: matchup nos dois sentidos, badge e adicionar direto da página", %{
+  test "my-team context: matchup both ways, badge, and adding straight from the page", %{
     conn: conn
   } do
-    # time vazio → dica de cadastrar + botões de adicionar
     {:ok, view, _} = live(conn, ~p"/pokedex/Charizard")
     assert render(view) =~ "cadastra teu time"
 
@@ -212,27 +206,24 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     assert view |> element("#membership-badge") |> render() =~ "no teu time"
     assert [%{name: "Charizard"}] = Pokex.Pokedex.Team.members()
 
-    # na página do Venusaur: Charizard fere ele com Fire (e nada apanha)
     {:ok, venu, _} = live(conn, ~p"/pokedex/Venusaur")
     matchup = venu |> element("#entry-matchup") |> render()
     assert matchup =~ "Charizard"
     assert matchup =~ "fere ele com Fire"
 
-    # Venusaur pro time: na página do Charizard ele deve APANHAR de Fire
     {:ok, _} = Pokex.Pokedex.Team.add("Venusaur", :team)
     {:ok, chari, _} = live(conn, ~p"/pokedex/Charizard")
     matchup = chari |> element("#entry-matchup") |> render()
     assert matchup =~ "Venusaur"
     assert matchup =~ "APANHA de Fire"
 
-    # + banco direto da página
     {:ok, horsea, _} = live(conn, ~p"/pokedex/Horsea")
     horsea |> element(~s(button[phx-value-where="bank"])) |> render_click()
     assert horsea |> element("#membership-badge") |> render() =~ "no teu banco"
   end
 
   @tag :tmp_dir
-  test "caixa de salto: pula direto pra outro Pokémon; desconhecido avisa", %{conn: conn} do
+  test "jump box: jumps straight to another Pokémon; an unknown name warns", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex/Horsea")
 
     view |> form("#jump-form", %{"name" => "Seadra"}) |> render_submit()
@@ -244,15 +235,13 @@ defmodule PokexWeb.PokedexDetailLiveTest do
   end
 
   @tag :tmp_dir
-  test "a colheita completa na página: movimentos, habilidades, pedras, descrição, neutro", %{
+  test "the full harvest on the page: moves, habilidades, stones, description, neutral", %{
     conn: conn
   } do
     {:ok, view, html} = live(conn, ~p"/pokedex/Seadra")
 
-    # descrição como citação
     assert view |> element("#entry-description") |> render() =~ "farpas venenosas"
 
-    # movimentos: slot, nome, elemento próprio, cooldown, tag e level
     moves = view |> element("#entry-moves") |> render()
     assert moves =~ "M1"
     assert moves =~ "Mud Shot"
@@ -260,32 +249,26 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     assert moves =~ "⏱ 15s"
     assert moves =~ "Blind"
     assert moves =~ "lv 50"
-    # a passiva destacada, sem cooldown
     assert moves =~ "Dragon Rage"
     assert moves =~ "Passive"
-    # ruído cortado: a tag "Focus Blocked" não polui a linha
     refute moves =~ "Focus Blocked"
 
-    # habilidades & itens
     info = view |> element("#entry-info") |> render()
     assert info =~ "Surf"
     assert info =~ "Water Stone"
     assert info =~ "Seavell"
 
-    # efetividade completa: o bucket neutro entra
     assert view |> element("#entry-neutral") |> render() =~ "Fighting"
 
-    # a página NUNCA cobra sincronização do usuário — o sync se completa sozinho
     refute html =~ "antes da colheita"
     refute html =~ "sincroniza a wiki"
   end
 
   @tag :tmp_dir
-  test "sem moves no JSON: manda pra wiki em vez de cobrar sync", %{conn: conn} do
+  test "no moves in the JSON: points to the wiki instead of demanding a sync", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/pokedex/Horsea")
 
     refute has_element?(view, "#entry-moves")
-    # nada de banner pedindo sincronização — só a saída pra fonte original
     refute html =~ "sincroniza a wiki"
     refute html =~ "sincronização"
 
@@ -293,26 +276,24 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     assert missing =~ "sem tabela de golpes"
     assert missing =~ "https://wiki.pokexgames.com/index.php/Horsea"
 
-    # e o resto da página funciona normalmente
     assert html =~ "Horsea"
     assert view |> element("#entry-evolutions") |> render() =~ "Seadra"
   end
 
   @tag :tmp_dir
-  test "o clã aparece no cabeçalho e clica pra lista filtrada", %{conn: conn} do
+  test "the clan appears in the header and clicks through to the filtered list", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex/Seadra")
 
     chip = view |> element("#entry-clans") |> render()
     assert chip =~ "Seavell"
     assert chip =~ "clans[]=Seavell"
 
-    # o shiny herdeiro (sem materia própria) também mostra
     {:ok, shiny, _} = live(conn, ~p"/pokedex/#{"Shiny Seadra"}")
     assert shiny |> element("#entry-clans") |> render() =~ "Seavell"
   end
 
   @tag :tmp_dir
-  test "toda página leva pra wiki original, com o nome composto codificado", %{conn: conn} do
+  test "every page links to the original wiki, with composite names URL-encoded", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex/Seadra")
 
     assert view |> element("#wiki-link") |> render() =~
@@ -325,21 +306,21 @@ defmodule PokexWeb.PokedexDetailLiveTest do
   end
 
   @tag :tmp_dir
-  test "efetividades: tiers rotulados quando a wiki tem dois, e o que é NULO nele", %{conn: conn} do
+  test "effectiveness: tiers labeled when the wiki has two, and what is Nulo against it", %{
+    conn: conn
+  } do
     {:ok, view, _} = live(conn, ~p"/pokedex/Florges")
 
     card = view |> element("#entry-card") |> render()
-    # dois tiers de resistência da MESMA página aparecem separados e rotulados
     assert card =~ "Inefetivo"
     assert card =~ "Muito inefetivo"
-    # tier único não ganha rótulo redundante
     refute card =~ "Super efetivo"
 
     assert view |> element("#entry-immune") |> render() =~ "Dragon"
   end
 
   @tag :tmp_dir
-  test "matchup avisa quando o elemento do meu bicho é NULO no alvo", %{conn: conn} do
+  test "matchup warns when my pokémon's element is null against the target", %{conn: conn} do
     {:ok, _} = Pokex.Pokedex.Team.add("Dragonite", :team)
 
     {:ok, view, _} = live(conn, ~p"/pokedex/Florges")
@@ -350,7 +331,7 @@ defmodule PokexWeb.PokedexDetailLiveTest do
   end
 
   @tag :tmp_dir
-  test "nome desconhecido: aviso amigável com volta, sem crash", %{conn: conn} do
+  test "unknown name: friendly notice with a way back, no crash", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/pokedex/Digimon")
     assert html =~ "Não achei"
     assert html =~ "Digimon"

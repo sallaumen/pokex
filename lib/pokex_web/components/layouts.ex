@@ -13,12 +13,13 @@ defmodule PokexWeb.Layouts do
   # and other static content.
   embed_templates "layouts/*"
 
-  # Uma lista, não nove blocos de markup: o menu é o mesmo em toda página, e
-  # esquecer uma rota aqui é o jeito de uma página sumir do app.
+  # One list, not nine markup blocks: the menu is the same on every page, and
+  # forgetting a route here is how a page disappears from the app.
   @nav [
     {:panel, "Painel", "hero-play-circle"},
-    # O ⚙️ não é uma página: cai no painel com o overlay aberto (rota /config,
-    # mesma LiveView). Fica no menu porque é de onde ele vai procurar.
+    # The ⚙️ is not a page: it lands on the panel with the overlay open (route
+    # /config, same LiveView). It stays in the menu because that is where he
+    # will look for it.
     {:config, "Configurações", "hero-cog-6-tooth"},
     {:calibration, "Calibração", "hero-viewfinder-circle"},
     {:diagnostics, "Diagnóstico", "hero-beaker"},
@@ -31,12 +32,12 @@ defmodule PokexWeb.Layouts do
   ]
 
   @doc """
-  O shell do Pokex: fundo, header padrão e o conteúdo da página.
+  The Pokex shell: background, standard header and the page content.
 
-  O header é IDÊNTICO em toda página — marca, aviso de foco, personagem ativo,
-  ligado/parado e a navegação. O que ele mostra vem do `PokexWeb.HeaderState`,
-  montado na `live_session` inteira, então nenhuma página precisa (nem pode)
-  montar o seu próprio.
+  The header is IDENTICAL on every page — brand, focus warning, active
+  character, running/stopped and the navigation. What it shows comes from
+  `PokexWeb.HeaderState`, mounted on the whole `live_session`, so no page
+  needs (or may) build its own.
 
   ## Examples
 
@@ -49,21 +50,21 @@ defmodule PokexWeb.Layouts do
 
   attr :current_page, :atom,
     default: nil,
-    doc: "qual item da navegação está ativo — uma das chaves de `nav_items/0`"
+    doc: "which nav item is active — one of the `nav_items/0` keys"
 
-  attr :focused?, :boolean, default: true, doc: "a janela do jogo está em foco (HeaderState)"
-  attr :bot_active?, :boolean, default: false, doc: "algum worker rodando (HeaderState)"
-  attr :characters, :list, default: [], doc: "personagens cadastrados (HeaderState)"
-  attr :active_character, :string, default: "", doc: "slug do personagem ativo (HeaderState)"
-  attr :alarm_sound, :boolean, default: true, doc: "som geral dos alarmes ligado (HeaderState)"
+  attr :focused?, :boolean, default: true, doc: "the game window is focused (HeaderState)"
+  attr :bot_active?, :boolean, default: false, doc: "some worker is running (HeaderState)"
+  attr :characters, :list, default: [], doc: "registered characters (HeaderState)"
+  attr :active_character, :string, default: "", doc: "active character slug (HeaderState)"
+  attr :alarm_sound, :boolean, default: true, doc: "master alarm sound on (HeaderState)"
 
   attr :alarm_muted_categories, :list,
     default: [],
-    doc: "setores de alarme silenciados, como texto (HeaderState)"
+    doc: "muted alarm sectors, as strings (HeaderState)"
 
   attr :max_width, :string,
     default: "max-w-3xl",
-    doc: "largura do conteúdo; só isto muda de página pra página"
+    doc: "content width; the only thing that changes page to page"
 
   slot :inner_block, required: true
 
@@ -269,16 +270,16 @@ defmodule PokexWeb.Layouts do
     """
   end
 
-  @doc "Os destinos da navegação, na ordem em que aparecem: `{key, label, icon}`."
+  @doc "The navigation destinations, in display order: `{key, label, icon}`."
   def nav_items, do: @nav
 
   @doc """
-  Os assigns que o `PokexWeb.HeaderState` mantém, prontos pra repassar em bloco:
+  The assigns `PokexWeb.HeaderState` maintains, ready to forward as a block:
 
       <Layouts.app flash={@flash} current_page={:pokedex} {Layouts.header(assigns)}>
 
-  Repetir os quatro à mão em nove páginas é como uma delas acabaria com um header
-  meio morto — sem personagem, ou com o pill congelado em "Parado".
+  Repeating them by hand on nine pages is how one would end up with a
+  half-dead header — no character, or the pill frozen on "Parado".
   """
   def header(assigns),
     do:
@@ -291,8 +292,9 @@ defmodule PokexWeb.Layouts do
         :alarm_muted_categories
       ])
 
-  # o id vira DOM: `:fishing_lab` -> "app-nav-fishing-lab" (underscore em id de
-  # markup é ruído, e um teste que faz `refute html =~ "mini_game"` acha o id)
+  # The id becomes DOM: `:fishing_lab` -> "app-nav-fishing-lab" (underscores in
+  # markup ids are noise, and a test doing `refute html =~ "mini_game"` would
+  # match the id).
   defp nav_id(key), do: "app-nav-" <> String.replace(to_string(key), "_", "-")
 
   defp nav_path(:panel), do: ~p"/"

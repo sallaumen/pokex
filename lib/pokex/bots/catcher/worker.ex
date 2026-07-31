@@ -30,11 +30,10 @@ defmodule Pokex.Bots.Catcher.Worker do
   @topic "catcher"
   @kill_topic "combat:kill"
 
-  # Depois de um kill cuja varredura não achou nada, re-olhar nestes atrasos.
-  # Não é knob: é a física do corpo — ele dura minutos no chão, e o PRIMEIRO
-  # frame pós-kill costuma estar sujo (animação de morte, o saque, o próprio
-  # pokémon passando por cima). Três chances em 2s resolvem; mais é captura
-  # queimada à toa.
+  # After a kill whose scan found nothing, re-look at these delays. Not a knob:
+  # corpse physics — it lasts minutes on the ground, and the FIRST post-kill
+  # frame is usually dirty (death animation, the loot, the own pokémon walking
+  # over it). Three chances in 2s suffice; more is capture burned for nothing.
   @repiques [400, 1_000, 2_000]
 
   @config_keys [
@@ -52,7 +51,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   def start_link(opts \\ []) do
     init_arg = %{
       body: Keyword.get(opts, :body, Body),
-      # a visão ancorada no kill; injetável nos testes como o Body
+      # kill-anchored vision; injectable in tests like the Body
       scanner: Keyword.get(opts, :scanner, &Pokex.Bots.Catcher.SpotScan.scan/0)
     }
 
@@ -77,8 +76,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
-    # a SHINY sighting overrides capture_enabled for the next ball (Lucas:
-    # "O Shiny sempre tem que tentar")
+    # a SHINY sighting overrides capture_enabled for the next ball
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
     {:ok,
@@ -92,21 +90,21 @@ defmodule Pokex.Bots.Catcher.Worker do
        feed_ref: nil,
        reattach_attempts: 0,
        loots: 0,
-       # o portão fechado já foi anunciado nesta rodada? (log por BORDA)
+       # has the closed gate been announced this round? (edge-triggered log)
        segurada?: false,
-       # re-varreduras agendadas depois de um kill que não achou nada: o corpo
-       # fica MINUTOS no chão, uma chance só era pouco (a animação de morte, o
-       # saque e o próprio pokémon em cima atrapalham o primeiro frame)
+       # rescans scheduled after a kill that found nothing: the corpse stays on
+       # the ground for MINUTES, and the first frame is usually dirty (death
+       # animation, loot, the own pokémon on top)
        repiques: [],
-       # monitor do Combat.Worker: se ele cair, combat_engaged? não pode ficar
-       # travado em true — seria um catcher mudo até o próximo broadcast
+       # Combat.Worker monitor: if it dies, combat_engaged? must not stay stuck
+       # true — that would be a mute catcher until the next broadcast
        combat_ref: nil,
-       # R4: quantos de cada corpo foram ENCONTRADOS nesta sessão, e o conjunto
-       # visto na varredura anterior (dedup consecutivo)
+       # how many of each corpse were FOUND this session, plus the set seen in
+       # the previous scan (consecutive dedup)
        contagem: %{},
        vistos: MapSet.new(),
-       # o placar da sessão (zerado em cada Iniciar): quantas varreduras
-       # aconteceram, quantas acharam alvo, e quantas cegaram
+       # session scoreboard (reset on each start): scans done, scans with a
+       # target, and blind scans
        varreduras: 0,
        com_alvo: 0,
        cegas: 0,
@@ -177,8 +175,8 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # kill = accelerator (both shapes: Task 5 drops the payload; tolerate the old one meanwhile).
   # loot_kill runs BEFORE advance: the Space presses must land ahead of any ball this cycle.
-  # A visão é ANCORADA AQUI: o kill diz que um corpo acabou de cair num tile
-  # vizinho — o SpotScan pergunta ao acervo qual (ver Catcher.SpotScan).
+  # Vision is ANCHORED HERE: the kill says a corpse just fell on an adjacent
+  # tile — SpotScan asks the library which one (see Catcher.SpotScan).
   def handle_info({:kill}, %{logic: %Logic{state: :armed}} = state) do
     state = loot_kill(%{state | repiques: @repiques})
     {:noreply, advance(state, scan_obs(state))}
@@ -209,8 +207,8 @@ defmodule Pokex.Bots.Catcher.Worker do
     # logic to drive — nil/halted must never reach Logic.step/3.
     state =
       if disengaged? and match?(%Logic{state: :armed}, state.logic) do
-        # o kill pode ter chegado com a luta ainda "engajada" no nosso espelho
-        # (ordem dos broadcasts) — a borda do desengate re-escaneia na hora
+        # the kill may have arrived with the fight still "engaged" in our mirror
+        # (broadcast ordering) — the disengage edge rescans immediately
         advance(state, scan_obs(state))
       else
         state
@@ -230,11 +228,11 @@ defmodule Pokex.Bots.Catcher.Worker do
     {:noreply, state}
   end
 
-  # O Combat.Worker caiu: FAIL-OPEN no espelho de engajamento. Um crash entre o
-  # engage e o disengage deixaria combat_engaged? travado em true — um catcher
-  # mudo até o broadcast de um combate que talvez nem volte. O supervisor recria
-  # o combate, que re-broadcasta o estado; até lá, melhor arriscar uma varredura
-  # contaminada (o acervo filtra) do que nenhuma.
+  # Combat.Worker died: FAIL-OPEN on the engagement mirror. A crash between
+  # engage and disengage would leave combat_engaged? stuck true — a mute catcher
+  # until a broadcast that may never come. The supervisor recreates combat,
+  # which re-broadcasts; until then, better to risk one contaminated scan (the
+  # library filters) than none.
   def handle_info({:DOWN, ref, :process, _obj, _reason}, %{combat_ref: ref} = state) do
     {:noreply, monitorar_combate(%{state | combat_engaged?: false})}
   end
@@ -270,8 +268,6 @@ defmodule Pokex.Bots.Catcher.Worker do
       Settings.get(:capture_enabled) or
         (state.shiny_pending? and Settings.get(:shiny_always_ball))
 
-  # -- step pipeline -------------------------------------------------------------
-
   # The mode gate lives HERE, not only in attach/detach: a late in-flight {:world,...} event
   # (or a test-injected one) right after flipping to movimento must never throw a ball.
   # The mini-game gate comes first: no admissions, throws or confirms while it
@@ -290,11 +286,11 @@ defmodule Pokex.Bots.Catcher.Worker do
     reagendar(state, obs)
   end
 
-  # O reagendamento mora AQUI, não dentro do run_step: os ramos que seguravam o
-  # passo (luta engajada, portão fechado, mini-game) saíam sem agendar nada, e
-  # uma bola em voo ficava pendente pra sempre se nenhum evento novo chegasse.
-  # Prioridade: (1) a Logic tem pendência → wake no prazo real dela; (2) a
-  # varredura do kill não achou nada e há repiques restantes → re-olhar o chão.
+  # Rescheduling lives HERE, not inside run_step: the branches that held the
+  # step (engaged fight, closed gate, mini-game) returned without scheduling,
+  # and a ball in flight stayed pending forever if no new event arrived.
+  # Priority: (1) Logic has pending work → wake at its real deadline; (2) the
+  # kill scan found nothing and rescans remain → re-look at the ground.
   defp reagendar(state, obs) do
     case state.logic && Logic.next_wake(state.logic, now()) do
       ms when is_integer(ms) ->
@@ -305,8 +301,8 @@ defmodule Pokex.Bots.Catcher.Worker do
     end
   end
 
-  # Só uma varredura REAL e vazia consome um repique — obs nil (portão/luta) ou
-  # cega não gasta a chance: o motivo do vazio não foi "o chão está limpo".
+  # Only a REAL empty scan consumes a rescan — nil obs (gate/fight) or a blind
+  # one doesn't spend the chance: the emptiness wasn't "the ground is clean".
   defp repicar(%{repiques: [ms | resto]} = state, %{scanning?: true, corpses: []}),
     do: agendar(%{state | repiques: resto}, ms)
 
@@ -317,10 +313,9 @@ defmodule Pokex.Bots.Catcher.Worker do
     %{state | timer: Process.send_after(self(), :wake, max(ms, 1))}
   end
 
-  # Os números que faltavam pra medir uma mudança em vez de torcer por ela: a
-  # sessão inteira em três contadores no card. `com_alvo` sobe quando ALGUM
-  # corpo do acervo passou do limiar — a razão varreduras:com_alvo é o
-  # termômetro da mira (medido em 2026-07-30: 242 kills → 1 reconhecimento).
+  # The whole session in three card counters. `com_alvo` rises when SOME library
+  # corpse passed the threshold — the varreduras:com_alvo ratio is the aim
+  # thermometer (measured 2026-07-30: 242 kills → 1 recognition).
   defp contar(state, %{scanning?: true} = obs) do
     achou? = Map.get(obs, :corpses, []) != []
 
@@ -335,13 +330,12 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp contar(state, %{scanning?: false}), do: %{state | cegas: state.cegas + 1}
   defp contar(state, _sem_varredura), do: state
 
-  # "Quantos Kingler eu encontrei nesta sessão?" — o pedido R4 do Lucas.
-  #
-  # Dedup CONSECUTIVO (a mesma ideia do Journal): a confirmação de uma bola
-  # re-escaneia os mesmos tiles, e sem isto um corpo parado ali contaria de novo
-  # a cada varredura. Só o que ENTROU desde a varredura anterior soma. Não sai
-  # de `counters.captures` de propósito: aquele número mede "o ponto parou de
-  # casar", não captura — mentiria pelo mesmo motivo que os logs mentiam.
+  # Per-corpse session count ("how many Kingler this session?"). CONSECUTIVE
+  # dedup (same idea as the Journal): a ball's confirmation rescans the same
+  # tiles, and a corpse sitting there would count again every scan — only what
+  # ENTERED since the previous scan adds. Deliberately not derived from
+  # `counters.captures`: that number measures "the point stopped matching",
+  # not capture.
   defp contar_por_corpo(state, obs) do
     vistos =
       obs
@@ -376,12 +370,11 @@ defmodule Pokex.Bots.Catcher.Worker do
       not capture_allowed?(state) ->
         state
 
-      # Perguntar ao PORTÃO antes de decidir — a mesma lição que o cavebot
-      # aprendeu (Body.step_minimap): `Rig.Mac.gated/1` devolve `:ok` quando
-      # SUPRIME, então agir e depois olhar o retorno faria a Logic contar uma
-      # bola que nunca saiu, gastar a fila e abrir janela de confirmação contra
-      # um corpo intocado. Pular o passo inteiro deixa o corpo lá pro próximo
-      # kill, que é a verdade.
+      # Ask the GATE before deciding — the cavebot's lesson (Body.step_minimap):
+      # `Rig.Mac.gated/1` answers `:ok` when it SUPPRESSES, so acting and then
+      # checking the return would make Logic count a ball that never left, spend
+      # the queue and open a confirmation window against an untouched corpse.
+      # Skipping the whole step leaves the corpse there for the next kill.
       not gate_aberto?() ->
         segurar(state)
 
@@ -396,8 +389,8 @@ defmodule Pokex.Bots.Catcher.Worker do
     :exit, _reason -> false
   end
 
-  # Uma linha por BORDA, não por evento: com o navegador em foco o portão fica
-  # fechado por minutos, e um alarme por kill viraria sirene.
+  # One line per EDGE, not per event: with the browser focused the gate stays
+  # closed for minutes, and one alarm per kill would be a siren.
   defp segurar(%{segurada?: true} = state), do: state
 
   defp segurar(state) do
@@ -410,9 +403,9 @@ defmodule Pokex.Bots.Catcher.Worker do
 
     performs = Enum.filter(actions, &match?({:capture_sequence, _}, &1))
 
-    # A Logic fala "arremesse em X"; QUEM SABE COMO é o Catcher.Ball (posicionar,
-    # bater, acionar o atalho configurado, segurar o cursor). Cada passo passa
-    # pelo portão e pelo gate do mini-game em vez de um primitivo opaco do Rig.
+    # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
+    # configured hotkey, hold the cursor). Each step passes the input and
+    # mini-game gates instead of an opaque Rig primitive.
     resultado =
       if performs != [] do
         performs
@@ -420,8 +413,8 @@ defmodule Pokex.Bots.Catcher.Worker do
         |> Body.perform(:high, state.body)
       end
 
-    # O retorno era DESCARTADO — um erro real da atuação sumia e o feed escrevia
-    # "bola arremessada" do mesmo jeito.
+    # The return used to be DISCARDED — a real actuation error vanished and the
+    # feed wrote "bola arremessada" anyway.
     logic =
       case resultado do
         {:error, motivo} ->
@@ -429,15 +422,15 @@ defmodule Pokex.Bots.Catcher.Worker do
           logic
 
         :ok when performs != [] ->
-          # a janela de confirmação conta da ATUAÇÃO (a sequência leva ~200ms),
-          # não da decisão — senão a primeira leitura julga cedo demais
+          # the confirmation window counts from ACTUATION (the sequence takes
+          # ~200ms), not decision — else the first read judges too early
           Logic.ball_flown(logic, now())
 
         _sem_bola ->
           logic
       end
 
-    # o alarme de bola seca sai pela categoria :captura (silenciável no sino)
+    # the dry-ball alarm goes out under :captura (mutable in the bell)
     for {:alarm, msg} <- actions do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :captura, msg})
     end
@@ -460,9 +453,9 @@ defmodule Pokex.Bots.Catcher.Worker do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, :macro, "captura: #{text}"})
     end
 
-    # A bola diz QUEM está na mira: o interpretador já reconheceu o corpo pelo
-    # acervo (só corpo mapeado vira alvo desde 2026-07-30) e o nome viaja na
-    # observação — jogar a informação fora deixava o Lucas validando às cegas.
+    # The ball says WHO is in the aim: the interpreter already recognized the
+    # corpse via the library (only mapped corpses are targets since 2026-07-30)
+    # and the name travels in the observation — dropping it meant blind validation.
     for {:capture_sequence, point} <- performs, info = known_at(obs, point), info != nil do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
@@ -526,11 +519,11 @@ defmodule Pokex.Bots.Catcher.Worker do
     end
   end
 
-  # A observação ancorada no kill. Portões ANTES da captura: escanear com luta
-  # engajada casaria o sprite VIVO adjacente (a paleta de um pokémon em pé é a
-  # mesma do corpo ensinado dele); movimento/captura-desligada nem olham; o
-  # mini-game é dono do momento. nil = um passo que não prova nada (a Logic
-  # ignora), nunca uma confirmação falsa.
+  # The kill-anchored observation. Gates BEFORE the capture: scanning with a
+  # fight engaged would match the adjacent LIVE sprite (a standing pokémon's
+  # palette equals its taught corpse's); movimento/capture-off don't even look;
+  # the mini-game owns the moment. nil = a step that proves nothing (Logic
+  # ignores it), never a false confirmation.
   defp scan_obs(state) do
     if state.combat_engaged? or Settings.get(:player_mode) != "parado" or
          not capture_allowed?(state) or Perception.mini_game_playing?(),
@@ -538,10 +531,10 @@ defmodule Pokex.Bots.Catcher.Worker do
        else: state.scanner |> safe_scan() |> narrar()
   end
 
-  # Um scanner que morra (captura falhou, calibração corrompida) vira um passo
-  # cego — jamais derruba o worker no meio da frota. Mas a exceção é LOGADA: um
-  # rescue silencioso é exatamente como uma varredura que nunca aconteceu vira
-  # indistinguível de uma que não achou nada.
+  # A dying scanner (capture failed, corrupted calibration) becomes a blind
+  # step — never takes the worker down mid-fleet. But the exception is LOGGED:
+  # a silent rescue is exactly how a scan that never happened becomes
+  # indistinguishable from one that found nothing.
   defp safe_scan(scanner) do
     scanner.()
   rescue
@@ -554,21 +547,20 @@ defmodule Pokex.Bots.Catcher.Worker do
       nil
   end
 
-  # Toda varredura vira UMA linha no feed. Antes, os três desfechos possíveis —
-  # não varri, varri e não achei, varri e achei — produziam o mesmo silêncio, e
-  # o Lucas ficou horas sem saber em qual deles estava (2026-07-30). O score do
-  # melhor candidato vai junto mesmo REPROVADO: a distância até o limiar é o
-  # diagnóstico da mira.
+  # Every scan becomes ONE feed line. Before, the three possible outcomes —
+  # didn't scan, scanned and found nothing, scanned and found — produced the
+  # same silence for hours (2026-07-30). The best candidate's score goes along
+  # even when FAILING: distance to the threshold is the aim diagnostic.
   defp narrar(nil), do: nil
 
   defp narrar(%{scanning?: false} = obs) do
-    # cegueira é rara e precisa sobreviver ao restart → :macro (vai pro JSONL)
+    # blindness is rare and must survive restarts → :macro (goes to the JSONL)
     log(:macro, "🔎 cego: #{motivo_texto(Map.get(obs, :motivo))}")
     obs
   end
 
   defp narrar(%{janelas: janelas} = obs) do
-    # rotina em :debug — vive no feed, não infla o histórico em disco
+    # routine at :debug — lives in the feed, doesn't bloat the on-disk history
     log(:debug, "🔎 varri #{janelas} janelas#{quadro_texto(obs)} · " <> melhor_texto(obs))
     obs
   end
@@ -603,14 +595,13 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp log(level, texto),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, level, "captura: #{texto}"})
 
-  # O acervo é a mira — um start com acervo vazio vai passar a sessão inteira
-  # sem mirar NADA, e isso merece sirene, não silêncio (era exatamente o tipo
-  # de "parece ligado mas não faz nada" que corroía a confiança do Lucas).
+  # The library IS the aim — a start with an empty library will aim at NOTHING
+  # all session, which deserves a siren, not silence ("looks on but does
+  # nothing" is exactly what eroded trust).
   defp announce_library do
-    # Antes de falar do acervo: se a bola está desligada, o acervo é irrelevante
-    # e o que o Lucas precisa ouvir é OUTRA coisa. Um alarme, não um sussurro —
-    # a captura passou horas "ligada" (o bot rodando, o saque saindo) com a
-    # chave em false, e nada na tela dizia isso em voz alta.
+    # If the ball is off, the library is irrelevant and THAT is the message. An
+    # alarm, not a whisper — capture once ran "on" for hours (bot running, loot
+    # flowing) with the key false and nothing on screen said so out loud.
     if not Settings.get(:capture_enabled) do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
@@ -635,8 +626,8 @@ defmodule Pokex.Bots.Catcher.Worker do
         )
 
       n ->
-        # "N pokémon ensinados", não "N corpos" — o Lucas leu "acervo com 10
-        # corpos" como "10 corpos na tela agora" (2026-07-30)
+        # "N pokémon taught", not "N corpses" — "acervo com 10 corpos" was read
+        # as "10 corpses on screen right now" (2026-07-30)
         Phoenix.PubSub.broadcast(
           Pokex.PubSub,
           @topic,
@@ -646,9 +637,9 @@ defmodule Pokex.Bots.Catcher.Worker do
     end
   end
 
-  # A bola voa contra um ponto ADMITIDO em observação anterior; o centro do
-  # track pode ter derivado alguns px até aqui — o vizinho mais próximo dentro
-  # da tolerância é o mesmo corpo.
+  # The ball flies at a point ADMITTED in an earlier observation; the track
+  # center may have drifted a few px since — the nearest neighbor within
+  # tolerance is the same corpse.
   defp known_at(%{known: known}, {px, py}) when is_map(known) and map_size(known) > 0 do
     tolerance = Settings.get(:corpse_match_tolerance_px)
 
@@ -668,13 +659,11 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp known_at(_obs, _point), do: nil
 
-  # O feed do detector de chão foi APOSENTADO (2026-07-30): a visão agora é o
-  # SpotScan ancorado no kill — a operação real (pesca + combate contínuos)
-  # nunca tem a janela quieta que o aquecimento do baseline exigia; o warmup
-  # acontecia com luta na tela, mascarava os tiles dos corpos e a captura
-  # ficava muda a sessão inteira. O maquinário de attach/reattach abaixo fica
-  # inerte (nada nunca anexa); a remoção do Interpret.Corpses/feed é faxina
-  # separada.
+  # The ground-detector feed is RETIRED (2026-07-30): vision is now the
+  # kill-anchored SpotScan — real operation never has the quiet window the
+  # baseline warmup required. The attach/reattach machinery below stays inert
+  # (nothing ever attaches); removing Interpret.Corpses/the feed is separate
+  # cleanup.
   defp sync_mode(state) do
     if should_be_attached?(state), do: attach(state), else: cancel_timer(detach(state))
   end
@@ -791,10 +780,10 @@ defmodule Pokex.Bots.Catcher.Worker do
       state.combat_engaged? ->
         "esperando fim da luta"
 
-      # O portão que passou o dia inteiro fechado sem dizer o nome (2026-07-30:
-      # 1015 kills, 1015 saques, zero varredura — a chave estava false e a única
-      # pista era a pílula "só saque"). O motivo agora é o primeiro da lista de
-      # espera, não uma sutileza que se lê como estado normal.
+      # The gate that stayed shut all day without saying its name (2026-07-30:
+      # 1015 kills, 1015 loots, zero scans — the key was false and the only clue
+      # was the "só saque" pill). The reason now heads the hold list instead of
+      # reading as normal state.
       not Settings.get(:capture_enabled) ->
         "captura DESLIGADA — só saque"
 

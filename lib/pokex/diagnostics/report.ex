@@ -105,11 +105,10 @@ defmodule Pokex.Diagnostics.Report do
     }
   end
 
-  # A metade OPERACIONAL do bundle de suporte (Frente 4 do plano de
-  # consolidação): o que estava acontecendo — não só o que a tela mostrava.
-  # Cada fonte é blindada isoladamente: um processo fora do ar vira {"erro": _}
-  # naquela chave, nunca um bundle que falha inteiro (o bundle existe
-  # exatamente pros momentos em que algo está quebrado).
+  # The OPERATIONAL half of the support bundle: what was happening — not just
+  # what the screen showed. Each source is shielded individually: a process
+  # that is down becomes {"erro": _} under its key, never a bundle that fails
+  # whole (the bundle exists exactly for the moments something is broken).
   defp operacao_report(settings) do
     %{
       journal: safe_source(fn -> Pokex.Journal.recent(limit: 300, min_severity: :macro) end),
@@ -125,8 +124,8 @@ defmodule Pokex.Diagnostics.Report do
         safe_source(fn ->
           %{input_gate: Pokex.Bots.InputGate.state(), focus: Pokex.Bots.Focus.status()}
         end),
-      # o DIFF contra os seeds: só o que o Lucas mudou — a resposta rápida de
-      # "que ajuste está diferente do padrão?" sem caçar em ~180 chaves
+      # DIFF against the seeds: only what was changed — the quick answer to
+      # "which setting differs from default?" without hunting ~180 keys
       settings_diff:
         safe_source(fn ->
           defaults = Pokex.Settings.defaults()
@@ -156,8 +155,8 @@ defmodule Pokex.Diagnostics.Report do
     kind, reason -> %{erro: "#{kind}: #{inspect(reason)}"}
   end
 
-  # Snapshots carregam tuplas (pontos, rects) e o bundle vira JSON — converte
-  # fundo: tupla → lista, o resto que o Jason não conhece → inspect.
+  # Snapshots carry tuples (points, rects) and the bundle becomes JSON — deep
+  # convert: tuple → list, anything else Jason doesn't know → inspect.
   defp jsonable(%_struct{} = s), do: s |> Map.from_struct() |> jsonable()
 
   defp jsonable(map) when is_map(map),
@@ -221,8 +220,6 @@ defmodule Pokex.Diagnostics.Report do
         %{calibrated?: true, region: Tuple.to_list(region), error: inspect(reason)}
     end
   end
-
-  # --- per-region capture + metrics ------------------------------------------
 
   defp region_report(rig, {x, y, w, h} = region, filename, metrics_fun, opts) do
     case capture_frame(rig, region, filename) do
@@ -351,8 +348,6 @@ defmodule Pokex.Diagnostics.Report do
     end
   end
 
-  # --- matrix ----------------------------------------------------------------
-
   # Turn the downsampled grid into JSON: the full per-cell data AND a one-string-per-
   # row `ascii` picture (via @glyphs) that reads at a glance — spaces are black/empty,
   # letters are signal (G = HP bar, R/P = lock/pokeball red, c = bubbles).
@@ -372,8 +367,6 @@ defmodule Pokex.Diagnostics.Report do
         end)
     }
   end
-
-  # --- serialization ---------------------------------------------------------
 
   defp calibration_map(calib) do
     %{

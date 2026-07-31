@@ -11,7 +11,7 @@ defmodule Pokex.CharactersTest do
 
   @moduletag :tmp_dir
 
-  test "slugify normaliza e recusa vazio" do
+  test "slugify normalizes and rejects empty" do
     assert Characters.slugify("Meu Char 2") == {:ok, "meu-char-2"}
     assert Characters.slugify("  ") == {:error, :invalid_name}
   end
@@ -23,7 +23,7 @@ defmodule Pokex.CharactersTest do
     refute Enum.any?(Characters.list(), &(&1.slug == "lowbie"))
   end
 
-  test "active lê e escreve o setting, default vazio", %{settings: s} do
+  test "active reads and writes the setting, empty default", %{settings: s} do
     assert Characters.active(s) == ""
     :ok = Characters.set_active("lowbie", s)
     assert Characters.active(s) == "lowbie"

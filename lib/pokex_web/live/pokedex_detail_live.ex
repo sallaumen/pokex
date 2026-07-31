@@ -1,9 +1,8 @@
 defmodule PokexWeb.PokedexDetailLive do
   @moduledoc """
-  One Pokémon, one page (`/pokedex/:name`): the click-through Lucas asked for
-  ("quando eu clicar em um Pokémon individualmente, gostaria que tivesse uma
-  página para explorar mais informações... com fáceis de voltar e algo bem
-  ágil"). Pure `Pokedex.get/1` + `lures_for/1` reads — nothing heavy — and
+  One Pokémon, one page (`/pokedex/:name`): the click-through Lucas asked
+  for — explore an individual Pokémon with easy back navigation and a snappy
+  feel. Pure `Pokedex.get/1` + `lures_for/1` reads — nothing heavy — and
   every related name (evolutions, shiny variant, base form) is another
   navigate link, so exploring chains is one click per hop with the browser's
   back button always meaningful.
@@ -19,7 +18,7 @@ defmodule PokexWeb.PokedexDetailLive do
     do: {:ok, assign(socket, species_names: Enum.map(Pokedex.search(%{}), & &1.name))}
 
   # handle_params (not mount) owns the lookup so evolution/shiny links between
-  # detail pages patch in place — no full remount, "bem ágil".
+  # detail pages patch in place — no full remount, stays snappy.
   @impl true
   def handle_params(%{"name" => name}, _uri, socket),
     do: {:noreply, socket |> assign(jump_msg: nil) |> assign_entry(name)}
@@ -76,8 +75,9 @@ defmodule PokexWeb.PokedexDetailLive do
         member != nil,
         fere = Enum.filter(member.elements, &(&1 in entry.weak_to)),
         sofre = Enum.filter(entry.elements, &(&1 in member.weak_to)),
-        # "Nulo" na wiki: esse elemento não tira UM ponto de vida dele — a pior
-        # surpresa possível numa caçada, então entra no matchup como aviso
+        # "Nulo" on the wiki: that element takes not ONE hit point from it —
+        # the worst possible hunt surprise, so it enters the matchup as a
+        # warning
         nulo = Enum.filter(member.elements, &(&1 in entry.immune)),
         fere != [] or sofre != [] or nulo != [] do
       %{name: name, fere: fere, sofre: sofre, nulo: nulo}
@@ -161,8 +161,8 @@ defmodule PokexWeb.PokedexDetailLive do
       max_width="max-w-[1080px]"
     >
       <div class="space-y-3">
-        <%!-- Voltar pra lista e pular pra outra espécie são ações DESTA página, não
-              navegação do app: ficam aqui no corpo, sob o header padrão. --%>
+        <%!-- Back-to-list and jump-to-species are THIS page's actions, not app
+              navigation: they live here in the body, under the standard header. --%>
         <section class="flex flex-wrap items-center gap-3">
           <.link
             navigate={~p"/pokedex"}

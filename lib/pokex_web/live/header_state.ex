@@ -1,18 +1,18 @@
 defmodule PokexWeb.HeaderState do
   @moduledoc """
-  Mantém vivo o header do app em TODAS as páginas.
+  Keeps the app header alive on EVERY page.
 
-  O header é o mesmo em toda página (marca, aviso de foco, personagem ativo,
-  ligado/parado, navegação), então o estado por trás dele não pode morar dentro
-  de uma LiveView só: é montado uma vez aqui, para a `live_session` inteira.
+  The header is the same on every page (brand, focus warning, active
+  character, running/stopped, navigation), so its state cannot live inside a
+  single LiveView: it is mounted once here, for the whole `live_session`.
 
-  A posse das mensagens é dividida de propósito. O Painel já assina os tópicos
-  dos workers porque precisa do snapshot inteiro (cards e alarme de erro);
-  assinar de novo aqui entregaria cada mensagem DUAS vezes pra ele. No painel
-  este hook só pega carona no que ele já recebe e devolve a mensagem adiante
-  (`:cont`); nas outras páginas ele assina e para a mensagem aqui (`:halt`) —
-  uma página sem cláusula pra `{:fishing, _}` levantaria FunctionClauseError no
-  `handle_info/2`.
+  Message ownership is split on purpose. The Panel already subscribes to the
+  worker topics because it needs the whole snapshot (cards and error alarm);
+  subscribing again here would deliver every message to it TWICE. On the
+  panel this hook only rides along on what the panel already receives and
+  passes the message on (`:cont`); on the other pages it subscribes and stops
+  the message here (`:halt`) — a page with no clause for `{:fishing, _}`
+  would raise FunctionClauseError in `handle_info/2`.
   """
   import Phoenix.Component, only: [assign: 2, assign: 3]
   import Phoenix.LiveView, only: [attach_hook: 4, connected?: 1]
@@ -22,10 +22,10 @@ defmodule PokexWeb.HeaderState do
   alias Pokex.Settings
 
   @focus_topic "focus"
-  # A frota que o pill representa: os três workers cujo estado significa "o bot
-  # está trabalhando". A caçada entrou na Frente 1 — o cavebot anda a rota com o
-  # combate DESLIGADO entre lutas, e sem ele o header jurava "Parado" com o bot
-  # caçando (caracterizado na Etapa 0; o teste virou junto com esta linha).
+  # The fleet the pill represents: the three workers whose state means "the
+  # bot is working". The cavebot walks its route with combat OFF between
+  # fights, so without it in this list the header swore "Parado" while the
+  # bot was hunting.
   @worker_topics ["fishing", "combat", "cavebot"]
 
   def on_mount(:default, _params, _session, socket) do
@@ -56,11 +56,11 @@ defmodule PokexWeb.HeaderState do
   end
 
   @doc """
-  Realinha o pill ligado/parado com um `BotSupervisor.status()` recém-lido.
+  Realigns the running/stopped pill with a freshly read `BotSupervisor.status()`.
 
-  O painel muda o estado dos workers por ação direta (Iniciar/Parar) e já
-  reatribui o status na hora; sem isto o header só descobriria no próximo
-  broadcast — o Lucas clicaria "Iniciar" e leria "Parado" por um tick.
+  The panel changes worker state by direct action (Start/Stop) and reassigns
+  the status immediately; without this the header would only find out on the
+  next broadcast — clicking "Iniciar" would read "Parado" for a tick.
   """
   def sync_workers(socket, status) do
     socket
@@ -79,13 +79,13 @@ defmodule PokexWeb.HeaderState do
   defp info({:combat, %{state: state}}, socket), do: worker_state(socket, :combat, state)
   defp info({:cavebot, %{state: state}}, socket), do: worker_state(socket, :cavebot, state)
 
-  # O RESTO do tráfego dos tópicos que ESTE hook assinou — logs e alarmes que
-  # viajam junto com os snapshots ({:fishing_log, _, _}, {:rule_alarm, _}...) —
-  # morre aqui nas páginas que não são o painel: a página não pediu essas
-  # mensagens e não tem cláusula pra elas (com o bot pescando e a calibração
-  # aberta, cada log era um FunctionClauseError que derrubava a LiveView —
-  # Lucas, 2026-07-30). No painel (:cont) tudo segue pros handlers dele, que
-  # assinou por conta própria.
+  # The REST of the traffic on the topics THIS hook subscribed to — logs and
+  # alarms riding along with the snapshots ({:fishing_log, _, _},
+  # {:rule_alarm, _}...) — dies here on non-panel pages: the page didn't ask
+  # for those messages and has no clause for them (with the bot fishing and
+  # the calibration page open, every log was a FunctionClauseError taking the
+  # LiveView down — 2026-07-30). On the panel (:cont) everything flows on to
+  # its handlers, which subscribed on their own.
   @worker_noise [:fishing_log, :combat_log, :cavebot_log, :cavebot_alarm, :rule_alarm]
 
   defp info(msg, socket)
@@ -119,18 +119,18 @@ defmodule PokexWeb.HeaderState do
     end
   end
 
-  # Som geral: silencia TUDO de uma vez, sem tocar nos setores individuais —
-  # reativar o geral devolve o painel exatamente como estava por setor.
+  # Master sound: silences EVERYTHING at once without touching the individual
+  # sectors — re-enabling it restores the per-sector state exactly as it was.
   defp event("toggle_alarm_sound", _params, socket) do
     next = not Settings.get(:alarm_sound)
     Settings.put(:alarm_sound, next)
     {:halt, assign(socket, alarm_sound: next)}
   end
 
-  # Mudo POR SETOR (Lucas, 2026-07-30): "canto de comando"/"sessão" costumam
-  # ser os barulhentos; Shiny é o que ele quer sempre ligado. `from_string/1`
-  # rejeita qualquer valor que não seja um setor conhecido — o clique nunca
-  # grava lixo no disco (mesma fronteira do Settings.put/3).
+  # Per-SECTOR mute (2026-07-30): "command corner"/"session" tend to be the
+  # noisy ones; Shiny is the one he always wants on. `from_string/1` rejects
+  # anything that is not a known sector — a click never writes garbage to
+  # disk (same boundary as Settings.put/3).
   defp event("toggle_alarm_category", %{"category" => category_text}, socket) do
     if AlarmCategories.from_string(category_text) do
       current = Settings.get(:alarm_muted_categories)
@@ -149,10 +149,10 @@ defmodule PokexWeb.HeaderState do
 
   defp event(_event, _params, socket), do: {:cont, socket}
 
-  # O Catcher fica de fora de propósito: em modo "movimento" ele reporta :manual sempre
-  # — escolha de exibição, não sinal de ligado/parado. Mesma regra que o painel usa.
-  # A régua do que conta como RODANDO é uma só, BotSupervisor.active?/1 — os
-  # estados de parada da caçada (:blocked/:stuck/:fight_stalled) NÃO acendem.
+  # The Catcher is left out on purpose: in "movimento" mode it always reports
+  # :manual — a display choice, not a running signal. Same rule as the panel.
+  # What counts as RUNNING has one ruler, BotSupervisor.active?/1 — the
+  # hunt's stop states (:blocked/:stuck/:fight_stalled) do NOT light it up.
   defp assign_bot_active(socket) do
     assign(
       socket,
@@ -161,8 +161,8 @@ defmodule PokexWeb.HeaderState do
     )
   end
 
-  # O poller de foco pode não ter publicado nada ainda no mount; pergunta direto
-  # (falha pro lado de "focado" pra o aviso de pausa nunca aparecer à toa).
+  # The focus poller may not have published anything yet at mount; ask
+  # directly (fail toward "focused" so the pause warning never shows idly).
   defp focused? do
     Pokex.Bots.Focus.status().focused?
   catch

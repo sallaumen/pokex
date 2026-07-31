@@ -30,19 +30,17 @@ defmodule Pokex.Bots.Fishing.Logic do
             # last PERFORMED actuation as %{text: String.t(), at: monotonic_ms} —
             # nil until the first cast (never a 0 sentinel).
             last_action: nil,
-            # A TESTEMUNHA do arremesso: alguma bolha (glow assentado) foi vista
-            # neste ciclo? Nasce true de propósito — o primeiro cast não herda
-            # secura de um ciclo que não existiu. Cada cast zera pra false.
+            # The cast's WITNESS: was any bubble (settled glow) seen this cycle?
+            # Born true on purpose — the first cast must not inherit dryness
+            # from a cycle that never existed. Each cast resets it to false.
             glow_seen?: true,
-            # arremessos SEGUIDOS que terminaram sem nenhuma bolha — quando bate
-            # config.dry_casts_alarm, o cast emite {:alarm, _} (a tecla da vara
-            # provavelmente não está chegando no jogo) e a contagem recomeça.
+            # CONSECUTIVE casts that ended with no bubble at all — at
+            # config.dry_casts_alarm the cast emits {:alarm, _} (the rod key is
+            # probably not reaching the game) and the count restarts.
             dry_casts: 0,
             failures: 0,
             error: nil,
             counters: %{cycles: 0, hooked: 0, failures: 0}
-
-  # -- lifecycle ------------------------------------------------------------
 
   def new(config), do: %__MODULE__{config: config}
 
@@ -56,8 +54,6 @@ defmodule Pokex.Bots.Fishing.Logic do
   def stop(logic), do: {%{logic | state: :idle, waiting_until: nil, hold_reason: nil}, []}
 
   def io_failed(logic, reason, now), do: fail(logic, now, reason)
-
-  # -- driver hints ----------------------------------------------------------
 
   def needs(%__MODULE__{state: state}) when state in [:idle, :error], do: []
 
@@ -82,8 +78,6 @@ defmodule Pokex.Bots.Fishing.Logic do
   def tick_interval(%__MODULE__{state: :watching, config: c}), do: c.tick_ms_watching
   def tick_interval(%__MODULE__{config: c}), do: c.tick_ms_default
 
-  # -- stepping ---------------------------------------------------------------
-
   def step(%__MODULE__{state: state} = logic, _obs, _now) when state in [:idle, :error],
     do: {logic, []}
 
@@ -100,15 +94,15 @@ defmodule Pokex.Bots.Fishing.Logic do
     end
   end
 
-  # O assentamento por FRAMES (calm_streak) assume ticks de ~150ms. Com a
-  # captura faminta os frames chegam a SEGUNDOS de distância: o peixe morde
-  # antes de calm_streak_needed frames calmos e cada pico de mordida ZERA o
-  # calm — settled? nunca trava, a vara nunca puxa e o watch_timeout re-lança
-  # em cima de um peixe vivo (logs 2026-07-30: bol 2843/1150 por 16s, "settle"
-  # eterno, timeout, peixe queimado). Mas o splash é FÍSICA, não frames: ele
-  # dura ~1-1,5s e acabou. Passado settle_max_ms do arremesso (entered_at só é
-  # tocado de novo depois de settled), a água assentou por TEMPO — o mesmo
-  # frame que chegou atrasado já pode ser a mordida que fisga.
+  # FRAME-based settling (calm_streak) assumes ~150ms ticks. With a starved
+  # capture, frames arrive SECONDS apart: the fish bites before
+  # calm_streak_needed calm frames and every bite peak RESETS calm — settled?
+  # never latches, the rod never pulls, and watch_timeout recasts over a live
+  # fish (logs 2026-07-30: bubbles 2843/1150 for 16s, eternal "settle", timeout,
+  # burned fish). But the splash is PHYSICS, not frames: it lasts ~1-1.5s and is
+  # over. Past settle_max_ms from the cast (entered_at is only touched again
+  # after settled), the water settled by TIME — the same late frame may already
+  # be the bite that hooks.
   defp maybe_settle_by_time(%{state: :watching, settled?: false} = logic, now) do
     if now - logic.entered_at >= Map.get(logic.config, :settle_max_ms, 2_500),
       do: %{logic | settled?: true},
@@ -272,8 +266,6 @@ defmodule Pokex.Bots.Fishing.Logic do
     )
   end
 
-  # -- shared helpers ---------------------------------------------------------
-
   defp fail(%__MODULE__{} = logic, now, reason) do
     failures = logic.failures + 1
     logic = update_in(logic.counters.failures, &(&1 + 1))
@@ -323,12 +315,11 @@ defmodule Pokex.Bots.Fishing.Logic do
   defp cast(logic, now, prefix_actions \\ []) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
 
-    # O ARREMESSO SECO: um ciclo inteiro sem NENHUMA bolha vista. Uma tecla de
-    # vara engolida (portão, foco, helper) devolve :ok e a água simplesmente
-    # nunca borbulha — a tela é a única testemunha de que o cast aconteceu.
-    # N ciclos secos seguidos → alarme, e a contagem recomeça (re-alarma se
-    # continuar seco). O cast segue acontecendo: alarme acorda o Lucas, não
-    # para a vara — parar é decisão dele.
+    # The DRY CAST: a whole cycle with NO bubble seen. A swallowed rod key
+    # (gate, focus, key helper) returns :ok and the water simply never bubbles
+    # — the screen is the only witness the cast happened. N dry cycles in a row
+    # → alarm, and the count restarts (re-alarms if still dry). Casting
+    # continues: the alarm wakes the human, it doesn't stop the rod.
     dry = if logic.glow_seen?, do: 0, else: logic.dry_casts + 1
     threshold = Map.get(logic.config, :dry_casts_alarm, 0)
 

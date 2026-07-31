@@ -1,36 +1,35 @@
 defmodule Pokex.Bots.Logout.Logic do
   @moduledoc """
-  A decisão do logout, sem nada em volta: sem processo, sem relógio, sem tela.
-  Recebe o resultado de cada tecla e cada leitura da tela e devolve a próxima
-  ação. Isso é o que permite testar o protocolo inteiro sem o jogo aberto.
+  The logout decision, nothing around it: no process, clock or screen. Takes
+  each key result and each screen reading, returns the next action — which is
+  what lets the whole protocol be tested without the game open.
 
-  A regra que dá o tom: **toda ambiguidade resolve para "não deslogou"**. Uma
-  leitura ilegível não confirma nada, e um logout que não confirmou termina em
-  FALHA — que grita. Um "deslogado" falso é exatamente o prejuízo silencioso
-  que essa feature existe para matar: o Lucas vai dormir achando que saiu, e a
-  estamina queima a noite toda.
+  Ruling principle: **every ambiguity resolves to "did not log out"**. An
+  unreadable reading confirms nothing, and an unconfirmed logout ends in
+  FAILURE — which is loud. A false "logged out" is exactly the silent loss this
+  feature exists to kill: going to sleep believing you left while stamina burns
+  all night.
 
-  Só uma leitura `:gone` DUAS VEZES SEGUIDAS confirma. Um glifo lido errado
-  sozinho não consegue forjar um logout.
+  Only a `:gone` reading TWICE IN A ROW confirms. A single misread glyph cannot
+  forge a logout.
 
-  ## A testemunha
+  ## The witness
 
-  `:gone` sozinho não prova nada. A barra de baixo também devolve `nil` nos três
-  campos quando as sub-regiões não estão calibradas, ou quando o atlas de glifos
-  não conhece algum dígito — o "9" que faltava até 2026-07-23 é um caso real e
-  vivido. Nesse mundo a HUD já estava "ausente" ANTES de qualquer tecla, e
-  confirmar por ela seria inventar um logout.
+  `:gone` alone proves nothing. The bottom bar also returns nil in all three
+  fields when sub-regions are uncalibrated or the glyph atlas is missing a
+  digit — the "9" missing until 2026-07-23 is a real, lived case. In that world
+  the HUD was "absent" BEFORE any key, and confirming by it would invent a
+  logout.
 
-  Por isso a medida é DIFERENCIAL: o worker lê a barra antes de agir e passa a
-  leitura como `baseline`. Só quando ela era `:present` — a HUD estava legível,
-  temos testemunha — um `:gone` posterior significa alguma coisa. Sem testemunha
-  o logout termina em falha (`:sem_testemunha`), que grita: as teclas foram
-  enviadas do mesmo jeito, só não dá para AFIRMAR que funcionaram.
+  So the measure is DIFFERENTIAL: the worker reads the bar before acting and
+  passes the reading as `baseline`. Only when it was `:present` — the HUD was
+  readable, we have a witness — does a later `:gone` mean anything. Without a
+  witness the logout ends in failure (`:sem_testemunha`), loudly: the keys were
+  sent all the same, it just cannot be ASSERTED they worked.
   """
 
-  # Quantas leituras uma tentativa ganha antes de apertar as teclas de novo.
-  # É um limite interno para o laço terminar, não uma escolha que o Lucas
-  # queira fazer — por isso é atributo, não ajuste.
+  # How many reads an attempt gets before pressing the keys again. An internal
+  # bound so the loop terminates, not a user choice — hence attribute, not setting.
   @reads_per_attempt 4
 
   defstruct state: :idle,
@@ -40,25 +39,25 @@ defmodule Pokex.Bots.Logout.Logic do
             confirms: 0,
             config: %{},
             error: nil,
-            # a HUD estava legível ANTES de apertar? sem isso, um :gone não é
-            # prova de nada — ver "A testemunha" no moduledoc
+            # was the HUD readable BEFORE pressing? without it a :gone proves
+            # nothing — see "The witness" in the moduledoc
             witness?: false
 
   @type reading :: :gone | :present | :unreadable
   @type action :: :press | :verify | {:finish, :out} | {:finish, {:failed, term()}}
   @type t :: %__MODULE__{}
 
-  @doc "Quantas leituras cabem numa tentativa."
+  @doc "How many reads fit in one attempt."
   @spec reads_per_attempt() :: pos_integer()
   def reads_per_attempt, do: @reads_per_attempt
 
   @doc """
-  Começa um logout. A primeira ação é sempre apertar as teclas.
+  Begins a logout. The first action is always pressing the keys.
 
-  `baseline` é a leitura da barra ANTES de agir. Só `:present` dá testemunha —
-  qualquer outra coisa e nenhum `:gone` posterior poderá confirmar. Sem valor
-  padrão de propósito: quem chama tem que decidir, e um padrão otimista aqui
-  seria exatamente o bug que essa testemunha existe para impedir.
+  `baseline` is the bar reading BEFORE acting. Only `:present` grants a witness
+  — anything else and no later `:gone` can confirm. Deliberately no default:
+  the caller must decide, and an optimistic default here would be exactly the
+  bug the witness exists to prevent.
   """
   @spec start(String.t(), %{attempts: pos_integer()}, reading()) :: {t(), action()}
   def start(reason, config, baseline) do
@@ -74,9 +73,9 @@ defmodule Pokex.Bots.Logout.Logic do
   end
 
   @doc """
-  O resultado da sequência de teclas. Uma falha de foco entra por aqui também:
-  do ponto de vista da decisão, "não trouxe o jogo para a frente" e "a tecla não
-  saiu" são o mesmo fato — a tecla não aconteceu.
+  The key sequence's result. A focus failure enters here too: for the decision,
+  "couldn't front the game" and "the key didn't go out" are the same fact — the
+  key never happened.
   """
   @spec after_press(t(), :ok | {:error, term()}) :: {t(), action()}
   def after_press(%__MODULE__{} = logic, :ok),
@@ -84,7 +83,7 @@ defmodule Pokex.Bots.Logout.Logic do
 
   def after_press(%__MODULE__{} = logic, {:error, reason}), do: retry(logic, reason)
 
-  @doc "Uma leitura da tela."
+  @doc "One screen reading."
   @spec after_read(t(), reading()) :: {t(), action()}
   def after_read(%__MODULE__{} = logic, reading) do
     case {reading, logic.witness?} do

@@ -7,12 +7,11 @@ defmodule Pokex.LayoutTest do
 
   defp screen, do: ScreenFixtures.frame!("ultrawide_3440x1440_full")
 
+  # only the right dock is opaque; templates of the semi-transparent bars carry
+  # the map behind them — see Pokex.LayoutLiveTest for the multi-capture proof
   test "locates the anchor exactly where it was measured" do
     assert {:ok, fix} = Layout.locate(screen())
 
-    # ONE anchor: the opaque right dock. The bottom bar and the left HUD are
-    # semi-transparent, so pixel templates of them carry the map behind them —
-    # see Pokex.LayoutLiveTest for the two-capture proof.
     assert fix.anchors == %{battle_header: {3184, 460}}
   end
 
@@ -40,6 +39,9 @@ defmodule Pokex.LayoutTest do
   end
 
   @tag :tmp_dir
+  # loads via explicit path on purpose: the :layout WorldState fact is clobbered by
+  # concurrent locates (battle_header read 387 from a foreign fixture) and :home_dir
+  # is mutated by other tests (CI fell back to a nonexistent ~/.pokex and read nil)
   test "the fix survives a restart: persisted and read back as rects", %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
 
@@ -62,12 +64,6 @@ defmodule Pokex.LayoutTest do
     File.mkdir_p!(tmp)
     File.write!(Path.join(tmp, "layout_fix.json"), Jason.encode!(fact))
 
-    # Um RESTART é exatamente isto: a memória morre e só o arquivo sobrevive.
-    # A leitura vai por caminho EXPLÍCITO porque as duas rotas globais flakaram
-    # de verdade: o fato :layout do WorldState é sobrescrito pelo locate de
-    # qualquer teste async (battle_header veio 387 de fixture alheia), e o env
-    # :home_dir é mudado/apagado por outros testes no meio (no CI a leitura
-    # caiu no ~/.pokex inexistente e voltou nil). Round-trip não testa sorte.
     assert %Layout.Fix{} = restored = Layout.load_file(Path.join(tmp, "layout_fix.json"))
     assert restored.regions.level == fix.regions.level
     assert restored.anchors.battle_header == {3184, 460}

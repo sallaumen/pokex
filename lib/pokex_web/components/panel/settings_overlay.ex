@@ -1,20 +1,19 @@
 defmodule PokexWeb.Panel.SettingsOverlay do
   @moduledoc """
-  O painel de configurações que abre POR CIMA do dashboard (`/config`).
+  The settings panel that opens ON TOP of the dashboard (`/config`).
 
-  O dashboard tinha virado duas coisas empilhadas: o que o Lucas olha com o bot
-  rodando e o que ele ajusta uma vez e esquece (2026-07-30). O corte é por
-  TEMPO DE USO, não por tema — o que muda por sessão (ligar a pesca, desligar a
-  captura) ficou lá na faixa rápida; todo NÚMERO, TECLA e LIMIAR mora aqui.
+  The dashboard had become two things stacked (2026-07-30): what Lucas
+  watches with the bot running and what he tunes once and forgets. The split
+  is by TIME OF USE, not by theme — what changes per session (fishing on,
+  capture off) stayed on the dashboard's quick strip; every NUMBER, KEY and
+  THRESHOLD lives here.
 
-  É overlay de verdade, não página: a LiveView é a mesma e o dashboard segue
-  montado atrás, com as pílulas se mexendo enquanto ele configura. A rota
-  própria é o que dá URL, F5 e voltar — um modal só de assign não daria nenhum
-  dos três.
+  A true overlay, not a page: same LiveView, dashboard still mounted behind
+  it with the pills moving while he configures. The dedicated route is what
+  gives URL, F5 and back — an assign-only modal would give none of the three.
 
-  Os eventos são os MESMOS de antes (function component: o clique sobe pra
-  LiveView do painel), então nenhum comportamento mudou de lugar junto com o
-  controle.
+  The events are the SAME as before (function component: clicks bubble up to
+  the panel LiveView), so no behavior moved along with the controls.
   """
   use PokexWeb, :html
 
@@ -39,8 +38,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   attr :estoque_cfg, :map, required: true, doc: "f1, f2, e, s_q"
 
   slot :inner_block,
-    doc:
-      "as demais seções (combos, presets, sessão, avançado) — vêm do painel com os assigns dele"
+    doc: "the remaining sections (combos, presets, session, advanced) — from the panel's assigns"
 
   def settings_overlay(assigns) do
     ~H"""
@@ -51,8 +49,8 @@ defmodule PokexWeb.Panel.SettingsOverlay do
       aria-modal="true"
       aria-label="Configurações"
     >
-      <%!-- O fundo escurece o dashboard sem escondê-lo: ele continua vivo atrás,
-            e clicar fora é a saída mais rápida. --%>
+      <%!-- The backdrop dims the dashboard without hiding it: it stays live
+            behind, and clicking outside is the fastest way out. --%>
       <.link patch={~p"/"} class="absolute inset-0 bg-black/60" aria-label="Fechar configurações">
         <span class="sr-only">Fechar configurações</span>
       </.link>
@@ -317,8 +315,8 @@ defmodule PokexWeb.Panel.SettingsOverlay do
             </form>
           </section>
 
-          <%!-- A captura inteira era só-arquivo — com os scores reais colados na
-                régua (mediana 75% vs limiar 72%), ajustar exigia editar JSON. --%>
+          <%!-- Capture used to be file-only — with the real scores hugging the
+                ruler (median 75% vs threshold 72%), tuning meant editing JSON. --%>
           <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-sunken">
             <.group_header
               label="Captura (Pokébola)"
@@ -533,9 +531,9 @@ defmodule PokexWeb.Panel.SettingsOverlay do
 
           {render_slot(@inner_block)}
 
-          <%!-- Calibração e diagnóstico NÃO moram aqui (cada um é um trabalho
-                próprio), mas é aqui que ele vem procurar — então o caminho fica
-                escrito em vez de ser adivinhado. --%>
+          <%!-- Calibration and diagnostics do NOT live here (each is its own
+                job), but this is where he comes looking — so the path is
+                written down instead of guessed. --%>
           <section class="rounded-lg border border-pk-line bg-pk-surface p-3">
             <p class="text-pk-body font-semibold">Não é aqui</p>
             <div class="mt-1.5 flex flex-wrap gap-2 text-pk-body">
@@ -555,7 +553,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
     """
   end
 
-  # --- as duas linhas que o bloco de automações usa (vieram do painel junto) ---
+  # --- the two rows the automations block uses (moved over with the panel) ----
 
   attr :id, :string, required: true
   attr :title, :string, required: true
@@ -618,9 +616,9 @@ defmodule PokexWeb.Panel.SettingsOverlay do
 
   # The header has to carry the SCOPE, not whisper it: which of these switches
   # apply to the mode you are in is the whole reason the groups exist, and a
-  # side-note in 11px grey lost that argument (Lucas, 2026-07-22: "não tá muito
-  # claro que isso são pontos gerais"). So the scope is a full sentence on its
-  # own line, under a label that is no longer a mono-caps whisper.
+  # side-note in 11px grey lost that argument (Lucas, 2026-07-22: "it's not
+  # very clear these are general points"). So the scope is a full sentence on
+  # its own line, under a label that is no longer a mono-caps whisper.
   def group_header(assigns) do
     ~H"""
     <div class="flex items-start gap-2 border-y border-pk-line bg-pk-sunken px-3 py-2 first:border-t-0">
@@ -639,7 +637,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
     """
   end
 
-  # --- o que o combo do resgate significa na tela (veio do painel junto) ------
+  # --- what the rescue combo means on screen (moved over with the panel) ------
 
   defp rescue_combo_ready?(combos, name) do
     case Enum.find(combos, &(&1.name == name)) do

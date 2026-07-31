@@ -86,13 +86,11 @@ defmodule Pokex.Settings do
     # misread skill bar HOLDS (unknown ≠ ready) and this timer is what unblocks it, so it
     # must exceed the longest watched-skill cooldown (Lucas's slot 6 is ~2min).
     hook_hold_max_ms: 180_000,
-    # No delays for now — everything runs as fast as the screen captures allow.
-    # A tiny post-success pause (10–50ms) is all that stays, so the game has a
-    # frame to register the previous input before the next one.
-    # 100 → 150: cada tick do vigia é UMA captura na fila serializada, e a 100ms
-    # a pesca sozinha pedia ~10 capturas/s — afogando o feed de batalha (logs de
-    # 2026-07-29: combate sem frame pós-Tab por 3s DIRETO, pesca tickando a 2-6s).
-    # A bolha oscila continuamente; 150ms ainda pega a fisgada no frame seguinte.
+    # 100 → 150: each watcher tick is ONE capture on the serialized queue, and
+    # at 100ms fishing alone asked for ~10 captures/s — drowning the battle
+    # feed (2026-07-29 logs: combat with no post-Tab frame for 3s straight,
+    # fishing ticking at 2-6s). The bubble oscillates continuously; 150ms still
+    # catches the bite on the next frame.
     tick_ms_watching: 150,
     tick_ms_default: 80,
     wait_focus_ms: 20,
@@ -104,51 +102,53 @@ defmodule Pokex.Settings do
     # fallback to recover.
     # Widened to fully outlast the ~1-1.5s splash so most ambiguous frames never
     # even enter the sample stream (an independent second layer of defense).
-    # Espera pós-arremesso antes de olhar a água. Era 1600 — mas o settle JÁ
-    # exige calm_streak_needed frames calmos em sequência depois disto, então a
-    # espera longa era cinto E suspensório pagos em dobro, em TODO ciclo (e
-    # atrasava também a detecção de arremesso falho, que só conta a partir
-    # daqui). 800 pula o grosso do splash; os frames calmos provam o resto.
+    # Post-cast wait before watching the water. Was 1600 — but settle ALREADY
+    # requires calm_streak_needed consecutive calm frames after this, so the
+    # long wait was belt AND suspenders paid twice, every cycle (it also
+    # delayed failed-cast detection, which only counts from here). 800 skips
+    # the bulk of the splash; the calm frames prove the rest.
     wait_cast_settle_ms: 800,
-    # Pausa entre puxar o peixe e o próximo arremesso. Era 1500 — meio segundo
-    # cobre a animação da captura; o resto era peixe/minuto jogado fora.
+    # Pause between pulling the fish and the next cast. Was 1500 — half a
+    # second covers the catch animation; the rest was fish/minute thrown away.
     wait_assess_ms: 700,
     watch_timeout_ms: 30_000,
-    # N arremessos SEGUIDOS sem NENHUMA bolha = a vara provavelmente não está
-    # chegando no jogo (tecla engolida, foco, helper) — a tela é a única
-    # testemunha de que um cast aconteceu. Ao bater, toca o alarme e recomeça a
-    # contagem. 0 = desligado.
+    # N CONSECUTIVE casts with NO bubbles at all = the rod key is probably not
+    # reaching the game (swallowed key, focus, helper) — the screen is the only
+    # witness that a cast happened. On trip: alarm and restart the count.
+    # 0 = off.
     dry_casts_alarm: 3,
-    # Corpos MAPEADOS (a virada dos glifos aplicada à captura): o acervo
-    # ensinado na calibração É a mira — só candidato cuja paleta casa com um
-    # corpo conhecido recebe Pokébola. O modo que adivinhava sem acervo foi
-    # aposentado (2026-07-30); acervo vazio = nenhum alvo, e o Catcher avisa
-    # alto no start.
+    # MAPPED corpses (the glyph approach applied to capture): the library
+    # taught in calibration IS the aim — only a candidate whose palette matches
+    # a known corpse gets a Pokéball. The guess-without-library mode was
+    # retired (2026-07-30); an empty library = no targets, and the Catcher
+    # warns loudly on start.
     corpse_match_min_similarity: 0.72,
-    # lado do recorte quadrado (px CRUS do frame) ao fotografar/validar um corpo
+    # side of the square crop (RAW frame px) when photographing/validating a corpse
     corpse_sprite_box_px: 56,
-    # O QUADRADÃO da captura: raio em tiles do quadrado varrido ao redor do
-    # personagem quando um kill acontece. 3 = 7×7 tiles ≈ 616pt na tela do
-    # Lucas — cobre o corpo caído em qualquer vizinhança plausível sem varrer a
-    # tela inteira. Era 1 (só os 8 vizinhos) e, com a arena recortando, sobravam
-    # 11 janelas das 16 (medido ao vivo 2026-07-30).
+    # The capture SCAN SQUARE: radius in tiles of the square swept around the
+    # character when a kill happens. 3 = 7×7 tiles ≈ 616pt on Lucas's screen —
+    # covers the fallen corpse in any plausible neighborhood without sweeping
+    # the whole screen. Was 1 (only the 8 neighbors) and, with the arena crop,
+    # only 11 of the 16 windows survived (measured live 2026-07-30).
     corpse_scan_radius_tiles: 3,
-    # Varredura DENSA em duas fases: passo grosso por toda a região, refino fino
-    # ao redor dos N melhores picos. O score cai ~0,05 a cada 7px de
-    # deslocamento (medido nas amostras do Lucas), então o refino é onde a
-    # diferença entre 0,63 e 0,95 é recuperada. Passo grosso = meio tile.
-    # O ATALHO da Pokébola. Era "f1" cravado em Rig.Mac — a única tecla do bot
-    # que não era setting, e ela já mudou de mão uma vez sem o código
-    # acompanhar. `ball_needs_click` cobre a dúvida que só o jogo responde: se
-    # o atalho usa a bola direto ou arma uma mira que espera clique.
+    # DENSE two-phase sweep: coarse step across the whole region, fine
+    # refinement around the N best peaks. The score drops ~0.05 per 7px of
+    # offset (measured on Lucas's samples), so refinement is where the gap
+    # between 0.63 and 0.95 is recovered. Coarse step = half a tile.
+    # The Pokéball HOTKEY. Was "f1" hardcoded in Rig.Mac — the only bot key
+    # that wasn't a setting, and it already changed hands once without the
+    # code following. `ball_needs_click` covers the doubt only the game can
+    # answer: whether the hotkey uses the ball directly or arms an aim that
+    # waits for a click.
     ball_key: "f1",
     ball_needs_click: false,
-    # A batida entre posicionar o cursor e acionar o atalho. A vara tem a MESMA
-    # forma e usa 30ms (wait_after_equip_ms) — a bola não tinha batida nenhuma.
+    # The beat between positioning the cursor and firing the hotkey. The rod
+    # has the SAME shape and uses 30ms (wait_after_equip_ms) — the ball had no
+    # beat at all.
     capture_aim_settle_ms: 30,
-    # Quanto o cursor fica parado no alvo depois do arremesso, antes de o Body
-    # devolvê-lo pro lugar do Lucas (restore_mouse_after_actions). Sem isso ele
-    # era puxado ~2ms depois da tecla.
+    # How long the cursor stays parked on the target after the throw, before
+    # the Body returns it to Lucas's spot (restore_mouse_after_actions).
+    # Without it the cursor was yanked ~2ms after the key.
     capture_hold_ms: 120,
     corpse_scan_step_px: 44,
     corpse_scan_refine_px: 7,
@@ -198,12 +198,12 @@ defmodule Pokex.Settings do
     # Consecutive below-threshold (resting/splash level) frames before a cyan spike
     # counts as a bite. Guards against a splash that briefly clears glow_threshold.
     calm_streak_needed: 3,
-    # Teto em TEMPO pro assentamento: passado isto desde o arremesso, a água já
-    # assentou POR FÍSICA (o splash dura ~1-1,5s) mesmo que os frames calmos
-    # nunca tenham acumulado. Contar só frames assume ticks de ~150ms — com a
-    # captura faminta (frames a segundos de distância) o peixe morde antes de 3
-    # frames calmos, cada pico ZERA o calm e a vara nunca puxa (logs
-    # 2026-07-30: bol 2843/1150 por 16s sem fisgar, timeout, peixe queimado).
+    # TIME ceiling on settling: past this since the cast, the water has settled
+    # BY PHYSICS (the splash lasts ~1-1.5s) even if the calm frames never
+    # accumulated. Counting only frames assumes ~150ms ticks — with capture
+    # starved (frames seconds apart) the fish bites before 3 calm frames,
+    # every spike RESETS the calm streak and the rod never pulls (2026-07-30
+    # logs: bubbles 2843/1150 for 16s without hooking, timeout, fish burned).
     settle_max_ms: 2_500,
     # Height (points) of ONE battle-list row = the vertical spacing between rows.
     # MEASURED live via hp_bar_rows: HP bars at frame-y 42 and 95 → ~53px apart
@@ -314,27 +314,27 @@ defmodule Pokex.Settings do
     # turn the panel into a siren. Muting stops the push entirely.
     alarm_sound: true,
     alarm_min_gap_ms: 30_000,
-    # Mudo POR SETOR (Lucas, 2026-07-30: "tá sendo muito barulhento... talvez
-    # fosse muito legal poder configurar em vários setores de alertas"). Lista
-    # de categorias (texto, ver Pokex.Bots.AlarmCategories) silenciadas — vazia
-    # por padrão (nada muda pra quem já usa: som geral continua a única
-    # chave). O botão do header liga/desliga cada setor SEM tocar no som geral
-    # — os dois se multiplicam (mudo = geral desligado OU setor na lista).
+    # Per-SECTOR mute (Lucas, 2026-07-30: too noisy, asked for per-sector
+    # alert config). List of muted categories (strings, see
+    # Pokex.Bots.AlarmCategories) — empty by default (nothing changes for
+    # existing users: the master sound stays the only switch). The header
+    # button toggles each sector WITHOUT touching the master sound — the two
+    # multiply (muted = master off OR sector in the list).
     alarm_muted_categories: [],
     # Stop conditions (hunt goals): the Guardian halts the WHOLE fleet — with
     # the same latch as the panic corner, so nothing auto-resumes until Iniciar
     # — when the running session crosses a limit. 0 = condition off.
     stop_after_minutes: 0,
     stop_after_kills: 0,
-    # O que fazer ao bater uma meta: "parar" trava tudo como o Stop; "deslogar"
-    # encerra a conta, que é o que de fato economiza estamina.
+    # What to do when a goal is hit: "parar" latches everything like Stop;
+    # "deslogar" logs the account out — which is what actually saves stamina.
     stop_after_action: "parar",
-    # O canto de COMANDO (superior direito): segurar o mouse ali por
-    # command_corner_dwell_ms liga/desliga o último modo usado — de DENTRO do
-    # jogo, sem clicar no navegador (clicar tira o foco e fecha o portão no
-    # exato instante do arranque; regressão real de 2026-07-29). A demora de
-    # braço é o anti-acidente: passar o mouse pelo canto não dispara nada, e é
-    # preciso SAIR do canto antes de um segundo comando.
+    # The COMMAND corner (top right): holding the mouse there for
+    # command_corner_dwell_ms toggles the last used mode — from INSIDE the
+    # game, without clicking the browser (clicking steals focus and closes the
+    # input gate at the exact instant of startup; real regression 2026-07-29).
+    # The dwell is the anti-accident: sweeping the mouse through the corner
+    # fires nothing, and you must LEAVE the corner before a second command.
     command_corner: true,
     command_corner_dwell_ms: 600,
     # Shiny guard (Lucas's anti-shiny protocol): watch the arena feed for the
@@ -352,21 +352,20 @@ defmodule Pokex.Settings do
     # gold pixels each. A yellow POKÉMON never stacks like that — a Magikarp's
     # fins peak at ONE dense column. 3 sits between the two.
     shiny_star_min_columns: 3,
-    # A shiny ALWAYS deserves a pokéball, even with capture_enabled off
-    # (Lucas: "O Shiny sempre tem que tentar").
+    # A shiny ALWAYS deserves a pokéball, even with capture_enabled off.
     shiny_always_ball: true,
     shiny_action: "alarme",
     # A sighting must survive this long without a clean frame refuting it.
     # The feed captures every ~120ms, so a one-frame glitch dies in ~120-240ms.
     shiny_confirm_ms: 400,
-    # Anti-estagnação (Ações & Regras): uma sessão ATIVA sem nenhum sinal de
-    # vida por esta janela é um bot travado (água vazia, detector preso, spot
-    # morto). Sinal de vida é kill + MINIGAME VENCIDO — não fisgada: com o
-    # minigame travado a vara fisga a noite toda sem pegar peixe nenhum, e foi
-    # assim que uma madrugada de estamina foi embora. A fisgada só volta a valer
-    # com o vigia do minigame desligado. 0 = desligado. "alarme" re-toca a cada
-    # janela de silêncio (o cooldown da própria regra); "parar" trava tudo pela
-    # mesma trava das metas; "deslogar" encerra a conta.
+    # Anti-stagnation: an ACTIVE session with no sign of life for this window
+    # is a stuck bot (empty water, wedged detector, dead spot). Sign of life =
+    # kill + MINIGAME WON — not a hook: with the minigame stuck the rod hooks
+    # all night without landing a single fish, which is how one overnight of
+    # stamina was lost. Hooks only count again with the minigame watcher off.
+    # 0 = off. "alarme" re-rings every silence window (the rule's own
+    # cooldown); "parar" latches everything via the goals latch; "deslogar"
+    # logs the account out.
     stagnation_minutes: 0,
     stagnation_action: "alarme",
     # Escape WALK (the flee protocol): clicking ON a ladder tries to USE it,
@@ -377,16 +376,16 @@ defmodule Pokex.Settings do
     escape_direction: "right",
     escape_steps: 2,
     escape_walk_wait_ms: 2_000,
-    # Logout automático: encerrar a sessão de verdade, porque PARAR o bot não
-    # economiza estamina — estamina queima enquanto o personagem está online.
-    # A tecla é ajuste (e não constante) pelo mesmo motivo que defense_mode_key
-    # é: o Lucas remapeia teclas no jogo. O padrão NUNCA é cmd+q, que no macOS
-    # fecharia o cliente inteiro.
+    # Auto-logout: actually end the session — STOPPING the bot saves no
+    # stamina, which burns while the character is online. The key is a setting
+    # (not a constant) for the same reason defense_mode_key is: Lucas remaps
+    # keys in game. The default is NEVER cmd+q, which on macOS would close the
+    # whole client.
     logout_key: "ctrl+q",
     logout_confirm_key: "enter",
     logout_confirm_delay_ms: 300,
-    # Tempo dado à tela para trocar antes da primeira conferência. Se a tela do
-    # Lucas demorar mais, ele gasta uma tentativa à toa — ainda converge.
+    # Time given to the screen to switch before the first check. If Lucas's
+    # screen takes longer, one attempt is wasted — it still converges.
     logout_verify_delay_ms: 1_500,
     logout_attempts: 3,
     # Max age of the :mini_game WorldState fact before readers treat it as unknown
@@ -396,18 +395,16 @@ defmodule Pokex.Settings do
     mini_game_fact_max_age_ms: 2_000,
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the
-    # bot doesn't fish on a perfectly fixed cadence.
-    # Jitter anti-robô do arremesso (0..N ms). Era 450; 250 ainda quebra o
-    # metrônomo sem custar um quarto de segundo por ciclo.
+    # bot doesn't fish on a perfectly fixed cadence. Was 450; 250 still breaks
+    # the metronome without costing a quarter second per cycle.
     cast_delay_max_ms: 250,
     # Anti-bot: once a bite is confirmed, wait a RANDOM hook_delay_min..max ms
     # before pulling. The bubbles keep flashing until we pull — the bite window
-    # NEVER closes — so a human-like 0.5-1s reaction is safe AND avoids a robotic
-    # instant yank.
-    # A "reação humana" antes de puxar a fisgada. Era 500..1000 — mais lento
-    # que o próprio Lucas pescando na mão (~250-400ms de reação real). 250..550
-    # continua dentro do humano e devolve ~350ms por peixe. Se a paranoia
-    # anti-ban apertar, é só subir de volta no painel.
+    # NEVER closes — so a human-like reaction is safe AND avoids a robotic
+    # instant yank. Was 500..1000 — slower than Lucas himself fishing by hand
+    # (~250-400ms real reaction). 250..550 stays within human range and gives
+    # back ~350ms per fish; raise it back in the panel if anti-ban paranoia
+    # tightens.
     hook_delay_min_ms: 250,
     hook_delay_max_ms: 550,
     # --- PlayerSupport: keep the main Pokémon alive ------------------------------------------
@@ -423,14 +420,13 @@ defmodule Pokex.Settings do
     rescue_cooldown_ms: 60_000,
     # ms between the presses/moves of the combo so the game registers each.
     rescue_step_ms: 40,
-    # Auto-revive com combo de STUN (Lucas, 2026-07-30): caçando bicho forte,
-    # as skills de stun em área ficam reservadas pro momento do resgate — o
-    # combo escolhido (só passos de skill/espera; ver Combos.rescue_eligible?)
-    # vira o PREFIXO da mesma sequência atômica de revive. "direto" = a
-    # sequência de sempre; "combo" = prefixo + revive. Skill em cooldown na
-    # hora é PULADA (leitura da barra; sem leitura, aperta às cegas). Combo
-    # sumido/inelegível na hora → revive direto + alarme (falha na direção de
-    # SALVAR).
+    # Auto-revive with a STUN combo (2026-07-30): hunting strong mobs, the
+    # area-stun skills are reserved for the rescue moment — the chosen combo
+    # (skill/wait steps only; see Combos.rescue_eligible?) becomes the PREFIX
+    # of the same atomic revive sequence. "direto" = the usual sequence;
+    # "combo" = prefix + revive. A skill on cooldown at that moment is SKIPPED
+    # (bar read; without a read, press blind). Combo missing/ineligible at
+    # that moment → direct revive + alarm (fail in the direction of SAVING).
     rescue_mode: "direto",
     rescue_combo: "",
     # How often the PlayerSupport samples the main Pokémon's HP bar.
@@ -487,7 +483,7 @@ defmodule Pokex.Settings do
     feed_arena_ms: 300,
     # The skill hotbar changes at ~1s granularity (countdown numbers), so its feed runs far
     # slower than battle; it only captures while combat is attached anyway.
-    # 250 → 400: cooldown continua vivo; a fila de captura, menos sufocada
+    # 250 → 400: cooldown tracking stays live; the capture queue breathes easier
     feed_skill_bar_ms: 400,
     # How old the :skill_bar fact may be before combat treats it as UNKNOWN (→ blind
     # rotation). Generous vs the 250ms cadence so one slow/failed capture doesn't flap the
@@ -516,23 +512,23 @@ defmodule Pokex.Settings do
     stock_alert_f2: 10,
     stock_alert_e: 5,
     stock_alert_s_q: 10,
-    # 500 → 1000: alerta de estoque não precisa de 2 leituras/s — a fila precisa de folga
+    # 500 → 1000: stock alerts don't need 2 reads/s — the queue needs slack
     feed_hud_ms: 1000,
-    # 500 → 1200: exibição do time e swaps de combo seguem frescos; a batalha agradece
+    # 500 → 1200: team display and combo swaps stay fresh; battle gets the slack
     feed_team_ms: 1200,
-    # 250 → 500: a 5 passos/s a posição a cada meio segundo ainda guia a rota
+    # 250 → 500: at 5 steps/s a position every half second still guides the route
     feed_minimap_ms: 500,
     # MEASURED, not guessed: between two captures the coordinate moved (-5,-11)
     # tiles while the map image shifted (+10,+22) pixels — 2px per tile on both
     # axes, at 98.5% correlation.
     minimap_px_per_tile: 2,
-    # Piso de tinta da FAIXA DA COORDENADA do minimapa. MEDIDO (2026-07-30):
-    # os dígitos têm núcleo 240+ mas o anti-alias espalha por 160-239, e o
-    # atlas de glifos foi ensinado com as formas do piso 120 — subir o piso
-    # EMAGRECE as formas e o atlas para de reconhecê-las (testado: 165 cega as
-    # quatro capturas reais). 120 = comportamento atual, que os fixtures
-    # provam funcionar com o drop_background. Só mexa com a tela "Ensinar
-    # glifos" à mão pra re-ensinar as formas novas.
+    # Ink floor of the minimap COORDINATE strip. MEASURED (2026-07-30): digit
+    # cores are 240+ but anti-aliasing spreads over 160-239, and the glyph
+    # atlas was taught with floor-120 shapes — raising the floor THINS the
+    # shapes and the atlas stops recognizing them (tested: 165 blinds all four
+    # real captures). 120 = current behavior, which the fixtures prove works
+    # with drop_background. Only change it together with re-teaching the new
+    # shapes by hand on the "Ensinar glifos" screen.
     minimap_coord_ink: 120,
     # --- Combat: Tab targeting ------------------------------------------------------------------
     # Tab selects the first attackable enemy; pressing again CYCLES to the next. The confirm
@@ -542,21 +538,21 @@ defmodule Pokex.Settings do
     # cause a Tab storm. skill_burst_every_ms throttles bursts below the feed cadence.
     tab_key: "tab",
     tab_confirm_ms: 700,
-    # Quantos frames PÓS-Tab sem lock precisam ser VISTOS antes de re-Tab.
-    # Re-Tab é ciclar alvo (cada Tab pula pro próximo inimigo): fazer isso no
-    # relógio, sem evidência de frame, era o "fica dando tab sem focar no
-    # primeiro" quando a captura atrasava. 1 = exige ao menos um frame real;
-    # suba pra 2 se o anel de lock estiver pintando devagar na sua máquina.
+    # How many POST-Tab frames without lock must be SEEN before re-Tab.
+    # Re-Tab cycles targets (each Tab jumps to the next enemy): doing it on
+    # the clock, with no frame evidence, was the "keeps tabbing without ever
+    # focusing the first" bug when capture lagged. 1 = require at least one
+    # real frame; raise to 2 if the lock ring paints slowly on your machine.
     tab_confirm_frames: 1,
     tab_max_attempts: 3,
     hunt_cooldown_ms: 1_500,
-    # Pokémon de CENÁRIO (inatacável) parado na lista: N caçadas completas
-    # seguidas — cada uma com tab_max_attempts Tabs COM evidência de frame e
-    # nenhum lock — promovem aqueles alvos a "cenário presumido": deixam de ser
-    # motivo pra Tab, como a própria posição. Um alvo A MAIS caça na hora; a
-    # lista encolher esquece; o presumido expira em scenery_ttl_ms e re-sonda
-    # (auto-corrige). 3 caçadas × 3 Tabs ≈ as ~10 tentativas do pedido do
-    # Lucas (2026-07-30). 0 = desligado.
+    # SCENERY (unattackable) pokémon parked in the list: N complete
+    # consecutive hunts — each with tab_max_attempts Tabs WITH frame evidence
+    # and no lock — promote those targets to "presumed scenery": they stop
+    # motivating Tab, like the position itself. One EXTRA target hunts
+    # immediately; a shrinking list forgets; the presumption expires after
+    # scenery_ttl_ms and re-probes (self-correcting). 3 hunts × 3 Tabs ≈ the
+    # ~10 attempts Lucas asked for (2026-07-30). 0 = off.
     scenery_hunts_needed: 3,
     scenery_ttl_ms: 60_000,
     skill_burst_every_ms: 300,
@@ -643,11 +639,11 @@ defmodule Pokex.Settings do
     corpse_max_balls: 2,
     corpse_ignore_ttl_ms: 45_000,
     corpse_confirm_after_ms: 800,
-    # N bolas seguidas resolvidas SEM captura confirmada → alarme :captura (o
-    # espelho do dry_casts_alarm da pesca). 0 = desligado.
+    # N consecutive balls resolved WITHOUT a confirmed capture → :captura
+    # alarm (the mirror of fishing's dry_casts_alarm). 0 = off.
     dry_balls_alarm: 4,
     catcher_world_max_age_ms: 1_200,
-    # --- Cavebot (caçada por rotas de waypoints) -------------------------------------------------
+    # --- Cavebot (waypoint-route hunting) --------------------------------------------------------
     hunt_style: "constante",
     defense_mode_key: "shift+3",
     attack_mode_key: "shift+1",
@@ -660,10 +656,10 @@ defmodule Pokex.Settings do
     cavebot_stance_settle_ms: 400,
     cavebot_post_kill_dwell_ms: 1200,
     cavebot_clear_debounce_ms: 800,
-    # Gravando a rota ANDANDO: um waypoint novo só entra depois de andar esta
-    # distância desde o último. Sem isso a rota viraria um waypoint por tile —
-    # o cliente já faz pathfinding entre pontos, então o que serve é marcar os
-    # cantos do caminho, não cada passo.
+    # Recording the route WHILE WALKING: a new waypoint only lands after
+    # walking this far since the last one. Without it the route would become
+    # one waypoint per tile — the client already pathfinds between points, so
+    # what matters is marking the path's corners, not every step.
     cavebot_record_min_tiles: 4,
     cavebot_fight_timeout_ms: 20000,
     cavebot_combo_timeout_ms: 6000,
@@ -677,27 +673,27 @@ defmodule Pokex.Settings do
   # set (mirrors Calibration profiles). Everything else (timings, vision
   # thresholds, calibration) is rig-specific and stays out.
   #
-  # `:capture_enabled` SAIU daqui (2026-07-30). Ela tinha DOIS donos — os presets
-  # e `Pokex.Modes` — e os quatro presets do Lucas (4attk, 8attk, svileplume,
-  # reset) carregavam `false`. Trocar o preset de ataque desligava a captura em
-  # silêncio, e nada a religava: o botão Iniciar não reaplica o bundle do modo.
-  # Resultado medido no journal de 2026-07-30: 1015 kills, 1015 saques, ZERO
-  # varreduras. Preset é sobre QUAL POKÉMON está lutando; ligar e desligar um
-  # subsistema é decisão de operação, e agora tem um dono só (o botão do painel,
-  # com o modo como preset inicial).
+  # `:capture_enabled` LEFT this list (2026-07-30). It had TWO owners — the
+  # presets and `Pokex.Modes` — and Lucas's four presets (4attk, 8attk,
+  # svileplume, reset) all carried `false`. Switching the attack preset
+  # silently disabled capture, and nothing re-enabled it: the Start button
+  # does not reapply the mode bundle. Measured in the 2026-07-30 journal:
+  # 1015 kills, 1015 loots, ZERO scans. A preset is about WHICH POKÉMON is
+  # fighting; toggling a subsystem is an operations decision, and now has one
+  # owner (the panel button, with the mode as the initial preset).
   @preset_keys [
-    # combate
+    # combat
     :skill_keys,
-    # pesca — skills de abate e gates
+    # fishing — kill skills and gates
     :hook_skill_keys,
     :require_cooldowns,
     :require_pokemon_hp,
     :pokemon_hp_fishing_pct,
     :rod_key,
-    # bolas / pós-luta
+    # balls / post-fight
     :loot_enabled,
     :corpse_max_balls,
-    # suporte
+    # support
     :rescue_enabled,
     :rescue_key,
     :max_revive_key,
@@ -706,7 +702,7 @@ defmodule Pokex.Settings do
     :potion_key,
     :pokemon_hp_potion_pct,
     :reposition_enabled,
-    # política pós-luta
+    # post-fight policy
     :support_waits_capture
   ]
 
@@ -755,11 +751,11 @@ defmodule Pokex.Settings do
   # corruption) — rejecting it here keeps a bad caller from poisoning reads
   # until the next reboot (a panel_live_test cleanup did exactly that: the nil
   # landed in the ETS mirror and randomly broke settings_test — 2026-07-20).
-  # Enums e faixas por cima do tipo (Frente 2 do plano de consolidação). A
-  # régua das faixas: pegar o IMPOSSÍVEL (negativo, absurdo), nunca o gosto —
-  # afinar valor é papel do painel; aqui é a fronteira que impede um valor
-  # inválido de chegar ao disco. player_mode/mini_game_mode ficam de fora:
-  # seus módulos donos (Modes/Mode) já validam no caminho de escrita deles.
+  # Enums and ranges sit on top of the type check. The range ruler: catch the
+  # IMPOSSIBLE (negative, absurd), never taste — tuning a value is the panel's
+  # job; this is the boundary that keeps an invalid value off the disk.
+  # player_mode/mini_game_mode stay out: their owner modules (Modes/Mode)
+  # already validate on their own write path.
   @enums %{
     stagnation_action: ~w(alarme parar deslogar),
     stop_after_action: ~w(parar deslogar),
@@ -769,9 +765,10 @@ defmodule Pokex.Settings do
     rescue_mode: ~w(direto combo)
   }
 
-  # Chaves de LIMIAR cujo seed é inteiro mas que aceitam fração (a calibração
-  # sugere 45.0 e o teste de 2026-07 crava esse uso). Um tick_ms fracionário
-  # quebraria send_after — por isso a exceção é nominal, não geral.
+  # THRESHOLD keys whose seed is an integer but which accept fractions (the
+  # calibration suggests 45.0 and the 2026-07 test pins that use). A
+  # fractional tick_ms would break send_after — hence a named exception, not a
+  # general one.
   @number_keys [:glow_threshold]
 
   @ranges %{
@@ -801,11 +798,10 @@ defmodule Pokex.Settings do
   }
 
   @doc """
-  Grava um override. A FRONTEIRA valida (Frente 2): tipo compatível com o seed,
-  enum quando a chave é uma escolha fechada, faixa quando um número impossível
-  quebraria um worker. `{:error, texto}` explica em português; nenhum valor
-  inválido chega ao disco — antes disso, um caller podia persistir qualquer
-  coisa e o formato só quebrava no consumidor.
+  Writes an override. The BOUNDARY validates: type compatible with the seed,
+  enum when the key is a closed choice, range when an impossible number would
+  break a worker. `{:error, text}` explains in pt-BR (user-facing); no invalid
+  value ever reaches the disk.
   """
   def put(key, value, server \\ __MODULE__)
       when is_map_key(@seed_settings, key) and not is_nil(value) do
@@ -851,7 +847,7 @@ defmodule Pokex.Settings do
     end
   end
 
-  # --- presets por Pokémon ---------------------------------------------------
+  # --- per-Pokémon presets ---------------------------------------------------
 
   def preset_keys, do: @preset_keys
 
@@ -1027,10 +1023,9 @@ defmodule Pokex.Settings do
 
   # "Valid" = the same SHAPE as the seed default: booleans stay booleans,
   # integers stay integers, key strings stay strings, key LISTS stay lists of
-  # strings. This is the whole validation the aceite asks for — enough to keep
-  # a hand-edited preset from feeding Settings a value no consumer expects.
-  # A MESMA régua de tipo do put/3 — o preset validava sozinho desde antes;
-  # agora a fronteira é uma só (o seed diz o tipo; float aceita inteiro).
+  # strings — enough to keep a hand-edited preset from feeding Settings a
+  # value no consumer expects. The SAME type ruler as put/3 — one boundary
+  # (the seed dictates the type; float accepts integer).
   defp valid_preset_value?(key, value), do: valid_type?(key, value)
 
   defp valid_type?(key, value) do

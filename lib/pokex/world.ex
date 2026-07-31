@@ -23,9 +23,9 @@ defmodule Pokex.World do
               engaged?: false,
               pos: nil,
               # Age of the :minimap fact ITSELF, gate or no gate — nil only when
-              # nothing was ever published. `pos` alone cannot tell "o feed
-              # parou" from "o feed está lendo e a coordenada saiu ilegível":
-              # both arrive as nil, and they have opposite fixes.
+              # nothing was ever published. `pos` alone cannot tell "the feed
+              # stopped" from "the feed is reading but the coordinate came out
+              # unreadable": both arrive as nil, and they have opposite fixes.
               pos_age_ms: nil,
               layout?: false,
               at: nil

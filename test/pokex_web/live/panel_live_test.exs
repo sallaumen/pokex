@@ -2,8 +2,8 @@ defmodule PokexWeb.PanelLiveTest do
   use PokexWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
 
-  # O feed agora chega pelo journal: broadcast → Pokex.Journal → {:journal_event}
-  # → painel. Dois saltos assíncronos — o render precisa esperar a corrente.
+  # the feed arrives via the journal: broadcast → Pokex.Journal → {:journal_event}
+  # → panel. Two async hops — the render must wait for the chain.
   defp eventually_html(view, texto, tries \\ 50) do
     cond do
       render(view) =~ texto -> true
@@ -37,7 +37,6 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   test "a calibration edited after the last Start raises the stale banner", %{conn: conn} do
-    # the stamp says the bots loaded mtime 123; the file on disk differs (absent here)
     Pokex.Perception.WorldState.put(
       :calibration,
       %{loaded_mtime: 123},
@@ -76,7 +75,6 @@ defmodule PokexWeb.PanelLiveTest do
     {:ok, view, html} = live(conn, ~p"/")
 
     assert has_element?(view, "#world-card")
-    # the four stocks are ALWAYS on screen, not only once one goes low
     assert html =~ "322"
     assert html =~ "5559/6410"
     assert html =~ "337, 46107"
@@ -129,12 +127,11 @@ defmodule PokexWeb.PanelLiveTest do
     refute has_element?(view, "#calib-stale-banner")
   end
 
+  # the old banner sat right above the Start/Stop button and pushed it down
+  # whenever another window took focus; the badge keeps the layout identical
   test "losing game focus shows the header badge — never the layout-shifting banner", %{
     conn: conn
   } do
-    # The old banner sat right above the Start/Stop button and pushed it down
-    # whenever Lucas clicked another window — an alert beside the logo (full
-    # message on hover) keeps the layout identical in both states.
     {:ok, view, _} = live(conn, ~p"/")
     refute has_element?(view, "#focus-pause-badge")
 
@@ -162,7 +159,6 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "linha-da-pesca"
     refute html =~ "linha-do-combate"
 
-    # click the same chip again → filter cleared
     view |> element("button[phx-value-source='🎣']") |> render_click()
     assert render(view) =~ "linha-do-combate"
   end
@@ -187,7 +183,6 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "Mini game"
     assert html =~ "Automações"
     assert html =~ "parado"
-    # a faixa rápida: as seis chaves de sessão ficaram; todo ajuste foi pro ⚙️
     assert has_element?(view, "#quick-toggles")
     assert has_element?(view, "#quick-fishing")
     assert has_element?(view, "#open-settings[href='/config']")
@@ -203,31 +198,27 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "#app-nav-config[href='/config']")
   end
 
-  describe "o ⚙️ por cima do dashboard" do
-    test "abre em /config COM o dashboard vivo atrás", %{conn: conn} do
+  describe "the ⚙️ overlay over the dashboard" do
+    test "opens at /config with the live dashboard behind it", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
 
       assert has_element?(view, "#settings-overlay")
-      # o dashboard não foi embora: as pílulas e a faixa continuam montadas atrás
       assert has_element?(view, ~s([data-testid="fishing-pill"]))
       assert has_element?(view, "#quick-toggles")
-      # e os ajustes que saíram do dashboard estão aqui
       assert has_element?(view, "#rescue-pct")
       assert has_element?(view, "#hook-skills-form")
       assert has_element?(view, "#automation-require-pokemon-hp")
       assert has_element?(view, "#escape-cfg-form")
     end
 
-    test "o dashboard ficou só com operação; a configuração toda está no ⚙️", %{conn: conn} do
+    test "the dashboard keeps only operation; all configuration lives in the ⚙️", %{conn: conn} do
       {:ok, dash, _html} = live(conn, ~p"/")
 
-      # o que se olha COM O BOT RODANDO ficou
       assert has_element?(dash, ~s([data-testid="fishing-pill"]))
       assert has_element?(dash, "#quick-toggles")
       assert has_element?(dash, "#session-duration") or render(dash) =~ "Sessão"
       assert has_element?(dash, "#world-card")
 
-      # o que se ajusta uma vez, não
       refute has_element?(dash, "#presets-card")
       refute has_element?(dash, "#combos-card")
       refute has_element?(dash, "#shiny-guard-card")
@@ -241,11 +232,10 @@ defmodule PokexWeb.PanelLiveTest do
       assert has_element?(cfg, "#shiny-guard-card")
       assert has_element?(cfg, "#advanced-panel")
       assert has_element?(cfg, "#stop-conditions-form")
-      # e o relógio da sessão NÃO foi junto: ele é operação
       assert has_element?(cfg, "#quick-toggles")
     end
 
-    test "no dashboard puro o overlay não existe", %{conn: conn} do
+    test "on the plain dashboard the overlay does not exist", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
       refute has_element?(view, "#settings-overlay")
@@ -253,7 +243,7 @@ defmodule PokexWeb.PanelLiveTest do
       assert has_element?(view, "#open-settings")
     end
 
-    test "fechar volta pro dashboard sem remontar a LiveView", %{conn: conn} do
+    test "closing returns to the dashboard without remounting the LiveView", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
       assert has_element?(view, "#settings-overlay")
 
@@ -263,7 +253,7 @@ defmodule PokexWeb.PanelLiveTest do
       assert has_element?(view, "#quick-toggles")
     end
 
-    test "as seis chaves rápidas disparam os mesmos eventos de sempre", %{conn: conn} do
+    test "the six quick toggles fire the same events as always", %{conn: conn} do
       antes = %{
         loot: Pokex.Settings.get(:loot_enabled),
         rescue: Pokex.Settings.get(:rescue_enabled)
@@ -299,11 +289,11 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "vigiando"
     assert view |> element("#counter-cycles") |> render() =~ ~r/>\s*3\s*</
 
-    # combat pill untouched — still parado
     assert html =~ "parado"
   end
 
-  test "hold reason and last action render as pill detail lines (Fase 1)", %{conn: conn} do
+  # the age is measured against the mount's clock, a hair before the broadcast — 4 or 5s
+  test "hold reason and last action render as pill detail lines", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
     snapshot = %{
@@ -318,7 +308,6 @@ defmodule PokexWeb.PanelLiveTest do
 
     html = render(view)
     assert html =~ "🔒 sem pokémon ativo"
-    # the age is measured against the mount's clock, a hair before the broadcast — 4 or 5s
     assert html =~ ~r/arremesso da isca · há [45]s/
   end
 
@@ -356,7 +345,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "leitura de vida falhou"
   end
 
-  test "sessão ativa mostra duração e taxas por hora no header", %{conn: conn} do
+  test "an active session shows duration and hourly rates in the header", %{conn: conn} do
     at = System.monotonic_time(:millisecond)
     Pokex.Perception.WorldState.put(:session, %{started_at: at - 65_000}, at)
     on_exit(fn -> Pokex.Perception.WorldState.forget(:session) end)
@@ -369,20 +358,19 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "capturas/h"
   end
 
-  test "sem sessão: nem relógio nem taxas", %{conn: conn} do
+  test "no session: no clock and no rates", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
     refute has_element?(view, "#session-duration")
     refute has_element?(view, "#session-rates")
   end
 
-  test "condição de parada atingida: alarme 🛑 e o relógio da sessão some", %{conn: conn} do
+  test "stop condition reached: alarm sounds and the session clock disappears", %{conn: conn} do
     at = System.monotonic_time(:millisecond)
     Pokex.Perception.WorldState.put(:session, %{started_at: at - 5_000}, at)
 
     {:ok, view, _} = live(conn, ~p"/")
     assert has_element?(view, "#session-duration")
 
-    # what the real stop does first: the fleet halt forgets the fact
     Pokex.Perception.WorldState.forget(:session)
 
     Phoenix.PubSub.broadcast(
@@ -397,7 +385,7 @@ defmodule PokexWeb.PanelLiveTest do
     refute has_element?(view, "#session-duration")
   end
 
-  test "o form da fuga persiste direção, passos e espera da caminhada", %{conn: conn} do
+  test "the escape form persists direction, steps and walk wait", %{conn: conn} do
     direction = Pokex.Settings.get(:escape_direction)
     steps = Pokex.Settings.get(:escape_steps)
     wait = Pokex.Settings.get(:escape_walk_wait_ms)
@@ -423,7 +411,9 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:escape_walk_wait_ms) == 1500
   end
 
-  test "um {:rule_alarm, _} (anti-estagnação) toca o alarme sem parar nada", %{conn: conn} do
+  test "a {:rule_alarm, _} (anti-stagnation) sounds the alarm without stopping anything", %{
+    conn: conn
+  } do
     {:ok, view, _} = live(conn, ~p"/")
 
     Phoenix.PubSub.broadcast(
@@ -437,9 +427,10 @@ defmodule PokexWeb.PanelLiveTest do
     assert render(view) =~ "⏰ estagnação"
   end
 
-  test "setor MUDO cala o som — mas o feed 🔔 registra igual, e outro setor segue soando", %{
-    conn: conn
-  } do
+  test "a muted sector silences the sound — the feed still records it, and another sector keeps sounding",
+       %{
+         conn: conn
+       } do
     muted = Pokex.Settings.get(:alarm_muted_categories)
     on_exit(fn -> Pokex.Settings.put(:alarm_muted_categories, muted) end)
     Pokex.Settings.put(:alarm_muted_categories, ["estoque"])
@@ -455,7 +446,6 @@ defmodule PokexWeb.PanelLiveTest do
     refute_push_event(view, "alarm", %{text: _})
     assert render(view) =~ "⏰ estoque baixo"
 
-    # um setor DIFERENTE (não mudo) segue tocando normalmente
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "combat",
@@ -467,7 +457,9 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   @tag :tmp_dir
-  test "guarda anti-shiny: ação persiste, sonda lê a lista de batalha, registro aparece", %{
+  # the probe reads the real battle-list capture through the shared Fake's
+  # default capture path (/tmp/fake)
+  test "shiny guard: action persists, the probe reads the battle list, the log appears", %{
     conn: conn,
     tmp_dir: tmp
   } do
@@ -493,8 +485,6 @@ defmodule PokexWeb.PanelLiveTest do
       neutral_point: {500, 500}
     })
 
-    # the probe reads the REAL battle-list capture (Lucas's shiny Seadra) via
-    # the shared Fake's default capture path
     File.mkdir_p!("/tmp/fake")
     File.cp!("test/fixtures/battle/shiny_star_list.png", "/tmp/fake/shiny_probe.png")
 
@@ -506,13 +496,11 @@ defmodule PokexWeb.PanelLiveTest do
     view |> form("#shiny-cfg-form", %{"shiny_action" => "fugir"}) |> render_change()
     assert Pokex.Settings.get(:shiny_action) == "fugir"
 
-    # the probe scores each row — the real capture has a star on one of them
     view |> element("#shiny-probe") |> render_click()
     html = render(view)
     assert html =~ "sonda: colunas douradas por linha"
     assert html =~ "L0:"
 
-    # a live reading lights the meter
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "shiny",
@@ -521,7 +509,6 @@ defmodule PokexWeb.PanelLiveTest do
 
     assert render(view) =~ "4<span"
 
-    # a sighting lands on the trophy shelf
     Pokex.Pokedex.ShinyLog.record(star_px: 22, action: "fugir", outcome: "visto")
     Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_seen, %{px: 22, action: "fugir"}})
 
@@ -531,7 +518,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "22px"
   end
 
-  test "o protocolo de fuga: botão presente e o {:escape, _, _} toca o alarme com o resultado",
+  test "the escape protocol: button present and {:escape, _, _} sounds the alarm with the result",
        %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/config")
 
@@ -549,7 +536,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert render(view) =~ "FUGA"
   end
 
-  test "o form da anti-estagnação persiste janela e ação", %{conn: conn} do
+  test "the anti-stagnation form persists window and action", %{conn: conn} do
     minutes = Pokex.Settings.get(:stagnation_minutes)
     action = Pokex.Settings.get(:stagnation_action)
 
@@ -568,7 +555,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:stagnation_action) == "parar"
   end
 
-  test "o form das condições de parada persiste minutos e kills", %{conn: conn} do
+  test "the stop-conditions form persists minutes and kills", %{conn: conn} do
     minutes = Pokex.Settings.get(:stop_after_minutes)
     kills = Pokex.Settings.get(:stop_after_kills)
 
@@ -587,7 +574,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:stop_after_kills) == 200
   end
 
-  test "um erro NOVO de worker dispara o alarme uma vez; o gap dedupa a recaída", %{conn: conn} do
+  test "a new worker error fires the alarm once; the gap dedupes the relapse", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
     err = %{state: :error, counters: %{cycles: 0, hooked: 0, failures: 1}, error: "vara sumiu"}
@@ -598,14 +585,13 @@ defmodule PokexWeb.PanelLiveTest do
     assert text =~ "pesca em erro: vara sumiu"
     assert render(view) =~ "🔔"
 
-    # clears and errors again INSIDE the min gap → the edge exists but the dedupe holds
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, ok})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, err})
     render(view)
     refute_push_event(view, "alarm", %{text: _})
   end
 
-  test "alarme mudo: sem som, mas o feed 🔔 registra", %{conn: conn} do
+  test "muted alarm: no sound, but the feed still records", %{conn: conn} do
     sound = Pokex.Settings.get(:alarm_sound)
     on_exit(fn -> Pokex.Settings.put(:alarm_sound, sound) end)
     Pokex.Settings.put(:alarm_sound, false)
@@ -625,7 +611,7 @@ defmodule PokexWeb.PanelLiveTest do
     refute_push_event(view, "alarm", %{text: _})
   end
 
-  test "vida cruzando o limiar de resgate dispara o alarme de vida crítica", %{conn: conn} do
+  test "HP crossing the rescue threshold fires the critical-life alarm", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
     base = %{
@@ -678,35 +664,33 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "[data-testid=catcher-pill][data-state=armed]")
   end
 
-  test "trocar de modo aplica o pacote inteiro e o botão anuncia o que vai ligar", %{conn: conn} do
+  test "switching modes applies the whole bundle and the button announces what will start", %{
+    conn: conn
+  } do
     Pokex.SettingsStash.stash_keys!([:player_mode, :capture_enabled, :reposition_enabled])
 
     {:ok, view, _} = live(conn, ~p"/")
 
     view |> element("#mode-movimento") |> render_click()
     assert Pokex.Settings.get(:player_mode) == "movimento"
-    # the bundle rides along: no ball (no ground baseline) and no reposition
-    # (it would drag him back to the fishing tile mid-trip)
     refute Pokex.Settings.get(:capture_enabled)
     refute Pokex.Settings.get(:reposition_enabled)
 
     html = render(view)
     assert html =~ "Iniciar — modo movimento"
-    # and it says which workers, so no more starting the rod while walking
     assert html =~ "batalha"
     refute html =~ "liga pesca"
 
     view |> element("#mode-parado") |> render_click()
     assert Pokex.Settings.get(:capture_enabled)
 
-    # o "reaprender chão" só existe no modo Parado — e mora no ⚙️ desde 2026-07-30
     {:ok, config, _} = live(conn, ~p"/config")
     assert render(config) =~ "Reaprender chão"
   end
 
-  # The escape hatch he asked for: a switch may disagree with the mode, but the
-  # panel must SAY so rather than let the two quietly differ.
-  test "uma exceção manual ao padrão do modo é marcada e restaurável", %{conn: conn} do
+  # a switch may disagree with the mode, but the panel must SAY so rather than
+  # let the two quietly differ
+  test "a manual exception to the mode default is marked and restorable", %{conn: conn} do
     Pokex.SettingsStash.stash_keys!([:player_mode, :capture_enabled, :reposition_enabled])
 
     {:ok, view, _} = live(conn, ~p"/config")
@@ -742,7 +726,7 @@ defmodule PokexWeb.PanelLiveTest do
     refute Pokex.Settings.get(:capture_enabled) == cap
   end
 
-  test "a política pós-luta (suporte espera a captura) persiste pelo toggle", %{conn: conn} do
+  test "the post-fight policy (support waits for capture) persists via the toggle", %{conn: conn} do
     value = Pokex.Settings.get(:support_waits_capture)
     on_exit(fn -> Pokex.Settings.put(:support_waits_capture, value) end)
 
@@ -752,12 +736,12 @@ defmodule PokexWeb.PanelLiveTest do
     refute Pokex.Settings.get(:support_waits_capture) == value
   end
 
+  # busy is the exact shape BotSupervisor.safe_status/2 falls back to; it means
+  # UNKNOWN, not running
   test "the busy placeholder snapshots render without crashing (worker missed its status window)",
        %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
-    # exactly the shape BotSupervisor.safe_status/2 falls back to for each worker — the
-    # panel must render it as "ocupado" (not active) instead of raising on a missing key
     busy = %{state: :ocupado, counters: %{}, error: "sem resposta (captura lenta?)"}
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, busy})
@@ -774,7 +758,6 @@ defmodule PokexWeb.PanelLiveTest do
 
     html = render(view)
     assert html =~ "ocupado"
-    # busy is UNKNOWN, not running — the header must not flip to active
     refute html =~ "Parar bot"
   end
 
@@ -796,6 +779,8 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "[data-testid=mini-game-pill][data-state=playing]")
   end
 
+  # the old assertion `render(view) =~ "mudo"` passed by accident: "mudou" in
+  # three unrelated texts contains the substring, so the mute was never verified
   test "mini game transitions push the sound event unless muted", %{conn: conn} do
     original = Pokex.Settings.get(:mini_game_sound)
     on_exit(fn -> Pokex.Settings.put(:mini_game_sound, original) end)
@@ -815,14 +800,9 @@ defmodule PokexWeb.PanelLiveTest do
     Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game, snapshot})
     assert_push_event(view, "mini-game-transition", %{transition: :entered})
 
-    # the mute button silences the event at the SOURCE (no push at all)
     view |> element(~s(button[phx-click="toggle_mini_game_sound"])) |> render_click()
     assert Pokex.Settings.get(:mini_game_sound) == false
 
-    # Isto afirmava `render(view) =~ "mudo"` — e passava por acidente: não existe
-    # "mudo" minúsculo no painel, mas "mudou" (em três textos sem relação
-    # nenhuma com o mini game) contém a substring. O teste nunca verificou o
-    # mudo. Agora ele olha o botão de verdade.
     assert has_element?(
              view,
              ~s(button[phx-click="toggle_mini_game_sound"][title*="MUDO"])
@@ -869,10 +849,10 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "fila &gt;N key:shift+v"
   end
 
+  # a worker on an old build mid hot-reload can still send the pre-level 2-tuple shape
   test "tolerates a legacy 2-tuple log broadcast without crashing", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
-    # A worker on an old build mid hot-reload can still send the pre-level shape.
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, "stale build line"})
     view |> element(~s(input[phx-click="toggle_debug"])) |> render_click()
     assert render(view) =~ "stale build line"
@@ -916,8 +896,6 @@ defmodule PokexWeb.PanelLiveTest do
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
     save_calibration()
 
-    # Re-script the shared Fake so every captured region decodes to a real PNG,
-    # exercising the full path: capture → Frame → Vision → matrix → rendered grid.
     Agent.stop(Pokex.Rig.Fake)
 
     {:ok, _} =
@@ -967,7 +945,7 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   @tag :tmp_dir
-  test "preset por Pokémon: salvar → aplicar → excluir no painel", %{conn: conn, tmp_dir: tmp} do
+  test "per-Pokémon preset: save → apply → delete in the panel", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
@@ -976,14 +954,12 @@ defmodule PokexWeb.PanelLiveTest do
 
     {:ok, view, _} = live(conn, ~p"/config")
 
-    # save captures the CURRENT settings under the Pokémon's name
     Pokex.Settings.put(:hook_skill_keys, ["8", "9"])
     view |> form("#preset-save-form", %{"name" => "Blastoise"}) |> render_submit()
     html = render(view)
     assert html =~ "Preset &quot;blastoise&quot; salvo"
     assert html =~ "fisga 8 9"
 
-    # settings drift, apply restores the bundle AND the visible fields
     Pokex.Settings.put(:hook_skill_keys, ["1"])
 
     view
@@ -1002,7 +978,9 @@ defmodule PokexWeb.PanelLiveTest do
     refute render(view) =~ "fisga 8 9"
   end
 
-  test "o ⚙️ salva os knobs da CAPTURA — o limiar fala %, o setting guarda fração", %{conn: conn} do
+  test "the ⚙️ saves the capture knobs — the UI speaks %, the setting stores a fraction", %{
+    conn: conn
+  } do
     originais =
       for chave <- [
             :corpse_match_min_similarity,
@@ -1030,23 +1008,20 @@ defmodule PokexWeb.PanelLiveTest do
     |> render_change()
 
     assert Pokex.Settings.get(:corpse_match_min_similarity) == 0.8
-    # a tecla é normalizada pra minúscula (o Rig fala minúsculo)
     assert Pokex.Settings.get(:ball_key) == "f3"
     assert Pokex.Settings.get(:corpse_max_balls) == 3
     assert Pokex.Settings.get(:corpse_scan_radius_tiles) == 4
     assert Pokex.Settings.get(:dry_balls_alarm) == 6
 
-    # tecla vazia no meio da digitação NÃO apaga o atalho
     view |> form("#captura-cfg-form", %{"ball_key" => "  "}) |> render_change()
     assert Pokex.Settings.get(:ball_key) == "f3"
 
-    # o clique opcional da bola liga e desliga
     refute Pokex.Settings.get(:ball_needs_click)
     view |> element("#automation-ball-click-toggle") |> render_click()
     assert Pokex.Settings.get(:ball_needs_click)
   end
 
-  test "o ⚙️ salva os limiares de ESTOQUE", %{conn: conn} do
+  test "the ⚙️ saves the stock thresholds", %{conn: conn} do
     originais =
       for chave <- [:stock_alert_f1, :stock_alert_f2, :stock_alert_e, :stock_alert_s_q],
           into: %{},
@@ -1071,6 +1046,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:stock_alert_s_q) == 12
   end
 
+  # the cooldown floor is 2s (lowered from 5); the boundary value must save
   test "saves the rescue threshold + cooldown and rejects nonsense values", %{conn: conn} do
     original = Pokex.Settings.get(:pokemon_hp_rescue_pct)
     cooldown = Pokex.Settings.get(:rescue_cooldown_ms)
@@ -1087,13 +1063,9 @@ defmodule PokexWeb.PanelLiveTest do
     |> render_change()
 
     assert Pokex.Settings.get(:pokemon_hp_rescue_pct) == 30
-    # the UI speaks seconds, the setting stores milliseconds
     assert Pokex.Settings.get(:rescue_cooldown_ms) == 20_000
-    # o campo do ⚙️ passa a mostrar o que foi salvo
     assert has_element?(view, ~s(#rescue-pct[value="30"]))
 
-    # out-of-range and garbage inputs must not touch the saved values — but a valid field
-    # beside an invalid one still saves
     view
     |> form("#rescue-cfg-form", %{"rescue_pct" => "95", "rescue_cooldown_s" => "1"})
     |> render_change()
@@ -1105,7 +1077,6 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:pokemon_hp_rescue_pct) == 30
     assert Pokex.Settings.get(:rescue_cooldown_ms) == 45_000
 
-    # the floor is 2s (Lucas lowered it from 5): the boundary value saves
     view
     |> form("#rescue-cfg-form", %{"rescue_pct" => "30", "rescue_cooldown_s" => "2"})
     |> render_change()
@@ -1171,7 +1142,6 @@ defmodule PokexWeb.PanelLiveTest do
     assert render(view) =~ "Clique em Ler"
 
     view |> element(~s(button[phx-click="read_cooldowns"])) |> render_click()
-    # reading done → the hint is replaced by the per-slot pills
     refute render(view) =~ "Clique em Ler"
   end
 
@@ -1188,10 +1158,11 @@ defmodule PokexWeb.PanelLiveTest do
     })
   end
 
+  # the Guardian re-broadcasts {:panic} on every poll tick while the cursor sits
+  # in the corner — repeats must not duplicate log spam
   test "a panic broadcast idles both pills and is idempotent on repeat", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
-    # Get both pills into non-idle state first.
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "fishing",
@@ -1215,9 +1186,6 @@ defmodule PokexWeb.PanelLiveTest do
 
     logs_after_first = view |> element("#activity-feed") |> render()
 
-    # The Guardian re-broadcasts {:panic} on every poll tick while the cursor
-    # sits in the corner — a second (and third) panic must not duplicate log
-    # spam.
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:panic, "kill corner"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:panic, "kill corner"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:panic, "kill corner"})
@@ -1226,10 +1194,10 @@ defmodule PokexWeb.PanelLiveTest do
     assert logs_after_first == logs_after_repeat
   end
 
+  # cleanup restores the seed default: the old cleanup put nil, which became a
+  # real nil override in the global mirror and randomly broke settings_test
+  # depending on file order
   test "saves glow threshold", %{conn: conn} do
-    # restore the SEED default (dropping the override) — the old cleanup put
-    # nil, which became a real nil override in the global mirror and randomly
-    # broke settings_test depending on file order
     threshold = Pokex.Settings.get(:glow_threshold)
     on_exit(fn -> Pokex.Settings.put(:glow_threshold, threshold) end)
 
@@ -1238,6 +1206,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:glow_threshold) == 21.5
   end
 
+  # positive timing knobs clamp 0 up to 1 instead of persisting an inert combat setting
   test "saves combat timing knobs and ignores blanks", %{conn: conn} do
     keys = [
       :combat_skill_burst_size,
@@ -1265,12 +1234,10 @@ defmodule PokexWeb.PanelLiveTest do
     |> render_submit()
 
     assert Pokex.Settings.get(:combat_skill_burst_size) == 3
-    # positive timing knobs clamp 0 to 1 instead of persisting an inert combat setting.
     assert Pokex.Settings.get(:combat_skill_tap_count) == 1
     assert Pokex.Settings.get(:combat_skill_gap_ms) == 25
     assert Pokex.Settings.get(:combat_skill_jitter_ms) == 20
     assert Pokex.Settings.get(:fight_timeout_ms) == 5000
-    # blank left the current value untouched
     assert Pokex.Settings.get(:target_lost_streak) == original_streak
   end
 
@@ -1282,10 +1249,10 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "screencapture CLI" or html =~ "ScreenCaptureKit"
   end
 
-  describe "a caçada no painel" do
-    # A caçada morria em ~6s "sem dizer nada" — e não dizia mesmo: o worker
-    # emitia snapshot, log e alarme, e o painel não assinava o tópico. Estes
-    # testes guardam o consumo dessas três mensagens.
+  describe "the hunt on the panel" do
+    # the hunt died in ~6s "saying nothing" — and truly said nothing: the worker
+    # emitted snapshot, log and alarm, and the panel never subscribed to the
+    # topic. These tests guard the consumption of those three messages.
     @cavebot_topic Pokex.Bots.Cavebot.Worker.topic()
 
     defp walking_snapshot(overrides \\ %{}) do
@@ -1307,7 +1274,9 @@ defmodule PokexWeb.PanelLiveTest do
       )
     end
 
-    test "a pílula da caçada existe no mount e conta a rota quando ele anda", %{conn: conn} do
+    # the waypoint index is 0-based in the worker and 1-based on screen (the
+    # number seen in /cavebot's waypoint list)
+    test "the hunt pill exists on mount and narrates the route while walking", %{conn: conn} do
       {:ok, view, html} = live(conn, ~p"/")
 
       assert html =~ "Caçada"
@@ -1319,15 +1288,13 @@ defmodule PokexWeb.PanelLiveTest do
 
       assert row =~ "andando"
       assert row =~ "cavena"
-      # o índice é 0-based no worker e 1-based na tela: é o número que ele
-      # reconhece na lista de waypoints do /cavebot
       assert row =~ "wp 3/9"
       assert row =~ "faltam 5,1 tiles"
       assert row =~ "41 passos"
       assert has_element?(view, "[data-testid=cavebot-pill][data-state=walking]")
     end
 
-    test "uma linha da caçada aparece no feed", %{conn: conn} do
+    test "a hunt line appears in the feed", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
       Phoenix.PubSub.broadcast(
@@ -1340,7 +1307,9 @@ defmodule PokexWeb.PanelLiveTest do
       assert view |> element("#activity-feed") |> render() =~ "🧭"
     end
 
-    test "o chip 🧭 filtra o feed da caçada (comparação exata de binário)", %{conn: conn} do
+    # the filter compares the source by EXACT equality: an emoji typed with a
+    # different variation selector in the two places would filter to an empty feed
+    test "the 🧭 chip filters the hunt feed (exact binary comparison)", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
       Phoenix.PubSub.broadcast(
@@ -1351,8 +1320,6 @@ defmodule PokexWeb.PanelLiveTest do
 
       Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, :macro, "arremesso"})
 
-      # o filtro compara a fonte por igualdade EXATA: um emoji com variation
-      # selector digitado diferente nos dois lugares filtraria um feed vazio
       view
       |> element(~s(button[phx-click="filter_feed"][phx-value-source="🧭"]))
       |> render_click()
@@ -1362,18 +1329,16 @@ defmodule PokexWeb.PanelLiveTest do
       refute feed =~ "arremesso"
     end
 
-    test "um bloqueio não derruba a LiveView e vira linha visível", %{conn: conn} do
+    test "a blockage does not crash the LiveView and becomes a visible line", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
       Phoenix.PubSub.broadcast(Pokex.PubSub, @cavebot_topic, {:cavebot_alarm, :stuck})
 
-      # a LiveView continua de pé — sem catch-all de handle_info isto era um
-      # FunctionClauseError no PIOR momento possível: o do bloqueio
       assert render(view) =~ "Caçada"
       assert view |> element("#activity-feed") |> render() =~ "caçada parada: travado"
     end
 
-    test "um estado parado NUNCA acende a bolinha de ativo", %{conn: conn} do
+    test "a stopped state never lights the active dot", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
       for state <- [:blocked, :stuck, :fight_stalled] do
@@ -1387,14 +1352,14 @@ defmodule PokexWeb.PanelLiveTest do
         row = view |> element("[data-testid=cavebot-pill]") |> render()
 
         refute row =~ "bg-pk-ok",
-               "#{state} acendeu verde — um cavebot parado não pode parecer saudável"
+               "#{state} lit green — a stalled cavebot must not look healthy"
 
         assert row =~ "bg-pk-text-3"
         assert row =~ "🔒 parei: travado"
       end
     end
 
-    test "uma mensagem desconhecida no tópico não derruba o painel", %{conn: conn} do
+    test "an unknown message on the topic does not crash the panel", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
       send(view.pid, {:cavebot_something_new, %{}})
@@ -1403,13 +1368,13 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
-  describe "a posição no painel" do
+  describe "position on the panel" do
     setup do
       on_exit(fn -> Pokex.Perception.WorldState.forget(:minimap) end)
       :ok
     end
 
-    test "uma leitura boa diz ONDE ele está e há quanto tempo", %{conn: conn} do
+    test "a good read says where the player is and how long ago", %{conn: conn} do
       now = System.monotonic_time(:millisecond)
       Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now)
 
@@ -1421,7 +1386,7 @@ defmodule PokexWeb.PanelLiveTest do
       assert position =~ "agora"
     end
 
-    test "parar de ler é dito com todas as letras, com a idade da última leitura", %{conn: conn} do
+    test "a stopped read is spelled out, with the age of the last read", %{conn: conn} do
       now = System.monotonic_time(:millisecond)
       Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now - 20_000)
 
@@ -1432,9 +1397,9 @@ defmodule PokexWeb.PanelLiveTest do
       assert position =~ "há 20s"
     end
 
-    test "coordenada ilegível é diferente de feed parado", %{conn: conn} do
-      # o feed está lendo AGORA; quem falhou foi a coordenada (a leitura é
-      # tudo-ou-nada, um glifo duvidoso derruba as três casas)
+    # the feed is reading NOW; the coordinate failed (all-or-nothing: one
+    # doubtful glyph kills all three numbers)
+    test "an unreadable coordinate is different from a stopped feed", %{conn: conn} do
       now = System.monotonic_time(:millisecond)
       Pokex.Perception.WorldState.put(:minimap, %{pos: nil}, now)
 
@@ -1445,7 +1410,7 @@ defmodule PokexWeb.PanelLiveTest do
       refute position =~ "NÃO estou lendo"
     end
 
-    test "a proporção de leitura boa/ruim conta as publicações do feed", %{conn: conn} do
+    test "the good/bad read ratio counts the feed's publications", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
       assert view |> element("#world-read-health") |> render() =~ "aguardando a primeira leitura"
@@ -1462,7 +1427,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
-  describe "o card de combos" do
+  describe "the combos card" do
     setup do
       tmp =
         Path.join(System.tmp_dir!(), "pokex-panel-combos-#{System.unique_integer([:positive])}")
@@ -1489,8 +1454,7 @@ defmodule PokexWeb.PanelLiveTest do
       )
     end
 
-    test "lista o combo semeado e marca o passo que NÃO pode rodar", %{conn: conn} do
-      # his real team: Wigglytuff, not the Jigglypuff the seed asks for
+    test "lists the seeded combo and marks the step that cannot run", %{conn: conn} do
       team_on_screen([
         %{slot: 2, name: "Xatu", present?: true, hp_pct: 1.0},
         %{slot: 5, name: "Wigglytuff", present?: true, hp_pct: 1.0}
@@ -1500,16 +1464,14 @@ defmodule PokexWeb.PanelLiveTest do
 
       assert has_element?(view, "#combos-card")
       assert render(view) =~ "sing"
-      # the chip turns red and says why, instead of him finding out mid-fight
       assert has_element?(view, ~s([title*="Jigglypuff NÃO está nos atalhos"]))
     end
 
-    test "criar um combo usa o time lido da tela e ele passa a valer", %{conn: conn} do
+    test "creating a combo uses the team read off the screen and it takes effect", %{conn: conn} do
       team_on_screen([%{slot: 5, name: "Wigglytuff", present?: true, hp_pct: 1.0}])
 
       {:ok, view, _} = live(conn, ~p"/config")
 
-      # o editor de 2026-07-30: passos livres, um de cada vez
       view
       |> element("#combo-form")
       |> render_change(%{
@@ -1533,13 +1495,11 @@ defmodule PokexWeb.PanelLiveTest do
       assert saved.trigger == {:enemy_element, "Water"}
       assert {:swap_member, "Wigglytuff"} in saved.steps
       assert {:swap_counter} in saved.steps
-      # dungeon em branco = combo global
       assert saved.dungeon == nil
-      # and now the chip is green, because Wigglytuff IS in the hotkeys
       refute has_element?(view, ~s([title*="Wigglytuff NÃO está nos atalhos"]))
     end
 
-    test "um combo pode valer só numa dungeon, e a linha mostra qual", %{conn: conn} do
+    test "a combo can apply to a single dungeon, and the row shows which", %{conn: conn} do
       team_on_screen([%{slot: 5, name: "Wigglytuff", present?: true, hp_pct: 1.0}])
 
       {:ok, view, _} = live(conn, ~p"/config")
@@ -1562,7 +1522,7 @@ defmodule PokexWeb.PanelLiveTest do
       assert view |> element(~s(#combo-na-dg)) |> render() =~ "cavena"
     end
 
-    test "excluir tira o combo da lista", %{conn: conn} do
+    test "deleting removes the combo from the list", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/config")
 
       view |> element(~s([phx-click="delete_combo"][phx-value-name="sing"])) |> render_click()
@@ -1570,8 +1530,8 @@ defmodule PokexWeb.PanelLiveTest do
       refute Enum.any?(Pokex.Combos.Store.all(), &(&1.name == "sing"))
     end
 
-    # The whole point: "liguei os combos e não aconteceu nada" gets an answer.
-    test "uma recusa transmitida aparece no painel em português", %{conn: conn} do
+    # "I turned combos on and nothing happened" gets an answer
+    test "a broadcast refusal appears on the panel in Portuguese", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/config")
 
       Phoenix.PubSub.broadcast(
@@ -1586,26 +1546,23 @@ defmodule PokexWeb.PanelLiveTest do
       assert html =~ "Jigglypuff não está nos atalhos"
     end
 
-    test "um passo de espera mostra os milissegundos, não o nome da setting", %{conn: conn} do
+    test "a wait step shows the milliseconds, not the setting name", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/config")
 
-      # "espera combo_swap_wait_ms" is an internal name printed on his screen, and
-      # it does not answer the only question the chip exists to answer: how long?
       chip = view |> element(~s([title*="combo_swap_wait_ms"])) |> render()
 
       assert chip =~ "espera #{Pokex.Settings.get(:combo_swap_wait_ms)}ms"
-      # the setting name still lives a hover away, in the tooltip
       assert chip =~ "ajustável nas configurações"
     end
   end
 
-  describe "o sistema visual" do
-    # These are markup guards for things a LiveView test cannot measure in pixels.
-    # MEASURED in the browser at Lucas's window width (2026-07-22): the worker
-    # status lines had 15-30px of slack and the support line was ALREADY cut, and
-    # the uppercase + 0.1em treatment alone accounted for 36px (15%) of the width.
-    # Nothing here re-measures that — these just keep the causes from coming back.
-    test "o estado dos workers não é escrito em caixa alta espaçada", %{conn: conn} do
+  describe "the visual system" do
+    # Markup guards for things a LiveView test cannot measure in pixels.
+    # MEASURED in the browser at the real window width: the worker status lines
+    # had 15-30px of slack, the support line was ALREADY cut, and the uppercase
+    # + 0.1em treatment alone accounted for 36px (15%) of the width. Nothing
+    # here re-measures that — these keep the causes from coming back.
+    test "worker states are not written in spaced uppercase", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
       for testid <- ~w(fishing combat catcher mini-game support cavebot) do
@@ -1618,7 +1575,7 @@ defmodule PokexWeb.PanelLiveTest do
       end
     end
 
-    test "o estado de um worker nunca é truncado; a última ação pode ser", %{conn: conn} do
+    test "a worker's state is never truncated; the last action may be", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
       Phoenix.PubSub.broadcast(
@@ -1636,25 +1593,22 @@ defmodule PokexWeb.PanelLiveTest do
 
       row = view |> element(~s([data-testid="support-pill"])) |> render()
 
-      # the state + counters live in a span that is allowed to grow
       assert row =~ "monitorando"
       assert row =~ "27 revive · 194 poção"
       refute row =~ ~s(class="min-w-0 flex-1 text-pk-body text-pk-text-2 truncate)
     end
 
-    test "um valor que ainda não foi lido aparece como — e nunca como ?", %{conn: conn} do
+    test "a value not yet read renders as — and never as ?", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
       world = view |> element("#world-card") |> render()
 
-      # "?" reads as a broken field; the feeds fail OPEN, so "ainda não li" is
-      # normal and must look normal.
       refute world =~ ">?<"
       assert world =~ "—"
     end
   end
 
-  describe "seletor de personagem" do
-    test "o seletor de personagem troca o active_character", %{conn: conn} do
+  describe "character picker" do
+    test "the character picker switches active_character", %{conn: conn} do
       Pokex.SettingsStash.stash_keys!([:active_character])
       {:ok, view, _} = live(conn, ~p"/")
       assert has_element?(view, "#character-picker")
@@ -1662,7 +1616,7 @@ defmodule PokexWeb.PanelLiveTest do
       assert Pokex.Settings.get(:active_character) == ""
     end
 
-    test "criar um personagem seleciona ele", %{conn: conn} do
+    test "creating a character selects it", %{conn: conn} do
       tmp = Path.join(System.tmp_dir!(), "pokex-char-#{System.unique_integer([:positive])}")
       File.mkdir_p!(tmp)
       Application.put_env(:pokex, :home_dir, tmp)
@@ -1679,10 +1633,10 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
-  describe "motivo da parada (Frente 1, fatia 4)" do
-    # O critério de aceite do plano de consolidação: com o bot parado, a tela
-    # responde "quem parou, por quê, há quanto tempo" — sem arqueologia de log.
-    test "um Stop com motivo aparece sob o botão Iniciar", %{conn: conn} do
+  describe "stop reason" do
+    # with the bot stopped, the screen answers who stopped it, why, and how long
+    # ago — no log archaeology
+    test "a Stop with a reason appears under the Start button", %{conn: conn} do
       Pokex.Bots.Session.order(:stop, "teste: o Guardian bateu a meta")
 
       {:ok, view, _html} = live(conn, ~p"/")
@@ -1691,7 +1645,7 @@ defmodule PokexWeb.PanelLiveTest do
       assert view |> element("#last-order") |> render() =~ "parado"
     end
 
-    test "uma pausa por foco diz que retoma sozinha", %{conn: conn} do
+    test "a focus hold says it resumes on its own", %{conn: conn} do
       Pokex.Bots.Session.order(:hold, "foco perdido")
 
       {:ok, view, _html} = live(conn, ~p"/")
@@ -1699,7 +1653,7 @@ defmodule PokexWeb.PanelLiveTest do
       assert view |> element("#last-order") |> render() =~ "retoma sozinho ao voltar"
     end
 
-    test "o botão Parar do painel registra o próprio motivo", %{conn: conn} do
+    test "the panel's Stop button records its own reason", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
       render_click(view, "stop")
@@ -1708,7 +1662,9 @@ defmodule PokexWeb.PanelLiveTest do
       assert view |> element("#last-order") |> render() =~ "Parar (painel)"
     end
 
-    test "com a frota ATIVA a linha some — motivo de parada é coisa de parado", %{conn: conn} do
+    test "with the fleet active the line disappears — a stop reason is for stopped bots", %{
+      conn: conn
+    } do
       Pokex.Bots.Session.order(:stop, "teste: some quando roda")
       {:ok, view, _html} = live(conn, ~p"/")
       assert has_element?(view, "#last-order")
@@ -1719,7 +1675,6 @@ defmodule PokexWeb.PanelLiveTest do
         {:fishing, %{state: :pescando, counters: %{}, error: nil}}
       )
 
-      # a linha mora no bloco do botão Iniciar, que só existe com o bot parado
       refute eventually_has(view, "#last-order")
     end
 
@@ -1735,7 +1690,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
-  describe "auto-revive com combo de stun" do
+  describe "auto-revive with a stun combo" do
     setup do
       tmp =
         Path.join(System.tmp_dir!(), "pokex-panel-resgate-#{System.unique_integer([:positive])}")
@@ -1768,7 +1723,7 @@ defmodule PokexWeb.PanelLiveTest do
       :ok
     end
 
-    test "no modo combo: dropdown, preview da sequência e o aviso de conflito", %{conn: conn} do
+    test "combo mode: dropdown, sequence preview and the conflict warning", %{conn: conn} do
       Pokex.Settings.put(:rescue_mode, "combo")
       Pokex.Settings.put(:rescue_combo, "stun-area")
 
@@ -1777,18 +1732,15 @@ defmodule PokexWeb.PanelLiveTest do
       assert has_element?(view, "#rescue-mode")
       assert has_element?(view, "#rescue-combo")
 
-      # o preview mostra a sequência COMPLETA (stun + revive)
       assert has_element?(view, ~s([data-testid="rescue-combo-preview"]))
       assert render(view) =~ "1 → 500ms → 2"
 
-      # skills 1/2 seguem na rotação do combate (seed) → aviso, sem bloquear
       assert has_element?(view, ~s([data-testid="rescue-combo-conflict"]))
 
-      # o combo com troca de time está no dropdown, mas DESABILITADO
       assert has_element?(view, ~s(#rescue-combo option[disabled]))
     end
 
-    test "no modo direto o dropdown e o preview nem existem", %{conn: conn} do
+    test "in direct mode the dropdown and the preview do not even exist", %{conn: conn} do
       Pokex.Settings.put(:rescue_mode, "direto")
 
       {:ok, view, _html} = live(conn, ~p"/config")
@@ -1798,9 +1750,10 @@ defmodule PokexWeb.PanelLiveTest do
       refute has_element?(view, ~s([data-testid="rescue-combo-preview"]))
     end
 
-    test "modo combo SEM combo válido avisa — e o botão configura tudo num clique", %{conn: conn} do
-      # o estado real do Lucas em 2026-07-30: mode "combo" com rescue_combo
-      # vazio — ele achava que tinha reservado as skills, e o revive ia direto
+    # real field state: mode "combo" with an empty rescue_combo — the skills
+    # looked reserved but the revive went direct
+    test "combo mode without a valid combo warns — and the button configures everything in one click",
+         %{conn: conn} do
       Pokex.Settings.put(:rescue_mode, "combo")
       Pokex.Settings.put(:rescue_combo, "")
 
@@ -1810,13 +1763,11 @@ defmodule PokexWeb.PanelLiveTest do
 
       view |> element("#create-rescue-combo") |> render_click()
 
-      # o combo existe, com a sequência que ele pediu...
       assert %Pokex.Combos.Combo{steps: steps, trigger: {:rescue_only}} =
                Enum.find(Pokex.Combos.Store.all(), &(&1.name == "resgate"))
 
       assert [{:skill, "1"}, {:wait, _}, {:skill, "2"}] = steps
 
-      # ...e já está pendurado no revive
       assert Pokex.Settings.get(:rescue_combo) == "resgate"
       assert Pokex.Settings.get(:rescue_mode) == "combo"
       refute has_element?(view, ~s([data-testid="rescue-combo-missing"]))
@@ -1824,7 +1775,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
-  describe "editor de combos" do
+  describe "combo editor" do
     setup do
       tmp =
         Path.join(System.tmp_dir!(), "pokex-panel-editor-#{System.unique_integer([:positive])}")
@@ -1841,10 +1792,9 @@ defmodule PokexWeb.PanelLiveTest do
       :ok
     end
 
-    test "o que ele escreve SOBREVIVE ao re-render dos workers", %{conn: conn} do
-      # O bug de 2026-07-30: os campos não tinham valor no servidor e o painel
-      # re-renderiza a cada snapshot (~10×/s) — tudo que ele digitava sumia ao
-      # sair do campo. Este teste É o bug: escrever, receber um snapshot, olhar.
+    # the fields had no server-side value and the panel re-renders on every
+    # snapshot (~10x/s) — everything typed vanished on blur; this test IS that bug
+    test "typed input survives the workers' re-renders", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
 
       view |> element("#combo-form") |> render_change(%{"name" => "resgate"})
@@ -1856,11 +1806,10 @@ defmodule PokexWeb.PanelLiveTest do
         {:fishing, %{state: :pescando, counters: %{}, error: nil}}
       )
 
-      # o rascunho é estado do SERVIDOR — nenhum re-render o apaga
       assert has_element?(view, ~s(#combo-name[value="resgate"]))
     end
 
-    test "monta a sequência livre que antes era impossível (skill 1 → espera → skill 2)", %{
+    test "builds the free sequence skill 1 → wait → skill 2", %{
       conn: conn
     } do
       {:ok, view, _html} = live(conn, ~p"/config")
@@ -1869,7 +1818,6 @@ defmodule PokexWeb.PanelLiveTest do
       |> element("#combo-form")
       |> render_change(%{"name" => "stun", "trigger_kind" => "rescue_only"})
 
-      # três passos, um de cada vez — o construtor livre
       add_step(view, "skill", "1")
       add_step(view, "wait", "500")
       add_step(view, "skill", "2")
@@ -1881,11 +1829,10 @@ defmodule PokexWeb.PanelLiveTest do
 
       assert steps == [{:skill, "1"}, {:wait, 500}, {:skill, "2"}]
 
-      # salvou → o rascunho volta a zero, pronto pro próximo
       assert has_element?(view, ~s(#combo-name[value=""]))
     end
 
-    test "um passo pode ser removido antes de salvar", %{conn: conn} do
+    test "a step can be removed before saving", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
 
       add_step(view, "skill", "9")
@@ -1895,7 +1842,9 @@ defmodule PokexWeb.PanelLiveTest do
       refute render(view) =~ "skill 9"
     end
 
-    test "passo inválido (skill sem tecla, espera sem número) não entra", %{conn: conn} do
+    test "an invalid step (skill without a key, wait without a number) does not enter", %{
+      conn: conn
+    } do
       {:ok, view, _html} = live(conn, ~p"/config")
 
       add_step(view, "skill", "")
@@ -1904,7 +1853,7 @@ defmodule PokexWeb.PanelLiveTest do
       assert render(view) =~ "Sem passos ainda"
     end
 
-    test "combo sem passo nenhum não é salvo", %{conn: conn} do
+    test "a combo with no steps is not saved", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
 
       view |> element("#combo-form") |> render_change(%{"name" => "vazio"})
@@ -1932,17 +1881,19 @@ defmodule PokexWeb.PanelLiveTest do
       :ok
     end
 
-    test "o botão 'Deslogar agora' existe e clicar nele não derruba a página", %{conn: conn} do
+    # the global Logout is inert in the suite — the click must survive that
+    test "the 'Deslogar agora' button exists and clicking it does not crash the page", %{
+      conn: conn
+    } do
       {:ok, view, _html} = live(conn, ~p"/config")
 
       assert has_element?(view, ~s(button[phx-click="logout_now"]))
 
-      # o Logout global fica inerte na suíte — o clique tem que sobreviver a isso
       render_click(view, "logout_now")
       assert render(view) =~ "Deslogar agora"
     end
 
-    test "o painel mostra o desfecho do logout, e uma mensagem estranha não o derruba", %{
+    test "the panel shows the logout outcome, and a strange message does not crash it", %{
       conn: conn
     } do
       {:ok, view, _html} = live(conn, ~p"/config")
@@ -1963,7 +1914,6 @@ defmodule PokexWeb.PanelLiveTest do
 
       assert render(view) =~ "deslogado — manual (painel)"
 
-      # e uma falha diz POR QUE falhou, nunca só "falhou"
       send(
         view.pid,
         {:logout,
@@ -1980,19 +1930,18 @@ defmodule PokexWeb.PanelLiveTest do
 
       assert render(view) =~ "FALHOU (ainda_logado)"
 
-      # qualquer coisa sem cláusula continua sendo ignorada em vez de derrubar
       send(view.pid, {:mensagem_que_ninguem_espera, 42})
       assert render(view) =~ "Deslogar agora"
     end
 
-    test "os dois seletores de ação oferecem deslogar", %{conn: conn} do
+    test "both action selectors offer deslogar", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
 
       assert has_element?(view, ~s(select#stagnation-action option[value="deslogar"]))
       assert has_element?(view, ~s(select#stop-after-action option[value="deslogar"]))
     end
 
-    test "escolher deslogar nos dois seletores grava o ajuste", %{conn: conn} do
+    test "choosing deslogar in both selectors persists the setting", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
 
       view

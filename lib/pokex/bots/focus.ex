@@ -30,8 +30,8 @@ defmodule Pokex.Bots.Focus do
 
     state = %{
       frontmost_fun: Keyword.get(opts, :frontmost_fun, &default_frontmost/0),
-      # A pausa é um HOLD com identidade: para a frota e devolve a geração da
-      # ordem — que fica guardada em resume_generation.
+      # The pause is a HOLD with identity: halts the fleet and returns the
+      # order's generation — kept in resume_generation.
       hold_fun: Keyword.get(opts, :hold_fun, &BotSupervisor.hold_for_focus/0),
       start_all: Keyword.get(opts, :start_all, &BotSupervisor.start_all/0),
       running_fun: Keyword.get(opts, :running_fun, &default_running?/0),
@@ -41,11 +41,11 @@ defmodule Pokex.Bots.Focus do
       # via the env gate that keeps the app-wide instance quiet during unrelated tests.
       auto_start: Keyword.get(opts, :auto_start, nil),
       focused?: true,
-      # A geração da MINHA pausa, ou nil (nada pra retomar). Um booleano aqui já
-      # religou a frota por cima de um Stop manual dado entre a perda e a volta
-      # do foco — a ordem dele não tinha como invalidar a retomada pendente.
-      # Agora tem: qualquer ordem posterior muda a geração, e a retomada só vale
-      # se a geração atual ainda for a da pausa.
+      # MY pause's generation, or nil (nothing to resume). A boolean here once
+      # re-armed the fleet over a manual Stop given between focus loss and
+      # return — the human's order couldn't invalidate the pending resume. Now
+      # any later order changes the generation, and the resume only applies if
+      # the current generation is still the pause's.
       resume_generation: nil
     }
 
@@ -99,8 +99,8 @@ defmodule Pokex.Bots.Focus do
 
   defp apply_focus(%{focused?: true} = state, false) do
     # focus just LOST → shut the gate, halt the workers, remember to resume them.
-    # A lembrança carrega a GERAÇÃO da pausa: só uma frota que estava rodando
-    # merece retomada, e só se nenhuma ordem chegar no meio.
+    # The memory carries the pause's GENERATION: only a fleet that was running
+    # deserves a resume, and only if no order lands in between.
     InputGate.set_focus_ok(false)
     running? = safe_running?(state)
     generation = safe_hold(state)
@@ -110,18 +110,18 @@ defmodule Pokex.Bots.Focus do
   end
 
   defp apply_focus(%{focused?: false} = state, true) do
-    # focus just REGAINED → open the gate, resume what was running — se a retomada
-    # ainda VALE. Duas coisas a invalidam, e as duas vêm de incidente real:
+    # focus just REGAINED → open the gate, resume what was running — IF the
+    # resume still HOLDS. Two things invalidate it, both from real incidents:
     #
-    #   * o latch do pânico (2026-07-11): retomar por cima do mouse-no-canto
-    #     matou o Pokémon do Lucas. O latch continua aqui como cinto E
-    #     suspensório, mesmo o pânico também mudando a geração;
-    #   * QUALQUER ordem entre a perda e a volta do foco (Frente 1): um Stop
-    #     manual do painel, um logout, um freio do cavebot — todos mudam a
-    #     geração, e a retomada só religa a geração da PRÓPRIA pausa. Antes,
-    #     um booleano esquecia a ordem do humano e religava por cima.
+    #   * the panic latch (2026-07-11): resuming over mouse-in-corner killed
+    #     the Pokémon. The latch stays here as belt AND suspenders, even though
+    #     panic also changes the generation;
+    #   * ANY order between focus loss and return: a manual panel Stop, a
+    #     logout, a cavebot brake — all change the generation, and the resume
+    #     only re-arms its OWN pause's generation. A boolean used to forget the
+    #     human's order and re-arm over it.
     #
-    # A retomada inválida é DESCARTADA, nunca adiada.
+    # An invalid resume is DISCARDED, never postponed.
     resume? =
       state.resume_generation != nil and
         safe_generation(state) == state.resume_generation and
@@ -156,16 +156,16 @@ defmodule Pokex.Bots.Focus do
     _kind, _reason -> false
   end
 
-  # A pausa nunca pode falhar em PARAR por causa da geração — se o hold quebrar
-  # no meio, devolve nil e a retomada simplesmente não existe (o lado seguro).
+  # The pause must never fail to STOP because of the generation — if the hold
+  # breaks midway, return nil and the resume simply doesn't exist (safe side).
   defp safe_hold(state) do
     state.hold_fun.()
   catch
     _kind, _reason -> nil
   end
 
-  # Geração ilegível → retomada descartada (compara contra :unavailable, que
-  # nunca é igual a uma geração guardada). Falhar pro lado de NÃO religar.
+  # Unreadable generation → resume discarded (compares against :unavailable,
+  # never equal to a stored generation). Fail toward NOT re-arming.
   defp safe_generation(state) do
     state.generation_fun.()
   catch
@@ -223,15 +223,15 @@ defmodule Pokex.Bots.Focus do
   end
 
   @doc """
-  Garante que o jogo pode receber uma sequência DELIBERADA de teclas: recusa se
-  o canto do pânico está acionado (a ordem humana vence tudo), passa direto se o
-  jogo já está na frente, e senão traz o jogo para a frente e abre a porteira
-  na hora.
+  Ensures the game can receive a DELIBERATE key sequence: refuses if the panic
+  corner is engaged (the human order beats everything), passes straight through
+  if the game is already frontmost, otherwise fronts the game and opens the
+  gate immediately.
 
-  Abrir a porteira aqui, em vez de esperar o poller notar, é o ponto: o poller
-  levaria um tick, e nesse meio-tempo o Rig engoliria a tecla EM SILÊNCIO. Se o
-  fronting falhar de verdade, o poller fecha a porteira de volta no tick
-  seguinte e o Rig volta a engolir — a rede de segurança continua valendo.
+  Opening the gate here, rather than waiting for the poller to notice, is the
+  point: the poller would take a tick, and meanwhile the Rig would swallow the
+  key IN SILENCE. If fronting truly fails, the poller shuts the gate back on
+  the next tick and the Rig swallows again — the safety net still applies.
   """
   @spec ensure_front() :: :ok | {:error, :panic_corner}
   def ensure_front do
@@ -267,11 +267,11 @@ defmodule Pokex.Bots.Focus do
     _ -> :error
   end
 
-  # A MESMA régua de "está rodando?" que o header e o painel usam — este módulo
-  # tinha uma lista própria, e duas verdades sobre a mesma pergunta é como um
-  # pill verde e um botão "Iniciar" aparecem juntos na mesma tela. Diferença
-  # herdada e mantida de propósito: :ocupado (status desconhecido) agora conta
-  # como PARADO também aqui — não se agenda retomada do que não se provou vivo.
+  # The SAME "is it running?" rule the header and panel use — this module had
+  # its own list, and two truths for one question is how a green pill and an
+  # "Iniciar" button appear on the same screen. Kept difference, on purpose:
+  # :ocupado (unknown status) counts as STOPPED here too — never schedule a
+  # resume for what wasn't proven alive.
   defp default_running? do
     %{fishing: f, combat: c, catcher: cat, cavebot: cv} = BotSupervisor.status()
     BotSupervisor.any_active?([f, c, cat, cv])

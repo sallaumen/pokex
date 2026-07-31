@@ -4,8 +4,8 @@ defmodule Pokex.Pokedex do
   PXG wiki by `mix pokedex.scrape`, loaded once from priv/pokedex/pokedex.json
   and served from :persistent_term — pure reads, no process.
 
-  This is the queryable base Lucas asked for ("pesquisar por level, elemento,
-  fraqueza") AND the future shiny-detector's reference set (each entry carries
+  This is the queryable base Lucas asked for (search by level, element,
+  weakness) AND the future shiny-detector's reference set (each entry carries
   its sprite, shinies included). Re-scraping rewrites the JSON; the app picks
   it up on the next restart.
   """
@@ -30,8 +30,8 @@ defmodule Pokex.Pokedex do
   How many days ago the WIKI last edited this entry's page, or nil when
   unknown. This — not our own sync bookkeeping — is what "novidade" means:
   it recycles itself as time passes, and a first-ever sync doesn't paint the
-  whole base as new (Lucas: "Se algo for novo para mim aqui, não deveria
-  mostrar como novo. Se for novo na wiki… nos últimos sete dias").
+  whole base as new (per Lucas: new means new ON THE WIKI in the last seven
+  days, not new to this local base).
   """
   def wiki_age_days(entry, today \\ nil) do
     today = today || Date.utc_today()
@@ -61,8 +61,8 @@ defmodule Pokex.Pokedex do
 
   @doc """
   The entry's page on the PXG wiki — where every field here came from, and the
-  escape hatch whenever the harvest still looks thin (Lucas: "vale colocarmos o
-  link pra wiki original de todo pokemon"). Derived from the name exactly like
+  escape hatch whenever the harvest still looks thin (Lucas asked for the
+  original wiki link on every pokémon). Derived from the name exactly like
   the scraper derives it, so the link points at the page we actually read.
   """
   def wiki_url(%{name: name}) when is_binary(name) and name != "",
@@ -87,7 +87,7 @@ defmodule Pokex.Pokedex do
 
   Sorting (`:sort` + `:desc`): `:number` (default), `:name`, `:level`,
   `:element`, `:weak_to`, `:shiny`, `:edited` (the WIKI's own edit date —
-  "que pokémon a wiki mexeu por último") or `:changed` (OUR last content
+  which pokémon the wiki touched last) or `:changed` (OUR last content
   change). Missing values always sink to the bottom, in BOTH directions —
   a level-less entry is never the "highest level".
   """
@@ -228,12 +228,12 @@ defmodule Pokex.Pokedex do
   Shiny variant exists (upside!), +1 when fishable. Each row names the best
   member and carries the reasons, so the ranking is auditable on screen.
 
-  THREATS — species whose own elements hit a member's weaknesses ("quem bate
-  forte em MIM"), one row per species with every endangered member, ranked by
+  THREATS — species whose own elements hit a member's weaknesses (who hits
+  ME hard), one row per species with every endangered member, ranked by
   how many members it endangers, then by level.
 
-  LEVEL WINDOW (Lucas: "você está recomendando pokémons de level muito
-  baixo"): pass `:player_level` (+ optional `:level_margin`, default 15) and
+  LEVEL WINDOW (Lucas: the old suggestions ran far below his level): pass
+  `:player_level` (+ optional `:level_margin`, default 15) and
   targets are drawn from species within player_level ± margin — the hunts
   that are actually worth his time. When NOTHING lives in the window (lv 200
   with no lv-200 species), the pool falls back to the species BELOW his
@@ -377,8 +377,8 @@ defmodule Pokex.Pokedex do
         element in entry.weak_to
 
       # Multi-value groups (the non-exclusive filters): the entry matches when
-      # it has ANY of the selected values — "todos de planta E todos de veneno"
-      # is ONE group with two values, not two exclusive searches.
+      # it has ANY of the selected values — "all grass AND all poison" is ONE
+      # group with two values, not two exclusive searches.
       {:elements, list} when is_list(list) and list != [] ->
         Enum.any?(list, &(&1 in entry.elements))
 

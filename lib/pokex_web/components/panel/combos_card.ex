@@ -1,24 +1,19 @@
 defmodule PokexWeb.Panel.CombosCard do
   @moduledoc """
-  O card dos combos: o que existe, se está ligado, POR QUE um não rodou — e o
-  editor onde eles nascem.
+  The combos card: what exists, whether it is on, WHY one did not run — and
+  the editor where combos are built.
 
-  O editor foi refeito em 2026-07-30 por dois defeitos que o Lucas sentiu na
-  mão. O primeiro era um bug de verdade: os campos não tinham valor no
-  servidor, e o painel re-renderiza a cada snapshot dos workers (~10×/s), então
-  tudo que ele digitava sumia assim que saía do campo. Agora existe um
-  RASCUNHO nos assigns — o que ele escreveu é estado do servidor, e nenhum
-  re-render o apaga.
+  The editor was rebuilt 2026-07-30 for two real defects. First, the fields
+  had no server-side value while the panel re-renders on every worker
+  snapshot (~10x/s), so everything typed vanished on blur — the DRAFT now
+  lives in the assigns, and no re-render erases it. Second, the form could
+  only build ONE combo shape (swap → skill → bring the counter), so a plain
+  "skill 1, wait, skill 2" — the auto-revive stun — was impossible to create;
+  steps are now free-form.
 
-  O segundo era mais fundo: o form só sabia montar UMA forma de combo (trocar
-  pra alguém → uma skill → trazer o counter), então uma sequência simples como
-  "skill 1, espera, skill 2" — o stun do auto-revive — era literalmente
-  impossível de criar aqui. Agora os passos são livres: escolhe o tipo, o
-  valor, adiciona; e a lista do rascunho mostra a sequência crescendo.
-
-  A troca continua oferecendo o time LIDO DA TELA (uma troca pra quem não está
-  nos atalhos nunca roda), mas isso deixou de bloquear o editor inteiro: um
-  combo só de skills não precisa de time nenhum.
+  The swap step still offers the team READ FROM THE SCREEN (a swap to someone
+  not in the hotkeys never runs), but that no longer blocks the whole editor:
+  a skills-only combo needs no team at all.
   """
   use PokexWeb, :html
 
@@ -73,9 +68,9 @@ defmodule PokexWeb.Panel.CombosCard do
             ]}>
               {combo.name}
             </p>
-            <%!-- Qual combo está pendurado no revive: o card do Suporte escolhe,
-                  mas é AQUI que ele olha a sequência — o selo evita editar o
-                  combo errado. --%>
+            <%!-- Which combo hangs off the revive: the Support card picks it,
+                  but THIS is where the sequence is inspected — the badge keeps
+                  him from editing the wrong combo. --%>
             <span
               :if={combo.name == @rescue_combo}
               data-testid="combo-rescue-badge"
@@ -181,9 +176,9 @@ defmodule PokexWeb.Panel.CombosCard do
             />
           </div>
 
-          <%!-- O gatilho que reserva as skills: um combo "só no resgate" não é
-                gasto numa luta comum — ele espera o momento em que o pokémon
-                cai. --%>
+          <%!-- The trigger that reserves the skills: a rescue-only combo is
+                never spent on a regular fight — it waits for the moment the
+                pokémon goes down. --%>
           <p
             :if={@draft.trigger_kind == "rescue_only"}
             class="text-pk-body leading-tight text-pk-text-2"
@@ -202,8 +197,8 @@ defmodule PokexWeb.Panel.CombosCard do
             class="input input-bordered h-8 w-full bg-pk-bg text-pk-body"
           />
 
-          <%!-- Os passos, livres: o combo é uma sequência, não um formulário de
-                forma fixa (o stun 1→2 era impossível de montar antes). --%>
+          <%!-- Free-form steps: a combo is a sequence, not a fixed-shape form
+                (the 1→2 stun was impossible to build before). --%>
           <div class="rounded-lg border border-pk-line bg-pk-sunken p-2">
             <div :if={@draft.steps != []} class="mb-1.5 flex flex-wrap gap-1">
               <span

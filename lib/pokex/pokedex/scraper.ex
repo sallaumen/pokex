@@ -10,7 +10,7 @@ defmodule Pokex.Pokedex.Scraper do
 
   Semantics measured on the real pages (2026-07-20): under "Efetividades",
   "Muito Efetivo" lists what hits the Pokémon HARD (its weaknesses — exactly
-  what "quais têm fraqueza de planta" queries want) and "Muito Inefetivo" what
+  what "which are weak to grass" queries want) and "Muito Inefetivo" what
   it resists.
   """
 
@@ -71,8 +71,7 @@ defmodule Pokex.Pokedex.Scraper do
 
   PXG pages carry TWO movesets under "Movimentos" — `Moveset PVE` (hunting,
   what this bot cares about) and `Moveset PVP` — with the SAME slot names and
-  DIFFERENT cooldowns (Lucas: "ele quase sempre tem as versões de ataques de
-  PVP e PVM… hoje aparece como se todos estivessem em ordem, mas duplicados").
+  DIFFERENT cooldowns (unsplit they showed as one in-order, duplicated list).
   `arena` picks one: `:pve` (default, falls back to the whole Movimentos
   section on older single-table pages) or `:pvp` (empty when absent).
 
@@ -161,7 +160,6 @@ defmodule Pokex.Pokedex.Scraper do
     end
   end
 
-  # the flavor text under the "Descrição:" heading
   defp description(html) do
     case Regex.run(~r{id="Descrição:"[^>]*>.*?</h2>\s*<p>(.*?)</p>}s, html) do
       [_, text] -> text |> strip_tags() |> String.trim()
@@ -217,13 +215,12 @@ defmodule Pokex.Pokedex.Scraper do
   a partial `--only` run refreshes just its targets. Handles the key-style
   mix (existing entries come from JSON with string keys, fresh ones are atoms).
 
-  NOVELTY STAMPS (Lucas: "um Pokémon novo! esse aqui é novo, sabe?"): each
-  merged entry carries `first_seen_at` (the sync that first brought it into
-  the base) and `changed_at` (the last sync where its CONTENT actually moved
-  — level, elements, moves, effectiveness…). Both are OUR clock, deliberately
-  distinct from `edited_at` (the wiki's own edit date): a re-scrape that finds
-  the same data does not touch changed_at, so "o que mudou desde a última
-  sincronização" stays honest.
+  NOVELTY STAMPS: each merged entry carries `first_seen_at` (the sync that
+  first brought it into the base) and `changed_at` (the last sync where its
+  CONTENT actually moved — level, elements, moves, effectiveness…). Both are
+  OUR clock, deliberately distinct from `edited_at` (the wiki's own edit
+  date): a re-scrape that finds the same data does not touch changed_at, so
+  "what changed since the last sync" stays honest.
   """
   def upsert(existing, fresh) do
     by_name = Map.new(existing, &{entry_name(&1), &1})

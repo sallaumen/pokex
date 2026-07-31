@@ -46,9 +46,9 @@ defmodule Pokex.Perception.WorldState do
   published for it.
 
   `get/3` answers "may I act on this?" and deliberately hides the age of a
-  FRESH fact. A screen asks a different question — "está chegando leitura?" —
-  and needs the number even when the answer is yes, so it can tell "não estou
-  lendo" apart from "estou lendo, e é isto".
+  FRESH fact. A screen asks a different question — "are reads arriving?" —
+  and needs the number even when the answer is yes, so it can tell "not
+  reading" apart from "reading, and this is the value".
   """
   def age(key, now_ms) do
     case :ets.lookup(@table, key) do

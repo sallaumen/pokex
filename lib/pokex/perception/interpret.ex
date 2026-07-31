@@ -59,11 +59,11 @@ defmodule Pokex.Perception.Interpret do
         :none -> nil
       end
 
-    # The SHINY star (gold ★ before a shiny's name) — the game telling us
-    # outright, on the region combat already captures every ~120ms. A busca é
-    # restrita à ZONA DO NOME: os ícones das criaturas (x<=72) têm amarelos que
-    # passavam como estrela (Shuckle, Vileplume — os falsos alarmes que fizeram
-    # o Lucas DESLIGAR o guarda; reproduzido nas capturas reais dele).
+    # The SHINY star (gold ★ before a shiny's name), on the region combat
+    # already captures every ~120ms. The search is restricted to the NAME zone:
+    # creature icons (x<=72) contain yellows that read as the star (Shuckle,
+    # Vileplume — the false alarms that made Lucas turn the guard off;
+    # reproduced on his real captures).
     stars =
       Vision.star_rows(body,
         top: top,
@@ -101,18 +101,17 @@ defmodule Pokex.Perception.Interpret do
     end
   end
 
-  # Who is in the list: the name the game prints and how hurt they are. Only
-  # A estrela mora colada no início do nome (nome em x=83 no perfil medido).
-  # 20px de folga: os ícones GENUINAMENTE dourados — que o piso de cor não
-  # separa (medido: 976/976 px com g<=r num ícone dourado real) — terminam em
-  # x<=52, e a folga cobre o glifo da estrela inteiro mesmo que ele comece
-  # antes do nome. Sem layout medido, sem restrição — o piso de cor do
-  # predicado segue sozinho como defesa (cura a classe Shuckle/Vileplume).
+  # The star sits right at the name's start (name at x=83 in the measured
+  # profile). 20px slack: genuinely golden icons — which the color floor cannot
+  # separate (measured: 976/976 px with g<=r on a real golden icon) — end at
+  # x<=52, and the slack covers the whole star glyph even if it starts before
+  # the name. Without a measured layout, no restriction — the predicate's color
+  # floor stands alone as the defense (covers the Shuckle/Vileplume class).
   defp zona_da_estrela(%{name: {[nx, _ny], _size}}), do: max(nx - 20, 0)
   defp zona_da_estrela(_sem_layout), do: 0
 
-  # rows that actually hold a creature are described — an empty row has no name
-  # to read and no bar to measure.
+  # Only rows that actually hold a creature are described — an empty row has no
+  # name to read and no bar to measure.
   defp enemies_detail(_body, nil, _creatures, _shiny_rows), do: []
 
   defp enemies_detail(body, measured, creatures, shiny_rows) do

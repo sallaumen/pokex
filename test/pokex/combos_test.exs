@@ -28,7 +28,6 @@ defmodule Pokex.CombosTest do
 
   describe "matching" do
     test "an element trigger fires on any enemy made of it" do
-      # Magikarp is Water
       assert %Combo{name: "sing"} = Combos.match(Store.seed(), "Magikarp")
     end
 
@@ -50,13 +49,12 @@ defmodule Pokex.CombosTest do
       assert Combos.match([off], "Magikarp") == nil
     end
 
-    test "um combo com dungeon só casa na DG certa; global casa sempre" do
+    test "a combo with a dungeon only matches in the right one; a global combo always matches" do
       glob = %Combo{name: "g", trigger: {:enemy_element, "Water"}, steps: [], dungeon: nil}
       dg = %Combo{name: "d", trigger: {:enemy_element, "Water"}, steps: [], dungeon: "cavena"}
 
       assert Combos.match([dg], "Magikarp", "cavena").name == "d"
       assert Combos.match([dg], "Magikarp", "outra") == nil
-      # fora do cavebot (nenhuma dungeon publicada), um combo restrito não vale
       assert Combos.match([dg], "Magikarp") == nil
       assert Combos.match([glob], "Magikarp", "qualquer").name == "g"
       assert Combos.match([glob], "Magikarp").name == "g"
@@ -83,23 +81,19 @@ defmodule Pokex.CombosTest do
       assert Combos.duration(steps) == 3_400
     end
 
+    # The bug eager resolution hides: the swap itself reorders the rows, so the counter's
+    # key must be computed after that happens — seconds later, from a fresh reading.
     test "a swap is keyed by the team as it is AT THAT MOMENT" do
-      # This is the bug that eager resolution hides: swapping Jigglypuff in is
-      # itself what reorders the rows, so the counter's key must be computed
-      # after that has happened — 3.4 seconds later, from a fresh reading.
       before = live([{5, "Jigglypuff"}, {4, "Sceptile"}])
       assert {:ok, "ctrl+5"} = Combos.key_for({:swap_member, "Jigglypuff"}, "Magikarp", before)
 
-      # Jigglypuff went out; everyone shuffled up a row
       later = live([{4, "Jigglypuff"}, {3, "Sceptile"}])
       assert {:ok, "ctrl+3"} = Combos.key_for({:swap_counter}, "Magikarp", later)
 
-      # the same step against the OLD reading would have pressed the wrong key
       assert {:ok, "ctrl+4"} = Combos.key_for({:swap_counter}, "Magikarp", before)
     end
 
     test "a pokémon that is NOT on screen means the combo never starts" do
-      # half a combo strands whoever it just sent out
       rows = live([{4, "Sceptile"}])
 
       assert {:skip, {:not_on_screen, "Jigglypuff"}} = Combos.plan(sing(), "Magikarp", rows)
@@ -124,22 +118,20 @@ defmodule Pokex.CombosTest do
     end
 
     test "a swap that became impossible mid-combo refuses instead of guessing" do
-      # the runner asks for each key at press time; if the pokémon has left the
-      # panel between steps, this is where it finds out
       assert {:skip, {:not_on_screen, "Jigglypuff"}} =
                Combos.key_for({:swap_member, "Jigglypuff"}, "Magikarp", live([{2, "Sceptile"}]))
     end
   end
 
-  describe "gatilhos" do
-    test "\"qualquer inimigo\" vale contra tudo que engajar" do
+  describe "triggers" do
+    test "\"any enemy\" matches everything that engages" do
       qualquer = %Combo{name: "abertura", trigger: {:any_enemy}, steps: [{:skill, "1"}]}
 
       assert %Combo{name: "abertura"} = Combos.match([qualquer], "Magikarp")
       assert %Combo{name: "abertura"} = Combos.match([qualquer], "Pidgey")
     end
 
-    test "especificidade: espécie > tipo > qualquer inimigo" do
+    test "specificity: species > element > any enemy" do
       qualquer = %Combo{name: "abertura", trigger: {:any_enemy}, steps: []}
       especie = %Combo{name: "só-magikarp", trigger: {:enemy_species, "Magikarp"}, steps: []}
 
@@ -147,17 +139,16 @@ defmodule Pokex.CombosTest do
       assert %Combo{name: "só-magikarp"} = Combos.match([qualquer, sing(), especie], "Magikarp")
     end
 
-    test "\"só no resgate\" NUNCA roda numa luta — é o que reserva as skills" do
+    test "\"rescue only\" never runs in a fight — that is what reserves the skills" do
       resgate = %Combo{name: "resgate", trigger: {:rescue_only}, steps: [{:skill, "1"}]}
 
       assert Combos.match([resgate], "Magikarp") == nil
-      # ...mas serve de prefixo do revive
       assert Combos.rescue_eligible?(resgate)
     end
   end
 
   describe "rescue_eligible?/1" do
-    test "só skills e esperas servem de prefixo do resgate" do
+    test "only skills and waits can prefix the rescue" do
       eligible = %Combo{
         name: "stun",
         trigger: nil,
@@ -167,7 +158,7 @@ defmodule Pokex.CombosTest do
       assert Combos.rescue_eligible?(eligible)
     end
 
-    test "qualquer troca de time torna o combo inelegível" do
+    test "any team swap makes the combo ineligible" do
       with_swap = %Combo{name: "sing", trigger: nil, steps: [{:skill, "1"}, {:swap_counter}]}
       refute Combos.rescue_eligible?(with_swap)
 
@@ -188,7 +179,6 @@ defmodule Pokex.CombosTest do
       Store.set_enabled("sing", false)
       assert [%Combo{name: "sing", enabled?: false}, %Combo{name: "resgate"}] = Store.all()
 
-      # every step shape must survive the trip
       assert [%Combo{steps: steps} | _resgate] = Store.all()
       assert {:swap_member, "Jigglypuff"} in steps
       assert {:wait, :combo_sing_wait_ms} in steps

@@ -82,9 +82,9 @@ defmodule PokexWeb.PokedexLiveTest do
     %{path: path}
   end
 
-  describe "filtros não-exclusivos por chips" do
+  describe "non-exclusive chip filters" do
     @tag :tmp_dir
-    test "dois elementos ligados = união (planta E veneno), na URL como lista", %{conn: conn} do
+    test "two elements on = union, carried in the URL as a list", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex")
 
       view |> element(~s(#filter-elements button[phx-value-option="Water"])) |> render_click()
@@ -104,7 +104,7 @@ defmodule PokexWeb.PokedexLiveTest do
     end
 
     @tag :tmp_dir
-    test "clicar de novo desliga o chip; 'limpar ×' zera o grupo", %{conn: conn} do
+    test "clicking again turns the chip off; 'limpar ×' clears the group", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"elements" => ["Water"]}}")
 
       view |> element(~s(#filter-elements button[phx-value-option="Water"])) |> render_click()
@@ -118,7 +118,7 @@ defmodule PokexWeb.PokedexLiveTest do
     end
 
     @tag :tmp_dir
-    test "filtro por clã acha os membros (shiny herdeiro incluso)", %{conn: conn} do
+    test "the clan filter finds the members (inheriting shiny included)", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"clans" => ["Seavell"]}}")
 
       results = view |> element("#pokedex-results") |> render()
@@ -128,7 +128,7 @@ defmodule PokexWeb.PokedexLiveTest do
     end
 
     @tag :tmp_dir
-    test "URL antiga com ?element= singular continua filtrando", %{conn: conn} do
+    test "an old URL with singular ?element= still filters", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex?element=Water")
 
       results = view |> element("#pokedex-results") |> render()
@@ -137,25 +137,24 @@ defmodule PokexWeb.PokedexLiveTest do
     end
 
     @tag :tmp_dir
-    test "o card mostra o clã do Pokémon", %{conn: conn} do
+    test "the card shows the Pokémon's clan", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"name" => "Charizard"}}")
 
       assert view |> element("#pokedex-results") |> render() =~ "Volcanic"
     end
 
     @tag :tmp_dir
-    test "nenhum chip usa phx-value-value — o LiveView sobrescreve essa chave", %{conn: conn} do
+    # extractMeta reads phx-value-* and THEN sets meta.value = el.value, which on
+    # a <button> is "" — so phx-value-value reaches the server empty. render_click/1
+    # cannot reproduce it (it reads only the attributes), hence the markup guard.
+    test "no chip uses phx-value-value — LiveView overwrites that key", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/pokedex")
 
-      # extractMeta lê os phx-value-* e DEPOIS faz meta.value = el.value, que
-      # num <button> é "" — então phx-value-value chega vazio no servidor.
-      # render_click/1 não reproduz isso (lê só os atributos), então o guard
-      # tem que ser no markup: qualquer nome serve, menos "value".
       refute html =~ "phx-value-value"
     end
 
     @tag :tmp_dir
-    test "digitar um nome NÃO apaga os chips ligados", %{conn: conn} do
+    test "typing a name does not erase the enabled chips", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"elements" => ["Water"]}}")
 
       view |> form("#pokedex-filter-form", %{"f" => %{"name" => "sea"}}) |> render_change()
@@ -183,7 +182,7 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "só shinies + a visão por isca destacando os shinies", %{conn: conn} do
+  test "only shinies + the per-lure view highlighting the shinies", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex")
 
     view
@@ -203,30 +202,28 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "filtros vivem na URL: mudar patcheia, link direto restaura, isca inclusa", %{conn: conn} do
+  test "filters live in the URL: changes patch, a direct link restores, lure included", %{
+    conn: conn
+  } do
     {:ok, view, _} = live(conn, ~p"/pokedex")
 
     view |> element(~s(#filter-weak-to button[phx-value-option="Water"])) |> render_click()
     assert_patch(view, "/pokedex?weak_to[]=Water")
     assert render(view) =~ "1 resultado(s)"
 
-    # a pasted/bookmarked link lands on the SAME view (o voltar do navegador
-    # idem) — inclusive os links ANTIGOS, de antes dos chips (?weak_to=Water)
     {:ok, view2, html2} = live(conn, ~p"/pokedex?weak_to=Water")
     assert html2 =~ "1 resultado(s)"
     assert view2 |> element("#pokedex-results") |> render() =~ "Charizard"
 
-    # a visão por isca também é um link
     {:ok, view3, _} = live(conn, ~p"/pokedex?isca=Shrimp")
     assert view3 |> element("#lure-tiers") |> render() =~ "pesca lv 50"
     assert has_element?(view3, "#lure-shiny-count")
 
-    # e o atalho "/" tem alvo na página
     assert has_element?(view3, "input[data-quick-search]")
   end
 
   @tag :tmp_dir
-  test "o filtro por data de edição da wiki estreita os resultados", %{conn: conn} do
+  test "the wiki edit-date filter narrows the results", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex")
 
     view
@@ -239,7 +236,7 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "ordenação pela URL: clicar ordena, clicar de novo inverte, e o filtro sobrevive", %{
+  test "sorting via the URL: click sorts, click again inverts, and the filter survives", %{
     conn: conn
   } do
     {:ok, view, _} = live(conn, ~p"/pokedex")
@@ -247,15 +244,12 @@ defmodule PokexWeb.PokedexLiveTest do
     view |> element(~s(#pokedex-sort button[phx-value-by="level"])) |> render_click()
     assert_patch(view, "/pokedex?sort=level")
 
-    # o primeiro card é o de MENOR level (Seadra 50)
     assert view |> element("#pokedex-results li:first-child") |> render() =~ "Seadra"
 
-    # clicar no ordenador ATIVO inverte a direção
     view |> element(~s(#pokedex-sort button[phx-value-by="level"])) |> render_click()
     assert_patch(view, "/pokedex?desc=1&sort=level")
     assert view |> element("#pokedex-results li:first-child") |> render() =~ "Charizard"
 
-    # e a ordenação sobrevive a um filtro novo (os dois viajam na URL)
     view |> element(~s(#filter-elements button[phx-value-option="Water"])) |> render_click()
     path = assert_patch(view)
     assert path =~ "sort=level"
@@ -265,7 +259,7 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "novidades = frescor da wiki: badge NOVO e o chip que se recicla sozinho", %{
+  test "novelty = wiki freshness: the NOVO badge and the self-recycling chip", %{
     conn: conn,
     path: path
   } do
@@ -274,11 +268,9 @@ defmodule PokexWeb.PokedexLiveTest do
     dataset =
       update_in(@dataset["species"], fn species ->
         Enum.map(species, fn
-          # editado ontem na wiki → NOVO
           %{"name" => "Charizard"} = s ->
             Map.put(s, "edited_at", Date.to_iso8601(Date.add(hoje, -1)))
 
-          # editado há 60 dias → sem badge
           %{"name" => "Venusaur"} = s ->
             Map.put(s, "edited_at", Date.to_iso8601(Date.add(hoje, -60)))
 
@@ -294,10 +286,8 @@ defmodule PokexWeb.PokedexLiveTest do
 
     results = view |> element("#pokedex-results") |> render()
     assert results =~ "NOVO"
-    # só o recém-editado carrega o badge
     assert Regex.scan(~r/NOVO/, results) |> length() == 1
 
-    # o chip isola só as novidades da wiki
     view |> element(~s(#pokedex-sort button[phx-click="toggle_novelty"])) |> render_click()
     assert_patch(view, "/pokedex?novidades=true")
 
@@ -306,7 +296,7 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "scroll infinito: primeira leva de 100, carrega mais, e termina", %{conn: conn, path: path} do
+  test "infinite scroll: first batch of 100, loads more, then ends", %{conn: conn, path: path} do
     species =
       for i <- 1..250 do
         %{
@@ -328,25 +318,20 @@ defmodule PokexWeb.PokedexLiveTest do
 
     {:ok, view, _} = live(conn, ~p"/pokedex")
 
-    # a contagem fala do TOTAL, mas só 100 vieram
     assert view |> element("#pokedex-count") |> render() =~ "250 resultado(s)"
     assert view |> element("#pokedex-count") |> render() =~ "100 carregados"
     results = view |> element("#pokedex-results") |> render()
     assert results =~ "Mon001"
     refute results =~ "Mon101"
 
-    # o gatilho do viewport está armado enquanto houver cursor
     assert has_element?(view, ~s(#pokedex-results[phx-viewport-bottom="load_more"]))
 
-    # segunda leva (o botão dispara o MESMO evento do scroll)
     view |> element("#load-more") |> render_click()
     results = view |> element("#pokedex-results") |> render()
     assert results =~ "Mon101"
     assert view |> element("#pokedex-count") |> render() =~ "200 carregados"
-    # o stream APENDA: o que já estava continua no DOM
     assert results =~ "Mon001"
 
-    # terceira e última: cursor zera, gatilho e botão somem, marcador de fim entra
     view |> element("#load-more") |> render_click()
     assert view |> element("#pokedex-results") |> render() =~ "Mon250"
     refute has_element?(view, "#load-more")
@@ -355,7 +340,10 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "mudar o filtro RESETA a lista (não acumula com a anterior)", %{conn: conn, path: path} do
+  test "changing the filter resets the list (no residue from the previous one)", %{
+    conn: conn,
+    path: path
+  } do
     species =
       for i <- 1..150 do
         %{
@@ -379,7 +367,6 @@ defmodule PokexWeb.PokedexLiveTest do
     view |> element("#load-more") |> render_click()
     assert view |> element("#pokedex-results") |> render() =~ "Mon150"
 
-    # filtro novo → lista nova, sem restos da anterior
     view |> form("#pokedex-filter-form", %{"f" => %{"min_level" => "90"}}) |> render_change()
     results = view |> element("#pokedex-results") |> render()
     assert results =~ "Mon101"
@@ -388,11 +375,11 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "sync pela UI: trava de sync duplo, progresso ao vivo e done recarrega a base", %{
+  # a Task occupies the :pokedex_sync slot so the click never reaches the network
+  test "sync via the UI: double-sync lock, live progress, and done reloads the base", %{
     conn: conn,
     path: path
   } do
-    # occupy the sync slot: the click must NEVER reach the network in a test
     {:ok, holder} = Task.start(fn -> Process.sleep(:infinity) end)
     Process.register(holder, :pokedex_sync)
     on_exit(fn -> Process.exit(holder, :kill) end)
@@ -403,7 +390,6 @@ defmodule PokexWeb.PokedexLiveTest do
     view |> form("#sync-form", %{"only" => ""}) |> render_submit()
     assert render(view) =~ "já tem um sync rodando"
 
-    # progress rides PubSub — any tab shows it
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "pokedex_sync",
@@ -412,7 +398,6 @@ defmodule PokexWeb.PokedexLiveTest do
 
     assert render(view) =~ "350/635 Snorlax"
 
-    # done: the sync task reloads the dataset; the page must pick the NEW base up
     bigger = update_in(@dataset["species"], &(&1 ++ [%{"name" => "Lapras", "number" => 131}]))
     File.write!(path, JSON.encode!(bigger))
     Pokex.Pokedex.reload()
@@ -429,7 +414,7 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "sem dataset, aponta o mix pokedex.scrape", %{conn: conn} do
+  test "without a dataset, offers the wiki sync", %{conn: conn} do
     Application.put_env(:pokex, :pokedex_path, "/nao/existe.json")
     {:ok, _view, html} = live(conn, ~p"/pokedex")
     assert html =~ "Sincronizar wiki"

@@ -68,18 +68,15 @@ defmodule Pokex.Diagnostics.ReportTest do
                now: 1_700_000_000_000
              )
 
-    # Calibration echoed as JSON-friendly lists (no tuples leak).
     assert report.calibration.battle_region == [700, 100, 260, 200]
     assert report.calibration.battle_body == [700, 100, 230, 200]
     assert report.captured_at_ms == 1_700_000_000_000
 
-    # Glow: the teal fixture reads as a bite over the threshold.
     glow = report.regions.glow
     assert glow.region == [368, 268, 64, 64]
     assert glow.metrics.bubble_count > 0
     assert glow.metrics.bite? == true
 
-    # Battle body: the all-green fixture is a present creature, no lock.
     battle = report.regions.battle_body
     assert battle.metrics.has_creature? == true
     assert battle.metrics.locked_row == nil
@@ -87,16 +84,12 @@ defmodule Pokex.Diagnostics.ReportTest do
     assert battle.matrix.cols > 0
     assert is_list(battle.matrix.ascii)
 
-    # Battle strip: the bright-red fixture trips the wild pokeball detector.
     assert report.regions.battle_strip.metrics.wild_present? == true
 
-    # Arena: black fixture → no hostile name.
     assert report.regions.arena.metrics.find_hostile == nil
 
-    # Skill bar: not calibrated in this fixture → flagged, no capture attempted.
     assert report.regions.skill_bar == %{calibrated?: false}
 
-    # Screen: dimensions + scale probe.
     assert report.screen.pixels == [60, 40]
     assert report.screen.r_scale == 0.5
 
@@ -117,12 +110,10 @@ defmodule Pokex.Diagnostics.ReportTest do
     assert Path.basename(path) == "diagnostics-1700000000000.json"
     assert File.regular?(Path.join(exports, "latest.json"))
 
-    # Round-trips through JSON with no tuple leaks.
     decoded = path |> File.read!() |> JSON.decode!()
     assert decoded["calibration"]["battle_region"] == [700, 100, 260, 200]
     assert decoded["regions"]["glow"]["metrics"]["bite?"] == true
 
-    # The in-memory report is the same shape that was written.
     assert JSON.encode!(report) == File.read!(path)
   end
 
@@ -137,13 +128,13 @@ defmodule Pokex.Diagnostics.ReportTest do
     for _ <- 1..h, do: row
   end
 
-  describe "a metade operacional do bundle (Frente 4)" do
+  describe "operational half of the bundle" do
     @tag :tmp_dir
-    test "operacao entra no relatório, sanitizada e Jason-codificável", %{tmp_dir: tmp} do
+    # snapshots carry tuples; sanitization exists so the WHOLE report encodes to JSON
+    test "includes a sanitized, JSON-encodable operacao section", %{tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
-      # uma ordem e um evento reais, pra seção não sair vazia
       Pokex.Bots.Session.order(:stop, "teste do bundle")
       Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "linha do bundle"})
 
@@ -163,8 +154,6 @@ defmodule Pokex.Diagnostics.ReportTest do
       assert Map.has_key?(op.portoes, :input_gate)
       assert is_map(op.settings_diff)
 
-      # a prova de fogo: o relatório INTEIRO codifica pra JSON (snapshots têm
-      # tuplas; a sanitização existe exatamente pra isso)
       assert {:ok, _json} = Jason.encode(report)
     end
   end

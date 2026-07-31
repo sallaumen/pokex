@@ -183,10 +183,10 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server()
         ) :: :ok | {:error, [String.t()]}
   def start_all(fishing, combat, catcher, mini_game, player_support, cavebot \\ Cavebot.Worker) do
-    # Toda ordem incrementa a GERAÇÃO — inclusive um Iniciar que vai falhar no
-    # preflight logo abaixo: a intenção foi expressa, e qualquer retomada
-    # pendente de antes dela (o Focus guardando "religar depois") fica velha e
-    # é descartada. Antes do preflight de propósito.
+    # Every order bumps the GENERATION — even a start that will fail preflight
+    # below: the intent was expressed, so any resume pending from before it
+    # (Focus holding a "re-arm later") goes stale and is dropped. Deliberately
+    # before the preflight.
     safe_order(:start, "iniciar (modo #{Pokex.Modes.current()})")
 
     # Iniciar bot is the ONE act that clears a standing panic order — the human explicitly
@@ -285,22 +285,20 @@ defmodule Pokex.Bots.BotSupervisor do
     order_and_halt("parar", fishing, combat, catcher, mini_game, player_support, cavebot)
   end
 
-  # Um Stop de frota é uma ORDEM: incrementa a geração (matando qualquer
-  # retomada pendente mais antiga — o Focus só religa a geração da própria
-  # pausa) e REGISTRA o motivo, que o painel mostra como "parado por quê".
-  # Todos os chamadores de produção afunilam aqui.
+  # A fleet Stop is an ORDER: bumps the generation (killing any older pending
+  # resume — Focus only re-arms its own pause's generation) and RECORDS the
+  # reason the panel shows as "stopped why". All production callers funnel here.
   defp order_and_halt(reason, fishing, combat, catcher, mini_game, player_support, cavebot) do
     safe_order(:stop, reason)
     halt_fleet(fishing, combat, catcher, mini_game, player_support, cavebot)
   end
 
   @doc """
-  A PAUSA do Focus: para a frota igual ao `stop_all/6`, mas registra a ordem
-  como `:hold` e devolve a geração DELA — é esse valor que o Focus guarda e
-  compara na volta do foco. Devolver a geração da própria ordem (em vez de o
-  Focus ler o contador num segundo passo) fecha a janela em que outra ordem se
-  intromete entre a pausa e a leitura e a retomada compararia contra a geração
-  errada — na direção errada.
+  Focus PAUSE: halts the fleet like `stop_all/6` but records the order as `:hold`
+  and returns THAT order's generation — the value Focus stores and compares on
+  refocus. Returning it directly (instead of Focus reading the counter in a second
+  step) closes the window where another order slips in between and the resume
+  would compare against the wrong generation.
   """
   @spec hold_for_focus() :: non_neg_integer()
   def hold_for_focus do
@@ -334,10 +332,9 @@ defmodule Pokex.Bots.BotSupervisor do
     :ok
   end
 
-  # A geração nunca pode ser o motivo de um stop falhar: se o Session estiver
-  # fora do ar (boot parcial, teste isolado sem o filho), a ordem segue sem
-  # bump — o pior caso é uma retomada pendente sobreviver, que é exatamente o
-  # comportamento de antes desta fatia, nunca pior que ele.
+  # The generation must never be why a stop fails: with Session down (partial
+  # boot, isolated test) the order proceeds without a bump — worst case a
+  # pending resume survives, which is exactly the pre-generation behavior.
   defp safe_order(kind, reason) do
     Pokex.Bots.Session.order(kind, reason)
   catch
@@ -363,9 +360,9 @@ defmodule Pokex.Bots.BotSupervisor do
   def stop_all, do: stop_all("parar")
 
   @doc """
-  Para a frota global dizendo POR QUÊ. O motivo vai pro `Session.last_order`
-  e é o que o painel responde quando o Lucas pergunta "quem parou e por quê" —
-  "parar" genérico é o fallback de quem não sabe dizer mais.
+  Stops the global fleet saying WHY. The reason goes to `Session.last_order` and
+  is what the panel shows for "who stopped it and why" — generic "parar" is the
+  fallback for callers that can't say more.
   """
   def stop_all(reason) when is_binary(reason) do
     order_and_halt(
@@ -388,20 +385,13 @@ defmodule Pokex.Bots.BotSupervisor do
   @busy_snapshot %{state: :ocupado, counters: %{}, error: "sem resposta (captura lenta?)"}
 
   @doc """
-  Este estado de worker significa RODANDO?
-
-  Uma regra só, aqui, porque três lugares fazem a mesma pergunta (o pill do
-  header, os botões do painel e o Focus decidindo se lembra uma retomada) e
-  discordar seria pintar de verde um bot parado — ou religar um que ninguém
-  tinha ligado. A régua: RODANDO é "vai agir sozinho". Portanto:
-
-    * `:ocupado` — "perdi a janela de status" — é DESCONHECIDO, nunca ligado;
-    * `:error` e `:manual` — parado com erro / exibição do catcher — não agem;
-    * `:blocked`, `:stuck`, `:fight_stalled` — a caçada PAROU com motivo.
-      Contavam como ativo (pegadinha caracterizada na Etapa 0): o pill pintava
-      de verde exatamente o instante em que o Lucas precisava ver que algo deu
-      errado. O painel carregava um contorno local (`cavebot_active?`) desde o
-      PR #86 — promovido aqui pra verdade compartilhada e apagado de lá.
+  Does this worker state mean RUNNING? One rule, because three places ask (header
+  pill, panel buttons, Focus deciding whether to remember a resume) and disagreeing
+  would paint a stopped bot green — or re-arm one nobody started. RUNNING means
+  "will act on its own": `:ocupado` (lost the status window) is UNKNOWN, never on;
+  `:error`/`:manual` don't act; `:blocked`/`:stuck`/`:fight_stalled` mean the hunt
+  STOPPED with a reason (they used to count as active — green exactly when
+  something went wrong).
   """
   def active?(%{state: state}), do: active?(state)
 
@@ -411,7 +401,7 @@ defmodule Pokex.Bots.BotSupervisor do
 
   def active?(state), do: is_atom(state) and state != nil
 
-  @doc "Algum destes snapshots/estados significa RODANDO? A mesma régua de active?/1."
+  @doc "Do any of these snapshots/states mean RUNNING? Same rule as active?/1."
   def any_active?(states), do: Enum.any?(states, &active?/1)
 
   defp safe_status(server, extra \\ %{}) do

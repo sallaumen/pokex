@@ -118,13 +118,13 @@ defmodule Pokex.Bots.Capture do
            :cache_ttl_ms,
            Application.get_env(:pokex, :capture_cache_ttl_ms, @default_cache_ttl_ms)
          ),
-       # Regiões em QUARENTENA: pedidas fora da tela (a janela do jogo mudou de
-       # lugar desde a calibração). O helper responde o mesmo erro para sempre —
-       # cada tentativa custava retries + fallback + a MORTE do SCK saudável
-       # (fallback_backend), afogando o broker inteiro. Chave = a região exata;
-       # recalibrar gera outra chave e volta a funcionar sozinho.
+       # QUARANTINED regions: requested off-screen (game window moved since
+       # calibration). The helper answers the same error forever — each attempt
+       # cost retries + fallback + killing the HEALTHY SCK (fallback_backend),
+       # drowning the whole broker. Key = the exact region; recalibrating makes
+       # a new key and it heals on its own.
        impossible_regions: %{},
-       # regiões que JÁ tocaram a sirene — a repetição vira log, não alarme
+       # regions that already rang the siren — repeats become log lines, not alarms
        regioes_alarmadas: MapSet.new(),
        starvation_alarm_at: nil
      }}
@@ -188,13 +188,11 @@ defmodule Pokex.Bots.Capture do
 
   # The capture runs INSIDE handle_call, so the GenServer processes one at a time — that IS the
   # serialization. A slow capture only delays the next queued capture, never the Body/panic path.
-  # Frente 3, Etapa 1 (medir ANTES de mexer no escalonamento): a espera que o
-  # CALLER sentiu na fila — requested_at já viajava em cada chamada, mas só o
-  # tempo de backend era medido, e foi exatamente a espera invisível que afogou
-  # o combate ao vivo (logs 2026-07-29: pesca tickando a 2-6s, "sem frame
-  # pós-Tab" em todo ciclo). O tamanho da fila no instante do atendimento vai
-  # junto: espera alta + fila funda = demanda demais; espera alta + fila rasa =
-  # backend lento. O baseline sai no /diagnostics e no export.
+  # Records the wait the CALLER felt in the queue — before, only backend time was
+  # measured, and the invisible wait is exactly what drowned live combat (logs
+  # 2026-07-29: fishing ticking at 2-6s, "no post-Tab frame" every cycle). Queue
+  # depth at service time rides along: high wait + deep queue = too much demand;
+  # high wait + shallow queue = slow backend. Baseline in /diagnostics and exports.
   defp note_wait(state, filename, requested_at) do
     wait_ms = now() - requested_at
     Perf.record("capture.espera:#{filename}", wait_ms)
@@ -203,11 +201,10 @@ defmodule Pokex.Bots.Capture do
     maybe_starvation_alarm(state, wait_ms)
   end
 
-  # A fome da fila era INVISÍVEL fora do /diagnostics: ao vivo, a pesca demorava
-  # ~7s pra ver a fisgada e ninguém sabia POR QUÊ (logs 2026-07-30). Espera acima
-  # do teto vira alarme no painel/journal — com rate limit, porque numa fila
-  # afogada TODO pedido estoura o teto e um alarme por captura seria uma sirene
-  # contínua.
+  # Queue starvation was INVISIBLE outside /diagnostics: live, fishing took ~7s to
+  # see a bite and nobody knew WHY (logs 2026-07-30). Waits above the ceiling raise
+  # a panel/journal alarm — rate-limited, because in a drowned queue EVERY request
+  # exceeds the ceiling and one alarm per capture would be a continuous siren.
   @starvation_wait_ms 3_000
   @starvation_alarm_gap_ms 60_000
 
@@ -228,8 +225,8 @@ defmodule Pokex.Bots.Capture do
 
   defp maybe_starvation_alarm(state, _wait_ms), do: state
 
-  # O mesmo funil de alarme dos workers: painel (som/anti-spam) e journal
-  # assinam "game" e tratam {:rule_alarm, _}.
+  # Same alarm funnel as the workers: the panel (sound/anti-spam) and journal
+  # subscribe to "game" and handle {:rule_alarm, _}.
   defp alarm(text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:rule_alarm, :captura, text})
 
@@ -341,9 +338,9 @@ defmodule Pokex.Bots.Capture do
          recovering?: false,
          sck_recover_at: nil,
          sck_recover_backoff_ms: state.sck_recover_interval_ms,
-         # Um SCK novo pode enxergar outro display/escala — dá UMA chance nova a
-         # cada região em quarentena (se seguir fora da tela, um roundtrip
-         # barato re-quarentena).
+         # A fresh SCK may see another display/scale — give every quarantined
+         # region ONE new chance (still off-screen = one cheap roundtrip
+         # re-quarantines it).
          impossible_regions: %{}
      }}
   end
@@ -406,9 +403,9 @@ defmodule Pokex.Bots.Capture do
   defp capture_path(%{backend: {:screen_capture_kit, backend}} = state, region, filename) do
     case state.impossible_regions do
       %{^region => reason} ->
-        # Quarentena: nem toca no helper. Antes, CADA tick desse feed pagava
-        # retries + fallback CLI (~1,5s) e derrubava o SCK — a região errada de
-        # UM feed afogava todos os outros.
+        # Quarantine: don't even touch the helper. Before, EVERY tick of this feed
+        # paid retries + CLI fallback (~1.5s) and took the SCK down — one feed's
+        # bad region drowned all the others.
         Perf.count("capture.regiao_impossivel:#{filename}")
         {{:error, {:screen_capture_kit, reason}}, state}
 
@@ -426,11 +423,10 @@ defmodule Pokex.Bots.Capture do
             Perf.record("capture.backend.sck_error:#{filename}", now() - started_at)
 
             if region_impossible_reason?(reason) do
-              # Erro DETERMINÍSTICO de geometria: a região está (parcialmente)
-              # fora da tela — a janela do jogo mudou de lugar desde a
-              # calibração. O SCK está SAUDÁVEL; matá-lo (fallback_backend) ou
-              # tentar o CLI só produz lixo mais devagar. Quarentena + alarme:
-              # consertar é humano (recalibrar), não é retry.
+              # DETERMINISTIC geometry error: the region is (partially) off-screen —
+              # the game window moved since calibration. The SCK is HEALTHY; killing
+              # it (fallback_backend) or trying the CLI just produces garbage more
+              # slowly. Quarantine + alarm: the fix is human (recalibrate), not retry.
               {error, quarantine_region(state, region, filename, reason)}
             else
               Logger.warning(
@@ -549,9 +545,9 @@ defmodule Pokex.Bots.Capture do
 
   defp sck_retryable_capture_error?(_reason), do: false
 
-  # O helper valida a geometria e responde "outside frame" quando a região cai
-  # fora do display — um erro que NUNCA muda sozinho (só recalibração ou troca
-  # de display resolvem). String do NOSSO helper nativo, protocolo estável.
+  # The helper validates geometry and answers "outside frame" when the region falls
+  # off the display — an error that NEVER changes on its own (only recalibration or
+  # a display change fix it). String from OUR native helper, stable protocol.
   defp region_impossible_reason?(reason), do: String.contains?(reason, "outside frame")
 
   defp quarantine_region(state, region, filename, reason) do
@@ -559,11 +555,10 @@ defmodule Pokex.Bots.Capture do
       "🖥️ captura de #{filename} impossível: #{reason} — a janela do jogo mudou de lugar? " <>
         "Recalibre. Parei de tentar essa região (recalibrar ou o SCK reiniciar liberam)."
 
-    # Sirene UMA vez por região na vida do processo. A recuperação do SCK limpa
-    # impossible_regions de propósito (re-sondar é certo), mas cada re-sonda da
-    # MESMA região quebrada re-tocava o alarme — 12 sirenes idênticas numa
-    # tarde (journal 2026-07-30). A repetição vira linha de log: o journal
-    # registra, o sino descansa.
+    # Siren ONCE per region per process lifetime. SCK recovery clears
+    # impossible_regions on purpose (re-probing is right), but each re-probe of
+    # the SAME broken region re-rang the alarm — 12 identical sirens in one
+    # afternoon (journal 2026-07-30). Repeats become a log line instead.
     state =
       if MapSet.member?(state.regioes_alarmadas, region) do
         Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:game_log, :macro, texto})

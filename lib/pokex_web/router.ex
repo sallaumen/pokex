@@ -21,12 +21,12 @@ defmodule PokexWeb.Router do
     # a wildcard so a mini-game evidence BUNDLE (a directory) is browsable too
     get "/exports/*path", ExportsController, :show
 
-    # O header é o mesmo em toda página, então o estado dele é montado uma vez
-    # aqui, para a sessão inteira — nenhuma LiveView monta o seu próprio.
+    # The header is the same on every page, so its state is mounted once
+    # here, for the whole session — no LiveView mounts its own.
     live_session :pokex, on_mount: PokexWeb.HeaderState do
       live "/", PanelLive
-      # MESMA LiveView: o ⚙️ é um overlay POR CIMA do dashboard vivo, não outra
-      # página. A rota existe pra dar URL própria, F5 e voltar.
+      # SAME LiveView: the ⚙️ is an overlay ON TOP of the live dashboard, not
+      # another page. The route exists to give its own URL, F5 and back.
       live "/config", PanelLive, :config
       live "/diagnostics", DiagnosticsLive
       live "/mini-game", MiniGameLive

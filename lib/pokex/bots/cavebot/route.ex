@@ -1,10 +1,10 @@
 defmodule Pokex.Bots.Cavebot.Route do
   @moduledoc """
-  Rota de caçada do cavebot: uma sequência ordenada de waypoints em um único andar.
+  Cavebot hunt route: an ordered waypoint sequence on a single floor.
 
-  Struct pura — sem processo, sem tela, sem Settings, sem IO. O invariante
-  central é o de andar único (`z`): o primeiro waypoint fixa o andar da rota
-  e todos os demais precisam estar no mesmo `z`.
+  Pure struct — no process, screen, Settings or IO. Central invariant is the
+  single floor (`z`): the first waypoint fixes the route's floor and all others
+  must share the same `z`.
   """
 
   @enforce_keys [:name]
@@ -25,7 +25,7 @@ defmodule Pokex.Bots.Cavebot.Route do
         }
 
   @doc """
-  Cria uma rota vazia. `waypoints: []`, `z: nil`, `enabled?: true`.
+  Creates an empty route. `waypoints: []`, `z: nil`, `enabled?: true`.
   """
   @spec new(String.t(), String.t() | nil) :: t
   def new(name, dungeon \\ nil) when is_binary(name) do
@@ -33,10 +33,10 @@ defmodule Pokex.Bots.Cavebot.Route do
   end
 
   @doc """
-  Acrescenta um waypoint ao fim da rota.
+  Appends a waypoint to the end of the route.
 
-  O `z` do primeiro waypoint fixa o andar da rota; waypoints em outro
-  andar são recusados com `{:error, :floor_mismatch}`.
+  The first waypoint's `z` fixes the route's floor; waypoints on another floor
+  are refused with `{:error, :floor_mismatch}`.
   """
   @spec append(t, {integer, integer, integer}) :: {:ok, t} | {:error, :floor_mismatch}
   def append(%__MODULE__{z: nil} = route, {x, y, z})
@@ -52,7 +52,7 @@ defmodule Pokex.Bots.Cavebot.Route do
   def append(%__MODULE__{}, {_x, _y, _z}), do: {:error, :floor_mismatch}
 
   @doc """
-  Valida a rota: precisa ter ao menos um waypoint e todos no mesmo andar.
+  Validates the route: at least one waypoint, all on the same floor.
   """
   @spec validate(t) :: :ok | {:error, :empty} | {:error, :floor_mismatch}
   def validate(%__MODULE__{waypoints: []}), do: {:error, :empty}

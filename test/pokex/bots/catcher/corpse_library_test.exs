@@ -1,5 +1,5 @@
 defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
-  # async: false — home_dir e o cache em :persistent_term são globais
+  # async: false — home_dir and the :persistent_term cache are global
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Catcher.CorpseLibrary
@@ -11,12 +11,12 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
     :ok
   end
 
-  # um "sprite" sólido de uma cor — paleta inconfundível pro histograma
+  # solid one-color "sprite" — an unmistakable palette for the histogram
   defp solid(r, g, b, px \\ 16) do
     %Frame{width: px, height: px, rgba: :binary.copy(<<r, g, b, 255>>, px * px)}
   end
 
-  # metade cor do sprite, metade "chão" — simula o corpo composto sobre fundo
+  # half sprite color, half "ground" — simulates a corpse composited over background
   defp half(r, g, b, ground, px \\ 16) do
     {gr, gg, gb} = ground
     metade = div(px * px, 2)
@@ -29,19 +29,17 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   end
 
   @tag :tmp_dir
-  test "ensinar acumula AMOSTRAS por corpo, com teto e queda da mais velha" do
+  test "teaching accumulates samples per corpse, capped, dropping the oldest" do
     assert CorpseLibrary.empty?()
 
     {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
     {:ok, 1} = CorpseLibrary.add("Zubat", solid(60, 60, 220))
     assert [%{"name" => "Zubat"}, %{"name" => "Rattata"}] = CorpseLibrary.list()
 
-    # mesmo nome = amostra nova do MESMO corpo (chão diferente), não duplicata
     {:ok, 2} = CorpseLibrary.add("rattata", solid(181, 121, 201))
     {:ok, 3} = CorpseLibrary.add("rattata", solid(182, 122, 202))
     assert length(CorpseLibrary.list()) == 2
 
-    # a 4ª amostra derruba a mais velha — o teto vale
     {:ok, n} = CorpseLibrary.add("rattata", solid(183, 123, 203))
     assert n == CorpseLibrary.max_samples()
 
@@ -49,7 +47,6 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
     assert [%{"name" => "rattata", "samples" => samples}] = CorpseLibrary.list()
     assert length(samples) == CorpseLibrary.max_samples()
 
-    # apagar uma amostra ruim mantém o corpo; apagar a última derruba o corpo
     :ok = CorpseLibrary.delete_sample("rattata", 0)
     assert [%{"samples" => rest}] = CorpseLibrary.list()
     assert length(rest) == CorpseLibrary.max_samples() - 1
@@ -60,13 +57,11 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   end
 
   @tag :tmp_dir
-  test "amostra de OUTRO chão melhora o casamento — o máximo entre amostras vence" do
-    # amostra 1: sprite sobre chão A; candidato: sprite sobre chão C — casa fraco
+  test "a sample from a different ground improves the match — the max across samples wins" do
     {:ok, 1} = CorpseLibrary.add("Rattata", half(180, 120, 200, {90, 70, 40}))
     candidato = half(180, 120, 200, {30, 30, 120})
     {:ok, %{score: fraco}} = CorpseLibrary.match(candidato, 0.3)
 
-    # amostra 2: o MESMO chão do candidato — o máximo entre amostras dispara
     {:ok, 2} = CorpseLibrary.add("Rattata", half(180, 120, 200, {30, 30, 120}))
     {:ok, %{name: "Rattata", score: forte}} = CorpseLibrary.match(candidato, 0.3)
 
@@ -75,7 +70,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   end
 
   @tag :tmp_dir
-  test "o acervo do #101 (uma amostra achatada) continua legível" do
+  test "the legacy #101 format (one flattened sample) is still readable" do
     antigo = [
       %{
         "name" => "Zubat",
@@ -95,7 +90,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   end
 
   @tag :tmp_dir
-  test "a miniatura é um BMP válido em data-URL" do
+  test "the thumbnail is a valid BMP data URL" do
     {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200, 4))
     [%{"samples" => [sample]}] = CorpseLibrary.list()
 
@@ -107,16 +102,15 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   end
 
   @tag :tmp_dir
-  test "nome vazio é recusado" do
+  test "an empty name is rejected" do
     assert {:error, :nome_vazio} = CorpseLibrary.add("   ", solid(1, 2, 3))
   end
 
   @tag :tmp_dir
-  test "casa o corpo certo mesmo com METADE do recorte sendo chão" do
+  test "matches the right corpse even when half the crop is ground" do
     {:ok, 1} = CorpseLibrary.add("Rattata", half(180, 120, 200, {90, 70, 40}))
     {:ok, 1} = CorpseLibrary.add("Zubat", half(60, 60, 220, {90, 70, 40}))
 
-    # candidato: a MESMA paleta do Rattata sobre um chão DIFERENTE
     candidato = half(180, 120, 200, {50, 110, 60})
 
     assert {:ok, %{name: "Rattata", score: score}} = CorpseLibrary.match(candidato, 0.4)
@@ -124,7 +118,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   end
 
   @tag :tmp_dir
-  test "paleta desconhecida não casa; acervo vazio nunca casa" do
+  test "an unknown palette does not match; an empty library never matches" do
     assert :nomatch = CorpseLibrary.match(solid(9, 9, 9), 0.4)
 
     {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
@@ -132,16 +126,16 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   end
 
   @tag :tmp_dir
-  test "o cache respeita o mtime: um add é visível na leitura seguinte" do
+  test "the cache respects mtime: an add is visible on the next read" do
     {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
     assert [_] = CorpseLibrary.list()
     {:ok, 1} = CorpseLibrary.add("Zubat", solid(60, 60, 220))
     assert length(CorpseLibrary.list()) == 2
   end
 
-  describe "liga/desliga por corpo (R4)" do
+  describe "per-corpse enable/disable" do
     @tag :tmp_dir
-    test "desligado sai da MIRA mas continua no acervo" do
+    test "a disabled corpse leaves the aim but stays in the library" do
       {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
       {:ok, 1} = CorpseLibrary.add("Zubat", solid(60, 60, 220))
 
@@ -149,9 +143,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
 
       :ok = CorpseLibrary.set_enabled("rattata", false)
 
-      # some da busca...
       assert :nomatch = CorpseLibrary.match(solid(180, 120, 200), 0.7)
-      # ...mas continua na lista, pra UI mostrar e o Lucas religar
       assert length(CorpseLibrary.list()) == 2
 
       assert Enum.any?(
@@ -159,19 +151,16 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
                &(&1["slug"] == "rattata" and not CorpseLibrary.enabled?(&1))
              )
 
-      # o vizinho segue mirando normalmente
       assert {:ok, %{name: "Zubat"}} = CorpseLibrary.match(solid(60, 60, 220), 0.7)
 
-      # e religar devolve
       :ok = CorpseLibrary.set_enabled("rattata", true)
       assert {:ok, %{name: "Rattata"}} = CorpseLibrary.match(solid(180, 120, 200), 0.7)
     end
 
     @tag :tmp_dir
-    test "acervo ANTIGO (sem o campo) participa da mira" do
+    test "a legacy library without the enabled field still participates in the aim" do
       {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
 
-      # simula um corpses.json gravado antes de o campo existir
       antigo =
         CorpseLibrary.file()
         |> File.read!()
@@ -184,7 +173,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
     end
 
     @tag :tmp_dir
-    test "re-ensinar NÃO religa um corpo desligado de propósito" do
+    test "re-teaching does not re-enable a deliberately disabled corpse" do
       {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
       :ok = CorpseLibrary.set_enabled("rattata", false)
 

@@ -1,19 +1,9 @@
 defmodule Pokex.Bots.AlarmCategories do
   @moduledoc """
-  Os SETORES de alarme sonoro que o Lucas pode silenciar um a um.
-
-  Motivo (2026-07-30): todo `{:rule_alarm, texto}` — Shiny, estoque baixo,
-  estagnação, canto de comando, logout, acervo de captura vazio, fila
-  saturada, arremesso seco — soava pelo MESMO botão "som geral", e o único
-  que ele quer sempre ligado é o Shiny ("tá sendo muito barulhento... talvez
-  fosse muito legal poder configurar em vários setores de alertas").
-
-  Esta lista fechada é a fonte única dos setores: o botão do header (rótulos)
-  e os produtores de alarme (`ShinyGuard`, `Guardian`, `StockAlerts`,
-  `Catcher.Worker`, `Fishing.Worker`, `Capture`, `PokexWeb.PanelLive`) leem
-  DELA — nenhum atom de categoria nasce solto em outro lugar. `from_string/1`
-  converte o `phx-value-category` de volta pro atom SÓ se for um setor
-  conhecido (nunca `String.to_atom` num valor vindo do cliente).
+  Audible-alarm sectors that can be muted one by one (2026-07-30: every
+  `{:rule_alarm, text}` shared one master toggle; only Shiny should stay always-on).
+  This closed list is the single source of sector atoms — the header button and all
+  alarm producers read from it; `from_string/1` never `String.to_atom`s client input.
   """
 
   @categories [
@@ -30,18 +20,18 @@ defmodule Pokex.Bots.AlarmCategories do
     {:logout, "Logout automático"}
   ]
 
-  @doc "A lista inteira, na ordem de exibição: [{atom, rótulo}]."
+  @doc "Full list in display order: [{atom, label}]."
   def all, do: @categories
 
-  @doc "Só os atoms, na mesma ordem."
+  @doc "Just the atoms, same order."
   def keys, do: Enum.map(@categories, &elem(&1, 0))
 
-  @doc "O rótulo em português de um setor; o próprio atom (como texto) se for desconhecido."
+  @doc "Portuguese label of a sector; the atom as text if unknown."
   def label(key) do
     Enum.find_value(@categories, to_string(key), fn {k, l} -> k == key && l end)
   end
 
-  @doc "Converte o texto de um phx-value-category pro atom — nil se não for um setor conhecido."
+  @doc "Maps a phx-value-category string back to its atom — nil unless it is a known sector."
   def from_string(text) do
     Enum.find_value(@categories, fn {key, _label} -> to_string(key) == text && key end)
   end

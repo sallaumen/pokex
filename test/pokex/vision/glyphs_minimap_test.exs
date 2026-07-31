@@ -1,33 +1,19 @@
 defmodule Pokex.Vision.GlyphsMinimapTest do
   @moduledoc """
-  A coordenada do minimapa é o alicerce do cavebot, e ela vinha piscando: às
-  vezes lia, às vezes virava "?" no painel. A tela "Ensinar glifos" mostrava
-  cinco glifos desconhecidos, e um deles era `(2676, 30414, 5)` INTEIRA, como um
-  único retângulo — ensinar aquilo seria inútil, porque cada posição nova viraria
-  um "glifo" diferente.
-
-  Eram DUAS causas, ambas medidas nas capturas reais:
-
-  1. O atlas nunca aprendeu o "9" da fonte da coordenada. Nenhuma das três
-     coordenadas rotuladas tinha um 9, e `read_coord/3` exige confiança 1.0 —
-     então TODA posição com um 9 lia nil. `ultrawide_3440x1440_time` é a captura
-     que prova isso: ela mostra `(2597, 30640, 6)`.
-
-  2. O minimapa é desenhado em tons de cinza (saturação 0 na faixa da
-     coordenada), então o teste de cor não filtra nada ali, e 9-10% dos pixels do
-     mapa — o chão andável, medido em 140..159 — passam do piso de tinta 120. A
-     faixa `minimap_coord` tem 30px de altura para 20px de texto, então suas
-     linhas de margem são mapa puro: basta o Lucas andar para o chão iluminado
-     entrar na faixa, e aí NENHUMA coluna fica vazia. Como a segmentação separava
-     glifos por coluna vazia, a coordenada inteira virava um glifo só.
+  The minimap coordinate flickered for two measured reasons: the atlas never
+  learned the coordinate font's "9" (`read_coord/3` demands confidence 1.0, so
+  any position containing a 9 read nil), and the greyscale map's walkable
+  ground (measured 140..159) passes the ink floor 120, so lit ground scrolling
+  into the band's margin rows left no empty columns and column-gap segmentation
+  welded the whole coordinate into a single glyph.
   """
   use ExUnit.Case, async: true
 
   alias Pokex.{Layout, ScreenFixtures}
   alias Pokex.Vision.{Frame, Glyphs}
 
-  # "(2777, 30560, 5)" — 16 caracteres, dos quais 2 são espaços que não desenham
-  # tinta nenhuma: 14 glifos. Era ISSO que virava 1.
+  # "(2777, 30560, 5)" is 16 characters, 2 of which are spaces drawing no ink:
+  # 14 glyphs. This is what used to collapse into 1.
   @coord_glyphs 14
   @captures [
     "ultrawide_3440x1440_full",
@@ -36,15 +22,15 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
     "ultrawide_3440x1440_time"
   ]
 
-  describe "o 9 que faltava no atlas" do
-    test "lê a coordenada da captura que tem um 9 — a que falhava" do
+  describe "the 9 the atlas was missing" do
+    test "reads the coordinate of the capture that contains a 9" do
       frame = ScreenFixtures.frame!("ultrawide_3440x1440_time")
       {:ok, fix} = Layout.locate(frame)
 
       assert Glyphs.read_coord(frame, fix.regions.minimap_coord) == {2597, 30640, 6}
     end
 
-    test "nenhuma das quatro capturas reais deixa um glifo desconhecido na coordenada" do
+    test "none of the four real captures leaves an unknown glyph in the coordinate" do
       for name <- @captures do
         frame = ScreenFixtures.frame!(name)
         {:ok, fix} = Layout.locate(frame)
@@ -58,12 +44,11 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
     end
   end
 
-  describe "mapa claro atrás da coordenada" do
-    # O jogo desenha a coordenada num ponto FIXO e rola o mapa por baixo dela.
-    # Este cenário é montado com pixels reais desta mesma captura: um pedaço do
-    # chão iluminado do próprio minimapa (medido em 140..159, neutro) é levado
-    # para as linhas de margem ACIMA do texto — exatamente o que o Lucas vê
-    # depois de andar alguns passos para o norte. Nada é sintetizado.
+  describe "lit map behind the coordinate" do
+    # The game draws the coordinate at a fixed point and scrolls the map under
+    # it. The scenario transplants this capture's own lit ground (measured
+    # 140..159, neutral) onto the margin rows above the text — exactly what
+    # appears after walking a few steps. Nothing is synthesized.
     setup do
       frame = ScreenFixtures.frame!("ultrawide_3440x1440_terceiro")
       {:ok, fix} = Layout.locate(frame)
@@ -71,8 +56,8 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
       {cx, cy, cw, _ch} = fix.regions.minimap_coord
 
       panel = Frame.crop(frame, {px, py, pw, ph})
-      # o retalho de chão iluminado mais denso deste minimapa fora da faixa da
-      # coordenada — medido, não escolhido no olho
+      # the densest lit-ground patch of this minimap outside the coordinate
+      # band — measured, not eyeballed
       lit = Frame.crop(frame, {3260, 192, cw, 4})
 
       %{
@@ -82,7 +67,7 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
       }
     end
 
-    test "o pedaço transplantado é mesmo chão iluminado — tinta pelo critério atual", ctx do
+    test "the transplanted patch really is lit ground — ink under the current criterion", ctx do
       %{panel: panel, band: {bx, by, bw, _}} = ctx
 
       inked =
@@ -94,13 +79,11 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
           end)
         end)
 
-      # sem isto o cenário não reproduziria nada: o chão do mapa TEM que passar
-      # pelo piso de tinta em boa parte das colunas da faixa
       assert inked > div(bw, 2),
              "só #{inked} de #{bw} colunas receberam tinta do mapa — o cenário não reproduz a falha"
     end
 
-    test "a coordenada continua se separando em caracteres, não num blob", ctx do
+    test "the coordinate still segments into characters, not one blob", ctx do
       glyphs = Glyphs.segment(ctx.panel, ctx.band)
 
       assert length(glyphs) == @coord_glyphs,
@@ -111,18 +94,19 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
                inspect(Enum.map(glyphs, &(&1.x1 - &1.x0 + 1)))
     end
 
-    test "e continua lendo a mesma posição que lê com o mapa escuro", ctx do
+    test "still reads the same position it reads with the dark map", ctx do
       assert Glyphs.read_coord(ctx.clean, ctx.band) == {2777, 30560, 5}
       assert Glyphs.read_coord(ctx.panel, ctx.band) == {2777, 30560, 5}
     end
 
-    test "a tela de ensinar glifos não oferece o blob para o Lucas aprender", ctx do
+    test "the teach-glyphs screen does not offer the blob as learnable", ctx do
       assert Glyphs.unknown_in(ctx.panel, ctx.band) == []
     end
   end
 
-  describe "regras de fundo" do
-    test "uma migalha solta entre dois dígitos não solda os dois" do
+  describe "background rules" do
+    # crumbs of 2-3px used to show up on the teach screen between digits
+    test "a stray crumb between two digits does not weld them together" do
       frame = ScreenFixtures.frame!("ultrawide_3440x1440_terceiro")
       {:ok, fix} = Layout.locate(frame)
       {px, py, pw, ph} = fix.regions.minimap
@@ -133,16 +117,14 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
       [_open, first, second | _] = Glyphs.segment(panel, band)
       gap = div(first.x1 + second.x0, 2)
 
-      # um pixel branco no vão entre dois dígitos — do tamanho das migalhas que
-      # apareciam na tela de ensinar (2-3 px)
       speckled = poke(panel, [{gap, 12}, {gap, 13}])
 
       assert length(Glyphs.segment(speckled, band)) == length(Glyphs.segment(panel, band))
     end
 
-    test "o pingo de um glifo NÃO é jogado fora com o fundo" do
-      # O "i" de Sceptile: o pingo é um blob separado do tronco, fora da faixa
-      # das outras letras. Descartá-lo mudaria um glifo que o atlas conhece.
+    # the dot of Sceptile's "i" is a separate blob outside the other letters'
+    # band; discarding it would change a glyph the atlas knows
+    test "a glyph's dot is not thrown away with the background" do
       frame = ScreenFixtures.frame!("ultrawide_3440x1440_outro_mapa")
 
       assert %{text: "Sceptile", confidence: 1.0} =

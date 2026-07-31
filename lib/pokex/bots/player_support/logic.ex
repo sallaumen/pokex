@@ -69,8 +69,8 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   `step_ms` waits sit between the presses so the game registers each — the whole list runs as ONE
   Body perform so nothing (not even a fishing/loot click — combat is keyboard-only via Tab
   targeting and never touches the Body) can move the cursor off the portrait mid-combo. The stun
-  prefix rides INSIDE that same perform: caçando bicho forte, os stuns em área compram o tempo do
-  revive — nada pode se enfiar entre o stun e o recall (Lucas, 2026-07-30).
+  prefix rides INSIDE that same perform: hunting strong mobs, the area stuns buy the revive its
+  time — nothing may wedge itself between the stun and the recall (2026-07-30).
   """
   @spec combo(map) :: [tuple]
   def combo(
@@ -101,16 +101,16 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   end
 
   @doc """
-  Compila os passos de stun de um combo em ações de Body, contra a leitura da barra de skills.
+  Compiles a combo's stun steps into Body actions against the skill-bar reading.
 
-  `ready` é a lista de teclas prontas — ou `nil` quando a leitura está indisponível, e aí TODAS
-  entram às cegas (tecla em cooldown é no-op no jogo; segurar o resgate esperando leitura custa
-  HP). Skill em cooldown é PULADA e devolvida em `skipped` para o log dizer qual (decisão do
-  Lucas: pular, nunca esperar). Esperas são sempre mantidas (custo de ms, risco zero). Um passo
-  que não é skill/espera é ignorado — a elegibilidade filtra antes, e um combo editado entre a
-  escolha e o disparo JAMAIS pode derrubar um resgate.
+  `ready` is the list of ready keys — or `nil` when the reading is unavailable, in which case ALL
+  go in blind (a cooling key is a no-op in game; holding the rescue waiting for a read costs HP).
+  A skill on cooldown is SKIPPED and returned in `skipped` so the log can name it (decision: skip,
+  never wait). Waits are always kept (ms cost, zero risk). A step that isn't a skill/wait is
+  ignored — eligibility filters earlier, and a combo edited between selection and firing must
+  NEVER take a rescue down.
 
-  Devolve `{actions, skipped}`.
+  Returns `{actions, skipped}`.
   """
   @spec stun_prefix([tuple], [String.t()] | nil) :: {[tuple], [String.t()]}
   def stun_prefix(steps, ready) do

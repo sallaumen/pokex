@@ -60,7 +60,7 @@ defmodule Pokex.Bots.ShinyGuard do
       # a sighting awaiting its confirm window; ref ties the timer to THIS pending
       pending_ref: nil,
       pending_px: 0,
-      # os NOMES lidos nas fileiras com estrela — o alarme diz quem é
+      # NAMES read from the starred rows — the alarm says who it is
       pending_nomes: [],
       last_fired_at: nil,
       last_reading_at: nil
@@ -145,8 +145,6 @@ defmodule Pokex.Bots.ShinyGuard do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # -- attachment lifecycle ----------------------------------------------------
-
   defp sync_attachment(%{active?: false} = state), do: state
 
   defp sync_attachment(state) do
@@ -177,8 +175,6 @@ defmodule Pokex.Bots.ShinyGuard do
   defp demonitor(nil), do: :ok
   defp demonitor(ref), do: Process.demonitor(ref, [:flush])
 
-  # -- detection ---------------------------------------------------------------
-
   # a clean frame refutes any pending sighting
   defp advance(state, false, _px, _nomes), do: %{state | pending_ref: nil}
 
@@ -195,9 +191,9 @@ defmodule Pokex.Bots.ShinyGuard do
   # already pending: keep the freshest px (and names) for the log
   defp advance(state, true, px, nomes), do: %{state | pending_px: px, pending_nomes: nomes}
 
-  # QUEM é a shiny: o interpretador já lê o nome de cada fileira
-  # (enemies_detail + shiny?) — o alarme dizia só "estrela 40px" e o Lucas
-  # tinha que correr pra tela pra saber se valia largar tudo.
+  # WHO the shiny is: the interpreter already reads each row's name
+  # (enemies_detail + shiny?) — the alarm used to say only "estrela 40px",
+  # forcing a run to the screen to know whether to drop everything.
   defp nomes_shiny(obs) do
     obs
     |> Map.get(:enemies_detail, [])
@@ -244,8 +240,8 @@ defmodule Pokex.Bots.ShinyGuard do
     reason = "✨ SHINY#{quem} na lista de batalha (estrela #{px}px)"
 
     # the trophy shelf first: the encounter is logged even if the action fails.
-    # star_px, não star_run: o record/1 lê attrs[:star_px] — a chave errada
-    # deixou TODO troféu do log sem a medida da estrela desde sempre.
+    # star_px, not star_run: record/1 reads attrs[:star_px] — the wrong key
+    # left EVERY log trophy without the star measurement since forever.
     ShinyLog.record(
       star_px: px,
       action: action,
@@ -255,14 +251,14 @@ defmodule Pokex.Bots.ShinyGuard do
 
     case action do
       "fugir" ->
-        # O latch é a ordem de parada em vigor (canto do pânico, logout, meta
-        # batida). Com ele travado o guarda NÃO atua — mas continua gritando:
-        # quando o Lucas vai pro canto pra jogar na mão, ele QUER saber que
-        # apareceu uma shiny; o que ele não quer é o bot arrastando o personagem
-        # pra escada enquanto ele joga. Sem isso, uma shiny avistada move o
-        # personagem com tudo "parado", porque este guarda é filho da aplicação
-        # e stop_all/0 não o alcança — ele não aperta tecla, mas a fuga que ele
-        # chama traz o jogo pra frente DE PROPÓSITO e anda até a escada.
+        # The latch is a standing stop order (panic corner, logout, met goal).
+        # With it set the guard does NOT act — but keeps shouting: when playing
+        # by hand from the corner, a shiny sighting must still be announced;
+        # what must not happen is the bot dragging the character to the stairs
+        # mid-play. Without this, a sighted shiny moved the character with
+        # everything "stopped", because this guard is an app child stop_all/0
+        # never reaches — it presses no key, but the escape it calls fronts the
+        # game ON PURPOSE and walks to the stairs.
         if InputGate.panic_latched?() do
           Logger.warning("ShinyGuard: #{reason} — parada em vigor, NÃO foge; só avisa")
 

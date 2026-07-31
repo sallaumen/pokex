@@ -48,7 +48,7 @@ defmodule Pokex.Combos.Runner do
       engaged?: false,
       running: nil,
       # the last combo that matched and could NOT run — the panel's answer to
-      # "liguei os combos e não aconteceu nada"
+      # "combos on, nothing happened"
       last_skip: nil
     }
 
@@ -110,8 +110,6 @@ defmodule Pokex.Combos.Runner do
 
   def handle_info({:world, _key, _obs}, state), do: {:noreply, state}
   def handle_info(_msg, state), do: {:noreply, state}
-
-  # -- starting ----------------------------------------------------------------
 
   defp maybe_start(%{active?: false} = state), do: state
 
@@ -175,8 +173,6 @@ defmodule Pokex.Combos.Runner do
     end
   end
 
-  # -- stepping ----------------------------------------------------------------
-
   defp perform_current(%{running: %{steps: steps, index: index}} = state)
        when index >= length(steps) do
     Logger.info("Combos: #{state.running.combo.name} completo")
@@ -224,8 +220,6 @@ defmodule Pokex.Combos.Runner do
 
   defp advance(%{running: running} = state),
     do: perform_current(%{state | running: %{running | index: running.index + 1}})
-
-  # -- giving up ---------------------------------------------------------------
 
   defp abort(%{running: nil} = state, _reason), do: state
 

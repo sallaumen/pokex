@@ -1,14 +1,11 @@
 defmodule Pokex.Perception.InterpretMinimapTest do
   @moduledoc """
-  A posição do personagem, do jeito que o CAVEBOT a recebe (2026-07-30).
-
-  O interpretador deixou de falar direto com o layout: as regiões vêm da
-  `Calibration` (a MÃO manda, layout é fallback) e o piso de tinta da faixa
-  virou o setting `minimap_coord_ink`. O default é 120 — o comportamento
-  provado: MEDIMOS que os dígitos têm núcleo 240+ mas o anti-alias espalha por
-  160-239, e o atlas foi ensinado com as formas do piso 120; subir o piso
-  emagrece as formas e cega o atlas (165 falhou as quatro capturas reais). O
-  knob existe pra afinar ao vivo COM a tela de ensinar glifos à mão.
+  The character position as the cavebot receives it: regions come from
+  `Calibration` (manual marks win, layout is fallback) and the ink floor is the
+  `minimap_coord_ink` setting. Default 120 is measured behavior: digit cores are
+  240+ but anti-aliasing spreads 160-239 and the atlas was taught at floor 120,
+  so raising it starves the shapes and blinds the atlas (165 failed all four
+  real captures).
   """
   use ExUnit.Case, async: true
 
@@ -30,20 +27,19 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     {fix, panel}
   end
 
-  test "o piso default lê as QUATRO capturas reais via layout-fallback" do
+  test "the default ink floor reads all four real captures via layout fallback" do
     for {name, expected} <- @coords do
       {fix, panel} = located(name)
       calib = %Calibration{scale: 1.0, layout: fix}
 
       assert {%{pos: ^expected}, _state} = Minimap.interpret(panel, calib, %{}, nil),
-             "não li a coordenada de #{name}"
+             "did not read the coordinate in #{name}"
     end
   end
 
-  test "regiões marcadas À MÃO leem sem layout nenhum — o caminho do drift" do
+  test "hand-marked regions read without any layout" do
     {fix, panel} = located("ultrawide_3440x1440_time")
 
-    # o que o Lucas marcaria na calibração: exatamente onde as regiões estão
     calib = %Calibration{
       scale: 1.0,
       layout: nil,
@@ -54,13 +50,12 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     assert {%{pos: {2597, 30_640, 6}}, _state} = Minimap.interpret(panel, calib, %{}, nil)
   end
 
-  test "a marcação manual VENCE um layout presente" do
+  # manual marks point at the same regions the layout resolves: a shifted layout
+  # with correct manual marks would read wrong on the old path, so a matching
+  # result proves the manual path is the one taken
+  test "manual marks win over a present layout" do
     {fix, panel} = located("ultrawide_3440x1440_time")
 
-    # layout presente mas com a marcação manual apontando pras mesmas regiões:
-    # o resultado tem que vir do caminho manual (idêntico, e é isso que prova
-    # que ele existe — um layout DESLOCADO com manual certo leria errado no
-    # caminho antigo)
     calib = %Calibration{
       scale: 1.0,
       layout: fix,
@@ -71,7 +66,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     assert {%{pos: {2597, 30_640, 6}}, _state} = Minimap.interpret(panel, calib, %{}, nil)
   end
 
-  test "o knob minimap_coord_ink chega no leitor — um piso impossível cega" do
+  test "the minimap_coord_ink setting reaches the reader — an impossible floor blinds it" do
     {fix, panel} = located("ultrawide_3440x1440_full")
     calib = %Calibration{scale: 1.0, layout: fix}
 
@@ -79,7 +74,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
              Minimap.interpret(panel, calib, %{minimap_coord_ink: 255}, nil)
   end
 
-  test "sem região nenhuma (nem mão, nem layout) → pos nil, nunca crash" do
+  test "no region at all (neither manual nor layout) yields pos nil, never a crash" do
     {_fix, panel} = located("ultrawide_3440x1440_full")
     calib = %Calibration{scale: 1.0, layout: nil}
 
@@ -87,8 +82,8 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     assert {%{pos: nil}, _state} = Minimap.interpret(panel, nil, %{}, nil)
   end
 
-  describe "resolvedores da Calibration" do
-    test "mão vence layout; layout é fallback; nada = nil" do
+  describe "Calibration resolvers" do
+    test "manual wins over layout; layout is fallback; nothing yields nil" do
       {fix, _panel} = located("ultrawide_3440x1440_full")
 
       manual = %Calibration{
@@ -107,7 +102,6 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       fallback = %Calibration{scale: 1.0, layout: fix}
       assert Calibration.minimap_region(fallback) == Layout.region(:minimap, fix)
       assert Calibration.minimap_map_region(fallback) == Layout.region(:minimap_map, fix)
-      # sem cruz marcada: o centro do retângulo do mapa, como o passo sempre assumiu
       {mx, my, mw, mh} = Layout.region(:minimap_map, fix)
       assert Calibration.minimap_player_point(fallback) == {mx + div(mw, 2), my + div(mh, 2)}
 
@@ -117,7 +111,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     end
 
     @tag :tmp_dir
-    test "os três campos novos fazem round-trip no arquivo", %{tmp_dir: tmp} do
+    test "the three minimap fields round-trip through the file", %{tmp_dir: tmp} do
       path = Path.join(tmp, "calibration.json")
 
       calib = %Calibration{

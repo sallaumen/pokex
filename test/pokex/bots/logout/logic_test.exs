@@ -5,17 +5,16 @@ defmodule Pokex.Bots.Logout.LogicTest do
 
   @config %{attempts: 3}
 
-  # O caso normal: a HUD estava legível antes de apertar, então temos testemunha.
+  # The normal case: the HUD was readable before the press, so there is a witness.
   defp start, do: Logic.start("manual", @config, :present)
 
-  # Alimenta uma sequência de leituras, devolvendo {logic, ultima_acao}.
   defp read_all(logic, readings) do
     Enum.reduce(readings, {logic, :verify}, fn reading, {logic, _acao} ->
       Logic.after_read(logic, reading)
     end)
   end
 
-  test "start pede a primeira tecla, na tentativa 1" do
+  test "start requests the first key press, on attempt 1" do
     {logic, action} = start()
 
     assert action == :press
@@ -24,7 +23,7 @@ defmodule Pokex.Bots.Logout.LogicTest do
     assert logic.reason == "manual"
   end
 
-  test "uma tecla que saiu manda conferir a tela" do
+  test "a key that went out asks to verify the screen" do
     {logic, _} = start()
     {logic, action} = Logic.after_press(logic, :ok)
 
@@ -34,7 +33,7 @@ defmodule Pokex.Bots.Logout.LogicTest do
     assert logic.confirms == 0
   end
 
-  test "duas leituras :gone seguidas confirmam o logout" do
+  test "two consecutive :gone reads confirm the logout" do
     {logic, _} = start()
     {logic, _} = Logic.after_press(logic, :ok)
 
@@ -45,7 +44,7 @@ defmodule Pokex.Bots.Logout.LogicTest do
     assert logic.state == :out
   end
 
-  test "um :present entre dois :gone zera a contagem — não confirma" do
+  test "a :present between two :gone resets the count — no confirmation" do
     {logic, _} = start()
     {logic, _} = Logic.after_press(logic, :ok)
 
@@ -58,19 +57,18 @@ defmodule Pokex.Bots.Logout.LogicTest do
     assert logic.state == :verifying
   end
 
-  test ":unreadable nunca confirma, por mais que se repita" do
+  test ":unreadable never confirms, however often it repeats" do
     {logic, _} = start()
     {logic, _} = Logic.after_press(logic, :ok)
 
     {logic, action} = read_all(logic, List.duplicate(:unreadable, Logic.reads_per_attempt()))
 
-    # esgotou as leituras da tentativa 1 e foi para a tentativa 2 — nunca :out
     assert action == :press
     assert logic.attempt == 2
     assert logic.confirms == 0
   end
 
-  test "esgotar as leituras da tentativa começa uma tentativa nova" do
+  test "exhausting the attempt's reads starts a new attempt" do
     {logic, _} = start()
     {logic, _} = Logic.after_press(logic, :ok)
 
@@ -82,7 +80,7 @@ defmodule Pokex.Bots.Logout.LogicTest do
     assert logic.reads == 0
   end
 
-  test "esgotar as tentativas termina em falha, com o motivo" do
+  test "exhausting the attempts ends in failure, with the reason" do
     logic =
       Enum.reduce(1..3, elem(start(), 0), fn _tentativa, logic ->
         {logic, _} = Logic.after_press(logic, :ok)
@@ -94,7 +92,7 @@ defmodule Pokex.Bots.Logout.LogicTest do
     assert logic.error == :ainda_logado
   end
 
-  test "uma tecla que não saiu queima a tentativa e tenta de novo" do
+  test "a key that did not go out burns the attempt and retries" do
     {logic, _} = start()
     {logic, action} = Logic.after_press(logic, {:error, :panic_corner})
 
@@ -102,7 +100,7 @@ defmodule Pokex.Bots.Logout.LogicTest do
     assert logic.attempt == 2
   end
 
-  test "com uma tentativa só, uma tecla que não saiu já é falha" do
+  test "with a single attempt, a key that did not go out is already a failure" do
     {logic, _} = Logic.start("manual", %{attempts: 1}, :present)
     {logic, action} = Logic.after_press(logic, {:error, :panic_corner})
 
@@ -110,12 +108,11 @@ defmodule Pokex.Bots.Logout.LogicTest do
     assert logic.state == :failed
   end
 
-  describe "a testemunha" do
-    # A HUD devolve nil nos três campos tanto para "deslogado" quanto para
-    # "sub-região descalibrada" / "atlas sem o dígito". Se ela já estava
-    # ausente ANTES de apertar, um :gone depois não distingue as duas coisas —
-    # e confirmar por ele seria inventar um logout que nunca aconteceu.
-    test "sem HUD legível antes, NENHUM :gone confirma — por mais que se repita" do
+  describe "the witness" do
+    # The HUD returns nil in all three fields both for "logged out" and for "miscalibrated
+    # sub-region" / "atlas missing a digit". If it was already absent BEFORE the press, a
+    # later :gone cannot distinguish the two — confirming on it would invent a logout.
+    test "without a readable HUD beforehand, no :gone confirms — however often it repeats" do
       {logic, _} = Logic.start("manual", %{attempts: 2}, :gone)
       refute logic.witness?
 
@@ -130,13 +127,13 @@ defmodule Pokex.Bots.Logout.LogicTest do
       assert logic.error == :sem_testemunha
     end
 
-    test "baseline ilegível também não dá testemunha" do
+    test "an unreadable baseline gives no witness either" do
       {logic, _} = Logic.start("manual", @config, :unreadable)
 
       refute logic.witness?
     end
 
-    test "com testemunha, o mesmo par de :gone confirma" do
+    test "with a witness, the same pair of :gone confirms" do
       {logic, _} = Logic.start("manual", @config, :present)
       assert logic.witness?
 

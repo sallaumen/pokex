@@ -46,8 +46,8 @@ defmodule Pokex.Vision.Glyphs do
   @default_ink 120
   @max_spread 60
   # Hysteresis: a pixel is ink when it is strong on its own, OR merely weak but
-  # CONNECTED to something strong. Lucas spotted why this matters — "acho que o
-  # 0 está sendo quebrado em 2": a zero's vertical strokes are bright while its
+  # CONNECTED to something strong. Lucas spotted why this matters — "the 0 is
+  # getting broken into 2": a zero's vertical strokes are bright while its
   # curves fade over a busy background, so a single floor keeps the two bars and
   # drops the arcs that join them, and the glyph segments as two fragments. The
   # dark outline the client draws around its text is what keeps the weak pass

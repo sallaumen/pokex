@@ -37,21 +37,17 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
     end
 
     test "the protection cooldown blocks a second combo within the window" do
-      # last combo at 10_000; now 40_000 → only 30s elapsed of a 60s cooldown
       assert Logic.decide(input(hp_pct: 5, last_rescue_at: 10_000, now: 40_000)) == :hold
     end
 
     test "the combo fires again once the cooldown has fully elapsed" do
-      # exactly 60s later → allowed
       assert Logic.decide(input(hp_pct: 5, last_rescue_at: 10_000, now: 70_000)) == :rescue
       assert Logic.decide(input(hp_pct: 5, last_rescue_at: 10_000, now: 200_000)) == :rescue
     end
 
     test "one garbage frame never burns a revive: the PREVIOUS read must agree it's low" do
-      # first-ever low read (prev nil) or a low read right after a high one → hold
       assert Logic.decide(input(hp_pct: 5, prev_hp_pct: nil)) == :hold
       assert Logic.decide(input(hp_pct: 5, prev_hp_pct: 90)) == :hold
-      # two consecutive lows → rescue
       assert Logic.decide(input(hp_pct: 5, prev_hp_pct: 40)) == :rescue
     end
   end
@@ -117,7 +113,7 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
              ]
     end
 
-    test "com stun_steps: o stun vem ANTES do recall, na MESMA lista atômica" do
+    test "with stun_steps: the stun comes before the recall, in the same atomic list" do
       config = %{
         rescue_key: "q",
         max_revive_key: "shift+q",
@@ -131,7 +127,6 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
                {:press, "1"},
                {:wait, 500},
                {:press, "2"},
-               # a cola entre o stun e o recall
                {:wait, 40},
                {:press, "q"},
                {:wait, 40},
@@ -145,7 +140,7 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
              ]
     end
 
-    test "stun_steps vazio não adiciona cola — sequência idêntica ao modo direto" do
+    test "empty stun_steps adds no glue — sequence identical to the direct mode" do
       config = %{
         rescue_key: "q",
         max_revive_key: "shift+q",
@@ -161,24 +156,24 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
   describe "stun_prefix/2" do
     @stun_steps [{:skill, "1"}, {:wait, 500}, {:skill, "2"}, {:wait, 500}]
 
-    test "leitura indisponível (nil): aperta tudo às cegas — nunca segura o resgate" do
+    test "unavailable reading (nil): presses everything blind — never holds the rescue" do
       assert Logic.stun_prefix(@stun_steps, nil) ==
                {[{:press, "1"}, {:wait, 500}, {:press, "2"}, {:wait, 500}], []}
     end
 
-    test "só as skills PRONTAS entram; as em cooldown são puladas e NOMEADAS" do
+    test "only READY skills go in; the ones on cooldown are skipped and named" do
       assert Logic.stun_prefix(@stun_steps, ["2", "3"]) ==
                {[{:wait, 500}, {:press, "2"}, {:wait, 500}], ["1"]}
     end
 
-    test "nenhuma pronta: sobram só as esperas, todas as skills nomeadas no pulo" do
+    test "none ready: only the waits remain, every skill named in the skip" do
       assert {actions, ["1", "2"]} = Logic.stun_prefix(@stun_steps, [])
       refute Enum.any?(actions, &match?({:press, _}, &1))
     end
 
-    test "um passo que não é skill/espera é ignorado — jamais derruba um resgate" do
-      # a elegibilidade filtra antes; isto é o cinto pro caso do combo mudar
-      # entre a escolha e o disparo
+    # Eligibility filters earlier; this is the seatbelt for a combo changing between the
+    # selection and the firing.
+    test "a step that is not skill/wait is ignored — it never crashes a rescue" do
       steps = [{:swap_member, "Jigglypuff"}, {:skill, "1"}]
       assert Logic.stun_prefix(steps, nil) == {[{:press, "1"}], []}
     end

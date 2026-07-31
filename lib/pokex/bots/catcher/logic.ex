@@ -7,9 +7,9 @@ defmodule Pokex.Bots.Catcher.Logic do
   no clock: the driver supplies observations and monotonic `now`.
   """
 
-  # O teto duro da confirmação: além disto nem a ausência vale como prova — o
-  # mundo já virou outro (o ignore-TTL inteiro já passou). Não é knob: 60s é
-  # física da operação (4× o fight_timeout que segura as varreduras).
+  # Hard confirmation ceiling: past this not even absence counts as proof — the
+  # world already changed (a full ignore-TTL elapsed). Not a knob: 60s is
+  # operational physics (4x the fight_timeout that holds scans).
   @teto_confirmacao_ms 60_000
 
   defstruct state: :idle,
@@ -18,9 +18,9 @@ defmodule Pokex.Bots.Catcher.Logic do
             throw: nil,
             ignored: %{},
             last_obs_at: nil,
-            # bolas RESOLVIDAS sem captura confirmada, em sequência ("não é
-            # corpo" e inconclusivas): ao bater config.dry_balls_alarm, alarme
-            # e recomeço — o espelho do arremesso seco da pesca.
+            # Consecutive balls RESOLVED without a confirmed capture ("not a
+            # corpse" + inconclusive): at config.dry_balls_alarm, alarm and
+            # reset — the mirror of fishing's dry-cast alarm.
             dry_balls: 0,
             error: nil,
             counters: %{captures: 0, tardias: 0, throws: 0, ignored: 0}
@@ -62,18 +62,17 @@ defmodule Pokex.Bots.Catcher.Logic do
   @doc """
   Poll cadence while work is pending; nil when there is nothing to watch.
 
-  Com uma bola em voo, o wake mira o PRAZO REAL da confirmação
-  (`throw.at + corpse_confirm_after_ms`): acordar antes disso rende uma
-  varredura que a confirmação descarta ("ainda voando") — era uma varredura
-  inteira jogada fora por bola.
+  With a ball in flight the wake targets the REAL confirmation deadline
+  (`throw.at + corpse_confirm_after_ms`): waking earlier yields a scan the
+  confirmation discards ("still flying") — a whole scan wasted per ball.
   """
   def next_wake(%__MODULE__{state: :idle}, _now), do: nil
   def next_wake(%__MODULE__{throw: nil, queue: []}, _now), do: nil
 
-  # Prazo vencido ≠ acordar em loop: quando a varredura está sendo SEGURADA
-  # (luta engajada, portão), o prazo passa e um wake de 1ms virava metralhadora
-  # — medido em 2026-07-30: ~15.000 acordadas numa luta de 15s. Vencido o
-  # prazo, tenta na cadência do feed.
+  # Expired deadline != wake in a loop: when the scan is HELD (engaged fight,
+  # gate), the deadline passes and a 1ms wake became a machine gun — measured
+  # 2026-07-30: ~15,000 wakes in a 15s fight. Past the deadline, retry at the
+  # feed cadence.
   def next_wake(%__MODULE__{throw: %{at: at}, config: config}, now) do
     restante = at + config.corpse_confirm_after_ms - now
     if restante > 0, do: restante, else: max(config.feed_corpses_ms, 1)
@@ -82,10 +81,10 @@ defmodule Pokex.Bots.Catcher.Logic do
   def next_wake(%__MODULE__{config: config}, _now), do: max(config.feed_corpses_ms, 1)
 
   @doc """
-  O instante em que a bola REALMENTE saiu: o driver chama depois do
-  Body.perform (a sequência move+espera+tecla leva ~200ms), e a janela de
-  confirmação passa a contar da atuação, não da decisão — senão o prazo
-  desconta o tempo de fila do Body e a primeira leitura julga cedo demais.
+  The instant the ball REALLY left: the driver calls this after Body.perform
+  (the move+wait+key sequence takes ~200ms), so the confirmation window counts
+  from actuation, not decision — otherwise the deadline absorbs the Body's queue
+  time and the first read judges too early.
   """
   def ball_flown(%__MODULE__{throw: %{} = throw} = logic, at),
     do: %{logic | throw: %{throw | at: at}}
@@ -94,14 +93,12 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   @doc """
   Corpses still being worked (queued + the one ball in flight) — the post-fight
-  policy signal: suporte can wait for this to hit zero before healing/moving.
+  policy signal: support can wait for this to hit zero before healing/moving.
   """
   def pending(%__MODULE__{state: :idle}), do: 0
 
   def pending(%__MODULE__{queue: queue, throw: throw}),
     do: length(queue) + if(throw, do: 1, else: 0)
-
-  # -- confirmation -------------------------------------------------------------
 
   defp confirm(%{throw: nil} = logic, _obs, _now), do: {logic, []}
 
@@ -111,20 +108,20 @@ defmodule Pokex.Bots.Catcher.Logic do
       obs.captured_at < throw.at + config.corpse_confirm_after_ms ->
         {logic, []}
 
-      # Só além do TETO DURO a observação é lixo de verdade: o campo provou
-      # (2026-07-30: 27 de 80 bolas resolveram DEPOIS de 6× a janela, porque o
-      # fight_timeout de 15s segura as varreduras — e as 7 "inconclusivas" do
-      # dia eram capturas REAIS jogadas fora). Dentro do teto, a evidência
-      # julga: ausente = capturado (tardio); presente da MESMA espécie = retry;
-      # presente de OUTRA espécie = o original foi capturado e um corpo novo
-      # caiu ali (o admit deste mesmo passo o enfileira).
+      # Only past the HARD CEILING is an observation truly garbage — the field
+      # proved it (2026-07-30: 27 of 80 balls resolved AFTER 6x the window,
+      # because the 15s fight_timeout holds scans; the day's 7 "inconclusive"
+      # were REAL captures thrown away). Within the ceiling, evidence judges:
+      # absent = captured (late); present SAME species = retry; present OTHER
+      # species = the original was captured and a new corpse fell there (this
+      # same step's admit queues it).
       obs.captured_at > throw.at + @teto_confirmacao_ms ->
         seca(%{logic | throw: nil}, [
           {:log, "confirmação inconclusiva (observação tardia) em #{point_str(throw.point)}"}
         ])
 
-      # presente de OUTRA espécie no ponto: o corpo original SUMIU — capturado.
-      # (Sem nome de um dos lados, cai nos ramos de presença abaixo: conservador.)
+      # OTHER species present at the point: the original corpse is GONE — captured.
+      # (Missing a name on either side falls to the presence branches below: conservative.)
       outra_especie?(obs, throw, config.corpse_match_tolerance_px) ->
         capturado(logic, obs, now)
 
@@ -140,8 +137,8 @@ defmodule Pokex.Bots.Catcher.Logic do
          ]}
 
       # past the window, still there, and out of balls → not a corpse; ignore
-      # for the TTL — guardando a IDENTIDADE: um corpo NOVO de outra espécie
-      # caindo no mesmo tile não pode herdar o veto deste.
+      # for the TTL — storing the IDENTITY: a NEW corpse of another species
+      # landing on the same tile must not inherit this veto.
       present?(obs.corpses, throw.point, config.corpse_match_tolerance_px) ->
         logic = update_in(logic.counters.ignored, &(&1 + 1))
 
@@ -176,8 +173,8 @@ defmodule Pokex.Bots.Catcher.Logic do
      [{:log, "capturado#{selo} em #{point_str(throw.point)}"}]}
   end
 
-  # Um corpo de OUTRA espécie exatamente onde a bola voou: prova de que o alvo
-  # original foi consumido e o chão reciclou. Exige nome dos DOIS lados.
+  # A corpse of ANOTHER species exactly where the ball flew: proof the original
+  # target was consumed and the ground recycled. Requires a name on BOTH sides.
   defp outra_especie?(obs, %{nome: nome_da_bola, point: ponto}, tol)
        when is_binary(nome_da_bola) do
     case nome_em(obs, ponto, tol) do
@@ -188,10 +185,9 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   defp outra_especie?(_obs, _throw_sem_nome, _tol), do: false
 
-  # O espelho do arremesso seco da pesca: N bolas seguidas resolvidas SEM
-  # captura confirmada = ou o atalho não chega no jogo, ou a mira está errada,
-  # ou o acervo tem um falso-positivo comendo a fila. Alarme e recomeço;
-  # 0 = desligado.
+  # Mirror of fishing's dry cast: N consecutive balls resolved WITHOUT a
+  # confirmed capture = the hotkey isn't reaching the game, the aim is wrong, or
+  # a library false-positive is eating the queue. Alarm and reset; 0 = off.
   defp seca(logic, actions) do
     dry = logic.dry_balls + 1
     teto = Map.get(logic.config, :dry_balls_alarm, 0)
@@ -209,15 +205,13 @@ defmodule Pokex.Bots.Catcher.Logic do
     end
   end
 
-  # A identidade que a varredura já conhece no ponto — pro veto do ignore não
-  # contaminar um corpo futuro de OUTRA espécie no mesmo tile.
+  # The identity the scan already knows at the point — so the ignore veto never
+  # contaminates a future corpse of ANOTHER species on the same tile.
   defp nome_em(obs, ponto, tolerancia) do
     obs
     |> Map.get(:known, %{})
     |> Enum.find_value(fn {p, %{name: nome}} -> if near?(p, ponto, tolerancia), do: nome end)
   end
-
-  # -- admission ---------------------------------------------------------------
 
   defp admit(logic, obs) do
     tolerance = logic.config.corpse_match_tolerance_px
@@ -231,10 +225,10 @@ defmodule Pokex.Bots.Catcher.Logic do
     %{logic | queue: logic.queue ++ fresh}
   end
 
-  # O veto do ignore é por IDENTIDADE quando dá: um ponto vetado como "Pet"
-  # não segura um Kingler recém-caído no mesmo tile. Sem nome dos dois lados
-  # (acervo antigo, leitura sem known), o veto por ponto continua valendo —
-  # falha pro lado conservador.
+  # The ignore veto is by IDENTITY when possible: a point vetoed as "Pet" must
+  # not hold a Kingler freshly fallen on the same tile. Without names on both
+  # sides (old library, read without known) the point veto still applies —
+  # fails conservative.
   defp vetado?(logic, obs, candidato, tolerance) do
     Enum.any?(logic.ignored, fn {ponto, entrada} ->
       near?(ponto, candidato, tolerance) and mesma_identidade?(entrada, obs, candidato, tolerance)
@@ -255,8 +249,8 @@ defmodule Pokex.Bots.Catcher.Logic do
   defp maybe_throw(%{throw: nil, queue: [point | rest]} = logic, obs, now) do
     logic = update_in(logic.counters.throws, &(&1 + 1))
 
-    # o nome que a varredura via no ponto viaja com a bola: é ele que permite
-    # julgar por identidade na confirmação (outra espécie ali = capturado)
+    # The name the scan saw at the point travels with the ball: it enables
+    # identity-based judging at confirmation (other species there = captured).
     throw = %{
       point: point,
       balls: 1,

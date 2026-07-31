@@ -10,10 +10,8 @@ defmodule Pokex.SettingsTest do
     path = Path.join(tmp, "settings.json")
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
-    # the file holds only overrides — a fresh install has none
     assert path |> File.read!() |> JSON.decode!() == %{}
 
-    # reads fall back to the seed defaults
     assert Settings.get(:tick_ms_watching, server) == 150
     assert Settings.get(:skill_keys, server) == ["1", "2", "3"]
     assert Settings.get(:rod_key, server) == "shift+v"
@@ -28,14 +26,12 @@ defmodule Pokex.SettingsTest do
     :ok = Settings.put(:glow_threshold, 22.5, server)
     :ok = Settings.put(:skill_keys, ["1", "2", "3", "4"], server)
 
-    # the file is the two overrides — NOT a full snapshot of every key
     assert path |> File.read!() |> JSON.decode!() ==
              %{"glow_threshold" => 22.5, "skill_keys" => ["1", "2", "3", "4"]}
 
     {:ok, server2} = Settings.start_link(name: nil, path: path)
     assert Settings.get(:glow_threshold, server2) == 22.5
     assert Settings.get(:skill_keys, server2) == ["1", "2", "3", "4"]
-    # a non-overridden key still comes from the seed
     assert Settings.get(:tile_px, server2) == 88
   end
 
@@ -52,12 +48,11 @@ defmodule Pokex.SettingsTest do
   end
 
   @tag :tmp_dir
+  # simulates the reverted materialize-all bug: keys equal to the seed must be
+  # dropped so future default changes in code win again
   test "a materialized file (every key persisted) is healed down to genuine overrides", %{
     tmp_dir: tmp
   } do
-    # Simulate the reverted behavior that wrote ALL keys to disk: only require_cooldowns is a
-    # real override; every other key equals the seed default and must be dropped so future
-    # default changes in code win again.
     path = Path.join(tmp, "settings.json")
 
     full =
@@ -87,11 +82,11 @@ defmodule Pokex.SettingsTest do
   end
 
   @tag :tmp_dir
+  # the parent of the settings path is a file, so mkdir_p!/write! deterministically
+  # raise inside init's heal
   test "a non-writable settings path does not crash boot — runs off the code defaults", %{
     tmp_dir: tmp
   } do
-    # make the parent of the settings path a FILE, so File.mkdir_p!/File.write! deterministically
-    # raise inside init's heal — the app must still boot instead of crash-looping.
     blocker = Path.join(tmp, "blocker")
     File.write!(blocker, "i am a file, not a directory")
     path = Path.join(blocker, "settings.json")
@@ -103,9 +98,9 @@ defmodule Pokex.SettingsTest do
   end
 
   @tag :tmp_dir
+  # the old normalize_loaded/2 migrations silently rewrote 6 -> 7 on write,
+  # making those values impossible to select
   test "values a user deliberately sets are honored — no magic-value rewrite", %{tmp_dir: tmp} do
-    # The old normalize_loaded/2 migrations silently rewrote 6 -> 7 etc. on write, so those
-    # values were impossible to select. They must round-trip now.
     path = Path.join(tmp, "settings.json")
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
@@ -120,10 +115,9 @@ defmodule Pokex.SettingsTest do
     assert Settings.get(:rod_key, server2) == "v"
   end
 
+  # worker ticks call Settings.get/1 many times per 80ms tick across several
+  # processes; global reads must be ETS lookups, not GenServer round-trips
   test "the GLOBAL server mirrors overrides into ETS so hot-loop reads skip the GenServer" do
-    # The app-booted global instance owns the mirror table. Worker ticks call
-    # Settings.get/1 many times per 80ms tick across several processes; those
-    # reads must be ETS lookups, not GenServer round-trips.
     original = Settings.get(:glow_threshold)
     on_exit(fn -> Settings.put(:glow_threshold, original) end)
 
@@ -131,8 +125,6 @@ defmodule Pokex.SettingsTest do
     assert :ets.lookup(:pokex_settings_overrides, :glow_threshold) == [{:glow_threshold, 4321.0}]
     assert Settings.get(:glow_threshold) == 4321.0
 
-    # putting the seed value back is NOT an override — the mirror row disappears
-    # and the read falls back to the code seed
     :ok = Settings.put(:glow_threshold, Settings.defaults()[:glow_threshold])
     assert :ets.lookup(:pokex_settings_overrides, :glow_threshold) == []
     assert Settings.get(:glow_threshold) == Settings.defaults()[:glow_threshold]
@@ -149,7 +141,6 @@ defmodule Pokex.SettingsTest do
 
   @tag :tmp_dir
   test "private instances (no name) keep working through GenServer calls", %{tmp_dir: tmp} do
-    # tmp-scoped instances used by tests must not touch the global mirror
     path = Path.join(tmp, "settings.json")
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
@@ -158,7 +149,7 @@ defmodule Pokex.SettingsTest do
     assert :ets.lookup(:pokex_settings_overrides, :glow_threshold) == []
   end
 
-  describe "presets por Pokémon" do
+  describe "per-Pokémon presets" do
     defp preset_server(tmp) do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
@@ -186,12 +177,10 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
-    test "um preset NUNCA desliga a captura — a chave tem um dono só", %{tmp_dir: tmp} do
-      # O bug de 2026-07-30: :capture_enabled morava nos presets E em Pokex.Modes.
-      # Os quatro presets do Lucas carregavam false, e trocar o preset de ataque
-      # matava a captura em silêncio — 1015 kills, 1015 saques, zero varredura.
-      # Presets antigos no disco AINDA têm a chave; aplicar um deles não pode
-      # mais tocar nela.
+    # 2026-07-30: :capture_enabled lived in presets AND in Modes; switching attack
+    # presets silently killed capture (1015 kills, zero sweeps). Old preset files
+    # on disk still carry the key — applying one must not touch it.
+    test "a preset never turns capture off — the key has a single owner", %{tmp_dir: tmp} do
       server = preset_server(tmp)
       File.mkdir_p!(Path.join(tmp, "presets"))
 
@@ -219,11 +208,8 @@ defmodule Pokex.SettingsTest do
         Path.join(tmp, "presets/misto.json"),
         JSON.encode!(%{
           "skill_keys" => ["7"],
-          # wrong shape: a string where a boolean lives
           "potion_enabled" => "sim",
-          # known Settings key that is NOT a preset key
           "glow_threshold" => 1,
-          # unknown key
           "hacked" => true
         })
       )
@@ -256,12 +242,12 @@ defmodule Pokex.SettingsTest do
     end
   end
 
-  describe "a fronteira valida (Frente 2): nenhum valor impossível chega ao disco" do
+  describe "the validating boundary: no impossible value reaches disk" do
     defp start_isolated(tmp),
       do: Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
 
     @tag :tmp_dir
-    test "tipo errado é rejeitado com explicação", %{tmp_dir: tmp} do
+    test "a wrong type is rejected with an explanation", %{tmp_dir: tmp} do
       {:ok, server} = start_isolated(tmp)
 
       assert {:error, msg} = Settings.put(:tick_ms_watching, "rápido", server)
@@ -270,12 +256,11 @@ defmodule Pokex.SettingsTest do
       assert {:error, _} = Settings.put(:capture_enabled, "sim", server)
       assert {:error, _} = Settings.put(:rod_key, 42, server)
 
-      # e nada disso virou override
       assert Settings.get(:tick_ms_watching, server) == Settings.defaults().tick_ms_watching
     end
 
     @tag :tmp_dir
-    test "enum fechado rejeita valor de fora; aceita os conhecidos", %{tmp_dir: tmp} do
+    test "a closed enum rejects outside values and accepts the known ones", %{tmp_dir: tmp} do
       {:ok, server} = start_isolated(tmp)
 
       assert {:error, msg} = Settings.put(:stagnation_action, "explodir", server)
@@ -286,19 +271,20 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
-    test "faixa pega o impossível, não o gosto", %{tmp_dir: tmp} do
+    test "the range catches the impossible, not taste", %{tmp_dir: tmp} do
       {:ok, server} = start_isolated(tmp)
 
       assert {:error, msg} = Settings.put(:logout_attempts, -1, server)
       assert msg =~ "fora da faixa"
       assert {:error, _} = Settings.put(:tick_ms_watching, 5, server)
 
-      # valores estranhos-mas-possíveis passam — afinar é papel do painel
       assert :ok = Settings.put(:tick_ms_watching, 5_000, server)
     end
 
     @tag :tmp_dir
-    test "limiar aceita fração (a calibração sugere 45.0); similaridade é 0..1", %{tmp_dir: tmp} do
+    test "thresholds accept fractions (calibration suggests 45.0); similarity is 0..1", %{
+      tmp_dir: tmp
+    } do
       {:ok, server} = start_isolated(tmp)
 
       assert :ok = Settings.put(:glow_threshold, 45.5, server)

@@ -1,6 +1,6 @@
 defmodule PokexWeb.CavebotLiveTest do
-  # async: false — escreve o blackboard compartilhado (:minimap) e o
-  # home_dir das rotas, ambos globais ao nó de teste.
+  # async: false — writes the shared blackboard (:minimap) and the routes'
+  # home_dir, both global to the test node.
   use PokexWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
 
@@ -25,7 +25,7 @@ defmodule PokexWeb.CavebotLiveTest do
     WorldState.put(:minimap, %{pos: pos}, System.monotonic_time(:millisecond))
   end
 
-  test "marcar waypoint grava a posição atual na rota ativa", %{conn: conn} do
+  test "marking a waypoint records the current position on the active route", %{conn: conn} do
     put_pos({10, 20, 7})
 
     {:ok, view, _html} = live(conn, ~p"/cavebot")
@@ -41,12 +41,11 @@ defmodule PokexWeb.CavebotLiveTest do
 
     assert waypoints == [%{x: 10, y: 20, z: 7}]
     assert has_element?(view, "#waypoint-0")
-    # feedback de sucesso explícito, em verde (text-pk-ok), não só o waypoint na lista
     assert html =~ "waypoint 1 marcado"
     assert view |> element("#cavebot-notice") |> render() =~ "text-pk-ok"
   end
 
-  test "apagar waypoint remove da lista e do Store", %{conn: conn} do
+  test "deleting a waypoint removes it from the list and the Store", %{conn: conn} do
     {:ok, route} = Route.append(Route.new("cavena"), {1, 2, 7})
     {:ok, route} = Route.append(route, {3, 4, 7})
     :ok = Store.add(route)
@@ -62,7 +61,7 @@ defmodule PokexWeb.CavebotLiveTest do
     refute has_element?(view, "#waypoint-1")
   end
 
-  test "sem posição lida, marcar avisa e não grava nada", %{conn: conn} do
+  test "without a position read, marking warns and records nothing", %{conn: conn} do
     :ok = Store.add(Route.new("cavena"))
 
     {:ok, view, _html} = live(conn, ~p"/cavebot")
@@ -73,7 +72,7 @@ defmodule PokexWeb.CavebotLiveTest do
     assert [%Route{waypoints: []}] = Store.all()
   end
 
-  test "posição de outro andar é recusada com aviso", %{conn: conn} do
+  test "a position from another floor is refused with a warning", %{conn: conn} do
     {:ok, route} = Route.append(Route.new("cavena"), {1, 2, 7})
     :ok = Store.add(route)
     put_pos({5, 6, 3})
@@ -86,7 +85,7 @@ defmodule PokexWeb.CavebotLiveTest do
     assert [%Route{waypoints: [%{x: 1, y: 2, z: 7}]}] = Store.all()
   end
 
-  test "selecionar outra rota direciona a marcação pra ela", %{conn: conn} do
+  test "selecting another route directs marking to it", %{conn: conn} do
     :ok = Store.add(Route.new("primeira"))
     :ok = Store.add(Route.new("segunda"))
     put_pos({10, 20, 7})
@@ -105,7 +104,9 @@ defmodule PokexWeb.CavebotLiveTest do
     assert %Route{waypoints: []} = Enum.find(Store.all(), &(&1.name == "primeira"))
   end
 
-  test "criar rota com nome já existente só a seleciona, sem apagar waypoints", %{conn: conn} do
+  test "creating a route with an existing name just selects it, without erasing waypoints", %{
+    conn: conn
+  } do
     {:ok, route} = Route.append(Route.new("cavena"), {1, 2, 7})
     :ok = Store.add(route)
 
@@ -120,10 +121,14 @@ defmodule PokexWeb.CavebotLiveTest do
     assert [%Route{waypoints: [%{x: 1, y: 2, z: 7}]}] = Store.all()
   end
 
-  # O fluxo que REALMENTE funciona: armar a gravação, ir pro jogo, andar. Um
-  # clique por waypoint é impossível — clicar traz o navegador pra frente, tira
-  # o jogo do foco e pode cobrir o minimapa de onde a posição é lida.
-  test "gravando andando: waypoints entram sozinhos conforme a posição muda", %{conn: conn} do
+  # The flow that actually works: arm recording, go to the game, walk. One click
+  # per waypoint is impossible — clicking fronts the browser, steals the game's
+  # focus and can cover the minimap the position is read from. render/1 between
+  # steps forces the flush: LiveView processes messages async, and without it all
+  # three handle_info would read the SAME (last) position.
+  test "recording while walking: waypoints enter on their own as the position changes", %{
+    conn: conn
+  } do
     put_pos({10, 20, 7})
     {:ok, view, _html} = live(conn, ~p"/cavebot")
 
@@ -133,16 +138,12 @@ defmodule PokexWeb.CavebotLiveTest do
 
     view |> element("#toggle-recording") |> render_click()
 
-    # anda: cada publicação do minimapa com distância suficiente vira waypoint
-    # render/1 entre os passos força o flush: o LiveView processa mensagens
-    # async, e sem isso os três handle_info leriam a MESMA posição (a última)
     put_pos({10, 20, 7})
     send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
     render(view)
     put_pos({20, 20, 7})
     send(view.pid, {:world, :minimap, %{pos: {20, 20, 7}}})
     render(view)
-    # perto demais do último (< cavebot_record_min_tiles): NÃO entra
     put_pos({21, 20, 7})
     send(view.pid, {:world, :minimap, %{pos: {21, 20, 7}}})
     render(view)
@@ -154,7 +155,7 @@ defmodule PokexWeb.CavebotLiveTest do
     assert render(view) =~ "gravação parada"
   end
 
-  test "gravar sem rota ativa avisa em vez de gravar pro nada", %{conn: conn} do
+  test "recording without an active route warns instead of recording into the void", %{conn: conn} do
     put_pos({10, 20, 7})
     {:ok, view, _html} = live(conn, ~p"/cavebot")
 
@@ -164,10 +165,10 @@ defmodule PokexWeb.CavebotLiveTest do
     assert Store.all() == []
   end
 
-  # A leitura da coordenada é tudo-ou-nada: um glifo duvidoso vira "?". Falha
-  # ocasional não atrapalha gravar — mas ele precisa VER a proporção pra saber
-  # se pode confiar na rota que gravou.
-  test "mostra a saúde da leitura: quantas leituras deram certo e quantas falharam",
+  # the coordinate read is all-or-nothing (a doubtful glyph reads "?"); occasional
+  # failures don't block recording, but the ok/fail ratio tells whether the
+  # recorded route can be trusted
+  test "shows read health: how many reads succeeded and how many failed",
        %{conn: conn} do
     put_pos({10, 20, 7})
     {:ok, view, _html} = live(conn, ~p"/cavebot")

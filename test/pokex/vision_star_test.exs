@@ -18,11 +18,11 @@ defmodule Pokex.VisionStarTest do
     frame
   end
 
+  # measured: five consecutive columns carry 4-7 gold pixels each
   test "finds the star ONLY on the shiny's row" do
     rows = Vision.star_rows(frame!(), bands() ++ [min_cluster: 3])
 
     assert [{1, run}] = rows
-    # measured: five consecutive columns carry 4-7 gold pixels each
     assert run >= 5
   end
 
@@ -37,10 +37,9 @@ defmodule Pokex.VisionStarTest do
     assert Vision.star_rows(frame!(), bands() ++ [min_cluster: 99]) == []
   end
 
+  # five gold-finned Magikarps scored 10 in a 3-column window vs the real star's
+  # 19 — with the threshold at 10, every fish read as a shiny
   test "a battle list full of YELLOW pokémon is not a battle list full of shinies" do
-    # The false positive that made this rule necessary: five Magikarps, whose
-    # fins are gold. Summing a 3-column window scored them 10 against the real
-    # star's 19 — with the threshold at 10, every fish was a shiny.
     {:ok, frame} = Frame.from_png_file("test/fixtures/screen/ultrawide_3440x1440_outro_mapa.png")
     {:ok, fix} = Pokex.Layout.locate(frame)
     {x, y, w, h} = Pokex.Layout.region(:battle_list, fix)
@@ -52,7 +51,6 @@ defmodule Pokex.VisionStarTest do
   end
 
   test "the red pokeball never reads as a star" do
-    # a frame of pure pokeball red (255,28,28) — high R, but G is far too low
     rows = for _y <- 1..40, do: List.duplicate({255, 28, 28, 255}, 60)
     path = Pokex.PngFixtures.write!(Path.join(System.tmp_dir!(), "pokeball_red.png"), rows)
     {:ok, red} = Frame.from_png_file(path)
@@ -60,20 +58,19 @@ defmodule Pokex.VisionStarTest do
     assert Vision.star_rows(red, top: 0, band: 20, rows: 2, min_cluster: 3) == []
   end
 
-  describe "os falsos alarmes do campo (2026-07-30) — as capturas REAIS do Lucas" do
-    # O guarda alarmou tanto que foi DESLIGADO. Reproduzido offline nas
-    # capturas dele: o ícone do Shuckle (a lâmpada amarela, b chegando a 0 e
-    # g>r) e ícones genuinamente dourados disparavam "estrela". Duas defesas,
-    # cada uma provada por um fixture que a OUTRA não cura:
-    #   - piso de cor (b>=50, g<=r) → mata a classe Shuckle/Vileplume;
-    #   - zona do nome (min_x)      → mata os ícones genuinamente dourados.
+  describe "field false alarms reproduced on the real captures" do
+    # The guard false-alarmed so much it was turned OFF. Reproduced offline: the
+    # Shuckle icon (yellow lamp, b near 0, g>r) and genuinely gold icons both
+    # fired "star". Two defenses, each proved by a fixture the OTHER cannot cure:
+    #   - color floor (b>=50, g<=r) → kills the Shuckle/Vileplume class;
+    #   - name zone (min_x)         → kills the genuinely gold icons.
     defp fixture!(nome) do
       {:ok, frame} = Frame.from_png_file("test/fixtures/shiny/#{nome}")
       frame
     end
 
-    test "o ícone do Shuckle não é mais estrela — o piso de cor basta" do
-      # antes do piso: estrela falsa na fileira 0 com run 7, nas DUAS capturas
+    # before the floor: a false star on row 0 with run 7, in BOTH captures
+    test "the Shuckle icon is no longer a star — the color floor suffices" do
       assert Vision.star_rows(fixture!("shuckle_falsa_estrela.png"),
                top: 30,
                band: 46,
@@ -89,19 +86,18 @@ defmodule Pokex.VisionStarTest do
              ) == []
     end
 
-    test "ícones GENUINAMENTE dourados (g<=r em 976/976 px) só morrem pela ZONA" do
+    # the icons end at x<=52; the name zone starts at 63 (83-20)
+    test "genuinely gold icons (g<=r on 976/976 px) die only by the name zone" do
       frame = fixture!("icones_falsa_estrela_3fileiras.png")
       opts = [top: 30, band: 46, rows: 6, min_cluster: 3]
 
-      # sem zona, o piso de cor não separa: 3 fileiras falsas sobrevivem
       assert length(Vision.star_rows(frame, opts)) == 3
 
-      # os ícones terminam em x<=52; a zona do nome (63 = 83-20) os corta
       assert Vision.star_rows(frame, opts ++ [min_x: 63]) == []
     end
 
-    test "a estrela REAL da Shiny Seadra sobrevive ao predicado endurecido" do
-      # medida no campo: b 70..148, r>=g — o piso (b>=50, g<=r) passa 36/36 px
+    # field-measured star: b 70..148, r>=g — the floor (b>=50, g<=r) passes 36/36 px
+    test "the real Shiny Seadra star survives the hardened predicate" do
       {:ok, seadra} = Frame.from_png_file(@fixture)
       assert [{1, run}] = Vision.star_rows(seadra, top: 8, band: 47, rows: 2, min_cluster: 3)
       assert run >= 5

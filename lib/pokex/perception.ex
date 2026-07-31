@@ -105,8 +105,6 @@ defmodule Pokex.Perception do
     end
   end
 
-  # Feed inventory. Task 5 fills in the :battle and :arena interpreters; later phases add
-  # :glow, :pokemon_hp and :mini_game here.
   def feed_specs do
     [
       %{
@@ -145,7 +143,7 @@ defmodule Pokex.Perception do
       },
       %{
         key: :minimap,
-        # a mão manda: região manual da calibração vence; layout é fallback
+        # Hand-marked calibration region wins; layout-derived region is the fallback.
         region: fn calib -> Pokex.Calibration.minimap_region(calib) end,
         interval_setting: :feed_minimap_ms,
         filename: "feed_minimap.png",

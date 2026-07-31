@@ -48,9 +48,9 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     {:ok, _} = Pokex.Rig.Fake.start_link(%{})
     {:ok, body} = FakeBody.start_link(self())
 
-    # O scanner injetado lê o MESMO WorldState que os testes populam via
-    # world!/1 — o kill e os wakes de confirmação enxergam exatamente a cena
-    # que o teste montou (na produção o default é o SpotScan de verdade).
+    # The injected scanner reads the SAME WorldState the tests populate via world!/1 —
+    # kill and confirmation wakes see exactly the staged scene (production defaults to
+    # the real SpotScan).
     scanner = fn ->
       case WorldState.get(:corpses, 60_000, System.monotonic_time(:millisecond)) do
         {:ok, obs} -> obs
@@ -82,7 +82,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:performed, :high, [{:move, {150, 250}} | _]}, 1_000
     assert Worker.status(worker).pending_corpses == 1
 
-    # the corpse vanished past the flight window → capture confirmed, nothing pending
     gone = corpses_obs([])
     gone = %{gone | captured_at: gone.captured_at + 2_000}
     world!(worker, gone)
@@ -97,7 +96,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "a bola diz QUAL pokémon o acervo reconheceu", %{worker: worker} do
+  test "the throw log names which pokemon the library recognized", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
 
     obs =
@@ -111,10 +110,9 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "o start anuncia o acervo — vazio é sirene, não silêncio", %{worker: worker} do
+  test "run announces the library — empty is a siren, not silence", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
 
-    # o tmp deste teste não tem corpses.json: acervo vazio = captura cega
     :ok = Worker.run(worker)
 
     assert_receive {:rule_alarm, :captura, msg}, 1_000
@@ -130,13 +128,13 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     end
   end
 
+  # The feed keeps re-putting fresh empty observations WITHOUT broadcasting when nothing
+  # changed — only the worker's wake polling can find them.
   @tag :tmp_dir
   test "polling alone confirms a vanished corpse (no further events)", %{worker: worker} do
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, _}, 1_000
 
-    # the feed keeps RE-PUTTING fresh empty observations without broadcasting (no change);
-    # simulate that and let the worker's wake polling find them
     spawn(fn ->
       for _i <- 1..8 do
         Process.sleep(150)
@@ -152,7 +150,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   test "a kill event triggers an immediate world re-read", %{worker: _worker} do
     obs = corpses_obs([{140, 230}])
     WorldState.put(:corpses, obs, obs.captured_at)
-    # no {:world,...} event — only the kill accelerator
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
     assert_receive {:performed, :high, [{:move, {140, 230}} | _]}, 1_000
@@ -167,7 +164,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     world!(worker, corpses_obs([{130, 224}]))
     refute_receive {:performed, _p, _a}, 300
 
-    # flipping back re-arms
     Settings.put(:player_mode, "parado")
     :ok = Worker.mode_changed(worker)
     assert Worker.status(worker).state == :armed
@@ -178,8 +174,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     :ok = Worker.halt(worker)
     assert Worker.status(worker).state == :idle
 
-    # poking the mode on a halted worker must not resurrect the feed attachment:
-    # a corpse event afterwards must produce no throws
     :ok = Worker.mode_changed(worker)
     world!(worker, corpses_obs([{130, 224}]))
     refute_receive {:performed, _p, _a}, 300
@@ -187,17 +181,15 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
+  # A corpse observation arriving mid-fight must be held: the stationary blob the detector
+  # sees might just be the live, tile-locked enemy sprite.
   test "a fight in progress holds all throws", %{worker: worker} do
-    # combat engages — a corpse observation arriving mid-fight must be held: the stationary
-    # blob the detector sees might just be the live, tile-locked enemy sprite
     send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
 
     world!(worker, corpses_obs([{150, 250}]))
     refute_receive {:performed, _p, _a}, 300
     assert Worker.status(worker).hold_reason == "esperando fim da luta"
 
-    # the fight ends (kill or disengage) — a fresh corpse is already sitting in the world;
-    # the disengage edge must re-check it immediately and throw, no waiting on the next poll
     fresh = corpses_obs([{150, 250}])
     WorldState.put(:corpses, fresh, fresh.captured_at)
     send(worker, {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}})
@@ -209,6 +201,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
+  # Space is the mini-game's control key — a loot press mid-game would sabotage the player.
   test "the mini-game fact freezes loots and throws; the next event after it clears acts", %{
     worker: worker
   } do
@@ -220,18 +213,18 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     on_exit(fn -> WorldState.forget(:mini_game) end)
 
-    # a kill lands mid-game: NO Space loot (Space is the mini-game's control key!), no ball
     obs = corpses_obs([{130, 224}])
     WorldState.put(:corpses, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
     refute_receive {:performed, _p, _a}, 300
 
-    # game over: the catcher is event-driven — the next corpse event acts normally
     WorldState.forget(:mini_game)
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end
 
+  # A post-relearn warmup frame (scanning?: false) must not read as "corpse vanished" —
+  # it would falsely confirm a capture and aim the next queued throw at the old spot.
   @tag :tmp_dir
   test "relearn resets pending state", %{worker: worker} do
     world!(worker, corpses_obs([{160, 260}]))
@@ -240,9 +233,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     :ok = Worker.relearn(worker)
 
-    # a warmup frame right after relearn: empty corpses, but scanning?: false — must never be
-    # read as "the old pending throw's corpse vanished" (it would falsely confirm a capture
-    # that never happened, and the NEXT queued throw would aim at the OLD spot's coordinates)
     future_ms = System.monotonic_time(:millisecond) + 2_000
     warmup = %{scanning?: false, corpses: [], captured_at: future_ms}
     world!(worker, warmup)
@@ -258,26 +248,22 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     :ok = Worker.halt(worker)
     :ok = Worker.run(worker)
 
-    # global Combat.Worker is idle in tests → seed is false → the gate is open again
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end
 
   @tag :tmp_dir
   test "a kill triggers the Space loot presses before any ball", %{worker: worker} do
-    # a corpse is already detectable — the ball WOULD fire on the kill's re-read
     obs = corpses_obs([{130, 224}])
     WorldState.put(:corpses, obs, obs.captured_at)
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
-    # FIRST perform must be the loot (2 presses with the configured gap), ball second
     assert_receive {:performed, :high, loot_actions}, 1_000
     assert loot_actions == [{:press, "space"}, {:wait, 250}, {:press, "space"}]
 
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
     assert Worker.status(worker).counters.loots == 1
-    # the ball lands after the loot, so it owns the pill's "última ação"
     assert %{text: "bola arremessada" <> _, at: _} = Worker.status(worker).last_action
   end
 
@@ -307,13 +293,12 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:performed, :high, [{:press, "space"} | _]}, 1_000
     refute_receive {:performed, _, [{:move, _} | _]}, 400
 
-    # a direct corpse event is also gated
     world!(worker, corpses_obs([{140, 230}]))
     refute_receive {:performed, _, [{:move, _} | _]}, 300
   end
 
   @tag :tmp_dir
-  test "toda varredura vira uma linha no feed — e o placar da sessão anda", %{worker: worker} do
+  test "every scan becomes a feed line — and the session scoreboard advances", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
 
     world!(worker, corpses_obs([{130, 224}]))
@@ -325,15 +310,13 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "varredura CEGA é contada e narrada, e não confirma bola nenhuma", %{worker: worker} do
+  test "a blind scan is counted and narrated, and never confirms a ball", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
 
-    # primeiro uma bola no ar
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
     assert Worker.status(worker).pending_corpses == 1
 
-    # agora a visão cega (motivo real do campo: o anel fora da arena)
     cega = %{
       scanning?: false,
       corpses: [],
@@ -347,16 +330,16 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     assert_log_eventually("cego")
 
-    # a bola em voo NÃO virou "capturado" por causa de uma varredura que falhou
     assert Worker.status(worker).pending_corpses == 1
     assert Worker.status(worker).counters.cegas > 0
   end
 
   @tag :tmp_dir
-  test "kill sem alvo REPICA a varredura — o corpo ganha mais chances", %{worker: _worker} do
-    # O primeiro frame pós-kill costuma estar sujo (animação de morte, o saque,
-    # o pokémon passando por cima) e o corpo dura minutos: uma chance só era
-    # desperdício. Sem NENHUM evento novo, o worker re-olha o chão sozinho.
+  # The first post-kill frame is usually dirty (death animation, loot, own pokemon on top)
+  # while the corpse lasts minutes — the worker re-scans on its own with no new event.
+  test "a kill with no target re-triggers the scan — the corpse gets more chances", %{
+    worker: _worker
+  } do
     {:ok, contador} = Agent.start_link(fn -> 0 end)
 
     scanner = fn ->
@@ -376,19 +359,17 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
-    # a varredura do kill + ao menos a primeira re-varredura (+400ms), sem
-    # nenhum kill novo no meio
     assert eventually(fn -> Agent.get(contador, & &1) >= 2 end, 1_500)
 
     GenServer.stop(worker)
   end
 
   @tag :tmp_dir
-  test "portão fechado: a bola é SEGURADA, não contada — e a Logic nem sabe", %{worker: worker} do
-    # A lição que o cavebot já aprendeu: Rig.Mac.gated/1 devolve :ok quando
-    # SUPRIME. Agir e olhar o retorno depois faria a Logic contar uma bola que
-    # nunca saiu, gastar a fila e abrir janela de confirmação contra um corpo
-    # intocado. Perguntamos ao portão ANTES e pulamos o passo inteiro.
+  # Rig.Mac.gated/1 returns :ok even when it SUPPRESSES — acting and checking afterwards
+  # would count a ball that never flew; the gate is asked BEFORE, skipping the whole step.
+  test "gate closed: the ball is held, not counted — and Logic never learns of it", %{
+    worker: worker
+  } do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
     Pokex.Bots.InputGate.set_focus_ok(false)
     on_exit(fn -> Pokex.Bots.InputGate.set_focus_ok(true) end)
@@ -398,22 +379,19 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     refute_receive {:performed, _p, [{:move, _} | _]}, 300
     assert_log_eventually("SEGURADA")
 
-    # nenhuma bola contada, nenhuma fila gasta
     assert Worker.status(worker).counters.throws == 0
     assert Worker.status(worker).pending_corpses == 0
 
-    # e ao reabrir o portão, o mesmo corpo é arremessado normalmente
     Pokex.Bots.InputGate.set_focus_ok(true)
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end
 
   @tag :tmp_dir
-  test "captura desligada DIZ O NOME — no motivo de espera e num alarme no start",
+  # Field 2026-07-30: the bot ran and looted while capture was silently off — the only
+  # clue was a subtle pill that read as normal state.
+  test "capture disabled says so by name — in the hold reason and in a start alarm",
        %{worker: worker} do
-    # O silêncio de 2026-07-30: o bot rodava, o saque saía, e a única pista de
-    # que a bola estava desligada era uma pílula discreta que se lia como estado
-    # normal. Agora o portão se anuncia por duas vias.
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
     Settings.put(:capture_enabled, false)
     :ok = Worker.mode_changed(worker)
@@ -424,7 +402,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:rule_alarm, :captura, msg}, 1_000
     assert msg =~ "captura DESLIGADA"
 
-    # e some sozinho quando religa
     Settings.put(:capture_enabled, true)
     :ok = Worker.mode_changed(worker)
     assert Worker.status(worker).hold_reason == nil
@@ -435,7 +412,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   # happens to be standing at that instant — so walking must not cost him the
   # drops. Only the BALL needs the standing-still ground baseline.
   @tag :tmp_dir
-  test "movimento: o kill SAQUEIA, mas nunca joga bola", %{worker: worker} do
+  test "movimento: a kill loots but never throws a ball", %{worker: worker} do
     Settings.put(:player_mode, "movimento")
     :ok = Worker.mode_changed(worker)
 
@@ -451,7 +428,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "movimento com o saque desligado: o kill não faz nada", %{worker: worker} do
+  test "movimento with loot disabled: a kill does nothing", %{worker: worker} do
     Settings.put(:player_mode, "movimento")
     Settings.put(:loot_enabled, false)
     :ok = Worker.mode_changed(worker)
@@ -464,14 +441,11 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   test "producer order (kill first, snapshot second) makes loot precede the ball", %{
     worker: worker
   } do
-    # engage: the worker holds everything while the fight runs
     send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
 
-    # a mature corpse observation is already in the world (the enemy stood on the melee tile)
     obs = corpses_obs([{130, 224}])
     WorldState.put(:corpses, obs, obs.captured_at)
 
-    # the combat worker emits KILL then the hunting snapshot (post-fix producer order)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
     Phoenix.PubSub.broadcast(
@@ -480,7 +454,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}}
     )
 
-    # FIRST perform must be the Space loot; the ball comes on the disengage advance
     assert_receive {:performed, :high, [{:press, "space"} | _]}, 1_000
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end

@@ -1,19 +1,18 @@
 defmodule Pokex.Bots.Cavebot.WorkerTest.FakeBody do
   @moduledoc """
-  Body double no formato MÓDULO (o molde do Combos.Runner, não o pid do
-  Catcher): o Worker injeta o módulo e chama `minimap_step/3` nele, então o
-  passo chega aqui em vez de virar um clique real computado de Layout +
-  Calibration. Cada comando vai pro pid do teste.
+  Module-shaped Body double (the Combos.Runner mold, not the Catcher's pid): the Worker
+  calls `minimap_step/3` on it, so the step lands here instead of becoming a real click
+  computed from Layout + Calibration. Every command is sent to the test pid.
   """
   use Agent
 
   def start_link(test),
     do: Agent.start_link(fn -> %{test: test, reply: :ok} end, name: __MODULE__)
 
-  @doc "Faz os passos seguintes serem RECUSADOS (portão fechado, HUD não localizado…)."
+  @doc "Makes subsequent steps be REFUSED (gate closed, HUD not located, ...)."
   def refuse(reason), do: Agent.update(__MODULE__, &%{&1 | reply: {:error, reason}})
 
-  @doc "Volta a aceitar os passos."
+  @doc "Accepts steps again."
   def allow, do: Agent.update(__MODULE__, &%{&1 | reply: :ok})
 
   def minimap_step(dx, dy, _opts \\ []) do
@@ -36,8 +35,8 @@ end
 
 defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCombat do
   @moduledoc """
-  Responde `Combat.Worker.run/1` e `halt/1` (que são só `GenServer.call` de
-  `:run`/`:halt`) e conta pro teste o que o cavebot mandou.
+  Answers `Combat.Worker.run/1` and `halt/1` (plain `GenServer.call`s of `:run`/`:halt`)
+  and reports to the test what the cavebot commanded.
   """
   use GenServer
 
@@ -61,16 +60,12 @@ end
 
 defmodule Pokex.Bots.Cavebot.WorkerTest do
   @moduledoc """
-  O Worker isolado com Body e Combat fakes, dirigido por fatos injetados no
-  blackboard — o padrão de runner_test/catcher worker_test.
-
-  Determinismo: `active: false` faz o `run` preparar tudo SEM agendar o tick
-  automático (o gate existe exatamente pra não rodar a cadência contra o Rig
-  real); cada teste dispara `send(worker, :tick)` na mão e afirma um passo
-  por vez.
+  The Worker isolated with fake Body and Combat, driven by facts injected into the
+  blackboard. `active: false` makes `run` prepare everything WITHOUT scheduling the
+  automatic tick; each test fires `send(worker, :tick)` by hand, one step at a time.
   """
-  # async: false — escreve o blackboard compartilhado, o home_dir das rotas e
-  # (no teste de block) o latch global do InputGate.
+  # async: false — writes the shared blackboard, the routes' home_dir and (in the block
+  # test) the global InputGate latch.
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Cavebot.{Route, Store, Worker}
@@ -123,13 +118,13 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     )
   end
 
-  test "run sem rota configurada recusa", %{worker: worker} do
+  test "run with no route configured refuses", %{worker: worker} do
     assert {:error, [msg]} = Worker.run(worker)
     assert msg =~ "nenhuma rota"
     assert Worker.status(worker).state == :idle
   end
 
-  test "primeiro tick liga o combate; o seguinte anda até o waypoint", %{worker: worker} do
+  test "the first tick turns combat on; the next walks toward the waypoint", %{worker: worker} do
     route!()
     assert :ok = Worker.run(worker)
 
@@ -157,12 +152,12 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:stepped, 90, 80}, 1_000
   end
 
-  test "passo em área PRETA do minimapa avisa no journal — e o passo acontece mesmo assim", %{
+  # Decision 2026-07-30: undiscovered (black) minimap area = click and only warn; the
+  # post-click probe reads a 3x3 patch at the point.
+  test "a step into a black minimap area warns the journal — and the step still happens", %{
     worker: worker,
     tmp_dir: tmp
   } do
-    # a escolha do Lucas (2026-07-30): área não descoberta = clica e SÓ avisa.
-    # O probe pós-clique lê um 3×3 no ponto; aqui a "tela" devolve preto puro.
     dark =
       Pokex.PngFixtures.write!(
         Path.join(tmp, "dark.png"),
@@ -180,13 +175,11 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:combat_cmd, :run}, 1_000
 
     send(worker, :tick)
-    # o passo ACONTECEU (nunca é bloqueado pelo preto)...
     assert_receive {:stepped, 90, 80}, 1_000
-    # ...e o aviso saiu
     assert_receive {:cavebot_log, :macro, "caçada: 🕳️" <> _resto}, 1_000
   end
 
-  test "inimigos na tela: NÃO anda — a Logic cede a vez pra luta", %{worker: worker} do
+  test "enemies on screen: no walking — Logic yields to the fight", %{worker: worker} do
     route!()
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
@@ -200,10 +193,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert Worker.status(worker).state == :fighting
   end
 
-  test "posição desconhecida segura o passo — nunca anda às cegas", %{worker: worker} do
+  test "an unknown position holds the step — never walks blind", %{worker: worker} do
     route!()
     :ok = Worker.run(worker)
-    # nenhum fato :minimap no blackboard
 
     send(worker, :tick)
     assert_receive {:combat_cmd, :run}, 1_000
@@ -213,16 +205,15 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     status = Worker.status(worker)
     assert status.state == :walking
-    # e DIZ que está cego: "walking" parado, sem motivo escrito, é igualzinho a
-    # um bot travado
     assert status.hold_reason =~ "não sei onde estou"
   end
 
-  # A regressão que matou a frota: o Iniciar foi clicado no navegador, o jogo
-  # perdeu o foco, o portão fechou e cada clique de passo virou um `:ok` mudo.
-  # A Logic acreditou nos passos, a posição não mudou, e 6s depois veio o
-  # :stuck → pânico. O passo recusado tem que ser VISÍVEL.
-  test "passo recusado pelo portão vira motivo visível, e some quando volta", %{worker: worker} do
+  # Field regression: Iniciar clicked in the browser stole the game's focus, the gate
+  # closed and every step click became a silent `:ok`; the position never changed and 6s
+  # later came :stuck → panic. A refused step must be VISIBLE.
+  test "a step refused by the gate becomes a visible reason, cleared when it reopens", %{
+    worker: worker
+  } do
     route!()
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
@@ -237,7 +228,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     status = Worker.status(worker)
     assert status.hold_reason =~ "jogo sem foco"
-    # visibilidade, não freio: o cavebot segue tentando a cada tick
     assert status.state == :walking
 
     FakeBody.allow()
@@ -247,7 +237,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert Worker.status(worker).hold_reason == nil
   end
 
-  test "HUD não localizado tem motivo próprio", %{worker: worker} do
+  test "HUD not located gets its own reason", %{worker: worker} do
     route!()
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
@@ -263,18 +253,17 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert Worker.status(worker).hold_reason =~ "HUD não localizado"
   end
 
-  test "o motivo é anunciado no tópico mesmo sem o estado mudar", %{worker: worker} do
+  # The synchronous status call doubles as a barrier: the :run_combat tick has finished
+  # before the test subscribes.
+  test "the reason is broadcast on the topic even without a state change", %{worker: worker} do
     route!()
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
 
     send(worker, :tick)
     assert_receive {:combat_cmd, :run}, 1_000
-    # call síncrono: garante que o tick do :run_combat terminou antes de assinar
     assert Worker.status(worker).state == :walking
 
-    # daqui pra frente o ESTADO não muda mais — só o motivo. Sem ele no gatilho
-    # do broadcast, a tela ficaria mostrando "walking" pra sempre.
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
     FakeBody.refuse(:input_gate_closed)
@@ -285,11 +274,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert reason =~ "jogo sem foco"
   end
 
-  test "mudança de andar bloqueia TUDO: latch, combate, alarme", %{worker: worker} do
+  test "a floor change blocks everything: latch, combat, alarm", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     route!(7)
     :ok = Worker.run(worker)
-    # z=5 ≠ z=7 da rota: escada/buraco — a Logic devolve {:block, :floor_changed}
     minimap!({10, 20, 5})
 
     send(worker, :tick)
@@ -299,13 +287,12 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert InputGate.panic_latched?()
     assert Worker.status(worker).state == :blocked
 
-    # blocked é terminal: um tick manual depois não anda nem religa nada
     send(worker, :tick)
     refute_receive {:stepped, _dx, _dy}, 300
     refute_receive {:combat_cmd, :run}, 100
   end
 
-  test "combate recusa o arranque (preflight): bloqueia em vez de andar cego", %{tmp_dir: _tmp} do
+  test "combat refusing the start (preflight) blocks instead of walking blind", %{tmp_dir: _tmp} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     {:ok, failing} = FakeCombat.start_link(self(), {:error, ["sem calibração"]})
 
@@ -317,7 +304,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     route!()
     :ok = Worker.run(own)
-    # primeiro tick manda :run_combat; o combate recusa → freio de mão
     send(own, :tick)
 
     assert_receive {:combat_cmd, :run}, 1_000
@@ -326,8 +312,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert Worker.status(own).state == :blocked
   end
 
-  # O gate de combos por dungeon lê este fato: run publica, halt esquece.
-  test "run publica o fato :dungeon da rota; halt esquece", %{worker: worker} do
+  # The per-dungeon combo gate reads this fact: run publishes it, halt forgets it.
+  test "run publishes the route's :dungeon fact; halt forgets it", %{worker: worker} do
     {:ok, route} = Route.append(Route.new("cavena", "cavena-dg"), {100, 100, 7})
     :ok = Store.add(route)
 
@@ -339,30 +325,27 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert WorldState.get(:dungeon, :infinity, now) == :missing
   end
 
-  test "halt desliga o combate e volta a idle", %{worker: worker} do
+  test "halt turns combat off and returns to idle", %{worker: worker} do
     route!()
     :ok = Worker.run(worker)
     assert :ok = Worker.halt(worker)
     assert_receive {:combat_cmd, :halt}, 1_000
     assert Worker.status(worker) == Worker.idle_snapshot()
 
-    # halted: um tick perdido é inócuo
     minimap!({10, 20, 7})
     send(worker, :tick)
     refute_receive {:stepped, _dx, _dy}, 300
     refute_receive {:combat_cmd, _cmd}, 100
   end
 
-  # A regressão do fail-closed (2026-07-29): clicar Iniciar no NAVEGADOR tira o
-  # foco do jogo → portão fechado → nenhum passo sai, mas os relógios de
-  # paciência corriam → :stuck antes de o Lucas alcançar o jogo. Agora o portão
-  # fechado CONGELA a paciência.
-  test "portão fechado congela a paciência — a caçada espera em vez de morrer :stuck", %{
+  # Field regression 2026-07-29: clicking Iniciar in the BROWSER stole the game's focus →
+  # gate closed → no step left, but the patience clocks kept running → :stuck before the
+  # user reached the game. A closed gate now FREEZES patience.
+  test "a closed gate freezes patience — the hunt waits instead of dying :stuck", %{
     worker: worker
   } do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     on_exit(fn -> InputGate.set_focus_ok(true) end)
-    # zero paciência: se os relógios corressem, o primeiro tick já viraria :stuck
     SettingsStash.stash!(cavebot_walk_timeout_ms: 0, cavebot_stuck_max_retries: 0)
     route!()
     :ok = Worker.run(worker)
@@ -375,26 +358,20 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     refute status.state in [:stuck, :blocked]
     assert status.hold_reason =~ "sem foco"
     refute_receive {:cavebot_alarm, :stuck}, 300
-    # e nenhum passo saiu — o Body nem foi consultado
     refute_receive {:stepped, _dx, _dy}, 100
 
-    # portão reabre (com paciência de gente) → a caçada segue de onde estava
-    # (replanta a posição: o fato do minimapa envelheceu durante as esperas)
     Pokex.Settings.put(:cavebot_walk_timeout_ms, 60_000)
     InputGate.set_focus_ok(true)
     minimap!({10, 20, 7})
-    # o primeiro tick pós-reabertura arma o combate; o passo vem nos seguintes
     Enum.each(1..3, fn _ -> send(worker, :tick) end)
     assert_receive {:stepped, _dx, _dy}, 1_000
   end
 
-  # O bloqueio LOCAL: o cavebot bateu numa parede. Isso é problema DELE — tratar
-  # igual a uma mudança de andar apagava a captura, o suporte E o auto-resume do
-  # Focus (o latch de pânico veta até ele), por causa de um obstáculo de um tile.
-  test "bloqueio LOCAL para só o cavebot: nada de latch de pânico", %{worker: worker} do
+  # A LOCAL block (wall bump) is the cavebot's own problem — treating it like a floor
+  # change killed capture, support AND the Focus auto-resume (the panic latch vetoes even
+  # that) over a one-tile obstacle.
+  test "a LOCAL block stops only the cavebot: no panic latch", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    # sem paciência nenhuma: o primeiro tick sem progresso já vira :stuck e o
-    # seguinte esgota os retries
     SettingsStash.stash!(cavebot_walk_timeout_ms: 0, cavebot_stuck_max_retries: 0)
     route!()
     :ok = Worker.run(worker)
@@ -402,15 +379,12 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     send(worker, :tick)
     assert_receive {:combat_cmd, :run}, 1_000
-    # anda, não sai do lugar, vira :stuck, esgota
     Enum.each(1..3, fn _ -> send(worker, :tick) end)
 
     assert_receive {:cavebot_alarm, :stuck}, 1_000
     assert_receive {:cavebot_log, :macro, "caçada: parei: travado, sem sair do lugar"}, 1_000
     assert_receive {:combat_cmd, :halt}, 1_000
 
-    # a frota segue viva: o latch de pânico é do bloqueio PERIGOSO, e ele veta
-    # até o auto-resume do Focus
     refute InputGate.panic_latched?()
 
     status = Worker.status(worker)
@@ -418,7 +392,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.hold_reason =~ "travado"
   end
 
-  test "bloqueio PERIGOSO continua ligando o latch — mudança de andar", %{worker: worker} do
+  test "a DANGEROUS block still sets the latch — floor change", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     route!(7)
     :ok = Worker.run(worker)
@@ -431,7 +405,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert Worker.status(worker).hold_reason =~ "mudou de andar"
   end
 
-  test "o snapshot conta a caçada inteira: alvo, posição, distância, contadores", %{
+  # When blind, the snapshot keeps the LAST coordinate with its age — "was at 10,20 Xms
+  # ago" is diagnostic, "no position" is not.
+  test "the snapshot tells the whole hunt: target, position, distance, counters", %{
     worker: worker
   } do
     route!()
@@ -454,8 +430,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.counters == %{waypoints: 0, steps: 1}
     assert status.last_action.text == "passo 90,80"
 
-    # cego: a Logic para de andar, mas a tela mantém a ÚLTIMA coordenada com a
-    # idade dela — "estava em 10,20 há Xms" é diagnóstico, "sem posição" não é
     WorldState.forget(:minimap)
     send(worker, :tick)
 
@@ -465,9 +439,11 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert blind.hold_reason =~ "não sei onde estou"
   end
 
-  # Avançar de waypoint não muda o ESTADO (:walking → :walking): sem o wp_index
-  # no gatilho, a tela ficaria parada no waypoint 1 a caçada inteira.
-  test "o snapshot é reemitido quando o waypoint avança, sem o estado mudar", %{worker: worker} do
+  # Advancing a waypoint does not change the STATE (:walking → :walking); without wp_index
+  # in the broadcast trigger the screen would sit on waypoint 1 the whole hunt.
+  test "the snapshot is re-emitted when the waypoint advances, without a state change", %{
+    worker: worker
+  } do
     two_waypoint_route!()
     :ok = Worker.run(worker)
     minimap!({100, 100, 7})
@@ -482,7 +458,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:cavebot, %{state: :walking, wp_index: 1, counters: %{waypoints: 1}}}, 1_000
   end
 
-  test "a caçada narra as bordas: rota, waypoint (macro) e passo (debug)", %{worker: worker} do
+  test "the hunt narrates the edges: route, waypoint (macro) and step (debug)", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     two_waypoint_route!()
     :ok = Worker.run(worker)
@@ -493,17 +469,14 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     send(worker, :tick)
     assert_receive {:combat_cmd, :run}, 1_000
 
-    # chegou no primeiro waypoint
     send(worker, :tick)
     assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2"}, 1_000
 
-    # e o passo rumo ao segundo é DEBUG — o passo acontece 5×/s, não pode
-    # competir com os fatos no feed
     send(worker, :tick)
     assert_receive {:cavebot_log, :debug, "caçada: passo 100,100 → wp 2/2"}, 1_000
   end
 
-  test "o motivo de espera vira UMA linha na borda, não uma por tick", %{worker: worker} do
+  test "the hold reason becomes ONE feed line at the edge, not one per tick", %{worker: worker} do
     route!()
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
@@ -522,18 +495,18 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     assert_receive {:cavebot_log, :macro, motivo}, 1_000
     assert motivo =~ "jogo sem foco"
-    # os ticks seguintes com o MESMO motivo são silêncio
     refute_receive {:cavebot_log, :macro, _repetido}, 200
   end
 
-  # Desistir de reconectar era mudo: o worker ficava parado para sempre, sem
-  # posição, sem motivo e sem log — o pior modo de falha possível.
-  test "desistir do reattach do feed vira motivo escrito e linha no feed", %{worker: worker} do
+  # Giving up on reattach used to be mute: the worker sat forever with no position, no
+  # reason and no log — the worst possible failure mode.
+  test "giving up on the feed reattach becomes a written reason and a feed line", %{
+    worker: worker
+  } do
     route!()
     :ok = Worker.run(worker)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
-    # as 20 tentativas já foram queimadas: a próxima morte do feed é a desistência
     ref = make_ref()
     :sys.replace_state(worker, &%{&1 | reattach_attempts: 20, feed_ref: ref})
     send(worker, {:DOWN, ref, :process, self(), :killed})
@@ -542,9 +515,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert Worker.status(worker).hold_reason =~ "perdi o feed do minimapa"
   end
 
-  # O placeholder do BotSupervisor copia esta forma quando o worker não responde:
-  # um mapa incompleto quebraria a tela exatamente na hora ruim.
-  test "idle_snapshot/0 carrega a forma COMPLETA do snapshot" do
+  # The BotSupervisor placeholder copies this shape when the worker is unresponsive; an
+  # incomplete map would break the screen at exactly the wrong time.
+  test "idle_snapshot/0 carries the complete snapshot shape" do
     assert Worker.idle_snapshot() == %{
              state: :idle,
              route: nil,

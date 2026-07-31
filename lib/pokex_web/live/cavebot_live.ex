@@ -38,10 +38,10 @@ defmodule PokexWeb.CavebotLive do
        active_route: default_active(routes),
        pos: World.snapshot().pos,
        recording?: false,
-       # Saúde da leitura: read_coord é tudo-ou-nada (exige confiança 1.0), então
-       # UM glifo duvidoso derruba a coordenada inteira pra nil. Falha ocasional
-       # não atrapalha gravar — mas sem contador ele não tem como saber se está
-       # lendo bem ou quase nunca.
+       # Read health: read_coord is all-or-nothing (requires 1.0 confidence),
+       # so ONE doubtful glyph drops the whole coordinate to nil. Occasional
+       # misses don't hurt recording — but without a counter there is no way
+       # to tell reading well apart from barely reading.
        reads: 0,
        misses: 0,
        notice: nil,
@@ -102,8 +102,8 @@ defmodule PokexWeb.CavebotLive do
         )
         |> reload_routes(updated.name)
 
-      # mudou de andar no meio da gravação: PARA, em vez de engolir waypoints de
-      # outro andar (a rota é de um andar só)
+      # floor changed mid-recording: STOP, rather than swallowing waypoints
+      # from another floor (a route is single-floor)
       {:error, :floor_mismatch} ->
         assign(socket,
           recording?: false,
@@ -159,8 +159,9 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
-  # Arma/desarma a gravação. Armar exige rota ativa — sem ela não há onde pôr os
-  # waypoints, e gravar "pro nada" seria a pior falha silenciosa possível.
+  # Arms/disarms recording. Arming requires an active route — without one there
+  # is nowhere to put the waypoints, and recording "into nothing" would be the
+  # worst possible silent failure.
   def handle_event("toggle_recording", _params, socket) do
     cond do
       socket.assigns.recording? ->
@@ -241,9 +242,9 @@ defmodule PokexWeb.CavebotLive do
 
   defp default_active(routes), do: Enum.find(routes, & &1.enabled?)
 
-  # A coordenada e a saúde da leitura agora vêm do `PositionReadout`: as MESMAS
-  # palavras aqui, no painel e na /world. Três páginas mostrando a posição com
-  # três frases diferentes era a receita pra ele não confiar em nenhuma.
+  # The coordinate and the read health come from `PositionReadout`: the SAME
+  # words here, on the panel and on /world. Three pages showing the position
+  # in three different phrasings was the recipe for trusting none of them.
   defp pos_text(pos), do: PositionReadout.coords(pos)
   defp read_health(reads, misses), do: PositionReadout.read_health(reads, misses)
 
@@ -266,18 +267,18 @@ defmodule PokexWeb.CavebotLive do
             <div>
               <p class="font-mono text-pk-meta uppercase text-pk-text-3">Posição atual</p>
               <p id="cavebot-pos" class="font-mono text-sm text-pk-text">{pos_text(@pos)}</p>
-              <%!-- Sem isto ele não tem como saber se a coordenada está sendo
-                   lida bem ou quase nunca: a leitura é tudo-ou-nada, então um
-                   glifo duvidoso vira "?" e a falha some sem deixar rastro. --%>
+              <%!-- Without this there is no telling whether the coordinate is
+                   read well or almost never: the read is all-or-nothing, so a
+                   doubtful glyph becomes "?" and the failure leaves no trace. --%>
               <p id="cavebot-read-health" class="mt-0.5 font-mono text-pk-meta text-pk-text-3">
                 {read_health(@reads, @misses)}
               </p>
             </div>
             <div class="flex items-center gap-2">
-              <%!-- O jeito que REALMENTE funciona: armar aqui, ir pro jogo, andar
-                   a rota. Clicar um botão por waypoint é impossível — o clique
-                   traz o navegador pra frente, tirando o jogo do foco e podendo
-                   cobrir o minimapa de onde a posição é lida. --%>
+              <%!-- The way that ACTUALLY works: arm here, go to the game, walk
+                   the route. A button click per waypoint is impossible — the
+                   click fronts the browser, taking the game out of focus and
+                   possibly covering the minimap the position is read from. --%>
               <button
                 id="toggle-recording"
                 phx-click="toggle_recording"

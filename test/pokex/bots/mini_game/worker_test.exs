@@ -44,9 +44,9 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       glow_region: {0, 0, 20, 20},
       battle_region: {0, 0, 20, 20},
       arena_region: {0, 0, 220, 220},
-      # A mão manda (2026-07-30): sem marcação, a busca vira uma caixa CENTRAL
-      # dentro da arena — mas estes testes desenham o jogo na arena INTEIRA,
-      # então a marcam como faixa (o que o Lucas faz na calibração real).
+      # Hand-marked region rules (2026-07-30): without one the search becomes a CENTRAL box
+      # inside the arena — these tests draw the game across the WHOLE arena, so they mark
+      # it as the strip (as real calibration does).
       mini_game_region: {0, 0, 220, 220},
       neutral_point: {100, 100}
     })
@@ -76,18 +76,14 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert :ok = Worker.halt(worker)
   end
 
+  # Field hang 2026-07-20: after a WIN the overlay closed but a >=60-row dark column behind
+  # the strip kept reading as a track, so the exit streak never fired. The capsule's blue
+  # pokes out on virtually every real tick (measured 86/86 frames) — present readings with
+  # NO blue for N consecutive ticks mean the overlay is functionally gone.
   @tag :tmp_dir
   test "a lingering fake track WITHOUT the capsule ends the game (the post-win hang)", %{
     tmp: tmp
   } do
-    # Real hang (2026-07-20): after a WIN the overlay closed, but the world
-    # behind the strip held a >=60-row dark column — Track kept reading a
-    # "track" + a clutter-fish, every tick came back :present, the exit streak
-    # never fired and the whole bot stayed self-held until a manual Stop. The
-    # capsule is the player's OWN presence: in real play its blue pokes out on
-    # virtually every tick (measured 86/86 frames on the live traces), so
-    # present readings WITHOUT any blue for N consecutive ticks mean the
-    # overlay is functionally gone.
     Settings.put(:mini_game_no_capsule_exit_ticks, 3)
 
     game = png!(tmp, "mini-game.png", true)
@@ -107,10 +103,9 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
+  # Backstop for any unseen wedge: no real game lasts minutes — a "game" that does is a
+  # stuck reading.
   test "a game that outlives the hard duration cap is force-ended", %{tmp: tmp} do
-    # Backstop for ANY unseen wedge (same philosophy as hook_hold_max_ms): no
-    # real game lasts minutes, so a "game" that does is a stuck reading — end
-    # it and let the watcher re-enter if the overlay is genuinely back.
     Settings.put(:mini_game_max_game_ms, 1)
 
     game = png!(tmp, "mini-game.png", true)
@@ -130,12 +125,11 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
+  # Real geometry: the game draws the bar ~40px right of the sprite — the seeded anchor
+  # tolerance must absorb the offset.
   test "enters the game when the bar sits right of the character, like the real overlay", %{
     tmp: tmp
   } do
-    # Real geometry: the game draws the bar ~40px right of the sprite. Player
-    # anchor falls back to the arena center (110); the bar is at 144..156. The
-    # seeded anchor tolerance must absorb the offset.
     game = png_with_bar_at!(tmp, "offset-game.png", 144..156)
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
@@ -167,9 +161,9 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
+  # Tolerance tight enough that only the calibrated anchor (not the arena center) can
+  # accept the offset bar — proves the worker prefers calibration.player_point.
   test "anchors the bar search at the CALIBRATED player point when one is saved", %{tmp: tmp} do
-    # Tight tolerance so only the calibrated anchor (not the arena center) can
-    # accept the offset bar — proves the worker prefers calibration.player_point.
     Settings.put(:mini_game_anchor_tolerance, 20)
 
     {:ok, calib} = Calibration.load()
@@ -206,14 +200,11 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
     wait_for(fn -> not Pokex.Perception.mini_game_playing?() end)
 
-    # back in: halt must also clear the fact
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
     wait_for(fn -> Pokex.Perception.mini_game_playing?() end)
     assert :ok = Worker.halt(worker)
     refute Pokex.Perception.mini_game_playing?()
   end
-
-  # --- the playing loop -------------------------------------------------------
 
   @tag :tmp_dir
   test "plays: fish above the capsule -> holds Space (key_down, never Body)", %{tmp: tmp} do
@@ -229,17 +220,16 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
 
     wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
 
-    # while playing, captures shrink to the armed strip around the bar
-    # (bar center 110 in the 220pt arena -> strip 70..150, full height)
     assert {:capture, {70, 0, 80, 220}, "mini_game_strip.png"} in Pokex.Rig.Fake.calls()
   end
 
+  # The entry guard sends a preventive key_up before the first tick — the proven release
+  # must come AFTER the key_down.
   @tag :tmp_dir
   test "plays: fish drops below the capsule -> releases Space", %{tmp: tmp} do
     hold = play_png!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
     release = play_png!(tmp, "release.png", fish: 170..184, capsule: 120..134)
 
-    # tick 1 watches+enters, tick 2 plays the hold strip, tick 3 the release
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, hold}, {:ok, hold}, {:ok, release}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
@@ -248,8 +238,6 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
 
-    # The entry guard already sent one preventive key_up BEFORE the first tick,
-    # so the release we are proving must be a LATER one — after the key_down.
     wait_for(&released_after_holding?/0)
   end
 
@@ -291,7 +279,6 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
     calm = png!(tmp, "calm.png", false)
 
-    # several play ticks (a bundle needs >= 5 samples), then the overlay vanishes
     captures = List.duplicate({:ok, game}, 8) ++ [{:ok, calm}]
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: captures})
 
@@ -313,7 +300,6 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert is_number(summary["tick_ms"]["p50"])
     assert is_number(summary["error_mean"])
     assert summary["key_down"] + summary["key_up"] > 0
-    # the entry guard's preventive release is recorded, whatever it returned
     assert [_entry_release | _] = summary["safety_key_ups"]
 
     samples =
@@ -325,14 +311,12 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
 
     assert length(samples) == summary["samples_recorded"]
 
-    # every tick carries its timing and its pixel evidence...
     assert Enum.all?(samples, fn sample ->
              is_number(sample["cap_ms"]) and is_number(sample["tick_ms"]) and
                is_number(sample["dark_px"]) and is_number(sample["blue_px"]) and
                is_boolean(sample["hold"]) and is_binary(sample["read"])
            end)
 
-    # ...and a READABLE tick carries the full reading it flew on
     readable = Enum.filter(samples, &(&1["read"] == "ok"))
     assert readable != []
 
@@ -344,7 +328,6 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
                sample["bar_source"] in ["blue", "fish"]
            end)
 
-    # frames are EVIDENCE, not a screen recording: far fewer than one per tick
     frames = Path.wildcard(Path.join([bundle, "frames", "*.png"]))
     assert frames != []
     assert length(frames) < length(samples)
@@ -373,7 +356,6 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   test "a capture failure while holding releases Space", %{tmp: tmp} do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
 
-    # tick 1 enters, tick 2 holds, tick 3 fails blind -> must release
     {:ok, _} =
       Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, game}, {:error, :boom}]})
 
@@ -384,20 +366,17 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
     wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
 
-    # a release AFTER the hold — not the entry guard's preventive one
     wait_for(&released_after_holding?/0)
   end
 
-  describe "assistência manual (o padrão seguro)" do
+  describe "manual assist (the safe default)" do
     setup do
       Settings.put(:mini_game_mode, "manual_assist")
       :ok
     end
 
     @tag :tmp_dir
-    test "never presses Space — Lucas plays, the bot only watches", %{tmp: tmp} do
-      # A fish far above the capsule: in :auto this frame holds Space on the
-      # very first play tick. Here it must never be pressed, no matter how long.
+    test "never presses Space — the human plays, the bot only watches", %{tmp: tmp} do
       game = play_png!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
       {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 30)})
 
@@ -407,7 +386,6 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       assert :ok = Worker.run(worker)
       assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
 
-      # let a good number of play ticks go by (20ms each in this suite)
       Process.sleep(300)
 
       refute {:key_down, "space"} in Pokex.Rig.Fake.calls()
@@ -481,7 +459,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "records a full bundle for the game Lucas played by hand", %{tmp: tmp} do
+    test "records a full bundle for a game played by hand", %{tmp: tmp} do
       game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
       calm = png!(tmp, "calm.png", false)
 
@@ -500,7 +478,6 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       assert summary["mode"] == "manual_assist"
       assert summary["key_down"] == 0
       assert summary["ticks"] >= 5
-      # the reading pipeline ran in full even though nothing was actuated
       assert is_number(summary["error_mean"])
     end
   end

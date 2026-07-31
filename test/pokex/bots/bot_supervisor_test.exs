@@ -112,7 +112,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     status = BotSupervisor.status(fishing, combat, catcher)
     assert status.fishing.state != :idle
     assert status.combat.state != :idle
-    # catcher is armed by start_all in the default "parado" mode, waiting for a corpse
     assert status.catcher.state == :armed
   end
 
@@ -128,9 +127,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert status.combat.state == :idle
     assert status.catcher.state == :idle
 
-    # A second stop_all/0 while already idle must be a safe no-op — this is
-    # exactly what the Guardian does on every poll tick while the cursor
-    # sits in the panic corner.
     assert :ok = BotSupervisor.stop_all(fishing, combat, catcher)
 
     status = BotSupervisor.status(fishing, combat, catcher)
@@ -173,7 +169,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert {:ok, %{loaded_mtime: loaded}} = WorldState.get(:calibration, 4_000_000_000, now)
     assert loaded == Pokex.Calibration.mtime()
 
-    # the hunt session starts with the workers (panel duration/rates read this)
     assert {:ok, %{started_at: started_at}} = WorldState.get(:session, 4_000_000_000, now)
     assert is_integer(started_at)
 
@@ -185,12 +180,11 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # The mode is what "Iniciar" means. Walking around, the rod and the mini-game
   # watcher have nothing to do — starting them would cast a line at whatever
   # water he happens to be passing.
+  # SettingsStash, not Settings.put: a player_mode left in the GLOBAL test settings file
+  # poisons every later run of the suite.
   @tag :tmp_dir
-  test "start_all/5 em movimento NÃO liga a pesca nem o mini game, e ainda liga a luta" do
+  test "start_all/5 in movimento mode starts combat but not fishing or the mini game" do
     servers = start_isolated_supervisor(:movimento_test)
-    # per-key restore: the blanket "put every default back" in setup writes to
-    # the GLOBAL test settings file, and a mode left behind there poisons every
-    # later run of the suite — this one cost an afternoon to trace.
     Pokex.SettingsStash.stash!(player_mode: "movimento")
 
     assert :ok =
@@ -206,7 +200,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert status.fishing.state == :idle
     assert Pokex.Bots.MiniGame.Worker.status(servers.mini_game).state == :off
 
-    # what movimento IS: the bot fights, and the catcher stays up for the Space loot
     assert status.combat.state != :idle
     assert status.catcher.state != :idle
   end
@@ -215,13 +208,12 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # itself, so start_all must NOT arm the fight directly — only the cavebot,
   # the catcher (Space loot) and the support come up.
   @tag :tmp_dir
-  test "start_all em caçada sobe o cavebot, sem pesca nem combat direto; stop_all o derruba" do
+  test "start_all in caçada mode starts the cavebot without fishing or direct combat; stop_all idles it" do
     alias Pokex.Bots.Cavebot
 
     servers = start_isolated_supervisor(:cacada_test)
     Pokex.SettingsStash.stash!(player_mode: "caçada")
 
-    # a valid, enabled route — without one the cavebot's run fails preflight
     {:ok, route} = Cavebot.Route.append(Cavebot.Route.new("rota de teste"), {10, 12, 5})
     :ok = Cavebot.Store.add(route)
 
@@ -247,7 +239,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
     assert status.cavebot.state != :idle
     assert status.cavebot.route == "rota de teste"
-    # the cavebot OWNS combat's run/halt — start_all must not arm it directly
     assert status.combat.state == :idle
     assert status.fishing.state == :idle
     assert Pokex.Bots.MiniGame.Worker.status(servers.mini_game).state == :off
@@ -276,12 +267,11 @@ defmodule Pokex.Bots.BotSupervisorTest do
   end
 
   @tag :tmp_dir
-  test "emergency_escape sem escada calibrada: trava, para e broadcasta mesmo assim", %{
+  test "emergency_escape without a calibrated ladder still latches, stops, and broadcasts", %{
     tmp_dir: tmp
   } do
     alias Pokex.Bots.InputGate
 
-    # scope home to an empty dir so Calibration.load fails → :not_calibrated
     Application.put_env(:pokex, :home_dir, tmp)
 
     on_exit(fn ->
@@ -315,13 +305,11 @@ defmodule Pokex.Bots.BotSupervisorTest do
         mini_game_min_dark_ratio: 0.34,
         mini_game_play_tick_ms: 20,
         mini_game_min_toggle_ms: 0,
-        # only the PILOT can leave a Space held — the safe default never presses
         mini_game_mode: "auto"
       },
       fn {k, v} -> Settings.put(k, v) end
     )
 
-    # geometry matching the shared 220x220 scene fixture
     Calibration.save(%Calibration{
       scale: 1.0,
       screen_w: 220,
@@ -333,7 +321,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
       neutral_point: {100, 100}
     })
 
-    # fish above the capsule -> the player holds Space to chase it
     game = Pokex.PngFixtures.mini_game_scene!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
     Agent.stop(Pokex.Rig.Fake)
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
@@ -341,19 +328,15 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert :ok = Pokex.Bots.MiniGame.Worker.run(mini_game)
     wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
 
-    # exactly the Guardian's on_panic closure (stop_all/5)
     assert :ok = BotSupervisor.stop_all(fishing, combat, catcher, mini_game, player_support)
 
     assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
     assert Pokex.Bots.MiniGame.Worker.status(mini_game).state == :off
   end
 
-  # A caracterização da Etapa 0 cravava a pegadinha (parada-com-motivo contava
-  # como ATIVO) e prometia que este teste viraria quando a Frente 1 unificasse
-  # o snapshot. Virou: active?/1 é a régua ÚNICA de "está rodando" — header,
-  # painel e Focus consultam a mesma, e parado-com-motivo é PARADO.
+  # Header, panel, and Focus all consult active?/1 — the single "is it running" gauge.
   @tag :tmp_dir
-  test "FRENTE 1: active?/1 é a régua única — parado-com-motivo é PARADO" do
+  test "active?/1 is the single activity gauge — stopped-with-reason is not active" do
     for parado <- [:idle, :off, :ocupado, :error, :manual] do
       refute BotSupervisor.active?(parado)
       refute BotSupervisor.active?(%{state: parado})
@@ -363,34 +346,27 @@ defmodule Pokex.Bots.BotSupervisorTest do
       assert BotSupervisor.active?(rodando)
     end
 
-    # o fim da pegadinha: a caçada parada com motivo NUNCA acende verde
     for parada_do_cavebot <- [:blocked, :stuck, :fight_stalled] do
       refute BotSupervisor.active?(parada_do_cavebot)
       refute BotSupervisor.active?(%{state: parada_do_cavebot})
     end
 
-    # e a pergunta de frota inteira usa a mesma régua
     assert BotSupervisor.any_active?([%{state: :idle}, %{state: :walking}])
     refute BotSupervisor.any_active?([%{state: :idle}, %{state: :blocked}])
   end
 
-  # FRENTE 1: os funis de produção são ORDENS — todo Iniciar/Parar/pânico/
-  # logout/freio passa por stop_all/0 ou start_all/0, e cada um muda a geração.
-  # É o bump daqui que mata a retomada pendente do Focus quando qualquer ordem
-  # chega entre a perda e a volta do foco.
+  # Every start/stop/panic/logout order funnels through stop_all/0 or start_all/0; the
+  # generation bump is what kills a pending Focus resume when an order lands mid-blur.
+  # In test env start_all/0 boots the real global fleet against the fake Rig — it must be
+  # stopped right after, or the global worker keeps ticking against a dead sensor.
   @tag :tmp_dir
-  test "FRENTE 1: stop_all/0 e start_all/0 mudam a geração — até um Iniciar que falha" do
+  test "stop_all/0 and start_all/0 bump the generation — even a start that fails" do
     antes = Pokex.Bots.Session.generation()
 
     :ok = BotSupervisor.stop_all()
     depois_do_stop = Pokex.Bots.Session.generation()
     assert depois_do_stop > antes
 
-    # o RESULTADO do Iniciar não importa pra geração: sucesso ou preflight
-    # falhado, a intenção foi expressa e uma retomada pendente de antes dela
-    # não pode sobreviver. (No env de teste ele SOBE a frota de verdade contra
-    # o Rig fake — parar na sequência é obrigatório, ou o worker global fica
-    # tickando contra um sensor morto pelo resto da suíte.)
     on_exit(fn -> BotSupervisor.stop_all() end)
     _resultado = BotSupervisor.start_all()
     assert Pokex.Bots.Session.generation() > depois_do_stop
@@ -399,7 +375,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   end
 
   @tag :tmp_dir
-  test "FRENTE 1: hold_for_focus devolve a geração da própria pausa" do
+  test "hold_for_focus returns the generation of its own pause" do
     generation = BotSupervisor.hold_for_focus()
 
     assert is_integer(generation)

@@ -32,8 +32,8 @@ defmodule Pokex.Bots.Combat.Logic do
             entered_at: 0,
             tabbed_at: nil,
             tab_attempts: 0,
-            # frames pós-Tab SEM lock efetivamente VISTOS — a evidência que
-            # autoriza um re-Tab (re-Tab cego cicla o alvo; ver :tabbing)
+            # post-Tab frames WITHOUT a lock actually SEEN — the evidence that
+            # authorizes a re-Tab (blind re-Tab cycles the target; see :tabbing)
             post_tab_frames: 0,
             hold_until: nil,
             probe_until: nil,
@@ -42,13 +42,12 @@ defmodule Pokex.Bots.Combat.Logic do
             last_burst_at: nil,
             lost_streak: 0,
             locked_row: nil,
-            # Aprendizado do CENÁRIO (Lucas, 2026-07-30: mob inatacável na
-            # lista = Tab em loop achando que luta): caçadas seguidas que
-            # esgotaram os Tabs com evidência de frame e nenhum lock
-            # (failed_hunts), a quantidade de alvos vista ao abrir a caçada
-            # (hunt_enemies; 0 = sonda às cegas, nunca aprende) e o "cenário
-            # presumido" — scenery_rows alvos tratados como aliados (como a
-            # própria posição) até scenery_until.
+            # SCENERY learning (2026-07-30: unattackable mob in the list = Tab
+            # loop believing it fights): consecutive hunts that exhausted Tabs
+            # with frame evidence and no lock (failed_hunts), the target count
+            # seen when the hunt opened (hunt_enemies; 0 = blind probe, never
+            # learns), and the "presumed scenery" — scenery_rows targets treated
+            # as allies (like the own position) until scenery_until.
             failed_hunts: 0,
             hunt_enemies: 0,
             scenery_rows: nil,
@@ -61,8 +60,6 @@ defmodule Pokex.Bots.Combat.Logic do
             # keep the key rather than let a missing key change that merge's shape.
             # `loots` was Loot.Logic's; Loot is deleted and nothing reads it here anymore.
             counters: %{fights: 0, captures: 0, failures: 0}
-
-  # -- lifecycle ------------------------------------------------------------
 
   def new(config), do: %__MODULE__{config: config}
 
@@ -79,7 +76,7 @@ defmodule Pokex.Bots.Combat.Logic do
          last_burst_at: nil,
          lost_streak: 0,
          locked_row: nil,
-         # um Start novo pode ser um spot novo — o cenário presumido não viaja
+         # a new Start may be a new spot — presumed scenery does not travel
          failed_hunts: 0,
          hunt_enemies: 0,
          scenery_rows: nil,
@@ -103,8 +100,6 @@ defmodule Pokex.Bots.Combat.Logic do
     do: %{logic | hold_until: nil, entered_at: now, probe_until: probe_deadline(logic, now)}
 
   def rescan(logic, _now), do: logic
-
-  # -- stepping ---------------------------------------------------------------
 
   @doc """
   Step on a battle observation (map with :enemies/:locked?/:locked_row/:captured_at) or nil
@@ -131,9 +126,9 @@ defmodule Pokex.Bots.Combat.Logic do
       logic.hold_until != nil and now < logic.hold_until ->
         {logic, []}
 
-      # Só alvo ALÉM do cenário presumido é motivo pra Tab — os presumidos são
-      # aliados de fato (como a própria posição). Sem presunção ativa, qualquer
-      # alvo conta, como sempre.
+      # Only targets BEYOND the presumed scenery justify a Tab — presumed ones
+      # are de facto allies (like the own position). With no active presumption
+      # any target counts, as always.
       length(enemies(obs)) > (logic.scenery_rows || 0) ->
         {tab(%{logic | hold_until: nil, hunt_enemies: length(enemies(obs))}, now),
          [{:tab}, {:log, "alvo na lista; Tab"}]}
@@ -159,7 +154,7 @@ defmodule Pokex.Bots.Combat.Logic do
     cond do
       fresh_lock?(obs, logic.tabbed_at) ->
         # confirmed on a post-Tab frame → fight, and don't waste this event: first burst now.
-        # Um lock real zera o aprendizado de cenário: tinha inimigo de verdade.
+        # A real lock resets scenery learning: there was a real enemy.
         logic = %{
           logic
           | state: :fighting,
@@ -172,10 +167,10 @@ defmodule Pokex.Bots.Combat.Logic do
 
         press_next_skill(logic, now, obs[:ready_skills])
 
-      # Re-Tab SÓ com evidência: a janela venceu E vimos frame(s) pós-Tab sem
-      # lock. Cada Tab extra CICLA o alvo pro próximo inimigo — re-Tab no
-      # relógio, sem frame nenhum (captura lenta/travada), era o "fica dando
-      # tab sem focar no primeiro e demora pra usar skill" com a lista cheia.
+      # Re-Tab ONLY with evidence: the window expired AND post-Tab frame(s)
+      # without a lock were seen. Each extra Tab CYCLES the target to the next
+      # enemy — clock-based re-Tab with no frame at all (slow/stuck capture)
+      # was the endless-Tab-never-focusing failure with a full list.
       now - logic.tabbed_at > logic.config.tab_confirm_ms and
         logic.post_tab_frames >= logic.config.tab_confirm_frames and
           logic.tab_attempts < logic.config.tab_max_attempts ->
@@ -185,10 +180,10 @@ defmodule Pokex.Bots.Combat.Logic do
           logic.post_tab_frames >= logic.config.tab_confirm_frames ->
         give_up_hunt(logic, now)
 
-      # A janela venceu mas a evidência NÃO veio (nenhum frame pós-Tab): não
-      # se cicla alvo às cegas — mas também não se espera pra sempre por uma
-      # captura que pode estar morta. 4× a janela sem frame → recua pro
-      # hunt-hold dizendo o porquê, e a caça tenta de novo depois.
+      # The window expired but the evidence never CAME (no post-Tab frame): we
+      # don't cycle targets blind — but we also don't wait forever on a capture
+      # that may be dead. 4x the window without a frame → retreat to the
+      # hunt-hold saying why, and the hunt retries later.
       now - logic.tabbed_at > logic.config.tab_confirm_ms * 4 ->
         {%{
            logic
@@ -226,9 +221,9 @@ defmodule Pokex.Bots.Combat.Logic do
     end
   end
 
-  # Um frame genuinamente novo (o dedup já filtrou repetição), capturado DEPOIS
-  # do Tab e sem lock — a testemunha de que o jogo teve chance de pintar o anel
-  # e não pintou. Só isso autoriza ciclar o alvo.
+  # A genuinely new frame (dedup already filtered repeats), captured AFTER the
+  # Tab and lock-free — the witness that the game had a chance to paint the
+  # ring and didn't. Only that authorizes cycling the target.
   defp count_post_tab_frame(logic, obs) do
     if obs != nil and is_integer(obs[:captured_at]) and obs[:captured_at] > logic.tabbed_at and
          obs[:locked?] != true,
@@ -277,18 +272,15 @@ defmodule Pokex.Bots.Combat.Logic do
 
   def next_wake(_logic, _now), do: nil
 
-  # -- helpers ----------------------------------------------------------------
-
-  # Toda a caçada esgotada COM evidência de frame e nenhum lock — o mob visível
-  # que não deixa lockar (Lucas, 2026-07-30: pokémon de CENÁRIO na lista; o
-  # combate "achava que tá lutando, quando na verdade tá usando Tab para atacar
-  # um inimigo que nem pode atacar"). Uma sonda às cegas (hunt_enemies=0) não
-  # aprende nada — lista vazia não tem cenário. Uma caçada real conta; na
-  # scenery_hunts_needed-ésima seguida (cada uma custou tab_max_attempts Tabs),
-  # os alvos daquela contagem viram CENÁRIO PRESUMIDO: deixam de ser motivo pra
-  # Tab, como a própria posição. Um alvo A MAIS caça na hora; a lista encolher
-  # limpa; o TTL re-sonda de tempos em tempos (auto-corrige um presumido
-  # errado). Um lock real zera a contagem (cláusula do fresh_lock).
+  # A hunt exhausted WITH frame evidence and no lock — the visible mob that
+  # won't lock (2026-07-30: SCENERY pokémon in the list; combat kept Tabbing an
+  # unattackable enemy believing it fought). A blind probe (hunt_enemies=0)
+  # learns nothing — an empty list has no scenery. A real hunt counts; on the
+  # scenery_hunts_needed-th in a row (each costing tab_max_attempts Tabs), that
+  # count's targets become PRESUMED SCENERY: no longer a reason to Tab, like
+  # the own position. One EXTRA target hunts immediately; a shrinking list
+  # clears it; the TTL re-probes periodically (self-corrects a wrong
+  # presumption). A real lock resets the count (fresh_lock clause).
   defp give_up_hunt(logic, now) do
     hold = %{
       logic
@@ -326,9 +318,9 @@ defmodule Pokex.Bots.Combat.Logic do
     end
   end
 
-  # O presumido se auto-corrige sem ajuda: expira no TTL (re-sonda), e uma
-  # lista MENOR que ele significa que a composição mudou (o cenário saiu) —
-  # esquece e volta a caçar normal. Só frames reais votam no encolhimento.
+  # The presumption self-corrects: it expires at the TTL (re-probe), and a list
+  # SMALLER than it means the composition changed (the scenery left) — forget
+  # and hunt normally again. Only real frames vote on the shrink.
   defp refresh_scenery(%{scenery_rows: nil} = logic, _obs, _now), do: logic
 
   defp refresh_scenery(logic, obs, now) do

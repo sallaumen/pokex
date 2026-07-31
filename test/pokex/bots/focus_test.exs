@@ -15,9 +15,8 @@ defmodule Pokex.Bots.FocusTest do
       InputGate.set_focus_ok(true)
     end)
 
-    # O agente simula o Session também: `generation` é o contador de ordens, e
-    # a pausa (hold) devolve a geração que ela mesma criou — o mesmo contrato
-    # de BotSupervisor.hold_for_focus/0.
+    # The agent also plays the Session: `generation` is the order counter, and the hold
+    # returns the generation it created — the same contract as BotSupervisor.hold_for_focus/0.
     {:ok, agent} =
       Agent.start_link(fn -> %{frontmost: "wine", running: false, calls: [], generation: 0} end)
 
@@ -123,32 +122,27 @@ defmodule Pokex.Bots.FocusTest do
     refute :stop in calls(agent)
   end
 
-  test "INCIDENT REGRESSION: a panic between focus-lost and refocus kills the pending resume",
+  # Incident 2026-07-11: this exact sequence (panic latch set between focus loss and
+  # refocus) restarted the bot mid-fight and got the active Pokémon killed.
+  test "a panic between focus-lost and refocus kills the pending resume",
        %{agent: agent, opts: opts} do
     alias Pokex.Bots.InputGate
     on_exit(fn -> InputGate.set_panic_latch(false) end)
 
-    # bot running, game focused
     set(agent, %{frontmost: "wine", running: true})
     start_focus!(opts)
     assert eventually(fn -> InputGate.state().focus_ok == true end)
 
-    # 1. game loses focus → Focus halts the workers and remembers "resume later"
     set(agent, %{frontmost: "Google Chrome"})
     assert eventually(fn -> InputGate.state().focus_ok == false end)
     assert :stop in calls(agent)
 
-    # 2. the human PANICS (mouse-to-corner sets the latch — what Guardian.panic does)
     InputGate.set_panic_latch(true)
 
-    # 3. the human refocuses the game to fight manually → the pending resume MUST be dropped,
-    #    not executed over the panic (this exact sequence restarted the bot mid-fight and got
-    #    Lucas's Pokémon killed, 2026-07-11)
     set(agent, %{frontmost: "wine"})
     assert eventually(fn -> InputGate.state().focus_ok == true end)
     refute :start in calls(agent)
 
-    # 4. and the drop is permanent — another focus round-trip resumes nothing either
     set(agent, %{frontmost: "Finder", running: false})
     assert eventually(fn -> InputGate.state().focus_ok == false end)
     set(agent, %{frontmost: "wine"})
@@ -156,28 +150,24 @@ defmodule Pokex.Bots.FocusTest do
     refute :start in calls(agent)
   end
 
-  test "FRENTE 1: um Stop manual entre a perda e a volta do foco NUNCA religa",
+  # The old boolean forgot a manual Stop order — only panic vetoed the resume; the
+  # generation counter closes that hole.
+  test "a manual Stop between focus loss and return never restarts the bots",
        %{agent: agent, opts: opts, bump: bump} do
-    # bot rodando, jogo focado
     set(agent, %{frontmost: "wine", running: true})
     start_focus!(opts)
     assert eventually(fn -> InputGate.state().focus_ok == true end)
 
-    # 1. o jogo perde o foco → o Focus pausa e guarda a geração da pausa
     set(agent, %{frontmost: "Google Chrome"})
     assert eventually(fn -> InputGate.state().focus_ok == false end)
     assert :stop in calls(agent)
 
-    # 2. o humano aperta PARAR no painel — uma ORDEM: a geração muda.
-    #    (Era o buraco: um booleano esquecia esta ordem, e só o pânico vetava.)
     bump.()
 
-    # 3. o foco volta → a retomada é de uma geração VELHA e é descartada
     set(agent, %{frontmost: "wine"})
     assert eventually(fn -> InputGate.state().focus_ok == true end)
     refute :start in calls(agent)
 
-    # 4. o descarte é permanente — outro vai-e-volta de foco não religa nada
     set(agent, %{frontmost: "Finder", running: false})
     assert eventually(fn -> InputGate.state().focus_ok == false end)
     set(agent, %{frontmost: "wine"})
@@ -185,10 +175,8 @@ defmodule Pokex.Bots.FocusTest do
     refute :start in calls(agent)
   end
 
-  test "sem ordem no meio, a retomada da MESMA geração continua religando",
+  test "with no order in between, a same-generation resume still restarts",
        %{agent: agent, opts: opts} do
-    # o espelho do teste acima: a geração não pode transformar toda pausa em
-    # descarte — perder e recuperar o foco sem nenhuma ordem no meio retoma.
     set(agent, %{frontmost: "Finder", running: true})
     start_focus!(opts)
 
@@ -232,21 +220,18 @@ defmodule Pokex.Bots.FocusTest do
       :ok
     end
 
-    test "recusa enquanto o cursor está no canto do pânico" do
+    test "refuses while the cursor is in the panic corner" do
       Pokex.Bots.InputGate.set_corner_ok(false)
 
       assert Pokex.Bots.Focus.ensure_front() == {:error, :panic_corner}
     end
 
-    # Os dois ramos devolvem :ok, então asserir só o retorno não prova nada —
-    # uma implementação que SEMPRE frontasse passaria nos dois testes. O que
-    # distingue é o efeito: o ramo que fronta dorme calibration_front_delay_ms
-    # e abre a porteira; o que passa direto não faz nem um nem outro.
-    test "quando o jogo já está na frente, passa direto — sem pagar a espera" do
-      # A margem é ABSURDA de propósito: 3s de espera contra um teto de 1s. Uma
-      # implementação que frontasse à toa dormiria os 3s inteiros, e nenhum pico
-      # de carga da suíte fecha essa distância — o teste distingue os dois ramos
-      # sem virar um piscante.
+    # Both branches return :ok, so asserting the return proves nothing — an implementation
+    # that ALWAYS fronted would pass both tests. The fronting branch sleeps
+    # calibration_front_delay_ms and opens the gate; the pass-through does neither.
+    # The margin is deliberately absurd (3s wait vs a 1s ceiling) so no suite load spike
+    # can make this flaky.
+    test "when the game is already in front, it passes through — without paying the wait" do
       Pokex.SettingsStash.stash!(calibration_front_delay_ms: 3_000)
       Pokex.Bots.InputGate.set_corner_ok(true)
       Pokex.Bots.InputGate.set_focus_ok(true)
@@ -257,15 +242,13 @@ defmodule Pokex.Bots.FocusTest do
       assert div(micros, 1000) < 1_000, "pagou a espera do fronting sem precisar"
     end
 
-    test "quando o jogo NÃO está na frente, fronta e abre a porteira na hora" do
+    test "when the game is NOT in front, it fronts and opens the gate immediately" do
       Pokex.SettingsStash.stash!(calibration_front_delay_ms: 0)
       Pokex.Bots.InputGate.set_corner_ok(true)
       Pokex.Bots.InputGate.set_focus_ok(false)
 
       assert Pokex.Bots.Focus.ensure_front() == :ok
 
-      # abrir a porteira AQUI, e não esperar o poller notar, é o ponto: senão o
-      # Rig engoliria a tecla seguinte em silêncio
       assert Pokex.Bots.InputGate.state().focus_ok
     end
   end

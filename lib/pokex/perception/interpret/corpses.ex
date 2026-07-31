@@ -83,14 +83,13 @@ defmodule Pokex.Perception.Interpret.Corpses do
     {%{scanning?: true, corpses: corpses, known: known}, %{st | tracks: tracks}}
   end
 
-  # O acervo ensinado É a mira (2026-07-30): o detector estrutural continua
-  # achando os blobs parados, mas só vira alvo o candidato cuja paleta casa
-  # com um corpo que o Lucas fotografou e nomeou na calibração — o modo que
-  # adivinhava sem acervo foi aposentado a pedido dele ("usar os corpos
-  # realmente mapeados ao invés de um algoritmo que nunca funciona"). Acervo
-  # vazio = NENHUM alvo (o Catcher avisa alto no start). O nome e o score
-  # viajam na observação (:known) — o log da bola diz QUEM está na mira e o
-  # /world mostra o que a IA reconheceu.
+  # The taught library IS the aim (2026-07-30): the structural detector still
+  # finds stationary blobs, but a candidate only becomes a target when its
+  # palette matches a corpse Lucas photographed and named in calibration — the
+  # guess-without-library mode was retired at his request. Empty library = NO
+  # targets (the Catcher warns loudly on start). Name and score travel in the
+  # observation (:known) so the ball log says WHO is targeted and /world shows
+  # what was recognized.
   defp match_known(candidates, frame, settings) do
     box = Settings.value(settings, :corpse_sprite_box_px)
     min = Settings.value(settings, :corpse_match_min_similarity)

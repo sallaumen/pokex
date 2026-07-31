@@ -104,7 +104,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
   end
 
   describe "throw lifecycle" do
-    defp config_seca(teto), do: Map.put(config(), :dry_balls_alarm, teto)
+    defp dry_config(cap), do: Map.put(config(), :dry_balls_alarm, cap)
 
     test "ball_flown moves the flight window to the actuation time, not the decision time" do
       {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
@@ -152,7 +152,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
       }
 
       {logic, _} = Logic.step(armed(), obs_kingler, 10)
-      assert logic.throw.nome == "Kingler"
+      assert logic.throw.name == "Kingler"
 
       obs_gyarados = %{
         scanning?: true,
@@ -166,11 +166,11 @@ defmodule Pokex.Bots.Catcher.LogicTest do
       assert logic.counters.captures == 1
       assert Enum.any?(actions, &match?({:log, "capturado" <> _}, &1))
       assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}}, &1))
-      assert logic.throw.nome == "Gyarados"
+      assert logic.throw.name == "Gyarados"
     end
 
     test "N balls without a confirmed capture ring the alarm and restart the count" do
-      {logic, []} = Logic.start(Logic.new(config_seca(2)), 0)
+      {logic, []} = Logic.start(Logic.new(dry_config(2)), 0)
 
       {logic, _} = Logic.step(logic, obs([{100, 200}], 10), 10)
       {logic, _} = Logic.step(logic, obs([{100, 200}], 900), 900)

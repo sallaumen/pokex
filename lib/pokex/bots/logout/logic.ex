@@ -88,9 +88,9 @@ defmodule Pokex.Bots.Logout.Logic do
   def after_read(%__MODULE__{} = logic, reading) do
     case {reading, logic.witness?} do
       {:gone, true} -> confirma(logic)
-      {:gone, false} -> nao_confirma(logic, :sem_testemunha)
-      {:present, _} -> nao_confirma(logic, :ainda_logado)
-      {:unreadable, _} -> nao_confirma(logic, :ilegivel)
+      {:gone, false} -> does_not_confirm(logic, :no_witness)
+      {:present, _} -> does_not_confirm(logic, :still_logged_in)
+      {:unreadable, _} -> does_not_confirm(logic, :unreadable)
     end
   end
 
@@ -99,24 +99,24 @@ defmodule Pokex.Bots.Logout.Logic do
 
     cond do
       logic.confirms >= 2 -> {%{logic | state: :out}, {:finish, :out}}
-      logic.reads >= @reads_per_attempt -> retry(logic, :nao_confirmou)
+      logic.reads >= @reads_per_attempt -> retry(logic, :did_not_confirm)
       true -> {logic, :verify}
     end
   end
 
-  defp nao_confirma(logic, motivo) do
+  defp does_not_confirm(logic, reason) do
     logic = %{logic | reads: logic.reads + 1, confirms: 0}
 
     if logic.reads >= @reads_per_attempt,
-      do: retry(logic, motivo),
+      do: retry(logic, reason),
       else: {logic, :verify}
   end
 
-  defp retry(logic, motivo) do
+  defp retry(logic, reason) do
     if logic.attempt < Map.fetch!(logic.config, :attempts) do
       {%{logic | state: :pressing, attempt: logic.attempt + 1, reads: 0, confirms: 0}, :press}
     else
-      {%{logic | state: :failed, error: motivo}, {:finish, {:failed, motivo}}}
+      {%{logic | state: :failed, error: reason}, {:finish, {:failed, reason}}}
     end
   end
 end

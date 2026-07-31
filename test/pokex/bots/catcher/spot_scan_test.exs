@@ -184,16 +184,16 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
       obs = SpotScan.scan(calib(), capture_with_corpses_at([]))
 
       assert obs.corpses == []
-      assert %{name: "Corsola", score: score} = obs.melhor
-      assert score < obs.limiar
+      assert %{name: "Corsola", score: score} = obs.best
+      assert score < obs.threshold
     end
 
     test "an empty library yields no targets and a nil best, without crashing" do
       obs = SpotScan.scan(calib(), capture_with_corpses_at([{537, 417}]))
 
       assert obs.corpses == []
-      assert obs.melhor == nil
-      assert obs.janelas == 0
+      assert obs.best == nil
+      assert obs.windows == 0
     end
   end
 
@@ -220,7 +220,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
     test "blindness has a name and never confirms a ball in flight" do
       obs = SpotScan.scan(calib(screen_w: nil, screen_h: nil, player_point: nil), nil)
 
-      assert %{scanning?: false, motivo: :sem_ancora, corpses: []} = obs
+      assert %{scanning?: false, reason: :no_anchor, corpses: []} = obs
     end
 
     test "the observation counts the scored windows" do
@@ -228,9 +228,9 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
 
       obs = SpotScan.scan(calib(), capture_with_corpses_at([]))
 
-      assert obs.janelas > 0
-      assert obs.limiar == 0.72
-      assert {_x, _y, _w, _h} = obs.regiao
+      assert obs.windows > 0
+      assert obs.threshold == 0.72
+      assert {_x, _y, _w, _h} = obs.region
     end
   end
 end

@@ -41,7 +41,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     name = String.trim(name)
 
     if name == "" do
-      {:error, :nome_vazio}
+      {:error, :empty_name}
     else
       sample = %{
         "w" => crop.width,
@@ -171,7 +171,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     frame |> window_signature(x, y, w, h) |> best_of()
   end
 
-  def best_in(_frame, _janela_fora), do: nil
+  def best_in(_frame, _window_outside), do: nil
 
   defp best_of(sig) do
     library().signatures
@@ -189,8 +189,8 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     counts =
       Enum.reduce(y0..(y0 + h - 1), %{}, fn y, acc ->
         skip = (y * fw + x0) * 4
-        <<_::binary-size(skip), linha::binary-size(w * 4), _rest::binary>> = rgba
-        count_bins(linha, acc)
+        <<_::binary-size(skip), line::binary-size(w * 4), _rest::binary>> = rgba
+        count_bins(line, acc)
       end)
 
     normalize(counts, w * h)
@@ -258,7 +258,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
          {:ok, entries} when is_list(entries) <- Jason.decode(body) do
       Enum.map(entries, &migrate/1)
     else
-      _sem_acervo -> []
+      _no_library -> []
     end
   end
 
@@ -289,7 +289,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   defp file_stamp do
     case File.stat(file(), time: :posix) do
       {:ok, %{mtime: mtime, size: size}} -> {mtime, size}
-      _sem_arquivo -> nil
+      _no_file -> nil
     end
   end
 

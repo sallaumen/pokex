@@ -355,7 +355,7 @@ defmodule PokexWeb.CalibrationLive do
 
   # -- mapped corpses (the teaching that replaced capture guessing) ------------
 
-  # Photographs EXACTLY the region the search sweeps (SpotScan.regiao/1). It
+  # Photographs EXACTLY the region the search sweeps (SpotScan.region/1). It
   # used `arena_region`, which broke teaching once the search became the scan
   # square: a corpse near the character — outside the narrow arena — did not
   # fit in the photo, so it couldn't even be clicked. Lucas hit this head-on
@@ -363,19 +363,19 @@ defmodule PokexWeb.CalibrationLive do
   # searching must see the SAME piece of screen.
   def handle_event("corpse_shot", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
-         {:ok, region} <- SpotScan.regiao(calib),
+         {:ok, region} <- SpotScan.region(calib),
          {:ok, frame, _path} <- Capture.frame_with_path(region, "corpse_teach.png") do
       {:noreply,
        assign(socket,
-         corpse_shot: %{frame: frame, v: System.system_time(:millisecond), regiao: region},
+         corpse_shot: %{frame: frame, v: System.system_time(:millisecond), region: region},
          corpse_crop: nil,
          corpse_msg: nil
        )}
     else
-      {:erro, motivo} ->
-        {:noreply, assign(socket, corpse_msg: {:error, foto_erro(motivo)})}
+      {:erro, reason} ->
+        {:noreply, assign(socket, corpse_msg: {:error, photo_error(reason)})}
 
-      _sem_calibracao_ou_captura ->
+      _no_calibration_or_capture ->
         {:noreply,
          assign(socket, corpse_msg: {:error, "precisa de calibração e da captura viva"})}
     end
@@ -423,7 +423,7 @@ defmodule PokexWeb.CalibrationLive do
                corpse_list: CorpseLibrary.list()
              )}
 
-          {:error, :nome_vazio} ->
+          {:error, :empty_name} ->
             {:noreply, assign(socket, corpse_msg: {:error, "dê um nome ao corpo"})}
         end
     end
@@ -474,8 +474,8 @@ defmodule PokexWeb.CalibrationLive do
   # The per-corpse count the Catcher publishes (R4). The topic's other traffic
   # (snapshots, logs) doesn't matter to this page — the catch-all below
   # swallows it, as the header already does on the other pages.
-  def handle_info({:catcher_contagem, contagem}, socket),
-    do: {:noreply, assign(socket, corpse_counts: contagem)}
+  def handle_info({:catcher_count, count}, socket),
+    do: {:noreply, assign(socket, corpse_counts: count)}
 
   def handle_info({:baseline, index}, socket) when index < @baseline_count do
     destination = Path.join(Home.baselines_dir(), "glow_#{index}.png")
@@ -541,15 +541,15 @@ defmodule PokexWeb.CalibrationLive do
   # FunctionClauseError — the exact bug class of PR #111, with the bot on.
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  defp foto_erro(:sem_ancora),
+  defp photo_error(:no_anchor),
     do: "marque o seu personagem na calibração (ou salve a resolução da tela) antes de ensinar"
 
-  defp foto_erro(:sem_tela), do: "a calibração não sabe o tamanho da tela — refaça o passo 1"
+  defp photo_error(:no_screen), do: "a calibração não sabe o tamanho da tela — refaça o passo 1"
 
-  defp foto_erro(:quadro_pequeno_demais),
+  defp photo_error(:frame_too_small),
     do: "o quadro da busca ficou menor que o recorte do corpo"
 
-  defp foto_erro(outro), do: "não deu pra fotografar: #{inspect(outro)}"
+  defp photo_error(outro), do: "não deu pra fotografar: #{inspect(outro)}"
 
   # Hand focus back to whatever was frontmost before the baselines fronted the game.
   defp return_focus(socket) do
@@ -904,7 +904,7 @@ defmodule PokexWeb.CalibrationLive do
         nil -> "mas NÃO li a coordenada da foto — ajuste a faixa do texto e marque de novo."
       end
     else
-      _sem_frame -> "não deu pra reler a foto pra testar — valide no /world."
+      _no_frame -> "não deu pra reler a foto pra testar — valide no /world."
     end
   end
 
@@ -1474,11 +1474,11 @@ defmodule PokexWeb.CalibrationLive do
             📸 Fotografar o quadro da busca
           </button>
 
-          <p :if={@corpse_shot[:regiao]} class="font-mono text-xs opacity-60">
-            quadro varrido: {elem(@corpse_shot.regiao, 2)}×{elem(@corpse_shot.regiao, 3)} pt em {elem(
-              @corpse_shot.regiao,
+          <p :if={@corpse_shot[:region]} class="font-mono text-xs opacity-60">
+            quadro varrido: {elem(@corpse_shot.region, 2)}×{elem(@corpse_shot.region, 3)} pt em {elem(
+              @corpse_shot.region,
               0
-            )},{elem(@corpse_shot.regiao, 1)}
+            )},{elem(@corpse_shot.region, 1)}
           </p>
 
           <p

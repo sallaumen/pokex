@@ -102,7 +102,7 @@ defmodule Pokex.Bots.StockAlerts do
   # and the next correct read alarmed AGAIN — journal 2026-07-30: F2 stuck at 0
   # fired 56 times; 322 alarms in 9.7h got 10 of the 11 bell sectors muted.
   # Not a knob: 3 reads is OCR-noise physics, not taste.
-  @releituras_para_rearmar 3
+  @rereads_to_rearm 3
 
   defp check(state, slots) do
     Enum.reduce(@slots, state, fn {key, label, setting}, acc ->
@@ -124,7 +124,7 @@ defmodule Pokex.Bots.StockAlerts do
     if MapSet.member?(state.low, key) do
       vezes = Map.get(state.acima, key, 0) + 1
 
-      if vezes >= @releituras_para_rearmar,
+      if vezes >= @rereads_to_rearm,
         do: rearm(zerar_acima(state, key), key, count),
         else: %{state | acima: Map.put(state.acima, key, vezes)}
     else

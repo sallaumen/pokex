@@ -236,9 +236,9 @@ defmodule Pokex.Bots.FocusTest do
       Pokex.Bots.InputGate.set_corner_ok(true)
       Pokex.Bots.InputGate.set_focus_ok(true)
 
-      {micros, resultado} = :timer.tc(&Pokex.Bots.Focus.ensure_front/0)
+      {micros, result} = :timer.tc(&Pokex.Bots.Focus.ensure_front/0)
 
-      assert resultado == :ok
+      assert result == :ok
       assert div(micros, 1000) < 1_000, "pagou a espera do fronting sem precisar"
     end
 

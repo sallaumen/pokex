@@ -251,11 +251,11 @@ defmodule Pokex.Journal do
         |> Enum.flat_map(fn line ->
           case Jason.decode(line) do
             {:ok, %{"text" => _} = e} -> [e]
-            _linha_corrompida -> []
+            _corrupt_line -> []
           end
         end)
 
-      _sem_arquivo ->
+      _no_file ->
         []
     end
   end
@@ -282,7 +282,7 @@ defmodule Pokex.Journal do
           end
         end
 
-      _sem_dir ->
+      _no_dir ->
         :ok
     end
 

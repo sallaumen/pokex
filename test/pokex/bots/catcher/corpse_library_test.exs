@@ -103,7 +103,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
 
   @tag :tmp_dir
   test "an empty name is rejected" do
-    assert {:error, :nome_vazio} = CorpseLibrary.add("   ", solid(1, 2, 3))
+    assert {:error, :empty_name} = CorpseLibrary.add("   ", solid(1, 2, 3))
   end
 
   @tag :tmp_dir

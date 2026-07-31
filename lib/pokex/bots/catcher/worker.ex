@@ -91,7 +91,7 @@ defmodule Pokex.Bots.Catcher.Worker do
        reattach_attempts: 0,
        loots: 0,
        # has the closed gate been announced this round? (edge-triggered log)
-       segurada?: false,
+       held?: false,
        # rescans scheduled after a kill that found nothing: the corpse stays on
        # the ground for MINUTES, and the first frame is usually dirty (death
        # animation, loot, the own pokémon on top)
@@ -101,13 +101,13 @@ defmodule Pokex.Bots.Catcher.Worker do
        combat_ref: nil,
        # how many of each corpse were FOUND this session, plus the set seen in
        # the previous scan (consecutive dedup)
-       contagem: %{},
+       count: %{},
        vistos: MapSet.new(),
        # session scoreboard (reset on each start): scans done, scans with a
        # target, and blind scans
-       varreduras: 0,
-       com_alvo: 0,
-       cegas: 0,
+       scans: 0,
+       with_target: 0,
+       blind: 0,
        # a shiny was just seen: the NEXT ball ignores capture_enabled
        shiny_pending?: false,
        # last performed actuation as %{text, at} (monotonic ms; nil until the first) — panel-facing
@@ -123,10 +123,10 @@ defmodule Pokex.Bots.Catcher.Worker do
       state
       | logic: logic,
         loots: 0,
-        varreduras: 0,
-        com_alvo: 0,
-        cegas: 0,
-        contagem: %{},
+        scans: 0,
+        with_target: 0,
+        blind: 0,
+        count: %{},
         vistos: MapSet.new(),
         combat_engaged?: seed_combat_engaged()
     }
@@ -190,7 +190,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # Combat-engagement gate: track the live fight so a stationary enemy sprite never gets
   # balled/ignore-poisoned like a corpse. On the engaged→disengaged edge (kill landed or the
   # fight ended) the corpse track is already mature — re-check the world immediately instead
-  # of waiting for the next event/poll, and let a parado+armed+detached worker re-attach now
+  # of waiting for the next event/poll, and let a idle+armed+detached worker re-attach now
   # (the ground is back to normal, so a fresh warmup here is safe).
   def handle_info({:combat, %{state: combat_state}}, state) do
     engaged? = combat_state in [:tabbing, :fighting]
@@ -224,7 +224,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # battle-feed monitor).
   def handle_info({:DOWN, ref, :process, _obj, _reason}, %{feed_ref: ref} = state) do
     state = %{state | attached?: false, feed_ref: nil}
-    state = if armed_parado?(state), do: schedule_reattach(state), else: state
+    state = if armed_idle?(state), do: schedule_reattach(state), else: state
     {:noreply, state}
   end
 
@@ -241,7 +241,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   def handle_info(:reattach_corpses, state) do
     cond do
-      not armed_parado?(state) or state.attached? ->
+      not armed_idle?(state) or state.attached? ->
         {:noreply, state}
 
       state.combat_engaged? ->
@@ -269,7 +269,7 @@ defmodule Pokex.Bots.Catcher.Worker do
         (state.shiny_pending? and Settings.get(:shiny_always_ball))
 
   # The mode gate lives HERE, not only in attach/detach: a late in-flight {:world,...} event
-  # (or a test-injected one) right after flipping to movimento must never throw a ball.
+  # (or a test-injected one) right after flipping to moving must never throw a ball.
   # The mini-game gate comes first: no admissions, throws or confirms while it
   # plays. The catcher is event-driven — the next corpse/kill/combat event after
   # the fact clears resumes the flow on its own.
@@ -296,7 +296,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       ms when is_integer(ms) ->
         agendar(%{state | repiques: []}, ms)
 
-      _sem_pendencia ->
+      _no_pending ->
         repicar(state, obs)
     end
   end
@@ -313,22 +313,22 @@ defmodule Pokex.Bots.Catcher.Worker do
     %{state | timer: Process.send_after(self(), :wake, max(ms, 1))}
   end
 
-  # The whole session in three card counters. `com_alvo` rises when SOME library
-  # corpse passed the threshold — the varreduras:com_alvo ratio is the aim
+  # The whole session in three card counters. `with_target` rises when SOME library
+  # corpse passed the threshold — the scans:with_target ratio is the aim
   # thermometer (measured 2026-07-30: 242 kills → 1 recognition).
   defp contar(state, %{scanning?: true} = obs) do
     achou? = Map.get(obs, :corpses, []) != []
 
     state
     |> Map.merge(%{
-      varreduras: state.varreduras + 1,
-      com_alvo: state.com_alvo + if(achou?, do: 1, else: 0)
+      scans: state.scans + 1,
+      with_target: state.with_target + if(achou?, do: 1, else: 0)
     })
-    |> contar_por_corpo(obs)
+    |> count_per_corpse(obs)
   end
 
-  defp contar(state, %{scanning?: false}), do: %{state | cegas: state.cegas + 1}
-  defp contar(state, _sem_varredura), do: state
+  defp contar(state, %{scanning?: false}), do: %{state | blind: state.blind + 1}
+  defp contar(state, _no_scan), do: state
 
   # Per-corpse session count ("how many Kingler this session?"). CONSECUTIVE
   # dedup (same idea as the Journal): a ball's confirmation rescans the same
@@ -336,26 +336,26 @@ defmodule Pokex.Bots.Catcher.Worker do
   # ENTERED since the previous scan adds. Deliberately not derived from
   # `counters.captures`: that number measures "the point stopped matching",
   # not capture.
-  defp contar_por_corpo(state, obs) do
+  defp count_per_corpse(state, obs) do
     vistos =
       obs
       |> Map.get(:known, %{})
-      |> MapSet.new(fn {ponto, %{name: nome}} -> {nome, ponto} end)
+      |> MapSet.new(fn {ponto, %{name: name}} -> {name, ponto} end)
 
     novos = MapSet.difference(vistos, state.vistos)
 
-    contagem =
-      Enum.reduce(novos, state.contagem, fn {nome, _ponto}, acc ->
-        Map.update(acc, nome, 1, &(&1 + 1))
+    count =
+      Enum.reduce(novos, state.count, fn {name, _ponto}, acc ->
+        Map.update(acc, name, 1, &(&1 + 1))
       end)
 
-    if contagem != state.contagem, do: broadcast_contagem(contagem)
+    if count != state.count, do: broadcast_count(count)
 
-    %{state | vistos: vistos, contagem: contagem}
+    %{state | vistos: vistos, count: count}
   end
 
-  defp broadcast_contagem(contagem),
-    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_contagem, contagem})
+  defp broadcast_count(count),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_count, count})
 
   # A fight is on: everything reaching here is contaminated by the live enemy sprite
   # (tile-locked, stands still — indistinguishable from a corpse). No admissions, no throws,
@@ -376,10 +376,10 @@ defmodule Pokex.Bots.Catcher.Worker do
       # the queue and open a confirmation window against an untouched corpse.
       # Skipping the whole step leaves the corpse there for the next kill.
       not gate_aberto?() ->
-        segurar(state)
+        hold(state)
 
       true ->
-        run_step(%{state | segurada?: false}, obs)
+        run_step(%{state | held?: false}, obs)
     end
   end
 
@@ -391,11 +391,11 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # One line per EDGE, not per event: with the browser focused the gate stays
   # closed for minutes, and one alarm per kill would be a siren.
-  defp segurar(%{segurada?: true} = state), do: state
+  defp hold(%{held?: true} = state), do: state
 
-  defp segurar(state) do
+  defp hold(state) do
     log(:macro, "🔒 bola SEGURADA — o jogo não está em foco (ou o pânico está armado)")
-    %{state | segurada?: true}
+    %{state | held?: true}
   end
 
   defp run_step(state, obs) do
@@ -406,7 +406,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
     # configured hotkey, hold the cursor). Each step passes the input and
     # mini-game gates instead of an opaque Rig primitive.
-    resultado =
+    result =
       if performs != [] do
         performs
         |> Enum.flat_map(fn {:capture_sequence, ponto} -> Ball.sequence(ponto) end)
@@ -416,9 +416,9 @@ defmodule Pokex.Bots.Catcher.Worker do
     # The return used to be DISCARDED — a real actuation error vanished and the
     # feed wrote "bola arremessada" anyway.
     logic =
-      case resultado do
-        {:error, motivo} ->
-          log(:macro, "⚠️ a bola não saiu: #{inspect(motivo)}")
+      case result do
+        {:error, reason} ->
+          log(:macro, "⚠️ a bola não saiu: #{inspect(reason)}")
           logic
 
         :ok when performs != [] ->
@@ -426,7 +426,7 @@ defmodule Pokex.Bots.Catcher.Worker do
           # ~200ms), not decision — else the first read judges too early
           Logic.ball_flown(logic, now())
 
-        _sem_bola ->
+        _no_ball ->
           logic
       end
 
@@ -465,7 +465,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       )
     end
 
-    # pending_corpses joins the change condition: suporte holds on that number,
+    # pending_corpses joins the change condition: support holds on that number,
     # so its transitions must reach the wire even on an action-less step
     if logic.counters != state.logic.counters or actions != [] or
          Logic.pending(logic) != Logic.pending(state.logic),
@@ -521,14 +521,14 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # The kill-anchored observation. Gates BEFORE the capture: scanning with a
   # fight engaged would match the adjacent LIVE sprite (a standing pokémon's
-  # palette equals its taught corpse's); movimento/capture-off don't even look;
+  # palette equals its taught corpse's); moving/capture-off don't even look;
   # the mini-game owns the moment. nil = a step that proves nothing (Logic
   # ignores it), never a false confirmation.
   defp scan_obs(state) do
     if state.combat_engaged? or Settings.get(:player_mode) != "parado" or
          not capture_allowed?(state) or Perception.mini_game_playing?(),
        do: nil,
-       else: state.scanner |> safe_scan() |> narrar()
+       else: state.scanner |> safe_scan() |> narrate()
   end
 
   # A dying scanner (capture failed, corrupted calibration) becomes a blind
@@ -538,8 +538,8 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp safe_scan(scanner) do
     scanner.()
   rescue
-    erro ->
-      Logger.warning("captura: varredura explodiu — #{Exception.message(erro)}")
+    error ->
+      Logger.warning("captura: varredura explodiu — #{Exception.message(error)}")
       nil
   catch
     :exit, reason ->
@@ -551,49 +551,49 @@ defmodule Pokex.Bots.Catcher.Worker do
   # didn't scan, scanned and found nothing, scanned and found — produced the
   # same silence for hours (2026-07-30). The best candidate's score goes along
   # even when FAILING: distance to the threshold is the aim diagnostic.
-  defp narrar(nil), do: nil
+  defp narrate(nil), do: nil
 
-  defp narrar(%{scanning?: false} = obs) do
+  defp narrate(%{scanning?: false} = obs) do
     # blindness is rare and must survive restarts → :macro (goes to the JSONL)
-    log(:macro, "🔎 cego: #{motivo_texto(Map.get(obs, :motivo))}")
+    log(:macro, "🔎 cego: #{reason_text(Map.get(obs, :reason))}")
     obs
   end
 
-  defp narrar(%{janelas: janelas} = obs) do
+  defp narrate(%{windows: windows} = obs) do
     # routine at :debug — lives in the feed, doesn't bloat the on-disk history
-    log(:debug, "🔎 varri #{janelas} janelas#{quadro_texto(obs)} · " <> melhor_texto(obs))
+    log(:debug, "🔎 varri #{windows} janelas#{frame_text(obs)} · " <> best_text(obs))
     obs
   end
 
-  defp narrar(obs), do: obs
+  defp narrate(obs), do: obs
 
-  defp quadro_texto(%{regiao: {_x, _y, w, h}}), do: " (#{w}×#{h})"
-  defp quadro_texto(_sem_regiao), do: ""
+  defp frame_text(%{region: {_x, _y, w, h}}), do: " (#{w}×#{h})"
+  defp frame_text(_no_region), do: ""
 
-  defp melhor_texto(%{melhor: nil}), do: "acervo vazio"
+  defp best_text(%{best: nil}), do: "acervo vazio"
 
-  defp melhor_texto(%{melhor: %{name: nome, score: score, ponto: {x, y}}, limiar: limiar}) do
-    veredicto = if score >= limiar, do: "✓", else: "✗"
-    "melhor: #{nome} #{fmt(score)} #{veredicto} em #{x},#{y} (limiar #{fmt(limiar)})"
+  defp best_text(%{best: %{name: name, score: score, ponto: {x, y}}, threshold: threshold}) do
+    verdict = if score >= threshold, do: "✓", else: "✗"
+    "melhor: #{name} #{fmt(score)} #{verdict} em #{x},#{y} (limiar #{fmt(threshold)})"
   end
 
-  defp melhor_texto(_sem_campo), do: "sem leitura"
+  defp best_text(_no_field), do: "sem leitura"
 
   defp fmt(n) when is_number(n), do: :erlang.float_to_binary(n / 1, decimals: 2)
   defp fmt(_outro), do: "?"
 
-  defp motivo_texto(:sem_calibracao), do: "sem calibração"
-  defp motivo_texto(:sem_ancora), do: "sem personagem nem ponto do pokémon calibrados"
-  defp motivo_texto(:sem_arena), do: "sem arena calibrada"
+  defp reason_text(:no_calibration), do: "sem calibração"
+  defp reason_text(:no_anchor), do: "sem personagem nem ponto do pokémon calibrados"
+  defp reason_text(:no_arena), do: "sem arena calibrada"
 
-  defp motivo_texto(:fora_da_arena),
+  defp reason_text(:outside_arena),
     do: "os tiles ao redor do personagem caem FORA da arena calibrada — recalibre a arena"
 
-  defp motivo_texto({:captura_falhou, motivo}), do: "captura falhou (#{inspect(motivo)})"
-  defp motivo_texto(outro), do: inspect(outro)
+  defp reason_text({:capture_failed, reason}), do: "captura falhou (#{inspect(reason)})"
+  defp reason_text(outro), do: inspect(outro)
 
-  defp log(level, texto),
-    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, level, "captura: #{texto}"})
+  defp log(level, text),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, level, "captura: #{text}"})
 
   # The library IS the aim — a start with an empty library will aim at NOTHING
   # all session, which deserves a siren, not silence ("looks on but does
@@ -668,7 +668,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     if should_be_attached?(state), do: attach(state), else: cancel_timer(detach(state))
   end
 
-  defp armed_parado?(state),
+  defp armed_idle?(state),
     do: Settings.get(:player_mode) == "parado" and match?(%Logic{state: :armed}, state.logic)
 
   defp should_be_attached?(_state), do: false
@@ -743,7 +743,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp mode_state(_logic, "movimento"), do: :manual
 
   defp mode_state(%Logic{state: :armed}, _mode) do
-    if Settings.get(:capture_enabled), do: :armed, else: :saqueando
+    if Settings.get(:capture_enabled), do: :armed, else: :looting
   end
 
   defp mode_state(%Logic{state: s}, _mode), do: s
@@ -757,9 +757,9 @@ defmodule Pokex.Bots.Catcher.Worker do
       counters:
         ((state.logic && state.logic.counters) || %Logic{}.counters)
         |> Map.put(:loots, state.loots)
-        |> Map.put(:varreduras, state.varreduras)
-        |> Map.put(:com_alvo, state.com_alvo)
-        |> Map.put(:cegas, state.cegas),
+        |> Map.put(:scans, state.scans)
+        |> Map.put(:with_target, state.with_target)
+        |> Map.put(:blind, state.blind),
       error: state.logic && state.logic.error,
       hold_reason: hold_reason(state),
       last_action: state.last_action,

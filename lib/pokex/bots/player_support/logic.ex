@@ -124,7 +124,7 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
         {:wait, ms}, {actions, skipped} when is_integer(ms) ->
           {[{:wait, ms} | actions], skipped}
 
-        _passo_estranho, acc ->
+        _odd_step, acc ->
           acc
       end)
 

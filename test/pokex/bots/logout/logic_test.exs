@@ -9,7 +9,7 @@ defmodule Pokex.Bots.Logout.LogicTest do
   defp start, do: Logic.start("manual", @config, :present)
 
   defp read_all(logic, readings) do
-    Enum.reduce(readings, {logic, :verify}, fn reading, {logic, _acao} ->
+    Enum.reduce(readings, {logic, :verify}, fn reading, {logic, _action} ->
       Logic.after_read(logic, reading)
     end)
   end
@@ -89,7 +89,7 @@ defmodule Pokex.Bots.Logout.LogicTest do
       end)
 
     assert logic.state == :failed
-    assert logic.error == :ainda_logado
+    assert logic.error == :still_logged_in
   end
 
   test "a key that did not go out burns the attempt and retries" do
@@ -124,7 +124,7 @@ defmodule Pokex.Bots.Logout.LogicTest do
         end)
 
       assert logic.state == :failed
-      assert logic.error == :sem_testemunha
+      assert logic.error == :no_witness
     end
 
     test "an unreadable baseline gives no witness either" do

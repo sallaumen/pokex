@@ -36,12 +36,12 @@ defmodule Pokex.Bots.Catcher.BallTest do
   test "ball_needs_click covers both game behaviors: direct shortcut vs aim awaiting a click" do
     Pokex.Settings.put(:ball_needs_click, true)
 
-    acoes = Ball.sequence({300, 200})
+    actions = Ball.sequence({300, 200})
 
-    assert {:click, :left, {300, 200}} in acoes
-    posicao_tecla = Enum.find_index(acoes, &match?({:press, _}, &1))
-    posicao_clique = Enum.find_index(acoes, &match?({:click, _, _}, &1))
-    assert posicao_clique > posicao_tecla
+    assert {:click, :left, {300, 200}} in actions
+    key_position = Enum.find_index(actions, &match?({:press, _}, &1))
+    click_position = Enum.find_index(actions, &match?({:click, _, _}, &1))
+    assert click_position > key_position
   end
 
   test "holds the cursor on the target before the Body takes it back" do

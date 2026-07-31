@@ -30,7 +30,7 @@ defmodule Pokex.Perception.Interpret.Minimap do
            {ox, oy, _, _} <- Calibration.minimap_region(calib) do
         Glyphs.read_coord(frame, {x - ox, y - oy, w, h}, coord_opts(calib, settings))
       else
-        _sem_regiao -> nil
+        _no_region -> nil
       end
 
     accept(read, state)

@@ -3,6 +3,7 @@ defmodule PokexWeb.PanelLive do
 
   alias Pokex.Bots.{BotSupervisor, Catcher, Combat, Fishing, PlayerSupport, SkillBar}
   alias Pokex.Bots.Cavebot
+  alias Pokex.Bots.Logout
   alias Pokex.Diagnostics.Report
   alias PokexWeb.{HeaderState, PanelForms, PositionReadout}
   alias Pokex.{Calibration, Rig, Settings}
@@ -507,7 +508,7 @@ defmodule PokexWeb.PanelLive do
       when source not in [:regra, :sistema],
       do: {:noreply, merge_log(socket, journal_entry(event))}
 
-  def handle_info({:journal_event, _alarme}, socket), do: {:noreply, socket}
+  def handle_info({:journal_event, _alarm}, socket), do: {:noreply, socket}
 
   # A confirmed sighting: refresh the trophy shelf so the encounter shows up.
   def handle_info({:shiny_seen, _info}, socket),
@@ -1042,7 +1043,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("save_captura_cfg", params, socket) do
     socket =
       socket
-      |> save_similaridade(params["corpse_match_pct"])
+      |> save_similarity(params["corpse_match_pct"])
       |> save_ball_key(params["ball_key"])
       |> save_int(params["corpse_max_balls"], 1..9, :corpse_max_balls, :corpse_max_balls)
       |> save_int(
@@ -1315,7 +1316,7 @@ defmodule PokexWeb.PanelLive do
   defp last_order_line(%{kind: :start, at: at}),
     do: "um Iniciar #{ago(at)} não vingou (preflight?) — veja o alarme acima"
 
-  defp last_order_line(_desconhecido), do: nil
+  defp last_order_line(_unknown), do: nil
 
   defp ago(at) do
     min = div(System.monotonic_time(:millisecond) - at, 60_000)
@@ -1359,12 +1360,12 @@ defmodule PokexWeb.PanelLive do
   defp logout_label(%{state: :verifying, attempt: n, attempts: total}),
     do: "conferindo a tela… tentativa #{n}/#{total}"
 
-  defp logout_label(%{state: :out, reason: motivo}), do: "deslogado — #{motivo}"
+  defp logout_label(%{state: :out, reason: reason}), do: "deslogado — #{reason}"
 
-  defp logout_label(%{state: :failed, error: erro, reason: motivo}),
-    do: "FALHOU (#{erro}) — #{motivo}"
+  defp logout_label(%{state: :failed, error: error, reason: reason}),
+    do: "FALHOU (#{Logout.failure_text(error)}) — #{reason}"
 
-  defp logout_label(_desconhecido), do: "—"
+  defp logout_label(_unknown), do: "—"
 
   # Turning a support feature ON re-arms the (idempotent) monitor — the natural re-enable after
   # a panic halted it. Gated by the same env flag as the boot auto-start so the app-global
@@ -1390,7 +1391,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   # The UI speaks PERCENT (threshold 72%); the setting stores the 0..1 fraction.
-  defp save_similaridade(socket, raw) do
+  defp save_similarity(socket, raw) do
     case PanelForms.parse_int(raw, 30..99) do
       {:ok, value} ->
         Settings.put(:corpse_match_min_similarity, value / 100)
@@ -1554,17 +1555,17 @@ defmodule PokexWeb.PanelLive do
     end)
   end
 
-  # 🎣 Pesca: parado / arremessando (equipping, casting, focusing all read as
-  # the cast-prep phase) / vigiando (watching the glow) / erro.
+  # 🎣 Pesca: idle / arremessando (equipping, casting, focusing all read as
+  # the cast-prep phase) / vigiando (watching the glow) / error.
   defp fishing_label(:idle), do: "parado"
   defp fishing_label(:focusing), do: "arremessando"
   defp fishing_label(:equipping), do: "arremessando"
   defp fishing_label(:casting), do: "arremessando"
   defp fishing_label(:watching), do: "vigiando"
   defp fishing_label(:error), do: "erro"
-  defp fishing_label(other), do: to_string(other)
+  defp fishing_label(other), do: state_word(other)
 
-  # ⚔️ Batalha: parado / caçando / confirmando alvo (Tab) / lutando linha N / erro. Corpse
+  # ⚔️ Batalha: idle / caçando / confirmando target (Tab) / fighting line N / error. Corpse
   # capture is a separate worker (see catcher_label/1).
   defp combat_label(:idle, _row), do: "parado"
   defp combat_label(:hunting, _row), do: "caçando"
@@ -1572,21 +1573,21 @@ defmodule PokexWeb.PanelLive do
   defp combat_label(:fighting, row) when is_integer(row), do: "lutando linha #{row}"
   defp combat_label(:fighting, _row), do: "lutando"
   defp combat_label(:error, _row), do: "erro"
-  defp combat_label(other, _row), do: to_string(other)
+  defp combat_label(other, _row), do: state_word(other)
 
-  # 🎯 Capture: parado (mode "parado" but no corpse yet / mode "movimento"
-  # halted) / capturando (armed, throwing pokéballs at detected corpses) /
+  # 🎯 Capture: idle (mode "parado" but no corpse yet / mode "movimento"
+  # halted) / capturing (armed, throwing pokéballs at detected corpses) /
   # manual (mode "movimento" — captures are done by hand).
   defp catcher_label(:idle), do: "parado"
   defp catcher_label(:armed), do: "capturando"
   defp catcher_label(:manual), do: "manual"
-  defp catcher_label(:saqueando), do: "só saque"
-  defp catcher_label(other), do: to_string(other)
+  defp catcher_label(:looting), do: "só saque"
+  defp catcher_label(other), do: state_word(other)
 
   # 🚑 Suporte (PlayerSupport): revive + poção. Halts on panic/Stop like every worker.
   defp support_label(:monitoring), do: "monitorando"
   defp support_label(:idle), do: "parado"
-  defp support_label(other), do: to_string(other)
+  defp support_label(other), do: state_word(other)
 
   # 🎮 Mini game: off / watching the arena / playing (the other workers hold
   # themselves by reading the :mini_game blackboard fact).
@@ -1594,7 +1595,7 @@ defmodule PokexWeb.PanelLive do
   defp mini_game_label(:watching), do: "observando"
   defp mini_game_label(:playing), do: "em jogo"
   defp mini_game_label(:error), do: "erro"
-  defp mini_game_label(other), do: to_string(other)
+  defp mini_game_label(other), do: state_word(other)
 
   # 🧭 Hunt (cavebot): walks the route and yields to combat when an enemy
   # shows up. The three STOP states have distinct names on purpose — "not
@@ -1606,8 +1607,12 @@ defmodule PokexWeb.PanelLive do
   defp cavebot_label(:stuck), do: "travado"
   defp cavebot_label(:fight_stalled), do: "luta travada"
   defp cavebot_label(:blocked), do: "bloqueado"
-  defp cavebot_label(:ocupado), do: "ocupado"
-  defp cavebot_label(other), do: to_string(other)
+  defp cavebot_label(other), do: state_word(other)
+
+  # State atoms are English; the pill is not. Only states without a label of
+  # their own land here — :busy is BotSupervisor's "missed the status window".
+  defp state_word(:busy), do: "ocupado"
+  defp state_word(other), do: to_string(other)
 
   defp cavebot_counters(%{counters: %{waypoints: waypoints, steps: steps}}),
     do: "#{waypoints} wp · #{steps} passos"
@@ -1890,7 +1895,7 @@ defmodule PokexWeb.PanelLive do
   # What "Iniciar" will actually bring up, spelled out under the button.
   #
   # These say what each worker DOES, not what the code calls it. Lucas read
-  # "suporte" under the movimento button and concluded the bot would not heal or
+  # "suporte" under the moving button and concluded the bot would not heal or
   # revive him while walking. It does — the word just told him nothing.
   defp mode_worker_labels(mode) do
     mode
@@ -2019,18 +2024,18 @@ defmodule PokexWeb.PanelLive do
   # The scoreboard that turns "I think it's not working" into a number: how
   # many sweeps the session ran and how many found a target. Measured
   # 2026-07-30: the bot did 242 kills for 1 recognition — without this ratio
-  # on screen, invisible. `cegas` only shows when nonzero: blindness is
+  # on screen, invisible. `blind` only shows when nonzero: blindness is
   # abnormal and deserves emphasis, not a permanent column of zeros.
   defp catcher_scan_counters(catcher) do
-    varreduras = get_in(catcher, [:counters, :varreduras]) || 0
-    com_alvo = get_in(catcher, [:counters, :com_alvo]) || 0
-    cegas = get_in(catcher, [:counters, :cegas]) || 0
+    scans = get_in(catcher, [:counters, :scans]) || 0
+    with_target = get_in(catcher, [:counters, :with_target]) || 0
+    blind = get_in(catcher, [:counters, :blind]) || 0
 
     tardias = get_in(catcher, [:counters, :tardias]) || 0
 
-    base = "#{com_alvo}/#{varreduras} varredura"
+    base = "#{with_target}/#{scans} varredura"
     base = if tardias > 0, do: base <> " · #{tardias} tardia", else: base
-    if cegas > 0, do: base <> " · #{cegas} cega", else: base
+    if blind > 0, do: base <> " · #{blind} cega", else: base
   end
 
   # The sections that MOVED (2026-07-30): combos, presets, shiny, the session
@@ -3211,7 +3216,7 @@ defmodule PokexWeb.PanelLive do
         player_mode={@player_mode}
         mode_overrides={@mode_overrides}
         combos={@combos}
-        captura_cfg={
+        capture_cfg={
           %{
             match_pct: @corpse_match_pct,
             ball_key: @ball_key,
@@ -3221,7 +3226,7 @@ defmodule PokexWeb.PanelLive do
             dry_balls_alarm: @dry_balls_alarm
           }
         }
-        estoque_cfg={
+        stock_cfg={
           %{
             f1: @stock_alert_f1,
             f2: @stock_alert_f2,

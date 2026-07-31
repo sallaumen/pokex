@@ -184,7 +184,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # poisons every later run of the suite.
   @tag :tmp_dir
   test "start_all/5 in movimento mode starts combat but not fishing or the mini game" do
-    servers = start_isolated_supervisor(:movimento_test)
+    servers = start_isolated_supervisor(:moving_test)
     Pokex.SettingsStash.stash!(player_mode: "movimento")
 
     assert :ok =
@@ -337,18 +337,18 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # Header, panel, and Focus all consult active?/1 — the single "is it running" gauge.
   @tag :tmp_dir
   test "active?/1 is the single activity gauge — stopped-with-reason is not active" do
-    for parado <- [:idle, :off, :ocupado, :error, :manual] do
-      refute BotSupervisor.active?(parado)
-      refute BotSupervisor.active?(%{state: parado})
+    for idle <- [:idle, :off, :busy, :error, :manual] do
+      refute BotSupervisor.active?(idle)
+      refute BotSupervisor.active?(%{state: idle})
     end
 
-    for rodando <- [:pescando, :hunting, :walking, :fighting, :watching] do
+    for rodando <- [:fishing, :hunting, :walking, :fighting, :watching] do
       assert BotSupervisor.active?(rodando)
     end
 
-    for parada_do_cavebot <- [:blocked, :stuck, :fight_stalled] do
-      refute BotSupervisor.active?(parada_do_cavebot)
-      refute BotSupervisor.active?(%{state: parada_do_cavebot})
+    for cavebot_stop <- [:blocked, :stuck, :fight_stalled] do
+      refute BotSupervisor.active?(cavebot_stop)
+      refute BotSupervisor.active?(%{state: cavebot_stop})
     end
 
     assert BotSupervisor.any_active?([%{state: :idle}, %{state: :walking}])
@@ -364,12 +364,12 @@ defmodule Pokex.Bots.BotSupervisorTest do
     antes = Pokex.Bots.Session.generation()
 
     :ok = BotSupervisor.stop_all()
-    depois_do_stop = Pokex.Bots.Session.generation()
-    assert depois_do_stop > antes
+    after_stop = Pokex.Bots.Session.generation()
+    assert after_stop > antes
 
     on_exit(fn -> BotSupervisor.stop_all() end)
-    _resultado = BotSupervisor.start_all()
-    assert Pokex.Bots.Session.generation() > depois_do_stop
+    _result = BotSupervisor.start_all()
+    assert Pokex.Bots.Session.generation() > after_stop
 
     :ok = BotSupervisor.stop_all()
   end

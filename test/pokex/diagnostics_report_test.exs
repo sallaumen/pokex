@@ -147,11 +147,11 @@ defmodule Pokex.Diagnostics.ReportTest do
           now: 1_700_000_000_000
         )
 
-      op = report.operacao
+      op = report.operation
       assert is_integer(op.sessao.generation) and op.sessao.generation > 0
       assert %{kind: :stop, reason: "teste do bundle"} = op.sessao.last_order
       assert is_list(op.journal)
-      assert Map.has_key?(op.portoes, :input_gate)
+      assert Map.has_key?(op.gates, :input_gate)
       assert is_map(op.settings_diff)
 
       assert {:ok, _json} = Jason.encode(report)

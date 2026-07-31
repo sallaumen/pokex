@@ -409,7 +409,7 @@ defmodule Pokex.Bots.Capture do
         Perf.count("capture.regiao_impossivel:#{filename}")
         {{:error, {:screen_capture_kit, reason}}, state}
 
-      _sem_quarentena ->
+      _no_quarantine ->
         path = Path.join(Pokex.Home.captures_dir(), Path.basename(filename))
 
         started_at = now()
@@ -551,7 +551,7 @@ defmodule Pokex.Bots.Capture do
   defp region_impossible_reason?(reason), do: String.contains?(reason, "outside frame")
 
   defp quarantine_region(state, region, filename, reason) do
-    texto =
+    text =
       "🖥️ captura de #{filename} impossível: #{reason} — a janela do jogo mudou de lugar? " <>
         "Recalibre. Parei de tentar essa região (recalibrar ou o SCK reiniciar liberam)."
 
@@ -561,10 +561,10 @@ defmodule Pokex.Bots.Capture do
     # afternoon (journal 2026-07-30). Repeats become a log line instead.
     state =
       if MapSet.member?(state.regioes_alarmadas, region) do
-        Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:game_log, :macro, texto})
+        Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:game_log, :macro, text})
         state
       else
-        alarm(texto)
+        alarm(text)
         %{state | regioes_alarmadas: MapSet.put(state.regioes_alarmadas, region)}
       end
 

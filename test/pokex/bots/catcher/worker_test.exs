@@ -304,7 +304,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, [{:move, _} | _]}, 1_000
 
-    assert %{varreduras: v, com_alvo: c} = Worker.status(worker).counters
+    assert %{scans: v, with_target: c} = Worker.status(worker).counters
     assert v > 0, "a varredura tem que ser contada"
     assert c > 0, "esta varredura achou alvo"
   end
@@ -317,21 +317,21 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
     assert Worker.status(worker).pending_corpses == 1
 
-    cega = %{
+    blind = %{
       scanning?: false,
       corpses: [],
       known: %{},
       captured_at: System.monotonic_time(:millisecond) + 5_000,
-      motivo: :fora_da_arena
+      reason: :outside_arena
     }
 
-    WorldState.put(:corpses, cega, cega.captured_at)
-    send(worker, {:world, :corpses, cega})
+    WorldState.put(:corpses, blind, blind.captured_at)
+    send(worker, {:world, :corpses, blind})
 
     assert_log_eventually("cego")
 
     assert Worker.status(worker).pending_corpses == 1
-    assert Worker.status(worker).counters.cegas > 0
+    assert Worker.status(worker).counters.blind > 0
   end
 
   @tag :tmp_dir
@@ -340,10 +340,10 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   test "a kill with no target re-triggers the scan — the corpse gets more chances", %{
     worker: _worker
   } do
-    {:ok, contador} = Agent.start_link(fn -> 0 end)
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
 
     scanner = fn ->
-      Agent.update(contador, &(&1 + 1))
+      Agent.update(counter, &(&1 + 1))
 
       %{
         scanning?: true,
@@ -359,7 +359,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
-    assert eventually(fn -> Agent.get(contador, & &1) >= 2 end, 1_500)
+    assert eventually(fn -> Agent.get(counter, & &1) >= 2 end, 1_500)
 
     GenServer.stop(worker)
   end

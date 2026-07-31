@@ -7,7 +7,7 @@ defmodule Pokex.Bots.LogoutTest do
 
   setup do
     # :test is a RESERVED ExUnit context field — hence the odd name.
-    dono = self()
+    owner = self()
 
     # The real 1.5s screen-change wait belongs in the game, not here: a two-attempt failure
     # would take 5.4s. The read cadence is injected in start_logout/2 below.
@@ -28,7 +28,7 @@ defmodule Pokex.Bots.LogoutTest do
       end)
     end
 
-    %{dono: dono, body: body, perform: perform}
+    %{owner: owner, body: body, perform: perform}
   end
 
   defp calls(body), do: Agent.get(body, & &1.calls)
@@ -48,13 +48,13 @@ defmodule Pokex.Bots.LogoutTest do
   end
 
   defp start_logout(ctx, opts) do
-    dono = ctx.dono
+    owner = ctx.owner
 
     defaults = [
       name: nil,
       active: true,
       perform_fun: ctx.perform,
-      stop_fun: fn -> send(dono, :stopped) end,
+      stop_fun: fn -> send(owner, :stopped) end,
       front_fun: fn -> :ok end,
       read_gap_ms: 5
     ]
@@ -106,11 +106,11 @@ defmodule Pokex.Bots.LogoutTest do
     Logout.request("estagnação", pid)
 
     snap = await_state(pid, :failed)
-    assert snap.error == :ainda_logado
+    assert snap.error == :still_logged_in
     assert snap.attempt == 2
 
-    assert_receive {:rule_alarm, :logout, texto}, 1_000
-    assert texto =~ "logout"
+    assert_receive {:rule_alarm, :logout, text}, 1_000
+    assert text =~ "logout"
   end
 
   test "an always-unreadable read never reports logged out", ctx do
@@ -119,7 +119,7 @@ defmodule Pokex.Bots.LogoutTest do
     Logout.request("estagnação", pid)
 
     snap = await_state(pid, :failed)
-    assert snap.error == :ilegivel
+    assert snap.error == :unreadable
     refute snap.state == :out
   end
 
@@ -172,11 +172,11 @@ defmodule Pokex.Bots.LogoutTest do
     Logout.request("manual", pid)
 
     snap = await_state(pid, :failed)
-    assert snap.error == :sem_testemunha
+    assert snap.error == :no_witness
     refute snap.state == :out
 
     assert [{_actions, :critical} | _] = calls(ctx.body)
-    assert_receive {:rule_alarm, :logout, texto}, 1_000
-    assert texto =~ "sem_testemunha"
+    assert_receive {:rule_alarm, :logout, text}, 1_000
+    assert text =~ "sem_testemunha"
   end
 end

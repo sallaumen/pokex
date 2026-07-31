@@ -640,7 +640,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       _estranho -> Settings.get(:rescue_step_ms)
     end
   rescue
-    _sem_seed -> Settings.get(:rescue_step_ms)
+    _no_seed -> Settings.get(:rescue_step_ms)
   end
 
   defp combo_config(calib) do
@@ -720,7 +720,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     if reasons == [], do: nil, else: Enum.join(reasons, " + ")
   end
 
-  # The post-fight ORDER policy (loot → bola → suporte): with the toggle on, a
+  # The post-fight ORDER policy (loot → ball → support): with the toggle on, a
   # due potion/reposition also waits for the catcher's pending corpses to hit
   # zero. The cap bails the wait so a stuck detector can never starve the heal.
   defp capture_busy?(state) do

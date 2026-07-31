@@ -124,6 +124,8 @@ defmodule Pokex.Bots.Capture do
        # (fallback_backend), afogando o broker inteiro. Chave = a região exata;
        # recalibrar gera outra chave e volta a funcionar sozinho.
        impossible_regions: %{},
+       # regiões que JÁ tocaram a sirene — a repetição vira log, não alarme
+       regioes_alarmadas: MapSet.new(),
        starvation_alarm_at: nil
      }}
   end
@@ -553,10 +555,23 @@ defmodule Pokex.Bots.Capture do
   defp region_impossible_reason?(reason), do: String.contains?(reason, "outside frame")
 
   defp quarantine_region(state, region, filename, reason) do
-    alarm(
+    texto =
       "🖥️ captura de #{filename} impossível: #{reason} — a janela do jogo mudou de lugar? " <>
         "Recalibre. Parei de tentar essa região (recalibrar ou o SCK reiniciar liberam)."
-    )
+
+    # Sirene UMA vez por região na vida do processo. A recuperação do SCK limpa
+    # impossible_regions de propósito (re-sondar é certo), mas cada re-sonda da
+    # MESMA região quebrada re-tocava o alarme — 12 sirenes idênticas numa
+    # tarde (journal 2026-07-30). A repetição vira linha de log: o journal
+    # registra, o sino descansa.
+    state =
+      if MapSet.member?(state.regioes_alarmadas, region) do
+        Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:game_log, :macro, texto})
+        state
+      else
+        alarm(texto)
+        %{state | regioes_alarmadas: MapSet.put(state.regioes_alarmadas, region)}
+      end
 
     %{state | impossible_regions: Map.put(state.impossible_regions, region, reason)}
   end

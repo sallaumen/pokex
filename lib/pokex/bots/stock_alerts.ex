@@ -45,7 +45,9 @@ defmodule Pokex.Bots.StockAlerts do
       attached?: false,
       feed_ref: nil,
       # slots currently below their threshold — the re-arm memory
-      low: MapSet.new()
+      low: MapSet.new(),
+      # releituras SEGUIDAS acima do limiar por slot — a histerese do re-arm
+      acima: %{}
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -97,6 +99,14 @@ defmodule Pokex.Bots.StockAlerts do
 
   # -- detection ---------------------------------------------------------------
 
+  # Releituras seguidas acima do limiar antes de RE-ARMAR um slot já alarmado.
+  # Sem isto, UMA leitura espúria do HUD (OCR pegando o frame errado) re-armava
+  # e a próxima leitura correta alarmava DE NOVO — medido no journal de
+  # 2026-07-30: F2 parado em 0 disparou 56 vezes; 322 alarmes em 9,7h fizeram o
+  # Lucas mutar 10 dos 11 setores do sino. Não é knob: 3 leituras é físico do
+  # ruído do OCR, não gosto.
+  @releituras_para_rearmar 3
+
   defp check(state, slots) do
     Enum.reduce(@slots, state, fn {key, label, setting}, acc ->
       threshold = Settings.get(setting)
@@ -105,10 +115,24 @@ defmodule Pokex.Bots.StockAlerts do
       cond do
         # 0 disables a slot; nil is an unread count, never an alarm
         threshold == nil or threshold <= 0 or count == nil -> acc
-        count <= threshold -> maybe_fire(acc, key, label, count, threshold)
-        true -> rearm(acc, key, count)
+        count <= threshold -> acc |> zerar_acima(key) |> maybe_fire(key, label, count, threshold)
+        true -> contar_acima(acc, key, count)
       end
     end)
+  end
+
+  defp zerar_acima(state, key), do: %{state | acima: Map.delete(state.acima, key)}
+
+  defp contar_acima(state, key, count) do
+    if MapSet.member?(state.low, key) do
+      vezes = Map.get(state.acima, key, 0) + 1
+
+      if vezes >= @releituras_para_rearmar,
+        do: rearm(zerar_acima(state, key), key, count),
+        else: %{state | acima: Map.put(state.acima, key, vezes)}
+    else
+      state
+    end
   end
 
   defp maybe_fire(state, key, label, count, threshold) do
@@ -155,7 +179,7 @@ defmodule Pokex.Bots.StockAlerts do
       not enabled? and state.attached? ->
         safe_detach()
         if state.feed_ref, do: Process.demonitor(state.feed_ref, [:flush])
-        %{state | attached?: false, feed_ref: nil, low: MapSet.new()}
+        %{state | attached?: false, feed_ref: nil, low: MapSet.new(), acima: %{}}
 
       true ->
         state

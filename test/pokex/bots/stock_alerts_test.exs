@@ -45,16 +45,38 @@ defmodule Pokex.Bots.StockAlertsTest do
     settle(alerts)
   end
 
-  test "re-arms when he restocks", %{alerts: alerts} do
+  test "re-arma quando ele repõe — depois de 3 leituras SEGUIDAS acima", %{alerts: alerts} do
     hud(%{f1: 10, f2: 36, e: 7, s_q: 43})
     assert_receive {:rule_alarm, :estoque, _}, 500
 
+    # o restock de verdade: 3 leituras consecutivas acima do limiar
+    hud(%{f1: 200, f2: 36, e: 7, s_q: 43})
+    hud(%{f1: 200, f2: 36, e: 7, s_q: 43})
     hud(%{f1: 200, f2: 36, e: 7, s_q: 43})
     assert_receive {:stock, %{slot: :f1, low?: false}}, 500
 
     hud(%{f1: 9, f2: 36, e: 7, s_q: 43})
     assert_receive {:rule_alarm, :estoque, reason}, 500
     assert reason =~ "F1 com 9"
+    settle(alerts)
+  end
+
+  test "UMA leitura espúria acima do limiar NÃO re-arma — o alarme não vira metralhadora",
+       %{alerts: alerts} do
+    # O journal de 2026-07-30: F2 parado em 0 disparou 56 vezes — o OCR pegava
+    # um frame errado, lia um número alto, re-armava, e a leitura correta
+    # seguinte alarmava DE NOVO. 322 alarmes em 9,7h mutaram 10 dos 11 setores.
+    hud(%{f1: 10, f2: 36, e: 7, s_q: 43})
+    assert_receive {:rule_alarm, :estoque, _}, 500
+
+    # leitura espúria (OCR errado) e a volta pro valor real, em loop
+    for _ <- 1..5 do
+      hud(%{f1: 150, f2: 36, e: 7, s_q: 43})
+      hud(%{f1: 9, f2: 36, e: 7, s_q: 43})
+    end
+
+    # nenhum re-alarme: uma leitura isolada acima nunca re-armou
+    refute_receive {:rule_alarm, :estoque, _}, 300
     settle(alerts)
   end
 

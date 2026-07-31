@@ -523,6 +523,36 @@ defmodule Pokex.Bots.CaptureTest do
 
       GenServer.stop(pid)
     end
+
+    test "a re-quarentena da MESMA região não re-toca a sirene — vira log" do
+      # A recuperação do SCK limpa a quarentena de propósito (re-sondar é
+      # certo), mas cada re-sonda da mesma região quebrada re-tocava o alarme —
+      # 12 sirenes idênticas numa tarde (journal 2026-07-30).
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
+      sck_outside_frame!()
+
+      {:ok, pid} =
+        Capture.start_link(
+          name: :cap_realarme_regiao,
+          screen_capture_kit: Pokex.CaptureBackendFake,
+          sck_retry_sleep_ms: 0
+        )
+
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_realarme_regiao)
+      assert_receive {:rule_alarm, :captura, _}
+
+      # o SCK renasce (limpa a quarentena e dá nova chance à região)...
+      send(pid, {:sck_recovery_result, {:ok, :sck_novo}})
+      assert %{backend: :screen_capture_kit} = Capture.backend_info(:cap_realarme_regiao)
+
+      # ...a região segue quebrada: re-quarentena SEM sirene, com log
+      assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_realarme_regiao)
+      refute_receive {:rule_alarm, _, _}, 50
+      assert_receive {:game_log, :macro, msg}
+      assert msg =~ "feed_minimap.png"
+
+      GenServer.stop(pid)
+    end
   end
 
   describe "alarme de fome na fila" do

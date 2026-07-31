@@ -124,7 +124,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Modo do auto-revive"
                   class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 >
-                  <option value="direto" selected={@rescue_cfg.mode == "direto"}>direto</option>
+                  <option value="direct" selected={@rescue_cfg.mode == "direct"}>direto</option>
                   <option value="combo" selected={@rescue_cfg.mode == "combo"}>com combo</option>
                 </select>
                 <select
@@ -246,7 +246,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               event="toggle_reposition"
             />
             <button
-              :if={@player_mode == "parado"}
+              :if={@player_mode == "still"}
               phx-click="relearn_ground"
               class="mx-3 my-2 flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 font-mono text-pk-meta text-pk-text-2 hover:text-white"
             >
@@ -325,8 +325,8 @@ defmodule PokexWeb.Panel.SettingsOverlay do
             />
             <div class="space-y-1.5 px-3 py-2.5 font-mono text-pk-meta text-pk-text-3">
               <form
-                id="captura-cfg-form"
-                phx-change="save_captura_cfg"
+                id="capture-cfg-form"
+                phx-change="save_capture_cfg"
                 class="flex flex-wrap items-center gap-x-1 gap-y-1.5"
               >
                 <label for="captura-match">reconhece com ≥</label>
@@ -408,8 +408,8 @@ defmodule PokexWeb.Panel.SettingsOverlay do
             />
             <div class="px-3 py-2.5 font-mono text-pk-meta text-pk-text-3">
               <form
-                id="estoque-cfg-form"
-                phx-change="save_estoque_cfg"
+                id="stock-cfg-form"
+                phx-change="save_stock_cfg"
                 class="flex flex-wrap items-center gap-x-1 gap-y-1.5"
               >
                 <label for="estoque-f1">F1 &lt;</label>

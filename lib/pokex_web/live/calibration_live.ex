@@ -372,7 +372,9 @@ defmodule PokexWeb.CalibrationLive do
          corpse_msg: nil
        )}
     else
-      {:erro, reason} ->
+      # Only the scan's OWN reasons get the specific advice; a missing
+      # calibration or a dead capture is a different problem and says so.
+      {:error, reason} when reason in [:no_anchor, :no_screen, :frame_too_small] ->
         {:noreply, assign(socket, corpse_msg: {:error, photo_error(reason)})}
 
       _no_calibration_or_capture ->

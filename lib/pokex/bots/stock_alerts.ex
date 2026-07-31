@@ -138,7 +138,7 @@ defmodule Pokex.Bots.StockAlerts do
     else
       reason = "estoque baixo: #{label} com #{count} (limiar #{threshold})"
       Logger.warning("StockAlerts: #{reason}")
-      Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :estoque, reason})
+      Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :stock, reason})
       broadcast(key, count, true)
       %{state | low: MapSet.put(state.low, key)}
     end

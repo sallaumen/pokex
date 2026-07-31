@@ -320,7 +320,7 @@ defmodule PokexWeb.PanelLiveTest do
       {:catcher,
        %{
          state: :idle,
-         mode: "parado",
+         mode: "still",
          counters: %{captures: 0, throws: 0, ignored: 0},
          error: "detector confuso"
        }}
@@ -433,14 +433,14 @@ defmodule PokexWeb.PanelLiveTest do
        } do
     muted = Pokex.Settings.get(:alarm_muted_categories)
     on_exit(fn -> Pokex.Settings.put(:alarm_muted_categories, muted) end)
-    Pokex.Settings.put(:alarm_muted_categories, ["estoque"])
+    Pokex.Settings.put(:alarm_muted_categories, ["stock"])
 
     {:ok, view, _} = live(conn, ~p"/")
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "combat",
-      {:rule_alarm, :estoque, "estoque baixo: F1 com 9 (limiar 30)"}
+      {:rule_alarm, :stock, "estoque baixo: F1 com 9 (limiar 30)"}
     )
 
     refute_push_event(view, "alarm", %{text: _})
@@ -493,8 +493,8 @@ defmodule PokexWeb.PanelLiveTest do
     view |> element(~s(input[phx-click="toggle_shiny_guard"])) |> render_click()
     refute Pokex.Settings.get(:shiny_guard_enabled) == enabled
 
-    view |> form("#shiny-cfg-form", %{"shiny_action" => "fugir"}) |> render_change()
-    assert Pokex.Settings.get(:shiny_action) == "fugir"
+    view |> form("#shiny-cfg-form", %{"shiny_action" => "escape"}) |> render_change()
+    assert Pokex.Settings.get(:shiny_action) == "escape"
 
     view |> element("#shiny-probe") |> render_click()
     html = render(view)
@@ -509,8 +509,8 @@ defmodule PokexWeb.PanelLiveTest do
 
     assert render(view) =~ "4<span"
 
-    Pokex.Pokedex.ShinyLog.record(star_px: 22, action: "fugir", outcome: "visto")
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_seen, %{px: 22, action: "fugir"}})
+    Pokex.Pokedex.ShinyLog.record(star_px: 22, action: "escape", outcome: "visto")
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_seen, %{px: 22, action: "escape"}})
 
     html = render(view)
     assert has_element?(view, "#shiny-log")
@@ -548,11 +548,11 @@ defmodule PokexWeb.PanelLiveTest do
     {:ok, view, _} = live(conn, ~p"/config")
 
     view
-    |> form("#stagnation-form", %{"stagnation_minutes" => "10", "stagnation_action" => "parar"})
+    |> form("#stagnation-form", %{"stagnation_minutes" => "10", "stagnation_action" => "stop"})
     |> render_change()
 
     assert Pokex.Settings.get(:stagnation_minutes) == 10
-    assert Pokex.Settings.get(:stagnation_action) == "parar"
+    assert Pokex.Settings.get(:stagnation_action) == "stop"
   end
 
   test "the stop-conditions form persists minutes and kills", %{conn: conn} do
@@ -653,7 +653,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     snapshot = %{
       state: :armed,
-      mode: "parado",
+      mode: "still",
       counters: %{captures: 2, throws: 3, ignored: 0},
       error: nil
     }
@@ -671,17 +671,17 @@ defmodule PokexWeb.PanelLiveTest do
 
     {:ok, view, _} = live(conn, ~p"/")
 
-    view |> element("#mode-movimento") |> render_click()
-    assert Pokex.Settings.get(:player_mode) == "movimento"
+    view |> element("#mode-moving") |> render_click()
+    assert Pokex.Settings.get(:player_mode) == "moving"
     refute Pokex.Settings.get(:capture_enabled)
     refute Pokex.Settings.get(:reposition_enabled)
 
     html = render(view)
-    assert html =~ "Iniciar — modo movimento"
+    assert html =~ "Iniciar — modo Movimento"
     assert html =~ "batalha"
     refute html =~ "liga pesca"
 
-    view |> element("#mode-parado") |> render_click()
+    view |> element("#mode-still") |> render_click()
     assert Pokex.Settings.get(:capture_enabled)
 
     {:ok, config, _} = live(conn, ~p"/config")
@@ -694,7 +694,7 @@ defmodule PokexWeb.PanelLiveTest do
     Pokex.SettingsStash.stash_keys!([:player_mode, :capture_enabled, :reposition_enabled])
 
     {:ok, view, _} = live(conn, ~p"/config")
-    view |> element("#mode-parado") |> render_click()
+    view |> element("#mode-still") |> render_click()
     refute has_element?(view, "[data-testid=override-badge]")
 
     view |> element(~s(#automation-reposition input)) |> render_click()
@@ -746,7 +746,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing, busy})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat, Map.put(busy, :locked_row, nil)})
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "catcher", {:catcher, Map.put(busy, :mode, "parado")})
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "catcher", {:catcher, Map.put(busy, :mode, "still")})
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
@@ -998,7 +998,7 @@ defmodule PokexWeb.PanelLiveTest do
     {:ok, view, _} = live(conn, ~p"/config")
 
     view
-    |> form("#captura-cfg-form", %{
+    |> form("#capture-cfg-form", %{
       "corpse_match_pct" => "80",
       "ball_key" => "F3",
       "corpse_max_balls" => "3",
@@ -1013,7 +1013,7 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:corpse_scan_radius_tiles) == 4
     assert Pokex.Settings.get(:dry_balls_alarm) == 6
 
-    view |> form("#captura-cfg-form", %{"ball_key" => "  "}) |> render_change()
+    view |> form("#capture-cfg-form", %{"ball_key" => "  "}) |> render_change()
     assert Pokex.Settings.get(:ball_key) == "f3"
 
     refute Pokex.Settings.get(:ball_needs_click)
@@ -1032,7 +1032,7 @@ defmodule PokexWeb.PanelLiveTest do
     {:ok, view, _} = live(conn, ~p"/config")
 
     view
-    |> form("#estoque-cfg-form", %{
+    |> form("#stock-cfg-form", %{
       "stock_alert_f1" => "50",
       "stock_alert_f2" => "15",
       "stock_alert_e" => "8",
@@ -1741,7 +1741,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     test "in direct mode the dropdown and the preview do not even exist", %{conn: conn} do
-      Pokex.Settings.put(:rescue_mode, "direto")
+      Pokex.Settings.put(:rescue_mode, "direct")
 
       {:ok, view, _html} = live(conn, ~p"/config")
 
@@ -1874,8 +1874,8 @@ defmodule PokexWeb.PanelLiveTest do
   describe "logout" do
     setup do
       on_exit(fn ->
-        Pokex.Settings.put(:stagnation_action, "alarme")
-        Pokex.Settings.put(:stop_after_action, "parar")
+        Pokex.Settings.put(:stagnation_action, "alarm")
+        Pokex.Settings.put(:stop_after_action, "stop")
       end)
 
       :ok
@@ -1937,8 +1937,8 @@ defmodule PokexWeb.PanelLiveTest do
     test "both action selectors offer deslogar", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
 
-      assert has_element?(view, ~s(select#stagnation-action option[value="deslogar"]))
-      assert has_element?(view, ~s(select#stop-after-action option[value="deslogar"]))
+      assert has_element?(view, ~s(select#stagnation-action option[value="logout"]))
+      assert has_element?(view, ~s(select#stop-after-action option[value="logout"]))
     end
 
     test "choosing deslogar in both selectors persists the setting", %{conn: conn} do
@@ -1946,19 +1946,19 @@ defmodule PokexWeb.PanelLiveTest do
 
       view
       |> element("#stagnation-form")
-      |> render_change(%{"stagnation_minutes" => "5", "stagnation_action" => "deslogar"})
+      |> render_change(%{"stagnation_minutes" => "5", "stagnation_action" => "logout"})
 
-      assert Pokex.Settings.get(:stagnation_action) == "deslogar"
+      assert Pokex.Settings.get(:stagnation_action) == "logout"
 
       view
       |> element("#stop-conditions-form")
       |> render_change(%{
         "stop_minutes" => "0",
         "stop_kills" => "0",
-        "stop_after_action" => "deslogar"
+        "stop_after_action" => "logout"
       })
 
-      assert Pokex.Settings.get(:stop_after_action) == "deslogar"
+      assert Pokex.Settings.get(:stop_after_action) == "logout"
     end
   end
 end

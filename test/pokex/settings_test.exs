@@ -35,6 +35,56 @@ defmodule Pokex.SettingsTest do
     assert Settings.get(:tile_px, server2) == 88
   end
 
+  # A boolean turned OFF is the most common override there is; migrating values
+  # on load with a plain `=` inside the comprehension would filter every `false`
+  # away and quietly turn the setting back on.
+  @tag :tmp_dir
+  test "an override of false survives the reload", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "settings.json")
+    File.write!(path, ~s({"capture_enabled": false, "loot_enabled": false}))
+
+    {:ok, server} = Settings.start_link(name: nil, path: path)
+
+    refute Settings.get(:capture_enabled, server)
+    refute Settings.get(:loot_enabled, server)
+
+    assert path |> File.read!() |> JSON.decode!() ==
+             %{"capture_enabled" => false, "loot_enabled" => false}
+  end
+
+  # Values written in Portuguese by an older build must arrive as today's
+  # spelling — and the file must be rewritten, so this happens once.
+  @tag :tmp_dir
+  test "a settings file written in Portuguese is migrated on load and healed on disk", %{
+    tmp_dir: tmp
+  } do
+    path = Path.join(tmp, "settings.json")
+
+    File.write!(
+      path,
+      JSON.encode!(%{
+        "player_mode" => "movimento",
+        "shiny_action" => "fugir",
+        "stop_after_action" => "deslogar",
+        "alarm_muted_categories" => ["vida", "estoque", "captura"]
+      })
+    )
+
+    {:ok, server} = Settings.start_link(name: nil, path: path)
+
+    assert Settings.get(:player_mode, server) == "moving"
+    assert Settings.get(:shiny_action, server) == "escape"
+    assert Settings.get(:stop_after_action, server) == "logout"
+    assert Settings.get(:alarm_muted_categories, server) == ["hp", "stock", "capture"]
+
+    assert path |> File.read!() |> JSON.decode!() == %{
+             "player_mode" => "moving",
+             "shiny_action" => "escape",
+             "stop_after_action" => "logout",
+             "alarm_muted_categories" => ["hp", "stock", "capture"]
+           }
+  end
+
   @tag :tmp_dir
   test "unknown keys are ignored and the file is healed to real overrides only", %{tmp_dir: tmp} do
     path = Path.join(tmp, "settings.json")
@@ -264,10 +314,10 @@ defmodule Pokex.SettingsTest do
       {:ok, server} = start_isolated(tmp)
 
       assert {:error, msg} = Settings.put(:stagnation_action, "explodir", server)
-      assert msg =~ "alarme, parar, deslogar"
+      assert msg =~ "alarm, stop, logout"
 
-      assert :ok = Settings.put(:stagnation_action, "deslogar", server)
-      assert Settings.get(:stagnation_action, server) == "deslogar"
+      assert :ok = Settings.put(:stagnation_action, "logout", server)
+      assert Settings.get(:stagnation_action, server) == "logout"
     end
 
     @tag :tmp_dir

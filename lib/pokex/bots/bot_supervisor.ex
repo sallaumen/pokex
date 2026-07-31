@@ -418,7 +418,7 @@ defmodule Pokex.Bots.BotSupervisor do
       combat: safe_status(combat, %{locked_row: nil}),
       # mode included so the busy placeholder carries the full catcher snapshot shape (and any
       # future template read of .mode can't crash).
-      catcher: safe_status(catcher, %{mode: "parado"})
+      catcher: safe_status(catcher, %{mode: "still"})
     }
   end
 

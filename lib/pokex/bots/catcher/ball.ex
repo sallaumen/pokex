@@ -24,16 +24,16 @@ defmodule Pokex.Bots.Catcher.Ball do
   without it the mouse was yanked ~2ms after the key, before the game registered
   the target.
   """
-  def sequence(ponto) do
-    [{:move, ponto}, {:wait, Settings.get(:capture_aim_settle_ms)}, {:press, key()}] ++
-      clique(ponto) ++
+  def sequence(point) do
+    [{:move, point}, {:wait, Settings.get(:capture_aim_settle_ms)}, {:press, key()}] ++
+      clique(point) ++
       [{:wait, Settings.get(:capture_hold_ms)}]
   end
 
   @doc "The configured throw key."
   def key, do: Settings.get(:ball_key)
 
-  defp clique(ponto) do
-    if Settings.get(:ball_needs_click), do: [{:click, :left, ponto}], else: []
+  defp clique(point) do
+    if Settings.get(:ball_needs_click), do: [{:click, :left, point}], else: []
   end
 end

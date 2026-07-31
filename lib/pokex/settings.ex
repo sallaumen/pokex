@@ -11,6 +11,8 @@ defmodule Pokex.Settings do
   use GenServer
   require Logger
 
+  alias Pokex.Settings.Legacy
+
   @seed_settings %{
     # Active character slug (see Pokex.Characters). "" = no character selected —
     # per-character files (chars/<slug>/…) fall back to the legacy shared ones.
@@ -326,9 +328,9 @@ defmodule Pokex.Settings do
     # — when the running session crosses a limit. 0 = condition off.
     stop_after_minutes: 0,
     stop_after_kills: 0,
-    # What to do when a goal is hit: "parar" latches everything like Stop;
-    # "deslogar" logs the account out — which is what actually saves stamina.
-    stop_after_action: "parar",
+    # What to do when a goal is hit: "stop" latches everything like Stop;
+    # "logout" logs the account out — which is what actually saves stamina.
+    stop_after_action: "stop",
     # The COMMAND corner (top right): holding the mouse there for
     # command_corner_dwell_ms toggles the last used mode — from INSIDE the
     # game, without clicking the browser (clicking steals focus and closes the
@@ -340,8 +342,8 @@ defmodule Pokex.Settings do
     # Shiny guard (Lucas's anti-shiny protocol): watch the arena feed for the
     # COLOR signature of the watched Shinies (built from the wiki sprites — a
     # PXG shiny is a full recolor, so no in-game photo is needed). Action on a
-    # confirmed sighting: "fugir" = the emergency-escape protocol (staircase);
-    # "alarme" = keep fighting, just scream (his "lutar se quiser").
+    # confirmed sighting: "escape" = the emergency-escape protocol (staircase);
+    # "alarm" = keep fighting, just scream (his "lutar se quiser").
     shiny_guard_enabled: false,
     # The battle-list STAR detector (the reliable path — PXG marks a shiny with
     # a gold ★ before its name). A row is shiny when its densest 3-column gold
@@ -354,7 +356,7 @@ defmodule Pokex.Settings do
     shiny_star_min_columns: 3,
     # A shiny ALWAYS deserves a pokéball, even with capture_enabled off.
     shiny_always_ball: true,
-    shiny_action: "alarme",
+    shiny_action: "alarm",
     # A sighting must survive this long without a clean frame refuting it.
     # The feed captures every ~120ms, so a one-frame glitch dies in ~120-240ms.
     shiny_confirm_ms: 400,
@@ -363,11 +365,11 @@ defmodule Pokex.Settings do
     # kill + MINIGAME WON — not a hook: with the minigame stuck the rod hooks
     # all night without landing a single fish, which is how one overnight of
     # stamina was lost. Hooks only count again with the minigame watcher off.
-    # 0 = off. "alarme" re-rings every silence window (the rule's own
-    # cooldown); "parar" latches everything via the goals latch; "deslogar"
+    # 0 = off. "alarm" re-rings every silence window (the rule's own
+    # cooldown); "stop" latches everything via the goals latch; "logout"
     # logs the account out.
     stagnation_minutes: 0,
-    stagnation_action: "alarme",
+    stagnation_action: "alarm",
     # Escape WALK (the flee protocol): clicking ON a ladder tries to USE it,
     # which only works when adjacent (Lucas, live 2026-07-20) — so escape_point
     # is a WALKABLE tile beside the staircase; after click-walking there the
@@ -423,11 +425,11 @@ defmodule Pokex.Settings do
     # Auto-revive with a STUN combo (2026-07-30): hunting strong mobs, the
     # area-stun skills are reserved for the rescue moment — the chosen combo
     # (skill/wait steps only; see Combos.rescue_eligible?) becomes the PREFIX
-    # of the same atomic revive sequence. "direto" = the usual sequence;
+    # of the same atomic revive sequence. "direct" = the usual sequence;
     # "combo" = prefix + revive. A skill on cooldown at that moment is SKIPPED
     # (bar read; without a read, press blind). Combo missing/ineligible at
     # that moment → direct revive + alarm (fail in the direction of SAVING).
-    rescue_mode: "direto",
+    rescue_mode: "direct",
     rescue_combo: "",
     # How often the PlayerSupport samples the main Pokémon's HP bar.
     support_tick_ms: 120,
@@ -598,7 +600,7 @@ defmodule Pokex.Settings do
     # teleporting the cursor around while you share the computer with it. ~65ms per mouse
     # sequence (one read + one move); key-only sequences skip it entirely.
     restore_mouse_after_actions: true,
-    # --- Corpse capture ("parado" mode) -------------------------------------------------------------
+    # --- Corpse capture ("still" mode) -------------------------------------------------------------
     # The :corpses feed learns the EMPTY ground at attach: the first warmup frame is the baseline
     # and any 16px cell that deviates during the remaining warmup frames (animated water, sparkles,
     # the character) is masked out forever. After warmup, a masked-diff blob that holds still for
@@ -621,9 +623,9 @@ defmodule Pokex.Settings do
     # throws is not a corpse (a parked pet) → ignored for corpse_ignore_ttl_ms. Confirmation
     # only counts observations captured at least corpse_confirm_after_ms after the throw (the
     # ball needs flight time — an instant re-read would read the pre-hit frame).
-    # The GLOBAL player mode: "parado" (standing still — automations that need the fixed
-    # viewport may act) or "movimento" (Lucas is walking around — loot and capture are his).
-    player_mode: "parado",
+    # The GLOBAL player mode: "still" (standing still — automations that need the fixed
+    # viewport may act) or "moving" (Lucas is walking around — loot and capture are his).
+    player_mode: "still",
     # Independent switches, both only meaningful while parado:
     # loot: Space pressed after each confirmed kill — the fished pokémon fights and dies on
     # the ADJACENT melee tile, so Space reaches its corpse from standing position. Fires
@@ -639,12 +641,12 @@ defmodule Pokex.Settings do
     corpse_max_balls: 2,
     corpse_ignore_ttl_ms: 45_000,
     corpse_confirm_after_ms: 800,
-    # N consecutive balls resolved WITHOUT a confirmed capture → :captura
+    # N consecutive balls resolved WITHOUT a confirmed capture → :capture
     # alarm (the mirror of fishing's dry_casts_alarm). 0 = off.
     dry_balls_alarm: 4,
     catcher_world_max_age_ms: 1_200,
     # --- Cavebot (waypoint-route hunting) --------------------------------------------------------
-    hunt_style: "constante",
+    hunt_style: "steady",
     defense_mode_key: "shift+3",
     attack_mode_key: "shift+1",
     cavebot_arrival_tolerance_tiles: 1,
@@ -757,12 +759,13 @@ defmodule Pokex.Settings do
   # player_mode/mini_game_mode stay out: their owner modules (Modes/Mode)
   # already validate on their own write path.
   @enums %{
-    stagnation_action: ~w(alarme parar deslogar),
-    stop_after_action: ~w(parar deslogar),
-    shiny_action: ~w(alarme fugir),
+    stagnation_action: ~w(alarm stop logout),
+    stop_after_action: ~w(stop logout),
+    shiny_action: ~w(alarm escape),
     escape_direction: ~w(up down left right),
-    hunt_style: ~w(constante mobada),
-    rescue_mode: ~w(direto combo)
+    hunt_style: ~w(steady mobbed),
+    rescue_mode: ~w(direct combo),
+    player_mode: ~w(still moving hunt)
   }
 
   # THRESHOLD keys whose seed is an integer but which accept fractions (the
@@ -875,6 +878,7 @@ defmodule Pokex.Settings do
         for {key_string, value} <- json,
             key = known_key(key_string),
             key in @preset_keys,
+            value <- [Legacy.value(key, value)],
             valid_preset_value?(key, value) do
           :ok = put(key, value, server)
           key
@@ -970,6 +974,13 @@ defmodule Pokex.Settings do
           # A JSON null is file corruption, never a legitimate override — keeping
           # it would make Settings.get return nil to code expecting a number.
           not is_nil(value),
+          # A value written in Portuguese by an older build becomes today's
+          # spelling BEFORE the seed comparison — otherwise a migrated default
+          # would be kept as an override forever. The heal write then fixes the
+          # file itself, so this runs once per install.
+          # The one-element generator BINDS; a plain `=` here would act as a
+          # filter and silently drop every `false` override.
+          value <- [Legacy.value(key, value)],
           value != Map.fetch!(@seed_settings, key),
           into: %{},
           do: {key, value}

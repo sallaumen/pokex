@@ -188,7 +188,7 @@ defmodule Pokex.Bots.Fishing.Worker do
     # Alarms decided by the Logic (e.g. dry casts) ring the panel siren — the
     # same one the rule guards use.
     for {:alarm, msg} <- actions do
-      Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:rule_alarm, :pesca, msg})
+      Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:rule_alarm, :fishing, msg})
     end
 
     # A tick is MACRO when the state or a counter changed (a hook, a recast, an

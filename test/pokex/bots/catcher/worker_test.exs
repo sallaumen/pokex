@@ -32,7 +32,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       :ets.delete(:pokex_world, :corpses)
     end)
 
-    Settings.put(:player_mode, "parado")
+    Settings.put(:player_mode, "still")
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -115,7 +115,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     :ok = Worker.run(worker)
 
-    assert_receive {:rule_alarm, :captura, msg}, 1_000
+    assert_receive {:rule_alarm, :capture, msg}, 1_000
     assert msg =~ "acervo de corpos VAZIO"
   end
 
@@ -157,14 +157,14 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
   @tag :tmp_dir
   test "movimento mode never acts", %{worker: worker} do
-    Settings.put(:player_mode, "movimento")
+    Settings.put(:player_mode, "moving")
     :ok = Worker.mode_changed(worker)
     assert Worker.status(worker).state == :manual
 
     world!(worker, corpses_obs([{130, 224}]))
     refute_receive {:performed, _p, _a}, 300
 
-    Settings.put(:player_mode, "parado")
+    Settings.put(:player_mode, "still")
     :ok = Worker.mode_changed(worker)
     assert Worker.status(worker).state == :armed
   end
@@ -399,7 +399,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).hold_reason == "captura DESLIGADA — só saque"
 
     :ok = Worker.run(worker)
-    assert_receive {:rule_alarm, :captura, msg}, 1_000
+    assert_receive {:rule_alarm, :capture, msg}, 1_000
     assert msg =~ "captura DESLIGADA"
 
     Settings.put(:capture_enabled, true)
@@ -413,7 +413,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   # drops. Only the BALL needs the standing-still ground baseline.
   @tag :tmp_dir
   test "movimento: a kill loots but never throws a ball", %{worker: worker} do
-    Settings.put(:player_mode, "movimento")
+    Settings.put(:player_mode, "moving")
     :ok = Worker.mode_changed(worker)
 
     obs = corpses_obs([{140, 230}])
@@ -429,7 +429,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
   @tag :tmp_dir
   test "movimento with loot disabled: a kill does nothing", %{worker: worker} do
-    Settings.put(:player_mode, "movimento")
+    Settings.put(:player_mode, "moving")
     Settings.put(:loot_enabled, false)
     :ok = Worker.mode_changed(worker)
 

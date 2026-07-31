@@ -14,9 +14,9 @@ defmodule Pokex.Bots.ShinyGuard do
   next capture). It LOGS the encounter (Pokex.Pokedex.ShinyLog — the trophy
   shelf) and acts per `shiny_action`:
 
-    * `"fugir"` — the emergency-escape protocol (latch, click-walk to the
+    * `"escape"` — the emergency-escape protocol (latch, click-walk to the
       calibrated staircase, full stop, alarm) via the injected `escape_fun`;
-    * `"alarme"` — his "lutar se quiser": keep fighting, broadcast a
+    * `"alarm"` — his "lutar se quiser": keep fighting, broadcast a
       `{:rule_alarm, _}` so the panel screams (F7 pipeline) and he decides.
 
   Always-on app child like the Guardian — a shiny is dangerous during MANUAL
@@ -80,7 +80,7 @@ defmodule Pokex.Bots.ShinyGuard do
     # creates demand. Without THIS subscribe the guard is attached but deaf
     # (the bug behind the silent Kingler sighting of 2026-07-21).
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
-    # combat's kill broadcast closes an open encounter as "morto"
+    # combat's kill broadcast closes an open encounter as "killed"
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.kill_topic())
     schedule_poll()
     {:ok, state}
@@ -129,12 +129,12 @@ defmodule Pokex.Bots.ShinyGuard do
   # A kill right after a sighting IS that shiny dying (Lucas: "se eu matei um
   # Shiny"). Outside the window it is an ordinary kill — ignored.
   def handle_info(kill, state) when kill in [{:kill}, {:kill, nil}] do
-    if recent_sighting?(state), do: ShinyLog.resolve_last("morto")
+    if recent_sighting?(state), do: ShinyLog.resolve_last("killed")
     {:noreply, state}
   end
 
   def handle_info({:kill, _corpse}, state) do
-    if recent_sighting?(state), do: ShinyLog.resolve_last("morto")
+    if recent_sighting?(state), do: ShinyLog.resolve_last("killed")
     {:noreply, state}
   end
 
@@ -245,12 +245,12 @@ defmodule Pokex.Bots.ShinyGuard do
     ShinyLog.record(
       star_px: px,
       action: action,
-      outcome: "visto",
+      outcome: "seen",
       note: if(quem == "", do: nil, else: String.trim(quem))
     )
 
     case action do
-      "fugir" ->
+      "escape" ->
         # The latch is a standing stop order (panic corner, logout, met goal).
         # With it set the guard does NOT act — but keeps shouting: when playing
         # by hand from the corner, a shiny sighting must still be announced;
@@ -270,7 +270,7 @@ defmodule Pokex.Bots.ShinyGuard do
         else
           Logger.warning("ShinyGuard: #{reason} — fugindo pela escada")
           state.escape_fun.(reason)
-          ShinyLog.resolve_last("fugiu")
+          ShinyLog.resolve_last("fled")
         end
 
       _alarm_or_fight ->

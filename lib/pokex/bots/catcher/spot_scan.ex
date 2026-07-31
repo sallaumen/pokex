@@ -41,7 +41,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   def scan do
     case Calibration.load() do
       {:ok, calib} -> scan(calib)
-      _no_calibration -> cego(:no_calibration)
+      _no_calibration -> blind(:no_calibration)
     end
   end
 
@@ -60,14 +60,22 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   `capture` is injectable in tests (same seam as the other workers).
   """
   def scan(%Calibration{} = calib, capture \\ &Capture.frame/2) do
-    with {:ok, centro} <- centro(calib),
-         {:ok, region} <- scan_region(centro, calib),
-         {:ok, %Frame{} = frame} <- capture.(region, "corpse_scan.png") do
-      sweep(frame, calib, region, centro)
+    with {:ok, center} <- center(calib),
+         {:ok, region} <- scan_region(center, calib),
+         {:ok, %Frame{} = frame} <- grab(capture, region) do
+      sweep(frame, calib, region, center)
     else
-      {:erro, reason} -> cego(reason)
-      {:error, reason} -> cego({:capture_failed, reason})
-      outro -> cego({:capture_failed, outro})
+      {:error, reason} -> blind(reason)
+    end
+  end
+
+  # A capture failure reads differently from "the calibration cannot tell me
+  # where to look": it is tagged here so the log says which of the two it was.
+  defp grab(capture, region) do
+    case capture.(region, "corpse_scan.png") do
+      {:ok, %Frame{} = frame} -> {:ok, frame}
+      {:error, reason} -> {:error, {:capture_failed, reason}}
+      other -> {:error, {:capture_failed, other}}
     end
   end
 
@@ -76,10 +84,10 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   teach a corpse. Teaching used `arena_region` while the search used the square:
   a corpse near the character (outside the arena) didn't fit the photo and
   couldn't be clicked to teach — seen live with a Gyarados clipped at the bottom
-  edge (2026-07-30). `{:ok, {x, y, w, h}}` or `{:erro, motivo}`.
+  edge (2026-07-30). `{:ok, {x, y, w, h}}` or `{:error, reason}`.
   """
   def region(%Calibration{} = calib) do
-    with {:ok, centro} <- centro(calib), do: scan_region(centro, calib)
+    with {:ok, center} <- center(calib), do: scan_region(center, calib)
   end
 
   # Search center. The hand-marked point wins; without it, the SCREEN center —
@@ -87,12 +95,12 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # vs (1688,697)). The old fallback was the ARENA center, 268px above the
   # character on his calibration. This is what allows capturing WITHOUT a
   # calibrated arena.
-  defp centro(%Calibration{player_point: {_x, _y} = ponto}), do: {:ok, ponto}
+  defp center(%Calibration{player_point: {_x, _y} = point}), do: {:ok, point}
 
-  defp centro(%Calibration{screen_w: w, screen_h: h}) when is_integer(w) and is_integer(h),
+  defp center(%Calibration{screen_w: w, screen_h: h}) when is_integer(w) and is_integer(h),
     do: {:ok, {div(w, 2), div(h, 2)}}
 
-  defp centro(_nothing), do: {:erro, :no_anchor}
+  defp center(_nothing), do: {:error, :no_anchor}
 
   # The square: (2r+1) tiles centered on the character, stretched to embrace the
   # pokémon point if it falls outside, clamped to the SCREEN — never the arena
@@ -106,7 +114,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
 
     {left, top, right, bottom} =
       {cx - meia, cy - meia, cx + meia, cy + meia}
-      |> abracar(calib.pokemon_spot_point, tile)
+      |> hug(calib.pokemon_spot_point, tile)
 
     left = max(left, 0)
     top = max(top, 0)
@@ -117,40 +125,40 @@ defmodule Pokex.Bots.Catcher.SpotScan do
 
     if right - left >= box and bottom - top >= box,
       do: {:ok, {left, top, right - left, bottom - top}},
-      else: {:erro, :frame_too_small}
+      else: {:error, :frame_too_small}
   end
 
-  defp scan_region(_centro, _no_screen), do: {:erro, :no_screen}
+  defp scan_region(_centro, _no_screen), do: {:error, :no_screen}
 
-  defp abracar(caixa, nil, _tile), do: caixa
+  defp hug(box, nil, _tile), do: box
 
-  defp abracar({left, top, right, bottom}, {px, py}, tile) do
+  defp hug({left, top, right, bottom}, {px, py}, tile) do
     {min(left, px - tile), min(top, py - tile), max(right, px + tile), max(bottom, py + tile)}
   end
 
   # Slide the teach-sized box over the whole region at a coarse step, refine
   # around the best peaks, keep local maxima above the threshold. Two phases
   # because the fine phase alone would cost ~40x more windows for the same result.
-  defp sweep(%Frame{} = frame, calib, region, centro) do
+  defp sweep(%Frame{} = frame, calib, region, center) do
     box = Settings.get(:corpse_sprite_box_px)
     min_sim = Settings.get(:corpse_match_min_similarity)
     step = max(Settings.get(:corpse_scan_step_px), 1)
-    refino = max(Settings.get(:corpse_scan_refine_px), 1)
+    refine = max(Settings.get(:corpse_scan_refine_px), 1)
 
     forbidden = forbidden_zones(calib, region, box)
 
-    grosso = pontuar(frame, windows(frame, box, step), box, forbidden)
+    grosso = score(frame, windows(frame, box, step), box, forbidden)
 
     finas =
       grosso
       |> Enum.sort_by(& &1.score, :desc)
       |> Enum.take(Settings.get(:corpse_scan_refine_peaks))
-      |> Enum.flat_map(&windows_around(&1, frame, box, step, refino))
+      |> Enum.flat_map(&windows_around(&1, frame, box, step, refine))
       |> Enum.uniq()
 
-    todas = grosso ++ pontuar(frame, finas, box, forbidden)
+    todas = grosso ++ score(frame, finas, box, forbidden)
 
-    targets = picos(todas, min_sim, Settings.get(:corpse_match_tolerance_px))
+    targets = peaks(todas, min_sim, Settings.get(:corpse_match_tolerance_px))
 
     known =
       Map.new(targets, fn %{x: x, y: y, name: name, score: score} ->
@@ -164,7 +172,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
       captured_at: System.monotonic_time(:millisecond),
       windows: length(todas),
       region: region,
-      centro: centro,
+      center: center,
       threshold: min_sim,
       best: best(todas, box, calib, region)
     }
@@ -176,16 +184,16 @@ defmodule Pokex.Bots.Catcher.SpotScan do
 
   # Refinement covers ±step in fine increments around a coarse peak — where the
   # ~0.05 score per 7px of offset is recovered.
-  defp windows_around(%{x: x, y: y}, %Frame{width: w, height: h}, box, step, refino) do
-    for dy <- -step..step//refino,
-        dx <- -step..step//refino,
+  defp windows_around(%{x: x, y: y}, %Frame{width: w, height: h}, box, step, refine) do
+    for dy <- -step..step//refine,
+        dx <- -step..step//refine,
         nx = x + dx,
         ny = y + dy,
         nx >= 0 and ny >= 0 and nx + box <= w and ny + box <= h,
         do: {nx, ny}
   end
 
-  defp pontuar(frame, positions, box, forbidden) do
+  defp score(frame, positions, box, forbidden) do
     for {x, y} <- positions,
         not forbidden?(x, y, box, forbidden),
         info = CorpseLibrary.best_in(frame, {x, y, box, box}),
@@ -215,26 +223,26 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # Local maxima above the threshold with neighbor suppression: the dense scan
   # yields a plateau of good windows over the SAME corpse — without this each
   # corpse would become dozens of queue targets.
-  defp picos(candidatos, min_sim, tolerancia) do
+  defp peaks(candidatos, min_sim, tolerancia) do
     candidatos
     |> Enum.filter(&(&1.score >= min_sim))
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.reduce([], fn cand, aceitos ->
-      if Enum.any?(aceitos, &perto?(&1, cand, tolerancia)),
+      if Enum.any?(aceitos, &near?(&1, cand, tolerancia)),
         do: aceitos,
         else: [cand | aceitos]
     end)
     |> Enum.reverse()
   end
 
-  defp perto?(%{x: ax, y: ay}, %{x: bx, y: by}, tolerancia),
+  defp near?(%{x: ax, y: ay}, %{x: bx, y: by}, tolerancia),
     do: abs(ax - bx) <= tolerancia and abs(ay - by) <= tolerancia
 
   defp best([], _box, _calib, _region), do: nil
 
   defp best(candidatos, box, calib, region) do
     %{x: x, y: y, name: name, score: score} = Enum.max_by(candidatos, & &1.score)
-    %{name: name, score: score, ponto: center_on_screen(x, y, box, calib, region)}
+    %{name: name, score: score, point: center_on_screen(x, y, box, calib, region)}
   end
 
   # Window corner (frame px) → its CENTER as a screen point. This is the aim:
@@ -250,7 +258,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   defp in_frame(sx, sy, %Calibration{scale: scale}, {rx, ry, _w, _h}),
     do: {round((sx - rx) * scale), round((sy - ry) * scale)}
 
-  defp cego(reason) do
+  defp blind(reason) do
     %{
       scanning?: false,
       corpses: [],
@@ -258,7 +266,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
       captured_at: System.monotonic_time(:millisecond),
       windows: 0,
       region: nil,
-      centro: nil,
+      center: nil,
       threshold: nil,
       best: nil,
       reason: reason

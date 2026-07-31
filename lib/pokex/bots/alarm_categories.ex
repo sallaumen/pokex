@@ -8,15 +8,15 @@ defmodule Pokex.Bots.AlarmCategories do
 
   @categories [
     {:shiny, "Shiny avistado"},
-    {:vida, "Vida crítica do Pokémon"},
-    {:erro, "Erro de um worker"},
-    {:fuga, "Fuga de emergência"},
-    {:sessao, "Sessão (estagnação, meta batida)"},
+    {:hp, "Vida crítica do Pokémon"},
+    {:error, "Erro de um worker"},
+    {:escape, "Fuga de emergência"},
+    {:session, "Sessão (estagnação, meta batida)"},
     {:cavebot, "Caçada bloqueada (cavebot)"},
-    {:comando, "Canto de comando"},
-    {:captura, "Captura (acervo, fila, região)"},
-    {:pesca, "Arremesso seco (pesca)"},
-    {:estoque, "Estoque baixo"},
+    {:command, "Canto de comando"},
+    {:capture, "Captura (acervo, fila, região)"},
+    {:fishing, "Arremesso seco (pesca)"},
+    {:stock, "Estoque baixo"},
     {:logout, "Logout automático"}
   ]
 

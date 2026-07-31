@@ -589,7 +589,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       send(view.pid, {:catcher, %{state: :armed, counters: %{}}})
       send(view.pid, {:catcher_log, :macro, "captura: bola em 1,2"})
-      send(view.pid, {:rule_alarm, :captura, "sirene"})
+      send(view.pid, {:rule_alarm, :capture, "sirene"})
 
       send(view.pid, {:catcher_count, %{"Kingler" => 1}})
       assert render(view) =~ "Calibração"

@@ -152,7 +152,7 @@ defmodule Pokex.Diagnostics.Report do
   defp safe_source(fun) do
     fun.()
   catch
-    kind, reason -> %{erro: "#{kind}: #{inspect(reason)}"}
+    kind, reason -> %{error: "#{kind}: #{inspect(reason)}"}
   end
 
   # Snapshots carry tuples (points, rects) and the bundle becomes JSON — deep

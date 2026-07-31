@@ -175,9 +175,9 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   # A corpse of ANOTHER species exactly where the ball flew: proof the original
   # target was consumed and the ground recycled. Requires a name on BOTH sides.
-  defp outra_especie?(obs, %{name: ball_name, point: ponto}, tol)
+  defp outra_especie?(obs, %{name: ball_name, point: point}, tol)
        when is_binary(ball_name) do
-    case name_in(obs, ponto, tol) do
+    case name_in(obs, point, tol) do
       nil -> false
       current_name -> current_name != ball_name
     end
@@ -207,10 +207,10 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   # The identity the scan already knows at the point — so the ignore veto never
   # contaminates a future corpse of ANOTHER species on the same tile.
-  defp name_in(obs, ponto, tolerancia) do
+  defp name_in(obs, point, tolerancia) do
     obs
     |> Map.get(:known, %{})
-    |> Enum.find_value(fn {p, %{name: name}} -> if near?(p, ponto, tolerancia), do: name end)
+    |> Enum.find_value(fn {p, %{name: name}} -> if near?(p, point, tolerancia), do: name end)
   end
 
   defp admit(logic, obs) do
@@ -230,8 +230,8 @@ defmodule Pokex.Bots.Catcher.Logic do
   # sides (old library, read without known) the point veto still applies —
   # fails conservative.
   defp vetoed?(logic, obs, candidato, tolerance) do
-    Enum.any?(logic.ignored, fn {ponto, entrada} ->
-      near?(ponto, candidato, tolerance) and same_identity?(entrada, obs, candidato, tolerance)
+    Enum.any?(logic.ignored, fn {point, entrada} ->
+      near?(point, candidato, tolerance) and same_identity?(entrada, obs, candidato, tolerance)
     end)
   end
 

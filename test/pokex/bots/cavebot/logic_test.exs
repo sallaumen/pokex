@@ -19,13 +19,13 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
   defp world(pos, enemies \\ 0, combat \\ :hunting),
     do: %{pos: pos, enemies: enemies, combat_state: combat}
 
-  test "no arranque liga o combate" do
+  test "the first step turns combat on" do
     l = Logic.new(route(), @cfg)
     assert {l, :run_combat} = Logic.step(l, world({0, 0, 7}), 0)
     assert l.combat_running?
   end
 
-  test "anda em direção ao waypoint e avança quando chega" do
+  test "walks toward the waypoint and advances on arrival" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
     assert {l, {:walk, dx, dy}} = Logic.step(l, world({5, 10, 7}), 10)
     assert {dx, dy} == {5, 0}
@@ -33,13 +33,13 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert l.wp_index == 1
   end
 
-  test "inimigo aparece → estado fighting, sem novo comando" do
+  test "an enemy appearing moves to fighting with no new command" do
     {l, _} = Logic.step(Logic.new(route(), @cfg), world({10, 10, 7}, 2), 0)
     assert {l, :none} = Logic.step(l, world({10, 10, 7}, 2), 10)
     assert l.state == :fighting
   end
 
-  test "luta limpa sustentada por debounce volta a andar após o dwell" do
+  test "a clear fight sustained through the debounce resumes walking after the dwell" do
     l = %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
     {l, :none} = Logic.step(l, world({10, 10, 7}, 0), 0)
     {l, _} = Logic.step(l, world({10, 10, 7}, 0), 900)
@@ -48,27 +48,22 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert l.state == :walking
   end
 
-  test "z mudou → block" do
+  test "a z change blocks" do
     l = Logic.new(route(), @cfg)
     assert {_l, {:block, :floor_changed}} = Logic.step(l, world({10, 10, 6}), 0)
   end
 
-  # --- casos extra: ramos :stuck / :fight_stalled / :blocked ---
-
-  test "parado no lugar vira stuck e, esgotados os retries, bloqueia" do
+  test "standing still becomes stuck and, retries exhausted, blocks" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)
 
-    # mesma posição antes do timeout: continua walking
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 2000)
     assert l.state == :walking
 
-    # mesma posição por >= walk_timeout_ms (desde now=10) → stuck
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3010)
     assert l.state == :stuck
     assert l.retries == 0
 
-    # stuck re-emite {:walk, dx, dy} incrementando retries até o gate
     l =
       Enum.reduce(1..4, l, fn i, acc ->
         {acc, {:walk, 5, 0}} = Logic.step(acc, world({5, 10, 7}), 3010 + i * 100)
@@ -79,11 +74,10 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert {l, {:block, :stuck}} = Logic.step(l, world({5, 10, 7}), 4000)
     assert l.state == :blocked
 
-    # blocked é terminal
     assert {_l, :none} = Logic.step(l, world({5, 10, 7}), 4100)
   end
 
-  test "stuck: posição voltando a mudar retoma walking e zera retries" do
+  test "stuck: position changing again resumes walking and resets retries" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3010)
@@ -92,31 +86,24 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3100)
     assert l.retries == 1
 
-    # andou um tile → volta a walking, retries zerados
     {l, {:walk, 4, 0}} = Logic.step(l, world({6, 10, 7}), 3200)
     assert l.state == :walking
     assert l.retries == 0
   end
 
-  test "fighting além do fight_timeout vira fight_stalled e depois bloqueia" do
+  test "fighting past fight_timeout becomes fight_stalled and then blocks" do
     l = %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
 
-    # primeiro tick com inimigos marca o início da luta
     {l, :none} = Logic.step(l, world({10, 10, 7}, 2), 0)
     assert l.state == :fighting
 
-    # antes do timeout continua fighting
     {l, :none} = Logic.step(l, world({10, 10, 7}, 2), 19_000)
     assert l.state == :fighting
 
-    # timeout cumprido → fight_stalled
     {l, :none} = Logic.step(l, world({10, 10, 7}, 2), 20_000)
     assert l.state == :fight_stalled
     assert l.retries == 0
 
-    # fight_stalled emite nudges incrementando retries até o gate. O nudge sai
-    # do waypoint 0 ({10,10,7}) estando EM CIMA dele: sem direção, desempata
-    # pelo eixo x — nunca (0,0), que seria clicar no próprio tile.
     l =
       Enum.reduce(1..4, l, fn i, acc ->
         {acc, {:nudge, 1, 0}} = Logic.step(acc, world({10, 10, 7}, 2), 20_000 + i * 100)
@@ -128,31 +115,27 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert l.state == :blocked
   end
 
-  test "z mudou durante a luta também bloqueia (qualquer estado)" do
+  test "a z change during the fight also blocks (any state)" do
     l = %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
     assert {l, {:block, :floor_changed}} = Logic.step(l, world({10, 10, 5}, 3), 0)
     assert l.state == :blocked
 
-    # terminal: nem um novo desvio de z gera outra ação
     assert {_l, :none} = Logic.step(l, world({10, 10, 4}, 3), 10)
   end
 
-  test "walking com pos desconhecida segura sem andar às cegas" do
+  test "walking with an unknown position holds instead of walking blind" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
     assert {l, :none} = Logic.step(l, world(nil), 10)
     assert l.state == :walking
   end
 
-  # --- cegueira: estado visível, nunca bloqueio ---
-
-  test "sem posição a cegueira é MARCADA e cresce; a posição de volta apaga" do
+  test "without a position, blindness is marked and grows; the position returning clears it" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
     assert Logic.blind_ms(l, 10) == nil
 
     {l, :none} = Logic.step(l, world(nil), 100)
     assert Logic.blind_ms(l, 100) == 0
 
-    # o relógio marca a PRIMEIRA leitura sem posição, não a última
     {l, :none} = Logic.step(l, world(nil), 2_500)
     assert Logic.blind_ms(l, 2_500) == 2_400
     assert l.state == :walking
@@ -161,13 +144,12 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert Logic.blind_ms(l, 2_600) == nil
   end
 
-  test "cego dentro do stuck também marca, e nunca vira block" do
+  test "blind while stuck is also marked, and never becomes a block" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3010)
     assert l.state == :stuck
 
-    # dez ticks cegos seguidos: nenhum consome retry, nenhum bloqueia
     l =
       Enum.reduce(1..10, l, fn i, acc ->
         {acc, :none} = Logic.step(acc, world(nil), 3010 + i * 100)
@@ -176,17 +158,14 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
         acc
       end)
 
-    # cego desde o primeiro tick sem posição (3110), não desde o último
     assert Logic.blind_ms(l, 4_110) == 1_000
   end
 
-  test "clear interrompido por inimigo novo zera o debounce" do
+  test "a clear interrupted by a new enemy resets the debounce" do
     l = %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
     {l, :none} = Logic.step(l, world({10, 10, 7}, 0), 0)
-    # inimigo voltou antes do debounce → clear zera
     {l, :none} = Logic.step(l, world({10, 10, 7}, 1), 400)
     assert l.state == :fighting
-    # limpa de novo: precisa sustentar o debounce inteiro outra vez
     {l, :none} = Logic.step(l, world({10, 10, 7}, 0), 500)
     {l, :none} = Logic.step(l, world({10, 10, 7}, 0), 1200)
     assert l.state == :fighting
@@ -194,12 +173,9 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert l.state == :post_fight
   end
 
-  # --- o nudge tem que MEXER ---
-
-  # {:nudge, 0, 0} virava um clique no centro do minimapa — o tile onde o
-  # personagem já está. Nudge nenhum: gastava os retries e bloqueava sem nunca
-  # ter tentado destravar a luta.
-  test "o nudge nunca é (0,0) — de qualquer posição, com ou sem leitura" do
+  # {:nudge, 0, 0} became a click on the minimap center — the tile the player already
+  # occupies. No nudge at all: it burned the retries and blocked without ever trying.
+  test "the nudge is never (0,0) — from any position, with or without a reading" do
     stalled = %{
       Logic.new(route(), @cfg)
       | state: :fight_stalled,
@@ -207,14 +183,12 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     }
 
     positions = [
-      # em cima do waypoint {10,10,7}: sem direção, desempata
       {10, 10, 7},
       {5, 10, 7},
       {30, 10, 7},
       {10, 4, 7},
       {10, 44, 7},
       {3, 3, 7},
-      # sem leitura de posição nenhuma
       nil
     ]
 
@@ -225,17 +199,16 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     end
   end
 
-  test "o nudge aponta pro waypoint atual, um tile por vez" do
+  test "the nudge points at the current waypoint, one tile at a time" do
     stalled = %{Logic.new(route(), @cfg) | state: :fight_stalled, combat_running?: true}
 
-    # waypoint 0 é {10, 10, 7}
     assert {_l, {:nudge, 1, 0}} = Logic.step(stalled, world({5, 10, 7}, 2), 0)
     assert {_l, {:nudge, -1, 0}} = Logic.step(stalled, world({40, 10, 7}, 2), 0)
     assert {_l, {:nudge, 1, 1}} = Logic.step(stalled, world({2, 2, 7}, 2), 0)
     assert {_l, {:nudge, -1, -1}} = Logic.step(stalled, world({99, 99, 7}, 2), 0)
   end
 
-  test "wp_index dá a volta no fim da rota" do
+  test "wp_index wraps around at the end of the route" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({0, 0, 7}), 0)
     {l, _} = Logic.step(l, world({10, 10, 7}), 10)
     assert l.wp_index == 1

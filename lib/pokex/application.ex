@@ -1,6 +1,4 @@
 defmodule Pokex.Application do
-  # See https://elixir.hexdocs.pm/Application.html
-  # for more information on OTP Applications
   @moduledoc false
 
   use Application
@@ -11,8 +9,6 @@ defmodule Pokex.Application do
       PokexWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:pokex, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Pokex.PubSub},
-      # Start a worker by calling: Pokex.Worker.start_link(arg)
-      # {Pokex.Worker, arg},
       Pokex.Settings,
       Pokex.Bots.Perf,
       # The actuation safety floor — owns the gate ETS table. MUST start before anything that
@@ -29,38 +25,32 @@ defmodule Pokex.Application do
       # balloon on macOS; one-at-a-time keeps each ~0.28s and the sample cadence steady.
       Pokex.Bots.Capture,
       Pokex.Perception,
-      # A geração da sessão (Frente 1): contador de ordens que invalida
-      # retomadas velhas. Antes do BotSupervisor porque toda ordem passa por ele.
+      # Session generation: order counter that invalidates stale resumes. Must start
+      # before BotSupervisor since every order goes through it.
       Pokex.Bots.Session,
       Pokex.Bots.BotSupervisor,
       # The anti-shiny watchdog (always-on like Guardian; manages its own
       # arena-feed attachment from the shiny_guard_enabled setting).
       Pokex.Bots.ShinyGuard,
-      # Encerra a sessão de verdade quando uma regra manda (ociosidade, meta) ou
-      # quando o Lucas aperta o botão. Depois do BotSupervisor porque para a frota.
+      # Ends the session (idle/goal rules or the manual button). After BotSupervisor
+      # because it halts the fleet.
       Pokex.Bots.Logout,
       Pokex.Layout.Sentinel,
       Pokex.Bots.StockAlerts,
-      # O histórico que sobrevive ao reload da página (Frente 4): assina os
-      # tópicos dos workers e guarda o ring buffer fora da LiveView. Passivo —
-      # só escuta, nunca captura nem atua.
+      # History that survives page reloads: subscribes to worker topics, keeps the
+      # ring buffer outside LiveView. Passive — never captures or actuates.
       Pokex.Journal,
       Pokex.Combos.Runner,
       # Pauses everything when the game window loses focus (and resumes on refocus). After the
       # BotSupervisor so it can halt/resume those workers.
       Pokex.Bots.Focus,
-      # Start to serve requests, typically the last entry
       PokexWeb.Endpoint
     ]
 
-    # See https://elixir.hexdocs.pm/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Pokex.Supervisor]
     Supervisor.start_link(children, opts)
   end
 
-  # Tell Phoenix to update the endpoint configuration
-  # whenever the application is updated.
   @impl true
   def config_change(changed, _new, removed) do
     PokexWeb.Endpoint.config_change(changed, removed)

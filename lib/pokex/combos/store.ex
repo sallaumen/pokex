@@ -41,12 +41,12 @@ defmodule Pokex.Combos.Store do
   end
 
   @doc """
-  O combo de resgate: stun em área antes do revive.
+  The rescue combo: area stun before the revive.
 
-  Nasce com gatilho `{:rescue_only}` — NUNCA roda numa luta comum. É isso que
-  deixa as skills 1 e 2 reservadas pro único momento em que o Lucas quer
-  gastá-las: o revive, quando o pokémon caiu e os mobs estão em cima
-  (2026-07-30). O painel monta este mesmo combo num clique.
+  Born with the `{:rescue_only}` trigger — NEVER runs in an ordinary fight.
+  That is what keeps skills 1 and 2 reserved for the one moment they should be
+  spent: the revive, with the pokémon down and mobs on top (2026-07-30). The
+  panel builds this same combo in one click.
   """
   def rescue_seed do
     %Combo{

@@ -1,12 +1,7 @@
 defmodule PokexWeb.AppHeaderTest do
   @moduledoc """
-  O header é o mesmo em TODA página — é a regra que este arquivo guarda.
-
-  Antes, cada página inventava o seu: o painel tinha o bom (marca, personagem,
-  ligado/parado, navegação), seis páginas tinham um nav antigo com botão de tema,
-  e a Pokédex/Time nem shell tinham — só links soltos "← painel". Um teste por
-  página não pega isso; o que pega é varrer TODAS as rotas exigindo os mesmos
-  marcadores.
+  The header must be the same on EVERY page. A test per page misses drift;
+  sweeping every route for the same markers is what catches it.
   """
   use PokexWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
@@ -28,48 +23,48 @@ defmodule PokexWeb.AppHeaderTest do
     app-nav-mini-game app-nav-world app-nav-cavebot app-nav-pokedex app-nav-team
   )
 
-  test "toda página monta o MESMO header", %{conn: conn} do
+  test "every page mounts the same header", %{conn: conn} do
     for {path, _page} <- @routes do
       {:ok, view, html} = live(conn, path)
 
-      assert has_element?(view, "#app-header"), "#{path} não tem o header padrão"
-      assert html =~ "Pokex", "#{path} não mostra o nome do software no topo"
-      assert has_element?(view, "#character-picker"), "#{path} não tem o personagem ativo"
-      assert has_element?(view, "#app-bot-state"), "#{path} não diz se o bot roda ou está parado"
+      assert has_element?(view, "#app-header"), "#{path} is missing the standard header"
+      assert html =~ "Pokex", "#{path} does not show the app name at the top"
+      assert has_element?(view, "#character-picker"), "#{path} is missing the active character"
+      assert has_element?(view, "#app-bot-state"), "#{path} does not say if the bot is running"
 
       assert has_element?(view, "#app-alarm-toggle"),
-             "#{path} não tem o controle de som dos alarmes"
+             "#{path} is missing the alarm sound control"
 
       assert has_element?(view, "#app-navigation-toggle"),
-             "#{path} não tem a navegação"
+             "#{path} is missing the navigation"
 
       for id <- @nav_ids do
-        assert has_element?(view, "##{id}"), "#{path}: falta #{id} no menu"
+        assert has_element?(view, "##{id}"), "#{path}: #{id} missing from the menu"
       end
     end
   end
 
-  test "o menu marca a página em que você está", %{conn: conn} do
+  test "the menu marks the page you are on", %{conn: conn} do
     for {path, page} <- @routes do
       {:ok, view, _html} = live(conn, path)
       id = "app-nav-" <> String.replace(to_string(page), "_", "-")
 
       assert has_element?(view, "##{id}[aria-current=page]"),
-             "#{path} não se marca como página atual no menu"
+             "#{path} does not mark itself as the current page in the menu"
     end
   end
 
-  test "não existe mais troca de tema em página nenhuma", %{conn: conn} do
+  test "no page offers theme switching", %{conn: conn} do
     for {path, _page} <- @routes do
       {:ok, _view, html} = live(conn, path)
 
-      refute html =~ "data-phx-theme", "#{path} ainda tem o botão de tema"
-      refute html =~ "phx:set-theme", "#{path} ainda dispara troca de tema"
-      refute html =~ ~s(data-theme="light"), "#{path} ainda pode ficar claro"
+      refute html =~ "data-phx-theme", "#{path} still has the theme button"
+      refute html =~ "phx:set-theme", "#{path} still triggers theme switching"
+      refute html =~ ~s(data-theme="light"), "#{path} can still go light"
     end
   end
 
-  test "o tema escuro é cravado no documento, sem script", %{conn: conn} do
+  test "the dark theme is pinned on the document, without a script", %{conn: conn} do
     html = conn |> get("/") |> html_response(200)
 
     assert html =~ ~s(lang="pt-br")
@@ -77,7 +72,7 @@ defmodule PokexWeb.AppHeaderTest do
     refute html =~ "phx:theme"
   end
 
-  test "o pill ligado/parado segue os workers FORA do painel", %{conn: conn} do
+  test "the running/stopped pill follows the workers outside the panel", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/pokedex")
     assert view |> element("#app-bot-state") |> render() =~ "Parado"
 
@@ -90,11 +85,9 @@ defmodule PokexWeb.AppHeaderTest do
     assert render(view) =~ "Ativo"
   end
 
-  # A caracterização da Etapa 0 cravava a divergência (o header não assinava a
-  # caçada e jurava "Parado" com o cavebot andando) e prometia virar quando a
-  # Frente 1 unificasse o snapshot. Virou: o header acompanha a mesma frota que
-  # o painel, com a mesma régua — andando acende, parado-com-motivo NUNCA.
-  test "FRENTE 1: a caçada anda e o header diz Ativo; travada, diz Parado", %{conn: conn} do
+  # the header follows the same fleet snapshot as the panel, with the same rule:
+  # walking lights it up, stopped-with-reason never does
+  test "a walking hunt shows Ativo in the header; a blocked one shows Parado", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/pokedex")
     assert view |> element("#app-bot-state") |> render() =~ "Parado"
 
@@ -106,8 +99,6 @@ defmodule PokexWeb.AppHeaderTest do
 
     assert eventually_renders(view, "Ativo")
 
-    # a caçada TRAVOU (parada-com-motivo): verde aqui seria pintar de saúde o
-    # exato instante em que algo deu errado
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "cavebot",
@@ -125,12 +116,10 @@ defmodule PokexWeb.AppHeaderTest do
     end
   end
 
-  test "o ruído dos workers (logs/alarmes) NÃO derruba página nenhuma", %{conn: conn} do
-    # Com o bot pescando e qualquer outra tela aberta, os {:fishing_log, _, _}
-    # que viajam no MESMO tópico dos snapshots chegavam numa LiveView sem
-    # cláusula pra eles → FunctionClauseError derrubava a página (Lucas,
-    # 2026-07-30, na calibração). O hook do header — que foi quem assinou o
-    # tópico — agora engole o que a página não pediu.
+  # 2026-07-30: {:fishing_log, _, _} rides the same topic as snapshots and hit
+  # LiveViews with no clause for it — a FunctionClauseError took the page down;
+  # the header hook that subscribed now swallows what the page did not ask for
+  test "worker noise (logs/alarms) does not crash any page", %{conn: conn} do
     ruido = [
       {"fishing", {:fishing_log, :debug, "delay 532ms → kill corner — parado"}},
       {"fishing", {:fishing_log, "legado de 2 elementos"}},
@@ -147,14 +136,13 @@ defmodule PokexWeb.AppHeaderTest do
         Phoenix.PubSub.broadcast(Pokex.PubSub, topic, msg)
       end
 
-      # um snapshot depois do ruído prova que a view segue viva e processando
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         "fishing",
         {:fishing, %{state: :pescando, counters: %{}, error: nil}}
       )
 
-      assert eventually_renders(view, "Ativo"), "#{path} morreu com o ruído dos workers"
+      assert eventually_renders(view, "Ativo"), "#{path} died under worker noise"
 
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
@@ -165,13 +153,13 @@ defmodule PokexWeb.AppHeaderTest do
   end
 
   @tag :tmp_dir
-  test "trocar de personagem funciona FORA do painel", %{conn: conn, tmp_dir: tmp} do
+  # Settings is a global cache: leaving :active_character set makes a later
+  # Settings.put rewrite the test-home file with this character, and Team.file()
+  # then points at chars/<slug>/team.json in future runs — reset before releasing
+  # home_dir
+  test "switching characters works outside the panel", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
 
-    # Settings é um cache global: deixar :active_character setado faz o PRÓXIMO
-    # Settings.put de qualquer teste regravar o arquivo do test-home com este
-    # personagem — e aí Team.file() passa a apontar pra chars/<slug>/team.json
-    # em execuções futuras. Desliga antes de soltar o home_dir.
     on_exit(fn ->
       Pokex.Characters.set_active("")
       Application.delete_env(:pokex, :home_dir)
@@ -188,7 +176,7 @@ defmodule PokexWeb.AppHeaderTest do
     assert Pokex.Characters.active() == slug
   end
 
-  test "o aviso de foco perdido aparece em qualquer página", %{conn: conn} do
+  test "the lost-focus badge appears on any page", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/diagnostics")
     refute has_element?(view, "#focus-pause-badge")
 
@@ -199,24 +187,20 @@ defmodule PokexWeb.AppHeaderTest do
     refute has_element?(view, "#focus-pause-badge")
   end
 
-  test "a Pokédex diz Pokex no topo e sincroniza a wiki pelo CORPO da página", %{conn: conn} do
+  test "the Pokédex shows Pokex at the top and syncs the wiki from the page body", %{conn: conn} do
     {:ok, view, html} = live(conn, "/pokedex")
 
-    # a ferramenta desceu do header pro corpo: continua existindo, mas dentro da página
     assert has_element?(view, "#pokedex-tools #sync-form")
     refute has_element?(view, "#app-header #sync-form")
 
-    # e o topo é a marca do software, não o nome da página
     assert html =~ "Pokex"
     assert has_element?(view, "#app-page-label")
   end
 
-  describe "som dos alarmes (header, 2026-07-30)" do
-    # O pedido do Lucas: um botão "de forma geral" NO HEADER (visível em
-    # qualquer página) + poder configurar setor por setor — Shiny é o único
-    # que ele quer sempre ligado. O painel tinha um botão pequeno só de som
-    # geral; este substitui, e funciona em QUALQUER rota, não só no painel.
-    test "o som geral liga/desliga em qualquer página — a mesma configuração global", %{
+  describe "alarm sound (header)" do
+    # the general sound toggle lives in the HEADER (visible on any page) plus
+    # per-sector switches; it replaces the panel-only button and works on any route
+    test "the general sound toggles on any page — the same global setting", %{
       conn: conn
     } do
       sound = Pokex.Settings.get(:alarm_sound)
@@ -236,7 +220,7 @@ defmodule PokexWeb.AppHeaderTest do
       assert Pokex.Settings.get(:alarm_sound)
     end
 
-    test "um setor liga/desliga sozinho, sem tocar no som geral nem nos outros setores", %{
+    test "a sector toggles alone, touching neither the general sound nor other sectors", %{
       conn: conn
     } do
       muted = Pokex.Settings.get(:alarm_muted_categories)
@@ -254,7 +238,6 @@ defmodule PokexWeb.AppHeaderTest do
       assert has_element?(view, "#app-alarm-category-shiny input[checked]")
       assert Pokex.Settings.get(:alarm_sound)
 
-      # clicar de novo religa SÓ aquele setor
       view
       |> element("#app-alarm-category-estoque input")
       |> render_click(%{"category" => "estoque"})
@@ -263,7 +246,7 @@ defmodule PokexWeb.AppHeaderTest do
       assert has_element?(view, "#app-alarm-category-estoque input[checked]")
     end
 
-    test "uma categoria desconhecida nunca é gravada — a fronteira do Settings continua valendo",
+    test "an unknown category is never persisted — the Settings boundary still holds",
          %{conn: conn} do
       muted = Pokex.Settings.get(:alarm_muted_categories)
       on_exit(fn -> Pokex.Settings.put(:alarm_muted_categories, muted) end)
@@ -271,7 +254,6 @@ defmodule PokexWeb.AppHeaderTest do
 
       {:ok, view, _html} = live(conn, "/")
 
-      # dispara o evento diretamente com um valor que NÃO existe na lista fechada
       render_click(view, "toggle_alarm_category", %{"category" => "invente-se"})
 
       assert Pokex.Settings.get(:alarm_muted_categories) == []

@@ -1,6 +1,6 @@
 defmodule PokexWeb.WorldLive do
   @moduledoc """
-  /world — "o que a IA vê": every fact currently on the WorldState blackboard,
+  /world — "what the AI sees": every fact currently on the WorldState blackboard,
   with its age and a human summary. Pure read-side: this page never captures,
   never touches a worker — it renders `WorldState.entries/0` and refreshes on
   the "world" PubSub topic plus a timer (ages advance even when nothing new is
@@ -177,10 +177,10 @@ defmodule PokexWeb.WorldLive do
                 {num(@snapshot.me.level)} · {num(@snapshot.me.fishing)}
               </dd>
             </div>
-            <%!-- A posição é o campo que ele acompanha o tempo todo (é como ele
-                  confere se o bot sabe onde está), então ela não pode ser só um
-                  número mudo: vem com a IDADE e com a frase que separa "não
-                  estou lendo" de "estou lendo, e você está aqui". --%>
+            <%!-- The position is the field he watches all the time (it is how
+                  he checks the bot knows where it is), so it can't be a mute
+                  number: it comes with the AGE and the phrase separating "not
+                  reading" from "reading, and you are here". --%>
             <div id="world-position">
               <dt class="font-mono text-[10px] uppercase text-[#69737b]">Posição</dt>
               <dd class="font-mono text-sm text-[#d9dde1]">

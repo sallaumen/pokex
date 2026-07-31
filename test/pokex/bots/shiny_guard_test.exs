@@ -42,33 +42,33 @@ defmodule Pokex.Bots.ShinyGuardTest do
     )
   end
 
+  # The feed dedupes: a calm list with a shiny broadcasts ONCE — one message must be
+  # enough once the confirm window passes clean.
   @tag :tmp_dir
-  test "UM avistamento não refutado pela janela de confirmação dispara o alarme UMA vez", %{
+  test "a sighting not refuted within the confirm window fires the alarm once", %{
     guard: guard
   } do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
 
-    # the feed DEDUPES: a calm list with a shiny broadcasts ONCE — one
-    # message must be enough once the confirm window passes clean
     world_broadcast(shiny_obs())
 
     assert_receive {:rule_alarm, :shiny, reason}, 500
     assert reason =~ "SHINY na lista de batalha"
     assert reason =~ "LUTA"
 
-    # refractory: more sightings right after stay silent
     world_broadcast(shiny_obs())
     refute_receive {:rule_alarm, _, _}, 150
     _ = ShinyGuard.status(guard)
   end
 
+  # The old bug wrote star_run:, a key record/1 never read — every trophy lost the star
+  # measurement.
   @tag :tmp_dir
-  test "o alarme diz QUEM é a shiny, e o troféu grava a estrela (star_px)", %{guard: guard} do
+  test "the alarm names WHICH shiny it is, and the trophy records the star (star_px)", %{
+    guard: guard
+  } do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
 
-    # o interpretador já lê o nome da fileira estrelada (enemies_detail);
-    # o alarme dizia só "estrela 40px" e o Lucas corria pra tela pra saber
-    # se valia largar tudo
     obs =
       shiny_obs()
       |> Map.put(:enemies_detail, [
@@ -81,8 +81,6 @@ defmodule Pokex.Bots.ShinyGuardTest do
     assert_receive {:rule_alarm, :shiny, reason}, 500
     assert reason =~ "SHINY Golduck"
 
-    # e o troféu: star_px preenchido (o bug antigo gravava star_run:, chave
-    # que o record/1 nunca leu — TODO troféu ficou sem a medida da estrela)
     assert [trofeu | _] = Pokex.Pokedex.ShinyLog.entries()
     assert trofeu.star_px == 40
     assert trofeu.note =~ "Golduck"
@@ -90,7 +88,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   end
 
   @tag :tmp_dir
-  test "um frame limpo dentro da janela refuta o avistamento (debounce real)", %{guard: guard} do
+  test "a clean frame inside the window refutes the sighting (real debounce)", %{guard: guard} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
 
     world_broadcast(shiny_obs())
@@ -101,7 +99,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   end
 
   @tag :tmp_dir
-  test "guard DESLIGADO ignora observações da batalha (o combate também atacha o feed)", %{
+  test "a disabled guard ignores battle observations (combat also attaches the feed)", %{
     guard: guard
   } do
     Settings.put(:shiny_guard_enabled, false)
@@ -114,7 +112,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   end
 
   @tag :tmp_dir
-  test "ação fugir dispara o protocolo de fuga injetado", %{guard: _guard} do
+  test "action fugir triggers the injected escape protocol", %{guard: _guard} do
     Settings.put(:shiny_action, "fugir")
 
     world_broadcast(shiny_obs(77))
@@ -124,32 +122,31 @@ defmodule Pokex.Bots.ShinyGuardTest do
   end
 
   @tag :tmp_dir
-  test "status expõe o estado do guarda", %{guard: guard} do
+  test "status exposes the guard's state", %{guard: guard} do
     status = ShinyGuard.status(guard)
     assert %{enabled?: _, attached?: false, pending?: false, star_min_columns: _} = status
   end
 
   @tag :tmp_dir
-  test "broadcasta a leitura ao vivo pro medidor do painel (throttled)", %{guard: guard} do
+  test "broadcasts the live reading to the panel meter (throttled)", %{guard: guard} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
     world_broadcast(clean_obs())
     assert_receive {:shiny_reading, %{star_run: 0, min_px: _}}, 500
 
-    # the throttle suppresses a second reading right after the first
     world_broadcast(clean_obs())
     refute_receive {:shiny_reading, _}, 100
     _ = ShinyGuard.status(guard)
   end
 
-  describe "parada em vigor (latch travado)" do
+  describe "stop in force (latch set)" do
     setup do
       on_exit(fn -> Pokex.Bots.InputGate.set_panic_latch(false) end)
       :ok
     end
 
     @tag :tmp_dir
-    test "com o latch travado e ação fugir, NÃO foge" do
+    test "with the latch set and action fugir, it does not flee" do
       SettingsStash.stash!(shiny_action: "fugir")
       Pokex.Bots.InputGate.set_panic_latch(true)
 
@@ -159,7 +156,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     end
 
     @tag :tmp_dir
-    test "com o latch travado, o alarme SAI mesmo assim" do
+    test "with the latch set, the alarm still goes out" do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
       SettingsStash.stash!(shiny_action: "fugir")
       Pokex.Bots.InputGate.set_panic_latch(true)
@@ -172,7 +169,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     end
 
     @tag :tmp_dir
-    test "com o latch LIVRE e ação fugir, foge — sem regressão" do
+    test "with the latch free and action fugir, it flees — no regression" do
       SettingsStash.stash!(shiny_action: "fugir")
       Pokex.Bots.InputGate.set_panic_latch(false)
 

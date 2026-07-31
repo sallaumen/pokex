@@ -1,14 +1,12 @@
 defmodule Pokex.Bots.Cavebot.Store do
   @moduledoc """
-  Onde as rotas do cavebot vivem: `~/.pokex/routes.json`.
+  Where cavebot routes live: `~/.pokex/routes.json`.
 
-  Espelha `Pokex.Combos.Store` (uma rota é um programa autorado pelo usuário,
-  não um escalar de Settings), com uma diferença: o seed é VAZIO — não existe
-  rota genérica que faça sentido demonstrar; cada rota nasce de waypoints
-  gravados no mapa real do Lucas.
-
-  Impuro só no IO de arquivo (`File`/`JSON` sob `Pokex.Home.dir()`); todo o
-  resto é transformação pura de `%Route{}`.
+  Mirrors `Pokex.Combos.Store` (a route is a user-authored program, not a
+  Settings scalar), with one difference: the seed is EMPTY — no generic route
+  makes sense to demo; every route is born from waypoints recorded on the real
+  map. Impure only in file IO (`File`/`JSON` under `Pokex.Home.dir()`); the
+  rest is pure `%Route{}` transformation.
   """
 
   alias Pokex.Bots.Cavebot.Route
@@ -16,18 +14,18 @@ defmodule Pokex.Bots.Cavebot.Store do
 
   @filename "routes.json"
 
-  @doc "Toda rota salva; arquivo ausente ou corrompido lê como lista vazia."
+  @doc "Every saved route; a missing or corrupted file reads as an empty list."
   def all do
     case File.read(path()) do
       {:ok, body} -> body |> JSON.decode!() |> decode()
       _no_file -> []
     end
   rescue
-    # um routes.json corrompido não pode derrubar o cavebot junto
+    # a corrupted routes.json must not take the cavebot down with it
     _error -> []
   end
 
-  @doc "Substitui a lista inteira."
+  @doc "Replaces the whole list."
   def put(routes) when is_list(routes) do
     File.mkdir_p!(Home.dir())
     File.write!(path(), JSON.encode!(%{routes: Enum.map(routes, &encode/1)}))
@@ -35,10 +33,10 @@ defmodule Pokex.Bots.Cavebot.Store do
   end
 
   @doc """
-  Adiciona uma rota, substituindo qualquer existente de mesmo nome.
+  Adds a route, replacing any existing one with the same name.
 
-  O nome é a identidade por onde `set_enabled/2` e `delete/1` trabalham, então
-  duas rotas dividindo um nome tornariam ambas inalcançáveis.
+  The name is the identity `set_enabled/2` and `delete/1` work by, so two
+  routes sharing a name would make both unreachable.
   """
   def add(%Route{name: name} = route) when is_binary(name) and name != "" do
     all()
@@ -49,14 +47,14 @@ defmodule Pokex.Bots.Cavebot.Store do
 
   def add(_nameless), do: {:error, :invalid_name}
 
-  @doc "Remove uma rota pelo nome."
+  @doc "Removes a route by name."
   def delete(name) do
     all()
     |> Enum.reject(&(&1.name == name))
     |> put()
   end
 
-  @doc "Liga ou desliga uma rota pelo nome."
+  @doc "Enables or disables a route by name."
   def set_enabled(name, enabled?) when is_boolean(enabled?) do
     all()
     |> Enum.map(fn

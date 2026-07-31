@@ -14,19 +14,19 @@ defmodule Pokex.Bots.InputGate do
   overnight. The gate flips the model to FAIL-SAFE — when we can't confirm it's safe to act, we
   don't act.
 
-  FAIL-CLOSED (Frente 1 do plano de consolidação): flag ausente — tabela recém-criada num boot
-  ou num RESTART deste processo — significa BLOQUEADO, não liberado. "Não sei se é seguro" e
-  "é seguro" eram a mesma resposta, e um restart abria uma janela em que input passava até os
-  pollers notarem. Agora o gate nasce fechado e são os guardiões que o abrem ao confirmar o
-  mundo: o Guardian escreve `corner_ok` a cada 100ms e o Focus escreve `focus_ok` a cada tick
-  (~250ms) — em produção a janela fechada de um restart dura no máximo isso. Na suíte os
-  pollers ficam desligados de propósito, então o `test_helper` abre o gate uma vez, simulando
-  o regime permanente; testes que precisam dele fechado escrevem e restauram.
+  FAIL-CLOSED: a missing flag — a freshly created table on boot or on a RESTART of this
+  process — means BLOCKED, not allowed. "I don't know it's safe" and "it's safe" used to be
+  the same answer, and a restart opened a window where input passed until the pollers
+  noticed. The gate now starts closed and the guards open it by confirming the world: the
+  Guardian writes `corner_ok` every 100ms and Focus writes `focus_ok` every tick (~250ms) —
+  in production a restart's closed window lasts at most that. In the suite the pollers are
+  off on purpose, so `test_helper` opens the gate once, simulating steady state; tests
+  needing it closed write and restore.
 
-  O latch do pânico é a exceção deliberada: ausente = SEM pânico. Ele registra uma ordem
-  humana, não uma condição viva — persisti-lo através de um restart exigiria disco, e a
-  mitigação real é a geração de sessão (`Pokex.Bots.Session`): o reinício também zera o
-  contador, e retomadas velhas nunca casam com a geração nova.
+  The panic latch is the deliberate exception: missing = NO panic. It records a human
+  order, not a live condition — persisting it across a restart would need disk, and the
+  real mitigation is the session generation (`Pokex.Bots.Session`): the restart also
+  resets the counter, and stale resumes never match the new generation.
 
   Reads are lock-free straight off ETS (this is a hot path — every actuation checks it); the
   GenServer exists only to own the table across caller crashes.
@@ -101,9 +101,9 @@ defmodule Pokex.Bots.InputGate do
     :error, :badarg -> :ok
   end
 
-  # FAIL-CLOSED: sem tabela (restart em curso) ou sem a chave (ninguém confirmou
-  # ainda) a resposta é BLOQUEADO. Quem abre é o poller dono da flag, provando a
-  # condição de verdade — nunca um default otimista.
+  # FAIL-CLOSED: no table (restart in progress) or no key (nothing confirmed
+  # yet) answers BLOCKED. The flag's owning poller opens it by proving the real
+  # condition — never an optimistic default.
   defp flag(key) do
     case :ets.lookup(@table, key) do
       [{^key, ok?}] -> ok?

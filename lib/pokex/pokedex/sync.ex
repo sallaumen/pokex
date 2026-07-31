@@ -67,8 +67,7 @@ defmodule Pokex.Pokedex.Sync do
   Every run ends with a GAP PASS: any entry still missing the harvest (moves
   == nil — an older dataset, a partial `--only` run, a fetch that failed, a
   shiny built from the link fallback) is scraped again by name until the base
-  is whole. Lucas: "quero que a sincronização geral sempre já pegue os dados
-  faltando, como ataques e talz, mesmo que sejam muitos".
+  is whole.
   """
   def run(opts, progress) when is_function(progress, 1) do
     delay = opts[:delay_ms] || 200

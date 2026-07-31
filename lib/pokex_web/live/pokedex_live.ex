@@ -1,9 +1,9 @@
 defmodule PokexWeb.PokedexLive do
   @moduledoc """
   The local Pokédex (scraped from the PXG wiki by `mix pokedex.scrape`):
-  Lucas's queryable base — search by name, element, WEAKNESS ("quais têm
-  fraqueza de planta?") and level — plus the per-lure view that answers
-  "pescando com ESTA isca, quais Shinies podem vir?". Every card links into
+  Lucas's queryable base — search by name, element, WEAKNESS ("which are
+  weak to grass?") and level — plus the per-lure view that answers "fishing
+  with THIS lure, which Shinies can come?". Every card links into
   `/pokedex/:name`; the team and its hunt suggestions live on `/time`.
 
   FILTERS LIVE IN THE URL: exploring a card and coming BACK restores the
@@ -145,8 +145,8 @@ defmodule PokexWeb.PokedexLive do
     {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
   end
 
-  # A chip toggles its option in or out of the group — "todos de planta E todos
-  # de veneno" is two chips on. OR inside the group, AND across groups.
+  # A chip toggles its option in or out of the group — "all grass AND all
+  # poison" is two chips on. OR inside the group, AND across groups.
   #
   # The param is "option", NOT "value": LiveView's extractMeta reads every
   # phx-value-* attribute and THEN overwrites meta.value with the element's own
@@ -333,8 +333,7 @@ defmodule PokexWeb.PokedexLive do
   attr :style_fun, :any, required: true
 
   # One row of toggle chips = one NON-EXCLUSIVE filter: any number of them on
-  # at once, matching entries that have ANY of them ("quero buscar todos de
-  # planta e todos de veneno"). Empty selection = todos.
+  # at once, matching entries that have ANY of them. Empty selection = all.
   defp filter_chips(assigns) do
     ~H"""
     <div id={@id} class="flex flex-wrap items-center gap-1" title={@hint}>
@@ -407,8 +406,9 @@ defmodule PokexWeb.PokedexLive do
           <option :for={name <- @species_names} value={name} />
         </datalist>
 
-        <%!-- Sincronizar a wiki é manutenção desta página, não navegação: por isso
-              mora aqui no corpo e não no header (que é igual em toda página). --%>
+        <%!-- Syncing the wiki is THIS page's maintenance, not navigation: that
+              is why it lives here in the body, not in the header (which is the
+              same on every page). --%>
         <section
           id="pokedex-tools"
           class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-pk-line bg-pk-surface px-3 py-2.5"

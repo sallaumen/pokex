@@ -73,23 +73,23 @@ defmodule Pokex.Combos do
     end
   end
 
-  # Vale contra qualquer coisa que engajar — o gatilho de quem quer uma abertura
-  # padrão, não uma resposta a um bicho específico.
+  # Applies to anything that engages — the trigger for a standard opener, not
+  # an answer to a specific creature.
   defp triggered?(%Combo{trigger: {:any_enemy}}, _enemy_name), do: true
 
-  # NUNCA em luta: existe só pra ser emprestado a outra coisa (hoje, o prefixo
-  # de stun do auto-revive). É o gatilho que deixa as skills 1/2 ficarem
-  # RESERVADAS — elas não podem ser gastas numa luta comum (Lucas, 2026-07-30).
+  # NEVER in a fight: exists only to be borrowed elsewhere (today, the
+  # auto-revive's stun prefix). This trigger is what keeps skills 1/2 RESERVED
+  # — they must not be spent in an ordinary fight (2026-07-30).
   defp triggered?(%Combo{trigger: {:rescue_only}}, _enemy_name), do: false
 
   defp triggered?(_combo, _enemy), do: false
 
   @doc """
-  Se o combo serve de PREFIXO do resgate (auto-revive com stun): só passos de
-  skill e espera. Trocas de time (`swap_member`/`swap_counter`) dependem de
-  leitura fresca do painel e do runner de lutas — o resgate é uma sequência
-  atômica cega a `:critical`, e meio swap deixaria o bicho errado fora bem no
-  momento mais vulnerável.
+  Whether the combo can serve as the rescue's PREFIX (auto-revive with stun):
+  only skill and wait steps. Team swaps (`swap_member`/`swap_counter`) depend
+  on a fresh panel reading and the fight runner — the rescue is a blind atomic
+  sequence at `:critical`, and half a swap would leave the wrong creature out
+  at the most vulnerable moment.
   """
   def rescue_eligible?(%Combo{steps: steps}),
     do: Enum.all?(steps, &(match?({:skill, _}, &1) or match?({:wait, _}, &1)))

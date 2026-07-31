@@ -19,21 +19,21 @@ defmodule Pokex.Bots.Guardian do
   itself; and since `on_panic` (stop_all) forgets the `:session` fact, a
   fired condition cannot re-fire.
 
-  ## O que conta como sinal de vida
+  ## What counts as a sign of life
 
-  Kill + MINIGAME VENCIDO. **Não** fisgada: uma fisgada é o puxão da vara, e
-  com o minigame travado a vara fisga a noite inteira sem pegar peixe nenhum —
-  o contador sobe, o relógio zera, e a regra dorme feliz enquanto a estamina
-  queima. Foi exatamente assim que uma madrugada da conta principal do Lucas
-  foi embora. A fisgada só volta a valer quando o vigia do minigame está
-  parado (ele jogando o minigame na mão), senão a regra dispararia no meio de
-  uma pescaria que ia bem. Os três contadores pegam carona nos snapshots que
-  combate, pesca e minigame já publicam; este processo assina os três.
+  Kill + WON MINI-GAME. **Not** a hook: a hook is the rod pull, and with the
+  mini-game stuck the rod hooks all night catching no fish — the counter
+  climbs, the clock resets, and the rule sleeps while stamina burns (exactly
+  how a whole night on the main account was lost). Hooks count again only
+  while the mini-game watcher is stopped (mini-game played by hand), otherwise
+  the rule would fire mid-fishing that was going fine. The three counters ride
+  the snapshots combat, fishing and mini-game already publish; this process
+  subscribes to all three.
 
-  Deslogar é a ação que de fato economiza estamina: parar o bot não economiza
-  nada, porque o personagem continua online. O `Pokex.Bots.Logout` (injetável
-  por `:logout_fun`) trava o latch e para a frota por conta própria — aqui não
-  se duplica nenhum dos dois.
+  Logging out is the action that actually saves stamina: stopping the bot
+  saves nothing, the character stays online. `Pokex.Bots.Logout` (injectable
+  via `:logout_fun`) sets the latch and halts the fleet on its own — neither
+  is duplicated here.
 
   `on_panic` is injected (not a hard dependency on the bot supervisor) so
   this module doesn't need to know about `BotSupervisor` — callers pass e.g.
@@ -91,20 +91,20 @@ defmodule Pokex.Bots.Guardian do
       poll_ms: poll_ms,
       session_rules?: session_rules?,
       logout_fun: Keyword.get(opts, :logout_fun, &Pokex.Bots.Logout.request/1),
-      # canto de COMANDO (superior direito): dependências injetáveis pro teste
-      # nunca ligar a frota real nem ler calibração de verdade
+      # COMMAND corner (top-right): injectable deps so tests never start the
+      # real fleet nor read real calibration
       command_toggle: Keyword.get(opts, :command_toggle, &__MODULE__.default_command_toggle/0),
       screen_w_fun: Keyword.get(opts, :screen_w_fun, &__MODULE__.default_screen_w/0),
-      # quando o cursor ENTROU no canto de comando (nil = fora dele) e se o
-      # comando desta visita já disparou — exige SAIR do canto pra rearmar
+      # when the cursor ENTERED the command corner (nil = outside) and whether
+      # this visit's command already fired — LEAVING the corner re-arms
       command_since: nil,
       command_fired?: false,
       fights: 0,
       hooked: 0,
       clears: 0,
-      # o vigia do minigame está rodando? Enquanto nunca ouvimos falar dele,
-      # assumimos que NÃO — o padrão seguro, porque é ele que faz a fisgada
-      # voltar a contar como sinal de vida.
+      # is the mini-game watcher running? Until heard from, assume NOT — the
+      # safe default, since its absence is what makes hooks count as signs of
+      # life again.
       mini_game_running?: false,
       # last time a REAL sign of life was SEEN (monotonic ms; nil = none
       # yet this run) — the anti-stagnation rule measures silence from here
@@ -123,7 +123,7 @@ defmodule Pokex.Bots.Guardian do
     # the snapshots the workers already broadcast
     Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
-    # o peixe DE VERDADE (minigame vencido) e se o vigia está de pé
+    # the REAL fish (won mini-game) and whether the watcher is up
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.MiniGame.Worker.topic())
     schedule_poll(state.poll_ms)
     {:ok, state}
@@ -155,12 +155,11 @@ defmodule Pokex.Bots.Guardian do
   def handle_info({:combat, snapshot}, state),
     do: {:noreply, track_counter(state, :fights, get_in(snapshot, [:counters, :fights]))}
 
-  # Uma FISGADA é o puxão da vara, não o peixe. Com o vigia do minigame rodando,
-  # o peixe de verdade é o `clears`: um minigame travado fisga a noite inteira e
-  # pega nada — foi exatamente assim que uma madrugada de estamina foi embora.
-  # Com o vigia desligado (o Lucas jogando o minigame na mão) a fisgada volta a
-  # ser o melhor sinal que temos; sem esse recuo, a regra deslogaria ele no meio
-  # de uma pescaria que ia bem.
+  # A HOOK is the rod pull, not the fish. With the mini-game watcher running,
+  # the real fish is `clears`: a stuck mini-game hooks all night catching
+  # nothing — exactly how a night of stamina was lost. With the watcher off
+  # (mini-game played by hand) the hook is again the best signal we have;
+  # without that fallback the rule would log out mid-fishing that was fine.
   def handle_info({:fishing, snapshot}, state) do
     hooked = get_in(snapshot, [:counters, :hooked])
 
@@ -195,9 +194,9 @@ defmodule Pokex.Bots.Guardian do
     end
   end
 
-  # Guarda o contador SEM marcar atividade. Existe para que desligar o vigia do
-  # minigame no meio de uma sessão não faça o salto acumulado de fisgadas passar
-  # por um sinal de vida que nunca houve.
+  # Stores the counter WITHOUT marking activity. Exists so turning the
+  # mini-game watcher off mid-session doesn't pass the accumulated hook jump
+  # off as a sign of life that never happened.
   defp store_counter(state, key, value) when is_integer(value), do: Map.put(state, key, value)
   defp store_counter(state, _key, _value), do: state
 
@@ -211,16 +210,15 @@ defmodule Pokex.Bots.Guardian do
     Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:panic, "kill corner"})
   end
 
-  # O canto de COMANDO (superior direito): segurar o mouse ali por
-  # command_corner_dwell_ms liga/desliga o último modo usado — de DENTRO do
-  # jogo. Existe porque clicar Iniciar no navegador TIRA o foco do jogo, e o
-  # portão (fail-closed, certo) engolia os primeiros passos da frota — a
-  # regressão real de 2026-07-29. Mover o mouse não muda foco.
+  # The COMMAND corner (top-right): holding the mouse there for
+  # command_corner_dwell_ms toggles the last used mode — from INSIDE the game.
+  # Exists because clicking Iniciar in the browser STEALS the game's focus and
+  # the (correctly fail-closed) gate swallowed the fleet's first steps — the
+  # real 2026-07-29 regression. Moving the mouse changes no focus.
   #
-  # Anti-acidente em três camadas: a DEMORA (passar o mouse pelo canto não
-  # dispara), o REARME (é preciso SAIR do canto antes de outro comando) e o
-  # canto OPOSTO ao do pânico (os dois nunca se confundem — pânico continua
-  # sendo instantâneo e soberano).
+  # Three anti-accident layers: the DWELL (passing through doesn't fire), the
+  # RE-ARM (must LEAVE the corner before another command) and the corner
+  # OPPOSITE to panic (never confused — panic stays instant and sovereign).
   defp check_command_corner(state, point) do
     enabled? = Settings.get(:command_corner) == true
     screen_w = state.screen_w_fun.()
@@ -249,9 +247,9 @@ defmodule Pokex.Bots.Guardian do
   end
 
   @doc false
-  # Liga se está tudo parado; para se algo roda. O start vai num Task porque o
-  # preflight faz capturas (segundos) e o poll do canto de pânico NUNCA pode
-  # ficar surdo esperando — a lição do Logout.
+  # Starts if everything is stopped; stops if anything runs. The start goes in
+  # a Task because preflight captures take seconds and the panic-corner poll
+  # must NEVER go deaf waiting — the Logout lesson.
   def default_command_toggle do
     status = Pokex.Bots.BotSupervisor.status()
 
@@ -281,8 +279,8 @@ defmodule Pokex.Bots.Guardian do
   end
 
   @doc false
-  # A largura da tela vem da calibração (o canto de pânico não precisa — {0,0}
-  # é universal; o canto oposto não é). Sem calibração → canto desligado.
+  # Screen width comes from the calibration (the panic corner needs none —
+  # {0,0} is universal; the opposite corner isn't). No calibration → corner off.
   def default_screen_w do
     case Pokex.Calibration.load() do
       {:ok, calib} -> Map.get(calib, :screen_w)
@@ -320,11 +318,10 @@ defmodule Pokex.Bots.Guardian do
     end
   end
 
-  # Uma meta batida ENCERRA a sessão. "parar" trava tudo como sempre;
-  # "deslogar" encerra a conta, que é o que de fato economiza estamina — parar
-  # o bot não economiza nada, o personagem segue online queimando.
-  # O Logout trava o latch e para a frota por conta própria; aqui não se duplica
-  # nenhum dos dois.
+  # A met goal ENDS the session. "parar" locks everything as usual; "deslogar"
+  # ends the account session, which is what actually saves stamina — a stopped
+  # bot saves nothing, the character stays online burning. Logout sets the
+  # latch and halts the fleet on its own; neither is duplicated here.
   defp session_end(state, reason) do
     case Settings.get(:stop_after_action) do
       "deslogar" ->

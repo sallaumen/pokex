@@ -10,7 +10,6 @@ defmodule Pokex.Bots.CaptureTest do
   end
 
   test "grab falls back to a DIRECT capture when the broker isn't running" do
-    # a server name with no process → straight to Rig.impl().capture (nothing to serialize on)
     assert {:ok, "/tmp/fake/z.png"} = Capture.grab({0, 0, 10, 10}, "z.png", :no_such_capture)
     assert {:capture, {0, 0, 10, 10}, "z.png"} in Pokex.Rig.Fake.calls()
   end
@@ -109,7 +108,6 @@ defmodule Pokex.Bots.CaptureTest do
   test "concurrent grabs are serialized — the broker never runs two captures at once" do
     {:ok, pid} = Capture.start_link(name: :cap_serial)
 
-    # fire many grabs concurrently; every one must complete (the broker queues them one at a time)
     results =
       1..20
       |> Task.async_stream(fn i -> Capture.grab({i, 0, 1, 1}, "s#{i}.png", :cap_serial) end,
@@ -219,7 +217,6 @@ defmodule Pokex.Bots.CaptureTest do
         sck_recover_interval_ms: 5_000
       )
 
-    # each failed recovery result doubles the next delay (5s → 10s → 20s), capped at 60s
     send(pid, {:sck_recovery_result, {:error, :timeout}})
     state = :sys.get_state(pid)
     assert state.sck_recover_backoff_ms == 10_000
@@ -230,12 +227,10 @@ defmodule Pokex.Bots.CaptureTest do
     assert state.sck_recover_backoff_ms == 20_000
     assert_in_delta state.sck_recover_at - System.monotonic_time(:millisecond), 10_000, 200
 
-    # the cap holds
     :sys.replace_state(pid, fn s -> %{s | sck_recover_backoff_ms: 60_000} end)
     send(pid, {:sck_recovery_result, {:error, :timeout}})
     assert :sys.get_state(pid).sck_recover_backoff_ms == 60_000
 
-    # a successful recovery resets the backoff to the base interval
     send(pid, {:sck_recovery_result, {:ok, :sck_recovered}})
     state = :sys.get_state(pid)
     assert state.sck_recover_backoff_ms == 5_000
@@ -260,26 +255,21 @@ defmodule Pokex.Bots.CaptureTest do
         sck_recover_interval_ms: 60_000
       )
 
-    # initial start failed -> :rig fallback serves the capture
     assert {:ok, "/tmp/fake/first.png"} =
              Capture.grab({1, 1, 1, 1}, "first.png", :cap_sck_recover_after_start)
 
     assert {:capture, {1, 1, 1, 1}, "first.png"} in Pokex.Rig.Fake.calls()
 
-    # make recovery due
     :sys.replace_state(pid, fn state ->
       %{state | sck_recover_at: System.monotonic_time(:millisecond) - 1}
     end)
 
-    # the next capture KICKS OFF recovery in the background but still serves on :rig immediately —
-    # it does NOT block on the (async) SCK re-init
     assert {:ok, second} =
              Capture.grab({2, 2, 2, 2}, "second.png", :cap_sck_recover_after_start)
 
     assert String.ends_with?(second, "second.png")
     assert {:capture, {2, 2, 2, 2}, "second.png"} in Pokex.Rig.Fake.calls()
 
-    # recovery completes off the capture path and the backend swaps to SCK
     wait_until(fn ->
       match?({:screen_capture_kit, :sck_recovered}, :sys.get_state(pid).backend)
     end)
@@ -288,7 +278,6 @@ defmodule Pokex.Bots.CaptureTest do
            |> Enum.filter(&match?({:start, _}, &1))
            |> length() == 2
 
-    # a later capture now goes through the recovered SCK backend, not the rig
     assert {:ok, _} = Capture.grab({3, 3, 3, 3}, "third.png", :cap_sck_recover_after_start)
 
     assert {:capture, :sck_recovered, {3, 3, 3, 3}, _path} =
@@ -300,7 +289,6 @@ defmodule Pokex.Bots.CaptureTest do
   test "the broker ignores an unexpected message instead of crashing" do
     {:ok, pid} = Capture.start_link(name: :cap_catchall)
     send(pid, :totally_unexpected_message)
-    # still alive and serving captures
     assert {:ok, _} = Capture.grab({0, 0, 1, 1}, "x.png", :cap_catchall)
     assert Process.alive?(pid)
     GenServer.stop(pid)
@@ -369,8 +357,6 @@ defmodule Pokex.Bots.CaptureTest do
 
     assert {:ok, _path} = Capture.grab({1, 2, 3, 4}, "stopped.png", :cap_sck_stopped)
 
-    # exactly ONE SCK attempt (no retries on the dead stream), the zombie helper is stopped,
-    # and the capture was served by the screencapture fallback
     assert Pokex.CaptureBackendFake.calls()
            |> Enum.filter(&match?({:capture, _, _, _}, &1))
            |> length() == 1
@@ -414,23 +400,22 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  # config/test.exs forces capture_backend: :screencapture, which SCK's enabled?/0 rejects —
+  # an isolated instance with no fake SCK module deterministically starts on :rig.
   test "backend_info reports the live backend and recovery flag" do
-    # config/test.exs forces `capture_backend: :screencapture`, which the SCK backend's
-    # enabled?/0 check rejects — so an isolated instance with no fake SCK module deterministically
-    # starts on :rig, no macOS-specific behavior involved.
     {:ok, server} = Capture.start_link(name: nil)
     assert %{backend: :rig, recovering?: false} = Capture.backend_info(server)
 
     GenServer.stop(server)
   end
 
-  describe "região impossível (fora da tela)" do
-    # O erro real de 2026-07-30: minimapa calibrado com y=-132 depois da janela
-    # do jogo mudar de lugar. Determinístico — o helper responde isso pra sempre.
+  describe "impossible region (outside the screen)" do
+    # Field error 2026-07-30: minimap calibrated with y=-132 after the game window moved.
+    # Deterministic — the helper answers this forever.
     @outside_frame "region 3150,-132,290,458 -> 3150,-132,290,458 outside frame 3440x1440"
     @bad_region {3150, -132, 290, 458}
 
-    test "sem retry, sem fallback CLI e sem matar o SCK saudável" do
+    test "no retry, no CLI fallback, and the healthy SCK is not killed" do
       sck_outside_frame!()
 
       {:ok, pid} =
@@ -443,17 +428,14 @@ defmodule Pokex.Bots.CaptureTest do
       assert {:error, {:screen_capture_kit, @outside_frame}} =
                Capture.grab(@bad_region, "feed_minimap.png", :cap_regiao)
 
-      # UMA ida ao helper (os retries default não aconteceram)...
       assert length(sck_capture_calls()) == 1
-      # ...nenhum fallback pro CLI (seria lixo, mais devagar)...
       refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, _}, &1))
-      # ...e o backend SCK segue VIVO (antes, fallback_backend o matava).
       refute Enum.any?(Pokex.CaptureBackendFake.calls(), &match?({:stop, _}, &1))
 
       GenServer.stop(pid)
     end
 
-    test "quarentena: a segunda tentativa nem chega no helper; outra região ainda tenta" do
+    test "quarantine: the second attempt never reaches the helper; a different region still tries" do
       sck_outside_frame!([{:ok, "/tmp/fake/ok.png"}])
 
       {:ok, pid} =
@@ -470,7 +452,6 @@ defmodule Pokex.Bots.CaptureTest do
 
       assert length(sck_capture_calls()) == 1
 
-      # uma região DIFERENTE (recalibrada) não herda a quarentena da errada
       assert {:ok, "/tmp/fake/ok.png"} =
                Capture.grab({100, 100, 290, 458}, "feed_minimap.png", :cap_quarentena)
 
@@ -479,7 +460,8 @@ defmodule Pokex.Bots.CaptureTest do
       GenServer.stop(pid)
     end
 
-    test "a recuperação do SCK dá nova chance às regiões em quarentena" do
+    # backend_info is a call, so it queues behind the recovery info message — built-in sync.
+    test "SCK recovery gives quarantined regions another chance" do
       sck_outside_frame!()
 
       {:ok, pid} =
@@ -493,7 +475,6 @@ defmodule Pokex.Bots.CaptureTest do
       assert length(sck_capture_calls()) == 1
 
       send(pid, {:sck_recovery_result, {:ok, :sck_backend_novo}})
-      # o call abaixo entra na fila DEPOIS do info acima — sincroniza sozinho
       assert %{backend: :screen_capture_kit} = Capture.backend_info(:cap_rec_quarentena)
 
       assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_rec_quarentena)
@@ -502,7 +483,7 @@ defmodule Pokex.Bots.CaptureTest do
       GenServer.stop(pid)
     end
 
-    test "alarma UMA vez mandando recalibrar (painel + journal via \"game\")" do
+    test "alarms once asking to recalibrate (panel + journal via \"game\")" do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
       sck_outside_frame!()
 
@@ -524,10 +505,9 @@ defmodule Pokex.Bots.CaptureTest do
       GenServer.stop(pid)
     end
 
-    test "a re-quarentena da MESMA região não re-toca a sirene — vira log" do
-      # A recuperação do SCK limpa a quarentena de propósito (re-sondar é
-      # certo), mas cada re-sonda da mesma região quebrada re-tocava o alarme —
-      # 12 sirenes idênticas numa tarde (journal 2026-07-30).
+    # Journal 2026-07-30: recovery clears quarantine on purpose, but each re-probe of the
+    # same broken region re-rang the alarm — 12 identical sirens in one afternoon.
+    test "re-quarantining the same region does not re-ring the siren — it logs instead" do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
       sck_outside_frame!()
 
@@ -541,11 +521,9 @@ defmodule Pokex.Bots.CaptureTest do
       assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_realarme_regiao)
       assert_receive {:rule_alarm, :captura, _}
 
-      # o SCK renasce (limpa a quarentena e dá nova chance à região)...
       send(pid, {:sck_recovery_result, {:ok, :sck_novo}})
       assert %{backend: :screen_capture_kit} = Capture.backend_info(:cap_realarme_regiao)
 
-      # ...a região segue quebrada: re-quarentena SEM sirene, com log
       assert {:error, _} = Capture.grab(@bad_region, "feed_minimap.png", :cap_realarme_regiao)
       refute_receive {:rule_alarm, _, _}, 50
       assert_receive {:game_log, :macro, msg}
@@ -555,19 +533,18 @@ defmodule Pokex.Bots.CaptureTest do
     end
   end
 
-  describe "alarme de fome na fila" do
-    test "espera acima do teto alarma no painel — com rate limit" do
+  describe "queue starvation alarm" do
+    # requested_at travels in the grab message — an old timestamp simulates 10s stuck in queue.
+    test "a wait above the ceiling alarms the panel — rate limited" do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
       {:ok, pid} = Capture.start_link(name: :cap_fome)
 
-      # simula um pedido que ficou 10s na fila (requested_at viaja na mensagem)
       atrasado = System.monotonic_time(:millisecond) - 10_000
       GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento.png", atrasado})
 
       assert_receive {:rule_alarm, :captura, msg}
       assert msg =~ "captura saturada"
 
-      # a fila afogada estoura o teto em TODO pedido — sem rate limit seria sirene
       GenServer.call(pid, {:grab, {0, 0, 4, 4}, "lento2.png", atrasado})
       refute_receive {:rule_alarm, _, _}, 50
 

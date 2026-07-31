@@ -90,11 +90,11 @@ defmodule Pokex.Bots.Fishing.Worker do
       state.held? ->
         {:noreply, resume_from_hold(state)}
 
-      # Portão de entrada fechado: toda tecla seria ENGOLIDA com :ok e a Logic
-      # acreditaria — contaria um arremesso de isca que nunca entrou na água
-      # (foi assim que o cavebot "andou" sem andar). Congela o ciclo INTEIRO,
-      # sensor incluído, como o freeze do mini-game; avisa UMA vez na borda e
-      # segue pollando até reabrir.
+      # Input gate closed: every key would be SWALLOWED with :ok and the Logic
+      # would believe it — counting a cast that never hit the water (how the
+      # cavebot "walked" without walking). Freeze the WHOLE cycle, sensor
+      # included, like the mini-game freeze; warn ONCE on the edge and keep
+      # polling until it reopens.
       not InputGate.allowed?() ->
         if not state.gated? do
           Phoenix.PubSub.broadcast(
@@ -107,7 +107,7 @@ defmodule Pokex.Bots.Fishing.Worker do
 
         {:noreply, reschedule(%{state | gated?: true}, Logic.tick_interval(previous))}
 
-      # portão reabriu: anuncia e o MESMO tick já volta ao trabalho
+      # gate reopened: announce, and this SAME tick goes back to work
       state.gated? ->
         Phoenix.PubSub.broadcast(
           Pokex.PubSub,
@@ -185,8 +185,8 @@ defmodule Pokex.Bots.Fishing.Worker do
           {elem(Logic.io_failed(previous, inspect(reason), now()), 0), [], %{}}
       end
 
-    # alarmes decididos pela Logic (ex.: arremessos secos) tocam a sirene do
-    # painel — a mesma dos guardas de regra
+    # Alarms decided by the Logic (e.g. dry casts) ring the panel siren — the
+    # same one the rule guards use.
     for {:alarm, msg} <- actions do
       Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:rule_alarm, :pesca, msg})
     end

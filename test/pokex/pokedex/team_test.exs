@@ -37,9 +37,7 @@ defmodule Pokex.Pokedex.TeamTest do
     assert Team.bank() == []
 
     assert {:ok, _} = Team.add("Seadra")
-    # owning the Shiny is real — variants are allowed
     assert {:ok, _} = Team.add("Shiny Seadra")
-    # duplicate add is a no-op (the name lives in ONE place)
     assert {:ok, _} = Team.add("Seadra")
     assert Team.member_names() == ["Seadra", "Shiny Seadra"]
 
@@ -48,7 +46,7 @@ defmodule Pokex.Pokedex.TeamTest do
   end
 
   @tag :tmp_dir
-  test "banco: adicionar direto, mover pra lá e voltar mantendo o level" do
+  test "bank: add directly, move there and back keeping the level" do
     assert {:ok, _} = Team.add("Venusaur", :bank)
     assert Enum.map(Team.bank(), & &1.name) == ["Venusaur"]
     assert Team.members() == []
@@ -61,14 +59,13 @@ defmodule Pokex.Pokedex.TeamTest do
     Team.move("Venusaur", :bank)
     assert [%{name: "Venusaur", level: 72}] = Team.bank()
 
-    # adding an existing bank name to the TEAM relocates it (never duplicates)
     assert {:ok, _} = Team.add("Venusaur", :team)
     assert Team.bank() == []
     assert Team.member_names() == ["Venusaur"]
   end
 
   @tag :tmp_dir
-  test "meu level + janela persistem; margem tem default 15" do
+  test "player level and window persist; margin defaults to 15" do
     assert Team.player_level() == nil
     assert Team.level_margin() == 15
 
@@ -82,13 +79,12 @@ defmodule Pokex.Pokedex.TeamTest do
   end
 
   @tag :tmp_dir
-  test "um team.json v1 (lista de nomes) carrega como time sem levels" do
+  test "a v1 team.json (list of names) loads as a team without levels" do
     File.write!(
       Path.join(Pokex.Home.dir(), "team.json"),
       JSON.encode!(%{members: ["Seadra", "Venusaur"]})
     )
 
-    # v3 adds the hotkey slot; a v1 file simply has none yet
     assert Team.members() == [
              %{name: "Seadra", level: nil, slot: nil},
              %{name: "Venusaur", level: nil, slot: nil}
@@ -114,7 +110,7 @@ defmodule Pokex.Pokedex.TeamTest do
   # file/0 reads the GLOBAL Settings (via Characters.active/0), so these tests
   # set :active_character globally — SettingsStash restores it on exit.
   @tag :tmp_dir
-  test "sem personagem lê o team.json legado; com personagem lê chars/<slug>", %{tmp_dir: tmp} do
+  test "no character reads the legacy team.json; a character reads chars/<slug>", %{tmp_dir: tmp} do
     Pokex.SettingsStash.stash_keys!([:active_character])
 
     Pokex.Settings.put(:active_character, "")
@@ -125,25 +121,21 @@ defmodule Pokex.Pokedex.TeamTest do
   end
 
   @tag :tmp_dir
-  test "round-trip por personagem: grava em chars/<slug> e o legado reaparece ao voltar",
+  test "per-character round-trip: writes land in chars/<slug> and the legacy team reappears",
        %{tmp_dir: tmp} do
     Pokex.SettingsStash.stash_keys!([:active_character])
 
-    # no character selected: the legacy team
     Pokex.Settings.put(:active_character, "")
     assert {:ok, _} = Team.add("Venusaur")
     assert Team.member_names() == ["Venusaur"]
 
-    # switching to a character starts from ITS OWN (empty) team...
     Pokex.Settings.put(:active_character, "lowbie")
     assert Team.members() == []
 
-    # ...and writes land under chars/<slug>/team.json
     assert {:ok, _} = Team.add("Seadra")
     assert Team.member_names() == ["Seadra"]
     assert File.exists?(Path.join([tmp, "chars", "lowbie", "team.json"]))
 
-    # back to no character: the legacy team reappears untouched
     Pokex.Settings.put(:active_character, "")
     assert Team.member_names() == ["Venusaur"]
   end

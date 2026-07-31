@@ -3,8 +3,8 @@ defmodule Pokex.Pokedex.SyncTest do
 
   alias Pokex.Pokedex.Sync
 
-  describe "incomplete/1 — o alvo do passe de completar" do
-    test "entrada sem moves (dataset antigo) conta como incompleta" do
+  describe "incomplete/1 — the completion pass's target" do
+    test "an entry without moves (old dataset) counts as incomplete" do
       assert [%{"name" => "Sceptile"}] =
                Sync.incomplete([
                  %{"name" => "Sceptile", "level" => 100},
@@ -12,11 +12,12 @@ defmodule Pokex.Pokedex.SyncTest do
                ])
     end
 
-    test "moves: [] também é gap — foi assim que 202 entradas ficaram sem ataques" do
+    # an empty list once passed as complete and left 202 entries without moves
+    test "moves: [] is also a gap" do
       assert [%{"name" => "Seadra"}] = Sync.incomplete([%{"name" => "Seadra", "moves" => []}])
     end
 
-    test "página já lida NESTE run (moves: []) não é buscada de novo" do
+    test "a page already read in this run (moves: []) is not fetched again" do
       entries = [
         %{"name" => "Seadra", "moves" => [], "scraped_at" => "2026-07-22T10:00:00Z"},
         %{"name" => "Sceptile", "moves" => [], "scraped_at" => "2026-07-01T10:00:00Z"}
@@ -25,18 +26,18 @@ defmodule Pokex.Pokedex.SyncTest do
       assert [%{"name" => "Sceptile"}] = Sync.incomplete(entries, "2026-07-22T10:00:00Z")
     end
 
-    test "shiny do fallback (moves: nil) é retentado no MESMO run" do
+    test "a fallback shiny (moves: nil) is retried in the same run" do
       entry = %{"name" => "Shiny Seadra", "moves" => nil, "scraped_at" => "2026-07-22T10:00:00Z"}
 
       assert [%{"name" => "Shiny Seadra"}] = Sync.incomplete([entry], "2026-07-22T10:00:00Z")
     end
 
-    test "entrada colhida com movimentos não volta pro passe" do
+    test "an entry harvested with moves does not return to the pass" do
       entry = %{"name" => "Seadra", "moves" => [%{"slot" => "M1", "name" => "Mud Shot"}]}
       assert Sync.incomplete([entry]) == []
     end
 
-    test "aceita chaves atom (entradas recém-raspadas) além das de JSON" do
+    test "accepts atom keys (freshly scraped entries) besides JSON string keys" do
       assert [%{name: "Sceptile"}] =
                Sync.incomplete([
                  %{name: "Sceptile", moves: nil},
@@ -45,9 +46,9 @@ defmodule Pokex.Pokedex.SyncTest do
     end
   end
 
-  describe "download_sprite/3 — skip_sprites preserva, nunca esquece" do
+  describe "download_sprite/3 — skip_sprites preserves, never forgets" do
     @tag :tmp_dir
-    test "com skip_sprites, sprite já no disco mantém o path", %{tmp_dir: tmp} do
+    test "with skip_sprites, a sprite already on disk keeps its path", %{tmp_dir: tmp} do
       Application.put_env(:pokex, :pokedex_sprites_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :pokedex_sprites_dir) end)
 
@@ -58,7 +59,7 @@ defmodule Pokex.Pokedex.SyncTest do
     end
 
     @tag :tmp_dir
-    test "com skip_sprites e NADA no disco, aí sim nil", %{tmp_dir: tmp} do
+    test "with skip_sprites and nothing on disk, returns nil", %{tmp_dir: tmp} do
       Application.put_env(:pokex, :pokedex_sprites_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :pokedex_sprites_dir) end)
 
@@ -66,7 +67,7 @@ defmodule Pokex.Pokedex.SyncTest do
                nil
     end
 
-    test "sem URL não há sprite, com ou sem skip" do
+    test "no URL means no sprite, with or without skip" do
       assert Sync.download_sprite(nil, "Seadra", skip_sprites: true) == nil
     end
   end

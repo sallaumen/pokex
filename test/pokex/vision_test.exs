@@ -126,13 +126,11 @@ defmodule Pokex.VisionTest do
     test "finds the centroid of the biggest red cluster" do
       frame = uniform(100, 100, {20, 80, 40})
 
-      # nome do pokémon: bloco 12x4 de vermelho puro centrado em ~(50, 30)
       frame =
         for x <- 44..55, y <- 28..31, reduce: frame do
           acc -> put_px(acc, x, y, {255, 30, 30})
         end
 
-      # ruído vermelho isolado longe (menor que o cluster)
       frame = frame |> put_px(5, 90, {255, 0, 0}) |> put_px(6, 90, {255, 0, 0})
 
       assert {:ok, {x, y}} = Pokex.Vision.find_hostile(frame)
@@ -209,10 +207,9 @@ defmodule Pokex.VisionTest do
   describe "red_row_counts/2 and locked_row/2" do
     import Pokex.FrameFixtures
 
+    # measured in-game: a locked target's name+ring are dark red ~(160,25,25),
+    # below the old r>=200 cutoff — a clearly locked Horsea read ~0px
     test "red_row_counts catches the DARK red of a target name/ring, not just bright red" do
-      # MEASURED on the real game: a locked target's red NAME + ring are dark red
-      # ~(160,25,25) — red-dominant but BELOW the old r>=200 cutoff, so a clearly
-      # locked Horsea read ~0px. The lock predicate must catch r 130-200 too.
       frame = uniform(60, 104, {20, 20, 20})
 
       frame =
@@ -241,7 +238,6 @@ defmodule Pokex.VisionTest do
     end
 
     test "red_row_counts splits red by band" do
-      # 60 wide x 312 tall = 6 bands of 52 at top 0; paint a red block in band 2
       frame = uniform(60, 312, {20, 20, 20})
 
       frame =
@@ -270,7 +266,6 @@ defmodule Pokex.VisionTest do
     end
 
     test "red_row_counts respects the top offset (header ignored)" do
-      # paint red ABOVE the first band's top → not attributed to any band
       frame = uniform(60, 200, {20, 20, 20})
 
       frame =
@@ -287,8 +282,6 @@ defmodule Pokex.VisionTest do
     import Pokex.FrameFixtures
 
     test "returns the center Y of each green HP bar, top to bottom" do
-      # three green bars (each ~5px tall, wide enough to clear min_run) at rows
-      # centered on y 12, 64, 116
       frame =
         for yrange <- [10..14, 62..66, 114..118],
             y <- yrange,
@@ -310,8 +303,6 @@ defmodule Pokex.VisionTest do
     end
 
     test "a bright bar that isn't GREEN-dominant is not an HP bar" do
-      # grayish-white (g barely over r/b) and teal (g not over b by the margin)
-      # both fail — only a true green HP bar counts
       gray =
         for x <- 0..40, y <- 10..14, reduce: uniform(60, 40, {30, 30, 30}) do
           acc -> put_px(acc, x, y, {200, 210, 200})
@@ -354,7 +345,7 @@ defmodule Pokex.VisionTest do
 
     test "true when a scanline holds a consecutive GREEN-dominant run >= min_run" do
       w = 40
-      # min_run defaults to max(div(w, 4), 4) = 10
+
       frame =
         for x <- 0..9, reduce: uniform(w, 20, {30, 30, 30}) do
           acc -> put_px(acc, x, 10, {40, 200, 60})
@@ -391,7 +382,7 @@ defmodule Pokex.VisionTest do
 
     test "false on speckle — isolated matching pixels that never form a run >= min_run" do
       w = 40
-      # green every other pixel: longest consecutive run is 1, well under min_run (10)
+
       frame =
         for x <- 0..(w - 1)//2, reduce: uniform(w, 20, {30, 30, 30}) do
           acc -> put_px(acc, x, 10, {40, 200, 60})
@@ -442,7 +433,6 @@ defmodule Pokex.VisionTest do
           acc -> put_px(acc, x, y, color)
         end
 
-      # 10..14 → center 12, 62..66 → center 64; this is what battle_bottom buckets into rows.
       assert Vision.hp_bar_row_positions(frame) == [12, 64]
     end
 
@@ -472,9 +462,6 @@ defmodule Pokex.VisionTest do
           acc -> put_px(acc, x, y, {230, 40, 40})
         end
 
-      # 8..13 → center 10, 40..45 → center 42; battle_bottom buckets these into rows and
-      # takes the deepest, so the DEEPEST wild's pokeball is never lost (find_wild_row keeps
-      # only the topmost).
       assert Vision.pokeball_row_positions(frame) == [10, 42]
     end
 

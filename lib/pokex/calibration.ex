@@ -23,12 +23,12 @@ defmodule Pokex.Calibration do
     # dependency on arena coverage. Without it, detection anchors in
     # arena_region as before.
     :mini_game_region,
-    # Posição & minimapa marcados À MÃO (2026-07-30): o retângulo do mapa, a
-    # cruz FIXA do personagem (o mapa desliza por baixo dela) e a faixa da
-    # coordenada textual. As regiões do layout automático são ancoradas e
-    # morrem quando a janela do jogo muda de lugar — a classe de drift que
-    # derrubou o cavebot. Manual vence; layout vira fallback (resolvedores
-    # minimap_*_region/1 e minimap_player_point/1 abaixo).
+    # HAND-MARKED position & minimap (2026-07-30): the map rectangle, the
+    # character's FIXED cross (the map slides under it) and the textual
+    # coordinate strip. Auto-layout regions are anchored and die when the game
+    # window moves — the drift class that took the cavebot down. Manual wins;
+    # layout becomes the fallback (resolvers minimap_*_region/1 and
+    # minimap_player_point/1 below).
     :minimap_region,
     :minimap_player_point,
     :minimap_coord_region,
@@ -76,17 +76,15 @@ defmodule Pokex.Calibration do
   @doc """
   Where the fishing mini-game bar is, resolved.
 
-  A MÃO manda. A faixa "fixa" do layout automático era coordenada ABSOLUTA de
-  tela ({3067, 800, ...}, colada na battle list) — provada estável quando os
-  PAINÉIS do jogo se mexiam, mas a prova assumia que a JANELA nunca mudava de
-  lugar. Em 2026-07-30 ela mudou (a mesma raiz do minimapa em y=-132): a faixa
-  passou a apontar pro lugar errado e ainda VETAVA silenciosamente a
-  calibração manual do Lucas (a página até avisava que marcar não teria
-  efeito). Inversão: o valor marcado à mão vence sempre; sem ele, uma caixa
-  CENTRAL (metade da largura × metade da altura, centrada na arena — o meio do
-  jogo — ou na tela) — o mini-game aparece no meio do viewport, não no canto.
-  O worker procura no que receber; marcar a faixa é o que deixa a busca
-  barata e certeira.
+  The HAND wins. The auto-layout "fixed" strip was an ABSOLUTE screen
+  coordinate ({3067, 800, ...}, glued to the battle list) — proven stable when
+  the game's PANELS moved, but the proof assumed the WINDOW never moved. On
+  2026-07-30 it did (same root as the minimap at y=-132): the strip pointed at
+  the wrong place and still silently VETOED the manual calibration. Inverted:
+  the hand-marked value always wins; without it, a CENTERED box (half width ×
+  half height, centered on the arena or the screen) — the mini-game appears in
+  the middle of the viewport, not a corner. The worker searches whatever it
+  gets; marking the strip is what makes the search cheap and accurate.
   """
   def mini_game_region(%__MODULE__{} = calib) do
     manual_mini_game_region(calib) || centered_mini_game_region(calib)
@@ -109,15 +107,15 @@ defmodule Pokex.Calibration do
   defp centered_box(x, y, w, h), do: {x + div(w, 4), y + div(h, 4), div(w, 2), div(h, 2)}
 
   @doc """
-  Onde o MINIMAPA está, resolvido — a MÃO manda, o layout automático é o
-  fallback (a mesma inversão do mini-game): as regiões do layout são ancoradas
-  em `battle_header` e morrem quando a janela do jogo muda de lugar, e foi
-  exatamente essa classe de drift que cegou o cavebot (2026-07-30).
+  Where the MINIMAP is, resolved — the HAND wins, auto-layout is the fallback
+  (same inversion as the mini-game): layout regions are anchored on
+  `battle_header` and die when the game window moves — exactly the drift class
+  that blinded the cavebot (2026-07-30).
   """
   def minimap_region(%__MODULE__{minimap_region: region}) when is_tuple(region), do: region
   def minimap_region(%__MODULE__{layout: fix}), do: Pokex.Layout.region(:minimap, fix)
 
-  @doc "A faixa da coordenada textual \"(x, y, z)\", resolvida — mão > layout."
+  @doc "The textual \"(x, y, z)\" coordinate strip, resolved — hand > layout."
   def minimap_coord_region(%__MODULE__{minimap_coord_region: region}) when is_tuple(region),
     do: region
 
@@ -125,17 +123,17 @@ defmodule Pokex.Calibration do
     do: Pokex.Layout.region(:minimap_coord, fix)
 
   @doc """
-  O retângulo CLICÁVEL do mapa (onde o passo do cavebot cai): com marcação
-  manual é a própria `minimap_region` — o Lucas marca o mapa em si; sem ela, o
-  `:minimap_map` do layout, como sempre.
+  The map's CLICKABLE rectangle (where the cavebot step lands): with a manual
+  mark it is `minimap_region` itself — the map proper is what gets marked;
+  without one, the layout's `:minimap_map`, as always.
   """
   def minimap_map_region(%__MODULE__{minimap_region: region}) when is_tuple(region), do: region
   def minimap_map_region(%__MODULE__{layout: fix}), do: Pokex.Layout.region(:minimap_map, fix)
 
   @doc """
-  A cruz do personagem no minimapa — FIXA na janela, o mapa desliza por baixo
-  dela (Lucas, 2026-07-30). Sem marcação, o centro do retângulo do mapa: era o
-  que o passo assumia desde sempre, agora como fallback em vez de dogma.
+  The character's cross on the minimap — FIXED in the window, the map slides
+  under it (2026-07-30). Unmarked, the map rectangle's center: what the step
+  always assumed, now as fallback instead of dogma.
   """
   def minimap_player_point(%__MODULE__{minimap_player_point: point}) when is_tuple(point),
     do: point
@@ -217,7 +215,6 @@ defmodule Pokex.Calibration do
     end
   end
 
-  # --- profiles -------------------------------------------------------------
   # Named snapshots of a whole calibration (~/.pokex/calibrations/<slug>.json):
   # one per monitor layout, so plugging the second monitor back in is a one-click
   # switch instead of a full wizard redo.

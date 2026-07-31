@@ -1,8 +1,7 @@
 defmodule Pokex.Pokedex.ShinyLog do
   @moduledoc """
   The trophy shelf (`~/.pokex/shiny_log.json`): every Shiny the bot SAW, with
-  what happened to it. Lucas: "gostaria de ter nos nossos registros os Shinys
-  que a gente encontrou... começar a marcar como algo especial".
+  what happened to it.
 
   One entry per encounter — `%{at, star_px, action, outcome, note}`:
 
@@ -47,7 +46,7 @@ defmodule Pokex.Pokedex.ShinyLog do
 
   @doc """
   Updates the outcome of the most recent encounter (the one still open) —
-  what "matei um shiny" / "joguei bola" write when the fight resolves.
+  what the kill / ball-thrown resolutions write when the fight ends.
   No-op when there is nothing logged.
   """
   def resolve_last(outcome, note \\ nil) do

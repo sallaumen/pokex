@@ -289,14 +289,14 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       end
     else
       # Everything this worker exists for is blocked here, and until now the ONLY
-      # sign was a small badge in the panel header. "Liguei o revive e não fez
-      # nada" is unanswerable when the closed gate is invisible: name it.
+      # sign was a small badge in the panel header. "revive is on and nothing
+      # happened" is unanswerable when the closed gate is invisible: name it.
       %{state | gate: closed_gate()}
     end
   end
 
   # WHICH guard is closed — they mean very different things to the human: one is
-  # "volte pro jogo", the other is "você mesmo mandou parar".
+  # "get back into the game", the other is "you told it to stop yourself".
   defp closed_gate do
     case InputGate.state() do
       %{corner_ok: false} -> :panic_corner
@@ -581,12 +581,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state
   end
 
-  # O prefixo de STUN do resgate (Lucas, 2026-07-30): no modo "combo", os
-  # passos do combo escolhido viram presses/esperas ANTES do recall — skills
-  # em cooldown são puladas contra uma leitura FRESCA da barra (sem leitura,
-  # todas às cegas). Toda falha cai na direção de SALVAR: combo sumido,
-  # desligado ou inelegível = prefixo vazio + alarme, o revive acontece do
-  # mesmo jeito.
+  # The rescue's STUN prefix (2026-07-30): in "combo" mode the chosen combo's
+  # steps become presses/waits BEFORE the recall — skills on cooldown are
+  # skipped against a FRESH bar reading (no reading = all in blind). Every
+  # failure falls toward SAVING: missing/disabled/ineligible combo = empty
+  # prefix + alarm, the revive happens anyway.
   defp rescue_stun_steps do
     case Settings.get(:rescue_mode) do
       "combo" -> compile_rescue_combo(Settings.get(:rescue_combo))
@@ -622,9 +621,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # Esperas simbólicas ({:wait, :setting}) viram ms antes da compilação pura.
-  # Um setting que não existe mais cai no rescue_step_ms — um combo velho
-  # jamais derruba um resgate por causa de uma espera.
+  # Symbolic waits ({:wait, :setting}) become ms before the pure compile. A
+  # setting that no longer exists falls back to rescue_step_ms — an old combo
+  # must never take a rescue down over a wait.
   defp resolve_waits(steps) do
     Enum.map(steps, fn
       {:wait, setting} when is_atom(setting) ->

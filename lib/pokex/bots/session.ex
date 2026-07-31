@@ -1,37 +1,33 @@
 defmodule Pokex.Bots.Session do
   @moduledoc """
-  A GERAÇÃO da sessão: um contador de ordens, e nada mais.
+  The session GENERATION: an order counter, nothing more.
 
-  Frente 1 do plano de consolidação, na menor forma que resolve a ambiguidade
-  comprovada. O problema: o `Focus` guardava um booleano `resume?` — "tinha bot
-  rodando quando o foco caiu". Um booleano não tem identidade: entre a perda e
-  a volta do foco, QUALQUER outra ordem (Parar no painel, pânico, logout, freio
-  do cavebot) deveria matar essa retomada pendente, e só o pânico matava
-  (via latch). Um Stop manual entre a perda e a volta do foco era esquecido, e
-  o refoco religava a frota por cima da ordem do humano.
+  The problem: `Focus` kept a boolean `resume?` — "a bot was running when focus
+  dropped". A boolean has no identity: between focus loss and return, ANY other
+  order (panel Stop, panic, logout, cavebot brake) should kill that pending
+  resume, and only panic did (via the latch). A manual Stop in between was
+  forgotten and the refocus re-armed the fleet over the human's order.
 
-  O contrato: **toda ordem incrementa a geração**. Quem quer retomar mais tarde
-  guarda a geração da SUA pausa e só age se `generation/0` ainda for aquela —
-  qualquer ordem no meio invalida a retomada, sem precisar saber qual foi.
+  The contract: **every order increments the generation**. Whoever wants to
+  resume later stores their OWN pause's generation and only acts if
+  `generation/0` is still that value — any order in between invalidates the
+  resume, without needing to know which one it was.
 
-  Ordens (`order/2`) são: `:start` e `:stop` (os funis do `BotSupervisor` — todo
-  Iniciar/Parar/pânico/logout/freio passa por lá) e `:hold` (a pausa do Focus,
-  que é retomável por definição — mas ainda invalida qualquer retomada mais
-  antiga que a dela).
+  Orders (`order/2`): `:start` and `:stop` (the `BotSupervisor` funnels — every
+  Iniciar/Parar/panic/logout/brake goes through there) and `:hold` (the Focus
+  pause, resumable by definition — but still invalidating any older resume).
 
-  Por que um processo próprio e minúsculo, em vez de uma chave no InputGate: o
-  InputGate é o piso de segurança da ATUAÇÃO (veto físico de input); a geração
-  é ordenação de INTENÇÃO. Misturar os dois foi descartado de propósito. E o
-  plano (Frente 1) quer um dono da sessão para crescer — fase global, holds com
-  dono, motivo da parada; este módulo é a semente dele, não um scheduler.
+  A tiny process of its own, not a key in InputGate, on purpose: the InputGate
+  is the ACTUATION safety floor (physical input veto); the generation orders
+  INTENT. This module is the seed of a session owner, not a scheduler.
 
-  Reinício deste processo zera o contador — e isso falha pro lado SEGURO: uma
-  retomada guardada antes do reinício compara `gen != 0` (ordens reais deixam a
-  geração em ≥ 1) e é descartada. Pior caso: o Lucas aperta Iniciar de novo.
+  A restart of this process zeroes the counter — failing SAFE: a resume stored
+  before the restart compares `gen != 0` (real orders leave the generation ≥ 1)
+  and is discarded. Worst case: Iniciar must be pressed again.
   """
   use GenServer
 
-  @typedoc "Uma ordem registrada: quem mandou o quê, em qual geração."
+  @typedoc "One recorded order: who ordered what, at which generation."
   @type order :: %{
           kind: :start | :stop | :hold,
           reason: String.t() | nil,
@@ -50,20 +46,20 @@ defmodule Pokex.Bots.Session do
   end
 
   @doc """
-  Registra uma ordem e devolve a geração NOVA — atomicamente. Quem precisa
-  comparar depois (o Focus) guarda exatamente o valor devolvido pela própria
-  ordem; ler o contador num segundo passo abriria a janela em que outra ordem
-  se intromete e a retomada compararia contra a geração errada.
+  Records an order and returns the NEW generation — atomically. Whoever needs
+  to compare later (Focus) stores exactly the value returned by their own
+  order; reading the counter in a second step would open the window where
+  another order slips in and the resume compares against the wrong generation.
   """
   @spec order(:start | :stop | :hold, String.t() | nil, GenServer.server()) :: pos_integer()
   def order(kind, reason \\ nil, server \\ __MODULE__) when kind in [:start, :stop, :hold],
     do: GenServer.call(server, {:order, kind, reason})
 
-  @doc "A geração atual. Retomada pendente só vale se ainda for a da sua pausa."
+  @doc "The current generation. A pending resume only holds if it is still its pause's."
   @spec generation(GenServer.server()) :: non_neg_integer()
   def generation(server \\ __MODULE__), do: GenServer.call(server, :generation)
 
-  @doc "A última ordem registrada (nil antes da primeira) — para painel e diagnóstico."
+  @doc "The last recorded order (nil before the first) — for panel and diagnostics."
   @spec last_order(GenServer.server()) :: order() | nil
   def last_order(server \\ __MODULE__), do: GenServer.call(server, :last_order)
 

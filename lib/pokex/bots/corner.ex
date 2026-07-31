@@ -14,17 +14,17 @@ defmodule Pokex.Bots.Corner do
   def in_kill_corner?(_), do: false
 
   @doc """
-  True quando o cursor está no canto SUPERIOR DIREITO — o canto de COMANDO:
-  segurar o mouse ali liga/desliga o último modo usado, de dentro do jogo.
+  True when the cursor sits in the TOP-RIGHT corner — the COMMAND corner:
+  holding the mouse there toggles the last used mode from inside the game.
 
-  Existe porque o Iniciar do painel exige clicar no navegador — o que tira o
-  foco do jogo e fecha o portão de entrada no exato instante em que a frota
-  tenta os primeiros passos. Mover o mouse não muda foco: o comando nasce com
-  o jogo focado e o portão aberto. Espelha o canto de pânico (que segue sendo
-  o kill switch, no canto OPOSTO — os dois nunca se confundem).
+  Exists because the panel's Iniciar requires clicking the browser — stealing
+  the game's focus and closing the input gate exactly when the fleet attempts
+  its first steps. Moving the mouse changes no focus: the command is born with
+  the game focused and the gate open. Mirrors the panic corner (still the kill
+  switch, in the OPPOSITE corner — the two never overlap).
 
-  Precisa da largura da tela (o pânico não: {0,0} é universal) — quem chama
-  passa a largura da calibração.
+  Needs the screen width (panic doesn't: {0,0} is universal) — callers pass
+  the calibration's width.
   """
   @spec in_command_corner?(term, term) :: boolean
   def in_command_corner?({x, y}, screen_w)

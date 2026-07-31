@@ -47,14 +47,14 @@ defmodule Pokex.Perception.Interpret.Hud do
     end
   end
 
-  # Um slot de atalho VAZIO não desenha número nenhum — e isso é uma leitura
-  # confiante de zero, não uma falha. Só que ele vale zero apenas quando a região
-  # não tem tinta NENHUMA: se há algo escrito ali que não deu pra ler, continua
-  # nil. Reportar um 561 mal lido como 0 dispararia alarme falso de estoque, que
-  # é pior do que o "?" honesto.
+  # An EMPTY hotkey slot draws no number at all — that is a confident read of
+  # zero, not a failure. It only counts as zero when the region has NO ink:
+  # if something is written there that couldn't be read, it stays nil.
+  # Reporting a misread 561 as 0 would fire a false stock alarm — worse than
+  # an honest "?".
   #
-  # Vale só pros slots: level, comida e pesca SEMPRE têm número na tela, então
-  # região vazia ali significa região errada — nunca zero.
+  # Slots only: level, food and fishing ALWAYS show a number on screen, so a
+  # blank region there means a wrong region — never zero.
   defp read_count(frame, fix, region, {ox, oy}) do
     case Layout.region(region, fix) do
       nil ->

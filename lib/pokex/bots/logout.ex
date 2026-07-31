@@ -1,37 +1,32 @@
 defmodule Pokex.Bots.Logout do
   @moduledoc """
-  Encerra a sessão do jogo de verdade: Ctrl+Q, Enter, e então CONFERE A TELA.
+  Actually ends the game session: Ctrl+Q, Enter, then CHECKS THE SCREEN.
 
-  Existe porque parar o bot não economiza estamina — estamina queima enquanto o
-  personagem está online. Uma madrugada inteira da conta principal do Lucas foi
-  embora com o minigame travado: o bot continuou fisgando, produziu zero peixe,
-  e nada tinha autoridade para encerrar a sessão.
+  Exists because stopping the bot saves no stamina — stamina burns while the
+  character is online. A whole night on the main account was lost with the
+  mini-game stuck: the bot kept hooking, produced zero fish, and nothing had
+  the authority to end the session.
 
-  ## Por que um processo próprio
+  Its own process because the press → wait → check → retry cycle takes seconds
+  and the caller (`Guardian`) must keep checking the panic corner every 100ms —
+  blocking it would leave the corner deaf that long.
 
-  O ciclo apertar → esperar → conferir → tentar de novo leva segundos. Quem
-  dispara é o `Guardian`, que precisa continuar checando o canto do pânico a
-  cada 100ms. Bloquear o `Guardian` por cinco segundos deixaria o canto do
-  pânico surdo por cinco segundos.
+  Checking the screen is not luxury: with the `InputGate` closed,
+  `Rig.Mac.gated/1` swallows the key and returns `:ok` — on purpose, so no
+  worker confuses "held for safety" with "failed" (exactly how the cavebot died
+  believing it had walked). A logout trusting the Body's `:ok` would report
+  logged out while stamina burns all night. The screen is the only honest
+  witness.
 
-  ## Por que conferir a tela não é luxo
+  The reading comes from the `:hud` WorldState fact: logged out = level, food
+  AND fishing stop yielding numbers at the same time. A STALE fact returns
+  `:unreadable`, never `:gone` — reading `World.snapshot()` would be wrong
+  here, since it returns nil in all three fields both for "empty screen" and
+  for "the feed stopped", and that confusion would invent a logout.
 
-  Com o `InputGate` fechado, `Rig.Mac.gated/1` engole a tecla e devolve `:ok` —
-  de propósito, para nenhum worker confundir "segurei por segurança" com
-  "falhou". Foi exatamente assim que o cavebot morreu achando que tinha andado.
-  Um logout que confia no `:ok` do `Body` tem o mesmo destino: reporta
-  deslogado, o Lucas vai dormir, e a estamina queima a noite toda. A tela é a
-  única testemunha honesta.
-
-  A leitura sai do fato `:hud` do `WorldState`: deslogado é nível, comida E
-  pesca pararem de dar número ao mesmo tempo. Um fato VELHO devolve
-  `:unreadable`, nunca `:gone` — ler `World.snapshot()` seria errado aqui,
-  porque ele devolve `nil` nos três campos tanto para "tela vazia" quanto para
-  "o feed parou", e essa confusão inventaria um logout que não aconteceu.
-
-  Quando a tela de seleção de personagem virar região calibrada, `read_fun`
-  troca de uma checagem NEGATIVA ("a HUD sumiu") para uma POSITIVA ("vejo a
-  lista de personagens"). O contrato `:gone | :present | :unreadable` não muda.
+  When the character-select screen becomes a calibrated region, `read_fun`
+  switches from a NEGATIVE check ("the HUD vanished") to a POSITIVE one ("I see
+  the character list"). The `:gone | :present | :unreadable` contract stays.
   """
   use GenServer
   require Logger
@@ -44,10 +39,10 @@ defmodule Pokex.Bots.Logout do
 
   @topic "logout"
   @combat_topic "combat"
-  # O feed :hud publica a cada 250-500ms; dois segundos já é "parou de chegar".
+  # The :hud feed publishes every 250-500ms; two seconds means "stopped arriving".
   @hud_max_age_ms 2_000
-  # Intervalo entre as leituras DEPOIS da primeira (a primeira espera
-  # logout_verify_delay_ms, que é o tempo da tela trocar).
+  # Gap between reads AFTER the first (the first waits logout_verify_delay_ms,
+  # the screen-switch time).
   @read_gap_ms 400
 
   def topic, do: @topic
@@ -56,17 +51,16 @@ defmodule Pokex.Bots.Logout do
     name = Keyword.get(opts, :name, __MODULE__)
 
     state = %{
-      # Mesmo padrão de :shiny_guard_active — a instância do app não age durante
-      # a suíte; instâncias de teste optam por entrar.
+      # Same pattern as :shiny_guard_active — the app instance never acts
+      # during the suite; test instances opt in.
       active?: Keyword.get(opts, :active, Application.get_env(:pokex, :logout_active, true)),
       perform_fun: Keyword.get(opts, :perform_fun, &Body.perform(&1, &2)),
       stop_fun: Keyword.get(opts, :stop_fun, fn -> BotSupervisor.stop_all("deslogando") end),
       front_fun: Keyword.get(opts, :front_fun, &Focus.ensure_front/0),
       read_fun: Keyword.get(opts, :read_fun, &__MODULE__.read_hud/0),
-      # Sobrescrevem o número de tentativas e o ritmo entre leituras. Existem
-      # só para o teste: sem eles, um caso de falha esperaria três ciclos de
-      # ~3s cada. Deliberadamente NÃO são ajustes do painel — o Lucas não tem
-      # o que decidir aqui, e cinco botões novos já são bastante.
+      # Override attempt count and read cadence. Test-only: without them a
+      # failure case would wait three ~3s cycles. Deliberately NOT panel
+      # settings — there is nothing for the user to decide here.
       attempts_override: Keyword.get(opts, :attempts_override),
       read_gap_ms: Keyword.get(opts, :read_gap_ms, @read_gap_ms),
       logic: nil,
@@ -81,20 +75,19 @@ defmodule Pokex.Bots.Logout do
   end
 
   @doc """
-  Pede um logout. Assíncrono de propósito: quem chama (o `Guardian`) não pode
-  bloquear. Idempotente — um pedido com outro em voo é ignorado e contado em
-  `duplicates`, o que importa porque o `Guardian` reavalia a condição a cada
-  100ms.
+  Requests a logout. Async on purpose: the caller (`Guardian`) must not block.
+  Idempotent — a request with another in flight is ignored and counted in
+  `duplicates`, which matters because the `Guardian` re-evaluates every 100ms.
   """
   @spec request(String.t(), GenServer.server()) :: :ok
   def request(reason, server \\ __MODULE__), do: GenServer.cast(server, {:request, reason})
 
-  @doc "O snapshot que o painel desenha."
+  @doc "The snapshot the panel draws."
   @spec status(GenServer.server()) :: map()
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
   @doc false
-  # A leitura padrão da tela. Pública para servir de `read_fun` padrão.
+  # Default screen reading. Public to serve as the default `read_fun`.
   @spec read_hud() :: Logic.reading()
   def read_hud do
     case WorldState.get(:hud, @hud_max_age_ms, System.monotonic_time(:millisecond)) do
@@ -138,19 +131,16 @@ defmodule Pokex.Bots.Logout do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # -- o protocolo -------------------------------------------------------------
-
-  # LATCH PRIMEIRO, parar depois: o latch é o que proíbe todo caminho de
-  # auto-retomada (a retomada do Focus ao reganhar foco) de religar workers por
-  # cima desta ordem. Ele CONTINUA travado depois de um logout bem-sucedido —
-  # só o Iniciar bot limpa.
+  # LATCH FIRST, stop second: the latch forbids every auto-resume path (Focus's
+  # refocus resume) from re-arming workers over this order. It STAYS set after
+  # a successful logout — only Iniciar bot clears it.
   defp begin(state, reason) do
-    # A TESTEMUNHA, lida antes de mexer em qualquer coisa: se a barra de baixo
-    # não está legível AGORA, ela também não estará depois, e um "sumiu" não
-    # provaria nada. A HUD devolve nil nos três campos tanto para "deslogado"
-    # quanto para "sub-região descalibrada" ou "atlas sem o dígito" — o "9" que
-    # faltava é caso real. Sem essa medida diferencial, um atlas incompleto faria
-    # o bot jurar que deslogou sem ter apertado nada que funcionasse.
+    # The WITNESS, read before touching anything: if the bottom bar isn't
+    # readable NOW, it won't be later either, and a "vanished" would prove
+    # nothing. The HUD returns nil in all three fields for "logged out" as well
+    # as "sub-region uncalibrated" or "atlas missing a digit" — the missing "9"
+    # is a real case. Without this differential measure, an incomplete atlas
+    # would swear a logout happened without any working key press.
     baseline = state.read_fun.()
 
     if baseline != :present do
@@ -173,14 +163,14 @@ defmodule Pokex.Bots.Logout do
 
   defp do_action(:press, state) do
     broadcast(state)
-    # via mensagem, não direto: deixa o cast retornar antes de bloquear no Body
+    # via message, not directly: lets the cast return before blocking on the Body
     send(self(), :press)
     {:noreply, state}
   end
 
-  # Primeira leitura da tentativa espera a tela trocar; as seguintes vão no
-  # ritmo curto. Só a primeira muda o estado visível, então só ela publica —
-  # senão o painel receberia quatro mensagens idênticas por tentativa.
+  # The attempt's first read waits for the screen to switch; later ones go at
+  # the short cadence. Only the first changes visible state, so only it
+  # publishes — else the panel would get four identical messages per attempt.
   defp do_action(:verify, state) do
     if state.logic.reads == 0 do
       broadcast(state)
@@ -211,8 +201,8 @@ defmodule Pokex.Bots.Logout do
     state
   end
 
-  # UMA sequência atômica em :critical — nada se intercala entre o Ctrl+Q e o
-  # Enter. O :ok daqui NÃO prova que a tecla chegou no jogo; quem prova é a tela.
+  # ONE atomic sequence at :critical — nothing interleaves between Ctrl+Q and
+  # Enter. Its :ok does NOT prove the key reached the game; the screen does.
   defp press_keys(state) do
     state.perform_fun.(
       [
@@ -228,8 +218,8 @@ defmodule Pokex.Bots.Logout do
 
   defp attempts(state), do: state.attempts_override || Settings.get(:logout_attempts)
 
-  # O feed :hud já tem consumidor permanente (os alertas de estoque), mas pedir
-  # a própria demanda deixa este módulo independente desse detalhe.
+  # The :hud feed already has a permanent consumer (stock alerts), but stating
+  # our own demand keeps this module independent of that detail.
   defp attach_hud do
     Perception.attach(:hud)
   catch

@@ -1,10 +1,9 @@
 defmodule PokexWeb.TeamLive do
   @moduledoc """
-  Lucas's Pokémon, on their own page (`/time`) — his review of the first
-  Pokédex cut: "toda a questão do meu próprio time deveria ser uma página à
-  parte... que até possa mapear o que não está no meu time, mas eu tenho no
-  banco guardado". Two lists (Time / Banco, movable both ways, each entry
-  with its level), his character level + the hunt window, and the hunt
+  Lucas's Pokémon, on their own page (`/time`) — per his review of the first
+  Pokédex cut: the team deserves a page of its own, including what he owns
+  but keeps stored in the bank. Two lists (Time / Banco, movable both ways,
+  each entry with its level), his character level + the hunt window, and the hunt
   suggestions ranked INSIDE that window — no more lv-5 recommendations at
   lv 88. The threats column ("cuidado") is gone by his call; the context
   still computes it for whoever wants it back.

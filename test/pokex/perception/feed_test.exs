@@ -56,31 +56,24 @@ defmodule Pokex.Perception.FeedTest do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "world")
     {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
 
-    # detached → no captures, no world entry
     refute_receive {:world, :feed_test, _}, 150
     assert WorldState.get(:feed_test, 60_000, now()) == :missing
 
     :ok = Feed.attach(feed)
 
-    # first observation (width 8) lands and broadcasts
     assert_receive {:world, :feed_test, %{width: 8, captured_at: _}}, 1_000
     assert {:ok, %{width: 8}} = WorldState.get(:feed_test, 60_000, now())
 
-    # second capture repeats width 8 → NO new broadcast; third (width 12) → broadcast
     assert_receive {:world, :feed_test, %{width: 12}}, 1_000
     refute_received {:world, :feed_test, %{width: 8}}
 
-    # detach pauses the feed: no more broadcasts
     :ok = Feed.detach(feed)
     refute_receive {:world, :feed_test, _}, 300
   end
 
   @tag :tmp_dir
-  test "pausa a captura enquanto um minigame está em jogo e retoma na saída", %{tmp_dir: tmp} do
-    # Durante um minigame o broker de captura é 100% do strip do jogo — todo mundo
-    # age está congelado (nada usa o fato deste feed). Se o feed continuar
-    # capturando, ele afoga a única captura que importa (medido: cadência do jogo
-    # foi de 80ms pra ~250ms por causa dessa fila). Enquanto o jogo roda, cala.
+  # measured: feed captures queued behind the minigame's strip stretched its cadence from 80ms to ~250ms
+  test "pauses capture while a minigame is playing and resumes on exit", %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)
     b = png!(tmp, "b.png", 12)
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}, {:ok, b}, {:ok, b}]})
@@ -92,11 +85,9 @@ defmodule Pokex.Perception.FeedTest do
     {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
     :ok = Feed.attach(feed)
 
-    # em jogo: NADA é capturado (sem broadcast, sem entrada no mundo)
     refute_receive {:world, :feed_test, _}, 300
     assert WorldState.get(:feed_test, 60_000, now()) == :missing
 
-    # o jogo sai → o feed retoma na hora, sem precisar reanexar
     WorldState.put(:mini_game, %{playing?: false, confidence: 0.0}, now())
     assert_receive {:world, :feed_test, %{width: 8}}, 1_000
   end
@@ -112,7 +103,6 @@ defmodule Pokex.Perception.FeedTest do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "world")
     assert_receive {:world, :feed_test, %{width: 8}}, 1_000
 
-    # the error tick keeps the entry and the process alive
     Process.sleep(300)
     assert Process.alive?(feed)
     assert {:ok, %{width: 8}} = WorldState.get(:feed_test, 60_000, now())
@@ -125,7 +115,6 @@ defmodule Pokex.Perception.FeedTest do
 
     {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
 
-    # a separate short-lived consumer process attaches, then dies
     parent = self()
 
     consumer =
@@ -145,20 +134,17 @@ defmodule Pokex.Perception.FeedTest do
 
     send(consumer, :die)
 
-    # give the DOWN a moment to land, then drain anything already in flight
     Process.sleep(100)
     flush_world()
 
-    # paused: no new broadcasts after the consumer died
     refute_receive {:world, :feed_test, _}, 300
   end
 
   @tag :tmp_dir
-  test "I2: a consecutive-failure streak reaching the configured threshold logs ONE loud warning",
+  # Rig.Fake repeats its script tail, so after one good capture every tick fails forever
+  test "a consecutive-failure streak reaching the configured threshold logs one loud warning",
        %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)
-    # One good capture (resets the streak to 0), then every capture after fails forever
-    # (Rig.Fake repeats a single-element script tail) — the streak climbs 1, 2, 3, ...
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}, {:error, :boom}]})
 
     original = Settings.get(:feed_failure_warn_streak)
@@ -170,8 +156,6 @@ defmodule Pokex.Perception.FeedTest do
     log =
       ExUnit.CaptureLog.capture_log(fn ->
         :ok = Feed.attach(feed)
-        # enough ticks (~120ms cadence) for the streak to climb well past the threshold —
-        # proves the warning fires exactly once, at the threshold, not on every failure.
         Process.sleep(600)
       end)
 
@@ -212,11 +196,9 @@ defmodule Pokex.Perception.FeedTest do
     {:ok, feed} = Feed.start_link(spec: stateful_spec(), name: nil)
 
     :ok = Feed.attach(feed)
-    # state threads across ticks: 1, 2, ...
     assert_receive {:world, :feed_stateful_test, %{frames_seen: 1}}, 1_000
     assert_receive {:world, :feed_stateful_test, %{frames_seen: 2}}, 1_000
 
-    # pause (last consumer detaches), then resume → the counter restarts at 1
     :ok = Feed.detach(feed)
     refute_receive {:world, :feed_stateful_test, _}, 300
 

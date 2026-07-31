@@ -100,8 +100,8 @@ defmodule PokexWeb.WorldLiveTest do
     assert html =~ "anything"
   end
 
-  describe "a posição" do
-    test "aparece com a idade e diz que ESTÁ sendo lida", %{conn: conn} do
+  describe "the position" do
+    test "appears with its age and says it IS being read", %{conn: conn} do
       now = System.monotonic_time(:millisecond)
       WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now)
 
@@ -113,8 +113,8 @@ defmodule PokexWeb.WorldLiveTest do
       assert position =~ "agora"
     end
 
-    # "?" não dizia QUAL dos dois problemas era, e eles têm consertos opostos.
-    test "parar de ler é dito com todas as letras", %{conn: conn} do
+    # "?" did not say WHICH of the two problems it was, and they have opposite fixes
+    test "a stopped read is spelled out", %{conn: conn} do
       now = System.monotonic_time(:millisecond)
       WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now - 20_000)
 
@@ -125,7 +125,7 @@ defmodule PokexWeb.WorldLiveTest do
       assert position =~ "há 20s"
     end
 
-    test "a proporção de leitura boa/ruim conta as publicações do minimapa", %{conn: conn} do
+    test "the good/bad read ratio counts the minimap's publications", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/world")
 
       assert view |> element("#world-read-health") |> render() =~ "aguardando a primeira leitura"

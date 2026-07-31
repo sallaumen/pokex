@@ -1,32 +1,22 @@
 defmodule Pokex.Bots.Catcher.CorpseLibrary do
   @moduledoc """
-  Os corpos ENSINADOS — a mesma virada que salvou os glifos, aplicada à captura.
+  TAUGHT corpses — since 2026-07-30 the library IS the aim (the guessing mode was
+  retired): only candidates SIMILAR to a taught corpse get a Pokéball; empty
+  library = no target. Lucas photographs the real on-screen corpse and names it.
 
-  O detector de corpos (chão-base + diff) adivinha, e adivinhar no chão do PXG
-  rende clique errado e falso positivo — cada um mexendo o mouse do Lucas à toa
-  (queixa ao vivo de 2026-07-30: "tenta capturar pontos errados... mexe demais
-  o meu mouse"). Aqui o Lucas fotografa o corpo REAL na tela, dá o nome do
-  Pokémon, e o recorte vira verdade no acervo — que desde 2026-07-30 É a mira:
-  só candidato PARECIDO com um corpo ensinado recebe Pokébola (o modo que
-  adivinhava sem acervo foi aposentado; acervo vazio = nenhum alvo).
+  Matching is by COLOR SIGNATURE (RGB histogram quantized to 512 cubes,
+  normalized intersection 0..1), not exact pixels: the corpse composites over
+  varying ground, so exact equality would never match — but the sprite's palette
+  dominates the crop. Threshold is a setting (`corpse_match_min_similarity`).
 
-  O casamento é por ASSINATURA DE COR (histograma RGB quantizado em 512
-  cubos, interseção normalizada 0..1), não por pixel exato: o corpo compõe
-  sobre chão que varia, então igualdade exata nunca casaria — mas a paleta do
-  sprite domina o recorte e sobrevive ao fundo. O limiar é ajuste
-  (`corpse_match_min_similarity`).
+  Each corpse keeps up to `@max_samples` SAMPLES (the same Pokémon over different
+  grounds — ground is the histogram noise; matching against the BEST sample
+  restores the precision a single crop lacks). Re-teaching a name adds a sample
+  (oldest drops past the cap).
 
-  Cada corpo aceita até `@max_samples` AMOSTRAS (Lucas, 2026-07-30): o mesmo
-  Seadra fotografado em chões diferentes — o chão é o ruído do histograma, e
-  casar contra a MELHOR amostra é o que devolve a precisão que um recorte só
-  não tem. Ensinar o mesmo nome de novo adiciona amostra (a mais velha cai ao
-  passar do teto); as miniaturas na calibração mostram quais chões já foram
-  cobertos.
-
-  Sem processo: o arquivo `~/.pokex/corpses.json` é a verdade, e um cache em
-  `:persistent_term` chaveado pelo mtime evita reler e re-hidratar a cada
-  candidato. Recortes ficam como rgba cru em base64 — miniatura vira BMP em
-  data-URL (24bpp, sem compressão), então nada de encoder de PNG.
+  No process: `~/.pokex/corpses.json` is the truth, with a `:persistent_term`
+  cache keyed by mtime to avoid re-reading per candidate. Crops are raw rgba in
+  base64; thumbnails are uncompressed 24bpp BMP data-URLs — no PNG encoder.
   """
 
   alias Pokex.Home
@@ -39,14 +29,14 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
 
   def file, do: Path.join(Home.dir(), "corpses.json")
 
-  @doc "Todos os corpos ensinados, mais novos primeiro."
+  @doc "All taught corpses, newest first."
   def list do
     library().entries
   end
 
   def empty?, do: list() == []
 
-  @doc "Ensina um corpo: o recorte (Frame) vira acervo sob o nome dado."
+  @doc "Teaches a corpse: the crop (Frame) joins the library under the given name."
   def add(name, %Frame{} = crop) when is_binary(name) do
     name = String.trim(name)
 
@@ -69,7 +59,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
           [] -> [sample]
         end
 
-      # re-ensinar não pode religar um corpo que o Lucas desligou de propósito
+      # re-teaching must not re-enable a corpse that was deliberately disabled
       ligado? = Enum.all?(existing, &enabled?/1)
 
       persist([
@@ -86,11 +76,9 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   end
 
   @doc """
-  Liga/desliga um corpo na mira SEM apagá-lo.
-
-  Pedido do Lucas (2026-07-30): "poder colocar um botãozinho, se tá ligado ou
-  desligado". Um corpo que dá falso-positivo sai da busca com um clique e volta
-  com outro — apagar as amostras e refotografar era o único jeito antes.
+  Enables/disables a corpse in the aim WITHOUT deleting it (2026-07-30 request):
+  a false-positive corpse leaves the search with one click and comes back with
+  another — before, deleting the samples and re-photographing was the only way.
   """
   def set_enabled(slug, ligado?) when is_boolean(ligado?) do
     entries =
@@ -103,7 +91,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     :ok
   end
 
-  @doc "Apaga UMA amostra (uma foto ruim); a última amostra derruba o corpo inteiro."
+  @doc "Deletes ONE sample (a bad photo); dropping the last sample removes the whole corpse."
   def delete_sample(slug, index) do
     entries =
       raw_entries()
@@ -121,9 +109,9 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   end
 
   @doc """
-  A miniatura de uma amostra como data-URL BMP (24bpp sem compressão, linhas de
-  baixo pra cima, cada linha alinhada em 4 bytes) — o navegador renderiza sem
-  este projeto carregar um encoder de PNG.
+  Sample thumbnail as a BMP data-URL (24bpp uncompressed, bottom-up rows, lines
+  4-byte aligned) — the browser renders it without this project carrying a PNG
+  encoder.
   """
   def thumb(%{"w" => w, "h" => h, "rgba" => rgba_b64}) do
     rgba = Base.decode64!(rgba_b64)
@@ -150,9 +138,9 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   end
 
   @doc """
-  O melhor casamento do recorte contra o acervo: `{:ok, %{name, score}}` quando
-  algum corpo ensinado passa do limiar, `:nomatch` senão (inclusive com o
-  acervo vazio — quem decide o que fazer nesse caso é o chamador).
+  Best match of the crop against the library: `{:ok, %{name, score}}` when a
+  taught corpse passes the threshold, `:nomatch` otherwise (including an empty
+  library — the caller decides what to do then).
   """
   def match(%Frame{} = crop, min_similarity) do
     case best(crop) do
@@ -162,29 +150,21 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   end
 
   @doc """
-  O melhor par `%{name, score}` do acervo pra este recorte — SEM limiar; `nil`
-  só quando o acervo está vazio.
-
-  Existe porque um score REPROVADO ainda é informação, e jogá-la fora foi o que
-  deixou o Lucas validando às cegas (2026-07-30): quando nada casava, o
-  `match/2` devolvia `:nomatch` e ninguém sabia se tinha faltado 0,01 ou 0,40 —
-  nem contra qual pokémon. Medido nas amostras dele, o score cai ~0,05 a cada
-  7px de deslocamento do recorte, então a distância até o limiar É o diagnóstico
-  da mira.
+  Best `%{name, score}` in the library for this crop — NO threshold; `nil` only
+  when the library is empty. A FAILING score is still information: `match/2`'s
+  `:nomatch` hid whether it missed by 0.01 or 0.40, and against which Pokémon
+  (blind validation, 2026-07-30). Measured on real samples the score drops ~0.05
+  per 7px of crop offset, so distance to the threshold IS the aim diagnostic.
   """
   def best(%Frame{} = crop), do: crop.rgba |> signature() |> best_of()
 
   @doc """
-  O mesmo `best/1`, mas pra uma JANELA dentro de um frame maior — sem alocar
-  recorte nenhum.
-
-  A varredura densa (`Catcher.SpotScan`) pontua centenas de janelas por
-  varredura; `Frame.crop` em cada uma copiaria centenas de binários só pra
-  jogá-los fora. Aqui as linhas da janela são sub-binários (fatias sem cópia)
-  somados direto no histograma.
-
-  `{x, y}` é o canto superior-esquerdo em px do frame. Fora dos limites devolve
-  `nil` — quem varre não precisa checar borda.
+  Same as `best/1` for a WINDOW inside a larger frame — no crop allocation.
+  The dense scan (`Catcher.SpotScan`) scores hundreds of windows per sweep;
+  `Frame.crop` on each would copy hundreds of binaries just to discard them.
+  Window rows are no-copy sub-binaries summed straight into the histogram.
+  `{x, y}` is the top-left in frame px; out of bounds returns `nil`, so scanners
+  need no border checks.
   """
   def best_in(%Frame{width: fw, height: fh} = frame, {x, y, w, h})
       when x >= 0 and y >= 0 and w > 0 and h > 0 and x + w <= fw and y + h <= fh do
@@ -216,10 +196,8 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     normalize(counts, w * h)
   end
 
-  # -- assinatura de cor -------------------------------------------------------
-
-  # Histograma RGB quantizado (3 bits por canal → 512 cubos), normalizado pra
-  # somar 1.0 — tamanho do recorte não pesa no casamento.
+  # RGB histogram quantized to 3 bits/channel (512 cubes), normalized to sum
+  # 1.0 — crop size doesn't weigh in the match.
   defp signature(rgba), do: normalize(count_bins(rgba, %{}), byte_size(rgba) / 4)
 
   defp normalize(counts, total) do
@@ -239,17 +217,14 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
 
   defp count_bins(_tail, acc), do: acc
 
-  # Interseção de histogramas: soma dos mínimos — 1.0 = paletas idênticas.
+  # Histogram intersection: sum of minima — 1.0 = identical palettes.
   defp intersection(a, b) do
     Enum.reduce(a, 0.0, fn {bin, va}, acc -> acc + min(va, Map.get(b, bin, 0.0)) end)
   end
 
-  # -- acervo ------------------------------------------------------------------
-
   defp library do
-    # mtime posix tem granularidade de 1s — duas escritas no MESMO segundo
-    # (testes em sequência, edição manual rápida) colidiriam; o tamanho junto
-    # desempata na prática.
+    # Posix mtime has 1s granularity — two writes in the SAME second
+    # (back-to-back tests, quick manual edits) would collide; size breaks the tie.
     stamp = file_stamp()
 
     case :persistent_term.get(@cache_key, nil) do
@@ -262,10 +237,9 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
         cache = %{
           stamp: stamp,
           entries: entries,
-          # Só os corpos LIGADOS entram na mira. `entries` continua inteiro pra
-          # UI mostrar os desligados — desligar é um filtro na busca, não um
-          # apagar. É o ponto ÚNICO por onde o casamento enxerga o acervo,
-          # então uma linha aqui basta.
+          # Only ENABLED corpses join the aim. `entries` stays whole so the UI
+          # shows disabled ones — disabling filters the search, it doesn't
+          # delete. This is the ONE point where matching sees the library.
           signatures:
             entries
             |> Enum.filter(&enabled?/1)
@@ -288,8 +262,8 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     end
   end
 
-  # O formato do #101 tinha UMA amostra achatada no topo do registro. Lê os
-  # dois; grava sempre o novo.
+  # The #101 format flattened ONE sample into the record top level. Reads both;
+  # always writes the new format.
   defp migrate(%{"samples" => _} = entry), do: Map.put_new(entry, "enabled", true)
 
   defp migrate(%{"rgba" => _} = entry) do
@@ -301,7 +275,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
     |> Map.put_new("enabled", true)
   end
 
-  @doc "Um corpo está participando da mira? (acervo antigo, sem o campo, participa)"
+  @doc "Is this corpse participating in the aim? (old entries without the field participate)"
   def enabled?(%{"enabled" => false}), do: false
   def enabled?(_entry), do: true
 

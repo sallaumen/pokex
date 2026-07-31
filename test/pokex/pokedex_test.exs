@@ -77,9 +77,9 @@ defmodule Pokex.PokedexTest do
     :ok
   end
 
-  describe "normalização dos elementos (a wiki escreve tipo duplo de 5 jeitos)" do
+  describe "element normalization (the wiki writes dual types 5 ways)" do
     @tag :tmp_dir
-    test "separadores e caixa viram sempre a mesma lista de elementos", %{tmp_dir: tmp} do
+    test "separators and case always normalize to the same element list", %{tmp_dir: tmp} do
       dataset =
         put_in(@dataset["species"], [
           %{"name" => "Rayquaza", "elements" => ["Dragon &amp; Flying"], "number" => 384},
@@ -107,11 +107,9 @@ defmodule Pokex.PokedexTest do
       assert %{elements: ["Flying", "Bug"]} = Pokedex.get("Beautifly")
       assert %{elements: ["Grass", "Poison"]} = Pokedex.get("Venusaur")
 
-      # "Ice Poison" sem separador nenhum, e os typos de uma ocorrência
       assert %{elements: ["Ice", "Poison"]} = Pokedex.get("Qwilfish2")
       assert %{elements: ["Ground"], weak_to: ["Poison", "Flying"]} = Pokedex.get("Typo")
 
-      # a lista de opções do filtro fica limpa: nada de "Dragon &amp; Flying"
       assert Pokedex.elements() == [
                "Bug",
                "Dragon",
@@ -125,30 +123,28 @@ defmodule Pokex.PokedexTest do
                "Water"
              ]
 
-      # e o filtro ACHA o que antes sumia
       assert "Rayquaza" in (Pokedex.search(%{elements: ["Flying"]}) |> Enum.map(& &1.name))
     end
   end
 
-  describe "clãs derivados da matéria" do
+  describe "clans derived from matéria" do
     @tag :tmp_dir
-    test "cada entrada nasce com seus clãs; shiny sem matéria herda do base-form" do
+    test "each entry gets its clans; a shiny without matéria inherits from its base form" do
       assert %{clans: ["Seavell"]} = Pokedex.get("Seadra")
       assert %{clans: ["Volcanic"]} = Pokedex.get("Charizard")
 
-      # Shiny Seadra não tem materia no JSON — herda do Seadra
       assert %{clans: ["Seavell"]} = Pokedex.get("Shiny Seadra")
     end
 
     @tag :tmp_dir
-    test "entrada sem matéria e sem base-form fica honestamente sem clã" do
+    test "an entry without matéria and without a base form has no clan" do
       assert %{clans: []} = Pokedex.get("Venusaur")
     end
   end
 
-  describe "filtros multi-valor — OR dentro do grupo, AND entre grupos" do
+  describe "multi-value filters — OR within a group, AND between groups" do
     @tag :tmp_dir
-    test "elements: [Grass, Water] é a UNIÃO (planta E veneno do pedido do Lucas)" do
+    test "elements: [Grass, Water] is the union" do
       names = Pokedex.search(%{elements: ["Grass", "Water"]}) |> Enum.map(& &1.name)
 
       assert "Venusaur" in names
@@ -157,12 +153,12 @@ defmodule Pokex.PokedexTest do
     end
 
     @tag :tmp_dir
-    test "lista vazia é filtro desligado" do
+    test "an empty list is a disabled filter" do
       assert length(Pokedex.search(%{elements: []})) == length(Pokedex.search(%{}))
     end
 
     @tag :tmp_dir
-    test "grupos diferentes continuam compondo com AND" do
+    test "different groups still compose with AND" do
       names =
         Pokedex.search(%{elements: ["Grass", "Water"], min_level: 55})
         |> Enum.map(& &1.name)
@@ -172,7 +168,7 @@ defmodule Pokex.PokedexTest do
     end
 
     @tag :tmp_dir
-    test "weak_to como lista: fraco a QUALQUER um dos elementos" do
+    test "weak_to as a list matches weakness to any of the elements" do
       names = Pokedex.search(%{weak_to: ["Rock", "Electric"]}) |> Enum.map(& &1.name)
 
       assert "Charizard" in names
@@ -180,7 +176,7 @@ defmodule Pokex.PokedexTest do
     end
 
     @tag :tmp_dir
-    test "clans filtra pelo clã derivado" do
+    test "clans filters by the derived clan" do
       names = Pokedex.search(%{clans: ["Seavell"]}) |> Enum.map(& &1.name)
 
       assert "Seadra" in names
@@ -189,7 +185,7 @@ defmodule Pokex.PokedexTest do
     end
 
     @tag :tmp_dir
-    test "as chaves singulares antigas continuam valendo (URLs marcadas)" do
+    test "the old singular keys still work (bookmarked URLs)" do
       assert Pokedex.search(%{element: "Water"}) |> Enum.map(& &1.name) |> Enum.member?("Seadra")
       assert Pokedex.search(%{weak_to: "Rock"}) |> Enum.map(& &1.name) == ["Charizard"]
     end
@@ -200,7 +196,6 @@ defmodule Pokex.PokedexTest do
     assert [%{name: "Seadra"}, %{name: "Shiny Seadra"}] =
              Pokedex.search(%{name: "seadra"})
 
-    # THE query Lucas asked for: who is weak to my element?
     assert [%{name: "Charizard"}] = Pokedex.search(%{weak_to: "Water"})
 
     assert [%{name: "Charizard"}] = Pokedex.search(%{element: "Fire"})
@@ -211,7 +206,6 @@ defmodule Pokex.PokedexTest do
     assert [%{name: "Shiny Seadra"}] = Pokedex.search(%{only_shiny: true})
     assert [%{name: "Seadra"}] = Pokedex.search(%{max_level: 50, element: "Water"})
 
-    # empty-string filters are OFF, results sorted by dex number
     assert [%{name: "Venusaur"}, %{name: "Charizard"} | _] =
              Pokedex.search(%{name: "", element: ""})
   end
@@ -226,39 +220,32 @@ defmodule Pokex.PokedexTest do
   end
 
   @tag :tmp_dir
+  # scoring: +2 super-effective hit, +1 shiny variant; resisting the element
+  # disqualifies a target outright
   test "hunt_suggestions ranks who my team hits hard, and who hits back" do
     %{targets: targets, threats: threats} = Pokedex.hunt_suggestions(["Charizard"])
 
-    # Venusaur takes Fire (+2), has a Shiny (+1), isn't fishable: score 3.
-    # Seadra RESISTS Fire → no super-effective hit → never a target.
     assert [%{entry: %{name: "Venusaur"}, member: "Charizard", hits: ["Fire"], score: 3}] =
              targets
 
-    # Seadra is Water — exactly what Charizard is weak to
     assert [%{entry: %{name: "Seadra"}, members: ["Charizard"], via: ["Water"]}] = threats
 
-    # the fisherman's view: Seadra as the hunter → Charizard is the prey (+2 fishable? no)
     %{targets: [row]} = Pokedex.hunt_suggestions(["Seadra"])
     assert row.entry.name == "Charizard"
     assert row.score == 2
   end
 
   @tag :tmp_dir
-  test "janela de level: alvos perto da força; nada na janela → os mais próximos ABAIXO" do
-    # sem player_level: comportamento antigo, janela :all
+  test "level window: targets near the player's strength; an empty window falls back to the closest below" do
     assert %{window: :all, targets: [%{entry: %{name: "Venusaur"}}]} =
              Pokedex.hunt_suggestions(["Charizard"])
 
-    # lv 65 ±15 → 50..80: Venusaur (60) está na janela
     assert %{window: {:window, 50, 80}, targets: [%{entry: %{name: "Venusaur"}}]} =
              Pokedex.hunt_suggestions(["Charizard"], %{player_level: 65, level_margin: 15})
 
-    # lv 88 ±15 → 73..103: NENHUM candidato na janela (Venusaur 60 fica fora)
-    # → fallback: os mais próximos ABAIXO do level, nunca lista vazia
     assert %{window: {:below, 88}, targets: [%{entry: %{name: "Venusaur"}}]} =
              Pokedex.hunt_suggestions(["Charizard"], %{player_level: 88, level_margin: 15})
 
-    # janela apertada SEM nada abaixo → degrada pra todos os com level
     assert %{window: :all, targets: [%{entry: %{name: "Venusaur"}}]} =
              Pokedex.hunt_suggestions(["Charizard"], %{player_level: 1, level_margin: 5})
   end
@@ -271,42 +258,34 @@ defmodule Pokex.PokedexTest do
   end
 
   @tag :tmp_dir
-  test "ordenação: level, tipo, fraqueza, shiny, edição da wiki — e inversão" do
-    # ascending by level; entries WITHOUT a level sink to the bottom
+  test "sorting: level, element, weakness, shiny, wiki edit — and inversion" do
     names = Pokedex.search(%{sort: :level}) |> Enum.map(& &1.name)
     assert names == ["Seadra", "Venusaur", "Shiny Seadra", "Charizard"]
 
-    # descending flips only the ranked part — the level-less still sink
     desc = Pokedex.search(%{sort: :level, desc: true}) |> Enum.map(& &1.name)
     assert hd(desc) == "Charizard"
 
-    # by element / by weakness (first value of each list)
     assert %{name: "Charizard", elements: ["Fire" | _]} =
              Pokedex.search(%{sort: :element}) |> hd()
 
     assert %{name: "Charizard"} = Pokedex.search(%{sort: :weak_to, desc: true}) |> hd()
 
-    # shiny sort groups each variant beside its base form
     shiny_first = Pokedex.search(%{sort: :shiny}) |> Enum.map(& &1.name)
     assert hd(shiny_first) == "Shiny Seadra"
 
-    # by the WIKI's edit date — only Seadra has one, so it leads
     assert %{name: "Seadra"} = Pokedex.search(%{sort: :edited}) |> hd()
   end
 
   @tag :tmp_dir
-  test "novidade = frescor da WIKI (auto-recicla): dentro da janela, fora, e desconhecida",
+  test "novelty = wiki freshness (auto-recycles): inside the window, outside, and unknown",
        %{tmp_dir: tmp} do
     today = ~D[2026-07-21]
 
     dataset =
       update_in(@dataset["species"], fn species ->
         Enum.map(species, fn
-          # editado ONTEM → novidade
           %{"name" => "Seadra"} = s -> Map.put(s, "edited_at", "2026-07-20")
-          # editado há 30 dias → não é mais novidade (o tempo reciclou sozinho)
           %{"name" => "Charizard"} = s -> Map.put(s, "edited_at", "2026-06-21")
-          # sem data conhecida → nunca é novidade
           s -> Map.delete(s, "edited_at")
         end)
       end)
@@ -321,16 +300,16 @@ defmodule Pokex.PokedexTest do
     assert Pokedex.novelty_days() == 7
   end
 
-  describe "page/3 — paginação por cursor (keyset)" do
-    # 250 espécies, MUITAS empatadas no mesmo level: é onde uma paginação sem
-    # desempate estável duplica ou pula linhas na virada de página
+  describe "page/3 — cursor (keyset) pagination" do
+    # 250 species with heavy level ties: where pagination without a stable
+    # tiebreaker duplicates or skips rows at the page turn
     defp big_dataset do
       species =
         for i <- 1..250 do
           %{
             "name" => "Mon#{String.pad_leading("#{i}", 3, "0")}",
             "number" => i,
-            # só 5 levels distintos → empates em massa
+            # only 5 distinct levels → mass ties
             "level" => rem(i, 5) * 10 + 10,
             "elements" => ["Water"],
             "weak_to" => [],
@@ -351,20 +330,19 @@ defmodule Pokex.PokedexTest do
     end
 
     @tag :tmp_dir
-    test "percorre a base inteira em páginas, sem repetir nem pular", %{tmp_dir: tmp} do
+    test "walks the whole base in pages, without repeating or skipping", %{tmp_dir: tmp} do
       load_big(tmp)
 
       {all, pages} = drain(%{}, nil, [], 0)
 
       assert length(all) == 250
       assert Enum.uniq(all) == all
-      # a ordem paginada é EXATAMENTE a da busca completa
       assert all == Enum.map(Pokedex.search(%{}), & &1.name)
       assert pages == 3
     end
 
     @tag :tmp_dir
-    test "com empates no level (ordenação instável seria fatal) também fecha certo",
+    test "level ties (where unstable ordering would be fatal) also page cleanly",
          %{tmp_dir: tmp} do
       load_big(tmp)
 
@@ -380,7 +358,9 @@ defmodule Pokex.PokedexTest do
     end
 
     @tag :tmp_dir
-    test "cursor nil na última página; total é o filtrado, não o carregado", %{tmp_dir: tmp} do
+    test "cursor is nil on the last page; total is the filtered count, not the loaded count", %{
+      tmp_dir: tmp
+    } do
       load_big(tmp)
 
       first = Pokedex.page(%{}, nil, 100)
@@ -394,7 +374,7 @@ defmodule Pokex.PokedexTest do
     end
 
     @tag :tmp_dir
-    test "o filtro entra na paginação (total e páginas seguem o filtro)", %{tmp_dir: tmp} do
+    test "filters apply to pagination (total and pages follow the filter)", %{tmp_dir: tmp} do
       load_big(tmp)
 
       page = Pokedex.page(%{min_level: 50}, nil, 100)
@@ -405,8 +385,7 @@ defmodule Pokex.PokedexTest do
     end
 
     @tag :tmp_dir
-    test "entradas SEM valor de ordenação continuam no fim, e paginam", %{tmp_dir: tmp} do
-      # metade sem level: o bucket dos ausentes tem que ser atravessado também
+    test "entries without a sort value still sink to the end, and page", %{tmp_dir: tmp} do
       species =
         for i <- 1..150 do
           base = %{
@@ -437,7 +416,6 @@ defmodule Pokex.PokedexTest do
       assert all == Enum.map(Pokedex.search(%{sort: :level}), & &1.name)
     end
 
-    # walks every page, accumulating names in order
     defp drain(filters, cursor, acc, pages) do
       page = Pokedex.page(filters, cursor, 100)
       acc = acc ++ Enum.map(page.entries, & &1.name)

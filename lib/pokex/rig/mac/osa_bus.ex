@@ -4,7 +4,7 @@ defmodule Pokex.Rig.Mac.OsaBus do
   queue under the hood: N concurrent `osascript ... keystroke` processes don't run in parallel,
   they pile up — and with combat bursts (~1.2s each, spawned every ~300ms) plus fishing/loot/
   support scripts all flying at once, a key could land SECONDS after the mouse move it belonged
-  with ("mouse anda, tecla não sai" — Lucas, 2026-07-11). One-at-a-time here keeps the latency
+  with ("mouse moves, key never lands" — Lucas, 2026-07-11). One-at-a-time here keeps the latency
   of each script honest and the ordering sane.
 
   Mouse commands (cliclick) do NOT come through here: they talk to CGEvent directly, are fast,

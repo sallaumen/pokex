@@ -36,29 +36,27 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     l
   end
 
-  describe "arremessos secos (a testemunha do cast)" do
-    # Uma tecla de vara engolida (portão, foco, helper caído) devolve :ok e a
-    # água simplesmente nunca borbulha. A tela é a única testemunha de que o
-    # cast aconteceu — N ciclos SEM NENHUMA bolha tocam o alarme.
+  describe "dry casts (the screen is the cast's witness)" do
+    # A swallowed rod key (gate, focus, dead helper) returns :ok and the water simply never
+    # bubbles. The screen is the only witness a cast happened — N cycles with NO bubble at
+    # all ring the alarm.
     defp dry_config, do: Map.put(config(), :dry_casts_alarm, 3)
 
-    # um ciclo inteiro: assenta, nunca vê bolha, estoura o watch_timeout → recast
+    # one full cycle: settles, never sees a bubble, trips watch_timeout → recast
     defp dry_cycle({logic, _actions}, base) do
       {logic, _} = Logic.step(logic, %{glow: false, line?: false}, base)
       Logic.step(logic, %{glow: false, line?: false}, base + logic.config.watch_timeout_ms + 1)
     end
 
-    test "3 ciclos sem NENHUMA bolha tocam o alarme no 3º recast — e recomeçam" do
+    test "3 cycles with no bubble at all ring the alarm on the 3rd recast — then restart" do
       {l, _} =
         Logic.step(advance_to(:focusing) |> Map.put(:config, dry_config()), cursor_obs(), 200)
 
       first_cast = Logic.step(l, cursor_obs(), 600)
 
-      # o PRIMEIRO cast nunca alarma (não herda secura de ciclo que não existiu)
       {_l, actions} = first_cast
       refute Enum.any?(actions, &match?({:alarm, _}, &1))
 
-      # secos 1 e 2: recasts sem alarme
       {l, actions} = dry_cycle(first_cast, 1_000)
       refute Enum.any?(actions, &match?({:alarm, _}, &1))
       assert l.dry_casts == 1
@@ -67,13 +65,12 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       refute Enum.any?(actions, &match?({:alarm, _}, &1))
       assert l.dry_casts == 2
 
-      # seco 3: ALARME no recast, e a contagem recomeça (re-alarma se seguir seco)
       {l, actions} = dry_cycle({l, []}, 80_000)
       assert Enum.any?(actions, &match?({:alarm, "🎣 3 arremessos" <> _}, &1))
       assert l.dry_casts == 0
     end
 
-    test "UMA bolha vista zera a secura acumulada" do
+    test "a single seen bubble resets the accumulated dryness" do
       {l, _} =
         Logic.step(advance_to(:focusing) |> Map.put(:config, dry_config()), cursor_obs(), 200)
 
@@ -83,12 +80,10 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       {l, _} = dry_cycle({l, []}, 40_000)
       assert l.dry_casts == 2
 
-      # o ciclo seguinte VÊ uma bolha (assentado + glow) antes de estourar
       {l, _} = Logic.step(l, %{glow: false, line?: false}, 80_000)
       {l, _} = Logic.step(l, %{glow: true, line?: false}, 80_100)
       assert l.glow_seen?
 
-      # o próximo recast não é seco: houve bolha no ciclo → a contagem ZERA
       {l, actions} =
         Logic.step(l, %{glow: false, line?: false}, 80_000 + l.config.watch_timeout_ms + 200)
 
@@ -96,7 +91,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       assert l.dry_casts == 0
     end
 
-    test "com dry_casts_alarm 0 (desligado) nunca alarma, por mais seco que fique" do
+    test "with dry_casts_alarm 0 (off) it never alarms, however dry it gets" do
       {l, _} = Logic.step(advance_to(:focusing), cursor_obs(), 200)
       cast = Logic.step(l, cursor_obs(), 600)
 
@@ -114,25 +109,19 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   test "start only from idle or error" do
     {l, []} = Logic.start(Logic.new(config()), 0)
     assert l.state == :focusing
-    # começar de novo não muda nada
     assert {^l, []} = Logic.start(l, 10)
   end
 
+  # Field 2026-07-20: after a Focus resume the previous cast may still be IN the water
+  # (the resting line's ring pulses, so line? reads on the very first frame) — recasting
+  # would reset the cycle and lose the live bait.
   test "focusing over a LIVE line skips the recast and watches it (the Focus resume)" do
-    # Clicking another window pauses the bot (Focus); coming back restarts the
-    # fishing logic — but the previous cast may still be IN the water (the
-    # resting line's ring pulses continuously, so line? is readable on the very
-    # first frame). Recasting would reset the whole cycle and lose the live
-    # bait (Lucas, 2026-07-20): with the line present, skip focusing/casting
-    # and watch it — settled (the splash is long gone) and with no actions.
     {l, actions} = Logic.step(advance_to(:focusing), %{cursor: {500, 500}, line?: true}, 0)
 
     assert l.state == :watching
     assert l.settled? == true
-    # no click, no move, no rod press — nothing to disturb the live line
     assert [{:log, log}] = actions
     assert log =~ "isca já na água"
-    # no cast happened: the cycle counter must not tick
     assert l.counters.cycles == 0
   end
 
@@ -147,15 +136,13 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert l.state == :casting
     assert actions == [{:click, :left, {860, 470}}]
     assert l.waiting_until == 150
-    # tick dentro da espera: nada acontece
     assert {^l, []} = Logic.step(l, cursor_obs(), 100)
   end
 
   test "casting positions the cursor and Quick-Casts the rod in ONE atomic sequence (move, wait, press)" do
     {l, actions} = Logic.step(advance_to(:casting), cursor_obs(), 400)
     assert l.state == :watching
-    # move to water → settle wait → press the rod (Quick Cast throws at the cursor, no click),
-    # one perform, so no combat action can move the cursor between positioning and casting
+
     assert actions == [
              {:move, {800, 400}},
              {:wait, 300},
@@ -170,7 +157,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     {watching, _} = Logic.step(%{advance_to(:casting) | config: cfg}, cursor_obs(), 400)
     assert watching.state == :watching
     assert watching.waiting_until == 400 + 500
-    # a glow inside the settle window is a no-op (still waiting out the splash)
     assert {^watching, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 800)
   end
 
@@ -178,17 +164,14 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     watching = advance_to(:watching)
     refute watching.settled?
 
-    # cyan BEFORE settling = the cast splash → ignored, stays watching
     {still, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 650)
     assert still.state == :watching
     refute still.settled?
 
-    # calm water → settled (splash gone)
     {settled, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 700)
     assert settled.state == :watching
     assert settled.settled?
 
-    # now a bubble is a real bite → hook, and loop straight back to casting (no combat)
     {l, actions} = Logic.step(settled, Map.put(cursor_obs(), :glow, true), 900)
     assert l.state == :casting
     assert actions == [{:press, "shift+v"}]
@@ -217,7 +200,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert l.state == :casting
     assert actions == [{:press, "shift+v"}]
 
-    # a lone bubble frame followed by calm resets the streak
     {reset, _} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 100)
     {reset, _} = Logic.step(reset, Map.put(cursor_obs(), :glow, false), 200)
     assert reset.glow_streak == 0
@@ -235,8 +217,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       glow_streak: 0
     }
 
-    # splash oscillates crest/trough; each trough advances calm_streak to 1,
-    # each crest resets it to 0 → settled? can never reach the 2-consecutive gate.
     seq = [true, false, true, false, true, true]
 
     {final, _acts} =
@@ -301,7 +281,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     {settled, []} = Logic.step(a, Map.put(cursor_obs(), :glow, false), 200)
     assert settled.settled?
 
-    # a calm dip mid-watch keeps settled? true (clause c)
     {still, []} = Logic.step(settled, Map.put(cursor_obs(), :glow, false), 15_000)
     assert still.settled?
 
@@ -312,8 +291,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   end
 
   test "watching recasts immediately after the absolute watch timeout" do
-    # a single frame past watch_timeout_ms trips the backstop even before the
-    # dead-frame streak fills; recovery re-arms + re-throws immediately.
     watching = advance_to(:watching)
     {l, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 600 + 30_001)
     assert l.state == :watching
@@ -321,9 +298,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   end
 
   test "watching recasts immediately after watch_dead_streak_needed no-bubble frames" do
-    # config() sets watch_dead_streak_needed: 10; feed 10 consecutive no-bite
-    # frames with the clock well under watch_timeout_ms so ONLY the dead-frame
-    # path can fire. Recovery re-arms the rod (press shift+v) in the same step.
     watching = advance_to(:watching)
 
     {result, actions} =
@@ -337,9 +311,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   end
 
   test "a bubble frame resets the dead-frame streak — a live line is never recast mid-bite" do
-    # already settled and part-way to the dead threshold; a bite-magnitude frame
-    # (needs 2 to hook here) doesn't hook yet but must clear the dead streak, so a
-    # slow-but-live bite can never trip the recast.
     cfg = Map.put(config(), :glow_streak_needed, 2)
 
     watching = %Logic{
@@ -357,8 +328,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   end
 
   test "a present line pulsing below the bite threshold holds the dead streak (only empty water counts)" do
-    # line? true = the cast line is in the water (pulsing between bites) but below
-    # the bite threshold → NOT a dead frame: a resting line keeps fishing forever.
     watching = %Logic{
       state: :watching,
       config: config(),
@@ -371,7 +340,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert held.state == :watching
     assert held.dead_streak == 0
 
-    # line? false = near-empty water (dropped rod) → this one DOES count up
     {climb, []} = Logic.step(held, %{cursor: {500, 500}, glow: false, line?: false}, 200)
     assert climb.dead_streak == 1
   end
@@ -383,9 +351,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   end
 
   test "needs per state" do
-    # :glow so the very first frame can already see a live line (skip-recast)
     assert Logic.needs(advance_to(:focusing)) == [:cursor, :glow]
-    # gate off (default) → no skill-bar read
     assert Logic.needs(advance_to(:watching)) == [:cursor, :glow]
     assert Logic.needs(%Logic{state: :idle}) == []
   end
@@ -536,8 +502,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       {w, _} = Logic.step(w, bite(false), 1_000)
       assert w.holding? and w.holding_since == 1_000
 
-      # peaks keep refreshing entered_at but NOT holding_since — the ceiling measures
-      # the whole hold, not time-since-last-peak
       {w, _} = Logic.step(w, bite(false), 4_000)
       assert w.holding_since == 1_000
 
@@ -557,12 +521,10 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       assert w.holding? and w.entered_at == 1000
       assert a1 == [{:log, "🔒 fisga segurada — skills em cooldown"}]
 
-      # a below-threshold trough: keeps holding, no recast, and NO repeated log
       {w, a2} = Logic.step(w, trough(), 1050)
       assert w.state == :watching and w.holding?
       assert a2 == []
 
-      # the next peak: still holding → silent, entered_at refreshed
       {w, a3} = Logic.step(w, bite(false), 1100)
       assert w.holding? and w.entered_at == 1100
       assert a3 == []
@@ -573,10 +535,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       w = %Logic{state: :watching, settled?: true, config: cfg, entered_at: 0}
 
       {w, _} = Logic.step(w, bite(false), 1000)
-      # a peak 90ms later refreshes entered_at → 1090 (still holding)
       {w, _} = Logic.step(w, bite(false), 1090)
-      # a trough 90ms after THAT peak is within the 100ms window → not timed out
-      # (with the old time-since-cast timeout this would have recast at ~1100)
       {w, actions} = Logic.step(w, trough(), 1180)
       assert w.state == :watching
       assert actions == []
@@ -602,8 +561,6 @@ defmodule Pokex.Bots.Fishing.LogicTest do
   end
 
   test "kill corner beats an active waiting_until" do
-    # focusing sets waiting_until = now + wait_focus_ms (150); stepping again at
-    # now < 150 would normally be a no-op wait — kill corner must still win.
     focusing = advance_to(:focusing)
     {casting, _} = Logic.step(focusing, cursor_obs(), 0)
     assert casting.state == :casting
@@ -614,12 +571,10 @@ defmodule Pokex.Bots.Fishing.LogicTest do
     assert [{:log, _}] = actions
   end
 
-  describe "assentamento por TEMPO (captura faminta)" do
-    # Os logs de 2026-07-30: frames a ~5s de distância, o peixe morde antes de
-    # calm_streak_needed frames calmos, cada pico zera o calm — settled? nunca
-    # travava por frames, a vara nunca puxava e o timeout re-lançava em cima de
-    # um peixe vivo. O splash é física (~1-1,5s): passado settle_max_ms do
-    # arremesso, ciano É mordida.
+  describe "time-based settling (starved capture)" do
+    # Logs 2026-07-30: frames ~5s apart — the fish bites before calm_streak_needed calm
+    # frames and every peak resets calm, so settled? never latched and the timeout recast
+    # over a live fish. The splash is physics (~1-1.5s): past settle_max_ms, cyan IS a bite.
     defp starved_config,
       do: config() |> Map.put(:calm_streak_needed, 3) |> Map.put(:settle_max_ms, 2_500)
 
@@ -627,11 +582,9 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       %Logic{state: :watching, config: cfg, entered_at: cast_at, settled?: false}
     end
 
-    test "frame de mordida chegando ATRASADO (depois do teto) fisga na hora" do
+    test "a bite frame arriving late (past the ceiling) hooks immediately" do
       watching = watching_at(0, starved_config())
 
-      # a captura faminta entrega o primeiro frame só aos 5s — e ele já é a
-      # mordida; zero frames calmos aconteceram
       {hooked, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 5_000)
 
       assert {:press, "shift+v"} in actions
@@ -639,7 +592,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       assert hooked.state == :casting
     end
 
-    test "antes do teto, ciano ainda é splash — nada muda no caminho rápido" do
+    test "before the ceiling, cyan is still splash — the fast path is unchanged" do
       watching = watching_at(0, starved_config())
 
       {crest, actions} = Logic.step(watching, Map.put(cursor_obs(), :glow, true), 1_000)
@@ -649,14 +602,13 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       assert crest.counters.hooked == 0
     end
 
-    test "com frames saudáveis, o assentamento por frames chega ANTES do teto" do
+    test "with healthy frames, frame-based settling lands before the ceiling" do
       cfg = config() |> Map.put(:calm_streak_needed, 2) |> Map.put(:settle_max_ms, 2_500)
       watching = watching_at(0, cfg)
 
       {a, []} = Logic.step(watching, Map.put(cursor_obs(), :glow, false), 150)
       {settled, []} = Logic.step(a, Map.put(cursor_obs(), :glow, false), 300)
 
-      # 300ms < 2500ms: quem travou foi o caminho por FRAMES, como sempre
       assert settled.settled?
     end
   end

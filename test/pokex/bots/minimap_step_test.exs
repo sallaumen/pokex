@@ -67,13 +67,11 @@ defmodule Pokex.Bots.MinimapStepTest do
     assert Body.minimap_step(1, 1, layout: nil) == {:error, :no_layout}
   end
 
-  # O Rig engole o input com o portão fechado e responde `:ok` — de propósito, e
-  # o resto da frota depende disso. Quem ANDA não pode herdar essa resposta: o
-  # passo é confirmado pela posição mudar, então um clique suprimido devolvido
-  # como `{:ok, point}` faz a Logic acreditar em progresso que não houve (foi
-  # o que derrubou a frota em silêncio quando o Iniciar foi clicado no
-  # navegador e o jogo perdeu o foco).
-  test "com o portão de input fechado ele RECUSA em vez de mentir que clicou", %{fix: fix} do
+  # The Rig swallows input with the gate closed and answers `:ok` — on purpose; the rest of
+  # the fleet depends on that. A walker cannot inherit that answer: a suppressed click
+  # returned as `{:ok, point}` makes Logic believe progress that never happened (this
+  # silently downed the fleet when Iniciar was clicked in the browser).
+  test "with the input gate closed it refuses instead of lying that it clicked", %{fix: fix} do
     InputGate.set_focus_ok(false)
     on_exit(fn -> InputGate.set_focus_ok(true) end)
 
@@ -81,9 +79,8 @@ defmodule Pokex.Bots.MinimapStepTest do
     refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:click, :left, _point}, &1))
   end
 
-  describe "a cruz calibrada (a mão manda no passo)" do
-    test "o passo parte da CRUZ marcada, não do centro do retângulo", %{fix: fix} do
-      # a cruz 8px acima e 5 à direita do centro — o viés que todo passo tinha
+  describe "the calibrated cross (the hand rules the step)" do
+    test "the step starts from the marked cross, not the rectangle's center", %{fix: fix} do
       {x, y, w, h} = Layout.region(:minimap_map, fix)
       cross = {x + div(w, 2) + 5, y + div(h, 2) - 8}
 
@@ -101,7 +98,7 @@ defmodule Pokex.Bots.MinimapStepTest do
       assert east == {elem(cross, 0) + scale, elem(cross, 1)}
     end
 
-    test "região manual do minimapa vale como área de clique — sem layout nenhum" do
+    test "a manual minimap region works as the click area — with no layout at all" do
       calib = %Pokex.Calibration{
         scale: 1.0,
         layout: nil,
@@ -111,7 +108,6 @@ defmodule Pokex.Bots.MinimapStepTest do
 
       assert {:ok, {3100, 200}} = Body.minimap_step(0, 0, calib: calib)
 
-      # o clamp continua valendo, agora sobre a região MANUAL
       assert {:ok, {cx, _cy}} = Body.minimap_step(500, 0, calib: calib)
       assert cx <= 3000 + 200 - 1 - 6
     end

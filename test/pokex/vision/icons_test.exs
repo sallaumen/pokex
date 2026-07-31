@@ -1,12 +1,8 @@
 defmodule Pokex.Vision.IconsTest do
   @moduledoc """
-  Reading WHICH pokémon sits in each C+N row, from his real panel.
-
-  Lucas: "a posição dos pokémons nos atalhos C+N nunca é fixa, conforme vou
-  usando pokemons a ordem vai mudando… se mudar a ordem atual, ele tem que
-  saber manter o tracking". The committed captures prove both halves — the
-  order really does differ between them, and the same learned portraits follow
-  it.
+  Reads WHICH pokémon sits in each C+N row of the real panel. The C+N order
+  genuinely changes between the committed captures, and the learned portraits
+  must follow the pokémon, not the key.
   """
   use ExUnit.Case, async: true
 
@@ -19,7 +15,7 @@ defmodule Pokex.Vision.IconsTest do
   @radius 27
   @pitch 67
 
-  # the capture whose team order Lucas confirmed in writing (see TIME.md)
+  # the capture whose team order was confirmed in writing (see TIME.md)
   @taught %{
     "Xatu" => 0,
     "Tentacruel" => 1,
@@ -53,12 +49,9 @@ defmodule Pokex.Vision.IconsTest do
     end
   end
 
-  test "follows the pokémon when the ORDER changes — the whole point" do
+  test "follows the pokémon when the order changes" do
     learned = learned()
 
-    # In this capture the team sits in a different order than when it was
-    # taught: what was C+3 is now C+4, and so on. Identity travels with the
-    # portrait, not with the key.
     taught_order = ["Xatu", "Tentacruel", "Pidgeot", "Wigglytuff", "Ditto"]
 
     read_order =
@@ -78,8 +71,6 @@ defmodule Pokex.Vision.IconsTest do
   end
 
   test "a row it has never been taught reads as unknown, not as a guess" do
-    # only Xatu is known: every other row must refuse rather than pick the one
-    # portrait available
     frame = ScreenFixtures.frame!("ultrawide_3440x1440_time")
     only_xatu = %{"Xatu" => Icons.signature(frame, centre(0))}
 

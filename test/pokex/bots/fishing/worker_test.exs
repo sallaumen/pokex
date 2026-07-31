@@ -124,11 +124,10 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     %{worker: worker}
   end
 
+  # With the gate closed the Rig swallows every key with :ok and Logic would believe the
+  # cast — counting the cycle and watching bait that never hit the water.
   @tag :tmp_dir
-  test "portão fechado SEGURA o tick — nada apertado, nada acreditado", %{worker: worker} do
-    # Com o portão fechado o Rig engoliria cada tecla com :ok e a Logic
-    # acreditaria no arremesso — contaria o ciclo e vigiaria uma isca fora
-    # d'água. O worker agora segura o tick inteiro e avisa UMA vez na borda.
+  test "a closed gate holds the whole tick — nothing pressed, nothing believed", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     on_exit(fn -> Pokex.Bots.InputGate.set_focus_ok(true) end)
 
@@ -137,11 +136,9 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     assert_receive {:fishing_log, :macro, "🚫 portão de entrada fechado" <> _}, 2_000
 
-    # nada tocou o Rig e a Logic não avançou: zero cliques, zero ciclos
     assert Pokex.Rig.Fake.calls() == []
     assert Worker.status(worker).counters.cycles == 0
 
-    # o portão reabre → o fluxo segue inteiro até a fisgada, como sempre
     Pokex.Bots.InputGate.set_focus_ok(true)
     assert_receive {:fishing_log, :macro, "portão reaberto" <> _}, 2_000
     assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
@@ -159,8 +156,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
 
     calls = Pokex.Rig.Fake.calls()
-    # focus clicks the neutral point; the cast MOVES to the water and presses the rod
-    # (Quick Cast — no water click anymore)
     assert {:click, :left, {420, 350}} in calls
     assert {:move, {400, 300}} in calls
     assert {:press, "shift+v"} in calls
@@ -170,6 +165,8 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert Worker.status(worker).state == :idle
   end
 
+  # {:cursor_position} is excluded from the quiet check: the app-global Guardian polls the
+  # panic corner against the same shared Rig.Fake on its own timer.
   @tag :tmp_dir
   test "holds itself while the :mini_game fact says playing, recasting fresh when it clears", %{
     worker: worker
@@ -179,16 +176,11 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
 
-    # the mini-game opens: the worker freezes itself — no sensing, no actions
     WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
     on_exit(fn -> WorldState.forget(:mini_game) end)
 
-    # the freeze EDGE broadcasts the reason once, so the panel pill shows WHY
     assert_receive {:fishing, %{hold_reason: "mini-game em jogo"}}, 5_000
 
-    # let in-flight ticks/Body sequences land, then the Rig must go quiet
-    # ({:cursor_position} excluded: the app-global Guardian polls the panic
-    # corner against this same shared Rig.Fake on its own timer)
     input_calls = fn ->
       Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
     end
@@ -198,15 +190,10 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     Process.sleep(300)
     assert length(input_calls.()) == frozen
 
-    # game over: the worker restarts the cast cycle fresh on its own —
-    # the focus click on the neutral point runs AGAIN (same as the old halt+run)
     focus_clicks = fn ->
       Enum.count(Pokex.Rig.Fake.calls(), &(&1 == {:click, :left, {420, 350}}))
     end
 
-    # after the catch there is NO line in the water: re-script the glow low so
-    # the resume's live-line check (the :focusing glow read) sees none and the
-    # cycle restarts with the classic focus click + cast
     Agent.update(Sensors.Fake, &Map.merge(&1, %{glow: [50, 50, 900]}))
 
     before = focus_clicks.()
@@ -236,8 +223,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
 
-    # at least two rod presses by the time we've hooked once: the atomic cast arms
-    # the rod, and the bite pulls it. (Each cast re-arms, so the count keeps growing.)
     calls = Pokex.Rig.Fake.calls()
     assert Enum.count(calls, &(&1 == {:press, "shift+v"})) >= 2
   end
@@ -255,7 +240,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert :ok = Worker.run(worker)
     assert wait_for_log("vida 15% < 40%", System.monotonic_time(:millisecond) + 5_000)
 
-    # the cast armed the rod ONCE; the held bite must not pull a second press
     calls = Pokex.Rig.Fake.calls()
     assert Enum.count(calls, &(&1 == {:press, "shift+v"})) == 1
   end
@@ -280,14 +264,12 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert Enum.count(calls, &(&1 == {:press, "shift+v"})) >= 2
   end
 
+  # Field bug: with the gate holding the fish, the feed only showed the bubble count and
+  # never said WHY it was not pulling.
   @tag :tmp_dir
   test "a held bite SURFACES the lock in the feed (not just the bubble count)", %{worker: worker} do
-    # The bug Lucas hit: with the gate holding the fish, the feed only showed
-    # "vigiando: bolhas Npx (acima do limiar)" and never said WHY it wasn't pulling.
-    # Drive a hold (gate on, no kill-skill ready) and assert the lock is visible.
     Settings.put(:require_cooldowns, true)
-    # reconfigure the already-started Fake: calm→bite glow, and the gate never opens
-    # first 50 feeds the :focusing live-line check (none), second settles watching
+
     Agent.update(
       Sensors.Fake,
       &Map.merge(&1, %{glow: [50, 50, 900, 900], cooldowns_ready?: [false]})
@@ -297,7 +279,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     assert :ok = Worker.run(worker)
 
-    # the feed must carry the lock marker, persistently on the watch line
     assert wait_for_log("🔒", System.monotonic_time(:millisecond) + 5_000)
   end
 
@@ -319,21 +300,16 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   test "announces the catch so combat searches immediately", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.catch_topic())
     assert :ok = Worker.run(worker)
-    # the scripted glow spikes over threshold → a hook → the catch event fires
     assert_receive {:fish_caught}, 5_000
   end
 
+  # A single competitor would dequeue correctly regardless of priority, so the Body is
+  # held busy by a BLOCKING Rig until both actions provably queue behind it; the order of
+  # arrival at the Rig then proves priority. Worker.run/1 itself blocks (its handle_call
+  # waits on the busy Body), so it too must be spawned.
   @tag :tmp_dir
   @tag timeout: 5_000
   test "the fishing action yields to a competing :high action on the Body", %{worker: _worker} do
-    # This test guards against the worker submitting its fishing action at
-    # :high (or otherwise skipping the queue): with a single competitor, a
-    # single dequeue would pass regardless of priority, so we hold the Body
-    # busy with a BLOCKING action, wait until BOTH a competing :high action
-    # AND the fishing :normal action are genuinely queued behind it, only
-    # THEN release, and assert the :high action reached the Rig before the
-    # fishing click did. If the worker used :high, ordering would flip (or
-    # tie/race), and this assertion would fail.
     previous_rig = Application.get_env(:pokex, :rig)
     Application.put_env(:pokex, :rig, SlowRig)
     on_exit(fn -> Application.put_env(:pokex, :rig, previous_rig) end)
@@ -345,8 +321,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     test = self()
 
-    # Occupy the Body with a click that blocks until SlowRig.release/0, so
-    # everything queued below provably queues instead of racing a fast fake.
     spawn(fn ->
       send(
         test,
@@ -362,10 +336,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     wait_until_queued(body, :high, 1)
 
-    # Worker.run/1 blocks (its handle_call submits to the busy Body and waits
-    # for the reply), so it must be spawned like the occupier/high callers
-    # above — otherwise this call itself would time out before the fishing
-    # action ever reaches the Body's queue.
     spawn(fn -> send(test, {:run_result, Worker.run(worker)}) end)
     wait_until_queued(body, :normal, 1)
 
@@ -375,9 +345,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert_receive {:high_result, :ok}, 2_000
     assert_receive {:run_result, :ok}, 2_000
 
-    # Worker.run/1's own reply only covers Logic.start/2's (empty) initial
-    # submit — the real fishing click ({:click, :left, neutral_point}) is
-    # fired later from the first :tick, asynchronously. Poll for it.
     fishing_click = {:click, :left, {420, 350}}
     log = wait_for_click(fishing_click)
 

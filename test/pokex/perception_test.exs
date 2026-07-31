@@ -26,14 +26,12 @@ defmodule Pokex.PerceptionTest do
     assert Perception.pokemon(stale_at) == :unknown
   end
 
-  test "minimap devolve a posição fresca e é :unknown quando ausente/nil/velha" do
+  test "minimap returns the fresh position and is :unknown when missing, nil or stale" do
     assert Perception.minimap(10_000) == :unknown
 
     WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, 10_000)
     assert Perception.minimap(10_100) == {:ok, %{pos: {337, 46_107, 4}}}
 
-    # âncora não localizada no frame → o feed publica pos: nil — ainda :unknown
-    # (fail-open: posição desconhecida nunca vira posição conhecida)
     WorldState.put(:minimap, %{pos: nil}, 10_200)
     assert Perception.minimap(10_300) == :unknown
 
@@ -61,14 +59,14 @@ defmodule Pokex.PerceptionTest do
     refute Perception.mini_game_playing?(stale_at)
   end
 
+  # unknown is nil, never []: an empty list would read "all on cooldown" and stall
+  # combat, while nil lets it blind-rotate
   test "ready_skills mirrors a fresh :skill_bar fact and is UNKNOWN on stale/missing" do
-    # missing → nil (combat blind-rotates; never [] which would read "all on cooldown")
     assert Perception.ready_skills(10_000) == nil
 
     WorldState.put(:skill_bar, %{states: [:ready, :cooldown], ready_keys: ["1"]}, 10_000)
     assert Perception.ready_skills(10_100) == ["1"]
 
-    # an unreadable bar (window covered) publishes nil keys — still UNKNOWN, not empty
     WorldState.put(:skill_bar, %{states: nil, ready_keys: nil}, 10_200)
     assert Perception.ready_skills(10_300) == nil
 

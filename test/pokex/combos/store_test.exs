@@ -67,7 +67,7 @@ defmodule Pokex.Combos.StoreTest do
     refute Enum.find(Store.all(), &(&1.name == "sing")).enabled?
   end
 
-  test "os gatilhos novos sobrevivem ao round-trip" do
+  test "the new triggers survive the round-trip" do
     :ok = Store.add(%Combo{name: "abertura", trigger: {:any_enemy}, steps: [{:skill, "1"}]})
     :ok = Store.add(%Combo{name: "stun", trigger: {:rescue_only}, steps: [{:skill, "1"}]})
 
@@ -75,18 +75,17 @@ defmodule Pokex.Combos.StoreTest do
     assert Enum.find(Store.all(), &(&1.name == "stun")).trigger == {:rescue_only}
   end
 
-  test "o seed já traz o combo de resgate, pronto pro auto-revive" do
+  test "the seed already ships the rescue combo, ready for auto-revive" do
     assert %Combo{trigger: {:rescue_only}, steps: steps} =
              Enum.find(Store.all(), &(&1.name == "resgate"))
 
     assert [{:skill, "1"}, {:wait, _}, {:skill, "2"}] = steps
   end
 
-  test "o campo dungeon sobrevive ao round-trip; ausente no JSON lê como nil" do
+  test "the dungeon field survives the round-trip; absent in the JSON it reads as nil" do
     :ok = Store.add(%Combo{combo("na-dg", "Wigglytuff") | dungeon: "cavena"})
 
     assert Enum.find(Store.all(), &(&1.name == "na-dg")).dungeon == "cavena"
-    # o seed nunca teve dungeon — ausente lê como nil (vale em todas)
     assert Enum.find(Store.all(), &(&1.name == "sing")).dungeon == nil
   end
 end

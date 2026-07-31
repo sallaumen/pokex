@@ -21,9 +21,9 @@ defmodule Pokex.Perception.Interpret.Minimap do
   def interpret(frame, calib, settings, state \\ nil) do
     state = state || %{last: nil, pending: nil}
 
-    # A MÃO manda nas regiões (Calibration resolve manual > layout); o frame
-    # que chega é o crop da minimap_region resolvida, então a faixa da
-    # coordenada vira relativa à origem DELA.
+    # Manual regions win (Calibration resolves manual > layout); the frame is
+    # the crop of the resolved minimap_region, so the coord strip becomes
+    # relative to THAT region's origin.
     read =
       with %Calibration{} <- calib,
            {x, y, w, h} <- Calibration.minimap_coord_region(calib),
@@ -36,10 +36,9 @@ defmodule Pokex.Perception.Interpret.Minimap do
     accept(read, state)
   end
 
-  # O piso de tinta da faixa é AFINÁVEL (minimap_coord_ink): o default global
-  # (120) deixava o chão iluminado do mapa competir com os dígitos. As opções
-  # que a região do layout declara continuam valendo por baixo — ignorá-las é
-  # como o piso de tinta de um slot do HUD deixar de valer justamente ao vivo.
+  # The strip's ink floor is TUNABLE (minimap_coord_ink): the global default
+  # (120) let the map's lit ground compete with the digits. The layout
+  # region's declared opts still apply underneath — merge, never replace.
   defp coord_opts(calib, settings) do
     layout_opts = if calib.layout, do: Layout.region_opts(calib.layout, :minimap_coord), else: []
     Keyword.merge(layout_opts, ink: Settings.value(settings, :minimap_coord_ink))

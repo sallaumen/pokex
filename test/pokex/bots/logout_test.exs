@@ -1,20 +1,19 @@
 defmodule Pokex.Bots.LogoutTest do
-  # async: false — mexe no latch global do InputGate, que outras suítes leem.
+  # async: false — touches the global InputGate latch, which other suites read.
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.{InputGate, Logout}
   alias Pokex.SettingsStash
 
   setup do
-    # :test é campo RESERVADO do contexto do ExUnit — daí o nome esquisito.
+    # :test is a RESERVED ExUnit context field — hence the odd name.
     dono = self()
 
-    # A espera real de 1,5s pra tela trocar vale no jogo, não aqui: um caso de
-    # falha com duas tentativas levaria 5,4s. O ritmo entre leituras é injetado
-    # no start_logout/2 abaixo.
+    # The real 1.5s screen-change wait belongs in the game, not here: a two-attempt failure
+    # would take 5.4s. The read cadence is injected in start_logout/2 below.
     #
-    # logout_confirm_delay_ms fica no padrão de propósito: o Body falso só GRAVA
-    # a sequência, não dorme nela — e o teste do caminho feliz asserta o valor.
+    # logout_confirm_delay_ms stays at its default on purpose: the fake Body only RECORDS
+    # the sequence, never sleeps on it — and the happy-path test asserts the value.
     SettingsStash.stash!(logout_verify_delay_ms: 20)
 
     on_exit(fn -> InputGate.set_panic_latch(false) end)
@@ -34,10 +33,9 @@ defmodule Pokex.Bots.LogoutTest do
 
   defp calls(body), do: Agent.get(body, & &1.calls)
 
-  # Um leitor de tela que devolve a LINHA DE BASE na primeira chamada e depois
-  # sempre `depois`. É o formato honesto: no jogo real a barra de baixo está
-  # legível antes do Ctrl+Q, e é justamente isso que dá testemunha pro "sumiu"
-  # significar alguma coisa.
+  # A screen reader that returns the BASELINE on the first call and then always `depois`.
+  # In the real game the bottom bar is readable before Ctrl+Q — exactly what gives "gone"
+  # a witness and makes it mean something.
   defp leitor(depois, baseline \\ :present) do
     {:ok, agente} = Agent.start_link(fn -> :primeira end)
 
@@ -49,7 +47,6 @@ defmodule Pokex.Bots.LogoutTest do
     end
   end
 
-  # Sobe um Logout isolado (sem nome registrado) com tudo injetado.
   defp start_logout(ctx, opts) do
     dono = ctx.dono
 
@@ -66,7 +63,6 @@ defmodule Pokex.Bots.LogoutTest do
     pid
   end
 
-  # Espera o processo chegar num estado terminal, sem depender de sleep fixo.
   defp await_state(pid, wanted, timeout \\ 2_000) do
     deadline = System.monotonic_time(:millisecond) + timeout
 
@@ -88,7 +84,7 @@ defmodule Pokex.Bots.LogoutTest do
     poll.(poll)
   end
 
-  test "caminho feliz: trava o latch, para a frota, aperta na ordem e confirma", ctx do
+  test "happy path: sets the latch, stops the fleet, presses in order, and confirms", ctx do
     pid = start_logout(ctx, read_fun: leitor(:gone))
 
     Logout.request("manual", pid)
@@ -104,7 +100,7 @@ defmodule Pokex.Bots.LogoutTest do
     assert_receive {:logout, %{state: :out}}, 1_000
   end
 
-  test "HUD que continua legível vira falha ruidosa depois das tentativas", ctx do
+  test "a HUD that stays readable becomes a loud failure after the attempts", ctx do
     pid = start_logout(ctx, read_fun: leitor(:present), attempts_override: 2)
 
     Logout.request("estagnação", pid)
@@ -117,7 +113,7 @@ defmodule Pokex.Bots.LogoutTest do
     assert texto =~ "logout"
   end
 
-  test "leitura sempre ilegível NUNCA reporta deslogado", ctx do
+  test "an always-unreadable read never reports logged out", ctx do
     pid = start_logout(ctx, read_fun: leitor(:unreadable), attempts_override: 2)
 
     Logout.request("estagnação", pid)
@@ -127,7 +123,7 @@ defmodule Pokex.Bots.LogoutTest do
     refute snap.state == :out
   end
 
-  test "um pedido durante um logout em voo é ignorado e contado", ctx do
+  test "a request during an in-flight logout is ignored and counted", ctx do
     pid = start_logout(ctx, read_fun: leitor(:present), attempts_override: 3)
 
     Logout.request("primeiro", pid)
@@ -139,7 +135,7 @@ defmodule Pokex.Bots.LogoutTest do
     assert snap.duplicates == 2
   end
 
-  test "canto do pânico acionado: falha sem NUNCA tocar no Body", ctx do
+  test "panic corner engaged: fails without ever touching the Body", ctx do
     pid =
       start_logout(ctx,
         read_fun: leitor(:gone),
@@ -154,7 +150,7 @@ defmodule Pokex.Bots.LogoutTest do
     assert calls(ctx.body) == []
   end
 
-  test "o latch continua travado depois de um logout bem-sucedido", ctx do
+  test "the latch stays set after a successful logout", ctx do
     pid = start_logout(ctx, read_fun: leitor(:gone))
 
     Logout.request("manual", pid)
@@ -163,10 +159,10 @@ defmodule Pokex.Bots.LogoutTest do
     assert InputGate.panic_latched?()
   end
 
-  test "HUD já ilegível ANTES de apertar não vira prova de logout", ctx do
-    # O cenário real: sub-região descalibrada, ou o atlas sem algum dígito (o
-    # "9" que faltava). A HUD devolve nil nos três campos o tempo todo, e sem a
-    # linha de base o bot juraria ter deslogado sem nada ter acontecido.
+  # Real scenario: a miscalibrated sub-region, or the atlas missing a digit (the missing
+  # "9") — the HUD returns nil throughout, and without a baseline the bot would swear it
+  # logged out when nothing happened.
+  test "a HUD already unreadable BEFORE the press is no proof of logout", ctx do
     pid =
       start_logout(ctx,
         read_fun: leitor(:gone, :gone),
@@ -179,8 +175,6 @@ defmodule Pokex.Bots.LogoutTest do
     assert snap.error == :sem_testemunha
     refute snap.state == :out
 
-    # e as teclas foram enviadas do mesmo jeito — só não dá pra AFIRMAR que
-    # funcionaram; o alarme é que acorda o Lucas
     assert [{_actions, :critical} | _] = calls(ctx.body)
     assert_receive {:rule_alarm, :logout, texto}, 1_000
     assert texto =~ "sem_testemunha"

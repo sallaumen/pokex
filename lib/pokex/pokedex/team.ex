@@ -1,8 +1,8 @@
 defmodule Pokex.Pokedex.Team do
   @moduledoc """
   Lucas's OWN Pokémon (~/.pokex/team.json), now in two lists: the active
-  TEAM he hunts with and the BANK ("o que não está no meu time, mas eu tenho
-  no banco guardado"). Each entry carries an optional LEVEL, and the file
+  TEAM he hunts with and the BANK (owned and stored, not hunting).
+  Each entry carries an optional LEVEL, and the file
   also stores his character level + the hunt-window margin — what makes the
   /time suggestions match his real strength instead of recommending lv-5
   targets at lv 88.

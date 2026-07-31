@@ -391,14 +391,14 @@ defmodule Pokex.Vision do
     |> elem(0)
   end
 
-  # O predicado do OURO, endurecido pelo campo (2026-07-30, reproduzido nas
-  # capturas reais do Lucas): a versão antiga aceitava b=0 e verde acima do
-  # vermelho — o ícone do Shuckle (a lâmpada amarela) e as pétalas do Vileplume
-  # passavam como estrela, e o guarda alarmou tanto que foi DESLIGADO. A
-  # estrela real mede b 70..148 com r>=g; o piso b>=50 e g<=r cortam os
-  # impostores sem tocar nela. E `min_x` restringe a busca à ZONA DO NOME (os
-  # ícones das criaturas terminam em x<=72; TODO falso positivo medido estava
-  # em x 45..71) — a estrela mora colada no início do nome.
+  # The GOLD predicate, hardened by the field (2026-07-30, reproduced on
+  # Lucas's real captures): the old version accepted b=0 and green above red —
+  # Shuckle's icon (the yellow lamp) and Vileplume's petals passed as the
+  # star, and the guard alarmed so much it got TURNED OFF. The real star
+  # measures b 70..148 with r>=g; the b>=50 floor and g<=r cut the impostors
+  # without touching it. And `min_x` restricts the search to the NAME zone
+  # (creature icons end at x<=72; EVERY measured false positive sat at
+  # x 45..71) — the star sits right at the name's start.
   defp gold_cells(<<r, g, b, _a, rest::binary>>, index, width, min_x, top, band, rows, acc)
        when r >= 190 and g >= 130 and b <= 150 and b >= 50 and g <= r and r - b >= 80 and
               g - b >= 40 and g * 10 >= r * 6 and rem(index, width) >= min_x do

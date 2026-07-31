@@ -103,7 +103,7 @@ defmodule Pokex.Bots.MiniGame.DetectorTest do
     assert reading.bar.x in 335..350
 
     # the old default tolerance (max(20, 4% of width) = 32px here) rejects the
-    # real bar from the ANCHORED pass — the exact "apito nunca toca" bug. The
+    # real bar from the ANCHORED pass — the exact "whistle never fires" bug. The
     # full-frame sweep now rescues it via the capsule evidence.
     rescued =
       Detector.detect(frame,

@@ -272,8 +272,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
   defp log_export({:error, reason}),
     do: Logger.warning("mini-game diagnostics export failed: #{inspect(reason)}")
 
-  # --- playing (delegated to the Player engine) ------------------------------
-
   defp play_tick(state) do
     cond do
       game_over_cap?(state) ->
@@ -343,8 +341,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
   defp anchor_tolerance(frame, {_rx, _ry, rw, _rh}) when rw > 0,
     do: round(Settings.get(:mini_game_anchor_tolerance) * frame.width / rw)
 
-  # --- manual assistance -----------------------------------------------------
-
   # A mini-game nobody plays stalls the WHOLE session (every worker is held by
   # the :mini_game fact), and one chirp is easy to miss with the game window
   # unfocused — so the alert repeats until the overlay is gone.
@@ -375,8 +371,6 @@ defmodule Pokex.Bots.MiniGame.Worker do
   end
 
   defp manual_text, do: "minigame aguardando resolução manual"
-
-  # --- snapshots -------------------------------------------------------------
 
   defp snapshot(%{running?: false} = state), do: base_snapshot(state, :off)
   defp snapshot(%{in_game?: true} = state), do: base_snapshot(state, :playing)

@@ -15,13 +15,13 @@ defmodule PokexWeb.PanelLive do
   @body_topic "body"
   @cooldown_poll_ms 1000
 
-  # A fonte da caçada no feed, definida UMA VEZ e referenciada nos dois lugares
-  # que precisam dela (a linha de log e a lista de chips do filtro). O filtro
-  # compara a fonte por igualdade EXATA de binário, então um emoji digitado duas
-  # vezes é um bug esperando acontecer: 🗺️ é U+1F5FA + U+FE0F (variation
-  # selector) e sobrevive a um copiar-e-colar como U+1F5FA sozinho — visualmente
-  # igual, binário diferente, chip que filtra um feed vazio. 🧭 (U+1F9ED) não tem
-  # variação nenhuma, e mesmo assim o literal só existe aqui.
+  # The hunt's feed source, defined ONCE and referenced from both places that
+  # need it (the log line and the filter chip list). The filter compares the
+  # source by EXACT binary equality, so an emoji typed twice is a bug waiting
+  # to happen: 🗺️ is U+1F5FA + U+FE0F (variation selector) and survives a
+  # copy-paste as bare U+1F5FA — visually identical, different binary, a chip
+  # filtering an empty feed. 🧭 (U+1F9ED) has no variation at all, and even
+  # so the literal exists only here.
   @cavebot_source "🧭"
 
   @counters [
@@ -170,17 +170,18 @@ defmodule PokexWeb.PanelLive do
      )}
   end
 
-  # Abrir e fechar o ⚙️ é `patch` entre "/" e "/config" — a mesma LiveView, sem
-  # remontar (é o que mantém o dashboard vivo atrás e as pílulas se mexendo).
-  # `patch` EXIGE handle_params/3: sem esta cláusula o clique de fechar derruba
-  # a LiveView. O @live_action já vem do router; não há nada a assinar aqui.
+  # Opening/closing the ⚙️ is a `patch` between "/" and "/config" — the same
+  # LiveView, no remount (what keeps the dashboard alive behind it with the
+  # pills moving). `patch` REQUIRES handle_params/3: without this clause the
+  # close click crashes the LiveView. @live_action comes from the router;
+  # nothing to subscribe to here.
   @impl true
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
-  # O RASCUNHO do combo novo mora aqui, no servidor. Antes os campos do form não
-  # tinham valor nenhum, e como o painel re-renderiza a cada snapshot dos
-  # workers (~10×/s), tudo que o Lucas digitava era apagado assim que ele saía
-  # do campo (2026-07-30) — o editor era literalmente inusável.
+  # The new-combo DRAFT lives here, on the server. The form fields used to
+  # have no server value, and since the panel re-renders on every worker
+  # snapshot (~10x/s), everything typed was erased on blur (2026-07-30) — the
+  # editor was literally unusable.
   defp empty_combo_draft do
     %{
       name: "",
@@ -260,9 +261,9 @@ defmodule PokexWeb.PanelLive do
   defp build_trigger("rescue_only", _value), do: {:rescue_only}
   defp build_trigger(_element, value), do: {:enemy_element, String.trim(value || "")}
 
-  # Um passo do construtor: o tipo escolhido + o valor digitado viram o passo
-  # que a Combos entende. Skill sem tecla e espera sem número não viram passo
-  # nenhum (`:invalid`) — melhor não adicionar do que adicionar quebrado.
+  # A builder step: the chosen kind + typed value become the step Combos
+  # understands. A skill without a key or a wait without a number becomes no
+  # step at all (`:invalid`) — better not to add than to add broken.
   defp build_step("skill", value) do
     case String.trim(value || "") do
       "" -> :invalid
@@ -287,9 +288,10 @@ defmodule PokexWeb.PanelLive do
   defp build_step("swap_counter", _value), do: {:swap_counter}
   defp build_step(_unknown, _value), do: :invalid
 
-  # phx-change manda só os campos que EXISTEM no DOM agora (o valor do gatilho
-  # some quando o tipo não pede um, a espera some no passo de troca). Um campo
-  # ausente é "não mexeu", nunca "apagou".
+  # phx-change sends only the fields that EXIST in the DOM right now (the
+  # trigger value disappears when the kind doesn't ask for one, the wait
+  # disappears on a swap step). An absent field means "untouched", never
+  # "cleared".
   defp merge_draft_field(draft, params, param_key, draft_key) do
     case Map.fetch(params, param_key) do
       {:ok, value} when is_binary(value) -> Map.put(draft, draft_key, value)
@@ -297,7 +299,7 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # An empty dungeon field means "vale em todas" — the combo stays global.
+  # An empty dungeon field means "applies everywhere" — the combo stays global.
   defp build_dungeon(value) do
     case String.trim(value || "") do
       "" -> nil
@@ -448,17 +450,18 @@ defmodule PokexWeb.PanelLive do
     {:noreply, append_log(socket, %{level: :macro, source: "🎮", text: text})}
   end
 
-  # --- a caçada (cavebot) -----------------------------------------------------
+  # --- the hunt (cavebot) -----------------------------------------------------
   #
-  # O worker já emitia as três mensagens; o painel é que não escutava. A caçada
-  # morria em ~6s "sem dizer nada" porque nada do que ela dizia chegava aqui.
+  # The worker already emitted all three messages; the panel just wasn't
+  # listening. The hunt died in ~6s "without saying anything" because nothing
+  # it said arrived here.
   def handle_info({:cavebot, snapshot}, socket),
     do: {:noreply, assign(socket, cavebot: snapshot, last_order: safe_last_order())}
 
-  # Bloqueio: entra no MESMO pipeline de alarme do {:rule_alarm, _} e do
-  # {:panic, _} — linha :macro no feed, som (se não estiver mudo) e o anti-spam
-  # por tipo. A chave inclui o motivo: dois bloqueios diferentes são dois fatos,
-  # e o segundo não pode ser engolido pelo intervalo do primeiro.
+  # Blocked: goes through the SAME alarm pipeline as {:rule_alarm, _} and
+  # {:panic, _} — a :macro feed line, sound (unless muted) and per-type
+  # anti-spam. The key includes the reason: two different blocks are two
+  # facts, and the second must not be swallowed by the first one's gap.
   def handle_info({:cavebot_alarm, reason}, socket),
     do: {:noreply, alarm(socket, {:cavebot, reason}, :cavebot, cavebot_alarm_text(reason))}
 
@@ -495,11 +498,11 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:shiny_reading, %{star_run: px, min_px: min_px}}, socket),
     do: {:noreply, assign(socket, shiny_star_run: px, shiny_star_min_columns: min_px)}
 
-  # O FEED vem do journal (Frente 4): os logs dos workers chegam normalizados,
-  # com repeats deduplicado, e o mount ressemeia o histórico — recarregar a
-  # página parou de apagar a história. Alarmes de regra/sistema NÃO entram por
-  # aqui: eles seguem no pipeline de alarme (som + anti-spam) que também
-  # escreve no feed — entrar pelos dois caminhos duplicaria a linha.
+  # The FEED comes from the journal: worker logs arrive normalized, repeats
+  # deduplicated, and mount reseeds the history — reloading the page stopped
+  # erasing it. Rule/system alarms do NOT enter here: they stay on the alarm
+  # pipeline (sound + anti-spam), which also writes to the feed — entering by
+  # both paths would duplicate the line.
   def handle_info({:journal_event, %{source: source} = event}, socket)
       when source not in [:regra, :sistema],
       do: {:noreply, merge_log(socket, journal_entry(event))}
@@ -538,8 +541,8 @@ defmodule PokexWeb.PanelLive do
   # The minimap publishes on EVERY capture, readable coordinate or not (`pos:
   # nil` IS the miss) — counting its publishes is the only place the good/bad
   # ratio can come from, since the fact itself is overwritten and keeps no
-  # history. It is what turns "a posição está velha" into "ele quase nunca
-  # consegue ler".
+  # history. It is what turns "the position is old" into "it can almost
+  # never read".
   def handle_info({:world, :minimap, obs}, socket) do
     socket =
       if Map.get(obs, :pos) == nil,
@@ -558,17 +561,17 @@ defmodule PokexWeb.PanelLive do
   def handle_info({:stock, %{slot: slot} = reading}, socket),
     do: {:noreply, assign(socket, stocks: Map.put(socket.assigns.stocks, slot, reading))}
 
-  # A categoria viaja na mensagem desde a origem (ShinyGuard/StockAlerts/
-  # Guardian/Logout/Catcher/Capture/Fishing — ver Pokex.Bots.AlarmCategories):
-  # antes, TODO rule_alarm soava pelo mesmo botão "som geral" e caía na MESMA
-  # chave de anti-spam (um Shiny podia engolir um alerta de estoque 1s depois).
-  # A chave agora leva categoria+motivo — precisão que o setor ganha de graça.
+  # The category travels in the message from its source (ShinyGuard/
+  # StockAlerts/Guardian/Logout/Catcher/Capture/Fishing — see
+  # Pokex.Bots.AlarmCategories): before, EVERY rule_alarm rang through the
+  # same master switch and shared ONE anti-spam key (a Shiny could swallow a
+  # stock alert 1s later). The key now carries category+reason.
   def handle_info({:rule_alarm, category, reason}, socket),
     do: {:noreply, alarm(socket, {:rule_alarm, category, reason}, category, "⏰ #{reason}")}
 
-  # Legado (2 elementos): qualquer emissor que ainda não marcou setor cai no
-  # geral — sempre soa se o som geral estiver ligado, nunca silenciado por
-  # setor (não sabemos qual é).
+  # Legacy (2 elements): any emitter that has not tagged a sector yet falls
+  # into the general bucket — always rings if the master sound is on, never
+  # muted per sector (we don't know which one it is).
   def handle_info({:rule_alarm, reason}, socket),
     do: {:noreply, alarm(socket, {:rule_alarm, reason}, :geral, "⏰ #{reason}")}
 
@@ -598,12 +601,12 @@ defmodule PokexWeb.PanelLive do
 
   def handle_info({:logout, snapshot}, socket), do: {:noreply, assign(socket, logout: snapshot)}
 
-  # A REDE DE SEGURANÇA, e ela faltava: sem esta cláusula, a primeira mensagem
-  # de um tópico novo derruba a LiveView inteira com FunctionClauseError. Não é
-  # hipótese — o painel assina nove tópicos, e o mais novo deles (a caçada) fala
-  # exatamente no pior momento possível: no bloqueio, quando ele está olhando pra
-  # tela pra descobrir o que houve. Ignorar o desconhecido é sempre melhor do que
-  # levar o painel junto.
+  # The SAFETY NET, and it was missing: without this clause, the first
+  # message of a new topic takes the whole LiveView down with
+  # FunctionClauseError. Not hypothetical — the panel subscribes to nine
+  # topics, and the newest (the hunt) speaks at the worst possible moment: on
+  # a block, while he is staring at the screen to find out what happened.
+  # Ignoring the unknown always beats taking the panel down with it.
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   # Each log entry is a map {level, source, text, at}; the feed keeps the last
@@ -614,8 +617,8 @@ defmodule PokexWeb.PanelLive do
     assign(socket, logs: Enum.take([entry | socket.assigns.logs], 200))
   end
 
-  # O histórico ressemeado do journal no mount — é isto que faz o reload parar
-  # de apagar a história. Journal fora do ar (teste isolado) → feed vazio.
+  # The history reseeded from the journal at mount — what makes a reload stop
+  # erasing it. Journal down (isolated test) → empty feed.
   defp journal_seed do
     Pokex.Journal.recent(limit: 200) |> Enum.map(&journal_entry/1)
   catch
@@ -632,8 +635,8 @@ defmodule PokexWeb.PanelLive do
     }
   end
 
-  # O journal já deduplicou chatter em repeats: quando o evento do topo é o
-  # MESMO (origem+texto), troca a linha em vez de empilhar.
+  # The journal already deduplicated chatter into repeats: when the top event
+  # is the SAME (source+text), replace the line instead of stacking.
   defp merge_log(socket, %{source: source, text: text} = entry) do
     logs =
       case socket.assigns.logs do
@@ -788,9 +791,9 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, combos: Pokex.Combos.Store.all())}
   end
 
-  # Cada tecla/escolha do editor vira ESTADO DO SERVIDOR. É o que impede o
-  # re-render dos workers (~10×/s) de apagar o que o Lucas está escrevendo —
-  # o bug que tornava o editor inusável.
+  # Every editor keystroke/choice becomes SERVER STATE. It is what keeps the
+  # workers' re-render (~10x/s) from erasing what Lucas is typing — the bug
+  # that made the editor unusable.
   def handle_event("combo_draft", params, socket) do
     draft =
       socket.assigns.combo_draft
@@ -823,9 +826,9 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, combo_draft: %{draft | steps: steps})}
   end
 
-  # Salvar é só materializar o rascunho — a sequência já está montada na tela,
-  # exatamente como vai rodar. Um combo sem nome ou sem passo nenhum não é
-  # salvo (e o rascunho sobrevive pro Lucas completar).
+  # Saving just materializes the draft — the sequence is already assembled on
+  # screen, exactly as it will run. A combo with no name or no steps is not
+  # saved (and the draft survives to be completed).
   def handle_event("save_combo", _params, socket) do
     draft = socket.assigns.combo_draft
 
@@ -850,9 +853,9 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # O combo de resgate em UM clique (o Lucas penou pra montar na mão): cria a
-  # sequência de stun com gatilho "só no resgate" e já a pendura no revive.
-  # Idempotente — clicar de novo só re-seleciona.
+  # The rescue combo in ONE click (painful to build by hand): creates the
+  # stun sequence with the rescue-only trigger and hangs it on the revive.
+  # Idempotent — clicking again just re-selects.
   def handle_event("create_rescue_combo", _params, socket) do
     combo = Pokex.Combos.Store.rescue_seed()
     :ok = Pokex.Combos.Store.add(combo)
@@ -1002,8 +1005,8 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, rescue_enabled: value)}
   end
 
-  # O modo do resgate (direto × com combo de stun) e o combo escolhido — um
-  # form só, os dois selects mandam ambos os campos em toda mudança.
+  # The rescue mode (direct vs stun combo) and the chosen combo — one form,
+  # both selects send both fields on every change.
   def handle_event("save_rescue_combo_cfg", params, socket) do
     mode = params["rescue_mode"] || "direto"
     combo = params["rescue_combo"] || ""
@@ -1032,10 +1035,10 @@ defmodule PokexWeb.PanelLive do
     {:noreply, socket}
   end
 
-  # A captura inteira era só-arquivo: limiar, tecla, bolas por corpo, raio da
-  # varredura, alarme de bola seca — com os scores reais colados na régua
-  # (mediana 75% vs limiar 72%), ajustar exigia editar JSON. O limiar fala em
-  # PORCENTAGEM na tela e vira fração no setting.
+  # Capture used to be file-only: threshold, key, balls per corpse, scan
+  # radius, dry-ball alarm — with the real scores hugging the ruler (median
+  # 75% vs threshold 72%), tuning meant editing JSON. The threshold speaks
+  # PERCENT on screen and becomes a fraction in the setting.
   def handle_event("save_captura_cfg", params, socket) do
     socket =
       socket
@@ -1141,9 +1144,9 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, shiny_log: [], shiny_msg: "registro de shinies limpo")}
   end
 
-  # The escape SIMULATION (the aceite's "simulação"): runs the REAL protocol —
-  # real click, real walk, real halt, real alarm — behind the button's
-  # data-confirm. The {:escape, ...} broadcast coming back updates this panel.
+  # The escape SIMULATION: runs the REAL protocol — real click, real walk,
+  # real halt, real alarm — behind the button's data-confirm. The
+  # {:escape, ...} broadcast coming back updates this panel.
   def handle_event("test_escape", _params, socket) do
     BotSupervisor.emergency_escape("teste manual")
     {:noreply, socket}
@@ -1208,10 +1211,10 @@ defmodule PokexWeb.PanelLive do
     stats =
       window
       |> Enum.filter(fn {key, _v} ->
-        # backend = quanto o SO demorou; espera = quanto o LEITOR ficou na fila
-        # antes de ser atendido (Frente 3, Etapa 1) — é a espera, não o backend,
-        # que afogou o combate ao vivo (2026-07-29). As duas lado a lado dizem
-        # quem está sofrendo e por causa de quê.
+        # backend = how long the OS took; "espera" = how long the READER sat
+        # in the queue before being served — it was the wait, not the backend,
+        # that drowned live combat (2026-07-29). Side by side they say who is
+        # suffering and because of what.
         String.starts_with?(key, "capture.backend.") or
           String.starts_with?(key, "capture.espera:")
       end)
@@ -1286,12 +1289,12 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # O Logout global fica inerte na suíte (:logout_active), então nem o mount nem
-  # o botão podem depender de o processo responder — um call pra processo ausente
-  # derrubaria a página inteira.
-  # A resposta de "quem parou, por quê, há quanto tempo" — o critério de aceite
-  # da Frente 1. O Session registra a ordem; aqui só se mostra. Session fora do
-  # ar (teste isolado, boot parcial) → sem linha, nunca uma página caída.
+  # The global Logout stays inert in the test suite (:logout_active), so
+  # neither mount nor the button may depend on the process answering — a call
+  # to an absent process would take the whole page down.
+  # The answer to "who stopped it, why, how long ago". Session records the
+  # order; here it is only shown. Session down (isolated test, partial boot)
+  # → no line, never a crashed page.
   defp safe_last_order do
     Pokex.Bots.Session.last_order()
   catch
@@ -1306,8 +1309,9 @@ defmodule PokexWeb.PanelLive do
   defp last_order_line(%{kind: :stop, reason: reason, at: at}),
     do: "parado #{ago(at)} — #{reason || "sem motivo registrado"}"
 
-  # :start com a frota PARADA = um Iniciar que falhou no preflight (a ordem foi
-  # dada, os workers não subiram) — dizer isso é melhor que fingir que não houve
+  # :start with the fleet STOPPED = a Start that failed preflight (the order
+  # was given, the workers didn't come up) — saying so beats pretending it
+  # didn't happen
   defp last_order_line(%{kind: :start, at: at}),
     do: "um Iniciar #{ago(at)} não vingou (preflight?) — veja o alarme acima"
 
@@ -1345,8 +1349,8 @@ defmodule PokexWeb.PanelLive do
     :exit, _reason -> :ok
   end
 
-  # O painel nunca diz "deslogado" por omissão: cada estado tem seu texto, e a
-  # falha diz POR QUE falhou.
+  # The panel never says "logged out" by omission: every state has its own
+  # text, and a failure says WHY it failed.
   defp logout_label(%{state: :idle}), do: "nenhum logout ainda"
 
   defp logout_label(%{state: :pressing, attempt: n, attempts: total}),
@@ -1385,7 +1389,7 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # A UI fala PORCENTAGEM (limiar 72%); o setting guarda a fração 0..1.
+  # The UI speaks PERCENT (threshold 72%); the setting stores the 0..1 fraction.
   defp save_similaridade(socket, raw) do
     case PanelForms.parse_int(raw, 30..99) do
       {:ok, value} ->
@@ -1397,8 +1401,8 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # Tecla vazia não vira setting — apagar o campo no meio da digitação não pode
-  # deixar a bola sem atalho.
+  # An empty key never becomes a setting — clearing the field mid-typing must
+  # not leave the ball without a hotkey.
   defp save_ball_key(socket, raw) when is_binary(raw) do
     tecla = raw |> String.trim() |> String.downcase()
 
@@ -1479,10 +1483,10 @@ defmodule PokexWeb.PanelLive do
 
   defp cell_style(%{rgb: [r, g, b]}), do: "background: rgb(#{r}, #{g}, #{b})"
 
-  # Emoji + NOME, porque um botão cujo conteúdo inteiro é um emoji não tem
-  # rótulo acessível nenhum — e porque o nome também vira o texto do "só X" e o
-  # title. O emoji continua sendo o valor comparado no filtro, digitado UMA vez
-  # aqui (o da caçada nem isso: vem de @cavebot_source).
+  # Emoji + NAME, because a button whose entire content is an emoji has no
+  # accessible label at all — and the name also becomes the "só X" text and
+  # the title. The emoji stays the value the filter compares, typed ONCE here
+  # (the hunt's not even that: it comes from @cavebot_source).
   @feed_sources [
     {"🎣", "pesca"},
     {"⚔️", "batalha"},
@@ -1510,13 +1514,13 @@ defmodule PokexWeb.PanelLive do
     end)
   end
 
-  # "text-pk-title-content" esteve aqui: uma substituição em massa de classes
-  # comeu o `text-base-content` do daisyUI e cuspiu um nome que não existe em
-  # lugar nenhum do repositório. As linhas de log macro ficaram sem cor e nenhum
-  # teste percebeu — classe inexistente não quebra, só some.
+  # "text-pk-title-content" once lived here: a mass class replacement ate
+  # daisyUI's `text-base-content` and spat out a name that exists nowhere in
+  # the repo. The macro log lines lost their color and no test noticed — a
+  # nonexistent class doesn't break, it just vanishes.
   #
-  # E `opacity-50` compunha 1.64:1 com o timestamp: ilegível. Um nível de texto
-  # já apagado não precisa ficar meio transparente por cima.
+  # And `opacity-50` composed 1.64:1 with the timestamp: unreadable. An
+  # already-dimmed text level doesn't need to go half-transparent on top.
   defp log_class(:macro), do: "text-pk-body font-semibold text-pk-text"
   defp log_class(_debug), do: "text-pk-meta text-pk-text-3"
 
@@ -1570,9 +1574,9 @@ defmodule PokexWeb.PanelLive do
   defp combat_label(:error, _row), do: "erro"
   defp combat_label(other, _row), do: to_string(other)
 
-  # 🎯 Captura: parado (mode "parado" mas sem corpo ainda / mode "movimento" halted) /
-  # capturando (armado, jogando pokébola nos corpos detectados) / manual (mode "movimento" —
-  # você captura na mão).
+  # 🎯 Capture: parado (mode "parado" but no corpse yet / mode "movimento"
+  # halted) / capturando (armed, throwing pokéballs at detected corpses) /
+  # manual (mode "movimento" — captures are done by hand).
   defp catcher_label(:idle), do: "parado"
   defp catcher_label(:armed), do: "capturando"
   defp catcher_label(:manual), do: "manual"
@@ -1584,17 +1588,17 @@ defmodule PokexWeb.PanelLive do
   defp support_label(:idle), do: "parado"
   defp support_label(other), do: to_string(other)
 
-  # 🎮 Mini game: desligado / observando a arena / jogando (os outros workers se
-  # seguram sozinhos lendo o fato :mini_game no blackboard).
+  # 🎮 Mini game: off / watching the arena / playing (the other workers hold
+  # themselves by reading the :mini_game blackboard fact).
   defp mini_game_label(:off), do: "parado"
   defp mini_game_label(:watching), do: "observando"
   defp mini_game_label(:playing), do: "em jogo"
   defp mini_game_label(:error), do: "erro"
   defp mini_game_label(other), do: to_string(other)
 
-  # 🧭 Caçada (cavebot): anda a rota e cede a vez pro combate quando aparece
-  # inimigo. Os três estados de PARADA têm nomes distintos de propósito — "não
-  # anda" tem causas diferentes, e cada uma tem um conserto diferente.
+  # 🧭 Hunt (cavebot): walks the route and yields to combat when an enemy
+  # shows up. The three STOP states have distinct names on purpose — "not
+  # walking" has different causes, each with a different fix.
   defp cavebot_label(:idle), do: "parado"
   defp cavebot_label(:walking), do: "andando"
   defp cavebot_label(:fighting), do: "lutando"
@@ -1610,9 +1614,9 @@ defmodule PokexWeb.PanelLive do
 
   defp cavebot_counters(_no_counters), do: nil
 
-  # Onde ele está na rota, em uma linha: sem isto o painel dizia "andando" e mais
-  # nada — e "andando" há dez minutos no mesmo waypoint parece igualzinho a
-  # "andando" progredindo.
+  # Where it is on the route, in one line: without this the panel said
+  # "andando" and nothing else — and "walking" for ten minutes on the same
+  # waypoint looks exactly like walking with progress.
   defp cavebot_route_line(%{route: nil}), do: nil
 
   defp cavebot_route_line(%{route: route, wp_index: index, wp_total: total} = snapshot) do
@@ -1626,11 +1630,12 @@ defmodule PokexWeb.PanelLive do
 
   defp cavebot_route_line(_no_route), do: nil
 
-  # O texto do alarme de bloqueio. Diz o que aconteceu E o que isso custou: um
-  # bloqueio PERIGOSO parou a frota inteira, um LOCAL parou só a caçada — e a
-  # diferença é a primeira coisa que ele quer saber. A linha sai com a fonte
-  # 🔔 (é alarme), então leva o 🧭 no texto pra se identificar — e mesmo aqui o
-  # emoji vem da constante, nunca de um literal repetido.
+  # The block-alarm text. Says what happened AND what it cost: a DANGEROUS
+  # block stopped the whole fleet, a LOCAL one stopped only the hunt — and
+  # the difference is the first thing he wants to know. The line ships with
+  # the 🔔 source (it's an alarm), so it carries the 🧭 in the text to
+  # identify itself — and even here the emoji comes from the constant, never
+  # a repeated literal.
   defp cavebot_alarm_text(reason), do: "#{@cavebot_source} #{cavebot_block_text(reason)}"
 
   defp cavebot_block_text(:floor_changed),
@@ -1657,9 +1662,9 @@ defmodule PokexWeb.PanelLive do
   attr :snapshot, :map, required: true
   attr :now_ms, :integer, required: true
   attr :title, :string, default: nil
-  # Uma linha neutra de contexto, do lado do 🔒 do hold_reason mas sem a cor de
-  # aviso: hoje é a rota/waypoint da caçada, que não cabe na linha do estado (e
-  # que, truncada, perde justamente o número que interessa).
+  # A neutral context line, next to the hold_reason's 🔒 but without the
+  # warning color: today it is the hunt's route/waypoint, which doesn't fit
+  # on the state line (and, truncated, loses exactly the number that matters).
   attr :detail, :string, default: nil
   slot :aside
 
@@ -1717,7 +1722,7 @@ defmodule PokexWeb.PanelLive do
     """
   end
 
-  # --- sessão e alarmes (Fase 7) ---------------------------------------------
+  # --- session and alarms -----------------------------------------------------
 
   # Same practically-forever max age the :calibration stamp uses — the fact only
   # disappears because stop_all forgets it, never by expiring.
@@ -1733,8 +1738,8 @@ defmodule PokexWeb.PanelLive do
   # --- world card (the blackboard, where he is already looking) ---------------
 
   # "—" for a value we do not have YET, never "?". A question mark reads as a
-  # broken field; an em-dash reads as "nada lido ainda", which is the truth: the
-  # feeds fail OPEN, so an unread value is normal, not an error.
+  # broken field; an em-dash reads as "nothing read yet", which is the truth:
+  # the feeds fail OPEN, so an unread value is normal, not an error.
   @unknown "—"
 
   defp world_num(nil), do: @unknown
@@ -1859,8 +1864,8 @@ defmodule PokexWeb.PanelLive do
 
   # One pipeline for every alarm: the per-type min gap (KizuBot's
   # antiSpamInterval) dedupes a flapping source; inside the gap NOTHING happens
-  # (no line, no sound). Mute (geral OU por setor) só silencia o SOM — a linha
-  # 🔔 do feed fica, então um painel mudo continua registrando.
+  # (no line, no sound). Mute (master OR per sector) silences only the SOUND
+  # — the feed's 🔔 line stays, so a muted panel keeps recording.
   defp alarm(socket, key, category, text) do
     last = Map.get(socket.assigns.alarm_last, key)
     at = now_ms()
@@ -1976,9 +1981,9 @@ defmodule PokexWeb.PanelLive do
   attr :event, :string, required: true
   attr :override, :boolean, default: false
 
-  # Uma chave da faixa rápida: alvo grande (o chip inteiro clica), estado legível
-  # de longe pela cor, e nada além do nome — a explicação de cada uma mora no ⚙️,
-  # onde há espaço pra ela.
+  # A quick-strip switch: big target (the whole chip clicks), state readable
+  # from afar by color, and nothing but the name — each one's explanation
+  # lives in the ⚙️, where there is room for it.
   defp quick_toggle(assigns) do
     ~H"""
     <button
@@ -2011,11 +2016,11 @@ defmodule PokexWeb.PanelLive do
   defp catcher_captures(catcher), do: get_in(catcher, [:counters, :captures]) || 0
   defp catcher_loots(catcher), do: get_in(catcher, [:counters, :loots]) || 0
 
-  # O placar que transforma "acho que não tá funcionando" em número: quantas
-  # varreduras a sessão fez e quantas acharam alvo. Medido em 2026-07-30, o bot
-  # fez 242 kills pra 1 reconhecimento — sem essa razão na tela, invisível.
-  # `cegas` só aparece quando existe: cegueira é anormal e merece destaque, não
-  # uma coluna de zeros permanente.
+  # The scoreboard that turns "I think it's not working" into a number: how
+  # many sweeps the session ran and how many found a target. Measured
+  # 2026-07-30: the bot did 242 kills for 1 recognition — without this ratio
+  # on screen, invisible. `cegas` only shows when nonzero: blindness is
+  # abnormal and deserves emphasis, not a permanent column of zeros.
   defp catcher_scan_counters(catcher) do
     varreduras = get_in(catcher, [:counters, :varreduras]) || 0
     com_alvo = get_in(catcher, [:counters, :com_alvo]) || 0
@@ -2028,15 +2033,15 @@ defmodule PokexWeb.PanelLive do
     if cegas > 0, do: base <> " · #{cegas} cega", else: base
   end
 
-  # As seções que MUDARAM DE LUGAR no PR 2 (2026-07-30): combos, presets, shiny,
-  # as regras de sessão e o avançado saíram do dashboard e agora moram dentro do
-  # ⚙️. A markup é a MESMA — mesmos eventos, mesmos assigns — só que atrás de um
-  # clique em vez de empilhada sobre o que ele olha com o bot rodando. Da Sessão
-  # migraram só os FORMULÁRIOS: o relógio, as taxas e os contadores continuam no
-  # dashboard, porque são exatamente o que se olha rodando.
+  # The sections that MOVED (2026-07-30): combos, presets, shiny, the session
+  # rules and the advanced block left the dashboard and now live inside the
+  # ⚙️. The markup is the SAME — same events, same assigns — just behind a
+  # click instead of stacked over what he watches with the bot running. From
+  # the Session block only the FORMS migrated: the clock, rates and counters
+  # stay on the dashboard, because they are exactly what one watches running.
   #
-  # Recebe os assigns inteiros do painel (`{assigns}`): declarar ~25 attrs aqui
-  # seria cerimônia sem leitor, e nenhum deles muda de significado no caminho.
+  # Takes the panel's whole assigns (`{assigns}`): declaring ~25 attrs here
+  # would be ceremony with no reader, and none changes meaning on the way.
   defp settings_sections(assigns) do
     ~H"""
     <div class="space-y-3">
@@ -2632,10 +2637,10 @@ defmodule PokexWeb.PanelLive do
                 snapshot={@game}
                 now_ms={@now_ms}
               />
-              <%!-- A caçada é o único worker que ANDA, então é o único que pode
-                   parar num lugar onde ninguém foi. Sem esta linha o painel não
-                   dizia uma palavra sobre ela: nem rota, nem waypoint, nem por
-                   que parou. --%>
+              <%!-- The hunt is the only worker that WALKS, so it is the only one
+                   that can stop somewhere nobody went. Without this row the
+                   panel said not a word about it: no route, no waypoint, no
+                   reason it stopped. --%>
               <.worker_row
                 testid="cavebot-pill"
                 name="Caçada"
@@ -2789,9 +2794,10 @@ defmodule PokexWeb.PanelLive do
               <.icon name="hero-stop-solid" class="size-4" /> Parar bot
             </button>
 
-            <%!-- A FAIXA RÁPIDA: as seis chaves que mudam por SESSÃO (2026-07-30).
-                  Todo número, tecla e limiar foi pro ⚙️; estas seis ficaram porque
-                  desligar a pesca no meio da caçada não pode custar abrir uma tela. --%>
+            <%!-- The QUICK STRIP: the six switches that change per SESSION
+                  (2026-07-30). Every number, key and threshold went to the ⚙️;
+                  these six stayed because turning fishing off mid-hunt must not
+                  cost opening a screen. --%>
             <div id="quick-toggles" class="rounded-xl border border-pk-line bg-pk-surface p-2">
               <div class="mb-1.5 flex items-center justify-between px-1">
                 <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
@@ -2871,8 +2877,8 @@ defmodule PokexWeb.PanelLive do
                   style={hp_bar_style(@game)}
                 />
               </div>
-              <%!-- Os limiares mudaram de lugar (⚙️): aqui viraram LEITURA — você vê
-                   o que está valendo sem esbarrar num número no meio da caçada. --%>
+              <%!-- The thresholds moved (⚙️): here they became a READOUT — you
+                   see what is in force without bumping a number mid-hunt. --%>
               <div class="mt-2 flex items-center justify-between font-mono text-pk-meta text-pk-text-3">
                 <span>revive &lt; {@rescue_pct}% · poção &lt; {@potion_pct}%</span>
                 <span>{rescue_count(@game)} revives · {potion_count(@game)} poções</span>
@@ -2980,10 +2986,10 @@ defmodule PokexWeb.PanelLive do
                 </p>
               </div>
 
-              <%!-- Ele acompanha a posição o tempo todo pra conferir se o bot sabe
-                   onde está, então o número sozinho não basta: vem com a IDADE e
-                   com a frase que separa "não estou lendo" de "estou lendo, e
-                   você está aqui" — um "—" mudo não dizia qual dos dois era. --%>
+              <%!-- He watches the position constantly to check the bot knows
+                   where it is, so the number alone is not enough: it comes with
+                   the AGE and the phrase separating "not reading" from
+                   "reading, and you are here" — a mute "—" didn't say which. --%>
               <div id="world-position" class="col-span-2">
                 <p class="font-mono text-pk-meta uppercase text-pk-text-3">Posição</p>
                 <p class="font-mono text-pk-body text-pk-text">
@@ -3170,10 +3176,10 @@ defmodule PokexWeb.PanelLive do
         </div>
       </div>
 
-      <%!-- O ⚙️ é a MESMA LiveView (live_action): o dashboard segue montado e
-            vivo atrás, com as pílulas se mexendo enquanto ele configura. Rota
-            própria é o que dá URL, F5 e voltar — um modal de assign não daria
-            nenhum dos três. --%>
+      <%!-- The ⚙️ is the SAME LiveView (live_action): the dashboard stays
+            mounted and alive behind it, pills moving while he configures. The
+            dedicated route is what gives URL, F5 and back — an assign-only
+            modal would give none of the three. --%>
       <PokexWeb.Panel.SettingsOverlay.settings_overlay
         :if={@live_action == :config}
         rescue_cfg={

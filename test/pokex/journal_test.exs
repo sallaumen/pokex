@@ -1,6 +1,6 @@
 defmodule Pokex.JournalTest do
-  # async: false — os broadcasts vão nos tópicos globais que a instância
-  # do app também escuta; os asserts usam a instância ISOLADA.
+  # async: false — broadcasts hit global topics the app instance also hears;
+  # asserts use the isolated instance.
   use ExUnit.Case, async: false
 
   alias Pokex.Journal
@@ -12,11 +12,11 @@ defmodule Pokex.JournalTest do
 
   defp emit(topic, msg) do
     Phoenix.PubSub.broadcast(Pokex.PubSub, topic, msg)
-    # broadcast é assíncrono: um call subsequente serializa atrás dele
+    # broadcast is async: a subsequent call serializes behind it
     :ok
   end
 
-  test "um log de worker vira evento com origem, severidade e geração", %{journal: journal} do
+  test "a worker log becomes an event with source, severity and generation", %{journal: journal} do
     gen = Pokex.Bots.Session.order(:start, "teste journal")
     emit("fishing", {:fishing_log, :macro, "arremesso da isca"})
 
@@ -28,7 +28,9 @@ defmodule Pokex.JournalTest do
     assert event.repeats == 1
   end
 
-  test "chatter idêntico consecutivo vira repeats, não linhas novas", %{journal: journal} do
+  test "consecutive identical chatter increments repeats instead of adding lines", %{
+    journal: journal
+  } do
     for _ <- 1..4, do: emit("cavebot", {:cavebot_log, :debug, "passo 90,80"})
     emit("cavebot", {:cavebot_log, :debug, "chegou no wp 2"})
 
@@ -38,7 +40,7 @@ defmodule Pokex.JournalTest do
     assert repetido.repeats == 4
   end
 
-  test "alarmes de regra e pânico entram como :alarm", %{journal: journal} do
+  test "rule alarms and panic land as :alarm events", %{journal: journal} do
     emit("combat", {:rule_alarm, "🎣 3 arremessos sem NENHUMA bolha"})
     emit("combat", {:panic, "kill corner"})
 
@@ -47,7 +49,7 @@ defmodule Pokex.JournalTest do
     assert alarme.severity == :alarm and alarme.source == :regra
   end
 
-  test "min_severity :macro esconde o chatter de debug", %{journal: journal} do
+  test "min_severity :macro hides debug chatter", %{journal: journal} do
     emit("fishing", {:fishing_log, :debug, "bol 23/1150"})
     emit("fishing", {:fishing_log, :macro, "fisgada"})
 
@@ -55,7 +57,7 @@ defmodule Pokex.JournalTest do
     assert length(Journal.recent([], journal)) == 2
   end
 
-  test "o ring é limitado: o mais velho cai", %{journal: journal} do
+  test "the ring is capped and drops the oldest event", %{journal: journal} do
     for i <- 1..7, do: emit("combat", {:combat_log, :macro, "evento #{i}"})
 
     events = Journal.recent([], journal)
@@ -64,14 +66,14 @@ defmodule Pokex.JournalTest do
     refute Enum.any?(events, &(&1.text == "evento 1"))
   end
 
-  test "filtro por origem", %{journal: journal} do
+  test "filters by source", %{journal: journal} do
     emit("fishing", {:fishing_log, :macro, "da pesca"})
     emit("combat", {:combat_log, :macro, "do combate"})
 
     assert [%{source: :combat}] = Journal.recent([sources: [:combat]], journal)
   end
 
-  test "snapshots e mensagens desconhecidas dos mesmos tópicos são ignorados", %{
+  test "snapshots and unknown messages on the same topics are ignored", %{
     journal: journal
   } do
     emit("fishing", {:fishing, %{state: :pescando, counters: %{}}})
@@ -80,7 +82,7 @@ defmodule Pokex.JournalTest do
     assert Journal.recent([], journal) == []
   end
 
-  describe "persistência JSONL (sobrevive ao RESTART)" do
+  describe "JSONL persistence across restarts" do
     @tag :tmp_dir
     setup %{tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
@@ -89,12 +91,11 @@ defmodule Pokex.JournalTest do
     end
 
     @tag :tmp_dir
-    test "macro vira linha JSONL; debug e repeats não" do
+    test "macro events become JSONL lines; debug and repeats do not" do
       {:ok, journal} = Journal.start_link(name: nil, persist: true)
       emit("fishing", {:fishing_log, :macro, "fisgada"})
       emit("fishing", {:fishing_log, :macro, "fisgada"})
       emit("fishing", {:fishing_log, :debug, "bol 3px"})
-      # serializa atrás dos broadcasts
       _ = Journal.recent([], journal)
 
       arquivo = Path.join(Journal.dir(), Date.to_iso8601(Date.utc_today()) <> ".jsonl")
@@ -105,7 +106,7 @@ defmodule Pokex.JournalTest do
     end
 
     @tag :tmp_dir
-    test "um journal novo ressemeia o ring do disco — a história sobrevive ao restart" do
+    test "a new journal reseeds its ring from disk after a restart" do
       {:ok, primeiro} = Journal.start_link(name: nil, persist: true)
       emit("combat", {:rule_alarm, "alarme da madrugada"})
       _ = Journal.recent([], primeiro)
@@ -120,7 +121,7 @@ defmodule Pokex.JournalTest do
     end
 
     @tag :tmp_dir
-    test "linha corrompida no arquivo é pulada, nunca derruba o boot" do
+    test "a corrupted line in the file is skipped and never crashes boot" do
       File.mkdir_p!(Journal.dir())
 
       File.write!(
@@ -135,7 +136,7 @@ defmodule Pokex.JournalTest do
     end
 
     @tag :tmp_dir
-    test "arquivos velhos são podados no boot; sem persist nada é escrito" do
+    test "old files are pruned at boot; without persist nothing is written" do
       File.mkdir_p!(Journal.dir())
       velho = Path.join(Journal.dir(), "2020-01-01.jsonl")
       File.write!(velho, "{}\n")

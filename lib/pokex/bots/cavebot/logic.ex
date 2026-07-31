@@ -1,26 +1,26 @@
 defmodule Pokex.Bots.Cavebot.Logic do
   @moduledoc """
-  Máquina de estados PURA do cavebot, estilo constante.
+  PURE cavebot state machine, constant-hunt style.
 
-  O Combat roda o tempo todo: a Logic liga ele no arranque (`:run_combat` no
-  primeiro tick) e só desliga quando bloqueia — o Worker, ao ver o primeiro
-  `{:block, _}`, para tudo. Entre um waypoint e outro a Logic anda, confirma
-  progresso pela posição, cede quando aparece inimigo e retoma a rota depois
-  do clear sustentado + dwell.
+  Combat runs the whole time: the Logic turns it on at startup (`:run_combat` on
+  the first tick) and only off when it blocks — the Worker stops everything on
+  the first `{:block, _}`. Between waypoints the Logic walks, confirms progress
+  by position, yields when an enemy appears, and resumes after sustained clear
+  plus dwell.
 
-  Pureza total: sem processo, sem relógio, sem tela, sem Settings. A `config`
-  e o `now` (inteiro monotônico em ms) vêm por parâmetro — é o que permite
-  testar a máquina inteira sem jogo rodando.
+  Fully pure: no process, clock, screen or Settings — `config` and `now`
+  (monotonic ms) come as parameters, which is what makes the whole machine
+  testable without the game running.
 
-  Estados: `:walking` → `:fighting` → `:post_fight` → `:walking`, com os
-  desvios `:stuck` (sem progresso andando), `:fight_stalled` (luta que não
-  termina) e `:blocked` (terminal: mudança de andar ou retries esgotados).
+  States: `:walking` → `:fighting` → `:post_fight` → `:walking`, with detours
+  `:stuck` (no walking progress), `:fight_stalled` (fight that won't end) and
+  `:blocked` (terminal: floor change or retries exhausted).
 
-  Cegueira (posição desconhecida) NÃO é estado: segurar o passo é o certo, e um
-  segundo de leitura ruim é rotina — virar `{:block, _}` seria pior que o mal.
-  Mas ela fica MARCADA em `since[:blind]` e legível por `blind_ms/2`, porque
-  "parado porque não sei onde estou" e "parado porque travou" são a mesma coisa
-  vistos de fora, e não podem ser.
+  Blindness (unknown position) is NOT a state: holding the step is right, and a
+  second of bad reads is routine — turning it into `{:block, _}` would be worse
+  than the disease. But it is MARKED in `since[:blind]` and readable via
+  `blind_ms/2`: "stopped because I don't know where I am" and "stopped because
+  stuck" look identical from outside and must not be.
   """
 
   alias Pokex.Bots.Cavebot.Route
@@ -72,8 +72,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
         }
 
   @doc """
-  Cria a máquina para uma rota: `state: :walking`, `wp_index: 0`,
-  `combat_running?: false`. A `config` fica guardada na struct.
+  Creates the machine for a route: `state: :walking`, `wp_index: 0`,
+  `combat_running?: false`. `config` is stored on the struct.
   """
   @spec new(Route.t(), config) :: t
   def new(%Route{} = route, config) when is_map(config) do
@@ -81,17 +81,17 @@ defmodule Pokex.Bots.Cavebot.Logic do
   end
 
   @doc """
-  Um tick da constante: recebe o mundo observado e o relógio, devolve a
-  máquina atualizada e UMA ação para o Worker traduzir.
+  One tick: takes the observed world and the clock, returns the updated machine
+  and ONE action for the Worker to translate.
 
-  Ordem das decisões:
+  Decision order:
 
-  1. `:blocked` é terminal — sempre `{logic, :none}`.
-  2. Mudança de andar (`pos` não-nil com z diferente da rota) bloqueia em
-     qualquer estado: `{:block, :floor_changed}`. Safety antes de tudo.
-  3. Arranque: com `combat_running?` false, liga o Combat (`:run_combat`)
-     e nada mais neste tick.
-  4. Despacho por estado.
+  1. `:blocked` is terminal — always `{logic, :none}`.
+  2. Floor change (non-nil `pos` with z differing from the route) blocks in any
+     state: `{:block, :floor_changed}`. Safety first.
+  3. Startup: with `combat_running?` false, start Combat (`:run_combat`) and
+     nothing else this tick.
+  4. Dispatch by state.
   """
   @spec step(t, world, integer) :: {t, action}
   def step(%__MODULE__{state: :blocked} = logic, _world, _now), do: {logic, :none}
@@ -115,8 +115,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
   def step(%__MODULE__{state: :post_fight} = logic, world, now), do: post_fight(logic, world, now)
 
   @doc """
-  Há quantos ms a máquina está sem saber onde o personagem está — `nil` quando a
-  coordenada está sendo lida. É o que o Worker transforma em motivo visível.
+  How many ms the machine has gone without knowing where the character is —
+  `nil` while the coordinate is being read. The Worker turns this into a
+  visible reason.
   """
   @spec blind_ms(t, integer) :: non_neg_integer | nil
   def blind_ms(%__MODULE__{since: since}, now) do
@@ -126,16 +127,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # --- :walking ---
-
-  # Inimigo na tela: o Combat (sempre rodando) já luta — só muda de estado.
+  # Enemy on screen: Combat (always running) already fights — just change state.
   defp walk(logic, %{enemies: enemies}, now) when enemies > 0 do
     since = logic.since |> Map.delete(:clear) |> Map.put(:fight, now)
     {%{logic | state: :fighting, since: since}, :none}
   end
 
-  # Posição desconhecida: segura — nunca anda às cegas. E MARCA a cegueira, pra
-  # o Worker poder dizer há quanto tempo está assim.
+  # Unknown position: hold — never walk blind. And MARK the blindness so the
+  # Worker can say how long it has lasted.
   defp walk(logic, %{pos: nil}, now), do: {blind(logic, now), :none}
 
   defp walk(logic, %{pos: {x, y, _} = pos}, now) do
@@ -161,15 +160,13 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # --- :stuck ---
-
   defp stuck(logic, %{pos: nil}, now), do: {blind(logic, now), :none}
 
   defp stuck(logic, %{pos: pos} = world, now) do
     logic = sighted(logic)
 
     if pos != logic.last_pos do
-      # Voltou a se mexer: retoma a rota com os retries zerados.
+      # Moving again: resume the route with retries reset.
       walk(%{logic | state: :walking, retries: 0}, world, now)
     else
       retries = logic.retries + 1
@@ -184,9 +181,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # --- :fighting ---
-
-  # Tela limpa: sustenta o debounce antes de dar a luta por encerrada.
+  # Screen clear: sustain the debounce before declaring the fight over.
   defp fight(logic, %{enemies: 0}, now) do
     case Map.get(logic.since, :clear) do
       nil ->
@@ -206,7 +201,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # Inimigo ainda vivo: zera o clear e vigia o timeout da luta.
+  # Enemy still alive: reset the clear and watch the fight timeout.
   defp fight(logic, _world, now) do
     since = Map.delete(logic.since, :clear)
 
@@ -223,13 +218,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # --- :fight_stalled ---
-
-  # O nudge é a tentativa de destravar uma luta que não termina — então tem que
-  # MEXER o personagem. `{:nudge, 0, 0}` não mexia: o Worker traduz o nudge em
-  # `Body.minimap_step/3`, que clica no centro da região do minimapa — o tile
-  # onde o personagem já está. Era um no-op garantido, gastando os retries até o
-  # `{:block, :fight_stalled}` sem nunca ter tentado nada.
+  # The nudge exists to unstick a fight that won't end — so it must MOVE the
+  # character. `{:nudge, 0, 0}` didn't: the Worker translates a nudge into
+  # `Body.minimap_step/3`, which clicks the minimap center — the tile the
+  # character already occupies. A guaranteed no-op that burned the retries into
+  # `{:block, :fight_stalled}` without ever trying anything.
   defp fight_stalled(logic, world, _now) do
     retries = logic.retries + 1
 
@@ -241,8 +234,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # UM tile na direção do waypoint atual. Sem posição lida — ou já em cima do
-  # waypoint — desempata pelo eixo x: qualquer direção serve, (0,0) não.
+  # ONE tile toward the current waypoint. Without a position read — or already
+  # on the waypoint — tie-break on the x axis: any direction works, (0,0) doesn't.
   defp nudge_step(logic, %{pos: {x, y, _}}) do
     wp = current_wp(logic)
     one_tile(wp.x - x, wp.y - y)
@@ -256,8 +249,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp sign(0), do: 0
   defp sign(n) when n > 0, do: 1
   defp sign(_n), do: -1
-
-  # --- :post_fight ---
 
   defp post_fight(logic, _world, now) do
     dwell_since = Map.get(logic.since, :dwell, now)
@@ -274,16 +265,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # --- helpers ---
-
   defp current_wp(logic), do: Enum.at(logic.route.waypoints, logic.wp_index)
 
   defp note_progress(logic, pos, now) do
     %{logic | last_pos: pos, since: Map.put(logic.since, :walk_progress, now)}
   end
 
-  # O relógio da cegueira marca a PRIMEIRA leitura sem posição e não reinicia
-  # nos ticks seguintes — o que interessa é o tempo total às escuras.
+  # The blindness clock marks the FIRST read without a position and does not
+  # restart on later ticks — total time in the dark is what matters.
   defp blind(%__MODULE__{since: since} = logic, now) do
     if Map.has_key?(since, :blind),
       do: logic,

@@ -1,60 +1,35 @@
 defmodule Pokex.Bots.Catcher.SpotScan do
   @moduledoc """
-  A visão da captura: ancorada no KILL, VARRIDA densamente ao redor do
-  personagem.
+  Capture vision: KILL-anchored, DENSELY scanned around the character.
 
-  ## Por que é ancorada no kill (2026-07-30)
+  Kill-anchored (2026-07-30) because the ground detector (baseline + diff +
+  tracking) needed a QUIET warmup window that real operation never has: warmup
+  ran with a fight on screen, masked exactly the tiles where corpses land, and
+  capture stayed mute all session while kill-anchored looting worked beside it.
 
-  O detector de chão (baseline + diff + rastreamento) exigia uma janela QUIETA
-  pro aquecimento — e a operação real (pesca fisgando sem parar, combate em
-  Tab/luta contínua) não tem janela quieta nunca: o aquecimento acontecia com
-  luta na tela, mascarava exatamente os tiles onde os corpos caem, e a captura
-  passava a sessão inteira MUDA enquanto o saque (ancorado no kill, sem visão
-  nenhuma) funcionava ao lado.
+  The search is DENSE, not a tile lattice — three defects measured 2026-07-30
+  killed the lattice: (1) the arena clip decapitated the ring (his arena
+  y 217..642 does not contain the character at y 697 — live log:
+  `olhei 11/16 tiles`); (2) two lattices out of phase (`player_point` and
+  `pokemon_spot_point` differed by (28, 26) mod tile — fixing one's phase
+  misaligned the other, and the pokémon is who kills); (3) teach vs search
+  framing (calibration crops around the CLICK on the creature, the search
+  cropped around the tile's geometric center — taught framing scores 1.000 vs
+  0.56..0.87 on grids; live Kingler best was 0.39, a pure-ground box). Sliding
+  the teach-sized box over the WHOLE region (coarse step + refinement around
+  peaks) removes grid phase entirely, and the winning framing is by construction
+  the closest to what was taught.
 
-  ## Por que a busca é DENSA, e não numa grade de tiles (2026-07-30, medido)
+  The aim comes free: the thrown point is the WINNING WINDOW's center — teaching
+  centers on the click over the corpse, so the ball inherits that aim (commit
+  2f21811's `capture_aim_up_px`/`left_px` constants were the same fix by guess).
 
-  A primeira versão mirava numa treliça sintética: `âncora ± N × tile_px`. Três
-  defeitos a mataram no campo, todos medidos nos arquivos do Lucas:
-
-    1. **A arena decapitava o anel.** A região era recortada contra
-       `arena_region`, e a arena dele (y 217..642) não contém o personagem
-       (y 697): a fileira dele e a sul nunca eram olhadas. Log ao vivo:
-       `olhei 11/16 tiles (5 fora do quadro)`.
-    2. **Duas treliças fora de fase.** Os pontos vinham de `player_point` E
-       `pokemon_spot_point`, marcados em passos diferentes do wizard. A
-       diferença entre eles, em módulo de tile, era (28, 26) — nem 0 nem 88.
-       Acertar a fase de um desalinhava o outro, e é o pokémon quem mata.
-    3. **Ensinar e buscar enquadravam diferente.** A calibração recorta a caixa
-       em torno do CLIQUE do Lucas (em cima do bicho); a busca recortava em
-       torno do CENTRO GEOMÉTRICO do tile. Medido nas duas amostras de Cloyster
-       dele: no enquadramento ensinado o score é 1,000; nas grades, 0,56..0,87.
-       Com Kingler no chão ao vivo, o melhor foi **0,39** — caixa de chão puro.
-
-  A varredura densa mata os três de uma vez: desliza a caixa do tamanho do
-  ensino por TODA a região (passo grosso + refino ao redor dos picos) e fica com
-  o máximo. Não existe mais "fase de grade" pra errar, e o enquadramento
-  vencedor é, por construção, o mais parecido com o que foi ensinado.
-
-  ## E a mira sai de graça
-
-  O ponto arremessado é o CENTRO DA JANELA VENCEDORA — não o centro de um tile.
-  Como o ensino centra no clique do Lucas em cima do corpo, a bola herda
-  automaticamente a mira que ele escolheu ao fotografar. (O commit 2f21811 já
-  tinha atacado isso com constantes `capture_aim_up_px`/`left_px`, apagadas
-  depois numa faxina; a janela vencedora é a mesma correção sem chute.)
-
-  ## O quadradão
-
-  A região é um quadrado de `(2r+1)` tiles centrado no personagem, clampado na
-  TELA — nunca mais na arena. `corpse_scan_radius_tiles` manda no raio. Se o
-  ponto do pokémon estiver calibrado e cair fora, o quadrado cresce só o
-  suficiente pra abraçá-lo: quem luta é ele, e o corpo cai do lado dele.
-
-  Devolve a MESMA forma de observação que a `Catcher.Logic` já consome
-  (`%{scanning?, corpses, known, captured_at}`) mais o diagnóstico da fatia 1
-  (`janelas`, `melhor`, `motivo`), então fila/bola-em-voo/confirmação/retry
-  seguem intocados.
+  The region is a `(2r+1)`-tile square centered on the character, clamped to the
+  SCREEN — never the arena. `corpse_scan_radius_tiles` sets the radius; a
+  calibrated pokémon point falling outside grows the square just enough to
+  embrace it. Returns the SAME observation shape `Catcher.Logic` consumes
+  (`%{scanning?, corpses, known, captured_at}`) plus diagnostics (`janelas`,
+  `melhor`, `motivo`), so queue/ball-in-flight/confirmation/retry stay untouched.
   """
 
   alias Pokex.Bots.Capture
@@ -62,7 +37,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   alias Pokex.{Calibration, Settings}
   alias Pokex.Vision.Frame
 
-  @doc "Carrega a calibração vigente e varre. Observação cega quando não dá pra ver."
+  @doc "Loads the current calibration and scans. Blind observation when it cannot see."
   def scan do
     case Calibration.load() do
       {:ok, calib} -> scan(calib)
@@ -71,19 +46,18 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   end
 
   @doc """
-  Varre o quadradão ao redor do personagem contra o acervo ensinado.
+  Scans the square around the character against the taught library.
 
-  SEMPRE devolve uma observação — nunca `nil`. Uma varredura que não achou nada
-  e uma que não ACONTECEU eram o mesmo silêncio, e foi esse silêncio que fez o
-  Lucas passar o dia sem saber se o problema era mira, acervo ou portão. A
-  observação carrega o diagnóstico: `janelas` (quantas posições foram
-  pontuadas), `melhor` (o melhor par `%{name, score, ponto}` mesmo REPROVADO),
-  `regiao`, `limiar` e, quando cegou, `motivo`.
+  ALWAYS returns an observation — never `nil`. A scan that found nothing and one
+  that never HAPPENED used to be the same silence, leaving no way to tell whether
+  the problem was aim, library, or gate. The observation carries diagnostics:
+  `janelas` (positions scored), `melhor` (best `%{name, score, ponto}` even when
+  FAILING), `regiao`, `limiar`, and `motivo` when blind.
 
-  Observação cega sai com `scanning?: false`: a `Catcher.Logic` trata isso como
-  passo que não prova nada, então falha de visão nunca confirma bola em voo.
+  Blind observations carry `scanning?: false`: `Catcher.Logic` treats them as a
+  step that proves nothing, so a vision failure never confirms a ball in flight.
 
-  `capture` é injetável nos testes (mesma seam do resto dos workers).
+  `capture` is injectable in tests (same seam as the other workers).
   """
   def scan(%Calibration{} = calib, capture \\ &Capture.frame/2) do
     with {:ok, centro} <- centro(calib),
@@ -98,26 +72,21 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   end
 
   @doc """
-  A região que a busca varre — a MESMA que a calibração precisa fotografar pra
-  ensinar um corpo.
-
-  Existe porque ensinar e buscar precisam enxergar o mesmo pedaço de tela. A
-  foto do ensino usava `arena_region` enquanto a busca já usava o quadradão:
-  um corpo caído perto do personagem (fora da arena) simplesmente não cabia na
-  foto, e o Lucas não conseguia clicar nele pra ensinar — visto ao vivo com um
-  Gyarados cortado na borda de baixo (2026-07-30).
-
-  `{:ok, {x, y, w, h}}` ou `{:erro, motivo}`.
+  The region the search scans — the SAME one calibration must photograph to
+  teach a corpse. Teaching used `arena_region` while the search used the square:
+  a corpse near the character (outside the arena) didn't fit the photo and
+  couldn't be clicked to teach — seen live with a Gyarados clipped at the bottom
+  edge (2026-07-30). `{:ok, {x, y, w, h}}` or `{:erro, motivo}`.
   """
   def regiao(%Calibration{} = calib) do
     with {:ok, centro} <- centro(calib), do: scan_region(centro, calib)
   end
 
-  # O centro da busca. O ponto marcado à mão manda; sem ele, o CENTRO DA TELA —
-  # que na tela do Lucas cai a menos de meia casa do personagem real (medido:
-  # (1720,720) contra (1688,697)). O fallback antigo era o centro da ARENA, que
-  # na calibração dele fica 268px acima do personagem. Isto é o que permite
-  # capturar SEM arena calibrada, como ele pediu.
+  # Search center. The hand-marked point wins; without it, the SCREEN center —
+  # which lands within half a tile of the real character (measured: (1720,720)
+  # vs (1688,697)). The old fallback was the ARENA center, 268px above the
+  # character on his calibration. This is what allows capturing WITHOUT a
+  # calibrated arena.
   defp centro(%Calibration{player_point: {_x, _y} = ponto}), do: {:ok, ponto}
 
   defp centro(%Calibration{screen_w: w, screen_h: h}) when is_integer(w) and is_integer(h),
@@ -125,10 +94,10 @@ defmodule Pokex.Bots.Catcher.SpotScan do
 
   defp centro(_sem_nada), do: {:erro, :sem_ancora}
 
-  # O quadradão: (2r+1) tiles centrado no personagem, esticado pra abraçar o
-  # ponto do pokémon se ele cair fora, e clampado na TELA — nunca na arena (era
-  # a arena que decapitava o anel). Clampar na tela também garante que a região
-  # nunca sai do display, que é o que a quarentena do broker rejeitaria.
+  # The square: (2r+1) tiles centered on the character, stretched to embrace the
+  # pokémon point if it falls outside, clamped to the SCREEN — never the arena
+  # (the arena clip decapitated the ring). Screen clamping also keeps the region
+  # on the display, which the broker's quarantine would otherwise reject.
   defp scan_region({cx, cy}, %Calibration{screen_w: sw, screen_h: sh} = calib)
        when is_integer(sw) and is_integer(sh) do
     tile = max(Settings.get(:tile_px), 1)
@@ -159,10 +128,9 @@ defmodule Pokex.Bots.Catcher.SpotScan do
     {min(left, px - tile), min(top, py - tile), max(right, px + tile), max(bottom, py + tile)}
   end
 
-  # A varredura: desliza a caixa do tamanho do ensino pela região inteira num
-  # passo grosso, refina ao redor dos melhores picos, e fica com os máximos
-  # locais que passam do limiar. Duas fases porque a fase fina sozinha custaria
-  # ~40× mais janelas pelo mesmo resultado.
+  # Slide the teach-sized box over the whole region at a coarse step, refine
+  # around the best peaks, keep local maxima above the threshold. Two phases
+  # because the fine phase alone would cost ~40x more windows for the same result.
   defp varrer(%Frame{} = frame, calib, region, centro) do
     box = Settings.get(:corpse_sprite_box_px)
     min_sim = Settings.get(:corpse_match_min_similarity)
@@ -202,13 +170,12 @@ defmodule Pokex.Bots.Catcher.SpotScan do
     }
   end
 
-  # Todas as posições da caixa dentro do frame, no passo dado.
   defp janelas(%Frame{width: w, height: h}, box, passo) do
     for y <- 0..max(h - box, 0)//passo, x <- 0..max(w - box, 0)//passo, do: {x, y}
   end
 
-  # Ao redor de um pico grosso, o refino cobre ±passo em incrementos finos — é
-  # onde os ~0,05 de score por 7px de deslocamento são recuperados.
+  # Refinement covers ±step in fine increments around a coarse peak — where the
+  # ~0.05 score per 7px of offset is recovered.
   defp janelas_ao_redor(%{x: x, y: y}, %Frame{width: w, height: h}, box, passo, refino) do
     for dy <- -passo..passo//refino,
         dx <- -passo..passo//refino,
@@ -226,10 +193,10 @@ defmodule Pokex.Bots.Catcher.SpotScan do
         do: %{x: x, y: y, name: info.name, score: info.score}
   end
 
-  # Os tiles OCUPADOS pelos âncoras vivos: um sprite em pé da mesma espécie
-  # casaria com o corpo ensinado por paleta, e a bola voaria no próprio pokémon
-  # do Lucas. Guardamos o CENTRO de cada âncora em px do frame; qualquer janela
-  # cujo centro caia a menos de meio tile dele é descartada.
+  # Tiles OCCUPIED by live anchors: a standing sprite of the same species would
+  # match the taught corpse by palette, and the ball would fly at Lucas's own
+  # pokémon. Each anchor's CENTER is kept in frame px; any window whose center
+  # falls within half a tile of one is discarded.
   defp zonas_proibidas(calib, region, _box) do
     [calib.player_point, calib.pokemon_spot_point]
     |> Enum.reject(&is_nil/1)
@@ -245,9 +212,9 @@ defmodule Pokex.Bots.Catcher.SpotScan do
     Enum.any?(proibidos, fn {px, py} -> abs(cx - px) < limite and abs(cy - py) < limite end)
   end
 
-  # Máximos locais acima do limiar, com supressão de vizinhos: a varredura densa
-  # produz um platô de janelas boas em cima do MESMO corpo, e sem isto cada
-  # corpo viraria dezenas de alvos na fila.
+  # Local maxima above the threshold with neighbor suppression: the dense scan
+  # yields a plateau of good windows over the SAME corpse — without this each
+  # corpse would become dozens of queue targets.
   defp picos(candidatos, min_sim, tolerancia) do
     candidatos
     |> Enum.filter(&(&1.score >= min_sim))
@@ -270,16 +237,16 @@ defmodule Pokex.Bots.Catcher.SpotScan do
     %{name: nome, score: score, ponto: centro_na_tela(x, y, box, calib, region)}
   end
 
-  # Canto da janela (px do frame) → CENTRO dela em ponto de tela. É a mira: o
-  # ensino centra no clique do Lucas em cima do corpo, então o centro da janela
-  # vencedora é o ponto que ele mesmo escolheu.
+  # Window corner (frame px) → its CENTER as a screen point. This is the aim:
+  # teaching centers on the click over the corpse, so the winning window's
+  # center is the point Lucas chose himself.
   defp centro_na_tela(x, y, box, %Calibration{scale: scale}, {rx, ry, _w, _h}) do
     meia = div(box, 2)
     {rx + round((x + meia) / scale), ry + round((y + meia) / scale)}
   end
 
-  # Ponto de TELA → px do frame da região capturada (o inverso de
-  # frame_to_screen, com a origem da região no lugar da arena).
+  # SCREEN point → px in the captured region's frame (inverse of
+  # frame_to_screen, with the region origin instead of the arena).
   defp na_moldura(sx, sy, %Calibration{scale: scale}, {rx, ry, _w, _h}),
     do: {round((sx - rx) * scale), round((sy - ry) * scale)}
 

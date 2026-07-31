@@ -58,7 +58,7 @@ defmodule PokexWeb.TeamLiveTest do
   end
 
   @tag :tmp_dir
-  test "time e banco: adicionar, mover entre listas, level por membro e remover", %{conn: conn} do
+  test "team and bank: add, move between lists, per-member level, and remove", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/time")
     assert html =~ "cadastra teus Pokémon"
 
@@ -73,19 +73,16 @@ defmodule PokexWeb.TeamLiveTest do
     assert view |> element("#team-list") |> render() =~ "Charizard"
     assert view |> element("#bank-list") |> render() =~ "Venusaur"
 
-    # per-member level persists
     view
     |> element(~s(#team-list form[phx-change="set_level"]))
     |> render_change(%{"name" => "Charizard", "level" => "95"})
 
     assert [%{name: "Charizard", level: 95}] = Pokex.Pokedex.Team.members()
 
-    # banco → time
     view |> element(~s(button[phx-value-name="Venusaur"][phx-value-to="team"])) |> render_click()
     assert view |> element("#team-list") |> render() =~ "Venusaur"
     refute view |> element("#bank-list") |> render() =~ "Venusaur"
 
-    # nome desconhecido avisa sem tocar as listas
     view |> form("#team-add-form", %{"member" => "Digimon", "where" => "team"}) |> render_submit()
     assert render(view) =~ "não conheço"
 
@@ -94,19 +91,17 @@ defmodule PokexWeb.TeamLiveTest do
   end
 
   @tag :tmp_dir
-  test "sugestões respeitam a janela do meu level; lv-5 some quando estou forte", %{conn: conn} do
+  test "suggestions respect my level window; the lv-5 disappears when I am strong", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/time")
 
     view
     |> form("#team-add-form", %{"member" => "Charizard", "where" => "team"})
     |> render_submit()
 
-    # sem meu level: tudo compete — o lv 5 aparece
     targets = view |> element("#hunt-targets") |> render()
     assert targets =~ "Venusaur"
     assert targets =~ "Caterpie"
 
-    # lv 65 ±15 → janela 50..80: só Venusaur; Caterpie (lv 5) some
     view
     |> form("#hunt-window-form", %{"player_level" => "65", "level_margin" => "15"})
     |> render_change()
@@ -116,7 +111,6 @@ defmodule PokexWeb.TeamLiveTest do
     refute targets =~ "Caterpie"
     assert view |> element("#hunt-window-note") |> render() =~ "alvos entre lv 50 e 80"
 
-    # lv 300: nada na janela → fallback abaixo, com a nota explicando
     view
     |> form("#hunt-window-form", %{"player_level" => "300", "level_margin" => "15"})
     |> render_change()
@@ -124,12 +118,11 @@ defmodule PokexWeb.TeamLiveTest do
     assert view |> element("#hunt-window-note") |> render() =~ "ABAIXO do teu lv 300"
     assert view |> element("#hunt-targets") |> render() =~ "Venusaur"
 
-    # cada sugestão é um link pra página individual
     assert has_element?(view, ~s(#hunt-targets a[href="/pokedex/Venusaur"]))
   end
 
   @tag :tmp_dir
-  test "a página da lista linka pro /time e não tem mais o card do time", %{conn: conn} do
+  test "the list page links to /time and no longer carries the team card", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/pokedex")
     assert has_element?(view, ~s(a[href="/time"]))
     refute html =~ "Meu Time"
@@ -148,7 +141,6 @@ defmodule PokexWeb.TeamLiveTest do
 
     assert has_element?(view, "#portraits")
     assert html =~ "ordem dos atalhos C+N muda"
-    # there is no slot selector any more: a configured slot would lie
     refute html =~ "slot-form-"
   end
 end

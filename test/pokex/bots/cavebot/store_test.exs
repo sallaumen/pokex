@@ -10,7 +10,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
 
   @moduletag :tmp_dir
 
-  test "round-trip de rota com waypoints" do
+  test "route round-trip with waypoints" do
     {:ok, r} = Route.append(Route.new("cavena", "cavena-dg"), {10, 20, 7})
     assert :ok = Store.add(r)
     [got] = Store.all()
@@ -19,16 +19,16 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     assert got.waypoints == [%{x: 10, y: 20, z: 7}]
   end
 
-  test "arquivo corrompido vira lista vazia, não derruba", %{tmp_dir: tmp} do
+  test "a corrupted file becomes an empty list instead of crashing", %{tmp_dir: tmp} do
     File.write!(Path.join(tmp, "routes.json"), "{ not json")
     assert Store.all() == []
   end
 
-  test "arquivo ausente vira lista vazia" do
+  test "a missing file becomes an empty list" do
     assert Store.all() == []
   end
 
-  test "add sobre nome existente substitui em vez de duplicar" do
+  test "add over an existing name replaces instead of duplicating" do
     {:ok, a} = Route.append(Route.new("cavena"), {1, 2, 7})
     {:ok, b} = Route.append(Route.new("cavena"), {3, 4, 7})
     :ok = Store.add(a)
@@ -39,12 +39,12 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     assert hd(matching).waypoints == [%{x: 3, y: 4, z: 7}]
   end
 
-  test "nome vazio é recusado" do
+  test "an empty name is rejected" do
     assert Store.add(%Route{name: ""}) == {:error, :invalid_name}
     assert Store.all() == []
   end
 
-  test "delete remove só a nomeada e é seguro em nome inexistente" do
+  test "delete removes only the named route and is safe on a missing name" do
     {:ok, a} = Route.append(Route.new("cavena"), {1, 2, 7})
     {:ok, b} = Route.append(Route.new("outra"), {5, 6, 3})
     :ok = Store.add(a)
@@ -55,7 +55,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     assert :ok = Store.delete("cavena")
   end
 
-  test "set_enabled sobrevive ao round-trip" do
+  test "set_enabled survives the round-trip" do
     {:ok, r} = Route.append(Route.new("cavena"), {1, 2, 7})
     :ok = Store.add(r)
 
@@ -63,7 +63,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     refute Enum.find(Store.all(), &(&1.name == "cavena")).enabled?
   end
 
-  test "dungeon ausente no JSON vira nil", %{tmp_dir: tmp} do
+  test "a dungeon missing from the JSON becomes nil", %{tmp_dir: tmp} do
     body =
       JSON.encode!(%{
         "routes" => [

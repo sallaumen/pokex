@@ -47,7 +47,6 @@ defmodule Pokex.Bots.Combat.LogicTest do
   test "tabbing: a lock on a frame captured AFTER the Tab confirms and fires the first burst" do
     {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
 
-    # a frame captured BEFORE the tab (stale) must NOT confirm
     {still, []} =
       Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 5), 20)
 
@@ -60,10 +59,9 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert [{:press, "1"}, {:press, "2"}, {:press, "3"}] = actions
   end
 
+  # tab() stamps tabbed_at from `now` (10), not the obs's captured_at (5): a frame at 10
+  # clears the dedup gate but must fail fresh_lock?, which requires strictly AFTER.
   test "tabbing: a lock captured exactly at tabbed_at (not strictly after) must NOT confirm" do
-    # tab() stamps tabbed_at from `now` (10), not from the triggering obs's captured_at (5) —
-    # so this frame (captured_at: 10) clears the dedup gate (10 > last_obs_at 5) but must
-    # still fail the freshness check: fresh_lock? requires strictly AFTER, not >=.
     {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 5), 10)
     assert logic.tabbed_at == 10
 
@@ -75,74 +73,62 @@ defmodule Pokex.Bots.Combat.LogicTest do
   test "tabbing: window expiry re-Tabs up to max attempts, then hunt cooldown" do
     {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
 
-    # 800ms later, no lock → second Tab
     {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 800), 811)
     assert logic.state == :tabbing and logic.tab_attempts == 2
     assert {:tab} in actions
 
-    # exhaust the third attempt, then the next expiry sends us to hunting WITH a hold
     {logic, _} = Logic.step(logic, obs(enemies: [0], captured_at: 1_600), 1_612)
     assert logic.tab_attempts == 3
     {logic, _} = Logic.step(logic, obs(enemies: [0], captured_at: 2_400), 2_413)
     assert logic.state == :hunting
     assert logic.hold_until == 2_413 + 1_500
 
-    # while held, enemies do NOT trigger a Tab
     assert {%Logic{state: :hunting}, []} =
              Logic.step(logic, obs(enemies: [0], captured_at: 2_500), 2_500)
 
-    # after the hold, they do
     {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 4_000), 4_000)
     assert logic.state == :tabbing
     assert {:tab} in actions
   end
 
-  # O re-Tab passou a exigir EVIDÊNCIA: frame(s) capturados depois do Tab, sem
-  # lock. Cada Tab extra cicla o alvo pro próximo inimigo — re-Tab no relógio,
-  # sem frame nenhum (captura lenta/travada), era o "fica dando tab sem focar
-  # no primeiro" com a lista cheia.
-  test "tabbing: janela vencida SEM frame pós-Tab NÃO re-Tab às cegas" do
+  # Re-Tab requires EVIDENCE: frame(s) captured after the Tab with no lock. Each extra Tab
+  # cycles the target to the next enemy — clock-based re-Tab with no frame (slow/stuck
+  # capture) was the "keeps tabbing without focusing the first" bug with a full list.
+  test "tabbing: an expired window with no post-Tab frame never re-Tabs blindly" do
     {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
     assert logic.state == :tabbing and logic.tab_attempts == 1
 
-    # a janela venceu (700ms), mas só chegaram wakes de timer — nenhum frame
     {logic, actions} = Logic.step(logic, nil, 811)
     assert logic.state == :tabbing
     assert logic.tab_attempts == 1
     refute {:tab} in actions
 
-    # continua sem frame: ainda nada de Tab cego
     {logic, actions} = Logic.step(logic, nil, 1_900)
     assert logic.tab_attempts == 1
     refute {:tab} in actions
 
-    # 4× a janela sem evidência → recua pro hunt-hold dizendo o porquê,
-    # em vez de ciclar alvo ou esperar pra sempre uma captura morta
     {logic, actions} = Logic.step(logic, nil, 2_900)
     assert logic.state == :hunting
     assert logic.hold_until == 2_900 + 1_500
     assert Enum.any?(actions, &match?({:log, "sem frame pós-Tab" <> _}, &1))
   end
 
-  test "tabbing: um frame VELHO (pré-Tab) não conta como evidência" do
+  test "tabbing: an old (pre-Tab) frame does not count as evidence" do
     {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
 
-    # frame capturado ANTES do Tab (captured_at 5 < tabbed_at 10) chega atrasado
     {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 5), 811)
     assert logic.tab_attempts == 1
     refute {:tab} in actions
   end
 
-  test "tabbing: com tab_confirm_frames 2, UM frame não autoriza — DOIS sim" do
+  test "tabbing: with tab_confirm_frames 2, one frame does not authorize — two do" do
     {logic, _} =
       Logic.step(hunting(0, tab_confirm_frames: 2), obs(enemies: [0], captured_at: 10), 10)
 
-    # um frame pós-Tab sem lock: evidência insuficiente, sem Tab
     {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 750), 811)
     assert logic.tab_attempts == 1
     refute {:tab} in actions
 
-    # o segundo frame fecha a evidência → re-Tab normal
     {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 900), 905)
     assert logic.tab_attempts == 2
     assert {:tab} in actions
@@ -158,11 +144,8 @@ defmodule Pokex.Bots.Combat.LogicTest do
   test "fighting: bursts are throttled by skill_burst_every_ms" do
     logic = confirmed()
 
-    # immediately after the confirm burst, another locked frame does NOT burst again
     {logic, []} = Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 150), 150)
 
-    # past the throttle, a DISTINCT fresh frame does burst, continuing the rotation (burst 2
-    # wraps: keys 1,2,3 again) — this also guards that dedup doesn't eat legit new frames.
     {_logic, actions} =
       Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 460), 460)
 
@@ -187,8 +170,6 @@ defmodule Pokex.Bots.Combat.LogicTest do
     {logic, _} = Logic.step(logic, obs(locked?: false, captured_at: 620), 620)
     assert logic.state == :hunting
 
-    # detector blind (empty enemies) — and even a nil timer wake — must still Tab inside the
-    # probe window: fished enemies standing unattacked is the one unacceptable idle.
     {probing, actions} = Logic.step(logic, obs(enemies: [], captured_at: 740), 740)
     assert probing.state == :tabbing
     assert {:tab} in actions
@@ -208,7 +189,6 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert expired.state == :hunting
     assert actions == []
 
-    # ...but a DETECTED enemy still Tabs normally after expiry
     {tabbed, actions} =
       Logic.step(expired, obs(enemies: [0], captured_at: late + 100), late + 100)
 
@@ -230,8 +210,6 @@ defmodule Pokex.Bots.Combat.LogicTest do
     {logic, []} = Logic.step(logic, obs(locked?: false, captured_at: 500), 500)
     assert logic.lost_streak == 1
 
-    # identical captured_at: e.g. the wake fired before the feed wrote a new ETS entry —
-    # must be normalized to nil (no vote), not counted as a second observed frame.
     {logic, []} = Logic.step(logic, obs(locked?: false, captured_at: 500), 620)
     assert logic.lost_streak == 1
     assert logic.counters.fights == 0
@@ -257,32 +235,25 @@ defmodule Pokex.Bots.Combat.LogicTest do
   test "next_wake: tabbing polls at min(confirm-window remainder, skill_burst_every_ms)" do
     {tabbing, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
 
-    # tabbed_at: 10, tab_confirm_ms: 700 → deadline at 710. Window remainder (600) is larger
-    # than the burst cadence (300) → capped at the cadence so a static screen still polls.
     assert Logic.next_wake(tabbing, 110) == 300
 
-    # near the window's expiry the remainder (10) is smaller than the cadence → it wins.
     assert Logic.next_wake(tabbing, 700) == 10
   end
 
   test "next_wake: fighting polls at min(fight-timeout remainder, skill_burst_every_ms)" do
     fighting = confirmed()
 
-    # fresh fight: 6000ms remaining vs a 300ms burst cadence → capped at the cadence.
     assert Logic.next_wake(fighting, 100) == 300
 
-    # near timeout: the remainder (100) is smaller than the cadence → it wins.
     assert Logic.next_wake(fighting, fighting.entered_at + 5_900) == 100
   end
 
+  # Free hunting must poll, not sleep forever: post-kill the battle list can be non-empty
+  # but pixel-static (the feed never broadcasts), so an event-only hunt would wedge.
   test "next_wake: hunting hold → hold remainder; free hunting polls at the burst cadence" do
     held = %{hunting(0) | hold_until: 2_000}
     assert Logic.next_wake(held, 500) == 1_500
 
-    # C1: free :hunting (no hold) must poll, not sleep forever — after a kill/timeout/
-    # io_failed rehunt the battle list can be non-empty but pixel-static (no content change
-    # → the feed never broadcasts), so an event-only free hunt would wedge in "caçando"
-    # forever. Polling at the burst cadence keeps re-checking WorldState directly.
     assert Logic.next_wake(hunting(0), 500) == 300
   end
 
@@ -305,10 +276,9 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert Logic.next_wake(free, 500) == 1
   end
 
-  test "C1 integration: hunt → tab → fight → kill → free hunting polls, then a fresh frame re-Tabs" do
+  test "hunt → tab → fight → kill → free hunting polls, then a fresh frame re-Tabs" do
     logic = confirmed()
 
-    # two DISTINCT lock-absent frames (distinct captured_at) → the kill, back to hunting
     {logic, []} = Logic.step(logic, obs(locked?: false, captured_at: 500), 500)
     assert logic.lost_streak == 1
 
@@ -317,19 +287,14 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert logic.counters.fights == 1
     assert Enum.any?(actions, &match?({:log, _}, &1))
 
-    # the battle list can be non-empty but pixel-static here (no "world" event will ever
-    # come) — free hunting must still poll, not go quiet forever.
     refute Logic.next_wake(logic, 620) == nil
 
-    # a FRESH later frame (newer captured_at) with enemies present triggers a new Tab.
     {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 900), 900)
     assert logic.state == :tabbing
     assert {:tab} in actions
   end
 
-  test "next_wake: fighting floors the final result at 1ms even with skill_burst_every_ms: 0 (N1)" do
-    # A user-set 0ms burst cadence must not make next_wake return 0 — that would busy-loop
-    # the driver on a self-wake instead of yielding at least 1ms.
+  test "next_wake: fighting floors the final result at 1ms even with skill_burst_every_ms: 0" do
     fighting = confirmed(skill_burst_every_ms: 0)
     assert Logic.next_wake(fighting, 100) >= 1
   end
@@ -346,8 +311,6 @@ defmodule Pokex.Bots.Combat.LogicTest do
         )
 
       assert logic.state == :fighting
-      # skill_keys ["1", "2", "3"] ∩ ready ["3", "1"] in PRIORITY order, burst capped at
-      # the ready count — never the same key twice in one burst.
       assert actions == [{:press, "1"}, {:press, "3"}]
     end
 
@@ -390,11 +353,10 @@ defmodule Pokex.Bots.Combat.LogicTest do
     end
   end
 
-  describe "cenário presumido (o mob inatacável deixa de ser motivo pra Tab)" do
-    # O pedido do Lucas (2026-07-30): pokémon de CENÁRIO parado na lista fazia
-    # o combate "achar que tá lutando" apertando Tab em loop. Depois de N
-    # caçadas completas sem lock, aqueles alvos viram aliados de fato — como a
-    # própria posição — até a lista crescer, encolher ou o TTL vencer.
+  describe "presumed scenery (an unattackable mob stops motivating Tab)" do
+    # Field 2026-07-30: a SCENERY pokemon parked in the list made combat "think it was
+    # fighting", pressing Tab in a loop. After N full lockless hunts those targets are
+    # presumed scenery — until the list grows, shrinks, or the TTL expires.
     defp scenery_config do
       [
         tab_max_attempts: 1,
@@ -405,8 +367,8 @@ defmodule Pokex.Bots.Combat.LogicTest do
       ]
     end
 
-    # uma caçada COMPLETA que falha: Tab no alvo, um frame pós-Tab sem lock,
-    # janela vencida → esgota (tab_max_attempts: 1) e desiste
+    # One COMPLETE failed hunt: Tab the target, one post-Tab frame with no lock, window
+    # expired → exhausts (tab_max_attempts: 1) and gives up.
     defp failed_hunt(logic, enemies_list, t0) do
       {logic, actions} = Logic.step(logic, obs(enemies: enemies_list, captured_at: t0), t0)
       assert {:tab} in actions
@@ -421,7 +383,7 @@ defmodule Pokex.Bots.Combat.LogicTest do
       logic
     end
 
-    test "N caçadas sem lock promovem os alvos a cenário — e a caça fica QUIETA" do
+    test "N lockless hunts promote the targets to scenery — and the hunt goes quiet" do
       logic = hunting(0, scenery_config())
 
       {logic, actions} = failed_hunt(logic, [0], 10)
@@ -440,13 +402,12 @@ defmodule Pokex.Bots.Combat.LogicTest do
 
       assert logic.scenery_rows == 1
 
-      # o mesmo alvo segue na lista — e NÃO é mais motivo pra Tab
       {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 1_000), 1_000)
       assert logic.state == :hunting
       refute {:tab} in actions
     end
 
-    test "um alvo A MAIS que o cenário caça na hora" do
+    test "one target beyond the scenery hunts immediately" do
       logic = latched([0])
 
       {logic, actions} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 1_000), 1_000)
@@ -454,7 +415,7 @@ defmodule Pokex.Bots.Combat.LogicTest do
       assert {:tab} in actions
     end
 
-    test "a lista ENCOLHENDO esquece o presumido (a composição mudou)" do
+    test "the list shrinking forgets the presumption (the composition changed)" do
       logic = latched([0, 1])
 
       {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 1_000), 1_000)
@@ -462,7 +423,7 @@ defmodule Pokex.Bots.Combat.LogicTest do
       assert {:tab} in actions
     end
 
-    test "o TTL vencido volta a sondar" do
+    test "an expired TTL probes again" do
       logic = latched([0])
 
       {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 11_000), 11_000)
@@ -470,7 +431,7 @@ defmodule Pokex.Bots.Combat.LogicTest do
       assert {:tab} in actions
     end
 
-    test "sonda às cegas (lista vazia) nunca aprende cenário" do
+    test "a blind probe (empty list) never learns scenery" do
       logic = hunting(0, scenery_config()) |> Logic.rescan(0)
 
       {logic, actions} = Logic.step(logic, obs(enemies: [], captured_at: 10), 10)
@@ -487,7 +448,7 @@ defmodule Pokex.Bots.Combat.LogicTest do
              end)
     end
 
-    test "um lock real zera a contagem de caçadas falhas" do
+    test "a real lock resets the failed-hunt count" do
       logic = hunting(0, scenery_config())
       {logic, _} = failed_hunt(logic, [0], 10)
       assert logic.failed_hunts == 1
@@ -499,7 +460,7 @@ defmodule Pokex.Bots.Combat.LogicTest do
       assert logic.failed_hunts == 0
     end
 
-    test "config sem as chaves de cenário = comportamento antigo, log limpo" do
+    test "a config without the scenery keys keeps the old behavior, clean log" do
       logic = hunting(0, tab_max_attempts: 1, tab_confirm_ms: 100)
 
       {logic, actions} = failed_hunt(logic, [0], 10)

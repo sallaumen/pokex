@@ -2,11 +2,11 @@ defmodule Pokex.Bots.StockAlerts do
   @moduledoc """
   Screams before the character dies of an empty slot.
 
-  Lucas's ask, verbatim: "se eu tenho poucos, eu deveria apitar um alerta até
-  eu atuar, porque meu personagem vai morrer se aquilo lazerar". So this
-  watches the four slots that keep him alive and hunting — F1 and F2 (balls),
-  E (potion) and S+Q — and fires ONE alarm per crossing, re-arming only when
-  the stock climbs back above its threshold. An alarm that repeats every 500ms
+  A low slot must keep screaming until he acts — an empty slot gets the
+  character killed mid-hunt. So this watches the four slots that keep him
+  alive and hunting — F1 and F2 (balls), E (potion) and S+Q — and fires ONE
+  alarm per crossing, re-arming only when the stock climbs back above its
+  threshold. An alarm that repeats every 500ms
   is an alarm he learns to ignore.
 
   A slot that could not be READ is never an alarm. A misread would either cry
@@ -46,7 +46,7 @@ defmodule Pokex.Bots.StockAlerts do
       feed_ref: nil,
       # slots currently below their threshold — the re-arm memory
       low: MapSet.new(),
-      # releituras SEGUIDAS acima do limiar por slot — a histerese do re-arm
+      # CONSECUTIVE re-reads above the threshold per slot — the re-arm hysteresis
       acima: %{}
     }
 
@@ -97,14 +97,11 @@ defmodule Pokex.Bots.StockAlerts do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # -- detection ---------------------------------------------------------------
-
-  # Releituras seguidas acima do limiar antes de RE-ARMAR um slot já alarmado.
-  # Sem isto, UMA leitura espúria do HUD (OCR pegando o frame errado) re-armava
-  # e a próxima leitura correta alarmava DE NOVO — medido no journal de
-  # 2026-07-30: F2 parado em 0 disparou 56 vezes; 322 alarmes em 9,7h fizeram o
-  # Lucas mutar 10 dos 11 setores do sino. Não é knob: 3 leituras é físico do
-  # ruído do OCR, não gosto.
+  # Consecutive above-threshold re-reads before RE-ARMING an already-alarmed
+  # slot. Without this, ONE spurious HUD read (OCR on the wrong frame) re-armed
+  # and the next correct read alarmed AGAIN — journal 2026-07-30: F2 stuck at 0
+  # fired 56 times; 322 alarms in 9.7h got 10 of the 11 bell sectors muted.
+  # Not a knob: 3 reads is OCR-noise physics, not taste.
   @releituras_para_rearmar 3
 
   defp check(state, slots) do
@@ -163,8 +160,6 @@ defmodule Pokex.Bots.StockAlerts do
         @topic,
         {:stock, %{slot: slot, count: count, low?: low?}}
       )
-
-  # -- attachment --------------------------------------------------------------
 
   defp sync_attachment(%{active?: false} = state), do: state
 

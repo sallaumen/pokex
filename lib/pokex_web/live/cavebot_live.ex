@@ -16,6 +16,7 @@ defmodule PokexWeb.CavebotLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.Cavebot.{Route, Store}
+  alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.World
   alias PokexWeb.PositionReadout
@@ -37,6 +38,7 @@ defmodule PokexWeb.CavebotLive do
        routes: routes,
        active_route: default_active(routes),
        pos: World.snapshot().pos,
+       minimap_gap?: minimap_gap?(),
        recording?: false,
        # Read health: read_coord is all-or-nothing (requires 1.0 confidence),
        # so ONE doubtful glyph drops the whole coordinate to nil. Occasional
@@ -248,6 +250,21 @@ defmodule PokexWeb.CavebotLive do
   defp pos_text(pos), do: PositionReadout.coords(pos)
   defp read_health(reads, misses), do: PositionReadout.read_health(reads, misses)
 
+  # The position read needs the minimap rect (the feed's capture) and the
+  # coordinate strip. Both resolve hand-mark first, layout as fallback — and a
+  # layout from another screen was already dropped at Calibration.load. When
+  # this gap is real, the whole page is dead weight: say it, with the way out.
+  defp minimap_gap? do
+    case Calibration.load() do
+      {:ok, calib} ->
+        Calibration.minimap_region(calib) == nil or
+          Calibration.minimap_coord_region(calib) == nil
+
+      _no_calibration ->
+        true
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -261,6 +278,23 @@ defmodule PokexWeb.CavebotLive do
             de um andar só; se você trocar de andar, a gravação para.
           </p>
         </header>
+
+        <section
+          :if={@minimap_gap?}
+          id="cavebot-minimap-gap"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4"
+        >
+          <p class="text-pk-body font-bold text-pk-warn">
+            🗺️ O minimapa não está calibrado nesta tela
+          </p>
+          <p class="mt-1 text-sm text-pk-text-2">
+            Sem ele a posição não pode ser lida — nada de gravar rota nem de andar.
+            Refaça o passo <strong>Minimapa</strong>
+            (mapa + cruz + coordenada) na
+            <.link navigate={~p"/calibration"} class="underline">Calibração</.link>
+            e volte aqui.
+          </p>
+        </section>
 
         <section id="cavebot-recorder" class="rounded-lg border border-pk-line bg-pk-surface p-4">
           <div class="flex flex-wrap items-center justify-between gap-3">

@@ -205,7 +205,10 @@ defmodule Pokex.Calibration do
          skill_bar_region: to_tuple(map["skill_bar_region"]),
          skill_bar_count: map["skill_bar_count"],
          skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),
-         layout: Pokex.Layout.current(),
+         # A layout located on ANOTHER screen is worse than none: its regions
+         # land outside the frame, the captures quarantine, and every consumer
+         # goes blind while looking calibrated. Geometry decides.
+         layout: Pokex.Layout.current() |> Pokex.Layout.fitting(map["screen_w"], map["screen_h"]),
          pokemon_hp_region: to_tuple(map["pokemon_hp_region"]),
          pokemon_photo_point: to_tuple(map["pokemon_photo_point"]),
          glow_baselines: map["glow_baselines"] || [],

@@ -61,6 +61,35 @@ defmodule PokexWeb.CavebotLiveTest do
     refute has_element?(view, "#waypoint-1")
   end
 
+  # The 2026-08-01 case: one monitor, fresh calibration, minimap trio never
+  # marked — the page sat silent while the cavebot could not learn a single
+  # position. The gap must say WHERE to fix itself.
+  test "without a minimap calibration the page says so and points at the calibration",
+       %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+    assert html =~ "minimapa não está calibrado"
+    assert html =~ ~s(href="/calibration")
+  end
+
+  test "with the minimap trio calibrated there is no warning banner", %{conn: conn, tmp_dir: tmp} do
+    File.write!(
+      Path.join(tmp, "calibration.json"),
+      JSON.encode!(%{
+        "scale" => 1.0,
+        "screen_w" => 1512,
+        "screen_h" => 982,
+        "minimap_region" => [1200, 100, 290, 458],
+        "minimap_coord_region" => [1200, 560, 290, 20],
+        "minimap_player_point" => [1345, 320]
+      })
+    )
+
+    {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+    refute html =~ "minimapa não está calibrado"
+  end
+
   test "without a position read, marking warns and records nothing", %{conn: conn} do
     :ok = Store.add(Route.new("cavena"))
 

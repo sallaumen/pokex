@@ -74,6 +74,50 @@ defmodule Pokex.LayoutTest do
     assert Layout.region(:level, nil) == nil or is_tuple(Layout.region(:level, nil))
   end
 
+  # The real 2026-08-01 case: the persisted ultrawide fix, served on the
+  # 1512×982 notebook screen, asked the minimap feed for x=3150 y=-132 —
+  # impossible region, quarantined capture, a cavebot that never learned
+  # its position.
+  describe "fits_screen?/3 and fitting/3" do
+    defp fix_with(regions) do
+      %Layout.Fix{
+        profile: "ultrawide_3440x1440",
+        anchors: %{battle_header: {0, 0}},
+        regions: regions,
+        region_opts: %{},
+        located_at: ~U[2026-07-30 21:40:37Z]
+      }
+    end
+
+    test "every region inside the screen passes" do
+      fix = fix_with(%{minimap: {1200, 100, 290, 458}, hud_bottom: {0, 900, 1140, 82}})
+
+      assert Layout.fits_screen?(fix, 1512, 982)
+      assert Layout.fitting(fix, 1512, 982) == fix
+    end
+
+    test "a region past the screen edge condemns the whole fix" do
+      fix = fix_with(%{minimap: {3150, 300, 290, 458}})
+
+      refute Layout.fits_screen?(fix, 1512, 982)
+      assert Layout.fitting(fix, 1512, 982) == nil
+    end
+
+    test "a negative origin condemns the fix even on its own screen" do
+      fix = fix_with(%{minimap: {3150, -132, 290, 458}})
+
+      refute Layout.fits_screen?(fix, 3440, 1440)
+      assert Layout.fitting(fix, 3440, 1440) == nil
+    end
+
+    test "an unknown screen size never condemns — no proof, no drop" do
+      fix = fix_with(%{minimap: {3150, 300, 290, 458}})
+
+      assert Layout.fitting(fix, nil, nil) == fix
+      assert Layout.fitting(nil, 1512, 982) == nil
+    end
+  end
+
   test "a screen without the game fails loudly — never a silent wrong region" do
     black = Pokex.FrameFixtures.of(3440, 1440, fn _x, _y -> {0, 0, 0} end)
 

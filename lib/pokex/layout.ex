@@ -214,6 +214,35 @@ defmodule Pokex.Layout do
     }
   end
 
+  @doc """
+  Whether every region of `fix` lies inside a `screen_w`×`screen_h` display.
+
+  A persisted fix outlives monitor changes: the ultrawide layout served on the
+  1512×982 notebook screen asked the minimap feed for x=3150 y=-132 — an
+  impossible region, a quarantined capture, and a cavebot that never learned
+  its position (2026-08-01). Geometry is the test, not the profile name: it
+  also catches a game window that moved and pushed a region off-screen.
+  """
+  def fits_screen?(%Fix{regions: regions}, screen_w, screen_h)
+      when is_integer(screen_w) and is_integer(screen_h) do
+    Enum.all?(regions, fn {_name, {x, y, w, h}} ->
+      x >= 0 and y >= 0 and x + w <= screen_w and y + h <= screen_h
+    end)
+  end
+
+  @doc """
+  `fix` when it fits the screen — nil when it provably does not.
+  An unknown screen size keeps the fix: no proof, no drop.
+  """
+  def fitting(nil, _screen_w, _screen_h), do: nil
+
+  def fitting(%Fix{} = fix, screen_w, screen_h)
+      when is_integer(screen_w) and is_integer(screen_h) do
+    if fits_screen?(fix, screen_w, screen_h), do: fix, else: nil
+  end
+
+  def fitting(%Fix{} = fix, _unknown_w, _unknown_h), do: fix
+
   @doc "A region rect from the layout in force, or nil when uncalibrated."
   def region(name, fix) do
     case fix do

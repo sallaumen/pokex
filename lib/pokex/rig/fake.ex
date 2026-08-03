@@ -83,6 +83,11 @@ defmodule Pokex.Rig.Fake do
   def capture_screen,
     do: record({:capture_screen}, :capture_screen, {:ok, "/tmp/fake/screen.png"})
 
+  # Defaults to :unknown so a test that says nothing keeps exercising the probe
+  # fallback — the path the older calibration tests were written against.
+  @impl true
+  def screen_points, do: record({:screen_points}, :screen_points, :unknown)
+
   @impl true
   def cursor_position, do: record({:cursor_position}, :cursor_position, {:ok, {500, 500}})
 

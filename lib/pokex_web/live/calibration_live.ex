@@ -85,6 +85,7 @@ defmodule PokexWeb.CalibrationLive do
        baselines_done: 0,
        done: false,
        calibrated?: Calibration.exists?(),
+       other_screen: other_screen(),
        profiles: load_profiles(),
        review: nil,
        error: nil,
@@ -634,9 +635,8 @@ defmodule PokexWeb.CalibrationLive do
       end)
 
     with {:ok, probe_path, screen_path} <- captured,
-         {:ok, {probe_px, _}} <- Frame.png_dimensions(probe_path),
          {:ok, {px_w, px_h}} <- Frame.png_dimensions(screen_path) do
-      scale = probe_px / 100
+      scale = screenshot_scale(px_w, probe_path)
 
       {:ok,
        %{
@@ -646,6 +646,30 @@ defmodule PokexWeb.CalibrationLive do
          w: round(px_w / scale),
          h: round(px_h / scale)
        }}
+    end
+  end
+
+  # How many PIXELS of this screenshot make one screen POINT.
+  #
+  # The window server is the only source that does not depend on which capture
+  # backend answered: a full screenshot comes back in pixels from `screencapture`
+  # and in points from ScreenCaptureKit. Deriving the scale from a 100×100 probe
+  # compared a capture from one backend with a capture from the other whenever
+  # the two calls disagreed — measured live on 2026-08-03 with the SCK serving
+  # the probe (100px → scale 1.0) while the full screen fell back to the CLI
+  # (3024px), so the wizard believed the 1512-point screen was 3024 points wide
+  # and every point marked in that step landed at double its coordinate.
+  defp screenshot_scale(px_w, probe_path) do
+    case Rig.impl().screen_points() do
+      {:ok, {point_w, _point_h}} when point_w > 0 -> px_w / point_w
+      _unknown -> probe_scale(probe_path)
+    end
+  end
+
+  defp probe_scale(probe_path) do
+    case Frame.png_dimensions(probe_path) do
+      {:ok, {probe_px, _}} when probe_px > 0 -> probe_px / 100
+      _unreadable -> 1.0
     end
   end
 
@@ -825,7 +849,7 @@ defmodule PokexWeb.CalibrationLive do
         refs = skill_slot_refs(socket.assigns.screen, region, count)
 
         Calibration.save(%{
-          calib
+          on_this_screen(calib, socket)
           | skill_bar_region: region,
             skill_bar_count: count,
             skill_slot_refs: refs
@@ -854,7 +878,7 @@ defmodule PokexWeb.CalibrationLive do
     case Calibration.load() do
       {:ok, calib} ->
         calib = %{
-          calib
+          on_this_screen(calib, socket)
           | minimap_region: draft.minimap_region,
             minimap_player_point: draft.minimap_player_point,
             minimap_coord_region: coord_region
@@ -913,7 +937,7 @@ defmodule PokexWeb.CalibrationLive do
   defp save_mini_game_region(socket, region) do
     case Calibration.load() do
       {:ok, calib} ->
-        Calibration.save(%{calib | mini_game_region: region})
+        Calibration.save(%{on_this_screen(calib, socket) | mini_game_region: region})
 
         assign(socket,
           draft: %{},
@@ -974,7 +998,7 @@ defmodule PokexWeb.CalibrationLive do
   defp save_pokemon_spot(socket, point) do
     case Calibration.load() do
       {:ok, calib} ->
-        Calibration.save(%{calib | pokemon_spot_point: point})
+        Calibration.save(%{on_this_screen(calib, socket) | pokemon_spot_point: point})
 
         assign(socket,
           draft: %{},
@@ -998,7 +1022,7 @@ defmodule PokexWeb.CalibrationLive do
   defp save_escape_point(socket, point) do
     case Calibration.load() do
       {:ok, calib} ->
-        Calibration.save(%{calib | escape_point: point})
+        Calibration.save(%{on_this_screen(calib, socket) | escape_point: point})
 
         assign(socket,
           draft: %{},
@@ -1019,10 +1043,45 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  # The saved calibration's screen vs the one in front of him RIGHT NOW.
+  # Every coordinate in the file belongs to the screen it was marked on: served
+  # on a different one, every point lands somewhere else and the bot looks
+  # broken rather than uncalibrated. Returns nil when they agree (or when there
+  # is nothing to compare), `{saved, current}` when they do not.
+  defp other_screen do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, {w, h}} <- screen_points(),
+         true <- is_integer(calib.screen_w) and is_integer(calib.screen_h),
+         true <- {calib.screen_w, calib.screen_h} != {w, h} do
+      {{calib.screen_w, calib.screen_h}, {w, h}}
+    else
+      _same_screen_or_unknown -> nil
+    end
+  end
+
+  # Asking the OS must never be able to take the page down: a wedged osascript
+  # or a rig that is not running is "I don't know", not a crash.
+  defp screen_points do
+    Rig.impl().screen_points()
+  catch
+    _kind, _reason -> :unknown
+  end
+
+  # A quick fix marks a point on the screenshot it JUST took, so the geometry of
+  # that screenshot is the geometry the whole file must claim. Merging a fresh
+  # point into a calibration that still carries the OLD screen (he calibrated on
+  # a 3440-wide ultrawide, then fixed one point on the 1512-wide notebook) leaves
+  # a file whose points live in one space and whose screen_w announces another —
+  # and every consumer that scales by it reads the wrong place.
+  defp on_this_screen(calib, %{assigns: %{screen: %{scale: scale, w: w, h: h}}}),
+    do: %{calib | scale: scale, screen_w: w, screen_h: h}
+
+  defp on_this_screen(calib, _no_screen), do: calib
+
   defp save_player_point(socket, point) do
     case Calibration.load() do
       {:ok, calib} ->
-        Calibration.save(%{calib | player_point: point})
+        Calibration.save(%{on_this_screen(calib, socket) | player_point: point})
 
         assign(socket,
           draft: %{},
@@ -1147,6 +1206,24 @@ defmodule PokexWeb.CalibrationLive do
             não mova nem redimensione a janela do jogo (senão recalibre).
           </p>
         </header>
+
+        <div
+          :if={@other_screen}
+          id="other-screen-warning"
+          class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
+        >
+          <p class="font-bold text-warning">🖥️ Esta calibração é de outra tela</p>
+          <p class="mt-0.5 opacity-80">
+            Foi marcada numa tela de {elem(elem(@other_screen, 0), 0)}×{elem(
+              elem(@other_screen, 0),
+              1
+            )} pontos e a de agora tem {elem(elem(@other_screen, 1), 0)}×{elem(
+              elem(@other_screen, 1),
+              1
+            )}. Cada ponto salvo pertence à tela onde foi marcado — nesta aqui eles caem no lugar
+            errado. Refaça a calibração completa.
+          </p>
+        </div>
 
         <p :if={@error} class="rounded-lg bg-error/15 px-3 py-2 text-sm text-error">{@error}</p>
         <p :if={@skillbar_msg} class="rounded-lg bg-success/15 px-3 py-2 text-sm text-success">

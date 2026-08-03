@@ -21,6 +21,12 @@ defmodule Pokex.Rig do
   @callback capture_sequence(point) :: :ok | {:error, term}
   @callback capture(region, filename :: String.t()) :: {:ok, String.t()} | {:error, term}
   @callback capture_screen() :: {:ok, String.t()} | {:error, term}
+  # The screen size in POINTS, straight from the window server — the only source
+  # of truth that does not depend on which capture backend answered. A screenshot
+  # comes back in PIXELS or in POINTS depending on the backend (SCK answers in
+  # points; `screencapture` answers in pixels), so a scale inferred by comparing
+  # two captures is a coin flip whenever the two come from different backends.
+  @callback screen_points() :: {:ok, {pos_integer, pos_integer}} | :unknown
   @callback cursor_position() :: {:ok, point} | {:error, term}
 
   def impl, do: Application.get_env(:pokex, :rig, Pokex.Rig.Mac)

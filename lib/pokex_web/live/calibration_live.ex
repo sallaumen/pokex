@@ -662,117 +662,132 @@ defmodule PokexWeb.CalibrationLive do
 
   defp skill_slot_refs(_screen, _region, _count), do: nil
 
-  defp record_point(socket, point) do
-    %{step: step, draft: draft} = socket.assigns
+  # One clause per step: the old single `case` over twenty steps scored 26 on
+  # cyclomatic complexity and hid which step did what.
+  defp record_point(socket, point),
+    do: record_step(socket.assigns.step, socket, point, socket.assigns.draft)
 
-    case step do
-      :water ->
-        {x, y} = point
+  defp record_step(:water, socket, point, draft) do
+    {x, y} = point
 
-        draft =
-          Map.merge(draft, %{
-            water_point: point,
-            glow_region: {x - @glow_half, y - @glow_half, @glow_half * 2, @glow_half * 2}
-          })
+    draft =
+      Map.merge(draft, %{
+        water_point: point,
+        glow_region: {x - @glow_half, y - @glow_half, @glow_half * 2, @glow_half * 2}
+      })
 
-        assign(socket, draft: draft, step: :battle_a)
+    assign(socket, draft: draft, step: :battle_a)
+  end
 
-      :battle_a ->
-        assign(socket, draft: Map.put(draft, :battle_a, point), step: :battle_b)
+  defp record_step(:battle_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :battle_a, point), step: :battle_b)
+  end
 
-      :battle_b ->
+  defp record_step(:battle_b, socket, point, draft) do
+    assign(socket,
+      draft: Map.put(draft, :battle_region, region_from(draft.battle_a, point)),
+      step: :neutral
+    )
+  end
+
+  defp record_step(:neutral, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :neutral_point, point), step: :player)
+  end
+
+  defp record_step(:player, socket, point, draft) do
+    case socket.assigns.mode do
+      :player_only ->
+        save_player_point(socket, point)
+
+      _ ->
+        assign(socket, draft: Map.put(draft, :player_point, point), step: :skill_a)
+    end
+  end
+
+  defp record_step(:skill_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :skill_a, point), step: :skill_b)
+  end
+
+  defp record_step(:skill_b, socket, point, draft) do
+    region = region_from(draft.skill_a, point)
+    count = draft.skill_bar_count
+
+    case socket.assigns.mode do
+      :full ->
         assign(socket,
-          draft: Map.put(draft, :battle_region, region_from(draft.battle_a, point)),
-          step: :neutral
+          draft:
+            draft
+            |> Map.put(:skill_bar_region, region)
+            |> Map.put(:skill_bar_count, count),
+          step: :hp_a,
+          skillbar_msg: "Barra configurada com #{count} skills."
         )
 
-      :neutral ->
-        assign(socket, draft: Map.put(draft, :neutral_point, point), step: :player)
-
-      :player ->
-        case socket.assigns.mode do
-          :player_only ->
-            save_player_point(socket, point)
-
-          _ ->
-            assign(socket, draft: Map.put(draft, :player_point, point), step: :skill_a)
-        end
-
-      :skill_a ->
-        assign(socket, draft: Map.put(draft, :skill_a, point), step: :skill_b)
-
-      :skill_b ->
-        region = region_from(draft.skill_a, point)
-        count = draft.skill_bar_count
-
-        case socket.assigns.mode do
-          :full ->
-            assign(socket,
-              draft:
-                draft
-                |> Map.put(:skill_bar_region, region)
-                |> Map.put(:skill_bar_count, count),
-              step: :hp_a,
-              skillbar_msg: "Barra configurada com #{count} skills."
-            )
-
-          :skillbar_only ->
-            persist_skill_settings(count)
-            save_skill_bar(socket, region, count)
-
-          _ ->
-            socket
-        end
-
-      :hp_a ->
-        assign(socket, draft: Map.put(draft, :hp_a, point), step: :hp_b)
-
-      :hp_b ->
-        assign(socket,
-          draft: Map.put(draft, :pokemon_hp_region, region_from(draft.hp_a, point)),
-          step: :photo
-        )
-
-      :photo ->
-        finish(socket, Map.put(draft, :pokemon_photo_point, point))
-
-      :mini_game_a ->
-        assign(socket, draft: Map.put(draft, :mini_game_a, point), step: :mini_game_b)
-
-      :mini_game_b ->
-        save_mini_game_region(socket, region_from(draft.mini_game_a, point))
-
-      :minimap_a ->
-        assign(socket, draft: Map.put(draft, :minimap_a, point), step: :minimap_b)
-
-      :minimap_b ->
-        assign(socket,
-          draft: Map.put(draft, :minimap_region, region_from(draft.minimap_a, point)),
-          step: :minimap_cross
-        )
-
-      :minimap_cross ->
-        assign(socket,
-          draft: Map.put(draft, :minimap_player_point, point),
-          step: :minimap_coord_a
-        )
-
-      :minimap_coord_a ->
-        assign(socket, draft: Map.put(draft, :minimap_coord_a, point), step: :minimap_coord_b)
-
-      :minimap_coord_b ->
-        save_minimap(socket, region_from(draft.minimap_coord_a, point))
-
-      :pokemon_spot ->
-        save_pokemon_spot(socket, point)
-
-      :escape_point ->
-        save_escape_point(socket, point)
+      :skillbar_only ->
+        persist_skill_settings(count)
+        save_skill_bar(socket, region, count)
 
       _ ->
         socket
     end
   end
+
+  defp record_step(:hp_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :hp_a, point), step: :hp_b)
+  end
+
+  defp record_step(:hp_b, socket, point, draft) do
+    assign(socket,
+      draft: Map.put(draft, :pokemon_hp_region, region_from(draft.hp_a, point)),
+      step: :photo
+    )
+  end
+
+  defp record_step(:photo, socket, point, draft) do
+    finish(socket, Map.put(draft, :pokemon_photo_point, point))
+  end
+
+  defp record_step(:mini_game_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :mini_game_a, point), step: :mini_game_b)
+  end
+
+  defp record_step(:mini_game_b, socket, point, draft) do
+    save_mini_game_region(socket, region_from(draft.mini_game_a, point))
+  end
+
+  defp record_step(:minimap_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :minimap_a, point), step: :minimap_b)
+  end
+
+  defp record_step(:minimap_b, socket, point, draft) do
+    assign(socket,
+      draft: Map.put(draft, :minimap_region, region_from(draft.minimap_a, point)),
+      step: :minimap_cross
+    )
+  end
+
+  defp record_step(:minimap_cross, socket, point, draft) do
+    assign(socket,
+      draft: Map.put(draft, :minimap_player_point, point),
+      step: :minimap_coord_a
+    )
+  end
+
+  defp record_step(:minimap_coord_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :minimap_coord_a, point), step: :minimap_coord_b)
+  end
+
+  defp record_step(:minimap_coord_b, socket, point, draft) do
+    save_minimap(socket, region_from(draft.minimap_coord_a, point))
+  end
+
+  defp record_step(:pokemon_spot, socket, point, _draft) do
+    save_pokemon_spot(socket, point)
+  end
+
+  defp record_step(:escape_point, socket, point, _draft), do: save_escape_point(socket, point)
+
+  defp record_step(_unknown_step, socket, _point, _draft), do: socket
 
   defp region_from({x1, y1}, {x2, y2}), do: {min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)}
 

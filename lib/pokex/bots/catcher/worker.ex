@@ -404,6 +404,41 @@ defmodule Pokex.Bots.Catcher.Worker do
     %{state | held?: true}
   end
 
+  # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
+  # configured hotkey, hold the cursor). nil when nothing was thrown.
+  defp throw_balls([], _body), do: nil
+
+  defp throw_balls(performs, body) do
+    performs
+    |> Enum.flat_map(fn {:capture_sequence, point} -> Ball.sequence(point) end)
+    |> Body.perform(:high, body)
+  end
+
+  # The return used to be DISCARDED — a real actuation error vanished and the
+  # feed wrote "bola arremessada" anyway.
+  defp after_throw(logic, {:error, reason}, _performs) do
+    log(:macro, "⚠️ a bola não saiu: #{inspect(reason)}")
+    logic
+  end
+
+  # The confirmation window counts from ACTUATION (the sequence takes ~200ms),
+  # not from the decision — else the first read judges too early.
+  defp after_throw(logic, :ok, performs) when performs != [], do: Logic.ball_flown(logic, now())
+  defp after_throw(logic, _result, _no_ball), do: logic
+
+  defp note_throw(state, []), do: state
+
+  defp note_throw(state, _performs) do
+    # a ball that flew because a SHINY was seen closes that log entry
+    if state.shiny_pending?, do: ShinyLog.resolve_last("ball")
+
+    %{
+      state
+      | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()},
+        shiny_pending?: false
+    }
+  end
+
   defp run_step(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())
 
@@ -412,48 +447,18 @@ defmodule Pokex.Bots.Catcher.Worker do
     # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
     # configured hotkey, hold the cursor). Each step passes the input and
     # mini-game gates instead of an opaque Rig primitive.
-    result =
-      if performs != [] do
-        performs
-        |> Enum.flat_map(fn {:capture_sequence, point} -> Ball.sequence(point) end)
-        |> Body.perform(:high, state.body)
-      end
+    result = throw_balls(performs, state.body)
 
     # The return used to be DISCARDED — a real actuation error vanished and the
     # feed wrote "bola arremessada" anyway.
-    logic =
-      case result do
-        {:error, reason} ->
-          log(:macro, "⚠️ a bola não saiu: #{inspect(reason)}")
-          logic
-
-        :ok when performs != [] ->
-          # the confirmation window counts from ACTUATION (the sequence takes
-          # ~200ms), not decision — else the first read judges too early
-          Logic.ball_flown(logic, now())
-
-        _no_ball ->
-          logic
-      end
+    logic = after_throw(logic, result, performs)
 
     # the dry-ball alarm goes out under :capture (mutable in the bell)
     for {:alarm, msg} <- actions do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :capture, msg})
     end
 
-    state =
-      if performs != [] do
-        # a ball that flew because a SHINY was seen closes that log entry
-        if state.shiny_pending?, do: ShinyLog.resolve_last("ball")
-
-        %{
-          state
-          | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()},
-            shiny_pending?: false
-        }
-      else
-        state
-      end
+    state = note_throw(state, performs)
 
     for {:log, text} <- actions do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, :macro, "captura: #{text}"})

@@ -74,9 +74,12 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   end
 
   defp fetch(:hostile, calib, _settings) do
-    with {:ok, frame} <- capture_frame(calib.arena_region, "arena.png") do
+    # The square around the character, the same one capture sweeps — the
+    # hand-marked arena is gone.
+    with {:ok, region} <- Pokex.Bots.Catcher.SpotScan.region(calib),
+         {:ok, frame} <- capture_frame(region, "hostile.png") do
       case Vision.find_hostile(frame) do
-        {:ok, pixel} -> {:ok, Calibration.frame_to_screen(calib, calib.arena_region, pixel)}
+        {:ok, pixel} -> {:ok, Calibration.frame_to_screen(calib, region, pixel)}
         :not_found -> {:ok, nil}
       end
     end

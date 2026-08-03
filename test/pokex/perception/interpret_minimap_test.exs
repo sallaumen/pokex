@@ -121,7 +121,6 @@ defmodule Pokex.Perception.InterpretMinimapTest do
         water_point: {1, 2},
         glow_region: {0, 0, 4, 4},
         battle_region: {0, 0, 4, 4},
-        arena_region: {0, 0, 4, 4},
         neutral_point: {3, 4},
         minimap_region: {3150, 100, 290, 458},
         minimap_player_point: {3295, 329},

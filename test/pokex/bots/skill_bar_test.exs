@@ -14,7 +14,6 @@ defmodule Pokex.Bots.SkillBarTest do
       water_point: {0, 0},
       glow_region: {0, 0, 1, 1},
       battle_region: {0, 0, 1, 1},
-      arena_region: {0, 0, 1, 1},
       neutral_point: {0, 0},
       skill_bar_region: region,
       skill_bar_count: count

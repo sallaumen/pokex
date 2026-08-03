@@ -14,11 +14,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
       water_point: {400, 300},
       glow_region: {368, 268, 64, 64},
       battle_region: {700, 100, 260, 200},
-      arena_region: {560, 260, 100, 100},
-      neutral_point: {420, 350},
-      glow_baselines: [baseline_path],
-      battle_baseline: Path.join(tmp, "none.png"),
-      suggested_glow_threshold: 15.0
+      neutral_point: {420, 350}
     }
   end
 
@@ -73,17 +69,17 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   test "hostile observation converts frame pixels to screen points", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
 
-    arena_rows =
+    hostile_rows =
       for y <- 0..99 do
         for x <- 0..99 do
           if x in 44..55 and y in 28..31, do: {255, 30, 30, 255}, else: {20, 80, 40, 255}
         end
       end
 
-    arena = Pokex.PngFixtures.write!(Path.join(tmp, "arena.png"), arena_rows)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, arena}]})
+    hostile = Pokex.PngFixtures.write!(Path.join(tmp, "hostile.png"), hostile_rows)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, hostile}]})
 
-    assert {:ok, %{hostile: {585, 275}}} =
+    assert {:ok, %{hostile: {217, 57}}} =
              Sensors.Real.observe([:hostile], calib(tmp, baseline), Pokex.Settings.defaults())
   end
 

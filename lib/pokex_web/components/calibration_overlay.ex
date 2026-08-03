@@ -25,7 +25,6 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :water_point, :any, default: nil
   attr :glow_region, :any, default: nil
   attr :battle_region, :any, default: nil
-  attr :arena_region, :any, default: nil
   attr :skill_bar_region, :any, default: nil
   attr :neutral_point, :any, default: nil
   attr :player_point, :any, default: nil
@@ -46,15 +45,6 @@ defmodule PokexWeb.CalibrationOverlay do
     >
       <span class="absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content">
         brilho
-      </span>
-    </div>
-    <div
-      :if={@arena_region}
-      class="absolute rounded border-2 border-success bg-success/10"
-      style={region_style(@arena_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-success px-1 text-[10px] font-bold text-success-content">
-        arena
       </span>
     </div>
     <div
@@ -167,9 +157,7 @@ defmodule PokexWeb.CalibrationOverlay do
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-full bg-info" /> água + brilho
       </span>
-      <span class="flex items-center gap-1">
-        <span class="size-2.5 rounded-sm border-2 border-success" /> arena
-      </span>
+      <span class="flex items-center gap-1"></span>
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-sm border-2 border-primary" /> faixa do mini game
       </span>

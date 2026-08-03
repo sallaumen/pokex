@@ -41,7 +41,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       water_point: {400, 300},
       glow_region: {0, 0, 20, 20},
       battle_region: {900, 0, 80, 400},
-      arena_region: {100, 200, 64, 64},
       neutral_point: {500, 500}
     })
 

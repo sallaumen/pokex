@@ -97,10 +97,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
         water_point: {400, 300},
         glow_region: {368, 268, 64, 64},
         battle_region: {700, 100, 260, 200},
-        arena_region: {200, 100, 400, 400},
-        neutral_point: {420, 350},
-        glow_baselines: [baseline],
-        suggested_glow_threshold: 15.0
+        neutral_point: {420, 350}
       })
 
       %{bright: bright, calm: baseline}

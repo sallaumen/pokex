@@ -10,11 +10,7 @@ defmodule Pokex.CalibrationTest do
       water_point: {812, 402},
       glow_region: {780, 370, 64, 64},
       battle_region: {1380, 120, 260, 220},
-      arena_region: {560, 260, 560, 420},
-      neutral_point: {864, 470},
-      glow_baselines: ["/tmp/glow_0.png"],
-      battle_baseline: "/tmp/battle.png",
-      suggested_glow_threshold: 18.5
+      neutral_point: {864, 470}
     }
   end
 
@@ -63,7 +59,7 @@ defmodule Pokex.CalibrationTest do
   end
 
   @tag :tmp_dir
-  test "player_point round-trips and beats the arena-center fallback", %{tmp_dir: tmp} do
+  test "player_point round-trips and beats the screen-centre fallback", %{tmp_dir: tmp} do
     path = Path.join(tmp, "calibration.json")
 
     Calibration.save(%{sample() | player_point: {700, 500}}, path)
@@ -71,11 +67,13 @@ defmodule Pokex.CalibrationTest do
     assert loaded.player_point == {700, 500}
     assert Calibration.player_point(loaded) == {700, 500}
 
-    # an old file (no player_point key) still loads and falls back to the center
+    # an old file (no player_point key) still loads and falls back to the middle
+    # of the SCREEN — where an MMO keeps the character. The old fallback was the
+    # centre of the hand-marked arena, measured 268px above the real character.
     Calibration.save(sample(), path)
     assert {:ok, old} = Calibration.load(path)
     assert old.player_point == nil
-    assert Calibration.player_point(old) == {840, 470}
+    assert Calibration.player_point(old) == {864, 558}
   end
 
   @tag :tmp_dir
@@ -156,10 +154,10 @@ defmodule Pokex.CalibrationTest do
     assert Calibration.battle_first_row(calib) == {1466, 138}
     # the per-row band origin comes from the same source of truth as battle_first_row
     assert Calibration.first_row_offset() == 18
-    # the client keeps the player centered in the arena viewport
-    assert Calibration.player_point(calib) == {840, 470}
-    # pixel (100, 50) dentro da arena com scale 2 → +50,+25 points do canto
-    assert Calibration.frame_to_screen(calib, calib.arena_region, {100, 50}) == {610, 285}
+    # the client keeps the player centred in the viewport
+    assert Calibration.player_point(calib) == {864, 558}
+    # pixel (100, 50) inside a region with scale 2 → +50,+25 points from its corner
+    assert Calibration.frame_to_screen(calib, {560, 260, 560, 420}, {100, 50}) == {610, 285}
     # a wild row 100px down the strip → name column, scaled: {1380+86, 120+50}
     assert Calibration.battle_row_point(calib, 100) == {1466, 170}
   end

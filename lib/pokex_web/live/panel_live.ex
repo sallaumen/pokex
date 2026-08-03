@@ -1467,7 +1467,15 @@ defmodule PokexWeb.PanelLive do
   defp region_spec("battle", calib),
     do: {calib.battle_region, "painel Batalha", "shot_battle.png"}
 
-  defp region_spec("arena", calib), do: {calib.arena_region, "arena", "shot_arena.png"}
+  # The square around the character (what capture actually sweeps) replaced the
+  # hand-marked arena — there is no arena to photograph any more.
+  defp region_spec("search_box", calib) do
+    case Pokex.Bots.Catcher.SpotScan.region(calib) do
+      {:ok, region} -> {region, "quadro em volta do personagem", "shot_search_box.png"}
+      _no_anchor -> :error
+    end
+  end
+
   defp region_spec("skills", %{skill_bar_region: nil}), do: :error
 
   defp region_spec("skills", calib),
@@ -2434,7 +2442,7 @@ defmodule PokexWeb.PanelLive do
                     {"Tela cheia", "screen"},
                     {"Água", "glow"},
                     {"Batalha", "battle"},
-                    {"Arena", "arena"},
+                    {"Em volta do personagem", "search_box"},
                     {"Skills", "skills"}
                   ]
                 }
@@ -2529,7 +2537,7 @@ defmodule PokexWeb.PanelLive do
             >
               <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-pk-warn" />
               <p class="flex-1 text-pk-text">
-                Calibre água, Battle, arena e skills antes de iniciar.
+                Calibre água, Battle, personagem e skills antes de iniciar.
               </p>
               <.link navigate={~p"/calibration"} class="font-semibold text-pk-ok">Calibrar</.link>
             </div>

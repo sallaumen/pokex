@@ -8,10 +8,9 @@ defmodule PokexWeb.CalibrationLive do
 
   import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
 
-  @baseline_count 10
   @glow_half 32
 
-  @total_steps 12
+  @total_steps 10
   # Click-to-zoom magnification: a rough click magnifies the screenshot around it (via CSS
   # transform, which the ImgClick hook's getBoundingClientRect already accounts for), then a
   # precise second click is transcribed back to screen coordinates. Helps a lot on a small screen.
@@ -22,14 +21,9 @@ defmodule PokexWeb.CalibrationLive do
     battle_a: "Clique no canto SUPERIOR-ESQUERDO da área de criaturas da janela Battle.",
     battle_b:
       "Agora o canto INFERIOR-DIREITO da mesma área (incluindo a coluna do ícone de pokébola).",
-    arena_a:
-      "Canto SUPERIOR-ESQUERDO da ARENA (área ao redor do personagem onde o pokémon pescado aparece).",
-    arena_b: "Canto INFERIOR-DIREITO da arena.",
     neutral: "Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
     player:
       "Clique bem no CENTRO do seu PERSONAGEM — é nele que o bot ancora a barra do minigame de pesca. Fique parado onde vai pescar.",
-    baselines:
-      "Tudo marcado! Agora LANCE A LINHA na água (Shift+V) e, com ela ESPERANDO sem nada fisgado, clique em 'Capturar linhas de base'. Assim o bot aprende a água COM a linha — senão ele acha que é sempre brilho e fisga na hora.",
     skill_a:
       "Canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1). IMPORTANTE: " <>
         "deixe TODAS as skills PRONTAS (sem cooldown) — a foto de cada ícone vira a " <>
@@ -82,7 +76,6 @@ defmodule PokexWeb.CalibrationLive do
        step: nil,
        mode: nil,
        draft: %{},
-       baselines_done: 0,
        done: false,
        calibrated?: Calibration.exists?(),
        other_screen: other_screen(),
@@ -454,25 +447,6 @@ defmodule PokexWeb.CalibrationLive do
     {:noreply, assign(socket, corpse_list: CorpseLibrary.list())}
   end
 
-  def handle_event("capture_baselines", _params, socket) do
-    File.mkdir_p!(Home.baselines_dir())
-
-    # The baselines sample the WATER with the line cast — the game must be visible for the
-    # whole ~4s run, so front it once here and hand focus back at the completion clause
-    # (per-capture flapping would strobe both windows).
-    return_app =
-      if Application.get_env(:pokex, :calibration_front_game, true) and
-           Settings.get(:ensure_game_focus) do
-        previous = frontmost_app()
-        front_app(Settings.get(:game_app_name))
-        Process.sleep(Settings.get(:calibration_front_delay_ms))
-        previous
-      end
-
-    send(self(), {:baseline, 0})
-    {:noreply, assign(socket, baselines_done: 0, return_app: return_app)}
-  end
-
   @impl true
   # The per-corpse count the Catcher publishes (R4). The topic's other traffic
   # (snapshots, logs) doesn't matter to this page — the catch-all below
@@ -480,38 +454,18 @@ defmodule PokexWeb.CalibrationLive do
   def handle_info({:catcher_count, count}, socket),
     do: {:noreply, assign(socket, corpse_counts: count)}
 
-  def handle_info({:baseline, index}, socket) when index < @baseline_count do
-    destination = Path.join(Home.baselines_dir(), "glow_#{index}.png")
+  # The rest of the "catcher" topic traffic (snapshots, logs, alarms) dies
+  # here: this page subscribed only for the per-corpse count, and a LiveView
+  # without a clause for a message it asked for crashes with
+  # FunctionClauseError — the exact bug class of PR #111, with the bot on.
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
-    case Rig.impl().capture(socket.assigns.draft.glow_region, "baseline.png") do
-      {:ok, path} ->
-        File.cp!(path, destination)
-        gap = Application.get_env(:pokex, :baseline_gap_ms, 400)
-        Process.send_after(self(), {:baseline, index + 1}, gap)
-        {:noreply, assign(socket, baselines_done: index + 1)}
-
-      {:error, reason} ->
-        {:noreply,
-         socket |> return_focus() |> assign(error: "baseline falhou: #{inspect(reason)}")}
-    end
-  end
-
-  def handle_info({:baseline, _index}, socket) do
-    draft = socket.assigns.draft
-
-    baseline_paths =
-      for i <- 0..(@baseline_count - 1), do: Path.join(Home.baselines_dir(), "glow_#{i}.png")
-
-    frames =
-      for path <- baseline_paths, {:ok, frame} <- [Frame.from_png_file(path)], do: frame
-
-    battle_baseline = Path.join(Home.baselines_dir(), "battle_empty.png")
-
-    case Rig.impl().capture(Calibration.battle_strip(draft.battle_region), "battle_base.png") do
-      {:ok, path} -> File.cp!(path, battle_baseline)
-      {:error, _} -> :ok
-    end
-
+  # The last click IS the end of the calibration. The old flow had one more
+  # step: cast the line in the game and sit through ~4s of "baselines" that
+  # nothing ever read — Vision.glow?/3 has no caller, and fishing detects the
+  # cyan bubbles instead. A mandatory step feeding a dead field is the exact
+  # "calibração inútil que dificulta a vida" (2026-08-03).
+  defp finish(socket, draft) do
     calib = %Calibration{
       scale: socket.assigns.scale,
       screen_w: socket.assigns.screen.w,
@@ -519,7 +473,6 @@ defmodule PokexWeb.CalibrationLive do
       water_point: draft.water_point,
       glow_region: draft.glow_region,
       battle_region: draft.battle_region,
-      arena_region: draft.arena_region,
       neutral_point: draft.neutral_point,
       player_point: draft[:player_point],
       skill_bar_region: draft.skill_bar_region,
@@ -527,22 +480,16 @@ defmodule PokexWeb.CalibrationLive do
       skill_slot_refs:
         skill_slot_refs(socket.assigns.screen, draft.skill_bar_region, draft.skill_bar_count),
       pokemon_hp_region: draft[:pokemon_hp_region],
-      pokemon_photo_point: draft[:pokemon_photo_point],
-      glow_baselines: baseline_paths,
-      battle_baseline: battle_baseline,
-      suggested_glow_threshold: Vision.suggested_threshold(frames)
+      pokemon_photo_point: draft[:pokemon_photo_point]
     }
 
     Calibration.save(calib)
     persist_skill_settings(draft.skill_bar_count)
-    {:noreply, socket |> return_focus() |> assign(done: true, step: nil, calibrated?: true)}
-  end
 
-  # The rest of the "catcher" topic traffic (snapshots, logs, alarms) dies
-  # here: this page subscribed only for the per-corpse count, and a LiveView
-  # without a clause for a message it asked for crashes with
-  # FunctionClauseError — the exact bug class of PR #111, with the bot on.
-  def handle_info(_msg, socket), do: {:noreply, socket}
+    socket
+    |> return_focus()
+    |> assign(done: true, step: nil, calibrated?: true, other_screen: other_screen())
+  end
 
   defp photo_error(:no_anchor),
     do: "marque o seu personagem na calibração (ou salve a resolução da tela) antes de ensinar"
@@ -715,15 +662,6 @@ defmodule PokexWeb.CalibrationLive do
       :battle_b ->
         assign(socket,
           draft: Map.put(draft, :battle_region, region_from(draft.battle_a, point)),
-          step: :arena_a
-        )
-
-      :arena_a ->
-        assign(socket, draft: Map.put(draft, :arena_a, point), step: :arena_b)
-
-      :arena_b ->
-        assign(socket,
-          draft: Map.put(draft, :arena_region, region_from(draft.arena_a, point)),
           step: :neutral
         )
 
@@ -775,7 +713,7 @@ defmodule PokexWeb.CalibrationLive do
         )
 
       :photo ->
-        assign(socket, draft: Map.put(draft, :pokemon_photo_point, point), step: :baselines)
+        finish(socket, Map.put(draft, :pokemon_photo_point, point))
 
       :mini_game_a ->
         assign(socket, draft: Map.put(draft, :mini_game_a, point), step: :mini_game_b)
@@ -1135,8 +1073,6 @@ defmodule PokexWeb.CalibrationLive do
         :water,
         :battle_a,
         :battle_b,
-        :arena_a,
-        :arena_b,
         :neutral,
         :player,
         :skill_a,
@@ -1158,15 +1094,13 @@ defmodule PokexWeb.CalibrationLive do
   defp step_index(:water), do: 1
   defp step_index(:battle_a), do: 2
   defp step_index(:battle_b), do: 3
-  defp step_index(:arena_a), do: 4
-  defp step_index(:arena_b), do: 5
-  defp step_index(:neutral), do: 6
-  defp step_index(:player), do: 7
-  defp step_index(:skill_a), do: 8
-  defp step_index(:skill_b), do: 9
-  defp step_index(:hp_a), do: 10
-  defp step_index(:hp_b), do: 11
-  defp step_index(:photo), do: 12
+  defp step_index(:neutral), do: 4
+  defp step_index(:player), do: 5
+  defp step_index(:skill_a), do: 6
+  defp step_index(:skill_b), do: 7
+  defp step_index(:hp_a), do: 8
+  defp step_index(:hp_b), do: 9
+  defp step_index(:photo), do: 10
   defp step_index(_), do: nil
 
   defp step_pill_class(n, step) do
@@ -1186,7 +1120,6 @@ defmodule PokexWeb.CalibrationLive do
   defp draft_bands(_draft, _scale, _row_height, _rows), do: []
 
   defp draft_player(%{player_point: point}) when is_tuple(point), do: point
-  defp draft_player(%{arena_region: region}), do: Calibration.player_point(region)
   defp draft_player(_draft), do: nil
 
   @impl true
@@ -1250,7 +1183,6 @@ defmodule PokexWeb.CalibrationLive do
               water_point={@review.calib.water_point}
               glow_region={@review.calib.glow_region}
               battle_region={@review.calib.battle_region}
-              arena_region={@review.calib.arena_region}
               skill_bar_region={@review.calib.skill_bar_region}
               neutral_point={@review.calib.neutral_point}
               player_point={Calibration.player_point(@review.calib)}
@@ -1274,7 +1206,7 @@ defmodule PokexWeb.CalibrationLive do
               <div class="min-w-0">
                 <h2 class="text-sm font-bold">Calibração completa</h2>
                 <p class="mt-0.5 text-xs leading-relaxed opacity-60">
-                  Os 12 passos guiados: água, Battle, arena, ponto neutro, personagem, skills e
+                  Os 10 passos guiados: água, Battle, ponto neutro, personagem, skills e
                   vida. Pode deixar o jogo em TELA CHEIA — ao capturar, ele vem pra frente por
                   ~1s, tira a foto e volta pra cá sozinho.
                 </p>
@@ -1430,7 +1362,7 @@ defmodule PokexWeb.CalibrationLive do
           </ol>
 
           <div
-            :if={@step && @step != :baselines}
+            :if={@step}
             class="rounded-lg bg-info/15 px-3 py-2 text-sm font-medium"
           >
             <span :if={@mode == :full} class="font-bold">
@@ -1454,18 +1386,6 @@ defmodule PokexWeb.CalibrationLive do
                 class="input input-bordered input-xs w-14 text-center font-bold"
               />
             </.form>
-          </div>
-
-          <div
-            :if={@step == :baselines}
-            class="space-y-3 rounded-xl border border-base-content/10 bg-base-200 p-4"
-          >
-            <p class="text-sm">{@instr.baselines}</p>
-            <button class="btn btn-primary" phx-click="capture_baselines">
-              Capturar linhas de base
-            </button>
-            <progress class="progress progress-primary w-full" value={@baselines_done} max="10" />
-            <p class="text-xs opacity-60">{@baselines_done}/10 capturadas</p>
           </div>
 
           <p :if={marking_step?(@step)} class="text-xs">
@@ -1503,7 +1423,6 @@ defmodule PokexWeb.CalibrationLive do
                 water_point={@draft[:water_point]}
                 glow_region={@draft[:glow_region]}
                 battle_region={@draft[:battle_region]}
-                arena_region={@draft[:arena_region]}
                 skill_bar_region={@draft[:skill_bar_region]}
                 neutral_point={@draft[:neutral_point]}
                 player_point={draft_player(@draft)}
@@ -1543,7 +1462,7 @@ defmodule PokexWeb.CalibrationLive do
               O acervo É a mira da captura: mate um monstro, deixe o corpo no chão,
               fotografe e clique EM CIMA do corpo. A foto mostra <b>exatamente o
               quadro que a busca varre</b> — o quadradão ao redor do seu personagem,
-              não a arena antiga. Só corpo conhecido recebe Pokébola; o log da bola
+              não uma área marcada à mão. Só corpo conhecido recebe Pokébola; o log da bola
               diz QUAL pokémon foi reconhecido, e o switch de cada corpo tira ele da
               mira sem apagar as fotos.
             </p>

@@ -43,7 +43,7 @@ defmodule Pokex.Vision do
   end
 
   @doc """
-  Locates the hostile creature inside the arena frame by clustering pure-red
+  Locates the hostile creature inside the given frame by clustering pure-red
   pixels (the floating red name text). Species-agnostic. Returns frame PIXELS.
   """
   def find_hostile(%Frame{} = frame, opts \\ []) do

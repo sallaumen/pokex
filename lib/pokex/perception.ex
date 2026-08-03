@@ -151,7 +151,14 @@ defmodule Pokex.Perception do
       },
       %{
         key: :corpses,
-        region: fn calib -> calib.arena_region end,
+        # The square around the character — the same one SpotScan sweeps. The
+        # arena is gone; nothing may ask for a rectangle the user never sees.
+        region: fn calib ->
+          case Pokex.Bots.Catcher.SpotScan.region(calib) do
+            {:ok, region} -> region
+            _no_anchor -> nil
+          end
+        end,
         interval_setting: :feed_corpses_ms,
         filename: "feed_corpses.png",
         interpret: &Interpret.Corpses.interpret/4

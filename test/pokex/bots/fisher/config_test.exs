@@ -11,7 +11,6 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
       water_point: {800, 400},
       glow_region: {768, 368, 64, 64},
       battle_region: {1380, 120, 260, 220},
-      arena_region: {560, 260, 560, 420},
       neutral_point: {860, 470}
     }
 
@@ -20,7 +19,7 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.water_point == {800, 400}
     assert config.neutral_point == {860, 470}
     assert config.battle_first_row == {1466, 138}
-    assert config.player_point == {840, 470}
+    assert config.player_point == {500, 350}
     assert config.rod_key == "shift+v"
     assert config.skill_keys == ["1", "2", "3"]
     assert config.combat_skill_burst_size == 3
@@ -52,7 +51,6 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
       water_point: {800, 400},
       glow_region: {768, 368, 64, 64},
       battle_region: {1380, 120, 260, 220},
-      arena_region: {560, 260, 560, 420},
       neutral_point: {860, 470}
     }
 
@@ -60,6 +58,6 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     config = Config.build(calib, %{skill_keys: ["1"]})
 
     assert length(config.battle_rows) == 6
-    assert config.player_point == {840, 470}
+    assert config.player_point == {500, 350}
   end
 end

@@ -95,8 +95,8 @@ defmodule Pokex.Diagnostics.Report do
             &strip_metrics(&1, settings),
             matrix: false
           ),
-        arena:
-          region_report(rig, calib.arena_region, "diag_arena.png", &arena_metrics(&1, calib),
+        search_box:
+          region_report(rig, search_box(calib), "diag_search_box.png", &arena_metrics(&1, calib),
             matrix: [cols: 24]
           ),
         skill_bar: skill_bar_report(rig, calib, settings)
@@ -322,7 +322,7 @@ defmodule Pokex.Diagnostics.Report do
     hostile =
       case Vision.find_hostile(frame) do
         {:ok, {fx, fy}} ->
-          {sx, sy} = Calibration.frame_to_screen(calib, calib.arena_region, {fx, fy})
+          {sx, sy} = Calibration.frame_to_screen(calib, search_box(calib), {fx, fy})
           %{frame_px: [fx, fy], screen_point: [sx, sy]}
 
         :not_found ->
@@ -379,10 +379,8 @@ defmodule Pokex.Diagnostics.Report do
       battle_region: to_list(calib.battle_region),
       battle_body: to_list(Calibration.battle_body(calib)),
       battle_strip: to_list(Calibration.battle_strip(calib)),
-      arena_region: to_list(calib.arena_region),
       skill_bar_region: to_list(calib.skill_bar_region),
-      skill_bar_count: calib.skill_bar_count,
-      suggested_glow_threshold: calib.suggested_glow_threshold
+      skill_bar_count: calib.skill_bar_count
     }
   end
 
@@ -401,5 +399,12 @@ defmodule Pokex.Diagnostics.Report do
 
   defp iso8601(now_ms) do
     now_ms |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
+  end
+
+  defp search_box(calib) do
+    case Pokex.Bots.Catcher.SpotScan.region(calib) do
+      {:ok, region} -> region
+      _no_anchor -> {0, 0, 0, 0}
+    end
   end
 end

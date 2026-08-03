@@ -81,8 +81,7 @@ defmodule Pokex.MixProject do
   defp dialyzer do
     [
       plt_add_apps: [:mix, :ex_unit],
-      plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
-      ignore_warnings: ".dialyzer_ignore.exs"
+      plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
     ]
   end
 

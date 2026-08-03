@@ -245,6 +245,9 @@ defmodule Pokex.Bots.MiniGame.Diag do
   defp gap_ms(_diag, nil), do: nil
   defp gap_ms(%{last_capture_at: last}, at), do: at - last
 
+  defp bump(counter, true), do: counter + 1
+  defp bump(counter, _false), do: counter
+
   defp count(diag, sample) do
     blind? = sample[:read] != :ok
     no_capsule? = sample[:bar_source] == :fish
@@ -259,11 +262,11 @@ defmodule Pokex.Bots.MiniGame.Diag do
       | capture_ms: push_capped(diag.capture_ms, sample[:cap_ms], full?),
         tick_ms: push_capped(diag.tick_ms, sample[:tick_ms], full?),
         gap_ms: push_capped(diag.gap_ms, sample[:gap_ms], full?),
-        flips: diag.flips + if(sample.flip, do: 1, else: 0),
-        rejected: diag.rejected + if(sample[:accepted] == false, do: 1, else: 0),
-        blind: diag.blind + if(blind?, do: 1, else: 0),
-        no_track: diag.no_track + if(sample[:read] == :no_track, do: 1, else: 0),
-        no_fish: diag.no_fish + if(sample[:read] == :no_fish, do: 1, else: 0),
+        flips: bump(diag.flips, sample.flip),
+        rejected: bump(diag.rejected, sample[:accepted] == false),
+        blind: bump(diag.blind, blind?),
+        no_track: bump(diag.no_track, sample[:read] == :no_track),
+        no_fish: bump(diag.no_fish, sample[:read] == :no_fish),
         no_capsule_streak: streak,
         no_capsule_streak_max: max(diag.no_capsule_streak_max, streak),
         error: %{

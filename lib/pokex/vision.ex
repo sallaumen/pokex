@@ -405,9 +405,17 @@ defmodule Pokex.Vision do
   # without touching it. And `min_x` restricts the search to the NAME zone
   # (creature icons end at x<=72; EVERY measured false positive sat at
   # x 45..71) — the star sits right at the name's start.
+  # The colour test is split in two so neither half is a wall of conditions:
+  # `gold_bright?` is the raw channel window, `gold_contrast?` the separations
+  # that keep a yellow POKÉMON out.
+  defguardp gold_bright?(r, g, b) when r >= 190 and g >= 130 and b <= 150 and b >= 50 and g <= r
+
+  defguardp gold_contrast?(r, g, b)
+            when r - b >= 80 and g - b >= 40 and g * 10 >= r * 6
+
   defp gold_cells(<<r, g, b, _a, rest::binary>>, index, width, min_x, top, band, rows, acc)
-       when r >= 190 and g >= 130 and b <= 150 and b >= 50 and g <= r and r - b >= 80 and
-              g - b >= 40 and g * 10 >= r * 6 and rem(index, width) >= min_x do
+       when gold_bright?(r, g, b) and gold_contrast?(r, g, b) and
+              rem(index, width) >= min_x do
     y = div(index, width)
     row = if y >= top, do: div(y - top, band), else: -1
 
@@ -982,14 +990,18 @@ defmodule Pokex.Vision do
   # (bubble_count). Near-black is `:dark`; anything else is `:other`.
   defp pixel_rank(r, g, b) do
     cond do
-      r >= 200 and g <= 60 and b <= 60 -> @rank_pokeball_red
-      r >= 130 and g <= 70 and b <= 70 -> @rank_lock_red
-      g >= 120 and g >= r + 40 and g >= b + 40 -> @rank_hp_green
+      pokeball_red?(r, g, b) -> @rank_pokeball_red
+      lock_red?(r, g, b) -> @rank_lock_red
+      hp_green?(r, g, b) -> @rank_hp_green
       bubble_pixel?(r, g, b, 60) -> @rank_cyan
       r + g + b <= 60 -> @rank_dark
       true -> @rank_other
     end
   end
+
+  defp pokeball_red?(r, g, b), do: r >= 200 and g <= 60 and b <= 60
+  defp lock_red?(r, g, b), do: r >= 130 and g <= 70 and b <= 70
+  defp hp_green?(r, g, b), do: g >= 120 and g >= r + 40 and g >= b + 40
 
   defp rank_to_class(@rank_pokeball_red), do: :pokeball_red
   defp rank_to_class(@rank_lock_red), do: :lock_red

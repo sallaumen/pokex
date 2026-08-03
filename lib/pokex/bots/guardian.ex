@@ -302,21 +302,7 @@ defmodule Pokex.Bots.Guardian do
 
     case WorldState.get(:session, @session_max_age_ms, now) do
       {:ok, %{started_at: started_at}} ->
-        minutes = Settings.get(:stop_after_minutes)
-        kills = Settings.get(:stop_after_kills)
-
-        cond do
-          is_integer(minutes) and minutes > 0 and now - started_at >= minutes * 60_000 ->
-            session_end(state, "tempo de caçada atingido (#{minutes}min)")
-            state
-
-          is_integer(kills) and kills > 0 and state.fights >= kills ->
-            session_end(state, "meta de kills atingida (#{state.fights}/#{kills})")
-            state
-
-          true ->
-            check_stagnation(state, started_at, now)
-        end
+        check_goals(state, started_at, now)
 
       _no_session ->
         state
@@ -342,6 +328,30 @@ defmodule Pokex.Bots.Guardian do
   # the LATER of session start / last activity / last ring — so the alarm
   # action re-rings only after ANOTHER full silent window (its own cooldown),
   # and a fresh session never inherits old silence.
+  # A goal that fires ends the session; otherwise stagnation gets its turn.
+  defp check_goals(state, started_at, now) do
+    minutes = Settings.get(:stop_after_minutes)
+    kills = Settings.get(:stop_after_kills)
+
+    cond do
+      time_is_up?(minutes, started_at, now) ->
+        session_end(state, "tempo de caçada atingido (#{minutes}min)")
+        state
+
+      kills_reached?(kills, state.fights) ->
+        session_end(state, "meta de kills atingida (#{state.fights}/#{kills})")
+        state
+
+      true ->
+        check_stagnation(state, started_at, now)
+    end
+  end
+
+  defp time_is_up?(minutes, started_at, now),
+    do: is_integer(minutes) and minutes > 0 and now - started_at >= minutes * 60_000
+
+  defp kills_reached?(kills, fights), do: is_integer(kills) and kills > 0 and fights >= kills
+
   defp check_stagnation(state, started_at, now) do
     minutes = Settings.get(:stagnation_minutes)
     baseline = max(state.last_activity_at || started_at, started_at)

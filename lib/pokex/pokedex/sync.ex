@@ -115,21 +115,7 @@ defmodule Pokex.Pokedex.Sync do
   # UI can show them instead of plain words. Best-effort: a failed download
   # just leaves the coloured text chip in place.
   defp save_element_icons(opts, progress) do
-    if opts[:skip_sprites] do
-      :ok
-    else
-      with {:ok, html} <- fetch("/index.php/Sceptile"),
-           icons when map_size(icons) > 0 <- Scraper.element_icons(html) do
-        dir = Path.join(sprites_dir(), "elements")
-        File.mkdir_p!(dir)
-
-        Enum.each(icons, fn {element, url} -> fetch_icon(dir, element, url) end)
-
-        progress.("ícones de elemento: #{map_size(icons)}")
-      else
-        _unavailable -> :ok
-      end
-    end
+    if opts[:skip_sprites], do: :ok, else: harvest_element_icons(progress)
   end
 
   @doc """
@@ -193,6 +179,18 @@ defmodule Pokex.Pokedex.Sync do
         {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(dest, body)
         _error -> :skip
       end
+    end
+  end
+
+  defp harvest_element_icons(progress) do
+    with {:ok, html} <- fetch("/index.php/Sceptile"),
+         icons when map_size(icons) > 0 <- Scraper.element_icons(html) do
+      dir = Path.join(sprites_dir(), "elements")
+      File.mkdir_p!(dir)
+      Enum.each(icons, fn {element, url} -> fetch_icon(dir, element, url) end)
+      progress.("ícones de elemento: #{map_size(icons)}")
+    else
+      _unavailable -> :ok
     end
   end
 

@@ -814,28 +814,43 @@ defmodule Pokex.Settings do
     end
   end
 
+  # One rule per clause, in order: a threshold key accepting fractions short
+  # circuits, then type, then the closed enum, then the range, then the
+  # similarity floor.
+  defp validate(key, value) when key in @number_keys and is_number(value), do: :ok
+
   defp validate(key, value) do
-    cond do
-      key in @number_keys and is_number(value) ->
-        :ok
-
-      not valid_type?(key, value) ->
-        {:error, "#{key}: esperava #{seed_type(key)}, veio #{inspect(value)}"}
-
-      is_map_key(@enums, key) and value not in @enums[key] ->
-        {:error, "#{key}: precisa ser um de #{Enum.join(@enums[key], ", ")}"}
-
-      is_map_key(@ranges, key) and is_integer(value) and value not in @ranges[key] ->
-        {:error,
-         "#{key}: fora da faixa #{inspect(@ranges[key])} — valor impossível não vai pro disco"}
-
-      key == :corpse_match_min_similarity and (value < 0 or value > 1) ->
-        {:error, "corpse_match_min_similarity: similaridade é 0..1"}
-
-      true ->
-        :ok
+    with :ok <- validate_type(key, value),
+         :ok <- validate_enum(key, value),
+         :ok <- validate_range(key, value) do
+      validate_similarity(key, value)
     end
   end
+
+  defp validate_type(key, value) do
+    if valid_type?(key, value),
+      do: :ok,
+      else: {:error, "#{key}: esperava #{seed_type(key)}, veio #{inspect(value)}"}
+  end
+
+  defp validate_enum(key, value) do
+    if is_map_key(@enums, key) and value not in @enums[key],
+      do: {:error, "#{key}: precisa ser um de #{Enum.join(@enums[key], ", ")}"},
+      else: :ok
+  end
+
+  defp validate_range(key, value) do
+    if is_map_key(@ranges, key) and is_integer(value) and value not in @ranges[key],
+      do:
+        {:error,
+         "#{key}: fora da faixa #{inspect(@ranges[key])} — valor impossível não vai pro disco"},
+      else: :ok
+  end
+
+  defp validate_similarity(:corpse_match_min_similarity, value) when value < 0 or value > 1,
+    do: {:error, "corpse_match_min_similarity: similaridade é 0..1"}
+
+  defp validate_similarity(_key, _value), do: :ok
 
   defp seed_type(key) do
     seed = Map.fetch!(@seed_settings, key)

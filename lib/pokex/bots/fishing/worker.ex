@@ -167,28 +167,41 @@ defmodule Pokex.Bots.Fishing.Worker do
     end
   end
 
+  # The feed gets the RAW observations (integer glow) so "vigiando" can show the
+  # live bubble count against the threshold; the boolean-thresholded ones would
+  # hide it.
+  defp step_from(state, previous, observations, settings) do
+    observations = Map.merge(observations, pokemon_obs())
+    {stepped, actions} = Logic.step(previous, threshold_glow(observations, settings), now())
+
+    logic =
+      case submit(state.body, actions, humanize_max_for(previous, actions)) do
+        :ok -> stepped
+        {:error, reason} -> elem(Logic.io_failed(stepped, inspect(reason), now()), 0)
+      end
+
+    {logic, actions, observations}
+  end
+
+  # A tick is MACRO when the state or a counter changed (a hook, a recast, an
+  # error) OR the hold latched/released — the events worth keeping; every other
+  # tick is routine DEBUG chatter (per-frame bubble counts), hidden by default
+  # in the panel feed. Elevating the hold transition means the lock never
+  # scrolls past unseen the way the old once-only debug log did.
+  defp tick_level(logic, previous) do
+    if logic.state != previous.state or logic.counters != previous.counters or
+         logic.holding? != previous.holding?,
+       do: :macro,
+       else: :debug
+  end
+
   defp run_tick(state, previous) do
     settings = Settings.all()
 
     {logic, actions, raw_obs} =
       case Sensors.impl().observe(Logic.needs(previous), state.calib, settings) do
-        {:ok, observations} ->
-          observations = Map.merge(observations, pokemon_obs())
-          {stepped, actions} = Logic.step(previous, threshold_glow(observations, settings), now())
-
-          logic =
-            case submit(state.body, actions, humanize_max_for(previous, actions)) do
-              :ok -> stepped
-              {:error, reason} -> elem(Logic.io_failed(stepped, inspect(reason), now()), 0)
-            end
-
-          # feed gets the RAW observations (integer glow) so "vigiando" can show
-          # the live bubble count vs the threshold — the boolean-thresholded obs
-          # would hide it.
-          {logic, actions, observations}
-
-        {:error, reason} ->
-          {elem(Logic.io_failed(previous, inspect(reason), now()), 0), [], %{}}
+        {:ok, observations} -> step_from(state, previous, observations, settings)
+        {:error, reason} -> {elem(Logic.io_failed(previous, inspect(reason), now()), 0), [], %{}}
       end
 
     # Alarms decided by the Logic (e.g. dry casts) ring the panel siren — the
@@ -202,24 +215,14 @@ defmodule Pokex.Bots.Fishing.Worker do
     # tick is routine DEBUG chatter (per-frame bubble counts), hidden by default in
     # the panel feed. Elevating the hold transition means the lock never scrolls past
     # unseen the way the old once-only debug log did.
-    level =
-      if logic.state != previous.state or logic.counters != previous.counters or
-           logic.holding? != previous.holding?,
-         do: :macro,
-         else: :debug
-
+    level = tick_level(logic, previous)
     broadcast_activity(previous, raw_obs, actions, level)
     if level == :macro, do: broadcast(logic)
 
     # Just hooked a fish → it'll land near the top of the Battle list. Tell combat to
     # search NOW (one-way, fire-and-forget; combat only reacts if it's searching).
-    if logic.counters.hooked > previous.counters.hooked do
-      Phoenix.PubSub.broadcast(
-        Pokex.PubSub,
-        Worker.catch_topic(),
-        {:fish_caught}
-      )
-    end
+    if logic.counters.hooked > previous.counters.hooked,
+      do: Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.catch_topic(), {:fish_caught})
 
     state = %{state | logic: logic}
 

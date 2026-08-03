@@ -82,13 +82,14 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
   # An HP bar PNG: `fill_cols` green columns then dark to `total`.
   defp hp_png(dir, name, fill_cols, total \\ 20) do
-    rows =
-      for _y <- 1..4 do
-        for x <- 1..total, do: if(x <= fill_cols, do: {40, 200, 60, 255}, else: {17, 17, 17, 255})
-      end
+    rows = for _y <- 1..4, do: hp_row(fill_cols, total)
 
     Pokex.PngFixtures.write!(Path.join(dir, name), rows)
   end
+
+  defp hp_row(fill_cols, total),
+    do:
+      for(x <- 1..total, do: if(x <= fill_cols, do: {40, 200, 60, 255}, else: {17, 17, 17, 255}))
 
   defp start_worker(body), do: start_supervised!({Worker, name: nil, body: body})
 

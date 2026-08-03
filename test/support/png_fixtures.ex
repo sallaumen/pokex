@@ -35,18 +35,22 @@ defmodule Pokex.PngFixtures do
 
     rows =
       for y <- 0..219 do
-        for x <- 0..219 do
-          cond do
-            bar_x == nil or x not in bar_x -> {150, 120, 86, 255}
-            fish != nil and y in fish -> {120, 100, 0, 255}
-            capsule != nil and y in capsule -> {0, 160, 255, 255}
-            y in 10..209 -> {26, 30, 48, 255}
-            true -> {150, 120, 86, 255}
-          end
-        end
+        for x <- 0..219, do: scene_pixel(x, y, bar_x, fish, capsule)
       end
 
     write!(Path.join(dir, name), rows)
+  end
+
+  @ground {150, 120, 86, 255}
+
+  defp scene_pixel(x, y, bar_x, fish, capsule) do
+    cond do
+      bar_x == nil or x not in bar_x -> @ground
+      fish != nil and y in fish -> {120, 100, 0, 255}
+      capsule != nil and y in capsule -> {0, 160, 255, 255}
+      y in 10..209 -> {26, 30, 48, 255}
+      true -> @ground
+    end
   end
 
   defp chunk(type, data) do

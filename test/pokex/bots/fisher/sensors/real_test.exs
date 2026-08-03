@@ -177,19 +177,18 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     ball = opts[:ball] || []
     ring = opts[:ring] || []
 
-    frame =
-      for y <- 0..399 do
-        for x <- 0..519 do
-          cond do
-            y in hp and x in 0..149 -> {40, 200, 60, 255}
-            y in ring and x in 0..200 -> {230, 40, 40, 255}
-            y in ball and x in 460..479 -> {230, 40, 40, 255}
-            true -> {20, 20, 20, 255}
-          end
-        end
-      end
+    frame = for y <- 0..399, do: for(x <- 0..519, do: battle_pixel(x, y, hp, ring, ball))
 
     Pokex.PngFixtures.write!(Path.join(tmp, name), frame)
+  end
+
+  defp battle_pixel(x, y, hp, ring, ball) do
+    cond do
+      y in hp and x in 0..149 -> {40, 200, 60, 255}
+      y in ring and x in 0..200 -> {230, 40, 40, 255}
+      y in ball and x in 460..479 -> {230, 40, 40, 255}
+      true -> {20, 20, 20, 255}
+    end
   end
 
   defp observe_battle(tmp, opts) do

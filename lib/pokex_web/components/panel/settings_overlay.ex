@@ -652,25 +652,26 @@ defmodule PokexWeb.Panel.SettingsOverlay do
         nil
 
       combo ->
-        if Pokex.Combos.rescue_eligible?(combo) do
-          stun =
-            Enum.map(combo.steps, fn
-              {:skill, key} -> key
-              {:wait, ms} when is_integer(ms) -> "#{ms}ms"
-              {:wait, setting} -> "#{preview_wait_ms(setting)}ms"
-            end)
-
-          tail = [
-            Pokex.Settings.get(:rescue_key),
-            "retrato",
-            Pokex.Settings.get(:max_revive_key),
-            Pokex.Settings.get(:rescue_key)
-          ]
-
-          Enum.join(stun ++ tail, " → ")
-        end
+        if Pokex.Combos.rescue_eligible?(combo), do: rescue_preview(combo)
     end
   end
+
+  defp rescue_preview(combo) do
+    stun = Enum.map(combo.steps, &preview_step/1)
+
+    tail = [
+      Pokex.Settings.get(:rescue_key),
+      "retrato",
+      Pokex.Settings.get(:max_revive_key),
+      Pokex.Settings.get(:rescue_key)
+    ]
+
+    Enum.join(stun ++ tail, " → ")
+  end
+
+  defp preview_step({:skill, key}), do: key
+  defp preview_step({:wait, ms}) when is_integer(ms), do: "#{ms}ms"
+  defp preview_step({:wait, setting}), do: "#{preview_wait_ms(setting)}ms"
 
   defp preview_wait_ms(setting) do
     case Pokex.Settings.get(setting) do

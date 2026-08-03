@@ -50,18 +50,17 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
   # centered on each listed SCREEN point.
   defp capture_with_corpses_at(screen_points) do
     fn {rx, ry, rw, rh}, _filename ->
-      frame =
-        Pokex.FrameFixtures.of(rw, rh, fn x, y ->
-          dentro? =
-            Enum.any?(screen_points, fn {cx, cy} ->
-              abs(x + rx - cx) <= 12 and abs(y + ry - cy) <= 12
-            end)
-
-          if dentro?, do: @red, else: @ground
-        end)
-
-      {:ok, frame}
+      {:ok, Pokex.FrameFixtures.of(rw, rh, &corpse_pixel(&1, &2, {rx, ry}, screen_points))}
     end
+  end
+
+  defp corpse_pixel(x, y, {rx, ry}, screen_points) do
+    on_a_corpse? =
+      Enum.any?(screen_points, fn {cx, cy} ->
+        abs(x + rx - cx) <= 12 and abs(y + ry - cy) <= 12
+      end)
+
+    if on_a_corpse?, do: @red, else: @ground
   end
 
   defp teach_red!(name \\ "Corsola") do

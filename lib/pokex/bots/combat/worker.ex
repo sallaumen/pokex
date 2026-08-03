@@ -99,11 +99,10 @@ defmodule Pokex.Bots.Combat.Worker do
         # step immediately against whatever the world already knows
         {:reply, :ok, advance(state, current_obs())}
 
-      {:error, messages} when is_list(messages) ->
-        {:reply, {:error, messages}, state}
-
-      {:error, other} ->
-        {:reply, {:error, [inspect(other)]}, state}
+      # List.wrap keeps this total without a second clause the type system can
+      # prove unreachable.
+      {:error, messages} ->
+        {:reply, {:error, List.wrap(messages)}, state}
     end
   end
 

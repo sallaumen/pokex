@@ -29,6 +29,20 @@ defmodule Pokex.Bots.MiniGame.Replay do
     """
     @behaviour Pokex.Rig
 
+    # Every actuator raises on purpose (replay is offline), so "no local return"
+    # is the design, not a defect.
+    @dialyzer {:nowarn_function,
+               press: 1,
+               press_many: 2,
+               key_down: 1,
+               key_up: 1,
+               click: 2,
+               move: 1,
+               capture_sequence: 1,
+               capture: 2,
+               capture_screen: 0,
+               cursor_position: 0}
+
     def replay_safe?, do: true
 
     @impl true

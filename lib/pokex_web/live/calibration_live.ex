@@ -496,10 +496,10 @@ defmodule PokexWeb.CalibrationLive do
 
   defp photo_error(:no_screen), do: "a calibração não sabe o tamanho da tela — refaça o passo 1"
 
+  # Total for the domain the caller's guard allows — add a clause here when a
+  # new scan reason joins that list.
   defp photo_error(:frame_too_small),
     do: "o quadro da busca ficou menor que o recorte do corpo"
-
-  defp photo_error(outro), do: "não deu pra fotografar: #{inspect(outro)}"
 
   # Hand focus back to whatever was frontmost before the baselines fronted the game.
   defp return_focus(socket) do

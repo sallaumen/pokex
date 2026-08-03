@@ -1,5 +1,7 @@
 defmodule PokexWeb.PokedexDetailLiveTest do
   use PokexWeb.ConnCase, async: false
+
+  alias Pokex.Pokedex.Team
   import Phoenix.LiveViewTest
 
   @dataset %{
@@ -204,14 +206,14 @@ defmodule PokexWeb.PokedexDetailLiveTest do
 
     view |> element(~s(button[phx-value-where="team"])) |> render_click()
     assert view |> element("#membership-badge") |> render() =~ "no teu time"
-    assert [%{name: "Charizard"}] = Pokex.Pokedex.Team.members()
+    assert [%{name: "Charizard"}] = Team.members()
 
     {:ok, venu, _} = live(conn, ~p"/pokedex/Venusaur")
     matchup = venu |> element("#entry-matchup") |> render()
     assert matchup =~ "Charizard"
     assert matchup =~ "fere ele com Fire"
 
-    {:ok, _} = Pokex.Pokedex.Team.add("Venusaur", :team)
+    {:ok, _} = Team.add("Venusaur", :team)
     {:ok, chari, _} = live(conn, ~p"/pokedex/Charizard")
     matchup = chari |> element("#entry-matchup") |> render()
     assert matchup =~ "Venusaur"
@@ -321,7 +323,7 @@ defmodule PokexWeb.PokedexDetailLiveTest do
 
   @tag :tmp_dir
   test "matchup warns when my pokémon's element is null against the target", %{conn: conn} do
-    {:ok, _} = Pokex.Pokedex.Team.add("Dragonite", :team)
+    {:ok, _} = Team.add("Dragonite", :team)
 
     {:ok, view, _} = live(conn, ~p"/pokedex/Florges")
     matchup = view |> element("#entry-matchup") |> render()

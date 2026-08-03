@@ -57,7 +57,12 @@ defmodule Pokex.Bots.Guardian do
   use GenServer
   require Logger
 
-  alias Pokex.Bots.{Body, Corner, InputGate}
+  alias Pokex.Bots.Body
+  alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.Corner
+  alias Pokex.Bots.InputGate
+  alias Pokex.Bots.Logout
+  alias Pokex.Bots.MiniGame.Worker
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
 
@@ -90,7 +95,7 @@ defmodule Pokex.Bots.Guardian do
       body: body,
       poll_ms: poll_ms,
       session_rules?: session_rules?,
-      logout_fun: Keyword.get(opts, :logout_fun, &Pokex.Bots.Logout.request/1),
+      logout_fun: Keyword.get(opts, :logout_fun, &Logout.request/1),
       # COMMAND corner (top-right): injectable deps so tests never start the
       # real fleet nor read real calibration
       command_toggle: Keyword.get(opts, :command_toggle, &__MODULE__.default_command_toggle/0),
@@ -124,7 +129,7 @@ defmodule Pokex.Bots.Guardian do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
     # the REAL fish (won mini-game) and whether the watcher is up
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.MiniGame.Worker.topic())
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     schedule_poll(state.poll_ms)
     {:ok, state}
   end
@@ -251,9 +256,9 @@ defmodule Pokex.Bots.Guardian do
   # a Task because preflight captures take seconds and the panic-corner poll
   # must NEVER go deaf waiting — the Logout lesson.
   def default_command_toggle do
-    status = Pokex.Bots.BotSupervisor.status()
+    status = BotSupervisor.status()
 
-    if Pokex.Bots.BotSupervisor.any_active?([
+    if BotSupervisor.any_active?([
          status.fishing,
          status.combat,
          status.cavebot,
@@ -265,7 +270,7 @@ defmodule Pokex.Bots.Guardian do
         {:rule_alarm, :command, "🕹️ canto de comando: parando o bot"}
       )
 
-      Pokex.Bots.BotSupervisor.stop_all("canto de comando")
+      BotSupervisor.stop_all("canto de comando")
     else
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
@@ -273,7 +278,7 @@ defmodule Pokex.Bots.Guardian do
         {:rule_alarm, :command, "🕹️ canto de comando: ligando o modo #{Pokex.Modes.current()}"}
       )
 
-      {:ok, _pid} = Task.start(fn -> Pokex.Bots.BotSupervisor.start_all() end)
+      {:ok, _pid} = Task.start(fn -> BotSupervisor.start_all() end)
       :ok
     end
   end

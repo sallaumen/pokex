@@ -2,6 +2,7 @@ defmodule Pokex.Perception.FeedTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Perception.{Feed, WorldState}
+  alias Pokex.Rig.Fake
   alias Pokex.Settings
 
   # A tiny deterministic spec: region is fixed, the interpreter reports the frame width so
@@ -50,7 +51,7 @@ defmodule Pokex.Perception.FeedTest do
        %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)
     b = png!(tmp, "b.png", 12)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}, {:ok, a}, {:ok, b}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, a}, {:ok, a}, {:ok, b}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, "world")
     {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
@@ -75,7 +76,7 @@ defmodule Pokex.Perception.FeedTest do
   test "pauses capture while a minigame is playing and resumes on exit", %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)
     b = png!(tmp, "b.png", 12)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}, {:ok, b}, {:ok, b}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, a}, {:ok, b}, {:ok, b}]})
 
     WorldState.put(:mini_game, %{playing?: true, confidence: 0.9}, now())
     on_exit(fn -> WorldState.forget(:mini_game) end)
@@ -94,7 +95,7 @@ defmodule Pokex.Perception.FeedTest do
   @tag :tmp_dir
   test "a capture error keeps the last good entry and does not crash", %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}, {:error, :boom}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, a}, {:error, :boom}]})
 
     {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
     :ok = Feed.attach(feed)
@@ -110,7 +111,7 @@ defmodule Pokex.Perception.FeedTest do
   @tag :tmp_dir
   test "a crashed consumer auto-detaches and pauses the feed", %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, a}]})
 
     {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
 
@@ -144,7 +145,7 @@ defmodule Pokex.Perception.FeedTest do
   test "a consecutive-failure streak reaching the configured threshold logs one loud warning",
        %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}, {:error, :boom}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, a}, {:error, :boom}]})
 
     original = Settings.get(:feed_failure_warn_streak)
     Settings.put(:feed_failure_warn_streak, 2)
@@ -188,7 +189,7 @@ defmodule Pokex.Perception.FeedTest do
   test "arity-4 interpreters thread state and reset when the feed resumes from idle",
        %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, a}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, a}]})
     on_exit(fn -> :ets.delete(:pokex_world, :feed_stateful_test) end)
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, "world")

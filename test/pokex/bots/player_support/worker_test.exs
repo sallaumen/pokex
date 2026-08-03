@@ -17,9 +17,15 @@ end
 defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   use ExUnit.Case, async: false
 
+  alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Worker
   alias Pokex.Bots.PlayerSupport.WorkerTest.FakeBody
-  alias Pokex.{Calibration, Settings, SettingsStash}
+  alias Pokex.Calibration
+  alias Pokex.Combos.Store
+  alias Pokex.Perception.WorldState
+  alias Pokex.Rig.Fake
+  alias Pokex.Settings
+  alias Pokex.SettingsStash
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
@@ -54,7 +60,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :calibration_front_delay_ms
     ])
 
-    on_exit(fn -> Pokex.Perception.WorldState.forget(:pokemon) end)
+    on_exit(fn -> WorldState.forget(:pokemon) end)
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -96,7 +102,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   @tag :tmp_dir
   test "holds (no combo) while the HP bar is full", %{tmp: tmp, body: body} do
     full = hp_png(tmp, "full.png", 20)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, full}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -117,7 +123,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     rows = for _y <- 1..4, do: List.duplicate({120, 180, 235, 255}, 20)
     world = Pokex.PngFixtures.write!(Path.join(tmp, "world.png"), rows)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, world}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, world}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -136,7 +142,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     body: body
   } do
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
     Settings.put(:rescue_cooldown_ms, 1)
 
     worker = start_worker(body)
@@ -162,7 +168,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     body: body
   } do
     nearly = hp_png(tmp, "nearly.png", 19)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, nearly}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, nearly}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -177,7 +183,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     body: body
   } do
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -196,7 +202,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     tmp: tmp,
     body: body
   } do
-    Pokex.Combos.Store.put([
+    Store.put([
       %Pokex.Combos.Combo{
         name: "stun-do-resgate",
         trigger: nil,
@@ -209,7 +215,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Settings.put(:rescue_combo, "stun-do-resgate")
 
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -230,7 +236,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Settings.put(:rescue_combo, "sumiu")
 
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -248,7 +254,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   } do
     full = hp_png(tmp, "full.png", 20)
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}, {:ok, low}, {:ok, full}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, full}, {:ok, low}, {:ok, full}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -260,7 +266,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   @tag :tmp_dir
   test "the cooldown blocks a second combo within the window", %{tmp: tmp, body: body} do
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
     Settings.put(:rescue_cooldown_ms, 60_000)
 
     worker = start_worker(body)
@@ -279,7 +285,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     full = hp_png(tmp, "full.png", 20)
     rows = for _y <- 1..4, do: List.duplicate({120, 180, 235, 255}, 20)
     world = Pokex.PngFixtures.write!(Path.join(tmp, "world.png"), rows)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}, {:ok, world}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, full}, {:ok, world}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -307,7 +313,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # a stale entry forces the direct capture+interpret fallback; a fresh one is read as-is.
   defp stale_battle! do
     at = System.monotonic_time(:millisecond) - 60_000
-    Pokex.Perception.WorldState.put(:battle, %{enemies: [], locked?: false, captured_at: at}, at)
+    WorldState.put(:battle, %{enemies: [], locked?: false, captured_at: at}, at)
   end
 
   defp fresh_battle!(fields) do
@@ -316,7 +322,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     obs =
       Enum.into(fields, %{enemies: [], red: [], locked?: false, locked_row: nil, captured_at: at})
 
-    Pokex.Perception.WorldState.put(:battle, obs, at)
+    WorldState.put(:battle, obs, at)
   end
 
   # During the minigame the Body is locked anyway, and the 120ms HP reads only queued
@@ -329,15 +335,15 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Settings.put(:rescue_enabled, true)
 
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
-    Pokex.Perception.WorldState.put(
+    WorldState.put(
       :mini_game,
       %{playing?: true, confidence: 0.9},
       System.monotonic_time(:millisecond)
     )
 
-    on_exit(fn -> Pokex.Perception.WorldState.forget(:mini_game) end)
+    on_exit(fn -> WorldState.forget(:mini_game) end)
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -359,7 +365,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     stale_battle!()
     low = hp_png(tmp, "low.png", 6)
     no_fight = battle_png(tmp, "calm.png", {17, 17, 17, 255})
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}, {:ok, no_fight}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}, {:ok, no_fight}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -380,7 +386,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     fresh_battle!(enemies: [])
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -404,7 +410,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     fresh_battle!(enemies: [])
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     send(worker, {:catcher, %{pending_corpses: 1}})
@@ -427,7 +433,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     fresh_battle!(enemies: [])
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     send(worker, {:catcher, %{pending_corpses: 1}})
@@ -445,7 +451,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     fresh_battle!(enemies: [])
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -473,7 +479,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     fresh_battle!(enemies: [%{row: 1, name: "Tentacool"}], locked?: false)
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -498,7 +504,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     fresh_battle!(enemies: [%{row: 1, name: "Tentacool"}], locked?: false)
 
     frames = for fill <- 13..2//-1, do: {:ok, hp_png(tmp, "hp#{fill}.png", fill)}
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: frames})
+    {:ok, _} = Fake.start_link(%{capture: frames})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -520,7 +526,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Calibration.save(%{calib | pokemon_spot_point: {450, 380}})
 
     full = hp_png(tmp, "full.png", 20)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, full}]})
 
     fresh_battle!(enemies: [0])
     worker = start_worker(body)
@@ -621,7 +627,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Calibration.save(%{calib | pokemon_spot_point: {450, 380}})
 
     full = hp_png(tmp, "full.png", 20)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, full}]})
 
     fresh_battle!(enemies: [0])
     worker = start_worker(body)
@@ -642,7 +648,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Calibration.save(%{calib | pokemon_spot_point: {450, 380}})
 
     full = hp_png(tmp, "full.png", 20)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, full}]})
 
     fresh_battle!(enemies: [])
     worker = start_worker(body)
@@ -662,7 +668,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     stale_battle!()
     low = hp_png(tmp, "low.png", 6)
     fight = battle_png(tmp, "fight.png", {160, 20, 20, 255})
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}, {:ok, fight}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}, {:ok, fight}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -682,7 +688,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     stale_battle!()
     low = hp_png(tmp, "low.png", 6)
     aggro = battle_png(tmp, "aggro.png", {40, 200, 60, 255})
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}, {:ok, aggro}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}, {:ok, aggro}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -703,7 +709,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     fresh_battle!(enemies: [0], locked?: true, locked_row: 0)
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -716,7 +722,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   test "use_potion/1 fires immediately on user intent, no gates", %{tmp: tmp, body: body} do
     Settings.put(:potion_enabled, false)
     full = hp_png(tmp, "full.png", 20)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, full}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, full}]})
 
     worker = start_worker(body)
     assert :ok = Worker.use_potion(worker)
@@ -728,7 +734,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   @tag :tmp_dir
   test "the toggle off disables the combo entirely", %{tmp: tmp, body: body} do
     low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
     Settings.put(:rescue_enabled, false)
 
     worker = start_worker(body)
@@ -749,11 +755,11 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       Settings.put(:potion_enabled, true)
       fresh_battle!(enemies: [])
 
-      Pokex.Bots.InputGate.set_focus_ok(false)
-      on_exit(fn -> Pokex.Bots.InputGate.set_focus_ok(true) end)
+      InputGate.set_focus_ok(false)
+      on_exit(fn -> InputGate.set_focus_ok(true) end)
 
       low = hp_png(tmp, "low.png", 6)
-      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
@@ -778,7 +784,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       fresh_battle!(enemies: [%{row: 1, name: "Tentacool"}], locked?: true, locked_row: 1)
 
       low = hp_png(tmp, "low.png", 6)
-      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, low}]})
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
 
       worker = start_worker(body)
       assert :ok = Worker.run(worker)

@@ -101,6 +101,8 @@ defmodule Pokex.Bots.BodyTest.SlowRig do
 end
 
 defmodule Pokex.Bots.BodyTest.GameOpeningRig do
+  alias Pokex.Perception.WorldState
+
   # Test-local Rig double: press("open") publishes a playing :mini_game fact
   # before returning — simulating the overlay appearing exactly as an input
   # lands. The Body's after-input gate must stop the rest of the sequence.
@@ -115,7 +117,7 @@ defmodule Pokex.Bots.BodyTest.GameOpeningRig do
     Agent.update(__MODULE__, &[combo | &1])
 
     if combo == "open" do
-      Pokex.Perception.WorldState.put(
+      WorldState.put(
         :mini_game,
         %{playing?: true, confidence: 1.0},
         System.monotonic_time(:millisecond)
@@ -153,11 +155,13 @@ end
 defmodule Pokex.Bots.BodyTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.Body
+  alias Pokex.Bots.BodyTest.RaisingRig
   alias Pokex.Bots.BodyTest.{GameOpeningRig, SlowRig}
   alias Pokex.Perception.WorldState
+  alias Pokex.Rig.Fake
 
   setup do
-    start_supervised!({Pokex.Rig.Fake, %{}})
+    start_supervised!({Fake, %{}})
     pid = start_body(:body_test_default_body, name: :body_test)
     %{body: pid}
   end
@@ -175,14 +179,14 @@ defmodule Pokex.Bots.BodyTest do
     # OUR sequence ran, in order, atomically. The trailing move is the cursor
     # RESTORE (the sequence touches the mouse, so the pointer goes back to
     # where it was — Rig.Fake's scripted cursor, {500, 500}).
-    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == [{:press, "1"}, {:move, {5, 5}}, {:move, {500, 500}}]
   end
 
   test "a KEY-ONLY sequence never reads or moves the cursor (no restore overhead)", %{body: body} do
     assert :ok = Body.perform([{:press, "a"}, {:press, "b"}], :normal, body)
 
-    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == [{:press, "a"}, {:press, "b"}]
   end
 
@@ -192,7 +196,7 @@ defmodule Pokex.Bots.BodyTest do
 
     assert :ok = Body.perform([{:move, {5, 5}}], :normal, body)
 
-    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == [{:move, {5, 5}}]
   end
 
@@ -205,7 +209,7 @@ defmodule Pokex.Bots.BodyTest do
 
     # the whole sequence (incl. the 40ms wait) is one atomic perform; both presses ran
     assert elapsed >= 40_000
-    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == [{:press, "a"}, {:press, "b"}]
   end
 
@@ -231,7 +235,7 @@ defmodule Pokex.Bots.BodyTest do
 
     assert :ok = Body.perform([{:press, "a"}, {:press, "b"}], :normal, body)
 
-    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == []
   end
 
@@ -355,7 +359,7 @@ defmodule Pokex.Bots.BodyTest do
     assert :ok =
              Body.perform([{:press, "q"}, {:press, "shift+q"}, {:press, "q"}], :critical, body)
 
-    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == [{:press, "q"}, {:press, "shift+q"}, {:press, "q"}]
   end
 
@@ -402,6 +406,6 @@ defmodule Pokex.Bots.BodyTest do
     # Prove the Body dequeued and stayed usable: a subsequent normal sequence
     # still executes through the Rig.
     assert :ok = Body.perform([{:press, "1"}], :normal, body)
-    assert Pokex.Bots.BodyTest.RaisingRig.log() == ["1"]
+    assert RaisingRig.log() == ["1"]
   end
 end

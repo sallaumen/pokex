@@ -14,7 +14,10 @@ defmodule Pokex.Perception.Interpret.Corpses do
   the feed resumes from idle, so every bot start relearns the ground.
   """
 
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Calibration
+  alias Pokex.Settings
   alias Pokex.Vision.Frame
 
   # Sample every 4th pixel in both axes: a 16px cell yields 16 samples — plenty to vote a cell
@@ -96,7 +99,7 @@ defmodule Pokex.Perception.Interpret.Corpses do
 
     for {x, y} = center <- candidates,
         {:ok, info} <-
-          [Pokex.Bots.Catcher.CorpseLibrary.match(crop_around(frame, x, y, box), min)] do
+          [CorpseLibrary.match(crop_around(frame, x, y, box), min)] do
       {center, info}
     end
   end
@@ -213,7 +216,7 @@ defmodule Pokex.Perception.Interpret.Corpses do
   # The frame came from the search square; converting against anything else
   # would put every corpse at the wrong screen point.
   defp scan_region(calib) do
-    case Pokex.Bots.Catcher.SpotScan.region(calib) do
+    case SpotScan.region(calib) do
       {:ok, region} -> region
       _no_anchor -> {0, 0, 0, 0}
     end

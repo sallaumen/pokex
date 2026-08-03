@@ -9,6 +9,7 @@ defmodule PokexWeb.WorldLive do
   use PokexWeb, :live_view
 
   alias Pokex.Perception
+  alias Pokex.Perception.DisplayFeeds
   alias Pokex.Perception.WorldState
   alias Pokex.World
   alias PokexWeb.PositionReadout
@@ -28,7 +29,7 @@ defmodule PokexWeb.WorldLive do
       # consumer, so :team and :minimap run exactly while they are looked at
       # (:minimap included — without it the position on this page would be
       # frozen at whatever the last OTHER consumer happened to publish)
-      Pokex.Perception.DisplayFeeds.attach_all()
+      DisplayFeeds.attach_all()
       Process.send_after(self(), :refresh, @refresh_ms)
     end
 

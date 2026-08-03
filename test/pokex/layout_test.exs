@@ -2,6 +2,7 @@ defmodule Pokex.LayoutTest do
   use ExUnit.Case, async: true
 
   alias Pokex.Layout
+  alias Pokex.Perception.WorldState
   alias Pokex.ScreenFixtures
   alias Pokex.Vision.Glyphs
 
@@ -47,7 +48,7 @@ defmodule Pokex.LayoutTest do
 
     on_exit(fn ->
       Application.delete_env(:pokex, :home_dir)
-      Pokex.Perception.WorldState.forget(:layout)
+      WorldState.forget(:layout)
     end)
 
     {:ok, fix} = Layout.locate(screen())

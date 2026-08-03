@@ -68,10 +68,14 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   # test) the global InputGate latch.
   use ExUnit.Case, async: false
 
-  alias Pokex.Bots.Cavebot.{Route, Store, Worker}
-  alias Pokex.Bots.Cavebot.WorkerTest.{FakeBody, FakeCombat}
+  alias Pokex.Bots.Cavebot.Route
+  alias Pokex.Bots.Cavebot.Store
+  alias Pokex.Bots.Cavebot.Worker
+  alias Pokex.Bots.Cavebot.WorkerTest.FakeBody
+  alias Pokex.Bots.Cavebot.WorkerTest.FakeCombat
   alias Pokex.Bots.InputGate
   alias Pokex.Perception.WorldState
+  alias Pokex.Rig.Fake
   alias Pokex.SettingsStash
 
   @moduletag :tmp_dir
@@ -164,7 +168,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
         List.duplicate(List.duplicate({0, 0, 0, 255}, 3), 3)
       )
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, dark}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, dark}]})
     Phoenix.PubSub.subscribe(Pokex.PubSub, "cavebot")
 
     route!()

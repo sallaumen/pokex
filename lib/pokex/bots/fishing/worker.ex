@@ -15,6 +15,7 @@ defmodule Pokex.Bots.Fishing.Worker do
   require Logger
 
   alias Pokex.Bots.Body
+  alias Pokex.Bots.Combat.Worker
   alias Pokex.Bots.Fisher.Config
   alias Pokex.Bots.Fisher.Sensors
   alias Pokex.Bots.Fishing.Logic
@@ -215,7 +216,7 @@ defmodule Pokex.Bots.Fishing.Worker do
     if logic.counters.hooked > previous.counters.hooked do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
-        Pokex.Bots.Combat.Worker.catch_topic(),
+        Worker.catch_topic(),
         {:fish_caught}
       )
     end

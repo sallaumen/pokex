@@ -3,6 +3,7 @@ defmodule Pokex.JournalTest do
   # asserts use the isolated instance.
   use ExUnit.Case, async: false
 
+  alias Pokex.Bots.Session
   alias Pokex.Journal
 
   setup do
@@ -17,7 +18,7 @@ defmodule Pokex.JournalTest do
   end
 
   test "a worker log becomes an event with source, severity and generation", %{journal: journal} do
-    gen = Pokex.Bots.Session.order(:start, "teste journal")
+    gen = Session.order(:start, "teste journal")
     emit("fishing", {:fishing_log, :macro, "arremesso da isca"})
 
     assert [event] = Journal.recent([], journal)

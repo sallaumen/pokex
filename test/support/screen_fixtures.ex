@@ -1,4 +1,6 @@
 defmodule Pokex.ScreenFixtures do
+  alias Pokex.Vision.Frame
+
   @moduledoc """
   The REAL screen captures are this project's ground truth: every glyph, anchor
   template and HUD region is measured from them, never guessed. Captured
@@ -19,7 +21,7 @@ defmodule Pokex.ScreenFixtures do
 
     case :persistent_term.get(key, nil) do
       nil ->
-        {:ok, frame} = Pokex.Vision.Frame.from_png_file(Path.join(@dir, "#{name}.png"))
+        {:ok, frame} = Frame.from_png_file(Path.join(@dir, "#{name}.png"))
         :persistent_term.put(key, frame)
         frame
 

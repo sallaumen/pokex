@@ -2,6 +2,7 @@ defmodule Pokex.Bots.SkillBarTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
+  alias Pokex.Rig.Fake
   alias Pokex.Vision.Frame
 
   @settings %{skill_bar_count: 7, skill_ready_min_saturation: 40, skill_ready_min_vivid_pct: 7}
@@ -24,7 +25,7 @@ defmodule Pokex.Bots.SkillBarTest do
     # 7 slots × 2px: slots 1-6 bright (ready), slot 7 dark (cooldown).
     row = List.duplicate({200, 200, 0, 255}, 12) ++ List.duplicate({20, 20, 20, 255}, 2)
     bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), [row])
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, bar}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, bar}]})
     :ok
   end
 

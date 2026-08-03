@@ -29,6 +29,8 @@ defmodule Pokex.Journal do
   """
   use GenServer
 
+  alias Pokex.Bots.Session
+
   @topics ~w(fishing combat catcher mini_game game body cavebot logout)
   @journal_topic "journal"
   @max_events 500
@@ -182,7 +184,7 @@ defmodule Pokex.Journal do
   # The generation ties the event to the current order; Session down → nil,
   # never a journal that takes its writers down.
   defp safe_generation do
-    Pokex.Bots.Session.generation()
+    Session.generation()
   catch
     :exit, _reason -> nil
   end

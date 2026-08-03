@@ -1,4 +1,6 @@
 defmodule Pokex.Bots.Fishing.Logic do
+  alias Pokex.Bots.Corner
+
   @moduledoc """
   Pure state machine for the fishing sub-cycle (spec §5, fishing half). No side
   effects: the driver gathers observations, calls step/3, and executes the
@@ -431,6 +433,6 @@ defmodule Pokex.Bots.Fishing.Logic do
 
   defp timed_out?(logic, now, ms), do: now - logic.entered_at > ms
 
-  defp kill_corner?(%{cursor: cursor}), do: Pokex.Bots.Corner.in_kill_corner?(cursor)
+  defp kill_corner?(%{cursor: cursor}), do: Corner.in_kill_corner?(cursor)
   defp kill_corner?(_obs), do: false
 end

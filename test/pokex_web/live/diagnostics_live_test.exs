@@ -1,9 +1,11 @@
 defmodule PokexWeb.DiagnosticsLiveTest do
   use PokexWeb.ConnCase, async: false
+
+  alias Pokex.Rig.Fake
   import Phoenix.LiveViewTest
 
   setup do
-    {:ok, _} = Pokex.Rig.Fake.start_link()
+    {:ok, _} = Fake.start_link()
     :ok
   end
 
@@ -20,7 +22,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
     # corner on its own timer against this same shared Rig.Fake, and its
     # reads may land in this window. What this test actually asserts is that
     # OUR delayed press ran.
-    calls = Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
+    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == [{:press, "shift+v"}]
   end
 
@@ -31,7 +33,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
     |> form("#click-form", %{"x" => "812", "y" => "402", "button" => "left"})
     |> render_submit()
 
-    assert {:click, :left, {812, 402}} in Pokex.Rig.Fake.calls()
+    assert {:click, :left, {812, 402}} in Fake.calls()
   end
 
   test "capture renders the image tag", %{conn: conn} do
@@ -43,7 +45,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
       |> render_submit()
 
     assert html =~ "/captures/diag.png"
-    assert {:capture, {0, 0, 100, 80}, "diag.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, {0, 0, 100, 80}, "diag.png"} in Fake.calls()
   end
 
   test "invalid coordinate shows an error instead of crashing", %{conn: conn} do
@@ -55,7 +57,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
       |> render_submit()
 
     assert html =~ "inválid"
-    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:click, _, _}, &1))
+    refute Enum.any?(Fake.calls(), &match?({:click, _, _}, &1))
   end
 
   describe "vision panels (calibrated)" do
@@ -106,7 +108,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
     @tag :tmp_dir
     test "glow panel counts the cyan bubble pixels", %{conn: conn, bright: bright} do
       # a region full of bright-cyan pixels → over the bubble threshold → a bite
-      Agent.update(Pokex.Rig.Fake, fn state ->
+      Agent.update(Fake, fn state ->
         %{state | script: %{capture: [{:ok, bright}]}}
       end)
 
@@ -126,7 +128,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
 
       strip = Pokex.PngFixtures.write!(Path.join(tmp, "strip.png"), strip_rows)
 
-      Agent.update(Pokex.Rig.Fake, fn state ->
+      Agent.update(Fake, fn state ->
         %{state | script: %{capture: [{:ok, strip}]}}
       end)
 

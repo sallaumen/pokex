@@ -4,6 +4,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   alias Pokex.Bots.Combat.Worker
   alias Pokex.Calibration
   alias Pokex.Perception.WorldState
+  alias Pokex.Rig.Fake
   alias Pokex.Settings
   alias Pokex.SettingsStash
 
@@ -37,7 +38,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       neutral_point: {500, 500}
     })
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{})
+    {:ok, _} = Fake.start_link(%{})
     worker = start_supervised!({Worker, name: nil})
     :ok = Worker.run(worker)
     %{worker: worker}
@@ -70,7 +71,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   end
 
   defp presses do
-    for {:press, key} <- Pokex.Rig.Fake.calls(), do: key
+    for {:press, key} <- Fake.calls(), do: key
   end
 
   @tag :tmp_dir
@@ -79,8 +80,8 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   } do
     # re-script the Fake with a slow (osascript-like) burst so the first one is still in
     # flight when the next decision arrives
-    Agent.stop(Pokex.Rig.Fake)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{press_many_sleep_ms: 250})
+    Agent.stop(Fake)
+    {:ok, _} = Fake.start_link(%{press_many_sleep_ms: 250})
 
     # Tab burst (slow) spawns...
     world!(worker, battle_obs(enemies: [0]))

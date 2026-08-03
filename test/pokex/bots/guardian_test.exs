@@ -25,13 +25,15 @@ defmodule Pokex.Bots.GuardianTest do
 
   alias Pokex.Bots.Guardian
   alias Pokex.Bots.GuardianTest.FakeBody
+  alias Pokex.Bots.InputGate
+  alias Pokex.Perception.WorldState
 
   setup do
     test = self()
     on_panic = fn -> send(test, :panicked) end
     # every corner-triggered panic now SETS the global latch — clear it after each test so it
     # never leaks into other suites (the Focus resume tests read it)
-    on_exit(fn -> Pokex.Bots.InputGate.set_panic_latch(false) end)
+    on_exit(fn -> InputGate.set_panic_latch(false) end)
     %{on_panic: on_panic}
   end
 
@@ -149,7 +151,7 @@ defmodule Pokex.Bots.GuardianTest do
   describe "stop conditions (session goals)" do
     setup do
       on_exit(fn ->
-        Pokex.Perception.WorldState.forget(:session)
+        WorldState.forget(:session)
         Pokex.Settings.put(:stop_after_minutes, 0)
         Pokex.Settings.put(:stop_after_kills, 0)
       end)
@@ -159,7 +161,7 @@ defmodule Pokex.Bots.GuardianTest do
 
     defp active_session!(age_ms) do
       at = System.monotonic_time(:millisecond)
-      Pokex.Perception.WorldState.put(:session, %{started_at: at - age_ms}, at)
+      WorldState.put(:session, %{started_at: at - age_ms}, at)
     end
 
     test "the kills goal reached stops the fleet and broadcasts {:session_stop, _}", %{
@@ -251,7 +253,7 @@ defmodule Pokex.Bots.GuardianTest do
   describe "anti-stagnation (Actions & Rules)" do
     setup do
       on_exit(fn ->
-        Pokex.Perception.WorldState.forget(:session)
+        WorldState.forget(:session)
         Pokex.Settings.put(:stagnation_minutes, 0)
         Pokex.Settings.put(:stagnation_action, "alarm")
       end)
@@ -320,13 +322,13 @@ defmodule Pokex.Bots.GuardianTest do
   describe "life sign and the logout action" do
     setup do
       on_exit(fn ->
-        Pokex.Perception.WorldState.forget(:session)
+        WorldState.forget(:session)
         Pokex.Settings.put(:stagnation_minutes, 0)
         Pokex.Settings.put(:stagnation_action, "alarm")
         Pokex.Settings.put(:stop_after_action, "stop")
         Pokex.Settings.put(:stop_after_minutes, 0)
         Pokex.Settings.put(:stop_after_kills, 0)
-        Pokex.Bots.InputGate.set_panic_latch(false)
+        InputGate.set_panic_latch(false)
       end)
 
       :ok

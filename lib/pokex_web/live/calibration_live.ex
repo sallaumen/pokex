@@ -4,6 +4,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
   alias Pokex.Home
@@ -72,7 +73,7 @@ defmodule PokexWeb.CalibrationLive do
     # The per-corpse counter (R4) updates on its own: the Catcher publishes the
     # session count on every sweep that finds something new.
     if connected?(socket),
-      do: Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.topic())
+      do: Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
     {:ok,
      assign(socket,

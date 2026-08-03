@@ -25,8 +25,11 @@ defmodule Pokex.Bots.BotSupervisor do
   alias Pokex.Bots.Combat
   alias Pokex.Bots.Fishing
   alias Pokex.Bots.Guardian
+  alias Pokex.Bots.InputGate
   alias Pokex.Bots.MiniGame
   alias Pokex.Bots.PlayerSupport
+  alias Pokex.Bots.Session
+  alias Pokex.Perception.WorldState
 
   def start_link(opts \\ []) do
     body = Keyword.get(opts, :body, Body)
@@ -199,7 +202,7 @@ defmodule Pokex.Bots.BotSupervisor do
     # Iniciar bot is the ONE act that clears a standing panic order — the human explicitly
     # asked for the bot again. Cleared even if preflight fails below: the intent to resume
     # was expressed either way.
-    Pokex.Bots.InputGate.set_panic_latch(false)
+    InputGate.set_panic_latch(false)
 
     # PlayerSupport.run is infallible (no preflight — it monitors even uncalibrated), so it
     # can't poison the with-chain; arming it first means a preflight failure below still
@@ -229,7 +232,7 @@ defmodule Pokex.Bots.BotSupervisor do
         # Stamp WHICH calibration this run loaded (workers read the file at run).
         # The panel compares it against the file's current mtime: different =
         # "os bots rodam uma calibração antiga" → the restart banner.
-        Pokex.Perception.WorldState.put(
+        WorldState.put(
           :calibration,
           %{loaded_mtime: Pokex.Calibration.mtime()},
           at
@@ -237,13 +240,13 @@ defmodule Pokex.Bots.BotSupervisor do
 
         # The hunt SESSION starts here — worker counters also reset at run, so
         # the panel's duration/rates measure the same window the counters do.
-        Pokex.Perception.WorldState.put(:session, %{started_at: at}, at)
+        WorldState.put(:session, %{started_at: at}, at)
 
         :ok
 
       {:error, _messages} = error ->
-        Pokex.Perception.WorldState.forget(:calibration)
-        Pokex.Perception.WorldState.forget(:session)
+        WorldState.forget(:calibration)
+        WorldState.forget(:session)
         error
     end
   end
@@ -333,9 +336,9 @@ defmodule Pokex.Bots.BotSupervisor do
     stop_all(fishing, combat, catcher, mini_game)
     PlayerSupport.Worker.halt(player_support)
     # nothing is running an old calibration anymore — the banner has no meaning
-    Pokex.Perception.WorldState.forget(:calibration)
+    WorldState.forget(:calibration)
     # the hunt session ended with the workers
-    Pokex.Perception.WorldState.forget(:session)
+    WorldState.forget(:session)
     :ok
   end
 
@@ -343,7 +346,7 @@ defmodule Pokex.Bots.BotSupervisor do
   # boot, isolated test) the order proceeds without a bump — worst case a
   # pending resume survives, which is exactly the pre-generation behavior.
   defp safe_order(kind, reason) do
-    Pokex.Bots.Session.order(kind, reason)
+    Session.order(kind, reason)
   catch
     :exit, _reason -> 0
   end
@@ -357,7 +360,7 @@ defmodule Pokex.Bots.BotSupervisor do
   triggered escape must never leave the hunt running.
   """
   def emergency_escape(reason) do
-    Pokex.Bots.InputGate.set_panic_latch(true)
+    InputGate.set_panic_latch(true)
     flee = PlayerSupport.Worker.flee_to_escape()
     stop_all("fuga de emergência: #{reason}")
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:escape, reason, flee})

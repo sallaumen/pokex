@@ -2,17 +2,29 @@ defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher
+  alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Cavebot
   alias Pokex.Bots.Combat
   alias Pokex.Bots.Fishing
   alias Pokex.Bots.Logout
+  alias Pokex.Bots.Perf
   alias Pokex.Bots.PlayerSupport
+  alias Pokex.Bots.Session
   alias Pokex.Bots.SkillBar
+  alias Pokex.Bots.StockAlerts
   alias Pokex.Calibration
+  alias Pokex.Combos.Runner
+  alias Pokex.Combos.Store
   alias Pokex.Diagnostics.Report
+  alias Pokex.Layout.Sentinel
+  alias Pokex.Perception.DisplayFeeds
+  alias Pokex.Perception.WorldState
+  alias Pokex.Pokedex.ShinyLog
   alias Pokex.Rig
   alias Pokex.Settings
+  alias Pokex.Vision.Frame
   alias PokexWeb.HeaderState
   alias PokexWeb.PanelForms
   alias PokexWeb.PositionReadout
@@ -73,14 +85,14 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @body_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, Cavebot.Worker.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
-      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Layout.Sentinel.topic())
-      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.StockAlerts.topic())
-      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Combos.Runner.topic())
-      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Logout.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Sentinel.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, StockAlerts.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Runner.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Logout.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Journal.topic())
       # feeds only capture while someone is attached — a watching page IS a
       # consumer, so :team and :minimap run exactly while they are looked at
-      Pokex.Perception.DisplayFeeds.attach_all()
+      DisplayFeeds.attach_all()
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Perception.topic())
       # Keep the cooldown display LIVE while the fishing gate is on, so it never goes stale —
       # you can watch the reading flip to ready the instant your skills come off cooldown (the
@@ -166,13 +178,13 @@ defmodule PokexWeb.PanelLive do
        shiny_msg: nil,
        shiny_star_run: nil,
        shiny_star_min_columns: Settings.get(:shiny_star_min_columns),
-       shiny_log: Pokex.Pokedex.ShinyLog.entries(),
+       shiny_log: ShinyLog.entries(),
        potion_pct: Settings.get(:pokemon_hp_potion_pct),
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
        presets: Settings.list_presets(),
        mode_overrides: mode_override_keys(),
-       combos: Pokex.Combos.Store.all(),
+       combos: Store.all(),
        combos_enabled: Settings.get(:combos_enabled),
        combo_skip: combo_skip(),
        combo_draft: empty_combo_draft(),
@@ -320,7 +332,7 @@ defmodule PokexWeb.PanelLive do
   # The runner keeps the last refusal, so a panel opened after the fight still
   # learns why nothing happened.
   defp combo_skip do
-    Pokex.Combos.Runner.status().last_skip
+    Runner.status().last_skip
   catch
     _kind, _reason -> nil
   end
@@ -350,7 +362,7 @@ defmodule PokexWeb.PanelLive do
   defp calib_stale? do
     now = System.monotonic_time(:millisecond)
 
-    case Pokex.Perception.WorldState.get(:calibration, 4_000_000_000, now) do
+    case WorldState.get(:calibration, 4_000_000_000, now) do
       {:ok, %{loaded_mtime: loaded}} -> loaded != Calibration.mtime()
       _not_started -> false
     end
@@ -521,7 +533,7 @@ defmodule PokexWeb.PanelLive do
 
   # A confirmed sighting: refresh the trophy shelf so the encounter shows up.
   def handle_info({:shiny_seen, _info}, socket),
-    do: {:noreply, assign(socket, shiny_log: Pokex.Pokedex.ShinyLog.entries())}
+    do: {:noreply, assign(socket, shiny_log: ShinyLog.entries())}
 
   # The Guardian re-broadcasts {:panic} on EVERY poll tick (~10x/sec) while
   # the cursor stays in the kill corner — a human parked there wants the bot
@@ -792,13 +804,13 @@ defmodule PokexWeb.PanelLive do
 
   def handle_event("toggle_combo", %{"name" => name}, socket) do
     enabled? = Enum.find_value(socket.assigns.combos, &(&1.name == name and &1.enabled?))
-    :ok = Pokex.Combos.Store.set_enabled(name, not enabled?)
-    {:noreply, assign(socket, combos: Pokex.Combos.Store.all())}
+    :ok = Store.set_enabled(name, not enabled?)
+    {:noreply, assign(socket, combos: Store.all())}
   end
 
   def handle_event("delete_combo", %{"name" => name}, socket) do
-    :ok = Pokex.Combos.Store.delete(name)
-    {:noreply, assign(socket, combos: Pokex.Combos.Store.all())}
+    :ok = Store.delete(name)
+    {:noreply, assign(socket, combos: Store.all())}
   end
 
   # Every editor keystroke/choice becomes SERVER STATE. It is what keeps the
@@ -852,10 +864,9 @@ defmodule PokexWeb.PanelLive do
     if draft.steps == [] do
       {:noreply, socket}
     else
-      case Pokex.Combos.Store.add(combo) do
+      case Store.add(combo) do
         :ok ->
-          {:noreply,
-           assign(socket, combos: Pokex.Combos.Store.all(), combo_draft: empty_combo_draft())}
+          {:noreply, assign(socket, combos: Store.all(), combo_draft: empty_combo_draft())}
 
         {:error, :invalid_name} ->
           {:noreply, socket}
@@ -867,14 +878,14 @@ defmodule PokexWeb.PanelLive do
   # stun sequence with the rescue-only trigger and hangs it on the revive.
   # Idempotent — clicking again just re-selects.
   def handle_event("create_rescue_combo", _params, socket) do
-    combo = Pokex.Combos.Store.rescue_seed()
-    :ok = Pokex.Combos.Store.add(combo)
+    combo = Store.rescue_seed()
+    :ok = Store.add(combo)
     Settings.put(:rescue_mode, "combo")
     Settings.put(:rescue_combo, combo.name)
 
     {:noreply,
      assign(socket,
-       combos: Pokex.Combos.Store.all(),
+       combos: Store.all(),
        rescue_mode: "combo",
        rescue_combo: combo.name
      )}
@@ -1129,12 +1140,12 @@ defmodule PokexWeb.PanelLive do
   def handle_event("shiny_probe", _params, socket) do
     {msg, px} =
       with {:ok, calib} <- Calibration.load(),
-           {:ok, frame} <- Pokex.Bots.Capture.frame(calib.battle_region, "shiny_probe.png") do
+           {:ok, frame} <- Capture.frame(calib.battle_region, "shiny_probe.png") do
         settings = Settings.all()
         {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height])
         rows = settings[:battle_max_rows]
         strip = round(Calibration.strip_width() * calib.scale)
-        body = Pokex.Vision.Frame.crop(frame, {0, 0, frame.width - strip, frame.height})
+        body = Frame.crop(frame, {0, 0, frame.width - strip, frame.height})
 
         clusters = Pokex.Vision.star_row_clusters(body, top: top, band: band, rows: rows)
         best = Enum.max(clusters, fn -> 0 end)
@@ -1150,7 +1161,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   def handle_event("shiny_log_clear", _params, socket) do
-    Pokex.Pokedex.ShinyLog.clear()
+    ShinyLog.clear()
     {:noreply, assign(socket, shiny_log: [], shiny_msg: "registro de shinies limpo")}
   end
 
@@ -1213,7 +1224,7 @@ defmodule PokexWeb.PanelLive do
   # On-demand capture diagnostics: backend + last-window timings. A button, not a timer —
   # metrics are for humans debugging, they must not add render churn to the hot panel.
   def handle_event("read_capture_stats", _params, socket) do
-    snapshot = Pokex.Bots.Perf.snapshot()
+    snapshot = Perf.snapshot()
 
     window =
       if map_size(snapshot.last_window) > 0, do: snapshot.last_window, else: snapshot.current
@@ -1230,7 +1241,7 @@ defmodule PokexWeb.PanelLive do
       end)
       |> Enum.sort_by(fn {key, _v} -> key end)
 
-    info = %{backend: Pokex.Bots.Capture.backend_info(), stats: stats}
+    info = %{backend: Capture.backend_info(), stats: stats}
     {:noreply, assign(socket, capture_info: info)}
   end
 
@@ -1306,7 +1317,7 @@ defmodule PokexWeb.PanelLive do
   # order; here it is only shown. Session down (isolated test, partial boot)
   # → no line, never a crashed page.
   defp safe_last_order do
-    Pokex.Bots.Session.last_order()
+    Session.last_order()
   catch
     :exit, _reason -> nil
   end
@@ -1339,7 +1350,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   defp safe_logout_status do
-    Pokex.Bots.Logout.status()
+    Logout.status()
   catch
     :exit, _reason ->
       %{
@@ -1354,7 +1365,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   defp safe_logout_request do
-    Pokex.Bots.Logout.request("manual (painel)")
+    Logout.request("manual (painel)")
   catch
     :exit, _reason -> :ok
   end
@@ -1451,7 +1462,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   defp capture_region("screen") do
-    case Pokex.Bots.Capture.screen("panel_screen.png") do
+    case Capture.screen("panel_screen.png") do
       {:ok, path} -> {:ok, capture_src(path), "tela cheia"}
       {:error, reason} -> {:error, "erro na captura: #{inspect(reason)}"}
     end
@@ -1479,7 +1490,7 @@ defmodule PokexWeb.PanelLive do
   # The square around the character (what capture actually sweeps) replaced the
   # hand-marked arena — there is no arena to photograph any more.
   defp region_spec("search_box", calib) do
-    case Pokex.Bots.Catcher.SpotScan.region(calib) do
+    case SpotScan.region(calib) do
       {:ok, region} -> {region, "quadro em volta do personagem", "shot_search_box.png"}
       _no_anchor -> :error
     end
@@ -1751,7 +1762,7 @@ defmodule PokexWeb.PanelLive do
   @session_max_age_ms 4_000_000_000
 
   defp session_started_at do
-    case Pokex.Perception.WorldState.get(:session, @session_max_age_ms, now_ms()) do
+    case WorldState.get(:session, @session_max_age_ms, now_ms()) do
       {:ok, %{started_at: at}} -> at
       _no_session -> nil
     end
@@ -2236,11 +2247,9 @@ defmodule PokexWeb.PanelLive do
                   _seen -> "bg-pk-raised text-pk-text-2"
                 end
               ]}>
-                {Pokex.Pokedex.ShinyLog.outcome_label(entry.outcome)}
+                {ShinyLog.outcome_label(entry.outcome)}
               </span>
-              <span class="text-pk-text-3">{entry.star_px}px · {Pokex.Pokedex.ShinyLog.action_label(
-                entry.action
-              )}</span>
+              <span class="text-pk-text-3">{entry.star_px}px · {ShinyLog.action_label(entry.action)}</span>
             </li>
           </ul>
         </div>
@@ -3046,7 +3055,7 @@ defmodule PokexWeb.PanelLive do
               <p class="font-mono text-pk-meta uppercase text-pk-text-3">Estoques</p>
               <ul class="mt-1 flex flex-wrap gap-1.5">
                 <li
-                  :for={{slot, label, _setting} <- Pokex.Bots.StockAlerts.slots()}
+                  :for={{slot, label, _setting} <- StockAlerts.slots()}
                   id={"stock-badge-#{slot}"}
                   class={[
                     "rounded border px-2 py-0.5 font-mono text-pk-meta",

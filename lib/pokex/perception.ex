@@ -7,6 +7,7 @@ defmodule Pokex.Perception do
   """
   use Supervisor
 
+  alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Perception.{Feed, Interpret, WorldState}
   alias Pokex.Settings
 
@@ -154,7 +155,7 @@ defmodule Pokex.Perception do
         # The square around the character — the same one SpotScan sweeps. The
         # arena is gone; nothing may ask for a rectangle the user never sees.
         region: fn calib ->
-          case Pokex.Bots.Catcher.SpotScan.region(calib) do
+          case SpotScan.region(calib) do
             {:ok, region} -> region
             _no_anchor -> nil
           end

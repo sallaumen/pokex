@@ -18,7 +18,9 @@ defmodule Pokex.Bots.Focus do
   use GenServer
   require Logger
 
-  alias Pokex.Bots.{BotSupervisor, InputGate}
+  alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.InputGate
+  alias Pokex.Bots.Session
   alias Pokex.Settings
 
   @topic "focus"
@@ -35,7 +37,7 @@ defmodule Pokex.Bots.Focus do
       hold_fun: Keyword.get(opts, :hold_fun, &BotSupervisor.hold_for_focus/0),
       start_all: Keyword.get(opts, :start_all, &BotSupervisor.start_all/0),
       running_fun: Keyword.get(opts, :running_fun, &default_running?/0),
-      generation_fun: Keyword.get(opts, :generation_fun, &Pokex.Bots.Session.generation/0),
+      generation_fun: Keyword.get(opts, :generation_fun, &Session.generation/0),
       poll_ms: Keyword.get(opts, :poll_ms, nil),
       # tests inject their own frontmost reader, so they opt into polling explicitly rather than
       # via the env gate that keeps the app-wide instance quiet during unrelated tests.

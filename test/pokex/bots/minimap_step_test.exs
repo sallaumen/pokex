@@ -8,12 +8,17 @@ defmodule Pokex.Bots.MinimapStepTest do
   """
   use ExUnit.Case, async: false
 
-  alias Pokex.Bots.{Body, InputGate}
-  alias Pokex.{Layout, ScreenFixtures, Settings}
+  alias Pokex.Bots.Body
+  alias Pokex.Bots.InputGate
+  alias Pokex.Layout
+  alias Pokex.Perception.WorldState
+  alias Pokex.Rig.Fake
+  alias Pokex.ScreenFixtures
+  alias Pokex.Settings
 
   setup do
     {:ok, fix} = Layout.locate(ScreenFixtures.frame!("ultrawide_3440x1440_time"))
-    {:ok, _} = Pokex.Rig.Fake.start_link()
+    {:ok, _} = Fake.start_link()
     %{fix: fix}
   end
 
@@ -51,7 +56,7 @@ defmodule Pokex.Bots.MinimapStepTest do
   test "the click really goes through the Body, as a left click", %{fix: fix} do
     point = click_point(3, -4, fix)
 
-    assert Enum.any?(Pokex.Rig.Fake.calls(), &match?({:click, :left, ^point}, &1))
+    assert Enum.any?(Fake.calls(), &match?({:click, :left, ^point}, &1))
   end
 
   # A test that asserts an ABSENCE has to create that absence. `layout: nil` does
@@ -60,7 +65,7 @@ defmodule Pokex.Bots.MinimapStepTest do
   # other test happened to leave a layout behind, and broke the day one did.
   @tag :tmp_dir
   test "with no layout it refuses instead of clicking somewhere plausible", %{tmp_dir: tmp} do
-    Pokex.Perception.WorldState.forget(:layout)
+    WorldState.forget(:layout)
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
@@ -76,7 +81,7 @@ defmodule Pokex.Bots.MinimapStepTest do
     on_exit(fn -> InputGate.set_focus_ok(true) end)
 
     assert Body.minimap_step(3, -4, layout: fix) == {:error, :input_gate_closed}
-    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:click, :left, _point}, &1))
+    refute Enum.any?(Fake.calls(), &match?({:click, :left, _point}, &1))
   end
 
   describe "the calibrated cross (the hand rules the step)" do

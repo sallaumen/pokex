@@ -36,6 +36,8 @@ defmodule Pokex.Bots.ShinyGuard do
   use GenServer
   require Logger
 
+  alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.InputGate
   alias Pokex.Perception
   alias Pokex.Perception.Feed
@@ -53,7 +55,7 @@ defmodule Pokex.Bots.ShinyGuard do
     name = Keyword.get(opts, :name, __MODULE__)
 
     state = %{
-      escape_fun: Keyword.get(opts, :escape_fun, &Pokex.Bots.BotSupervisor.emergency_escape/1),
+      escape_fun: Keyword.get(opts, :escape_fun, &BotSupervisor.emergency_escape/1),
       active?: Keyword.get(opts, :active, Application.get_env(:pokex, :shiny_guard_active, true)),
       attached?: false,
       feed_ref: nil,
@@ -81,7 +83,7 @@ defmodule Pokex.Bots.ShinyGuard do
     # (the bug behind the silent Kingler sighting of 2026-07-21).
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     # combat's kill broadcast closes an open encounter as "killed"
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.kill_topic())
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.kill_topic())
     schedule_poll()
     {:ok, state}
   end

@@ -61,7 +61,9 @@ end
 defmodule Pokex.Bots.Fishing.WorkerTest do
   use ExUnit.Case, async: false
 
+  alias Pokex.Bots.Body
   alias Pokex.Bots.Fisher.Sensors
+  alias Pokex.Bots.InputGate
   alias Pokex.Bots.Fishing.Worker
   alias Pokex.Bots.Fishing.WorkerTest.SlowRig
   alias Pokex.Calibration
@@ -119,7 +121,7 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
         glow: [50, 50, 900]
       })
 
-    {:ok, _} = Pokex.Bots.Body.start_link(name: :fishing_worker_test_body)
+    {:ok, _} = Body.start_link(name: :fishing_worker_test_body)
     worker = start_supervised!({Worker, name: nil, body: :fishing_worker_test_body})
     %{worker: worker}
   end
@@ -129,9 +131,9 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   @tag :tmp_dir
   test "a closed gate holds the whole tick — nothing pressed, nothing believed", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    on_exit(fn -> Pokex.Bots.InputGate.set_focus_ok(true) end)
+    on_exit(fn -> InputGate.set_focus_ok(true) end)
 
-    Pokex.Bots.InputGate.set_focus_ok(false)
+    InputGate.set_focus_ok(false)
     assert :ok = Worker.run(worker)
 
     assert_receive {:fishing_log, :macro, "🚫 portão de entrada fechado" <> _}, 2_000
@@ -139,7 +141,7 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert Pokex.Rig.Fake.calls() == []
     assert Worker.status(worker).counters.cycles == 0
 
-    Pokex.Bots.InputGate.set_focus_ok(true)
+    InputGate.set_focus_ok(true)
     assert_receive {:fishing_log, :macro, "portão reaberto" <> _}, 2_000
     assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
 
@@ -316,7 +318,7 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     {:ok, _} = SlowRig.start_link()
     body = :fishing_worker_priority_test_body
-    {:ok, _} = Pokex.Bots.Body.start_link(name: body)
+    {:ok, _} = Body.start_link(name: body)
     worker = start_supervised!({Worker, name: nil, body: body}, id: :priority_worker)
 
     test = self()
@@ -324,14 +326,14 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     spawn(fn ->
       send(
         test,
-        {:occupy_result, Pokex.Bots.Body.perform([{:click, :left, {1, 1}}], :normal, body)}
+        {:occupy_result, Body.perform([{:click, :left, {1, 1}}], :normal, body)}
       )
     end)
 
     wait_until_busy(body)
 
     spawn(fn ->
-      send(test, {:high_result, Pokex.Bots.Body.perform([{:click, :left, {9, 9}}], :high, body)})
+      send(test, {:high_result, Body.perform([{:click, :left, {9, 9}}], :high, body)})
     end)
 
     wait_until_queued(body, :high, 1)
@@ -415,6 +417,8 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 end
 
 defmodule Pokex.Bots.Fishing.WorkerTest.FailingRig do
+  alias Pokex.Bots.Body
+  alias Pokex.Bots.InputGate
   @moduledoc "Rig double whose click always errors, to drive the worker's io_failed path."
   @behaviour Pokex.Rig
 

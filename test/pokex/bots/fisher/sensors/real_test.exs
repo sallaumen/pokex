@@ -3,6 +3,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
 
   alias Pokex.Bots.Fisher.Sensors
   alias Pokex.Calibration
+  alias Pokex.Rig.Fake
 
   defp rows(w, h, {r, g, b}), do: List.duplicate(List.duplicate({r, g, b, 255}, w), h)
 
@@ -36,7 +37,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
         end
       )
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, bubbly}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, bubbly}]})
 
     assert {:ok, %{glow: signal, cursor: {500, 500}}} =
              Sensors.Real.observe(
@@ -48,7 +49,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     assert signal.line_present?
     assert signal.lure_count == 64
     assert signal.bubble_count > 1_000
-    assert {:capture, {176, 76, 448, 448}, "glow.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, {176, 76, 448, 448}, "glow.png"} in Fake.calls()
   end
 
   @tag :tmp_dir
@@ -57,7 +58,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     # dark blue water: green is too low to count as a cyan bubble
     calm = Pokex.PngFixtures.write!(Path.join(tmp, "calm.png"), rows(16, 16, {30, 80, 150}))
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, calm}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, calm}]})
 
     assert {:ok, %{glow: signal}} =
              Sensors.Real.observe([:glow], calib(tmp, baseline), Pokex.Settings.defaults())
@@ -77,7 +78,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
       end
 
     hostile = Pokex.PngFixtures.write!(Path.join(tmp, "hostile.png"), hostile_rows)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, hostile}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, hostile}]})
 
     assert {:ok, %{hostile: {217, 57}}} =
              Sensors.Real.observe([:hostile], calib(tmp, baseline), Pokex.Settings.defaults())
@@ -95,7 +96,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
       end
 
     strip = Pokex.PngFixtures.write!(Path.join(tmp, "strip.png"), strip_rows)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, strip}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, strip}]})
 
     assert {:ok, %{wild: true}} =
              Sensors.Real.observe([:wild], calib(tmp, baseline), Pokex.Settings.defaults())
@@ -115,7 +116,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
       end
 
     strip = Pokex.PngFixtures.write!(Path.join(tmp, "strip.png"), strip_rows)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, strip}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, strip}]})
 
     assert {:ok, %{wild: true}} =
              Sensors.Real.observe([:wild], calib(tmp, baseline), %{})
@@ -137,7 +138,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
       end
 
     body = Pokex.PngFixtures.write!(Path.join(tmp, "body.png"), body_rows)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, body}]})
 
     assert {:ok, %{battle_lock: counts}} =
              Sensors.Real.observe([:battle_lock], calib(tmp, baseline), Pokex.Settings.defaults())
@@ -153,7 +154,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   test "battle_lock falls back to default band/rows when settings omit the keys", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
     body = Pokex.PngFixtures.write!(Path.join(tmp, "body.png"), rows(20, 20, {20, 20, 20}))
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, body}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, body}]})
 
     # empty settings → band/rows fall back to defaults 30/6, list length still 6
     assert {:ok, %{battle_lock: counts}} =
@@ -194,7 +195,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   defp observe_battle(tmp, opts) do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
     png = battle_png(tmp, "battle.png", opts)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, png}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, png}]})
     Sensors.Real.observe([:battle], calib(tmp, baseline), Pokex.Settings.defaults())
   end
 
@@ -246,7 +247,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   @tag :tmp_dir
   test "propagates rig errors", %{tmp_dir: tmp} do
     baseline = Pokex.PngFixtures.write!(Path.join(tmp, "base.png"), rows(8, 8, {0, 60, 120}))
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:error, :denied}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:error, :denied}]})
 
     assert {:error, {:glow, :denied}} =
              Sensors.Real.observe([:glow], calib(tmp, baseline), Pokex.Settings.defaults())

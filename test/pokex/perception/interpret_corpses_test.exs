@@ -4,6 +4,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Calibration
   alias Pokex.Perception.Interpret.Corpses
   alias Pokex.Settings
@@ -36,7 +37,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
   defp add({ax, ay}, {bx, by}), do: {ax + bx, ay + by}
 
   defp origin do
-    {:ok, {x, y, _w, _h}} = Pokex.Bots.Catcher.SpotScan.region(calib())
+    {:ok, {x, y, _w, _h}} = SpotScan.region(calib())
     {x, y}
   end
 

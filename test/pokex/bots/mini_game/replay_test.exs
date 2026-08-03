@@ -2,6 +2,7 @@ defmodule Pokex.Bots.MiniGame.ReplayTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.MiniGame.{Diag, Export, Replay}
+  alias Pokex.Rig.Fake
 
   setup %{tmp_dir: tmp} do
     # A recorded bundle with three DISTINCT frames — the fish walking down the
@@ -84,8 +85,8 @@ defmodule Pokex.Bots.MiniGame.ReplayTest do
 
   @tag :tmp_dir
   test "never calls Capture and never calls the Rig", %{bundle: bundle} do
-    {:ok, _fake} = Pokex.Rig.Fake.start_link(%{})
-    before = Pokex.Rig.Fake.calls()
+    {:ok, _fake} = Fake.start_link(%{})
+    before = Fake.calls()
 
     assert {:ok, report} = Replay.run(bundle)
     assert report.frames == 3
@@ -94,7 +95,7 @@ defmodule Pokex.Bots.MiniGame.ReplayTest do
     # through Rig.capture — so no capture and no actuation in the log is proof
     # the replay stayed offline. (Background pollers of the running app, e.g.
     # the panic-corner cursor watch, are not the replay's doing.)
-    assert Enum.all?(Pokex.Rig.Fake.calls() -- before, &(elem(&1, 0) == :cursor_position))
+    assert Enum.all?(Fake.calls() -- before, &(elem(&1, 0) == :cursor_position))
   end
 
   @tag :tmp_dir
@@ -104,7 +105,7 @@ defmodule Pokex.Bots.MiniGame.ReplayTest do
     end
 
     assert_raise ArgumentError, ~r/replay-safe/, fn ->
-      Replay.run(bundle, rig: Pokex.Rig.Fake)
+      Replay.run(bundle, rig: Fake)
     end
   end
 

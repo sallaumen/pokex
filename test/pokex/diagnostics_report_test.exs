@@ -1,7 +1,9 @@
 defmodule Pokex.Diagnostics.ReportTest do
   use ExUnit.Case, async: false
+  alias Pokex.Bots.Session
   alias Pokex.Calibration
   alias Pokex.Diagnostics.Report
+  alias Pokex.Rig.Fake
 
   @calib %Calibration{
     scale: 2.0,
@@ -47,7 +49,7 @@ defmodule Pokex.Diagnostics.ReportTest do
     screen = png!(tmp, "screen.png", 60, 40, {0, 0, 0})
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{
+      Fake.start_link(%{
         capture: [{:ok, glow}, {:ok, battle}, {:ok, strip}, {:ok, search_box}, {:ok, probe}],
         capture_screen: [{:ok, screen}]
       })
@@ -59,7 +61,7 @@ defmodule Pokex.Diagnostics.ReportTest do
   test "captures every region with its Vision metrics and a matrix", %{exports: exports} do
     assert {:ok, report, path} =
              Report.capture(
-               rig: Pokex.Rig.Fake,
+               rig: Fake,
                calib: @calib,
                settings: @settings,
                exports_dir: exports,
@@ -98,7 +100,7 @@ defmodule Pokex.Diagnostics.ReportTest do
   test "writes both a timestamped file and latest.json, JSON-encodable", %{exports: exports} do
     assert {:ok, report, path} =
              Report.capture(
-               rig: Pokex.Rig.Fake,
+               rig: Fake,
                calib: @calib,
                settings: @settings,
                exports_dir: exports,
@@ -133,12 +135,12 @@ defmodule Pokex.Diagnostics.ReportTest do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
-      Pokex.Bots.Session.order(:stop, "teste do bundle")
+      Session.order(:stop, "teste do bundle")
       Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "linha do bundle"})
 
       {:ok, report, _path} =
-        Pokex.Diagnostics.Report.capture(
-          rig: Pokex.Rig.Fake,
+        Report.capture(
+          rig: Fake,
           calib: @calib,
           settings: @settings,
           exports_dir: Path.join(tmp, "exports"),

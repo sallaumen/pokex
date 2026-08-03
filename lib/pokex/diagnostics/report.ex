@@ -16,6 +16,13 @@ defmodule Pokex.Diagnostics.Report do
   directory are all injectable so the whole thing is testable with a Fake rig.
   """
 
+  alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.Capture
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.Focus
+  alias Pokex.Bots.InputGate
+  alias Pokex.Bots.Perf
+  alias Pokex.Bots.Session
   alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
   alias Pokex.Home
@@ -118,14 +125,14 @@ defmodule Pokex.Diagnostics.Report do
       sessao:
         safe_source(fn ->
           %{
-            generation: Pokex.Bots.Session.generation(),
-            last_order: Pokex.Bots.Session.last_order()
+            generation: Session.generation(),
+            last_order: Session.last_order()
           }
         end),
-      workers: safe_source(fn -> Pokex.Bots.BotSupervisor.status() end),
+      workers: safe_source(fn -> BotSupervisor.status() end),
       gates:
         safe_source(fn ->
-          %{input_gate: Pokex.Bots.InputGate.state(), focus: Pokex.Bots.Focus.status()}
+          %{input_gate: InputGate.state(), focus: Focus.status()}
         end),
       # DIFF against the seeds: only what was changed — the quick answer to
       # "which setting differs from default?" without hunting ~180 keys
@@ -141,9 +148,9 @@ defmodule Pokex.Diagnostics.Report do
       captura:
         safe_source(fn ->
           %{
-            backend: Pokex.Bots.Capture.backend_info(),
+            backend: Capture.backend_info(),
             metricas:
-              Pokex.Bots.Perf.snapshot().last_window
+              Perf.snapshot().last_window
               |> Enum.filter(fn {k, _v} -> String.starts_with?(k, "capture.") end)
               |> Map.new()
           }
@@ -405,7 +412,7 @@ defmodule Pokex.Diagnostics.Report do
   end
 
   defp search_box(calib) do
-    case Pokex.Bots.Catcher.SpotScan.region(calib) do
+    case SpotScan.region(calib) do
       {:ok, region} -> region
       _no_anchor -> {0, 0, 0, 0}
     end

@@ -17,7 +17,9 @@ defmodule PokexWeb.HeaderState do
   import Phoenix.Component, only: [assign: 2, assign: 3]
   import Phoenix.LiveView, only: [attach_hook: 4, connected?: 1]
 
-  alias Pokex.Bots.{AlarmCategories, BotSupervisor}
+  alias Pokex.Bots.AlarmCategories
+  alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.Focus
   alias Pokex.Characters
   alias Pokex.Settings
 
@@ -164,7 +166,7 @@ defmodule PokexWeb.HeaderState do
   # The focus poller may not have published anything yet at mount; ask
   # directly (fail toward "focused" so the pause warning never shows idly).
   defp focused? do
-    Pokex.Bots.Focus.status().focused?
+    Focus.status().focused?
   catch
     _kind, _reason -> true
   end

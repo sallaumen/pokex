@@ -22,9 +22,15 @@ defmodule Pokex.Bots.Catcher.Worker do
   require Logger
 
   alias Pokex.Bots.Body
-  alias Pokex.Bots.Catcher.{Ball, Logic}
+  alias Pokex.Bots.Catcher.Ball
+  alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.Catcher.Logic
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.Combat.Worker
+  alias Pokex.Bots.InputGate
   alias Pokex.Perception
   alias Pokex.Perception.Feed
+  alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
 
   @topic "catcher"
@@ -52,7 +58,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     init_arg = %{
       body: Keyword.get(opts, :body, Body),
       # kill-anchored vision; injectable in tests like the Body
-      scanner: Keyword.get(opts, :scanner, &Pokex.Bots.Catcher.SpotScan.scan/0)
+      scanner: Keyword.get(opts, :scanner, &SpotScan.scan/0)
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -75,7 +81,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   def init(%{body: body, scanner: scanner}) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     # a SHINY sighting overrides capture_enabled for the next ball
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
@@ -384,7 +390,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   defp gate_aberto? do
-    Pokex.Bots.InputGate.allowed?()
+    InputGate.allowed?()
   catch
     :exit, _reason -> false
   end
@@ -438,7 +444,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     state =
       if performs != [] do
         # a ball that flew because a SHINY was seen closes that log entry
-        if state.shiny_pending?, do: Pokex.Pokedex.ShinyLog.resolve_last("ball")
+        if state.shiny_pending?, do: ShinyLog.resolve_last("ball")
 
         %{
           state
@@ -616,7 +622,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   defp announce_corpses do
-    case length(Pokex.Bots.Catcher.CorpseLibrary.list()) do
+    case length(CorpseLibrary.list()) do
       0 ->
         Phoenix.PubSub.broadcast(
           Pokex.PubSub,
@@ -801,14 +807,14 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp monitorar_combate(state) do
     if state.combat_ref, do: Process.demonitor(state.combat_ref, [:flush])
 
-    case Process.whereis(Pokex.Bots.Combat.Worker) do
+    case Process.whereis(Worker) do
       pid when is_pid(pid) -> %{state | combat_ref: Process.monitor(pid)}
       nil -> %{state | combat_ref: nil}
     end
   end
 
   defp seed_combat_engaged do
-    %{state: s} = Pokex.Bots.Combat.Worker.status()
+    %{state: s} = Worker.status()
     s in [:tabbing, :fighting]
   catch
     :exit, _reason -> false

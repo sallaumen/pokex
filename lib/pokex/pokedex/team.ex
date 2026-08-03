@@ -60,18 +60,13 @@ defmodule Pokex.Pokedex.Team do
               &(&1.name == name)
             )
 
-          data = drop(data, name)
-
-          data =
-            case where do
-              :team -> %{data | members: data.members ++ [entry]}
-              :bank -> %{data | bank: data.bank ++ [entry]}
-            end
-
-          {:ok, persist(data)}
+          {:ok, data |> drop(name) |> append_to(where, entry) |> persist()}
         end
     end
   end
+
+  defp append_to(data, :team, entry), do: %{data | members: data.members ++ [entry]}
+  defp append_to(data, :bank, entry), do: %{data | bank: data.bank ++ [entry]}
 
   @doc "Removes a name from wherever it lives (idempotent)."
   def remove(name), do: persist(drop(read(), name))

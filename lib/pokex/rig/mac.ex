@@ -93,13 +93,16 @@ defmodule Pokex.Rig.Mac do
         _ -> run_key(Commands.press(combo, focus_app: focus_app()))
       end
 
-      if idx < last do
-        jitter = if jitter_ms > 0, do: :rand.uniform(jitter_ms + 1) - 1, else: 0
-        Process.sleep(gap_ms + jitter)
-      end
+      if idx < last, do: pause_between_keys(gap_ms, jitter_ms)
     end)
 
     :ok
+  end
+
+  # Jitter so a burst never lands on a perfectly even cadence.
+  defp pause_between_keys(gap_ms, jitter_ms) do
+    jitter = if jitter_ms > 0, do: :rand.uniform(jitter_ms + 1) - 1, else: 0
+    Process.sleep(gap_ms + jitter)
   end
 
   defp run_key(cmd) do

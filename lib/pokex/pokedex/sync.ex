@@ -123,16 +123,7 @@ defmodule Pokex.Pokedex.Sync do
         dir = Path.join(sprites_dir(), "elements")
         File.mkdir_p!(dir)
 
-        Enum.each(icons, fn {element, url} ->
-          path = Path.join(dir, String.downcase(element) <> ".png")
-
-          unless File.exists?(path) do
-            case Req.get(@base <> url, retry: :transient, max_retries: 2) do
-              {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(path, body)
-              _error -> :skip
-            end
-          end
-        end)
+        Enum.each(icons, fn {element, url} -> fetch_icon(dir, element, url) end)
 
         progress.("ícones de elemento: #{map_size(icons)}")
       else
@@ -184,15 +175,44 @@ defmodule Pokex.Pokedex.Sync do
         gaps
         |> Enum.with_index(1)
         |> Enum.flat_map(fn {entry, i} ->
-          if rem(i, 25) == 0 or i == total,
-            do: progress.("completando #{i}/#{total} #{field(entry, "name")}")
-
+          announce_gap(progress, entry, i, total)
           Process.sleep(delay)
           scrape_by_name(entry, opts, scraped_at)
         end)
 
       {Scraper.upsert(merged, fresh), length(fresh)}
     end
+  end
+
+  # Same resumability as the icons: what is on disk is never fetched again.
+  defp fetch_sprite(url, dest) do
+    if File.exists?(dest) do
+      :skip
+    else
+      case Req.get(@base <> url, retry: :transient, max_retries: 2) do
+        {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(dest, body)
+        _error -> :skip
+      end
+    end
+  end
+
+  # An icon already on disk is never fetched again — the sync is resumable.
+  defp fetch_icon(dir, element, url) do
+    path = Path.join(dir, String.downcase(element) <> ".png")
+
+    if File.exists?(path) do
+      :skip
+    else
+      case Req.get(@base <> url, retry: :transient, max_retries: 2) do
+        {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(path, body)
+        _error -> :skip
+      end
+    end
+  end
+
+  defp announce_gap(progress, entry, i, total) do
+    if rem(i, 25) == 0 or i == total,
+      do: progress.("completando #{i}/#{total} #{field(entry, "name")}")
   end
 
   defp scrape_by_name(entry, opts, scraped_at) do
@@ -363,13 +383,7 @@ defmodule Pokex.Pokedex.Sync do
 
     unless opts[:skip_sprites] do
       File.mkdir_p!(sprites_dir())
-
-      unless File.exists?(dest) do
-        case Req.get(@base <> url, retry: :transient, max_retries: 2) do
-          {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(dest, body)
-          _error -> :skip
-        end
-      end
+      fetch_sprite(url, dest)
     end
 
     if File.exists?(dest), do: "images/pokedex/" <> file

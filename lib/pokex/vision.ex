@@ -745,12 +745,16 @@ defmodule Pokex.Vision do
       distance = slot_distance(signature, Enum.at(refs, i))
 
       state =
-        cond do
-          distance != nil -> if distance <= max_distance, do: :ready, else: :cooldown
-          white_pct >= min_white -> :cooldown
-          saturation >= min_s or vivid_pct >= min_vivid -> :ready
-          true -> :cooldown
-        end
+        slot_state(
+          distance,
+          max_distance,
+          white_pct,
+          min_white,
+          saturation,
+          min_s,
+          vivid_pct,
+          min_vivid
+        )
 
       %{
         brightness: brightness,
@@ -761,6 +765,26 @@ defmodule Pokex.Vision do
         distance: distance,
         state: state
       }
+    end
+  end
+
+  # The reference match wins when there IS one; otherwise the white countdown
+  # glyph vetoes, and colour is the last word.
+  defp slot_state(
+         distance,
+         max_distance,
+         white_pct,
+         min_white,
+         saturation,
+         min_s,
+         vivid,
+         min_vivid
+       ) do
+    cond do
+      distance != nil -> if distance <= max_distance, do: :ready, else: :cooldown
+      white_pct >= min_white -> :cooldown
+      saturation >= min_s or vivid >= min_vivid -> :ready
+      true -> :cooldown
     end
   end
 

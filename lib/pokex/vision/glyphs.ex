@@ -176,11 +176,14 @@ defmodule Pokex.Vision.Glyphs do
 
       [first | rest] ->
         rest
-        |> Enum.reduce([{first, first}], fn column, [{a, b} | acc] ->
-          if column == b + 1, do: [{a, column} | acc], else: [{column, column}, {a, b} | acc]
-        end)
+        |> Enum.reduce([{first, first}], &extend_run/2)
         |> Enum.reverse()
     end
+  end
+
+  # A column touching the previous one extends that run; a gap starts a new one.
+  defp extend_run(column, [{a, b} | acc]) do
+    if column == b + 1, do: [{a, column} | acc], else: [{column, column}, {a, b} | acc]
   end
 
   # The rows carrying at least half as many blobs as the busiest row does — and
@@ -284,12 +287,13 @@ defmodule Pokex.Vision.Glyphs do
     {x1, _} = List.last(columns)
     filled = Map.new(columns, fn {cx, rows} -> {cx, MapSet.new(rows)} end)
 
-    bitmap =
-      for row <- 0..(height - 1)//1 do
-        for {cx, _} <- columns, do: if(MapSet.member?(filled[cx], row), do: 1, else: 0)
-      end
+    bitmap = for row <- 0..(height - 1)//1, do: bitmap_row(columns, filled, row)
 
     %{x0: x0, x1: x1, bitmap: trim_rows(bitmap)}
+  end
+
+  defp bitmap_row(columns, filled, row) do
+    for {cx, _} <- columns, do: if(MapSet.member?(filled[cx], row), do: 1, else: 0)
   end
 
   defp trim_rows(rows) do
@@ -546,28 +550,27 @@ defmodule Pokex.Vision.Glyphs do
     |> Enum.map(&{&1, distance(graphemes, String.graphemes(String.downcase(&1)))})
     |> Enum.filter(fn {_name, d} -> d <= 2 end)
     |> Enum.sort_by(&elem(&1, 1))
-    |> case do
-      [{name, d} | rest] ->
-        if Enum.any?(rest, fn {_n, other} -> other == d end), do: nil, else: name
+    |> unambiguous_best()
+  end
 
-      [] ->
-        nil
-    end
+  # A tie between two candidates is not a reading — it is a coin toss.
+  defp unambiguous_best([{name, d} | rest]) do
+    if Enum.any?(rest, fn {_n, other} -> other == d end), do: nil, else: name
+  end
+
+  defp unambiguous_best([]), do: nil
+
+  defp distance_cell({cb, j}, {row, prev}, ca) do
+    cost = if ca == cb or ca == "?", do: 0, else: 1
+    value = Enum.min([hd(row) + 1, Enum.at(prev, j) + 1, Enum.at(prev, j - 1) + cost])
+
+    {[value | row], prev}
   end
 
   # Levenshtein, with `?` (an unread glyph) matching any character for free.
   defp distance(a, b) do
     Enum.reduce(Enum.with_index(a, 1), Enum.to_list(0..length(b)), fn {ca, i}, previous ->
-      {row, _} =
-        Enum.reduce(Enum.with_index(b, 1), {[i], previous}, fn {cb, j}, {row, prev} ->
-          cost = if ca == cb or ca == "?", do: 0, else: 1
-
-          value =
-            [hd(row) + 1, Enum.at(prev, j) + 1, Enum.at(prev, j - 1) + cost]
-            |> Enum.min()
-
-          {[value | row], prev}
-        end)
+      {row, _} = Enum.reduce(Enum.with_index(b, 1), {[i], previous}, &distance_cell(&1, &2, ca))
 
       Enum.reverse(row)
     end)

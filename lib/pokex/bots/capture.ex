@@ -422,20 +422,7 @@ defmodule Pokex.Bots.Capture do
           {:error, {:screen_capture_kit, reason}} = error when is_binary(reason) ->
             Perf.record("capture.backend.sck_error:#{filename}", now() - started_at)
 
-            if region_impossible_reason?(reason) do
-              # DETERMINISTIC geometry error: the region is (partially) off-screen —
-              # the game window moved since calibration. The SCK is HEALTHY; killing
-              # it (fallback_backend) or trying the CLI just produces garbage more
-              # slowly. Quarantine + alarm: the fix is human (recalibrate), not retry.
-              {error, quarantine_region(state, region, filename, reason)}
-            else
-              Logger.warning(
-                "ScreenCaptureKit capture failed; falling back to screencapture: #{inspect({:screen_capture_kit, reason})}"
-              )
-
-              fallback = fallback_backend(state)
-              {timed_capture_path(:fallback, region, filename), fallback}
-            end
+            after_sck_error(state, region, filename, reason, error)
 
           {:error, reason} ->
             Perf.record("capture.backend.sck_error:#{filename}", now() - started_at)
@@ -529,8 +516,7 @@ defmodule Pokex.Bots.Capture do
               "(#{retries_left} left): #{inspect(reason)}"
           )
 
-          if state.sck_retry_sleep_ms > 0, do: Process.sleep(state.sck_retry_sleep_ms)
-          do_capture_with_sck(state, backend, region, path, filename, retries_left - 1)
+          retry_capture_with_sck(state, backend, region, path, filename, retries_left)
         else
           {:error, reason}
         end
@@ -538,6 +524,11 @@ defmodule Pokex.Bots.Capture do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp retry_capture_with_sck(state, backend, region, path, filename, retries_left) do
+    if state.sck_retry_sleep_ms > 0, do: Process.sleep(state.sck_retry_sleep_ms)
+    do_capture_with_sck(state, backend, region, path, filename, retries_left - 1)
   end
 
   # A "clean" capture error is one where the helper answered on-protocol (ok:false with a string
@@ -558,6 +549,22 @@ defmodule Pokex.Bots.Capture do
   # off the display — an error that NEVER changes on its own (only recalibration or
   # a display change fix it). String from OUR native helper, stable protocol.
   defp region_impossible_reason?(reason), do: String.contains?(reason, "outside frame")
+
+  # DETERMINISTIC geometry error: the region is (partially) off-screen — the game
+  # window moved since calibration. The SCK is HEALTHY; killing it
+  # (fallback_backend) or trying the CLI just produces garbage more slowly.
+  # Quarantine + alarm: the fix is human (recalibrate), not retry.
+  defp after_sck_error(state, region, filename, reason, error) do
+    if region_impossible_reason?(reason) do
+      {error, quarantine_region(state, region, filename, reason)}
+    else
+      Logger.warning(
+        "ScreenCaptureKit capture failed; falling back to screencapture: #{inspect({:screen_capture_kit, reason})}"
+      )
+
+      {timed_capture_path(:fallback, region, filename), fallback_backend(state)}
+    end
+  end
 
   defp quarantine_region(state, region, filename, reason) do
     text =
@@ -619,9 +626,7 @@ defmodule Pokex.Bots.Capture do
               "(#{retries_left} left): #{inspect(reason)}"
           )
 
-          sleep_ms = sck_start_retry_sleep_ms(opts)
-          if sleep_ms > 0, do: Process.sleep(sleep_ms)
-          start_sck_backend(opts, sck, retries_left - 1)
+          retry_sck_start(opts, sck, retries_left)
         else
           error
         end
@@ -629,6 +634,12 @@ defmodule Pokex.Bots.Capture do
       error ->
         error
     end
+  end
+
+  defp retry_sck_start(opts, sck, retries_left) do
+    sleep_ms = sck_start_retry_sleep_ms(opts)
+    if sleep_ms > 0, do: Process.sleep(sleep_ms)
+    start_sck_backend(opts, sck, retries_left - 1)
   end
 
   defp retryable_sck_start_error?(:timeout), do: true

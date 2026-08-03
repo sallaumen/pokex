@@ -57,17 +57,15 @@ defmodule Pokex.Perception.Interpret.Hud do
   # blank region there means a wrong region — never zero.
   defp read_count(frame, fix, region, {ox, oy}) do
     case Layout.region(region, fix) do
-      nil ->
-        nil
+      nil -> nil
+      {x, y, w, h} -> count_in(frame, {x - ox, y - oy, w, h}, Layout.region_opts(fix, region))
+    end
+  end
 
-      {x, y, w, h} ->
-        rect = {x - ox, y - oy, w, h}
-        opts = Layout.region_opts(fix, region)
-
-        case Glyphs.read_int(frame, rect, opts) do
-          nil -> if Glyphs.blank?(frame, rect, opts), do: 0, else: nil
-          count -> count
-        end
+  defp count_in(frame, rect, opts) do
+    case Glyphs.read_int(frame, rect, opts) do
+      nil -> if Glyphs.blank?(frame, rect, opts), do: 0, else: nil
+      count -> count
     end
   end
 end

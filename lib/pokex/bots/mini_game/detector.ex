@@ -228,6 +228,25 @@ defmodule Pokex.Bots.MiniGame.Detector do
     (0.56 + scaled * 0.44) |> max(0.0) |> min(1.0)
   end
 
+  # One row of the column scan: a dark pixel extends the current run (and may
+  # beat the best one), a light pixel either bridges a gap or ends the run.
+  defp column_step({best, b_start, b_stop, current, c_start, gap, _last_y}, true, y, _max_gap) do
+    c_start = if current == 0, do: y, else: c_start
+    current = current + gap + 1
+
+    if current > best,
+      do: {current, c_start, y, current, c_start, 0, y},
+      else: {best, b_start, b_stop, current, c_start, 0, y}
+  end
+
+  defp column_step({best, b_start, b_stop, current, c_start, gap, last_y}, false, _y, max_gap) do
+    cond do
+      current == 0 -> {best, b_start, b_stop, 0, 0, 0, last_y}
+      gap < max_gap -> {best, b_start, b_stop, current, c_start, gap + 1, last_y}
+      true -> {best, b_start, b_stop, 0, 0, 0, last_y}
+    end
+  end
+
   defp crosses_anchor_y?(_candidate, nil, _tolerance), do: true
 
   defp crosses_anchor_y?(candidate, anchor_y, tolerance) do
@@ -237,28 +256,7 @@ defmodule Pokex.Bots.MiniGame.Detector do
   defp dark_column_run(%Frame{height: h} = frame, x, step, max_gap) do
     {best, best_start, best_stop, _current, _current_start, _gap, _last_dark_y} =
       for y <- 0..(h - 1)//step, reduce: {0, 0, 0, 0, 0, 0, 0} do
-        {best, best_start, best_stop, current, current_start, gap, last_dark_y} ->
-          if dark_pixel?(frame, x, y) do
-            current_start = if current == 0, do: y, else: current_start
-            current = current + gap + 1
-
-            if current > best do
-              {current, current_start, y, current, current_start, 0, y}
-            else
-              {best, best_start, best_stop, current, current_start, 0, y}
-            end
-          else
-            cond do
-              current == 0 ->
-                {best, best_start, best_stop, 0, 0, 0, last_dark_y}
-
-              gap < max_gap ->
-                {best, best_start, best_stop, current, current_start, gap + 1, last_dark_y}
-
-              true ->
-                {best, best_start, best_stop, 0, 0, 0, last_dark_y}
-            end
-          end
+        acc -> column_step(acc, dark_pixel?(frame, x, y), y, max_gap)
       end
 
     %{score: best, start: best_start, stop: best_stop}

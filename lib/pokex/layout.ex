@@ -307,13 +307,17 @@ defmodule Pokex.Layout do
     first_row = binary_part(template.rgba, 0, template.width * 4)
 
     Enum.reduce_while(y0..y1//1, :not_found, fn y, _acc ->
-      case Enum.find(x0..x1//1, fn x ->
-             row_at(frame, x, y, template.width) == first_row and
-               full_match?(frame, template, x, y)
-           end) do
+      case match_in_row(frame, template, first_row, x0, x1, y) do
         nil -> {:cont, :not_found}
         x -> {:halt, {:ok, {x, y}}}
       end
+    end)
+  end
+
+  # The first row is the cheap filter: only a full match is confirmed pixel by pixel.
+  defp match_in_row(frame, template, first_row, x0, x1, y) do
+    Enum.find(x0..x1//1, fn x ->
+      row_at(frame, x, y, template.width) == first_row and full_match?(frame, template, x, y)
     end)
   end
 

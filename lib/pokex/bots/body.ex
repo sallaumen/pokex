@@ -69,16 +69,20 @@ defmodule Pokex.Bots.Body do
       #
       # Best effort by nature: the gate can still shut between this read and the
       # click. That race costs one wasted step, not a false `:ok` every time.
-      if InputGate.allowed?() do
-        case perform([{:click, :left, point}], :normal, server) do
-          :ok -> {:ok, point}
-          error -> error
-        end
-      else
-        {:error, :input_gate_closed}
-      end
+      walk_click(point, server)
     else
       _no_region -> {:error, :no_layout}
+    end
+  end
+
+  defp walk_click(point, server) do
+    if InputGate.allowed?() do
+      case perform([{:click, :left, point}], :normal, server) do
+        :ok -> {:ok, point}
+        error -> error
+      end
+    else
+      {:error, :input_gate_closed}
     end
   end
 

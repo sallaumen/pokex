@@ -248,7 +248,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     # bare assert (this used to be masked by sync_arena's now-removed Perception.attach/detach
     # call adding incidental latency to the worker's own message loop). ≥ 1, not == 1: the
     # post-kill probe window now fires additional blind Tabs by design.
-    assert eventually(fn -> Enum.count(presses(), &(&1 == Settings.get(:tab_key))) >= 1 end)
+    assert eventually(fn -> Enum.any?(presses(), &(&1 == Settings.get(:tab_key))) end)
 
     # From here on: NO more :world events (the feed wouldn't broadcast either — a
     # non-empty-but-pixel-static battle list is not a content CHANGE). Seed WorldState

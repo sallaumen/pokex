@@ -155,8 +155,9 @@ end
 defmodule Pokex.Bots.BodyTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.Body
+  alias Pokex.Bots.BodyTest.GameOpeningRig
   alias Pokex.Bots.BodyTest.RaisingRig
-  alias Pokex.Bots.BodyTest.{GameOpeningRig, SlowRig}
+  alias Pokex.Bots.BodyTest.SlowRig
   alias Pokex.Perception.WorldState
   alias Pokex.Rig.Fake
 

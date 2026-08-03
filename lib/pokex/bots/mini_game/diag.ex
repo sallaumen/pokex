@@ -43,9 +43,9 @@ defmodule Pokex.Bots.MiniGame.Diag do
             key_down: 0,
             key_up: 0,
             safety_key_ups: [],
-            error_sum: 0.0,
-            error_n: 0,
-            error_max: 0.0,
+            # One statistic, one field: three top-level counters for the same
+            # measurement pushed the struct past 31 fields for no gain.
+            error: %{sum: 0.0, n: 0, max: 0.0},
             no_capsule_streak: 0,
             no_capsule_streak_max: 0,
             last_capture_at: nil,
@@ -201,8 +201,8 @@ defmodule Pokex.Bots.MiniGame.Diag do
       no_track: diag.no_track,
       no_fish: diag.no_fish,
       max_no_capsule_streak: diag.no_capsule_streak_max,
-      error_mean: rounded(mean(diag.error_sum, diag.error_n), 4),
-      error_max: rounded(diag.error_max, 4),
+      error_mean: rounded(mean(diag.error.sum, diag.error.n), 4),
+      error_max: rounded(diag.error.max, 4),
       key_down: diag.key_down,
       key_up: diag.key_up,
       safety_key_ups: diag.safety_key_ups,
@@ -266,9 +266,11 @@ defmodule Pokex.Bots.MiniGame.Diag do
         no_fish: diag.no_fish + if(sample[:read] == :no_fish, do: 1, else: 0),
         no_capsule_streak: streak,
         no_capsule_streak_max: max(diag.no_capsule_streak_max, streak),
-        error_sum: diag.error_sum + (sample.error || 0.0),
-        error_n: diag.error_n + if(sample.error, do: 1, else: 0),
-        error_max: max(diag.error_max, sample.error || 0.0)
+        error: %{
+          sum: diag.error.sum + (sample.error || 0.0),
+          n: diag.error.n + if(sample.error, do: 1, else: 0),
+          max: max(diag.error.max, sample.error || 0.0)
+        }
     }
   end
 

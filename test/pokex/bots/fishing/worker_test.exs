@@ -63,9 +63,9 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
   alias Pokex.Bots.Body
   alias Pokex.Bots.Fisher.Sensors
-  alias Pokex.Bots.InputGate
   alias Pokex.Bots.Fishing.Worker
   alias Pokex.Bots.Fishing.WorkerTest.SlowRig
+  alias Pokex.Bots.InputGate
   alias Pokex.Calibration
   alias Pokex.Perception.WorldState
   alias Pokex.Settings

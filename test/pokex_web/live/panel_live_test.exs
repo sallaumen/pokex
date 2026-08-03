@@ -60,7 +60,7 @@ defmodule PokexWeb.PanelLiveTest do
       now
     )
 
-    Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46107, 4}}, now)
+    Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now)
 
     Pokex.Perception.WorldState.put(
       :team,

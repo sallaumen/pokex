@@ -124,16 +124,18 @@ defmodule Pokex.Vision do
     radius = Keyword.get(opts, :bubble_radius_px, 48)
     line_present_min = Keyword.get(opts, :line_present_min_px, 100)
 
-    with {:ok, center, lure_count} <- lure_center(frame, opts) do
-      bubble_count = bubble_count_near(frame, center, radius, opts)
+    case lure_center(frame, opts) do
+      {:ok, center, lure_count} ->
+        bubble_count = bubble_count_near(frame, center, radius, opts)
 
-      %{
-        bubble_count: bubble_count,
-        lure_count: lure_count,
-        line_present?: lure_count >= min_lure_pixels and bubble_count >= line_present_min
-      }
-    else
-      :none -> %{bubble_count: 0, lure_count: 0, line_present?: false}
+        %{
+          bubble_count: bubble_count,
+          lure_count: lure_count,
+          line_present?: lure_count >= min_lure_pixels and bubble_count >= line_present_min
+        }
+
+      :none ->
+        %{bubble_count: 0, lure_count: 0, line_present?: false}
     end
   end
 
@@ -147,17 +149,21 @@ defmodule Pokex.Vision do
       |> Map.values()
       |> Enum.filter(&(&1.count >= min_bucket_pixels))
 
-    with candidate when not is_nil(candidate) <- select_lure_candidate(candidates, frame, opts) do
-      center = {div(candidate.sum_x, candidate.count), div(candidate.sum_y, candidate.count)}
-      radius = Keyword.get(opts, :lure_cluster_radius_px, max(18, bucket_px + div(bucket_px, 2)))
-      count = lure_count_near(frame, center, radius)
+    case select_lure_candidate(candidates, frame, opts) do
+      candidate when not is_nil(candidate) ->
+        center = {div(candidate.sum_x, candidate.count), div(candidate.sum_y, candidate.count)}
 
-      if count > 0 do
-        {:ok, center, count}
-      else
-        :none
-      end
-    else
+        radius =
+          Keyword.get(opts, :lure_cluster_radius_px, max(18, bucket_px + div(bucket_px, 2)))
+
+        count = lure_count_near(frame, center, radius)
+
+        if count > 0 do
+          {:ok, center, count}
+        else
+          :none
+        end
+
       _ ->
         fallback_lure_center(rgba, width, height)
     end

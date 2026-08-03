@@ -17,8 +17,9 @@ defmodule Pokex.Perception.Feed do
   require Logger
 
   alias Pokex.Bots.Capture
+  alias Pokex.Calibration
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Settings
 
   @topic "world"
 

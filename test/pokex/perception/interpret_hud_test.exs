@@ -119,7 +119,7 @@ defmodule Pokex.Perception.InterpretHudTest do
     } do
       {obs, _state} = Minimap.interpret(region_frame(fix, :minimap), calib, %{})
 
-      assert obs.pos == {337, 46107, 4}
+      assert obs.pos == {337, 46_107, 4}
     end
 
     test "an unreadable frame yields nil, not a stale lie", %{calib: calib} do
@@ -131,7 +131,7 @@ defmodule Pokex.Perception.InterpretHudTest do
   end
 
   describe "the minimap's sanity gates (pure)" do
-    @home {337, 46107, 4}
+    @home {337, 46_107, 4}
     @fresh %{last: nil, pending: nil}
 
     test "the first read baselines" do
@@ -139,16 +139,16 @@ defmodule Pokex.Perception.InterpretHudTest do
     end
 
     test "a normal step through is accepted" do
-      step = {340, 46109, 4}
+      step = {340, 46_109, 4}
       assert {%{pos: ^step}, %{last: ^step}} = Minimap.accept(step, %{last: @home, pending: nil})
     end
 
     test "an impossible floor is refused outright" do
-      assert {%{pos: nil}, _state} = Minimap.accept({337, 46107, 99}, @fresh)
+      assert {%{pos: nil}, _state} = Minimap.accept({337, 46_107, 99}, @fresh)
     end
 
     test "a wild jump is refused ONCE, then accepted when the next read agrees" do
-      far = {900, 46107, 4}
+      far = {900, 46_107, 4}
 
       assert {%{pos: @home}, state} = Minimap.accept(far, %{last: @home, pending: nil})
 

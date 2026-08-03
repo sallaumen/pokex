@@ -19,7 +19,14 @@ defmodule Pokex.Bots.BotSupervisor do
   """
   use Supervisor
 
-  alias Pokex.Bots.{Body, Catcher, Cavebot, Combat, Fishing, PlayerSupport, Guardian, MiniGame}
+  alias Pokex.Bots.Body
+  alias Pokex.Bots.Catcher
+  alias Pokex.Bots.Cavebot
+  alias Pokex.Bots.Combat
+  alias Pokex.Bots.Fishing
+  alias Pokex.Bots.Guardian
+  alias Pokex.Bots.MiniGame
+  alias Pokex.Bots.PlayerSupport
 
   def start_link(opts \\ []) do
     body = Keyword.get(opts, :body, Body)

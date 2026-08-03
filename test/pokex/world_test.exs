@@ -27,7 +27,7 @@ defmodule Pokex.WorldTest do
       enemies_detail: [%{row: 0, name: "Pidgeot"}]
     })
 
-    publish(:minimap, %{pos: {337, 46107, 4}})
+    publish(:minimap, %{pos: {337, 46_107, 4}})
 
     snap = World.snapshot()
 
@@ -40,7 +40,7 @@ defmodule Pokex.WorldTest do
            }
 
     assert snap.inventory == %{f1: 322, f2: 36, e: 7, s_q: 43}
-    assert snap.pos == {337, 46107, 4}
+    assert snap.pos == {337, 46_107, 4}
     assert snap.engaged?
     assert snap.shiny?
     assert [%{name: "Pidgeot"}] = snap.enemies

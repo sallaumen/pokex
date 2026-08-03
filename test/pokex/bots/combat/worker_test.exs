@@ -2,8 +2,10 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Combat.Worker
+  alias Pokex.Calibration
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings, SettingsStash}
+  alias Pokex.Settings
+  alias Pokex.SettingsStash
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

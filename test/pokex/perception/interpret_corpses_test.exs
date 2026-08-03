@@ -4,8 +4,9 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Calibration
   alias Pokex.Perception.Interpret.Corpses
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Settings
   alias Pokex.Vision.Frame
 
   @moduletag :tmp_dir

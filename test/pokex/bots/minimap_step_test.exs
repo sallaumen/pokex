@@ -8,8 +8,8 @@ defmodule Pokex.Bots.MinimapStepTest do
   """
   use ExUnit.Case, async: false
 
-  alias Pokex.{Layout, ScreenFixtures, Settings}
   alias Pokex.Bots.{Body, InputGate}
+  alias Pokex.{Layout, ScreenFixtures, Settings}
 
   setup do
     {:ok, fix} = Layout.locate(ScreenFixtures.frame!("ultrawide_3440x1440_time"))

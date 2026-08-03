@@ -14,10 +14,15 @@ defmodule Pokex.Bots.Fishing.Worker do
   use GenServer
   require Logger
 
+  alias Pokex.Bots.Body
+  alias Pokex.Bots.Fisher.Config
+  alias Pokex.Bots.Fisher.Sensors
   alias Pokex.Bots.Fishing.Logic
-  alias Pokex.Bots.Fisher.{Config, Sensors}
-  alias Pokex.Bots.{Body, InputGate}
-  alias Pokex.{Calibration, Perception, Preflight, Settings}
+  alias Pokex.Bots.InputGate
+  alias Pokex.Calibration
+  alias Pokex.Perception
+  alias Pokex.Preflight
+  alias Pokex.Settings
 
   @topic "fishing"
 

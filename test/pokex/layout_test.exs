@@ -27,7 +27,7 @@ defmodule Pokex.LayoutTest do
     assert Glyphs.read_int(frame, fix.regions.slot_f2, ink: 200) == 36
     assert Glyphs.read_int(frame, fix.regions.slot_e, ink: 200) == 7
     assert Glyphs.read_int(frame, fix.regions.slot_s_q, ink: 200) == 43
-    assert Glyphs.read_coord(frame, fix.regions.minimap_coord) == {337, 46107, 4}
+    assert Glyphs.read_coord(frame, fix.regions.minimap_coord) == {337, 46_107, 4}
     assert %{text: "5559/6410"} = Glyphs.read_line(frame, fix.regions.pokemon_hp)
   end
 

@@ -14,8 +14,8 @@ defmodule Pokex.Bots.SkillBar do
   `ready_keys/1` derive the answers the bots need; the tenth slot maps to `0`.
   """
 
-  alias Pokex.{Calibration, Vision}
   alias Pokex.Bots.Capture
+  alias Pokex.{Calibration, Vision}
 
   @doc "Per-slot `%{brightness, saturation, state}` list, or `nil` (not calibrated / capture failed)."
   def read(calib, settings) do

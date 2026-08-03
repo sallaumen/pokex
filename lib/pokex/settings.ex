@@ -663,7 +663,7 @@ defmodule Pokex.Settings do
     # one waypoint per tile — the client already pathfinds between points, so
     # what matters is marking the path's corners, not every step.
     cavebot_record_min_tiles: 4,
-    cavebot_fight_timeout_ms: 20000,
+    cavebot_fight_timeout_ms: 20_000,
     cavebot_combo_timeout_ms: 6000,
     cavebot_cleanup_timeout_ms: 8000
   }

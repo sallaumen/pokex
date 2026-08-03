@@ -19,9 +19,12 @@ defmodule Pokex.Bots.MiniGame.Worker do
   require Logger
 
   alias Pokex.Bots.Capture
-  alias Pokex.Bots.MiniGame.{Detector, Mode, Player}
+  alias Pokex.Bots.MiniGame.Detector
+  alias Pokex.Bots.MiniGame.Mode
+  alias Pokex.Bots.MiniGame.Player
+  alias Pokex.Calibration
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Settings
 
   @topic "mini_game"
   # Per-tick diagnostics go on their own topic: the panel must not re-render at

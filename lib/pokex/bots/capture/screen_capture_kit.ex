@@ -235,13 +235,10 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
   end
 
   defp wait_ready(port, timeout_ms) do
-    with {:ok, response} <- read_line(port, timeout_ms) do
-      case response do
-        %{"ready" => true} -> {:ok, Map.delete(response, "ready")}
-        %{"ready" => false, "error" => reason} -> {:error, {:not_ready, reason}}
-        other -> {:error, {:bad_ready_response, other}}
-      end
-    else
+    case read_line(port, timeout_ms) do
+      {:ok, %{"ready" => true} = response} -> {:ok, Map.delete(response, "ready")}
+      {:ok, %{"ready" => false, "error" => reason}} -> {:error, {:not_ready, reason}}
+      {:ok, other} -> {:error, {:bad_ready_response, other}}
       {:error, reason} -> {:error, reason}
     end
   end

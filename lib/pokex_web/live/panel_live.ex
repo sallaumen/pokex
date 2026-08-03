@@ -1,12 +1,21 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.{BotSupervisor, Catcher, Combat, Fishing, PlayerSupport, SkillBar}
+  alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.Catcher
   alias Pokex.Bots.Cavebot
+  alias Pokex.Bots.Combat
+  alias Pokex.Bots.Fishing
   alias Pokex.Bots.Logout
+  alias Pokex.Bots.PlayerSupport
+  alias Pokex.Bots.SkillBar
+  alias Pokex.Calibration
   alias Pokex.Diagnostics.Report
-  alias PokexWeb.{HeaderState, PanelForms, PositionReadout}
-  alias Pokex.{Calibration, Rig, Settings}
+  alias Pokex.Rig
+  alias Pokex.Settings
+  alias PokexWeb.HeaderState
+  alias PokexWeb.PanelForms
+  alias PokexWeb.PositionReadout
 
   @fishing_topic "fishing"
   @combat_topic "combat"

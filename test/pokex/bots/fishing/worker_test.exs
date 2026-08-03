@@ -61,11 +61,12 @@ end
 defmodule Pokex.Bots.Fishing.WorkerTest do
   use ExUnit.Case, async: false
 
-  alias Pokex.Bots.Fishing.Worker
   alias Pokex.Bots.Fisher.Sensors
+  alias Pokex.Bots.Fishing.Worker
   alias Pokex.Bots.Fishing.WorkerTest.SlowRig
+  alias Pokex.Calibration
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Settings
 
   @fast %{
     wait_focus_ms: 5,

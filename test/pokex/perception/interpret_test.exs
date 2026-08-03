@@ -1,8 +1,9 @@
 defmodule Pokex.Perception.InterpretTest do
   use ExUnit.Case, async: false
 
+  alias Pokex.Calibration
   alias Pokex.Perception.Interpret
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Settings
   alias Pokex.Vision.Frame
 
   # battle_region 80x400 at scale 1.0; strip_width points cover the pokeball column.

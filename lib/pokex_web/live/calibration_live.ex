@@ -1,9 +1,15 @@
 defmodule PokexWeb.CalibrationLive do
   use PokexWeb, :live_view
 
-  alias Pokex.{Calibration, Home, Rig, Settings, Vision}
-  alias Pokex.Bots.{Capture, SkillBar}
-  alias Pokex.Bots.Catcher.{CorpseLibrary, SpotScan}
+  alias Pokex.Bots.Capture
+  alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.SkillBar
+  alias Pokex.Calibration
+  alias Pokex.Home
+  alias Pokex.Rig
+  alias Pokex.Settings
+  alias Pokex.Vision
   alias Pokex.Vision.Frame
 
   import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
@@ -98,66 +104,72 @@ defmodule PokexWeb.CalibrationLive do
 
   @impl true
   def handle_event("capture_screen", _params, socket) do
-    with {:ok, screen} <- grab_screen("scale_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :water,
-         mode: :full,
-         draft: %{skill_bar_count: socket.assigns.skill_count},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("scale_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :water,
+           mode: :full,
+           draft: %{skill_bar_count: socket.assigns.skill_count},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
   # Standalone correction for an existing calibration. The normal 8-step wizard
   # already includes these two clicks.
   def handle_event("calibrate_skillbar", _params, socket) do
-    with {:ok, screen} <- grab_screen("skillbar_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :skill_a,
-         mode: :skillbar_only,
-         draft: %{skill_bar_count: socket.assigns.skill_count},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("skillbar_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :skill_a,
+           mode: :skillbar_only,
+           draft: %{skill_bar_count: socket.assigns.skill_count},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
   # Standalone correction: re-mark only the character (the mini-game bar anchor)
   # on an existing calibration, without redoing the whole wizard.
   def handle_event("calibrate_player", _params, socket) do
-    with {:ok, screen} <- grab_screen("player_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :player,
-         mode: :player_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("player_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :player,
+           mode: :player_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
@@ -167,22 +179,24 @@ defmodule PokexWeb.CalibrationLive do
   # FROM THE SAME SHOT with the freshly marked regions: feedback arrives
   # before any field run.
   def handle_event("calibrate_minimap", _params, socket) do
-    with {:ok, screen} <- grab_screen("minimap_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :minimap_a,
-         mode: :minimap_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("minimap_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :minimap_a,
+           mode: :minimap_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
@@ -190,22 +204,24 @@ defmodule PokexWeb.CalibrationLive do
   # (2 corners) on an existing calibration. From then on the mini-game worker
   # watches THAT region instead of hunting the bar inside the arena.
   def handle_event("calibrate_mini_game", _params, socket) do
-    with {:ok, screen} <- grab_screen("mini_game_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :mini_game_a,
-         mode: :mini_game_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("mini_game_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :mini_game_a,
+           mode: :mini_game_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
@@ -258,44 +274,48 @@ defmodule PokexWeb.CalibrationLive do
   # Standalone correction: mark only where the Pokémon should STAND (the strategic
   # attack tile the support worker middle-clicks after battles).
   def handle_event("calibrate_pokemon_spot", _params, socket) do
-    with {:ok, screen} <- grab_screen("pokemon_spot_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :pokemon_spot,
-         mode: :pokemon_spot_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("pokemon_spot_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :pokemon_spot,
+           mode: :pokemon_spot_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
   # Standalone correction: mark only the escape STAIRCASE tile the
   # emergency-escape protocol click-walks to.
   def handle_event("calibrate_escape_point", _params, socket) do
-    with {:ok, screen} <- grab_screen("escape_point_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :escape_point,
-         mode: :escape_point_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("escape_point_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :escape_point,
+           mode: :escape_point_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 

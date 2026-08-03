@@ -2,8 +2,10 @@ defmodule PokexWeb.DiagnosticsLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.Capture
+  alias Pokex.Calibration
   alias Pokex.Rig
-  alias Pokex.{Calibration, Settings, Vision}
+  alias Pokex.Settings
+  alias Pokex.Vision
   alias Pokex.Vision.Frame
   alias PokexWeb.CalibrationOverlay
 

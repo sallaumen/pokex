@@ -16,8 +16,11 @@ defmodule Pokex.Diagnostics.Report do
   directory are all injectable so the whole thing is testable with a Fake rig.
   """
 
-  alias Pokex.{Calibration, Home, Rig, Settings}
   alias Pokex.Bots.SkillBar
+  alias Pokex.Calibration
+  alias Pokex.Home
+  alias Pokex.Rig
+  alias Pokex.Settings
   alias Pokex.Vision
   alias Pokex.Vision.Frame
 

@@ -13,10 +13,15 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   """
   use GenServer
 
-  alias Pokex.Bots.{Body, Capture, InputGate}
+  alias Pokex.Bots.Body
+  alias Pokex.Bots.Capture
+  alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
-  alias Pokex.Perception.{Interpret, WorldState}
-  alias Pokex.{Calibration, Settings, Vision}
+  alias Pokex.Calibration
+  alias Pokex.Perception.Interpret
+  alias Pokex.Perception.WorldState
+  alias Pokex.Settings
+  alias Pokex.Vision
 
   @topic "game"
   @default_counters %{rescues: 0, potions: 0, reads: 0, failures: 0, repositions: 0}

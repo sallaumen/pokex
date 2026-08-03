@@ -15,8 +15,9 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Catcher.WorkerTest.FakeBody
+  alias Pokex.Calibration
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Settings
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

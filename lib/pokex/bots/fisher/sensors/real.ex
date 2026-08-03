@@ -2,8 +2,12 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   @moduledoc false
   @behaviour Pokex.Bots.Fisher.Sensors
 
-  alias Pokex.{Calibration, Rig, Settings, Vision}
-  alias Pokex.Bots.{Capture, SkillBar}
+  alias Pokex.Bots.Capture
+  alias Pokex.Bots.SkillBar
+  alias Pokex.Calibration
+  alias Pokex.Rig
+  alias Pokex.Settings
+  alias Pokex.Vision
   alias Pokex.Vision.Frame
 
   @impl true

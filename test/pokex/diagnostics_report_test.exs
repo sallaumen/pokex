@@ -1,7 +1,7 @@
 defmodule Pokex.Diagnostics.ReportTest do
   use ExUnit.Case, async: false
-  alias Pokex.Diagnostics.Report
   alias Pokex.Calibration
+  alias Pokex.Diagnostics.Report
 
   @calib %Calibration{
     scale: 2.0,

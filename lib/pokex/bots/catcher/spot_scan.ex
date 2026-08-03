@@ -145,7 +145,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
     step = max(Settings.get(:corpse_scan_step_px), 1)
     refine = max(Settings.get(:corpse_scan_refine_px), 1)
 
-    forbidden = forbidden_zones(calib, region, box)
+    forbidden = forbidden_zones(calib, frame.scale, region, box)
 
     grosso = score(frame, windows(frame, box, step), box, forbidden)
 
@@ -162,7 +162,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
 
     known =
       Map.new(targets, fn %{x: x, y: y, name: name, score: score} ->
-        {center_on_screen(x, y, box, calib, region), %{name: name, score: score}}
+        {center_on_screen(x, y, box, frame.scale, region), %{name: name, score: score}}
       end)
 
     %{
@@ -174,7 +174,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
       region: region,
       center: center,
       threshold: min_sim,
-      best: best(todas, box, calib, region)
+      best: best(todas, box, frame.scale, region)
     }
   end
 
@@ -205,10 +205,10 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # match the taught corpse by palette, and the ball would fly at Lucas's own
   # pokémon. Each anchor's CENTER is kept in frame px; any window whose center
   # falls within half a tile of one is discarded.
-  defp forbidden_zones(calib, region, _box) do
+  defp forbidden_zones(calib, scale, region, _box) do
     [calib.player_point, calib.pokemon_spot_point]
     |> Enum.reject(&is_nil/1)
-    |> Enum.map(fn {sx, sy} -> in_frame(sx, sy, calib, region) end)
+    |> Enum.map(fn {sx, sy} -> in_frame(sx, sy, scale, region) end)
   end
 
   defp forbidden?(x, y, box, forbidden) do
@@ -238,24 +238,24 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   defp near?(%{x: ax, y: ay}, %{x: bx, y: by}, tolerancia),
     do: abs(ax - bx) <= tolerancia and abs(ay - by) <= tolerancia
 
-  defp best([], _box, _calib, _region), do: nil
+  defp best([], _box, _scale, _region), do: nil
 
-  defp best(candidatos, box, calib, region) do
+  defp best(candidatos, box, scale, region) do
     %{x: x, y: y, name: name, score: score} = Enum.max_by(candidatos, & &1.score)
-    %{name: name, score: score, point: center_on_screen(x, y, box, calib, region)}
+    %{name: name, score: score, point: center_on_screen(x, y, box, scale, region)}
   end
 
   # Window corner (frame px) → its CENTER as a screen point. This is the aim:
   # teaching centers on the click over the corpse, so the winning window's
   # center is the point Lucas chose himself.
-  defp center_on_screen(x, y, box, %Calibration{scale: scale}, {rx, ry, _w, _h}) do
+  defp center_on_screen(x, y, box, scale, {rx, ry, _w, _h}) do
     meia = div(box, 2)
     {rx + round((x + meia) / scale), ry + round((y + meia) / scale)}
   end
 
   # SCREEN point → px in the captured region's frame (inverse of
   # frame_to_screen, with the region origin instead of the arena).
-  defp in_frame(sx, sy, %Calibration{scale: scale}, {rx, ry, _w, _h}),
+  defp in_frame(sx, sy, scale, {rx, ry, _w, _h}),
     do: {round((sx - rx) * scale), round((sy - ry) * scale)}
 
   defp blind(reason) do

@@ -370,13 +370,13 @@ defmodule Pokex.Bots.Capture do
 
   defp direct_frame(region, filename) do
     with {:ok, path} <- timed_capture_path(:direct, region, filename) do
-      timed_decode(path, filename)
+      timed_decode(path, filename, region)
     end
   end
 
   defp direct_frame_with_path(region, filename) do
     with {:ok, path} <- timed_capture_path(:direct, region, filename),
-         {:ok, frame} <- timed_decode(path, filename) do
+         {:ok, frame} <- timed_decode(path, filename, region) do
       {:ok, frame, path}
     end
   end
@@ -384,7 +384,7 @@ defmodule Pokex.Bots.Capture do
   defp frame_and_path_from_backend(state, region, filename) do
     case capture_path(state, region, filename) do
       {{:ok, path}, state} ->
-        case timed_decode(path, filename) do
+        case timed_decode(path, filename, region) do
           {:ok, frame} -> {{:ok, frame, path}, state}
           error -> {error, state}
         end
@@ -396,7 +396,7 @@ defmodule Pokex.Bots.Capture do
 
   defp frame_from_backend(state, region, filename) do
     with {{:ok, path}, state} <- capture_path(state, region, filename) do
-      {timed_decode(path, filename), state}
+      {timed_decode(path, filename, region), state}
     end
   end
 
@@ -480,12 +480,21 @@ defmodule Pokex.Bots.Capture do
     kind, reason -> {:error, {:capture_backend, {kind, reason}}}
   end
 
-  defp timed_decode(path, filename) do
+  # The frame is stamped with the scale THIS capture implies (pixels per point),
+  # so no consumer has to trust a scale persisted when another backend was live.
+  defp timed_decode(path, filename, region) do
     started_at = now()
     result = Frame.from_png_file(path)
     Perf.record("capture.decode:#{filename}", now() - started_at)
-    result
+
+    case result do
+      {:ok, frame} -> {:ok, Frame.with_scale(frame, region_width(region))}
+      error -> error
+    end
   end
+
+  defp region_width({_x, _y, w, _h}), do: w
+  defp region_width(_other), do: nil
 
   defp record_queue(kind, filename, requested_at),
     do: Perf.record("capture.queue.#{kind}:#{filename}", now() - requested_at)

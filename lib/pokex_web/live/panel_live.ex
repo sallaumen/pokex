@@ -1928,8 +1928,7 @@ defmodule PokexWeb.PanelLive do
   defp mode_worker_labels(mode) do
     mode
     |> Pokex.Modes.workers()
-    |> Enum.map(&worker_job/1)
-    |> Enum.join(" · ")
+    |> Enum.map_join(" · ", &worker_job/1)
   end
 
   defp worker_job(:fishing), do: "pesca"

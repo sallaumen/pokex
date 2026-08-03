@@ -128,21 +128,19 @@ defmodule Pokex.Layout do
     profile = profile || profile()
     [pw, ph] = profile["resolution"]
 
-    cond do
-      {frame.width, frame.height} != {pw, ph} ->
-        {:error, {:resolution, {frame.width, frame.height}}}
-
-      true ->
-        with {:ok, anchors} <- find_anchors(frame, profile) do
-          {:ok,
-           %Fix{
-             profile: profile["name"],
-             anchors: anchors,
-             regions: derive_regions(profile, anchors),
-             region_opts: derive_opts(profile),
-             located_at: DateTime.utc_now()
-           }}
-        end
+    if {frame.width, frame.height} != {pw, ph} do
+      {:error, {:resolution, {frame.width, frame.height}}}
+    else
+      with {:ok, anchors} <- find_anchors(frame, profile) do
+        {:ok,
+         %Fix{
+           profile: profile["name"],
+           anchors: anchors,
+           regions: derive_regions(profile, anchors),
+           region_opts: derive_opts(profile),
+           located_at: DateTime.utc_now()
+         }}
+      end
     end
   end
 

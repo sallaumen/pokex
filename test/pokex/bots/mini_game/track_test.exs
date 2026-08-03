@@ -13,10 +13,9 @@ defmodule Pokex.Bots.MiniGame.TrackTest do
   # to what sits on the track there; everything else is floor.
   defp frame(rows) do
     build = fn x, y ->
-      cond do
-        x < 100 or x > 112 -> @floor
-        true -> Enum.find_value(rows, @floor, fn {range, color} -> y in range && color end)
-      end
+      if x < 100 or x > 112,
+        do: @floor,
+        else: Enum.find_value(rows, @floor, fn {range, color} -> y in range && color end)
     end
 
     Pokex.FrameFixtures.of(220, 220, build)

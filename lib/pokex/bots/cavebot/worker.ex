@@ -179,7 +179,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def handle_info(:tick, state) do
     now = now()
 
-    if not InputGate.allowed?() do
+    if InputGate.allowed?() do
+      run_cavebot_tick(state, now)
+    else
       # Gate closed = no step goes out (the Body refuses), but the Logic's
       # patience clocks kept running — 3s without "progress" became :stuck and
       # the hunt died BEFORE the game could be refocused after clicking Iniciar
@@ -198,8 +200,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       }
 
       {:noreply, schedule_tick(state)}
-    else
-      run_cavebot_tick(state, now)
     end
   end
 

@@ -1685,13 +1685,11 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     defp eventually_has(view, selector, tries \\ 30) do
-      cond do
-        has_element?(view, selector) and tries > 0 ->
-          Process.sleep(10)
-          eventually_has(view, selector, tries - 1)
-
-        true ->
-          has_element?(view, selector)
+      if has_element?(view, selector) and tries > 0 do
+        Process.sleep(10)
+        eventually_has(view, selector, tries - 1)
+      else
+        has_element?(view, selector)
       end
     end
   end

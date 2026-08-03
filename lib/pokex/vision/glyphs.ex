@@ -302,7 +302,7 @@ defmodule Pokex.Vision.Glyphs do
 
   @doc "The atlas key for a glyph bitmap: rows of 0/1, columns comma-joined, rows semicolon-joined."
   def signature(bitmap),
-    do: bitmap |> Enum.map(&Enum.join(&1, ",")) |> Enum.join(";")
+    do: Enum.map_join(bitmap, ";", &Enum.join(&1, ","))
 
   @doc """
   The atlas in force: the shipped one, plus whatever Lucas has taught this

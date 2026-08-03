@@ -45,9 +45,6 @@ defmodule Pokex.Vision.Frame do
 
       {:error, reason, _path} ->
         {:error, reason}
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 

@@ -56,6 +56,9 @@ defmodule Pokex.Calibration do
     :pokemon_photo_point
   ]
 
+  @typedoc "A loaded calibration. Two specs already referenced this type before it existed."
+  @type t :: %__MODULE__{}
+
   @strip_width 30
   @first_row_y_offset 18
 

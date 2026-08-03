@@ -56,9 +56,29 @@ defmodule Pokex.CalibrationMiniGameTest do
     assert Calibration.mini_game_region(unmarked) == {860, 360, 1720, 720}
   end
 
-  test "the central box prefers the arena's middle (the game's middle) over the screen's" do
-    arena_only = %Calibration{scale: 1.0, arena_region: {1000, 100, 2000, 1200}, layout: nil}
-    assert Calibration.mini_game_region(arena_only) == {1500, 400, 1000, 600}
+  # The bar shows up over the CHARACTER, so he is the anchor. This used to be
+  # the middle of a hand-marked "arena" — a rectangle inside a rectangle that
+  # cost two clicks and taught the bot nothing.
+  test "the default box follows the character, and is clamped to the screen" do
+    off_centre = %Calibration{
+      scale: 1.0,
+      screen_w: 3440,
+      screen_h: 1440,
+      player_point: {1000, 500},
+      layout: nil
+    }
+
+    assert Calibration.mini_game_region(off_centre) == {140, 140, 1720, 720}
+
+    at_the_edge = %Calibration{
+      scale: 1.0,
+      screen_w: 3440,
+      screen_h: 1440,
+      player_point: {3400, 1400},
+      layout: nil
+    }
+
+    assert Calibration.mini_game_region(at_the_edge) == {1720, 720, 1720, 720}
 
     whole_screen = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, layout: nil}
     assert Calibration.mini_game_region(whole_screen) == {860, 360, 1720, 720}

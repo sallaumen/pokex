@@ -36,7 +36,6 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
         water_point: {1, 1},
         glow_region: {0, 0, 8, 8},
         battle_region: {900, 0, 80, 400},
-        arena_region: {100, 200, 200, 200},
         neutral_point: {500, 500},
         player_point: {500, 400}
       },
@@ -83,7 +82,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
         {:ok, Pokex.FrameFixtures.of(rw, rh, fn _x, _y -> @ground end)}
       end
 
-      SpotScan.scan(calib(player_point: {500, 600}, arena_region: {100, 200, 200, 200}), capture)
+      SpotScan.scan(calib(player_point: {500, 600}), capture)
 
       assert_received {:region, {rx, ry, rw, rh}}
       assert {rx, ry, rw, rh} == {400, 500, 200, 200}
@@ -94,7 +93,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
 
       obs =
         SpotScan.scan(
-          calib(arena_region: nil, player_point: {500, 400}),
+          calib(player_point: {500, 400}),
           capture_with_corpses_at([{540, 400}])
         )
 

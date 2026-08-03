@@ -75,7 +75,7 @@ defmodule Pokex.Perception.Interpret.Corpses do
       confirmed
       |> match_known(frame, settings)
       |> Map.new(fn {center, info} ->
-        {Calibration.frame_to_screen(calib, calib.arena_region, center), info}
+        {Calibration.frame_to_screen(calib, scan_region(calib), center), info}
       end)
 
     corpses = known |> Map.keys() |> Enum.sort()
@@ -210,4 +210,12 @@ defmodule Pokex.Perception.Interpret.Corpses do
     do: abs(ax - bx) <= tolerance and abs(ay - by) <= tolerance
 
   defp cell_px(settings), do: Settings.value(settings, :corpse_cell_px)
+  # The frame came from the search square; converting against anything else
+  # would put every corpse at the wrong screen point.
+  defp scan_region(calib) do
+    case Pokex.Bots.Catcher.SpotScan.region(calib) do
+      {:ok, region} -> region
+      _no_anchor -> {0, 0, 0, 0}
+    end
+  end
 end

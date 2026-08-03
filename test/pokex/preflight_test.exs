@@ -17,7 +17,6 @@ defmodule Pokex.PreflightTest do
       water_point: {1, 1},
       glow_region: {0, 0, 8, 8},
       battle_region: {0, 0, 8, 8},
-      arena_region: {0, 0, 8, 8},
       neutral_point: {1, 1}
     }
 

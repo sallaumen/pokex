@@ -12,16 +12,15 @@ defmodule Pokex.Calibration do
     :water_point,
     :glow_region,
     :battle_region,
-    :arena_region,
     :neutral_point,
-    # Optional: the character's screen position (the mini-game bar anchor).
-    # Older calibrations fall back to the arena-region center.
+    # The character's screen position: the anchor EVERYTHING about the world
+    # hangs off — the corpse search square, the mini-game box, the reposition.
+    # Unmarked, the centre of the screen.
     :player_point,
     # Optional: a DEDICATED strip where the mini-game bar appears (marked from
     # the fishing spot the player always uses). When set, the mini-game worker
-    # watches ONLY this region and searches all of it — no player anchor, no
-    # dependency on arena coverage. Without it, detection anchors in
-    # arena_region as before.
+    # watches ONLY this region and searches all of it. Without it, the box is
+    # derived from the character.
     :mini_game_region,
     # HAND-MARKED position & minimap (2026-07-30): the map rectangle, the
     # character's FIXED cross (the map slides under it) and the textual
@@ -54,10 +53,7 @@ defmodule Pokex.Calibration do
     :skill_slot_refs,
     # Optional (PlayerSupport): the main Pokémon's HP bar, and the portrait to aim Shift+Q at.
     :pokemon_hp_region,
-    :pokemon_photo_point,
-    :battle_baseline,
-    :suggested_glow_threshold,
-    glow_baselines: []
+    :pokemon_photo_point
   ]
 
   @strip_width 30
@@ -81,10 +77,9 @@ defmodule Pokex.Calibration do
   the game's PANELS moved, but the proof assumed the WINDOW never moved. On
   2026-07-30 it did (same root as the minimap at y=-132): the strip pointed at
   the wrong place and still silently VETOED the manual calibration. Inverted:
-  the hand-marked value always wins; without it, a CENTERED box (half width ×
-  half height, centered on the arena or the screen) — the mini-game appears in
-  the middle of the viewport, not a corner. The worker searches whatever it
-  gets; marking the strip is what makes the search cheap and accurate.
+  the hand-marked value always wins; without it, a box around the CHARACTER —
+  the bar appears over him. The worker searches whatever it gets; marking the
+  strip is what makes the search cheap and accurate.
   """
   def mini_game_region(%__MODULE__{} = calib) do
     manual_mini_game_region(calib) || centered_mini_game_region(calib)
@@ -95,16 +90,22 @@ defmodule Pokex.Calibration do
 
   defp manual_mini_game_region(_no_mark), do: nil
 
-  defp centered_mini_game_region(%__MODULE__{arena_region: {x, y, w, h}}),
-    do: centered_box(x, y, w, h)
+  # A BOX AROUND THE CHARACTER — the mini-game bar appears over him, so he is
+  # the anchor. This used to be the middle of the calibrated "arena", which drew
+  # a second rectangle inside a rectangle and asked for two clicks that taught
+  # the bot nothing (2026-08-03: "a área do minigame está duplicada"). Half the
+  # screen wide, clamped, so a marked strip still wins and still makes it cheap.
+  defp centered_mini_game_region(%__MODULE__{screen_w: w, screen_h: h} = calib)
+       when is_integer(w) and is_integer(h) do
+    {cx, cy} = player_point(calib)
+    {bw, bh} = {div(w, 2), div(h, 2)}
 
-  defp centered_mini_game_region(%__MODULE__{screen_w: w, screen_h: h})
-       when is_integer(w) and is_integer(h),
-       do: centered_box(0, 0, w, h)
+    {clamp(cx - div(bw, 2), 0, w - bw), clamp(cy - div(bh, 2), 0, h - bh), bw, bh}
+  end
 
   defp centered_mini_game_region(_uncalibrated), do: nil
 
-  defp centered_box(x, y, w, h), do: {x + div(w, 4), y + div(h, 4), div(w, 2), div(h, 2)}
+  defp clamp(v, lo, hi), do: v |> max(lo) |> min(hi)
 
   @doc """
   Where the MINIMAP is, resolved — the HAND wins, auto-layout is the fallback
@@ -156,7 +157,6 @@ defmodule Pokex.Calibration do
       "water_point" => Tuple.to_list(calib.water_point),
       "glow_region" => Tuple.to_list(calib.glow_region),
       "battle_region" => Tuple.to_list(calib.battle_region),
-      "arena_region" => Tuple.to_list(calib.arena_region),
       "neutral_point" => Tuple.to_list(calib.neutral_point),
       "player_point" => calib.player_point && Tuple.to_list(calib.player_point),
       "mini_game_region" => calib.mini_game_region && Tuple.to_list(calib.mini_game_region),
@@ -173,10 +173,7 @@ defmodule Pokex.Calibration do
         calib.skill_slot_refs && Enum.map(calib.skill_slot_refs, &(&1 && Tuple.to_list(&1))),
       "pokemon_hp_region" => calib.pokemon_hp_region && Tuple.to_list(calib.pokemon_hp_region),
       "pokemon_photo_point" =>
-        calib.pokemon_photo_point && Tuple.to_list(calib.pokemon_photo_point),
-      "glow_baselines" => calib.glow_baselines,
-      "battle_baseline" => calib.battle_baseline,
-      "suggested_glow_threshold" => calib.suggested_glow_threshold
+        calib.pokemon_photo_point && Tuple.to_list(calib.pokemon_photo_point)
     }
 
     File.write!(path, JSON.encode!(map))
@@ -193,7 +190,6 @@ defmodule Pokex.Calibration do
          water_point: to_tuple(map["water_point"]),
          glow_region: to_tuple(map["glow_region"]),
          battle_region: to_tuple(map["battle_region"]),
-         arena_region: to_tuple(map["arena_region"]),
          neutral_point: to_tuple(map["neutral_point"]),
          player_point: to_tuple(map["player_point"]),
          mini_game_region: to_tuple(map["mini_game_region"]),
@@ -210,10 +206,7 @@ defmodule Pokex.Calibration do
          # goes blind while looking calibrated. Geometry decides.
          layout: Pokex.Layout.current() |> Pokex.Layout.fitting(map["screen_w"], map["screen_h"]),
          pokemon_hp_region: to_tuple(map["pokemon_hp_region"]),
-         pokemon_photo_point: to_tuple(map["pokemon_photo_point"]),
-         glow_baselines: map["glow_baselines"] || [],
-         battle_baseline: map["battle_baseline"],
-         suggested_glow_threshold: map["suggested_glow_threshold"]
+         pokemon_photo_point: to_tuple(map["pokemon_photo_point"])
        }}
     end
   end
@@ -323,12 +316,19 @@ defmodule Pokex.Calibration do
   def battle_body({x, y, w, h}), do: {x, y, w - @strip_width, h}
 
   @doc """
-  The player's screen position: the calibrated point when one was marked (the
-  character can stand anywhere in the viewport), else the arena-region center.
-  The mini-game overlay bar is anchored here.
+  The player's screen position: the calibrated point when one was marked, else
+  the CENTRE OF THE SCREEN — where an MMO keeps the character. The old fallback
+  was the centre of the calibrated arena, which sat 268px above the real
+  character on his screen (the same measurement that made SpotScan drop the
+  arena). Everything the character anchors hangs off this.
   """
   def player_point(%__MODULE__{player_point: point}) when is_tuple(point), do: point
-  def player_point(%__MODULE__{arena_region: region}), do: player_point(region)
+
+  def player_point(%__MODULE__{screen_w: w, screen_h: h})
+      when is_integer(w) and is_integer(h),
+      do: {div(w, 2), div(h, 2)}
+
+  def player_point(%__MODULE__{}), do: nil
   def player_point({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
 
   # Measured on Lucas's 3440×1440 screen (2026-07-10): the main Pokémon is the TOP of the 6 party

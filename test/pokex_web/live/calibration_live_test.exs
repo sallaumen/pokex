@@ -57,29 +57,25 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert render(view) =~ "SUPERIOR-ESQUERDO"
     click.(35.0, 5.0)
     click.(45.0, 20.0)
-    click.(10.0, 10.0)
-    click.(40.0, 30.0)
     click.(26.0, 18.0)
 
-    assert render(view) =~ "Passo 7/12"
+    assert render(view) =~ "Passo 5/10"
     assert render(view) =~ "PERSONAGEM"
     click.(20.0, 16.0)
 
-    assert render(view) =~ "Passo 8/12"
+    assert render(view) =~ "Passo 6/10"
     click.(5.0, 30.0)
-    assert render(view) =~ "Passo 9/12"
+    assert render(view) =~ "Passo 7/10"
     click.(29.0, 35.0)
 
-    assert render(view) =~ "Passo 10/12"
+    assert render(view) =~ "Passo 8/10"
     click.(15.0, 20.0)
     click.(45.0, 30.0)
-    assert render(view) =~ "Passo 12/12"
+    assert render(view) =~ "Passo 10/10"
+
+    # the last click IS the end — no more "cast the line and wait" step
     click.(20.0, 25.0)
 
-    assert render(view) =~ "linhas de base"
-    view |> element("button", "Capturar linhas de base") |> render_click()
-
-    Process.sleep(300)
     assert render(view) =~ "Calibração salva"
 
     assert {:ok, calib} = Calibration.load()
@@ -89,7 +85,6 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.water_point == {50, 30}
     assert calib.glow_region == {18, -2, 64, 64}
     assert calib.battle_region == {70, 10, 20, 30}
-    assert calib.arena_region == {20, 20, 60, 40}
     assert calib.neutral_point == {52, 36}
     assert calib.player_point == {40, 32}
     assert calib.skill_bar_region == {10, 60, 48, 10}
@@ -99,9 +94,6 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert length(calib.skill_slot_refs) == 8
     assert Enum.all?(calib.skill_slot_refs, &(&1 == {9, 9, 9}))
     assert Settings.get(:skill_keys) == ["6", "5", "4", "3", "2", "1", "7", "8"]
-    assert length(calib.glow_baselines) == 10
-    assert calib.suggested_glow_threshold == 12.0
-    assert Enum.all?(calib.glow_baselines, &File.exists?/1)
   end
 
   @tag :tmp_dir
@@ -116,12 +108,9 @@ defmodule PokexWeb.CalibrationLiveTest do
       water_point: {50, 30},
       glow_region: {18, -2, 64, 64},
       battle_region: {70, 10, 20, 30},
-      arena_region: {20, 20, 60, 40},
       skill_bar_region: {10, 60, 50, 10},
       skill_bar_count: 6,
-      neutral_point: {52, 36},
-      glow_baselines: [],
-      suggested_glow_threshold: 15.0
+      neutral_point: {52, 36}
     })
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
@@ -141,7 +130,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert html =~ "Áreas que o bot está usando"
     assert html =~ "janela Battle"
     assert html =~ "left:70.0%"
-    assert html =~ "left:20.0%"
+    assert html =~ "vida"
     assert html =~ "skills"
 
     assert html =~ "bandas do lock"
@@ -167,10 +156,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       water_point: {50, 30},
       glow_region: {18, -2, 64, 64},
       battle_region: {70, 10, 20, 30},
-      arena_region: {20, 20, 60, 40},
-      neutral_point: {52, 36},
-      glow_baselines: [],
-      suggested_glow_threshold: 15.0
+      neutral_point: {52, 36}
     })
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
@@ -221,10 +207,7 @@ defmodule PokexWeb.CalibrationLiveTest do
         water_point: {50, 30},
         glow_region: {18, 0, 64, 64},
         battle_region: {70, 10, 20, 30},
-        arena_region: {20, 20, 60, 40},
-        neutral_point: {52, 36},
-        glow_baselines: [],
-        suggested_glow_threshold: 15.0
+        neutral_point: {52, 36}
       })
 
       {:ok, _} = Pokex.Rig.Fake.start_link(%{screen_points: [current]})
@@ -274,10 +257,7 @@ defmodule PokexWeb.CalibrationLiveTest do
         water_point: {50, 30},
         glow_region: {18, 0, 64, 64},
         battle_region: {70, 10, 20, 30},
-        arena_region: {20, 20, 60, 40},
-        neutral_point: {52, 36},
-        glow_baselines: [],
-        suggested_glow_threshold: 15.0
+        neutral_point: {52, 36}
       })
 
       probe =
@@ -368,10 +348,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       water_point: {50, 30},
       glow_region: {18, -2, 64, 64},
       battle_region: {70, 10, 20, 30},
-      arena_region: {20, 20, 60, 40},
-      neutral_point: {52, 36},
-      glow_baselines: [],
-      suggested_glow_threshold: 15.0
+      neutral_point: {52, 36}
     })
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
@@ -425,10 +402,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       water_point: {50, 30},
       glow_region: {18, -2, 64, 64},
       battle_region: {70, 10, 20, 30},
-      arena_region: {20, 20, 60, 40},
-      neutral_point: {52, 36},
-      glow_baselines: [],
-      suggested_glow_threshold: 15.0
+      neutral_point: {52, 36}
     })
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
@@ -456,7 +430,6 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert {:ok, calib} = Calibration.load()
     assert calib.player_point == {40, 32}
     assert calib.water_point == {50, 30}
-    assert calib.arena_region == {20, 20, 60, 40}
   end
 
   @tag :tmp_dir
@@ -475,10 +448,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       water_point: {50, 30},
       glow_region: {18, -2, 64, 64},
       battle_region: {70, 10, 20, 30},
-      arena_region: {20, 20, 60, 40},
-      neutral_point: {52, 36},
-      glow_baselines: [],
-      suggested_glow_threshold: 15.0
+      neutral_point: {52, 36}
     })
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
@@ -509,7 +479,6 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert {:ok, calib} = Calibration.load()
     assert calib.mini_game_region == {60, 8, 20, 48}
     assert calib.water_point == {50, 30}
-    assert calib.arena_region == {20, 20, 60, 40}
   end
 
   @tag :tmp_dir
@@ -525,10 +494,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       water_point: {50, 30},
       glow_region: {18, -2, 64, 64},
       battle_region: {70, 10, 20, 30},
-      arena_region: {20, 20, 60, 40},
-      neutral_point: {52, 36},
-      glow_baselines: [],
-      suggested_glow_threshold: 15.0
+      neutral_point: {52, 36}
     })
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
@@ -585,10 +551,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       water_point: {50, 30},
       glow_region: {18, 2, 64, 64},
       battle_region: {70, 10, 20, 30},
-      arena_region: {20, 20, 60, 40},
-      neutral_point: {52, 36},
-      glow_baselines: [],
-      suggested_glow_threshold: 15.0
+      neutral_point: {52, 36}
     })
 
     {:ok, _} = Pokex.Rig.Fake.start_link(%{})
@@ -667,7 +630,6 @@ defmodule PokexWeb.CalibrationLiveTest do
         water_point: {1, 1},
         glow_region: {0, 0, 8, 8},
         battle_region: {3173, 403, 261, 380},
-        arena_region: {1227, 217, 1111, 425},
         neutral_point: {500, 500},
         player_point: {1688, 697}
       }
@@ -681,8 +643,6 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       assert {:capture, ^expected, "corpse_teach.png"} =
                Enum.find(Pokex.Rig.Fake.calls(), &match?({:capture, _, "corpse_teach.png"}, &1))
-
-      refute expected == calib.arena_region
 
       {rx, ry, rw, rh} = expected
       {px, py} = calib.player_point
@@ -754,7 +714,6 @@ defmodule PokexWeb.CalibrationLiveTest do
         water_point: {50, 30},
         glow_region: {18, 2, 64, 64},
         battle_region: {70, 10, 20, 30},
-        arena_region: {20, 20, 60, 40},
         neutral_point: {52, 36}
       })
 

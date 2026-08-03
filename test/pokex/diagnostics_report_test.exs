@@ -10,9 +10,7 @@ defmodule Pokex.Diagnostics.ReportTest do
     water_point: {400, 300},
     glow_region: {368, 268, 64, 64},
     battle_region: {700, 100, 260, 200},
-    arena_region: {200, 100, 400, 400},
-    neutral_point: {420, 350},
-    suggested_glow_threshold: 45.0
+    neutral_point: {420, 350}
   }
 
   @settings %{
@@ -30,7 +28,7 @@ defmodule Pokex.Diagnostics.ReportTest do
 
   setup %{tmp_dir: tmp} do
     # PNG fixtures the Fake rig will hand back, one per captured region (in the
-    # exact order Report captures them): glow, battle body, battle strip, arena,
+    # exact order Report captures them): glow, battle body, battle strip, search box,
     # scale probe; then the full screen.
     glow =
       Pokex.PngFixtures.write!(
@@ -44,13 +42,13 @@ defmodule Pokex.Diagnostics.ReportTest do
 
     battle = png!(tmp, "battle.png", 20, 12, {0, 200, 0})
     strip = png!(tmp, "strip.png", 8, 12, {255, 0, 0})
-    arena = png!(tmp, "arena.png", 12, 12, {0, 0, 0})
+    search_box = png!(tmp, "search_box.png", 12, 12, {0, 0, 0})
     probe = png!(tmp, "probe.png", 50, 50, {0, 0, 0})
     screen = png!(tmp, "screen.png", 60, 40, {0, 0, 0})
 
     {:ok, _} =
       Pokex.Rig.Fake.start_link(%{
-        capture: [{:ok, glow}, {:ok, battle}, {:ok, strip}, {:ok, arena}, {:ok, probe}],
+        capture: [{:ok, glow}, {:ok, battle}, {:ok, strip}, {:ok, search_box}, {:ok, probe}],
         capture_screen: [{:ok, screen}]
       })
 
@@ -86,7 +84,7 @@ defmodule Pokex.Diagnostics.ReportTest do
 
     assert report.regions.battle_strip.metrics.wild_present? == true
 
-    assert report.regions.arena.metrics.find_hostile == nil
+    assert report.regions.search_box.metrics.find_hostile == nil
 
     assert report.regions.skill_bar == %{calibrated?: false}
 

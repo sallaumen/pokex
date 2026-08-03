@@ -135,15 +135,16 @@ defmodule PokexWeb.DiagnosticsLive do
 
   def handle_event("find_hostile", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
-         {:ok, path} <- Rig.impl().capture(calib.arena_region, "diag_arena.png"),
+         {:ok, region} <- Pokex.Bots.Catcher.SpotScan.region(calib),
+         {:ok, path} <- Rig.impl().capture(region, "diag_hostile.png"),
          {:ok, frame} <- Frame.from_png_file(path) do
       msg =
         case Vision.find_hostile(frame) do
           {:ok, pixel} ->
-            "nome vermelho em #{inspect(Calibration.frame_to_screen(calib, calib.arena_region, pixel))} (points)"
+            "nome vermelho em #{inspect(Calibration.frame_to_screen(calib, region, pixel))} (points)"
 
           :not_found ->
-            "nenhum nome vermelho na arena"
+            "nenhum nome vermelho no quadro em volta do personagem"
         end
 
       {:noreply, assign(socket, msg: msg)}
@@ -584,7 +585,6 @@ defmodule PokexWeb.DiagnosticsLive do
               water_point={@preview.calib.water_point}
               glow_region={@preview.calib.glow_region}
               battle_region={@preview.calib.battle_region}
-              arena_region={@preview.calib.arena_region}
               skill_bar_region={@preview.calib.skill_bar_region}
               neutral_point={@preview.calib.neutral_point}
               player_point={Calibration.player_point(@preview.calib)}

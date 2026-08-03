@@ -14,7 +14,6 @@ defmodule Pokex.Perception.InterpretTest do
       water_point: {1, 1},
       glow_region: {0, 0, 8, 8},
       battle_region: {0, 0, 80, 400},
-      arena_region: {100, 100, 60, 40},
       neutral_point: {500, 500}
     }
   end

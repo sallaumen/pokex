@@ -29,7 +29,6 @@ defmodule Pokex.Perception.FeedTest do
       water_point: {50, 30},
       glow_region: {0, 0, 20, 20},
       battle_region: {0, 0, 20, 20},
-      arena_region: {0, 0, 60, 40},
       neutral_point: {52, 36}
     })
   end

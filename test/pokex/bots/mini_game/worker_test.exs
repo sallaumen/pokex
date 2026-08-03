@@ -43,7 +43,6 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       water_point: {100, 100},
       glow_region: {0, 0, 20, 20},
       battle_region: {0, 0, 20, 20},
-      arena_region: {0, 0, 220, 220},
       # Hand-marked region rules (2026-07-30): without one the search becomes a CENTRAL box
       # inside the arena — these tests draw the game across the WHOLE arena, so they mark
       # it as the strip (as real calibration does).

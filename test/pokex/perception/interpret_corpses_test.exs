@@ -25,9 +25,18 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
       water_point: {1, 1},
       glow_region: {0, 0, 8, 8},
       battle_region: {900, 0, 80, 400},
-      arena_region: {100, 200, 64, 64},
       neutral_point: {500, 500}
     }
+  end
+
+  # The frames come from the search square around the character, so the screen
+  # points are that square's origin plus the pixel — derived, never hardcoded,
+  # so a change of radius does not silently invalidate the expectation.
+  defp add({ax, ay}, {bx, by}), do: {ax + bx, ay + by}
+
+  defp origin do
+    {:ok, {x, y, _w, _h}} = Pokex.Bots.Catcher.SpotScan.region(calib())
+    {x, y}
   end
 
   defp settings(overrides \\ %{}) do
@@ -84,8 +93,9 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
 
     {obs, _st} = Corpses.interpret(frame(with_corpse(1, 1)), calib(), s, st)
     assert [{sx, sy}] = obs.corpses
-    assert sx in 130..148
-    assert sy in 220..232
+    {ox, oy} = origin()
+    assert (sx - ox) in 30..48
+    assert (sy - oy) in 20..32
   end
 
   test "a confirmed target carries its name and score in :known" do
@@ -179,14 +189,14 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
     assert obs.corpses == []
 
     {obs, st} = Corpses.interpret(frame(x_only), calib(), s, st)
-    assert obs.corpses == [{116, 208}]
+    assert obs.corpses == [add(origin(), {16, 8})]
 
     x_and_y = fn x, y ->
       if div(x, 16) == 2 and div(y, 16) in [1, 2], do: {230, 40, 40}, else: x_only.(x, y)
     end
 
     {obs, _st} = Corpses.interpret(frame(x_and_y), calib(), s, st)
-    assert obs.corpses == [{116, 208}]
+    assert obs.corpses == [add(origin(), {16, 8})]
   end
 
   # a buggy "max over all tracks within tolerance" let BOTH new blobs inherit the
@@ -199,7 +209,7 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
     x_only = with_corpse(0, 0)
     {_obs, st} = Corpses.interpret(frame(x_only), calib(), s, st)
     {obs, st} = Corpses.interpret(frame(x_only), calib(), s, st)
-    assert obs.corpses == [{116, 208}]
+    assert obs.corpses == [add(origin(), {16, 8})]
 
     two_new = fn x, y ->
       cond do

@@ -42,7 +42,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
       water_point: {400, 300},
       glow_region: {368, 268, 64, 64},
       battle_region: {700, 100, 260, 200},
-      arena_region: {200, 100, 400, 400},
       neutral_point: {420, 350}
     })
 
@@ -317,7 +316,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
       water_point: {100, 100},
       glow_region: {0, 0, 20, 20},
       battle_region: {0, 0, 20, 20},
-      arena_region: {0, 0, 220, 220},
       neutral_point: {100, 100}
     })
 

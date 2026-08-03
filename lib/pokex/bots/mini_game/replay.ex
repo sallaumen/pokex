@@ -51,6 +51,9 @@ defmodule Pokex.Bots.MiniGame.Replay do
     def capture(_region, _filename), do: refuse(:capture)
     @impl true
     def capture_screen, do: refuse(:capture_screen)
+    # Reading the screen SIZE touches nothing and keeps replay offline.
+    @impl true
+    def screen_points, do: :unknown
     @impl true
     def cursor_position, do: refuse(:cursor_position)
 

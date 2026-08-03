@@ -209,6 +209,146 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.battle_region == {70, 10, 20, 30}
   end
 
+  describe "a calibration from another screen" do
+    defp saved_on(conn, tmp, saved_w, saved_h, current) do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      Calibration.save(%Calibration{
+        scale: 2.0,
+        screen_w: saved_w,
+        screen_h: saved_h,
+        water_point: {50, 30},
+        glow_region: {18, 0, 64, 64},
+        battle_region: {70, 10, 20, 30},
+        arena_region: {20, 20, 60, 40},
+        neutral_point: {52, 36},
+        glow_baselines: [],
+        suggested_glow_threshold: 15.0
+      })
+
+      {:ok, _} = Pokex.Rig.Fake.start_link(%{screen_points: [current]})
+      {:ok, _view, html} = live(conn, ~p"/calibration")
+      html
+    end
+
+    @tag :tmp_dir
+    test "is called out, naming both screens", %{conn: conn, tmp_dir: tmp} do
+      html = saved_on(conn, tmp, 3440, 1440, {:ok, {1512, 982}})
+
+      assert html =~ "Esta calibração é de outra tela"
+      assert html =~ "3440×1440"
+      assert html =~ "1512×982"
+    end
+
+    @tag :tmp_dir
+    test "the same screen raises no warning", %{conn: conn, tmp_dir: tmp} do
+      html = saved_on(conn, tmp, 1512, 982, {:ok, {1512, 982}})
+
+      refute html =~ "Esta calibração é de outra tela"
+    end
+
+    @tag :tmp_dir
+    test "an unknown current screen never accuses", %{conn: conn, tmp_dir: tmp} do
+      html = saved_on(conn, tmp, 3440, 1440, :unknown)
+
+      refute html =~ "Esta calibração é de outra tela"
+    end
+  end
+
+  # MEASURED live on 2026-08-03 (his one-monitor Mac, 1512×982 points at 2×):
+  # the SCK served the 100×100 probe in POINTS while the full screen fell back to
+  # `screencapture` in PIXELS (3024 wide). Dividing one by the other read scale
+  # 1.0, so the wizard believed the screen was 3024 points wide and every point
+  # marked in that step was saved at double its real coordinate.
+  describe "screenshot scale" do
+    defp mixed_backends_calibration(conn, tmp, screen_points) do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      # the quick fixes only exist once there is a calibration to fix
+      Calibration.save(%Calibration{
+        scale: 2.0,
+        screen_w: 999,
+        screen_h: 999,
+        water_point: {50, 30},
+        glow_region: {18, 0, 64, 64},
+        battle_region: {70, 10, 20, 30},
+        arena_region: {20, 20, 60, 40},
+        neutral_point: {52, 36},
+        glow_baselines: [],
+        suggested_glow_threshold: 15.0
+      })
+
+      probe =
+        Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+
+      screen =
+        Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(302, 196, {9, 9, 9, 255}))
+
+      {:ok, _} =
+        Pokex.Rig.Fake.start_link(%{
+          capture: [{:ok, probe}],
+          capture_screen: [{:ok, screen}],
+          screen_points: [screen_points]
+        })
+
+      {:ok, view, _} = live(conn, ~p"/calibration")
+      view |> element("button", "Só o personagem") |> render_click()
+
+      view
+    end
+
+    @tag :tmp_dir
+    test "comes from the window server, so a probe from another backend cannot halve the screen",
+         %{conn: conn, tmp_dir: tmp} do
+      view = mixed_backends_calibration(conn, tmp, {:ok, {151, 98}})
+
+      params = %{
+        "x" => 50.0,
+        "y" => 25.0,
+        "cw" => 100.0,
+        "ch" => 65.0,
+        "nw" => 302.0,
+        "nh" => 196.0
+      }
+
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+
+      assert {:ok, calib} = Calibration.load()
+      assert calib.scale == 2.0
+      assert calib.screen_w == 151
+      assert calib.screen_h == 98
+      # half of the image, in POINTS — not the 151 the pixel-space maths gave
+      assert calib.player_point == {76, 38}
+    end
+
+    @tag :tmp_dir
+    test "falls back to the probe when the window server cannot answer", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      view = mixed_backends_calibration(conn, tmp, :unknown)
+
+      params = %{
+        "x" => 50.0,
+        "y" => 25.0,
+        "cw" => 100.0,
+        "ch" => 65.0,
+        "nw" => 302.0,
+        "nh" => 196.0
+      }
+
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+
+      assert {:ok, calib} = Calibration.load()
+      assert calib.scale == 1.0
+      assert calib.screen_w == 302
+    end
+  end
+
   @tag :tmp_dir
   # the old transform-origin zoom pinned an edge click in place, pushing the
   # skill bar's corner out of view and leaving the last skills unclickable; the

@@ -207,6 +207,31 @@ defmodule Pokex.Rig.Mac.Commands do
 
   def capture_screen(path), do: {"screencapture", ["-x", "-m", path]}
 
+  @doc """
+  The main display's size in POINTS.
+
+  MEASURED 2026-08-03: `screencapture` answers a full screen in PIXELS
+  (3024×1964 on this Retina Mac) but a REGION (`-R`) in POINTS, while
+  ScreenCaptureKit answers both in points. So a scale inferred by dividing one
+  capture by another is a coin flip the moment the two come from different
+  backends. The window server knows the real answer — ask it.
+  """
+  def screen_points,
+    do: {"osascript", ["-e", ~s(tell application "Finder" to get bounds of window of desktop)]}
+
+  @doc ~s(Parses `screen_points/0` output \("0, 0, 1512, 982"\) into `{:ok, {w, h}}`.)
+  def parse_screen_points(output) do
+    case Regex.run(~r/(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)/, output) do
+      [_, x0, y0, x1, y1] ->
+        w = String.to_integer(x1) - String.to_integer(x0)
+        h = String.to_integer(y1) - String.to_integer(y0)
+        if w > 0 and h > 0, do: {:ok, {w, h}}, else: :unknown
+
+      _no_match ->
+        :unknown
+    end
+  end
+
   def parse_point(output) do
     case Regex.run(~r/(\d+),(\d+)/, output) do
       [_, x, y] -> {:ok, {String.to_integer(x), String.to_integer(y)}}

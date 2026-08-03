@@ -29,14 +29,14 @@ defmodule Pokex.Perception.Interpret do
         nil ->
           {t, b} =
             Calibration.row_band_geometry(
-              calib.scale,
+              frame.scale,
               Settings.value(settings, :battle_row_height)
             )
 
           {t, b, Settings.value(settings, :battle_max_rows)}
       end
 
-    strip_px = round(Calibration.strip_width() * calib.scale)
+    strip_px = round(Calibration.strip_width() * frame.scale)
 
     # The strip (the rightmost pokeball column) is cropped OFF the body so its
     # red ball pixels can't read as the lock ring — but a pokeball on a row no

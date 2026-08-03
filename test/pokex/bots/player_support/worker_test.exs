@@ -62,7 +62,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       screen_h: 700,
       water_point: {400, 300},
       glow_region: {0, 0, 20, 20},
-      battle_region: {0, 0, 20, 20},
+      # matches battle_png/3 (100x400 px): a fixture whose frame is bigger than
+      # the region it claims would now read as a 5x capture
+      battle_region: {0, 0, 100, 400},
       arena_region: {0, 0, 200, 200},
       neutral_point: {500, 500},
       pokemon_hp_region: {0, 0, 20, 4},

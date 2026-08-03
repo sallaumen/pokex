@@ -36,6 +36,10 @@ defmodule PokexWeb.PanelLive do
   @game_topic "game"
   @body_topic "body"
   @cooldown_poll_ms 1000
+  # How long a RUNNING worker may stay quiet before the panel says so. Every
+  # worker publishes on its own tick (the slowest is the support monitor at
+  # ~1s), so 15s is far past "busy" and squarely at "something is wrong".
+  @silence_ms 15_000
 
   # The hunt's feed source, defined ONCE and referenced from both places that
   # need it (the log line and the filter chip list). The filter compares the
@@ -105,12 +109,14 @@ defmodule PokexWeb.PanelLive do
     {:ok,
      assign(socket,
        page_title: "Painel",
-       fishing: status.fishing,
-       combat: status.combat,
-       catcher: status.catcher,
-       mini_game: status.mini_game,
-       game: status.player_support,
-       cavebot: status.cavebot,
+       # stamped like a live snapshot: a worker that is already wedged when the
+       # page opens must start its silence clock now, not stay unaccused forever
+       fishing: seen(status.fishing),
+       combat: seen(status.combat),
+       catcher: seen(status.catcher),
+       mini_game: seen(status.mini_game),
+       game: seen(status.player_support),
+       cavebot: seen(status.cavebot),
        minimap_reads: 0,
        minimap_misses: 0,
        errors: [],
@@ -229,12 +235,12 @@ defmodule PokexWeb.PanelLive do
           panicked?: false,
           calib_stale?: calib_stale?(),
           session_started_at: session_started_at(),
-          fishing: status.fishing,
-          combat: status.combat,
-          catcher: status.catcher,
-          mini_game: status.mini_game,
-          game: status.player_support,
-          cavebot: status.cavebot
+          fishing: seen(status.fishing),
+          combat: seen(status.combat),
+          catcher: seen(status.catcher),
+          mini_game: seen(status.mini_game),
+          game: seen(status.player_support),
+          cavebot: seen(status.cavebot)
         )
 
       {:error, messages} ->
@@ -401,20 +407,21 @@ defmodule PokexWeb.PanelLive do
       {:noreply,
        socket
        |> alarm_on_error(:fishing, snapshot)
-       |> assign(fishing: snapshot, panicked?: false, last_order: safe_last_order())}
+       |> assign(fishing: seen(snapshot), panicked?: false, last_order: safe_last_order())}
 
   def handle_info({:combat, snapshot}, socket),
     do:
       {:noreply,
        socket
        |> alarm_on_error(:combat, snapshot)
-       |> assign(combat: snapshot, panicked?: false, last_order: safe_last_order())}
+       |> assign(combat: seen(snapshot), panicked?: false, last_order: safe_last_order())}
 
   def handle_info({:catcher, snapshot}, socket),
-    do: {:noreply, socket |> alarm_on_error(:catcher, snapshot) |> assign(catcher: snapshot)}
+    do:
+      {:noreply, socket |> alarm_on_error(:catcher, snapshot) |> assign(catcher: seen(snapshot))}
 
   def handle_info({:mini_game, snapshot}, socket) do
-    socket = socket |> alarm_on_error(:mini_game, snapshot) |> assign(mini_game: snapshot)
+    socket = socket |> alarm_on_error(:mini_game, snapshot) |> assign(mini_game: seen(snapshot))
 
     socket =
       case Map.get(snapshot, :transition) do
@@ -477,8 +484,12 @@ defmodule PokexWeb.PanelLive do
   # The worker already emitted all three messages; the panel just wasn't
   # listening. The hunt died in ~6s "without saying anything" because nothing
   # it said arrived here.
+  # Silence is the absence of messages, so only a clock can notice it.
+  def handle_info({:silence_check, now_ms}, socket),
+    do: {:noreply, assign(socket, now_ms: now_ms)}
+
   def handle_info({:cavebot, snapshot}, socket),
-    do: {:noreply, assign(socket, cavebot: snapshot, last_order: safe_last_order())}
+    do: {:noreply, assign(socket, cavebot: seen(snapshot), last_order: safe_last_order())}
 
   # Blocked: goes through the SAME alarm pipeline as {:rule_alarm, _} and
   # {:panic, _} — a :macro feed line, sound (unless muted) and per-type
@@ -492,7 +503,7 @@ defmodule PokexWeb.PanelLive do
       socket
       |> alarm_on_error(:game, snapshot)
       |> alarm_on_critical_hp(snapshot)
-      |> assign(game: snapshot)
+      |> assign(game: seen(snapshot))
 
     {:noreply, socket}
   end
@@ -710,12 +721,12 @@ defmodule PokexWeb.PanelLive do
      |> assign(
        calib_stale?: false,
        last_order: safe_last_order(),
-       fishing: status.fishing,
-       combat: status.combat,
-       catcher: status.catcher,
-       mini_game: status.mini_game,
-       game: status.player_support,
-       cavebot: status.cavebot
+       fishing: seen(status.fishing),
+       combat: seen(status.combat),
+       catcher: seen(status.catcher),
+       mini_game: seen(status.mini_game),
+       game: seen(status.player_support),
+       cavebot: seen(status.cavebot)
      )}
   end
 
@@ -1642,6 +1653,18 @@ defmodule PokexWeb.PanelLive do
   defp state_word(:busy), do: "ocupado"
   defp state_word(other), do: to_string(other)
 
+  # {title, detail} when the hunt is stopped for a reason a human must act on;
+  # nil while it walks, fights or is deliberately idle.
+  defp cavebot_problem(%{state: state} = snapshot)
+       when state in [:stuck, :blocked, :fight_stalled],
+       do: {cavebot_problem_title(state), Map.get(snapshot, :hold_reason)}
+
+  defp cavebot_problem(_walking_or_idle), do: nil
+
+  defp cavebot_problem_title(:stuck), do: "Caçada travada — não sai do lugar"
+  defp cavebot_problem_title(:blocked), do: "Caçada bloqueada"
+  defp cavebot_problem_title(:fight_stalled), do: "Caçada parada numa luta que não anda"
+
   defp cavebot_counters(%{counters: %{waypoints: waypoints, steps: steps}}),
     do: "#{waypoints} wp · #{steps} passos"
 
@@ -1743,6 +1766,16 @@ defmodule PokexWeb.PanelLive do
       <p :if={@detail} class="mt-1 pl-[1.125rem] text-pk-meta text-pk-text-2">
         {@detail}
       </p>
+      <%!-- Silence outranks every other line: a worker that stopped REPORTING
+            may have died, and until it speaks again nothing else it says can be
+            trusted. Red, not the warn amber the lock uses. --%>
+      <p
+        :if={silent_for(@snapshot, @now_ms)}
+        data-testid={"#{@testid}-silence"}
+        class="mt-1 pl-[1.125rem] text-pk-meta font-semibold text-pk-danger"
+      >
+        ⚠️ sem notícias há {div(silent_for(@snapshot, @now_ms), 1000)}s — travou ou morreu?
+      </p>
       <%!-- the lock is the most useful line on the panel (it says why nothing is
             happening), so it gets the full width instead of a truncated sliver --%>
       <p
@@ -1754,6 +1787,24 @@ defmodule PokexWeb.PanelLive do
     </div>
     """
   end
+
+  # A worker that DIED or wedged keeps its last snapshot on screen forever, so
+  # the row reads "walking, all good" while nothing happens. Stamping arrival is
+  # what lets the row say "no news" instead of lying quietly.
+  defp seen(snapshot), do: Map.put(snapshot, :seen_at, now_ms())
+
+  # Only a worker that claims to be RUNNING owes news: an idle one is quiet on
+  # purpose and must never be accused.
+  defp silent_for(%{seen_at: seen_at} = snapshot, now_ms)
+       when is_integer(seen_at) and is_integer(now_ms) do
+    if running_state?(Map.get(snapshot, :state)) and now_ms - seen_at >= @silence_ms,
+      do: now_ms - seen_at
+  end
+
+  defp silent_for(_never_seen, _now_ms), do: nil
+
+  defp running_state?(state) when state in [:idle, :off, :error, nil], do: false
+  defp running_state?(_running), do: true
 
   # --- session and alarms -----------------------------------------------------
 
@@ -2732,6 +2783,20 @@ defmodule PokexWeb.PanelLive do
               >
                 {@game.error}
               </p>
+              <%!-- The hunt is the only worker that WALKS, so it can stop
+                   somewhere nobody went. Its three stop states have different
+                   fixes, and the pill only has room for one word — the banner
+                   is what makes the problem readable with the sound off. --%>
+              <div
+                :if={cavebot_problem(@cavebot)}
+                data-testid="cavebot-problem"
+                class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
+              >
+                <p class="font-semibold">🧭 {elem(cavebot_problem(@cavebot), 0)}</p>
+                <p :if={elem(cavebot_problem(@cavebot), 1)} class="mt-0.5 text-pk-text-2">
+                  {elem(cavebot_problem(@cavebot), 1)}
+                </p>
+              </div>
               <ul
                 :if={@errors != []}
                 class="rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"

@@ -1280,6 +1280,68 @@ defmodule PokexWeb.PanelLiveTest do
       )
     end
 
+    # A worker that DIED or wedged keeps its last snapshot on screen forever,
+    # which reads as "walking, all good" while nothing is happening. Lucas asked
+    # for visibility of a problem even with the sound off (2026-08-03).
+    test "a worker that goes silent says so, in its own row", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      Phoenix.PubSub.broadcast(Pokex.PubSub, @cavebot_topic, {:cavebot, walking_snapshot()})
+      assert view |> element("[data-testid=cavebot-pill]") |> render() =~ "andando"
+      refute view |> element("[data-testid=cavebot-pill]") |> render() =~ "sem notícias"
+
+      # the clock moves on without a new snapshot
+      send(view.pid, {:silence_check, System.monotonic_time(:millisecond) + 60_000})
+
+      row = view |> element("[data-testid=cavebot-pill]") |> render()
+      assert row =~ "sem notícias"
+      assert row =~ "text-pk-danger"
+    end
+
+    # The hunt is the only worker that can stop somewhere nobody went, and its
+    # three stop states have different fixes — so the panel states the problem
+    # in full instead of a truncated pill word.
+    test "a blocked hunt states the problem in a banner, sound or no sound", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @cavebot_topic,
+        {:cavebot,
+         walking_snapshot(%{
+           state: :blocked,
+           hold_reason: "não sei onde estou há 12s — a coordenada do minimapa não está sendo lida"
+         })}
+      )
+
+      banner = view |> element("[data-testid=cavebot-problem]") |> render()
+
+      assert banner =~ "Caçada bloqueada"
+      assert banner =~ "não sei onde estou"
+    end
+
+    test "a walking hunt shows no problem banner", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      Phoenix.PubSub.broadcast(Pokex.PubSub, @cavebot_topic, {:cavebot, walking_snapshot()})
+
+      refute has_element?(view, "[data-testid=cavebot-problem]")
+    end
+
+    test "a stopped worker is quiet on purpose and is never accused", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @cavebot_topic,
+        {:cavebot, walking_snapshot(%{state: :idle})}
+      )
+
+      send(view.pid, {:silence_check, System.monotonic_time(:millisecond) + 60_000})
+
+      refute view |> element("[data-testid=cavebot-pill]") |> render() =~ "sem notícias"
+    end
+
     # the waypoint index is 0-based in the worker and 1-based on screen (the
     # number seen in /cavebot's waypoint list)
     test "the hunt pill exists on mount and narrates the route while walking", %{conn: conn} do

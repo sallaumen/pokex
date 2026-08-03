@@ -60,18 +60,13 @@ defmodule Pokex.Pokedex.Team do
               &(&1.name == name)
             )
 
-          data = drop(data, name)
-
-          data =
-            case where do
-              :team -> %{data | members: data.members ++ [entry]}
-              :bank -> %{data | bank: data.bank ++ [entry]}
-            end
-
-          {:ok, persist(data)}
+          {:ok, data |> drop(name) |> append_to(where, entry) |> persist()}
         end
     end
   end
+
+  defp append_to(data, :team, entry), do: %{data | members: data.members ++ [entry]}
+  defp append_to(data, :bank, entry), do: %{data | bank: data.bank ++ [entry]}
 
   @doc "Removes a name from wherever it lives (idempotent)."
   def remove(name), do: persist(drop(read(), name))
@@ -108,20 +103,22 @@ defmodule Pokex.Pokedex.Team do
   advantage: a combo that cannot pick a counter must not run.
   """
   def best_counter(enemy_name, live_rows) do
-    with %{} = enemy <- Pokedex.get(enemy_name) do
-      live_rows
-      |> Enum.filter(
-        &(is_map(&1) and is_binary(Map.get(&1, :name)) and is_integer(Map.get(&1, :slot)))
-      )
-      |> Enum.map(fn row -> {row.slot, advantage(row.name, enemy)} end)
-      |> Enum.filter(fn {_slot, score} -> score > 0 end)
-      |> Enum.max_by(fn {_slot, score} -> score end, fn -> nil end)
-      |> case do
-        nil -> nil
-        {slot, _score} -> slot
-      end
-    else
-      _unknown -> nil
+    case Pokedex.get(enemy_name) do
+      %{} = enemy ->
+        live_rows
+        |> Enum.filter(
+          &(is_map(&1) and is_binary(Map.get(&1, :name)) and is_integer(Map.get(&1, :slot)))
+        )
+        |> Enum.map(fn row -> {row.slot, advantage(row.name, enemy)} end)
+        |> Enum.filter(fn {_slot, score} -> score > 0 end)
+        |> Enum.max_by(fn {_slot, score} -> score end, fn -> nil end)
+        |> case do
+          nil -> nil
+          {slot, _score} -> slot
+        end
+
+      _unknown ->
+        nil
     end
   end
 

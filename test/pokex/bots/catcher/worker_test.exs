@@ -15,8 +15,11 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Catcher.WorkerTest.FakeBody
+  alias Pokex.Bots.InputGate
+  alias Pokex.Calibration
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Rig.Fake
+  alias Pokex.Settings
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
@@ -44,7 +47,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       neutral_point: {500, 500}
     })
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{})
+    {:ok, _} = Fake.start_link(%{})
     {:ok, body} = FakeBody.start_link(self())
 
     # The injected scanner reads the SAME WorldState the tests populate via world!/1 —
@@ -370,8 +373,8 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     worker: worker
   } do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
-    Pokex.Bots.InputGate.set_focus_ok(false)
-    on_exit(fn -> Pokex.Bots.InputGate.set_focus_ok(true) end)
+    InputGate.set_focus_ok(false)
+    on_exit(fn -> InputGate.set_focus_ok(true) end)
 
     world!(worker, corpses_obs([{130, 224}]))
 
@@ -381,7 +384,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).counters.throws == 0
     assert Worker.status(worker).pending_corpses == 0
 
-    Pokex.Bots.InputGate.set_focus_ok(true)
+    InputGate.set_focus_ok(true)
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end

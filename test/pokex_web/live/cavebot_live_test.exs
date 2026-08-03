@@ -206,7 +206,7 @@ defmodule PokexWeb.CavebotLiveTest do
     send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
     render(view)
 
-    Pokex.Perception.WorldState.put(:minimap, %{pos: nil}, System.monotonic_time(:millisecond))
+    WorldState.put(:minimap, %{pos: nil}, System.monotonic_time(:millisecond))
     send(view.pid, {:world, :minimap, %{pos: nil}})
 
     html = render(view)

@@ -1,5 +1,14 @@
 defmodule PokexWeb.PanelLiveTest do
   use PokexWeb.ConnCase, async: false
+
+  alias Pokex.Bots.Session
+  alias Pokex.Bots.StockAlerts
+  alias Pokex.Combos.Runner
+  alias Pokex.Combos.Store
+  alias Pokex.Layout.Sentinel
+  alias Pokex.Perception.WorldState
+  alias Pokex.Pokedex.ShinyLog
+  alias Pokex.Rig.Fake
   import Phoenix.LiveViewTest
 
   # the feed arrives via the journal: broadcast → Pokex.Journal → {:journal_event}
@@ -26,18 +35,18 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   setup do
-    {:ok, _} = Pokex.Rig.Fake.start_link()
+    {:ok, _} = Fake.start_link()
 
     on_exit(fn ->
-      Pokex.Perception.WorldState.forget(:calibration)
-      Pokex.Perception.WorldState.forget(:session)
+      WorldState.forget(:calibration)
+      WorldState.forget(:session)
     end)
 
     :ok
   end
 
   test "a calibration edited after the last Start raises the stale banner", %{conn: conn} do
-    Pokex.Perception.WorldState.put(
+    WorldState.put(
       :calibration,
       %{loaded_mtime: 123},
       System.monotonic_time(:millisecond)
@@ -54,22 +63,22 @@ defmodule PokexWeb.PanelLiveTest do
   } do
     now = System.monotonic_time(:millisecond)
 
-    Pokex.Perception.WorldState.put(
+    WorldState.put(
       :hud,
       %{level: 90, food: 1525, fishing: 96, slots: %{f1: 322, f2: 36, e: 7, s_q: 43}},
       now
     )
 
-    Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46107, 4}}, now)
+    WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now)
 
-    Pokex.Perception.WorldState.put(
+    WorldState.put(
       :team,
       %{pokemon_hp: {5559, 6410}, rows: [%{slot: 2, present?: true, hp_pct: 0.86}]},
       now
     )
 
     on_exit(fn ->
-      Enum.each([:hud, :minimap, :team], &Pokex.Perception.WorldState.forget/1)
+      Enum.each([:hud, :minimap, :team], &WorldState.forget/1)
     end)
 
     {:ok, view, html} = live(conn, ~p"/")
@@ -86,7 +95,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
-      Pokex.Bots.StockAlerts.topic(),
+      StockAlerts.topic(),
       {:stock, %{slot: :f1, count: 28, low?: true}}
     )
 
@@ -94,7 +103,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
-      Pokex.Bots.StockAlerts.topic(),
+      StockAlerts.topic(),
       {:stock, %{slot: :f1, count: 200, low?: false}}
     )
 
@@ -107,7 +116,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
-      Pokex.Layout.Sentinel.topic(),
+      Sentinel.topic(),
       {:layout, %{ok?: false, reason: {:anchor_not_found, :battle_header}, anchors: %{}}}
     )
 
@@ -115,7 +124,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
-      Pokex.Layout.Sentinel.topic(),
+      Sentinel.topic(),
       {:layout, %{ok?: true, reason: nil, anchors: %{}}}
     )
 
@@ -347,8 +356,8 @@ defmodule PokexWeb.PanelLiveTest do
 
   test "an active session shows duration and hourly rates in the header", %{conn: conn} do
     at = System.monotonic_time(:millisecond)
-    Pokex.Perception.WorldState.put(:session, %{started_at: at - 65_000}, at)
-    on_exit(fn -> Pokex.Perception.WorldState.forget(:session) end)
+    WorldState.put(:session, %{started_at: at - 65_000}, at)
+    on_exit(fn -> WorldState.forget(:session) end)
 
     {:ok, view, html} = live(conn, ~p"/")
 
@@ -366,12 +375,12 @@ defmodule PokexWeb.PanelLiveTest do
 
   test "stop condition reached: alarm sounds and the session clock disappears", %{conn: conn} do
     at = System.monotonic_time(:millisecond)
-    Pokex.Perception.WorldState.put(:session, %{started_at: at - 5_000}, at)
+    WorldState.put(:session, %{started_at: at - 5_000}, at)
 
     {:ok, view, _} = live(conn, ~p"/")
     assert has_element?(view, "#session-duration")
 
-    Pokex.Perception.WorldState.forget(:session)
+    WorldState.forget(:session)
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
@@ -508,7 +517,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     assert render(view) =~ "4<span"
 
-    Pokex.Pokedex.ShinyLog.record(star_px: 22, action: "escape", outcome: "visto")
+    ShinyLog.record(star_px: 22, action: "escape", outcome: "visto")
     Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_seen, %{px: 22, action: "escape"}})
 
     html = render(view)
@@ -895,10 +904,10 @@ defmodule PokexWeb.PanelLiveTest do
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
     save_calibration()
 
-    Agent.stop(Pokex.Rig.Fake)
+    Agent.stop(Fake)
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{
+      Fake.start_link(%{
         capture: [
           {:ok, png!(tmp, "g.png", 8, 8, {0, 180, 200})},
           {:ok, png!(tmp, "b.png", 20, 12, {0, 200, 0})},
@@ -1122,8 +1131,8 @@ defmodule PokexWeb.PanelLiveTest do
 
     row = List.duplicate({200, 200, 0, 255}, 12) ++ List.duplicate({20, 20, 20, 255}, 2)
     bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), [row])
-    Agent.stop(Pokex.Rig.Fake)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, bar}]})
+    Agent.stop(Fake)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, bar}]})
 
     Pokex.Calibration.save(%Pokex.Calibration{
       scale: 1.0,
@@ -1367,13 +1376,13 @@ defmodule PokexWeb.PanelLiveTest do
 
   describe "position on the panel" do
     setup do
-      on_exit(fn -> Pokex.Perception.WorldState.forget(:minimap) end)
+      on_exit(fn -> WorldState.forget(:minimap) end)
       :ok
     end
 
     test "a good read says where the player is and how long ago", %{conn: conn} do
       now = System.monotonic_time(:millisecond)
-      Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now)
+      WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now)
 
       {:ok, view, _} = live(conn, ~p"/")
 
@@ -1385,7 +1394,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     test "a stopped read is spelled out, with the age of the last read", %{conn: conn} do
       now = System.monotonic_time(:millisecond)
-      Pokex.Perception.WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now - 20_000)
+      WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now - 20_000)
 
       {:ok, view, _} = live(conn, ~p"/")
 
@@ -1398,7 +1407,7 @@ defmodule PokexWeb.PanelLiveTest do
     # doubtful glyph kills all three numbers)
     test "an unreadable coordinate is different from a stopped feed", %{conn: conn} do
       now = System.monotonic_time(:millisecond)
-      Pokex.Perception.WorldState.put(:minimap, %{pos: nil}, now)
+      WorldState.put(:minimap, %{pos: nil}, now)
 
       {:ok, view, _} = live(conn, ~p"/")
 
@@ -1437,14 +1446,14 @@ defmodule PokexWeb.PanelLiveTest do
         File.rm_rf!(tmp)
         # mounting the panel attaches the display feeds, which can leave a
         # :layout fact behind — and a test elsewhere asserts on NOT having one
-        Enum.each([:team, :layout], &Pokex.Perception.WorldState.forget/1)
+        Enum.each([:team, :layout], &WorldState.forget/1)
       end)
 
       :ok
     end
 
     defp team_on_screen(rows) do
-      Pokex.Perception.WorldState.put(
+      WorldState.put(
         :team,
         %{pokemon_hp: nil, rows: rows},
         System.monotonic_time(:millisecond)
@@ -1488,7 +1497,7 @@ defmodule PokexWeb.PanelLiveTest do
 
       view |> element("#combo-form") |> render_submit(%{})
 
-      saved = Enum.find(Pokex.Combos.Store.all(), &(&1.name == "dorme"))
+      saved = Enum.find(Store.all(), &(&1.name == "dorme"))
       assert saved.trigger == {:enemy_element, "Water"}
       assert {:swap_member, "Wigglytuff"} in saved.steps
       assert {:swap_counter} in saved.steps
@@ -1515,7 +1524,7 @@ defmodule PokexWeb.PanelLiveTest do
       view |> element("#combo-add-step") |> render_click()
       view |> element("#combo-form") |> render_submit(%{})
 
-      assert Enum.find(Pokex.Combos.Store.all(), &(&1.name == "na-dg")).dungeon == "cavena"
+      assert Enum.find(Store.all(), &(&1.name == "na-dg")).dungeon == "cavena"
       assert view |> element(~s(#combo-na-dg)) |> render() =~ "cavena"
     end
 
@@ -1524,7 +1533,7 @@ defmodule PokexWeb.PanelLiveTest do
 
       view |> element(~s([phx-click="delete_combo"][phx-value-name="sing"])) |> render_click()
 
-      refute Enum.any?(Pokex.Combos.Store.all(), &(&1.name == "sing"))
+      refute Enum.any?(Store.all(), &(&1.name == "sing"))
     end
 
     # "I turned combos on and nothing happened" gets an answer
@@ -1533,7 +1542,7 @@ defmodule PokexWeb.PanelLiveTest do
 
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
-        Pokex.Combos.Runner.topic(),
+        Runner.topic(),
         {:combo_skipped,
          %{combo: "sing", enemy: "Tentacool", reason: {:not_on_screen, "Jigglypuff"}}}
       )
@@ -1634,7 +1643,7 @@ defmodule PokexWeb.PanelLiveTest do
     # with the bot stopped, the screen answers who stopped it, why, and how long
     # ago — no log archaeology
     test "a Stop with a reason appears under the Start button", %{conn: conn} do
-      Pokex.Bots.Session.order(:stop, "teste: o Guardian bateu a meta")
+      Session.order(:stop, "teste: o Guardian bateu a meta")
 
       {:ok, view, _html} = live(conn, ~p"/")
 
@@ -1643,7 +1652,7 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     test "a focus hold says it resumes on its own", %{conn: conn} do
-      Pokex.Bots.Session.order(:hold, "foco perdido")
+      Session.order(:hold, "foco perdido")
 
       {:ok, view, _html} = live(conn, ~p"/")
 
@@ -1655,14 +1664,14 @@ defmodule PokexWeb.PanelLiveTest do
 
       render_click(view, "stop")
 
-      assert %{kind: :stop, reason: "Parar (painel)"} = Pokex.Bots.Session.last_order()
+      assert %{kind: :stop, reason: "Parar (painel)"} = Session.last_order()
       assert view |> element("#last-order") |> render() =~ "Parar (painel)"
     end
 
     test "with the fleet active the line disappears — a stop reason is for stopped bots", %{
       conn: conn
     } do
-      Pokex.Bots.Session.order(:stop, "teste: some quando roda")
+      Session.order(:stop, "teste: some quando roda")
       {:ok, view, _html} = live(conn, ~p"/")
       assert has_element?(view, "#last-order")
 
@@ -1676,13 +1685,11 @@ defmodule PokexWeb.PanelLiveTest do
     end
 
     defp eventually_has(view, selector, tries \\ 30) do
-      cond do
-        has_element?(view, selector) and tries > 0 ->
-          Process.sleep(10)
-          eventually_has(view, selector, tries - 1)
-
-        true ->
-          has_element?(view, selector)
+      if has_element?(view, selector) and tries > 0 do
+        Process.sleep(10)
+        eventually_has(view, selector, tries - 1)
+      else
+        has_element?(view, selector)
       end
     end
   end
@@ -1699,10 +1706,10 @@ defmodule PokexWeb.PanelLiveTest do
       on_exit(fn ->
         Application.delete_env(:pokex, :home_dir)
         File.rm_rf!(tmp)
-        Enum.each([:team, :layout], &Pokex.Perception.WorldState.forget/1)
+        Enum.each([:team, :layout], &WorldState.forget/1)
       end)
 
-      Pokex.Combos.Store.put([
+      Store.put([
         %Pokex.Combos.Combo{
           name: "stun-area",
           trigger: nil,
@@ -1761,7 +1768,7 @@ defmodule PokexWeb.PanelLiveTest do
       view |> element("#create-rescue-combo") |> render_click()
 
       assert %Pokex.Combos.Combo{steps: steps, trigger: {:rescue_only}} =
-               Enum.find(Pokex.Combos.Store.all(), &(&1.name == "resgate"))
+               Enum.find(Store.all(), &(&1.name == "resgate"))
 
       assert [{:skill, "1"}, {:wait, _}, {:skill, "2"}] = steps
 
@@ -1783,7 +1790,7 @@ defmodule PokexWeb.PanelLiveTest do
       on_exit(fn ->
         Application.delete_env(:pokex, :home_dir)
         File.rm_rf!(tmp)
-        Enum.each([:team, :layout], &Pokex.Perception.WorldState.forget/1)
+        Enum.each([:team, :layout], &WorldState.forget/1)
       end)
 
       :ok
@@ -1822,7 +1829,7 @@ defmodule PokexWeb.PanelLiveTest do
       view |> element("#combo-form") |> render_submit(%{})
 
       assert %Pokex.Combos.Combo{trigger: {:rescue_only}, steps: steps} =
-               Enum.find(Pokex.Combos.Store.all(), &(&1.name == "stun"))
+               Enum.find(Store.all(), &(&1.name == "stun"))
 
       assert steps == [{:skill, "1"}, {:wait, 500}, {:skill, "2"}]
 
@@ -1856,7 +1863,7 @@ defmodule PokexWeb.PanelLiveTest do
       view |> element("#combo-form") |> render_change(%{"name" => "vazio"})
       view |> element("#combo-form") |> render_submit(%{})
 
-      refute Enum.any?(Pokex.Combos.Store.all(), &(&1.name == "vazio"))
+      refute Enum.any?(Store.all(), &(&1.name == "vazio"))
     end
 
     defp add_step(view, kind, value) do

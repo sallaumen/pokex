@@ -3,6 +3,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
   alias Pokex.Bots.BotSupervisor
   alias Pokex.Bots.Fisher.Sensors
+  alias Pokex.Bots.MiniGame.Worker
+  alias Pokex.Bots.Session
   alias Pokex.{Calibration, Settings}
 
   @fast %{
@@ -197,7 +199,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
     status = BotSupervisor.status(servers.fishing, servers.combat, servers.catcher)
     assert status.fishing.state == :idle
-    assert Pokex.Bots.MiniGame.Worker.status(servers.mini_game).state == :off
+    assert Worker.status(servers.mini_game).state == :off
 
     assert status.combat.state != :idle
     assert status.catcher.state != :idle
@@ -240,7 +242,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert status.cavebot.route == "rota de teste"
     assert status.combat.state == :idle
     assert status.fishing.state == :idle
-    assert Pokex.Bots.MiniGame.Worker.status(servers.mini_game).state == :off
+    assert Worker.status(servers.mini_game).state == :off
 
     assert :ok =
              BotSupervisor.stop_all(
@@ -323,13 +325,13 @@ defmodule Pokex.Bots.BotSupervisorTest do
     Agent.stop(Pokex.Rig.Fake)
     {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
 
-    assert :ok = Pokex.Bots.MiniGame.Worker.run(mini_game)
+    assert :ok = Worker.run(mini_game)
     wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
 
     assert :ok = BotSupervisor.stop_all(fishing, combat, catcher, mini_game, player_support)
 
     assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
-    assert Pokex.Bots.MiniGame.Worker.status(mini_game).state == :off
+    assert Worker.status(mini_game).state == :off
   end
 
   # Header, panel, and Focus all consult active?/1 — the single "is it running" gauge.
@@ -359,15 +361,15 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # stopped right after, or the global worker keeps ticking against a dead sensor.
   @tag :tmp_dir
   test "stop_all/0 and start_all/0 bump the generation — even a start that fails" do
-    antes = Pokex.Bots.Session.generation()
+    antes = Session.generation()
 
     :ok = BotSupervisor.stop_all()
-    after_stop = Pokex.Bots.Session.generation()
+    after_stop = Session.generation()
     assert after_stop > antes
 
     on_exit(fn -> BotSupervisor.stop_all() end)
     _result = BotSupervisor.start_all()
-    assert Pokex.Bots.Session.generation() > after_stop
+    assert Session.generation() > after_stop
 
     :ok = BotSupervisor.stop_all()
   end
@@ -377,7 +379,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     generation = BotSupervisor.hold_for_focus()
 
     assert is_integer(generation)
-    assert generation == Pokex.Bots.Session.generation()
+    assert generation == Session.generation()
   end
 
   defp wait_for(fun, tries \\ 100) do

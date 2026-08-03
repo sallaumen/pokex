@@ -29,6 +29,8 @@ defmodule Pokex.Journal do
   """
   use GenServer
 
+  alias Pokex.Bots.Session
+
   @topics ~w(fishing combat catcher mini_game game body cavebot logout)
   @journal_topic "journal"
   @max_events 500
@@ -182,7 +184,7 @@ defmodule Pokex.Journal do
   # The generation ties the event to the current order; Session down → nil,
   # never a journal that takes its writers down.
   defp safe_generation do
-    Pokex.Bots.Session.generation()
+    Session.generation()
   catch
     :exit, _reason -> nil
   end
@@ -248,15 +250,19 @@ defmodule Pokex.Journal do
       {:ok, body} ->
         body
         |> String.split("\n", trim: true)
-        |> Enum.flat_map(fn line ->
-          case Jason.decode(line) do
-            {:ok, %{"text" => _} = e} -> [e]
-            _corrupt_line -> []
-          end
-        end)
+        |> Enum.flat_map(&entry_from_line/1)
 
       _no_file ->
         []
+    end
+  end
+
+  # A half-written last line (the app died mid-append) must not take the whole
+  # day's journal down with it.
+  defp entry_from_line(line) do
+    case Jason.decode(line) do
+      {:ok, %{"text" => _} = entry} -> [entry]
+      _corrupt_line -> []
     end
   end
 
@@ -270,17 +276,20 @@ defmodule Pokex.Journal do
 
   defp safe_atom(_outro), do: :sistema
 
+  # A file whose name is not a date is not ours to delete.
+  defp prune_file(file, cutoff) do
+    case Date.from_iso8601(Path.rootname(file)) do
+      {:ok, date} -> if Date.before?(date, cutoff), do: File.rm(Path.join(dir(), file))
+      _not_a_journal -> :ok
+    end
+  end
+
   defp prune_old_files(state) do
     cutoff = Date.add(Date.utc_today(), -@keep_days)
 
     case File.ls(dir()) do
       {:ok, files} ->
-        for f <- files, Path.extname(f) == ".jsonl" do
-          case Date.from_iso8601(Path.rootname(f)) do
-            {:ok, date} -> if Date.before?(date, cutoff), do: File.rm(Path.join(dir(), f))
-            _mantém -> :ok
-          end
-        end
+        for f <- files, Path.extname(f) == ".jsonl", do: prune_file(f, cutoff)
 
       _no_dir ->
         :ok

@@ -17,8 +17,10 @@ defmodule Pokex.Perception.Feed do
   require Logger
 
   alias Pokex.Bots.Capture
+  alias Pokex.Calibration
+  alias Pokex.Layout.Sentinel
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Settings
 
   @topic "world"
 
@@ -129,7 +131,7 @@ defmodule Pokex.Perception.Feed do
 
       # a capture-failure streak is what a moved/closed panel looks like from
       # here — the sentinel decides whether the HUD needs re-locating
-      Pokex.Layout.Sentinel.suspect(state.spec.key)
+      Sentinel.suspect(state.spec.key)
     else
       Logger.debug("feed #{state.spec.key} tick failed: #{inspect(error)}")
     end

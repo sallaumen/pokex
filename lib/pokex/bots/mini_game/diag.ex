@@ -43,9 +43,9 @@ defmodule Pokex.Bots.MiniGame.Diag do
             key_down: 0,
             key_up: 0,
             safety_key_ups: [],
-            error_sum: 0.0,
-            error_n: 0,
-            error_max: 0.0,
+            # One statistic, one field: three top-level counters for the same
+            # measurement pushed the struct past 31 fields for no gain.
+            error: %{sum: 0.0, n: 0, max: 0.0},
             no_capsule_streak: 0,
             no_capsule_streak_max: 0,
             last_capture_at: nil,
@@ -201,8 +201,8 @@ defmodule Pokex.Bots.MiniGame.Diag do
       no_track: diag.no_track,
       no_fish: diag.no_fish,
       max_no_capsule_streak: diag.no_capsule_streak_max,
-      error_mean: rounded(mean(diag.error_sum, diag.error_n), 4),
-      error_max: rounded(diag.error_max, 4),
+      error_mean: rounded(mean(diag.error.sum, diag.error.n), 4),
+      error_max: rounded(diag.error.max, 4),
       key_down: diag.key_down,
       key_up: diag.key_up,
       safety_key_ups: diag.safety_key_ups,
@@ -245,6 +245,9 @@ defmodule Pokex.Bots.MiniGame.Diag do
   defp gap_ms(_diag, nil), do: nil
   defp gap_ms(%{last_capture_at: last}, at), do: at - last
 
+  defp bump(counter, true), do: counter + 1
+  defp bump(counter, _false), do: counter
+
   defp count(diag, sample) do
     blind? = sample[:read] != :ok
     no_capsule? = sample[:bar_source] == :fish
@@ -259,16 +262,18 @@ defmodule Pokex.Bots.MiniGame.Diag do
       | capture_ms: push_capped(diag.capture_ms, sample[:cap_ms], full?),
         tick_ms: push_capped(diag.tick_ms, sample[:tick_ms], full?),
         gap_ms: push_capped(diag.gap_ms, sample[:gap_ms], full?),
-        flips: diag.flips + if(sample.flip, do: 1, else: 0),
-        rejected: diag.rejected + if(sample[:accepted] == false, do: 1, else: 0),
-        blind: diag.blind + if(blind?, do: 1, else: 0),
-        no_track: diag.no_track + if(sample[:read] == :no_track, do: 1, else: 0),
-        no_fish: diag.no_fish + if(sample[:read] == :no_fish, do: 1, else: 0),
+        flips: bump(diag.flips, sample.flip),
+        rejected: bump(diag.rejected, sample[:accepted] == false),
+        blind: bump(diag.blind, blind?),
+        no_track: bump(diag.no_track, sample[:read] == :no_track),
+        no_fish: bump(diag.no_fish, sample[:read] == :no_fish),
         no_capsule_streak: streak,
         no_capsule_streak_max: max(diag.no_capsule_streak_max, streak),
-        error_sum: diag.error_sum + (sample.error || 0.0),
-        error_n: diag.error_n + if(sample.error, do: 1, else: 0),
-        error_max: max(diag.error_max, sample.error || 0.0)
+        error: %{
+          sum: diag.error.sum + (sample.error || 0.0),
+          n: diag.error.n + if(sample.error, do: 1, else: 0),
+          max: max(diag.error.max, sample.error || 0.0)
+        }
     }
   end
 

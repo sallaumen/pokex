@@ -172,15 +172,7 @@ defmodule Pokex.Bots.MiniGame.Track do
 
     Enum.map_reduce(0..(frame.height - 1), %{dark: 0, blue: 0}, fn y, totals ->
       {dark, blue} =
-        Enum.reduce(left..right, {0, 0}, fn x, {dark, blue} ->
-          pixel = Frame.at(frame, x, y)
-
-          cond do
-            dark_pixel?(pixel) -> {dark + 1, blue}
-            blue_pixel?(pixel) -> {dark, blue + 1}
-            true -> {dark, blue}
-          end
-        end)
+        Enum.reduce(left..right, {0, 0}, fn x, acc -> tally(acc, Frame.at(frame, x, y)) end)
 
       class =
         cond do
@@ -195,6 +187,14 @@ defmodule Pokex.Bots.MiniGame.Track do
 
   # The Detector's dark predicate, duplicated on purpose — the modules stay
   # decoupled and this one is pinned by the same real-frame fixture.
+  defp tally({dark, blue}, pixel) do
+    cond do
+      dark_pixel?(pixel) -> {dark + 1, blue}
+      blue_pixel?(pixel) -> {dark, blue + 1}
+      true -> {dark, blue}
+    end
+  end
+
   defp dark_pixel?({r, g, b}), do: max(r, max(g, b)) <= 82 and b >= r - 8 and g >= r - 16
 
   defp blue_pixel?({r, g, b}), do: b >= 200 and b >= g + 60 and r <= 80

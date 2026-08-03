@@ -2,7 +2,11 @@ defmodule PokexWeb.CalibrationLiveTest do
   use PokexWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
 
-  alias Pokex.{Calibration, Settings}
+  alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Calibration
+  alias Pokex.Rig.Fake
+  alias Pokex.Settings
 
   setup do
     count = Settings.get(:skill_bar_count)
@@ -33,7 +37,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     glow = Pokex.PngFixtures.write!(Path.join(tmp, "glow.png"), rows(8, 8, {0, 60, 120, 255}))
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{
+      Fake.start_link(%{
         capture: [{:ok, probe}, {:ok, glow}],
         capture_screen: [{:ok, screen}]
       })
@@ -119,7 +123,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{
+      Fake.start_link(%{
         capture: [{:ok, probe}],
         capture_screen: [{:ok, screen}]
       })
@@ -165,7 +169,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+      Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
     {:ok, view, _} = live(conn, ~p"/calibration")
 
@@ -210,7 +214,7 @@ defmodule PokexWeb.CalibrationLiveTest do
         neutral_point: {52, 36}
       })
 
-      {:ok, _} = Pokex.Rig.Fake.start_link(%{screen_points: [current]})
+      {:ok, _} = Fake.start_link(%{screen_points: [current]})
       {:ok, _view, html} = live(conn, ~p"/calibration")
       html
     end
@@ -267,7 +271,7 @@ defmodule PokexWeb.CalibrationLiveTest do
         Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(302, 196, {9, 9, 9, 255}))
 
       {:ok, _} =
-        Pokex.Rig.Fake.start_link(%{
+        Fake.start_link(%{
           capture: [{:ok, probe}],
           capture_screen: [{:ok, screen}],
           screen_points: [screen_points]
@@ -357,7 +361,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+      Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
     {:ok, view, _} = live(conn, ~p"/calibration")
     view |> element("button", "Só as skills") |> render_click()
@@ -411,7 +415,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+      Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
     {:ok, view, _} = live(conn, ~p"/calibration")
 
@@ -457,7 +461,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+      Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
     {:ok, view, _} = live(conn, ~p"/calibration")
 
@@ -503,7 +507,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+      Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
     {:ok, view, _} = live(conn, ~p"/calibration")
 
@@ -554,7 +558,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       neutral_point: {52, 36}
     })
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{})
+    {:ok, _} = Fake.start_link(%{})
     {:ok, view, _} = live(conn, ~p"/calibration")
 
     view
@@ -582,7 +586,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
       {:ok, 1} =
-        Pokex.Bots.Catcher.CorpseLibrary.add("Rattata", %Pokex.Vision.Frame{
+        CorpseLibrary.add("Rattata", %Pokex.Vision.Frame{
           width: 4,
           height: 4,
           rgba: :binary.copy(<<180, 120, 200, 255>>, 16)
@@ -635,14 +639,14 @@ defmodule PokexWeb.CalibrationLiveTest do
       }
 
       Pokex.Calibration.save(calib)
-      {:ok, expected} = Pokex.Bots.Catcher.SpotScan.region(calib)
+      {:ok, expected} = SpotScan.region(calib)
 
-      {:ok, _} = Pokex.Rig.Fake.start_link(%{})
+      {:ok, _} = Fake.start_link(%{})
       {:ok, view, _html} = live(conn, "/calibration")
       render_click(view, "corpse_shot")
 
       assert {:capture, ^expected, "corpse_teach.png"} =
-               Enum.find(Pokex.Rig.Fake.calls(), &match?({:capture, _, "corpse_teach.png"}, &1))
+               Enum.find(Fake.calls(), &match?({:capture, _, "corpse_teach.png"}, &1))
 
       {rx, ry, rw, rh} = expected
       {px, py} = calib.player_point
@@ -656,7 +660,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
       {:ok, 1} =
-        Pokex.Bots.Catcher.CorpseLibrary.add("Kingler", %Pokex.Vision.Frame{
+        CorpseLibrary.add("Kingler", %Pokex.Vision.Frame{
           width: 4,
           height: 4,
           rgba: :binary.copy(<<180, 120, 200, 255>>, 16)
@@ -727,7 +731,7 @@ defmodule PokexWeb.CalibrationLiveTest do
         Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
 
       {:ok, _} =
-        Pokex.Rig.Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen_png}]})
+        Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen_png}]})
 
       {:ok, view, _} = live(conn, ~p"/calibration")
 

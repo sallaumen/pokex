@@ -157,30 +157,30 @@ defmodule Pokex.Calibration do
       "scale" => calib.scale,
       "screen_w" => calib.screen_w,
       "screen_h" => calib.screen_h,
-      "water_point" => Tuple.to_list(calib.water_point),
-      "glow_region" => Tuple.to_list(calib.glow_region),
-      "battle_region" => Tuple.to_list(calib.battle_region),
-      "neutral_point" => Tuple.to_list(calib.neutral_point),
-      "player_point" => calib.player_point && Tuple.to_list(calib.player_point),
-      "mini_game_region" => calib.mini_game_region && Tuple.to_list(calib.mini_game_region),
-      "minimap_region" => calib.minimap_region && Tuple.to_list(calib.minimap_region),
-      "minimap_player_point" =>
-        calib.minimap_player_point && Tuple.to_list(calib.minimap_player_point),
-      "minimap_coord_region" =>
-        calib.minimap_coord_region && Tuple.to_list(calib.minimap_coord_region),
-      "pokemon_spot_point" => calib.pokemon_spot_point && Tuple.to_list(calib.pokemon_spot_point),
-      "escape_point" => calib.escape_point && Tuple.to_list(calib.escape_point),
-      "skill_bar_region" => calib.skill_bar_region && Tuple.to_list(calib.skill_bar_region),
+      "water_point" => to_list(calib.water_point),
+      "glow_region" => to_list(calib.glow_region),
+      "battle_region" => to_list(calib.battle_region),
+      "neutral_point" => to_list(calib.neutral_point),
+      "player_point" => to_list(calib.player_point),
+      "mini_game_region" => to_list(calib.mini_game_region),
+      "minimap_region" => to_list(calib.minimap_region),
+      "minimap_player_point" => to_list(calib.minimap_player_point),
+      "minimap_coord_region" => to_list(calib.minimap_coord_region),
+      "pokemon_spot_point" => to_list(calib.pokemon_spot_point),
+      "escape_point" => to_list(calib.escape_point),
+      "skill_bar_region" => to_list(calib.skill_bar_region),
       "skill_bar_count" => calib.skill_bar_count,
-      "skill_slot_refs" =>
-        calib.skill_slot_refs && Enum.map(calib.skill_slot_refs, &(&1 && Tuple.to_list(&1))),
-      "pokemon_hp_region" => calib.pokemon_hp_region && Tuple.to_list(calib.pokemon_hp_region),
-      "pokemon_photo_point" =>
-        calib.pokemon_photo_point && Tuple.to_list(calib.pokemon_photo_point)
+      "skill_slot_refs" => calib.skill_slot_refs && Enum.map(calib.skill_slot_refs, &to_list/1),
+      "pokemon_hp_region" => to_list(calib.pokemon_hp_region),
+      "pokemon_photo_point" => to_list(calib.pokemon_photo_point)
     }
 
     File.write!(path, JSON.encode!(map))
   end
+
+  # JSON has no tuples, and an unmarked field stays nil rather than becoming [].
+  defp to_list(nil), do: nil
+  defp to_list(tuple) when is_tuple(tuple), do: Tuple.to_list(tuple)
 
   def load(path \\ nil) do
     with {:ok, bin} <- File.read(path || Pokex.Home.calibration_file()),

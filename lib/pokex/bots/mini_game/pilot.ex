@@ -85,6 +85,21 @@ defmodule Pokex.Bots.MiniGame.Pilot do
   # (y grows downward; holding Space raises the bar). While the bar is moving,
   # braking is by STOPPING DISTANCE (v²/2a) with per-direction deceleration:
   # rising coasts far after release (weak gravity), falling stops almost
+  # Rising: releasing NOW still coasts to/above the target, so release — any
+  # later overshoots ("sobe demais").
+  defp coasting_up_to_target?(config, predicted_bar, vy, target_y) do
+    vy < -@coast_epsilon and
+      predicted_bar - vy * vy / (2 * Map.get(config, :brake_up, @default_brake_up)) <= target_y
+  end
+
+  # Falling: full thrust from NOW would still stop short, so keep falling —
+  # press only when the stop point reaches the fish.
+  defp falling_short_of_target?(config, predicted_bar, vy, target_y) do
+    vy > @coast_epsilon and
+      predicted_bar + vy * vy / (2 * Map.get(config, :brake_down, @default_brake_down)) >=
+        target_y
+  end
+
   # instantly under thrust — so a rise releases early and a fall presses only
   # at the fish.
   defp desired?(config, bar, target_y, now) do
@@ -104,17 +119,13 @@ defmodule Pokex.Bots.MiniGame.Pilot do
     cond do
       # Rising: if releasing NOW still coasts to/above the target, release —
       # any later overshoots ("sobe demais").
-      vy < -@coast_epsilon and
-          predicted_bar - vy * vy / (2 * Map.get(config, :brake_up, @default_brake_up)) <=
-            target_y ->
+      coasting_up_to_target?(config, predicted_bar, vy, target_y) ->
         false
 
       # Falling: keep falling while full thrust from NOW would still stop
       # short of the target; press only when the stop point reaches the fish —
       # the bar sinks to (a hair past) the center instead of retreating early.
-      vy > @coast_epsilon and
-          predicted_bar + vy * vy / (2 * Map.get(config, :brake_down, @default_brake_down)) >=
-            target_y ->
+      falling_short_of_target?(config, predicted_bar, vy, target_y) ->
         true
 
       error > deadband ->

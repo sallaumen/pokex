@@ -2,23 +2,24 @@ defmodule Pokex.Bots.CaptureTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Capture
+  alias Pokex.Rig.Fake
 
   setup do
     # Rig.impl() is Rig.Fake in test env; it records every capture and returns a fake path.
-    {:ok, _} = Pokex.Rig.Fake.start_link()
+    {:ok, _} = Fake.start_link()
     :ok
   end
 
   test "grab falls back to a DIRECT capture when the broker isn't running" do
     assert {:ok, "/tmp/fake/z.png"} = Capture.grab({0, 0, 10, 10}, "z.png", :no_such_capture)
-    assert {:capture, {0, 0, 10, 10}, "z.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, {0, 0, 10, 10}, "z.png"} in Fake.calls()
   end
 
   test "grab serializes through the broker when it IS running" do
     {:ok, pid} = Capture.start_link(name: :cap_test)
 
     assert {:ok, "/tmp/fake/y.png"} = Capture.grab({1, 2, 3, 4}, "y.png", :cap_test)
-    assert {:capture, {1, 2, 3, 4}, "y.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, {1, 2, 3, 4}, "y.png"} in Fake.calls()
 
     GenServer.stop(pid)
   end
@@ -40,7 +41,7 @@ defmodule Pokex.Bots.CaptureTest do
     assert {:capture, :sck_backend, {0, 0, 3440, 1440}, _path} =
              Enum.find(Pokex.CaptureBackendFake.calls(), &match?({:capture, _, _, _}, &1))
 
-    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture_screen}, &1))
+    refute Enum.any?(Fake.calls(), &match?({:capture_screen}, &1))
 
     GenServer.stop(pid)
   end
@@ -60,7 +61,7 @@ defmodule Pokex.Bots.CaptureTest do
     {:ok, pid} = Capture.start_link(name: :cap_screen_cli)
 
     assert {:ok, "/tmp/fake/screen.png"} = Capture.screen("screen.png", :cap_screen_cli)
-    assert {:capture_screen} in Pokex.Rig.Fake.calls()
+    assert {:capture_screen} in Fake.calls()
 
     GenServer.stop(pid)
   end
@@ -68,15 +69,15 @@ defmodule Pokex.Bots.CaptureTest do
   @tag :tmp_dir
   test "frame decodes and reuses a short same-region cache", %{tmp_dir: tmp} do
     path = png!(tmp, "frame.png", {10, 20, 30})
-    Agent.stop(Pokex.Rig.Fake)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, path}, {:ok, path}]})
+    Agent.stop(Fake)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, path}, {:ok, path}]})
     {:ok, pid} = Capture.start_link(name: :cap_frame_cache, cache_ttl_ms: 1_000)
 
     region = {1, 2, 3, 4}
     assert {:ok, %{width: 3, height: 2}} = Capture.frame(region, "frame.png", :cap_frame_cache)
     assert {:ok, %{width: 3, height: 2}} = Capture.frame(region, "frame.png", :cap_frame_cache)
 
-    assert Pokex.Rig.Fake.calls() == [{:capture, region, "frame.png"}]
+    assert Fake.calls() == [{:capture, region, "frame.png"}]
 
     GenServer.stop(pid)
   end
@@ -85,8 +86,8 @@ defmodule Pokex.Bots.CaptureTest do
   test "frame_uncached bypasses the short same-region frame cache", %{tmp_dir: tmp} do
     first = png!(tmp, "first.png", {10, 20, 30})
     second = png!(tmp, "second.png", {90, 80, 70})
-    Agent.stop(Pokex.Rig.Fake)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, first}, {:ok, second}]})
+    Agent.stop(Fake)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, first}, {:ok, second}]})
     {:ok, pid} = Capture.start_link(name: :cap_frame_uncached, cache_ttl_ms: 1_000)
 
     region = {1, 2, 3, 4}
@@ -97,7 +98,7 @@ defmodule Pokex.Bots.CaptureTest do
     assert {:ok, %{rgba: <<90, 80, 70, 255, _rest::binary>>}} =
              Capture.frame_uncached(region, "frame.png", :cap_frame_uncached)
 
-    assert Pokex.Rig.Fake.calls() == [
+    assert Fake.calls() == [
              {:capture, region, "frame.png"},
              {:capture, region, "frame.png"}
            ]
@@ -116,7 +117,7 @@ defmodule Pokex.Bots.CaptureTest do
       |> Enum.map(fn {:ok, r} -> r end)
 
     assert Enum.all?(results, &match?({:ok, _}, &1))
-    assert length(Pokex.Rig.Fake.calls()) == 20
+    assert length(Fake.calls()) == 20
 
     GenServer.stop(pid)
   end
@@ -148,7 +149,7 @@ defmodule Pokex.Bots.CaptureTest do
     assert {:capture, :sck_backend, {1, 2, 3, 4}, _path} =
              Enum.find(Pokex.CaptureBackendFake.calls(), &match?({:capture, _, _, _}, &1))
 
-    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, _}, &1))
+    refute Enum.any?(Fake.calls(), &match?({:capture, _, _}, &1))
 
     GenServer.stop(pid)
   end
@@ -173,7 +174,7 @@ defmodule Pokex.Bots.CaptureTest do
            |> Enum.filter(&match?({:start, _}, &1))
            |> length() == 2
 
-    assert {:capture, region, "start-fallback.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, region, "start-fallback.png"} in Fake.calls()
 
     GenServer.stop(pid)
   end
@@ -258,7 +259,7 @@ defmodule Pokex.Bots.CaptureTest do
     assert {:ok, "/tmp/fake/first.png"} =
              Capture.grab({1, 1, 1, 1}, "first.png", :cap_sck_recover_after_start)
 
-    assert {:capture, {1, 1, 1, 1}, "first.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, {1, 1, 1, 1}, "first.png"} in Fake.calls()
 
     :sys.replace_state(pid, fn state ->
       %{state | sck_recover_at: System.monotonic_time(:millisecond) - 1}
@@ -268,7 +269,7 @@ defmodule Pokex.Bots.CaptureTest do
              Capture.grab({2, 2, 2, 2}, "second.png", :cap_sck_recover_after_start)
 
     assert String.ends_with?(second, "second.png")
-    assert {:capture, {2, 2, 2, 2}, "second.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, {2, 2, 2, 2}, "second.png"} in Fake.calls()
 
     wait_until(fn ->
       match?({:screen_capture_kit, :sck_recovered}, :sys.get_state(pid).backend)
@@ -329,7 +330,7 @@ defmodule Pokex.Bots.CaptureTest do
            |> length() == 2
 
     refute Enum.any?(Pokex.CaptureBackendFake.calls(), &match?({:stop, _}, &1))
-    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, _}, &1))
+    refute Enum.any?(Fake.calls(), &match?({:capture, _, _}, &1))
 
     GenServer.stop(pid)
   end
@@ -362,7 +363,7 @@ defmodule Pokex.Bots.CaptureTest do
            |> length() == 1
 
     assert Enum.any?(Pokex.CaptureBackendFake.calls(), &match?({:stop, _}, &1))
-    assert Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, _}, &1))
+    assert Enum.any?(Fake.calls(), &match?({:capture, _, _}, &1))
 
     GenServer.stop(pid)
   end
@@ -395,7 +396,7 @@ defmodule Pokex.Bots.CaptureTest do
            |> length() == 2
 
     assert Enum.any?(Pokex.CaptureBackendFake.calls(), &match?({:stop, _}, &1))
-    assert {:capture, region, "fallback.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, region, "fallback.png"} in Fake.calls()
 
     GenServer.stop(pid)
   end
@@ -429,7 +430,7 @@ defmodule Pokex.Bots.CaptureTest do
                Capture.grab(@bad_region, "feed_minimap.png", :cap_region)
 
       assert length(sck_capture_calls()) == 1
-      refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, _}, &1))
+      refute Enum.any?(Fake.calls(), &match?({:capture, _, _}, &1))
       refute Enum.any?(Pokex.CaptureBackendFake.calls(), &match?({:stop, _}, &1))
 
       GenServer.stop(pid)

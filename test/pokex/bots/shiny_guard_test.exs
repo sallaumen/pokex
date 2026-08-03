@@ -2,7 +2,9 @@ defmodule Pokex.Bots.ShinyGuardTest do
   # async: false — stashes global Settings
   use ExUnit.Case, async: false
 
+  alias Pokex.Bots.InputGate
   alias Pokex.Bots.ShinyGuard
+  alias Pokex.Pokedex.ShinyLog
   alias Pokex.{Settings, SettingsStash}
 
   setup %{tmp_dir: tmp} do
@@ -81,7 +83,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     assert_receive {:rule_alarm, :shiny, reason}, 500
     assert reason =~ "SHINY Golduck"
 
-    assert [trofeu | _] = Pokex.Pokedex.ShinyLog.entries()
+    assert [trofeu | _] = ShinyLog.entries()
     assert trofeu.star_px == 40
     assert trofeu.note =~ "Golduck"
     _ = ShinyGuard.status(guard)
@@ -141,14 +143,14 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
   describe "stop in force (latch set)" do
     setup do
-      on_exit(fn -> Pokex.Bots.InputGate.set_panic_latch(false) end)
+      on_exit(fn -> InputGate.set_panic_latch(false) end)
       :ok
     end
 
     @tag :tmp_dir
     test "with the latch set and action fugir, it does not flee" do
       SettingsStash.stash!(shiny_action: "escape")
-      Pokex.Bots.InputGate.set_panic_latch(true)
+      InputGate.set_panic_latch(true)
 
       world_broadcast(shiny_obs())
 
@@ -159,7 +161,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     test "with the latch set, the alarm still goes out" do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
       SettingsStash.stash!(shiny_action: "escape")
-      Pokex.Bots.InputGate.set_panic_latch(true)
+      InputGate.set_panic_latch(true)
 
       world_broadcast(shiny_obs())
 
@@ -171,7 +173,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     @tag :tmp_dir
     test "with the latch free and action fugir, it flees — no regression" do
       SettingsStash.stash!(shiny_action: "escape")
-      Pokex.Bots.InputGate.set_panic_latch(false)
+      InputGate.set_panic_latch(false)
 
       world_broadcast(shiny_obs())
 

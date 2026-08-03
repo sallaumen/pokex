@@ -15,7 +15,9 @@ defmodule Pokex.Perception.Interpret.Team do
 
   alias Pokex.Layout
   alias Pokex.Pokedex.TeamIcons
-  alias Pokex.Vision.{Frame, Glyphs, Icons}
+  alias Pokex.Vision.Frame
+  alias Pokex.Vision.Glyphs
+  alias Pokex.Vision.Icons
 
   # measured on the real capture: rows are 67px apart, the track is 84px wide
   @row_pitch 67
@@ -52,7 +54,7 @@ defmodule Pokex.Perception.Interpret.Team do
 
       {x, y, w, h} ->
         frame
-        |> Pokex.Vision.Glyphs.read_line({x - ox, y - oy, w, h})
+        |> Glyphs.read_line({x - ox, y - oy, w, h})
         |> case do
           %{text: text, confidence: 1.0} -> parse_hp(text)
           _uncertain -> nil

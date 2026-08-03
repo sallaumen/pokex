@@ -9,6 +9,7 @@ defmodule PokexWeb.WorldLive do
   use PokexWeb, :live_view
 
   alias Pokex.Perception
+  alias Pokex.Perception.DisplayFeeds
   alias Pokex.Perception.WorldState
   alias Pokex.World
   alias PokexWeb.PositionReadout
@@ -28,7 +29,7 @@ defmodule PokexWeb.WorldLive do
       # consumer, so :team and :minimap run exactly while they are looked at
       # (:minimap included — without it the position on this page would be
       # frozen at whatever the last OTHER consumer happened to publish)
-      Pokex.Perception.DisplayFeeds.attach_all()
+      DisplayFeeds.attach_all()
       Process.send_after(self(), :refresh, @refresh_ms)
     end
 
@@ -131,7 +132,7 @@ defmodule PokexWeb.WorldLive do
   defp enemies_text(%{enemies: [], shiny?: true}), do: "✨ SHINY"
 
   defp enemies_text(%{enemies: enemies, shiny?: shiny?}) do
-    names = enemies |> Enum.map(&(&1[:name] || "?")) |> Enum.join(", ")
+    names = Enum.map_join(enemies, ", ", &(&1[:name] || "?"))
     if shiny?, do: "✨ " <> names, else: names
   end
 

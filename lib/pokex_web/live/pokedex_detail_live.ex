@@ -42,20 +42,36 @@ defmodule PokexWeb.PokedexDetailLive do
     {:noreply, assign_entry(socket, socket.assigns.entry.name)}
   end
 
-  defp assign_entry(socket, name) do
-    entry = Pokedex.get(name)
+  defp assign_entry(socket, name), do: assign(socket, entry_assigns(Pokedex.get(name), name))
 
-    assign(socket,
-      page_title: (entry && entry.name) || "Pokédex",
-      entry: entry,
-      missing_name: unless(entry, do: name),
-      lures: (entry && Pokedex.lures_for(entry.name)) || [],
-      base: entry && entry.shiny_of && Pokedex.get(entry.shiny_of),
-      shiny: entry && entry.shiny_name && Pokedex.get(entry.shiny_name),
-      membership: entry && membership(entry.name),
-      matchup: (entry && matchup(entry)) || [],
+  # A name the Pokédex does not know still renders a page — every field just
+  # answers "nothing", and `missing_name` is what the page complains about.
+  defp entry_assigns(nil, name) do
+    [
+      page_title: "Pokédex",
+      entry: nil,
+      missing_name: name,
+      lures: [],
+      base: nil,
+      shiny: nil,
+      membership: nil,
+      matchup: [],
       team_empty?: Team.members() == []
-    )
+    ]
+  end
+
+  defp entry_assigns(entry, _name) do
+    [
+      page_title: entry.name,
+      entry: entry,
+      missing_name: nil,
+      lures: Pokedex.lures_for(entry.name),
+      base: entry.shiny_of && Pokedex.get(entry.shiny_of),
+      shiny: entry.shiny_name && Pokedex.get(entry.shiny_name),
+      membership: membership(entry.name),
+      matchup: matchup(entry),
+      team_empty?: Team.members() == []
+    ]
   end
 
   defp membership(name) do

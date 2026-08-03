@@ -22,9 +22,15 @@ defmodule Pokex.Bots.Catcher.Worker do
   require Logger
 
   alias Pokex.Bots.Body
-  alias Pokex.Bots.Catcher.{Ball, Logic}
+  alias Pokex.Bots.Catcher.Ball
+  alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.Catcher.Logic
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.Combat.Worker
+  alias Pokex.Bots.InputGate
   alias Pokex.Perception
   alias Pokex.Perception.Feed
+  alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
 
   @topic "catcher"
@@ -52,7 +58,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     init_arg = %{
       body: Keyword.get(opts, :body, Body),
       # kill-anchored vision; injectable in tests like the Body
-      scanner: Keyword.get(opts, :scanner, &Pokex.Bots.Catcher.SpotScan.scan/0)
+      scanner: Keyword.get(opts, :scanner, &SpotScan.scan/0)
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -75,7 +81,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   def init(%{body: body, scanner: scanner}) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     # a SHINY sighting overrides capture_enabled for the next ball
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
@@ -384,7 +390,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   defp gate_aberto? do
-    Pokex.Bots.InputGate.allowed?()
+    InputGate.allowed?()
   catch
     :exit, _reason -> false
   end
@@ -398,6 +404,41 @@ defmodule Pokex.Bots.Catcher.Worker do
     %{state | held?: true}
   end
 
+  # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
+  # configured hotkey, hold the cursor). nil when nothing was thrown.
+  defp throw_balls([], _body), do: nil
+
+  defp throw_balls(performs, body) do
+    performs
+    |> Enum.flat_map(fn {:capture_sequence, point} -> Ball.sequence(point) end)
+    |> Body.perform(:high, body)
+  end
+
+  # The return used to be DISCARDED — a real actuation error vanished and the
+  # feed wrote "bola arremessada" anyway.
+  defp after_throw(logic, {:error, reason}, _performs) do
+    log(:macro, "⚠️ a bola não saiu: #{inspect(reason)}")
+    logic
+  end
+
+  # The confirmation window counts from ACTUATION (the sequence takes ~200ms),
+  # not from the decision — else the first read judges too early.
+  defp after_throw(logic, :ok, performs) when performs != [], do: Logic.ball_flown(logic, now())
+  defp after_throw(logic, _result, _no_ball), do: logic
+
+  defp note_throw(state, []), do: state
+
+  defp note_throw(state, _performs) do
+    # a ball that flew because a SHINY was seen closes that log entry
+    if state.shiny_pending?, do: ShinyLog.resolve_last("ball")
+
+    %{
+      state
+      | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()},
+        shiny_pending?: false
+    }
+  end
+
   defp run_step(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())
 
@@ -406,48 +447,18 @@ defmodule Pokex.Bots.Catcher.Worker do
     # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
     # configured hotkey, hold the cursor). Each step passes the input and
     # mini-game gates instead of an opaque Rig primitive.
-    result =
-      if performs != [] do
-        performs
-        |> Enum.flat_map(fn {:capture_sequence, point} -> Ball.sequence(point) end)
-        |> Body.perform(:high, state.body)
-      end
+    result = throw_balls(performs, state.body)
 
     # The return used to be DISCARDED — a real actuation error vanished and the
     # feed wrote "bola arremessada" anyway.
-    logic =
-      case result do
-        {:error, reason} ->
-          log(:macro, "⚠️ a bola não saiu: #{inspect(reason)}")
-          logic
-
-        :ok when performs != [] ->
-          # the confirmation window counts from ACTUATION (the sequence takes
-          # ~200ms), not decision — else the first read judges too early
-          Logic.ball_flown(logic, now())
-
-        _no_ball ->
-          logic
-      end
+    logic = after_throw(logic, result, performs)
 
     # the dry-ball alarm goes out under :capture (mutable in the bell)
     for {:alarm, msg} <- actions do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :capture, msg})
     end
 
-    state =
-      if performs != [] do
-        # a ball that flew because a SHINY was seen closes that log entry
-        if state.shiny_pending?, do: Pokex.Pokedex.ShinyLog.resolve_last("ball")
-
-        %{
-          state
-          | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()},
-            shiny_pending?: false
-        }
-      else
-        state
-      end
+    state = note_throw(state, performs)
 
     for {:log, text} <- actions do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, :macro, "captura: #{text}"})
@@ -616,7 +627,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   defp announce_corpses do
-    case length(Pokex.Bots.Catcher.CorpseLibrary.list()) do
+    case length(CorpseLibrary.list()) do
       0 ->
         Phoenix.PubSub.broadcast(
           Pokex.PubSub,
@@ -801,14 +812,14 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp monitorar_combate(state) do
     if state.combat_ref, do: Process.demonitor(state.combat_ref, [:flush])
 
-    case Process.whereis(Pokex.Bots.Combat.Worker) do
+    case Process.whereis(Worker) do
       pid when is_pid(pid) -> %{state | combat_ref: Process.monitor(pid)}
       nil -> %{state | combat_ref: nil}
     end
   end
 
   defp seed_combat_engaged do
-    %{state: s} = Pokex.Bots.Combat.Worker.status()
+    %{state: s} = Worker.status()
     s in [:tabbing, :fighting]
   catch
     :exit, _reason -> false

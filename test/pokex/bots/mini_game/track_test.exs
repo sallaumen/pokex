@@ -11,16 +11,12 @@ defmodule Pokex.Bots.MiniGame.TrackTest do
 
   # A 220x220 frame with the track column at x 100..112. `rows` maps y-ranges
   # to what sits on the track there; everything else is floor.
-  defp frame(rows) do
-    build = fn x, y ->
-      cond do
-        x < 100 or x > 112 -> @floor
-        true -> Enum.find_value(rows, @floor, fn {range, color} -> y in range && color end)
-      end
-    end
+  defp frame(rows), do: Pokex.FrameFixtures.of(220, 220, &pixel(rows, &1, &2))
 
-    Pokex.FrameFixtures.of(220, 220, build)
-  end
+  defp pixel(_rows, x, _y) when x < 100 or x > 112, do: @floor
+
+  defp pixel(rows, _x, y),
+    do: Enum.find_value(rows, @floor, fn {range, color} -> y in range && color end)
 
   @bar %{x: 106, width: 13}
 

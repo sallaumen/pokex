@@ -41,11 +41,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
   use GenServer
   require Logger
 
+  alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.Capture
   alias Pokex.Bots.Cavebot.{Logic, Route, Store}
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.InputGate
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.Settings
+  alias Pokex.Vision.Frame
 
   @topic "cavebot"
   @tick_ms 200
@@ -175,7 +179,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def handle_info(:tick, state) do
     now = now()
 
-    if not Pokex.Bots.InputGate.allowed?() do
+    if InputGate.allowed?() do
+      run_cavebot_tick(state, now)
+    else
       # Gate closed = no step goes out (the Body refuses), but the Logic's
       # patience clocks kept running — 3s without "progress" became :stuck and
       # the hunt died BEFORE the game could be refocused after clicking Iniciar
@@ -194,8 +200,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       }
 
       {:noreply, schedule_tick(state)}
-    else
-      run_cavebot_tick(state, now)
     end
   end
 
@@ -320,9 +324,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # the whole fleet.
   def translate(state, {:block, reason}) when reason in @dangerous_blocks do
     Logger.warning("Cavebot: BLOQUEADO (#{inspect(reason)}) — parando a frota")
-    Pokex.Bots.InputGate.set_panic_latch(true)
+    InputGate.set_panic_latch(true)
     Combat.Worker.halt(state.combat)
-    Pokex.Bots.BotSupervisor.stop_all("caçada — " <> block_text(reason))
+    BotSupervisor.stop_all("caçada — " <> block_text(reason))
     stop_hunt(state, reason)
   end
 
@@ -399,7 +403,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # holds the spam if the route insists on the edge. Any capture failure is
   # silence: the warning is bonus, the step is the service.
   defp warn_if_unexplored({x, y}) do
-    case Pokex.Bots.Capture.frame_uncached({x - 1, y - 1, 3, 3}, "cavebot_step_probe.png") do
+    case Capture.frame_uncached({x - 1, y - 1, 3, 3}, "cavebot_step_probe.png") do
       {:ok, frame} ->
         if dark_frame?(frame),
           do: log(:macro, "🕳️ passo caiu em área não descoberta do minimapa")
@@ -415,7 +419,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     coords = for i <- 0..(frame.width - 1), j <- 0..(frame.height - 1), do: {i, j}
 
     Enum.all?(coords, fn {i, j} ->
-      {r, g, b} = Pokex.Vision.Frame.at(frame, i, j)
+      {r, g, b} = Frame.at(frame, i, j)
       max(r, max(g, b)) < 12
     end)
   end

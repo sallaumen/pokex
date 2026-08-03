@@ -1,9 +1,16 @@
 defmodule PokexWeb.CalibrationLive do
   use PokexWeb, :live_view
 
-  alias Pokex.{Calibration, Home, Rig, Settings, Vision}
-  alias Pokex.Bots.{Capture, SkillBar}
-  alias Pokex.Bots.Catcher.{CorpseLibrary, SpotScan}
+  alias Pokex.Bots.Capture
+  alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.Catcher.Worker
+  alias Pokex.Bots.SkillBar
+  alias Pokex.Calibration
+  alias Pokex.Home
+  alias Pokex.Rig
+  alias Pokex.Settings
+  alias Pokex.Vision
   alias Pokex.Vision.Frame
 
   import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
@@ -66,7 +73,7 @@ defmodule PokexWeb.CalibrationLive do
     # The per-corpse counter (R4) updates on its own: the Catcher publishes the
     # session count on every sweep that finds something new.
     if connected?(socket),
-      do: Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.topic())
+      do: Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
     {:ok,
      assign(socket,
@@ -98,66 +105,72 @@ defmodule PokexWeb.CalibrationLive do
 
   @impl true
   def handle_event("capture_screen", _params, socket) do
-    with {:ok, screen} <- grab_screen("scale_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :water,
-         mode: :full,
-         draft: %{skill_bar_count: socket.assigns.skill_count},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("scale_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :water,
+           mode: :full,
+           draft: %{skill_bar_count: socket.assigns.skill_count},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
   # Standalone correction for an existing calibration. The normal 8-step wizard
   # already includes these two clicks.
   def handle_event("calibrate_skillbar", _params, socket) do
-    with {:ok, screen} <- grab_screen("skillbar_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :skill_a,
-         mode: :skillbar_only,
-         draft: %{skill_bar_count: socket.assigns.skill_count},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("skillbar_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :skill_a,
+           mode: :skillbar_only,
+           draft: %{skill_bar_count: socket.assigns.skill_count},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
   # Standalone correction: re-mark only the character (the mini-game bar anchor)
   # on an existing calibration, without redoing the whole wizard.
   def handle_event("calibrate_player", _params, socket) do
-    with {:ok, screen} <- grab_screen("player_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :player,
-         mode: :player_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("player_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :player,
+           mode: :player_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
@@ -167,22 +180,24 @@ defmodule PokexWeb.CalibrationLive do
   # FROM THE SAME SHOT with the freshly marked regions: feedback arrives
   # before any field run.
   def handle_event("calibrate_minimap", _params, socket) do
-    with {:ok, screen} <- grab_screen("minimap_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :minimap_a,
-         mode: :minimap_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("minimap_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :minimap_a,
+           mode: :minimap_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
@@ -190,22 +205,24 @@ defmodule PokexWeb.CalibrationLive do
   # (2 corners) on an existing calibration. From then on the mini-game worker
   # watches THAT region instead of hunting the bar inside the arena.
   def handle_event("calibrate_mini_game", _params, socket) do
-    with {:ok, screen} <- grab_screen("mini_game_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :mini_game_a,
-         mode: :mini_game_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("mini_game_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :mini_game_a,
+           mode: :mini_game_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
@@ -258,44 +275,48 @@ defmodule PokexWeb.CalibrationLive do
   # Standalone correction: mark only where the Pokémon should STAND (the strategic
   # attack tile the support worker middle-clicks after battles).
   def handle_event("calibrate_pokemon_spot", _params, socket) do
-    with {:ok, screen} <- grab_screen("pokemon_spot_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :pokemon_spot,
-         mode: :pokemon_spot_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("pokemon_spot_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :pokemon_spot,
+           mode: :pokemon_spot_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
   # Standalone correction: mark only the escape STAIRCASE tile the
   # emergency-escape protocol click-walks to.
   def handle_event("calibrate_escape_point", _params, socket) do
-    with {:ok, screen} <- grab_screen("escape_point_probe.png") do
-      {:noreply,
-       assign(socket,
-         scale: screen.scale,
-         screen: screen,
-         step: :escape_point,
-         mode: :escape_point_only,
-         draft: %{},
-         done: false,
-         review: nil,
-         error: nil,
-         skillbar_msg: nil,
-         zoom_at: nil
-       )}
-    else
-      error -> {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    case grab_screen("escape_point_probe.png") do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: :escape_point,
+           mode: :escape_point_only,
+           draft: %{},
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
     end
   end
 
@@ -641,117 +662,132 @@ defmodule PokexWeb.CalibrationLive do
 
   defp skill_slot_refs(_screen, _region, _count), do: nil
 
-  defp record_point(socket, point) do
-    %{step: step, draft: draft} = socket.assigns
+  # One clause per step: the old single `case` over twenty steps scored 26 on
+  # cyclomatic complexity and hid which step did what.
+  defp record_point(socket, point),
+    do: record_step(socket.assigns.step, socket, point, socket.assigns.draft)
 
-    case step do
-      :water ->
-        {x, y} = point
+  defp record_step(:water, socket, point, draft) do
+    {x, y} = point
 
-        draft =
-          Map.merge(draft, %{
-            water_point: point,
-            glow_region: {x - @glow_half, y - @glow_half, @glow_half * 2, @glow_half * 2}
-          })
+    draft =
+      Map.merge(draft, %{
+        water_point: point,
+        glow_region: {x - @glow_half, y - @glow_half, @glow_half * 2, @glow_half * 2}
+      })
 
-        assign(socket, draft: draft, step: :battle_a)
+    assign(socket, draft: draft, step: :battle_a)
+  end
 
-      :battle_a ->
-        assign(socket, draft: Map.put(draft, :battle_a, point), step: :battle_b)
+  defp record_step(:battle_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :battle_a, point), step: :battle_b)
+  end
 
-      :battle_b ->
+  defp record_step(:battle_b, socket, point, draft) do
+    assign(socket,
+      draft: Map.put(draft, :battle_region, region_from(draft.battle_a, point)),
+      step: :neutral
+    )
+  end
+
+  defp record_step(:neutral, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :neutral_point, point), step: :player)
+  end
+
+  defp record_step(:player, socket, point, draft) do
+    case socket.assigns.mode do
+      :player_only ->
+        save_player_point(socket, point)
+
+      _ ->
+        assign(socket, draft: Map.put(draft, :player_point, point), step: :skill_a)
+    end
+  end
+
+  defp record_step(:skill_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :skill_a, point), step: :skill_b)
+  end
+
+  defp record_step(:skill_b, socket, point, draft) do
+    region = region_from(draft.skill_a, point)
+    count = draft.skill_bar_count
+
+    case socket.assigns.mode do
+      :full ->
         assign(socket,
-          draft: Map.put(draft, :battle_region, region_from(draft.battle_a, point)),
-          step: :neutral
+          draft:
+            draft
+            |> Map.put(:skill_bar_region, region)
+            |> Map.put(:skill_bar_count, count),
+          step: :hp_a,
+          skillbar_msg: "Barra configurada com #{count} skills."
         )
 
-      :neutral ->
-        assign(socket, draft: Map.put(draft, :neutral_point, point), step: :player)
-
-      :player ->
-        case socket.assigns.mode do
-          :player_only ->
-            save_player_point(socket, point)
-
-          _ ->
-            assign(socket, draft: Map.put(draft, :player_point, point), step: :skill_a)
-        end
-
-      :skill_a ->
-        assign(socket, draft: Map.put(draft, :skill_a, point), step: :skill_b)
-
-      :skill_b ->
-        region = region_from(draft.skill_a, point)
-        count = draft.skill_bar_count
-
-        case socket.assigns.mode do
-          :full ->
-            assign(socket,
-              draft:
-                draft
-                |> Map.put(:skill_bar_region, region)
-                |> Map.put(:skill_bar_count, count),
-              step: :hp_a,
-              skillbar_msg: "Barra configurada com #{count} skills."
-            )
-
-          :skillbar_only ->
-            persist_skill_settings(count)
-            save_skill_bar(socket, region, count)
-
-          _ ->
-            socket
-        end
-
-      :hp_a ->
-        assign(socket, draft: Map.put(draft, :hp_a, point), step: :hp_b)
-
-      :hp_b ->
-        assign(socket,
-          draft: Map.put(draft, :pokemon_hp_region, region_from(draft.hp_a, point)),
-          step: :photo
-        )
-
-      :photo ->
-        finish(socket, Map.put(draft, :pokemon_photo_point, point))
-
-      :mini_game_a ->
-        assign(socket, draft: Map.put(draft, :mini_game_a, point), step: :mini_game_b)
-
-      :mini_game_b ->
-        save_mini_game_region(socket, region_from(draft.mini_game_a, point))
-
-      :minimap_a ->
-        assign(socket, draft: Map.put(draft, :minimap_a, point), step: :minimap_b)
-
-      :minimap_b ->
-        assign(socket,
-          draft: Map.put(draft, :minimap_region, region_from(draft.minimap_a, point)),
-          step: :minimap_cross
-        )
-
-      :minimap_cross ->
-        assign(socket,
-          draft: Map.put(draft, :minimap_player_point, point),
-          step: :minimap_coord_a
-        )
-
-      :minimap_coord_a ->
-        assign(socket, draft: Map.put(draft, :minimap_coord_a, point), step: :minimap_coord_b)
-
-      :minimap_coord_b ->
-        save_minimap(socket, region_from(draft.minimap_coord_a, point))
-
-      :pokemon_spot ->
-        save_pokemon_spot(socket, point)
-
-      :escape_point ->
-        save_escape_point(socket, point)
+      :skillbar_only ->
+        persist_skill_settings(count)
+        save_skill_bar(socket, region, count)
 
       _ ->
         socket
     end
   end
+
+  defp record_step(:hp_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :hp_a, point), step: :hp_b)
+  end
+
+  defp record_step(:hp_b, socket, point, draft) do
+    assign(socket,
+      draft: Map.put(draft, :pokemon_hp_region, region_from(draft.hp_a, point)),
+      step: :photo
+    )
+  end
+
+  defp record_step(:photo, socket, point, draft) do
+    finish(socket, Map.put(draft, :pokemon_photo_point, point))
+  end
+
+  defp record_step(:mini_game_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :mini_game_a, point), step: :mini_game_b)
+  end
+
+  defp record_step(:mini_game_b, socket, point, draft) do
+    save_mini_game_region(socket, region_from(draft.mini_game_a, point))
+  end
+
+  defp record_step(:minimap_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :minimap_a, point), step: :minimap_b)
+  end
+
+  defp record_step(:minimap_b, socket, point, draft) do
+    assign(socket,
+      draft: Map.put(draft, :minimap_region, region_from(draft.minimap_a, point)),
+      step: :minimap_cross
+    )
+  end
+
+  defp record_step(:minimap_cross, socket, point, draft) do
+    assign(socket,
+      draft: Map.put(draft, :minimap_player_point, point),
+      step: :minimap_coord_a
+    )
+  end
+
+  defp record_step(:minimap_coord_a, socket, point, draft) do
+    assign(socket, draft: Map.put(draft, :minimap_coord_a, point), step: :minimap_coord_b)
+  end
+
+  defp record_step(:minimap_coord_b, socket, point, draft) do
+    save_minimap(socket, region_from(draft.minimap_coord_a, point))
+  end
+
+  defp record_step(:pokemon_spot, socket, point, _draft) do
+    save_pokemon_spot(socket, point)
+  end
+
+  defp record_step(:escape_point, socket, point, _draft), do: save_escape_point(socket, point)
+
+  defp record_step(_unknown_step, socket, _point, _draft), do: socket
 
   defp region_from({x1, y1}, {x2, y2}), do: {min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)}
 

@@ -2,8 +2,11 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Combat.Worker
+  alias Pokex.Calibration
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings, SettingsStash}
+  alias Pokex.Rig.Fake
+  alias Pokex.Settings
+  alias Pokex.SettingsStash
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
@@ -35,7 +38,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       neutral_point: {500, 500}
     })
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{})
+    {:ok, _} = Fake.start_link(%{})
     worker = start_supervised!({Worker, name: nil})
     :ok = Worker.run(worker)
     %{worker: worker}
@@ -68,7 +71,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   end
 
   defp presses do
-    for {:press, key} <- Pokex.Rig.Fake.calls(), do: key
+    for {:press, key} <- Fake.calls(), do: key
   end
 
   @tag :tmp_dir
@@ -77,8 +80,8 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   } do
     # re-script the Fake with a slow (osascript-like) burst so the first one is still in
     # flight when the next decision arrives
-    Agent.stop(Pokex.Rig.Fake)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{press_many_sleep_ms: 250})
+    Agent.stop(Fake)
+    {:ok, _} = Fake.start_link(%{press_many_sleep_ms: 250})
 
     # Tab burst (slow) spawns...
     world!(worker, battle_obs(enemies: [0]))
@@ -245,7 +248,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     # bare assert (this used to be masked by sync_arena's now-removed Perception.attach/detach
     # call adding incidental latency to the worker's own message loop). ≥ 1, not == 1: the
     # post-kill probe window now fires additional blind Tabs by design.
-    assert eventually(fn -> Enum.count(presses(), &(&1 == Settings.get(:tab_key))) >= 1 end)
+    assert eventually(fn -> Enum.any?(presses(), &(&1 == Settings.get(:tab_key))) end)
 
     # From here on: NO more :world events (the feed wouldn't broadcast either — a
     # non-empty-but-pixel-static battle list is not a content CHANGE). Seed WorldState

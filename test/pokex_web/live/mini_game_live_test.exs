@@ -4,6 +4,7 @@ defmodule PokexWeb.MiniGameLiveTest do
   import Phoenix.LiveViewTest
 
   alias Pokex.Bots.MiniGame.{Mode, Worker}
+  alias Pokex.Rig.Fake
   alias Pokex.SettingsStash
 
   setup do
@@ -12,10 +13,10 @@ defmodule PokexWeb.MiniGameLiveTest do
   end
 
   test "shows the frame that was analysed, without capturing anything itself", %{conn: conn} do
-    {:ok, _fake} = Pokex.Rig.Fake.start_link(%{})
+    {:ok, _fake} = Fake.start_link(%{})
     {:ok, view, _html} = live(conn, ~p"/mini-game")
 
-    before = Pokex.Rig.Fake.calls()
+    before = Fake.calls()
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
@@ -34,7 +35,7 @@ defmodule PokexWeb.MiniGameLiveTest do
     # the preview points at the copy of the analysed PNG, versioned so the
     # browser reloads it — and nothing here took a NEW capture
     assert html =~ "/captures/mini_game_preview.png?v=7"
-    assert Enum.all?(Pokex.Rig.Fake.calls() -- before, &(elem(&1, 0) == :cursor_position))
+    assert Enum.all?(Fake.calls() -- before, &(elem(&1, 0) == :cursor_position))
 
     # the numbers on the page are the ones from that very sample
     assert html =~ "0.42"

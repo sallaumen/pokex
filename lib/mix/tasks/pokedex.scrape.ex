@@ -22,6 +22,8 @@ defmodule Mix.Tasks.Pokedex.Scrape do
 
   use Mix.Task
 
+  alias Pokex.Pokedex.Sync
+
   @requirements ["app.config"]
 
   @impl true
@@ -39,7 +41,7 @@ defmodule Mix.Tasks.Pokedex.Scrape do
 
     {:ok, _apps} = Application.ensure_all_started(:req)
 
-    {:ok, summary} = Pokex.Pokedex.Sync.run(opts, fn text -> Mix.shell().info(text) end)
+    {:ok, summary} = Sync.run(opts, fn text -> Mix.shell().info(text) end)
 
     Mix.shell().info(
       "pronto: #{summary.updated} atualizadas nesta rodada, " <>

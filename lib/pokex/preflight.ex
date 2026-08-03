@@ -2,6 +2,7 @@ defmodule Pokex.Preflight do
   @moduledoc "Sanity checks executed when the user hits Start. Messages in PT-BR."
 
   alias Pokex.Calibration
+  alias Pokex.Rig.Mac
   alias Pokex.Vision.Frame
 
   def run(rig \\ Pokex.Rig.impl()) do
@@ -17,7 +18,7 @@ defmodule Pokex.Preflight do
     end
   end
 
-  defp check_cliclick(errors, Pokex.Rig.Mac) do
+  defp check_cliclick(errors, Mac) do
     if System.find_executable("cliclick"),
       do: errors,
       else: ["cliclick não encontrado — rode: brew install cliclick" | errors]
@@ -31,9 +32,9 @@ defmodule Pokex.Preflight do
       else: ["calibração não encontrada — rode o wizard em /calibration" | errors]
   end
 
-  defp check_screen(errors, Pokex.Rig.Mac) do
+  defp check_screen(errors, Mac) do
     with {:ok, calib} <- Calibration.load(),
-         {:ok, path} <- Pokex.Rig.Mac.capture_screen(),
+         {:ok, path} <- Mac.capture_screen(),
          {:ok, {w, h}} <- Frame.png_dimensions(path) do
       if w == round(calib.screen_w * calib.scale) and h == round(calib.screen_h * calib.scale) do
         errors

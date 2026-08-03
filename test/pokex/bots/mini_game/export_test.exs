@@ -5,27 +5,32 @@ defmodule Pokex.Bots.MiniGame.ExportTest do
 
   defp diag_with(samples, frames) do
     diag =
-      Enum.reduce(0..(samples - 1), Diag.new(started_at: 0, track_bar: %{x: 40, width: 14}), fn i,
-                                                                                                diag ->
-        Diag.record(
-          diag,
-          %{
-            at: i * 80,
-            cap_ms: 10,
-            tick_ms: 12,
-            read: :ok,
-            fish_y: 0.5,
-            fish_aim: 0.5,
-            bar_y: 0.4,
-            bar_source: :blue,
-            accepted: true,
-            hold: false
-          },
-          if(i < frames, do: fn -> {:ok, String.duplicate("x", 1_000)} end)
-        )
-      end)
+      Enum.reduce(
+        0..(samples - 1),
+        Diag.new(started_at: 0, track_bar: %{x: 40, width: 14}),
+        &record_sample(&1, &2, frames)
+      )
 
     Diag.finish(diag, :exit_streak, fn -> {:ok, "last"} end)
+  end
+
+  defp record_sample(i, diag, frames) do
+    Diag.record(
+      diag,
+      %{
+        at: i * 80,
+        cap_ms: 10,
+        tick_ms: 12,
+        read: :ok,
+        fish_y: 0.5,
+        fish_aim: 0.5,
+        bar_y: 0.4,
+        bar_source: :blue,
+        accepted: true,
+        hold: false
+      },
+      if(i < frames, do: fn -> {:ok, String.duplicate("x", 1_000)} end)
+    )
   end
 
   @tag :tmp_dir

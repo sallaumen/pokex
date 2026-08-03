@@ -2,9 +2,13 @@ defmodule PokexWeb.DiagnosticsLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.Capture
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Calibration
   alias Pokex.Rig
-  alias Pokex.{Calibration, Settings, Vision}
+  alias Pokex.Settings
+  alias Pokex.Vision
   alias Pokex.Vision.Frame
+  alias Pokex.Vision.Glyphs
   alias PokexWeb.CalibrationOverlay
 
   @impl true
@@ -115,7 +119,7 @@ defmodule PokexWeb.DiagnosticsLive do
   def handle_event("teach_glyph", %{"signature" => signature, "char" => char}, socket) do
     char = String.trim(char)
 
-    case char != "" && Pokex.Vision.Glyphs.teach(signature, char) do
+    case char != "" && Glyphs.teach(signature, char) do
       {:ok, total} ->
         remaining = Enum.reject(socket.assigns.unknown_glyphs, &(&1.signature == signature))
 
@@ -135,7 +139,7 @@ defmodule PokexWeb.DiagnosticsLive do
 
   def handle_event("find_hostile", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
-         {:ok, region} <- Pokex.Bots.Catcher.SpotScan.region(calib),
+         {:ok, region} <- SpotScan.region(calib),
          {:ok, path} <- Rig.impl().capture(region, "diag_hostile.png"),
          {:ok, frame} <- Frame.from_png_file(path) do
       msg =
@@ -367,8 +371,8 @@ defmodule PokexWeb.DiagnosticsLive do
            {Pokex.Layout.region(panel, fix), Pokex.Layout.region(region, fix)},
          {px, py, pw, ph} = panel_rect,
          {rx, ry, rw, rh} = region_rect,
-         {:ok, frame} <- Pokex.Bots.Capture.frame({px, py, pw, ph}, filename) do
-      Pokex.Vision.Glyphs.unknown_in(
+         {:ok, frame} <- Capture.frame({px, py, pw, ph}, filename) do
+      Glyphs.unknown_in(
         frame,
         {rx - px, ry - py, rw, rh},
         Pokex.Layout.region_opts(fix, region)

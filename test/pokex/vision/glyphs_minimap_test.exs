@@ -27,7 +27,7 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
       frame = ScreenFixtures.frame!("ultrawide_3440x1440_time")
       {:ok, fix} = Layout.locate(frame)
 
-      assert Glyphs.read_coord(frame, fix.regions.minimap_coord) == {2597, 30640, 6}
+      assert Glyphs.read_coord(frame, fix.regions.minimap_coord) == {2597, 30_640, 6}
     end
 
     test "none of the four real captures leaves an unknown glyph in the coordinate" do
@@ -95,8 +95,8 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
     end
 
     test "still reads the same position it reads with the dark map", ctx do
-      assert Glyphs.read_coord(ctx.clean, ctx.band) == {2777, 30560, 5}
-      assert Glyphs.read_coord(ctx.panel, ctx.band) == {2777, 30560, 5}
+      assert Glyphs.read_coord(ctx.clean, ctx.band) == {2777, 30_560, 5}
+      assert Glyphs.read_coord(ctx.panel, ctx.band) == {2777, 30_560, 5}
     end
 
     test "the teach-glyphs screen does not offer the blob as learnable", ctx do

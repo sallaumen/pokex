@@ -28,15 +28,19 @@ defmodule Pokex.Bots.Fisher.Sensors.Fake do
   def observe(needs, _calib, _settings) do
     observations =
       Agent.get_and_update(__MODULE__, fn script ->
-        Enum.map_reduce(needs, script, fn need, acc ->
-          case acc[need] do
-            [only] -> {{need, only}, acc}
-            [head | tail] -> {{need, head}, Map.put(acc, need, tail)}
-            _ -> {{need, @defaults[need]}, acc}
-          end
-        end)
+        Enum.map_reduce(needs, script, &pop_scripted/2)
       end)
 
     {:ok, Map.new(observations)}
+  end
+
+  # The last scripted value for a need STAYS (a test that scripted one frame
+  # gets it for every read); anything else pops one and falls back to a default.
+  defp pop_scripted(need, script) do
+    case script[need] do
+      [only] -> {{need, only}, script}
+      [head | tail] -> {{need, head}, Map.put(script, need, tail)}
+      _exhausted -> {{need, @defaults[need]}, script}
+    end
   end
 end

@@ -13,7 +13,9 @@ defmodule Pokex.Bots.Combat.Worker do
   use GenServer
   require Logger
 
+  alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.Logic
+  alias Pokex.Bots.Perf
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.{Preflight, Settings}
@@ -272,7 +274,7 @@ defmodule Pokex.Bots.Combat.Worker do
         state
 
       state.burst_pid != nil and Process.alive?(state.burst_pid) ->
-        Pokex.Bots.Perf.count("combat.burst_skipped")
+        Perf.count("combat.burst_skipped")
         state
 
       true ->
@@ -316,7 +318,7 @@ defmodule Pokex.Bots.Combat.Worker do
         obs
 
       _stale_or_missing ->
-        Pokex.Bots.Perf.count("combat.poll_stale")
+        Perf.count("combat.poll_stale")
         nil
     end
   end
@@ -373,7 +375,7 @@ defmodule Pokex.Bots.Combat.Worker do
     do:
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
-        Pokex.Bots.Catcher.Worker.kill_topic(),
+        Worker.kill_topic(),
         {:kill}
       )
 

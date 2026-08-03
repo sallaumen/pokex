@@ -30,7 +30,7 @@ defmodule PokexWeb.WorldLiveTest do
       now
     )
 
-    WorldState.put(:minimap, %{pos: {337, 46107, 4}}, now)
+    WorldState.put(:minimap, %{pos: {337, 46_107, 4}}, now)
 
     WorldState.put(
       :battle,

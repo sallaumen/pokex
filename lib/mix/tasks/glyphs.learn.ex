@@ -13,6 +13,7 @@ defmodule Mix.Tasks.Glyphs.Learn do
   """
   use Mix.Task
 
+  alias Pokex.Vision.Frame
   alias Pokex.Vision.Glyphs
 
   @impl true
@@ -35,7 +36,7 @@ defmodule Mix.Tasks.Glyphs.Learn do
   end
 
   defp learn(%{"fixture" => f, "region" => [x, y, w, h], "expected" => expected} = label, acc) do
-    {:ok, frame} = Pokex.Vision.Frame.from_png_file("test/fixtures/screen/#{f}.png")
+    {:ok, frame} = Frame.from_png_file("test/fixtures/screen/#{f}.png")
     opts = if ink = label["ink"], do: [ink: ink], else: []
 
     glyphs = Glyphs.segment(frame, {x, y, w, h}, opts)

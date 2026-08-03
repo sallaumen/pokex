@@ -124,16 +124,18 @@ defmodule Pokex.Vision do
     radius = Keyword.get(opts, :bubble_radius_px, 48)
     line_present_min = Keyword.get(opts, :line_present_min_px, 100)
 
-    with {:ok, center, lure_count} <- lure_center(frame, opts) do
-      bubble_count = bubble_count_near(frame, center, radius, opts)
+    case lure_center(frame, opts) do
+      {:ok, center, lure_count} ->
+        bubble_count = bubble_count_near(frame, center, radius, opts)
 
-      %{
-        bubble_count: bubble_count,
-        lure_count: lure_count,
-        line_present?: lure_count >= min_lure_pixels and bubble_count >= line_present_min
-      }
-    else
-      :none -> %{bubble_count: 0, lure_count: 0, line_present?: false}
+        %{
+          bubble_count: bubble_count,
+          lure_count: lure_count,
+          line_present?: lure_count >= min_lure_pixels and bubble_count >= line_present_min
+        }
+
+      :none ->
+        %{bubble_count: 0, lure_count: 0, line_present?: false}
     end
   end
 
@@ -147,17 +149,21 @@ defmodule Pokex.Vision do
       |> Map.values()
       |> Enum.filter(&(&1.count >= min_bucket_pixels))
 
-    with candidate when not is_nil(candidate) <- select_lure_candidate(candidates, frame, opts) do
-      center = {div(candidate.sum_x, candidate.count), div(candidate.sum_y, candidate.count)}
-      radius = Keyword.get(opts, :lure_cluster_radius_px, max(18, bucket_px + div(bucket_px, 2)))
-      count = lure_count_near(frame, center, radius)
+    case select_lure_candidate(candidates, frame, opts) do
+      candidate when not is_nil(candidate) ->
+        center = {div(candidate.sum_x, candidate.count), div(candidate.sum_y, candidate.count)}
 
-      if count > 0 do
-        {:ok, center, count}
-      else
-        :none
-      end
-    else
+        radius =
+          Keyword.get(opts, :lure_cluster_radius_px, max(18, bucket_px + div(bucket_px, 2)))
+
+        count = lure_count_near(frame, center, radius)
+
+        if count > 0 do
+          {:ok, center, count}
+        else
+          :none
+        end
+
       _ ->
         fallback_lure_center(rgba, width, height)
     end
@@ -399,9 +405,17 @@ defmodule Pokex.Vision do
   # without touching it. And `min_x` restricts the search to the NAME zone
   # (creature icons end at x<=72; EVERY measured false positive sat at
   # x 45..71) — the star sits right at the name's start.
+  # The colour test is split in two so neither half is a wall of conditions:
+  # `gold_bright?` is the raw channel window, `gold_contrast?` the separations
+  # that keep a yellow POKÉMON out.
+  defguardp gold_bright?(r, g, b) when r >= 190 and g >= 130 and b <= 150 and b >= 50 and g <= r
+
+  defguardp gold_contrast?(r, g, b)
+            when r - b >= 80 and g - b >= 40 and g * 10 >= r * 6
+
   defp gold_cells(<<r, g, b, _a, rest::binary>>, index, width, min_x, top, band, rows, acc)
-       when r >= 190 and g >= 130 and b <= 150 and b >= 50 and g <= r and r - b >= 80 and
-              g - b >= 40 and g * 10 >= r * 6 and rem(index, width) >= min_x do
+       when gold_bright?(r, g, b) and gold_contrast?(r, g, b) and
+              rem(index, width) >= min_x do
     y = div(index, width)
     row = if y >= top, do: div(y - top, band), else: -1
 
@@ -739,12 +753,16 @@ defmodule Pokex.Vision do
       distance = slot_distance(signature, Enum.at(refs, i))
 
       state =
-        cond do
-          distance != nil -> if distance <= max_distance, do: :ready, else: :cooldown
-          white_pct >= min_white -> :cooldown
-          saturation >= min_s or vivid_pct >= min_vivid -> :ready
-          true -> :cooldown
-        end
+        slot_state(
+          distance,
+          max_distance,
+          white_pct,
+          min_white,
+          saturation,
+          min_s,
+          vivid_pct,
+          min_vivid
+        )
 
       %{
         brightness: brightness,
@@ -755,6 +773,26 @@ defmodule Pokex.Vision do
         distance: distance,
         state: state
       }
+    end
+  end
+
+  # The reference match wins when there IS one; otherwise the white countdown
+  # glyph vetoes, and colour is the last word.
+  defp slot_state(
+         distance,
+         max_distance,
+         white_pct,
+         min_white,
+         saturation,
+         min_s,
+         vivid,
+         min_vivid
+       ) do
+    cond do
+      distance != nil -> if distance <= max_distance, do: :ready, else: :cooldown
+      white_pct >= min_white -> :cooldown
+      saturation >= min_s or vivid >= min_vivid -> :ready
+      true -> :cooldown
     end
   end
 
@@ -952,14 +990,18 @@ defmodule Pokex.Vision do
   # (bubble_count). Near-black is `:dark`; anything else is `:other`.
   defp pixel_rank(r, g, b) do
     cond do
-      r >= 200 and g <= 60 and b <= 60 -> @rank_pokeball_red
-      r >= 130 and g <= 70 and b <= 70 -> @rank_lock_red
-      g >= 120 and g >= r + 40 and g >= b + 40 -> @rank_hp_green
+      pokeball_red?(r, g, b) -> @rank_pokeball_red
+      lock_red?(r, g, b) -> @rank_lock_red
+      hp_green?(r, g, b) -> @rank_hp_green
       bubble_pixel?(r, g, b, 60) -> @rank_cyan
       r + g + b <= 60 -> @rank_dark
       true -> @rank_other
     end
   end
+
+  defp pokeball_red?(r, g, b), do: r >= 200 and g <= 60 and b <= 60
+  defp lock_red?(r, g, b), do: r >= 130 and g <= 70 and b <= 70
+  defp hp_green?(r, g, b), do: g >= 120 and g >= r + 40 and g >= b + 40
 
   defp rank_to_class(@rank_pokeball_red), do: :pokeball_red
   defp rank_to_class(@rank_lock_red), do: :lock_red

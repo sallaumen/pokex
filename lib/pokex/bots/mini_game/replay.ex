@@ -161,16 +161,18 @@ defmodule Pokex.Bots.MiniGame.Replay do
       {:ok, bin} ->
         bin
         |> String.split("\n", trim: true)
-        |> Enum.flat_map(fn line ->
-          case JSON.decode(line) do
-            {:ok, %{"i" => i} = sample} -> [{i, sample}]
-            _unreadable -> []
-          end
-        end)
+        |> Enum.flat_map(&indexed_sample/1)
         |> Map.new()
 
       {:error, _absent} ->
         %{}
+    end
+  end
+
+  defp indexed_sample(line) do
+    case JSON.decode(line) do
+      {:ok, %{"i" => i} = sample} -> [{i, sample}]
+      _unreadable -> []
     end
   end
 

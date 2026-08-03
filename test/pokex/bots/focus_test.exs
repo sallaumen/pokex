@@ -1,7 +1,8 @@
 defmodule Pokex.Bots.FocusTest do
   use ExUnit.Case, async: false
 
-  alias Pokex.Bots.{Focus, InputGate}
+  alias Pokex.Bots.Focus
+  alias Pokex.Bots.InputGate
 
   setup do
     Pokex.Settings.put(:pause_when_unfocused, true)
@@ -213,17 +214,17 @@ defmodule Pokex.Bots.FocusTest do
   describe "ensure_front/0" do
     setup do
       on_exit(fn ->
-        Pokex.Bots.InputGate.set_corner_ok(true)
-        Pokex.Bots.InputGate.set_focus_ok(true)
+        InputGate.set_corner_ok(true)
+        InputGate.set_focus_ok(true)
       end)
 
       :ok
     end
 
     test "refuses while the cursor is in the panic corner" do
-      Pokex.Bots.InputGate.set_corner_ok(false)
+      InputGate.set_corner_ok(false)
 
-      assert Pokex.Bots.Focus.ensure_front() == {:error, :panic_corner}
+      assert Focus.ensure_front() == {:error, :panic_corner}
     end
 
     # Both branches return :ok, so asserting the return proves nothing — an implementation
@@ -233,10 +234,10 @@ defmodule Pokex.Bots.FocusTest do
     # can make this flaky.
     test "when the game is already in front, it passes through — without paying the wait" do
       Pokex.SettingsStash.stash!(calibration_front_delay_ms: 3_000)
-      Pokex.Bots.InputGate.set_corner_ok(true)
-      Pokex.Bots.InputGate.set_focus_ok(true)
+      InputGate.set_corner_ok(true)
+      InputGate.set_focus_ok(true)
 
-      {micros, result} = :timer.tc(&Pokex.Bots.Focus.ensure_front/0)
+      {micros, result} = :timer.tc(&Focus.ensure_front/0)
 
       assert result == :ok
       assert div(micros, 1000) < 1_000, "pagou a espera do fronting sem precisar"
@@ -244,12 +245,12 @@ defmodule Pokex.Bots.FocusTest do
 
     test "when the game is NOT in front, it fronts and opens the gate immediately" do
       Pokex.SettingsStash.stash!(calibration_front_delay_ms: 0)
-      Pokex.Bots.InputGate.set_corner_ok(true)
-      Pokex.Bots.InputGate.set_focus_ok(false)
+      InputGate.set_corner_ok(true)
+      InputGate.set_focus_ok(false)
 
-      assert Pokex.Bots.Focus.ensure_front() == :ok
+      assert Focus.ensure_front() == :ok
 
-      assert Pokex.Bots.InputGate.state().focus_ok
+      assert InputGate.state().focus_ok
     end
   end
 end

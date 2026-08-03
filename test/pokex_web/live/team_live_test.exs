@@ -1,5 +1,7 @@
 defmodule PokexWeb.TeamLiveTest do
   use PokexWeb.ConnCase, async: false
+
+  alias Pokex.Pokedex.Team
   import Phoenix.LiveViewTest
 
   @dataset %{
@@ -77,7 +79,7 @@ defmodule PokexWeb.TeamLiveTest do
     |> element(~s(#team-list form[phx-change="set_level"]))
     |> render_change(%{"name" => "Charizard", "level" => "95"})
 
-    assert [%{name: "Charizard", level: 95}] = Pokex.Pokedex.Team.members()
+    assert [%{name: "Charizard", level: 95}] = Team.members()
 
     view |> element(~s(button[phx-value-name="Venusaur"][phx-value-to="team"])) |> render_click()
     assert view |> element("#team-list") |> render() =~ "Venusaur"

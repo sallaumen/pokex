@@ -10,8 +10,11 @@ defmodule PokexWeb.TeamLive do
   """
   use PokexWeb, :live_view
 
+  alias Pokex.Bots.Capture
   alias Pokex.Pokedex
   alias Pokex.Pokedex.Team
+  alias Pokex.Pokedex.TeamIcons
+  alias Pokex.Vision.Icons
   alias PokexWeb.PanelForms
   alias PokexWeb.PokedexStyle
 
@@ -64,7 +67,7 @@ defmodule PokexWeb.TeamLive do
 
     with true <- name != "",
          %{signature: signature} <- Enum.find(socket.assigns.portraits, &(&1.row == row)) do
-      Pokex.Pokedex.TeamIcons.learn(name, signature)
+      TeamIcons.learn(name, signature)
 
       {:noreply,
        assign(socket,
@@ -77,7 +80,7 @@ defmodule PokexWeb.TeamLive do
   end
 
   def handle_event("forget_portrait", %{"name" => name}, socket) do
-    Pokex.Pokedex.TeamIcons.forget(name)
+    TeamIcons.forget(name)
     {:noreply, assign(socket, portraits: read_portraits(), portrait_msg: "esqueci #{name}")}
   end
 
@@ -140,21 +143,21 @@ defmodule PokexWeb.TeamLive do
     with fix when not is_nil(fix) <- Pokex.Layout.current(),
          {cx0, cy0, pw, ph} when not is_nil(cx0) <- Pokex.Layout.region(:team_icon_first, fix),
          {rx, ry, rw, rh} <- Pokex.Layout.region(:team_column, fix),
-         {:ok, frame} <- Pokex.Bots.Capture.frame({rx, ry, rw, rh}, "team_portraits.png") do
-      learned = Pokex.Pokedex.TeamIcons.all()
+         {:ok, frame} <- Capture.frame({rx, ry, rw, rh}, "team_portraits.png") do
+      learned = TeamIcons.all()
 
       for row <- 0..4//1 do
         centre =
           {cx0 - rx + div(pw, 2), cy0 - ry + div(ph, 2) + row * 67, div(ph, 2)}
 
-        signature = Pokex.Vision.Icons.signature(frame, centre)
+        signature = Icons.signature(frame, centre)
 
         %{
           row: row,
           slot: row + 2,
           signature: signature,
           guess:
-            case Pokex.Vision.Icons.match(signature, learned) do
+            case Icons.match(signature, learned) do
               {name, score} -> %{name: name, score: score}
               nil -> nil
             end
@@ -244,9 +247,9 @@ defmodule PokexWeb.TeamLive do
             <option :for={row <- @bank} value={row.name} />
           </datalist>
 
-          <p :if={Pokex.Pokedex.TeamIcons.known() != []} class="mt-2 flex flex-wrap gap-1.5">
+          <p :if={TeamIcons.known() != []} class="mt-2 flex flex-wrap gap-1.5">
             <button
-              :for={name <- Pokex.Pokedex.TeamIcons.known()}
+              :for={name <- TeamIcons.known()}
               phx-click="forget_portrait"
               phx-value-name={name}
               title="esquecer este retrato"

@@ -17,11 +17,11 @@ defmodule Pokex.VisionHpTest do
     %Frame{width: w, height: h, rgba: rgba}
   end
 
-  defp bar(fill_cols, total_cols, fill_color, rows \\ 4) do
-    for _y <- 1..rows do
-      for x <- 1..total_cols, do: if(x <= fill_cols, do: fill_color, else: @dark)
-    end
-  end
+  defp bar(fill_cols, total_cols, fill_color, rows \\ 4),
+    do: for(_y <- 1..rows, do: bar_row(fill_cols, total_cols, fill_color))
+
+  defp bar_row(fill_cols, total_cols, fill_color),
+    do: for(x <- 1..total_cols, do: if(x <= fill_cols, do: fill_color, else: @dark))
 
   describe "hp_fill_pct/2" do
     test "a full green bar reads ~100%" do

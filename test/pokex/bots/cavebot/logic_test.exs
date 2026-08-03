@@ -7,7 +7,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     walk_timeout_ms: 3000,
     stuck_max_retries: 4,
     clear_debounce_ms: 800,
-    fight_timeout_ms: 20000,
+    fight_timeout_ms: 20_000,
     post_kill_dwell_ms: 1200
   }
 

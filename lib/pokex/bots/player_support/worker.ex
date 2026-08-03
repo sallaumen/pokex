@@ -13,10 +13,18 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   """
   use GenServer
 
-  alias Pokex.Bots.{Body, Capture, InputGate}
+  alias Pokex.Bots.Body
+  alias Pokex.Bots.Capture
+  alias Pokex.Bots.Catcher.Worker
+  alias Pokex.Bots.Focus
+  alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
-  alias Pokex.Perception.{Interpret, WorldState}
-  alias Pokex.{Calibration, Settings, Vision}
+  alias Pokex.Calibration
+  alias Pokex.Combos.Store
+  alias Pokex.Perception.Interpret
+  alias Pokex.Perception.WorldState
+  alias Pokex.Settings
+  alias Pokex.Vision
 
   @topic "game"
   @default_counters %{rescues: 0, potions: 0, reads: 0, failures: 0, repositions: 0}
@@ -85,7 +93,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   def init(state) do
     # The catcher's snapshots carry pending_corpses — the post-fight order
     # policy (support_waits_capture) reads it from here.
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.topic())
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
     # Auto-start monitoring on boot (real app). Gated off in the test env so the app-wide instance
     # doesn't tick against the shared Rig/home during unrelated tests — tests call run/1 to monitor.
@@ -123,7 +131,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # the WHOLE sequence enters the Body ahead of everything, atomically.
   def handle_call(:flee_to_escape, _from, state) do
     with {:ok, %Calibration{escape_point: point}} when is_tuple(point) <- Calibration.load(),
-         :ok <- Pokex.Bots.Focus.ensure_front() do
+         :ok <- Focus.ensure_front() do
       case Body.perform(flee_actions(point), :critical, state.body) do
         :ok ->
           broadcast_log(
@@ -594,7 +602,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   end
 
   defp compile_rescue_combo(name) do
-    combo = Enum.find(Pokex.Combos.Store.all(), &(&1.name == name))
+    combo = Enum.find(Store.all(), &(&1.name == name))
 
     cond do
       combo == nil ->

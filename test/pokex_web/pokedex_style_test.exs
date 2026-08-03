@@ -1,6 +1,7 @@
 defmodule PokexWeb.PokedexStyleTest do
   use ExUnit.Case, async: true
 
+  alias Pokex.Pokedex.Clans
   alias PokexWeb.PokedexStyle
 
   describe "clan_style/1" do
@@ -18,7 +19,7 @@ defmodule PokexWeb.PokedexStyleTest do
     test "every canonical clan has its own style — none falls back" do
       fallback = PokedexStyle.element_style(nil)
 
-      for clan <- Pokex.Pokedex.Clans.all() do
+      for clan <- Clans.all() do
         assert PokedexStyle.clan_style(clan) != fallback, "clan #{clan} lacks its own color"
       end
     end

@@ -2,8 +2,13 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   @moduledoc false
   @behaviour Pokex.Bots.Fisher.Sensors
 
-  alias Pokex.{Calibration, Rig, Settings, Vision}
-  alias Pokex.Bots.{Capture, SkillBar}
+  alias Pokex.Bots.Capture
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.SkillBar
+  alias Pokex.Calibration
+  alias Pokex.Rig
+  alias Pokex.Settings
+  alias Pokex.Vision
   alias Pokex.Vision.Frame
 
   @impl true
@@ -76,7 +81,7 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   defp fetch(:hostile, calib, _settings) do
     # The square around the character, the same one capture sweeps — the
     # hand-marked arena is gone.
-    with {:ok, region} <- Pokex.Bots.Catcher.SpotScan.region(calib),
+    with {:ok, region} <- SpotScan.region(calib),
          {:ok, frame} <- capture_frame(region, "hostile.png") do
       case Vision.find_hostile(frame) do
         {:ok, pixel} -> {:ok, Calibration.frame_to_screen(calib, region, pixel)}

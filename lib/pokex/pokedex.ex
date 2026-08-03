@@ -365,48 +365,60 @@ defmodule Pokex.Pokedex do
 
   # -- filtering ---------------------------------------------------------------
 
-  defp matches?(entry, filters) do
-    Enum.all?(filters, fn
-      {:name, text} when is_binary(text) and text != "" ->
-        String.contains?(String.downcase(entry.name), String.downcase(text))
+  defp matches?(entry, filters), do: Enum.all?(filters, &filter_matches?(entry, &1))
 
-      {:element, element} when is_binary(element) and element != "" ->
-        element in entry.elements
+  defp filter_matches?(entry, {:name, text}) when is_binary(text) and text != "" do
+    String.contains?(String.downcase(entry.name), String.downcase(text))
+  end
 
-      {:weak_to, element} when is_binary(element) and element != "" ->
-        element in entry.weak_to
+  defp filter_matches?(entry, {:element, element}) when is_binary(element) and element != "" do
+    element in entry.elements
+  end
 
-      # Multi-value groups (the non-exclusive filters): the entry matches when
-      # it has ANY of the selected values — "all grass AND all poison" is ONE
-      # group with two values, not two exclusive searches.
-      {:elements, list} when is_list(list) and list != [] ->
-        Enum.any?(list, &(&1 in entry.elements))
+  defp filter_matches?(entry, {:weak_to, element}) when is_binary(element) and element != "" do
+    element in entry.weak_to
+  end
 
-      {:weak_to, list} when is_list(list) and list != [] ->
-        Enum.any?(list, &(&1 in entry.weak_to))
+  # Multi-value groups (the non-exclusive filters): the entry matches when it
+  # has ANY of the selected values — "all grass AND all poison" is ONE group
+  # with two values, not two exclusive searches.
 
-      {:clans, list} when is_list(list) and list != [] ->
-        Enum.any?(list, &(&1 in entry.clans))
+  defp filter_matches?(entry, {:elements, list}) when is_list(list) and list != [] do
+    Enum.any?(list, &(&1 in entry.elements))
+  end
 
-      {:min_level, min} when is_integer(min) ->
-        is_integer(entry.level) and entry.level >= min
+  defp filter_matches?(entry, {:weak_to, list}) when is_list(list) and list != [] do
+    Enum.any?(list, &(&1 in entry.weak_to))
+  end
 
-      {:max_level, max} when is_integer(max) ->
-        is_integer(entry.level) and entry.level <= max
+  defp filter_matches?(entry, {:clans, list}) when is_list(list) and list != [] do
+    Enum.any?(list, &(&1 in entry.clans))
+  end
 
-      {:only_shiny, true} ->
-        entry.shiny_of != nil
+  defp filter_matches?(entry, {:min_level, min}) when is_integer(min) do
+    is_integer(entry.level) and entry.level >= min
+  end
 
-      # ISO dates compare correctly as strings
-      {:edited_after, date} when is_binary(date) and date != "" ->
-        is_binary(entry.edited_at) and entry.edited_at >= date
+  defp filter_matches?(entry, {:max_level, max}) when is_integer(max) do
+    is_integer(entry.level) and entry.level <= max
+  end
 
-      {:only_novelty, true} ->
-        novelty(entry) != nil
+  defp filter_matches?(entry, {:only_shiny, true}) do
+    entry.shiny_of != nil
 
-      _off ->
-        true
-    end)
+    # ISO dates compare correctly as strings
+  end
+
+  defp filter_matches?(entry, {:edited_after, date}) when is_binary(date) and date != "" do
+    is_binary(entry.edited_at) and entry.edited_at >= date
+  end
+
+  defp filter_matches?(entry, {:only_novelty, true}) do
+    novelty(entry) != nil
+  end
+
+  defp filter_matches?(_entry, _ignored_filter) do
+    true
   end
 
   # -- loading -----------------------------------------------------------------

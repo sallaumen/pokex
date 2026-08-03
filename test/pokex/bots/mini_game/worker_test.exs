@@ -2,8 +2,11 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.MiniGame.Worker
+  alias Pokex.Calibration
   alias Pokex.Perception.WorldState
-  alias Pokex.{Calibration, Settings, SettingsStash}
+  alias Pokex.Rig.Fake
+  alias Pokex.Settings
+  alias Pokex.SettingsStash
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
@@ -58,7 +61,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     game = png!(tmp, "mini-game.png", true)
     calm = png!(tmp, "calm.png", false)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
@@ -88,7 +91,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     game = png!(tmp, "mini-game.png", true)
     fishy_world = play_png!(tmp, "fishy-world.png", fish: 100..131, capsule: nil)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, fishy_world}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}, {:ok, fishy_world}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
@@ -110,7 +113,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     game = png!(tmp, "mini-game.png", true)
     playing = play_png!(tmp, "playing.png", fish: 100..131, capsule: 140..160)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, playing}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}, {:ok, playing}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
@@ -131,7 +134,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   } do
     game = png_with_bar_at!(tmp, "offset-game.png", 144..156)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
@@ -148,7 +151,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     Calibration.save(%{calib | mini_game_region: {140, 20, 60, 180}})
 
     game = png!(tmp, "mini-game.png", true)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
@@ -156,7 +159,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
 
-    assert {:capture, {140, 20, 60, 180}, "mini_game.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, {140, 20, 60, 180}, "mini_game.png"} in Fake.calls()
   end
 
   @tag :tmp_dir
@@ -170,7 +173,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
 
     game = png_with_bar_at!(tmp, "calibrated-game.png", 144..156)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
@@ -185,7 +188,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     game = png!(tmp, "mini-game.png", true)
     calm = png!(tmp, "calm.png", false)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}, {:ok, game}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}, {:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
@@ -209,7 +212,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   test "plays: fish above the capsule -> holds Space (key_down, never Body)", %{tmp: tmp} do
     game = play_png!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
@@ -217,9 +220,9 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
 
-    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+    wait_for(fn -> {:key_down, "space"} in Fake.calls() end)
 
-    assert {:capture, {70, 0, 80, 220}, "mini_game_strip.png"} in Pokex.Rig.Fake.calls()
+    assert {:capture, {70, 0, 80, 220}, "mini_game_strip.png"} in Fake.calls()
   end
 
   # The entry guard sends a preventive key_up before the first tick — the proven release
@@ -229,7 +232,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     hold = play_png!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
     release = play_png!(tmp, "release.png", fish: 170..184, capsule: 120..134)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, hold}, {:ok, hold}, {:ok, release}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, hold}, {:ok, hold}, {:ok, release}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
@@ -245,7 +248,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
     calm = png!(tmp, "calm.png", false)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}, {:ok, calm}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
@@ -253,24 +256,24 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :watching, transition: :left}}, 1_000
 
-    assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
+    assert {:key_up, "space"} in Fake.calls()
   end
 
   @tag :tmp_dir
   test "re-running the worker mid-game releases Space (panel Start while playing)", %{tmp: tmp} do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
-    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+    wait_for(fn -> {:key_down, "space"} in Fake.calls() end)
 
     assert :ok = Worker.run(worker)
-    assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
+    assert {:key_up, "space"} in Fake.calls()
   end
 
   @tag :tmp_dir
@@ -279,7 +282,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     calm = png!(tmp, "calm.png", false)
 
     captures = List.duplicate({:ok, game}, 8) ++ [{:ok, calm}]
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: captures})
+    {:ok, _} = Fake.start_link(%{capture: captures})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
@@ -338,17 +341,17 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   test "halt while holding releases Space", %{tmp: tmp} do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
 
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
-    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+    wait_for(fn -> {:key_down, "space"} in Fake.calls() end)
 
     assert :ok = Worker.halt(worker)
-    assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
+    assert {:key_up, "space"} in Fake.calls()
   end
 
   @tag :tmp_dir
@@ -356,14 +359,14 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
 
     {:ok, _} =
-      Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}, {:ok, game}, {:error, :boom}]})
+      Fake.start_link(%{capture: [{:ok, game}, {:ok, game}, {:error, :boom}]})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
 
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
-    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
+    wait_for(fn -> {:key_down, "space"} in Fake.calls() end)
 
     wait_for(&released_after_holding?/0)
   end
@@ -377,7 +380,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     @tag :tmp_dir
     test "never presses Space — the human plays, the bot only watches", %{tmp: tmp} do
       game = play_png!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
-      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 30)})
+      {:ok, _} = Fake.start_link(%{capture: List.duplicate({:ok, game}, 30)})
 
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       worker = start_supervised!({Worker, name: nil})
@@ -387,24 +390,24 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
 
       Process.sleep(300)
 
-      refute {:key_down, "space"} in Pokex.Rig.Fake.calls()
+      refute {:key_down, "space"} in Fake.calls()
       assert :ok = Worker.halt(worker)
-      refute {:key_down, "space"} in Pokex.Rig.Fake.calls()
+      refute {:key_down, "space"} in Fake.calls()
     end
 
     @tag :tmp_dir
     test "entering releases Space preventively, before the first play tick", %{tmp: tmp} do
       game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
-      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 10)})
+      {:ok, _} = Fake.start_link(%{capture: List.duplicate({:ok, game}, 10)})
 
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       worker = start_supervised!({Worker, name: nil})
 
       assert :ok = Worker.run(worker)
       assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
-      wait_for(fn -> {:key_up, "space"} in Pokex.Rig.Fake.calls() end)
+      wait_for(fn -> {:key_up, "space"} in Fake.calls() end)
 
-      calls = Pokex.Rig.Fake.calls()
+      calls = Fake.calls()
       release = Enum.find_index(calls, &(&1 == {:key_up, "space"}))
 
       strip =
@@ -423,7 +426,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       calm = png!(tmp, "calm.png", false)
 
       {:ok, _} =
-        Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 6) ++ [{:ok, calm}]})
+        Fake.start_link(%{capture: List.duplicate({:ok, game}, 6) ++ [{:ok, calm}]})
 
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       worker = start_supervised!({Worker, name: nil})
@@ -442,7 +445,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       Settings.put(:mini_game_manual_alert_ms, 30)
 
       game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
-      {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 30)})
+      {:ok, _} = Fake.start_link(%{capture: List.duplicate({:ok, game}, 30)})
 
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       worker = start_supervised!({Worker, name: nil})
@@ -463,7 +466,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
       calm = png!(tmp, "calm.png", false)
 
       {:ok, _} =
-        Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 8) ++ [{:ok, calm}]})
+        Fake.start_link(%{capture: List.duplicate({:ok, game}, 8) ++ [{:ok, calm}]})
 
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       worker = start_supervised!({Worker, name: nil})
@@ -485,7 +488,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   test "auto mode does not raise the manual alert", %{tmp: tmp} do
     Settings.put(:mini_game_manual_alert_ms, 10)
     game = play_png!(tmp, "game.png", fish: 40..54, capsule: 100..114)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: List.duplicate({:ok, game}, 20)})
+    {:ok, _} = Fake.start_link(%{capture: List.duplicate({:ok, game}, 20)})
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_supervised!({Worker, name: nil})
@@ -498,7 +501,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   defp released_after_holding? do
-    calls = Pokex.Rig.Fake.calls()
+    calls = Fake.calls()
 
     case Enum.find_index(calls, &(&1 == {:key_down, "space"})) do
       nil -> false
@@ -512,7 +515,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
         :ok
 
       tries == 0 ->
-        flunk("condition never became true; calls: #{inspect(Pokex.Rig.Fake.calls())}")
+        flunk("condition never became true; calls: #{inspect(Fake.calls())}")
 
       true ->
         Process.sleep(10)

@@ -17,6 +17,15 @@ defmodule Pokex.Bots.MinimapStepTest do
   alias Pokex.Settings
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
+    # Every step here is a CLICK, and the safety gate that allows it is global:
+    # a suite that left it shut turned all of these into
+    # {:error, :input_gate_closed}. State the precondition instead of inheriting it.
+    InputGate.set_corner_ok(true)
+    InputGate.set_focus_ok(true)
+
     {:ok, fix} = Layout.locate(ScreenFixtures.frame!("ultrawide_3440x1440_time"))
     {:ok, _} = Fake.start_link()
     %{fix: fix}

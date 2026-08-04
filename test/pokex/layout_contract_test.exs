@@ -12,6 +12,9 @@ defmodule Pokex.LayoutContractTest do
   alias Pokex.Perception.WorldState
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     on_exit(fn -> WorldState.forget(:layout) end)
     :ok
   end

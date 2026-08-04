@@ -6,6 +6,9 @@ defmodule Pokex.WorldTest do
   alias Pokex.World
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     on_exit(fn ->
       for key <- [:hud, :team, :battle, :minimap, :layout], do: WorldState.forget(key)
     end)

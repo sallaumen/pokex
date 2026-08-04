@@ -74,3 +74,9 @@ config :pokex, :cavebot_active, false
 # stop_all, racing the test's own scoped Guardian (measured flaky). Guardian tests opt
 # back in with `session_rules: true`.
 config :pokex, :guardian_session_rules, false
+# Waking a NAMED perception feed starts a real capture loop that writes into the
+# shared blackboard behind whatever test is running — the cavebot's own worker
+# attaches :minimap and the feed then overwrote the position the test had just
+# published (measured 2026-08-04, failed on some seeds only). Feed tests drive
+# their own unnamed Feed and are unaffected.
+config :pokex, :perception_feeds_active, false

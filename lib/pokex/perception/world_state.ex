@@ -65,4 +65,18 @@ defmodule Pokex.Perception.WorldState do
 
   @doc "Everything the world currently knows — the /world page's data source."
   def entries, do: :ets.tab2list(@table)
+
+  @doc """
+  Forget EVERYTHING. The suite's reset: one shared table serves every test, so a
+  fact left behind decides the next test's behaviour — a stray `:battle` put the
+  cavebot in `:fighting`, and the walking test failed or passed by seed
+  (2026-08-04). Tests that read the world clear it on the way IN; cleaning up on
+  the way out cannot protect them from whoever ran before.
+
+  Production never forgets everything at once — facts expire by age instead.
+  """
+  def clear do
+    :ets.delete_all_objects(@table)
+    :ok
+  end
 end

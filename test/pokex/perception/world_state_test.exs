@@ -5,6 +5,9 @@ defmodule Pokex.Perception.WorldStateTest do
   alias Pokex.Perception.WorldState
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     on_exit(fn -> :ets.delete(:pokex_world, :test_key) end)
     :ok
   end

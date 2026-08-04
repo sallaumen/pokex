@@ -35,6 +35,9 @@ defmodule PokexWeb.PanelLiveTest do
   end
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     {:ok, _} = Fake.start_link()
 
     on_exit(fn ->

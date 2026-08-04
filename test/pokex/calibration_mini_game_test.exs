@@ -13,6 +13,9 @@ defmodule Pokex.CalibrationMiniGameTest do
   @measured {3067, 800, 28, 479}
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     on_exit(fn -> WorldState.forget(:layout) end)
     {:ok, fix} = Layout.locate(Pokex.ScreenFixtures.frame!("ultrawide_3440x1440_full"))
     %{fix: fix}

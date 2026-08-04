@@ -6,6 +6,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   alias Pokex.Bots.MiniGame.Worker
   alias Pokex.Bots.Session
   alias Pokex.{Calibration, Settings}
+  alias Pokex.Perception.WorldState
 
   @fast %{
     wait_focus_ms: 5,
@@ -28,6 +29,9 @@ defmodule Pokex.Bots.BotSupervisorTest do
   }
 
   setup %{tmp_dir: tmp} do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     Application.put_env(:pokex, :home_dir, tmp)
 
     on_exit(fn ->

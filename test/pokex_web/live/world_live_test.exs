@@ -5,6 +5,9 @@ defmodule PokexWeb.WorldLiveTest do
   alias Pokex.Perception.WorldState
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     on_exit(fn ->
       Enum.each(
         [:battle, :corpses, :mini_game, :world_test_key, :hud, :team, :minimap],

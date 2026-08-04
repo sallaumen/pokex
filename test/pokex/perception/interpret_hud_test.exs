@@ -9,6 +9,9 @@ defmodule Pokex.Perception.InterpretHudTest do
   alias Pokex.Vision.Frame
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     on_exit(fn -> WorldState.forget(:layout) end)
     {:ok, fix} = Layout.locate(ScreenFixtures.frame!("ultrawide_3440x1440_full"))
     publish(fix)

@@ -26,11 +26,22 @@ defmodule Pokex.Perception do
 
   def topic, do: Feed.topic()
 
-  @doc "Attach the calling process as a consumer of `key` (starts its captures if first)."
-  def attach(key), do: Feed.attach(Feed.name(key))
+  @doc """
+  Attach the calling process as a consumer of `key` (starts its captures if first).
+
+  Inert in the suite (`:perception_feeds_active`). Waking a NAMED feed starts a
+  real capture loop that writes observations into the shared blackboard behind
+  whatever test happens to be running: measured 2026-08-04, a cavebot test
+  published its own `:minimap` position and the feed its own worker had just
+  woken overwrote it — so the worker never stepped, and the test passed or
+  failed depending on the seed. Feed tests drive their own unnamed `Feed`.
+  """
+  def attach(key), do: if(feeds_active?(), do: Feed.attach(Feed.name(key)), else: :ok)
 
   @doc "Detach the calling process from `key` (pauses the feed if it was the last)."
-  def detach(key), do: Feed.detach(Feed.name(key))
+  def detach(key), do: if(feeds_active?(), do: Feed.detach(Feed.name(key)), else: :ok)
+
+  defp feeds_active?, do: Application.get_env(:pokex, :perception_feeds_active, true)
 
   @doc """
   Is the fishing mini-game being played right now, per the `:mini_game` fact the

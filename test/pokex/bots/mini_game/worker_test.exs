@@ -9,6 +9,9 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   alias Pokex.SettingsStash
 
   setup %{tmp_dir: tmp} do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     Application.put_env(:pokex, :home_dir, tmp)
 
     on_exit(fn ->

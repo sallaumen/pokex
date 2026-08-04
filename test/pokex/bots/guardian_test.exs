@@ -29,11 +29,24 @@ defmodule Pokex.Bots.GuardianTest do
   alias Pokex.Perception.WorldState
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     test = self()
     on_panic = fn -> send(test, :panicked) end
-    # every corner-triggered panic now SETS the global latch — clear it after each test so it
-    # never leaks into other suites (the Focus resume tests read it)
-    on_exit(fn -> InputGate.set_panic_latch(false) end)
+
+    # These tests drive a Guardian whose cursor sits in the KILL CORNER, and that
+    # Guardian closes the GLOBAL corner flag. Stopped while still "in the corner"
+    # it left the gate shut for everything after it: every click answered
+    # {:error, :input_gate_closed} — a whole file down, on some seeds only
+    # (2026-08-04). The latch leaks the same way (the Focus resume tests read it).
+    # Same restore contract input_gate_test and focus_test already keep.
+    on_exit(fn ->
+      InputGate.set_panic_latch(false)
+      InputGate.set_corner_ok(true)
+      InputGate.set_focus_ok(true)
+    end)
+
     %{on_panic: on_panic}
   end
 

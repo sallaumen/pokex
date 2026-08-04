@@ -30,6 +30,9 @@ defmodule Pokex.Combos.RunnerTest do
   end
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     tmp = Path.join(System.tmp_dir!(), "pokex-runner-#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp)
     Application.put_env(:pokex, :home_dir, tmp)

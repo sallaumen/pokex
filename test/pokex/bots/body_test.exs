@@ -162,6 +162,9 @@ defmodule Pokex.Bots.BodyTest do
   alias Pokex.Rig.Fake
 
   setup do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     start_supervised!({Fake, %{}})
     pid = start_body(:body_test_default_body, name: :body_test)
     %{body: pid}

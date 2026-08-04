@@ -22,6 +22,9 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   alias Pokex.Settings
 
   setup %{tmp_dir: tmp} do
+    # one shared blackboard: start from an empty world, never from the last test's
+    WorldState.clear()
+
     Application.put_env(:pokex, :home_dir, tmp)
     mode = Settings.get(:player_mode)
     loot_enabled = Settings.get(:loot_enabled)

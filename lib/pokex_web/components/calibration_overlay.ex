@@ -34,10 +34,20 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :minimap_region, :any, default: nil
   attr :minimap_coord_region, :any, default: nil
   attr :minimap_player_point, :any, default: nil
+  attr :scan_region, :any, default: nil
   attr :bands, :list, default: []
 
   def overlays(assigns) do
     ~H"""
+    <div
+      :if={@scan_region}
+      class="absolute rounded border-2 border-dashed border-success/70"
+      style={region_style(@scan_region, @screen)}
+    >
+      <span class="absolute -top-4 right-0 rounded bg-success px-1 text-[10px] font-bold text-success-content">
+        busca de corpos
+      </span>
+    </div>
     <div
       :if={@glow_region}
       class="absolute rounded border-2 border-info bg-info/10"
@@ -179,7 +189,60 @@ defmodule PokexWeb.CalibrationOverlay do
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-sm border-2 border-error" /> faixa da coordenada
       </span>
+      <span class="flex items-center gap-1">
+        <span class="size-2.5 rounded-sm border-2 border-dashed border-success/70" />
+        busca de corpos (automática)
+      </span>
     </div>
     """
   end
+
+  @doc """
+  The saved calibration's screen vs the one in front of him now.
+
+  A different SHAPE of screen means the points belong somewhere else and only a
+  full recalibration fixes it. The same shape at another size is one screenshot
+  measured with two rulers — repairable exactly, in one click.
+  """
+  attr :check, :any, required: true
+
+  def screen_warning(%{check: {:rescalable, {sw, sh}, {cw, ch}}} = assigns) do
+    assigns = assign(assigns, saved: "#{sw}×#{sh}", current: "#{cw}×#{ch}")
+
+    ~H"""
+    <div
+      id="screen-scale-warning"
+      class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
+    >
+      <p class="font-bold text-warning">📏 Esta calibração foi salva com a régua errada</p>
+      <p class="mt-0.5 opacity-80">
+        Ela diz {@saved} pontos, mas é a MESMA tela de {@current} — só medida errado, então cada
+        ponto ficou fora de lugar na mesma proporção. Dá pra consertar sem remarcar nada.
+      </p>
+      <button class="btn btn-warning btn-xs mt-2" phx-click="rescale_calibration">
+        Corrigir para {@current}
+      </button>
+    </div>
+    """
+  end
+
+  def screen_warning(%{check: {:another_screen, {sw, sh}, {cw, ch}}} = assigns) do
+    assigns = assign(assigns, saved: "#{sw}×#{sh}", current: "#{cw}×#{ch}")
+
+    ~H"""
+    <div
+      id="other-screen-warning"
+      class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
+    >
+      <p class="font-bold text-warning">🖥️ Esta calibração é de outra tela</p>
+      <p class="mt-0.5 opacity-80">
+        Foi marcada numa tela de {@saved} pontos e a de agora tem {@current}. Cada ponto salvo
+        pertence à tela onde foi marcado — nesta aqui eles caem no lugar errado.
+        Refaça a calibração completa.
+      </p>
+    </div>
+    """
+  end
+
+  def screen_warning(assigns), do: ~H""
 end

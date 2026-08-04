@@ -8,12 +8,12 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
   alias Pokex.Home
-  alias Pokex.Rig
+  alias Pokex.Screenshot
   alias Pokex.Settings
   alias Pokex.Vision
   alias Pokex.Vision.Frame
 
-  import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
+  import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1, screen_warning: 1]
 
   @glow_half 32
 
@@ -85,7 +85,7 @@ defmodule PokexWeb.CalibrationLive do
        draft: %{},
        done: false,
        calibrated?: Calibration.exists?(),
-       other_screen: other_screen(),
+       screen_check: screen_check(),
        profiles: load_profiles(),
        review: nil,
        error: nil,
@@ -105,12 +105,13 @@ defmodule PokexWeb.CalibrationLive do
 
   @impl true
   def handle_event("capture_screen", _params, socket) do
-    case grab_screen("scale_probe.png") do
+    case grab_screen() do
       {:ok, screen} ->
         {:noreply,
          assign(socket,
            scale: screen.scale,
            screen: screen,
+           screen_check: screen_check(shot_points(screen)),
            step: :water,
            mode: :full,
            draft: %{skill_bar_count: socket.assigns.skill_count},
@@ -129,7 +130,7 @@ defmodule PokexWeb.CalibrationLive do
   # Standalone correction for an existing calibration. The normal 8-step wizard
   # already includes these two clicks.
   def handle_event("calibrate_skillbar", _params, socket) do
-    case grab_screen("skillbar_probe.png") do
+    case grab_screen() do
       {:ok, screen} ->
         {:noreply,
          assign(socket,
@@ -153,7 +154,7 @@ defmodule PokexWeb.CalibrationLive do
   # Standalone correction: re-mark only the character (the mini-game bar anchor)
   # on an existing calibration, without redoing the whole wizard.
   def handle_event("calibrate_player", _params, socket) do
-    case grab_screen("player_probe.png") do
+    case grab_screen() do
       {:ok, screen} ->
         {:noreply,
          assign(socket,
@@ -180,7 +181,7 @@ defmodule PokexWeb.CalibrationLive do
   # FROM THE SAME SHOT with the freshly marked regions: feedback arrives
   # before any field run.
   def handle_event("calibrate_minimap", _params, socket) do
-    case grab_screen("minimap_probe.png") do
+    case grab_screen() do
       {:ok, screen} ->
         {:noreply,
          assign(socket,
@@ -205,7 +206,7 @@ defmodule PokexWeb.CalibrationLive do
   # (2 corners) on an existing calibration. From then on the mini-game worker
   # watches THAT region instead of hunting the bar inside the arena.
   def handle_event("calibrate_mini_game", _params, socket) do
-    case grab_screen("mini_game_probe.png") do
+    case grab_screen() do
       {:ok, screen} ->
         {:noreply,
          assign(socket,
@@ -275,7 +276,7 @@ defmodule PokexWeb.CalibrationLive do
   # Standalone correction: mark only where the Pokémon should STAND (the strategic
   # attack tile the support worker middle-clicks after battles).
   def handle_event("calibrate_pokemon_spot", _params, socket) do
-    case grab_screen("pokemon_spot_probe.png") do
+    case grab_screen() do
       {:ok, screen} ->
         {:noreply,
          assign(socket,
@@ -299,7 +300,7 @@ defmodule PokexWeb.CalibrationLive do
   # Standalone correction: mark only the escape STAIRCASE tile the
   # emergency-escape protocol click-walks to.
   def handle_event("calibrate_escape_point", _params, socket) do
-    case grab_screen("escape_point_probe.png") do
+    case grab_screen() do
       {:ok, screen} ->
         {:noreply,
          assign(socket,
@@ -322,8 +323,13 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("review", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
-         {:ok, screen} <- grab_screen("review_probe.png") do
-      {:noreply, assign(socket, review: Map.put(screen, :calib, calib), error: nil)}
+         {:ok, screen} <- grab_screen() do
+      {:noreply,
+       assign(socket,
+         review: Map.put(screen, :calib, calib),
+         screen_check: screen_check(shot_points(screen)),
+         error: nil
+       )}
     else
       error -> {:noreply, assign(socket, error: "não deu pra revisar: #{inspect(error)}")}
     end
@@ -331,6 +337,25 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("close_review", _params, socket) do
     {:noreply, assign(socket, review: nil)}
+  end
+
+  # The clicks were right, the ruler was not: re-express every marked point in
+  # the filmed display's coordinates instead of making him redo ten steps.
+  # Offered ONLY for a same-shape mismatch (Calibration.screen_check/2), and the
+  # review preview right below is the proof — the markers land on the game or
+  # they don't.
+  def handle_event("rescale_calibration", _params, socket) do
+    with {:rescalable, _saved, {w, h}} <- socket.assigns.screen_check,
+         {:ok, calib} <- Calibration.load(),
+         :ok <- Calibration.save(Calibration.rescale(calib, {w, h})) do
+      {:noreply,
+       socket
+       |> assign(screen_check: screen_check(), review: nil, error: nil)
+       |> assign(skillbar_msg: "Calibração corrigida para #{w}×#{h}. Confira em 'Ver áreas'.")}
+    else
+      error ->
+        {:noreply, assign(socket, error: "não deu pra corrigir a escala: #{inspect(error)}")}
+    end
   end
 
   def handle_event("set_skill_count", %{"skill_bar" => %{"count" => raw}}, socket) do
@@ -509,7 +534,12 @@ defmodule PokexWeb.CalibrationLive do
 
     socket
     |> return_focus()
-    |> assign(done: true, step: nil, calibrated?: true, other_screen: other_screen())
+    |> assign(
+      done: true,
+      step: nil,
+      calibrated?: true,
+      screen_check: screen_check(shot_points(socket.assigns.screen))
+    )
   end
 
   defp photo_error(:no_anchor),
@@ -589,55 +619,17 @@ defmodule PokexWeb.CalibrationLive do
     _ -> :ok
   end
 
-  # Probe a 100x100 region for the Retina scale, then grab the full screen — both while the
-  # GAME is fronted (see with_game_front/1). Both go through the Capture broker so they hit
-  # the SAME display the production feeds film — with 2 monitors, the raw CLI capture_screen
-  # can grab the wrong one (measured 2026-07-20: calibration previewed the laptop screen).
-  defp grab_screen(probe_name) do
-    captured =
-      with_game_front(fn ->
-        with {:ok, probe} <- Capture.grab({0, 0, 100, 100}, probe_name),
-             {:ok, screen} <- Capture.screen("calibration_screen.png") do
-          {:ok, probe, screen}
-        end
-      end)
-
-    with {:ok, probe_path, screen_path} <- captured,
-         {:ok, {px_w, px_h}} <- Frame.png_dimensions(screen_path) do
-      scale = screenshot_scale(px_w, probe_path)
-
+  # The screenshot the whole wizard marks on, taken while the GAME is fronted
+  # (see with_game_front/1). Measuring it is `Pokex.Screenshot`'s job — the same
+  # recipe /diagnostics uses, so both pages and the bot share one coordinate space.
+  defp grab_screen do
+    with {:ok, shot} <- with_game_front(fn -> Screenshot.take("calibration_screen.png") end) do
       {:ok,
-       %{
-         src: "/captures/#{Path.basename(screen_path)}?t=#{System.unique_integer([:positive])}",
-         path: screen_path,
-         scale: scale,
-         w: round(px_w / scale),
-         h: round(px_h / scale)
-       }}
-    end
-  end
-
-  # How many PIXELS of this screenshot make one screen POINT.
-  #
-  # The window server is the only source that does not depend on which capture
-  # backend answered: a full screenshot comes back in pixels from `screencapture`
-  # and in points from ScreenCaptureKit. Deriving the scale from a 100×100 probe
-  # compared a capture from one backend with a capture from the other whenever
-  # the two calls disagreed — measured live on 2026-08-03 with the SCK serving
-  # the probe (100px → scale 1.0) while the full screen fell back to the CLI
-  # (3024px), so the wizard believed the 1512-point screen was 3024 points wide
-  # and every point marked in that step landed at double its coordinate.
-  defp screenshot_scale(px_w, probe_path) do
-    case Rig.impl().screen_points() do
-      {:ok, {point_w, _point_h}} when point_w > 0 -> px_w / point_w
-      _unknown -> probe_scale(probe_path)
-    end
-  end
-
-  defp probe_scale(probe_path) do
-    case Frame.png_dimensions(probe_path) do
-      {:ok, {probe_px, _}} when probe_px > 0 -> probe_px / 100
-      _unreadable -> 1.0
+       Map.put(
+         shot,
+         :src,
+         "/captures/#{Path.basename(shot.path)}?t=#{System.unique_integer([:positive])}"
+       )}
     end
   end
 
@@ -1017,26 +1009,37 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  # The saved calibration's screen vs the one in front of him RIGHT NOW.
-  # Every coordinate in the file belongs to the screen it was marked on: served
-  # on a different one, every point lands somewhere else and the bot looks
-  # broken rather than uncalibrated. Returns nil when they agree (or when there
-  # is nothing to compare), `{saved, current}` when they do not.
-  defp other_screen do
-    with {:ok, calib} <- Calibration.load(),
-         {:ok, {w, h}} <- screen_points(),
-         true <- is_integer(calib.screen_w) and is_integer(calib.screen_h),
-         true <- {calib.screen_w, calib.screen_h} != {w, h} do
-      {{calib.screen_w, calib.screen_h}, {w, h}}
-    else
-      _same_screen_or_unknown -> nil
+  # The saved calibration's screen vs the one in front of him RIGHT NOW. Every
+  # coordinate in the file belongs to the screen it was marked on; served on
+  # another one, the bot looks broken rather than uncalibrated.
+  defp screen_check(display_points \\ display_points()) do
+    case Calibration.load() do
+      {:ok, calib} -> Calibration.screen_check(calib, display_points)
+      _uncalibrated -> :unknown
     end
   end
 
-  # Asking the OS must never be able to take the page down: a wedged osascript
-  # or a rig that is not running is "I don't know", not a crash.
-  defp screen_points do
-    Rig.impl().screen_points()
+  # A screenshot in hand IS the measurement — better than asking the backend
+  # again, and free. Used right after every grab so the verdict he reads matches
+  # the picture he is looking at.
+  defp shot_points(%{w: w, h: h}), do: {:ok, {w, h}}
+  defp shot_points(_no_shot), do: :unknown
+
+  # The square the corpse search sweeps — derived from the character and the
+  # tile radius, never marked by hand. Drawn so he can SEE the automatic area
+  # (he had to draw it on a screenshot to ask what it was) and size it with
+  # corpse_scan_radius_tiles.
+  defp scan_region(calib) do
+    case SpotScan.region(calib) do
+      {:ok, region} -> region
+      _uncalibrated -> nil
+    end
+  end
+
+  # Asking must never be able to take the page down: a wedged backend is
+  # "I don't know", not a crash.
+  defp display_points do
+    Capture.display_points()
   catch
     _kind, _reason -> :unknown
   end
@@ -1176,23 +1179,7 @@ defmodule PokexWeb.CalibrationLive do
           </p>
         </header>
 
-        <div
-          :if={@other_screen}
-          id="other-screen-warning"
-          class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
-        >
-          <p class="font-bold text-warning">🖥️ Esta calibração é de outra tela</p>
-          <p class="mt-0.5 opacity-80">
-            Foi marcada numa tela de {elem(elem(@other_screen, 0), 0)}×{elem(
-              elem(@other_screen, 0),
-              1
-            )} pontos e a de agora tem {elem(elem(@other_screen, 1), 0)}×{elem(
-              elem(@other_screen, 1),
-              1
-            )}. Cada ponto salvo pertence à tela onde foi marcado — nesta aqui eles caem no lugar
-            errado. Refaça a calibração completa.
-          </p>
-        </div>
+        <.screen_warning check={@screen_check} />
 
         <p :if={@error} class="rounded-lg bg-error/15 px-3 py-2 text-sm text-error">{@error}</p>
         <p :if={@skillbar_msg} class="rounded-lg bg-success/15 px-3 py-2 text-sm text-success">
@@ -1209,8 +1196,10 @@ defmodule PokexWeb.CalibrationLive do
           </div>
           <.legend />
           <p class="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs">
-            A faixa do <b>mini game</b>: a SUA marcação manda. Sem ela, o bot procura numa
-            caixa no centro do jogo — marque a faixa pra busca ficar barata e certeira.
+            Duas áreas são <b>automáticas</b>, tiradas do seu personagem: a caixa do <b>mini game</b>
+            (3 tiles pra cada lado, de 3 acima a 7 abaixo dele) e a <b>busca de corpos</b>
+            (raio em tiles, no ⚙️). Marcar a faixa do mini game à mão
+            continua valendo mais — deixa a busca ainda mais barata e certeira.
           </p>
           <div class="relative overflow-hidden rounded-lg border border-base-content/20">
             <img src={@review.src} class="w-full" />
@@ -1228,6 +1217,7 @@ defmodule PokexWeb.CalibrationLive do
               minimap_region={Calibration.minimap_region(@review.calib)}
               minimap_coord_region={Calibration.minimap_coord_region(@review.calib)}
               minimap_player_point={Calibration.minimap_player_point(@review.calib)}
+              scan_region={scan_region(@review.calib)}
               bands={Calibration.battle_row_bands(@review.calib, @row_height, @max_rows)}
             />
           </div>

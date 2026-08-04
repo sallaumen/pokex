@@ -96,14 +96,27 @@ defmodule Pokex.Calibration do
   # A BOX AROUND THE CHARACTER — the mini-game bar appears over him, so he is
   # the anchor. This used to be the middle of the calibrated "arena", which drew
   # a second rectangle inside a rectangle and asked for two clicks that taught
-  # the bot nothing (2026-08-03: "a área do minigame está duplicada"). Half the
-  # screen wide, clamped, so a marked strip still wins and still makes it cheap.
+  # the bot nothing (2026-08-03: "a área do minigame está duplicada").
+  #
+  # Sized in TILES, from his own six hand-marked strips: every one of them sits
+  # within 2 tiles either side of the character and runs from 1 tile above him
+  # to 7 below. Three tiles of margin each way covers them all. Half the screen
+  # — the previous default — searched 25% of the display and drew a rectangle
+  # nobody recognised as the mini-game ("aquela área grandona").
+  @mini_game_tiles_side 3
+  @mini_game_tiles_above 3
+  @mini_game_tiles_below 7
+
   defp centered_mini_game_region(%__MODULE__{screen_w: w, screen_h: h} = calib)
        when is_integer(w) and is_integer(h) do
     {cx, cy} = player_point(calib)
-    {bw, bh} = {div(w, 2), div(h, 2)}
+    tile = max(Pokex.Settings.get(:tile_px), 1)
 
-    {clamp(cx - div(bw, 2), 0, w - bw), clamp(cy - div(bh, 2), 0, h - bh), bw, bh}
+    bw = min(2 * @mini_game_tiles_side * tile, w)
+    bh = min((@mini_game_tiles_above + @mini_game_tiles_below) * tile, h)
+
+    {clamp(cx - @mini_game_tiles_side * tile, 0, w - bw),
+     clamp(cy - @mini_game_tiles_above * tile, 0, h - bh), bw, bh}
   end
 
   defp centered_mini_game_region(_uncalibrated), do: nil
@@ -333,6 +346,61 @@ defmodule Pokex.Calibration do
 
   def player_point(%__MODULE__{}), do: nil
   def player_point({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
+
+  @doc """
+  How the saved calibration relates to the display in front of him NOW:
+  `:same`, `:unknown` (nothing to compare), `{:another_screen, saved, current}`
+  or `{:rescalable, saved, current}`.
+
+  The same SHAPE at a different size cannot be a different monitor — it is one
+  screenshot divided by two different rulers. On 2026-08-04 the wizard divided a
+  3440×1440 screenshot by the window server's union of two displays and recorded
+  4952×2073: every point 1.44× off, and the fishing rod landed on dry rock. That
+  case is exactly repairable (see `rescale/2`); a different shape is not.
+  """
+  def screen_check(%__MODULE__{screen_w: w, screen_h: h}, {:ok, {cw, ch}})
+      when is_integer(w) and is_integer(h) and w > 0 and h > 0 do
+    cond do
+      {w, h} == {cw, ch} -> :same
+      same_shape?({w, h}, {cw, ch}) -> {:rescalable, {w, h}, {cw, ch}}
+      true -> {:another_screen, {w, h}, {cw, ch}}
+    end
+  end
+
+  def screen_check(_calib, _unmeasurable), do: :unknown
+
+  # Scaling the saved screen onto the current one must land on its height (the
+  # derived side is a rounded division, so ±1 point).
+  defp same_shape?({w, h}, {cw, ch}), do: abs(round(h * cw / w) - ch) <= 1
+
+  @geometry ~w(water_point glow_region battle_region neutral_point player_point
+               mini_game_region minimap_region minimap_player_point minimap_coord_region
+               pokemon_spot_point escape_point skill_bar_region pokemon_hp_region
+               pokemon_photo_point)a
+
+  @doc """
+  Re-expresses every marked point in the coordinates of a `{w, h}` screen.
+
+  Only meaningful for `{:rescalable, _, _}`: the clicks were right, the ruler
+  was not, so `current_w / saved_w` puts them back where he clicked. Colours
+  (`skill_slot_refs`) and counts carry no geometry and are left alone.
+  """
+  def rescale(%__MODULE__{screen_w: w, scale: scale} = calib, {cw, ch})
+      when is_integer(w) and w > 0 do
+    ratio = cw / w
+    rescaled = %{calib | screen_w: cw, screen_h: ch, scale: scale && scale / ratio}
+
+    Enum.reduce(@geometry, rescaled, fn key, acc ->
+      Map.update!(acc, key, &scaled(&1, ratio))
+    end)
+  end
+
+  defp scaled({x, y}, ratio), do: {round(x * ratio), round(y * ratio)}
+
+  defp scaled({x, y, w, h}, ratio),
+    do: {round(x * ratio), round(y * ratio), round(w * ratio), round(h * ratio)}
+
+  defp scaled(_unmarked, _ratio), do: nil
 
   # Measured on Lucas's 3440×1440 screen (2026-07-10): the main Pokémon is the TOP of the 6 party
   # slots at the game's bottom-left — a green→yellow→red HP bar and the "Q" portrait beside it.

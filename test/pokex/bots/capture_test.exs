@@ -66,6 +66,58 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  test "screen_with_points measures the FILMED display, never every monitor together" do
+    start_supervised!(
+      {Pokex.CaptureBackendFake,
+       %{start: [{:ok, :sck_backend}], display_region: [{:ok, {0, 0, 3440, 1440}}]}}
+    )
+
+    {:ok, pid} =
+      Capture.start_link(name: :cap_points_sck, screen_capture_kit: Pokex.CaptureBackendFake)
+
+    assert {:ok, _path, {3440, 1440}} = Capture.screen_with_points("screen.png", :cap_points_sck)
+
+    GenServer.stop(pid)
+  end
+
+  @tag :tmp_dir
+  test "screen_with_points derives the CLI's points from a probe taken in the same turn", %{
+    tmp_dir: tmp
+  } do
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "cli.png"), rows(302, 196))
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200))
+    Agent.stop(Fake)
+    {:ok, _} = Fake.start_link(%{capture_screen: [{:ok, screen}], capture: [{:ok, probe}]})
+    {:ok, pid} = Capture.start_link(name: :cap_points_cli)
+
+    assert {:ok, ^screen, {151, 98}} = Capture.screen_with_points("s.png", :cap_points_cli)
+
+    GenServer.stop(pid)
+  end
+
+  test "display_points answers from the backend without taking any capture" do
+    start_supervised!(
+      {Pokex.CaptureBackendFake,
+       %{start: [{:ok, :sck_backend}], display_region: [{:ok, {0, 0, 3440, 1440}}]}}
+    )
+
+    {:ok, pid} =
+      Capture.start_link(name: :cap_display_points, screen_capture_kit: Pokex.CaptureBackendFake)
+
+    assert {:ok, {3440, 1440}} = Capture.display_points(:cap_display_points)
+    refute Enum.any?(Pokex.CaptureBackendFake.calls(), &match?({:capture, _, _, _}, &1))
+
+    GenServer.stop(pid)
+  end
+
+  test "display_points stays unknown without a broker and without SCK metadata" do
+    assert Capture.display_points(:no_such_broker) == :unknown
+
+    {:ok, pid} = Capture.start_link(name: :cap_display_cli)
+    assert Capture.display_points(:cap_display_cli) == :unknown
+    GenServer.stop(pid)
+  end
+
   @tag :tmp_dir
   test "frame decodes and reuses a short same-region cache", %{tmp_dir: tmp} do
     path = png!(tmp, "frame.png", {10, 20, 30})
@@ -98,7 +150,8 @@ defmodule Pokex.Bots.CaptureTest do
     assert {:ok, %{rgba: <<90, 80, 70, 255, _rest::binary>>}} =
              Capture.frame_uncached(region, "frame.png", :cap_frame_uncached)
 
-    assert Fake.calls() == [
+    # captures only: Fake's log is global and the Body polls the cursor through it
+    assert Enum.filter(Fake.calls(), &match?({:capture, _region, _file}, &1)) == [
              {:capture, region, "frame.png"},
              {:capture, region, "frame.png"}
            ]
@@ -570,4 +623,6 @@ defmodule Pokex.Bots.CaptureTest do
     rows = for _ <- 1..2, do: for(_ <- 1..3, do: {r, g, b, 255})
     Pokex.PngFixtures.write!(Path.join(dir, name), rows)
   end
+
+  defp rows(w, h), do: for(_ <- 1..h, do: for(_ <- 1..w, do: {9, 9, 9, 255}))
 end

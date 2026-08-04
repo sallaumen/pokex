@@ -189,14 +189,6 @@ defmodule Pokex.Rig.Mac do
     end
   end
 
-  @impl true
-  def screen_points do
-    case run_capture_output(Commands.screen_points()) do
-      {:ok, out} -> Commands.parse_screen_points(out)
-      _error -> :unknown
-    end
-  end
-
   # "skillbar.png" → "skillbar-<caller-hash>.png": a per-process filename so concurrent readers
   # of the same region don't clobber each other's capture file.
   defp per_process(filename) do

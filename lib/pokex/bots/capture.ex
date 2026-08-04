@@ -56,11 +56,44 @@ defmodule Pokex.Bots.Capture do
   the wrong display.
   """
   def screen(filename, server \\ __MODULE__) do
+    case screen_with_points(filename, server) do
+      {:ok, path, _points} -> {:ok, path}
+      error -> error
+    end
+  end
+
+  @doc """
+  `screen/2` plus the FILMED display's size in SCREEN POINTS — `{:ok, path, {w, h}}`.
+
+  The only honest denominator for a screenshot's scale. The window server's
+  desktop bounds are the union of EVERY monitor (measured 2026-08-04 with two
+  displays: 4952×1989 for a 3440×1440 screenshot), so dividing by them scaled
+  each marked point by 1.44 and the rod landed on dry rock below the character.
+  A single display makes the two coincide, which is why it passed before.
+
+  Measured here, inside the one turn that takes the capture, so the backend
+  cannot flip between the two answers: SCK names the display in its ready
+  metadata, and even a mid-call CLI fallback reuses that region, so
+  `pixels / points` stays the true scale. Only a broker with no SCK at all
+  needs the 100-point probe — served by the same CLI, in the same turn.
+  """
+  def screen_with_points(filename, server \\ __MODULE__) do
     requested_at = now()
 
     case GenServer.whereis(server) do
-      nil -> guard_capture(fn -> Rig.impl().capture_screen() end)
-      pid -> GenServer.call(pid, {:screen, filename, requested_at}, :infinity)
+      nil -> cli_screen_with_points(filename)
+      pid -> GenServer.call(pid, {:screen_with_points, filename, requested_at}, :infinity)
+    end
+  end
+
+  @doc """
+  The filmed display's size in POINTS without taking a capture — `{:ok, {w, h}}`
+  or `:unknown`. `:unknown` means "no proof", never "the screen changed".
+  """
+  def display_points(server \\ __MODULE__) do
+    case GenServer.whereis(server) do
+      nil -> :unknown
+      pid -> GenServer.call(pid, :display_points, :infinity)
     end
   end
 
@@ -249,16 +282,23 @@ defmodule Pokex.Bots.Capture do
     end
   end
 
-  def handle_call({:screen, filename, requested_at}, _from, state) do
+  def handle_call({:screen_with_points, filename, requested_at}, _from, state) do
     record_queue(:screen, filename, requested_at)
 
     case screen_region(state) do
-      {:ok, region} ->
+      {:ok, {_x, _y, w, h} = region} ->
         {reply, state} = capture_path(state, region, filename)
-        {:reply, reply, prune_cache(state)}
+        {:reply, with({:ok, path} <- reply, do: {:ok, path, {w, h}}), prune_cache(state)}
 
       :unknown ->
-        {:reply, guard_capture(fn -> Rig.impl().capture_screen() end), state}
+        {:reply, cli_screen_with_points(filename), state}
+    end
+  end
+
+  def handle_call(:display_points, _from, state) do
+    case screen_region(state) do
+      {:ok, {_x, _y, w, h}} -> {:reply, {:ok, {w, h}}, state}
+      :unknown -> {:reply, :unknown, state}
     end
   end
 
@@ -490,6 +530,39 @@ defmodule Pokex.Bots.Capture do
     do: sck.display_region(backend)
 
   defp screen_region(_state), do: :unknown
+
+  # No SCK metadata: `screencapture -m` answers in PIXELS and never says which
+  # display it filmed. A region probe through the SAME CLI gives its pixels per
+  # point, so the screenshot's own size converts to points. Both captures happen
+  # in this one call — the async SCK recovery cannot slip between them and pair a
+  # points answer with a pixels one (the 2026-08-03 half-screen bug).
+  @probe_points 100
+
+  defp cli_screen_with_points(filename) do
+    with {:ok, path} <- guard_capture(fn -> Rig.impl().capture_screen() end) do
+      {:ok, path, cli_points(path, filename)}
+    end
+  end
+
+  defp cli_points(screen_path, filename) do
+    with {:ok, {px_w, px_h}} <- Frame.png_dimensions(screen_path),
+         ratio when ratio > 0 <- cli_pixels_per_point(filename) do
+      {round(px_w / ratio), round(px_h / ratio)}
+    else
+      _unmeasurable -> nil
+    end
+  end
+
+  defp cli_pixels_per_point(filename) do
+    region = {0, 0, @probe_points, @probe_points}
+
+    with {:ok, path} <- guard_capture(fn -> Rig.impl().capture(region, "points_#{filename}") end),
+         {:ok, {probe_px, _h}} <- Frame.png_dimensions(path) do
+      probe_px / @probe_points
+    else
+      _unmeasurable -> 0
+    end
+  end
 
   defp capture_with_sck(state, backend, region, path, filename) do
     do_capture_with_sck(state, backend, region, path, filename, state.sck_capture_retries)

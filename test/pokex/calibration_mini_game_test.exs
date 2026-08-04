@@ -48,12 +48,12 @@ defmodule Pokex.CalibrationMiniGameTest do
     assert Calibration.mini_game_region(hand_marked) == {2976, 555, 113, 773}
   end
 
-  test "without a manual mark, the default search is the central box — never the layout strip", %{
+  test "without a manual mark, the default search hugs the character — never the layout strip", %{
     fix: fix
   } do
     unmarked = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, layout: fix}
 
-    assert Calibration.mini_game_region(unmarked) == {860, 360, 1720, 720}
+    assert Calibration.mini_game_region(unmarked) == {1456, 456, 528, 880}
   end
 
   # The bar shows up over the CHARACTER, so he is the anchor. This used to be
@@ -68,7 +68,7 @@ defmodule Pokex.CalibrationMiniGameTest do
       layout: nil
     }
 
-    assert Calibration.mini_game_region(off_centre) == {140, 140, 1720, 720}
+    assert Calibration.mini_game_region(off_centre) == {736, 236, 528, 880}
 
     at_the_edge = %Calibration{
       scale: 1.0,
@@ -78,14 +78,39 @@ defmodule Pokex.CalibrationMiniGameTest do
       layout: nil
     }
 
-    assert Calibration.mini_game_region(at_the_edge) == {1720, 720, 1720, 720}
+    assert Calibration.mini_game_region(at_the_edge) == {2912, 560, 528, 880}
 
     whole_screen = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, layout: nil}
-    assert Calibration.mini_game_region(whole_screen) == {860, 360, 1720, 720}
+    assert Calibration.mini_game_region(whole_screen) == {1456, 456, 528, 880}
 
     blind = %Calibration{scale: 1.0, mini_game_region: {1, 2, 3, 4}, layout: nil}
     assert Calibration.mini_game_region(blind) == {1, 2, 3, 4}
 
     assert Calibration.mini_game_region(%Calibration{scale: 1.0}) == nil
+  end
+
+  test "a screen smaller than the box never yields a negative rectangle" do
+    tiny = %Calibration{scale: 1.0, screen_w: 200, screen_h: 100, player_point: {10, 10}}
+
+    assert Calibration.mini_game_region(tiny) == {0, 0, 200, 100}
+  end
+
+  # Every strip Lucas ever marked by hand (six saved profiles, character around
+  # {1690,695}) must fall inside the automatic box — otherwise the bar he fishes
+  # with is outside the search and the mini-game never sees it.
+  test "the automatic box contains every strip he marked by hand" do
+    calib = %Calibration{
+      scale: 1.0,
+      screen_w: 3440,
+      screen_h: 1440,
+      player_point: {1690, 695}
+    }
+
+    {bx, by, bw, bh} = Calibration.mini_game_region(calib)
+
+    for {x, y, w, h} <- [{1674, 648, 29, 471}, {1580, 800, 240, 479}, {1580, 648, 240, 594}] do
+      assert x >= bx and y >= by and x + w <= bx + bw and y + h <= by + bh,
+             "hand-marked #{inspect({x, y, w, h})} escapes #{inspect({bx, by, bw, bh})}"
+    end
   end
 end

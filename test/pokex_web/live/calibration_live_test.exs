@@ -199,8 +199,11 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.battle_region == {70, 10, 20, 30}
   end
 
-  describe "a calibration from another screen" do
-    defp saved_on(conn, tmp, saved_w, saved_h, current) do
+  # The screenshot he is looking at is itself the measurement of his screen, so
+  # reviewing the areas re-judges the saved calibration against it. On mount the
+  # backend answers instead — `:unknown` in tests, which must never accuse.
+  describe "a calibration whose screen does not match the picture" do
+    defp saved_on(conn, tmp, saved_w, saved_h) do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
@@ -208,48 +211,90 @@ defmodule PokexWeb.CalibrationLiveTest do
         scale: 2.0,
         screen_w: saved_w,
         screen_h: saved_h,
+        player_point: {100, 60},
         water_point: {50, 30},
         glow_region: {18, 0, 64, 64},
         battle_region: {70, 10, 20, 30},
         neutral_point: {52, 36}
       })
 
-      {:ok, _} = Fake.start_link(%{screen_points: [current]})
-      {:ok, _view, html} = live(conn, ~p"/calibration")
-      html
+      # a 302x196 picture measured by a 1x probe: a 302x196-point screen
+      probe =
+        Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+
+      screen =
+        Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(302, 196, {9, 9, 9, 255}))
+
+      {:ok, _} =
+        Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+      {:ok, view, html} = live(conn, ~p"/calibration")
+      %{view: view, mount_html: html}
     end
 
     @tag :tmp_dir
-    test "is called out, naming both screens", %{conn: conn, tmp_dir: tmp} do
-      html = saved_on(conn, tmp, 3440, 1440, {:ok, {1512, 982}})
+    test "another SHAPE of screen is called out, naming both", %{conn: conn, tmp_dir: tmp} do
+      %{view: view} = saved_on(conn, tmp, 3440, 1440)
+
+      html = view |> element("button", "Revisar áreas salvas") |> render_click()
 
       assert html =~ "Esta calibração é de outra tela"
       assert html =~ "3440×1440"
-      assert html =~ "1512×982"
+      assert html =~ "302×196"
+      refute html =~ "rescale_calibration"
     end
 
     @tag :tmp_dir
     test "the same screen raises no warning", %{conn: conn, tmp_dir: tmp} do
-      html = saved_on(conn, tmp, 1512, 982, {:ok, {1512, 982}})
+      %{view: view} = saved_on(conn, tmp, 302, 196)
 
-      refute html =~ "Esta calibração é de outra tela"
+      html = view |> element("button", "Revisar áreas salvas") |> render_click()
+
+      refute html =~ "de outra tela"
+      refute html =~ "régua errada"
     end
 
     @tag :tmp_dir
-    test "an unknown current screen never accuses", %{conn: conn, tmp_dir: tmp} do
-      html = saved_on(conn, tmp, 3440, 1440, :unknown)
+    test "an unmeasurable display never accuses", %{conn: conn, tmp_dir: tmp} do
+      %{mount_html: html} = saved_on(conn, tmp, 3440, 1440)
 
-      refute html =~ "Esta calibração é de outra tela"
+      refute html =~ "de outra tela"
+      refute html =~ "régua errada"
+    end
+
+    # The two-monitor bug: the same picture divided by the union of both
+    # displays. Same shape, bigger numbers — repairable without remarking.
+    @tag :tmp_dir
+    test "the same shape at another size offers the repair, and the repair lands", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      %{view: view} = saved_on(conn, tmp, 604, 392)
+
+      html = view |> element("button", "Revisar áreas salvas") |> render_click()
+      assert html =~ "régua errada"
+      assert html =~ "302×196"
+
+      html = view |> element("button", "Corrigir para 302×196") |> render_click()
+      refute html =~ "régua errada"
+
+      assert {:ok, calib} = Calibration.load()
+      assert {calib.screen_w, calib.screen_h} == {302, 196}
+      assert calib.player_point == {50, 30}
+      assert calib.battle_region == {35, 5, 10, 15}
+      assert calib.scale == 4.0
     end
   end
 
-  # MEASURED live on 2026-08-03 (his one-monitor Mac, 1512×982 points at 2×):
-  # the SCK served the 100×100 probe in POINTS while the full screen fell back to
-  # `screencapture` in PIXELS (3024 wide). Dividing one by the other read scale
-  # 1.0, so the wizard believed the screen was 3024 points wide and every point
-  # marked in that step was saved at double its real coordinate.
+  # Two live bugs, one rule. 2026-08-03 (one monitor, 1512x982 at 2x): the SCK
+  # served the probe in POINTS while the full screen fell back to the CLI in
+  # PIXELS, and the two answers were paired. 2026-08-04 (two monitors): the
+  # window server was asked instead, and it answers the UNION of every display
+  # (4952x1989) for a 3440x1440 picture — every point saved 1.44x off, the
+  # fishing rod on dry rock below the character. The ruler must be the display
+  # that was FILMED, measured in the same turn as the picture.
   describe "screenshot scale" do
-    defp mixed_backends_calibration(conn, tmp, screen_points) do
+    defp wizard_on(conn, tmp, probe_px) do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
 
@@ -265,17 +310,15 @@ defmodule PokexWeb.CalibrationLiveTest do
       })
 
       probe =
-        Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+        Pokex.PngFixtures.write!(
+          Path.join(tmp, "probe.png"),
+          rows(probe_px, probe_px, {9, 9, 9, 255})
+        )
 
       screen =
         Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(302, 196, {9, 9, 9, 255}))
 
-      {:ok, _} =
-        Fake.start_link(%{
-          capture: [{:ok, probe}],
-          capture_screen: [{:ok, screen}],
-          screen_points: [screen_points]
-        })
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
       {:ok, view, _} = live(conn, ~p"/calibration")
       view |> element("button", "Só o personagem") |> render_click()
@@ -283,11 +326,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       view
     end
 
-    @tag :tmp_dir
-    test "comes from the window server, so a probe from another backend cannot halve the screen",
-         %{conn: conn, tmp_dir: tmp} do
-      view = mixed_backends_calibration(conn, tmp, {:ok, {151, 98}})
-
+    defp click_middle(view) do
       params = %{
         "x" => 50.0,
         "y" => 25.0,
@@ -299,6 +338,14 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       render_hook(view, "img_click", params)
       render_hook(view, "img_click", params)
+    end
+
+    @tag :tmp_dir
+    test "a retina display's probe converts the picture into screen points", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      conn |> wizard_on(tmp, 200) |> click_middle()
 
       assert {:ok, calib} = Calibration.load()
       assert calib.scale == 2.0
@@ -309,27 +356,13 @@ defmodule PokexWeb.CalibrationLiveTest do
     end
 
     @tag :tmp_dir
-    test "falls back to the probe when the window server cannot answer", %{
-      conn: conn,
-      tmp_dir: tmp
-    } do
-      view = mixed_backends_calibration(conn, tmp, :unknown)
-
-      params = %{
-        "x" => 50.0,
-        "y" => 25.0,
-        "cw" => 100.0,
-        "ch" => 65.0,
-        "nw" => 302.0,
-        "nh" => 196.0
-      }
-
-      render_hook(view, "img_click", params)
-      render_hook(view, "img_click", params)
+    test "a 1x display leaves the picture already in points", %{conn: conn, tmp_dir: tmp} do
+      conn |> wizard_on(tmp, 100) |> click_middle()
 
       assert {:ok, calib} = Calibration.load()
       assert calib.scale == 1.0
       assert calib.screen_w == 302
+      assert calib.screen_h == 196
     end
   end
 

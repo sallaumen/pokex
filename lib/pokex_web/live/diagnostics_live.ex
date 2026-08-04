@@ -5,6 +5,7 @@ defmodule PokexWeb.DiagnosticsLive do
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Calibration
   alias Pokex.Rig
+  alias Pokex.Screenshot
   alias Pokex.Settings
   alias Pokex.Vision
   alias Pokex.Vision.Frame
@@ -308,23 +309,16 @@ defmodule PokexWeb.DiagnosticsLive do
      assign(socket, msg: "capture_sequence → #{inspect(Rig.impl().capture_sequence(point))}")}
   end
 
-  # Probe a 100x100 region for the Retina scale, then grab the full screen — same
-  # recipe as CalibrationLive, so the preview lines up 1:1 with the saved points.
-  # Via the Capture broker: same display as the production feeds (see Capture.screen/2).
+  # Literally the recipe CalibrationLive marks on, so this preview lines up 1:1
+  # with the saved points instead of measuring the screen its own way.
   defp grab_screen do
-    with {:ok, probe_path} <- Capture.grab({0, 0, 100, 100}, "diag_scale_probe.png"),
-         {:ok, {probe_px, _}} <- Frame.png_dimensions(probe_path),
-         {:ok, screen_path} <- Capture.screen("diag_screen.png"),
-         {:ok, {px_w, px_h}} <- Frame.png_dimensions(screen_path) do
-      scale = probe_px / 100
-
+    with {:ok, shot} <- Screenshot.take("diag_screen.png") do
       {:ok,
-       %{
-         src: "/captures/#{Path.basename(screen_path)}?t=#{System.unique_integer([:positive])}",
-         scale: scale,
-         w: round(px_w / scale),
-         h: round(px_h / scale)
-       }}
+       Map.put(
+         shot,
+         :src,
+         "/captures/#{Path.basename(shot.path)}?t=#{System.unique_integer([:positive])}"
+       )}
     end
   end
 

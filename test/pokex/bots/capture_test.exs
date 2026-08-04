@@ -66,6 +66,21 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  # The panel print, the x-ray and the profile thumbnail throw the measurement
+  # away, and the probe is a WHOLE extra capture serialized with every reader.
+  @tag :tmp_dir
+  test "screen never pays for the point measurement it does not use", %{tmp_dir: tmp} do
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "plain.png"), rows(302, 196))
+    Agent.stop(Fake)
+    {:ok, _} = Fake.start_link(%{capture_screen: [{:ok, screen}]})
+    {:ok, pid} = Capture.start_link(name: :cap_screen_no_probe)
+
+    assert {:ok, ^screen} = Capture.screen("plain.png", :cap_screen_no_probe)
+    refute Enum.any?(Fake.calls(), &match?({:capture, _region, _file}, &1))
+
+    GenServer.stop(pid)
+  end
+
   test "screen_with_points measures the FILMED display, never every monitor together" do
     start_supervised!(
       {Pokex.CaptureBackendFake,

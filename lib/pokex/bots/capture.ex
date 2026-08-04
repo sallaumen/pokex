@@ -56,9 +56,11 @@ defmodule Pokex.Bots.Capture do
   the wrong display.
   """
   def screen(filename, server \\ __MODULE__) do
-    case screen_with_points(filename, server) do
-      {:ok, path, _points} -> {:ok, path}
-      error -> error
+    requested_at = now()
+
+    case GenServer.whereis(server) do
+      nil -> guard_capture(fn -> Rig.impl().capture_screen() end)
+      pid -> GenServer.call(pid, {:screen, filename, requested_at}, :infinity)
     end
   end
 
@@ -76,6 +78,10 @@ defmodule Pokex.Bots.Capture do
   metadata, and even a mid-call CLI fallback reuses that region, so
   `pixels / points` stays the true scale. Only a broker with no SCK at all
   needs the 100-point probe — served by the same CLI, in the same turn.
+
+  Separate from `screen/2` on purpose: that probe is a whole extra capture
+  (~0.28s, serialized with every other reader), and the panel/x-ray/thumbnail
+  screenshots throw the measurement away.
   """
   def screen_with_points(filename, server \\ __MODULE__) do
     requested_at = now()
@@ -279,6 +285,19 @@ defmodule Pokex.Bots.Capture do
           {{:ok, path}, state} -> {:reply, {:ok, path}, put_cache(state, key, path)}
           {error, state} -> {:reply, error, prune_cache(state)}
         end
+    end
+  end
+
+  def handle_call({:screen, filename, requested_at}, _from, state) do
+    record_queue(:screen, filename, requested_at)
+
+    case screen_region(state) do
+      {:ok, region} ->
+        {reply, state} = capture_path(state, region, filename)
+        {:reply, reply, prune_cache(state)}
+
+      :unknown ->
+        {:reply, guard_capture(fn -> Rig.impl().capture_screen() end), state}
     end
   end
 

@@ -62,7 +62,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   @moduledoc """
   The Worker isolated with fake Body and Combat, driven by facts injected into the
   blackboard. `active: false` makes `run` prepare everything WITHOUT scheduling the
-  automatic tick; each test fires `send(worker, :tick)` by hand, one step at a time.
+  automatic tick; each test fires `tick!(worker)` by hand, one step at a time.
   """
   # async: false — writes the shared blackboard, the routes' home_dir and (in the block
   # test) the global InputGate latch.
@@ -114,6 +114,19 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     route
   end
 
+  # A tick is a bare `send` — asynchronous. The status call right after it is
+  # not, and a GenServer handles its mailbox in order: once status answers, the
+  # tick is PROVABLY done and every message it produced is already in ours
+  # (local sends enqueue before the call that follows them returns).
+  #
+  # Without it, each assertion below was racing the scheduler with a 1s budget:
+  # green on a quiet machine, red on a loaded 2-core runner, on a different test
+  # each run. A deadline is not a synchronisation primitive.
+  defp tick!(worker) do
+    send(worker, :tick)
+    Worker.status(worker)
+  end
+
   defp minimap!(pos),
     do: WorldState.put(:minimap, %{pos: pos}, System.monotonic_time(:millisecond))
 
@@ -152,10 +165,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     minimap!({10, 20, 7})
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:stepped, 90, 80}, 1_000
   end
 
@@ -178,10 +191,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert :ok = Worker.run(worker)
     minimap!({10, 20, 7})
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:stepped, 90, 80}, 1_000
     assert_receive {:cavebot_log, :macro, "caçada: 🕳️" <> _resto}, 1_000
   end
@@ -192,10 +205,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     minimap!({10, 20, 7})
     battle!([%{row: 0, name: "Zubat"}])
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
-    send(worker, :tick)
+    tick!(worker)
     refute_receive {:stepped, _dx, _dy}, 300
     assert Worker.status(worker).state == :fighting
   end
@@ -204,10 +217,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     route!()
     :ok = Worker.run(worker)
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
-    send(worker, :tick)
+    tick!(worker)
     refute_receive {:stepped, _dx, _dy}, 300
 
     status = Worker.status(worker)
@@ -225,12 +238,12 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
     FakeBody.refuse(:input_gate_closed)
     minimap!({10, 20, 7})
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:stepped, 90, 80}, 1_000
 
     status = Worker.status(worker)
@@ -239,7 +252,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     FakeBody.allow()
     minimap!({10, 20, 7})
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:stepped, 90, 80}, 1_000
     assert Worker.status(worker).hold_reason == nil
   end
@@ -249,12 +262,12 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
     FakeBody.refuse(:no_layout)
     minimap!({10, 20, 7})
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:stepped, 90, 80}, 1_000
 
     assert Worker.status(worker).hold_reason =~ "HUD não localizado"
@@ -267,7 +280,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
     assert Worker.status(worker).state == :walking
 
@@ -275,7 +288,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     FakeBody.refuse(:input_gate_closed)
     minimap!({10, 20, 7})
-    send(worker, :tick)
+    tick!(worker)
 
     assert_receive {:cavebot, %{state: :walking, hold_reason: reason}}, 1_000
     assert reason =~ "jogo sem foco"
@@ -287,14 +300,14 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     minimap!({10, 20, 5})
 
-    send(worker, :tick)
+    tick!(worker)
 
     assert_receive {:cavebot_alarm, :floor_changed}, 1_000
     assert_receive {:combat_cmd, :halt}, 1_000
     assert InputGate.panic_latched?()
     assert Worker.status(worker).state == :blocked
 
-    send(worker, :tick)
+    tick!(worker)
     refute_receive {:stepped, _dx, _dy}, 300
     refute_receive {:combat_cmd, :run}, 100
   end
@@ -311,7 +324,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     route!()
     :ok = Worker.run(own)
-    send(own, :tick)
+    tick!(own)
 
     assert_receive {:combat_cmd, :run}, 1_000
     assert_receive {:cavebot_alarm, :combat_preflight_failed}, 1_000
@@ -340,7 +353,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert Worker.status(worker) == Worker.idle_snapshot()
 
     minimap!({10, 20, 7})
-    send(worker, :tick)
+    tick!(worker)
     refute_receive {:stepped, _dx, _dy}, 300
     refute_receive {:combat_cmd, _cmd}, 100
   end
@@ -359,7 +372,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     minimap!({10, 20, 7})
 
     InputGate.set_focus_ok(false)
-    Enum.each(1..4, fn _ -> send(worker, :tick) end)
+    Enum.each(1..4, fn _ -> tick!(worker) end)
 
     status = Worker.status(worker)
     refute status.state in [:stuck, :blocked]
@@ -370,7 +383,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     Pokex.Settings.put(:cavebot_walk_timeout_ms, 60_000)
     InputGate.set_focus_ok(true)
     minimap!({10, 20, 7})
-    Enum.each(1..3, fn _ -> send(worker, :tick) end)
+    Enum.each(1..3, fn _ -> tick!(worker) end)
     assert_receive {:stepped, _dx, _dy}, 1_000
   end
 
@@ -384,9 +397,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
-    Enum.each(1..3, fn _ -> send(worker, :tick) end)
+    Enum.each(1..3, fn _ -> tick!(worker) end)
 
     assert_receive {:cavebot_alarm, :stuck}, 1_000
     assert_receive {:cavebot_log, :macro, "caçada: parei: travado, sem sair do lugar"}, 1_000
@@ -405,7 +418,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     minimap!({10, 20, 5})
 
-    send(worker, :tick)
+    tick!(worker)
 
     assert_receive {:cavebot_log, :macro, "caçada: BLOQUEADO: mudou de andar"}, 1_000
     assert InputGate.panic_latched?()
@@ -421,9 +434,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:stepped, 90, 80}, 1_000
 
     status = Worker.status(worker)
@@ -438,7 +451,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.last_action.text == "passo 90,80"
 
     WorldState.forget(:minimap)
-    send(worker, :tick)
+    tick!(worker)
 
     blind = Worker.status(worker)
     assert blind.pos == {10, 20, 7}
@@ -455,12 +468,12 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     minimap!({100, 100, 7})
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
     assert Worker.status(worker).state == :walking
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    send(worker, :tick)
+    tick!(worker)
 
     assert_receive {:cavebot, %{state: :walking, wp_index: 1, counters: %{waypoints: 1}}}, 1_000
   end
@@ -473,13 +486,13 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:cavebot_log, :macro, "caçada: rota \"cavena\": 2 waypoints"}, 1_000
 
     minimap!({100, 100, 7})
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2"}, 1_000
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:cavebot_log, :debug, "caçada: passo 100,100 → wp 2/2"}, 1_000
   end
 
@@ -488,7 +501,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
 
-    send(worker, :tick)
+    tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
@@ -496,7 +509,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     Enum.each(1..3, fn _ ->
       minimap!({10, 20, 7})
-      send(worker, :tick)
+      tick!(worker)
       assert_receive {:stepped, 90, 80}, 1_000
     end)
 

@@ -75,6 +75,28 @@ defmodule PokexWeb.AppHeaderTest do
     end
   end
 
+  test "nothing in the header freezes its own subtree from the patcher", %{conn: conn} do
+    for {path, _page} <- @routes do
+      {:ok, view, _html} = live(conn, path)
+
+      # `phx-update="ignore"` makes morphdom skip the element's WHOLE subtree
+      # (phoenix_live_view 1.2.5, dom_patch.ts: an ignored element returns
+      # false from onBeforeElUpdated and only data-* is merged), so whatever
+      # rendered at mount is frozen for the life of that mount. On the menu it
+      # was there to protect the <details> open state — which app.js already
+      # mirrors globally for EVERY <details>, which is why the alarm menu and
+      # the character popover right beside it never needed it.
+      #
+      # Today `current_page` is a literal per LiveView, so nothing is visibly
+      # wrong. The day a header control becomes conditional, an ignored menu
+      # would stop following it without a single error to show for it.
+      for id <- ~w(app-navigation app-alarm-menu character-manager) do
+        refute has_element?(view, ~s(##{id}[phx-update="ignore"])),
+               "#{path}: ##{id} is ignored by the patcher — its content cannot follow the page"
+      end
+    end
+  end
+
   test "the menu marks the page you are on", %{conn: conn} do
     for {path, page} <- @routes do
       {:ok, view, _html} = live(conn, path)

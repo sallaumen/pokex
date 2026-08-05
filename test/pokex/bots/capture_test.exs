@@ -471,6 +471,27 @@ defmodule Pokex.Bots.CaptureTest do
 
   # config/test.exs forces capture_backend: :screencapture, which SCK's enabled?/0 rejects —
   # an isolated instance with no fake SCK module deterministically starts on :rig.
+  @tag :tmp_dir
+  test "frame_with_path_uncached NUNCA serve do cache — o laço do minigame depende disso",
+       %{tmp_dir: tmp} do
+    first = png!(tmp, "a.png", {10, 20, 30})
+    second = png!(tmp, "b.png", {90, 80, 70})
+    Agent.stop(Pokex.Rig.Fake)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, first}, {:ok, second}]})
+    {:ok, pid} = Capture.start_link(name: :cap_path_uncached, cache_ttl_ms: 60_000)
+
+    region = {1, 2, 3, 4}
+
+    # o cacheado semeia a entrada; o uncached ignora ela e captura de novo
+    assert {:ok, %{rgba: <<10, 20, 30, 255, _::binary>>}, _path} =
+             Capture.frame_with_path(region, "x.png", :cap_path_uncached)
+
+    assert {:ok, %{rgba: <<90, 80, 70, 255, _::binary>>}, _path} =
+             Capture.frame_with_path_uncached(region, "x.png", :cap_path_uncached)
+
+    GenServer.stop(pid)
+  end
+
   test "backend_info reports the live backend and recovery flag" do
     {:ok, server} = Capture.start_link(name: nil)
     assert %{backend: :rig, recovering?: false} = Capture.backend_info(server)

@@ -203,6 +203,31 @@ defmodule Pokex.Bots.Capture do
   end
 
   @doc """
+  `frame_with_path/3` sem o cache de frames — o quadro é SEMPRE novo.
+
+  O laço de jogo do mini-game precisa disto: ele carimba a hora ANTES da
+  captura pra que o piloto extrapole a latência real, e um frame servido do
+  cache faz esse carimbo mentir. Medido em 2026-08-05: com tick de ~80ms e TTL
+  de 75ms, metade dos ticks vinha do cache (cap_ms 0) — o piloto via 6 quadros
+  novos por segundo achando que via 12.
+  """
+  def frame_with_path_uncached(region, filename, server \\ __MODULE__) do
+    requested_at = now()
+
+    case GenServer.whereis(server) do
+      nil ->
+        direct_frame_with_path(region, filename)
+
+      pid ->
+        GenServer.call(
+          pid,
+          {:frame_with_path_uncached, region, filename, requested_at},
+          :infinity
+        )
+    end
+  end
+
+  @doc """
   Serialized capture plus PNG decode, bypassing the short decoded-frame cache.
 
   Use this only for guard reads where a just-triggered screen transition must not
@@ -361,6 +386,13 @@ defmodule Pokex.Bots.Capture do
             {:reply, error, prune_cache(state)}
         end
     end
+  end
+
+  def handle_call({:frame_with_path_uncached, region, filename, requested_at}, _from, state) do
+    state = note_wait(state, filename, requested_at)
+    record_queue(:frame_with_path_uncached, filename, requested_at)
+    {reply, state} = frame_and_path_from_backend(state, region, filename)
+    {:reply, reply, prune_cache(state)}
   end
 
   def handle_call({:frame_uncached, region, filename, requested_at}, _from, state) do

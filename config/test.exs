@@ -1,7 +1,11 @@
 import Config
 
 config :pokex, rig: Pokex.Rig.Fake
-config :pokex, settings_path: "tmp/settings_test.json"
+# Inside the home, as in production: Settings keeps the character layer at
+# `<dir of settings.json>/chars/<slug>/settings.json`, and a settings_path
+# outside the home made the tests' characters land in a different directory
+# from the one `Pokex.Characters` reads.
+config :pokex, settings_path: "tmp/test-home/settings.json"
 config :pokex, sensors: Pokex.Bots.Fisher.Sensors.Fake
 config :pokex, home_dir: "tmp/test-home"
 config :pokex, baseline_gap_ms: 1

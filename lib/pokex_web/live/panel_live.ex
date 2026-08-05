@@ -1,5 +1,6 @@
 defmodule PokexWeb.PanelLive do
   use PokexWeb, :live_view
+  @behaviour PokexWeb.CharacterAware
 
   alias Pokex.Bots.BotSupervisor
   alias Pokex.Bots.Capture
@@ -255,8 +256,23 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # The Settings-derived assigns a preset can change — re-read after apply_preset
-  # so every toggle/field on screen matches what was just applied.
+  # Skills and the fishing gates follow the active character now (Settings
+  # resolves their layer): switching in the header has to redraw the controls
+  # with THEIR values, otherwise the screen shows one character's settings while
+  # the bot runs on another's.
+  @impl PokexWeb.CharacterAware
+  def on_character_change(socket), do: refresh_setting_assigns(socket)
+
+  # Who owns the settings this screen edits — the active character's display
+  # name, or nil for the base. Derived from the header's assigns instead of
+  # becoming an assign of its own: a third place holding "who is active" is a
+  # third place to go stale.
+  defp settings_owner(%{characters: characters, active_character: active}) do
+    Enum.find_value(characters, fn %{slug: slug, name: name} -> slug == active && name end)
+  end
+
+  # The Settings-derived assigns a preset — or a character switch — can change.
+  # Re-read them so every toggle/field on screen matches what is in force.
   defp refresh_setting_assigns(socket) do
     assign(socket,
       skill_order: Enum.join(Settings.get(:skill_keys), " "),
@@ -2593,7 +2609,10 @@ defmodule PokexWeb.PanelLive do
               </form>
             </div>
             <div>
-              <h3 class="text-pk-body font-semibold">Ordem das skills</h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
+              <h3 class="flex items-center gap-1.5 text-pk-body font-semibold">
+                Ordem das skills
+                <PokexWeb.Panel.SettingsOverlay.character_key owner={settings_owner(assigns)} />
+              </h3><p class="mt-0.5 text-pk-meta text-pk-text-3">
                 Prioridade de ataque, as mais fortes primeiro.
               </p><form id="skills-form" phx-submit="save_skills" class="mt-2 flex gap-2">
                 <input
@@ -3436,6 +3455,7 @@ defmodule PokexWeb.PanelLive do
         }
         support_waits_capture={@support_waits_capture}
         reposition_enabled={@reposition_enabled}
+        settings_owner={settings_owner(assigns)}
         player_mode={@player_mode}
         mode_overrides={@mode_overrides}
         combos={@combos}

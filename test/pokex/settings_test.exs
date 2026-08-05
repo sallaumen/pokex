@@ -199,6 +199,219 @@ defmodule Pokex.SettingsTest do
     assert :ets.lookup(:pokex_settings_overrides, :glow_threshold) == []
   end
 
+  describe "the character layer" do
+    # Its own instance per test, in a tmp: the character layer touches files and
+    # the global Settings is shared by the whole suite.
+    defp char_server(tmp) do
+      {:ok, server} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+      server
+    end
+
+    defp char_file(tmp, slug), do: Path.join([tmp, "chars", slug, "settings.json"])
+
+    @tag :tmp_dir
+    test "with no character, editing edits the BASE — as it always did", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:skill_keys, ["8", "9"], server)
+
+      assert Path.join(tmp, "settings.json") |> File.read!() |> JSON.decode!() ==
+               %{"skill_keys" => ["8", "9"]}
+
+      assert Settings.get(:skill_keys, server) == ["8", "9"]
+    end
+
+    @tag :tmp_dir
+    test "with a character active, one of THEIR keys goes to THEIR file", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:active_character, "lowbie", server)
+      :ok = Settings.put(:skill_keys, ["8", "9"], server)
+
+      assert char_file(tmp, "lowbie") |> File.read!() |> JSON.decode!() ==
+               %{"skill_keys" => ["8", "9"]}
+
+      # the base was not touched — only whoever is active changed
+      assert Path.join(tmp, "settings.json") |> File.read!() |> JSON.decode!() ==
+               %{"active_character" => "lowbie"}
+    end
+
+    @tag :tmp_dir
+    test "two characters cannot see each other's configuration", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:active_character, "main", server)
+      :ok = Settings.put(:hook_skill_keys, ["4", "5"], server)
+      :ok = Settings.put(:require_pokemon_hp, true, server)
+
+      :ok = Settings.put(:active_character, "lowbie", server)
+      :ok = Settings.put(:hook_skill_keys, ["1"], server)
+
+      assert Settings.get(:hook_skill_keys, server) == ["1"]
+      # the lowbie did not inherit the main's gate: never overrode it, so follows the base
+      assert Settings.get(:require_pokemon_hp, server) == Settings.defaults()[:require_pokemon_hp]
+
+      :ok = Settings.put(:active_character, "main", server)
+      assert Settings.get(:hook_skill_keys, server) == ["4", "5"]
+      assert Settings.get(:require_pokemon_hp, server) == true
+    end
+
+    @tag :tmp_dir
+    test "a new character INHERITS the base and only diverges where they touch", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      # the base, built with no character selected
+      :ok = Settings.put(:skill_keys, ["5", "6"], server)
+      :ok = Settings.put(:hook_skill_keys, ["7"], server)
+
+      :ok = Settings.put(:active_character, "novato", server)
+      assert Settings.get(:skill_keys, server) == ["5", "6"]
+      assert Settings.get(:hook_skill_keys, server) == ["7"]
+
+      :ok = Settings.put(:hook_skill_keys, ["8"], server)
+      assert Settings.get(:hook_skill_keys, server) == ["8"]
+      # and what they did not touch keeps following the base
+      assert Settings.get(:skill_keys, server) == ["5", "6"]
+    end
+
+    @tag :tmp_dir
+    test "a character can take a key back to the CODE default", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+      seed = Settings.defaults()[:skill_keys]
+
+      :ok = Settings.put(:skill_keys, ["5", "6"], server)
+      :ok = Settings.put(:active_character, "purista", server)
+      :ok = Settings.put(:skill_keys, seed, server)
+
+      # not "equal to the seed, therefore not an override": here the base is
+      # ["5","6"], and wanting the code default IS a divergence worth storing
+      assert Settings.get(:skill_keys, server) == seed
+
+      assert char_file(tmp, "purista") |> File.read!() |> JSON.decode!() == %{
+               "skill_keys" => seed
+             }
+
+      # and it survives a restart
+      {:ok, reboot} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+      assert Settings.get(:skill_keys, reboot) == seed
+    end
+
+    @tag :tmp_dir
+    test "going back to the base's value CLEARS the character's override", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:skill_keys, ["5", "6"], server)
+      :ok = Settings.put(:active_character, "seguidor", server)
+      :ok = Settings.put(:skill_keys, ["1"], server)
+      :ok = Settings.put(:skill_keys, ["5", "6"], server)
+
+      assert char_file(tmp, "seguidor") |> File.read!() |> JSON.decode!() == %{}
+
+      # back to FOLLOWING the base: changing the base now reaches them
+      :ok = Settings.put(:active_character, "", server)
+      :ok = Settings.put(:skill_keys, ["9"], server)
+      :ok = Settings.put(:active_character, "seguidor", server)
+      assert Settings.get(:skill_keys, server) == ["9"]
+    end
+
+    @tag :tmp_dir
+    test "what describes the MACHINE stays global even with a character active", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:active_character, "main", server)
+      :ok = Settings.put(:glow_threshold, 1234, server)
+
+      assert Path.join(tmp, "settings.json") |> File.read!() |> JSON.decode!() ==
+               %{"active_character" => "main", "glow_threshold" => 1234}
+
+      refute File.exists?(char_file(tmp, "main"))
+
+      # and the other character reads the same threshold — it is the same screen
+      :ok = Settings.put(:active_character, "lowbie", server)
+      assert Settings.get(:glow_threshold, server) == 1234
+    end
+
+    @tag :tmp_dir
+    test "restarting comes back on the character that was active, with their values", %{
+      tmp_dir: tmp
+    } do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:active_character, "main", server)
+      :ok = Settings.put(:skill_keys, ["5", "6"], server)
+      :ok = Settings.put(:pokemon_hp_fishing_pct, 42, server)
+
+      {:ok, reboot} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+
+      assert Settings.get(:active_character, reboot) == "main"
+      assert Settings.get(:skill_keys, reboot) == ["5", "6"]
+      assert Settings.get(:pokemon_hp_fishing_pct, reboot) == 42
+    end
+
+    @tag :tmp_dir
+    test "all/1 shows the layer in force, not the base", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+
+      :ok = Settings.put(:skill_keys, ["5", "6"], server)
+      :ok = Settings.put(:active_character, "main", server)
+      :ok = Settings.put(:skill_keys, ["1"], server)
+
+      all = Settings.all(server)
+      assert all.skill_keys == ["1"]
+      assert all.glow_threshold == Settings.defaults()[:glow_threshold]
+    end
+
+    @tag :tmp_dir
+    test "a corrupted character settings.json reads as 'no override'", %{tmp_dir: tmp} do
+      server = char_server(tmp)
+      File.mkdir_p!(Path.dirname(char_file(tmp, "quebrado")))
+      File.write!(char_file(tmp, "quebrado"), "{ this is not json")
+
+      :ok = Settings.put(:active_character, "quebrado", server)
+
+      assert Settings.get(:skill_keys, server) == Settings.defaults()[:skill_keys]
+    end
+
+    @tag :tmp_dir
+    test "a character's file only accepts CHARACTER keys — a stray one is ignored", %{
+      tmp_dir: tmp
+    } do
+      server = char_server(tmp)
+      File.mkdir_p!(Path.dirname(char_file(tmp, "invasor")))
+
+      # a hand-edited file (or a key that LEFT character_keys) must not smuggle
+      # a machine setting in through the character layer
+      File.write!(
+        char_file(tmp, "invasor"),
+        JSON.encode!(%{"skill_keys" => ["3"], "glow_threshold" => 4321})
+      )
+
+      :ok = Settings.put(:active_character, "invasor", server)
+
+      assert Settings.get(:skill_keys, server) == ["3"]
+      assert Settings.get(:glow_threshold, server) == Settings.defaults()[:glow_threshold]
+    end
+
+    test "the character keys are chosen by hand, never derived from the presets" do
+      # deriving one from the other is how :capture_enabled ended up with two
+      # owners and cost 1015 kills with ZERO scans (2026-07-30)
+      assert Settings.character_keys() == [
+               :skill_keys,
+               :hook_skill_keys,
+               :require_cooldowns,
+               :require_pokemon_hp,
+               :pokemon_hp_fishing_pct
+             ]
+
+      refute :player_mode in Settings.character_keys()
+      refute :capture_enabled in Settings.character_keys()
+
+      for key <- Settings.character_keys() do
+        assert is_map_key(Settings.defaults(), key), "#{key} is not a real setting"
+      end
+    end
+  end
+
   describe "per-Pokémon presets" do
     defp preset_server(tmp) do
       Application.put_env(:pokex, :home_dir, tmp)

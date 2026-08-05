@@ -28,6 +28,11 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   attr :support_waits_capture, :boolean, required: true
   attr :reposition_enabled, :boolean, required: true
   attr :player_mode, :string, required: true
+
+  attr :settings_owner, :string,
+    default: nil,
+    doc: "display name of the character owning the per-character keys; nil = editing the base"
+
   attr :mode_overrides, :list, required: true
   attr :combos, :list, required: true
 
@@ -77,6 +82,28 @@ defmodule PokexWeb.Panel.SettingsOverlay do
             Aqui moram os ajustes que você faz uma vez. O que muda por sessão
             (pesca, luta, captura, loot, revive, poção) ficou na faixa do dashboard.
           </p>
+
+          <%!-- Without this, "mudei aqui e o outro personagem mudou junto?" can
+                only be answered by testing. Some keys follow the active
+                character now, and most do not — say which is which BEFORE he
+                changes anything. --%>
+          <section
+            id="settings-owner"
+            class="flex items-start gap-2 rounded-lg border border-pk-line bg-pk-sunken px-3 py-2.5"
+          >
+            <.icon name="hero-user-circle" class="mt-0.5 size-4 shrink-0 text-pk-text-3" />
+            <p class="text-pk-body leading-tight text-pk-text-2">
+              <%= if @settings_owner do %>
+                Skills e gates da pesca (marcados <span class="font-mono text-pk-ok">•</span>
+                ) são de <strong class="text-pk-ok">{@settings_owner}</strong>
+                — os outros personagens têm os deles. O resto desta tela é da máquina e vale pra todos.
+              <% else %>
+                Sem personagem selecionado: você está editando a
+                <strong class="text-pk-text">configuração base</strong>
+                — a que todo personagem novo herda e que os outros seguem no que nunca mexeram.
+              <% end %>
+            </p>
+          </section>
 
           <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-sunken">
             <.group_header
@@ -269,14 +296,18 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               description="segura a fisga até uma skill estar pronta"
               active={@fishing_cfg.require_cooldowns}
               event="toggle_require_cooldowns"
+              owner={@settings_owner}
             />
             <form
               id="hook-skills-form"
               phx-submit="save_hook_skills"
               class="border-b border-pk-line px-3 py-2.5"
             >
-              <label for="hook-skills-input" class="font-mono text-pk-meta text-pk-text-3">
-                Skills necessárias pra matar
+              <label
+                for="hook-skills-input"
+                class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-3"
+              >
+                Skills necessárias pra matar <.character_key owner={@settings_owner} />
               </label>
               <div class="mt-1.5 flex gap-2">
                 <input
@@ -297,10 +328,14 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               description="segura a fisga se o Pokémon está com pouca vida ou fora da pokébola (lê o monitor de suporte)"
               active={@fishing_cfg.require_pokemon_hp}
               event="toggle_require_pokemon_hp"
+              owner={@settings_owner}
             />
             <form id="fishing-hp-form" phx-submit="save_fishing_hp_cfg" class="px-3 py-2.5">
-              <label for="fishing-hp-input" class="font-mono text-pk-meta text-pk-text-3">
-                Vida mínima pra puxar a vara (%)
+              <label
+                for="fishing-hp-input"
+                class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-3"
+              >
+                Vida mínima pra puxar a vara (%) <.character_key owner={@settings_owner} />
               </label>
               <div class="mt-1.5 flex gap-2">
                 <input
@@ -639,6 +674,30 @@ defmodule PokexWeb.Panel.SettingsOverlay do
     """
   end
 
+  @doc """
+  The dot marking a field that follows the ACTIVE character, not the machine.
+
+  Only a handful of keys do (`Pokex.Settings.character_keys/0`), and which ones
+  is not guessable from the screen — without a per-field mark, "mudei aqui e o
+  outro personagem mudou junto?" can only be answered by testing. Renders
+  nothing with no character: then every field on this screen is the base's, and
+  the banner at the top already says so.
+  """
+  attr :owner, :string, default: nil
+
+  def character_key(assigns) do
+    ~H"""
+    <span
+      :if={@owner}
+      data-testid="character-key"
+      class="shrink-0 font-mono text-pk-meta text-pk-ok"
+      title={"Este ajuste é de #{@owner} — os outros personagens têm o deles."}
+    >
+      •<span class="sr-only">ajuste de {@owner}</span>
+    </span>
+    """
+  end
+
   # --- the two rows the automations block uses (moved over with the panel) ----
 
   attr :id, :string, required: true
@@ -648,6 +707,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   attr :event, :string, required: true
   attr :detail, :string, default: nil
   attr :override, :boolean, default: false
+  attr :owner, :string, default: nil, doc: "character this key follows; nil = it is the base's"
 
   def automation_row(assigns) do
     ~H"""
@@ -665,6 +725,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
       <div class="min-w-0 flex-1">
         <p class="flex items-center gap-1.5 text-pk-body font-semibold text-pk-text">
           <span class="truncate">{@title}</span>
+          <.character_key owner={@owner} />
           <%!-- YOUR exception to what the mode promises. Without this, the mode and
                 the switch can disagree and only the bot knows which won. --%>
           <span

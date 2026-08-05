@@ -13,6 +13,7 @@ defmodule PokexWeb.CharacterSwitchTest do
 
   alias Pokex.Characters
   alias Pokex.Pokedex.Team
+  alias Pokex.Settings
 
   @dataset %{
     "species" => [
@@ -58,6 +59,9 @@ defmodule PokexWeb.CharacterSwitchTest do
       Characters.set_active("")
       Application.delete_env(:pokex, :pokedex_path)
       Application.delete_env(:pokex, :home_dir)
+      # the character layer lives beside the suite's settings.json — leaving a
+      # chars/ behind would let one test's skills reach the next one
+      File.rm_rf!(Path.join(Path.dirname(Pokex.Home.settings_file()), "chars"))
     end)
 
     {:ok, main} = Characters.create("Main")
@@ -143,6 +147,81 @@ defmodule PokexWeb.CharacterSwitchTest do
     assert Characters.active() == ""
     refute has_element?(view, "#character-row-#{main}")
     assert view |> element("#character-picker") |> render() =~ ~s(value="" selected)
+  end
+
+  # the skills form lives in the ⚙️ overlay (settings_sections), not on the dashboard
+  test "the skills are the CHARACTER's: switching switches the controls", %{
+    conn: conn,
+    main: main,
+    lowbie: lowbie
+  } do
+    :ok = Characters.set_active(main)
+    :ok = Settings.put(:skill_keys, ["7", "8"])
+
+    :ok = Characters.set_active(lowbie)
+    :ok = Settings.put(:skill_keys, ["1"])
+
+    :ok = Characters.set_active(main)
+    {:ok, view, _html} = live(conn, ~p"/config")
+    assert view |> element("#skills-form input[name=skills]") |> render() =~ ~s(value="7 8")
+
+    view
+    |> form("#character-picker-form", %{"character" => lowbie})
+    |> render_change()
+
+    assert view |> element("#skills-form input[name=skills]") |> render() =~ ~s(value="1")
+  end
+
+  test "the ⚙️ says whose settings these are, and marks the fields that follow him", %{
+    conn: conn,
+    main: main
+  } do
+    :ok = Characters.set_active(main)
+    {:ok, view, _html} = live(conn, ~p"/config")
+
+    owner = view |> element("#settings-owner") |> render()
+    assert owner =~ "Main"
+    refute owner =~ "configuração base"
+
+    # the marker has to sit ON the fields that follow the character — the banner
+    # alone leaves "which ones?" to guessing
+    assert has_element?(view, ~s(#hook-skills-form [data-testid="character-key"]))
+    assert has_element?(view, ~s(#fishing-hp-form [data-testid="character-key"]))
+    assert has_element?(view, ~s(#automation-require-cooldowns [data-testid="character-key"]))
+    assert has_element?(view, ~s(#automation-require-pokemon-hp [data-testid="character-key"]))
+  end
+
+  test "with no character the ⚙️ says you are editing the base, and marks nothing", %{conn: conn} do
+    :ok = Characters.set_active("")
+    {:ok, view, _html} = live(conn, ~p"/config")
+
+    assert view |> element("#settings-owner") |> render() =~ "configuração base"
+    refute has_element?(view, ~s([data-testid="character-key"]))
+  end
+
+  test "editing with a character active does NOT leak to the other", %{main: main, lowbie: lowbie} do
+    :ok = Characters.set_active(main)
+    :ok = Settings.put(:require_pokemon_hp, true)
+
+    :ok = Characters.set_active(lowbie)
+    assert Settings.get(:require_pokemon_hp) == Settings.defaults()[:require_pokemon_hp]
+
+    :ok = Characters.set_active(main)
+    assert Settings.get(:require_pokemon_hp) == true
+  end
+
+  test "what describes the MACHINE stays shared between characters", %{
+    main: main,
+    lowbie: lowbie
+  } do
+    original = Settings.get(:glow_threshold)
+    on_exit(fn -> Settings.put(:glow_threshold, original) end)
+
+    :ok = Characters.set_active(main)
+    :ok = Settings.put(:glow_threshold, 1234)
+
+    :ok = Characters.set_active(lowbie)
+    assert Settings.get(:glow_threshold) == 1234
   end
 
   test "creating with a name already taken says so and keeps the current one", %{

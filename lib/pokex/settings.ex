@@ -266,6 +266,13 @@ defmodule Pokex.Settings do
     mini_game_exit_streak: 2,
     mini_game_min_confidence: 0.62,
     mini_game_min_dark_ratio: 0.34,
+    # Meia-largura da faixa DERIVADA do minigame (o resto vem das âncoras: o
+    # personagem em cima, a barra de skills embaixo). A barra tem ~17px e é
+    # desenhada em cima do personagem; 50 cobre o desenho + o erro humano de
+    # clicar o player_point, sem virar a caixa larga que leu tronco escuro +
+    # flores azuis como minigame (2026-08-05). Estreite se voltar a ver
+    # minigame onde não tem.
+    mini_game_side_px: 50,
     # Half-width (screen points) of the window around the player point where the bar may sit.
     # Measured 2026-07-10: the game draws the bar ~40px to the RIGHT of the character sprite,
     # so this must cover sprite-center error + that offset (the old 4%-of-width default = ~26px
@@ -790,6 +797,7 @@ defmodule Pokex.Settings do
     corpse_scan_refine_px: 1..64,
     corpse_scan_refine_peaks: 0..32,
     dry_balls_alarm: 0..999,
+    mini_game_side_px: 5..2000,
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,
     settle_max_ms: 100..600_000,

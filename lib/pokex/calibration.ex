@@ -20,7 +20,7 @@ defmodule Pokex.Calibration do
     # Optional: a DEDICATED strip where the mini-game bar appears (marked from
     # the fishing spot the player always uses). When set, the mini-game worker
     # watches ONLY this region and searches all of it. Without it, the box is
-    # derived from the character.
+    # DERIVED from the character and the skill bar — see mini_game_region/1.
     :mini_game_region,
     # HAND-MARKED position & minimap (2026-07-30): the map rectangle, the
     # character's FIXED cross (the map slides under it) and the textual
@@ -80,19 +80,53 @@ defmodule Pokex.Calibration do
   the game's PANELS moved, but the proof assumed the WINDOW never moved. On
   2026-07-30 it did (same root as the minimap at y=-132): the strip pointed at
   the wrong place and still silently VETOED the manual calibration. Inverted:
-  the hand-marked value always wins; without it, a box around the CHARACTER —
-  the bar appears over him. The worker searches whatever it gets; marking the
-  strip is what makes the search cheap and accurate.
+  the hand-marked value always wins; without it, the strip is DERIVED from the
+  two landmarks the game itself uses — the bar is drawn over the CHARACTER and
+  runs down to just short of the SKILL BAR. Both are already calibrated and
+  both move with the HUD, so a resolution change re-derives by itself.
   """
-  # MANUAL ONLY — no mark, no guess. Two guessed defaults failed in the field:
-  # the half-screen central box was "aquela área grandona" nobody recognised,
-  # and the character-anchored tile box false-positived at a rocky spot (dark
-  # trunk column + bright-blue flowers read as "bar + capsule", 2026-08-05),
-  # flapping enter/exit once a second and holding the WHOLE fleet. Scenery is
-  # too creative to out-guess; the strip is 2 clicks in Calibração → Só o
-  # minigame. `nil` here makes the watcher go BLIND AND SAY SO (see
-  # MiniGame.Worker) instead of scanning somewhere it was never taught.
+  # From his careful hand mark: the bar starts ~50px above the character and
+  # stops short of the skill bar. Rounded out a touch so a hand-clicked player
+  # point (±20px of human aim) still contains the whole bar.
+  @mini_game_above_px 60
+  @mini_game_skill_gap_px 20
+
+  # The hand mark always wins; otherwise the strip is DERIVED from the two
+  # landmarks already calibrated — the character and the skill bar (Lucas's own
+  # annotated screenshot, 2026-08-05: "ele está sempre ali bem pertinho do meu
+  # personagem e vai até quase lá na barra de skills").
+  #
+  # Both anchors move with the HUD, so changing resolution or layout re-derives
+  # by itself — which was his actual complaint. Measured against his own careful
+  # mark (profile `2-moni-8skill-baixo`: bar at player.x ±15, from player.y-49
+  # down to 171px above the skill bar) and against a real game trace (bar 17px
+  # wide, centre at player.x+18).
+  #
+  # WHY THE BOUNDS MATTER BEYOND FALSE POSITIVES: the old tile box was 880px
+  # tall around a ~470px bar, and the detector's dark column ran 810px — it
+  # bled into scenery. The pilot works in position NORMALISED inside the bar,
+  # so a bar measured 810 when it is 470 puts the fish target and the capsule
+  # in the wrong place (trace error_mean 11%). A window bounded by the real
+  # landmarks does not just avoid ghosts: it fixes the aim.
+  #
+  # No anchors (no player point, no skill bar) = nil, and the watcher goes
+  # BLIND AND SAYS SO rather than scanning somewhere it was never taught.
   def mini_game_region(%__MODULE__{mini_game_region: region}) when is_tuple(region), do: region
+
+  def mini_game_region(%__MODULE__{skill_bar_region: {_sx, skill_top, _sw, _sh}} = calib) do
+    case player_point(calib) do
+      {px, py} ->
+        side = max(Pokex.Settings.get(:mini_game_side_px), 1)
+        top = max(py - @mini_game_above_px, 0)
+        bottom = max(skill_top - @mini_game_skill_gap_px, top + 1)
+
+        {px - side, top, 2 * side, bottom - top}
+
+      nil ->
+        nil
+    end
+  end
+
   def mini_game_region(%__MODULE__{}), do: nil
 
   @doc """

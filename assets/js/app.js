@@ -25,6 +25,7 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/pokex"
 import topbar from "../vendor/topbar"
 import FishingLab from "./fishing_lab"
+import ComboDrag from "./combo_drag"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 
@@ -47,7 +48,7 @@ const ImgClick = {
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, ImgClick, FishingLab},
+  hooks: {...colocatedHooks, ImgClick, FishingLab, ComboDrag},
   dom: {
     // <details> open state lives only in the browser; without this, every LiveView
     // patch (e.g. each HP-monitor broadcast) re-renders the server HTML and stomps

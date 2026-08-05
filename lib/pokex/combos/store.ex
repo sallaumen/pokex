@@ -98,6 +98,23 @@ defmodule Pokex.Combos.Store do
     |> put()
   end
 
+  @doc """
+  Rewrites one combo's STEPS, in place.
+
+  Editing must not touch the name, the trigger, the dungeon or the on/off state
+  — and must not move the combo in the list, which is the order he reads on the
+  card. `add/1` cannot do this: it appends, so an edit would send the combo to
+  the bottom every time.
+  """
+  def replace_steps(name, steps) when is_binary(name) and is_list(steps) do
+    all()
+    |> Enum.map(fn
+      %Combo{name: ^name} = combo -> %Combo{combo | steps: steps}
+      combo -> combo
+    end)
+    |> put()
+  end
+
   @doc "Flips one combo on or off by name."
   def set_enabled(name, enabled?) when is_boolean(enabled?) do
     all()

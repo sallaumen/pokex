@@ -17,11 +17,14 @@ defmodule PokexWeb.Panel.CombosCard do
   """
   use PokexWeb, :html
 
+  alias Pokex.Combos.Edit
+
   attr :combos, :list, required: true
   attr :enabled, :boolean, required: true
   attr :skip, :map, default: nil
   attr :team, :list, default: []
   attr :draft, :map, required: true
+  attr :edit, :map, default: nil
   attr :rescue_combo, :string, default: ""
 
   def combos_card(assigns) do
@@ -98,6 +101,16 @@ defmodule PokexWeb.Panel.CombosCard do
               aria-label={"Combo #{combo.name} ligado"}
             />
             <button
+              :if={!editing?(@edit, combo.name)}
+              phx-click="edit_combo"
+              phx-value-name={combo.name}
+              class="shrink-0 text-pk-text-2 transition hover:text-pk-ok"
+              aria-label={"Editar os passos do combo #{combo.name}"}
+              title="Editar os passos"
+            >
+              <.icon name="hero-pencil-square" class="size-3.5" />
+            </button>
+            <button
               phx-click="delete_combo"
               phx-value-name={combo.name}
               data-confirm={"Excluir o combo \"#{combo.name}\"?"}
@@ -107,7 +120,10 @@ defmodule PokexWeb.Panel.CombosCard do
               <.icon name="hero-trash" class="size-3.5" />
             </button>
           </div>
-          <div class="mt-1.5 flex flex-wrap gap-1">
+
+          <.step_editor :if={editing?(@edit, combo.name)} edit={@edit} draft={@draft} team={@team} />
+
+          <div :if={!editing?(@edit, combo.name)} class="mt-1.5 flex flex-wrap gap-1">
             <span
               :for={{step, index} <- Enum.with_index(combo.steps)}
               class={[
@@ -288,6 +304,142 @@ defmodule PokexWeb.Panel.CombosCard do
     </section>
     """
   end
+
+  attr :edit, :map, required: true
+  attr :draft, :map, required: true
+  attr :team, :list, required: true
+
+  # The steps of ONE saved combo, open for editing. Nothing here writes to the
+  # file: every change lands in the working list on the server, and only Salvar
+  # persists it — an edit abandoned mid-fight costs nothing.
+  defp step_editor(assigns) do
+    ~H"""
+    <div
+      id={"combo-edit-#{@edit.name}"}
+      class="mt-2 rounded-lg border border-pk-ok-line bg-pk-bg p-2"
+    >
+      <ul id="combo-edit-steps" phx-hook="ComboDrag" class="grid gap-1">
+        <li
+          :for={{step, index} <- Enum.with_index(@edit.steps)}
+          data-testid={"combo-edit-step-#{index}"}
+          data-index={index}
+          draggable="true"
+          class="flex items-center gap-1.5 rounded border border-pk-line-strong bg-pk-surface px-1.5 py-1"
+        >
+          <span class="cursor-grab select-none text-pk-text-3" title="Arraste para reordenar">
+            ⠿
+          </span>
+          <span class="w-3 shrink-0 text-right font-mono text-pk-meta text-pk-text-3">
+            {index + 1}
+          </span>
+          <span class="min-w-0 flex-1 truncate font-mono text-pk-meta text-pk-text-2">
+            {step_kind_label(step)}
+          </span>
+
+          <form :if={Edit.editable_value(step)} phx-change="change_combo_step" class="contents">
+            <input type="hidden" name="index" value={index} />
+            <select
+              :if={match?({:swap_member, _}, step) and @team != []}
+              name="value"
+              class="h-6 w-28 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-meta text-pk-text"
+            >
+              <option
+                :for={name <- @team}
+                value={name}
+                selected={Edit.editable_value(step) == name}
+              >
+                {name}
+              </option>
+            </select>
+            <input
+              :if={not match?({:swap_member, _}, step) or @team == []}
+              name="value"
+              value={Edit.editable_value(step)}
+              phx-debounce="300"
+              class="input input-bordered h-6 w-20 bg-pk-bg px-1 text-center font-mono text-pk-meta"
+              aria-label={"Valor do passo #{index + 1}"}
+            />
+          </form>
+          <span :if={is_nil(Edit.editable_value(step))} class="font-mono text-pk-meta text-pk-text-3">
+            —
+          </span>
+
+          <button
+            type="button"
+            phx-click="delete_combo_step"
+            phx-value-index={index}
+            class="shrink-0 text-pk-text-3 transition hover:text-pk-danger"
+            aria-label={"Remover o passo #{index + 1}"}
+          >
+            ✕
+          </button>
+        </li>
+      </ul>
+
+      <p :if={@edit.steps == []} class="py-1 text-pk-body text-pk-text-3">
+        Combo sem passos — some abaixo.
+      </p>
+
+      <form id="combo-edit-add-form" phx-change="combo_draft" class="mt-1.5 flex gap-1.5">
+        <select
+          id="combo-edit-step-kind"
+          name="step_kind"
+          class="h-7 flex-1 rounded border border-pk-line-strong bg-pk-bg px-1.5 text-pk-meta text-pk-text"
+        >
+          <option value="skill" selected={@draft.step_kind == "skill"}>usar skill</option>
+          <option value="wait" selected={@draft.step_kind == "wait"}>esperar</option>
+          <option value="swap_member" selected={@draft.step_kind == "swap_member"}>trocar pra</option>
+          <option value="swap_counter" selected={@draft.step_kind == "swap_counter"}>
+            trazer quem tem vantagem
+          </option>
+        </select>
+        <input
+          :if={@draft.step_kind in ["skill", "wait"]}
+          name="step_value"
+          value={@draft.step_value}
+          phx-debounce="300"
+          placeholder={if @draft.step_kind == "skill", do: "1", else: "500"}
+          class="input input-bordered h-7 w-16 bg-pk-bg text-center font-mono text-pk-meta"
+          aria-label="Valor do novo passo"
+        />
+        <button
+          type="button"
+          id="combo-edit-add-step"
+          phx-click="append_combo_step"
+          class="btn h-7 border border-pk-line-strong bg-transparent px-2 text-pk-meta font-semibold text-pk-text-2 hover:bg-pk-raised hover:text-white"
+        >
+          + passo
+        </button>
+      </form>
+
+      <div class="mt-2 flex gap-1.5">
+        <button
+          type="button"
+          phx-click="save_combo_edit"
+          class="btn h-7 flex-1 border border-pk-ok-line bg-transparent text-pk-meta font-semibold text-pk-ok hover:bg-pk-ok-dim"
+        >
+          Salvar
+        </button>
+        <button
+          type="button"
+          phx-click="cancel_combo_edit"
+          class="btn h-7 border border-pk-line-strong bg-transparent px-3 text-pk-meta font-semibold text-pk-text-2 hover:bg-pk-raised"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp editing?(%{name: name}, name), do: true
+  defp editing?(_not_this_one, _name), do: false
+
+  defp step_kind_label({:swap_member, _name}), do: "troca"
+  defp step_kind_label({:swap_counter}), do: "traz counter"
+  defp step_kind_label({:skill, _key}), do: "skill"
+  defp step_kind_label({:wait, _ms}), do: "espera (ms)"
+  defp step_kind_label(_odd), do: "passo"
 
   defp trigger_text({:enemy_element, element}), do: "tipo #{element}"
   defp trigger_text({:enemy_species, species}), do: species

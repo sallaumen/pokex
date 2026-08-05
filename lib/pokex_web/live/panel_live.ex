@@ -15,6 +15,7 @@ defmodule PokexWeb.PanelLive do
   alias Pokex.Bots.SkillBar
   alias Pokex.Bots.StockAlerts
   alias Pokex.Calibration
+  alias Pokex.Combos.Edit
   alias Pokex.Combos.Runner
   alias Pokex.Combos.Store
   alias Pokex.Diagnostics.Report
@@ -194,6 +195,7 @@ defmodule PokexWeb.PanelLive do
        combos_enabled: Settings.get(:combos_enabled),
        combo_skip: combo_skip(),
        combo_draft: empty_combo_draft(),
+       combo_edit: nil,
        preset_msg: nil
      )}
   end
@@ -288,6 +290,27 @@ defmodule PokexWeb.PanelLive do
   defp build_trigger("any", _value), do: {:any_enemy}
   defp build_trigger("rescue_only", _value), do: {:rescue_only}
   defp build_trigger(_element, value), do: {:enemy_element, String.trim(value || "")}
+
+  # The working list of the combo being edited — nothing here touches the file.
+  defp edit_steps(%{assigns: %{combo_edit: %{steps: steps} = edit}} = socket, fun),
+    do: assign(socket, combo_edit: %{edit | steps: fun.(steps)})
+
+  defp edit_steps(socket, _not_editing), do: socket
+
+  defp clear_step_field(socket), do: %{socket.assigns.combo_draft | step_value: ""}
+
+  # The drag hook reports numbers, a click reports a string. Junk becomes an
+  # index that matches no step, which every Edit function treats as a no-op.
+  defp to_index(index) when is_integer(index), do: index
+
+  defp to_index(index) when is_binary(index) do
+    case Integer.parse(index) do
+      {i, _rest} -> i
+      :error -> -1
+    end
+  end
+
+  defp to_index(_junk), do: -1
 
   # A builder step: the chosen kind + typed value become the step Combos
   # understands. A skill without a key or a wait without a number becomes no
@@ -821,7 +844,59 @@ defmodule PokexWeb.PanelLive do
 
   def handle_event("delete_combo", %{"name" => name}, socket) do
     :ok = Store.delete(name)
-    {:noreply, assign(socket, combos: Store.all())}
+    {:noreply, assign(socket, combos: Store.all(), combo_edit: nil)}
+  end
+
+  # Editing a SAVED combo. The steps are copied into a working list and only
+  # that list changes until he saves — an edit abandoned mid-way (or a hunt that
+  # ends first) leaves the file exactly as it was. One combo open at a time:
+  # the card is read while fights happen, and two open editors on a panel that
+  # re-renders ~10x/s is a way to save the wrong one.
+  def handle_event("edit_combo", %{"name" => name}, socket) do
+    case Enum.find(socket.assigns.combos, &(&1.name == name)) do
+      nil -> {:noreply, socket}
+      combo -> {:noreply, assign(socket, combo_edit: %{name: name, steps: combo.steps})}
+    end
+  end
+
+  def handle_event("cancel_combo_edit", _params, socket),
+    do: {:noreply, assign(socket, combo_edit: nil, combo_draft: clear_step_field(socket))}
+
+  # From the drag hook: it reports two indices and nothing else, so where the
+  # step LANDS stays in Elixir, covered by tests (Pokex.Combos.Edit).
+  def handle_event("move_combo_step", %{"from" => from, "to" => to}, socket),
+    do: {:noreply, edit_steps(socket, &Edit.move(&1, to_index(from), to_index(to)))}
+
+  def handle_event("change_combo_step", %{"index" => index, "value" => value}, socket),
+    do: {:noreply, edit_steps(socket, &Edit.put_value(&1, to_index(index), value))}
+
+  def handle_event("delete_combo_step", %{"index" => index}, socket),
+    do: {:noreply, edit_steps(socket, &Edit.delete(&1, to_index(index)))}
+
+  def handle_event("append_combo_step", _params, socket) do
+    draft = socket.assigns.combo_draft
+
+    case build_step(draft.step_kind, draft.step_value) do
+      :invalid ->
+        {:noreply, socket}
+
+      step ->
+        {:noreply,
+         socket
+         |> edit_steps(&(&1 ++ [step]))
+         |> assign(combo_draft: %{draft | step_value: ""})}
+    end
+  end
+
+  def handle_event("save_combo_edit", _params, socket) do
+    case socket.assigns.combo_edit do
+      %{name: name, steps: steps} ->
+        :ok = Store.replace_steps(name, steps)
+        {:noreply, assign(socket, combos: Store.all(), combo_edit: nil)}
+
+      nil ->
+        {:noreply, socket}
+    end
   end
 
   # Every editor keystroke/choice becomes SERVER STATE. It is what keeps the
@@ -2135,6 +2210,7 @@ defmodule PokexWeb.PanelLive do
         skip={@combo_skip}
         team={team_names(@world)}
         draft={@combo_draft}
+        edit={@combo_edit}
         rescue_combo={@rescue_combo}
       />
 

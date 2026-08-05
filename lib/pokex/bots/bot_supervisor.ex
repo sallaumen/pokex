@@ -426,9 +426,13 @@ defmodule Pokex.Bots.BotSupervisor do
     %{
       fishing: safe_status(fishing),
       combat: safe_status(combat, %{locked_row: nil}),
-      # mode included so the busy placeholder carries the full catcher snapshot shape (and any
-      # future template read of .mode can't crash).
-      catcher: safe_status(catcher, %{mode: "still"})
+      # mode/sweep included so the busy placeholder carries the full catcher snapshot shape
+      # (and a template read of .mode / .sweep can't crash the very page this fallback protects).
+      catcher:
+        safe_status(catcher, %{
+          mode: "still",
+          sweep: %{enabled?: false, pending: 0, sweeps: 0, balls: 0}
+        })
     }
   end
 

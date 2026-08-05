@@ -13,9 +13,14 @@ defmodule PokexWeb.HeaderState do
   passes the message on (`:cont`); on the other pages it subscribes and stops
   the message here (`:halt`) — a page with no clause for `{:fishing, _}`
   would raise FunctionClauseError in `handle_info/2`.
+
+  Switching character also passes through here: the header listens on
+  `Pokex.Characters.topic/0` and asks the page to reload itself via
+  `PokexWeb.CharacterAware` — including a tab parked on another page, which
+  used to keep showing the previous character's data indefinitely.
   """
   import Phoenix.Component, only: [assign: 2, assign: 3]
-  import Phoenix.LiveView, only: [attach_hook: 4, connected?: 1]
+  import Phoenix.LiveView, only: [attach_hook: 4, connected?: 1, put_flash: 3]
 
   alias Pokex.Bots.AlarmCategories
   alias Pokex.Bots.BotSupervisor
@@ -35,6 +40,7 @@ defmodule PokexWeb.HeaderState do
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @focus_topic)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Characters.topic())
 
       if owns_workers?,
         do: Enum.each(@worker_topics, &Phoenix.PubSub.subscribe(Pokex.PubSub, &1))
@@ -77,6 +83,21 @@ defmodule PokexWeb.HeaderState do
   defp info({:focus, %{focused?: focused?}}, socket),
     do: {:halt, assign(socket, focused?: focused?)}
 
+  # ALWAYS `:halt`: no page handles `{:character, _}` in its own
+  # `handle_info/2` — whoever owns character data implements
+  # `PokexWeb.CharacterAware` and is called from here. Letting it through would
+  # raise FunctionClauseError on every page that does not know the message.
+  #
+  # The flash is skipped when the socket already carries this slug: that is the
+  # echo of a switch THIS tab just made through an event, which flashed its own
+  # (more precise) message. What is left is the case worth announcing — the
+  # active character changed from somewhere else.
+  defp info({:character, slug}, socket) do
+    echo? = socket.assigns.active_character == slug
+    socket = apply_character(socket, slug)
+    {:halt, if(echo?, do: socket, else: flash_switch(socket, slug))}
+  end
+
   defp info({:fishing, %{state: state}}, socket), do: worker_state(socket, :fishing, state)
   defp info({:combat, %{state: state}}, socket), do: worker_state(socket, :combat, state)
   defp info({:cavebot, %{state: state}}, socket), do: worker_state(socket, :cavebot, state)
@@ -107,18 +128,41 @@ defmodule PokexWeb.HeaderState do
 
   defp event("set_character", %{"character" => slug}, socket) do
     :ok = Characters.set_active(slug)
-    {:halt, assign(socket, active_character: slug)}
+    {:halt, socket |> apply_character(slug) |> flash_switch(slug)}
   end
 
   defp event("create_character", %{"name" => name}, socket) do
     case Characters.create(name) do
       {:ok, slug} ->
         :ok = Characters.set_active(slug)
-        {:halt, assign(socket, characters: Characters.list(), active_character: slug)}
+        {:halt, socket |> apply_character(slug) |> flash_switch(slug)}
 
-      {:error, _reason} ->
-        {:halt, socket}
+      {:error, reason} ->
+        {:halt, put_flash(socket, :error, create_error(name, reason))}
     end
+  end
+
+  # Renaming and deleting existed in `Pokex.Characters` from the start with no
+  # way to reach them: a character created with a typo was permanent as far as
+  # the app was concerned. Both live in the header's character popover, next to
+  # the picker they affect.
+  defp event("rename_character", %{"slug" => slug, "name" => name}, socket) do
+    case Characters.rename(slug, name) do
+      {:ok, new_slug} ->
+        socket = apply_character(socket, Characters.active())
+        {:halt, put_flash(socket, :info, "Agora chama #{display_name(socket, new_slug)}")}
+
+      {:error, reason} ->
+        {:halt, put_flash(socket, :error, create_error(name, reason))}
+    end
+  end
+
+  defp event("delete_character", %{"slug" => slug}, socket) do
+    name = display_name(socket, slug)
+    :ok = Characters.delete(slug)
+
+    socket = apply_character(socket, Characters.active())
+    {:halt, put_flash(socket, :info, "#{name} apagado")}
   end
 
   # Master sound: silences EVERYTHING at once without touching the individual
@@ -150,6 +194,42 @@ defmodule PokexWeb.HeaderState do
   end
 
   defp event(_event, _params, socket), do: {:cont, socket}
+
+  # Applied on BOTH paths (the switch made here and the announcement arriving
+  # over PubSub) on purpose: the switch must not depend on the broadcast coming
+  # back, and the broadcast is what makes a parked tab follow a switch made
+  # somewhere else. Re-applying is harmless — everything here re-reads its source.
+  defp apply_character(socket, slug) do
+    socket
+    |> assign(characters: Characters.list(), active_character: slug)
+    |> reload_page()
+  end
+
+  defp reload_page(socket) do
+    view = socket.view
+
+    if Code.ensure_loaded?(view) and function_exported?(view, :on_character_change, 1) do
+      view.on_character_change(socket)
+    else
+      socket
+    end
+  end
+
+  defp flash_switch(socket, ""),
+    do: put_flash(socket, :info, "Sem personagem — de volta ao time compartilhado")
+
+  defp flash_switch(socket, slug),
+    do: put_flash(socket, :info, "Agora você é #{display_name(socket, slug)}")
+
+  defp display_name(socket, slug) do
+    Enum.find_value(socket.assigns.characters, slug, &(&1.slug == slug && &1.name))
+  end
+
+  defp create_error(name, :invalid_name),
+    do: "\"#{name}\" não vira um nome — usa letras ou números"
+
+  defp create_error(name, :already_exists), do: "já existe um personagem chamado #{name}"
+  defp create_error(_name, :not_found), do: "esse personagem não existe mais"
 
   # The Catcher is left out on purpose: in "movimento" mode it always reports
   # :manual — a display choice, not a running signal. Same rule as the panel.

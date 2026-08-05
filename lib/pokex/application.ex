@@ -48,7 +48,13 @@ defmodule Pokex.Application do
     ]
 
     opts = [strategy: :one_for_one, name: Pokex.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children, opts) do
+      # After Settings is up: an `:active_character` pointing at a folder that
+      # no longer exists makes the team silently disappear from the screen.
+      Pokex.Characters.heal_active()
+      {:ok, pid}
+    end
   end
 
   @impl true

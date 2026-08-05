@@ -475,7 +475,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   # eu tô vendo ele perder muito pokémon"), so what it must prove here is that
   # it throws at every tile — and that every gate still stops it.
   describe "varredura cega" do
-    setup %{worker: worker} do
+    setup do
       SettingsStash.stash!(
         tile_px: 100,
         sweep_radius_tiles: 1,
@@ -494,7 +494,8 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
         player_point: {500, 350}
       })
 
-      :ok = Worker.mode_changed(worker)
+      # the verdict of a sweep comes back as a broadcast, never as a reply
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
       :ok
     end
 
@@ -502,7 +503,8 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     test "throws the ball at every tile around the character, nearest ring first", %{
       worker: worker
     } do
-      assert {:ok, 8} = Worker.sweep_now(worker)
+      :ok = Worker.sweep_now(worker)
+      assert_receive {:sweep_result, "varrendo 8 tile(s)…"}, 1_000
 
       for point <- [
             {400, 250},
@@ -538,12 +540,15 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
         pokemon_spot_point: {600, 350}
       })
 
-      assert {:ok, 7} = Worker.sweep_now(worker)
+      :ok = Worker.sweep_now(worker)
+      assert_receive {:sweep_result, "varrendo 7 tile(s)…"}, 1_000
       refute_receive {:performed, :normal, [{:move, {600, 350}} | _]}, 300
     end
 
     @tag :tmp_dir
-    # The switch is what the cadence obeys; the test button is what ignores it.
+    # The cadence tick is a heartbeat: it always fires, and it is the TICK that
+    # reads the switch. That is what lets the settings screen flip the switch
+    # without asking this process anything.
     test "the cadence sweeps only with the switch on — the test button always does", %{
       worker: worker
     } do
@@ -551,7 +556,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       refute_receive {:performed, :normal, [{:move, _} | _]}, 300
 
       Settings.put(:sweep_enabled, true)
-      :ok = Worker.mode_changed(worker)
       send(worker, :sweep)
       assert_receive {:performed, :normal, [{:move, _} | _]}, 1_000
     end
@@ -559,7 +563,9 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     @tag :tmp_dir
     test "a fight in progress holds the sweep, and says which gate it was", %{worker: worker} do
       send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
-      assert {:error, "luta em andamento"} = Worker.sweep_now(worker)
+
+      :ok = Worker.sweep_now(worker)
+      assert_receive {:sweep_result, "não varreu: luta em andamento"}, 1_000
       refute_receive {:performed, :normal, _actions}, 300
     end
 
@@ -568,9 +574,9 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       worker: worker
     } do
       Settings.put(:player_mode, "moving")
-      :ok = Worker.mode_changed(worker)
 
-      assert {:error, "a varredura é do modo Parado"} = Worker.sweep_now(worker)
+      :ok = Worker.sweep_now(worker)
+      assert_receive {:sweep_result, "não varreu: a varredura é do modo Parado"}, 1_000
     end
 
     @tag :tmp_dir
@@ -583,7 +589,8 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
       on_exit(fn -> WorldState.forget(:mini_game) end)
 
-      assert {:error, "mini-game em jogo"} = Worker.sweep_now(worker)
+      :ok = Worker.sweep_now(worker)
+      assert_receive {:sweep_result, "não varreu: mini-game em jogo"}, 1_000
     end
 
     @tag :tmp_dir
@@ -591,8 +598,34 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       InputGate.set_focus_ok(false)
       on_exit(fn -> InputGate.set_focus_ok(true) end)
 
-      assert {:error, reason} = Worker.sweep_now(worker)
-      assert reason =~ "foco"
+      :ok = Worker.sweep_now(worker)
+      assert_receive {:sweep_result, text}, 1_000
+      assert text =~ "foco"
+    end
+
+    @tag :tmp_dir
+    # THE CRASH OF 2026-08-05: this was a GenServer.call from the LiveView's
+    # handle_event. This worker parks on captures the broker can hold for
+    # seconds, the 5s call timed out, and the exit took the whole page down.
+    # A busy worker must cost the caller nothing.
+    test "asking for a sweep never waits on a busy worker", %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      # 1.5s per action parks the worker exactly like a slow capture does
+      {:ok, body} = FakeBody.start_link(self(), 1_500)
+
+      worker =
+        start_supervised!({Worker, name: nil, body: body, scanner: fn -> nil end},
+          id: :stuck_body
+        )
+
+      :ok = Worker.run(worker)
+      :ok = Worker.sweep_now(worker)
+      assert_receive {:sweep_result, "varrendo" <> _}, 1_000
+
+      {elapsed_us, reply} = :timer.tc(fn -> Worker.sweep_now(worker) end)
+
+      assert reply == :ok
+      assert elapsed_us < 200_000, "the ask blocked on the worker — that is the crash"
     end
 
     @tag :tmp_dir
@@ -607,11 +640,13 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
       :ok = Worker.run(worker)
 
-      assert {:ok, 8} = Worker.sweep_now(worker)
+      :ok = Worker.sweep_now(worker)
+      assert_receive {:performed, :normal, _first_tile}, 1_000
+
       :ok = Worker.halt(worker)
 
       assert Worker.status(worker).sweep.pending == 0
-      assert drain_performed() < 8, "the halt did not stop the sweep"
+      assert drain_performed() < 7, "the halt did not stop the sweep"
     end
   end
 

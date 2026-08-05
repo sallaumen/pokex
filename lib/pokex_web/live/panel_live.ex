@@ -452,6 +452,10 @@ defmodule PokexWeb.PanelLive do
     do:
       {:noreply, socket |> alarm_on_error(:catcher, snapshot) |> assign(catcher: seen(snapshot))}
 
+  # The blind sweep's verdict, arriving on its own time — see the sweep_now
+  # event: the button asks and never waits.
+  def handle_info({:sweep_result, text}, socket), do: {:noreply, assign(socket, sweep_msg: text)}
+
   def handle_info({:mini_game, snapshot}, socket) do
     socket = socket |> alarm_on_error(:mini_game, snapshot) |> assign(mini_game: seen(snapshot))
 
@@ -827,7 +831,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("set_player_mode", %{"mode" => mode}, socket) do
     case Pokex.Modes.apply!(mode) do
       :ok ->
-        Catcher.Worker.mode_changed()
+        catcher_poke(&Catcher.Worker.mode_changed/0)
 
         {:noreply,
          socket
@@ -988,7 +992,7 @@ defmodule PokexWeb.PanelLive do
 
   def handle_event("restore_mode_defaults", _params, socket) do
     :ok = Pokex.Modes.apply!(socket.assigns.player_mode)
-    Catcher.Worker.mode_changed()
+    catcher_poke(&Catcher.Worker.mode_changed/0)
     {:noreply, refresh_setting_assigns(socket)}
   end
 
@@ -1003,12 +1007,12 @@ defmodule PokexWeb.PanelLive do
   def handle_event("toggle_capture_enabled", _params, socket) do
     value = not Settings.get(:capture_enabled)
     Settings.put(:capture_enabled, value)
-    Catcher.Worker.mode_changed()
+    catcher_poke(&Catcher.Worker.mode_changed/0)
     {:noreply, assign(socket, capture_enabled: value, mode_overrides: mode_override_keys())}
   end
 
   def handle_event("relearn_ground", _params, socket) do
-    Catcher.Worker.relearn()
+    catcher_poke(&Catcher.Worker.relearn/0)
     {:noreply, socket}
   end
 
@@ -1182,10 +1186,12 @@ defmodule PokexWeb.PanelLive do
   # apply to a bot ALREADY running — without it the sweep would only start (or
   # stop) at the next Iniciar, which is exactly the kind of "I turned it on and
   # nothing happened" that eroded trust in the capture.
+  # No poke at the worker here on purpose: its sweep tick is a heartbeat that
+  # reads this setting itself. Asking a process that parks on captures is what
+  # took the page down.
   def handle_event("toggle_sweep_enabled", _params, socket) do
     value = not Settings.get(:sweep_enabled)
     Settings.put(:sweep_enabled, value)
-    Catcher.Worker.mode_changed()
     {:noreply, assign(socket, sweep_enabled: value, sweep_msg: nil)}
   end
 
@@ -1196,21 +1202,15 @@ defmodule PokexWeb.PanelLive do
       |> save_int(params["sweep_radius_tiles"], 1..8, :sweep_radius_tiles, :sweep_radius_tiles)
       |> save_sweep_side(params["sweep_side"])
 
-    # a new cadence only means something once the running worker re-arms on it
-    Catcher.Worker.mode_changed()
     {:noreply, socket}
   end
 
-  # The test button: sweeps once right now, even with the switch off, and says
-  # out loud which gate held it when one did.
+  # The test button ASKS and does not wait: the verdict comes back as a
+  # {:sweep_result, _} broadcast. Waiting for it timed out against a worker
+  # busy on a capture and killed the LiveView (2026-08-05).
   def handle_event("sweep_now", _params, socket) do
-    message =
-      case Catcher.Worker.sweep_now() do
-        {:ok, tiles} -> "varrendo #{tiles} tile(s)…"
-        {:error, reason} -> "não varreu: #{reason}"
-      end
-
-    {:noreply, assign(socket, sweep_msg: message)}
+    Catcher.Worker.sweep_now()
+    {:noreply, assign(socket, sweep_msg: "pedindo varredura…")}
   end
 
   def handle_event("save_stock_cfg", params, socket) do
@@ -1564,7 +1564,6 @@ defmodule PokexWeb.PanelLive do
 
   defp save_ball_key(socket, _ausente), do: socket
 
-  # The UI speaks SECONDS (what Lucas reasons in); the settings store milliseconds.
   defp save_sweep_side(socket, side) do
     if side in Pokex.Bots.Catcher.Sweep.sides() do
       Settings.put(:sweep_side, side)
@@ -1574,6 +1573,20 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
+  # Every synchronous ask to the catcher goes through here. That worker parks on
+  # screen captures the broker can hold for SECONDS (the same reason
+  # BotSupervisor.safe_status carries a busy placeholder), and an exit inside a
+  # `handle_event` takes the whole page down — which is what the sweep's test
+  # button did on 2026-08-05. These pokes are advisory: the worker re-reads the
+  # mode and the settings on its own next tick, so a lost one costs at most a
+  # cycle of staleness, never the panel.
+  defp catcher_poke(fun) do
+    fun.()
+  catch
+    :exit, _reason -> :ok
+  end
+
+  # The UI speaks SECONDS (what Lucas reasons in); the settings store milliseconds.
   defp save_seconds(socket, raw, range, setting_key, assign_key) do
     case PanelForms.parse_int(raw, range) do
       {:ok, seconds} ->

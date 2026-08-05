@@ -82,11 +82,15 @@ defmodule Pokex.Bots.Catcher.Worker do
   @doc """
   Sweeps NOW, ignoring `sweep_enabled` — the settings screen's test button.
 
-  `{:ok, tiles}` once the balls are queued, or `{:error, reason}` (a sentence
-  for the screen) when a gate is holding it or the calibration cannot say where
-  the character is.
+  A CAST, deliberately. It was a call and it took the panel down (2026-08-05):
+  this process parks on captures that the broker can hold for seconds, so any
+  synchronous ask from the LiveView is a timeout waiting to happen, and a
+  timeout in a `handle_event` kills the page. Worse, a timed-out call still
+  runs later, so "deu tempo" on screen would be a lie about a sweep that did
+  start. The answer comes back as a `{:sweep_result, text}` broadcast on this
+  worker's topic instead — the panel already listens there.
   """
-  def sweep_now(server \\ __MODULE__), do: GenServer.call(server, :sweep_now)
+  def sweep_now(server \\ __MODULE__), do: GenServer.cast(server, :sweep_now)
 
   @impl true
   def init(%{body: body, scanner: scanner}) do
@@ -191,19 +195,27 @@ defmodule Pokex.Bots.Catcher.Worker do
     {:reply, :ok, state}
   end
 
+  @impl true
   # The test button: sweeps even with the switch off (that is what makes it a
   # test), but never past a gate — the reasons a sweep is held are the reasons
-  # it would be wrong or invisible, not paperwork.
-  def handle_call(:sweep_now, _from, state) do
+  # it would be wrong or invisible, not paperwork. The verdict goes out as a
+  # broadcast because the caller is a LiveView that must not wait on us.
+  def handle_cast(:sweep_now, state) do
     case sweep_hold_reason(state) do
       nil ->
         case begin_sweep(state) do
-          {:ok, state} -> {:reply, {:ok, length(state.sweep_queue)}, state}
-          {:error, reason} -> {:reply, {:error, reason}, state}
+          {:ok, state} ->
+            sweep_result("varrendo #{length(state.sweep_queue)} tile(s)…")
+            {:noreply, state}
+
+          {:error, reason} ->
+            sweep_result("não varreu: #{reason}")
+            {:noreply, state}
         end
 
       reason ->
-        {:reply, {:error, reason}, state}
+        sweep_result("não varreu: #{reason}")
+        {:noreply, state}
     end
   end
 
@@ -427,15 +439,16 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp arm_sweep(%{logic: nil} = state), do: cancel_sweep(state)
 
+  # A HEARTBEAT, not a switch-driven timer: while the bot runs, the tick always
+  # exists and it is the TICK that reads `sweep_enabled` and the cadence. That
+  # is what lets the settings screen flip the switch without asking this process
+  # anything — and asking it synchronously is exactly what took the panel down
+  # (2026-08-05), because a worker parked on a capture answers nothing for
+  # seconds. A disabled sweep costs one no-op message per cadence.
   defp arm_sweep(state) do
     state = cancel_sweep(state)
-
-    if Settings.get(:sweep_enabled) do
-      ms = max(Settings.get(:sweep_interval_ms), 1_000)
-      %{state | sweep_timer: Process.send_after(self(), :sweep, ms)}
-    else
-      state
-    end
+    ms = max(Settings.get(:sweep_interval_ms), 1_000)
+    %{state | sweep_timer: Process.send_after(self(), :sweep, ms)}
   end
 
   # Halting drops the tiles still owed as well as the timer: a pending
@@ -453,6 +466,9 @@ defmodule Pokex.Bots.Catcher.Worker do
     broadcast(state)
     state
   end
+
+  defp sweep_result(text),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:sweep_result, text})
 
   # capture_enabled OR a pending shiny (never lose a shiny to a toggle).
   defp capture_allowed?(state),

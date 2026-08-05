@@ -57,22 +57,54 @@ defmodule Pokex.CalibrationMiniGameTest do
     assert Calibration.mini_game_region(hand_marked) == {2976, 555, 113, 773}
   end
 
-  test "without a manual mark the resolver answers nil — no guessed box, ever", %{fix: fix} do
-    # both guessed defaults false-positived in the field; nil is what makes the
-    # watcher go blind-and-declared instead of scanning scenery
-    unmarked = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, layout: fix}
-    assert Calibration.mini_game_region(unmarked) == nil
+  # A imagem anotada dele (2026-08-05): "ele está sempre ali bem pertinho do meu
+  # personagem e vai até quase lá na barra de skills". As duas âncoras já são
+  # calibradas, então a faixa se DERIVA delas — e re-deriva sozinha quando a
+  # resolução muda, que era a queixa real.
+  describe "faixa derivada das âncoras (personagem + barra de skills)" do
+    defp anchored do
+      %Calibration{
+        scale: 1.0,
+        screen_w: 3440,
+        screen_h: 1440,
+        player_point: {1688, 697},
+        skill_bar_region: {1532, 1290, 430, 43}
+      }
+    end
 
-    with_player = %Calibration{
-      scale: 1.0,
-      screen_w: 3440,
-      screen_h: 1440,
-      player_point: {1690, 695},
-      layout: nil
-    }
+    test "nasce do personagem e para antes da barra de skills" do
+      # meia-largura 50 em volta do personagem; topo 60px acima dele; fundo 20px
+      # acima do topo da barra de skills
+      assert Calibration.mini_game_region(anchored()) == {1638, 637, 100, 633}
+    end
 
-    assert Calibration.mini_game_region(with_player) == nil
+    test "CONTÉM a faixa que ele marcou à mão no mesmo perfil" do
+      # perfil 2-moni-8skill-baixo: a marcação caprichada dele, medida
+      {bx, by, bw, bh} = Calibration.mini_game_region(anchored())
+      {x, y, w, h} = {1674, 648, 29, 471}
 
-    assert Calibration.mini_game_region(%Calibration{scale: 1.0}) == nil
+      assert x >= bx and x + w <= bx + bw, "a faixa marcada escapa em x"
+      assert y >= by and y + h <= by + bh, "a faixa marcada escapa em y"
+    end
+
+    test "acompanha a barra de skills — é isso que sobrevive à troca de resolução" do
+      subiu = %Calibration{anchored() | skill_bar_region: {1532, 1000, 430, 43}}
+      {_x, _y, _w, h} = Calibration.mini_game_region(anchored())
+      {_x2, _y2, _w2, h2} = Calibration.mini_game_region(subiu)
+
+      assert h2 < h
+    end
+
+    test "sem barra de skills não há de onde derivar: nil, e o vigia fica cego" do
+      sem_barra = %Calibration{anchored() | skill_bar_region: nil}
+      assert Calibration.mini_game_region(sem_barra) == nil
+
+      assert Calibration.mini_game_region(%Calibration{scale: 1.0}) == nil
+    end
+
+    test "a marcação manual continua ganhando da derivação" do
+      marcada = %Calibration{anchored() | mini_game_region: {2976, 555, 113, 773}}
+      assert Calibration.mini_game_region(marcada) == {2976, 555, 113, 773}
+    end
   end
 end

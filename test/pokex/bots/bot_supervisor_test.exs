@@ -322,6 +322,10 @@ defmodule Pokex.Bots.BotSupervisorTest do
       water_point: {100, 100},
       glow_region: {0, 0, 20, 20},
       battle_region: {0, 0, 20, 20},
+      # a faixa é MARCADA: desde 2026-08-05 o vigia não adivinha região nenhuma
+      # (o palpite lia cenário como minigame), então sem marca ele fica cego —
+      # e um vigia cego nunca chega a segurar Espaço pra este teste soltar
+      mini_game_region: {0, 0, 220, 220},
       neutral_point: {100, 100}
     })
 

@@ -84,44 +84,16 @@ defmodule Pokex.Calibration do
   the bar appears over him. The worker searches whatever it gets; marking the
   strip is what makes the search cheap and accurate.
   """
-  def mini_game_region(%__MODULE__{} = calib) do
-    manual_mini_game_region(calib) || centered_mini_game_region(calib)
-  end
-
-  defp manual_mini_game_region(%__MODULE__{mini_game_region: region}) when is_tuple(region),
-    do: region
-
-  defp manual_mini_game_region(_no_mark), do: nil
-
-  # A BOX AROUND THE CHARACTER — the mini-game bar appears over him, so he is
-  # the anchor. This used to be the middle of the calibrated "arena", which drew
-  # a second rectangle inside a rectangle and asked for two clicks that taught
-  # the bot nothing (2026-08-03: "a área do minigame está duplicada").
-  #
-  # Sized in TILES, from his own six hand-marked strips: every one of them sits
-  # within 2 tiles either side of the character and runs from 1 tile above him
-  # to 7 below. Three tiles of margin each way covers them all. Half the screen
-  # — the previous default — searched 25% of the display and drew a rectangle
-  # nobody recognised as the mini-game ("aquela área grandona").
-  @mini_game_tiles_side 3
-  @mini_game_tiles_above 3
-  @mini_game_tiles_below 7
-
-  defp centered_mini_game_region(%__MODULE__{screen_w: w, screen_h: h} = calib)
-       when is_integer(w) and is_integer(h) do
-    {cx, cy} = player_point(calib)
-    tile = max(Pokex.Settings.get(:tile_px), 1)
-
-    bw = min(2 * @mini_game_tiles_side * tile, w)
-    bh = min((@mini_game_tiles_above + @mini_game_tiles_below) * tile, h)
-
-    {clamp(cx - @mini_game_tiles_side * tile, 0, w - bw),
-     clamp(cy - @mini_game_tiles_above * tile, 0, h - bh), bw, bh}
-  end
-
-  defp centered_mini_game_region(_uncalibrated), do: nil
-
-  defp clamp(v, lo, hi), do: v |> max(lo) |> min(hi)
+  # MANUAL ONLY — no mark, no guess. Two guessed defaults failed in the field:
+  # the half-screen central box was "aquela área grandona" nobody recognised,
+  # and the character-anchored tile box false-positived at a rocky spot (dark
+  # trunk column + bright-blue flowers read as "bar + capsule", 2026-08-05),
+  # flapping enter/exit once a second and holding the WHOLE fleet. Scenery is
+  # too creative to out-guess; the strip is 2 clicks in Calibração → Só o
+  # minigame. `nil` here makes the watcher go BLIND AND SAY SO (see
+  # MiniGame.Worker) instead of scanning somewhere it was never taught.
+  def mini_game_region(%__MODULE__{mini_game_region: region}) when is_tuple(region), do: region
+  def mini_game_region(%__MODULE__{}), do: nil
 
   @doc """
   Where the MINIMAP is, resolved — the HAND wins, auto-layout is the fallback

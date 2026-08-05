@@ -52,6 +52,38 @@ defmodule Pokex.Combos.StoreTest do
     refute Enum.any?(Store.all(), &(&1.name == ""))
   end
 
+  describe "replace_steps" do
+    test "rewrites one combo's steps and leaves the rest of it alone" do
+      :ok = Store.add(%Combo{combo("dorme", "Wigglytuff") | enabled?: false, dungeon: "cavena"})
+
+      assert :ok = Store.replace_steps("dorme", [{:wait, 900}, {:skill, "1"}])
+
+      saved = Enum.find(Store.all(), &(&1.name == "dorme"))
+      assert saved.steps == [{:wait, 900}, {:skill, "1"}]
+      assert saved.trigger == {:enemy_element, "Water"}
+      refute saved.enabled?
+      assert saved.dungeon == "cavena"
+    end
+
+    # Editing must not shuffle the card: the list order is what he reads.
+    test "keeps the combo where it was in the list" do
+      :ok = Store.add(combo("primeiro", "Xatu"))
+      :ok = Store.add(combo("segundo", "Xatu"))
+      before = Enum.map(Store.all(), & &1.name)
+
+      :ok = Store.replace_steps("primeiro", [{:skill, "9"}])
+
+      assert Enum.map(Store.all(), & &1.name) == before
+    end
+
+    test "an unknown name changes nothing" do
+      before = Store.all()
+
+      assert :ok = Store.replace_steps("não existe", [{:skill, "1"}])
+      assert Store.all() == before
+    end
+  end
+
   test "delete removes only the named one, and is safe on a name that is gone" do
     :ok = Store.add(combo("dorme", "Wigglytuff"))
 

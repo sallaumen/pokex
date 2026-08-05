@@ -3,6 +3,7 @@ defmodule PokexWeb.PanelLiveTest do
 
   alias Pokex.Bots.Session
   alias Pokex.Bots.StockAlerts
+  alias Pokex.Combos.Combo
   alias Pokex.Combos.Runner
   alias Pokex.Combos.Store
   alias Pokex.Layout.Sentinel
@@ -1599,6 +1600,139 @@ defmodule PokexWeb.PanelLiveTest do
       view |> element(~s([phx-click="delete_combo"][phx-value-name="sing"])) |> render_click()
 
       refute Enum.any?(Store.all(), &(&1.name == "sing"))
+    end
+
+    # Editing a SAVED combo. Before this, tuning the rescue's first wait meant
+    # deleting the combo and rebuilding it step by step.
+    # Its OWN combo, not the seed: this is about editing arbitrary steps, and a
+    # test that leans on whatever the seed happens to be breaks when the seed
+    # changes for unrelated reasons.
+    @editable_steps [{:wait, 400}, {:skill, "1"}, {:wait, 500}, {:skill, "2"}]
+
+    defp editable_combo! do
+      :ok =
+        Store.add(%Combo{
+          name: "socorro",
+          trigger: {:rescue_only},
+          steps: @editable_steps,
+          dungeon: "cavena"
+        })
+    end
+
+    defp open_editor(conn, name \\ "socorro") do
+      if name == "socorro", do: editable_combo!()
+      {:ok, view, _} = live(conn, ~p"/config")
+      view |> element(~s([phx-click="edit_combo"][phx-value-name="#{name}"])) |> render_click()
+      view
+    end
+
+    defp steps_of(name) do
+      Store.all() |> Enum.find(&(&1.name == name)) |> Map.fetch!(:steps)
+    end
+
+    defp save_edit(view, name) do
+      view |> element(~s(#combo-edit-#{name} button), "Salvar") |> render_click()
+    end
+
+    test "editing: the pencil turns the steps into fields, one per step", %{conn: conn} do
+      view = open_editor(conn)
+
+      assert has_element?(view, "#combo-edit-socorro")
+      assert has_element?(view, ~s([data-testid="combo-edit-step-0"]))
+      assert has_element?(view, ~s([data-testid="combo-edit-step-3"]))
+      refute has_element?(view, ~s([data-testid="combo-edit-step-4"]))
+    end
+
+    test "editing: only the combo being edited opens", %{conn: conn} do
+      view = open_editor(conn)
+
+      assert has_element?(view, "#combo-edit-socorro")
+      refute has_element?(view, "#combo-edit-sing")
+    end
+
+    test "editing: a step dragged onto another position stays there", %{conn: conn} do
+      view = open_editor(conn)
+
+      render_hook(view, "move_combo_step", %{"from" => 1, "to" => 0})
+      save_edit(view, "socorro")
+
+      assert [{:skill, "1"}, {:wait, 400} | _rest] = steps_of("socorro")
+    end
+
+    test "editing: a wait takes a new duration and it reaches the file", %{conn: conn} do
+      view = open_editor(conn)
+
+      render_hook(view, "change_combo_step", %{"index" => "0", "value" => "1200"})
+      save_edit(view, "socorro")
+
+      assert [{:wait, 1200} | _rest] = steps_of("socorro")
+    end
+
+    test "editing: a skill takes a new hotbar key", %{conn: conn} do
+      view = open_editor(conn)
+
+      render_hook(view, "change_combo_step", %{"index" => "1", "value" => "7"})
+      save_edit(view, "socorro")
+
+      assert [_wait, {:skill, "7"} | _rest] = steps_of("socorro")
+    end
+
+    test "editing: a step can be dropped", %{conn: conn} do
+      view = open_editor(conn)
+      before = length(steps_of("socorro"))
+
+      view
+      |> element(~s([phx-click="delete_combo_step"][phx-value-index="0"]))
+      |> render_click()
+
+      save_edit(view, "socorro")
+
+      assert length(steps_of("socorro")) == before - 1
+      assert [{:skill, "1"} | _rest] = steps_of("socorro")
+    end
+
+    test "editing: a step can be appended while editing", %{conn: conn} do
+      view = open_editor(conn)
+      before = length(steps_of("socorro"))
+
+      view
+      |> element("#combo-edit-add-form")
+      |> render_change(%{"step_kind" => "wait", "step_value" => "800"})
+
+      view |> element("#combo-edit-add-step") |> render_click()
+      save_edit(view, "socorro")
+
+      steps = steps_of("socorro")
+      assert length(steps) == before + 1
+      assert List.last(steps) == {:wait, 800}
+    end
+
+    test "editing: cancelling throws the edit away and leaves the file untouched", %{conn: conn} do
+      view = open_editor(conn)
+      before = steps_of("socorro")
+
+      render_hook(view, "change_combo_step", %{"index" => "0", "value" => "9999"})
+      view |> element(~s(#combo-edit-socorro button), "Cancelar") |> render_click()
+
+      assert steps_of("socorro") == before
+      refute has_element?(view, "#combo-edit-socorro")
+    end
+
+    # The name is the identity everything else works by, and the badges on the
+    # card come from the trigger and the on/off flag.
+    test "editing: the steps change but the trigger, dungeon and on/off keep the trigger, the dungeon and the on/off state",
+         %{conn: conn} do
+      :ok = Store.set_enabled("sing", false)
+      sing = Enum.find(Store.all(), &(&1.name == "sing"))
+
+      view = open_editor(conn, "sing")
+      render_hook(view, "move_combo_step", %{"from" => 0, "to" => 2})
+      save_edit(view, "sing")
+
+      saved = Enum.find(Store.all(), &(&1.name == "sing"))
+      assert saved.trigger == sing.trigger
+      assert saved.dungeon == sing.dungeon
+      assert saved.enabled? == false
     end
 
     # "I turned combos on and nothing happened" gets an answer

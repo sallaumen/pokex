@@ -1,9 +1,15 @@
 defmodule Pokex.CalibrationMiniGameTest do
   @moduledoc """
-  Mini-game region: the hand-marked value always wins (2026-07-30 inversion). The layout
-  strip assumed the game window never moved — it did (same root as the y=-132 minimap),
-  pointing wrong AND silently vetoing manual calibration. Without a hand mark the default
-  search is a central half-by-half box (arena middle, else screen), never the layout strip.
+  Mini-game region: MANUAL ONLY — no mark, no guess.
+
+  The history, because every ghost here bit in the field: the auto-layout strip
+  assumed the game window never moved (it did — same root as the y=-132
+  minimap) and silently vetoed manual calibration; the half-screen central box
+  was "aquela área grandona" nobody recognised; and the character-anchored tile
+  box read a dark trunk column + bright-blue flowers as "bar + capsule" at a
+  rocky spot (2026-08-05), flapping enter/exit once a second and holding the
+  whole fleet. Scenery is too creative to out-guess. Without a hand-marked
+  strip the resolver answers nil and the watcher goes blind AND SAYS SO.
   """
   use ExUnit.Case, async: false
 
@@ -39,7 +45,7 @@ defmodule Pokex.CalibrationMiniGameTest do
     assert Layout.region(:mini_game, then_) == @measured
   end
 
-  test "a manual mark beats the layout strip", %{fix: fix} do
+  test "a manual mark is the ONLY authority — layout strip never resolves", %{fix: fix} do
     hand_marked = %Calibration{
       scale: 1.0,
       screen_w: 3440,
@@ -51,69 +57,22 @@ defmodule Pokex.CalibrationMiniGameTest do
     assert Calibration.mini_game_region(hand_marked) == {2976, 555, 113, 773}
   end
 
-  test "without a manual mark, the default search hugs the character — never the layout strip", %{
-    fix: fix
-  } do
+  test "without a manual mark the resolver answers nil — no guessed box, ever", %{fix: fix} do
+    # both guessed defaults false-positived in the field; nil is what makes the
+    # watcher go blind-and-declared instead of scanning scenery
     unmarked = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, layout: fix}
+    assert Calibration.mini_game_region(unmarked) == nil
 
-    assert Calibration.mini_game_region(unmarked) == {1456, 456, 528, 880}
-  end
-
-  # The bar shows up over the CHARACTER, so he is the anchor. This used to be
-  # the middle of a hand-marked "arena" — a rectangle inside a rectangle that
-  # cost two clicks and taught the bot nothing.
-  test "the default box follows the character, and is clamped to the screen" do
-    off_centre = %Calibration{
+    with_player = %Calibration{
       scale: 1.0,
       screen_w: 3440,
       screen_h: 1440,
-      player_point: {1000, 500},
+      player_point: {1690, 695},
       layout: nil
     }
 
-    assert Calibration.mini_game_region(off_centre) == {736, 236, 528, 880}
-
-    at_the_edge = %Calibration{
-      scale: 1.0,
-      screen_w: 3440,
-      screen_h: 1440,
-      player_point: {3400, 1400},
-      layout: nil
-    }
-
-    assert Calibration.mini_game_region(at_the_edge) == {2912, 560, 528, 880}
-
-    whole_screen = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, layout: nil}
-    assert Calibration.mini_game_region(whole_screen) == {1456, 456, 528, 880}
-
-    blind = %Calibration{scale: 1.0, mini_game_region: {1, 2, 3, 4}, layout: nil}
-    assert Calibration.mini_game_region(blind) == {1, 2, 3, 4}
+    assert Calibration.mini_game_region(with_player) == nil
 
     assert Calibration.mini_game_region(%Calibration{scale: 1.0}) == nil
-  end
-
-  test "a screen smaller than the box never yields a negative rectangle" do
-    tiny = %Calibration{scale: 1.0, screen_w: 200, screen_h: 100, player_point: {10, 10}}
-
-    assert Calibration.mini_game_region(tiny) == {0, 0, 200, 100}
-  end
-
-  # Every strip Lucas ever marked by hand (six saved profiles, character around
-  # {1690,695}) must fall inside the automatic box — otherwise the bar he fishes
-  # with is outside the search and the mini-game never sees it.
-  test "the automatic box contains every strip he marked by hand" do
-    calib = %Calibration{
-      scale: 1.0,
-      screen_w: 3440,
-      screen_h: 1440,
-      player_point: {1690, 695}
-    }
-
-    {bx, by, bw, bh} = Calibration.mini_game_region(calib)
-
-    for {x, y, w, h} <- [{1674, 648, 29, 471}, {1580, 800, 240, 479}, {1580, 648, 240, 594}] do
-      assert x >= bx and y >= by and x + w <= bx + bw and y + h <= by + bh,
-             "hand-marked #{inspect({x, y, w, h})} escapes #{inspect({bx, by, bw, bh})}"
-    end
   end
 end

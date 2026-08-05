@@ -147,6 +147,65 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
   end
 
+  describe "a cadência do piloto (o intervalo é PRAZO, não soneca)" do
+    @tag :tmp_dir
+    test "jogando, o trabalho do tick é DESCONTADO do próximo sono" do
+      SettingsStash.stash!(mini_game_play_tick_ms: 80)
+      agora = System.monotonic_time(:millisecond)
+
+      # um tick que levou ~60ms deve dormir ~20, não 80: era o trabalho+intervalo
+      # que fazia 149ms/observação (6,7 fps) no trace de 2026-08-05
+      delay = Worker.next_delay(%{in_game?: true}, agora - 60)
+      assert delay in 15..25
+
+      # trabalho mais longo que o intervalo não vira sono negativo aqui — o piso
+      # de reschedule/2 é quem decide o mínimo
+      assert Worker.next_delay(%{in_game?: true}, agora - 500) <= 0
+    end
+
+    @tag :tmp_dir
+    test "vigiando, a soneca é cheia — ele DISPUTA a fila com pesca e batalha" do
+      SettingsStash.stash!(mini_game_tick_ms: 150, mini_game_play_tick_ms: 80)
+      agora = System.monotonic_time(:millisecond)
+
+      assert Worker.next_delay(%{in_game?: false}, agora - 60) == 150
+    end
+  end
+
+  @tag :tmp_dir
+  test "sem faixa marcada o vigia fica CEGO e declarado — e marcar religa sem restart", %{
+    tmp: tmp
+  } do
+    # o palpite de região morreu (2026-08-05: caixa ancorada leu tronco + flores
+    # azuis como minigame num spot rochoso e flapou 1×/s segurando a frota):
+    # sem faixa, NADA é capturado e o motivo é dito uma vez
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | mini_game_region: nil})
+
+    game = png!(tmp, "mini-game.png", true)
+    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_supervised!({Worker, name: nil})
+
+    assert :ok = Worker.run(worker)
+
+    # o aviso sai UMA vez, como macro...
+    assert_receive {:mini_game_log, :macro, msg}, 1_000
+    assert msg =~ "sem faixa do minigame"
+    refute_receive {:mini_game_log, :macro, _}, 200
+
+    # ...nada é capturado e o jogo JAMAIS "entra" (o flap era isto)
+    refute_receive {:mini_game, %{state: :playing}}, 200
+    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, "mini_game.png"}, &1))
+
+    # marcar a faixa religa o vigia SEM restart: a calibração é relida no tick
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | mini_game_region: {0, 0, 220, 220}})
+
+    assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
+  end
+
   @tag :tmp_dir
   test "a dedicated mini_game_region owns the watch: that region is captured and searched whole",
        %{tmp: tmp} do

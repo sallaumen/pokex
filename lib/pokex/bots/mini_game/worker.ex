@@ -137,6 +137,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
   def handle_info(:tick, %{running?: false} = state), do: {:noreply, state}
 
   def handle_info(:tick, state) do
+    started_at = System.monotonic_time(:millisecond)
     {state, transition} = if state.in_game?, do: play_tick(state), else: watch_tick(state)
 
     # republished EVERY tick (not just on transitions) so the fact stays fresh —
@@ -146,22 +147,45 @@ defmodule Pokex.Bots.MiniGame.Worker do
     broadcast_diag(state)
     state = maybe_alert(state)
 
-    tick_ms =
-      if state.in_game?,
-        do: Settings.get(:mini_game_play_tick_ms),
-        else: Settings.get(:mini_game_tick_ms)
-
-    {:noreply, reschedule(state, tick_ms)}
+    {:noreply, reschedule(state, next_delay(state, started_at))}
   end
 
   # trap_exit is on for terminate/2; stray EXIT messages from unlinked helpers
   # must not crash the worker.
   def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, state}
 
-  # Watching: full arena capture + Detector, exactly as before. On the enter
-  # edge the bar geometry arms the playing-time capture strip.
+  # Jogando, o intervalo é um PRAZO, não uma soneca: dormir os
+  # mini_game_play_tick_ms INTEIROS depois do trabalho fazia o período real
+  # virar trabalho+intervalo. Medido no trace da partida de 2026-08-05
+  # (`~/.pokex/exports/mini_game-*/summary.json`): tick 68ms de trabalho + 81ms
+  # de sono = 149ms entre observações, 6,7 fps — o piloto pediu 12,5 e recebeu
+  # metade, e no regime de visão lenta a cápsula oscila (o lab já mostrava isso
+  # com o slider de FPS em 7). Descontando o trabalho, o período volta a ser o
+  # que o seed promete.
+  #
+  # Só no modo JOGANDO: aí todos os outros feeds estão pausados pelo fato
+  # :mini_game, então acelerar não disputa a fila de captura com ninguém. O
+  # vigia (fora de jogo) mantém a soneca cheia de propósito — ele CONCORRE com
+  # pesca, batalha e feeds, e a fome de captura é cara demais pra arriscar.
+  @doc false
+  def next_delay(%{in_game?: true}, started_at) do
+    Settings.get(:mini_game_play_tick_ms) - (System.monotonic_time(:millisecond) - started_at)
+  end
+
+  def next_delay(_watching, _started_at), do: Settings.get(:mini_game_tick_ms)
+
+  # Watching: capture the DEDICATED strip + Detector. On the enter edge the
+  # bar geometry arms the playing-time capture strip. Without a hand-marked
+  # strip there is nowhere honest to look — the watcher goes blind and says so.
   defp watch_tick(state) do
-    case read_presence(state) do
+    case mini_game_region(state.calib) do
+      nil -> no_strip_tick(state)
+      region -> watch_strip(state, region)
+    end
+  end
+
+  defp watch_strip(state, region) do
+    case read_presence(state, region) do
       {:ok, reading} ->
         {state, transition} = apply_reading(state, reading)
         state = if transition == :entered, do: arm_strip(state, reading), else: state
@@ -172,9 +196,37 @@ defmodule Pokex.Bots.MiniGame.Worker do
     end
   end
 
-  defp read_presence(state) do
-    region = mini_game_region(state.calib)
+  @no_strip_error "sem faixa do minigame marcada — vigia desligado (Calibração → Só o minigame)"
 
+  # Sem faixa o vigia NÃO adivinha onde olhar: os dois palpites anteriores
+  # falharam no campo (a caixa de meia-tela era "aquela área grandona"; a caixa
+  # ancorada no personagem leu tronco escuro + flores azuis como "barra +
+  # cápsula" num spot rochoso, 2026-08-05, flapando 1×/s e segurando a frota).
+  # Cego E DECLARADO: o erro fica no pill, o aviso sai UMA vez, e a calibração
+  # é relida a cada tick — marcar a faixa religa o vigia sem restart.
+  defp no_strip_tick(state) do
+    state =
+      case Calibration.load() do
+        {:ok, calib} -> %{state | calib: calib}
+        _unreadable -> state
+      end
+
+    if mini_game_region(state.calib) do
+      watch_tick(state)
+    else
+      state =
+        if state.error == @no_strip_error do
+          state
+        else
+          broadcast_log(:macro, "🎮 " <> @no_strip_error)
+          %{state | error: @no_strip_error}
+        end
+
+      {state, nil}
+    end
+  end
+
+  defp read_presence(state, region) do
     opts =
       [
         min_confidence: Settings.get(:mini_game_min_confidence),

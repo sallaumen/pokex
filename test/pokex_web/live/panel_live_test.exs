@@ -287,6 +287,63 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
+  # Lucas asked for the switch to sit "junto da parte de captura, em Settings"
+  # (2026-08-05) — and for the sweep to be something he can FIRE and see, not a
+  # checkbox he has to trust.
+  describe "varredura cega no ⚙️" do
+    setup do
+      Pokex.SettingsStash.stash!(
+        sweep_enabled: false,
+        sweep_interval_ms: 30_000,
+        sweep_radius_tiles: 4,
+        sweep_side: "square"
+      )
+
+      :ok
+    end
+
+    test "the switch applies to a bot already running", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/config")
+
+      view |> element("#automation-sweep-toggle") |> render_click()
+      assert Pokex.Settings.get(:sweep_enabled)
+
+      view |> element("#automation-sweep-toggle") |> render_click()
+      refute Pokex.Settings.get(:sweep_enabled)
+    end
+
+    test "cadence, radius and side are saved — and the cost is on screen first", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/config")
+
+      html =
+        view
+        |> form("#sweep-cfg-form", %{
+          "sweep_interval_s" => "45",
+          "sweep_radius_tiles" => "2",
+          "sweep_side" => "right"
+        })
+        |> render_change()
+
+      assert Pokex.Settings.get(:sweep_interval_ms) == 45_000
+      assert Pokex.Settings.get(:sweep_radius_tiles) == 2
+      assert Pokex.Settings.get(:sweep_side) == "right"
+
+      # radius 2 to the right = 3 columns × 5 rows, minus his own tile. Raising
+      # the radius costs SECONDS of mouse, and the screen says so BEFORE he does.
+      assert html =~ "14 bola(s) por passada"
+    end
+
+    test "Varrer agora answers on screen instead of silently doing nothing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/config")
+
+      refute has_element?(view, "#sweep-msg")
+
+      view |> element("#sweep-now") |> render_click()
+
+      assert has_element?(view, "#sweep-msg")
+    end
+  end
+
   test "a fishing broadcast updates only the fishing pill", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/config")
 

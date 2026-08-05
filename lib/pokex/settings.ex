@@ -652,6 +652,19 @@ defmodule Pokex.Settings do
     # alarm (the mirror of fishing's dry_casts_alarm). 0 = off.
     dry_balls_alarm: 4,
     catcher_world_max_age_ms: 1_200,
+    # --- Varredura cega (the blind sweep) ---------------------------------------------------------
+    # The safety net UNDER the aimed capture: on a slow cadence, a ball at every
+    # tile around the character, with no detector involved. Asked for after
+    # watching bodies go unclaimed (Lucas, 2026-08-05: "não precisa ser o mais
+    # eficiente, mas não perde os pokémon"). Independent of `capture_enabled` on
+    # purpose — this is the guarantee you switch on when you stopped trusting
+    # the aim, so it must not hang off the aim's own switch.
+    sweep_enabled: false,
+    sweep_interval_ms: 30_000,
+    # 4 = a 9×9 tile square, ~80 balls per pass. `sweep_side` halves it because
+    # his fishing spot has the SEA to the left — see Catcher.Sweep.
+    sweep_radius_tiles: 4,
+    sweep_side: "square",
     # --- Cavebot (waypoint-route hunting) --------------------------------------------------------
     hunt_style: "steady",
     defense_mode_key: "shift+3",
@@ -772,7 +785,8 @@ defmodule Pokex.Settings do
     escape_direction: ~w(up down left right),
     hunt_style: ~w(steady mobbed),
     rescue_mode: ~w(direct combo),
-    player_mode: ~w(still moving hunt)
+    player_mode: ~w(still moving hunt),
+    sweep_side: ~w(square right left)
   }
 
   # THRESHOLD keys whose seed is an integer but which accept fractions (the
@@ -797,6 +811,10 @@ defmodule Pokex.Settings do
     corpse_scan_refine_px: 1..64,
     corpse_scan_refine_peaks: 0..32,
     dry_balls_alarm: 0..999,
+    sweep_radius_tiles: 1..8,
+    # floor 5s: a sweep of 80 tiles already takes ~15s of Body time — a shorter
+    # cadence than that would be a sweep that never stops
+    sweep_interval_ms: 5_000..3_600_000,
     mini_game_side_px: 5..2000,
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,

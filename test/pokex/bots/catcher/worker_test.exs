@@ -1,12 +1,17 @@
 defmodule Pokex.Bots.Catcher.WorkerTest.FakeBody do
   use GenServer
-  def start_link(test), do: GenServer.start_link(__MODULE__, test)
+
+  # `sleep_ms` makes a perform take real time. The sweep tests need it: with an
+  # instant body the whole sweep drains before a halt sent from the test process
+  # can land, and "the halt stopped it" would be a race, not an assertion.
+  def start_link(test, sleep_ms \\ 0), do: GenServer.start_link(__MODULE__, {test, sleep_ms})
   @impl true
-  def init(test), do: {:ok, test}
+  def init(state), do: {:ok, state}
   @impl true
-  def handle_call({:perform, actions, priority, _at}, _from, test) do
+  def handle_call({:perform, actions, priority, _at}, _from, {test, sleep_ms} = state) do
+    if sleep_ms > 0, do: Process.sleep(sleep_ms)
     send(test, {:performed, priority, actions})
-    {:reply, :ok, test}
+    {:reply, :ok, state}
   end
 end
 
@@ -20,6 +25,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   alias Pokex.Perception.WorldState
   alias Pokex.Rig.Fake
   alias Pokex.Settings
+  alias Pokex.SettingsStash
 
   setup %{tmp_dir: tmp} do
     # one shared blackboard: start from an empty world, never from the last test's
@@ -461,6 +467,160 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     assert_receive {:performed, :high, [{:press, "space"} | _]}, 1_000
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+  end
+
+  # --- Varredura cega ---------------------------------------------------------
+  # The blind sweep: no detector, no library, a ball at every tile in reach.
+  # It exists because the aimed capture MISSES (Lucas, 2026-08-05: "atualmente
+  # eu tô vendo ele perder muito pokémon"), so what it must prove here is that
+  # it throws at every tile — and that every gate still stops it.
+  describe "varredura cega" do
+    setup %{worker: worker} do
+      SettingsStash.stash!(
+        tile_px: 100,
+        sweep_radius_tiles: 1,
+        sweep_side: "square",
+        sweep_enabled: false
+      )
+
+      Calibration.save(%Calibration{
+        scale: 1.0,
+        screen_w: 1000,
+        screen_h: 700,
+        water_point: {400, 300},
+        glow_region: {0, 0, 20, 20},
+        battle_region: {900, 0, 80, 400},
+        neutral_point: {500, 500},
+        player_point: {500, 350}
+      })
+
+      :ok = Worker.mode_changed(worker)
+      :ok
+    end
+
+    @tag :tmp_dir
+    test "throws the ball at every tile around the character, nearest ring first", %{
+      worker: worker
+    } do
+      assert {:ok, 8} = Worker.sweep_now(worker)
+
+      for point <- [
+            {400, 250},
+            {500, 250},
+            {600, 250},
+            {400, 350},
+            {600, 350},
+            {400, 450},
+            {500, 450},
+            {600, 450}
+          ] do
+        # :normal, not :high — the sweep is a background guarantee and must
+        # never get ahead of the rod or of a ball aimed at a real corpse
+        assert_receive {:performed, :normal, [{:move, ^point} | rest]}, 1_000
+        assert {:press, "f1"} in rest
+      end
+
+      assert Worker.status(worker).sweep.balls == 8
+      assert Worker.status(worker).sweep.pending == 0
+    end
+
+    @tag :tmp_dir
+    test "the tile where his own Pokémon stands is spared", %{worker: worker} do
+      Calibration.save(%Calibration{
+        scale: 1.0,
+        screen_w: 1000,
+        screen_h: 700,
+        water_point: {400, 300},
+        glow_region: {0, 0, 20, 20},
+        battle_region: {900, 0, 80, 400},
+        neutral_point: {500, 500},
+        player_point: {500, 350},
+        pokemon_spot_point: {600, 350}
+      })
+
+      assert {:ok, 7} = Worker.sweep_now(worker)
+      refute_receive {:performed, :normal, [{:move, {600, 350}} | _]}, 300
+    end
+
+    @tag :tmp_dir
+    # The switch is what the cadence obeys; the test button is what ignores it.
+    test "the cadence sweeps only with the switch on — the test button always does", %{
+      worker: worker
+    } do
+      send(worker, :sweep)
+      refute_receive {:performed, :normal, [{:move, _} | _]}, 300
+
+      Settings.put(:sweep_enabled, true)
+      :ok = Worker.mode_changed(worker)
+      send(worker, :sweep)
+      assert_receive {:performed, :normal, [{:move, _} | _]}, 1_000
+    end
+
+    @tag :tmp_dir
+    test "a fight in progress holds the sweep, and says which gate it was", %{worker: worker} do
+      send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
+      assert {:error, "luta em andamento"} = Worker.sweep_now(worker)
+      refute_receive {:performed, :normal, _actions}, 300
+    end
+
+    @tag :tmp_dir
+    test "walking holds the sweep: the grid hangs off where the character is standing", %{
+      worker: worker
+    } do
+      Settings.put(:player_mode, "moving")
+      :ok = Worker.mode_changed(worker)
+
+      assert {:error, "a varredura é do modo Parado"} = Worker.sweep_now(worker)
+    end
+
+    @tag :tmp_dir
+    test "the mini-game holds the sweep", %{worker: worker} do
+      WorldState.put(
+        :mini_game,
+        %{playing?: true, confidence: 1.0},
+        System.monotonic_time(:millisecond)
+      )
+
+      on_exit(fn -> WorldState.forget(:mini_game) end)
+
+      assert {:error, "mini-game em jogo"} = Worker.sweep_now(worker)
+    end
+
+    @tag :tmp_dir
+    test "the game out of focus holds the sweep", %{worker: worker} do
+      InputGate.set_focus_ok(false)
+      on_exit(fn -> InputGate.set_focus_ok(true) end)
+
+      assert {:error, reason} = Worker.sweep_now(worker)
+      assert reason =~ "foco"
+    end
+
+    @tag :tmp_dir
+    # 80 tiles is ~15s of Body time. A sweep that could not be cut short would
+    # be 15s in which nothing else — a halt, the panic corner — got a turn.
+    test "halting drops the tiles still owed", %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      {:ok, body} = FakeBody.start_link(self(), 30)
+
+      worker =
+        start_supervised!({Worker, name: nil, body: body, scanner: fn -> nil end}, id: :slow_body)
+
+      :ok = Worker.run(worker)
+
+      assert {:ok, 8} = Worker.sweep_now(worker)
+      :ok = Worker.halt(worker)
+
+      assert Worker.status(worker).sweep.pending == 0
+      assert drain_performed() < 8, "the halt did not stop the sweep"
+    end
+  end
+
+  defp drain_performed(count \\ 0) do
+    receive do
+      {:performed, _priority, _actions} -> drain_performed(count + 1)
+    after
+      100 -> count
+    end
   end
 
   defp eventually(fun, timeout) do

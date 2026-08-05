@@ -35,6 +35,8 @@ defmodule PokexWeb.Panel.SettingsOverlay do
     required: true,
     doc: "match_pct, ball_key, ball_needs_click, max_balls, radius_tiles, dry_balls_alarm"
 
+  attr :sweep_cfg, :map, required: true, doc: "enabled, interval_s, radius_tiles, side, msg"
+
   attr :stock_cfg, :map, required: true, doc: "f1, f2, e, s_q"
 
   slot :inner_block,
@@ -398,6 +400,90 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               active={@capture_cfg.ball_needs_click}
               event="toggle_ball_needs_click"
             />
+
+            <%!-- The brute-force net UNDER the aimed capture. Deliberately its
+                  own switch: this is what you turn on when you stopped trusting
+                  the aim, so it must not hang off the aim's own switch. --%>
+            <.group_header
+              label="Varredura cega — a rede de segurança"
+              accent="bg-[#8f6ad1]"
+              note="sem detector nenhum: de tempos em tempos joga a bola em TODO tile ao redor. Só no modo Parado."
+            />
+            <.automation_row
+              id="automation-sweep"
+              title="Varrer os tiles ao redor"
+              description={"a cada #{@sweep_cfg.interval_s}s, #{sweep_tiles(@sweep_cfg)} bola(s) — #{sweep_side_label(@sweep_cfg.side)}"}
+              detail="Independente do botão Captura: não olha corpo, não olha acervo, não pontua nada. Segura durante luta, mini-game e com o jogo fora de foco."
+              active={@sweep_cfg.enabled}
+              event="toggle_sweep_enabled"
+            />
+            <div class="space-y-1.5 px-3 py-2.5 font-mono text-pk-meta text-pk-text-3">
+              <form
+                id="sweep-cfg-form"
+                phx-change="save_sweep_cfg"
+                class="flex flex-wrap items-center gap-x-1 gap-y-1.5"
+              >
+                <label for="sweep-interval">a cada</label>
+                <input
+                  id="sweep-interval"
+                  name="sweep_interval_s"
+                  type="number"
+                  aria-label="Intervalo entre varreduras, em segundos"
+                  min="5"
+                  max="3600"
+                  value={@sweep_cfg.interval_s}
+                  phx-debounce="500"
+                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span>s · raio</span>
+                <input
+                  id="sweep-radius"
+                  name="sweep_radius_tiles"
+                  type="number"
+                  aria-label="Raio da varredura, em tiles"
+                  min="1"
+                  max="8"
+                  value={@sweep_cfg.radius_tiles}
+                  phx-debounce="500"
+                  class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span>tile(s) ·</span>
+                <%!-- His spot has the SEA to the left: half the square is water. --%>
+                <select
+                  id="sweep-side"
+                  name="sweep_side"
+                  aria-label="Lado que a varredura cobre"
+                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                >
+                  <option value="square" selected={@sweep_cfg.side == "square"}>
+                    quadrado completo
+                  </option>
+                  <option value="right" selected={@sweep_cfg.side == "right"}>
+                    daqui pra direita →
+                  </option>
+                  <option value="left" selected={@sweep_cfg.side == "left"}>
+                    ← daqui pra esquerda
+                  </option>
+                </select>
+              </form>
+              <p id="sweep-cost" class="text-pk-text-3">
+                {sweep_tiles(@sweep_cfg)} bola(s) por passada, ~{sweep_seconds(@sweep_cfg)}s de
+                mouse — o resto do bot espera a vez, mas não para.
+              </p>
+              <div class="flex items-center gap-2 pt-0.5">
+                <button
+                  id="sweep-now"
+                  type="button"
+                  phx-click="sweep_now"
+                  class="btn btn-xs h-8 border border-pk-warn-line bg-transparent px-3 text-pk-body text-pk-warn hover:bg-pk-warn-dim"
+                >
+                  <.icon name="hero-beaker" class="size-3" /> Varrer agora
+                </button>
+                <p :if={@sweep_cfg.msg} id="sweep-msg" class="min-w-0 flex-1 text-pk-warn">
+                  {@sweep_cfg.msg}
+                </p>
+              </div>
+            </div>
           </section>
 
           <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-sunken">
@@ -636,6 +722,29 @@ defmodule PokexWeb.Panel.SettingsOverlay do
     </div>
     """
   end
+
+  # --- what a sweep costs, before you run one ---------------------------------
+
+  defp sweep_tiles(%{radius_tiles: radius, side: side}),
+    do: Pokex.Bots.Catcher.Sweep.tile_count(radius, side)
+
+  # Per tile the Body spends the aim settle, the post-throw hold, and one cursor
+  # restore (measured ~65ms in Bots.Body's `with_mouse_restore`). Rounded, and
+  # labelled "~" on screen — the point is that raising the radius costs SECONDS,
+  # which a tile count alone does not say.
+  @mouse_restore_ms 65
+
+  defp sweep_seconds(cfg) do
+    per_tile =
+      Pokex.Settings.get(:capture_aim_settle_ms) + Pokex.Settings.get(:capture_hold_ms) +
+        @mouse_restore_ms
+
+    round(sweep_tiles(cfg) * per_tile / 1000)
+  end
+
+  defp sweep_side_label("right"), do: "só daqui pra direita"
+  defp sweep_side_label("left"), do: "só daqui pra esquerda"
+  defp sweep_side_label(_square), do: "quadrado completo"
 
   # --- what the rescue combo means on screen (moved over with the panel) ------
 

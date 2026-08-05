@@ -26,8 +26,10 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.Logic
   alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.Catcher.Sweep
   alias Pokex.Bots.Combat.Worker
   alias Pokex.Bots.InputGate
+  alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.Perception.Feed
   alias Pokex.Pokedex.ShinyLog
@@ -77,6 +79,15 @@ defmodule Pokex.Bots.Catcher.Worker do
   @doc "Force a fresh ground warmup (detach + attach): use after moving to a new spot."
   def relearn(server \\ __MODULE__), do: GenServer.call(server, :relearn)
 
+  @doc """
+  Sweeps NOW, ignoring `sweep_enabled` — the settings screen's test button.
+
+  `{:ok, tiles}` once the balls are queued, or `{:error, reason}` (a sentence
+  for the screen) when a gate is holding it or the calibration cannot say where
+  the character is.
+  """
+  def sweep_now(server \\ __MODULE__), do: GenServer.call(server, :sweep_now)
+
   @impl true
   def init(%{body: body, scanner: scanner}) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
@@ -116,6 +127,14 @@ defmodule Pokex.Bots.Catcher.Worker do
        blind: 0,
        # a shiny was just seen: the NEXT ball ignores capture_enabled
        shiny_pending?: false,
+       # BLIND sweep (see Catcher.Sweep): its own cadence timer, the tiles still
+       # owed by the sweep in progress, and the session counters. Deliberately a
+       # separate timer from `timer` (the Logic's deadline wake) — they mean
+       # different things and one must never cancel the other.
+       sweep_timer: nil,
+       sweep_queue: [],
+       sweeps: 0,
+       sweep_balls: 0,
        # last performed actuation as %{text, at} (monotonic ms; nil until the first) — panel-facing
        last_action: nil
      }}
@@ -134,20 +153,22 @@ defmodule Pokex.Bots.Catcher.Worker do
         blind: 0,
         count: %{},
         vistos: MapSet.new(),
+        sweeps: 0,
+        sweep_balls: 0,
         combat_engaged?: seed_combat_engaged()
     }
 
-    state = state |> monitorar_combate() |> sync_mode()
+    state = state |> monitorar_combate() |> sync_mode() |> arm_sweep()
     announce_library()
     broadcast(state)
     {:reply, :ok, state}
   end
 
-  def handle_call(:halt, _from, %{logic: nil} = state), do: {:reply, :ok, state}
+  def handle_call(:halt, _from, %{logic: nil} = state), do: {:reply, :ok, disarm_sweep(state)}
 
   def handle_call(:halt, _from, state) do
     {logic, _} = Logic.stop(state.logic)
-    state = detach(%{state | logic: logic})
+    state = state |> Map.put(:logic, logic) |> detach() |> disarm_sweep()
     broadcast(state)
     {:reply, :ok, cancel_timer(%{state | reattach_attempts: 0})}
   end
@@ -158,7 +179,9 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   def handle_call(:mode_changed, _from, state) do
     state = %{state | combat_engaged?: seed_combat_engaged()}
-    state = sync_mode(state)
+    # the sweep re-arms HERE too: flipping its switch (or its cadence) in the
+    # settings screen has to apply to a bot already running, not at the next start
+    state = state |> sync_mode() |> arm_sweep()
     broadcast(state)
     {:reply, :ok, state}
   end
@@ -166,6 +189,22 @@ defmodule Pokex.Bots.Catcher.Worker do
   def handle_call(:relearn, _from, state) do
     state = state |> reset_logic() |> detach() |> sync_mode()
     {:reply, :ok, state}
+  end
+
+  # The test button: sweeps even with the switch off (that is what makes it a
+  # test), but never past a gate — the reasons a sweep is held are the reasons
+  # it would be wrong or invisible, not paperwork.
+  def handle_call(:sweep_now, _from, state) do
+    case sweep_hold_reason(state) do
+      nil ->
+        case begin_sweep(state) do
+          {:ok, state} -> {:reply, {:ok, length(state.sweep_queue)}, state}
+          {:error, reason} -> {:reply, {:error, reason}, state}
+        end
+
+      reason ->
+        {:reply, {:error, reason}, state}
+    end
   end
 
   @impl true
@@ -266,7 +305,154 @@ defmodule Pokex.Bots.Catcher.Worker do
     {:noreply, if(should_be_attached?(state), do: attach(state), else: state)}
   end
 
+  # A tick that outran its own cancellation (halt races the timer message that
+  # was already in the mailbox). The bot is stopped: nothing may fly. The manual
+  # sweep_now is the deliberate exception — it is a human pressing a button.
+  def handle_info(:sweep, %{logic: nil} = state), do: {:noreply, %{state | sweep_timer: nil}}
+
+  # The sweep's cadence. Re-arming happens whether or not this pass ran: a held
+  # sweep must try again next cycle, not go quiet until the next Iniciar.
+  def handle_info(:sweep, state) do
+    state = if Settings.get(:sweep_enabled), do: run_sweep(state), else: state
+    {:noreply, arm_sweep(%{state | sweep_timer: nil})}
+  end
+
+  # ONE tile per message, deliberately. A sweep is up to 80 throws — ~15s of
+  # Body time — and doing it as one long sequence would park this process for
+  # all of it: the kill that arrives mid-sweep, the panel's halt, the
+  # combat-engagement edge would all wait behind it. Re-sending to self() puts
+  # the next tile at the END of the mailbox, so everything already queued is
+  # served first, and the gates are re-read at every tile.
+  def handle_info(:sweep_tile, %{sweep_queue: []} = state), do: {:noreply, state}
+
+  def handle_info(:sweep_tile, %{sweep_queue: [point | rest]} = state) do
+    case sweep_hold_reason(state) do
+      nil ->
+        # :normal, NOT :high — the sweep is a background guarantee and must
+        # never get ahead of the rod or the aimed ball behind a real corpse.
+        Body.perform(Ball.sequence(point), :normal, state.body)
+        state = %{state | sweep_queue: rest, sweep_balls: state.sweep_balls + 1}
+        if rest == [], do: send(self(), :sweep_done), else: send(self(), :sweep_tile)
+        {:noreply, state}
+
+      reason ->
+        log(
+          :macro,
+          "🧹 varredura interrompida com #{length(state.sweep_queue)} tile(s) — #{reason}"
+        )
+
+        {:noreply, broadcast_and_return(%{state | sweep_queue: []})}
+    end
+  end
+
+  def handle_info(:sweep_done, state) do
+    log(:macro, "🧹 varredura concluída — #{state.sweep_balls} bola(s) nesta sessão")
+    {:noreply, broadcast_and_return(state)}
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
+
+  # --- Varredura cega ---------------------------------------------------------
+  # The safety net UNDER the aimed capture (see Catcher.Sweep for the geometry
+  # and the why). It lives in THIS process, rather than a worker of its own,
+  # because every gate it needs is already computed here — the
+  # combat-engagement mirror, the mini-game fact, the player mode and the input
+  # gate — and a second process would have to rebuild all four to reach the
+  # same answer, then disagree with this one the first time they drifted.
+
+  defp run_sweep(state) do
+    case sweep_hold_reason(state) do
+      nil ->
+        case begin_sweep(state) do
+          {:ok, state} ->
+            state
+
+          {:error, reason} ->
+            # a LOG, never an alarm: this repeats every cadence, and a siren
+            # every 30s is a siren nobody hears
+            log(:macro, "🧹 varredura não saiu — #{reason}")
+            state
+        end
+
+      reason ->
+        log(:debug, "🧹 varredura adiada — #{reason}")
+        state
+    end
+  end
+
+  defp begin_sweep(state) do
+    case sweep_points() do
+      {:ok, []} ->
+        {:error, "nenhum tile sobrou dentro da tela"}
+
+      {:ok, points} ->
+        log(:macro, "🧹 varredura cega em #{length(points)} tile(s) (#{Ball.key()} em cada um)")
+        send(self(), :sweep_tile)
+        {:ok, broadcast_and_return(%{state | sweep_queue: points, sweeps: state.sweeps + 1})}
+
+      {:error, reason} ->
+        {:error, reason_text(reason)}
+    end
+  end
+
+  # Loaded from disk on every sweep, like the rest of the fleet: recalibrating
+  # applies without a restart.
+  defp sweep_points do
+    case Calibration.load() do
+      {:ok, calib} -> Sweep.points(calib)
+      _no_calibration -> {:error, :no_calibration}
+    end
+  end
+
+  defp sweep_hold_reason(state) do
+    cond do
+      Perception.mini_game_playing?() ->
+        "mini-game em jogo"
+
+      state.combat_engaged? ->
+        "luta em andamento"
+
+      # The whole grid hangs off the character standing where the calibration
+      # says he stands. Walking, every point is stale by the time the ball flies.
+      Settings.get(:player_mode) != "still" ->
+        "a varredura é do modo Parado"
+
+      not gate_aberto?() ->
+        "o jogo não está em foco (ou o pânico está armado)"
+
+      true ->
+        nil
+    end
+  end
+
+  defp arm_sweep(%{logic: nil} = state), do: cancel_sweep(state)
+
+  defp arm_sweep(state) do
+    state = cancel_sweep(state)
+
+    if Settings.get(:sweep_enabled) do
+      ms = max(Settings.get(:sweep_interval_ms), 1_000)
+      %{state | sweep_timer: Process.send_after(self(), :sweep, ms)}
+    else
+      state
+    end
+  end
+
+  # Halting drops the tiles still owed as well as the timer: a pending
+  # :sweep_tile lands on the empty-queue clause and dies quietly.
+  defp disarm_sweep(state), do: cancel_sweep(%{state | sweep_queue: []})
+
+  defp cancel_sweep(%{sweep_timer: nil} = state), do: state
+
+  defp cancel_sweep(%{sweep_timer: timer} = state) do
+    Process.cancel_timer(timer)
+    %{state | sweep_timer: nil}
+  end
+
+  defp broadcast_and_return(state) do
+    broadcast(state)
+    state
+  end
 
   # capture_enabled OR a pending shiny (never lose a shiny to a toggle).
   defp capture_allowed?(state),
@@ -596,6 +782,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp reason_text(:no_calibration), do: "sem calibração"
   defp reason_text(:no_anchor), do: "sem personagem nem ponto do pokémon calibrados"
   defp reason_text(:no_arena), do: "sem arena calibrada"
+  defp reason_text(:no_screen), do: "a calibração não tem as medidas da tela"
 
   defp reason_text(:outside_arena),
     do: "os tiles ao redor do personagem caem FORA da arena calibrada — recalibre a arena"
@@ -774,7 +961,13 @@ defmodule Pokex.Bots.Catcher.Worker do
       error: state.logic && state.logic.error,
       hold_reason: hold_reason(state),
       last_action: state.last_action,
-      pending_corpses: (state.logic && Logic.pending(state.logic)) || 0
+      pending_corpses: (state.logic && Logic.pending(state.logic)) || 0,
+      sweep: %{
+        enabled?: Settings.get(:sweep_enabled),
+        pending: length(state.sweep_queue),
+        sweeps: state.sweeps,
+        balls: state.sweep_balls
+      }
     }
   end
 

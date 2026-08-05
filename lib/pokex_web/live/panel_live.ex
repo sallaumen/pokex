@@ -177,6 +177,11 @@ defmodule PokexWeb.PanelLive do
        corpse_max_balls: Settings.get(:corpse_max_balls),
        corpse_scan_radius_tiles: Settings.get(:corpse_scan_radius_tiles),
        dry_balls_alarm: Settings.get(:dry_balls_alarm),
+       sweep_enabled: Settings.get(:sweep_enabled),
+       sweep_interval_s: div(Settings.get(:sweep_interval_ms), 1000),
+       sweep_radius_tiles: Settings.get(:sweep_radius_tiles),
+       sweep_side: Settings.get(:sweep_side),
+       sweep_msg: nil,
        stock_alert_f1: Settings.get(:stock_alert_f1),
        stock_alert_f2: Settings.get(:stock_alert_f2),
        stock_alert_e: Settings.get(:stock_alert_e),
@@ -275,6 +280,10 @@ defmodule PokexWeb.PanelLive do
       corpse_max_balls: Settings.get(:corpse_max_balls),
       corpse_scan_radius_tiles: Settings.get(:corpse_scan_radius_tiles),
       dry_balls_alarm: Settings.get(:dry_balls_alarm),
+      sweep_enabled: Settings.get(:sweep_enabled),
+      sweep_interval_s: div(Settings.get(:sweep_interval_ms), 1000),
+      sweep_radius_tiles: Settings.get(:sweep_radius_tiles),
+      sweep_side: Settings.get(:sweep_side),
       stock_alert_f1: Settings.get(:stock_alert_f1),
       stock_alert_f2: Settings.get(:stock_alert_f2),
       stock_alert_e: Settings.get(:stock_alert_e),
@@ -1169,6 +1178,41 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, ball_needs_click: value)}
   end
 
+  # The blind sweep's switch and cadence. `mode_changed` is what makes the flip
+  # apply to a bot ALREADY running — without it the sweep would only start (or
+  # stop) at the next Iniciar, which is exactly the kind of "I turned it on and
+  # nothing happened" that eroded trust in the capture.
+  def handle_event("toggle_sweep_enabled", _params, socket) do
+    value = not Settings.get(:sweep_enabled)
+    Settings.put(:sweep_enabled, value)
+    Catcher.Worker.mode_changed()
+    {:noreply, assign(socket, sweep_enabled: value, sweep_msg: nil)}
+  end
+
+  def handle_event("save_sweep_cfg", params, socket) do
+    socket =
+      socket
+      |> save_seconds(params["sweep_interval_s"], 5..3_600, :sweep_interval_ms, :sweep_interval_s)
+      |> save_int(params["sweep_radius_tiles"], 1..8, :sweep_radius_tiles, :sweep_radius_tiles)
+      |> save_sweep_side(params["sweep_side"])
+
+    # a new cadence only means something once the running worker re-arms on it
+    Catcher.Worker.mode_changed()
+    {:noreply, socket}
+  end
+
+  # The test button: sweeps once right now, even with the switch off, and says
+  # out loud which gate held it when one did.
+  def handle_event("sweep_now", _params, socket) do
+    message =
+      case Catcher.Worker.sweep_now() do
+        {:ok, tiles} -> "varrendo #{tiles} tile(s)…"
+        {:error, reason} -> "não varreu: #{reason}"
+      end
+
+    {:noreply, assign(socket, sweep_msg: message)}
+  end
+
   def handle_event("save_stock_cfg", params, socket) do
     socket =
       socket
@@ -1521,6 +1565,15 @@ defmodule PokexWeb.PanelLive do
   defp save_ball_key(socket, _ausente), do: socket
 
   # The UI speaks SECONDS (what Lucas reasons in); the settings store milliseconds.
+  defp save_sweep_side(socket, side) do
+    if side in Pokex.Bots.Catcher.Sweep.sides() do
+      Settings.put(:sweep_side, side)
+      assign(socket, sweep_side: side)
+    else
+      socket
+    end
+  end
+
   defp save_seconds(socket, raw, range, setting_key, assign_key) do
     case PanelForms.parse_int(raw, range) do
       {:ok, seconds} ->
@@ -3394,6 +3447,15 @@ defmodule PokexWeb.PanelLive do
             max_balls: @corpse_max_balls,
             radius_tiles: @corpse_scan_radius_tiles,
             dry_balls_alarm: @dry_balls_alarm
+          }
+        }
+        sweep_cfg={
+          %{
+            enabled: @sweep_enabled,
+            interval_s: @sweep_interval_s,
+            radius_tiles: @sweep_radius_tiles,
+            side: @sweep_side,
+            msg: @sweep_msg
           }
         }
         stock_cfg={

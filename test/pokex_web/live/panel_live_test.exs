@@ -334,14 +334,23 @@ defmodule PokexWeb.PanelLiveTest do
       assert html =~ "14 bola(s) por passada"
     end
 
-    test "Varrer agora answers on screen instead of silently doing nothing", %{conn: conn} do
+    # The click used to WAIT on the catcher, and a catcher parked on a capture
+    # timed the call out — the exit inside handle_event killed the whole page
+    # (2026-08-05). Now it asks and moves on; the verdict arrives as a broadcast.
+    test "Varrer agora answers on screen without ever waiting on the worker", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
 
       refute has_element?(view, "#sweep-msg")
 
-      view |> element("#sweep-now") |> render_click()
+      assert view |> element("#sweep-now") |> render_click() =~ "pedindo varredura"
 
-      assert has_element?(view, "#sweep-msg")
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        "catcher",
+        {:sweep_result, "não varreu: luta em andamento"}
+      )
+
+      assert render(view) =~ "não varreu: luta em andamento"
     end
   end
 

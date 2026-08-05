@@ -201,7 +201,8 @@ defmodule PokexWeb.PanelLiveTest do
     assert has_element?(view, "#open-settings[href='/config']")
     refute has_element?(view, "#fishing-hp-form")
     refute html =~ "Só pescar com vida"
-    assert has_element?(view, "#app-navigation[phx-update=ignore]")
+    # the menu is no longer ignored by the patcher — app_header_test sweeps
+    # every route for that, with the reasoning
     assert has_element?(view, "#app-navigation-toggle[aria-label='Abrir navegação']")
     assert has_element?(view, "#app-nav-calibration[href='/calibration']")
     assert has_element?(view, "#app-nav-diagnostics[href='/diagnostics']")

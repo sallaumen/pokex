@@ -295,7 +295,16 @@ defmodule PokexWeb.Layouts do
               </div>
             </details>
 
-            <details id="app-navigation" phx-update="ignore" class="group relative">
+            <%!-- No `phx-update="ignore"` here, and that is the point. It was
+                  guarding the <details> open state, which `app.js` already
+                  mirrors globally in `onBeforeElUpdated` for EVERY <details>
+                  in the app (the alarm menu right above never needed it). What
+                  it did instead: an ignored element makes morphdom skip its
+                  whole subtree, so the menu rendered at mount was frozen —
+                  open the ⚙️ from the menu, close the overlay (a patch, SAME
+                  mount) and the menu kept highlighting "Configurações" while
+                  you were on the Painel. --%>
+            <details id="app-navigation" class="group relative">
               <summary
                 id="app-navigation-toggle"
                 class="grid size-8 cursor-pointer list-none place-items-center rounded-lg border border-pk-line-strong text-pk-text-2 transition hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white [&::-webkit-details-marker]:hidden"

@@ -9,6 +9,7 @@ defmodule PokexWeb.TeamLive do
   still computes it for whoever wants it back.
   """
   use PokexWeb, :live_view
+  @behaviour PokexWeb.CharacterAware
 
   alias Pokex.Bots.Capture
   alias Pokex.Pokedex
@@ -30,6 +31,12 @@ defmodule PokexWeb.TeamLive do
      )
      |> assign_team()}
   end
+
+  # Each character has their OWN team (chars/<slug>/team.json). Switching in the
+  # header has to swap the list right here, right now — this is the page that
+  # lied the loudest without it.
+  @impl PokexWeb.CharacterAware
+  def on_character_change(socket), do: assign_team(socket)
 
   @impl true
   def handle_event("add", %{"member" => name, "where" => where}, socket) do

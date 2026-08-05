@@ -13,22 +13,47 @@ defmodule PokexWeb.Layouts do
   # and other static content.
   embed_templates "layouts/*"
 
-  # One list, not nine markup blocks: the menu is the same on every page, and
+  # Data, not repeated markup blocks: the menu is the same on every page, and
   # forgetting a route here is how a page disappears from the app.
-  @nav [
+  #
+  # The two that stay OUT of the groups are the two that are not destinations
+  # about a subject — the Painel is where the bot starts and stops, and the ⚙️
+  # is not even a page (route /config, same LiveView, the overlay opening on
+  # top of the panel). Both are "the app itself", so they sit above the groups.
+  @top [
     {:panel, "Painel", "hero-play-circle"},
-    # The ⚙️ is not a page: it lands on the panel with the overlay open (route
-    # /config, same LiveView). It stays in the menu because that is where he
-    # will look for it.
-    {:config, "Configurações", "hero-cog-6-tooth"},
-    {:calibration, "Calibração", "hero-viewfinder-circle"},
-    {:diagnostics, "Diagnóstico", "hero-beaker"},
-    {:fishing_lab, "Laboratório", "hero-sparkles"},
-    {:mini_game, "Mini-game", "hero-puzzle-piece"},
-    {:world, "Mundo", "hero-eye"},
-    {:cavebot, "Cavebot", "hero-map"},
-    {:pokedex, "Pokédex", "hero-book-open"},
-    {:team, "Time", "hero-user-group"}
+    {:config, "Configurações", "hero-cog-6-tooth"}
+  ]
+
+  # Ten flat destinations turn into a drawer — the eye reads item by item
+  # because nothing says what subject each one is about. Grouped, the question
+  # you already ask before opening the menu ("my pokémon? what the bot sees?
+  # tune the machine?") is already the answer.
+  #
+  # NO group title repeats a destination's label — not "Configurações" (taken by
+  # the ⚙️ above, which is not even in a group) and not "Mundo" (a page). A
+  # header echoing the item right under it reads as a duplicate, and echoing an
+  # item that is somewhere ELSE is how you click the wrong thing twice. Hence
+  # "No jogo" (the game world) against "Máquina" (this Mac) — the same ruler
+  # `Pokex.Settings` uses to decide where a key belongs.
+  @groups [
+    {"Pokémon",
+     [
+       {:pokedex, "Pokédex", "hero-book-open"},
+       {:team, "Time", "hero-user-group"}
+     ]},
+    {"No jogo",
+     [
+       {:world, "Mundo", "hero-eye"},
+       {:cavebot, "Cavebot", "hero-map"}
+     ]},
+    {"Máquina",
+     [
+       {:calibration, "Calibração", "hero-viewfinder-circle"},
+       {:diagnostics, "Diagnóstico", "hero-beaker"},
+       {:fishing_lab, "Laboratório", "hero-sparkles"},
+       {:mini_game, "Mini-game", "hero-puzzle-piece"}
+     ]}
   ]
 
   @doc """
@@ -120,35 +145,81 @@ defmodule PokexWeb.Layouts do
               </select>
             </form>
 
-            <details id="character-create" class="relative">
+            <%!-- Creating, renaming and deleting live together, one popover
+                  away from the picker they affect. `Pokex.Characters` could
+                  rename and delete from the start and nothing could reach it:
+                  a character created with a typo was permanent. --%>
+            <details id="character-manager" class="relative">
               <summary
                 class="grid size-8 cursor-pointer list-none place-items-center rounded-lg border border-pk-line-strong text-pk-text-2 transition hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white [&::-webkit-details-marker]:hidden"
-                title="Criar personagem"
-                aria-label="Criar personagem"
+                title="Personagens: criar, renomear, apagar"
+                aria-label="Gerenciar personagens"
               >
                 <.icon name="hero-user-plus" class="size-4" />
               </summary>
-              <form
-                id="character-create-form"
-                phx-submit="create_character"
-                class="absolute right-0 top-10 z-50 flex w-56 items-center gap-2 rounded-lg border border-pk-line-strong bg-pk-surface p-2 shadow-2xl shadow-black/50"
-              >
-                <input
-                  type="text"
-                  name="name"
-                  placeholder="nome do personagem"
-                  aria-label="Nome do novo personagem"
-                  autocomplete="off"
-                  required
-                  class="input h-8 min-h-0 w-full rounded-lg border border-pk-line-strong bg-pk-raised px-2 text-pk-meta text-pk-text placeholder:text-pk-text-3 focus:border-pk-ok/60 focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  class="btn btn-outline h-8 min-h-0 shrink-0 rounded-lg border-pk-line-strong px-2.5 text-pk-meta font-semibold text-pk-text-2 hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white"
-                >
-                  Criar
-                </button>
-              </form>
+
+              <div class="absolute right-0 top-10 z-50 w-72 space-y-2 rounded-lg border border-pk-line-strong bg-pk-surface p-2 shadow-2xl shadow-black/50">
+                <form id="character-create-form" phx-submit="create_character" class="flex gap-2">
+                  <input
+                    type="text"
+                    name="name"
+                    placeholder="nome do personagem"
+                    aria-label="Nome do novo personagem"
+                    autocomplete="off"
+                    required
+                    class="input h-8 min-h-0 w-full rounded-lg border border-pk-line-strong bg-pk-raised px-2 text-pk-meta text-pk-text placeholder:text-pk-text-3 focus:border-pk-ok/60 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    class="btn btn-outline h-8 min-h-0 shrink-0 rounded-lg border-pk-line-strong px-2.5 text-pk-meta font-semibold text-pk-text-2 hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white"
+                  >
+                    Criar
+                  </button>
+                </form>
+
+                <p :if={@characters == []} class="px-1 pb-1 text-pk-meta text-pk-text-3">
+                  Nenhum personagem ainda — sem um, o time é o compartilhado.
+                </p>
+
+                <div :if={@characters != []} class="max-h-64 space-y-1 overflow-y-auto">
+                  <div
+                    :for={character <- @characters}
+                    id={"character-row-#{character.slug}"}
+                    class="flex items-center gap-1"
+                  >
+                    <%!-- Renaming IS the text field: no edit mode to enter and
+                          no Save to find. Enter commits, Esc gives up. --%>
+                    <form
+                      id={"character-rename-#{character.slug}"}
+                      phx-submit="rename_character"
+                      class="min-w-0 flex-1"
+                    >
+                      <input type="hidden" name="slug" value={character.slug} />
+                      <input
+                        type="text"
+                        name="name"
+                        value={character.name}
+                        aria-label={"Renomear #{character.name}"}
+                        autocomplete="off"
+                        required
+                        class="input h-8 min-h-0 w-full rounded-lg border border-transparent bg-transparent px-2 text-pk-meta text-pk-text hover:border-pk-line-strong focus:border-pk-ok/60 focus:bg-pk-raised focus:outline-none"
+                      />
+                    </form>
+                    <button
+                      type="button"
+                      id={"character-delete-#{character.slug}"}
+                      phx-click="delete_character"
+                      phx-value-slug={character.slug}
+                      data-confirm={"Apagar #{character.name}? O time dele vai junto."}
+                      title={"Apagar #{character.name}"}
+                      aria-label={"Apagar #{character.name}"}
+                      class="grid size-8 shrink-0 place-items-center rounded-lg border border-transparent text-pk-text-3 transition hover:border-pk-warn-line hover:bg-pk-warn-dim hover:text-pk-warn"
+                    >
+                      <.icon name="hero-trash" class="size-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
             </details>
 
             <span
@@ -235,26 +306,19 @@ defmodule PokexWeb.Layouts do
               </summary>
               <nav
                 aria-label="Navegação principal"
-                class="absolute right-0 top-10 z-50 w-48 overflow-hidden rounded-lg border border-pk-line-strong bg-pk-surface p-1 shadow-2xl shadow-black/50"
+                class="absolute right-0 top-10 z-50 w-52 overflow-hidden rounded-lg border border-pk-line-strong bg-pk-surface p-1 shadow-2xl shadow-black/50"
               >
-                <.link
-                  :for={{key, label, icon} <- nav_items()}
-                  id={nav_id(key)}
-                  navigate={nav_path(key)}
-                  aria-current={key == @current_page && "page"}
-                  class={[
-                    "flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body transition",
-                    if(key == @current_page,
-                      do: "bg-pk-ok-dim font-semibold text-pk-ok",
-                      else: "text-pk-text hover:bg-pk-raised hover:text-white"
-                    )
-                  ]}
+                <.nav_link :for={entry <- nav_top()} entry={entry} current_page={@current_page} />
+
+                <div
+                  :for={{title, entries} <- nav_groups()}
+                  class="mt-1 border-t border-pk-line pt-1"
                 >
-                  <.icon
-                    name={icon}
-                    class={["size-4", if(key == @current_page, do: "", else: "text-pk-text-2")]}
-                  /> {label}
-                </.link>
+                  <p class="px-3 pb-0.5 pt-1 text-pk-meta font-semibold uppercase tracking-[0.14em] text-pk-text-3">
+                    {title}
+                  </p>
+                  <.nav_link :for={entry <- entries} entry={entry} current_page={@current_page} />
+                </div>
               </nav>
             </details>
           </div>
@@ -270,8 +334,44 @@ defmodule PokexWeb.Layouts do
     """
   end
 
-  @doc "The navigation destinations, in display order: `{key, label, icon}`."
-  def nav_items, do: @nav
+  # One menu destination. It is a component because it renders from two
+  # different shapes (the ungrouped top, and each group's entries), and marking
+  # an item as the current page in one place and forgetting it in the other is
+  # exactly the divergence the unified header exists to kill.
+  attr :entry, :any, required: true, doc: "`{key, label, icon}` from `nav_items/0`"
+  attr :current_page, :atom, default: nil
+
+  def nav_link(%{entry: {key, label, icon}} = assigns) do
+    assigns =
+      assign(assigns, key: key, label: label, icon: icon, current?: key == assigns[:current_page])
+
+    ~H"""
+    <.link
+      id={nav_id(@key)}
+      navigate={nav_path(@key)}
+      aria-current={@current? && "page"}
+      class={[
+        "flex items-center gap-2 rounded-md px-3 py-2.5 text-pk-body transition",
+        if(@current?,
+          do: "bg-pk-ok-dim font-semibold text-pk-ok",
+          else: "text-pk-text hover:bg-pk-raised hover:text-white"
+        )
+      ]}
+    >
+      <.icon name={@icon} class={["size-4 shrink-0", not @current? && "text-pk-text-2"]} />
+      {@label}
+    </.link>
+    """
+  end
+
+  @doc "Every navigation destination, flat, in display order: `{key, label, icon}`."
+  def nav_items, do: @top ++ Enum.flat_map(@groups, fn {_title, entries} -> entries end)
+
+  @doc "The destinations that sit ABOVE the groups (Painel and the ⚙️)."
+  def nav_top, do: @top
+
+  @doc "The menu groups: `{title, [{key, label, icon}]}`. The top ones are not in here."
+  def nav_groups, do: @groups
 
   @doc """
   The assigns `PokexWeb.HeaderState` maintains, ready to forward as a block:
@@ -311,7 +411,7 @@ defmodule PokexWeb.Layouts do
   defp page_label(nil), do: nil
 
   defp page_label(current_page) do
-    Enum.find_value(@nav, fn {key, label, _icon} -> key == current_page && label end)
+    Enum.find_value(nav_items(), fn {key, label, _icon} -> key == current_page && label end)
   end
 
   @doc """

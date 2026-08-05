@@ -6,6 +6,8 @@ defmodule PokexWeb.AppHeaderTest do
   use PokexWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
 
+  alias PokexWeb.Layouts
+
   @routes [
     {"/", :panel},
     {"/calibration", :calibration},
@@ -19,8 +21,9 @@ defmodule PokexWeb.AppHeaderTest do
   ]
 
   @nav_ids ~w(
-    app-nav-panel app-nav-calibration app-nav-diagnostics app-nav-fishing-lab
-    app-nav-mini-game app-nav-world app-nav-cavebot app-nav-pokedex app-nav-team
+    app-nav-panel app-nav-config app-nav-calibration app-nav-diagnostics
+    app-nav-fishing-lab app-nav-mini-game app-nav-world app-nav-cavebot
+    app-nav-pokedex app-nav-team
   )
 
   test "every page mounts the same header", %{conn: conn} do
@@ -41,6 +44,34 @@ defmodule PokexWeb.AppHeaderTest do
       for id <- @nav_ids do
         assert has_element?(view, "##{id}"), "#{path}: #{id} missing from the menu"
       end
+    end
+  end
+
+  test "the menu comes grouped, with Painel and the ⚙️ above the groups", %{conn: conn} do
+    # the structure first: a destination landing in two groups (or in none) is
+    # exactly the kind of mistake that survives a read of the markup
+    grouped = Enum.flat_map(Layouts.nav_groups(), fn {_title, entries} -> entries end)
+    keys = Enum.map(grouped, fn {key, _label, _icon} -> key end)
+    titles = Enum.map(Layouts.nav_groups(), fn {title, _entries} -> title end)
+    top_keys = Enum.map(Layouts.nav_top(), fn {key, _label, _icon} -> key end)
+    labels = Enum.map(Layouts.nav_items(), fn {_key, label, _icon} -> label end)
+
+    assert titles == ["Pokémon", "No jogo", "Máquina"]
+    assert top_keys == [:panel, :config]
+    assert keys == Enum.uniq(keys), "a destination shows up in more than one group"
+    refute Enum.any?(top_keys, &(&1 in keys)), "an ungrouped destination is also inside a group"
+    assert Layouts.nav_items() == Layouts.nav_top() ++ grouped
+    assert length(Layouts.nav_items()) == length(@nav_ids)
+
+    # a group header repeating a destination's label reads as a duplicate when
+    # the item is right under it, and misleads when the item is somewhere else
+    for title <- titles do
+      refute title in labels, "the group #{title} has the same name as a menu item"
+    end
+
+    for {path, _page} <- @routes, title <- titles do
+      {:ok, _view, html} = live(conn, path)
+      assert html =~ title, "#{path}: the menu does not show the group #{title}"
     end
   end
 

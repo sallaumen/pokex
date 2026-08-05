@@ -14,7 +14,9 @@ This is a web application written using the Phoenix web framework.
 - **Never compile or run anything in `~/projects/pokex`.** Lucas keeps a live `phx.server` there; `mix compile`/`mix test` in that tree disrupts it. That checkout is for him, not for AIs.
 - **AI work happens in a git worktree under `~/projects/worktrees/<name>`** — never as a sibling of the main checkout. Create one with:
   `git -C ~/projects/pokex worktree add ~/projects/worktrees/<name> -b <branch>`
-  `~/projects/worktrees/claude` is the standing general-purpose worktree.
+- **One worktree per SESSION, named after the work** — not a shared general-purpose one. Several AI sessions run at once. On 2026-08-05 two of them used the same `worktrees/claude`: one ran `git checkout` on the other's branch mid-task, and a finished commit landed on a stranger's lane. A worktree is a workspace, not a lobby.
+- **Never `git checkout`, `reset` or `rebase` inside a worktree you did not create.** If a branch you need is checked out elsewhere, make your own worktree from `origin/main`. Re-read `git branch --show-current` right before committing: it is the cheap check that catches a lane you did not notice changing.
+- **Push the branch the moment you create it, even empty** (`git push -u origin <branch>`). That is the claim: `git branch -r` becomes the board of who is working on what, versioned and with no extra file to keep in sync. Start every session with `git fetch && git log origin/main --oneline -10` to read what landed while you were away, and `git branch -r` to see which lanes are taken.
 - **Remove the worktree when its PR merges** (`git worktree remove <path>` from the main checkout, then `git worktree prune`). Merged branches — local and remote — get deleted too. Stale worktrees piled up to 15 folders once; they are workspace litter, not history.
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues

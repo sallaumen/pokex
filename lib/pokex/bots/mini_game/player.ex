@@ -45,6 +45,9 @@ defmodule Pokex.Bots.MiniGame.Player do
   # bar: wide enough for the track + the fish poking past it, and ~8x cheaper
   # to capture and scan than the whole arena.
   @strip_half_pt 40
+  # Folga vertical em volta da barra detectada: a cápsula encosta no fim dela, e
+  # a eleição do Track pode variar uma ou duas linhas entre frames.
+  @strip_margin_pt 10
   @strip_file "mini_game_strip.png"
   @preview_file "mini_game_preview.png"
   # Below this many samples a "game" is a detection blip, not a match — writing
@@ -96,7 +99,24 @@ defmodule Pokex.Bots.MiniGame.Player do
       when is_map(bar) do
     scale = calib.scale || 1.0
     center = rx + round(bar.x / scale)
-    strip = {max(center - @strip_half_pt, 0), ry, @strip_half_pt * 2, rh}
+
+    # A CAUDA abaixo da barra é cortada. O Track elege a barra pela maior corrida
+    # de linhas ESCURAS e só procura o peixe DENTRO dela, então cada linha de
+    # cenário que sobra na faixa é candidata a roubar a eleição. Enquanto a
+    # região de detecção era uma caixa grandona colada na barra isso passava
+    # batido; com a região derivada das âncoras (#151) sobravam ~235 linhas de
+    # rocha escura abaixo da barra — o piloto ficou cego em 96% dos ticks
+    # (no_fish 302/316 no trace de 2026-08-05), soltou o Espaço e a cápsula morou
+    # no fundo.
+    #
+    # Só a cauda, de propósito: `bar.y2` é confiável (bate com o fim real da
+    # barra no fixture e no trace), mas `bar.y1` NÃO — o detector às vezes elege
+    # apenas o trecho ABAIXO da cápsula e reporta um topo bem depois do peixe.
+    # Cortar por ele comeria justamente o que o piloto precisa ver. O topo da
+    # região já é o personagem (#151), então sobra pouquíssimo cenário acima.
+    bottom = clamp_int(ry + round(bar.y2 / scale) + @strip_margin_pt, ry + 1, ry + rh)
+
+    strip = {max(center - @strip_half_pt, 0), ry, @strip_half_pt * 2, bottom - ry}
     mode = Mode.current()
 
     diag =
@@ -131,7 +151,7 @@ defmodule Pokex.Bots.MiniGame.Player do
     # predictive extrapolation compensates it (the lab's "latencia" knob).
     captured_at = System.monotonic_time(:millisecond)
 
-    case Capture.frame_with_path(strip, @strip_file) do
+    case Capture.frame_with_path_uncached(strip, @strip_file) do
       {:ok, frame, path} ->
         capture_ms = System.monotonic_time(:millisecond) - captured_at
         play_frame(player, frame, path, captured_at, capture_ms)
@@ -153,6 +173,8 @@ defmodule Pokex.Bots.MiniGame.Player do
         {:capture_error, reason, record(player, sample, nil)}
     end
   end
+
+  defp clamp_int(v, lo, hi), do: v |> max(lo) |> min(hi)
 
   @doc "Release Space only when this player believes it is holding."
   @spec release_if_holding(t) :: t

@@ -284,7 +284,11 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
 
     wait_for(fn -> {:key_down, "space"} in Fake.calls() end)
 
-    assert {:capture, {70, 0, 80, 220}, "mini_game_strip.png"} in Fake.calls()
+    # a faixa de jogo encolhe pra 70..150 em x (centro da barra 110) E a CAUDA
+    # abaixo da barra é cortada: cada linha de cenário que sobra ali disputa a
+    # eleição da barra no Track e cega o piloto (2026-08-05). O topo fica —
+    # bar.y2 é confiável, bar.y1 não.
+    assert {:capture, {70, 0, 80, 218}, "mini_game_strip.png"} in Fake.calls()
   end
 
   # The entry guard sends a preventive key_up before the first tick — the proven release

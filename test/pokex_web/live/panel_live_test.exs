@@ -288,6 +288,39 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
+  # Judging the layout while the game is BEHIND the panel is judging the wrong
+  # picture: the capture is of the DISPLAY. With a single monitor every glance
+  # at this page put the browser in front of the HUD and the answer was "não
+  # achei o HUD" — a red alarm for the most normal act there is (Lucas,
+  # 2026-08-06). Not found and not looked at are different facts.
+  test "o jogo atrás do painel não é HUD perdido — e o alarme vermelho continua sendo", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "layout",
+      {:layout, %{ok?: false, reason: :game_not_front, anchors: %{}}}
+    )
+
+    html = render(view)
+    assert html =~ "O jogo está atrás desta janela"
+    refute html =~ "Não achei o HUD"
+
+    # uma perda de verdade continua gritando
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "layout",
+      {:layout, %{ok?: false, reason: :battle_header_not_found, anchors: %{}}}
+    )
+
+    assert render(view) =~ "Não achei o HUD"
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "layout", {:layout, %{ok?: true, anchors: %{}}})
+    refute render(view) =~ "Não achei o HUD"
+  end
+
   # "Essas partes da proteção do Pokémon, eu não consigo mais desativar
   # individualmente?" (2026-08-06). Os dois interruptores sempre existiram — na
   # faixa do dashboard. Lendo "revive < 65%" no ⚙️ sem um liga/desliga do lado,
@@ -368,6 +401,14 @@ defmodule PokexWeb.PanelLiveTest do
     # timed the call out — the exit inside handle_event killed the whole page
     # (2026-08-05). Now it asks and moves on; the verdict arrives as a broadcast.
     test "Varrer agora answers on screen without ever waiting on the worker", %{conn: conn} do
+      # The button asks the APP-GLOBAL catcher, which would throw real balls into
+      # the shared Rig other tests assert on (it did — stray f1+move pairs in
+      # DiagnosticsLiveTest, 2026-08-06). Closing the gate is the honest way to
+      # keep it grounded: the ask still happens, the sweep is held, and the
+      # answer still has to reach the screen.
+      Pokex.Bots.InputGate.set_focus_ok(false)
+      on_exit(fn -> Pokex.Bots.InputGate.set_focus_ok(true) end)
+
       {:ok, view, _html} = live(conn, ~p"/config")
 
       refute has_element?(view, "#sweep-msg")

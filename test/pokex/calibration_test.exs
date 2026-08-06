@@ -1,6 +1,9 @@
 defmodule Pokex.CalibrationTest do
-  use ExUnit.Case, async: true
+  # async: false — the profile tests write GLOBAL Settings (the numbers a
+  # profile carries), and an async write races every other reader of them.
+  use ExUnit.Case, async: false
   alias Pokex.Calibration
+  alias Pokex.Settings
 
   defp sample do
     %Calibration{
@@ -133,7 +136,7 @@ defmodule Pokex.CalibrationTest do
 
     # overwrite the active calibration, then the profile brings it back
     Calibration.save(%{sample() | screen_w: 999})
-    assert {:ok, restored} = Calibration.apply_profile("dois-monitores")
+    assert {:ok, restored, _numbers} = Calibration.apply_profile("dois-monitores")
     assert restored.screen_w == 1728
     assert {:ok, active} = Calibration.load()
     assert active.screen_w == 1728
@@ -143,6 +146,58 @@ defmodule Pokex.CalibrationTest do
 
     # invalid names never touch the filesystem
     assert {:error, :invalid_name} = Calibration.save_profile("///")
+  end
+
+  @tag :tmp_dir
+  # The regions alone were never enough: every threshold and box size is measured
+  # in pixels of ONE screen, so a profile that restored only the marks brought
+  # back a calibration the numbers no longer fitted (Lucas on the small screen,
+  # 2026-08-06). Switching monitors has to bring both.
+  test "a profile carries the numbers that belong to its screen", %{tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    tile = Settings.get(:tile_px)
+    glow = Settings.get(:glow_threshold)
+
+    on_exit(fn ->
+      Application.delete_env(:pokex, :home_dir)
+      Settings.put(:tile_px, tile)
+      Settings.put(:glow_threshold, glow)
+    end)
+
+    Calibration.save(sample())
+    Settings.put(:tile_px, 88)
+    Settings.put(:glow_threshold, 1100)
+    assert {:ok, "ultrawide"} = Calibration.save_profile("ultrawide")
+
+    # move to the small screen: the numbers get rescaled for it
+    Settings.put(:tile_px, 59)
+    Settings.put(:glow_threshold, 496)
+
+    assert {:ok, _calib, applied} = Calibration.apply_profile("ultrawide")
+    assert applied > 0
+    assert Settings.get(:tile_px) == 88
+    assert Settings.get(:glow_threshold) == 1100
+
+    # and deleting takes the sidecar with it
+    assert :ok = Calibration.delete_profile("ultrawide")
+    assert Calibration.profile_settings("ultrawide") == %{}
+  end
+
+  @tag :tmp_dir
+  # A profile saved before the numbers were carried still has to apply — its
+  # MARKS are good. The count is what tells him the numbers did not come.
+  test "a profile without numbers applies its marks and reports zero", %{tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(sample())
+    assert {:ok, "antigo"} = Calibration.save_profile("antigo")
+    File.rm!(Path.join([tmp, "calibrations", "antigo.settings.json"]))
+
+    assert {:ok, calib, 0} = Calibration.apply_profile("antigo")
+    assert calib.screen_w == 1728
+    # and the sidecar never shows up as a profile of its own
+    assert [%{name: "antigo"}] = Calibration.list_profiles()
   end
 
   test "derived regions and conversion" do

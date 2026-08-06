@@ -339,6 +339,35 @@ defmodule PokexWeb.CalibrationLive do
     {:noreply, assign(socket, review: nil)}
   end
 
+  # A cell is exactly the unit the reader works in (`Vision.skill_slots/2` cuts
+  # the box into `count` equal columns), so nudging by whole cells is the entire
+  # repair: same width, same count, the numbers just land on the right icons
+  # again. Lucas's bar on the small screen enclosed the ROD and left skill 9
+  # out — every cooldown read was the neighbour's, and the fishing gate that
+  # waits for a ready skill never opened (2026-08-06). Marking it again by hand
+  # is the same trap twice; one cell is one click.
+  def handle_event("nudge_skill_bar", %{"cells" => raw}, socket) do
+    with %{review: %{calib: calib} = review} <- socket.assigns,
+         {x, y, w, h} <- calib.skill_bar_region,
+         count when is_integer(count) and count > 0 <- calib.skill_bar_count,
+         {cells, _rest} <- Integer.parse(raw) do
+      region = {x + cells * div(w, count), y, w, h}
+
+      # The refs are re-sampled from the SAME picture the review is showing —
+      # a stale signature would make every slot read "not mine" from here on.
+      calib = %{
+        calib
+        | skill_bar_region: region,
+          skill_slot_refs: skill_slot_refs(review, region, count)
+      }
+
+      Calibration.save(calib)
+      {:noreply, assign(socket, review: %{review | calib: calib}, error: nil)}
+    else
+      _no_bar -> {:noreply, socket}
+    end
+  end
+
   # The clicks were right, the ruler was not: re-express every marked point in
   # the filmed display's coordinates instead of making him redo ten steps.
   # Offered ONLY for a same-shape mismatch (Calibration.screen_check/2), and the
@@ -1201,6 +1230,28 @@ defmodule PokexWeb.CalibrationLive do
             (raio em tiles, no ⚙️). Marcar a faixa do mini game à mão
             continua valendo mais — deixa a busca ainda mais barata e certeira.
           </p>
+          <%!-- The box is cut into numbered CELLS and cell i IS hotkey i. One
+                cell off and every cooldown read is the neighbour's — which
+                silently shuts the "só pescar quando dá pra matar" gate. Check
+                the numbers against the icons; if they are off, move by whole
+                cells instead of redoing the wizard. --%>
+          <div
+            :if={@review.calib.skill_bar_region && @review.calib.skill_bar_count}
+            id="skill-bar-nudge"
+            class="flex flex-wrap items-center gap-2 rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2 text-xs"
+          >
+            <span class="flex-1">
+              Os números <b>1…{@review.calib.skill_bar_count}</b>
+              na barra têm que cair em cima das skills certas — é célula por célula que o bot lê o
+              cooldown.
+            </span>
+            <button class="btn btn-xs" phx-click="nudge_skill_bar" phx-value-cells="-1">
+              ◀ uma casa
+            </button>
+            <button class="btn btn-xs" phx-click="nudge_skill_bar" phx-value-cells="1">
+              uma casa ▶
+            </button>
+          </div>
           <div class="relative overflow-hidden rounded-lg border border-base-content/20">
             <img src={@review.src} class="w-full" />
             <.overlays
@@ -1209,6 +1260,7 @@ defmodule PokexWeb.CalibrationLive do
               glow_region={@review.calib.glow_region}
               battle_region={@review.calib.battle_region}
               skill_bar_region={@review.calib.skill_bar_region}
+              skill_bar_count={@review.calib.skill_bar_count || 0}
               neutral_point={@review.calib.neutral_point}
               player_point={Calibration.player_point(@review.calib)}
               pokemon_hp_region={@review.calib.pokemon_hp_region}
@@ -1450,6 +1502,7 @@ defmodule PokexWeb.CalibrationLive do
                 glow_region={@draft[:glow_region]}
                 battle_region={@draft[:battle_region]}
                 skill_bar_region={@draft[:skill_bar_region]}
+                skill_bar_count={@draft[:skill_bar_count] || 0}
                 neutral_point={@draft[:neutral_point]}
                 player_point={draft_player(@draft)}
                 pokemon_hp_region={@draft[:pokemon_hp_region]}

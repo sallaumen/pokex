@@ -26,6 +26,11 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :glow_region, :any, default: nil
   attr :battle_region, :any, default: nil
   attr :skill_bar_region, :any, default: nil
+
+  attr :skill_bar_count, :integer,
+    default: 0,
+    doc: "how many cells the bar is cut into — 0 draws the box without the grid"
+
   attr :neutral_point, :any, default: nil
   attr :player_point, :any, default: nil
   attr :pokemon_hp_region, :any, default: nil
@@ -100,6 +105,21 @@ defmodule PokexWeb.CalibrationOverlay do
     >
       <span class="absolute -top-4 left-0 rounded bg-secondary px-1 text-[10px] font-bold text-secondary-content">
         skills
+      </span>
+      <%!-- The CELLS, not just the box. `Vision.skill_slots/2` cuts this
+            rectangle into `count` equal columns and calls column i the hotkey
+            SkillBar.keys/1 gives it — so a box one cell off makes every skill
+            read the neighbour, silently. Lucas's bar on the small screen
+            (2026-08-06) enclosed the ROD and left skill 9 outside: every
+            cooldown read was one slot to the left, which shut the "só pescar
+            quando dá pra matar" gate forever. A box looks right at a glance;
+            numbered cells over the real icons cannot lie. --%>
+      <span
+        :for={{key, i} <- Enum.with_index(Pokex.Bots.SkillBar.keys(@skill_bar_count))}
+        class="absolute top-0 bottom-0 flex items-end justify-center border-l border-secondary/60 pb-px text-[9px] font-bold text-secondary first:border-l-0"
+        style={"left:#{i * 100 / @skill_bar_count}%;width:#{100 / @skill_bar_count}%"}
+      >
+        {key}
       </span>
     </div>
     <div

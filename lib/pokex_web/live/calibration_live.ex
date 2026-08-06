@@ -9,6 +9,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Calibration
   alias Pokex.Home
   alias Pokex.Screenshot
+  alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
   alias Pokex.Vision.Frame
@@ -96,6 +97,9 @@ defmodule PokexWeb.CalibrationLive do
        row_height: Settings.get(:battle_row_height),
        max_rows: Settings.get(:battle_max_rows),
        battle_msg: nil,
+       scale_proposals: nil,
+       scale_ratio: nil,
+       scale_msg: nil,
        corpse_shot: nil,
        corpse_crop: nil,
        corpse_msg: nil,
@@ -338,6 +342,37 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("close_review", _params, socket) do
     {:noreply, assign(socket, review: nil)}
+  end
+
+  # Every pixel-denominated seed was measured once, on the ultrawide. None of
+  # them survives a change of screen — that is what "nada funciona em 1 monitor
+  # só" was made of (2026-08-06). The ruler is a skill slot, not the display:
+  # the display went 0.44 between his two screens while the game went 0.67.
+  def handle_event("scan_screen_scale", _params, socket) do
+    with %{calib: calib} <- socket.assigns.review,
+         {:ok, ratio} <- ScreenScale.measure(calib) do
+      {:noreply, assign(socket, scale_ratio: ratio, scale_proposals: proposals_for(ratio))}
+    else
+      _no_ruler ->
+        {:noreply,
+         assign(socket,
+           scale_msg: "sem régua: calibre a barra de skills primeiro (é ela que mede a tela)"
+         )}
+    end
+  end
+
+  # Applying is the HUMAN's click, never a silent transform — a derivation that
+  # rewrites settings behind his back is how he would stop trusting the numbers
+  # exactly when he needs them most.
+  def handle_event("apply_screen_scale", _params, socket) do
+    changed = ScreenScale.apply!(socket.assigns.scale_proposals || [])
+
+    {:noreply,
+     assign(socket,
+       scale_proposals: nil,
+       row_height: Settings.get(:battle_row_height),
+       scale_msg: "#{changed} ajuste(s) aplicado(s) — os bots leem o novo valor no próximo tique"
+     )}
   end
 
   # The battle list's ruler. `battle_row_height` was MEASURED on the ultrawide
@@ -741,6 +776,12 @@ defmodule PokexWeb.CalibrationLive do
 
   defp measure_battle_rows(_no_battle_region),
     do: {:error, "marque a janela Battle primeiro"}
+
+  # Nothing to offer when this screen IS the reference: a "fix" that moves two
+  # values by one point each only teaches him to distrust the button.
+  defp proposals_for(ratio) do
+    if ScreenScale.matches_reference?(ratio), do: [], else: ScreenScale.proposals(ratio)
+  end
 
   # An out-of-range or half-typed value leaves BOTH the setting and the drawing
   # alone — the bands must never be drawn from a number the bot is not using.
@@ -1377,6 +1418,55 @@ defmodule PokexWeb.CalibrationLive do
               Medir pelas barras de vida
             </button>
             <p :if={@battle_msg} id="battle-rows-msg" class="w-full opacity-80">{@battle_msg}</p>
+          </div>
+          <%!-- The numbers, not just the boxes. A calibration can be perfect and
+                the bot still blind, because every threshold and every box SIZE
+                was measured on another screen. --%>
+          <div
+            id="screen-scale"
+            class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs"
+          >
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="flex-1">
+                Os números do bot (tamanho do tile, caixas, limiares) foram medidos numa tela só.
+                Esta aqui pode ser outra — dá pra medir pela barra de skills.
+              </span>
+              <button class="btn btn-xs" phx-click="scan_screen_scale">Conferir a régua da tela</button>
+            </div>
+            <p :if={@scale_msg} id="screen-scale-msg" class="mt-1.5 opacity-80">{@scale_msg}</p>
+
+            <div :if={@scale_proposals == []} class="mt-1.5 opacity-80">
+              Esta tela é do mesmo tamanho da que os números foram medidos — não há o que ajustar.
+            </div>
+
+            <div :if={@scale_proposals not in [nil, []]} class="mt-2 space-y-2">
+              <p class="font-bold text-warning">
+                Esta tela mede {Float.round(@scale_ratio, 2)}× a de referência — {length(
+                  @scale_proposals
+                )} ajuste(s):
+              </p>
+              <div class="max-h-56 overflow-y-auto rounded border border-base-content/20">
+                <table class="table table-xs">
+                  <tbody>
+                    <tr :for={p <- @scale_proposals}>
+                      <td class="font-mono">{p.key}</td>
+                      <td class="font-mono opacity-60">{p.from}</td>
+                      <td class="font-mono font-bold">→ {p.to}</td>
+                      <td class="opacity-60">
+                        {if p.family == :area, do: "área ×r²", else: "medida ×r"}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <button
+                id="apply-screen-scale"
+                class="btn btn-warning btn-xs"
+                phx-click="apply_screen_scale"
+              >
+                Aplicar os {length(@scale_proposals)} ajustes
+              </button>
+            </div>
           </div>
           <PokexWeb.CalibrationOverlay.read_crops screen={@review} calib={@review.calib} />
           <div class="relative overflow-hidden rounded-lg border border-base-content/20">

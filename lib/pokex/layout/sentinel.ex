@@ -73,7 +73,38 @@ defmodule Pokex.Layout.Sentinel do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  defp relocate(state) do
+  # Judging the layout while the game is BEHIND something is judging the wrong
+  # picture. The capture is of the DISPLAY, so with a single monitor every
+  # glance at the panel put the browser in front of the HUD and the sentinel
+  # answered "não achei o HUD" — a red alarm for the most normal act there is
+  # (Lucas, 2026-08-06: "tenho que deixar o browser fora da tela principal").
+  # Not found and not looked at are different facts and now say different
+  # things; `located?` is left alone, because nothing was learned.
+  defp relocate(%{located?: located?} = state) do
+    if game_in_front?() do
+      locate(state)
+    else
+      broadcast(%{ok?: false, reason: :game_not_front, anchors: %{}})
+      if state.active?, do: Process.send_after(self(), :retry, @retry_ms)
+      %{state | last_relocate_at: System.monotonic_time(:millisecond), located?: located?}
+    end
+  end
+
+  # The same fact the input gate runs on — the Focus poller writes it every
+  # ~250ms. Unreachable (early boot, isolated test) reads as "in front" so a
+  # missing poller can never be why the layout is never located.
+  defp game_in_front? do
+    Pokex.Bots.InputGate.state().focus_ok
+  rescue
+    _no_gate -> true
+  catch
+    :exit, _reason -> true
+  end
+
+  defp broadcast(payload),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:layout, payload})
+
+  defp locate(state) do
     payload =
       case Layout.apply!() do
         {:ok, fix} ->
@@ -87,7 +118,7 @@ defmodule Pokex.Layout.Sentinel do
           %{ok?: false, reason: reason, anchors: %{}}
       end
 
-    Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:layout, payload})
+    broadcast(payload)
 
     # keep trying while blind; stop once located (a moved panel comes back
     # through the feeds' failure streaks)

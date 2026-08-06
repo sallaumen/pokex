@@ -125,6 +125,7 @@ defmodule PokexWeb.PanelLive do
        calibrated?: Calibration.exists?(),
        calib_stale?: calib_stale?(),
        layout_lost?: false,
+       layout_waiting?: false,
        stocks: %{},
        world: Pokex.World.snapshot(),
        now_ms: now_ms(),
@@ -606,9 +607,14 @@ defmodule PokexWeb.PanelLive do
   # A rule fired with the ALARM action (Guardian, e.g. anti-stagnation): ring
   # the F7 pipeline — nothing was halted, the sound + 🔔 line ARE the action.
   # The HUD could not be located: every feed is holding rather than reading
-  # (or clicking) blind coordinates — say so loudly and permanently.
+  # (or clicking) blind coordinates — say so loudly and permanently. But
+  # "the game is behind the panel" is NOT that: on a single monitor it is what
+  # happens every time he looks at this page, and it comes back by itself.
+  def handle_info({:layout, %{reason: :game_not_front}}, socket),
+    do: {:noreply, assign(socket, layout_waiting?: true)}
+
   def handle_info({:layout, %{ok?: ok?}}, socket),
-    do: {:noreply, assign(socket, layout_lost?: not ok?)}
+    do: {:noreply, assign(socket, layout_lost?: not ok?, layout_waiting?: false)}
 
   def handle_info({:layout_suspect, _key}, socket), do: {:noreply, socket}
 
@@ -2770,6 +2776,18 @@ defmodule PokexWeb.PanelLive do
                 Calibre água, Battle, personagem e skills antes de iniciar.
               </p>
               <.link navigate={~p"/calibration"} class="font-semibold text-pk-ok">Calibrar</.link>
+            </div>
+
+            <div
+              :if={@layout_waiting? and not @layout_lost?}
+              id="layout-waiting-banner"
+              class="flex items-center gap-3 rounded-lg border border-pk-line-strong bg-pk-sunken p-3 text-pk-body"
+            >
+              <.icon name="hero-window" class="size-5 shrink-0 text-pk-text-3" />
+              <p class="flex-1 text-pk-text-2">
+                O jogo está atrás desta janela, então não dá pra conferir o HUD daqui —
+                normal com um monitor só. Volta sozinho assim que o jogo estiver na frente.
+              </p>
             </div>
 
             <div

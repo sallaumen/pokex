@@ -148,6 +148,19 @@ defmodule PokexWeb.CalibrationLiveTest do
     # Lucas's bar enclosed the ROD and left skill 9 out, and nothing said so.
     assert html =~ "width:#{100 / 6}%"
     assert html =~ "left:#{5 * 100 / 6}%"
+
+    # Every marked area at READING size. The full-screen preview cannot answer
+    # "está no lugar certo?": a 10-point-tall band inside a browser column is a
+    # few pixels tall, so one 40 points off looks exactly like a correct one —
+    # which is how BOTH of Lucas's bottom-row regions passed inspection.
+    assert html =~ ~s(id="read-crops")
+    assert html =~ "brilho (isca)"
+    assert html =~ "água"
+    # the skills band is 10 points tall: magnified to the 64-point reading
+    # height it would be 6.4×, capped at 5×, and the crop is positioned by
+    # sliding the whole screenshot behind a window of exactly that band
+    assert html =~ "background-position:-50.0px -300.0px"
+    assert html =~ "background-size:500.0px 375.0px"
   end
 
   @tag :tmp_dir

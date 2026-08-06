@@ -164,6 +164,61 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # A calibration can be perfect and the bot still blind: every threshold and
+  # box SIZE was measured on the ultrawide. The ruler is a skill slot, and
+  # applying is his click — a derivation that rewrote settings silently is how
+  # he would stop trusting the numbers exactly when he needs them.
+  test "the screen ruler proposes the rescaled numbers and applies them on a click", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    # applying rescales EVERY screen-dependent key, so every one of them has to
+    # come back — restoring only the two the test asserts on would leave the
+    # rest scaled for the whole suite
+    %{linear: linear, area: area} = Pokex.ScreenScale.keys()
+    before = Map.new(linear ++ area, &{&1, Settings.get(&1)})
+
+    on_exit(fn ->
+      Application.delete_env(:pokex, :home_dir)
+      Enum.each(before, fn {key, value} -> Settings.put(key, value) end)
+    end)
+
+    Calibration.save(%Calibration{
+      scale: 1.0,
+      screen_w: 100,
+      screen_h: 75,
+      # 325 points over 9 slots = 36.1 per slot against the reference's 53.75
+      skill_bar_region: {10, 60, 325, 10},
+      skill_bar_count: 9,
+      neutral_point: {52, 36}
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(100, 75, {9, 9, 9, 255}))
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    html = view |> element("button", "Conferir a régua da tela") |> render_click()
+
+    assert html =~ "0.67× a de referência"
+    assert html =~ "tile_px"
+    # a length scales with the ruler (88 × 0.672); a pixel count with its
+    # square (1100 × 0.672²) — half the value a linear scaling would give,
+    # which is the difference between a bite registering and never registering
+    assert html =~ "→ 59"
+    assert html =~ "→ 496"
+
+    view |> element("#apply-screen-scale") |> render_click()
+
+    assert Settings.get(:tile_px) == 59
+    assert Settings.get(:glow_threshold) == 496
+    assert render(view) =~ "ajuste(s) aplicado(s)"
+  end
+
+  @tag :tmp_dir
   # `battle_row_height` was measured on the ultrawide and, like every other
   # pixel-denominated number, does not survive a change of screen: on the small
   # screen the same list holds ~10 rows and the bot drew 6 fat bands over 3

@@ -164,6 +164,55 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # `battle_row_height` was measured on the ultrawide and, like every other
+  # pixel-denominated number, does not survive a change of screen: on the small
+  # screen the same list holds ~10 rows and the bot drew 6 fat bands over 3
+  # (Lucas, 2026-08-06). The knob lives NEXT to the bands so it can be tuned by
+  # eye — it was read everywhere and editable nowhere.
+  test "the battle list ruler is editable where the bands are drawn", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    height = Settings.get(:battle_row_height)
+    rows = Settings.get(:battle_max_rows)
+
+    on_exit(fn ->
+      Application.delete_env(:pokex, :home_dir)
+      Settings.put(:battle_row_height, height)
+      Settings.put(:battle_max_rows, rows)
+    end)
+
+    Calibration.save(%Calibration{
+      scale: 1.0,
+      screen_w: 100,
+      screen_h: 75,
+      battle_region: {70, 10, 20, 30},
+      neutral_point: {52, 36}
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(100, 75, {9, 9, 9, 255}))
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    html =
+      view
+      |> form("#battle-rows-form", %{"battle_row_height" => "36", "battle_max_rows" => "10"})
+      |> render_change()
+
+    assert Settings.get(:battle_row_height) == 36
+    assert Settings.get(:battle_max_rows) == 10
+    # the ladder redraws from the new numbers, right there
+    assert html =~ "L9"
+
+    # An all-grey screenshot has no HP bars: it must say WHY instead of writing
+    # a number it could not measure.
+    view |> element("#battle-rows button", "Medir") |> render_click()
+    assert render(view) =~ "pelo menos DOIS pokémon vivos"
+    assert Settings.get(:battle_row_height) == 36
+  end
+
+  @tag :tmp_dir
   # Marking it again by hand is the same trap twice. A cell is the unit the
   # reader works in, so the whole repair is moving by WHOLE cells.
   test "a skill bar one cell off is repaired by nudging, not by redoing the wizard", %{

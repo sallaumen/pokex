@@ -95,6 +95,7 @@ defmodule PokexWeb.CalibrationLive do
        skill_count_form: skill_count_form(skill_count),
        row_height: Settings.get(:battle_row_height),
        max_rows: Settings.get(:battle_max_rows),
+       battle_msg: nil,
        corpse_shot: nil,
        corpse_crop: nil,
        corpse_msg: nil,
@@ -337,6 +338,41 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("close_review", _params, socket) do
     {:noreply, assign(socket, review: nil)}
+  end
+
+  # The battle list's ruler. `battle_row_height` was MEASURED on the ultrawide
+  # (52pt) and, like every other pixel-denominated number, it does not survive a
+  # change of screen: on Lucas's small screen the same list holds ~10 rows and
+  # the bot was drawing 6 fat ones over 3 (2026-08-06). The bands are already on
+  # screen right below this form, so changing the number here moves them WHILE
+  # HE WATCHES — tuning by eye instead of by guess-and-restart.
+  def handle_event("save_battle_rows", params, socket) do
+    socket =
+      socket
+      |> save_setting(params["battle_row_height"], 8..200, :battle_row_height, :row_height)
+      |> save_setting(params["battle_max_rows"], 1..12, :battle_max_rows, :max_rows)
+
+    {:noreply, assign(socket, battle_msg: nil)}
+  end
+
+  # Better than tuning by eye when the list is populated: the HP bars ARE the
+  # rows, so the distance between two of them IS the row height. Needs at least
+  # two LIVING creatures on the list (a low-HP bar turns red and this reads the
+  # green ones) — and says so instead of writing a number it could not measure.
+  def handle_event("measure_battle_rows", _params, socket) do
+    case measure_battle_rows(socket.assigns.review) do
+      {:ok, height, bars} ->
+        Settings.put(:battle_row_height, height)
+
+        {:noreply,
+         assign(socket,
+           row_height: height,
+           battle_msg: "medido em #{bars} barras de vida: linha de #{height}pt"
+         )}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, battle_msg: reason)}
+    end
   end
 
   # A cell is exactly the unit the reader works in (`Vision.skill_slots/2` cuts
@@ -682,6 +718,55 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   defp skill_slot_refs(_screen, _region, _count), do: nil
+
+  # The HP bars ARE the rows: the distance between two of them is the row
+  # height. Read from the SAME picture the review is showing, in the battle
+  # BODY (the pokeball strip is cropped off, exactly like the lock sensor).
+  defp measure_battle_rows(%{path: path, scale: scale, calib: %{battle_region: region}})
+       when is_tuple(region) do
+    {x, y, w, h} = Calibration.battle_body(region)
+    crop = {round(x * scale), round(y * scale), round(w * scale), round(h * scale)}
+
+    with {:ok, frame} <- Frame.from_png_file(path),
+         %Frame{} = body <- Frame.crop(frame, crop),
+         [_first, _second | _rest] = centers <- Vision.hp_bar_rows(body) do
+      {:ok, round(median_gap(centers) / scale), length(centers)}
+    else
+      _too_few ->
+        {:error,
+         "não deu pra medir: preciso de pelo menos DOIS pokémon vivos na lista " <>
+           "(barra verde) — deixe a lista cheia e clique de novo"}
+    end
+  end
+
+  defp measure_battle_rows(_no_battle_region),
+    do: {:error, "marque a janela Battle primeiro"}
+
+  # An out-of-range or half-typed value leaves BOTH the setting and the drawing
+  # alone — the bands must never be drawn from a number the bot is not using.
+  defp save_setting(socket, raw, range, setting_key, assign_key) do
+    case PokexWeb.PanelForms.parse_int(raw, range) do
+      {:ok, value} ->
+        Settings.put(setting_key, value)
+        assign(socket, assign_key, value)
+
+      :error ->
+        socket
+    end
+  end
+
+  # The median, not the mean: one missed bar doubles a single gap, and a doubled
+  # gap would drag an average far more than it drags the middle value.
+  defp median_gap(centers) do
+    gaps =
+      centers
+      |> Enum.sort()
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.map(fn [a, b] -> b - a end)
+      |> Enum.sort()
+
+    Enum.at(gaps, div(length(gaps), 2))
+  end
 
   # One clause per step: the old single `case` over twenty steps scored 26 on
   # cyclomatic complexity and hid which step did what.
@@ -1251,6 +1336,47 @@ defmodule PokexWeb.CalibrationLive do
             <button class="btn btn-xs" phx-click="nudge_skill_bar" phx-value-cells="1">
               uma casa ▶
             </button>
+          </div>
+          <%!-- The red L bands below are drawn from these two numbers. Both were
+                measured on the ultrawide and neither survives a change of screen,
+                so they live NEXT to the bands: change one and the ladder moves
+                while you watch. --%>
+          <div
+            :if={@review.calib.battle_region}
+            id="battle-rows"
+            class="flex flex-wrap items-center gap-2 rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs"
+          >
+            <form id="battle-rows-form" phx-change="save_battle_rows" class="flex items-center gap-1">
+              <label for="battle-row-height">linha de</label>
+              <input
+                id="battle-row-height"
+                name="battle_row_height"
+                type="number"
+                aria-label="Altura de uma linha da lista de batalha, em pontos"
+                min="8"
+                max="200"
+                value={@row_height}
+                phx-debounce="400"
+                class="input input-xs w-16 text-center"
+              />
+              <span>pt ·</span>
+              <input
+                id="battle-max-rows"
+                name="battle_max_rows"
+                type="number"
+                aria-label="Quantas linhas da lista de batalha o bot olha"
+                min="1"
+                max="12"
+                value={@max_rows}
+                phx-debounce="400"
+                class="input input-xs w-14 text-center"
+              />
+              <span>linhas</span>
+            </form>
+            <button class="btn btn-xs" phx-click="measure_battle_rows">
+              Medir pelas barras de vida
+            </button>
+            <p :if={@battle_msg} id="battle-rows-msg" class="w-full opacity-80">{@battle_msg}</p>
           </div>
           <PokexWeb.CalibrationOverlay.read_crops screen={@review} calib={@review.calib} />
           <div class="relative overflow-hidden rounded-lg border border-base-content/20">

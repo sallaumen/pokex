@@ -447,8 +447,18 @@ defmodule Pokex.Bots.Catcher.Worker do
   # seconds. A disabled sweep costs one no-op message per cadence.
   defp arm_sweep(state) do
     state = cancel_sweep(state)
-    ms = max(Settings.get(:sweep_interval_ms), 1_000)
-    %{state | sweep_timer: Process.send_after(self(), :sweep, ms)}
+
+    # The heartbeat is an ACTUATOR loop on an app-global process: left armed in
+    # the suite it fires a ball into whatever shared Rig another test is
+    # asserting on (it did — a stray "f1" in Bots.BodyTest, 2026-08-06). Same
+    # reasoning as :player_support_auto_monitor; tests that exercise the cadence
+    # drive `:sweep` themselves.
+    if Application.get_env(:pokex, :sweep_auto_tick, true) do
+      ms = max(Settings.get(:sweep_interval_ms), 1_000)
+      %{state | sweep_timer: Process.send_after(self(), :sweep, ms)}
+    else
+      state
+    end
   end
 
   # Halting drops the tiles still owed as well as the timer: a pending

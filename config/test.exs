@@ -13,6 +13,9 @@ config :pokex, capture_backend: :screencapture
 # Never compile/spawn the native key helper in tests (stubbed via :executable).
 config :pokex, native_key_events: false
 config :pokex, perf_log_interval_ms: 0
+# The blind sweep's cadence is an actuator loop on an app-global worker: armed
+# during the suite it throws balls into the shared Rig other tests assert on.
+config :pokex, sweep_auto_tick: false
 # Tests often script different fake images for the same region back-to-back. Keep
 # the global broker uncached there; targeted Capture tests enable cache explicitly.
 config :pokex, capture_cache_ttl_ms: 0

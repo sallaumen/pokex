@@ -17,8 +17,8 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   """
   use PokexWeb, :html
 
-  attr :rescue_cfg, :map, required: true, doc: "pct, cooldown_s, mode, combo"
-  attr :potion_cfg, :map, required: true, doc: "pct, cooldown_s"
+  attr :rescue_cfg, :map, required: true, doc: "pct, cooldown_s, mode, combo, enabled"
+  attr :potion_cfg, :map, required: true, doc: "pct, cooldown_s, enabled"
 
   attr :fishing_cfg, :map,
     required: true,
@@ -113,7 +113,20 @@ defmodule PokexWeb.Panel.SettingsOverlay do
             />
 
             <div class="space-y-1.5 border-b border-pk-line px-3 py-2.5 font-mono text-pk-meta text-pk-text-3">
+              <%!-- The switch belongs BESIDE its own number. Both live in the
+                    dashboard's quick strip too, but reading "revive < 65%" in
+                    here with no on/off beside it reads as "não dá mais pra
+                    desligar" (Lucas, 2026-08-06) — and a revive he cannot stop
+                    is a revive looping on a Pokémon that will not come back. --%>
               <form id="rescue-cfg-form" phx-change="save_rescue_cfg" class="flex items-center gap-1">
+                <input
+                  id="rescue-enabled-toggle"
+                  type="checkbox"
+                  class="toggle toggle-success toggle-xs shrink-0"
+                  checked={@rescue_cfg.enabled}
+                  phx-click="toggle_rescue"
+                  aria-label="Ligar ou desligar o revive automático"
+                />
                 <label for="rescue-pct">revive &lt;</label>
                 <input
                   id="rescue-pct"
@@ -219,6 +232,14 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               phx-change="save_potion_cfg"
               class="flex items-center gap-1 border-b border-pk-line px-3 py-2.5 font-mono text-pk-meta text-pk-text-3"
             >
+              <input
+                id="potion-enabled-toggle"
+                type="checkbox"
+                class="toggle toggle-success toggle-xs shrink-0"
+                checked={@potion_cfg.enabled}
+                phx-click="toggle_potion"
+                aria-label="Ligar ou desligar a poção automática"
+              />
               <label for="potion-pct">poção &lt;</label>
               <input
                 id="potion-pct"

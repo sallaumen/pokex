@@ -288,6 +288,36 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
+  # "Essas partes da proteção do Pokémon, eu não consigo mais desativar
+  # individualmente?" (2026-08-06). Os dois interruptores sempre existiram — na
+  # faixa do dashboard. Lendo "revive < 65%" no ⚙️ sem um liga/desliga do lado,
+  # a conclusão honesta é que não dá mais. E um revive que ele não consegue
+  # parar é um revive em loop num Pokémon que não vai voltar.
+  test "revive e poção se desligam ao lado do próprio número, no ⚙️", %{conn: conn} do
+    antes = %{
+      rescue: Pokex.Settings.get(:rescue_enabled),
+      potion: Pokex.Settings.get(:potion_enabled)
+    }
+
+    on_exit(fn ->
+      Pokex.Settings.put(:rescue_enabled, antes.rescue)
+      Pokex.Settings.put(:potion_enabled, antes.potion)
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/config")
+
+    view |> element("#rescue-enabled-toggle") |> render_click()
+    refute Pokex.Settings.get(:rescue_enabled) == antes.rescue
+
+    view |> element("#potion-enabled-toggle") |> render_click()
+    refute Pokex.Settings.get(:potion_enabled) == antes.potion
+
+    # e um não arrasta o outro
+    view |> element("#rescue-enabled-toggle") |> render_click()
+    assert Pokex.Settings.get(:rescue_enabled) == antes.rescue
+    refute Pokex.Settings.get(:potion_enabled) == antes.potion
+  end
+
   # Lucas asked for the switch to sit "junto da parte de captura, em Settings"
   # (2026-08-05) — and for the sweep to be something he can FIRE and see, not a
   # checkbox he has to trust.

@@ -3447,10 +3447,11 @@ defmodule PokexWeb.PanelLive do
             pct: @rescue_pct,
             cooldown_s: @rescue_cooldown_s,
             mode: @rescue_mode,
-            combo: @rescue_combo
+            combo: @rescue_combo,
+            enabled: @rescue_enabled
           }
         }
-        potion_cfg={%{pct: @potion_pct, cooldown_s: @potion_cooldown_s}}
+        potion_cfg={%{pct: @potion_pct, cooldown_s: @potion_cooldown_s, enabled: @potion_enabled}}
         fishing_cfg={
           %{
             require_cooldowns: @require_cooldowns,

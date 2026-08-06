@@ -258,14 +258,16 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("apply_profile", %{"name" => name}, socket) do
     case Calibration.apply_profile(name) do
-      {:ok, calib} ->
+      {:ok, calib, settings} ->
         {:noreply,
          assign(socket,
            calibrated?: true,
            error: nil,
+           scale_proposals: nil,
+           row_height: Settings.get(:battle_row_height),
            skillbar_msg:
-             "Perfil \"#{name}\" aplicado (#{calib.screen_w}×#{calib.screen_h}). " <>
-               "Reinicie os bots (Parar/Iniciar) pra valer."
+             "Perfil \"#{name}\" aplicado (#{calib.screen_w}×#{calib.screen_h}) " <>
+               numbers_note(settings) <> " Reinicie os bots (Parar/Iniciar) pra valer."
          )}
 
       {:error, reason} ->
@@ -779,6 +781,15 @@ defmodule PokexWeb.CalibrationLive do
 
   # Nothing to offer when this screen IS the reference: a "fix" that moves two
   # values by one point each only teaches him to distrust the button.
+  # A profile saved before the numbers were carried applies its MARKS and
+  # nothing else — saying so is the difference between "pronto" and a bot that
+  # reads this screen with the other screen's thresholds.
+  defp numbers_note(0),
+    do:
+      "— só as marcações: este perfil é antigo e não guardou os números. Confira a régua da tela."
+
+  defp numbers_note(count), do: "com os #{count} números desta tela."
+
   defp proposals_for(ratio) do
     if ScreenScale.matches_reference?(ratio), do: [], else: ScreenScale.proposals(ratio)
   end

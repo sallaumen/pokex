@@ -237,38 +237,85 @@ defmodule Pokex.Calibration do
   # one per monitor layout, so plugging the second monitor back in is a one-click
   # switch instead of a full wizard redo.
 
-  @doc "Saves the CURRENT calibration under `name`. {:ok, slug} | {:error, reason}."
+  @doc """
+  Saves the CURRENT calibration under `name`, WITH the numbers that belong to
+  this screen. `{:ok, slug}` | `{:error, reason}`.
+
+  The regions alone were never enough: every threshold and box size is measured
+  in pixels of ONE screen (see `Pokex.ScreenScale`), so a profile that restored
+  only the marks brought back a calibration the numbers no longer fitted. They
+  ride in a sidecar file rather than inside the calibration JSON because they
+  are Settings, not calibration — and because an older profile without one must
+  keep applying cleanly.
+  """
   def save_profile(name) do
     with {:ok, slug} <- profile_slug(name),
          {:ok, calib} <- load() do
       File.mkdir_p!(profiles_dir())
       save(calib, profile_path(slug))
+      write_profile_settings(slug)
       {:ok, slug}
     end
   end
 
-  @doc "Makes the named profile the ACTIVE calibration. {:ok, calib} | {:error, reason}."
+  @doc """
+  Makes the named profile the ACTIVE calibration, and puts back the numbers it
+  was saved with. `{:ok, calib, settings_applied}` | `{:error, reason}`.
+
+  `settings_applied` is 0 for a profile saved before they were carried — the
+  marks still land, and the count is what tells him the numbers did not.
+  """
   def apply_profile(name) do
     with {:ok, slug} <- profile_slug(name),
          {:ok, calib} <- load(profile_path(slug)) do
       save(calib)
-      {:ok, calib}
+      {:ok, calib, apply_profile_settings(slug)}
     end
   end
 
   def delete_profile(name) do
     with {:ok, slug} <- profile_slug(name) do
       File.rm(profile_path(slug))
+      File.rm(profile_settings_path(slug))
       :ok
     end
   end
+
+  @doc "The screen-dependent numbers stored with `slug`, as a map (empty when there are none)."
+  def profile_settings(slug) do
+    with {:ok, raw} <- File.read(profile_settings_path(slug)),
+         {:ok, decoded} <- Jason.decode(raw) do
+      Map.new(decoded, fn {key, value} -> {String.to_existing_atom(key), value} end)
+    else
+      _none -> %{}
+    end
+  rescue
+    # a hand-edited file naming a key this build does not have
+    ArgumentError -> %{}
+  end
+
+  defp write_profile_settings(slug) do
+    %{linear: linear, area: area} = Pokex.ScreenScale.keys()
+    values = Map.new(linear ++ area, &{&1, Pokex.Settings.get(&1)})
+    File.write(profile_settings_path(slug), Jason.encode!(values))
+  end
+
+  defp apply_profile_settings(slug) do
+    slug
+    |> profile_settings()
+    |> Enum.count(fn {key, value} -> Pokex.Settings.put(key, value) == :ok end)
+  end
+
+  defp profile_settings_path(slug), do: Path.join(profiles_dir(), slug <> ".settings.json")
 
   @doc "Every saved profile: name, screen dims/scale and saved-at (unix seconds)."
   def list_profiles do
     case File.ls(profiles_dir()) do
       {:ok, files} ->
         files
-        |> Enum.filter(&String.ends_with?(&1, ".json"))
+        |> Enum.filter(
+          &(String.ends_with?(&1, ".json") and not String.ends_with?(&1, ".settings.json"))
+        )
         |> Enum.sort()
         |> Enum.map(&profile_entry/1)
 

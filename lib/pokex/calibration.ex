@@ -465,6 +465,11 @@ defmodule Pokex.Calibration do
     end
   end
 
+  # No battle window marked yet: no bands to draw. Without this the review
+  # preview CRASHED on a half-calibrated file — the page you open precisely to
+  # find out what is missing.
+  def battle_row_bands(_unmarked, _scale, _row_height, _rows), do: []
+
   @doc "Screen point to click a battle-list row `row_y` pixels down the strip."
   def battle_row_point(%__MODULE__{battle_region: {x, y, w, _h}, scale: scale}, row_y),
     do: {x + div(w, 3), y + round(row_y / scale)}

@@ -584,6 +584,7 @@ defmodule PokexWeb.DiagnosticsLive do
               glow_region={@preview.calib.glow_region}
               battle_region={@preview.calib.battle_region}
               skill_bar_region={@preview.calib.skill_bar_region}
+              skill_bar_count={@preview.calib.skill_bar_count || 0}
               neutral_point={@preview.calib.neutral_point}
               player_point={Calibration.player_point(@preview.calib)}
               bands={

@@ -21,6 +21,41 @@ defmodule PokexWeb.CalibrationOverlay do
   def region_style({x, y, rw, rh}, %{w: w, h: h}),
     do: "left:#{x / w * 100}%;top:#{y / h * 100}%;width:#{rw / w * 100}%;height:#{rh / h * 100}%"
 
+  # A whole screen shrunk into a browser column makes a 19-point-tall region
+  # about four pixels tall: at that size a box that starts 40 points early
+  # looks exactly like a box that starts right. Both of Lucas's bottom-row
+  # regions were marked one element too far left — the HP band opened on the
+  # portrait and closed before the bar ended, the skill bar opened on the ROD
+  # and closed before skill 9 — and the full-screen preview showed both as
+  # "fine" (2026-08-06). So the crops are shown at READING size: this is the
+  # pixels the bot reads, nothing else.
+  @crop_height 64
+  @crop_max_zoom 5.0
+  # A point has no size of its own; this is the window drawn around it.
+  @point_window 44
+
+  @doc """
+  CSS that renders `region` (screen points) as a magnified crop of the
+  screenshot — the background trick keeps it free: no second capture, no
+  server-side cropping, and it can never disagree with the picture on screen.
+  """
+  def crop_style({x, y, rw, rh}, %{src: src, w: w, h: h}) when rw > 0 and rh > 0 do
+    zoom = min(@crop_height / rh, @crop_max_zoom)
+
+    "width:#{Float.round(rw * zoom, 1)}px;height:#{Float.round(rh * zoom, 1)}px;" <>
+      "background-image:url(#{src});background-repeat:no-repeat;" <>
+      "background-size:#{Float.round(w * zoom, 1)}px #{Float.round(h * zoom, 1)}px;" <>
+      "background-position:-#{Float.round(x * zoom, 1)}px -#{Float.round(y * zoom, 1)}px"
+  end
+
+  @doc "The window a POINT is judged by — did the water point land on water?"
+  def point_window({x, y}) do
+    half = div(@point_window, 2)
+    {x - half, y - half, @point_window, @point_window}
+  end
+
+  def point_window(_unmarked), do: nil
+
   attr :screen, :map, required: true
   attr :water_point, :any, default: nil
   attr :glow_region, :any, default: nil
@@ -265,4 +300,54 @@ defmodule PokexWeb.CalibrationOverlay do
   end
 
   def screen_warning(assigns), do: ~H""
+
+  attr :screen, :map, required: true, doc: "the screenshot: src + w/h in points"
+  attr :calib, :map, required: true
+
+  @doc """
+  Every marked area at READING size — the answer to "está no lugar certo?".
+
+  The full-screen preview cannot answer it: a 19-point band drawn inside a
+  browser column is a few pixels tall, so a band 40 points off looks identical
+  to a correct one. Here each area is magnified until it is legible, so the
+  question becomes "o número 1 está em cima da skill 1?" instead of "a caixa
+  parece bem?".
+  """
+  def read_crops(assigns) do
+    assigns = assign(assigns, :crops, crop_list(assigns.calib))
+
+    ~H"""
+    <div :if={@crops != []} id="read-crops" class="space-y-2">
+      <p class="text-xs opacity-70">
+        Isto é <b>exatamente</b> o que o bot lê em cada área — ampliado. Se algo aqui estiver
+        cortado ou pegando o vizinho, é essa marcação que precisa ser refeita.
+      </p>
+      <div class="flex flex-wrap gap-3">
+        <div :for={{label, region} <- @crops} class="space-y-1">
+          <p class="font-mono text-[10px] opacity-70">{label}</p>
+          <div
+            class="rounded border border-base-content/30 bg-base-300"
+            style={crop_style(region, @screen)}
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # Regions as marked; points as the window around them (a point on its own
+  # shows nothing — "o ponto da água caiu na água?" needs the neighbourhood).
+  defp crop_list(calib) do
+    [
+      {"vida do Pokémon", calib.pokemon_hp_region},
+      {"skills", calib.skill_bar_region},
+      {"janela Battle", calib.battle_region},
+      {"brilho (isca)", calib.glow_region},
+      {"coordenada", calib.minimap_coord_region},
+      {"água", point_window(calib.water_point)},
+      {"personagem", point_window(calib.player_point)},
+      {"lugar do Pokémon", point_window(calib.pokemon_spot_point)}
+    ]
+    |> Enum.filter(fn {_label, region} -> is_tuple(region) end)
+  end
 end

@@ -1252,6 +1252,7 @@ defmodule PokexWeb.CalibrationLive do
               uma casa ▶
             </button>
           </div>
+          <PokexWeb.CalibrationOverlay.read_crops screen={@review} calib={@review.calib} />
           <div class="relative overflow-hidden rounded-lg border border-base-content/20">
             <img src={@review.src} class="w-full" />
             <.overlays

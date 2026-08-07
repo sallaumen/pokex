@@ -64,7 +64,10 @@ defmodule PokexWeb.CalibrationLive do
        corpse_crop: nil,
        corpse_msg: nil,
        corpse_list: CorpseLibrary.list(),
-       corpse_counts: %{}
+       corpse_counts: %{},
+       adjust_target: nil,
+       adjust_step: 5,
+       coord_probe: nil
      )}
   end
 
@@ -291,10 +294,14 @@ defmodule PokexWeb.CalibrationLive do
   def handle_event("review", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
          {:ok, screen} <- grab_screen() do
+      review = Map.put(screen, :calib, calib)
+
       {:noreply,
        assign(socket,
-         review: Map.put(screen, :calib, calib),
+         review: review,
          screen_check: screen_check(shot_points(screen)),
+         coord_probe: coord_probe(review),
+         adjust_target: nil,
          error: nil
        )}
     else
@@ -303,7 +310,58 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   def handle_event("close_review", _params, socket) do
-    {:noreply, assign(socket, review: nil)}
+    {:noreply, assign(socket, review: nil, adjust_target: nil, coord_probe: nil)}
+  end
+
+  # -- fine-tuning in the review (the nudge pads) ------------------------------
+  #
+  # Every marked point/region is adjustable RIGHT ON its crop: arrows move it
+  # by adjust_step points (regions also grow/shrink), the calibration saves on
+  # every click, and the crop redraws from the SAME screenshot — repair guided
+  # by the eye, not by redoing a wizard (Lucas, 2026-08-07). The pad writes the
+  # MANUAL field even when the shown value came from a layout/derivation:
+  # adjusting IS the hand override ("a mão manda").
+  def handle_event("adjust_target", %{"target" => raw}, socket) do
+    with {:ok, key, _kind} <- adjust_key(raw) do
+      target = if socket.assigns.adjust_target == key, do: nil, else: key
+      {:noreply, assign(socket, adjust_target: target)}
+    else
+      _unknown -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("adjust_step", %{"step" => raw}, socket) do
+    case Integer.parse(raw) do
+      {step, ""} when step in [1, 5, 20] -> {:noreply, assign(socket, adjust_step: step)}
+      _invalid -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("adjust", %{"target" => raw} = params, socket) do
+    with %{review: %{calib: calib} = review} <- socket.assigns,
+         {:ok, key, kind} <- adjust_key(raw),
+         value when value != nil <- adjust_value(calib, key) do
+      step = socket.assigns.adjust_step
+      delta = fn p -> String.to_integer(params[p] || "0") * step end
+
+      moved =
+        shift_mark(kind, value, delta.("dx"), delta.("dy"), delta.("dw"), delta.("dh"), calib)
+
+      calib =
+        calib
+        |> Map.put(key, moved)
+        |> resample_after_adjust(key, review)
+
+      Calibration.save(calib)
+      review = %{review | calib: calib}
+
+      {:noreply,
+       socket
+       |> assign(review: review, error: nil)
+       |> maybe_reprobe_coord(key, review)}
+    else
+      _cannot -> {:noreply, socket}
+    end
   end
 
   # "Usar a última calibração desta tela": the monitor was calibrated before,
@@ -720,6 +778,103 @@ defmodule PokexWeb.CalibrationLive do
   # The screenshot the whole wizard marks on, taken while the GAME is fronted
   # (see with_game_front/1). Measuring it is `Pokex.Screenshot`'s job — the same
   # recipe /diagnostics uses, so both pages and the bot share one coordinate space.
+  # -- fine-tuning helpers -----------------------------------------------------
+
+  # The whitelist of adjustable marks: UI string -> {calibration field, kind}.
+  # Only fields the pads may WRITE — resolved/derived values are read through
+  # adjust_value/2 below and materialize as manual on the first nudge.
+  @adjustables %{
+    "water_point" => {:water_point, :point},
+    "neutral_point" => {:neutral_point, :point},
+    "player_point" => {:player_point, :point},
+    "pokemon_photo_point" => {:pokemon_photo_point, :point},
+    "pokemon_spot_point" => {:pokemon_spot_point, :point},
+    "escape_point" => {:escape_point, :point},
+    "minimap_player_point" => {:minimap_player_point, :point},
+    "glow_region" => {:glow_region, :region},
+    "battle_region" => {:battle_region, :region},
+    "skill_bar_region" => {:skill_bar_region, :region},
+    "pokemon_hp_region" => {:pokemon_hp_region, :region},
+    "mini_game_region" => {:mini_game_region, :region},
+    "minimap_region" => {:minimap_region, :region},
+    "minimap_coord_region" => {:minimap_coord_region, :region}
+  }
+
+  defp adjust_key(raw) do
+    case @adjustables[raw] do
+      {key, kind} -> {:ok, key, kind}
+      nil -> :error
+    end
+  end
+
+  # The CURRENT value the pad starts from — resolved (manual > layout >
+  # derived), so nudging an automatic area starts from where it actually is.
+  defp adjust_value(calib, :player_point), do: Calibration.player_point(calib)
+  defp adjust_value(calib, :mini_game_region), do: Calibration.mini_game_region(calib)
+  defp adjust_value(calib, :minimap_region), do: Calibration.minimap_region(calib)
+  defp adjust_value(calib, :minimap_coord_region), do: Calibration.minimap_coord_region(calib)
+  defp adjust_value(calib, :minimap_player_point), do: Calibration.minimap_player_point(calib)
+  defp adjust_value(calib, key), do: Map.get(calib, key)
+
+  # Clamped into the calibrated screen so a runaway pad can never push a mark
+  # off-display; regions keep at least 4pt of flesh.
+  defp shift_mark(:point, {x, y}, dx, dy, _dw, _dh, calib) do
+    {clamp_pt(x + dx, calib.screen_w), clamp_pt(y + dy, calib.screen_h)}
+  end
+
+  defp shift_mark(:region, {x, y, w, h}, dx, dy, dw, dh, calib) do
+    w = w |> Kernel.+(dw) |> max(4)
+    h = h |> Kernel.+(dh) |> max(4)
+    {clamp_pt(x + dx, calib.screen_w), clamp_pt(y + dy, calib.screen_h), w, h}
+  end
+
+  defp clamp_pt(v, nil), do: max(v, 0)
+  defp clamp_pt(v, limit), do: v |> max(0) |> min(limit - 1)
+
+  # Moving the skill bar invalidates every per-slot READY reference — resample
+  # them from the SAME picture the review is showing (the nudge_skill_bar rule).
+  defp resample_after_adjust(calib, :skill_bar_region, review) do
+    case calib.skill_bar_count do
+      count when is_integer(count) and count > 0 ->
+        %{calib | skill_slot_refs: skill_slot_refs(review, calib.skill_bar_region, count)}
+
+      _no_count ->
+        calib
+    end
+  end
+
+  defp resample_after_adjust(calib, _key, _review), do: calib
+
+  @minimap_keys [:minimap_region, :minimap_coord_region, :minimap_player_point]
+
+  defp maybe_reprobe_coord(socket, key, review) when key in @minimap_keys,
+    do: assign(socket, coord_probe: coord_probe(review))
+
+  defp maybe_reprobe_coord(socket, _key, _review), do: socket
+
+  # The LIVE proof the coordinate strip is marked right: read it from the very
+  # screenshot the review is showing, through the SAME interpreter the cavebot
+  # uses. {:ok, "x, y, z"} paints the badge green; :error says "ajusta a faixa".
+  defp coord_probe(%{calib: calib, path: path, scale: scale}) do
+    with {mx, my, mw, mh} <- Calibration.minimap_region(calib),
+         {:ok, full} <- Frame.from_png_file(path),
+         %Frame{} = mini <-
+           Frame.crop(
+             full,
+             {round(mx * scale), round(my * scale), round(mw * scale), round(mh * scale)}
+           ),
+         {%{pos: {x, y, z}}, _state} <-
+           Pokex.Perception.Interpret.Minimap.interpret(mini, calib, Settings.all()) do
+      {:ok, "#{x}, #{y}, #{z}"}
+    else
+      _unreadable -> :error
+    end
+  rescue
+    _decode -> :error
+  end
+
+  defp coord_probe(_review), do: nil
+
   defp grab_screen do
     with {:ok, shot} <- with_game_front(fn -> Screenshot.take("calibration_screen.png") end) do
       {:ok,
@@ -1392,7 +1547,14 @@ defmodule PokexWeb.CalibrationLive do
               </button>
             </div>
           </div>
-          <PokexWeb.CalibrationOverlay.read_crops screen={@review} calib={@review.calib} />
+          <PokexWeb.CalibrationOverlay.read_crops
+            screen={@review}
+            calib={@review.calib}
+            adjustable?={true}
+            adjust_target={@adjust_target}
+            adjust_step={@adjust_step}
+            coord_probe={@coord_probe}
+          />
           <div class="relative overflow-hidden rounded-lg border border-base-content/20">
             <img src={@review.src} class="w-full" />
             <.overlays

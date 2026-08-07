@@ -322,6 +322,10 @@ defmodule PokexWeb.CalibrationOverlay do
 
   attr :screen, :map, required: true, doc: "the screenshot: src + w/h in points"
   attr :calib, :map, required: true
+  attr :adjustable?, :boolean, default: false, doc: "show the per-area nudge pads (the review)"
+  attr :adjust_target, :any, default: nil, doc: "the area key with the pad open, or nil"
+  attr :adjust_step, :integer, default: 5, doc: "points per nudge click"
+  attr :coord_probe, :any, default: nil, doc: "live coord reading: {:ok, text} | :error | nil"
 
   @doc """
   Every marked area at READING size — the answer to "está no lugar certo?".
@@ -331,6 +335,12 @@ defmodule PokexWeb.CalibrationOverlay do
   to a correct one. Here each area is magnified until it is legible, so the
   question becomes "o número 1 está em cima da skill 1?" instead of "a caixa
   parece bem?".
+
+  With `adjustable?` (the review), each area also carries a nudge pad: arrows
+  move the mark by `adjust_step` points and regions can grow/shrink — the crop
+  redraws from the SAME screenshot on every click, so the repair is guided by
+  the eye instead of redoing a wizard. The "coordenada" card shows the LIVE
+  reading (`coord_probe`) — the proof that the strip is marked right.
   """
   def read_crops(assigns) do
     assigns = assign(assigns, :crops, crop_list(assigns.calib))
@@ -338,35 +348,155 @@ defmodule PokexWeb.CalibrationOverlay do
     ~H"""
     <div :if={@crops != []} id="read-crops" class="space-y-2">
       <p class="text-xs opacity-70">
-        Isto é <b>exatamente</b> o que o bot lê em cada área — ampliado. Se algo aqui estiver
-        cortado ou pegando o vizinho, é essa marcação que precisa ser refeita.
+        Isto é <b>exatamente</b>
+        o que o bot lê em cada área — ampliado. Se algo aqui estiver
+        cortado ou pegando o vizinho, {if @adjustable?,
+          do: "ajusta ali mesmo com as setinhas",
+          else: "é essa marcação que precisa ser refeita"}.
       </p>
       <div class="flex flex-wrap gap-3">
-        <div :for={{label, region} <- @crops} class="space-y-1">
-          <p class="font-mono text-[10px] opacity-70">{label}</p>
+        <div :for={{key, label, kind, region} <- @crops} class="space-y-1">
+          <div class="flex items-center gap-1.5">
+            <p class="font-mono text-[10px] opacity-70">{label}</p>
+            <button
+              :if={@adjustable?}
+              id={"adjust-#{key}"}
+              class={[
+                "btn btn-ghost btn-xs h-5 min-h-0 px-1 text-[10px]",
+                @adjust_target == key && "btn-active text-primary"
+              ]}
+              phx-click="adjust_target"
+              phx-value-target={key}
+              title="ajustar esta área com as setinhas"
+            >
+              ✎
+            </button>
+            <span
+              :if={key == :minimap_coord_region and @coord_probe != nil}
+              id="coord-probe"
+              class={[
+                "rounded px-1 font-mono text-[10px] font-bold",
+                match?({:ok, _}, @coord_probe) && "bg-success/20 text-success",
+                @coord_probe == :error && "bg-error/20 text-error"
+              ]}
+            >
+              {case @coord_probe do
+                {:ok, text} -> "li: #{text}"
+                :error -> "não li — ajusta a faixa"
+              end}
+            </span>
+          </div>
           <div
             class="rounded border border-base-content/30 bg-base-300"
             style={crop_style(region, @screen)}
           />
+          <div
+            :if={@adjustable? and @adjust_target == key}
+            id={"adjust-pad-#{key}"}
+            class="flex flex-wrap items-center gap-1 rounded-lg border border-primary/40 bg-primary/10 p-1.5"
+          >
+            <.pad_btn target={key} dx={-1} label="◀" title="mover pra esquerda" />
+            <.pad_btn target={key} dx={1} label="▶" title="mover pra direita" />
+            <.pad_btn target={key} dy={-1} label="▲" title="mover pra cima" />
+            <.pad_btn target={key} dy={1} label="▼" title="mover pra baixo" />
+            <span :if={kind == :region} class="mx-0.5 opacity-40">·</span>
+            <.pad_btn
+              :if={kind == :region}
+              target={key}
+              dw={-1}
+              label="⇤largura"
+              title="encolher na largura"
+            />
+            <.pad_btn
+              :if={kind == :region}
+              target={key}
+              dw={1}
+              label="largura⇥"
+              title="crescer na largura"
+            />
+            <.pad_btn
+              :if={kind == :region}
+              target={key}
+              dh={-1}
+              label="−altura"
+              title="encolher na altura"
+            />
+            <.pad_btn
+              :if={kind == :region}
+              target={key}
+              dh={1}
+              label="+altura"
+              title="crescer na altura"
+            />
+            <span class="mx-0.5 opacity-40">·</span>
+            <button
+              :for={step <- [1, 5, 20]}
+              class={[
+                "btn btn-xs h-6 min-h-0 px-1.5 font-mono",
+                @adjust_step == step && "btn-primary"
+              ]}
+              phx-click="adjust_step"
+              phx-value-step={step}
+            >
+              {step}pt
+            </button>
+          </div>
         </div>
       </div>
     </div>
     """
   end
 
+  attr :target, :any, required: true
+  attr :label, :string, required: true
+  attr :title, :string, required: true
+  attr :dx, :integer, default: 0
+  attr :dy, :integer, default: 0
+  attr :dw, :integer, default: 0
+  attr :dh, :integer, default: 0
+
+  defp pad_btn(assigns) do
+    ~H"""
+    <button
+      class="btn btn-xs h-6 min-h-0 px-1.5"
+      phx-click="adjust"
+      phx-value-target={@target}
+      phx-value-dx={@dx}
+      phx-value-dy={@dy}
+      phx-value-dw={@dw}
+      phx-value-dh={@dh}
+      title={@title}
+    >
+      {@label}
+    </button>
+    """
+  end
+
   # Regions as marked; points as the window around them (a point on its own
   # shows nothing — "o ponto da água caiu na água?" needs the neighbourhood).
+  # RESOLVED values (manual > layout > derived) so the automatic areas show up
+  # too — adjusting one materializes it as manual, the established "a mão
+  # manda" semantics. The key names the CALIBRATION FIELD the pad writes.
   defp crop_list(calib) do
     [
-      {"vida do Pokémon", calib.pokemon_hp_region},
-      {"skills", calib.skill_bar_region},
-      {"janela Battle", calib.battle_region},
-      {"brilho (isca)", calib.glow_region},
-      {"coordenada", calib.minimap_coord_region},
-      {"água", point_window(calib.water_point)},
-      {"personagem", point_window(calib.player_point)},
-      {"lugar do Pokémon", point_window(calib.pokemon_spot_point)}
+      {:pokemon_hp_region, "vida do Pokémon", :region, calib.pokemon_hp_region},
+      {:skill_bar_region, "skills", :region, calib.skill_bar_region},
+      {:battle_region, "janela Battle", :region, calib.battle_region},
+      {:glow_region, "brilho (isca)", :region, calib.glow_region},
+      {:minimap_region, "minimapa", :region, Pokex.Calibration.minimap_region(calib)},
+      {:minimap_coord_region, "coordenada", :region,
+       Pokex.Calibration.minimap_coord_region(calib)},
+      {:minimap_player_point, "cruz do personagem", :point,
+       point_window(Pokex.Calibration.minimap_player_point(calib))},
+      {:mini_game_region, "faixa do mini game", :region,
+       Pokex.Calibration.mini_game_region(calib)},
+      {:water_point, "água", :point, point_window(calib.water_point)},
+      {:neutral_point, "ponto neutro", :point, point_window(calib.neutral_point)},
+      {:player_point, "personagem", :point, point_window(Pokex.Calibration.player_point(calib))},
+      {:pokemon_photo_point, "foto do Pokémon", :point, point_window(calib.pokemon_photo_point)},
+      {:pokemon_spot_point, "lugar do Pokémon", :point, point_window(calib.pokemon_spot_point)},
+      {:escape_point, "escada de fuga", :point, point_window(calib.escape_point)}
     ]
-    |> Enum.filter(fn {_label, region} -> is_tuple(region) end)
+    |> Enum.filter(fn {_key, _label, _kind, region} -> is_tuple(region) end)
   end
 end

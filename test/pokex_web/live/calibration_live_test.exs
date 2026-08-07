@@ -279,6 +279,142 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # "ajustando um pouco pro lado, pra cima, pra baixo" (Lucas, 2026-08-07): the
+  # crop shows the mark is a hair off — the repair is arrows on the crop, not a
+  # wizard. Every click SAVES; the crop redraws from the same screenshot.
+  test "the review nudge pads move points and resize regions, saving each click", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      battle_region: {70, 10, 20, 30},
+      neutral_point: {52, 36}
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    # open the pad for the water point and nudge right (default step: 5pt)
+    view |> element("#adjust-water_point") |> render_click()
+
+    view
+    |> element(~s(#adjust-pad-water_point button[phx-value-dx="1"][phx-value-dy="0"]))
+    |> render_click()
+
+    assert {:ok, %{water_point: {55, 30}}} = Calibration.load()
+
+    # step down to 1pt and nudge up
+    view |> element(~s(#adjust-pad-water_point button[phx-value-step="1"])) |> render_click()
+
+    view
+    |> element(~s(#adjust-pad-water_point button[phx-value-dy="-1"][phx-value-dx="0"]))
+    |> render_click()
+
+    assert {:ok, %{water_point: {55, 29}}} = Calibration.load()
+
+    # regions also GROW: +altura on the battle window (step is back at 1)
+    view |> element("#adjust-battle_region") |> render_click()
+    view |> element(~s(#adjust-pad-battle_region button[phx-value-dh="1"])) |> render_click()
+
+    assert {:ok, %{battle_region: {70, 10, 20, 31}}} = Calibration.load()
+  end
+
+  @tag :tmp_dir
+  test "nudging the skill bar RE-SAMPLES the per-slot ready references", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      skill_bar_region: {10, 60, 50, 10},
+      skill_bar_count: 5,
+      neutral_point: {52, 36}
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {30, 90, 40, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    view |> element("#adjust-skill_bar_region") |> render_click()
+
+    view
+    |> element(~s(#adjust-pad-skill_bar_region button[phx-value-dx="1"][phx-value-dy="0"]))
+    |> render_click()
+
+    assert {:ok, moved} = Calibration.load()
+    assert moved.skill_bar_region == {15, 60, 50, 10}
+    # refs re-sampled from the review screenshot: one per slot, from the green field
+    assert length(moved.skill_slot_refs) == 5
+    assert Enum.all?(moved.skill_slot_refs, &match?({_r, _g, _b}, &1))
+  end
+
+  @tag :tmp_dir
+  # The minimap trio was invisible in the review — the areas the CAVEBOT lives
+  # on. Now they crop like everything else, and the coordinate strip carries a
+  # LIVE reading: green "li: x, y, z" is the proof the mark is right; on this
+  # blank fixture it must say it could not read.
+  test "minimap areas crop in the review and the coordinate probe answers live", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      minimap_region: {60, 5, 30, 30},
+      minimap_coord_region: {62, 28, 26, 6},
+      minimap_player_point: {75, 20},
+      escape_point: {40, 40},
+      neutral_point: {52, 36}
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    html = view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    assert html =~ "minimapa"
+    assert html =~ "cruz do personagem"
+    assert html =~ "escada de fuga"
+    assert html =~ "ponto neutro"
+    assert html =~ ~s(id="coord-probe")
+    assert html =~ "não li"
+  end
+
+  @tag :tmp_dir
   # A calibration can be perfect and the bot still blind: every threshold and
   # box SIZE was measured on the ultrawide. The ruler is a skill slot, and
   # applying is his click — a derivation that rewrote settings silently is how

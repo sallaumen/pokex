@@ -10,6 +10,8 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Home
   alias Pokex.Screenshot
   alias PokexWeb.CalibrationClick
+  alias PokexWeb.CalibrationSteps
+  alias PokexWeb.CalibrationZoom
   alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
@@ -19,54 +21,10 @@ defmodule PokexWeb.CalibrationLive do
 
   @glow_half 32
 
-  @total_steps 10
   # Click-to-zoom magnification: a rough click magnifies the screenshot around it (via CSS
   # transform, which the ImgClick hook's getBoundingClientRect already accounts for), then a
   # precise second click is transcribed back to screen coordinates. Helps a lot on a small screen.
   @zoom_factor 3.5
-
-  @instructions %{
-    water: "Clique no PONTO DA ÁGUA onde o bot deve arremessar.",
-    battle_a: "Clique no canto SUPERIOR-ESQUERDO da área de criaturas da janela Battle.",
-    battle_b:
-      "Agora o canto INFERIOR-DIREITO da mesma área (incluindo a coluna do ícone de pokébola).",
-    neutral: "Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
-    player:
-      "Clique bem no CENTRO do seu PERSONAGEM — é nele que o bot ancora a barra do minigame de pesca. Fique parado onde vai pescar.",
-    skill_a:
-      "Canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1). IMPORTANTE: " <>
-        "deixe TODAS as skills PRONTAS (sem cooldown) — a foto de cada ícone vira a " <>
-        "referência de 'pronta' pro leitor.",
-    skill_b:
-      "Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões.",
-    hp_a:
-      "Canto SUPERIOR-ESQUERDO da barra de VIDA do Pokémon principal — bem RENTE à barra, sem pegar o fundo azul acima nem os ícones abaixo.",
-    hp_b: "Canto INFERIOR-DIREITO da MESMA barra de vida (colado na barra, só ela).",
-    photo: "Centro da FOTO do Pokémon principal (onde o mouse fica pro Shift+Q do revive).",
-    mini_game_a:
-      "Canto SUPERIOR-ESQUERDO da FAIXA onde a barra do minigame aparece quando você pesca " <>
-        "deste lugar (deixe uma folga de 1-2 tiles pra cada lado da barra).",
-    mini_game_b:
-      "Canto INFERIOR-DIREITO da mesma faixa — cubra a altura TODA da barra, sem pegar os " <>
-        "painéis escuros da lateral (Battle/bolsa).",
-    pokemon_spot:
-      "Clique no TILE onde o seu Pokémon deve FICAR (a posição estratégica de ataque). " <>
-        "Depois das lutas, o suporte manda ele de volta pra cá com um clique do meio.",
-    escape_point:
-      "Clique num TILE LIVRE DO CAMINHO colado na escada (NÃO na escada: clicar nela tenta " <>
-        "USÁ-LA, e usar só funciona do lado). A fuga anda até esse tile e aí dá os passos " <>
-        "de seta (direção configurada no painel) pra ENTRAR na escada.",
-    minimap_a: "Canto SUPERIOR-ESQUERDO do MINIMAPA (só o mapa em si, sem a moldura).",
-    minimap_b: "Canto INFERIOR-DIREITO do mesmo minimapa.",
-    minimap_cross:
-      "Clique bem no CENTRO da CRUZ do personagem no minimapa — ela é fixa (o mapa " <>
-        "desliza por baixo), então este ponto vira a origem de todo passo do cavebot.",
-    minimap_coord_a:
-      "Canto SUPERIOR-ESQUERDO da faixa da COORDENADA — o texto \"(x, y, z)\" no topo do " <>
-        "minimapa. Deixe folga pra direita: a faixa precisa caber a coordenada mais " <>
-        "LONGA (ex.: \"(2782, 30571, 5)\").",
-    minimap_coord_b: "Canto INFERIOR-DIREITO da mesma faixa, fechando o texto inteiro."
-  }
 
   @impl true
   def mount(_params, _session, socket) do
@@ -987,32 +945,6 @@ defmodule PokexWeb.CalibrationLive do
 
   defp region_from({x1, y1}, {x2, y2}), do: {min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)}
 
-  # CSS transform that magnifies the screenshot around the rough click (a screen point). The
-  # transform-origin keeps that point in place while everything around it scales up; the ImgClick
-  # hook reads the transformed getBoundingClientRect, so the precise click maps back correctly.
-  defp zoom_style(nil, _screen, _factor), do: nil
-
-  # Center-and-clamp pan: scale from the top-left and translate so the clicked point lands
-  # mid-container, clamped to keep the scaled image flush with the edges (no blank gutters).
-  # The old transform-origin trick PINNED the clicked point at its original container
-  # position, leaving only (1-f)/factor of visible margin beyond it — for a target near a
-  # screen edge that margin vanishes: the skill bar lives at the BOTTOM of the screen and
-  # its bottom-right corner (the skill_b click) fell OUTSIDE the zoom window (measured:
-  # corner at 92.85% of the height vs a window ending at 91.9%), which read as "can't
-  # click the last skill" (Lucas, 2026-07-20).
-  defp zoom_style({x, y}, %{w: w, h: h}, factor) when w > 0 and h > 0 do
-    "transform: translate(#{translate_pct(x / w, factor)}%, #{translate_pct(y / h, factor)}%) " <>
-      "scale(#{factor}); transform-origin: 0 0"
-  end
-
-  defp zoom_style(_zoom_at, _screen, _factor), do: nil
-
-  # The translate (in % of the container) that centers fraction `f` at scale `factor`,
-  # clamped into [1 - factor, 0] so the window never runs past the image.
-  defp translate_pct(f, factor) do
-    Float.round(100 * min(max(0.5 - f * factor, 1.0 - factor), 0.0), 2)
-  end
-
   defp save_skill_bar(socket, region, count) do
     case Calibration.load() do
       {:ok, calib} ->
@@ -1310,44 +1242,8 @@ defmodule PokexWeb.CalibrationLive do
   # steps AND the standalone quick-fix flows). A step missing here renders the
   # instruction with NO screenshot below it — a black page (2026-07-20 bug: the
   # mini_game quick-fix steps were absent).
-  defp marking_step?(step),
-    do:
-      step in [
-        :water,
-        :battle_a,
-        :battle_b,
-        :neutral,
-        :player,
-        :skill_a,
-        :skill_b,
-        :hp_a,
-        :hp_b,
-        :photo,
-        :mini_game_a,
-        :mini_game_b,
-        :minimap_a,
-        :minimap_b,
-        :minimap_cross,
-        :minimap_coord_a,
-        :minimap_coord_b,
-        :pokemon_spot,
-        :escape_point
-      ]
-
-  defp step_index(:water), do: 1
-  defp step_index(:battle_a), do: 2
-  defp step_index(:battle_b), do: 3
-  defp step_index(:neutral), do: 4
-  defp step_index(:player), do: 5
-  defp step_index(:skill_a), do: 6
-  defp step_index(:skill_b), do: 7
-  defp step_index(:hp_a), do: 8
-  defp step_index(:hp_b), do: 9
-  defp step_index(:photo), do: 10
-  defp step_index(_), do: nil
-
   defp step_pill_class(n, step) do
-    case step_index(step) do
+    case CalibrationSteps.index(step) do
       nil -> "bg-base-300 opacity-50"
       current when n < current -> "bg-success text-success-content"
       current when n == current -> "bg-primary text-primary-content"
@@ -1367,10 +1263,8 @@ defmodule PokexWeb.CalibrationLive do
 
   @impl true
   def render(assigns) do
-    # module attributes are not available inside ~H as @foo (that reads
-    # assigns), so expose the instruction map as an assign first
-    assigns =
-      assign(assigns, instr: @instructions, total_steps: @total_steps, zoom_factor: @zoom_factor)
+    # module attributes are not available inside ~H as @foo (that reads assigns)
+    assigns = assign(assigns, total_steps: CalibrationSteps.total(), zoom_factor: @zoom_factor)
 
     ~H"""
     <Layouts.app flash={@flash} current_page={:calibration} {Layouts.header(assigns)}>
@@ -1693,7 +1587,10 @@ defmodule PokexWeb.CalibrationLive do
         </div>
 
         <div :if={@screen} class="space-y-3">
-          <ol :if={@mode == :full and step_index(@step)} class="flex flex-wrap items-center gap-1.5">
+          <ol
+            :if={@mode == :full and CalibrationSteps.index(@step)}
+            class="flex flex-wrap items-center gap-1.5"
+          >
             <li
               :for={n <- 1..@total_steps}
               class={[
@@ -1710,9 +1607,9 @@ defmodule PokexWeb.CalibrationLive do
             class="rounded-lg bg-info/15 px-3 py-2 text-sm font-medium"
           >
             <span :if={@mode == :full} class="font-bold">
-              Passo {step_index(@step)}/{@total_steps} —
+              Passo {CalibrationSteps.index(@step)}/{@total_steps} —
             </span>
-            {@instr[@step]}
+            {CalibrationSteps.instruction(@step)}
             <.form
               :if={@step in [:skill_a, :skill_b]}
               for={@skill_count_form}
@@ -1732,7 +1629,7 @@ defmodule PokexWeb.CalibrationLive do
             </.form>
           </div>
 
-          <p :if={marking_step?(@step)} class="text-xs">
+          <p :if={CalibrationSteps.marking?(@step)} class="text-xs">
             <span :if={is_nil(@zoom_at)} class="opacity-70">
               Dê um clique APROXIMADO no alvo — a imagem amplia pra você mirar com precisão.
             </span>
@@ -1749,13 +1646,13 @@ defmodule PokexWeb.CalibrationLive do
             </button>
           </p>
 
-          <.legend :if={marking_step?(@step)} />
+          <.legend :if={CalibrationSteps.marking?(@step)} />
 
           <div
-            :if={marking_step?(@step)}
+            :if={CalibrationSteps.marking?(@step)}
             class="overflow-hidden rounded-lg border border-base-content/20"
           >
-            <div class="relative" style={zoom_style(@zoom_at, @screen, @zoom_factor)}>
+            <div class="relative" style={CalibrationZoom.style(@zoom_at, @screen, @zoom_factor)}>
               <img
                 id="calibration-screen"
                 phx-hook="ImgClick"

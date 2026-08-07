@@ -101,6 +101,45 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # Every mark goes through ONE door so the screen stamp cannot be forgotten:
+  # a step that merged straight into the loaded calibration saved the point with
+  # the PREVIOUS monitor's dimensions (2026-08-03 — one point marked on the
+  # notebook wrote a file claiming to be the 3440 ultrawide), and since the
+  # per-monitor snapshots that stamp also decides which monitor it is filed under.
+  test "a quick-fix mark stamps THIS screen and files under THIS monitor", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    # a calibration that belongs to the ultrawide is what is loaded
+    Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element(~s(button[phx-click="calibrate_player"])) |> render_click()
+
+    params = %{"x" => 20.0, "y" => 16.0, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+    render_hook(view, "img_click", params)
+    render_hook(view, "img_click", params)
+
+    assert {:ok, saved} = Calibration.load()
+    assert saved.player_point == {40, 32}
+    # the mark did NOT inherit the ultrawide's dimensions
+    assert saved.screen_w == 100
+    assert saved.screen_h == 75
+    # and this monitor now remembers it
+    assert {:ok, %Calibration{player_point: {40, 32}}} = Calibration.last_for_screen({100, 75})
+  end
+
+  @tag :tmp_dir
   # "Se eu troquei de monitor... me dá uma opção de usar a última calibração
   # daquele monitor" (Lucas, 2026-08-07). The banner stops saying only "redo
   # everything": when this monitor was calibrated before, its last calibration

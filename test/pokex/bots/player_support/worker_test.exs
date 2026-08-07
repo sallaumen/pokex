@@ -369,7 +369,15 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     stale_battle!()
     low = hp_png(tmp, "low.png", 6)
     no_fight = battle_png(tmp, "calm.png", {17, 17, 17, 255})
-    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}, {:ok, no_fight}]})
+
+    # The Fake serves captures SEQUENTIALLY and sticks on the last one, so from
+    # the second tick the HP read was getting the all-dark battle frame. That
+    # used to "work": every dark pixel counted as the bar's empty track, so a
+    # black frame read as a recognised bar at 0% — the very defect that fired
+    # the survival combo on a healthy Pokémon (2026-08-07). With the brightness
+    # floor a black frame is correctly UNREADABLE, so the fixture has to hand
+    # the HP read a real bar on every tick.
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}, {:ok, no_fight}, {:ok, low}]})
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)

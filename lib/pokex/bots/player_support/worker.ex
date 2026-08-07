@@ -261,7 +261,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       if Vision.hp_region_plausible?(frame,
            min_brightness: min_b,
            min_saturation: min_s,
-           min_known_pct: Settings.get(:pokemon_hp_min_known_pct)
+           min_known_pct: Settings.get(:pokemon_hp_min_known_pct),
+           min_bright_pct: Settings.get(:pokemon_hp_min_bright_pct)
          ) do
         {:ok,
          normalize_hp(Vision.hp_fill_pct(frame, min_brightness: min_b, min_saturation: min_s))}

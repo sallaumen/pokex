@@ -348,6 +348,29 @@ defmodule PokexWeb.CalibrationLive do
     {:noreply, assign(socket, review: nil)}
   end
 
+  # "Usar a última calibração desta tela": the monitor was calibrated before,
+  # so its snapshot comes back whole — marks AND the screen-dependent numbers.
+  # No arithmetic touches any point (Lucas, 2026-08-07: adapting by
+  # multiplication "só vai dar cagada"; per-monitor memory is the design).
+  def handle_event("restore_last_calibration", _params, socket) do
+    with {:another_screen, _saved, current} <- socket.assigns.screen_check,
+         {:ok, calib, settings} <- Calibration.restore_last_for_screen(current) do
+      {:noreply,
+       assign(socket,
+         calibrated?: true,
+         screen_check: screen_check(),
+         error: nil,
+         row_height: Settings.get(:battle_row_height),
+         skillbar_msg:
+           "Última calibração desta tela restaurada (#{calib.screen_w}×#{calib.screen_h}, " <>
+             "#{settings} número(s) junto). Reinicie os bots (Parar/Iniciar) pra valer."
+       )}
+    else
+      _no_snapshot ->
+        {:noreply, assign(socket, error: "esta tela ainda não tem calibração guardada")}
+    end
+  end
+
   # Every pixel-denominated seed was measured once, on the ultrawide. None of
   # them survives a change of screen — that is what "nada funciona em 1 monitor
   # só" was made of (2026-08-06). The ruler is a skill slot, not the display:

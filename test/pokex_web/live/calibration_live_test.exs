@@ -101,6 +101,37 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # "Se eu troquei de monitor... me dá uma opção de usar a última calibração
+  # daquele monitor" (Lucas, 2026-08-07). The banner stops saying only "redo
+  # everything": when this monitor was calibrated before, its last calibration
+  # is one click away — marks and numbers, no arithmetic.
+  test "the other-screen banner offers this monitor's last calibration back", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    # this monitor (100×75) was calibrated once; then an ultrawide calibration
+    # became active
+    Calibration.save(%Calibration{scale: 1.0, screen_w: 100, screen_h: 75, water_point: {50, 30}})
+    Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(100, 75, {9, 9, 9, 255}))
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    assert has_element?(view, "#other-screen-warning")
+    html = view |> element("#restore-last-for-screen") |> render_click()
+
+    assert html =~ "Última calibração desta tela restaurada"
+    assert {:ok, %Calibration{screen_w: 100, water_point: {50, 30}}} = Calibration.load()
+  end
+
+  @tag :tmp_dir
   # A day was lost to "cliquei no meio e gravou torto" and the pipeline turned
   # out CORRECT — but nothing on screen could show it. Two guarantees now: every
   # click leaves its raw numbers and computed point in sight, and every draft

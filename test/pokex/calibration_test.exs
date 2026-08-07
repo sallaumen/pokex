@@ -184,6 +184,47 @@ defmodule Pokex.CalibrationTest do
   end
 
   @tag :tmp_dir
+  # "Tem que ser uma calibração por monitor... me sugerir reutilizar a última"
+  # (Lucas, 2026-08-07). The monitor's size is the key: every save of the
+  # active calibration refreshes that monitor's snapshot, and coming back to a
+  # monitor restores its LAST calibration — marks AND numbers, no arithmetic.
+  test "each monitor remembers its last calibration, and restoring brings it whole", %{
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    tile = Settings.get(:tile_px)
+
+    on_exit(fn ->
+      Application.delete_env(:pokex, :home_dir)
+      Settings.put(:tile_px, tile)
+    end)
+
+    # calibrate on the ultrawide with its numbers in force
+    Settings.put(:tile_px, 88)
+    Calibration.save(sample())
+    assert {:ok, %Calibration{screen_w: 1728}} = Calibration.last_for_screen({1728, 1117})
+
+    # move to the MacBook: different marks, different numbers
+    Settings.put(:tile_px, 59)
+    small = %{sample() | screen_w: 1512, screen_h: 982, water_point: {293, 871}}
+    Calibration.save(small)
+
+    # back on the ultrawide: its snapshot restores marks AND its tile
+    assert {:ok, restored, applied} = Calibration.restore_last_for_screen({1728, 1117})
+    assert restored.screen_w == 1728
+    assert applied > 0
+    assert Settings.get(:tile_px) == 88
+    assert {:ok, %Calibration{screen_w: 1728}} = Calibration.load()
+
+    # a monitor never calibrated has nothing to offer — and says so
+    assert Calibration.last_for_screen({9999, 9999}) == :none
+    assert Calibration.restore_last_for_screen({9999, 9999}) == :none
+
+    # the automatic snapshots are machinery, not profiles he named
+    refute Enum.any?(Calibration.list_profiles(), &String.starts_with?(&1.name, "auto-"))
+  end
+
+  @tag :tmp_dir
   # A profile saved before the numbers were carried still has to apply — its
   # MARKS are good. The count is what tells him the numbers did not come.
   test "a profile without numbers applies its marks and reports zero", %{tmp_dir: tmp} do

@@ -12,7 +12,10 @@ defmodule PokexWeb.CalibrationOverlayTest do
       refute render_component(&CalibrationOverlay.screen_warning/1, check: :unknown) =~ "tela"
     end
 
-    test "a different screen names both and asks for a full recalibration" do
+    # One calibration per MONITOR (Lucas, 2026-08-07): a monitor calibrated
+    # before offers its last calibration back in one click; only a truly new
+    # monitor is asked for the wizard.
+    test "a different screen offers its last calibration back — or the wizard when new" do
       html =
         render_component(&CalibrationOverlay.screen_warning/1,
           check: {:another_screen, {3440, 1440}, {1512, 982}}
@@ -21,7 +24,8 @@ defmodule PokexWeb.CalibrationOverlayTest do
       assert html =~ "outra tela"
       assert html =~ "3440×1440"
       assert html =~ "1512×982"
-      assert html =~ "Refaça a calibração"
+      # no snapshot for 1512×982 in this test env → the wizard path, said plainly
+      assert html =~ "nunca foi calibrada"
       refute html =~ "rescale_calibration"
     end
 

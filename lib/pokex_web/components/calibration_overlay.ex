@@ -282,7 +282,15 @@ defmodule PokexWeb.CalibrationOverlay do
   end
 
   def screen_warning(%{check: {:another_screen, {sw, sh}, {cw, ch}}} = assigns) do
-    assigns = assign(assigns, saved: "#{sw}×#{sh}", current: "#{cw}×#{ch}")
+    # One calibration per MONITOR, remembered — never adapted by arithmetic
+    # (Lucas, 2026-08-07). If this monitor was ever calibrated, its LAST
+    # calibration is one click away; only a truly new monitor needs the wizard.
+    assigns =
+      assign(assigns,
+        saved: "#{sw}×#{sh}",
+        current: "#{cw}×#{ch}",
+        restorable?: Pokex.Calibration.last_for_screen({cw, ch}) != :none
+      )
 
     ~H"""
     <div
@@ -293,7 +301,18 @@ defmodule PokexWeb.CalibrationOverlay do
       <p class="mt-0.5 opacity-80">
         Foi marcada numa tela de {@saved} pontos e a de agora tem {@current}. Cada ponto salvo
         pertence à tela onde foi marcado — nesta aqui eles caem no lugar errado.
-        Refaça a calibração completa.
+      </p>
+      <button
+        :if={@restorable?}
+        id="restore-last-for-screen"
+        class="btn btn-warning btn-xs mt-2"
+        phx-click="restore_last_calibration"
+      >
+        Usar a última calibração desta tela ({@current})
+      </button>
+      <p :if={!@restorable?} class="mt-0.5 opacity-80">
+        Esta tela nunca foi calibrada — refaça a calibração completa (ela fica guardada pra
+        próxima troca de monitor).
       </p>
     </div>
     """

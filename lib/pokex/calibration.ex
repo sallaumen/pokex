@@ -169,6 +169,11 @@ defmodule Pokex.Calibration do
   end
 
   def save(%__MODULE__{} = calib, path \\ nil) do
+    # Saving the ACTIVE calibration also snapshots it under this monitor's key
+    # (see snapshot_for_screen/1). Lucas's design (2026-08-07): one calibration
+    # per monitor, remembered — never adapted by arithmetic. An explicit path
+    # (profiles, the snapshot itself) skips this, so it cannot recurse.
+    if is_nil(path), do: snapshot_for_screen(calib)
     path = path || Pokex.Home.calibration_file()
     File.mkdir_p!(Path.dirname(path))
 
@@ -268,8 +273,9 @@ defmodule Pokex.Calibration do
   def apply_profile(name) do
     with {:ok, slug} <- profile_slug(name),
          {:ok, calib} <- load(profile_path(slug)) do
+      applied = apply_profile_settings(slug)
       save(calib)
-      {:ok, calib, apply_profile_settings(slug)}
+      {:ok, calib, applied}
     end
   end
 
@@ -308,13 +314,57 @@ defmodule Pokex.Calibration do
 
   defp profile_settings_path(slug), do: Path.join(profiles_dir(), slug <> ".settings.json")
 
+  # --- one calibration per MONITOR (Lucas, 2026-08-07) -------------------------
+  # "A calibração não tem que se adaptar automaticamente, ficar fazendo essas
+  # multiplicações... tem que ser uma calibração por monitor." The monitor's
+  # size IS the key: every save of the active calibration refreshes this
+  # monitor's snapshot (marks + the screen-dependent settings), and coming back
+  # to a monitor offers its LAST calibration back — no arithmetic, no wizard.
+
+  defp screen_slug({w, h}), do: "auto-#{w}x#{h}"
+
+  @doc false
+  def snapshot_for_screen(%__MODULE__{screen_w: w, screen_h: h} = calib)
+      when is_integer(w) and is_integer(h) do
+    slug = screen_slug({w, h})
+    File.mkdir_p!(profiles_dir())
+    save(calib, profile_path(slug))
+    write_profile_settings(slug)
+    :ok
+  end
+
+  def snapshot_for_screen(_no_screen), do: :ok
+
+  @doc "The LAST calibration saved on a `{w, h}` monitor — `{:ok, calib}` | `:none`."
+  def last_for_screen({w, h}) do
+    case load(profile_path(screen_slug({w, h}))) do
+      {:ok, calib} -> {:ok, calib}
+      _absent -> :none
+    end
+  end
+
+  @doc """
+  Makes this monitor's last calibration ACTIVE again, with the numbers it was
+  saved with. `{:ok, calib, settings_applied}` | `:none`.
+  """
+  def restore_last_for_screen({w, h}) do
+    with {:ok, calib} <- last_for_screen({w, h}) do
+      # settings FIRST: save/1 re-snapshots this monitor, and doing that before
+      # applying would overwrite the stored numbers with the previous monitor's
+      applied = apply_profile_settings(screen_slug({w, h}))
+      save(calib)
+      {:ok, calib, applied}
+    end
+  end
+
   @doc "Every saved profile: name, screen dims/scale and saved-at (unix seconds)."
   def list_profiles do
     case File.ls(profiles_dir()) do
       {:ok, files} ->
         files
         |> Enum.filter(
-          &(String.ends_with?(&1, ".json") and not String.ends_with?(&1, ".settings.json"))
+          &(String.ends_with?(&1, ".json") and not String.ends_with?(&1, ".settings.json") and
+              not String.starts_with?(&1, "auto-"))
         )
         |> Enum.sort()
         |> Enum.map(&profile_entry/1)

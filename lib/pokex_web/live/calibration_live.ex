@@ -1097,54 +1097,6 @@ defmodule PokexWeb.CalibrationLive do
     end)
   end
 
-  defp save_pokemon_spot(socket, point) do
-    case Calibration.load() do
-      {:ok, calib} ->
-        Calibration.save(%{on_this_screen(calib, socket) | pokemon_spot_point: point})
-
-        assign(socket,
-          draft: %{},
-          step: nil,
-          screen: nil,
-          calibrated?: true,
-          skillbar_msg:
-            "Posição do Pokémon salva em #{inspect(point)} — ligue \"Reposicionar após lutas\" " <>
-              "no painel pra usar."
-        )
-
-      {:error, reason} ->
-        assign(socket,
-          step: nil,
-          screen: nil,
-          error: "não deu pra salvar a posição do Pokémon: #{inspect(reason)}"
-        )
-    end
-  end
-
-  defp save_escape_point(socket, point) do
-    case Calibration.load() do
-      {:ok, calib} ->
-        Calibration.save(%{on_this_screen(calib, socket) | escape_point: point})
-
-        assign(socket,
-          draft: %{},
-          step: nil,
-          screen: nil,
-          calibrated?: true,
-          skillbar_msg:
-            "Tile de fuga salvo em #{inspect(point)} — configure a DIREÇÃO dos passos no " <>
-              "painel (Fuga de emergência) e use \"Testar fuga\" pra validar."
-        )
-
-      {:error, reason} ->
-        assign(socket,
-          step: nil,
-          screen: nil,
-          error: "não deu pra salvar a escada de fuga: #{inspect(reason)}"
-        )
-    end
-  end
-
   # The saved calibration's screen vs the one in front of him RIGHT NOW. Every
   # coordinate in the file belongs to the screen it was marked on; served on
   # another one, the bot looks broken rather than uncalibrated.
@@ -1186,33 +1138,62 @@ defmodule PokexWeb.CalibrationLive do
   # a 3440-wide ultrawide, then fixed one point on the 1512-wide notebook) leaves
   # a file whose points live in one space and whose screen_w announces another —
   # and every consumer that scales by it reads the wrong place.
+  # EVERY mark is saved through here. The `on_this_screen` stamp is the reason:
+  # a step that merged straight into the loaded calibration saved the point with
+  # the PREVIOUS monitor's dimensions — marking one point on the notebook wrote
+  # a file claiming to be the 3440 ultrawide (2026-08-03) — and since the
+  # per-monitor snapshots it also decides WHICH monitor the calibration is filed
+  # under. One door means the next step someone adds cannot forget it.
+  #
+  # `struct!/2` over `Map.merge/2` on purpose: an unknown field raises here
+  # instead of quietly becoming a map key nothing ever reads.
+  defp save_mark(socket, changes, copy) do
+    case Calibration.load() do
+      {:ok, calib} ->
+        calib |> on_this_screen(socket) |> struct!(changes) |> Calibration.save()
+
+        socket
+        |> clear_marking()
+        |> assign(calibrated?: true, error: nil, skillbar_msg: copy.ok)
+
+      {:error, reason} ->
+        socket
+        |> clear_marking()
+        |> assign(error: "#{copy.error}: #{inspect(reason)}")
+    end
+  end
+
+  defp clear_marking(socket), do: assign(socket, draft: %{}, step: nil, screen: nil)
+
+  defp save_player_point(socket, point) do
+    save_mark(socket, %{player_point: point}, %{
+      ok: "Personagem marcado em #{inspect(point)} — o minigame procura a barra a partir daí.",
+      error: "não deu pra salvar o personagem"
+    })
+  end
+
+  defp save_pokemon_spot(socket, point) do
+    save_mark(socket, %{pokemon_spot_point: point}, %{
+      ok:
+        "Posição do Pokémon salva em #{inspect(point)} — ligue \"Reposicionar após lutas\" " <>
+          "no painel pra usar.",
+      error: "não deu pra salvar a posição do Pokémon"
+    })
+  end
+
+  defp save_escape_point(socket, point) do
+    save_mark(socket, %{escape_point: point}, %{
+      ok:
+        "Tile de fuga salvo em #{inspect(point)} — configure a DIREÇÃO dos passos no " <>
+          "painel (Fuga de emergência) e use \"Testar fuga\" pra validar.",
+      error: "não deu pra salvar a escada de fuga"
+    })
+  end
+
   defp on_this_screen(calib, %{assigns: %{screen: %{scale: scale, w: w, h: h}}}),
     do: %{calib | scale: scale, screen_w: w, screen_h: h}
 
   defp on_this_screen(calib, _no_screen), do: calib
-
-  defp save_player_point(socket, point) do
-    case Calibration.load() do
-      {:ok, calib} ->
-        Calibration.save(%{on_this_screen(calib, socket) | player_point: point})
-
-        assign(socket,
-          draft: %{},
-          step: nil,
-          screen: nil,
-          calibrated?: true,
-          skillbar_msg:
-            "Personagem marcado em #{inspect(point)} — o minigame procura a barra a partir daí."
-        )
-
-      {:error, reason} ->
-        assign(socket,
-          step: nil,
-          screen: nil,
-          error: "não deu pra salvar o personagem: #{inspect(reason)}"
-        )
-    end
-  end
 
   defp persist_skill_settings(count) do
     Settings.put(:skill_bar_count, count)

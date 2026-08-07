@@ -9,6 +9,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Calibration
   alias Pokex.Home
   alias Pokex.Screenshot
+  alias PokexWeb.CalibrationClick
   alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
@@ -474,39 +475,35 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event(
         "img_click",
-        %{"x" => x, "y" => y, "cw" => cw, "ch" => ch, "nw" => nw, "nh" => nh},
+        %{"x" => _, "y" => _, "cw" => _, "ch" => _, "nw" => _, "nh" => _} = params,
         socket
       ) do
-    scale = socket.assigns.scale
-    point = {round(x * nw / cw / scale), round(y * nh / ch / scale)}
+    # The click→point conversion is PURE (PokexWeb.CalibrationClick) because it
+    # crashed this page once already: the browser sends INTEGERS on exact-pixel
+    # clicks and the inline trace called Float.round on them (2026-08-07). The
+    # module's regression test is that crash's payload, verbatim.
     zoomed? = socket.assigns.zoom_at != nil
 
-    # The X-ray. A day was lost to "cliquei no meio e gravou torto" (2026-08-06)
-    # and the click pipeline turned out CORRECT — proven by a hand-marked cross
-    # landing 4px from its target — but nothing on screen could show that. Every
-    # click now leaves its raw numbers and its computed point in sight, so a
-    # doubted click is settled by reading, not by a day of forensics.
-    entry = %{
-      raw: {Float.round(x, 1), Float.round(y, 1)},
-      box: {Float.round(cw, 1), Float.round(ch, 1)},
-      natural: {trunc(nw), trunc(nh)},
-      zoomed?: zoomed?,
-      recorded?: zoomed?,
-      point: point
-    }
+    case CalibrationClick.read(params, socket.assigns.scale, zoomed?) do
+      {:ok, point, entry} ->
+        socket = assign(socket, click_trace: Enum.take([entry | socket.assigns.click_trace], 4))
 
-    socket = assign(socket, click_trace: Enum.take([entry | socket.assigns.click_trace], 4))
+        socket =
+          if zoomed? do
+            # A precise click on the magnified view → record it, then drop the zoom.
+            socket |> record_point(point) |> assign(zoom_at: nil)
+          else
+            # A rough first click → magnify around it so the target is easy to hit.
+            assign(socket, zoom_at: point)
+          end
 
-    socket =
-      if zoomed? do
-        # A precise click on the magnified view → record it, then drop the zoom for the next point.
-        socket |> record_point(point) |> assign(zoom_at: nil)
-      else
-        # A rough first click → magnify around it so the real target is easy to hit on a small screen.
-        assign(socket, zoom_at: point)
-      end
+        {:noreply, socket}
 
-    {:noreply, socket}
+      {:error, :empty_box} ->
+        # the <img> had no measurable size yet (still loading) — a point made
+        # of zeros would be garbage saved into the calibration
+        {:noreply, assign(socket, error: "a imagem ainda não carregou — clique de novo")}
+    end
   end
 
   def handle_event("cancel_zoom", _params, socket) do

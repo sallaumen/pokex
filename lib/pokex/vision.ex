@@ -874,29 +874,62 @@ defmodule Pokex.Vision do
   Options `:min_brightness` (45), `:min_saturation` (30). Empty/zero frame → 0. For an accurate %,
   calibrate the box tightly on the coloured track (no icons row, no background above/beside it).
   """
+  # The HP numbers are near-white whatever the bar underneath is doing.
+  @hp_text_bright 170
+  @hp_text_sat 40
+
   def hp_fill_pct(frame, opts \\ [])
 
   def hp_fill_pct(%Frame{width: w, height: h, rgba: rgba}, opts) when w > 0 and h > 0 do
     min_b = Keyword.get(opts, :min_brightness, 45)
     min_s = Keyword.get(opts, :min_saturation, 30)
 
-    filled = rgba |> filled_columns(0, w, min_b, min_s, MapSet.new()) |> MapSet.size()
-    round(filled * 100 / w)
+    {filled, text_only} = column_kinds(rgba, w, min_b, min_s)
+
+    # The NUMBERS are drawn ON TOP of the bar, and a column hidden entirely
+    # behind a white digit says nothing about the fill. Counting those as EMPTY
+    # is why a bar reading 13710/13710 came back as 58%: 28 of his 157 columns
+    # were pure text (measured 2026-08-07). They leave the denominator instead —
+    # neither filling nor emptying — so the percentage is judged only on the
+    # columns that can actually answer.
+    judged = w - text_only
+
+    if judged > 0, do: round(filled * 100 / judged), else: 0
   end
 
   def hp_fill_pct(_frame, _opts), do: 0
 
-  # A column is "filled" if any of its pixels is a WARM COLOURED pixel: bright enough (not black),
-  # saturated enough (not the white number), and not blue-dominant (not the blue game background).
-  defp filled_columns(<<r, g, b, _a, rest::binary>>, i, w, min_b, min_s, acc) do
-    bright = max(r, max(g, b))
-    sat = bright - min(r, min(g, b))
-    warm? = bright >= min_b and sat >= min_s and b <= max(r, g)
-    acc = if warm?, do: MapSet.put(acc, rem(i, w)), else: acc
-    filled_columns(rest, i + 1, w, min_b, min_s, acc)
+  # Per column: does it hold FILL, and is it nothing but the white number?
+  # A column is "filled" if any pixel is a WARM COLOURED one: bright enough (not
+  # black), saturated enough (not the white number), and not blue-dominant (not
+  # the blue game background).
+  defp column_kinds(rgba, w, min_b, min_s) do
+    {filled, lettered} = column_scan(rgba, 0, w, min_b, min_s, MapSet.new(), MapSet.new())
+    text_only = lettered |> MapSet.difference(filled) |> MapSet.size()
+    {MapSet.size(filled), text_only}
   end
 
-  defp filled_columns(<<>>, _i, _w, _min_b, _min_s, acc), do: acc
+  defp column_scan(<<r, g, b, _a, rest::binary>>, i, w, min_b, min_s, filled, lettered) do
+    bright = max(r, max(g, b))
+    sat = bright - min(r, min(g, b))
+    column = rem(i, w)
+
+    warm? = bright >= min_b and sat >= min_s and b <= max(r, g)
+    # the digits: bright and washed out, whatever the bar's colour underneath
+    text? = bright >= @hp_text_bright and sat <= @hp_text_sat
+
+    column_scan(
+      rest,
+      i + 1,
+      w,
+      min_b,
+      min_s,
+      if(warm?, do: MapSet.put(filled, column), else: filled),
+      if(text?, do: MapSet.put(lettered, column), else: lettered)
+    )
+  end
+
+  defp column_scan(<<>>, _i, _w, _min_b, _min_s, filled, lettered), do: {filled, lettered}
 
   defp skill_bar_signature(<<r, g, b, _a, rest::binary>>, dark, content, total) do
     bright = max(r, max(g, b))

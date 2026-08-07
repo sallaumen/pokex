@@ -279,6 +279,72 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # Every wizard mark is now repairable alone: the window moved -> re-mark just
+  # that window, without the other nine steps.
+  test "the água/battle/neutro/vida quick fixes save just their marks", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      battle_region: {70, 10, 20, 30},
+      neutral_point: {52, 36},
+      skill_bar_region: {10, 60, 50, 10},
+      skill_bar_count: 6
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    # água: one click; the glow box follows the point
+    view |> element("button", "Só a água") |> render_click()
+    click.(10.0, 10.0)
+    assert {:ok, %{water_point: {20, 20}, glow_region: glow}} = Calibration.load()
+    assert {_gx, _gy, gw, gw} = glow
+
+    # battle: two corners
+    view |> element("button", "Só a Battle") |> render_click()
+    click.(30.0, 5.0)
+    click.(45.0, 25.0)
+    assert {:ok, %{battle_region: {60, 10, 30, 40}}} = Calibration.load()
+
+    # neutro: one click
+    view |> element("button", "Só o ponto neutro") |> render_click()
+    click.(26.0, 18.0)
+    assert {:ok, %{neutral_point: {52, 36}}} = Calibration.load()
+
+    # vida: two corners + the photo point
+    view |> element("button", "Só a vida") |> render_click()
+    click.(5.0, 5.0)
+    click.(15.0, 8.0)
+    click.(18.0, 6.0)
+
+    assert {:ok, saved} = Calibration.load()
+    assert saved.pokemon_hp_region == {10, 10, 20, 6}
+    assert saved.pokemon_photo_point == {36, 12}
+    # nothing else was touched by any of the four flows
+    assert saved.skill_bar_region == {10, 60, 50, 10}
+  end
+
+  @tag :tmp_dir
   # "ajustando um pouco pro lado, pra cima, pra baixo" (Lucas, 2026-08-07): the
   # crop shows the mark is a hair off — the repair is arrows on the crop, not a
   # wizard. Every click SAVES; the crop redraws from the same screenshot.

@@ -97,103 +97,30 @@ defmodule PokexWeb.CalibrationLive do
 
   # Standalone correction for an existing calibration. The normal 8-step wizard
   # already includes these two clicks.
-  def handle_event("calibrate_skillbar", _params, socket) do
-    case grab_screen() do
-      {:ok, screen} ->
-        {:noreply,
-         assign(socket,
-           scale: screen.scale,
-           screen: screen,
-           step: :skill_a,
-           mode: :skillbar_only,
-           draft: %{skill_bar_count: socket.assigns.skill_count},
-           done: false,
-           review: nil,
-           error: nil,
-           skillbar_msg: nil,
-           zoom_at: nil
-         )}
-
-      error ->
-        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
-    end
-  end
+  def handle_event("calibrate_skillbar", _params, socket),
+    do:
+      start_quick_fix(socket, :skill_a, :skillbar_only, %{
+        skill_bar_count: socket.assigns.skill_count
+      })
 
   # Standalone correction: re-mark only the character (the mini-game bar anchor)
   # on an existing calibration, without redoing the whole wizard.
-  def handle_event("calibrate_player", _params, socket) do
-    case grab_screen() do
-      {:ok, screen} ->
-        {:noreply,
-         assign(socket,
-           scale: screen.scale,
-           screen: screen,
-           step: :player,
-           mode: :player_only,
-           draft: %{},
-           done: false,
-           review: nil,
-           error: nil,
-           skillbar_msg: nil,
-           zoom_at: nil
-         )}
-
-      error ->
-        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
-    end
-  end
+  def handle_event("calibrate_player", _params, socket),
+    do: start_quick_fix(socket, :player, :player_only)
 
   # Position & minimap (2026-07-30): minimap (2 clicks) + player cross (1) +
   # coordinate strip (2), saved as MANUAL calibration — the hand wins, the
   # automatic layout becomes the fallback. On save, the coordinate is read
   # FROM THE SAME SHOT with the freshly marked regions: feedback arrives
   # before any field run.
-  def handle_event("calibrate_minimap", _params, socket) do
-    case grab_screen() do
-      {:ok, screen} ->
-        {:noreply,
-         assign(socket,
-           scale: screen.scale,
-           screen: screen,
-           step: :minimap_a,
-           mode: :minimap_only,
-           draft: %{},
-           done: false,
-           review: nil,
-           error: nil,
-           skillbar_msg: nil,
-           zoom_at: nil
-         )}
-
-      error ->
-        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
-    end
-  end
+  def handle_event("calibrate_minimap", _params, socket),
+    do: start_quick_fix(socket, :minimap_a, :minimap_only)
 
   # Standalone correction: mark only the strip where the mini-game bar shows up
   # (2 corners) on an existing calibration. From then on the mini-game worker
   # watches THAT region instead of hunting the bar inside the arena.
-  def handle_event("calibrate_mini_game", _params, socket) do
-    case grab_screen() do
-      {:ok, screen} ->
-        {:noreply,
-         assign(socket,
-           scale: screen.scale,
-           screen: screen,
-           step: :mini_game_a,
-           mode: :mini_game_only,
-           draft: %{},
-           done: false,
-           review: nil,
-           error: nil,
-           skillbar_msg: nil,
-           zoom_at: nil
-         )}
-
-      error ->
-        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
-    end
-  end
+  def handle_event("calibrate_mini_game", _params, socket),
+    do: start_quick_fix(socket, :mini_game_a, :mini_game_only)
 
   # --- calibration profiles: save the current one, apply/delete a saved one ----
 
@@ -245,51 +172,28 @@ defmodule PokexWeb.CalibrationLive do
 
   # Standalone correction: mark only where the Pokémon should STAND (the strategic
   # attack tile the support worker middle-clicks after battles).
-  def handle_event("calibrate_pokemon_spot", _params, socket) do
-    case grab_screen() do
-      {:ok, screen} ->
-        {:noreply,
-         assign(socket,
-           scale: screen.scale,
-           screen: screen,
-           step: :pokemon_spot,
-           mode: :pokemon_spot_only,
-           draft: %{},
-           done: false,
-           review: nil,
-           error: nil,
-           skillbar_msg: nil,
-           zoom_at: nil
-         )}
+  def handle_event("calibrate_pokemon_spot", _params, socket),
+    do: start_quick_fix(socket, :pokemon_spot, :pokemon_spot_only)
 
-      error ->
-        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
-    end
-  end
+  # Standalone corrections for the wizard's own marks, so EVERY point is
+  # repairable without redoing the ten steps (Lucas, 2026-08-07): the window
+  # moved -> re-mark just that window.
+  def handle_event("calibrate_water", _params, socket),
+    do: start_quick_fix(socket, :water, :water_only)
+
+  def handle_event("calibrate_battle", _params, socket),
+    do: start_quick_fix(socket, :battle_a, :battle_only)
+
+  def handle_event("calibrate_neutral", _params, socket),
+    do: start_quick_fix(socket, :neutral, :neutral_only)
+
+  def handle_event("calibrate_hp", _params, socket),
+    do: start_quick_fix(socket, :hp_a, :hp_only)
 
   # Standalone correction: mark only the escape STAIRCASE tile the
   # emergency-escape protocol click-walks to.
-  def handle_event("calibrate_escape_point", _params, socket) do
-    case grab_screen() do
-      {:ok, screen} ->
-        {:noreply,
-         assign(socket,
-           scale: screen.scale,
-           screen: screen,
-           step: :escape_point,
-           mode: :escape_point_only,
-           draft: %{},
-           done: false,
-           review: nil,
-           error: nil,
-           skillbar_msg: nil,
-           zoom_at: nil
-         )}
-
-      error ->
-        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
-    end
-  end
+  def handle_event("calibrate_escape_point", _params, socket),
+    do: start_quick_fix(socket, :escape_point, :escape_point_only)
 
   def handle_event("review", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
@@ -875,6 +779,33 @@ defmodule PokexWeb.CalibrationLive do
 
   defp coord_probe(_review), do: nil
 
+  # One starter for every "Só o X" flow — the six copies of this block were
+  # drifting apart one flow at a time. Marking on a DIFFERENT screen is fine by
+  # design: save_mark stamps the CURRENT screen and the per-monitor memory
+  # files the previous calibration under its own display ("me dá uma opção de
+  # usar a última calibração daquele monitor" — Lucas, 2026-08-07).
+  defp start_quick_fix(socket, first_step, mode, draft \\ %{}) do
+    case grab_screen() do
+      {:ok, screen} ->
+        {:noreply,
+         assign(socket,
+           scale: screen.scale,
+           screen: screen,
+           step: first_step,
+           mode: mode,
+           draft: draft,
+           done: false,
+           review: nil,
+           error: nil,
+           skillbar_msg: nil,
+           zoom_at: nil
+         )}
+
+      error ->
+        {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    end
+  end
+
   defp grab_screen do
     with {:ok, shot} <- with_game_front(fn -> Screenshot.take("calibration_screen.png") end) do
       {:ok,
@@ -978,14 +909,21 @@ defmodule PokexWeb.CalibrationLive do
 
   defp record_step(:water, socket, point, draft) do
     {x, y} = point
+    glow = {x - @glow_half, y - @glow_half, @glow_half * 2, @glow_half * 2}
 
-    draft =
-      Map.merge(draft, %{
-        water_point: point,
-        glow_region: {x - @glow_half, y - @glow_half, @glow_half * 2, @glow_half * 2}
-      })
+    case socket.assigns.mode do
+      :water_only ->
+        save_mark(socket, %{water_point: point, glow_region: glow}, %{
+          ok: "Água re-marcada em #{inspect(point)} — o brilho da isca acompanhou.",
+          error: "não deu pra salvar a água"
+        })
 
-    assign(socket, draft: draft, step: :battle_a)
+      _wizard ->
+        assign(socket,
+          draft: Map.merge(draft, %{water_point: point, glow_region: glow}),
+          step: :battle_a
+        )
+    end
   end
 
   defp record_step(:battle_a, socket, point, draft) do
@@ -993,14 +931,31 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   defp record_step(:battle_b, socket, point, draft) do
-    assign(socket,
-      draft: Map.put(draft, :battle_region, region_from(draft.battle_a, point)),
-      step: :neutral
-    )
+    region = region_from(draft.battle_a, point)
+
+    case socket.assigns.mode do
+      :battle_only ->
+        save_mark(socket, %{battle_region: region}, %{
+          ok: "Janela Battle re-marcada — confira as bandas do lock no review.",
+          error: "não deu pra salvar a Battle"
+        })
+
+      _wizard ->
+        assign(socket, draft: Map.put(draft, :battle_region, region), step: :neutral)
+    end
   end
 
   defp record_step(:neutral, socket, point, draft) do
-    assign(socket, draft: Map.put(draft, :neutral_point, point), step: :player)
+    case socket.assigns.mode do
+      :neutral_only ->
+        save_mark(socket, %{neutral_point: point}, %{
+          ok: "Ponto neutro re-marcado em #{inspect(point)}.",
+          error: "não deu pra salvar o ponto neutro"
+        })
+
+      _wizard ->
+        assign(socket, draft: Map.put(draft, :neutral_point, point), step: :player)
+    end
   end
 
   defp record_step(:player, socket, point, draft) do
@@ -1053,7 +1008,20 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   defp record_step(:photo, socket, point, draft) do
-    finish(socket, Map.put(draft, :pokemon_photo_point, point))
+    case socket.assigns.mode do
+      :hp_only ->
+        save_mark(
+          socket,
+          %{pokemon_hp_region: draft.pokemon_hp_region, pokemon_photo_point: point},
+          %{
+            ok: "Vida + foto do Pokémon re-marcadas — confira a leitura no painel.",
+            error: "não deu pra salvar a vida"
+          }
+        )
+
+      _wizard ->
+        finish(socket, Map.put(draft, :pokemon_photo_point, point))
+    end
   end
 
   defp record_step(:mini_game_a, socket, point, draft) do
@@ -1665,6 +1633,30 @@ defmodule PokexWeb.CalibrationLive do
                 icon="hero-arrow-up-on-square"
                 title="Escada de fuga"
                 hint="o tile do caminho COLADO na escada — a fuga anda até ele e entra de seta"
+              />
+              <.quick_fix
+                event="calibrate_water"
+                icon="hero-beaker"
+                title="Só a água"
+                hint="o ponto do arremesso (1 clique) — o brilho da isca acompanha sozinho"
+              />
+              <.quick_fix
+                event="calibrate_battle"
+                icon="hero-list-bullet"
+                title="Só a Battle"
+                hint="a janela da lista de batalha (2 cliques) — onde o combate lê inimigos e lock"
+              />
+              <.quick_fix
+                event="calibrate_neutral"
+                icon="hero-cursor-arrow-rays"
+                title="Só o ponto neutro"
+                hint="onde o mouse descansa sem clicar em nada (1 clique)"
+              />
+              <.quick_fix
+                event="calibrate_hp"
+                icon="hero-heart"
+                title="Só a vida"
+                hint="a barra de vida do Pokémon (2 cliques) + a foto dele (1 clique)"
               />
             </div>
           </section>

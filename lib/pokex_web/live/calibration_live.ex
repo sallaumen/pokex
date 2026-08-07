@@ -8,6 +8,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
   alias Pokex.Home
+  alias Pokex.Perception.Interpret.Minimap
   alias Pokex.Screenshot
   alias PokexWeb.CalibrationClick
   alias PokexWeb.CalibrationSteps
@@ -226,11 +227,13 @@ defmodule PokexWeb.CalibrationLive do
   # MANUAL field even when the shown value came from a layout/derivation:
   # adjusting IS the hand override ("a mão manda").
   def handle_event("adjust_target", %{"target" => raw}, socket) do
-    with {:ok, key, _kind} <- adjust_key(raw) do
-      target = if socket.assigns.adjust_target == key, do: nil, else: key
-      {:noreply, assign(socket, adjust_target: target)}
-    else
-      _unknown -> {:noreply, socket}
+    case adjust_key(raw) do
+      {:ok, key, _kind} ->
+        target = if socket.assigns.adjust_target == key, do: nil, else: key
+        {:noreply, assign(socket, adjust_target: target)}
+
+      _unknown ->
+        {:noreply, socket}
     end
   end
 
@@ -768,7 +771,7 @@ defmodule PokexWeb.CalibrationLive do
              {round(mx * scale), round(my * scale), round(mw * scale), round(mh * scale)}
            ),
          {%{pos: {x, y, z}}, _state} <-
-           Pokex.Perception.Interpret.Minimap.interpret(mini, calib, Settings.all()) do
+           Minimap.interpret(mini, calib, Settings.all()) do
       {:ok, "#{x}, #{y}, #{z}"}
     else
       _unreadable -> :error

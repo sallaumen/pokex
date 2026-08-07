@@ -101,6 +101,51 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # A day was lost to "cliquei no meio e gravou torto" and the pipeline turned
+  # out CORRECT — but nothing on screen could show it. Two guarantees now: every
+  # click leaves its raw numbers and computed point in sight, and every draft
+  # mark paints its marker immediately (the minimap steps used to be blind —
+  # exactly where the distrust was born).
+  test "marking leaves an X-ray: the click trace and the freshly drawn mark", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    Calibration.save(%Calibration{scale: 2.0, screen_w: 100, screen_h: 75})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element(~s(button[phx-click="calibrate_minimap"])) |> render_click()
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    # minimap corners, then the cross
+    click.(10.0, 10.0)
+    click.(40.0, 30.0)
+    html = click.(25.0, 15.0)
+
+    # the trace: the recorded click with its raw numbers and its computed point
+    assert html =~ ~s(id="click-trace")
+    assert html =~ "✔ clique (25.0, 15.0)"
+    assert html =~ "(50, 30)"
+
+    # and the cross marker is painted the moment it is recorded
+    assert html =~ ~s(title="cruz do personagem no minimapa)
+  end
+
+  @tag :tmp_dir
   test "review draws the saved regions over a fresh screenshot", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)

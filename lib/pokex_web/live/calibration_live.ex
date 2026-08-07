@@ -100,6 +100,7 @@ defmodule PokexWeb.CalibrationLive do
        scale_proposals: nil,
        scale_ratio: nil,
        scale_msg: nil,
+       click_trace: [],
        corpse_shot: nil,
        corpse_crop: nil,
        corpse_msg: nil,
@@ -478,9 +479,26 @@ defmodule PokexWeb.CalibrationLive do
       ) do
     scale = socket.assigns.scale
     point = {round(x * nw / cw / scale), round(y * nh / ch / scale)}
+    zoomed? = socket.assigns.zoom_at != nil
+
+    # The X-ray. A day was lost to "cliquei no meio e gravou torto" (2026-08-06)
+    # and the click pipeline turned out CORRECT — proven by a hand-marked cross
+    # landing 4px from its target — but nothing on screen could show that. Every
+    # click now leaves its raw numbers and its computed point in sight, so a
+    # doubted click is settled by reading, not by a day of forensics.
+    entry = %{
+      raw: {Float.round(x, 1), Float.round(y, 1)},
+      box: {Float.round(cw, 1), Float.round(ch, 1)},
+      natural: {trunc(nw), trunc(nh)},
+      zoomed?: zoomed?,
+      recorded?: zoomed?,
+      point: point
+    }
+
+    socket = assign(socket, click_trace: Enum.take([entry | socket.assigns.click_trace], 4))
 
     socket =
-      if socket.assigns.zoom_at do
+      if zoomed? do
         # A precise click on the magnified view → record it, then drop the zoom for the next point.
         socket |> record_point(point) |> assign(zoom_at: nil)
       else
@@ -1735,9 +1753,32 @@ defmodule PokexWeb.CalibrationLive do
                 player_point={draft_player(@draft)}
                 pokemon_hp_region={@draft[:pokemon_hp_region]}
                 pokemon_photo_point={@draft[:pokemon_photo_point]}
+                mini_game_region={@draft[:mini_game_region]}
+                minimap_region={@draft[:minimap_region]}
+                minimap_coord_region={@draft[:minimap_coord_region]}
+                minimap_player_point={@draft[:minimap_player_point]}
                 bands={draft_bands(@draft, @scale, @row_height, @max_rows)}
               />
             </div>
+          </div>
+
+          <%!-- The X-ray: raw numbers of the last clicks, computed point beside
+                them. ✔ = recorded into the draft; ◌ = the rough zoom click. --%>
+          <div
+            :if={@click_trace != []}
+            id="click-trace"
+            class="space-y-0.5 font-mono text-[11px] opacity-70"
+          >
+            <p
+              :for={{t, i} <- Enum.with_index(@click_trace)}
+              class={i == 0 && "font-bold opacity-100"}
+            >
+              {if t.recorded?, do: "✔", else: "◌"} clique ({elem(t.raw, 0)}, {elem(t.raw, 1)}) em caixa {elem(
+                t.box,
+                0
+              )}×{elem(t.box, 1)}{if t.zoomed?, do: " (zoom)"} → ponto da tela
+              <b>({elem(t.point, 0)}, {elem(t.point, 1)})</b>
+            </p>
           </div>
         </div>
 

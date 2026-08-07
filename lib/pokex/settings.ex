@@ -472,6 +472,11 @@ defmodule Pokex.Settings do
     # the party window is MINIMIZED and the region shows game world — and the read is UNKNOWN
     # (never acted on), instead of a garbage "low HP" that fired the combo in a loop.
     pokemon_hp_min_known_pct: 55,
+    # A uniformly DARK strip is a covered window, not an empty bar: every dark
+    # pixel used to count as the bar's empty track, so the browser in front of
+    # the game read as a recognised bar at 0% and fired the survival combo on a
+    # healthy Pokémon. Measured: the real bar is 68% bright, a covered frame 0.1%.
+    pokemon_hp_min_bright_pct: 10,
     # --- Potion: cheap top-up so the expensive revive rarely fires ------------------------------
     # Below pokemon_hp_potion_pct AND out of combat (the heal channel is interrupted by entering a
     # fight, so an in-combat potion is a wasted potion), press potion_key — the game applies it to

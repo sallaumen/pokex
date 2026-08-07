@@ -825,22 +825,39 @@ defmodule Pokex.Vision do
     min_b = Keyword.get(opts, :min_brightness) || 45
     min_s = Keyword.get(opts, :min_saturation) || 30
     min_known = Keyword.get(opts, :min_known_pct) || 55
+    min_bright = Keyword.get(opts, :min_bright_pct) || 10
 
-    {known, total} = hp_known_px(rgba, min_b, min_s, 0, 0)
-    known * 100 >= min_known * total
+    {known, bright, total} = hp_known_px(rgba, min_b, min_s, 0, 0, 0)
+
+    # A UNIFORMLY DARK region is a covered window, not an empty bar. Without
+    # this floor every dark pixel counted as "the bar's empty track", so the
+    # browser sitting in front of the game read as a perfectly recognised bar
+    # that happened to be at 0% — and fired the survival combo on a Pokémon at
+    # full health (Lucas, 2026-08-07, single monitor). Measured on his screen:
+    # the real bar is 68.5% bright (fill, borders, and the white "13520/13520"
+    # that is there even at 0 HP); the covered frame was 0.1%.
+    known * 100 >= min_known * total and bright * 100 >= min_bright * total
   end
 
   def hp_region_plausible?(_frame, _opts), do: false
 
-  defp hp_known_px(<<r, g, b, _a, rest::binary>>, min_b, min_s, known, total) do
+  defp hp_known_px(<<r, g, b, _a, rest::binary>>, min_b, min_s, known, lit, total) do
     bright = max(r, max(g, b))
     sat = bright - min(r, min(g, b))
     fill? = bright >= min_b and sat >= min_s and b <= max(r, g)
     track? = bright <= 60
-    hp_known_px(rest, min_b, min_s, known + if(fill? or track?, do: 1, else: 0), total + 1)
+
+    hp_known_px(
+      rest,
+      min_b,
+      min_s,
+      known + if(fill? or track?, do: 1, else: 0),
+      lit + if(bright > 60, do: 1, else: 0),
+      total + 1
+    )
   end
 
-  defp hp_known_px(<<>>, _min_b, _min_s, known, total), do: {known, max(total, 1)}
+  defp hp_known_px(<<>>, _min_b, _min_s, known, lit, total), do: {known, lit, max(total, 1)}
 
   @doc """
   Fill percentage (0..100) of a horizontal HP bar frame — the fraction of COLUMNS that hold a

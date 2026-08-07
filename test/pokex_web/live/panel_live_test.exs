@@ -321,6 +321,46 @@ defmodule PokexWeb.PanelLiveTest do
     refute render(view) =~ "Não achei o HUD"
   end
 
+  # The revive RECALLS the Pokémon and puts it back; the potion just heals. HP
+  # falls through the higher number first, so a revive threshold ABOVE the
+  # potion's means the potion can NEVER fire and the Pokémon is pulled out of
+  # every fight. Lucas ran an hour with revive 65 / potion 50 (2026-08-07) —
+  # nothing fished, nothing fought — and read it as "o bot não faz nada certo".
+  # The bot was doing exactly what the numbers said; nothing on screen said so.
+  test "o ⚙️ avisa quando o revive dispara antes da poção", %{conn: conn} do
+    antes = %{
+      rescue: Pokex.Settings.get(:pokemon_hp_rescue_pct),
+      potion: Pokex.Settings.get(:pokemon_hp_potion_pct),
+      rescue_on: Pokex.Settings.get(:rescue_enabled),
+      potion_on: Pokex.Settings.get(:potion_enabled)
+    }
+
+    on_exit(fn ->
+      Pokex.Settings.put(:pokemon_hp_rescue_pct, antes.rescue)
+      Pokex.Settings.put(:pokemon_hp_potion_pct, antes.potion)
+      Pokex.Settings.put(:rescue_enabled, antes.rescue_on)
+      Pokex.Settings.put(:potion_enabled, antes.potion_on)
+    end)
+
+    Pokex.Settings.put(:rescue_enabled, true)
+    Pokex.Settings.put(:potion_enabled, true)
+
+    # os números dele: o revive pega primeiro e a poção nunca acontece
+    Pokex.Settings.put(:pokemon_hp_rescue_pct, 65)
+    Pokex.Settings.put(:pokemon_hp_potion_pct, 50)
+
+    {:ok, view, _html} = live(conn, ~p"/config")
+    assert has_element?(view, "#rescue-above-potion")
+    assert render(view) =~ "recolhido em toda luta"
+
+    # invertidos pro jeito certo, o aviso some
+    Pokex.Settings.put(:pokemon_hp_rescue_pct, 20)
+    Pokex.Settings.put(:pokemon_hp_potion_pct, 70)
+
+    {:ok, ok_view, _html} = live(conn, ~p"/config")
+    refute has_element?(ok_view, "#rescue-above-potion")
+  end
+
   # "Essas partes da proteção do Pokémon, eu não consigo mais desativar
   # individualmente?" (2026-08-06). Os dois interruptores sempre existiram — na
   # faixa do dashboard. Lendo "revive < 65%" no ⚙️ sem um liga/desliga do lado,

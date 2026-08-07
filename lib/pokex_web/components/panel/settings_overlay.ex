@@ -267,6 +267,21 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               <span>s</span>
             </form>
 
+            <%!-- The revive RECALLS the Pokémon and puts it back; the potion just
+                  heals. HP falls through the higher number first, so a revive
+                  threshold ABOVE the potion's means the potion can NEVER fire and
+                  the Pokémon is pulled out of every fight. Lucas ran an hour with
+                  revive 65 / potion 50 (2026-08-07) and read it as "o bot não faz
+                  nada certo" — the bot was doing exactly what the numbers said. --%>
+            <p
+              :if={@rescue_cfg.enabled and @potion_cfg.enabled and @rescue_cfg.pct >= @potion_cfg.pct}
+              id="rescue-above-potion"
+              class="mx-3 mb-2 rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1.5 text-pk-body text-pk-warn"
+            >
+              ⚠️ O revive ({@rescue_cfg.pct}%) dispara ANTES da poção ({@potion_cfg.pct}%) —
+              a vida passa pelo número maior primeiro. Assim a poção nunca acontece e o Pokémon é
+              recolhido em toda luta. O revive é o socorro caro: deixe-o BEM abaixo da poção.
+            </p>
             <.automation_row
               id="automation-support-waits-capture"
               title="Suporte espera a captura"

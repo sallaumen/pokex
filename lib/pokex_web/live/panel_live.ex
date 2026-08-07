@@ -6,6 +6,7 @@ defmodule PokexWeb.PanelLive do
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher
   alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.Catcher.Sweep
   alias Pokex.Bots.Cavebot
   alias Pokex.Bots.Combat
   alias Pokex.Bots.Fishing
@@ -1587,7 +1588,7 @@ defmodule PokexWeb.PanelLive do
   defp save_ball_key(socket, _ausente), do: socket
 
   defp save_sweep_side(socket, side) do
-    if side in Pokex.Bots.Catcher.Sweep.sides() do
+    if side in Sweep.sides() do
       Settings.put(:sweep_side, side)
       assign(socket, sweep_side: side)
     else

@@ -1,9 +1,9 @@
 defmodule Pokex.Preflight do
   @moduledoc "Sanity checks executed when the user hits Start. Messages in PT-BR."
 
+  alias Pokex.Bots.Capture
   alias Pokex.Calibration
   alias Pokex.Rig.Mac
-  alias Pokex.Vision.Frame
 
   def run(rig \\ Pokex.Rig.impl()) do
     errors =
@@ -33,22 +33,40 @@ defmodule Pokex.Preflight do
   end
 
   defp check_screen(errors, Mac) do
-    with {:ok, calib} <- Calibration.load(),
-         {:ok, path} <- Mac.capture_screen(),
-         {:ok, {w, h}} <- Frame.png_dimensions(path) do
-      if w == round(calib.screen_w * calib.scale) and h == round(calib.screen_h * calib.scale) do
-        errors
-      else
-        ["tamanho da tela mudou desde a calibração — recalibre em /calibration" | errors]
-      end
-    else
-      _ ->
-        [
-          "não consegui capturar a tela — confira a permissão de Gravação de Tela do terminal"
-          | errors
-        ]
+    case Calibration.load() do
+      {:ok, calib} -> screen_error(calib, Capture.display_points()) ++ errors
+      _no_calibration -> errors
     end
   end
 
   defp check_screen(errors, _rig), do: errors
+
+  @doc """
+  The screen complaint, if any — pure, so the regression below is pinnable.
+
+  This check compared APPLES WITH ORANGES and refused FOREVER on a Retina
+  display: it took a CLI `screencapture` (which answers in PIXELS — 3024×1964)
+  and measured it against `screen_w * scale`, where the calibration had been
+  saved by ScreenCaptureKit (which answers in POINTS, so scale is 1.0 → 1512).
+  3024 never equals 1512, so `start_all` refused every single time and the whole
+  fleet sat stopped — "é como se ele não ligasse os supervisors nunca" (Lucas,
+  2026-08-07). Same root as the frame-scale bug of #139; the preflight was
+  simply never converted, and no test covered it because the only preflight test
+  runs the Fake rig, which skips the Mac-only checks.
+
+  `:unknown` is NO PROOF, never "the screen changed": a preflight that cannot
+  measure must not block the bot.
+  """
+  def screen_error(calib, measured) do
+    case Calibration.screen_check(calib, measured) do
+      {:another_screen, {sw, sh}, {cw, ch}} ->
+        [
+          "a calibração é de uma tela #{sw}×#{sh} e esta é #{cw}×#{ch} — abra /calibration " <>
+            "e use a última calibração desta tela (ou recalibre)"
+        ]
+
+      _same_rescalable_or_unknown ->
+        []
+    end
+  end
 end

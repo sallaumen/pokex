@@ -44,6 +44,45 @@ defmodule Pokex.VisionHpTest do
     assert Vision.hp_fill_pct(empty) == 0
   end
 
+  # THE 58% ON A FULL BAR (2026-08-07): the numbers "13710/13710" are drawn ON
+  # TOP of the bar, and every column hidden entirely behind a white digit was
+  # counted as EMPTY. Measured on his real bar: 28 of 157 columns were pure
+  # text, and a full bar came back as 58%.
+  test "the white numbers over the bar neither fill nor empty it" do
+    # a FULL bar with a block of white digits across the middle
+    green_col = List.duplicate(@green, 10)
+    text_col = List.duplicate(@white, 10)
+
+    rows =
+      for y <- 0..9 do
+        for x <- 0..19 do
+          if x in 8..11, do: Enum.at(text_col, y), else: Enum.at(green_col, y)
+        end
+      end
+
+    full_with_text = frame(rows)
+
+    # 16 green columns of 20; the 4 text columns leave the denominator instead
+    # of counting as empty (which would have read 80%)
+    assert Vision.hp_fill_pct(full_with_text) == 100
+  end
+
+  test "an emptying bar still reads lower — the text exclusion is not a blank cheque" do
+    rows =
+      for _y <- 0..9 do
+        for x <- 0..19 do
+          cond do
+            x in 8..11 -> @white
+            x < 8 -> @green
+            true -> @dark
+          end
+        end
+      end
+
+    # 8 green, 8 dark, 4 text → judged on 16 columns, half of them filled
+    assert Vision.hp_fill_pct(frame(rows)) == 50
+  end
+
   test "the floor is measured, not guessed" do
     # his screen: real bar 68.5% bright, covered frame 0.1% — 10% sits between
     # them with room on both sides

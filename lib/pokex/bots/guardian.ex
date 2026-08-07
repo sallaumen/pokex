@@ -278,6 +278,9 @@ defmodule Pokex.Bots.Guardian do
         {:rule_alarm, :command, "🕹️ canto de comando: ligando o modo #{Pokex.Modes.current()}"}
       )
 
+      # The Task stays — the corner poll must never block on preflight captures.
+      # A REFUSED start is announced by BotSupervisor itself, so throwing this
+      # return away can no longer make the fleet fail in silence.
       {:ok, _pid} = Task.start(fn -> BotSupervisor.start_all() end)
       :ok
     end

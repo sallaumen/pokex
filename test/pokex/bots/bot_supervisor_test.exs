@@ -146,8 +146,19 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
     {fishing, combat, catcher} = start_isolated_trio(:error_test)
 
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
     assert {:error, [msg]} = BotSupervisor.start_all(fishing, combat, catcher)
     assert msg =~ "calibração"
+
+    # A refused start is ANNOUNCED by the owner of the operation, so no caller
+    # can swallow it — both did: the command corner threw the return away inside
+    # a fire-and-forget Task, and the panel put it in an assign no feed ever saw.
+    # One worker refusing halts the whole chain, so the fleet sat stopped with
+    # nothing on screen but "ligando o modo still" (Lucas, 2026-08-07).
+    assert_receive {:rule_alarm, :command, alarm}, 1_000
+    assert alarm =~ "NÃO ligou"
+    assert alarm =~ "calibração"
 
     status = BotSupervisor.status(fishing, combat, catcher)
     assert status.fishing.state == :idle

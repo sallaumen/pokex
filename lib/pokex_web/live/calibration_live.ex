@@ -868,10 +868,12 @@ defmodule PokexWeb.CalibrationLive do
   # The game draws the coordinate only while the mouse is OVER the minimap
   # (measured 2026-08-10: the bot's captures had no text on the very minimap
   # Lucas's hovered screenshot showed it on). So this photo hovers first: the
-  # game is re-fronted (the gated move demands it frontmost anyway), the Body —
-  # one pair of hands, as always — parks the cursor on the cross and HOLDS
-  # while the shot is taken; afterwards it restores Lucas's cursor on its own
-  # (restore_mouse_after_actions).
+  # game is re-fronted, the Body — one pair of hands, as always — parks the
+  # cursor on the cross via {:hover, _} (UNGATED: the gate's corner flag is
+  # proven by the Guardian, which only polls while the fleet is up — during
+  # calibration the gate can never open, and a gated move hovered nothing) and
+  # HOLDS while the shot is taken; afterwards it restores Lucas's cursor on
+  # its own (restore_mouse_after_actions).
   defp hover_grab(nil), do: {:error, :no_hover_point}
 
   defp hover_grab(point) do
@@ -880,7 +882,7 @@ defmodule PokexWeb.CalibrationLive do
         hold =
           Task.async(fn ->
             try do
-              Body.perform([{:move, point}, {:wait, @hover_hold_ms}])
+              Body.perform([{:hover, point}, {:wait, @hover_hold_ms}])
             catch
               kind, reason -> {:error, {kind, reason}}
             end
@@ -1870,7 +1872,7 @@ defmodule PokexWeb.CalibrationLive do
           <%!-- The X-ray: raw numbers of the last clicks, computed point beside
                 them. ✔ = recorded into the draft; ◌ = the rough zoom click. --%>
           <div
-            :if={@click_trace != []}
+            :if={@click_trace != [] and CalibrationSteps.marking?(@step)}
             id="click-trace"
             class="space-y-0.5 font-mono text-[11px] opacity-70"
           >

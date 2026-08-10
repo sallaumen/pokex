@@ -134,6 +134,15 @@ defmodule Pokex.Rig.Mac do
   def move(point), do: gated(fn -> run(Commands.move(point)) end)
 
   @impl true
+  # UNGATED on purpose — the one exception, and a narrow one. The gate's
+  # corner_ok is proven by the Guardian's poller, which only runs while the
+  # fleet is up: during calibration (fleet stopped) the gate can NEVER open,
+  # and the coordinate-band search was silently hovering nothing (2026-08-10).
+  # A hover is a cursor MOVE requested by a human clicking a button — it can
+  # press nothing and leak nowhere, which is what the gate exists to stop.
+  def hover(point), do: run(Commands.move(point))
+
+  @impl true
   # Move the cursor onto the target, then press F1 — the in-game pokeball hotkey throws at the
   # CURSOR position, so no click is needed (Lucas rebound it this way). Order matters: position
   # first, then throw.

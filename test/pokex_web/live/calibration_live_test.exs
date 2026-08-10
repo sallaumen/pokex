@@ -1476,7 +1476,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       html = render(view)
       assert html =~ ~s(id="coord-band-found")
       assert html =~ "li: (337, 46107, 4)"
-      assert {:move, ^cross} = Enum.find(Fake.calls(), &match?({:move, _}, &1))
+      assert {:hover, ^cross} = Enum.find(Fake.calls(), &match?({:hover, _}, &1))
 
       html = view |> element("button", "Salvar assim") |> render_click()
       assert html =~ "salvos"

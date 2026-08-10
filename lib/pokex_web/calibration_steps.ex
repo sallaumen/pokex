@@ -52,8 +52,9 @@ defmodule PokexWeb.CalibrationSteps do
       "Clique bem no CENTRO da CRUZ do personagem no minimapa — ela é fixa (o mapa " <>
         "desliza por baixo), então este ponto vira a origem de todo passo do cavebot.",
     minimap_coord_search:
-      "A faixa da coordenada eu acho SOZINHO: passo o mouse no minimapa (o texto " <>
-        "\"(x, y, z)\" só aparece com o mouse lá), tiro a foto e procuro onde consigo LER.",
+      "A faixa da coordenada eu acho SOZINHO: dou um passinho com as setas (o jogo só " <>
+        "desenha \"(x, y, z)\" quando a posição MUDA), fotografo e procuro onde consigo LER — " <>
+        "é o mesmo estado em que o bot vai ler durante a caçada.",
     minimap_coord_a:
       "Canto SUPERIOR-ESQUERDO da faixa da COORDENADA — o texto \"(x, y, z)\" no topo do " <>
         "minimapa. Deixe folga pra direita: a faixa precisa caber a coordenada mais " <>

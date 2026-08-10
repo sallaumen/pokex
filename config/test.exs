@@ -92,3 +92,4 @@ config :pokex, :perception_feeds_active, false
 # need the ORDER of move -> shot -> restore, not the wall-clock.
 config :pokex, coord_hover_settle_ms: 10, coord_hover_hold_ms: 60
 config :pokex, coord_hover_jiggle_ms: 5
+config :pokex, coord_walk_settle_ms: 5

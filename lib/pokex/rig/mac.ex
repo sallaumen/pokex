@@ -143,6 +143,15 @@ defmodule Pokex.Rig.Mac do
   def hover(point), do: run(Commands.move(point))
 
   @impl true
+  # UNGATED, same narrow exception as hover/1 and for the same reason: the
+  # gate's corner flag is proven by the Guardian, which only polls while the
+  # fleet is up, so during calibration it can never open. The client draws the
+  # coordinate ONLY while the position changes (measured 2026-08-10: standing
+  # still with the mouse away, the minimap has no text at all), so calibrating
+  # the state the bot actually runs in requires a real step.
+  def tap(combo), do: do_press(combo)
+
+  @impl true
   # Move the cursor onto the target, then press F1 — the in-game pokeball hotkey throws at the
   # CURSOR position, so no click is needed (Lucas rebound it this way). Order matters: position
   # first, then throw.

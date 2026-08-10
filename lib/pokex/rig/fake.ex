@@ -76,6 +76,9 @@ defmodule Pokex.Rig.Fake do
   def hover(point), do: record({:hover, point}, :hover, :ok)
 
   @impl true
+  def tap(combo), do: record({:tap, combo}, :tap, :ok)
+
+  @impl true
   def capture_sequence(point), do: record({:capture_sequence, point}, :capture_sequence, :ok)
 
   @impl true

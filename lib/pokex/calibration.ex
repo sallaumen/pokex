@@ -81,53 +81,57 @@ defmodule Pokex.Calibration do
   2026-07-30 it did (same root as the minimap at y=-132): the strip pointed at
   the wrong place and still silently VETOED the manual calibration. Inverted:
   the hand-marked value always wins; without it, the strip is DERIVED from the
-  two landmarks the game itself uses — the bar is drawn over the CHARACTER and
-  runs down to just short of the SKILL BAR. Both are already calibrated and
-  both move with the HUD, so a resolution change re-derives by itself.
+  CHARACTER, which is where the game draws the bar — one anchor, already
+  calibrated, moving with the HUD, so a resolution change re-derives by itself.
   """
-  # From his careful hand mark: the bar starts ~50px above the character and
-  # stops short of the skill bar. Rounded out a touch so a hand-clicked player
-  # point (±20px of human aim) still contains the whole bar.
-  @mini_game_above_px 60
-  @mini_game_skill_gap_px 20
-
-  # The hand mark always wins; otherwise the strip is DERIVED from the two
-  # landmarks already calibrated — the character and the skill bar (Lucas's own
-  # annotated screenshot, 2026-08-05: "ele está sempre ali bem pertinho do meu
-  # personagem e vai até quase lá na barra de skills").
+  # The hand mark always wins; otherwise the strip is DERIVED from the CHARACTER
+  # — the one anchor the game itself draws the bar over.
   #
-  # Both anchors move with the HUD, so changing resolution or layout re-derives
-  # by itself — which was his actual complaint. Measured against his own careful
-  # mark (profile `2-moni-8skill-baixo`: bar at player.x ±15, from player.y-49
-  # down to 171px above the skill bar) and against a real game trace (bar 17px
-  # wide, centre at player.x+18).
+  # The four numbers ARE Lucas's own mark, measured (2026-08-10, 3440×1440):
+  # `{1707, 673, 24, 474}` against a player point of `{1707, 689}` — the bar's
+  # centre 12pt to his RIGHT, 24 wide, starting 16 above him and running 474
+  # down. He marked it, played with it, and asked for it as the default: "tu
+  # pode fazer essa config ser sempre sugerida como padrão".
   #
-  # WHY THE BOUNDS MATTER BEYOND FALSE POSITIVES: the old tile box was 880px
-  # tall around a ~470px bar, and the detector's dark column ran 810px — it
-  # bled into scenery. The pilot works in position NORMALISED inside the bar,
-  # so a bar measured 810 when it is 470 puts the fish target and the capsule
-  # in the wrong place (trace error_mean 11%). A window bounded by the real
-  # landmarks does not just avoid ghosts: it fixes the aim.
+  # The old derivation guessed instead, and every number was wrong: 100 wide
+  # (4×), starting 50 to the LEFT of a bar that lives to the right, from 60
+  # above down to the skill bar — 125pt past the bar's real end. That is the box
+  # that dragged scenery in and blinded the pilot.
   #
-  # No anchors (no player point, no skill bar) = nil, and the watcher goes
-  # BLIND AND SAYS SO rather than scanning somewhere it was never taught.
+  # WHY THE BOUNDS MATTER BEYOND FALSE POSITIVES: the pilot works in a position
+  # NORMALISED inside the bar, so a bar measured 810 when it is 470 puts the
+  # fish and the capsule in the wrong place (trace error_mean 11%). Bounds that
+  # match the real thing do not just avoid ghosts: they fix the aim.
+  #
+  # The magnitudes are settings in ScreenScale's LINEAR family, so another
+  # monitor scales them by the same ruler as every other pixel-denominated seed.
+  #
+  # No character marked = nil, and the watcher goes BLIND AND SAYS SO rather
+  # than scanning somewhere it was never taught.
   def mini_game_region(%__MODULE__{mini_game_region: region}) when is_tuple(region), do: region
+  def mini_game_region(%__MODULE__{} = calib), do: derived_mini_game_region(calib)
 
-  def mini_game_region(%__MODULE__{skill_bar_region: {_sx, skill_top, _sw, _sh}} = calib) do
-    case player_point(calib) do
-      {px, py} ->
-        side = max(Pokex.Settings.get(:mini_game_side_px), 1)
-        top = max(py - @mini_game_above_px, 0)
-        bottom = max(skill_top - @mini_game_skill_gap_px, top + 1)
+  @doc """
+  The strip the anchors SUGGEST, ignoring any hand mark — what the calibration
+  page draws on the screenshot so he can accept it with one click instead of
+  clicking two corners (his ask, 2026-08-10: "quando for pra calibrar ele ter
+  essa sugestão, mostrando como ficaria na tela").
+  """
+  def derived_mini_game_region(%__MODULE__{player_point: {px, py}}) do
+    width = max(Pokex.Settings.get(:mini_game_bar_width_px), 1)
+    centre = px + Pokex.Settings.get(:mini_game_bar_offset_px)
+    top = max(py - Pokex.Settings.get(:mini_game_above_px), 0)
+    height = max(Pokex.Settings.get(:mini_game_strip_height_px), 1)
 
-        {px - side, top, 2 * side, bottom - top}
-
-      nil ->
-        nil
-    end
+    {centre - div(width, 2), top, width, height}
   end
 
-  def mini_game_region(%__MODULE__{}), do: nil
+  # The MARKED character, never `player_point/1`'s screen-centre fallback: a
+  # strip hung off a guessed anchor is guess number three, and the first two
+  # both failed in the field (the half-screen box, and the tile box that read
+  # dark trunk + blue flowers as "bar + capsule"). No character = nil, and the
+  # watcher goes blind AND SAYS SO.
+  def derived_mini_game_region(%__MODULE__{}), do: nil
 
   @doc """
   Where the MINIMAP is, resolved — the HAND wins, auto-layout is the fallback

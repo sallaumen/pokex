@@ -57,54 +57,53 @@ defmodule Pokex.CalibrationMiniGameTest do
     assert Calibration.mini_game_region(hand_marked) == {2976, 555, 113, 773}
   end
 
-  # A imagem anotada dele (2026-08-05): "ele está sempre ali bem pertinho do meu
-  # personagem e vai até quase lá na barra de skills". As duas âncoras já são
-  # calibradas, então a faixa se DERIVA delas — e re-deriva sozinha quando a
-  # resolução muda, que era a queixa real.
-  describe "faixa derivada das âncoras (personagem + barra de skills)" do
-    defp anchored do
+  # A SUGESTÃO, medida na marca dele (2026-08-10): ele calibrou a faixa à mão,
+  # jogou com ela e pediu que virasse o padrão — "tu pode fazer essa config ser
+  # sempre sugerida como padrão nesse tamanho atual de monitor?".
+  describe "faixa sugerida a partir do personagem" do
+    # os números REAIS do perfil dele: região {1707, 673, 24, 474} contra um
+    # player_point de {1707, 689}
+    defp his_screen do
       %Calibration{
         scale: 1.0,
         screen_w: 3440,
         screen_h: 1440,
-        player_point: {1688, 697},
-        skill_bar_region: {1532, 1290, 430, 43}
+        player_point: {1707, 689},
+        skill_bar_region: {1536, 1292, 423, 40}
       }
     end
 
-    test "nasce do personagem e para antes da barra de skills" do
-      # meia-largura 50 em volta do personagem; topo 60px acima dele; fundo 20px
-      # acima do topo da barra de skills
-      assert Calibration.mini_game_region(anchored()) == {1638, 637, 100, 633}
+    test "reproduz EXATAMENTE a faixa que ele marcou e validou" do
+      assert Calibration.derived_mini_game_region(his_screen()) == {1707, 673, 24, 474}
     end
 
-    test "CONTÉM a faixa que ele marcou à mão no mesmo perfil" do
-      # perfil 2-moni-8skill-baixo: a marcação caprichada dele, medida
-      {bx, by, bw, bh} = Calibration.mini_game_region(anchored())
-      {x, y, w, h} = {1674, 648, 29, 471}
-
-      assert x >= bx and x + w <= bx + bw, "a faixa marcada escapa em x"
-      assert y >= by and y + h <= by + bh, "a faixa marcada escapa em y"
+    test "sem marca à mão é ela que o bot observa — a página não precisa mediar" do
+      assert Calibration.mini_game_region(his_screen()) == {1707, 673, 24, 474}
     end
 
-    test "acompanha a barra de skills — é isso que sobrevive à troca de resolução" do
-      subiu = %Calibration{anchored() | skill_bar_region: {1532, 1000, 430, 43}}
-      {_x, _y, _w, h} = Calibration.mini_game_region(anchored())
-      {_x2, _y2, _w2, h2} = Calibration.mini_game_region(subiu)
+    test "a mão continua ganhando da sugestão" do
+      marcada = %Calibration{his_screen() | mini_game_region: {10, 20, 30, 40}}
 
-      assert h2 < h
+      assert Calibration.mini_game_region(marcada) == {10, 20, 30, 40}
+      # e a sugestão segue sendo a das âncoras: oferecer de volta a marca que
+      # ele já tem não diria nada
+      assert Calibration.derived_mini_game_region(marcada) == {1707, 673, 24, 474}
     end
 
-    test "sem barra de skills não há de onde derivar: nil, e o vigia fica cego" do
-      sem_barra = %Calibration{anchored() | skill_bar_region: nil}
-      assert Calibration.mini_game_region(sem_barra) == nil
+    test "acompanha o personagem — é isso que sobrevive à troca de resolução" do
+      andou = %Calibration{his_screen() | player_point: {900, 400}}
 
-      assert Calibration.mini_game_region(%Calibration{scale: 1.0}) == nil
+      assert Calibration.derived_mini_game_region(andou) == {900, 384, 24, 474}
     end
 
-    test "a marcação manual continua ganhando da derivação" do
-      marcada = %Calibration{anchored() | mini_game_region: {2976, 555, 113, 773}}
-      assert Calibration.mini_game_region(marcada) == {2976, 555, 113, 773}
+    # Dois palpites de faixa já falharam no campo (a caixa de meia-tela e a
+    # caixa por tiles, que leu tronco escuro + flores azuis como "barra +
+    # cápsula"). O centro da TELA como âncora seria o terceiro.
+    test "sem personagem MARCADO não há sugestão: nil, e o vigia fica cego" do
+      sem_personagem = %Calibration{his_screen() | player_point: nil}
+
+      assert Calibration.derived_mini_game_region(sem_personagem) == nil
+      assert Calibration.mini_game_region(sem_personagem) == nil
     end
   end
 end

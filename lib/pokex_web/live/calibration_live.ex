@@ -72,6 +72,7 @@ defmodule PokexWeb.CalibrationLive do
        adjust_target: nil,
        adjust_step: 5,
        tool: nil,
+       suggested_mini_game: nil,
        coord_probe: nil
      )}
   end
@@ -149,6 +150,19 @@ defmodule PokexWeb.CalibrationLive do
   # watches THAT region instead of hunting the bar inside the arena.
   def handle_event("calibrate_mini_game", _params, socket),
     do: start_quick_fix(socket, :mini_game_a, :mini_game_only)
+
+  # The suggestion is DRAWN on the screenshot before he clicks anything, so
+  # accepting it is one button instead of two corners — and he can still mark by
+  # hand right there if the box is off (the hand always wins).
+  def handle_event("use_suggested_mini_game", _params, socket) do
+    case socket.assigns.suggested_mini_game do
+      {_x, _y, _w, _h} = region ->
+        {:noreply, save_mini_game_region(socket, region)}
+
+      nil ->
+        {:noreply, assign(socket, error: "sem personagem marcado — não dá pra sugerir a faixa")}
+    end
+  end
 
   # --- calibration profiles: save the current one, apply/delete a saved one ----
 
@@ -823,6 +837,22 @@ defmodule PokexWeb.CalibrationLive do
   # design: save_mark stamps the CURRENT screen and the per-monitor memory
   # files the previous calibration under its own display ("me dá uma opção de
   # usar a última calibração daquele monitor" — Lucas, 2026-08-07).
+  # Straight from the anchors, ignoring whatever is marked: this is the OFFER,
+  # and offering him back the mark he already has would say nothing.
+  # Only on the mini-game steps: the same box drawn during, say, the water mark
+  # would be an area he is not being asked about.
+  defp marking_suggestion(step, suggestion) when step in [:mini_game_a, :mini_game_b],
+    do: suggestion
+
+  defp marking_suggestion(_step, _suggestion), do: nil
+
+  defp suggested_mini_game do
+    case Calibration.load() do
+      {:ok, calib} -> Calibration.derived_mini_game_region(calib)
+      _no_calibration -> nil
+    end
+  end
+
   defp start_quick_fix(socket, first_step, mode, draft \\ %{}) do
     case grab_screen() do
       {:ok, screen} ->
@@ -837,7 +867,8 @@ defmodule PokexWeb.CalibrationLive do
            review: nil,
            error: nil,
            skillbar_msg: nil,
-           zoom_at: nil
+           zoom_at: nil,
+           suggested_mini_game: suggested_mini_game()
          )}
 
       error ->
@@ -1787,6 +1818,27 @@ defmodule PokexWeb.CalibrationLive do
             </.form>
           </div>
 
+          <div
+            :if={@step == :mini_game_a and @suggested_mini_game}
+            id="mini-game-suggestion"
+            class="flex flex-wrap items-center gap-2 rounded-lg border border-pk-line bg-pk-raised px-3 py-2 text-pk-body"
+          >
+            <span class="flex-1 text-pk-text-2">
+              A faixa <b class="text-pk-text">verde</b>
+              desenhada na foto é a sugestão pro seu personagem
+              <span class="pk-num font-mono text-pk-meta">{inspect(@suggested_mini_game)}</span>
+              — se ela já está em cima da barra, aceite e pronto.
+            </span>
+            <button
+              type="button"
+              id="use-suggested-mini-game"
+              phx-click="use_suggested_mini_game"
+              class="rounded-lg border border-pk-ok/60 bg-pk-ok/15 px-2.5 py-1 text-pk-meta font-bold text-pk-ok hover:bg-pk-ok/25"
+            >
+              Usar esta faixa
+            </button>
+          </div>
+
           <p :if={CalibrationSteps.marking?(@step)} class="text-xs">
             <span :if={is_nil(@zoom_at)} class="opacity-70">
               Dê um clique APROXIMADO no alvo — a imagem amplia pra você mirar com precisão.
@@ -1829,7 +1881,9 @@ defmodule PokexWeb.CalibrationLive do
                 player_point={draft_player(@draft)}
                 pokemon_hp_region={@draft[:pokemon_hp_region]}
                 pokemon_photo_point={@draft[:pokemon_photo_point]}
-                mini_game_region={@draft[:mini_game_region]}
+                mini_game_region={
+                  @draft[:mini_game_region] || marking_suggestion(@step, @suggested_mini_game)
+                }
                 minimap_region={@draft[:minimap_region]}
                 minimap_coord_region={@draft[:minimap_coord_region]}
                 minimap_player_point={@draft[:minimap_player_point]}

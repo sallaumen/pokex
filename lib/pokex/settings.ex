@@ -296,7 +296,14 @@ defmodule Pokex.Settings do
     # clicar o player_point, sem virar a caixa larga que leu tronco escuro +
     # flores azuis como minigame (2026-08-05). Estreite se voltar a ver
     # minigame onde não tem.
-    mini_game_side_px: 50,
+    # A faixa do minigame DERIVADA, medida na marca do próprio Lucas
+    # (2026-08-10, 3440×1440): região {1707, 673, 24, 474} contra um
+    # player_point de {1707, 689}. O centro da barra fica 12pt à DIREITA dele,
+    # a barra tem 24 de largura, começa 16 acima e desce 474.
+    mini_game_bar_offset_px: 12,
+    mini_game_bar_width_px: 24,
+    mini_game_above_px: 16,
+    mini_game_strip_height_px: 474,
     # Half-width (screen points) of the window around the player point where the bar may sit.
     # Measured 2026-07-10: the game draws the bar ~40px to the RIGHT of the character sprite,
     # so this must cover sprite-center error + that offset (the old 4%-of-width default = ~26px
@@ -881,7 +888,10 @@ defmodule Pokex.Settings do
     # floor 5s: a sweep of 80 tiles already takes ~15s of Body time — a shorter
     # cadence than that would be a sweep that never stops
     sweep_interval_ms: 5_000..3_600_000,
-    mini_game_side_px: 5..2000,
+    mini_game_bar_offset_px: -2000..2000,
+    mini_game_bar_width_px: 4..2000,
+    mini_game_above_px: 0..2000,
+    mini_game_strip_height_px: 20..4000,
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,
     settle_max_ms: 100..600_000,

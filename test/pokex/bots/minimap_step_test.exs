@@ -139,4 +139,28 @@ defmodule Pokex.Bots.MinimapStepTest do
       assert cx <= 3000 + 200 - 1 - 6
     end
   end
+
+  # Lucas's 2026-08-10 direction: walking is ARROW KEYS now — one press = one
+  # sqm in the right direction, and the position CHANGE is what makes the
+  # coordinate label render. The minimap click stays as a primitive, but the
+  # cavebot stands on this.
+  describe "arrow_step" do
+    test "presses the dominant axis's arrow; the game's y grows SOUTH" do
+      assert {:ok, "right"} = Body.arrow_step(5, 2)
+      assert {:ok, "left"} = Body.arrow_step(-3, 1)
+      assert {:ok, "down"} = Body.arrow_step(1, 4)
+      assert {:ok, "up"} = Body.arrow_step(0, -2)
+
+      assert Enum.filter(Fake.calls(), &match?({:press, _}, &1)) ==
+               [{:press, "right"}, {:press, "left"}, {:press, "down"}, {:press, "up"}]
+    end
+
+    test "refuses out loud: no direction, and a shut gate" do
+      assert Body.arrow_step(0, 0) == {:error, :no_direction}
+
+      InputGate.set_focus_ok(false)
+      on_exit(fn -> InputGate.set_focus_ok(true) end)
+      assert Body.arrow_step(3, 0) == {:error, :input_gate_closed}
+    end
+  end
 end

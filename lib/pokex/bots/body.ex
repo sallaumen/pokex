@@ -75,6 +75,38 @@ defmodule Pokex.Bots.Body do
     end
   end
 
+  @doc """
+  Walks ONE tile by pressing an arrow key — Lucas's direction (2026-08-10):
+  one press = one sqm in the right direction, no minimap click near the
+  hover controls, and the position CHANGE makes the coordinate label render,
+  so movement begets sight. Picks the dominant axis; y grows SOUTH in the
+  game, so dy < 0 presses "up".
+
+  Same out-loud gate refusal as `minimap_step/3`, for the same reason: the
+  cavebot confirms every step by watching the position change, and a
+  suppressed press reported as `:ok` reads as progress that never happened.
+  """
+  def arrow_step(dx, dy, opts \\ [])
+
+  def arrow_step(0, 0, _opts), do: {:error, :no_direction}
+
+  def arrow_step(dx, dy, opts) when is_integer(dx) and is_integer(dy) do
+    server = Keyword.get(opts, :server, __MODULE__)
+    key = arrow_key(dx, dy)
+
+    if InputGate.allowed?() do
+      case perform([{:press, key}], :normal, server) do
+        :ok -> {:ok, key}
+        error -> error
+      end
+    else
+      {:error, :input_gate_closed}
+    end
+  end
+
+  defp arrow_key(dx, dy) when abs(dx) >= abs(dy), do: if(dx > 0, do: "right", else: "left")
+  defp arrow_key(_dx, dy), do: if(dy > 0, do: "down", else: "up")
+
   defp walk_click(point, server) do
     if InputGate.allowed?() do
       case perform([{:click, :left, point}], :normal, server) do

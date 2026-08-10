@@ -8,7 +8,8 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     stuck_max_retries: 4,
     clear_debounce_ms: 800,
     fight_timeout_ms: 20_000,
-    post_kill_dwell_ms: 1200
+    post_kill_dwell_ms: 1200,
+    blind_kick_ms: 1200
   }
 
   defp route do
@@ -136,7 +137,9 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     {l, :none} = Logic.step(l, world(nil), 100)
     assert Logic.blind_ms(l, 100) == 0
 
-    {l, :none} = Logic.step(l, world(nil), 2_500)
+    # past blind_kick_ms the hold becomes a KICK (movement restores sight),
+    # but the blindness stays marked and the state never blocks
+    {l, {:nudge, 1, 0}} = Logic.step(l, world(nil), 2_500)
     assert Logic.blind_ms(l, 2_500) == 2_400
     assert l.state == :walking
 
@@ -214,5 +217,49 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert l.wp_index == 1
     {l, _} = Logic.step(l, world({20, 10, 7}), 20)
     assert l.wp_index == 0
+  end
+
+  # The client only renders the coordinate while the position CHANGES (or
+  # under a hovering mouse): a standing blind bot would stay blind forever.
+  # One kicked step toward the waypoint brings the reading back.
+  describe "blind kick" do
+    test "blind while walking: holds first, kicks ONE nudge after blind_kick_ms" do
+      logic = %{Logic.new(route(), @cfg) | combat_running?: true, last_pos: {8, 10, 7}}
+
+      # fresh blindness: hold
+      {logic, :none} = Logic.step(logic, world(nil), 1000)
+      {logic, :none} = Logic.step(logic, world(nil), 1400)
+
+      # past the interval: one kick toward wp 1 (east of last_pos)
+      assert {logic, {:nudge, 1, 0}} = Logic.step(logic, world(nil), 2300)
+
+      # throttled: no second kick inside the interval
+      {logic, :none} = Logic.step(logic, world(nil), 2600)
+
+      # and a second kick once another interval passes
+      assert {_logic, {:nudge, 1, 0}} = Logic.step(logic, world(nil), 3600)
+    end
+
+    test "without any last position the kick still moves (east by convention)" do
+      logic = %{Logic.new(route(), @cfg) | combat_running?: true}
+
+      {logic, :none} = Logic.step(logic, world(nil), 1000)
+      assert {_logic, {:nudge, 1, 0}} = Logic.step(logic, world(nil), 2300)
+    end
+
+    test "sight resets the kick throttle along with the blindness clock" do
+      logic = %{Logic.new(route(), @cfg) | combat_running?: true, last_pos: {8, 10, 7}}
+
+      {logic, :none} = Logic.step(logic, world(nil), 1000)
+      assert {logic, {:nudge, 1, 0}} = Logic.step(logic, world(nil), 2300)
+
+      # a read arrives: walking resumes, blindness and kick marks cleared
+      assert {logic, {:walk, _dx, _dy}} = Logic.step(logic, world({8, 10, 7}), 2400)
+      assert Logic.blind_ms(logic, 2500) == nil
+
+      # blindness restarts from zero: no instant kick
+      {logic, :none} = Logic.step(logic, world(nil), 2600)
+      {_logic, :none} = Logic.step(logic, world(nil), 3000)
+    end
   end
 end

@@ -178,7 +178,7 @@ defmodule Pokex.Bots.Combat.Logic do
 
       now - logic.tabbed_at > logic.config.tab_confirm_ms and
           logic.post_tab_frames >= logic.config.tab_confirm_frames ->
-        give_up_hunt(logic, now)
+        give_up_hunt(logic, obs, now)
 
       # The window expired but the evidence never CAME (no post-Tab frame): we
       # don't cycle targets blind — but we also don't wait forever on a capture
@@ -281,7 +281,7 @@ defmodule Pokex.Bots.Combat.Logic do
   # the own position. One EXTRA target hunts immediately; a shrinking list
   # clears it; the TTL re-probes periodically (self-corrects a wrong
   # presumption). A real lock resets the count (fresh_lock clause).
-  defp give_up_hunt(logic, now) do
+  defp give_up_hunt(logic, obs, now) do
     hold = %{
       logic
       | state: :hunting,
@@ -291,7 +291,7 @@ defmodule Pokex.Bots.Combat.Logic do
         hold_until: now + logic.config.hunt_cooldown_ms
     }
 
-    needed = Map.get(logic.config, :scenery_hunts_needed, 0)
+    needed = hunts_needed(logic, obs)
 
     cond do
       logic.hunt_enemies == 0 or needed == 0 ->
@@ -307,9 +307,7 @@ defmodule Pokex.Bots.Combat.Logic do
              scenery_until: now + ttl
          },
          [
-           {:log,
-            "🗿 #{logic.hunt_enemies} alvo(s) sem lock em #{needed} caçadas — " <>
-              "cenário presumido por #{div(ttl, 1000)}s; Tab só com alvo novo"}
+           {:log, scenery_log(logic.hunt_enemies, needed, ttl)}
          ]}
 
       true ->
@@ -317,6 +315,33 @@ defmodule Pokex.Bots.Combat.Logic do
          [{:log, "Tab não lockou; pausa na caça (#{logic.failed_hunts + 1}/#{needed})"}]}
     end
   end
+
+  defp scenery_log(1, 1, ttl),
+    do:
+      "🗿 o único alvo da lista não lockou e teu pokémon está fora — presumo que é ELE " <>
+        "(por #{div(ttl, 1000)}s); Tab só com alvo novo"
+
+  defp scenery_log(rows, needed, ttl),
+    do:
+      "🗿 #{rows} alvo(s) sem lock em #{needed} caçadas — " <>
+        "cenário presumido por #{div(ttl, 1000)}s; Tab só com alvo novo"
+
+  # How many failed hunts it takes to call a row scenery.
+  #
+  # The default (3) exists for a real question: is that mob unreachable, or did
+  # the Tab merely miss? But when the list holds exactly ONE row AND his own
+  # pokémon is out of its ball, the question is nearly answered before it is
+  # asked — that row is almost certainly his own pokémon, which can never be
+  # locked. Nine Tabs over ten seconds to learn it (Lucas, 2026-08-10) is the
+  # bot standing still for nothing: ONE Tab settles the suspicion, and the
+  # presumption still self-corrects (it expires, and a growing list drops it).
+  defp hunts_needed(logic, obs) do
+    needed = Map.get(logic.config, :scenery_hunts_needed, 0)
+
+    if needed > 0 and logic.hunt_enemies == 1 and own_out?(obs), do: 1, else: needed
+  end
+
+  defp own_out?(obs), do: obs != nil and obs[:own_out?] == true
 
   # The presumption self-corrects: it expires at the TTL (re-probe), and a list
   # SMALLER than it means the composition changed (the scenery left) — forget

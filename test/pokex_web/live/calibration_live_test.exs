@@ -1196,6 +1196,52 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # "tu pode fazer essa config ser sempre sugerida como padrão... quando for pra
+  # calibrar ele ter essa sugestão, mostrando como ficaria na tela?" (Lucas,
+  # 2026-08-10). A sugestão é DESENHADA na foto antes de qualquer clique e cabe
+  # num botão — dois cantos viram zero.
+  test "the mini-game step draws the suggested strip and takes it in one click", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 1.0,
+      screen_w: 200,
+      screen_h: 150,
+      player_point: {100, 60},
+      neutral_point: {52, 36}
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration")
+
+    html = view |> element("button", "Só o minigame") |> render_click()
+
+    # from the character: centre 12 to his right, 24 wide, 16 above him, 474 down
+    suggestion = {100, 44, 24, 474}
+    assert has_element?(view, "#mini-game-suggestion")
+    assert html =~ inspect(suggestion)
+    # drawn on the photo, not just described
+    assert has_element?(view, "#calibration-screen")
+    assert html =~ "mini-game-region"
+
+    view |> element("#use-suggested-mini-game") |> render_click()
+
+    assert {:ok, calib} = Calibration.load()
+    assert calib.mini_game_region == suggestion
+    assert render(view) =~ "Faixa do minigame salva"
+  end
+
+  @tag :tmp_dir
   test "standalone Pokémon-spot calibration merges pokemon_spot_point into the saved calibration",
        %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

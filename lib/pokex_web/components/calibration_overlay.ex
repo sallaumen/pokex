@@ -118,6 +118,7 @@ defmodule PokexWeb.CalibrationOverlay do
       </div>
       <div
         :if={@mini_game_region}
+        id="mini-game-region"
         class={[
           "absolute rounded",
           box(@quiet, "border-2 border-primary bg-primary/10", "border border-primary/70")

@@ -69,7 +69,10 @@ defmodule Pokex.ScreenScale do
     :corpse_cell_px,
     :fishing_bubble_radius_px,
     :glow_search_margin,
-    :mini_game_side_px
+    :mini_game_bar_offset_px,
+    :mini_game_bar_width_px,
+    :mini_game_above_px,
+    :mini_game_strip_height_px
   ]
 
   @area [

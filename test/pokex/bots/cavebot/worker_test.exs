@@ -25,6 +25,14 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeBody do
     end
   end
 
+  @doc "Walking holds a direction now; [] is the release."
+  def hold(keys) do
+    fake = Agent.get(__MODULE__, & &1)
+    send(fake.test, {:held, keys})
+
+    if keys == [], do: :ok, else: fake.reply
+  end
+
   def perform(actions, priority, _server \\ nil) do
     send(test_pid(), {:performed, priority, actions})
     :ok
@@ -169,7 +177,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:combat_cmd, :run}, 1_000
 
     tick!(worker)
-    assert_receive {:stepped, 90, 80}, 1_000
+    assert_receive {:held, ["right", "down"]}, 1_000
   end
 
   test "enemies on screen: no walking — Logic yields to the fight", %{worker: worker} do
@@ -182,7 +190,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:combat_cmd, :run}, 1_000
 
     tick!(worker)
-    refute_receive {:stepped, _dx, _dy}, 300
+    refute_receive {:held, [_ | _]}, 300
     assert Worker.status(worker).state == :fighting
   end
 
@@ -194,7 +202,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:combat_cmd, :run}, 1_000
 
     tick!(worker)
-    refute_receive {:stepped, _dx, _dy}, 300
+    refute_receive {:held, [_ | _]}, 300
 
     status = Worker.status(worker)
     assert status.state == :walking
@@ -207,8 +215,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   test "a step refused by the gate becomes a visible reason, cleared when it reopens", %{
     worker: worker
   } do
-    # this test drives ticks by hand: the press pacing is another test's job
-    SettingsStash.stash!(cavebot_step_confirm_ms: 0)
     route!()
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
@@ -219,7 +225,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     FakeBody.refuse(:input_gate_closed)
     minimap!({10, 20, 7})
     tick!(worker)
-    assert_receive {:stepped, 90, 80}, 1_000
+    assert_receive {:held, ["right", "down"]}, 1_000
 
     status = Worker.status(worker)
     assert status.hold_reason =~ "jogo sem foco"
@@ -228,7 +234,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     FakeBody.allow()
     minimap!({10, 20, 7})
     tick!(worker)
-    assert_receive {:stepped, 90, 80}, 1_000
+    assert_receive {:held, ["right", "down"]}, 1_000
     assert Worker.status(worker).hold_reason == nil
   end
 
@@ -243,7 +249,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     FakeBody.refuse(:no_layout)
     minimap!({10, 20, 7})
     tick!(worker)
-    assert_receive {:stepped, 90, 80}, 1_000
+    assert_receive {:held, ["right", "down"]}, 1_000
 
     assert Worker.status(worker).hold_reason =~ "HUD não localizado"
   end
@@ -283,7 +289,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert Worker.status(worker).state == :blocked
 
     tick!(worker)
-    refute_receive {:stepped, _dx, _dy}, 300
+    refute_receive {:held, [_ | _]}, 300
     refute_receive {:combat_cmd, :run}, 100
   end
 
@@ -329,7 +335,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     minimap!({10, 20, 7})
     tick!(worker)
-    refute_receive {:stepped, _dx, _dy}, 300
+    refute_receive {:held, [_ | _]}, 300
     refute_receive {:combat_cmd, _cmd}, 100
   end
 
@@ -359,7 +365,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     InputGate.set_focus_ok(true)
     minimap!({10, 20, 7})
     Enum.each(1..3, fn _ -> tick!(worker) end)
-    assert_receive {:stepped, _dx, _dy}, 1_000
+    assert_receive {:held, [_ | _]}, 1_000
   end
 
   # A LOCAL block (wall bump) is the cavebot's own problem — treating it like a floor
@@ -412,7 +418,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
     tick!(worker)
-    assert_receive {:stepped, 90, 80}, 1_000
+    assert_receive {:held, ["right", "down"]}, 1_000
 
     status = Worker.status(worker)
     assert status.route == "cavena"
@@ -423,7 +429,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.pos_age_ms >= 0
     assert status.distance_tiles == %{dx: 90, dy: 80}
     assert status.counters == %{waypoints: 0, steps: 1}
-    assert status.last_action.text == "passo 90,80"
+    assert status.last_action.text == "segurando right+down"
 
     WorldState.forget(:minimap)
     tick!(worker)
@@ -454,8 +460,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   end
 
   test "the hunt narrates the edges: route, waypoint (macro) and step (debug)", %{worker: worker} do
-    # this test drives ticks by hand: the press pacing is another test's job
-    SettingsStash.stash!(cavebot_step_confirm_ms: 0)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     two_waypoint_route!()
     :ok = Worker.run(worker)
@@ -470,12 +474,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2"}, 1_000
 
     tick!(worker)
-    assert_receive {:cavebot_log, :debug, "caçada: passo 100,100 → wp 2/2"}, 1_000
+    assert_receive {:cavebot_log, :debug, "caçada: segurando right+down → wp 2/2"}, 1_000
   end
 
   test "the hold reason becomes ONE feed line at the edge, not one per tick", %{worker: worker} do
-    # this test drives ticks by hand: the press pacing is another test's job
-    SettingsStash.stash!(cavebot_step_confirm_ms: 0)
     route!()
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
@@ -489,7 +491,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     Enum.each(1..3, fn _ ->
       minimap!({10, 20, 7})
       tick!(worker)
-      assert_receive {:stepped, 90, 80}, 1_000
+      assert_receive {:held, ["right", "down"]}, 1_000
     end)
 
     assert_receive {:cavebot_log, :macro, reason}, 1_000
@@ -550,18 +552,18 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     # raw count says 1 enemy: without Combat's verdict the hunt stands still
     tick!(worker)
-    refute_receive {:stepped, _dx, _dy}, 300
+    refute_receive {:held, [_ | _]}, 300
 
     # Combat gave up on that row — the road is free again
     send(worker, {:combat, %{state: :hunting, scenery: 1}})
     # clear -> post_fight -> walking -> step, one tick each with the clocks at zero
     Enum.each(1..4, fn _tick -> tick!(worker) end)
-    assert_receive {:stepped, 90, 80}, 1_000
+    assert_receive {:held, ["right", "down"]}, 1_000
 
     # and a REAL target still stops it
     send(worker, {:combat, %{state: :hunting, scenery: 0}})
     tick!(worker)
-    refute_receive {:stepped, _dx2, _dy2}, 300
+    refute_receive {:held, [_ | _]}, 300
   end
 
   # Heard, never asked: a `call` to the Catcher parks behind its multi-second

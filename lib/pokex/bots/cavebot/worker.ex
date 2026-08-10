@@ -71,8 +71,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     clear_debounce_ms: :cavebot_clear_debounce_ms,
     fight_timeout_ms: :cavebot_fight_timeout_ms,
     post_kill_dwell_ms: :cavebot_post_kill_dwell_ms,
-    capture_wait_ms: :cavebot_capture_wait_ms,
-    step_confirm_ms: :cavebot_step_confirm_ms
+    capture_wait_ms: :cavebot_capture_wait_ms
   }
 
   def topic, do: @topic
@@ -89,6 +88,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       reattach_attempts: 0,
       combat_state: :idle,
       combat_scenery: 0,
+      held_keys: [],
       capture_pending: 0,
       last_step: nil,
       pos: nil,
@@ -171,6 +171,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def handle_call(:halt, _from, %{logic: nil} = state), do: {:reply, :ok, state}
 
   def handle_call(:halt, _from, state) do
+    state = release_walk(state)
     Combat.Worker.halt(state.combat)
     WorldState.forget(:dungeon)
 
@@ -322,10 +323,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # `last_step` describes THIS tick's step attempt: when the Logic asks for no
   # step there is no attempt — and a stale error must not hang on screen
   # explaining a stop that already has another reason.
-  def translate(state, :none), do: %{state | last_step: nil}
+  def translate(state, :none), do: %{release_walk(state) | last_step: nil}
 
-  def translate(state, {:walk, dx, dy}), do: arrow_step(state, dx, dy)
-  def translate(state, {:nudge, dx, dy}), do: arrow_step(state, dx, dy)
+  # Walking HOLDS the direction — both axes at once when the waypoint is
+  # diagonal — and keeps holding while the intent is unchanged. Tapping one
+  # arrow per tile was the client's slowest gear (Lucas, 2026-08-10: "está
+  # dando pequenos cliques, o personagem tá andando muito lento").
+  def translate(state, {:walk, dx, dy}), do: hold_walk(state, dx, dy)
+
+  # A nudge is ONE tile on purpose (the blind kick, the stall breaker): it taps,
+  # and lets go of whatever was held first — a kick under a held key is not a
+  # kick, it is the same walk continuing.
+  def translate(state, {:nudge, dx, dy}) do
+    state |> release_walk() |> arrow_step(dx, dy)
+  end
 
   # Starting combat CAN fail preflight (no calibration, e.g.). On failure we
   # cannot keep walking blind into enemies nobody will kill — the Logic would
@@ -345,7 +356,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   def translate(state, :halt_combat) do
     Combat.Worker.halt(state.combat)
-    state
+    release_walk(state)
   end
 
   # DANGEROUS BLOCK vs LOCAL BLOCK — the split exists because treating both as
@@ -361,6 +372,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # (nothing may auto-resume over it), then the combat this worker drives, then
   # the whole fleet.
   def translate(state, {:block, reason}) when reason in @dangerous_blocks do
+    state = release_walk(state)
     Logger.warning("Cavebot: BLOQUEADO (#{inspect(reason)}) — parando a frota")
     InputGate.set_panic_latch(true)
     Combat.Worker.halt(state.combat)
@@ -375,6 +387,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # stops: the tick, the feeds, and the combat — which in a hunt is driven from
   # here and would fight alone forever if it outlived its owner.
   def translate(state, {:block, reason}) do
+    state = release_walk(state)
     Logger.warning("Cavebot: parei (#{inspect(reason)}) — o resto da frota segue")
     Combat.Worker.halt(state.combat)
     stop_hunt(state, reason)
@@ -386,6 +399,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # Worker (combat refused to start) — either way the reported state must be
   # :blocked, terminal until a human restarts.
   defp stop_hunt(state, reason) do
+    state = release_walk(state)
     broadcast({:cavebot_alarm, reason})
     log(:macro, block_text(reason))
 
@@ -413,6 +427,47 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # the fleet silently on 2026-07-23 (gate closed → click swallowed → Logic
   # believed the step → frozen position → :stuck → panic). A Logger.debug is
   # not visibility: nobody reads the log when the bot stops.
+  # The keys a direction asks for: one per non-zero axis, so a diagonal
+  # waypoint is walked diagonally instead of in two straight legs. The game's
+  # y grows SOUTH.
+  defp hold_walk(state, dx, dy) do
+    keys = Enum.reject([horizontal(dx), vertical(dy)], &is_nil/1)
+    at = now()
+    text = "segurando #{Enum.join(keys, "+")}"
+    result = step_result(state.body.hold(keys))
+    stepped = %{state | last_step: %{dx: dx, dy: dy, result: result, at: at}}
+
+    if result == :ok do
+      if action_text(state) != text,
+        do: log(:debug, "#{text} → wp #{stepped.logic.wp_index + 1}/#{wp_total(stepped)}")
+
+      %{
+        stepped
+        | held_keys: keys,
+          counters: bump(stepped.counters, :steps),
+          last_action: %{text: text, at: at}
+      }
+    else
+      Logger.debug("Cavebot: segurar (#{dx},#{dy}) falhou: #{inspect(result)}")
+      %{stepped | held_keys: []}
+    end
+  end
+
+  defp release_walk(%{held_keys: []} = state), do: state
+
+  defp release_walk(state) do
+    state.body.hold([])
+    %{state | held_keys: []}
+  end
+
+  defp horizontal(0), do: nil
+  defp horizontal(dx) when dx > 0, do: "right"
+  defp horizontal(_dx), do: "left"
+
+  defp vertical(0), do: nil
+  defp vertical(dy) when dy > 0, do: "down"
+  defp vertical(_dy), do: "up"
+
   defp arrow_step(state, dx, dy) do
     at = now()
     raw = state.body.arrow_step(dx, dy, [])
@@ -433,6 +488,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
+  defp step_result(:ok), do: :ok
   defp step_result({:ok, _point}), do: :ok
   defp step_result({:error, reason}), do: {:error, reason}
   defp step_result(other), do: {:error, other}

@@ -28,6 +28,34 @@ defmodule Pokex.Bots.Body do
   def cursor(server \\ __MODULE__), do: GenServer.call(server, :cursor)
 
   @doc """
+  HOLDS a set of keys (0, 1 or 2 arrows), releasing whatever else was held.
+
+  Walking by tapping one arrow per tile is the client's slowest gear: Lucas
+  measured his character crawling while the log filled with press/release
+  pairs (2026-08-10). A held arrow walks continuously, and two held arrows walk
+  the DIAGONAL — one tile of progress on both axes at once.
+
+  The set REPLACES the previous one, so the caller never has to remember what
+  it asked for: `hold(["up", "left"])` after `hold(["up"])` presses left and
+  keeps up down; `hold([])` releases everything.
+
+  A hold is refreshed by every new call and dies on its own after
+  `hold_max_ms` without one — the watchdog that keeps a crashed or wedged
+  caller from leaving an arrow down forever.
+  """
+  @spec hold([String.t()], GenServer.server()) :: :ok | {:error, term}
+  def hold(keys, server \\ __MODULE__) when is_list(keys),
+    do: GenServer.call(server, {:hold, keys})
+
+  @doc "Lets go of everything held. Safe to call when nothing is."
+  @spec release(GenServer.server()) :: :ok
+  def release(server \\ __MODULE__), do: hold([], server)
+
+  @doc "What is held right now — the panel's proof that nothing is stuck down."
+  @spec held(GenServer.server()) :: [String.t()]
+  def held(server \\ __MODULE__), do: GenServer.call(server, :held)
+
+  @doc """
   Walks by clicking the minimap: `dx`/`dy` are TILES from where he stands.
 
   The minimap is the cheapest way to move in this game — the client walks the
@@ -169,7 +197,10 @@ defmodule Pokex.Bots.Body do
          high: :queue.new(),
          normal: :queue.new(),
          current: nil,
-         last_priority: nil
+         last_priority: nil,
+         # keys currently held down, and the watchdog that outlives their caller
+         held: [],
+         hold_timer: nil
        }}
 
   # Cursor reads bypass the input queue (read-only, needed live for the panic corner).
@@ -183,6 +214,25 @@ defmodule Pokex.Bots.Body do
   def handle_call(:cursor, _from, state) do
     {:reply, safe_cursor_position(), state}
   end
+
+  # Held keys are handled INLINE, not through the action queue: a key_down is
+  # ~2ms (native CGEvent) and, more importantly, the set of held keys is STATE
+  # — the queue's executor runs in a throwaway process and could not own it.
+  def handle_call({:hold, []}, _from, state), do: {:reply, :ok, apply_hold(state, [])}
+
+  def handle_call({:hold, keys}, _from, state) do
+    # Refuses OUT LOUD, like every other walking primitive: the gate SWALLOWS a
+    # suppressed input and answers :ok, and a hunt told "held" while nothing is
+    # held believes in progress that never happens. Whatever was down is let go
+    # on the way out — a shut gate must not leave an arrow pressed.
+    if InputGate.allowed?() do
+      {:reply, :ok, apply_hold(state, Enum.uniq(keys))}
+    else
+      {:reply, {:error, :input_gate_closed}, apply_hold(state, [])}
+    end
+  end
+
+  def handle_call(:held, _from, state), do: {:reply, state.held, state}
 
   def handle_call({:perform, actions, priority, requested_at}, from, %{busy?: false} = state) do
     {:noreply, run_next(state, actions, from, requested_at, priority)}
@@ -202,6 +252,13 @@ defmodule Pokex.Bots.Body do
   end
 
   @impl true
+  # The watchdog: whoever was holding stopped refreshing (crashed, wedged,
+  # halted). Let go — a held arrow with nobody watching is the character
+  # walking away on its own.
+  def handle_info(:release_hold, state) do
+    {:noreply, apply_hold(%{state | hold_timer: nil}, [])}
+  end
+
   def handle_info({:done, from, result}, state) do
     GenServer.reply(from, result)
     broadcast_done(state, result)
@@ -361,6 +418,43 @@ defmodule Pokex.Bots.Body do
         {:error, r} -> {:halt, {:error, r}}
       end
     end)
+  end
+
+  # Diff, never a blind re-press: pressing a key that is already down repeats
+  # it, and releasing one that is not is noise the game can misread.
+  defp apply_hold(state, keys) do
+    rig = Rig.impl()
+    Enum.each(state.held -- keys, &rig.key_up/1)
+    Enum.each(keys -- state.held, &rig.key_down/1)
+
+    if state.held != keys,
+      do:
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @topic,
+          {:body_log, :debug, "segurando #{inspect(keys)}"}
+        )
+
+    %{state | held: keys, hold_timer: reschedule_release(state.hold_timer, keys)}
+  end
+
+  defp reschedule_release(timer, keys) do
+    if timer, do: Process.cancel_timer(timer)
+    if keys != [], do: Process.send_after(self(), :release_hold, hold_max_ms())
+  end
+
+  defp hold_max_ms do
+    Pokex.Settings.get(:hold_max_ms)
+  catch
+    :exit, _reason -> 1_500
+  end
+
+  @impl true
+  # Nothing may outlive this process holding a key down.
+  def terminate(_reason, state) do
+    rig = Rig.impl()
+    Enum.each(state.held, &rig.key_up/1)
+    :ok
   end
 
   defp safe_cursor_position do

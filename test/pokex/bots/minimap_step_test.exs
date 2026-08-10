@@ -144,6 +144,57 @@ defmodule Pokex.Bots.MinimapStepTest do
   # sqm in the right direction, and the position CHANGE is what makes the
   # coordinate label render. The minimap click stays as a primitive, but the
   # cavebot stands on this.
+  # Tapping one arrow per tile is the client's slowest gear. A HELD arrow walks
+  # continuously; two held arrows walk the diagonal.
+  describe "held keys" do
+    test "the set REPLACES the last one: only the difference is pressed and released" do
+      assert Body.hold(["up"]) == :ok
+      assert Body.held() == ["up"]
+      assert Enum.count(Fake.calls(), &match?({:key_down, "up"}, &1)) == 1
+
+      # up stays down, left joins it — the diagonal
+      assert Body.hold(["up", "left"]) == :ok
+      assert Body.held() == ["up", "left"]
+      assert Enum.count(Fake.calls(), &match?({:key_down, "up"}, &1)) == 1
+      assert Enum.any?(Fake.calls(), &match?({:key_down, "left"}, &1))
+      refute Enum.any?(Fake.calls(), &match?({:key_up, "up"}, &1))
+
+      # a new direction lets go of what is not in it
+      assert Body.hold(["right"]) == :ok
+      assert Enum.any?(Fake.calls(), &match?({:key_up, "up"}, &1))
+      assert Enum.any?(Fake.calls(), &match?({:key_up, "left"}, &1))
+
+      assert Body.hold([]) == :ok
+      assert Body.held() == []
+      assert Enum.any?(Fake.calls(), &match?({:key_up, "right"}, &1))
+    end
+
+    test "a shut gate refuses OUT LOUD and lets go of what was held" do
+      assert Body.hold(["up"]) == :ok
+
+      InputGate.set_focus_ok(false)
+      on_exit(fn -> InputGate.set_focus_ok(true) end)
+
+      assert Body.hold(["right"]) == {:error, :input_gate_closed}
+      assert Body.held() == []
+      assert Enum.any?(Fake.calls(), &match?({:key_up, "up"}, &1))
+
+      # releasing is ALWAYS allowed: it can only ever stop something
+      assert Body.hold([]) == :ok
+    end
+
+    test "the watchdog lets go when nobody refreshes the hold" do
+      Pokex.SettingsStash.stash!(hold_max_ms: 200)
+
+      assert Body.hold(["down"]) == :ok
+      assert Body.held() == ["down"]
+
+      Process.sleep(320)
+      assert Body.held() == []
+      assert Enum.any?(Fake.calls(), &match?({:key_up, "down"}, &1))
+    end
+  end
+
   describe "arrow_step" do
     test "presses the dominant axis's arrow; the game's y grows SOUTH" do
       assert {:ok, "right"} = Body.arrow_step(5, 2)

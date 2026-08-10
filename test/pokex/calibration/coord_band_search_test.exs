@@ -11,6 +11,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
 
   alias Pokex.Calibration.CoordBandSearch
   alias Pokex.{Layout, ScreenFixtures}
+  alias Pokex.Vision.Frame
 
   @coords %{
     "ultrawide_3440x1440_full" => {337, 46_107, 4},
@@ -25,7 +26,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
       {:ok, fix} = Layout.locate(frame)
       map = Layout.region(:minimap, fix)
 
-      assert {:ok, band, ^expected} = CoordBandSearch.search(frame, map, 1.0, ink: 120),
+      assert {:ok, band, ^expected, _ink} = CoordBandSearch.search(frame, map, 1.0, ink: 120),
              "não achei a faixa em #{name}"
 
       # the found band must agree with where the layout knows the strip lives
@@ -41,10 +42,10 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
     {:ok, fix} = Layout.locate(frame)
 
-    {:ok, band, _pos} =
+    {:ok, band, _pos, ink} =
       CoordBandSearch.search(frame, Layout.region(:minimap, fix), 1.0, ink: 120)
 
-    assert Pokex.Vision.Glyphs.read_coord(frame, band, ink: 120) == {337, 46_107, 4}
+    assert Pokex.Vision.Glyphs.read_coord(frame, band, ink: ink) == {337, 46_107, 4}
   end
 
   test "the hover bar pushes the label deep below the marked top — still found" do
@@ -56,8 +57,34 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     {:ok, fix} = Layout.locate(frame)
     {_cx, cy, _cw, _ch} = Layout.region(:minimap_coord, fix)
 
-    assert {:ok, _band, {337, 46_107, 4}} =
+    assert {:ok, _band, {337, 46_107, 4}, _ink} =
              CoordBandSearch.search(frame, {3150, cy - 46, 290, 458}, 1.0, ink: 120)
+  end
+
+  # The 2026-08-10 field photo, saved whole: the mouse was over the minimap, so
+  # the client rendered the CLOCK and pushed the coordinate 83pt down — a
+  # different place from where the day-to-day reading looks. Lucas's own
+  # validator: a clock in the picture means the mouse is where it must not be,
+  # and calibrating from that photo saves the exception.
+  test "a hover-state photo is refused by its clock, not calibrated from" do
+    {:ok, frame} = Frame.from_png_file("test/fixtures/screen/minimap_hover_widget.png")
+
+    assert CoordBandSearch.search(frame, {0, 0, 259, 231}, 1.0, ink: 120) == :hovered
+  end
+
+  # Same photo, the coordinate row alone: over bright terrain the label's own
+  # anti-aliasing welds to the map at the taught floor (120) and reads nothing
+  # — measured, 45- and 59-column blobs. The sweep searches the FLOOR too, and
+  # reports the one that worked so the reader can use the same.
+  test "over bright terrain the sweep finds the ink floor that reads" do
+    {:ok, frame} = Frame.from_png_file("test/fixtures/screen/minimap_coord_on_terrain.png")
+
+    assert Pokex.Vision.Glyphs.read_coord(frame, {0, 0, 259, 50}, ink: 120) == nil
+
+    assert {:ok, _band, {2671, 30_439, 5}, ink} =
+             CoordBandSearch.search(frame, {0, 0, 259, 50}, 1.0, ink: 120)
+
+    assert ink > 120
   end
 
   test "a map with no coordinate text anywhere answers :error" do
@@ -74,7 +101,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     # the same capture described as a 2x screen: the map is half-sized in
     # points, the probes must land on the SAME pixels, and the band comes back
     # in points — the unit the calibration file speaks
-    assert {:ok, {bx, by, _bw, _bh}, {337, 46_107, 4}} =
+    assert {:ok, {bx, by, _bw, _bh}, {337, 46_107, 4}, _ink} =
              CoordBandSearch.search(
                frame,
                {div(mx, 2), div(my, 2), div(mw, 2), div(mh, 2)},

@@ -67,6 +67,16 @@ defmodule Pokex.Vision.Glyphs do
   # runner-up; anything else stays unknown.
   @max_diff_ratio 0.12
   @min_diff_slack 2
+  # A character rendered over BRIGHT terrain loses columns the taught shape
+  # had: measured 2026-08-10 on Lucas's screen, the "0" of 30439 came out 15x10
+  # against the atlas's 15x12 — its curves fade first, straight strokes do not.
+  # Comparing across widths costs pixels by construction (every padded column
+  # is a difference), so those comparisons get a wider ceiling AND must beat
+  # the nearest OTHER character by a clear margin — measured on that very "0":
+  # 20 against its own shape, 43 against the closest stranger.
+  @padded_diff_ratio 0.2
+  @runner_up_factor 1.8
+  @max_width_slack 2
   # Measured over the whole atlas: the smallest character the client draws is
   # the comma, at 14 ink pixels. The crumbs the minimap leaves behind are 1-3.
   # Anything under this is not a character in any font we read.
@@ -460,28 +470,16 @@ defmodule Pokex.Vision.Glyphs do
     end
   end
 
-  defp nearest(bitmap) do
-    shape = {length(bitmap), length(hd(bitmap))}
-    cells = elem(shape, 0) * elem(shape, 1)
-    ceiling = max(@min_diff_slack, round(cells * @max_diff_ratio))
-
-    index()
-    |> Map.get(shape, [])
-    |> Enum.map(fn {candidate, char} -> {char, difference(bitmap, candidate)} end)
-    |> Enum.sort_by(&elem(&1, 1))
-    |> case do
-      [{char, best} | rest] ->
-        # a near tie means two glyphs explain the pixels equally well — refuse
-        runner_up = rest |> Enum.map(&elem(&1, 1)) |> List.first()
-
-        if best <= ceiling and (runner_up == nil or runner_up > best + @min_diff_slack),
-          do: char,
-          else: nil
-
-      [] ->
-        nil
-    end
-  end
+  # The SAME background-tolerant match the split halves use, and for the same
+  # measured reason: a character's stroke gains or loses a column of
+  # anti-aliasing with the background behind it. Lucas's 2026-08-10 coordinate
+  # over bright terrain segmented perfectly — 11 glyphs, the right count — and
+  # read NOTHING: its digits came out 15x11 where the atlas knows 15x12, and a
+  # one-column difference used to land in an empty shape bucket, so there was
+  # not even a candidate to score. Candidates one column wider or narrower are
+  # compared padded on whichever side fits best; the ceiling and the
+  # different-character runner-up rule keep the answer honest.
+  defp nearest(bitmap), do: nearest_within(bitmap)
 
   defp difference(a, b) do
     Enum.zip(a, b)
@@ -544,45 +542,65 @@ defmodule Pokex.Vision.Glyphs do
   defp transpose([]), do: []
   defp transpose(rows), do: Enum.zip_with(rows, & &1)
 
-  # `nearest/1` with two changes a half needs: candidates may be one column
-  # wider or narrower (compared padded on the better side), and the runner-up
-  # that forces a refusal must be a DIFFERENT character — two atlas variants of
-  # the same digit agreeing is confirmation, not ambiguity.
-  defp nearest_half(bitmap) do
+  defp nearest_half(bitmap), do: nearest_within(bitmap)
+
+  # The runner-up that forces a refusal must be a DIFFERENT character: two
+  # atlas variants of the same digit agreeing is confirmation, not ambiguity.
+  defp nearest_within(bitmap) do
     rows = length(bitmap)
     width = length(hd(bitmap))
-    ceiling = max(@min_diff_slack, round(rows * width * @max_diff_ratio))
+    cells = rows * width
 
     candidates =
-      for shape_width <- [width - 1, width, width + 1],
+      for delta <- -@max_width_slack..@max_width_slack//1,
+          shape_width = width + delta,
           shape_width > 0,
           {candidate, char} <- Map.get(index(), {rows, shape_width}, []) do
-        {char, half_difference(bitmap, candidate, width, shape_width)}
+        {char, aligned_difference(bitmap, candidate), delta}
       end
 
     case Enum.sort_by(candidates, &elem(&1, 1)) do
-      [{char, best} | rest] ->
-        other = Enum.find(rest, fn {c, _diff} -> c != char end)
-
-        if best <= ceiling and (other == nil or elem(other, 1) > best + @min_diff_slack),
-          do: char,
-          else: nil
+      [{char, best, delta} | rest] ->
+        other = Enum.find(rest, fn {c, _diff, _d} -> c != char end)
+        if accepted?(best, other, delta, cells), do: char, else: nil
 
       [] ->
         nil
     end
   end
 
-  defp half_difference(bitmap, candidate, w, cw) when w == cw, do: difference(bitmap, candidate)
+  defp accepted?(best, other, 0, cells) do
+    best <= max(@min_diff_slack, round(cells * @max_diff_ratio)) and
+      (other == nil or elem(other, 1) > best + @min_diff_slack)
+  end
 
-  defp half_difference(bitmap, candidate, w, cw) when cw == w + 1,
-    do: min(difference(pad_right(bitmap), candidate), difference(pad_left(bitmap), candidate))
+  defp accepted?(best, other, _delta, cells) do
+    best <= max(@min_diff_slack, round(cells * @padded_diff_ratio)) and
+      (other == nil or
+         (elem(other, 1) > best + @min_diff_slack and elem(other, 1) >= best * @runner_up_factor))
+  end
 
-  defp half_difference(bitmap, candidate, w, cw) when cw == w - 1,
-    do: min(difference(bitmap, pad_right(candidate)), difference(bitmap, pad_left(candidate)))
+  # Every horizontal alignment within the width slack — the narrower bitmap is
+  # padded on both sides in turn, so a stroke that lost its left edge and one
+  # that lost its right both find their shape.
+  defp aligned_difference(bitmap, candidate) do
+    width = length(hd(bitmap))
+    candidate_width = length(hd(candidate))
 
-  defp pad_right(rows), do: Enum.map(rows, &(&1 ++ [0]))
-  defp pad_left(rows), do: Enum.map(rows, &[0 | &1])
+    cond do
+      candidate_width == width -> difference(bitmap, candidate)
+      candidate_width > width -> best_alignment(bitmap, candidate, candidate_width - width)
+      true -> best_alignment(candidate, bitmap, width - candidate_width)
+    end
+  end
+
+  defp best_alignment(narrow, wide, gap) do
+    Enum.min(for left <- 0..gap//1, do: difference(pad_sides(narrow, left, gap - left), wide))
+  end
+
+  defp pad_sides(rows, left, right) do
+    Enum.map(rows, &(List.duplicate(0, left) ++ &1 ++ List.duplicate(0, right)))
+  end
 
   @doc """
   Reads a line of text. `confidence` is the share of glyphs the atlas knew;

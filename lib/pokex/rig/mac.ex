@@ -134,25 +134,16 @@ defmodule Pokex.Rig.Mac do
   def move(point), do: gated(fn -> run(Commands.move(point)) end)
 
   @impl true
-  # UNGATED on purpose — the one exception, and a narrow one. The gate's
-  # corner_ok is proven by the Guardian's poller, which only runs while the
-  # fleet is up: during calibration (fleet stopped) the gate can NEVER open,
-  # and the coordinate-band search was silently hovering nothing (2026-08-10).
-  # A hover is a cursor MOVE requested by a human clicking a button — it can
-  # press nothing and leak nowhere, which is what the gate exists to stop.
-  def hover(point), do: run(Commands.move(point))
-
-  @impl true
-  # UNGATED, same narrow exception as hover/1 and for the same reason: the
-  # gate's corner flag is proven by the Guardian, which only polls while the
-  # fleet is up, so during calibration it can never open. The client draws the
-  # coordinate ONLY while the position changes (measured 2026-08-10: standing
-  # still with the mouse away, the minimap has no text at all), so calibrating
-  # the state the bot actually runs in requires a real step.
+  # UNGATED on purpose — one of the two calibration-only exceptions (with
+  # focus_click/1). The gate's corner flag is proven by the Guardian, which
+  # only polls while the fleet is up, so during calibration it can never open.
+  # The client draws the coordinate ONLY while the position changes (measured
+  # 2026-08-10: standing still with the mouse away, the minimap has no text at
+  # all), so calibrating the state the bot runs in requires a real step.
   def tap(combo), do: do_press(combo)
 
   @impl true
-  # UNGATED left click, third and last of the calibration-only exceptions.
+  # UNGATED left click, the second calibration-only exception.
   # Fronting a window with `set frontmost` is not enough for the game to take
   # KEYS: Lucas's arrows landed in the BROWSER (2026-08-10). A click INSIDE the
   # game window is what macOS treats as real focus — aimed at the calibrated

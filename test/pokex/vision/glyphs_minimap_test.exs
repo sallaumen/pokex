@@ -66,7 +66,7 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
       {:ok, frame} =
         Frame.from_png_file("test/fixtures/screen/coord_label_terrain.png")
 
-      assert {:ok, _band, {2396, 30_621, 5}} =
+      assert {:ok, _band, {2396, 30_621, 5}, _ink} =
                Pokex.Calibration.CoordBandSearch.search(
                  frame,
                  {0, 0, frame.width, frame.height},

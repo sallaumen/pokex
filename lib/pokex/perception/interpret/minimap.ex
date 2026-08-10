@@ -23,7 +23,7 @@ defmodule Pokex.Perception.Interpret.Minimap do
   # nothing. First miss hunts immediately (a walking bot must not stay blind),
   # then every 6th.
   @search_every 6
-  @fresh_state %{last: nil, pending: nil, band: nil, misses: 0}
+  @fresh_state %{last: nil, pending: nil, band: nil, ink: nil, misses: 0}
 
   def interpret(frame, calib, settings, state \\ nil) do
     state = Map.merge(@fresh_state, state || %{})
@@ -44,7 +44,11 @@ defmodule Pokex.Perception.Interpret.Minimap do
         opts = coord_opts(calib, settings)
         saved = relative_band(Calibration.minimap_coord_region(calib), ox, oy)
 
-        case try_bands(frame, [state.band, saved], opts) do
+        # the ink floor the hunt settled on wins: over bright terrain the
+        # taught floor welds the map to the strokes and reads nothing
+        read_opts = Keyword.put(opts, :ink, state.ink || opts[:ink])
+
+        case try_bands(frame, [state.band, saved], read_opts) do
           {:ok, band, pos} -> {pos, %{state | band: band, misses: 0}}
           :miss -> hunt_band(frame, calib, {ox, oy}, opts, state)
         end
@@ -76,9 +80,9 @@ defmodule Pokex.Perception.Interpret.Minimap do
 
     with true <- rem(misses - 1, @search_every) == 0,
          {mx, my, mw, mh} <- Calibration.minimap_region(calib),
-         {:ok, band, pos} <-
+         {:ok, band, pos, ink} <-
            CoordBandSearch.search(frame, {mx - ox, my - oy, mw, mh}, frame_scale(frame), opts) do
-      {pos, %{state | band: band, misses: 0}}
+      {pos, %{state | band: band, ink: ink, misses: 0}}
     else
       _not_found -> {nil, %{state | misses: misses}}
     end

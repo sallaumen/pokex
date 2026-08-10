@@ -154,6 +154,25 @@ defmodule Pokex.Calibration do
   def minimap_map_region(%__MODULE__{layout: fix}), do: Pokex.Layout.region(:minimap_map, fix)
 
   @doc """
+  What the `:minimap` feed must CAPTURE: the union of the map and the coord
+  band. The feed used to capture `minimap_region` alone, and a hand-marked band
+  poking outside it (the real 2026-08-10 case: band 2pt above the map's top
+  edge) was silently decapitated before the reader saw a pixel. The reader
+  subtracts this same origin, so band and capture can never disagree.
+  """
+  def minimap_capture_region(%__MODULE__{} = calib),
+    do: region_union(minimap_region(calib), minimap_coord_region(calib))
+
+  defp region_union(nil, band), do: band
+  defp region_union(map, nil), do: map
+
+  defp region_union({x1, y1, w1, h1}, {x2, y2, w2, h2}) do
+    x = min(x1, x2)
+    y = min(y1, y2)
+    {x, y, max(x1 + w1, x2 + w2) - x, max(y1 + h1, y2 + h2) - y}
+  end
+
+  @doc """
   The character's cross on the minimap — FIXED in the window, the map slides
   under it (2026-07-30). Unmarked, the map rectangle's center: what the step
   always assumed, now as fallback instead of dogma.

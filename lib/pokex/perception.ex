@@ -155,8 +155,10 @@ defmodule Pokex.Perception do
       },
       %{
         key: :minimap,
-        # Hand-marked calibration region wins; layout-derived region is the fallback.
-        region: fn calib -> Pokex.Calibration.minimap_region(calib) end,
+        # Hand-marked calibration wins; layout is fallback. The capture is the
+        # UNION of map + coord band — a band poking outside the map would be
+        # silently clipped by a map-only capture (2026-08-10).
+        region: fn calib -> Pokex.Calibration.minimap_capture_region(calib) end,
         interval_setting: :feed_minimap_ms,
         filename: "feed_minimap.png",
         interpret: &Interpret.Minimap.interpret/4

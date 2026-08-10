@@ -27,8 +27,12 @@ defmodule Pokex.Calibration.CoordBandSearch do
                [20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64] ++
                [-2, -4, -6, -8, -10, -12, -16, -20, -24]
   # Text measures 15-21 px of glyph rows plus outline; a band shorter than the
-  # line clips the bitmaps into strangers, a band much taller admits map noise.
-  @heights [16, 18, 14, 20]
+  # line clips the bitmaps into strangers. TALLER bands (24/28) are not noise:
+  # terrain welded to the text is dropped by how far it OVERSHOOTS the text
+  # band, and a short window clips the overshoot below the threshold — the
+  # 2026-08-10 fixture only reads once the window is tall enough to show the
+  # terrain for what it is.
+  @heights [16, 18, 14, 20, 24, 28]
   @margin 2
 
   @doc """

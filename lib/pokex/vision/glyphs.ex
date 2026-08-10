@@ -119,15 +119,23 @@ defmodule Pokex.Vision.Glyphs do
   # cells come back untouched and segmentation is bit-for-bit what it always
   # was — every HUD, HP and battle-list reading is unaffected by construction.
   #
-  # Two rules, both measured:
+  # Three rules, all measured:
   #
   #   1. a blob under `@min_glyph_ink` pixels is a crumb, never a character;
-  #   2. a blob that sits OUTSIDE the text band is only kept while it cannot
+  #   2. a blob larger than any character CAN be is background by
+  #      IMPOSSIBILITY, whatever rows it shares with the text. The tallest
+  #      glyph in any atlas is 21 rows and a welded pair runs ~25 columns; a
+  #      blob far beyond either is terrain. The 2026-08-10 field case: the
+  #      hover label rendered half over GREY unexplored map (140-159 — bright
+  #      AND neutral, so it IS ink), and the terrain formed one huge blob
+  #      sharing the text's rows — the band rule below cannot touch those, so
+  #      "(2396, 30621," welded into a single 35x134 "glyph".
+  #   3. a blob that sits OUTSIDE the text band is only kept while it cannot
   #      BRIDGE two characters. The band is the rows the characters share, which
   #      the map cannot fake: a line of text puts many blobs on the same rows,
   #      while leaked map is alone on the margin rows it arrived in.
   #
-  # Rule 2 discards nothing but bridges. A blob outside the band that lives over
+  # Rule 3 discards nothing but bridges. A blob outside the band that lives over
   # a single character is kept — that is what the dot of an "i" looks like, and
   # dropping it would silently redraw a glyph the atlas already knows. The test
   # is applied one blob at a time against what has been accepted so far, because
@@ -136,13 +144,45 @@ defmodule Pokex.Vision.Glyphs do
     blobs =
       cells
       |> blobs()
-      |> Enum.reject(&(MapSet.size(&1) < @min_glyph_ink))
+      |> Enum.reject(&(MapSet.size(&1) < @min_glyph_ink or impossible_glyph?(&1)))
 
     band = text_band(blobs)
-    {text, stray} = Enum.split_with(blobs, &in_band?(&1, band))
+
+    {text, stray} =
+      blobs
+      |> Enum.reject(&overhangs?(&1, band))
+      |> Enum.split_with(&in_band?(&1, band))
 
     (text ++ admit(stray, columns_of(text)))
     |> Enum.reduce(MapSet.new(), &MapSet.union(&2, &1))
+  end
+
+  # A character pokes past the band only a little: digits dominate the band's
+  # rows and the parentheses — the tallest thing on a coordinate line — stick
+  # out ~2 rows per side; the dot of an "i" sits fully outside (the stray case
+  # below, untouched here). Terrain that touches the text's rows dodges the
+  # stray rule entirely, but it stretches FAR beyond the band — the 2026-08-10
+  # remnant welded "621" while overshooting the band by ~12 rows. More than 6
+  # rows of total overshoot is nothing a character ever does.
+  @max_band_overhang 6
+
+  defp overhangs?(_blob, nil), do: false
+
+  defp overhangs?(blob, {top, bottom}) do
+    {blob_top, blob_bottom} = span(blob, 1)
+    max(top - blob_top, 0) + max(blob_bottom - bottom, 0) > @max_band_overhang
+  end
+
+  # Caps sit ABOVE every real shape with margin (atlas max: 21 rows, ~16 cols;
+  # welded pairs ~25 cols), so no readable character is ever near them. If a
+  # 2x-scale era ever comes, the atlas gets re-taught and these move with it.
+  @max_glyph_rows 26
+  @max_glyph_cols 40
+
+  defp impossible_glyph?(blob) do
+    {top, bottom} = span(blob, 1)
+    {left, right} = span(blob, 0)
+    bottom - top + 1 > @max_glyph_rows or right - left + 1 > @max_glyph_cols
   end
 
   # Accepts the strays that leave the number of column runs unchanged. Biggest

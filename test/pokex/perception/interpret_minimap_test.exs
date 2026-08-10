@@ -133,7 +133,9 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       assert is_tuple(state.band)
 
       # the found band is the fast path now: the next read hits it directly
-      assert {%{pos: {337, 46_107, 4}}, ^state} = Minimap.interpret(panel, calib, %{}, state)
+      assert {%{pos: {337, 46_107, 4}}, next} = Minimap.interpret(panel, calib, %{}, state)
+      assert next.band == state.band
+      assert next.ink == state.ink
     end
 
     test "with no label anywhere the hunt counts misses and never invents a position" do
@@ -245,6 +247,37 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       assert loaded.minimap_region == {3150, 100, 290, 458}
       assert loaded.minimap_player_point == {3295, 329}
       assert loaded.minimap_coord_region == {3171, 106, 160, 30}
+    end
+  end
+
+  # Lucas's hunt (2026-08-10) read an x that flipped ~24 tiles between frames
+  # and believed every one of them: the hunt "reached" waypoints one second
+  # apart while the character stood against a wall. A character walks; it does
+  # not teleport, and the allowance is what it could have WALKED since the last
+  # read.
+  describe "human speed as the sanity gate" do
+    test "a jump no walk could cover is refused, and the last good position stands" do
+      state = %{last: {100, 100, 7}, pending: nil, at: 0}
+
+      # 200ms later: at most a couple of tiles
+      assert {%{pos: {101, 100, 7}}, state} = Minimap.accept({101, 100, 7}, state, 200)
+      assert {%{pos: {101, 100, 7}}, state} = Minimap.accept({125, 100, 7}, state, 400)
+      assert state.pending == {125, 100, 7}
+    end
+
+    test "a long gap earns a long reach — a slow feed is not a teleport" do
+      state = %{last: {100, 100, 7}, pending: nil, at: 0}
+
+      # five seconds of walking at 8 tiles/s covers 40
+      assert {%{pos: {130, 100, 7}}, _state} = Minimap.accept({130, 100, 7}, state, 5_000)
+    end
+
+    test "a REAL teleport still re-baselines: two reads that agree" do
+      state = %{last: {100, 100, 7}, pending: nil, at: 0}
+
+      assert {%{pos: {100, 100, 7}}, state} = Minimap.accept({900, 900, 7}, state, 200)
+      assert {%{pos: {901, 900, 7}}, state} = Minimap.accept({901, 900, 7}, state, 400)
+      assert state.last == {901, 900, 7}
     end
   end
 end

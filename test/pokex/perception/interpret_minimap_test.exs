@@ -82,6 +82,27 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     assert {%{pos: nil}, _state} = Minimap.interpret(panel, nil, %{}, nil)
   end
 
+  # The real 2026-08-10 failure: the hand-marked map region started BELOW the
+  # coord band, and the feed captured the map region alone — the band was
+  # decapitated before the reader ever saw a pixel. The feed now captures
+  # minimap_capture_region (the union of both marks), and the reader subtracts
+  # the SAME origin, so a band poking outside the map can never be clipped.
+  test "a coord band poking outside the map region still reads — the capture is the union" do
+    frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
+    {:ok, fix} = Layout.locate(frame)
+
+    calib = %Calibration{
+      scale: 1.0,
+      layout: nil,
+      # starts 34pt below the band on purpose
+      minimap_region: {3171, 40, 269, 418},
+      minimap_coord_region: Layout.region(:minimap_coord, fix)
+    }
+
+    panel = Frame.crop(frame, Calibration.minimap_capture_region(calib))
+    assert {%{pos: {337, 46_107, 4}}, _state} = Minimap.interpret(panel, calib, %{}, nil)
+  end
+
   describe "Calibration resolvers" do
     test "manual wins over layout; layout is fallback; nothing yields nil" do
       {fix, _panel} = located("ultrawide_3440x1440_full")
@@ -108,6 +129,32 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       blind = %Calibration{scale: 1.0, layout: nil}
       assert Calibration.minimap_region(blind) == nil
       assert Calibration.minimap_player_point(blind) == nil
+    end
+
+    # The real 2026-08-10 mark: cross at {3171, 3} — inside the macOS MENU BAR —
+    # against a map at y=52. Every walk click clamps such a start into the map's
+    # corner: a permanent north-west drift the panel never explains. A stray
+    # mark is refused (center fallback) and REPORTED, so the review can say why.
+    test "a cross marked outside the map is refused: center fallback + stray report" do
+      stray = %Calibration{
+        scale: 1.0,
+        layout: nil,
+        minimap_region: {3173, 52, 255, 179},
+        minimap_player_point: {3171, 3}
+      }
+
+      assert Calibration.minimap_stray_cross(stray) == {3171, 3}
+      assert Calibration.minimap_player_point(stray) == {3173 + div(255, 2), 52 + div(179, 2)}
+
+      inside = %{stray | minimap_player_point: {3300, 141}}
+      assert Calibration.minimap_stray_cross(inside) == nil
+      assert Calibration.minimap_player_point(inside) == {3300, 141}
+
+      # nothing to judge against: the mark stands (a region-less calibration
+      # cannot walk anyway — minimap_step already refuses without a region)
+      free = %Calibration{scale: 1.0, layout: nil, minimap_player_point: {3171, 3}}
+      assert Calibration.minimap_stray_cross(free) == nil
+      assert Calibration.minimap_player_point(free) == {3171, 3}
     end
 
     @tag :tmp_dir

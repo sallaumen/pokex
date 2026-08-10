@@ -295,4 +295,35 @@ defmodule Pokex.CalibrationTest do
     # mid-calibration, before a %Calibration{} exists)
     assert Calibration.battle_row_bands({1380, 120, 260, 220}, 2.0, 30, 3) == bands
   end
+
+  # The feed used to capture minimap_region alone, and a hand-marked coord band
+  # poking outside it (the real 2026-08-10 case: band {3167,50,267,13} against
+  # map {3173,52,255,179}) was silently CLIPPED before the reader ever saw it.
+  # The capture region is therefore the union of both marks.
+  test "minimap_capture_region is the union of the map and the coord band" do
+    calib = %Calibration{
+      scale: 1.0,
+      minimap_region: {3173, 52, 255, 179},
+      minimap_coord_region: {3167, 50, 267, 13}
+    }
+
+    assert Calibration.minimap_capture_region(calib) == {3167, 50, 267, 181}
+
+    # band fully inside the map: the union IS the map region
+    inside = %Calibration{
+      scale: 1.0,
+      minimap_region: {3150, 0, 290, 458},
+      minimap_coord_region: {3171, 6, 160, 30}
+    }
+
+    assert Calibration.minimap_capture_region(inside) == {3150, 0, 290, 458}
+
+    # one half missing never crashes: whatever exists is the capture
+    assert Calibration.minimap_capture_region(%Calibration{
+             scale: 1.0,
+             minimap_region: {3173, 52, 255, 179}
+           }) == {3173, 52, 255, 179}
+
+    assert Calibration.minimap_capture_region(%Calibration{scale: 1.0}) == nil
+  end
 end

@@ -275,7 +275,10 @@ defmodule PokexWeb.CalibrationOverlay do
   reading (`coord_probe`) — the proof that the strip is marked right.
   """
   def read_crops(assigns) do
-    assigns = assign(assigns, :crops, crop_list(assigns.calib))
+    assigns =
+      assigns
+      |> assign(:crops, crop_list(assigns.calib))
+      |> assign(:stray_cross, Pokex.Calibration.minimap_stray_cross(assigns.calib))
 
     ~H"""
     <div :if={@crops != []} id="read-crops" class="space-y-2">
@@ -316,6 +319,14 @@ defmodule PokexWeb.CalibrationOverlay do
                 {:ok, text} -> "li: #{text}"
                 :error -> "não li — ajusta a faixa"
               end}
+            </span>
+            <span
+              :if={key == :minimap_player_point and @stray_cross != nil}
+              id="stray-cross"
+              class="rounded bg-error/20 px-1 font-mono text-[10px] font-bold text-error"
+              title={"a cruz foi marcada em #{inspect(@stray_cross)}, fora do mapa — todo passo partiria do canto. Remarca a cruz."}
+            >
+              cruz fora do mapa — usando o centro
             </span>
           </div>
           <div

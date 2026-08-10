@@ -374,7 +374,9 @@ defmodule Pokex.Vision.Glyphs do
 
     frame
     |> segment(region, opts)
-    |> Enum.filter(fn glyph -> lookup(glyph.bitmap, atlas) == nil end)
+    |> Enum.filter(fn glyph ->
+      lookup(glyph.bitmap, atlas) == nil and split_fused(glyph.bitmap) == nil
+    end)
     |> Enum.map(fn glyph -> %{bitmap: glyph.bitmap, signature: signature(glyph.bitmap)} end)
     |> Enum.uniq_by(& &1.signature)
   end
@@ -448,6 +450,100 @@ defmodule Pokex.Vision.Glyphs do
     end)
   end
 
+  # -- fused pairs -------------------------------------------------------------
+
+  # An unknown glyph WIDER THAN TALL is usually two characters welded by a
+  # background bridge — the field's learned "04"/"70" pairs are the proof: over
+  # the minimap's lit ground, a 2-pixel crumb hangs off one digit's blob and no
+  # column between the digits is ever empty, so the projection welds them.
+  # Teaching the PAIR works but never ends (100 combinations).
+  #
+  # Cut at the faintest interior columns (the bridge) and read each half on its
+  # own. A half comes out ±1 column from its standalone self — the weld eats an
+  # anti-aliased edge — so halves match with one column of width tolerance,
+  # padded on whichever side fits best. BOTH halves must resolve, each
+  # unambiguously. Measured on the real pairs: a true half lands 0-5 pixels
+  # from its character while the nearest OTHER character is 35+ away, so the
+  # shared @max_diff_ratio ceiling keeps a false weld far out of reach.
+  defp split_fused(bitmap) do
+    width = length(hd(bitmap))
+
+    if width > length(bitmap) and width >= 6 do
+      ink = bitmap |> transpose() |> Enum.map(&Enum.sum/1)
+      interior = 2..(width - 3)//1
+      faintest = interior |> Enum.map(&Enum.at(ink, &1)) |> Enum.min()
+
+      interior
+      |> Enum.filter(&(Enum.at(ink, &1) == faintest))
+      |> Enum.find_value(&read_halves(bitmap, &1))
+    end
+  end
+
+  # The cut column itself is dropped: it is the bridge, part of neither glyph.
+  defp read_halves(bitmap, cut) do
+    with left when left != nil <- half_char(Enum.map(bitmap, &Enum.take(&1, cut))),
+         right when right != nil <- half_char(Enum.map(bitmap, &Enum.drop(&1, cut + 1))) do
+      left <> right
+    else
+      _unresolved -> nil
+    end
+  end
+
+  defp half_char(half) do
+    case tighten(half) do
+      [] -> nil
+      tight -> Map.get(atlas(), signature(tight)) || nearest_half(tight)
+    end
+  end
+
+  # Tight like a segmented glyph: rows AND columns trimmed to the ink.
+  defp tighten(bitmap) do
+    bitmap |> trim_rows() |> transpose() |> trim_rows() |> transpose()
+  end
+
+  defp transpose([]), do: []
+  defp transpose(rows), do: Enum.zip_with(rows, & &1)
+
+  # `nearest/1` with two changes a half needs: candidates may be one column
+  # wider or narrower (compared padded on the better side), and the runner-up
+  # that forces a refusal must be a DIFFERENT character — two atlas variants of
+  # the same digit agreeing is confirmation, not ambiguity.
+  defp nearest_half(bitmap) do
+    rows = length(bitmap)
+    width = length(hd(bitmap))
+    ceiling = max(@min_diff_slack, round(rows * width * @max_diff_ratio))
+
+    candidates =
+      for shape_width <- [width - 1, width, width + 1],
+          shape_width > 0,
+          {candidate, char} <- Map.get(index(), {rows, shape_width}, []) do
+        {char, half_difference(bitmap, candidate, width, shape_width)}
+      end
+
+    case Enum.sort_by(candidates, &elem(&1, 1)) do
+      [{char, best} | rest] ->
+        other = Enum.find(rest, fn {c, _diff} -> c != char end)
+
+        if best <= ceiling and (other == nil or elem(other, 1) > best + @min_diff_slack),
+          do: char,
+          else: nil
+
+      [] ->
+        nil
+    end
+  end
+
+  defp half_difference(bitmap, candidate, w, cw) when w == cw, do: difference(bitmap, candidate)
+
+  defp half_difference(bitmap, candidate, w, cw) when cw == w + 1,
+    do: min(difference(pad_right(bitmap), candidate), difference(pad_left(bitmap), candidate))
+
+  defp half_difference(bitmap, candidate, w, cw) when cw == w - 1,
+    do: min(difference(bitmap, pad_right(candidate)), difference(bitmap, pad_left(candidate)))
+
+  defp pad_right(rows), do: Enum.map(rows, &(&1 ++ [0]))
+  defp pad_left(rows), do: Enum.map(rows, &[0 | &1])
+
   @doc """
   Reads a line of text. `confidence` is the share of glyphs the atlas knew;
   an unknown glyph renders as `?` so the lexicon can still close the word.
@@ -462,7 +558,7 @@ defmodule Pokex.Vision.Glyphs do
       |> Enum.chunk_every(2, 1, [nil])
       |> Enum.reduce({[], 0}, fn [g, next], {acc, known} ->
         {char, known} =
-          case lookup(g.bitmap, atlas) do
+          case lookup(g.bitmap, atlas) || split_fused(g.bitmap) do
             nil -> {"?", known}
             char -> {char, known + 1}
           end

@@ -22,12 +22,13 @@ defmodule Pokex.Perception.Interpret.Minimap do
     state = state || %{last: nil, pending: nil}
 
     # Manual regions win (Calibration resolves manual > layout); the frame is
-    # the crop of the resolved minimap_region, so the coord strip becomes
-    # relative to THAT region's origin.
+    # the crop of minimap_capture_region — the SAME union the feed captures —
+    # so the coord strip becomes relative to that region's origin and a band
+    # poking outside the map region is never clipped.
     read =
       with %Calibration{} <- calib,
            {x, y, w, h} <- Calibration.minimap_coord_region(calib),
-           {ox, oy, _, _} <- Calibration.minimap_region(calib) do
+           {ox, oy, _, _} <- Calibration.minimap_capture_region(calib) do
         Glyphs.read_coord(frame, {x - ox, y - oy, w, h}, coord_opts(calib, settings))
       else
         _no_region -> nil

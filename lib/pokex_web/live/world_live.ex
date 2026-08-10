@@ -238,7 +238,7 @@ defmodule PokexWeb.WorldLive do
           nada publicado ainda — ligue o bot (ou um worker) e os fatos aparecem aqui
         </div>
 
-        <ul :if={@entries != []} class="space-y-2">
+        <ul :if={@entries != []} id="world-facts" class="space-y-2">
           <li
             :for={entry <- @entries}
             class="flex items-center gap-3 rounded-xl border border-base-content/10 bg-base-200 px-4 py-3"

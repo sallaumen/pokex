@@ -15,25 +15,43 @@ defmodule PokexWeb.CavebotLive do
   """
   use PokexWeb, :live_view
 
-  alias Pokex.Bots.Cavebot.{Route, Store}
+  import PokexWeb.CavebotComponents
+
+  alias Pokex.Bots.Cavebot.{Photos, Route, Store, Worker}
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.World
+  alias PokexWeb.CavebotMap
   alias PokexWeb.PositionReadout
+
+  # Enough to see the last decisions without the page becoming a terminal.
+  @log_lines 8
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
+      # The hunt narrates itself on its own topic — HEARD, never asked: a call
+      # to the worker parks behind whatever the Body is doing, and this page
+      # must stay alive while the fleet works.
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       # the minimap feed only captures while someone is attached — the
-      # recording page IS that someone, exactly while it is open
+      # recording page IS that someone, exactly while it is open.
+      #
+      # The battle feed is deliberately NOT attached: during a hunt the workers
+      # already run it and this page reads the fact for free, while OUTSIDE a
+      # hunt attaching it would capture for nothing and read the browser's own
+      # pixels — which is exactly how this tile announced a SHINY that did not
+      # exist the first time it was drawn (2026-08-10).
       Perception.attach(:minimap)
     end
 
     routes = Store.all()
 
     {:ok,
-     assign(socket,
+     socket
+     |> PokexWeb.HeaderState.relay_workers()
+     |> assign(
        page_title: "Cavebot",
        routes: routes,
        active_route: default_active(routes),
@@ -47,7 +65,14 @@ defmodule PokexWeb.CavebotLive do
        reads: 0,
        misses: 0,
        notice: nil,
-       notice_kind: :warn
+       notice_kind: :warn,
+       # the hunt's own snapshot (state, hold reason, counters), as broadcast
+       hunt: nil,
+       world: World.snapshot(),
+       selected: nil,
+       photo_busy?: false,
+       # the hunt's own narration: what it just did, in its own words
+       log: []
      )}
   end
 
@@ -62,16 +87,31 @@ defmodule PokexWeb.CavebotLive do
   # depended on focus — and lays the waypoints itself.
   @impl true
   def handle_info({:world, :minimap, _obs}, socket) do
-    pos = World.snapshot().pos
+    world = World.snapshot()
+    pos = world.pos
 
     socket =
       if pos == nil,
-        do: assign(socket, pos: nil, misses: socket.assigns.misses + 1),
-        else: assign(socket, pos: pos, reads: socket.assigns.reads + 1)
+        do: assign(socket, world: world, pos: nil, misses: socket.assigns.misses + 1),
+        else: assign(socket, world: world, pos: pos, reads: socket.assigns.reads + 1)
 
     if socket.assigns.recording? and pos != nil and socket.assigns.active_route,
       do: {:noreply, maybe_record(socket, pos)},
       else: {:noreply, socket}
+  end
+
+  # Every other fact (battle above all: how many enemies are on screen) refreshes
+  # the world strip without touching the recording.
+  def handle_info({:world, _key, _obs}, socket),
+    do: {:noreply, assign(socket, world: World.snapshot())}
+
+  def handle_info({:cavebot, snapshot}, socket), do: {:noreply, assign(socket, hunt: snapshot)}
+
+  # The hunt narrates its edges (waypoint reached, block, a hold appearing) —
+  # the tail of that is what turns "parou" into "parou POR QUÊ".
+  def handle_info({:cavebot_log, level, text}, socket) do
+    line = %{level: level, text: text, at: Time.utc_now()}
+    {:noreply, assign(socket, log: Enum.take([line | socket.assigns.log], @log_lines))}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
@@ -168,11 +208,12 @@ defmodule PokexWeb.CavebotLive do
     cond do
       socket.assigns.recording? ->
         n = length((socket.assigns.active_route && socket.assigns.active_route.waypoints) || [])
+        photo(socket, :finish)
 
         {:noreply,
          assign(socket,
            recording?: false,
-           notice: "gravação parada — #{n} waypoints na rota",
+           notice: "gravação parada — #{n} waypoints na rota, e tirei a foto do fim",
            notice_kind: :ok
          )}
 
@@ -184,10 +225,90 @@ defmodule PokexWeb.CavebotLive do
          )}
 
       true ->
+        photo(socket, :start)
+
         {:noreply,
          assign(socket,
            recording?: true,
            notice: "gravando — volte pro jogo e ande a rota; eu marco sozinho",
+           notice_kind: :ok
+         )}
+    end
+  end
+
+  def handle_event("select_waypoint", %{"index" => index}, socket) do
+    index = String.to_integer(index)
+    selected = if socket.assigns.selected == index, do: nil, else: index
+    {:noreply, assign(socket, selected: selected)}
+  end
+
+  # Recording lays waypoints in the order walked; a corner in the wrong place
+  # used to mean walking the whole route again.
+  def handle_event("move_waypoint", %{"index" => index, "dir" => dir}, socket) do
+    direction = if dir == "up", do: :up, else: :down
+
+    with_route(socket, fn route ->
+      {Route.move(route, String.to_integer(index), direction), nil}
+    end)
+  end
+
+  # The missing corner in the MIDDLE: stand where it should be and insert.
+  def handle_event("insert_waypoint", %{"index" => index}, socket) do
+    case World.snapshot().pos do
+      nil ->
+        {:noreply, assign(socket, notice: "não estou lendo tua posição", notice_kind: :warn)}
+
+      pos ->
+        with_route(socket, &insert_here(&1, String.to_integer(index), pos))
+    end
+  end
+
+  def handle_event("clear_route", _params, socket) do
+    with_route(socket, fn route ->
+      Photos.forget(route.name)
+      {Route.clear(route), "rota \"#{route.name}\" esvaziada — pode gravar de novo"}
+    end)
+  end
+
+  def handle_event("delete_route", _params, socket) do
+    case socket.assigns.active_route do
+      nil ->
+        {:noreply, socket}
+
+      %Route{name: name} ->
+        Photos.forget(name)
+        :ok = Store.delete(name)
+
+        {:noreply,
+         socket
+         |> assign(notice: "rota \"#{name}\" apagada", notice_kind: :ok, selected: nil)
+         |> reload_routes(nil)}
+    end
+  end
+
+  def handle_event("toggle_route_enabled", _params, socket) do
+    with_route(socket, fn route ->
+      {%{route | enabled?: !route.enabled?},
+       if(route.enabled?,
+         do: "rota desligada — a caçada não vai usá-la",
+         else: "rota ligada — é a que a caçada vai andar"
+       )}
+    end)
+  end
+
+  def handle_event("retake_photo", %{"kind" => kind}, socket) do
+    kind = if kind == "start", do: :start, else: :finish
+
+    case socket.assigns.active_route do
+      nil ->
+        {:noreply, socket}
+
+      %Route{name: name} ->
+        Photos.take(name, kind)
+
+        {:noreply,
+         assign(socket,
+           notice: "foto do #{if kind == :start, do: "início", else: "fim"} atualizada",
            notice_kind: :ok
          )}
     end
@@ -236,11 +357,93 @@ defmodule PokexWeb.CavebotLive do
     {:noreply, socket |> assign(notice: nil) |> reload_routes(name)}
   end
 
+  # The photos are a SIDE EFFECT of recording, never a gate on it: a failed
+  # screenshot must not cost a waypoint. The game is brought forward for the
+  # shot exactly like the calibration does, then the browser comes back.
+  defp photo(%{assigns: %{active_route: %Route{name: name}}}, kind) do
+    Task.start(fn -> Photos.take(name, kind) end)
+  end
+
+  defp photo(_no_route, _kind), do: :ok
+
+  defp insert_here(route, index, pos) do
+    case Route.insert_at(route, index, pos) do
+      {:ok, updated} -> {updated, "waypoint inserido na posição #{index + 1}"}
+      {:error, :floor_mismatch} -> {route, :floor_mismatch}
+    end
+  end
+
+  # Every edit is the same three steps — take the active route, write it, show
+  # what happened — and the floor invariant answers in words, once.
+  defp with_route(socket, edit) do
+    case socket.assigns.active_route do
+      nil ->
+        {:noreply, socket}
+
+      %Route{} = route ->
+        case edit.(route) do
+          {_route, :floor_mismatch} ->
+            {:noreply,
+             assign(socket,
+               notice: "essa posição é de outro andar — a rota é do andar #{route.z}",
+               notice_kind: :warn
+             )}
+
+          {updated, notice} ->
+            :ok = Store.add(updated)
+
+            {:noreply,
+             socket
+             |> assign(notice: notice, notice_kind: :ok)
+             |> reload_routes(updated.name)}
+        end
+    end
+  end
+
   defp reload_routes(socket, active_name) do
     routes = Store.all()
     active = Enum.find(routes, &(&1.name == active_name)) || default_active(routes)
     assign(socket, routes: routes, active_route: active)
   end
+
+  # -- what the world strip reads ---------------------------------------------
+
+  defp enemy_count(%{enemies: enemies}), do: length(enemies)
+  defp enemy_count(_none), do: 0
+
+  defp hunt_state_text(nil), do: "parada"
+  defp hunt_state_text(%{state: state}), do: state_word(state)
+
+  defp state_word(:walking), do: "andando"
+  defp state_word(:fighting), do: "lutando"
+  defp state_word(:post_fight), do: "pós-luta"
+  defp state_word(:stuck), do: "presa"
+  defp state_word(:fight_stalled), do: "luta travada"
+  defp state_word(:blocked), do: "bloqueada"
+  defp state_word(other), do: to_string(other)
+
+  defp hunt_tone(nil), do: :neutral
+  defp hunt_tone(%{state: state}) when state in [:blocked, :stuck], do: :danger
+  defp hunt_tone(%{state: :walking}), do: :ok
+  defp hunt_tone(_other), do: :warn
+
+  defp route_tiles(nil), do: 0
+  defp route_tiles(%Route{waypoints: waypoints}), do: CavebotMap.total_tiles(waypoints)
+
+  # The first waypoint's "previous" is the LAST one: the hunt loops back to it,
+  # so that leg is real — but shown like the others it reads as a bug. Only its
+  # label differs, and only a loop worth closing (3+ corners) gets one.
+  defp leg_tiles(waypoints, 0) when length(waypoints) > 2,
+    do: CavebotMap.tiles_between(List.last(waypoints), hd(waypoints))
+
+  defp leg_tiles(_waypoints, 0), do: nil
+
+  defp leg_tiles(waypoints, index) do
+    CavebotMap.tiles_between(Enum.at(waypoints, index - 1), Enum.at(waypoints, index))
+  end
+
+  defp leg_label(0), do: "· fecha o ciclo:"
+  defp leg_label(_index), do: "·"
 
   defp default_active(routes), do: Enum.find(routes, & &1.enabled?)
 
@@ -270,12 +473,17 @@ defmodule PokexWeb.CavebotLive do
     ~H"""
     <Layouts.app flash={@flash} current_page={:cavebot} {Layouts.header(assigns)}>
       <div class="space-y-4">
-        <header>
-          <h1 class="text-xl font-bold">Cavebot — rotas</h1>
-          <p class="mt-1 text-sm opacity-70">
-            Escolha (ou crie) uma rota, clique <strong>Gravar andando</strong>, volte pro
-            jogo e ande o caminho — os waypoints são marcados sozinhos. A rota é
-            de um andar só; se você trocar de andar, a gravação para.
+        <header class="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h1 class="text-pk-title font-bold text-pk-text">Central da caçada</h1>
+            <p class="mt-0.5 text-pk-body text-pk-text-2">
+              Grave a rota andando, veja o mundo como o bot vê, e conserte os cantos aqui mesmo.
+            </p>
+          </div>
+          <p class="font-mono text-pk-meta text-pk-text-3">
+            {length(@routes)} rota(s) · {(@active_route && length(@active_route.waypoints)) || 0} waypoints · {route_tiles(
+              @active_route
+            )} tiles
           </p>
         </header>
 
@@ -284,176 +492,368 @@ defmodule PokexWeb.CavebotLive do
           id="cavebot-minimap-gap"
           class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4"
         >
-          <p class="text-pk-body font-bold text-pk-warn">
-            🗺️ O minimapa não está calibrado nesta tela
+          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
+            <.icon name="hero-map" class="size-4" /> O minimapa não está calibrado nesta tela
           </p>
-          <p class="mt-1 text-sm text-pk-text-2">
+          <p class="mt-1 text-pk-body text-pk-text-2">
             Sem ele a posição não pode ser lida — nada de gravar rota nem de andar.
-            Refaça o passo <strong>Minimapa</strong>
-            (mapa + cruz + coordenada) na
-            <.link navigate={~p"/calibration"} class="underline">Calibração</.link>
+            Refaça o passo <strong>Posição & minimapa</strong>
+            na <.link navigate={~p"/calibration"} class="underline">Calibração</.link>
             e volte aqui.
           </p>
         </section>
 
-        <section id="cavebot-recorder" class="rounded-lg border border-pk-line bg-pk-surface p-4">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p class="font-mono text-pk-meta uppercase text-pk-text-3">Posição atual</p>
-              <p id="cavebot-pos" class="font-mono text-sm text-pk-text">{pos_text(@pos)}</p>
-              <%!-- Without this there is no telling whether the coordinate is
-                   read well or almost never: the read is all-or-nothing, so a
-                   doubtful glyph becomes "?" and the failure leaves no trace. --%>
-              <p id="cavebot-read-health" class="mt-0.5 font-mono text-pk-meta text-pk-text-3">
-                {read_health(@reads, @misses)}
-              </p>
-            </div>
-            <div class="flex items-center gap-2">
-              <%!-- The way that ACTUALLY works: arm here, go to the game, walk
-                   the route. A button click per waypoint is impossible — the
-                   click fronts the browser, taking the game out of focus and
-                   possibly covering the minimap the position is read from. --%>
-              <button
-                id="toggle-recording"
-                phx-click="toggle_recording"
-                aria-label={
-                  if @recording?, do: "Parar de gravar a rota", else: "Gravar a rota andando"
-                }
+        <%!-- THE WORLD, as the bot sees it. Everything here already existed as
+              facts; what was missing was a place to read them together while
+              the hunt runs. --%>
+        <section id="cavebot-world" class="grid grid-cols-2 gap-2 lg:grid-cols-6">
+          <.world_tile
+            id="tile-pos"
+            icon="hero-map-pin"
+            label="posição"
+            value={pos_text(@pos)}
+            note={PositionReadout.note(@pos, @world.pos_age_ms)}
+            tone={if @pos, do: :ok, else: :warn}
+          />
+          <.world_tile
+            id="tile-read"
+            icon="hero-eye"
+            label="leitura"
+            value={"#{@reads}/#{@reads + @misses}"}
+            note={read_health(@reads, @misses)}
+            tone={if @misses > @reads, do: :warn, else: :neutral}
+          />
+          <.world_tile
+            id="tile-enemies"
+            icon="hero-bolt"
+            label="inimigos"
+            value={to_string(enemy_count(@world))}
+            note={if @world.engaged?, do: "travado no alvo", else: "sem alvo travado"}
+            tone={if enemy_count(@world) > 0, do: :warn, else: :neutral}
+          />
+          <.world_tile
+            id="tile-hunt"
+            icon="hero-flag"
+            label="caçada"
+            value={hunt_state_text(@hunt)}
+            note={(@hunt && @hunt.hold_reason) || "solte a caçada no painel"}
+            tone={hunt_tone(@hunt)}
+          />
+          <.world_tile
+            id="tile-capture"
+            icon="hero-inbox-arrow-down"
+            label="captura"
+            value={to_string((@hunt && @hunt[:capture_pending]) || 0)}
+            note="corpos na fila"
+          />
+          <.world_tile
+            id="tile-hp"
+            icon="hero-heart"
+            label="vida"
+            value={if @world.me.hp_pct, do: "#{@world.me.hp_pct}%", else: "—"}
+            note="do pokémon ativo"
+            tone={hp_tone(@world)}
+          />
+        </section>
+
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+          <%!-- LEFT: the drawing + the recorder that feeds it --%>
+          <div class="space-y-4">
+            <section class="rounded-lg border border-pk-line bg-pk-surface p-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+                  {if @active_route, do: "Mapa de #{@active_route.name}", else: "Mapa"}
+                </h2>
+                <span
+                  :if={@active_route && @active_route.z}
+                  class="font-mono text-pk-meta text-pk-text-2"
+                >
+                  andar {@active_route.z}
+                </span>
+              </div>
+
+              <div class="mt-3">
+                <.route_map
+                  waypoints={(@active_route && @active_route.waypoints) || []}
+                  pos={@pos}
+                  selected={@selected}
+                  recording?={@recording?}
+                />
+              </div>
+
+              <div class="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  id="toggle-recording"
+                  phx-click="toggle_recording"
+                  aria-label={
+                    if @recording?, do: "Parar de gravar a rota", else: "Gravar a rota andando"
+                  }
+                  class={[
+                    "flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-pk-body font-bold transition",
+                    if(@recording?,
+                      do: "border border-pk-danger-line bg-pk-danger-dim text-pk-danger",
+                      else: "border-0 bg-pk-ok text-pk-ok-dim hover:brightness-110"
+                    )
+                  ]}
+                >
+                  <.icon
+                    name={if @recording?, do: "hero-stop-circle", else: "hero-play-circle"}
+                    class="size-4"
+                  />
+                  {if @recording?, do: "Parar de gravar", else: "Gravar andando"}
+                </button>
+                <button
+                  id="mark-waypoint"
+                  phx-click="mark_waypoint"
+                  aria-label="Marcar um waypoint só, na posição atual"
+                  class="cursor-pointer rounded-lg border border-pk-line-strong px-3 py-2 text-pk-body text-pk-text-2 transition hover:border-pk-ok hover:text-pk-text"
+                >
+                  Marcar um só
+                </button>
+                <span :if={@recording?} class="font-mono text-pk-meta text-pk-warn">
+                  gravando — volte pro jogo e ande
+                </span>
+              </div>
+
+              <p
+                :if={@notice}
+                id="cavebot-notice"
                 class={[
-                  "cursor-pointer rounded-lg px-4 py-2 text-pk-body font-bold transition",
-                  if(@recording?,
-                    do: "border border-pk-danger-line bg-pk-danger-dim text-pk-danger",
-                    else: "border-0 bg-pk-ok text-pk-ok-dim hover:brightness-110"
-                  )
+                  "mt-3 font-mono text-pk-meta",
+                  if(@notice_kind == :ok, do: "text-pk-ok", else: "text-pk-warn")
                 ]}
               >
-                {if @recording?, do: "Parar de gravar", else: "Gravar andando"}
-              </button>
-              <button
-                id="mark-waypoint"
-                phx-click="mark_waypoint"
-                aria-label="Marcar um waypoint só, na posição atual"
-                class="cursor-pointer rounded-lg border border-pk-line-strong px-3 py-2 text-pk-body text-pk-text-2 transition hover:border-pk-ok hover:text-pk-text"
-              >
-                Marcar um só
-              </button>
-            </div>
-          </div>
-          <p
-            :if={@notice}
-            id="cavebot-notice"
-            class={[
-              "mt-3 font-mono text-pk-meta",
-              if(@notice_kind == :ok, do: "text-pk-ok", else: "text-pk-warn")
-            ]}
-          >
-            {@notice}
-          </p>
-        </section>
+                {@notice}
+              </p>
+            </section>
 
-        <section id="cavebot-routes" class="rounded-lg border border-pk-line bg-pk-surface p-4">
-          <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-            Rotas
-          </h2>
-
-          <form
-            :if={@routes != []}
-            id="route-select-form"
-            phx-change="select_route"
-            class="mt-3 flex flex-wrap items-center gap-2"
-          >
-            <label for="route-select" class="font-mono text-pk-meta text-pk-text-2">
-              rota ativa
-            </label>
-            <select
-              id="route-select"
-              name="name"
-              aria-label="Selecionar rota ativa"
-              class="h-9 rounded border border-pk-line-strong bg-pk-sunken px-2 font-mono text-sm text-pk-text focus:border-pk-ok focus:outline-none"
+            <section
+              :if={@log != []}
+              id="cavebot-log"
+              class="rounded-lg border border-pk-line bg-pk-surface p-4"
             >
-              <option
-                :for={route <- @routes}
-                value={route.name}
-                selected={@active_route != nil and route.name == @active_route.name}
-              >
-                {route.name}{if route.dungeon, do: " · #{route.dungeon}"}
-              </option>
-            </select>
-          </form>
+              <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+                O que ela acabou de fazer
+              </h2>
+              <ol class="mt-2 space-y-0.5">
+                <li
+                  :for={line <- @log}
+                  class="flex gap-2 font-mono text-pk-meta text-pk-text-2"
+                >
+                  <span class="pk-num shrink-0 text-pk-text-3">
+                    {Calendar.strftime(line.at, "%H:%M:%S")}
+                  </span>
+                  <span class={line.level == :macro && "text-pk-text"}>{line.text}</span>
+                </li>
+              </ol>
+            </section>
 
-          <p :if={@routes == []} class="mt-3 text-pk-body text-pk-text-2">
-            nenhuma rota ainda — crie a primeira e saia andando
-          </p>
-
-          <form
-            id="new-route-form"
-            phx-submit="create_route"
-            class="mt-3 flex flex-wrap items-center gap-2"
-          >
-            <input
-              name="name"
-              placeholder="nome da rota"
-              autocomplete="off"
-              aria-label="Nome da nova rota"
-              class="h-9 w-44 rounded border border-pk-line-strong bg-pk-sunken px-2 font-mono text-sm text-pk-text focus:border-pk-ok focus:outline-none"
-            />
-            <input
-              name="dungeon"
-              placeholder="dungeon (opcional)"
-              autocomplete="off"
-              aria-label="Dungeon da nova rota"
-              class="h-9 w-44 rounded border border-pk-line-strong bg-pk-sunken px-2 font-mono text-sm text-pk-text focus:border-pk-ok focus:outline-none"
-            />
-            <button
-              aria-label="Criar rota"
-              class="h-9 cursor-pointer rounded-lg border border-pk-line-strong px-3 text-pk-body font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+            <section
+              :if={@active_route}
+              id="route-photos"
+              class="rounded-lg border border-pk-line bg-pk-surface p-4"
             >
-              Criar rota
-            </button>
-          </form>
-        </section>
-
-        <section
-          :if={@active_route}
-          id="cavebot-waypoints"
-          class="rounded-lg border border-pk-line bg-pk-surface p-4"
-        >
-          <div class="flex items-baseline justify-between gap-2">
-            <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-              Waypoints de {@active_route.name}
-            </h2>
-            <span :if={@active_route.z} class="font-mono text-pk-meta text-pk-text-2">
-              andar {@active_route.z}
-            </span>
+              <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+                Como é o lugar
+              </h2>
+              <div class="mt-3 flex flex-wrap gap-3">
+                <.route_photo kind={:start} url={Photos.url(@active_route.name, :start)} />
+                <.route_photo kind={:finish} url={Photos.url(@active_route.name, :finish)} />
+              </div>
+            </section>
           </div>
 
-          <p :if={@active_route.waypoints == []} class="mt-3 text-pk-body text-pk-text-2">
-            nenhum waypoint ainda — ande até o primeiro canto e marque
-          </p>
+          <%!-- RIGHT: the routes and the waypoint editor --%>
+          <div class="space-y-4">
+            <section id="cavebot-routes" class="rounded-lg border border-pk-line bg-pk-surface p-4">
+              <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+                Rotas
+              </h2>
 
-          <ol :if={@active_route.waypoints != []} class="mt-3 space-y-1.5">
-            <li
-              :for={{wp, index} <- Enum.with_index(@active_route.waypoints)}
-              id={"waypoint-#{index}"}
-              class="flex items-center gap-3 rounded-lg border border-pk-line bg-pk-sunken px-3 py-2"
-            >
-              <span class="font-mono text-pk-meta text-pk-text-3">{index + 1}</span>
-              <span class="flex-1 font-mono text-sm text-pk-text">{wp.x}, {wp.y}</span>
-              <button
-                id={"waypoint-delete-#{index}"}
-                phx-click="delete_waypoint"
-                phx-value-index={index}
-                data-confirm={"Apagar o waypoint #{index + 1} (#{wp.x}, #{wp.y})?"}
-                aria-label={"Apagar waypoint #{index + 1}"}
-                class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-danger"
+              <form
+                :if={@routes != []}
+                id="route-select-form"
+                phx-change="select_route"
+                class="mt-3 flex flex-wrap items-center gap-2"
               >
-                apagar
-              </button>
-            </li>
-          </ol>
-        </section>
+                <label for="route-select" class="font-mono text-pk-meta text-pk-text-2">
+                  rota ativa
+                </label>
+                <select
+                  id="route-select"
+                  name="name"
+                  aria-label="Selecionar rota ativa"
+                  class="h-9 rounded border border-pk-line-strong bg-pk-sunken px-2 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                >
+                  <option
+                    :for={route <- @routes}
+                    value={route.name}
+                    selected={@active_route != nil and route.name == @active_route.name}
+                  >
+                    {route.name}{if route.dungeon, do: " · #{route.dungeon}"}
+                  </option>
+                </select>
+                <button
+                  :if={@active_route}
+                  id="toggle-route-enabled"
+                  type="button"
+                  phx-click="toggle_route_enabled"
+                  aria-label={
+                    if @active_route.enabled?, do: "Desligar esta rota", else: "Ligar esta rota"
+                  }
+                  class={[
+                    "h-9 cursor-pointer rounded-lg border px-3 font-mono text-pk-meta transition",
+                    if(@active_route.enabled?,
+                      do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                      else: "border-pk-line-strong text-pk-text-3 hover:text-pk-text"
+                    )
+                  ]}
+                >
+                  {if @active_route.enabled?, do: "ligada", else: "desligada"}
+                </button>
+              </form>
+
+              <p :if={@routes == []} class="mt-3 text-pk-body text-pk-text-2">
+                nenhuma rota ainda — crie a primeira e saia andando
+              </p>
+
+              <form
+                id="new-route-form"
+                phx-submit="create_route"
+                class="mt-3 flex flex-wrap items-center gap-2"
+              >
+                <input
+                  name="name"
+                  placeholder="nome da rota"
+                  autocomplete="off"
+                  aria-label="Nome da nova rota"
+                  class="h-9 w-40 rounded border border-pk-line-strong bg-pk-sunken px-2 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <input
+                  name="dungeon"
+                  placeholder="dungeon (opcional)"
+                  autocomplete="off"
+                  aria-label="Dungeon da nova rota"
+                  class="h-9 w-40 rounded border border-pk-line-strong bg-pk-sunken px-2 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <button
+                  aria-label="Criar rota"
+                  class="h-9 cursor-pointer rounded-lg border border-pk-line-strong px-3 text-pk-body font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+                >
+                  Criar rota
+                </button>
+              </form>
+            </section>
+
+            <section
+              :if={@active_route}
+              id="cavebot-waypoints"
+              class="rounded-lg border border-pk-line bg-pk-surface p-4"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+                  Waypoints
+                </h2>
+                <div class="flex items-center gap-3">
+                  <button
+                    :if={@active_route.waypoints != []}
+                    id="clear-route"
+                    phx-click="clear_route"
+                    data-confirm={"Apagar TODOS os #{length(@active_route.waypoints)} waypoints de \"#{@active_route.name}\"?"}
+                    aria-label="Limpar todos os waypoints desta rota"
+                    class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-warn"
+                  >
+                    limpar
+                  </button>
+                  <button
+                    id="delete-route"
+                    phx-click="delete_route"
+                    data-confirm={"Apagar a rota \"#{@active_route.name}\" inteira, com fotos?"}
+                    aria-label="Apagar esta rota"
+                    class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-danger"
+                  >
+                    apagar rota
+                  </button>
+                </div>
+              </div>
+
+              <p :if={@active_route.waypoints == []} class="mt-3 text-pk-body text-pk-text-2">
+                nenhum waypoint ainda — ande até o primeiro canto e marque
+              </p>
+
+              <ol :if={@active_route.waypoints != []} class="mt-3 space-y-1.5">
+                <li
+                  :for={{wp, index} <- Enum.with_index(@active_route.waypoints)}
+                  id={"waypoint-#{index}"}
+                  phx-click="select_waypoint"
+                  phx-value-index={index}
+                  class={[
+                    "flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition",
+                    if(@selected == index,
+                      do: "border-pk-warn bg-pk-warn-dim",
+                      else: "border-pk-line bg-pk-sunken hover:border-pk-line-strong"
+                    )
+                  ]}
+                >
+                  <span class="pk-num w-5 font-mono text-pk-meta text-pk-text-3">{index + 1}</span>
+                  <span class="pk-num flex-1 font-mono text-pk-body text-pk-text">
+                    {wp.x}, {wp.y}
+                    <span :if={leg_tiles(@active_route.waypoints, index)} class="text-pk-text-3">
+                      {leg_label(index)} {leg_tiles(@active_route.waypoints, index)} tiles
+                    </span>
+                  </span>
+                  <button
+                    id={"waypoint-up-#{index}"}
+                    phx-click="move_waypoint"
+                    phx-value-index={index}
+                    phx-value-dir="up"
+                    disabled={index == 0}
+                    aria-label={"Mover waypoint #{index + 1} para cima"}
+                    class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-text disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <.icon name="hero-arrow-up" class="size-3.5" />
+                  </button>
+                  <button
+                    id={"waypoint-down-#{index}"}
+                    phx-click="move_waypoint"
+                    phx-value-index={index}
+                    phx-value-dir="down"
+                    disabled={index == length(@active_route.waypoints) - 1}
+                    aria-label={"Mover waypoint #{index + 1} para baixo"}
+                    class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-text disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <.icon name="hero-arrow-down" class="size-3.5" />
+                  </button>
+                  <button
+                    id={"waypoint-insert-#{index}"}
+                    phx-click="insert_waypoint"
+                    phx-value-index={index}
+                    aria-label={"Inserir a posição atual antes do waypoint #{index + 1}"}
+                    title="inserir a posição atual aqui"
+                    class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-ok"
+                  >
+                    <.icon name="hero-plus" class="size-3.5" />
+                  </button>
+                  <button
+                    id={"waypoint-delete-#{index}"}
+                    phx-click="delete_waypoint"
+                    phx-value-index={index}
+                    data-confirm={"Apagar o waypoint #{index + 1} (#{wp.x}, #{wp.y})?"}
+                    aria-label={"Apagar waypoint #{index + 1}"}
+                    class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-danger"
+                  >
+                    <.icon name="hero-trash" class="size-3.5" />
+                  </button>
+                </li>
+              </ol>
+            </section>
+          </div>
+        </div>
       </div>
     </Layouts.app>
     """
   end
+
+  defp hp_tone(%{me: %{hp_pct: pct}}) when is_integer(pct) and pct < 40, do: :warn
+  defp hp_tone(_world), do: :neutral
 end

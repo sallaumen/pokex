@@ -216,4 +216,138 @@ defmodule PokexWeb.CavebotLiveTest do
     assert html =~ "1 ok"
     assert html =~ "1 falhas"
   end
+
+  # ---------------------------------------------------------------------------
+  # The control room: the world beside the route, and a route you can EDIT.
+  # ---------------------------------------------------------------------------
+
+  defp route_with(waypoints, name \\ "cavena") do
+    route =
+      Enum.reduce(waypoints, Route.new(name), fn pos, r ->
+        {:ok, r} = Route.append(r, pos)
+        r
+      end)
+
+    :ok = Store.add(route)
+    route
+  end
+
+  test "the world strip reads the facts the bot reads", %{conn: conn} do
+    put_pos({10, 20, 7})
+
+    {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+    assert html =~ ~s(id="tile-pos")
+    assert html =~ ~s(id="tile-read")
+    assert html =~ ~s(id="tile-enemies")
+    assert html =~ ~s(id="tile-hunt")
+    assert html =~ ~s(id="tile-capture")
+    # every tile spells its state in WORDS beside the colour
+    assert html =~ "lendo tua posição" or html =~ "ainda não li"
+    assert html =~ "corpos na fila"
+  end
+
+  test "the hunt's own snapshot lands on the strip", %{conn: conn} do
+    put_pos({10, 20, 7})
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    send(
+      view.pid,
+      {:cavebot, %{state: :stuck, hold_reason: "parei: bati numa parede", capture_pending: 3}}
+    )
+
+    html = render(view)
+    assert html =~ "presa"
+    assert html =~ "parei: bati numa parede"
+    assert html =~ ">3<"
+  end
+
+  test "the route is DRAWN: waypoints, the character, and the walked order", %{conn: conn} do
+    route_with([{10, 10, 7}, {20, 10, 7}, {20, 25, 7}])
+    put_pos({12, 10, 7})
+
+    {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+    assert html =~ ~s(id="route-map")
+    assert html =~ ~s(id="map-waypoint-0")
+    assert html =~ ~s(id="map-waypoint-2")
+    assert html =~ ~s(id="map-here")
+    # the text alternative to the drawing, for screen readers
+    assert html =~ "Mapa da rota: 3 waypoints, 25 tiles"
+  end
+
+  test "clicking a waypoint on the map selects it in the editor", %{conn: conn} do
+    route_with([{10, 10, 7}, {20, 10, 7}])
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    html = view |> element("#map-waypoint-1") |> render_click()
+    assert html =~ "border-pk-warn bg-pk-warn-dim"
+
+    # clicking it again lets it go
+    html = view |> element("#map-waypoint-1") |> render_click()
+    refute html =~ "border-pk-warn bg-pk-warn-dim"
+  end
+
+  test "waypoints reorder, insert at a place and clear — no re-walking", %{conn: conn} do
+    route_with([{10, 10, 7}, {20, 10, 7}, {30, 10, 7}])
+    put_pos({15, 10, 7})
+
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    view |> element("#waypoint-down-0") |> render_click()
+    assert [%Route{waypoints: [%{x: 20}, %{x: 10}, %{x: 30}]}] = Store.all()
+
+    view |> element("#waypoint-up-1") |> render_click()
+    assert [%Route{waypoints: [%{x: 10}, %{x: 20}, %{x: 30}]}] = Store.all()
+
+    # the missing corner in the MIDDLE: stand there and insert
+    view |> element("#waypoint-insert-1") |> render_click()
+    assert [%Route{waypoints: [%{x: 10}, %{x: 15}, %{x: 20}, %{x: 30}]}] = Store.all()
+
+    view |> element("#clear-route") |> render_click()
+    assert [%Route{waypoints: [], z: nil}] = Store.all()
+  end
+
+  test "the ends of a route move nothing — the button is a no-op, never an error", %{conn: conn} do
+    route_with([{10, 10, 7}, {20, 10, 7}])
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    assert view |> element("#waypoint-up-0") |> render() =~ "disabled"
+    assert view |> element("#waypoint-down-1") |> render() =~ "disabled"
+  end
+
+  test "a route can be switched off without being deleted, and deleted with its photos", %{
+    conn: conn
+  } do
+    route_with([{10, 10, 7}])
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    view |> element("#toggle-route-enabled") |> render_click()
+    assert [%Route{enabled?: false}] = Store.all()
+
+    view |> element("#delete-route") |> render_click()
+    assert Store.all() == []
+  end
+
+  test "the hunt's narration lands on the page — 'parou' becomes 'parou por quê'", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    send(view.pid, {:cavebot_log, :macro, "caçada: waypoint 2/4 alcançado"})
+    send(view.pid, {:cavebot_log, :debug, "caçada: passo 5,0"})
+
+    html = render(view)
+    assert html =~ ~s(id="cavebot-log")
+    assert html =~ "waypoint 2/4 alcançado"
+    assert html =~ "passo 5,0"
+  end
+
+  test "the route photos have their place before they exist", %{conn: conn} do
+    route_with([{10, 10, 7}])
+    {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+    assert html =~ ~s(id="route-photos")
+    assert html =~ "início da rota"
+    assert html =~ "fim da rota"
+    assert html =~ "sai sozinha quando você gravar"
+  end
 end

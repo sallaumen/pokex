@@ -407,6 +407,54 @@ defmodule Pokex.Bots.Combat.LogicTest do
       refute {:tab} in actions
     end
 
+    # Lucas, 2026-08-10: "está muito lento!!!" — nine Tabs over ten seconds to
+    # learn that the only row in the list is his OWN pokémon, which can never
+    # be locked. With his pokémon out of its ball, ONE Tab settles it.
+    test "the only row, with his pokémon out, is presumed his after ONE failed hunt" do
+      logic = hunting(0, scenery_config())
+
+      {logic, actions} = failed_hunt_own(logic, [0], 10)
+
+      assert logic.scenery_rows == 1
+
+      assert Enum.any?(actions, fn
+               {:log, msg} -> msg =~ "teu pokémon está fora — presumo que é ELE"
+               _other -> false
+             end)
+    end
+
+    test "TWO rows keep the careful dance, even with his pokémon out" do
+      logic = hunting(0, scenery_config())
+
+      {logic, actions} = failed_hunt_own(logic, [0, 1], 10)
+      assert logic.scenery_rows == nil
+
+      assert Enum.any?(actions, fn
+               {:log, msg} -> msg =~ "pausa na caça (1/2)"
+               _other -> false
+             end)
+    end
+
+    test "one row and his pokémon IN its ball keeps the careful dance" do
+      logic = hunting(0, scenery_config())
+
+      {logic, _actions} = failed_hunt(logic, [0], 10)
+      assert logic.scenery_rows == nil
+    end
+
+    # the same failed hunt, with the "his pokémon is out" fact riding along
+    defp failed_hunt_own(logic, enemies_list, t0) do
+      first = obs(enemies: enemies_list, captured_at: t0, own_out?: true)
+      {logic, actions} = Logic.step(logic, first, t0)
+      assert {:tab} in actions
+
+      Logic.step(
+        logic,
+        obs(enemies: enemies_list, captured_at: t0 + 50, own_out?: true),
+        t0 + 150
+      )
+    end
+
     test "one target beyond the scenery hunts immediately" do
       logic = latched([0])
 

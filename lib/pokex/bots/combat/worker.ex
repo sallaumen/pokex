@@ -209,7 +209,19 @@ defmodule Pokex.Bots.Combat.Worker do
   # frame must not become a fake observation), and a missing/stale/unreadable fact merges
   # as nil → Logic blind-rotates (fail-open; see Logic.press_next_skill).
   defp with_ready_skills(nil), do: nil
-  defp with_ready_skills(obs), do: Map.put(obs, :ready_skills, Perception.ready_skills())
+
+  defp with_ready_skills(obs) do
+    obs
+    |> Map.put(:ready_skills, Perception.ready_skills())
+    |> Map.put(:own_out?, own_pokemon_out?())
+  end
+
+  # Reading his pokémon's HP bar IS the proof it is out of its ball — the same
+  # bar PlayerSupport potions and revives from. With it out, a battle list of
+  # exactly ONE row is almost certainly that pokémon, and the slow three-hunt
+  # scenery dance is the wrong tool (Lucas, 2026-08-10: "está muito lento!!!").
+  defp own_pokemon_out?,
+    do: match?({:ok, %{hp_pct: pct}} when is_integer(pct), Perception.pokemon())
 
   # Frozen while the mini-game plays: no steps, no bursts. Combat is
   # event-driven and a static battle would never deliver the resume edge, so

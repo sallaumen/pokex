@@ -87,6 +87,10 @@ defmodule PokexWeb.Layouts do
     default: [],
     doc: "muted alarm sectors, as strings (HeaderState)"
 
+  attr :screen_check, :any,
+    default: :unknown,
+    doc: "does the saved calibration match this screen (HeaderState)"
+
   attr :max_width, :string,
     default: "max-w-3xl",
     doc: "content width; the only thing that changes page to page"
@@ -334,6 +338,8 @@ defmodule PokexWeb.Layouts do
         </div>
       </header>
 
+      <.screen_mismatch_strip check={@screen_check} current_page={@current_page} />
+
       <main class={["mx-auto w-full px-2 py-3", @max_width]}>
         {render_slot(@inner_block)}
       </main>
@@ -342,6 +348,53 @@ defmodule PokexWeb.Layouts do
     </div>
     """
   end
+
+  attr :check, :any, required: true, doc: "Calibration.screen_check/2 result"
+  attr :current_page, :atom, default: nil
+
+  @doc """
+  The one state that makes EVERY reading wrong, said on every page.
+
+  A calibration belongs to the screen it was marked on: on another one the bot
+  aims at coordinates that no longer exist. The warning already existed — but
+  only inside /calibration, so switching monitors and going straight to the
+  panel told him nothing (Lucas, 2026-08-10: "o tamanho da minha tela era
+  diferente da última calibragem, nada me foi avisado"). It rides inside the
+  sticky header block so scrolling cannot leave it behind, and disappears by
+  itself the moment the two agree.
+  """
+  def screen_mismatch_strip(%{check: {tag, {sw, sh}, {cw, ch}}} = assigns)
+      when tag in [:another_screen, :rescalable] do
+    assigns = assign(assigns, saved: "#{sw}×#{sh}", current: "#{cw}×#{ch}")
+
+    ~H"""
+    <div
+      id="screen-mismatch-strip"
+      role="status"
+      class="sticky top-12 z-30 border-b border-pk-warn-line bg-pk-warn-dim/95 backdrop-blur"
+    >
+      <div class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5">
+        <.icon name="hero-computer-desktop" class="size-4 shrink-0 text-pk-warn" />
+        <p class="flex-1 text-pk-body text-pk-text">
+          <b class="text-pk-warn">A calibração é de outra tela</b>
+          <span class="pk-num text-pk-text-2">
+            — marcada em {@saved} pt, esta tem {@current} pt. O bot vai ler no lugar errado.
+          </span>
+        </p>
+        <.link
+          :if={@current_page != :calibration}
+          navigate={~p"/calibration"}
+          id="screen-mismatch-fix"
+          class="shrink-0 rounded-lg border border-pk-warn-line bg-pk-warn/15 px-2.5 py-1 text-pk-meta font-semibold text-pk-warn hover:bg-pk-warn/25"
+        >
+          Resolver
+        </.link>
+      </div>
+    </div>
+    """
+  end
+
+  def screen_mismatch_strip(assigns), do: ~H""
 
   # One menu destination. It is a component because it renders from two
   # different shapes (the ungrouped top, and each group's entries), and marking
@@ -398,7 +451,8 @@ defmodule PokexWeb.Layouts do
         :characters,
         :active_character,
         :alarm_sound,
-        :alarm_muted_categories
+        :alarm_muted_categories,
+        :screen_check
       ])
 
   # The id becomes DOM: `:fishing_lab` -> "app-nav-fishing-lab" (underscores in

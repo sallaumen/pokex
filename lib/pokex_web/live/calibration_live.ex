@@ -1271,9 +1271,12 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   # Asking must never be able to take the page down: a wedged backend is
-  # "I don't know", not a crash.
+  # "I don't know", not a crash. And never QUEUE on the broker either — this
+  # runs at mount, where a page opened mid-scan would sit there for seconds.
+  # Every path that took a screenshot passes `shot_points/1` instead, which is
+  # the authoritative reading straight from the photo.
   defp display_points do
-    Capture.display_points()
+    Capture.display_points_cached()
   catch
     _kind, _reason -> :unknown
   end

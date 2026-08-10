@@ -24,7 +24,9 @@ defmodule PokexWeb.HeaderState do
 
   alias Pokex.Bots.AlarmCategories
   alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.Capture
   alias Pokex.Bots.Focus
+  alias Pokex.Calibration
   alias Pokex.Characters
   alias Pokex.Settings
 
@@ -54,7 +56,8 @@ defmodule PokexWeb.HeaderState do
         characters: Characters.list(),
         active_character: Characters.active(),
         alarm_sound: Settings.get(:alarm_sound),
-        alarm_muted_categories: Settings.get(:alarm_muted_categories)
+        alarm_muted_categories: Settings.get(:alarm_muted_categories),
+        screen_check: screen_check()
       )
       |> sync_workers(BotSupervisor.status())
       |> attach_hook(:header_state, :handle_info, &info/2)
@@ -78,6 +81,24 @@ defmodule PokexWeb.HeaderState do
       cavebot: status.cavebot.state
     })
     |> assign_bot_active()
+  end
+
+  # `screen_check` is a SHARED assign on purpose: this hook seeds it for every
+  # page, and the calibration page overwrites it with the reading from the
+  # screenshot it just took. One name, so a mismatch fixed there clears the
+  # strip on the click instead of on the next page load.
+  #
+  # Reads the display from the broker's lock-free copy, never with a call: this
+  # runs on EVERY mount, and the broker is busy for seconds at a time while the
+  # bot works. No proof (:unknown) shows nothing — a strip that cries wolf on a
+  # missing reading would be worse than the silence it replaces.
+  defp screen_check do
+    case Calibration.load() do
+      {:ok, calib} -> Calibration.screen_check(calib, Capture.display_points_cached())
+      _no_calibration -> :unknown
+    end
+  catch
+    _kind, _reason -> :unknown
   end
 
   defp info({:focus, %{focused?: focused?}}, socket),

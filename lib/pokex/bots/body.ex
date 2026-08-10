@@ -334,7 +334,6 @@ defmodule Pokex.Bots.Body do
   end
 
   defp mouse_action?({:move, _point}), do: true
-  defp mouse_action?({:hover, _point}), do: true
   defp mouse_action?({:focus_click, _point}), do: true
   defp mouse_action?({:click, _button, _point}), do: true
   defp mouse_action?({:capture_sequence, _point}), do: true
@@ -373,7 +372,6 @@ defmodule Pokex.Bots.Body do
   defp execute({:press, key}), do: Rig.impl().press(key)
   defp execute({:click, button, point}), do: Rig.impl().click(button, point)
   defp execute({:move, point}), do: Rig.impl().move(point)
-  defp execute({:hover, point}), do: Rig.impl().hover(point)
   defp execute({:tap, combo}), do: Rig.impl().tap(combo)
   defp execute({:focus_click, point}), do: Rig.impl().focus_click(point)
   defp execute({:capture_sequence, point}), do: Rig.impl().capture_sequence(point)
@@ -407,7 +405,6 @@ defmodule Pokex.Bots.Body do
   defp first_action([{:press, key} | _]), do: "press:#{key}"
   defp first_action([{:click, button, _point} | _]), do: "click:#{button}"
   defp first_action([{:move, _point} | _]), do: "move"
-  defp first_action([{:hover, _point} | _]), do: "hover"
   defp first_action([{:tap, combo} | _]), do: "tap:#{combo}"
   defp first_action([{:focus_click, _point} | _]), do: "focus_click"
   defp first_action([{:capture_sequence, _point} | _]), do: "capture_sequence"
@@ -463,7 +460,6 @@ defmodule Pokex.Bots.Body do
   defp action_label({:press, key}), do: "key:#{key}"
   defp action_label({:click, button, _point}), do: "click:#{button}"
   defp action_label({:move, _point}), do: "move"
-  defp action_label({:hover, _point}), do: "hover"
   defp action_label({:tap, combo}), do: "tap:#{combo}"
   defp action_label({:focus_click, _point}), do: "focus_click"
   defp action_label({:capture_sequence, _point}), do: "cap"

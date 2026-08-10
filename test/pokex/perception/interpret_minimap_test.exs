@@ -66,12 +66,19 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     assert {%{pos: {2597, 30_640, 6}}, _state} = Minimap.interpret(panel, calib, %{}, nil)
   end
 
-  test "the minimap_coord_ink setting reaches the reader — an impossible floor blinds it" do
+  # The setting is where the reader STARTS, not what it is hostage to: an
+  # impossible floor used to blind it outright, and now the hunt rescues the
+  # read with a floor that works and remembers it. The rescue is the whole
+  # point — over bright terrain the taught floor is itself the wrong one.
+  test "an impossible ink setting no longer blinds the reader — the hunt finds a floor" do
     {fix, panel} = located("ultrawide_3440x1440_full")
     calib = %Calibration{scale: 1.0, layout: fix}
 
-    assert {%{pos: nil}, _state} =
+    assert {%{pos: {337, 46_107, 4}}, state} =
              Minimap.interpret(panel, calib, %{minimap_coord_ink: 255}, nil)
+
+    assert state.ink != 255
+    assert is_tuple(state.band)
   end
 
   test "no region at all (neither manual nor layout) yields pos nil, never a crash" do

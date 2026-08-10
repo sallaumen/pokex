@@ -137,7 +137,10 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("save_found_band", _params, socket) do
     case socket.assigns.coord_search do
-      {:found, band, _pos, _mode} ->
+      {:found, band, _pos, ink} ->
+        # the floor that READ is the floor the reader must start from: over
+        # bright terrain the taught 120 welds the map to the strokes
+        Settings.put(:minimap_coord_ink, ink)
         {:noreply, socket |> assign(coord_search: nil) |> save_minimap(band)}
 
       _not_found ->
@@ -890,12 +893,6 @@ defmodule PokexWeb.CalibrationLive do
     )
   end
 
-  # Hovering ANIMATES the widget (control bars slide over the map before the
-  # label draws — Lucas, 2026-08-10): the settle must outlast the jiggle AND
-  # the slide, or the photo catches the text mid-animation or not yet drawn.
-  @hover_settle_ms Application.compile_env(:pokex, :coord_hover_settle_ms, 900)
-  @hover_hold_ms Application.compile_env(:pokex, :coord_hover_hold_ms, 3200)
-  @hover_jiggle_ms Application.compile_env(:pokex, :coord_hover_jiggle_ms, 80)
   # The label is up the moment the position changes; the photo only has to
   # outlast the client's own frame.
   @walk_settle_ms Application.compile_env(:pokex, :coord_walk_settle_ms, 350)
@@ -905,109 +902,43 @@ defmodule PokexWeb.CalibrationLive do
   # hands the keys to the game.
   @focus_settle_ms Application.compile_env(:pokex, :coord_focus_settle_ms, 250)
 
-  # The game draws the coordinate only while the mouse is OVER the minimap
-  # (measured 2026-08-10: the bot's captures had no text on the very minimap
-  # Lucas's hovered screenshot showed it on). So this photo hovers first: the
-  # game is re-fronted, the Body — one pair of hands, as always — parks the
-  # cursor on the cross via {:hover, _} (UNGATED: the gate's corner flag is
-  # proven by the Guardian, which only polls while the fleet is up — during
-  # calibration the gate can never open, and a gated move hovered nothing) and
-  # HOLDS while the shot is taken; afterwards it restores Lucas's cursor on
-  # its own (restore_mouse_after_actions).
-  defp hover_grab(nil), do: {:error, :no_hover_point}
-
-  defp hover_grab(point) do
-    result =
-      with_game_front(fn ->
-        hold =
-          Task.async(fn ->
-            try do
-              Body.perform(hover_actions(point))
-            catch
-              kind, reason -> {:error, {kind, reason}}
-            end
-          end)
-
-        Process.sleep(@hover_settle_ms)
-        shot = Screenshot.take("calibration_screen.png")
-        Task.await(hold, @hover_hold_ms + 5_000)
-        shot
-      end)
-
-    with {:ok, shot} <- result, do: {:ok, decorate_shot(shot)}
-  end
-
-  # Teleporting the cursor ONTO the widget does not wake it: the client only
-  # opens the hover state when the mouse MOVES while already inside (Lucas,
-  # 2026-08-10 — cursor verified dead-center on the cross, widget asleep). So
-  # the hover walks a tiny square around the cross — real move events with the
-  # cursor already inside — and only then holds for the photo.
-  defp hover_actions({x, y} = point) do
-    jiggle = [{x + 4, y + 2}, {x - 3, y + 5}, {x + 2, y - 3}, point]
-
-    [{:hover, point}, {:wait, @hover_jiggle_ms}] ++
-      Enum.flat_map(jiggle, &[{:hover, &1}, {:wait, @hover_jiggle_ms}]) ++
-      [{:wait, @hover_hold_ms}]
-  end
-
   # WALKING is the state that matters. Measured 2026-08-10 on Lucas's screen:
   # standing still with the mouse away, the minimap has NO text at all — the
   # client draws the coordinate only while the position CHANGES, or under a
-  # hovering mouse. Hovering is what the search used to photograph, and Lucas
-  # called it right: that state is ~0% of the bot's life, and its label sits in
-  # a different place (under the control bar that slides in). So the search
-  # takes a real STEP — arrow out, photo, arrow back — and calibrates the state
-  # the cavebot actually runs in. Hover stays as the last resort, flagged as
-  # such, for when both axes are walled.
+  # hovering mouse. The hover state is ~0% of the bot's life AND puts the label
+  # ~40pt lower (under the control bar that slides in), so a band calibrated
+  # there is a band the day-to-day reading never looks at. The search only ever
+  # photographs a WALK, and a picture that shows the clock — the hover state's
+  # own signature — is refused outright.
   @walk_pairs [{"right", "left"}, {"down", "up"}]
 
   defp run_coord_search(socket) do
     draft = socket.assigns.draft
     focus = focus_point()
-
-    attempts =
-      Enum.map(@walk_pairs, &{:walk, &1, focus}) ++
-        [{:hover, draft[:minimap_player_point] || region_center(draft[:minimap_region])}]
+    attempts = Enum.map(@walk_pairs, &{:walk, &1, focus})
 
     Enum.reduce_while(attempts, assign(socket, coord_search: :not_found), fn attempt, socket ->
-      case try_attempt(attempt, draft) do
-        {:found, shot, band, pos, mode} ->
-          {:halt,
-           assign(socket,
-             screen: shot,
-             scale: shot.scale,
-             coord_search: {:found, band, pos, mode}
-           )}
-
-        {:shot, nil} ->
-          {:cont, socket}
-
-        {:shot, shot} ->
-          {:cont, assign(socket, screen: shot, scale: shot.scale)}
-
-        {:failed, reason} ->
-          {:cont, assign(socket, coord_search: {:failed, reason})}
-      end
+      attempt |> try_attempt(draft) |> fold(socket)
     end)
   end
 
+  defp fold({:found, shot, band, pos, ink, _mode}, socket) do
+    {:halt,
+     assign(socket, screen: shot, scale: shot.scale, coord_search: {:found, band, pos, ink})}
+  end
+
+  defp fold({:hovered, shot}, socket) do
+    {:halt, assign(socket, screen: shot, scale: shot.scale, coord_search: :hovered)}
+  end
+
+  defp fold({:shot, nil}, socket), do: {:cont, socket}
+  defp fold({:shot, shot}, socket), do: {:cont, assign(socket, screen: shot, scale: shot.scale)}
+
+  defp fold({:failed, reason}, socket),
+    do: {:cont, assign(socket, coord_search: {:failed, reason})}
+
   defp try_attempt({:walk, pair, focus}, draft),
     do: with_game_front(fn -> walk_burst(pair, focus, draft) end)
-
-  defp try_attempt({:hover, point}, draft),
-    do: attempt(fn -> hover_grab(point) end, draft, :hover)
-
-  defp attempt(grab, draft, mode) do
-    with {:ok, shot} <- grab.(),
-         {:ok, frame} <- Vision.Frame.from_png_file(shot.path) do
-      case search_band(frame, draft, shot) do
-        {:ok, band, pos} -> {:found, shot, band, pos, mode}
-        :error -> {:shot, shot}
-      end
-    else
-      error -> {:failed, inspect(error)}
-    end
-  end
 
   defp search_band(frame, draft, shot) do
     CoordBandSearch.search(
@@ -1029,9 +960,6 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  # One tile out, photo, one tile back: net zero movement, and the label is up
-  # for the shot because the position just changed. Ungated `{:tap, _}` for the
-  # same reason as the hover — the gate cannot open with the fleet down.
   # A single photo has to GUESS when the label is up, and it guessed wrong on
   # Lucas's machine (2026-08-10): the character visibly walked and every shot
   # came out textless. The coordinate only changes when the step COMPLETES, and
@@ -1059,7 +987,8 @@ defmodule PokexWeb.CalibrationLive do
     Process.sleep(@walk_settle_ms)
 
     case shot_and_search(draft, :walk) do
-      {:found, _shot, _band, _pos, _mode} = hit -> {:halt, {hit, index}}
+      {:found, _shot, _band, _pos, _ink, _mode} = hit -> {:halt, {hit, index}}
+      {:hovered, _shot} = hovered -> {:halt, {hovered, index}}
       other -> {:cont, {other, index}}
     end
   end
@@ -1068,21 +997,18 @@ defmodule PokexWeb.CalibrationLive do
     with {:ok, raw} <- Screenshot.take("calibration_screen.png"),
          shot = decorate_shot(raw),
          {:ok, frame} <- Vision.Frame.from_png_file(shot.path) do
-      case search_band(frame, draft, shot) do
-        {:ok, band, pos} -> {:found, shot, band, pos, mode}
-        :error -> {:shot, shot}
-      end
+      verdict(search_band(frame, draft, shot), shot, mode)
     else
       error -> {:failed, inspect(error)}
     end
   end
 
-  defp region_center({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
-  defp region_center(nil), do: nil
+  defp verdict({:ok, band, pos, ink}, shot, mode), do: {:found, shot, band, pos, ink, mode}
+  defp verdict(:hovered, shot, _mode), do: {:hovered, shot}
+  defp verdict(:error, shot, _mode), do: {:shot, shot}
 
-  defp found_band({:found, band, _pos, _mode}), do: band
-  defp found_pos_text({:found, _band, {x, y, z}, _mode}), do: "(#{x}, #{y}, #{z})"
-  defp found_mode({:found, _band, _pos, mode}), do: mode
+  defp found_band({:found, band, _pos, _ink}), do: band
+  defp found_pos_text({:found, _band, {x, y, z}, _ink}), do: "(#{x}, #{y}, #{z})"
 
   defp not_found?(:not_found), do: true
   defp not_found?({:failed, _reason}), do: true
@@ -2009,19 +1935,8 @@ defmodule PokexWeb.CalibrationLive do
             </p>
 
             <div :if={match?({:found, _, _, _}, @coord_search)} class="space-y-2">
-              <p
-                id="coord-band-found"
-                class={[
-                  "text-sm font-semibold",
-                  (found_mode(@coord_search) == :walk && "text-success") || "text-warning"
-                ]}
-              >
+              <p id="coord-band-found" class="text-sm font-semibold text-success">
                 li: {found_pos_text(@coord_search)} ✓ — é onde você está? Então salva.
-                <span :if={found_mode(@coord_search) == :hover} class="block font-normal">
-                  Atenção: só consegui ler com o MOUSE em cima do minimapa — e no dia a dia
-                  ele nunca está lá. Se o personagem estava preso (parede dos dois lados),
-                  ande um tile e busque de novo pra pegar o estado normal.
-                </span>
               </p>
               <div
                 class="rounded border border-success/60 bg-base-300"
@@ -2038,6 +1953,17 @@ defmodule PokexWeb.CalibrationLive do
                   Marcar na mão
                 </button>
               </div>
+            </div>
+
+            <div :if={@coord_search == :hovered} class="space-y-2">
+              <p id="coord-band-hovered" class="text-sm font-semibold text-warning">
+                O relógio apareceu no minimapa — isso só acontece com o MOUSE em cima dele, e
+                nesse estado a coordenada é desenhada em outro lugar. Tire o mouse de cima do
+                minimapa e busque de novo: eu preciso calibrar o estado do dia a dia.
+              </p>
+              <button class="btn btn-primary btn-sm" phx-click="coord_search_again">
+                Buscar de novo
+              </button>
             </div>
 
             <div :if={not_found?(@coord_search)} class="space-y-2">

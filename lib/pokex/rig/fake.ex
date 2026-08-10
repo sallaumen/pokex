@@ -73,9 +73,6 @@ defmodule Pokex.Rig.Fake do
   def move(point), do: record({:move, point}, :move, :ok)
 
   @impl true
-  def hover(point), do: record({:hover, point}, :hover, :ok)
-
-  @impl true
   def tap(combo), do: record({:tap, combo}, :tap, :ok)
 
   @impl true

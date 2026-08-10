@@ -1532,9 +1532,6 @@ defmodule PokexWeb.CalibrationLiveTest do
       # trip is still pressed — every attempt ends where it started
       assert ordered == [{:focus_click, {52, 36}}, {:tap, "right"}, {:tap, "left"}]
 
-      # walking answered, so the exceptional hover state is never photographed
-      refute Enum.any?(Fake.calls(), &match?({:hover, _}, &1))
-      refute render(view) =~ "só consegui ler com o MOUSE"
       _ = cross
 
       html = view |> element("button", "Salvar assim") |> render_click()
@@ -1554,10 +1551,11 @@ defmodule PokexWeb.CalibrationLiveTest do
     end
 
     @tag :tmp_dir
-    # Both axes walled (or the step swallowed): only then is the mouse-hover
-    # state photographed — and the screen SAYS it is the exception, because a
-    # band calibrated there sits where the day-to-day reading never looks.
-    test "hover is the last resort, and it is flagged as the exception", %{
+    # Lucas's own validator: the clock only renders while the mouse is over
+    # the minimap, so a photo showing it was taken in the exception state —
+    # where the label sits somewhere the day-to-day reading never looks. The
+    # search refuses to calibrate from it and says why.
+    test "a photo showing the clock is refused: that is the mouse-over state", %{
       conn: conn,
       tmp_dir: tmp
     } do
@@ -1566,73 +1564,31 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
 
-      real = "test/fixtures/screen/ultrawide_3440x1440_full.png"
-      frame = Pokex.ScreenFixtures.frame!("ultrawide_3440x1440_full")
-      {:ok, fix} = Pokex.Layout.locate(frame)
-      {mx, my, mw, mh} = Pokex.Layout.region(:minimap, fix)
-
       probe =
         Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
 
-      blank =
-        Pokex.PngFixtures.write!(Path.join(tmp, "blank.png"), rows(200, 150, {9, 9, 9, 255}))
+      # the real hover-state widget, pasted into a full-screen shot at the very
+      # place the marks below describe
+      hover = "test/fixtures/screen/minimap_hover_widget.png"
 
-      # the wizard's own opening screenshot, then the whole walking burst on
-      # both axes (4 beats each) comes out textless — the character could not
-      # move; the hover shot is the real capture, and repeats from then on
-      {:ok, _} =
-        Fake.start_link(%{
-          capture: [{:ok, probe}],
-          capture_screen: List.duplicate({:ok, blank}, 9) ++ [{:ok, real}]
-        })
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, hover}]})
 
       {:ok, view, _} = live(conn, ~p"/calibration")
       view |> element("button", "Posição & minimapa") |> render_click()
 
       click = fn x, y ->
-        params = %{
-          "x" => x / 1,
-          "y" => y / 1,
-          "cw" => 3440.0,
-          "ch" => 1440.0,
-          "nw" => 3440.0,
-          "nh" => 1440.0
-        }
-
+        params = %{"x" => x, "y" => y, "cw" => 259.0, "ch" => 231.0, "nw" => 259.0, "nh" => 231.0}
         render_hook(view, "img_click", params)
         render_hook(view, "img_click", params)
       end
 
-      click.(mx, my)
-      click.(mx + mw, my + mh)
-      click.(mx + div(mw, 2), my + div(mh, 2))
+      click.(0.0, 0.0)
+      click.(258.0, 230.0)
+      click.(130.0, 115.0)
 
-      # render/1 blocks on the LiveView process, so the search is DONE by here
       html = render(view)
-
-      # both axes were WALKED — out and back, twice each, photographing every
-      # beat — before the mouse was used at all, and every axis ends net zero
-      taps = Enum.filter(Fake.calls(), &match?({:tap, _}, &1))
-
-      assert taps == [
-               {:tap, "right"},
-               {:tap, "left"},
-               {:tap, "right"},
-               {:tap, "left"},
-               {:tap, "down"},
-               {:tap, "up"},
-               {:tap, "down"},
-               {:tap, "up"}
-             ]
-
-      assert Enum.any?(Fake.calls(), &match?({:hover, _}, &1))
-
-      assert html =~ "li: (337, 46107, 4)"
-      assert html =~ "só consegui ler com o MOUSE"
-
-      # this calibration has no neutral point, so nothing was clicked to hand
-      # the game the keyboard — the likeliest reason walking answered nothing
-      refute Enum.any?(Fake.calls(), &match?({:focus_click, _}, &1))
+      assert html =~ ~s(id="coord-band-hovered")
+      assert html =~ "relógio apareceu"
     end
 
     @tag :tmp_dir

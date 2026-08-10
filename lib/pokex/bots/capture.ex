@@ -103,6 +103,40 @@ defmodule Pokex.Bots.Capture do
     end
   end
 
+  @display_key {__MODULE__, :display_points}
+
+  @doc """
+  The same answer as `display_points/1`, read WITHOUT queueing on the broker.
+
+  This GenServer serializes every capture, so a `call` waits out whatever scan
+  is running — seconds, sometimes. That is the right price for a worker that
+  needs the truth and the wrong one for a page that only wants to draw "esta
+  calibração é de outra tela": mounting a LiveView must never sit in the
+  capture queue (the 2026-07-31 lesson, a panel frozen behind the Catcher).
+
+  The display's size changes when a monitor is plugged, not between frames, so
+  the last value the broker computed is as good as a fresh one. `:unknown`
+  keeps meaning "no proof" — never "the screen changed".
+  """
+  def display_points_cached, do: :persistent_term.get(@display_key, :unknown)
+
+  # Written ONLY by the app-wide singleton: a test broker under another name
+  # (or none) must not leave its fake display in a term the whole VM reads.
+  # Writing only on change keeps :persistent_term's global scan off the hot path.
+  defp cache_display_points(points) do
+    if global_broker?() and points != display_points_cached(),
+      do: :persistent_term.put(@display_key, points)
+
+    points
+  end
+
+  defp global_broker? do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, __MODULE__} -> true
+      _anonymous_or_other -> false
+    end
+  end
+
   @impl true
   def init(opts) do
     sck = Keyword.get(opts, :screen_capture_kit, ScreenCaptureKit)
@@ -114,59 +148,65 @@ defmodule Pokex.Bots.Capture do
     sck_recoverable? = start_recoverable? and sck_recoverable?(sck)
     sck_recover_interval_ms = sck_recover_interval_ms(opts)
 
-    {:ok,
-     %{
-       backend: backend,
-       sck: sck,
-       sck_opts: opts,
-       sck_recoverable?: sck_recoverable?,
-       sck_recover_at: initial_sck_recover_at(backend, sck_recoverable?, sck_recover_interval_ms),
-       sck_recover_interval_ms: sck_recover_interval_ms,
-       sck_recover_backoff_ms: sck_recover_interval_ms,
-       recovering?: false,
-       sck_capture_retries:
-         non_neg_int(
-           Keyword.get(
-             opts,
-             :sck_capture_retries,
-             Application.get_env(
-               :pokex,
-               :sck_capture_retries,
-               @default_sck_capture_retries
-             )
-           ),
-           @default_sck_capture_retries
-         ),
-       sck_retry_sleep_ms:
-         non_neg_int(
-           Keyword.get(
-             opts,
-             :sck_retry_sleep_ms,
-             Application.get_env(
-               :pokex,
-               :sck_retry_sleep_ms,
-               @default_sck_retry_sleep_ms
-             )
-           ),
-           @default_sck_retry_sleep_ms
-         ),
-       cache: %{},
-       cache_ttl_ms:
-         Keyword.get(
-           opts,
-           :cache_ttl_ms,
-           Application.get_env(:pokex, :capture_cache_ttl_ms, @default_cache_ttl_ms)
-         ),
-       # QUARANTINED regions: requested off-screen (game window moved since
-       # calibration). The helper answers the same error forever — each attempt
-       # cost retries + fallback + killing the HEALTHY SCK (fallback_backend),
-       # drowning the whole broker. Key = the exact region; recalibrating makes
-       # a new key and it heals on its own.
-       impossible_regions: %{},
-       # regions that already rang the siren — repeats become log lines, not alarms
-       regioes_alarmadas: MapSet.new(),
-       starvation_alarm_at: nil
-     }}
+    state = %{
+      backend: backend,
+      sck: sck,
+      sck_opts: opts,
+      sck_recoverable?: sck_recoverable?,
+      sck_recover_at: initial_sck_recover_at(backend, sck_recoverable?, sck_recover_interval_ms),
+      sck_recover_interval_ms: sck_recover_interval_ms,
+      sck_recover_backoff_ms: sck_recover_interval_ms,
+      recovering?: false,
+      sck_capture_retries:
+        non_neg_int(
+          Keyword.get(
+            opts,
+            :sck_capture_retries,
+            Application.get_env(
+              :pokex,
+              :sck_capture_retries,
+              @default_sck_capture_retries
+            )
+          ),
+          @default_sck_capture_retries
+        ),
+      sck_retry_sleep_ms:
+        non_neg_int(
+          Keyword.get(
+            opts,
+            :sck_retry_sleep_ms,
+            Application.get_env(
+              :pokex,
+              :sck_retry_sleep_ms,
+              @default_sck_retry_sleep_ms
+            )
+          ),
+          @default_sck_retry_sleep_ms
+        ),
+      cache: %{},
+      cache_ttl_ms:
+        Keyword.get(
+          opts,
+          :cache_ttl_ms,
+          Application.get_env(:pokex, :capture_cache_ttl_ms, @default_cache_ttl_ms)
+        ),
+      # QUARANTINED regions: requested off-screen (game window moved since
+      # calibration). The helper answers the same error forever — each attempt
+      # cost retries + fallback + killing the HEALTHY SCK (fallback_backend),
+      # drowning the whole broker. Key = the exact region; recalibrating makes
+      # a new key and it heals on its own.
+      impossible_regions: %{},
+      # regions that already rang the siren — repeats become log lines, not alarms
+      regioes_alarmadas: MapSet.new(),
+      starvation_alarm_at: nil
+    }
+
+    # Seed the lock-free copy at boot: without it the first page to ask would
+    # read :unknown and stay silent about a calibration from another screen
+    # until someone opened /calibration.
+    cache_display_points(current_display_points(state))
+
+    {:ok, state}
   end
 
   @doc """
@@ -340,10 +380,7 @@ defmodule Pokex.Bots.Capture do
   end
 
   def handle_call(:display_points, _from, state) do
-    case screen_region(state) do
-      {:ok, {_x, _y, w, h}} -> {:reply, {:ok, {w, h}}, state}
-      :unknown -> {:reply, :unknown, state}
-    end
+    {:reply, cache_display_points(current_display_points(state)), state}
   end
 
   def handle_call({:frame, region, filename, requested_at}, _from, state) do
@@ -422,18 +459,23 @@ defmodule Pokex.Bots.Capture do
   def handle_info({:sck_recovery_result, {:ok, backend}}, state) do
     Logger.info("ScreenCaptureKit capture backend recovered")
 
-    {:noreply,
-     %{
-       state
-       | backend: {:screen_capture_kit, backend},
-         recovering?: false,
-         sck_recover_at: nil,
-         sck_recover_backoff_ms: state.sck_recover_interval_ms,
-         # A fresh SCK may see another display/scale — give every quarantined
-         # region ONE new chance (still off-screen = one cheap roundtrip
-         # re-quarantines it).
-         impossible_regions: %{}
-     }}
+    state = %{
+      state
+      | backend: {:screen_capture_kit, backend},
+        recovering?: false,
+        sck_recover_at: nil,
+        sck_recover_backoff_ms: state.sck_recover_interval_ms,
+        # A fresh SCK may see another display/scale — give every quarantined
+        # region ONE new chance (still off-screen = one cheap roundtrip
+        # re-quarantines it).
+        impossible_regions: %{}
+    }
+
+    # "another display" is the whole point: a monitor plugged mid-session comes
+    # in through here, and the lock-free copy has to learn it too.
+    cache_display_points(current_display_points(state))
+
+    {:noreply, state}
   end
 
   def handle_info({:sck_recovery_result, {:error, {:disabled, _reason}}}, state) do
@@ -581,6 +623,13 @@ defmodule Pokex.Bots.Capture do
     do: sck.display_region(backend)
 
   defp screen_region(_state), do: :unknown
+
+  defp current_display_points(state) do
+    case screen_region(state) do
+      {:ok, {_x, _y, w, h}} -> {:ok, {w, h}}
+      :unknown -> :unknown
+    end
+  end
 
   # No SCK metadata: `screencapture -m` answers in PIXELS and never says which
   # display it filmed. A region probe through the SAME CLI gives its pixels per

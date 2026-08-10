@@ -312,4 +312,72 @@ defmodule PokexWeb.AppHeaderTest do
       assert Pokex.Settings.get(:alarm_muted_categories) == []
     end
   end
+
+  describe "a calibração é de outra tela" do
+    # THE field bug (Lucas, 2026-08-10): back from the MacBook to the two
+    # monitors — "o tamanho da minha tela era diferente da última calibragem,
+    # nada me foi avisado". The warning existed, inside /calibration only, so
+    # opening the app and going straight to the panel said nothing while every
+    # coordinate the bot aimed at belonged to the other screen.
+    #
+    # The display comes from the broker's lock-free copy: this key is the
+    # contract between `Pokex.Bots.Capture`'s writer and its reader.
+    @display_key {Pokex.Bots.Capture, :display_points}
+
+    setup %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+
+      on_exit(fn ->
+        Application.delete_env(:pokex, :home_dir)
+        :persistent_term.erase(@display_key)
+      end)
+
+      :ok
+    end
+
+    defp calibrated_on(w, h) do
+      Pokex.Calibration.save(%Pokex.Calibration{
+        scale: 1.0,
+        screen_w: w,
+        screen_h: h,
+        neutral_point: {10, 10}
+      })
+    end
+
+    @tag :tmp_dir
+    test "every page says so, and offers the way out", %{conn: conn} do
+      calibrated_on(3440, 1440)
+      :persistent_term.put(@display_key, {:ok, {1512, 982}})
+
+      for {path, page} <- @routes do
+        {:ok, view, html} = live(conn, path)
+
+        assert has_element?(view, "#screen-mismatch-strip"),
+               "#{path} does not warn that the calibration is from another screen"
+
+        assert html =~ "3440×1440", "#{path} does not say which screen it was marked on"
+        assert html =~ "1512×982", "#{path} does not say which screen this is"
+
+        # on the calibration page the fix is already on screen — a "Resolver"
+        # pointing at the page you are already on is noise
+        if page == :calibration,
+          do: refute(has_element?(view, "#screen-mismatch-fix")),
+          else: assert(has_element?(view, "#screen-mismatch-fix"))
+      end
+    end
+
+    @tag :tmp_dir
+    test "same screen, no strip — and no proof is silence, not an alarm", %{conn: conn} do
+      calibrated_on(1512, 982)
+      :persistent_term.put(@display_key, {:ok, {1512, 982}})
+
+      {:ok, view, _html} = live(conn, "/")
+      refute has_element?(view, "#screen-mismatch-strip")
+
+      # a wedged backend has no opinion about the screen
+      :persistent_term.put(@display_key, :unknown)
+      {:ok, view, _html} = live(conn, "/")
+      refute has_element?(view, "#screen-mismatch-strip")
+    end
+  end
 end

@@ -47,6 +47,19 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     assert Pokex.Vision.Glyphs.read_coord(frame, band, ink: 120) == {337, 46_107, 4}
   end
 
+  test "the hover bar pushes the label deep below the marked top — still found" do
+    # Hovering slides a control bar over the map's top ~30pt and the label
+    # draws BELOW it, so with the widget marked whole the text sits 30-55pt
+    # under the marked top. Simulated on the fixture by describing a map whose
+    # top is 40pt above the strip: the label lands at offset +46.
+    frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
+    {:ok, fix} = Layout.locate(frame)
+    {_cx, cy, _cw, _ch} = Layout.region(:minimap_coord, fix)
+
+    assert {:ok, _band, {337, 46_107, 4}} =
+             CoordBandSearch.search(frame, {3150, cy - 46, 290, 458}, 1.0, ink: 120)
+  end
+
   test "a map with no coordinate text anywhere answers :error" do
     frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
     # a textless patch of the same capture posing as the map rectangle

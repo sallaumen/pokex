@@ -859,8 +859,11 @@ defmodule PokexWeb.CalibrationLive do
     )
   end
 
-  @hover_settle_ms Application.compile_env(:pokex, :coord_hover_settle_ms, 250)
-  @hover_hold_ms Application.compile_env(:pokex, :coord_hover_hold_ms, 1600)
+  # Hovering ANIMATES the widget (control bars slide over the map before the
+  # label draws — Lucas, 2026-08-10): the settle must outlast the slide, or the
+  # photo catches the text mid-animation or not yet drawn.
+  @hover_settle_ms Application.compile_env(:pokex, :coord_hover_settle_ms, 600)
+  @hover_hold_ms Application.compile_env(:pokex, :coord_hover_hold_ms, 2600)
 
   # The game draws the coordinate only while the mouse is OVER the minimap
   # (measured 2026-08-10: the bot's captures had no text on the very minimap

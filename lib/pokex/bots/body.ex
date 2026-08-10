@@ -110,14 +110,20 @@ defmodule Pokex.Bots.Body do
     end
   end
 
-  # A few pixels of margin: the outermost ring of the map area is under the
-  # frame's antialiasing, where a click reads as the frame rather than the map.
-  @minimap_margin 6
+  # Hovering the minimap slides CONTROLS over its edges — clock/lock/book bar
+  # on top, floor arrows left, zoom right, buttons bottom (Lucas's screenshots,
+  # 2026-08-10) — and every walk click happens WITH the cursor hovering, so a
+  # click clamped to an edge would press a control instead of walking (the
+  # top-right ones toggle client state). The clamp stays clear of the whole
+  # control ring, not just the frame's antialiasing.
+  @minimap_margin_x 28
+  @minimap_margin_top 32
+  @minimap_margin_bottom 28
 
   defp clamp({px, py}, {x, y, w, h}) do
     {
-      px |> max(x + @minimap_margin) |> min(x + w - 1 - @minimap_margin),
-      py |> max(y + @minimap_margin) |> min(y + h - 1 - @minimap_margin)
+      px |> max(x + @minimap_margin_x) |> min(x + w - 1 - @minimap_margin_x),
+      py |> max(y + @minimap_margin_top) |> min(y + h - 1 - @minimap_margin_bottom)
     }
   end
 

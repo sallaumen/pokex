@@ -18,10 +18,14 @@ defmodule Pokex.Calibration.CoordBandSearch do
 
   alias Pokex.Vision.{Frame, Glyphs}
 
-  # The label anchors on the map's top-left in every observed layout: the
-  # 2026-07 layout puts the strip 6pt below the map's top, Lucas's hand marks
-  # put it 2pt above. Offsets fan out from the top edge, nearest first.
-  @y_offsets [0, -2, 2, -4, 4, -6, 6, -8, 8, -10, 10, -12, 12, -16, 16, -20, 20, -24]
+  # The label anchors on the map's top-left — but HOVERING redraws the widget:
+  # a control bar (clock, lock, book) slides OVER the map's top ~30pt and the
+  # label draws BELOW it (Lucas's screenshots, 2026-08-10), so the text can sit
+  # 30-55pt under the top of whatever he marked. Downward offsets run deep and
+  # first; the shallow negatives cover a band marked above a tight map rect.
+  @y_offsets [0, 2, 4, 6, 8, 10, 12, 14, 16] ++
+               [20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64] ++
+               [-2, -4, -6, -8, -10, -12, -16, -20, -24]
   # Text measures 15-21 px of glyph rows plus outline; a band shorter than the
   # line clips the bitmaps into strangers, a band much taller admits map noise.
   @heights [16, 18, 14, 20]

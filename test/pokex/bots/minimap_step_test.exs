@@ -62,6 +62,19 @@ defmodule Pokex.Bots.MinimapStepTest do
     assert near_x > x and near_y > y
   end
 
+  # Hovering slides controls over the map's edges (clock bar top, floor arrows
+  # left, zoom right, buttons bottom) and the cursor IS hovering on every walk
+  # click — an edge-clamped click would press a control instead of walking.
+  test "the clamp stays clear of the hover-control ring, not just the frame", %{fix: fix} do
+    {x, y, w, h} = Layout.region(:minimap_map, fix)
+
+    {far_x, far_y} = click_point(10_000, 10_000, fix)
+    assert far_x <= x + w - 1 - 28 and far_y <= y + h - 1 - 28
+
+    {near_x, near_y} = click_point(-10_000, -10_000, fix)
+    assert near_x >= x + 28 and near_y >= y + 32
+  end
+
   test "the click really goes through the Body, as a left click", %{fix: fix} do
     point = click_point(3, -4, fix)
 

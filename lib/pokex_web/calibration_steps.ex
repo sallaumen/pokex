@@ -43,7 +43,10 @@ defmodule PokexWeb.CalibrationSteps do
       "Clique num TILE LIVRE DO CAMINHO colado na escada (NÃO na escada: clicar nela tenta " <>
         "USÁ-LA, e usar só funciona do lado). A fuga anda até esse tile e aí dá os passos " <>
         "de seta (direção configurada no painel) pra ENTRAR na escada.",
-    minimap_a: "Canto SUPERIOR-ESQUERDO do MINIMAPA (só o mapa em si, sem a moldura).",
+    minimap_a:
+      "Canto SUPERIOR-ESQUERDO do MINIMAPA. Pode marcar o widget INTEIRO de uma vez " <>
+        "(números da coordenada e barrinha do topo inclusos) — a faixa do texto eu acho " <>
+        "sozinho lá dentro.",
     minimap_b: "Canto INFERIOR-DIREITO do mesmo minimapa.",
     minimap_cross:
       "Clique bem no CENTRO da CRUZ do personagem no minimapa — ela é fixa (o mapa " <>

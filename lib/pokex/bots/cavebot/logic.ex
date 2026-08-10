@@ -21,6 +21,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
   than the disease. But it is MARKED in `since[:blind]` and readable via
   `blind_ms/2`: "stopped because I don't know where I am" and "stopped because
   stuck" look identical from outside and must not be.
+
+  A STANDING blind bot, though, would stay blind forever: the client only
+  renders the coordinate while the position CHANGES (or under a hovering
+  mouse) — so after `blind_kick_ms` of walking-state blindness the machine
+  KICKS one `{:nudge, _, _}` toward the waypoint, throttled to one kick per
+  interval. Movement is what restores sight.
   """
 
   alias Pokex.Bots.Cavebot.Route
@@ -57,7 +63,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           stuck_max_retries: non_neg_integer,
           clear_debounce_ms: non_neg_integer,
           fight_timeout_ms: non_neg_integer,
-          post_kill_dwell_ms: non_neg_integer
+          post_kill_dwell_ms: non_neg_integer,
+          blind_kick_ms: non_neg_integer
         }
 
   @type t :: %__MODULE__{
@@ -133,9 +140,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
     {%{logic | state: :fighting, since: since}, :none}
   end
 
-  # Unknown position: hold — never walk blind. And MARK the blindness so the
-  # Worker can say how long it has lasted.
-  defp walk(logic, %{pos: nil}, now), do: {blind(logic, now), :none}
+  # Unknown position: hold — never walk FAR blind. MARK the blindness so the
+  # Worker can say how long it has lasted, and after blind_kick_ms KICK one
+  # step toward the waypoint: the client only draws the coordinate while the
+  # position changes, so one moved tile is what brings the reading back.
+  defp walk(logic, %{pos: nil}, now), do: logic |> blind(now) |> maybe_kick(now)
 
   defp walk(logic, %{pos: {x, y, _} = pos}, now) do
     logic = sighted(logic)
@@ -250,6 +259,37 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp sign(n) when n > 0, do: 1
   defp sign(_n), do: -1
 
+  defp maybe_kick(logic, now) do
+    interval = logic.config.blind_kick_ms
+    blind_for = now - Map.fetch!(logic.since, :blind)
+
+    # nil check, never a 0 sentinel: the monotonic clock can be NEGATIVE.
+    kick_due? =
+      case Map.get(logic.since, :kick) do
+        nil -> true
+        at -> now - at >= interval
+      end
+
+    if blind_for >= interval and kick_due? do
+      {%{logic | since: Map.put(logic.since, :kick, now)}, kick_nudge(logic)}
+    else
+      {logic, :none}
+    end
+  end
+
+  defp kick_nudge(logic) do
+    wp = current_wp(logic)
+
+    case logic.last_pos do
+      {x, y, _z} ->
+        {dx, dy} = one_tile(wp.x - x, wp.y - y)
+        {:nudge, dx, dy}
+
+      nil ->
+        {:nudge, 1, 0}
+    end
+  end
+
   defp post_fight(logic, _world, now) do
     dwell_since = Map.get(logic.since, :dwell, now)
 
@@ -281,7 +321,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp sighted(%__MODULE__{since: since} = logic) do
     if Map.has_key?(since, :blind),
-      do: %{logic | since: Map.delete(since, :blind)},
+      do: %{logic | since: Map.drop(since, [:blind, :kick])},
       else: logic
   end
 end

@@ -1,8 +1,8 @@
 defmodule Pokex.Bots.Cavebot.WorkerTest.FakeBody do
   @moduledoc """
   Module-shaped Body double (the Combos.Runner mold, not the Catcher's pid): the Worker
-  calls `minimap_step/3` on it, so the step lands here instead of becoming a real click
-  computed from Layout + Calibration. Every command is sent to the test pid.
+  calls `arrow_step/3` on it, so the step lands here instead of becoming a real key
+  press. Every command is sent to the test pid.
   """
   use Agent
 
@@ -15,12 +15,12 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeBody do
   @doc "Accepts steps again."
   def allow, do: Agent.update(__MODULE__, &%{&1 | reply: :ok})
 
-  def minimap_step(dx, dy, _opts \\ []) do
+  def arrow_step(dx, dy, _opts \\ []) do
     fake = Agent.get(__MODULE__, & &1)
     send(fake.test, {:stepped, dx, dy})
 
     case fake.reply do
-      :ok -> {:ok, {dx, dy}}
+      :ok -> {:ok, if(abs(dx) >= abs(dy), do: "right", else: "down")}
       error -> error
     end
   end
@@ -170,33 +170,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     tick!(worker)
     assert_receive {:stepped, 90, 80}, 1_000
-  end
-
-  # Decision 2026-07-30: undiscovered (black) minimap area = click and only warn; the
-  # post-click probe reads a 3x3 patch at the point.
-  test "a step into a black minimap area warns the journal — and the step still happens", %{
-    worker: worker,
-    tmp_dir: tmp
-  } do
-    dark =
-      Pokex.PngFixtures.write!(
-        Path.join(tmp, "dark.png"),
-        List.duplicate(List.duplicate({0, 0, 0, 255}, 3), 3)
-      )
-
-    {:ok, _} = Fake.start_link(%{capture: [{:ok, dark}]})
-    Phoenix.PubSub.subscribe(Pokex.PubSub, "cavebot")
-
-    route!()
-    assert :ok = Worker.run(worker)
-    minimap!({10, 20, 7})
-
-    tick!(worker)
-    assert_receive {:combat_cmd, :run}, 1_000
-
-    tick!(worker)
-    assert_receive {:stepped, 90, 80}, 1_000
-    assert_receive {:cavebot_log, :macro, "caçada: 🕳️" <> _resto}, 1_000
   end
 
   test "enemies on screen: no walking — Logic yields to the fight", %{worker: worker} do

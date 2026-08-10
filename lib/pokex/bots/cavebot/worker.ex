@@ -7,9 +7,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   A PEER of the other workers, never a change to them:
 
-    * actuation ONLY through the Body — `Body.minimap_step/3` is the only way
-      to walk (the minimap click; the client routes around obstacles itself).
-      The Rig is never touched from here.
+    * actuation ONLY through the Body — `Body.arrow_step/3` is the only way
+      to walk (one arrow key = one sqm in the right direction — Lucas's
+      2026-08-10 direction; minimap clicks are retired: hovering covers the
+      map's edges with CONTROLS, and pressing also makes the coordinate
+      label render, so walking feeds its own position reading). The Rig is
+      never touched from here.
     * Combat.Worker is driven exclusively via `run/1` and `halt/1` — the Logic
       starts it and it fights on its own; the cavebot only yields while
       enemies are on screen.
@@ -42,14 +45,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
   require Logger
 
   alias Pokex.Bots.BotSupervisor
-  alias Pokex.Bots.Capture
   alias Pokex.Bots.Cavebot.{Logic, Route, Store}
   alias Pokex.Bots.Combat
   alias Pokex.Bots.InputGate
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.Settings
-  alias Pokex.Vision.Frame
 
   @topic "cavebot"
   @tick_ms 200
@@ -63,6 +64,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   @config_keys %{
     arrival_tolerance: :cavebot_arrival_tolerance_tiles,
+    blind_kick_ms: :cavebot_blind_kick_ms,
     walk_timeout_ms: :cavebot_walk_timeout_ms,
     stuck_max_retries: :cavebot_stuck_max_retries,
     clear_debounce_ms: :cavebot_clear_debounce_ms,
@@ -286,8 +288,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # explaining a stop that already has another reason.
   def translate(state, :none), do: %{state | last_step: nil}
 
-  def translate(state, {:walk, dx, dy}), do: minimap_step(state, dx, dy)
-  def translate(state, {:nudge, dx, dy}), do: minimap_step(state, dx, dy)
+  def translate(state, {:walk, dx, dy}), do: arrow_step(state, dx, dy)
+  def translate(state, {:nudge, dx, dy}), do: arrow_step(state, dx, dy)
 
   # Starting combat CAN fail preflight (no calibration, e.g.). On failure we
   # cannot keep walking blind into enemies nobody will kill — the Logic would
@@ -375,16 +377,14 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # the fleet silently on 2026-07-23 (gate closed → click swallowed → Logic
   # believed the step → frozen position → :stuck → panic). A Logger.debug is
   # not visibility: nobody reads the log when the bot stops.
-  defp minimap_step(state, dx, dy) do
+  defp arrow_step(state, dx, dy) do
     at = now()
-    raw = state.body.minimap_step(dx, dy, [])
+    raw = state.body.arrow_step(dx, dy, [])
     result = step_result(raw)
     text = "passo #{dx},#{dy}"
     stepped = %{state | last_step: %{dx: dx, dy: dy, result: result, at: at}}
 
     if result == :ok do
-      with {:ok, point} <- raw, do: warn_if_unexplored(point)
-
       # the step is the most frequent event here (5/s): only becomes a line
       # when it CHANGES — repeating "passo 90,80" tick after tick says nothing new.
       if action_text(state) != text,
@@ -395,33 +395,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       Logger.debug("Cavebot: passo (#{dx},#{dy}) falhou: #{inspect(result)}")
       stepped
     end
-  end
-
-  # Chosen behavior for BLACK minimap areas (undiscovered map): click anyway
-  # and only WARN (2026-07-30). The probe is a 3x3 crop at the clicked point,
-  # AFTER the click — it never delays or blocks a step; the journal's dedup
-  # holds the spam if the route insists on the edge. Any capture failure is
-  # silence: the warning is bonus, the step is the service.
-  defp warn_if_unexplored({x, y}) do
-    case Capture.frame_uncached({x - 1, y - 1, 3, 3}, "cavebot_step_probe.png") do
-      {:ok, frame} ->
-        if dark_frame?(frame),
-          do: log(:macro, "🕳️ passo caiu em área não descoberta do minimapa")
-
-      _falhou ->
-        :ok
-    end
-  end
-
-  defp warn_if_unexplored(_no_point), do: :ok
-
-  defp dark_frame?(frame) do
-    coords = for i <- 0..(frame.width - 1), j <- 0..(frame.height - 1), do: {i, j}
-
-    Enum.all?(coords, fn {i, j} ->
-      {r, g, b} = Frame.at(frame, i, j)
-      max(r, max(g, b)) < 12
-    end)
   end
 
   defp step_result({:ok, _point}), do: :ok

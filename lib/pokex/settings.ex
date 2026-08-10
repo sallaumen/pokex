@@ -700,6 +700,12 @@ defmodule Pokex.Settings do
     attack_mode_key: "shift+1",
     cavebot_arrival_tolerance_tiles: 1,
     cavebot_walk_timeout_ms: 3000,
+    # Standing still and blind, the client renders no coordinate (it only
+    # draws the label while the position CHANGES, or under a hovering mouse) —
+    # so a blind cavebot kicks ONE step toward the waypoint at this cadence:
+    # movement is what restores sight (Lucas's arrow-walking direction,
+    # 2026-08-10).
+    cavebot_blind_kick_ms: 1200,
     cavebot_minimap_fact_max_age_ms: 800,
     cavebot_stuck_max_retries: 4,
     cavebot_group_min_enemies: 3,

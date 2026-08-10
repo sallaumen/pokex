@@ -10,8 +10,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     fight_timeout_ms: 20_000,
     post_kill_dwell_ms: 1200,
     blind_kick_ms: 1200,
-    capture_wait_ms: 20_000,
-    step_confirm_ms: 450
+    capture_wait_ms: 20_000
   }
 
   defp route do
@@ -430,25 +429,6 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       # now standing next to wp 1 again: without the latch it would re-home
       {l, {:walk, _dx, _dy}} = Logic.step(l, world({9, 10, 7}), 500)
       assert l.wp_index == 1
-    end
-  end
-
-  # 30 presses of `right` in six seconds, one per tick, blind to whether any of
-  # them moved a tile — the client queues them all and replays them later.
-  describe "one press per tile" do
-    test "a press waits for its tile before the next one goes out" do
-      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
-      {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)
-
-      # same tile, inside the confirm window: nothing is pressed
-      {l, :none} = Logic.step(l, world({5, 10, 7}), 200)
-      {l, :none} = Logic.step(l, world({5, 10, 7}), 400)
-
-      # the window passes with no movement: press again (the tile may be walled)
-      {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 500)
-
-      # a tile landed: the next press goes out immediately
-      assert {_l, {:walk, 4, 0}} = Logic.step(l, world({6, 10, 7}), 560)
     end
   end
 end

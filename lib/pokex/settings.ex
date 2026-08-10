@@ -647,6 +647,11 @@ defmodule Pokex.Settings do
     # teleporting the cursor around while you share the computer with it. ~65ms per mouse
     # sequence (one read + one move); key-only sequences skip it entirely.
     restore_mouse_after_actions: true,
+    # A held key dies on its own after this long without a refresh. The cavebot
+    # refreshes every tick (200ms), so this is purely the watchdog for a caller
+    # that crashed or was halted mid-stride — the one failure that would walk
+    # the character away with nobody holding the reins.
+    hold_max_ms: 1_500,
     # --- Corpse capture ("still" mode) -------------------------------------------------------------
     # The :corpses feed learns the EMPTY ground at attach: the first warmup frame is the baseline
     # and any 16px cell that deviates during the remaining warmup frames (animated water, sparkles,
@@ -717,11 +722,6 @@ defmodule Pokex.Settings do
     # movement is what restores sight (Lucas's arrow-walking direction,
     # 2026-08-10).
     cavebot_blind_kick_ms: 1200,
-    # How long a pressed arrow has to land its tile before another one is
-    # pressed. Without it the tick rate IS the press rate: 5 arrows a second
-    # into a wall (measured on Lucas's first hunts), all of them queued by the
-    # client to be replayed later.
-    cavebot_step_confirm_ms: 450,
     cavebot_minimap_fact_max_age_ms: 800,
     cavebot_stuck_max_retries: 4,
     cavebot_group_min_enemies: 3,
@@ -912,8 +912,8 @@ defmodule Pokex.Settings do
     settle_max_ms: 100..600_000,
     cast_grace_ms: 0..600_000,
     minimap_coord_ink: 40..255,
+    hold_max_ms: 200..30_000,
     cavebot_capture_wait_ms: 0..600_000,
-    cavebot_step_confirm_ms: 0..5_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,
     logout_verify_delay_ms: 0..600_000,

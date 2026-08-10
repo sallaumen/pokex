@@ -28,7 +28,11 @@ defmodule Pokex.Rig.Mac do
   def key_down(key), do: gated(fn -> hold(key, :down) end)
 
   @impl true
-  def key_up(key), do: gated(fn -> hold(key, :up) end)
+  # UNGATED, and it must stay that way: a release can only ever STOP something.
+  # Gated, a key held down when the gate shuts (panic corner, game loses focus)
+  # would stay held in the game — the character walking into the sea with
+  # nobody able to let go.
+  def key_up(key), do: hold(key, :up)
 
   # Native CGEvent helper first (~1-2ms per event; it carries the same focus
   # guard); osascript is the always-works fallback while the helper is

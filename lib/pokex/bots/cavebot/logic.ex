@@ -70,8 +70,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           fight_timeout_ms: non_neg_integer,
           post_kill_dwell_ms: non_neg_integer,
           blind_kick_ms: non_neg_integer,
-          capture_wait_ms: non_neg_integer,
-          step_confirm_ms: non_neg_integer
+          capture_wait_ms: non_neg_integer
         }
 
   @type t :: %__MODULE__{
@@ -169,35 +168,15 @@ defmodule Pokex.Bots.Cavebot.Logic do
         {%{note_progress(logic, pos, now) | wp_index: next, skips: 0}, :none}
 
       pos != logic.last_pos ->
-        {logic |> note_progress(pos, now) |> pressed(now), {:walk, dx, dy}}
+        {note_progress(logic, pos, now), {:walk, dx, dy}}
 
       now - Map.get(logic.since, :walk_progress, now) >= logic.config.walk_timeout_ms ->
         {%{logic | state: :stuck, retries: 0}, {:walk, dx, dy}}
 
       true ->
-        press_or_wait(logic, now, dx, dy)
+        {logic, {:walk, dx, dy}}
     end
   end
-
-  # The step has NOT landed yet: pressing again only queues arrows the client
-  # will replay later. Lucas's log (2026-08-10) shows 30 presses of `right`
-  # into a wall in six seconds — one per tick, blind to whether the last one
-  # moved anything. A press waits for its own tile.
-  #
-  # nil check, never a 0 sentinel: the monotonic clock is NEGATIVE for the
-  # first hours of a machine's uptime, and `now - 0` would then be below any
-  # window forever — the press that never goes out.
-  defp press_or_wait(logic, now, dx, dy) do
-    case Map.get(logic.since, :step) do
-      at when is_integer(at) and now - at < logic.config.step_confirm_ms ->
-        {logic, :none}
-
-      _never_or_expired ->
-        {pressed(logic, now), {:walk, dx, dy}}
-    end
-  end
-
-  defp pressed(logic, now), do: %{logic | since: Map.put(logic.since, :step, now)}
 
   # A hunt does not begin at waypoint 1: it begins at the CLOSEST corner of the
   # route. Restarting mid-route used to send the character back to the first

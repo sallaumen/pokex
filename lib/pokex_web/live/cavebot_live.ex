@@ -73,7 +73,8 @@ defmodule PokexWeb.CavebotLive do
        photo_busy?: false,
        # the hunt's own narration: what it just did, in its own words
        log: [],
-       walk_test: nil
+       walk_test: nil,
+       walk_ref: nil
      )}
   end
 
@@ -108,7 +109,13 @@ defmodule PokexWeb.CavebotLive do
 
   def handle_info({:cavebot, snapshot}, socket), do: {:noreply, assign(socket, hunt: snapshot)}
 
-  def handle_info({:walk_test, result}, socket), do: {:noreply, assign(socket, walk_test: result)}
+  def handle_info({:walk_test, result}, socket),
+    do: {:noreply, assign(socket, walk_test: result, walk_ref: nil)}
+
+  # The task died before answering: say so instead of spinning. A normal exit
+  # after the result already landed is not a failure — walk_ref is nil by then.
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{assigns: %{walk_ref: ref}} = socket),
+    do: {:noreply, assign(socket, walk_test: {:error, {:crashed, reason}}, walk_ref: nil)}
 
   # The hunt narrates its edges (waypoint reached, block, a hold appearing) —
   # the tail of that is what turns "parou" into "parou POR QUÊ".
@@ -248,9 +255,13 @@ defmodule PokexWeb.CavebotLive do
 
     page = self()
 
-    Task.start(fn -> send(page, {:walk_test, WalkTest.run(target)}) end)
+    # MONITORED, not fire-and-forget: a task that dies must not leave the
+    # button spinning "andando…" forever with nothing to click — which is
+    # exactly what an UndefinedFunctionError inside it did (2026-08-10).
+    {:ok, _pid, ref} =
+      spawn_monitor_task(fn -> send(page, {:walk_test, WalkTest.run(target)}) end)
 
-    {:noreply, assign(socket, walk_test: :running)}
+    {:noreply, assign(socket, walk_test: :running, walk_ref: ref)}
   end
 
   def handle_event("select_waypoint", %{"index" => index}, socket) do
@@ -909,7 +920,17 @@ defmodule PokexWeb.CavebotLive do
   defp walk_test_text({:error, {:refused, reason}}),
     do: "o corpo recusou o passo: #{inspect(reason)} (gate de segurança fechado)"
 
+  defp walk_test_text({:error, {:crashed, reason}}),
+    do: "o teste morreu no meio: #{inspect(reason)} — me manda esse erro"
+
   defp walk_test_text(other), do: "resultado inesperado: #{inspect(other)}"
+
+  # Task.start gives no monitor and Task.async wants a supervisor: this page
+  # only needs "run it, and tell me if it dies".
+  defp spawn_monitor_task(fun) do
+    {pid, ref} = :erlang.spawn_monitor(fun)
+    {:ok, pid, ref}
+  end
 
   defp coord({x, y, _z}), do: "#{x}, #{y}"
 

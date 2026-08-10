@@ -164,6 +164,14 @@ defmodule Pokex.Bots.MinimapStepTest do
       assert Enum.any?(Fake.calls(), &match?({:tap, "right"}, &1))
     end
 
+    # The rehearsal's DEFAULT hands, all the way down to the Rig: this is the
+    # chain that was broken in the field (a nested module that resolved to
+    # nothing), and the fake body in its own test could never have caught it.
+    test "the rehearsal's hands press for real, through the Body, ungated" do
+      assert Pokex.Bots.Cavebot.Hands.arrow_step(4, 1, []) == {:ok, "right"}
+      assert Enum.any?(Fake.calls(), &match?({:tap, "right"}, &1))
+    end
+
     test "refuses out loud: no direction, and a shut gate" do
       assert Body.arrow_step(0, 0) == {:error, :no_direction}
 

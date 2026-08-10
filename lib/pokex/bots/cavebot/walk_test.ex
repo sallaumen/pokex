@@ -26,6 +26,7 @@ defmodule Pokex.Bots.Cavebot.WalkTest do
   """
 
   alias Pokex.Bots.Body
+  alias Pokex.Bots.Cavebot.Hands
   alias Pokex.{Calibration, GameFocus, World}
 
   @default_steps 3
@@ -127,30 +128,4 @@ defmodule Pokex.Bots.Cavebot.WalkTest do
   end
 
   defp default_read, do: World.snapshot().pos
-
-  defmodule Hands do
-    @moduledoc """
-    The `arrow_step/3` of a human-clicked test: an UNGATED key press, already
-    inside the caller's game-front block. Same shape as `Body.arrow_step/3`, so
-    the walk logic cannot tell them apart — and the fleet's gated hands stay
-    the only ones the HUNT ever uses.
-    """
-
-    alias Pokex.Bots.Body
-
-    @spec arrow_step(integer, integer, keyword) :: {:ok, String.t()} | {:error, term}
-    def arrow_step(0, 0, _opts), do: {:error, :no_direction}
-
-    def arrow_step(dx, dy, _opts) do
-      key = key_for(dx, dy)
-
-      case Body.perform([{:tap, key}]) do
-        :ok -> {:ok, key}
-        error -> error
-      end
-    end
-
-    defp key_for(dx, dy) when abs(dx) >= abs(dy), do: if(dx > 0, do: "right", else: "left")
-    defp key_for(_dx, dy), do: if(dy > 0, do: "down", else: "up")
-  end
 end

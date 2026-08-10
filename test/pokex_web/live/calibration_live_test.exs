@@ -163,7 +163,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     {:ok, view, _html} = live(conn, ~p"/calibration")
     view |> element("button", "Revisar áreas salvas") |> render_click()
 
-    assert has_element?(view, "#other-screen-warning")
+    assert has_element?(view, "#screen-mismatch-strip")
     html = view |> element("#restore-last-for-screen") |> render_click()
 
     assert html =~ "Última calibração desta tela restaurada"
@@ -516,11 +516,15 @@ defmodule PokexWeb.CalibrationLiveTest do
     {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
     {:ok, view, _html} = live(conn, ~p"/calibration")
-    view |> element("button", "Revisar áreas salvas") |> render_click()
 
-    html = view |> element("button", "Conferir a régua da tela") |> render_click()
+    # Opening the review is enough: the measurement is arithmetic over the
+    # calibration, and a check behind a button is a check nobody makes.
+    html = view |> element("button", "Revisar áreas salvas") |> render_click()
 
     assert html =~ "0.76× a de referência"
+    assert has_element?(view, "#numbers-alert")
+
+    html = view |> element("#tool-ruler") |> render_click()
     assert html =~ "tile_px"
     # a length scales with the ruler (88 × 0.756); a pixel count with its
     # square (1100 × 0.756²) — well under the value a linear scaling would give,
@@ -533,6 +537,8 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert Settings.get(:tile_px) == 67
     assert Settings.get(:glow_threshold) == 628
     assert render(view) =~ "ajuste(s) aplicado(s)"
+    # nothing left to fix, so the alert is gone instead of merely emptied
+    refute has_element?(view, "#numbers-alert")
   end
 
   @tag :tmp_dir
@@ -575,12 +581,13 @@ defmodule PokexWeb.CalibrationLiveTest do
     {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
     {:ok, view, _html} = live(conn, ~p"/calibration")
-    view |> element("button", "Revisar áreas salvas") |> render_click()
 
-    html = view |> element("button", "Conferir a régua da tela") |> render_click()
+    html = view |> element("button", "Revisar áreas salvas") |> render_click()
 
-    assert html =~ "Esta é a tela em que os números foram medidos"
-    assert html =~ "com o valor de OUTRA tela"
+    assert html =~ "números são de outra tela"
+    assert html =~ "esta é a tela em que eles foram medidos"
+
+    html = view |> element("#tool-ruler") |> render_click()
     # the SEEDS themselves, not seed × 0.98
     assert html =~ "→ 1100"
     assert html =~ "→ 88"
@@ -622,6 +629,8 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/calibration")
     view |> element("button", "Revisar áreas salvas") |> render_click()
+    # one tool open at a time — three panels side by side was the pile
+    view |> element("#tool-battle") |> render_click()
 
     html =
       view
@@ -638,6 +647,52 @@ defmodule PokexWeb.CalibrationLiveTest do
     view |> element("#battle-rows button", "Medir") |> render_click()
     assert render(view) =~ "pelo menos DOIS pokémon vivos"
     assert Settings.get(:battle_row_height) == 36
+  end
+
+  @tag :tmp_dir
+  # "ta ruim de usar, confuso" (Lucas, 2026-08-10). Six coloured boxes stacked
+  # at the same weight: with everything shouting, the one that mattered could
+  # not. The panel now opens on the QUESTION (what does the bot read?) and
+  # keeps the tools folded until asked for.
+  test "the review opens on the crops, with the tools folded away", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 1.0,
+      screen_w: 100,
+      screen_h: 75,
+      battle_region: {70, 10, 20, 30},
+      skill_bar_region: {10, 60, 60, 10},
+      skill_bar_count: 6,
+      neutral_point: {52, 36}
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(100, 75, {9, 9, 9, 255}))
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    # the answer he came for is on screen with no clicks
+    assert has_element?(view, "#read-crops")
+
+    for tool <- ~w(#skill-bar-nudge #battle-rows #screen-scale) do
+      refute has_element?(view, tool), "#{tool} is open before anyone asked for it"
+    end
+
+    # one at a time: opening a second one puts the first away
+    view |> element("#tool-skills") |> render_click()
+    assert has_element?(view, "#skill-bar-nudge")
+
+    view |> element("#tool-battle") |> render_click()
+    assert has_element?(view, "#battle-rows")
+    refute has_element?(view, "#skill-bar-nudge")
+
+    # and clicking the open one closes it
+    view |> element("#tool-battle") |> render_click()
+    refute has_element?(view, "#battle-rows")
   end
 
   @tag :tmp_dir
@@ -666,6 +721,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/calibration")
     view |> element("button", "Revisar áreas salvas") |> render_click()
+    view |> element("#tool-skills") |> render_click()
 
     view |> element(~s(#skill-bar-nudge button[phx-value-cells="1"])) |> render_click()
 
@@ -775,7 +831,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       html = view |> element("button", "Revisar áreas salvas") |> render_click()
 
-      assert html =~ "Esta calibração é de outra tela"
+      assert html =~ "A calibração é de outra tela"
       assert html =~ "3440×1440"
       assert html =~ "302×196"
       refute html =~ "rescale_calibration"

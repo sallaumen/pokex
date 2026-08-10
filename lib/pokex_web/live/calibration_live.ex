@@ -11,14 +11,14 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Perception.Interpret.Minimap
   alias Pokex.Screenshot
   alias PokexWeb.CalibrationClick
+  alias PokexWeb.CalibrationReview
   alias PokexWeb.CalibrationSteps
   alias PokexWeb.CalibrationZoom
+  import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
   alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
   alias Pokex.Vision.Frame
-
-  import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1, screen_warning: 1]
 
   @glow_half 32
 
@@ -68,6 +68,7 @@ defmodule PokexWeb.CalibrationLive do
        corpse_counts: %{},
        adjust_target: nil,
        adjust_step: 5,
+       tool: nil,
        coord_probe: nil
      )}
   end
@@ -202,20 +203,35 @@ defmodule PokexWeb.CalibrationLive do
       review = Map.put(screen, :calib, calib)
 
       {:noreply,
-       assign(socket,
+       socket
+       |> assign(
          review: review,
          screen_check: screen_check(shot_points(screen)),
          coord_probe: coord_probe(review),
          adjust_target: nil,
+         tool: nil,
+         scale_msg: nil,
          error: nil
-       )}
+       )
+       |> measure_screen_scale(calib)}
     else
       error -> {:noreply, assign(socket, error: "não deu pra revisar: #{inspect(error)}")}
     end
   end
 
   def handle_event("close_review", _params, socket) do
-    {:noreply, assign(socket, review: nil, adjust_target: nil, coord_probe: nil)}
+    {:noreply, assign(socket, review: nil, adjust_target: nil, coord_probe: nil, tool: nil)}
+  end
+
+  # One tool open at a time: three panels side by side is the pile this page was
+  # drowning in. Clicking the open one closes it.
+  def handle_event("open_tool", %{"tool" => raw}, socket) do
+    tool =
+      Enum.find_value(CalibrationReview.tools(), fn {key, _l, _d} ->
+        to_string(key) == raw && key
+      end)
+
+    {:noreply, assign(socket, tool: tool != socket.assigns.tool && tool)}
   end
 
   # -- fine-tuning in the review (the nudge pads) ------------------------------
@@ -294,35 +310,21 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  # Every pixel-denominated seed was measured once, on the ultrawide. None of
-  # them survives a change of screen — that is what "nada funciona em 1 monitor
-  # só" was made of (2026-08-06). The ruler is a skill slot, not the display:
-  # the display went 0.44 between his two screens while the game went 0.67.
-  def handle_event("scan_screen_scale", _params, socket) do
-    with %{calib: calib} <- socket.assigns.review,
-         {:ok, ratio} <- ScreenScale.measure(calib) do
-      {:noreply, assign(socket, scale_ratio: ratio, scale_proposals: proposals_for(ratio))}
-    else
-      _no_ruler ->
-        {:noreply,
-         assign(socket,
-           scale_msg: "sem régua: calibre a barra de skills primeiro (é ela que mede a tela)"
-         )}
-    end
-  end
-
   # Applying is the HUMAN's click, never a silent transform — a derivation that
   # rewrites settings behind his back is how he would stop trusting the numbers
   # exactly when he needs them most.
   def handle_event("apply_screen_scale", _params, socket) do
     changed = ScreenScale.apply!(socket.assigns.scale_proposals || [])
 
-    {:noreply,
-     assign(socket,
-       scale_proposals: nil,
-       row_height: Settings.get(:battle_row_height),
-       scale_msg: "#{changed} ajuste(s) aplicado(s) — os bots leem o novo valor no próximo tique"
-     )}
+    socket =
+      assign(socket,
+        row_height: Settings.get(:battle_row_height),
+        scale_msg: "#{changed} ajuste(s) aplicado(s) — os bots leem o novo valor no próximo tique"
+      )
+
+    # Re-measure instead of blanking: what is left (nothing, if it all applied)
+    # is the honest state, and the alert disappears because it is empty.
+    {:noreply, measure_screen_scale(socket, socket.assigns.review.calib)}
   end
 
   # The battle list's ruler. `battle_row_height` was MEASURED on the ultrawide
@@ -883,20 +885,32 @@ defmodule PokexWeb.CalibrationLive do
   # water with the MacBook's thresholds (glow_threshold 496 where the bite was
   # measured at 1100). `proposals/2` still returns [] by itself when the values
   # in force already match, so a clean reference screen proposes nothing.
+  # Every pixel-denominated seed was measured once, on the ultrawide. None of
+  # them survives a change of screen — that is what "nada funciona em 1 monitor
+  # só" was made of (2026-08-06). The ruler is a skill slot, not the display:
+  # the display went 0.44 between his two screens while the game went 0.67.
+  #
+  # Measured when the review OPENS, not behind a "Conferir a régua" button:
+  # this is pure arithmetic over the calibration (no capture, no cost), and a
+  # check nobody clicks is a check nobody makes — on 2026-08-10 the numbers of
+  # the other screen went on breaking fishing with the answer one click away.
+  defp measure_screen_scale(socket, calib) do
+    case ScreenScale.measure(calib) do
+      {:ok, ratio} ->
+        assign(socket, scale_ratio: ratio, scale_proposals: proposals_for(ratio))
+
+      :unknown ->
+        assign(socket,
+          scale_ratio: nil,
+          scale_proposals: nil,
+          scale_msg: "sem régua: calibre a barra de skills primeiro (é ela que mede a tela)"
+        )
+    end
+  end
+
   defp proposals_for(ratio) do
     ratio = if ScreenScale.matches_reference?(ratio), do: 1.0, else: ratio
     ScreenScale.proposals(ratio)
-  end
-
-  # Two different pieces of news, and calling both "esta tela mede 0.98×" hides
-  # the one that matters: on the reference screen a proposal is never about the
-  # size of THIS screen, it is the other screen's numbers still being in force.
-  defp scale_headline(ratio, count) do
-    if ScreenScale.matches_reference?(ratio),
-      do:
-        "Esta é a tela em que os números foram medidos — #{count} deles estão com o valor " <>
-          "de OUTRA tela:",
-      else: "Esta tela mede #{Float.round(ratio, 2)}× a de referência — #{count} ajuste(s):"
   end
 
   # An out-of-range or half-typed value leaves BOTH the setting and the drawing
@@ -1263,13 +1277,6 @@ defmodule PokexWeb.CalibrationLive do
   # tile radius, never marked by hand. Drawn so he can SEE the automatic area
   # (he had to draw it on a screenshot to ask what it was) and size it with
   # corpse_scan_radius_tiles.
-  defp scan_region(calib) do
-    case SpotScan.region(calib) do
-      {:ok, region} -> region
-      _uncalibrated -> nil
-    end
-  end
-
   # Asking must never be able to take the page down: a wedged backend is
   # "I don't know", not a crash. And never QUEUE on the broker either — this
   # runs at mount, where a page opened mid-scan would sit there for seconds.
@@ -1407,168 +1414,25 @@ defmodule PokexWeb.CalibrationLive do
           </p>
         </header>
 
-        <.screen_warning check={@screen_check} />
-
         <p :if={@error} class="rounded-lg bg-error/15 px-3 py-2 text-sm text-error">{@error}</p>
         <p :if={@skillbar_msg} class="rounded-lg bg-success/15 px-3 py-2 text-sm text-success">
           {@skillbar_msg}
         </p>
 
-        <div
+        <CalibrationReview.panel
           :if={@review}
-          class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-4"
-        >
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-semibold">Áreas que o bot está usando</h2>
-            <button class="btn btn-ghost btn-xs" phx-click="close_review">Fechar</button>
-          </div>
-          <.legend />
-          <p class="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs">
-            Duas áreas são <b>automáticas</b>, tiradas do seu personagem: a caixa do <b>mini game</b>
-            (3 tiles pra cada lado, de 3 acima a 7 abaixo dele) e a <b>busca de corpos</b>
-            (raio em tiles, no ⚙️). Marcar a faixa do mini game à mão
-            continua valendo mais — deixa a busca ainda mais barata e certeira.
-          </p>
-          <%!-- The box is cut into numbered CELLS and cell i IS hotkey i. One
-                cell off and every cooldown read is the neighbour's — which
-                silently shuts the "só pescar quando dá pra matar" gate. Check
-                the numbers against the icons; if they are off, move by whole
-                cells instead of redoing the wizard. --%>
-          <div
-            :if={@review.calib.skill_bar_region && @review.calib.skill_bar_count}
-            id="skill-bar-nudge"
-            class="flex flex-wrap items-center gap-2 rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2 text-xs"
-          >
-            <span class="flex-1">
-              Os números <b>1…{@review.calib.skill_bar_count}</b>
-              na barra têm que cair em cima das skills certas — é célula por célula que o bot lê o
-              cooldown.
-            </span>
-            <button class="btn btn-xs" phx-click="nudge_skill_bar" phx-value-cells="-1">
-              ◀ uma casa
-            </button>
-            <button class="btn btn-xs" phx-click="nudge_skill_bar" phx-value-cells="1">
-              uma casa ▶
-            </button>
-          </div>
-          <%!-- The red L bands below are drawn from these two numbers. Both were
-                measured on the ultrawide and neither survives a change of screen,
-                so they live NEXT to the bands: change one and the ladder moves
-                while you watch. --%>
-          <div
-            :if={@review.calib.battle_region}
-            id="battle-rows"
-            class="flex flex-wrap items-center gap-2 rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-xs"
-          >
-            <form id="battle-rows-form" phx-change="save_battle_rows" class="flex items-center gap-1">
-              <label for="battle-row-height">linha de</label>
-              <input
-                id="battle-row-height"
-                name="battle_row_height"
-                type="number"
-                aria-label="Altura de uma linha da lista de batalha, em pontos"
-                min="8"
-                max="200"
-                value={@row_height}
-                phx-debounce="400"
-                class="input input-xs w-16 text-center"
-              />
-              <span>pt ·</span>
-              <input
-                id="battle-max-rows"
-                name="battle_max_rows"
-                type="number"
-                aria-label="Quantas linhas da lista de batalha o bot olha"
-                min="1"
-                max="12"
-                value={@max_rows}
-                phx-debounce="400"
-                class="input input-xs w-14 text-center"
-              />
-              <span>linhas</span>
-            </form>
-            <button class="btn btn-xs" phx-click="measure_battle_rows">
-              Medir pelas barras de vida
-            </button>
-            <p :if={@battle_msg} id="battle-rows-msg" class="w-full opacity-80">{@battle_msg}</p>
-          </div>
-          <%!-- The numbers, not just the boxes. A calibration can be perfect and
-                the bot still blind, because every threshold and every box SIZE
-                was measured on another screen. --%>
-          <div
-            id="screen-scale"
-            class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs"
-          >
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="flex-1">
-                Os números do bot (tamanho do tile, caixas, limiares) foram medidos numa tela só.
-                Esta aqui pode ser outra — dá pra medir pela barra de skills.
-              </span>
-              <button class="btn btn-xs" phx-click="scan_screen_scale">Conferir a régua da tela</button>
-            </div>
-            <p :if={@scale_msg} id="screen-scale-msg" class="mt-1.5 opacity-80">{@scale_msg}</p>
-
-            <div :if={@scale_proposals == []} class="mt-1.5 opacity-80">
-              Esta tela é do mesmo tamanho da que os números foram medidos — não há o que ajustar.
-            </div>
-
-            <div :if={@scale_proposals not in [nil, []]} class="mt-2 space-y-2">
-              <p class="font-bold text-warning">
-                {scale_headline(@scale_ratio, length(@scale_proposals))}
-              </p>
-              <div class="max-h-56 overflow-y-auto rounded border border-base-content/20">
-                <table class="table table-xs">
-                  <tbody>
-                    <tr :for={p <- @scale_proposals}>
-                      <td class="font-mono">{p.key}</td>
-                      <td class="font-mono opacity-60">{p.from}</td>
-                      <td class="font-mono font-bold">→ {p.to}</td>
-                      <td class="opacity-60">
-                        {if p.family == :area, do: "área ×r²", else: "medida ×r"}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <button
-                id="apply-screen-scale"
-                class="btn btn-warning btn-xs"
-                phx-click="apply_screen_scale"
-              >
-                Aplicar os {length(@scale_proposals)} ajustes
-              </button>
-            </div>
-          </div>
-          <PokexWeb.CalibrationOverlay.read_crops
-            screen={@review}
-            calib={@review.calib}
-            adjustable?={true}
-            adjust_target={@adjust_target}
-            adjust_step={@adjust_step}
-            coord_probe={@coord_probe}
-          />
-          <div class="relative overflow-hidden rounded-lg border border-base-content/20">
-            <img src={@review.src} class="w-full" />
-            <.overlays
-              screen={@review}
-              water_point={@review.calib.water_point}
-              glow_region={@review.calib.glow_region}
-              battle_region={@review.calib.battle_region}
-              skill_bar_region={@review.calib.skill_bar_region}
-              skill_bar_count={@review.calib.skill_bar_count || 0}
-              neutral_point={@review.calib.neutral_point}
-              player_point={Calibration.player_point(@review.calib)}
-              pokemon_hp_region={@review.calib.pokemon_hp_region}
-              pokemon_photo_point={@review.calib.pokemon_photo_point}
-              mini_game_region={Calibration.mini_game_region(@review.calib)}
-              minimap_region={Calibration.minimap_region(@review.calib)}
-              minimap_coord_region={Calibration.minimap_coord_region(@review.calib)}
-              minimap_player_point={Calibration.minimap_player_point(@review.calib)}
-              scan_region={scan_region(@review.calib)}
-              bands={Calibration.battle_row_bands(@review.calib, @row_height, @max_rows)}
-            />
-          </div>
-        </div>
+          review={@review}
+          tool={@tool}
+          row_height={@row_height}
+          max_rows={@max_rows}
+          battle_msg={@battle_msg}
+          scale_ratio={@scale_ratio}
+          scale_proposals={@scale_proposals}
+          scale_msg={@scale_msg}
+          adjust_target={@adjust_target}
+          adjust_step={@adjust_step}
+          coord_probe={@coord_probe}
+        />
 
         <div :if={is_nil(@screen) and is_nil(@review)} class="space-y-4">
           <section class="space-y-4 rounded-2xl border border-base-content/10 bg-base-200 p-5">

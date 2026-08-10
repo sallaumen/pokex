@@ -13,29 +13,78 @@ defmodule Pokex.Perception.Interpret.Minimap do
   """
 
   alias Pokex.{Calibration, Layout, Settings}
+  alias Pokex.Calibration.CoordBandSearch
   alias Pokex.Vision.Glyphs
 
   @max_floor 15
   @max_jump 50
+  # A failed read is usually just "label not on screen" (standing still, no
+  # hover) — scanning the whole crop on every 500ms tick would burn CPU for
+  # nothing. First miss hunts immediately (a walking bot must not stay blind),
+  # then every 6th.
+  @search_every 6
+  @fresh_state %{last: nil, pending: nil, band: nil, misses: 0}
 
   def interpret(frame, calib, settings, state \\ nil) do
-    state = state || %{last: nil, pending: nil}
-
-    # Manual regions win (Calibration resolves manual > layout); the frame is
-    # the crop of minimap_capture_region — the SAME union the feed captures —
-    # so the coord strip becomes relative to that region's origin and a band
-    # poking outside the map region is never clipped.
-    read =
-      with %Calibration{} <- calib,
-           {x, y, w, h} <- Calibration.minimap_coord_region(calib),
-           {ox, oy, _, _} <- Calibration.minimap_capture_region(calib) do
-        Glyphs.read_coord(frame, {x - ox, y - oy, w, h}, coord_opts(calib, settings))
-      else
-        _no_region -> nil
-      end
-
+    state = Map.merge(@fresh_state, state || %{})
+    {read, state} = read_position(frame, calib, settings, state)
     accept(read, state)
   end
+
+  # The frame is the crop of minimap_capture_region — the SAME union the feed
+  # captures — so every band is relative to that origin. The label MOVES with
+  # the widget's visual state (measured 2026-08-10): walking draws it at the
+  # widget's top-left, a hovering mouse slides the control bar in and pushes it
+  # ~40pt down. A band marked in one state misses in the other, so a miss on
+  # the last-good and saved bands HUNTS for the band on the crop itself
+  # (throttled), and a find sticks in the state for the next read.
+  defp read_position(frame, %Calibration{} = calib, settings, state) do
+    case Calibration.minimap_capture_region(calib) do
+      {ox, oy, _w, _h} ->
+        opts = coord_opts(calib, settings)
+        saved = relative_band(Calibration.minimap_coord_region(calib), ox, oy)
+
+        case try_bands(frame, [state.band, saved], opts) do
+          {:ok, band, pos} -> {pos, %{state | band: band, misses: 0}}
+          :miss -> hunt_band(frame, calib, {ox, oy}, opts, state)
+        end
+
+      nil ->
+        {nil, state}
+    end
+  end
+
+  defp read_position(_frame, _no_calib, _settings, state), do: {nil, state}
+
+  defp relative_band({x, y, w, h}, ox, oy), do: {x - ox, y - oy, w, h}
+  defp relative_band(nil, _ox, _oy), do: nil
+
+  defp try_bands(frame, bands, opts) do
+    bands
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.find_value(:miss, fn band ->
+      case Glyphs.read_coord(frame, band, opts) do
+        {_x, _y, _z} = pos -> {:ok, band, pos}
+        nil -> nil
+      end
+    end)
+  end
+
+  defp hunt_band(frame, calib, {ox, oy}, opts, state) do
+    misses = state.misses + 1
+
+    with true <- rem(misses - 1, @search_every) == 0,
+         {mx, my, mw, mh} <- Calibration.minimap_region(calib),
+         {:ok, band, pos} <-
+           CoordBandSearch.search(frame, {mx - ox, my - oy, mw, mh}, frame_scale(frame), opts) do
+      {pos, %{state | band: band, misses: 0}}
+    else
+      _not_found -> {nil, %{state | misses: misses}}
+    end
+  end
+
+  defp frame_scale(frame), do: Map.get(frame, :scale) || 1.0
 
   # The strip's ink floor is TUNABLE (minimap_coord_ink): the global default
   # (120) let the map's lit ground compete with the digits. The layout

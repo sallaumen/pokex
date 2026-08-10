@@ -103,6 +103,64 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     assert {%{pos: {337, 46_107, 4}}, _state} = Minimap.interpret(panel, calib, %{}, nil)
   end
 
+  # The label MOVES with the widget's visual state (2026-08-10): walking draws
+  # it at the widget's top-left, hovering pushes it ~40pt down under the control
+  # bar. A band marked in one state misses in the other — so the reader hunts.
+  describe "self-healing band" do
+    test "a band marked in the wrong visual state self-heals and the find sticks" do
+      frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
+      {:ok, fix} = Layout.locate(frame)
+      {cx, cy, cw, ch} = Layout.region(:minimap_coord, fix)
+
+      calib = %Calibration{
+        scale: 1.0,
+        layout: nil,
+        minimap_region: Layout.region(:minimap, fix),
+        # the hover-state band: 40pt below where the label actually is now
+        minimap_coord_region: {cx, cy + 40, cw, ch}
+      }
+
+      panel = Frame.crop(frame, Calibration.minimap_capture_region(calib))
+
+      assert {%{pos: {337, 46_107, 4}}, state} = Minimap.interpret(panel, calib, %{}, nil)
+      assert is_tuple(state.band)
+
+      # the found band is the fast path now: the next read hits it directly
+      assert {%{pos: {337, 46_107, 4}}, ^state} = Minimap.interpret(panel, calib, %{}, state)
+    end
+
+    test "with no label anywhere the hunt counts misses and never invents a position" do
+      frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
+
+      calib = %Calibration{
+        scale: 1.0,
+        layout: nil,
+        # a textless patch of the capture posing as the minimap
+        minimap_region: {600, 600, 290, 458},
+        minimap_coord_region: {620, 606, 160, 30}
+      }
+
+      panel = Frame.crop(frame, Calibration.minimap_capture_region(calib))
+
+      assert {%{pos: nil}, state} = Minimap.interpret(panel, calib, %{}, nil)
+      assert state.misses == 1
+      assert {%{pos: nil}, state} = Minimap.interpret(panel, calib, %{}, state)
+      assert state.misses == 2
+    end
+
+    test "an old-shape state (pre-band) is upgraded, never crashed on" do
+      frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
+      {:ok, fix} = Layout.locate(frame)
+      calib = %Calibration{scale: 1.0, layout: fix}
+      panel = Frame.crop(frame, Calibration.minimap_capture_region(calib))
+
+      assert {%{pos: {337, 46_107, 4}}, state} =
+               Minimap.interpret(panel, calib, %{}, %{last: nil, pending: nil})
+
+      assert Map.has_key?(state, :band)
+    end
+  end
+
   describe "Calibration resolvers" do
     test "manual wins over layout; layout is fallback; nothing yields nil" do
       {fix, _panel} = located("ultrawide_3440x1440_full")

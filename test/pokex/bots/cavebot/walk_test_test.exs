@@ -46,6 +46,19 @@ defmodule Pokex.Bots.Cavebot.WalkTestTest do
     ]
   end
 
+  # The regression that cost a live test: `Hands` was nested INSIDE WalkTest,
+  # below the line that names it, so the default resolved to a top-level
+  # `Hands` that does not exist — every real run died with
+  # UndefinedFunctionError inside its task, silently, and the button spun
+  # "andando…" forever. The injected fake never touched it.
+  test "the DEFAULT hands exist and answer arrow_step/3" do
+    hands = Pokex.Bots.Cavebot.Hands
+
+    assert Code.ensure_loaded?(hands)
+    assert function_exported?(hands, :arrow_step, 3)
+    assert hands.arrow_step(0, 0, []) == {:error, :no_direction}
+  end
+
   test "the game is fronted and clicked BEFORE any key goes out" do
     positions = [{10, 10, 7}, {11, 10, 7}]
 

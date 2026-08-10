@@ -372,6 +372,21 @@ defmodule PokexWeb.CavebotLiveTest do
     assert html =~ "andando…"
   end
 
+  # A task that dies must never leave the button spinning with nothing to
+  # click — the state it was left in when its default hands did not exist.
+  test "a rehearsal that dies mid-way says so instead of spinning forever", %{conn: conn} do
+    route_with([{10, 10, 7}])
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    view |> element("#walk-test") |> render_click()
+    ref = :sys.get_state(view.pid).socket.assigns.walk_ref
+    send(view.pid, {:DOWN, ref, :process, self(), {:badarg, []}})
+
+    html = render(view)
+    assert html =~ "o teste morreu no meio"
+    refute html =~ "andando…"
+  end
+
   test "the route photos have their place before they exist", %{conn: conn} do
     route_with([{10, 10, 7}])
     {:ok, _view, html} = live(conn, ~p"/cavebot")

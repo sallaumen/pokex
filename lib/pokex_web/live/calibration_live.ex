@@ -860,10 +860,11 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   # Hovering ANIMATES the widget (control bars slide over the map before the
-  # label draws — Lucas, 2026-08-10): the settle must outlast the slide, or the
-  # photo catches the text mid-animation or not yet drawn.
-  @hover_settle_ms Application.compile_env(:pokex, :coord_hover_settle_ms, 600)
-  @hover_hold_ms Application.compile_env(:pokex, :coord_hover_hold_ms, 2600)
+  # label draws — Lucas, 2026-08-10): the settle must outlast the jiggle AND
+  # the slide, or the photo catches the text mid-animation or not yet drawn.
+  @hover_settle_ms Application.compile_env(:pokex, :coord_hover_settle_ms, 900)
+  @hover_hold_ms Application.compile_env(:pokex, :coord_hover_hold_ms, 3200)
+  @hover_jiggle_ms Application.compile_env(:pokex, :coord_hover_jiggle_ms, 80)
 
   # The game draws the coordinate only while the mouse is OVER the minimap
   # (measured 2026-08-10: the bot's captures had no text on the very minimap
@@ -882,7 +883,7 @@ defmodule PokexWeb.CalibrationLive do
         hold =
           Task.async(fn ->
             try do
-              Body.perform([{:hover, point}, {:wait, @hover_hold_ms}])
+              Body.perform(hover_actions(point))
             catch
               kind, reason -> {:error, {kind, reason}}
             end
@@ -895,6 +896,19 @@ defmodule PokexWeb.CalibrationLive do
       end)
 
     with {:ok, shot} <- result, do: {:ok, decorate_shot(shot)}
+  end
+
+  # Teleporting the cursor ONTO the widget does not wake it: the client only
+  # opens the hover state when the mouse MOVES while already inside (Lucas,
+  # 2026-08-10 — cursor verified dead-center on the cross, widget asleep). So
+  # the hover walks a tiny square around the cross — real move events with the
+  # cursor already inside — and only then holds for the photo.
+  defp hover_actions({x, y} = point) do
+    jiggle = [{x + 4, y + 2}, {x - 3, y + 5}, {x + 2, y - 3}, point]
+
+    [{:hover, point}, {:wait, @hover_jiggle_ms}] ++
+      Enum.flat_map(jiggle, &[{:hover, &1}, {:wait, @hover_jiggle_ms}]) ++
+      [{:wait, @hover_hold_ms}]
   end
 
   defp run_coord_search(socket) do

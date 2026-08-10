@@ -152,6 +152,14 @@ defmodule Pokex.Rig.Mac do
   def tap(combo), do: do_press(combo)
 
   @impl true
+  # UNGATED left click, third and last of the calibration-only exceptions.
+  # Fronting a window with `set frontmost` is not enough for the game to take
+  # KEYS: Lucas's arrows landed in the BROWSER (2026-08-10). A click INSIDE the
+  # game window is what macOS treats as real focus — aimed at the calibrated
+  # neutral point (his own tile), which is a click-to-walk no-op by design.
+  def focus_click(point), do: run(Commands.click(:left, point))
+
+  @impl true
   # Move the cursor onto the target, then press F1 — the in-game pokeball hotkey throws at the
   # CURSOR position, so no click is needed (Lucas rebound it this way). Order matters: position
   # first, then throw.

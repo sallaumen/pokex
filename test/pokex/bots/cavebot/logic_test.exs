@@ -9,7 +9,8 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     clear_debounce_ms: 800,
     fight_timeout_ms: 20_000,
     post_kill_dwell_ms: 1200,
-    blind_kick_ms: 1200
+    blind_kick_ms: 1200,
+    capture_wait_ms: 20_000
   }
 
   defp route do
@@ -302,6 +303,52 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert {l, {:walk, 5, 1}} = Logic.step(l, world({5, 9, 7}), 3_200)
       assert l.state == :walking
       assert l.retries == 0
+    end
+  end
+
+  # The corpse belongs to the CAPTURE: a sweep is seconds of Body time against
+  # a 1.2s dwell, so resuming on the clock alone walked the hunt away
+  # mid-catch and made both workers fight over the same hands.
+  describe "post-fight, waiting for the capture" do
+    defp fighting_logic do
+      %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
+    end
+
+    defp world_with_capture(pending) do
+      %{pos: {10, 10, 7}, enemies: 0, combat_state: :hunting, capture_pending: pending}
+    end
+
+    test "the dwell does not end while the Catcher still has corpses queued" do
+      {l, :none} = Logic.step(fighting_logic(), world_with_capture(2), 0)
+      {l, _} = Logic.step(l, world_with_capture(2), 900)
+      assert l.state == :post_fight
+
+      # long past the dwell, still holding: the capture owns the floor
+      {l, :none} = Logic.step(l, world_with_capture(2), 5_000)
+      assert l.state == :post_fight
+
+      # queue drained: the route resumes on the next tick
+      {l, _} = Logic.step(l, world_with_capture(0), 5_100)
+      assert l.state == :walking
+    end
+
+    test "a stuck Catcher never freezes the hunt: the wait is capped" do
+      {l, :none} = Logic.step(fighting_logic(), world_with_capture(1), 0)
+      {l, _} = Logic.step(l, world_with_capture(1), 900)
+      assert l.state == :post_fight
+
+      # still queued, but past capture_wait_ms — the route goes on
+      {l, _} = Logic.step(l, world_with_capture(1), 900 + 20_001)
+      assert l.state == :walking
+    end
+
+    test "with no capture pending the dwell behaves exactly as before" do
+      {l, :none} = Logic.step(fighting_logic(), world_with_capture(0), 0)
+      {l, _} = Logic.step(l, world_with_capture(0), 900)
+      assert l.state == :post_fight
+
+      {l, _} = Logic.step(l, world_with_capture(0), 900 + 1_300)
+      assert l.state == :walking
     end
   end
 end

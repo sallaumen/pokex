@@ -18,6 +18,7 @@ defmodule Pokex.Bots.Fisher.Config do
     :wait_assess_ms,
     :watch_timeout_ms,
     :watch_dead_streak_needed,
+    :cast_grace_ms,
     :dry_casts_alarm,
     :fight_timeout_ms,
     :max_consecutive_failures,

@@ -15,6 +15,9 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       wait_assess_ms: 1500,
       watch_timeout_ms: 30_000,
       watch_dead_streak_needed: 10,
+      # 0 = no grace, so the timing tests below keep measuring the streak itself.
+      # The grace has its own describe block.
+      cast_grace_ms: 0,
       max_consecutive_failures: 3,
       glow_streak_needed: 1,
       calm_streak_needed: 1,
@@ -70,6 +73,26 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       assert l.dry_casts == 0
     end
 
+    # The witness is the LINE, not a bite: a cast that lands and waits without a
+    # fish is what fishing IS. Counting it as dry made the alarm shout "a tecla
+    # da vara não está chegando no jogo" over a rod that was working.
+    test "a cycle with a live line but no bite is NOT dry" do
+      {l, _} =
+        Logic.step(advance_to(:focusing) |> Map.put(:config, dry_config()), cursor_obs(), 200)
+
+      {l, _} = Logic.step(l, cursor_obs(), 600)
+
+      # a whole cycle of resting line: present, never bite-magnitude
+      {l, _} = Logic.step(l, %{glow: false, line?: true}, 1_000)
+      assert l.line_seen?
+
+      {l, actions} =
+        Logic.step(l, %{glow: false, line?: true}, 1_000 + l.config.watch_timeout_ms + 1)
+
+      assert l.dry_casts == 0
+      refute Enum.any?(actions, &match?({:alarm, _}, &1))
+    end
+
     test "a single seen bubble resets the accumulated dryness" do
       {l, _} =
         Logic.step(advance_to(:focusing) |> Map.put(:config, dry_config()), cursor_obs(), 200)
@@ -82,7 +105,7 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
       {l, _} = Logic.step(l, %{glow: false, line?: false}, 80_000)
       {l, _} = Logic.step(l, %{glow: true, line?: false}, 80_100)
-      assert l.glow_seen?
+      assert l.line_seen?
 
       {l, actions} =
         Logic.step(l, %{glow: false, line?: false}, 80_000 + l.config.watch_timeout_ms + 200)
@@ -342,6 +365,54 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
     {climb, []} = Logic.step(held, %{cursor: {500, 500}, glow: false, line?: false}, 200)
     assert climb.dead_streak == 1
+  end
+
+  describe "the bait is still in the air (cast grace)" do
+    # MEASURED on Lucas's screen (journal 2026-08-10, 3440x1440): from the rod key
+    # to the first frame with ANY lure pixel took 2-5s. The dead-frame streak
+    # started counting at the instant of the cast, so "o cast falhou" was decided
+    # while the bait was still flying — and the recast's key press yanked the bait
+    # that had just landed back OUT of the water. That is the whole of "joga a vara,
+    # acha que não lançou nada e re-lança".
+    defp grace_config, do: Map.put(config(), :cast_grace_ms, 5_000)
+
+    defp watching_after_cast do
+      %Logic{state: :watching, config: grace_config(), entered_at: 0, settled?: true}
+    end
+
+    defp empty_water, do: %{cursor: {500, 500}, glow: false, line?: false}
+
+    test "empty water inside the grace never counts toward the failed-cast streak" do
+      {logic, actions} =
+        Enum.reduce(1..40, {watching_after_cast(), []}, fn i, {l, _} ->
+          Logic.step(l, empty_water(), i * 100)
+        end)
+
+      assert logic.dead_streak == 0
+      assert actions == []
+    end
+
+    test "past the grace the streak counts again and the cast is re-thrown" do
+      {logic, _} = Logic.step(watching_after_cast(), empty_water(), 5_001)
+      assert logic.dead_streak == 1
+
+      {logic, actions} =
+        Enum.reduce(2..10, {logic, []}, fn i, {l, _} ->
+          Logic.step(l, empty_water(), 5_000 + i * 100)
+        end)
+
+      assert logic.dead_streak == 0
+      assert [{:log, msg}, {:move, _}, {:wait, _}, {:press, "shift+v"}] = actions
+      assert msg =~ "re-lançando"
+    end
+
+    test "the grace holds the recast, never the hook — a bite inside it still pulls" do
+      {logic, actions} =
+        Logic.step(watching_after_cast(), %{cursor: {500, 500}, glow: true}, 900)
+
+      assert logic.counters.hooked == 1
+      assert {:press, "shift+v"} in actions
+    end
   end
 
   test "kill corner stops from any active state" do

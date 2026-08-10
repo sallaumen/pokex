@@ -252,6 +252,10 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   @tag :tmp_dir
   test "a lure-like false positive without a live line still triggers recast", %{worker: worker} do
     Settings.put(:watch_dead_streak_needed, 3)
+    # This one is about WHAT counts as dead water, not about when the counting may
+    # start — no grace here, so the streak is measured on its own (the grace has its
+    # own tests in Fishing.LogicTest).
+    Settings.put(:cast_grace_ms, 0)
 
     fake_lure_no_line = %{bubble_count: 0, lure_count: 180, line_present?: false}
 

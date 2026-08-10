@@ -15,18 +15,36 @@ defmodule Pokex.ScreenScaleTest do
 
   describe "measure/1" do
     test "the ruler is the GAME, never the display" do
-      # his ultrawide profile: 430 points over 8 slots = the reference itself
-      assert {:ok, ratio} = ScreenScale.measure(calib(430, 8))
+      # his 2026-07-31 ultrawide profile: 430 points over NINE slots (the file is
+      # named "8skill" but carries skill_bar_count 9) = the reference itself
+      assert {:ok, ratio} = ScreenScale.measure(calib(430, 9))
       assert ScreenScale.matches_reference?(ratio)
 
       # the MacBook: 325 points over 9 slots = 36.1 per slot
       assert {:ok, small} = ScreenScale.measure(calib(325, 9))
-      assert_in_delta small, 0.671, 0.005
+      assert_in_delta small, 0.756, 0.005
 
       # the DISPLAY ratio between those two screens is 1512/3440 = 0.44 — half
       # of what the game actually did. Deriving from the display would be wrong
       # by 50%, which is the whole reason this module measures the skill bar.
       refute_in_delta small, 1512 / 3440, 0.1
+    end
+
+    # The mistake this constant was born with: the reference was read off the
+    # profile's FILE NAME ("8skill" → 430/8) instead of its data (430/9), making
+    # the reference slot 12% too wide. Every profile he had ever saved on the
+    # ultrawide then measured ~0.87 — the reference screen being told to shrink
+    # the very seeds it had provided.
+    test "every profile saved on the ultrawide measures AS the reference screen" do
+      # (skill_bar width, slots) from his saved 3440×1440 profiles. Left out:
+      # 2-moni-8skill-esq (339/8 = 42.4), where the marked rectangle plainly
+      # missed a slot edge — the HUD does not change size between profiles.
+      for {width, count} <- [{430, 9}, {423, 9}, {383, 8}, {291, 6}, {236, 5}, {196, 4}] do
+        assert {:ok, ratio} = ScreenScale.measure(calib(width, count))
+
+        assert ScreenScale.matches_reference?(ratio),
+               "#{width}pt / #{count} slots measured #{Float.round(ratio, 3)}"
+      end
     end
 
     test "without a calibrated skill bar there is no ruler, and it says so" do

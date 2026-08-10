@@ -979,6 +979,9 @@ defmodule PokexWeb.CalibrationLive do
              coord_search: {:found, band, pos, mode}
            )}
 
+        {:shot, nil} ->
+          {:cont, socket}
+
         {:shot, shot} ->
           {:cont, assign(socket, screen: shot, scale: shot.scale)}
 
@@ -989,7 +992,7 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   defp try_attempt({:walk, pair, focus}, draft),
-    do: attempt(fn -> walk_grab(pair, focus) end, draft, :walk)
+    do: with_game_front(fn -> walk_burst(pair, focus, draft) end)
 
   defp try_attempt({:hover, point}, draft),
     do: attempt(fn -> hover_grab(point) end, draft, :hover)
@@ -1029,22 +1032,49 @@ defmodule PokexWeb.CalibrationLive do
   # One tile out, photo, one tile back: net zero movement, and the label is up
   # for the shot because the position just changed. Ungated `{:tap, _}` for the
   # same reason as the hover — the gate cannot open with the fleet down.
-  defp walk_grab({out_key, back_key}, focus) do
-    result =
-      with_game_front(fn ->
-        # INSIDE the front block, never before it: with_game_front restores the
-        # browser on the way out, so a click made outside would hand the focus
-        # straight back before a single key was pressed.
-        if focus, do: Body.perform([{:focus_click, focus}, {:wait, @focus_settle_ms}])
+  # A single photo has to GUESS when the label is up, and it guessed wrong on
+  # Lucas's machine (2026-08-10): the character visibly walked and every shot
+  # came out textless. The coordinate only changes when the step COMPLETES, and
+  # the client's step is an animation — one shot lands mid-stride or after the
+  # label has already faded. So the search keeps walking and photographs each
+  # beat: out, back, out, back — net zero movement, four samples spread over
+  # the whole walk, first hit wins.
+  defp walk_burst({out_key, back_key}, focus, draft) do
+    # INSIDE the front block, never before it: with_game_front restores the
+    # browser on the way out, so a click made outside would hand the focus
+    # straight back before a single key was pressed.
+    if focus, do: Body.perform([{:focus_click, focus}, {:wait, @focus_settle_ms}])
 
-        Body.perform([{:tap, out_key}])
-        Process.sleep(@walk_settle_ms)
-        shot = Screenshot.take("calibration_screen.png")
-        Body.perform([{:tap, back_key}])
-        shot
-      end)
+    beats = Enum.with_index([out_key, back_key, out_key, back_key], 1)
+    {result, pressed} = Enum.reduce_while(beats, {{:shot, nil}, 0}, &beat(&1, &2, draft))
 
-    with {:ok, shot} <- result, do: {:ok, decorate_shot(shot)}
+    # halted on an odd beat: one key still owes its return trip
+    if rem(pressed, 2) == 1, do: Body.perform([{:tap, back_key}])
+
+    result
+  end
+
+  defp beat({key, index}, _acc, draft) do
+    Body.perform([{:tap, key}])
+    Process.sleep(@walk_settle_ms)
+
+    case shot_and_search(draft, :walk) do
+      {:found, _shot, _band, _pos, _mode} = hit -> {:halt, {hit, index}}
+      other -> {:cont, {other, index}}
+    end
+  end
+
+  defp shot_and_search(draft, mode) do
+    with {:ok, raw} <- Screenshot.take("calibration_screen.png"),
+         shot = decorate_shot(raw),
+         {:ok, frame} <- Vision.Frame.from_png_file(shot.path) do
+      case search_band(frame, draft, shot) do
+        {:ok, band, pos} -> {:found, shot, band, pos, mode}
+        :error -> {:shot, shot}
+      end
+    else
+      error -> {:failed, inspect(error)}
+    end
   end
 
   defp region_center({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
@@ -2024,6 +2054,19 @@ defmodule PokexWeb.CalibrationLive do
               <p :if={match?({:failed, _}, @coord_search)} class="font-mono text-[11px] opacity-60">
                 {elem(@coord_search, 1)}
               </p>
+              <%!-- The evidence, not just the verdict: this is the minimap as
+                    the last photo saw it. Text in the crop means the READER
+                    missed it; no text means the photo caught the widget with
+                    no label up. Two opposite fixes that used to look
+                    identical from here. --%>
+              <div :if={@screen && @draft[:minimap_region]} class="space-y-1">
+                <p class="text-xs opacity-70">Foi isto que eu fotografei do minimapa:</p>
+                <div
+                  id="coord-search-evidence"
+                  class="rounded border border-warning/60 bg-base-300"
+                  style={crop_style(@draft[:minimap_region], @screen)}
+                />
+              </div>
               <div class="flex flex-wrap gap-2">
                 <button class="btn btn-primary btn-sm" phx-click="coord_search_again">
                   Buscar de novo

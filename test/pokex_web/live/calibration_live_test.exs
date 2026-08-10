@@ -1528,6 +1528,8 @@ defmodule PokexWeb.CalibrationLiveTest do
       ordered =
         Enum.filter(Fake.calls(), &(match?({:tap, _}, &1) or match?({:focus_click, _}, &1)))
 
+      # found on the FIRST beat: the character is one tile out, so the return
+      # trip is still pressed — every attempt ends where it started
       assert ordered == [{:focus_click, {52, 36}}, {:tap, "right"}, {:tap, "left"}]
 
       # walking answered, so the exceptional hover state is never photographed
@@ -1575,13 +1577,13 @@ defmodule PokexWeb.CalibrationLiveTest do
       blank =
         Pokex.PngFixtures.write!(Path.join(tmp, "blank.png"), rows(200, 150, {9, 9, 9, 255}))
 
-      # the wizard's own opening screenshot comes first, then both walk shots
-      # come out textless (the character could not move); the hover shot is the
-      # real capture, and repeats from then on
+      # the wizard's own opening screenshot, then the whole walking burst on
+      # both axes (4 beats each) comes out textless — the character could not
+      # move; the hover shot is the real capture, and repeats from then on
       {:ok, _} =
         Fake.start_link(%{
           capture: [{:ok, probe}],
-          capture_screen: [{:ok, blank}, {:ok, blank}, {:ok, blank}, {:ok, real}]
+          capture_screen: List.duplicate({:ok, blank}, 9) ++ [{:ok, real}]
         })
 
       {:ok, view, _} = live(conn, ~p"/calibration")
@@ -1608,9 +1610,21 @@ defmodule PokexWeb.CalibrationLiveTest do
       # render/1 blocks on the LiveView process, so the search is DONE by here
       html = render(view)
 
-      # walking was tried on BOTH axes before the mouse was used at all
+      # both axes were WALKED — out and back, twice each, photographing every
+      # beat — before the mouse was used at all, and every axis ends net zero
       taps = Enum.filter(Fake.calls(), &match?({:tap, _}, &1))
-      assert taps == [{:tap, "right"}, {:tap, "left"}, {:tap, "down"}, {:tap, "up"}]
+
+      assert taps == [
+               {:tap, "right"},
+               {:tap, "left"},
+               {:tap, "right"},
+               {:tap, "left"},
+               {:tap, "down"},
+               {:tap, "up"},
+               {:tap, "down"},
+               {:tap, "up"}
+             ]
+
       assert Enum.any?(Fake.calls(), &match?({:hover, _}, &1))
 
       assert html =~ "li: (337, 46107, 4)"
@@ -1619,6 +1633,44 @@ defmodule PokexWeb.CalibrationLiveTest do
       # this calibration has no neutral point, so nothing was clicked to hand
       # the game the keyboard — the likeliest reason walking answered nothing
       refute Enum.any?(Fake.calls(), &match?({:focus_click, _}, &1))
+    end
+
+    @tag :tmp_dir
+    # A failed search used to be a verdict with no evidence: "não achei" looks
+    # the same whether the photo had no label (timing) or the reader missed one
+    # that was there (segmentation). The crop of what was photographed tells
+    # the two apart at a glance.
+    test "a failed search shows the minimap crop it photographed", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      Calibration.save(%Calibration{scale: 1.0, screen_w: 200, screen_h: 150})
+
+      probe =
+        Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+
+      blank =
+        Pokex.PngFixtures.write!(Path.join(tmp, "blank.png"), rows(200, 150, {9, 9, 9, 255}))
+
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, blank}]})
+
+      {:ok, view, _} = live(conn, ~p"/calibration")
+      view |> element("button", "Posição & minimapa") |> render_click()
+
+      click = fn x, y ->
+        params = %{"x" => x, "y" => y, "cw" => 200.0, "ch" => 150.0, "nw" => 200.0, "nh" => 150.0}
+        render_hook(view, "img_click", params)
+        render_hook(view, "img_click", params)
+      end
+
+      click.(60.0, 5.0)
+      click.(90.0, 35.0)
+      click.(75.0, 20.0)
+
+      html = render(view)
+      assert html =~ ~s(id="coord-band-not-found")
+      assert html =~ ~s(id="coord-search-evidence")
+      assert html =~ "Foi isto que eu fotografei"
     end
 
     @tag :tmp_dir

@@ -525,4 +525,16 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              counters: %{waypoints: 0, steps: 0}
            }
   end
+
+  # Heard, never asked: a `call` to the Catcher parks behind its multi-second
+  # captures, and this worker ticks 5x a second. The snapshot it broadcasts is
+  # what tells the hunt to hold its ground after a kill.
+  test "the Catcher's queue reaches the hunt through the topic", %{worker: worker} do
+    send(worker, {:catcher, %{pending_corpses: 2, sweep: %{pending: 3}}})
+    assert %{capture_pending: 5} = :sys.get_state(worker)
+
+    # a snapshot without the sweep block is still counted, never a crash
+    send(worker, {:catcher, %{pending_corpses: 1}})
+    assert %{capture_pending: 1} = :sys.get_state(worker)
+  end
 end

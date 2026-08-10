@@ -54,7 +54,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @type world :: %{
           pos: {integer, integer, integer} | nil,
           enemies: non_neg_integer,
-          combat_state: atom
+          combat_state: atom,
+          capture_pending: non_neg_integer
         }
 
   @type config :: %{
@@ -64,7 +65,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           clear_debounce_ms: non_neg_integer,
           fight_timeout_ms: non_neg_integer,
           post_kill_dwell_ms: non_neg_integer,
-          blind_kick_ms: non_neg_integer
+          blind_kick_ms: non_neg_integer,
+          capture_wait_ms: non_neg_integer
         }
 
   @type t :: %__MODULE__{
@@ -309,9 +311,23 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  defp post_fight(logic, _world, now) do
+  # The corpse belongs to the CAPTURE, and a sweep is seconds of Body time
+  # against a 1.2s dwell: resuming the route on the clock alone walked away
+  # mid-catch and made both workers fight over the same hands. So the dwell
+  # ends when the Catcher has nothing queued — capped, because a stuck Catcher
+  # must never freeze the hunt.
+  defp post_fight(logic, world, now) do
     dwell_since = Map.get(logic.since, :dwell, now)
+    waiting? = Map.get(world, :capture_pending, 0) > 0
 
+    if waiting? and now - dwell_since < logic.config.capture_wait_ms do
+      {logic, :none}
+    else
+      resume_after_dwell(logic, dwell_since, now)
+    end
+  end
+
+  defp resume_after_dwell(logic, dwell_since, now) do
     if now - dwell_since >= logic.config.post_kill_dwell_ms do
       since =
         logic.since

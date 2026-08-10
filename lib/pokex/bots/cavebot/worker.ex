@@ -45,6 +45,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   require Logger
 
   alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.Catcher
   alias Pokex.Bots.Cavebot.{Logic, Route, Store}
   alias Pokex.Bots.Combat
   alias Pokex.Bots.InputGate
@@ -69,7 +70,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     stuck_max_retries: :cavebot_stuck_max_retries,
     clear_debounce_ms: :cavebot_clear_debounce_ms,
     fight_timeout_ms: :cavebot_fight_timeout_ms,
-    post_kill_dwell_ms: :cavebot_post_kill_dwell_ms
+    post_kill_dwell_ms: :cavebot_post_kill_dwell_ms,
+    capture_wait_ms: :cavebot_capture_wait_ms
   }
 
   def topic, do: @topic
@@ -85,6 +87,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       feed_ref: nil,
       reattach_attempts: 0,
       combat_state: :idle,
+      capture_pending: 0,
       last_step: nil,
       pos: nil,
       pos_at: nil,
@@ -130,6 +133,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
   @impl true
   def init(state) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Combat.Worker.topic())
+    # The Catcher's queue decides when the route may resume — heard, never
+    # asked: a `call` to the Catcher parks behind its multi-second captures
+    # (the 2026-07-30 timeout that killed a page), and this worker ticks 5x a
+    # second.
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Catcher.Worker.topic())
     {:ok, state}
   end
 
@@ -208,6 +216,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def handle_info({:combat, %{state: combat_state}}, state),
     do: {:noreply, %{state | combat_state: combat_state}}
 
+  # Corpses still queued (mapped bodies waiting, plus the blind sweep's own
+  # queue) — the hunt holds its ground while either has work.
+  def handle_info({:catcher, snapshot}, state) do
+    pending =
+      Map.get(snapshot, :pending_corpses, 0) + (get_in(snapshot, [:sweep, :pending]) || 0)
+
+    {:noreply, %{state | capture_pending: pending}}
+  end
+
   # The minimap feed died (its consumers map dies with it; a restarted feed
   # starts with nobody attached). Without reattaching, the :minimap fact ages,
   # the position becomes :unknown and the cavebot stays stopped FOREVER —
@@ -255,7 +272,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # last heard state as world.combat_state.
   defp observe(state, now) do
     pos = position(now)
-    world = %{pos: pos, enemies: enemy_count(now), combat_state: state.combat_state}
+
+    world = %{
+      pos: pos,
+      enemies: enemy_count(now),
+      combat_state: state.combat_state,
+      capture_pending: state.capture_pending
+    }
 
     if pos, do: {world, %{state | pos: pos, pos_at: now}}, else: {world, state}
   end

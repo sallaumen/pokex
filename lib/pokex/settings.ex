@@ -719,6 +719,12 @@ defmodule Pokex.Settings do
     cavebot_group_max_wait_ms: 4000,
     cavebot_stance_settle_ms: 400,
     cavebot_post_kill_dwell_ms: 1200,
+    # After a kill the CAPTURE needs the floor: a sweep is seconds of Body
+    # time, while the old fixed dwell was 1.2s — the hunt walked away mid-catch
+    # and both workers fought over the hands. The route now waits while the
+    # Catcher still has corpses queued, up to this cap (a stuck Catcher must
+    # never freeze the hunt).
+    cavebot_capture_wait_ms: 20_000,
     cavebot_clear_debounce_ms: 800,
     # Recording the route WHILE WALKING: a new waypoint only lands after
     # walking this far since the last one. Without it the route would become
@@ -897,6 +903,7 @@ defmodule Pokex.Settings do
     settle_max_ms: 100..600_000,
     cast_grace_ms: 0..600_000,
     minimap_coord_ink: 40..255,
+    cavebot_capture_wait_ms: 0..600_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,
     logout_verify_delay_ms: 0..600_000,

@@ -431,7 +431,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # waypoint is walked diagonally instead of in two straight legs. The game's
   # y grows SOUTH.
   defp hold_walk(state, dx, dy) do
-    keys = Enum.reject([horizontal(dx), vertical(dy)], &is_nil/1)
+    # An axis already inside the arrival tolerance is NOT held: with a key held
+    # down the character keeps walking between readings, so correcting a
+    # one-tile error overshoots it the other way — the zig-zag Lucas saw
+    # (left+down → down → right+down → down, around the same corner).
+    tol = Settings.get(:cavebot_arrival_tolerance_tiles)
+    keys = Enum.reject([horizontal(dx, tol), vertical(dy, tol)], &is_nil/1)
     at = now()
     text = "segurando #{Enum.join(keys, "+")}"
     result = step_result(state.body.hold(keys))
@@ -460,13 +465,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
     %{state | held_keys: []}
   end
 
-  defp horizontal(0), do: nil
-  defp horizontal(dx) when dx > 0, do: "right"
-  defp horizontal(_dx), do: "left"
+  defp horizontal(dx, tol) when abs(dx) <= tol, do: nil
+  defp horizontal(dx, _tol) when dx > 0, do: "right"
+  defp horizontal(_dx, _tol), do: "left"
 
-  defp vertical(0), do: nil
-  defp vertical(dy) when dy > 0, do: "down"
-  defp vertical(_dy), do: "up"
+  defp vertical(dy, tol) when abs(dy) <= tol, do: nil
+  defp vertical(dy, _tol) when dy > 0, do: "down"
+  defp vertical(_dy, _tol), do: "up"
 
   defp arrow_step(state, dx, dy) do
     at = now()

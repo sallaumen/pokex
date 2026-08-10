@@ -534,6 +534,24 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
            }
   end
 
+  # With a key HELD the character keeps walking between readings, so correcting
+  # a one-tile error overshoots it the other way: left+down → down → right+down
+  # around the same corner (Lucas's log, 2026-08-10). An axis already inside the
+  # arrival tolerance is not held at all.
+  test "an axis already within tolerance is not held — no zig-zag", %{worker: worker} do
+    {:ok, route} = Route.append(Route.new("cavena"), {101, 200, 7})
+    :ok = Store.add(route)
+    :ok = Worker.run(worker)
+    minimap!({100, 100, 7})
+
+    tick!(worker)
+    assert_receive {:combat_cmd, :run}, 1_000
+
+    # dx is 1 (inside the tolerance), dy is 100: only the vertical is held
+    tick!(worker)
+    assert_receive {:held, ["down"]}, 1_000
+  end
+
   # Lucas's own pokémon shows up in the battle list (2026-08-10): Combat tabbed
   # at it, failed three times, called it scenery and moved on — while the hunt,
   # counting raw rows, stood still forever waiting for a fight that could never

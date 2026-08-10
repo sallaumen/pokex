@@ -173,7 +173,7 @@ defmodule Pokex.Bots.Combat.Logic do
       # was the endless-Tab-never-focusing failure with a full list.
       now - logic.tabbed_at > logic.config.tab_confirm_ms and
         logic.post_tab_frames >= logic.config.tab_confirm_frames and
-          logic.tab_attempts < logic.config.tab_max_attempts ->
+          logic.tab_attempts < tab_attempts_allowed(logic, obs) ->
         {tab(logic, now), [{:tab}, {:log, "sem lock; Tab #{logic.tab_attempts + 1}"}]}
 
       now - logic.tabbed_at > logic.config.tab_confirm_ms and
@@ -326,6 +326,14 @@ defmodule Pokex.Bots.Combat.Logic do
       "🗿 #{rows} alvo(s) sem lock em #{needed} caçadas — " <>
         "cenário presumido por #{div(ttl, 1000)}s; Tab só com alvo novo"
 
+  # Every extra Tab CYCLES to the next enemy — which is the whole point with a
+  # crowded list, and pure waste with ONE row: the same row is selected again,
+  # three times, for two seconds (Lucas, 2026-08-10: "ainda tá bem lento").
+  # With a single row, one Tab is the whole question.
+  defp tab_attempts_allowed(logic, obs) do
+    if length(enemies(obs)) == 1, do: 1, else: logic.config.tab_max_attempts
+  end
+
   # How many failed hunts it takes to call a row scenery.
   #
   # The default (3) exists for a real question: is that mob unreachable, or did
@@ -338,7 +346,16 @@ defmodule Pokex.Bots.Combat.Logic do
   defp hunts_needed(logic, obs) do
     needed = Map.get(logic.config, :scenery_hunts_needed, 0)
 
-    if needed > 0 and logic.hunt_enemies == 1 and own_out?(obs), do: 1, else: needed
+    cond do
+      needed == 0 or logic.hunt_enemies != 1 -> needed
+      # his pokémon is out and there is exactly one row: it is almost certainly
+      # that pokémon, and one lockless hunt settles it
+      own_out?(obs) -> 1
+      # a lone row that will not lock, twice in a row — still far quicker than
+      # the three hunts written for a crowded list, and one hunt is now a
+      # single Tab, so this costs ~2s instead of ~10s
+      true -> min(needed, 2)
+    end
   end
 
   defp own_out?(obs), do: obs != nil and obs[:own_out?] == true

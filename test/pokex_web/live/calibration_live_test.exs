@@ -216,6 +216,59 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # The "minimapa" label of an already-marked region rides INSIDE the container
+  # the zoom scales 3.5x: 10px type becomes 35px sitting exactly over the next
+  # target (the label hangs above the region's top edge — where the coord band
+  # lives), and the span STOLE the click, which never reached ImgClick. While
+  # zoomed the overlays go quiet — hairline outlines only, no labels, no fills
+  # — and the whole layer never intercepts a click.
+  test "overlays go quiet under zoom and never steal the click", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture_screen: [{:ok, screen}]})
+    Calibration.save(%Calibration{scale: 2.0, screen_w: 100, screen_h: 75})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element(~s(button[phx-click="calibrate_minimap"])) |> render_click()
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    # both minimap corners: the draft now carries minimap_region, no zoom active
+    click.(10.0, 10.0)
+    html = click.(40.0, 30.0)
+
+    assert html =~ ~s(id="mark-overlays")
+    assert html =~ "pointer-events-none"
+    assert html =~ "overlay-label"
+
+    # rough click of the NEXT step (the cross) turns the zoom on: labels gone
+    html =
+      render_hook(view, "img_click", %{
+        "x" => 25.0,
+        "y" => 15.0,
+        "cw" => 50.0,
+        "ch" => 37.5,
+        "nw" => 200.0,
+        "nh" => 150.0
+      })
+
+    assert html =~ "scale(3.5)"
+    refute html =~ "overlay-label"
+
+    # cancelling the zoom brings the teaching labels back
+    html = render_hook(view, "cancel_zoom", %{})
+    assert html =~ "overlay-label"
+  end
+
+  @tag :tmp_dir
   test "review draws the saved regions over a fresh screenshot", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)

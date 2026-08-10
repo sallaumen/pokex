@@ -1684,6 +1684,7 @@ defmodule PokexWeb.CalibrationLive do
               />
               <.overlays
                 screen={@screen}
+                quiet={@zoom_at != nil}
                 water_point={@draft[:water_point]}
                 glow_region={@draft[:glow_region]}
                 battle_region={@draft[:battle_region]}

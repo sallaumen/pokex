@@ -176,11 +176,36 @@ defmodule Pokex.Calibration do
   The character's cross on the minimap — FIXED in the window, the map slides
   under it (2026-07-30). Unmarked, the map rectangle's center: what the step
   always assumed, now as fallback instead of dogma.
-  """
-  def minimap_player_point(%__MODULE__{minimap_player_point: point}) when is_tuple(point),
-    do: point
 
-  def minimap_player_point(%__MODULE__{} = calib) do
+  A STRAY mark is refused: the real 2026-08-10 calibration carried a cross at
+  {3171, 3} — the macOS menu bar — and `minimap_step` clamps every walk from
+  such a start into the map's corner, a permanent north-west drift no screen
+  ever explained. Refusing means the healthy center fallback walks; the review
+  shows the refusal via `minimap_stray_cross/1`.
+  """
+  def minimap_player_point(%__MODULE__{minimap_player_point: point} = calib)
+      when is_tuple(point) do
+    if minimap_stray_cross(calib), do: map_center(calib), else: point
+  end
+
+  def minimap_player_point(%__MODULE__{} = calib), do: map_center(calib)
+
+  @doc """
+  The hand-marked cross when it is NOT plausible — outside the map's clickable
+  rectangle — or nil. With no map region to judge against, the mark stands: a
+  region-less calibration cannot walk anyway.
+  """
+  def minimap_stray_cross(%__MODULE__{minimap_player_point: {px, py} = point} = calib) do
+    case minimap_map_region(calib) do
+      {x, y, w, h} when px >= x and px < x + w and py >= y and py < y + h -> nil
+      nil -> nil
+      _outside -> point
+    end
+  end
+
+  def minimap_stray_cross(_calib), do: nil
+
+  defp map_center(calib) do
     case minimap_map_region(calib) do
       {x, y, w, h} -> {x + div(w, 2), y + div(h, 2)}
       nil -> nil

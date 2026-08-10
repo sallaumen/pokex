@@ -481,6 +481,38 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   @tag :tmp_dir
+  # The real 2026-08-10 calibration carried a cross at {3171, 3} — the macOS
+  # menu bar — while the map sat at y=52. The resolver refuses the stray mark
+  # (walks would drift north-west forever), and the review must SAY so instead
+  # of silently rendering the healthy center fallback.
+  test "a cross marked outside the map raises a red flag in the review", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      minimap_region: {60, 25, 30, 30},
+      minimap_player_point: {61, 2}
+    })
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    html = view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    assert html =~ ~s(id="stray-cross")
+    assert html =~ "cruz fora do mapa"
+  end
+
+  @tag :tmp_dir
   # A calibration can be perfect and the bot still blind: every threshold and
   # box SIZE was measured on the ultrawide. The ruler is a skill slot, and
   # applying is his click — a derivation that rewrote settings silently is how

@@ -131,6 +131,32 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       assert Calibration.minimap_player_point(blind) == nil
     end
 
+    # The real 2026-08-10 mark: cross at {3171, 3} — inside the macOS MENU BAR —
+    # against a map at y=52. Every walk click clamps such a start into the map's
+    # corner: a permanent north-west drift the panel never explains. A stray
+    # mark is refused (center fallback) and REPORTED, so the review can say why.
+    test "a cross marked outside the map is refused: center fallback + stray report" do
+      stray = %Calibration{
+        scale: 1.0,
+        layout: nil,
+        minimap_region: {3173, 52, 255, 179},
+        minimap_player_point: {3171, 3}
+      }
+
+      assert Calibration.minimap_stray_cross(stray) == {3171, 3}
+      assert Calibration.minimap_player_point(stray) == {3173 + div(255, 2), 52 + div(179, 2)}
+
+      inside = %{stray | minimap_player_point: {3300, 141}}
+      assert Calibration.minimap_stray_cross(inside) == nil
+      assert Calibration.minimap_player_point(inside) == {3300, 141}
+
+      # nothing to judge against: the mark stands (a region-less calibration
+      # cannot walk anyway — minimap_step already refuses without a region)
+      free = %Calibration{scale: 1.0, layout: nil, minimap_player_point: {3171, 3}}
+      assert Calibration.minimap_stray_cross(free) == nil
+      assert Calibration.minimap_player_point(free) == {3171, 3}
+    end
+
     @tag :tmp_dir
     test "the three minimap fields round-trip through the file", %{tmp_dir: tmp} do
       path = Path.join(tmp, "calibration.json")

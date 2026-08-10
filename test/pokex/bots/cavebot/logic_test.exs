@@ -324,8 +324,16 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
     end
 
-    defp world_with_capture(pending) do
-      %{pos: {10, 10, 7}, enemies: 0, combat_state: :hunting, capture_pending: pending}
+    # the queue's LAST CHANGE is what says the capture is working; a queue
+    # frozen at 2 is work nobody is going to do (the sweep, deferred)
+    defp world_with_capture(pending, changed_at \\ 0) do
+      %{
+        pos: {10, 10, 7},
+        enemies: 0,
+        combat_state: :hunting,
+        capture_pending: pending,
+        capture_changed_at: if(pending > 0, do: changed_at)
+      }
     end
 
     test "the dwell does not end while the Catcher still has corpses queued" do
@@ -333,8 +341,8 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {l, _} = Logic.step(l, world_with_capture(2), 900)
       assert l.state == :post_fight
 
-      # long past the dwell, still holding: the capture owns the floor
-      {l, :none} = Logic.step(l, world_with_capture(2), 5_000)
+      # long past the dwell, and the queue keeps MOVING: the capture owns the floor
+      {l, :none} = Logic.step(l, world_with_capture(2, 4_900), 5_000)
       assert l.state == :post_fight
 
       # queue drained: the route resumes on the next tick
@@ -342,13 +350,13 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert l.state == :walking
     end
 
-    test "a stuck Catcher never freezes the hunt: the wait is capped" do
+    test "a FROZEN queue never freezes the hunt: waiting needs progress" do
       {l, :none} = Logic.step(fighting_logic(), world_with_capture(1), 0)
       {l, _} = Logic.step(l, world_with_capture(1), 900)
       assert l.state == :post_fight
 
-      # still queued, but past capture_wait_ms — the route goes on
-      {l, _} = Logic.step(l, world_with_capture(1), 900 + 20_001)
+      # the queue has not moved since 0 — past the wait, the route goes on
+      {l, _} = Logic.step(l, world_with_capture(1, 0), 900 + 20_001)
       assert l.state == :walking
     end
 

@@ -59,7 +59,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           pos: {integer, integer, integer} | nil,
           enemies: non_neg_integer,
           combat_state: atom,
-          capture_pending: non_neg_integer
+          capture_pending: non_neg_integer,
+          capture_changed_at: integer | nil
         }
 
   @type config :: %{
@@ -382,13 +383,23 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # must never freeze the hunt.
   defp post_fight(logic, world, now) do
     dwell_since = Map.get(logic.since, :dwell, now)
-    waiting? = Map.get(world, :capture_pending, 0) > 0
 
-    if waiting? and now - dwell_since < logic.config.capture_wait_ms do
+    if capturing?(world, now, logic.config.capture_wait_ms) do
       {logic, :none}
     else
       resume_after_dwell(logic, dwell_since, now)
     end
+  end
+
+  # Waiting on a queue that is not MOVING is waiting forever: the sweep is
+  # deferred outside the standing mode, and a corpse the Catcher gave up on
+  # never leaves the count. So the hunt waits while the queue is non-empty AND
+  # still changing — the same rule that told a long fight from a stalled one.
+  defp capturing?(world, now, wait_ms) do
+    pending = Map.get(world, :capture_pending, 0)
+    changed_at = Map.get(world, :capture_changed_at)
+
+    pending > 0 and changed_at != nil and now - changed_at < wait_ms
   end
 
   defp resume_after_dwell(logic, dwell_since, now) do

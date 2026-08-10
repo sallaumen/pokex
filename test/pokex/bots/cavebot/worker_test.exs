@@ -588,11 +588,21 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   # captures, and this worker ticks 5x a second. The snapshot it broadcasts is
   # what tells the hunt to hold its ground after a kill.
   test "the Catcher's queue reaches the hunt through the topic", %{worker: worker} do
+    # the SWEEP queue is deliberately not counted: it is deferred outside the
+    # standing mode, so waiting on it is waiting on work nobody will do
     send(worker, {:catcher, %{pending_corpses: 2, sweep: %{pending: 3}}})
-    assert %{capture_pending: 5} = :sys.get_state(worker)
+    assert %{capture_pending: 2, capture_changed_at: first} = :sys.get_state(worker)
+    assert is_integer(first)
 
-    # a snapshot without the sweep block is still counted, never a crash
+    # a snapshot without the sweep block is read the same, never a crash
     send(worker, {:catcher, %{pending_corpses: 1}})
     assert %{capture_pending: 1} = :sys.get_state(worker)
+
+    # an unchanged queue does NOT refresh the clock: that is what tells a
+    # working capture from a frozen one
+    state = :sys.get_state(worker)
+    send(worker, {:catcher, %{pending_corpses: 1}})
+    assert %{capture_changed_at: unchanged} = :sys.get_state(worker)
+    assert unchanged == state.capture_changed_at
   end
 end

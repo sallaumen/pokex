@@ -90,6 +90,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       combat_scenery: 0,
       held_keys: [],
       capture_pending: 0,
+      capture_changed_at: nil,
       last_step: nil,
       pos: nil,
       pos_at: nil,
@@ -221,13 +222,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
      %{state | combat_state: combat_state, combat_scenery: Map.get(snapshot, :scenery, 0)}}
   end
 
-  # Corpses still queued (mapped bodies waiting, plus the blind sweep's own
-  # queue) — the hunt holds its ground while either has work.
+  # Corpses queued for capture — and ONLY those. The blind sweep's own queue is
+  # deferred by design outside the standing mode ("varredura adiada — a
+  # varredura é do modo Parado", all over Lucas's log), so counting it made the
+  # hunt wait on work nobody was going to do: after every kill it sat until the
+  # cap, then again, and again.
   def handle_info({:catcher, snapshot}, state) do
-    pending =
-      Map.get(snapshot, :pending_corpses, 0) + (get_in(snapshot, [:sweep, :pending]) || 0)
-
-    {:noreply, %{state | capture_pending: pending}}
+    {:noreply, note_capture(state, Map.get(snapshot, :pending_corpses, 0))}
   end
 
   # The minimap feed died (its consumers map dies with it; a restarted feed
@@ -282,7 +283,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
       pos: pos,
       enemies: fightable(state, now),
       combat_state: state.combat_state,
-      capture_pending: state.capture_pending
+      capture_pending: state.capture_pending,
+      capture_changed_at: state.capture_changed_at
     }
 
     if pos, do: {world, %{state | pos: pos, pos_at: now}}, else: {world, state}
@@ -430,6 +432,14 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # The keys a direction asks for: one per non-zero axis, so a diagonal
   # waypoint is walked diagonally instead of in two straight legs. The game's
   # y grows SOUTH.
+  # WHEN the queue last changed, not just how big it is: a queue that shrinks is
+  # the capture working, and one frozen at 2 is work that will never happen.
+  defp note_capture(state, pending) do
+    if pending == state.capture_pending,
+      do: state,
+      else: %{state | capture_pending: pending, capture_changed_at: now()}
+  end
+
   defp hold_walk(state, dx, dy) do
     # An axis already inside the arrival tolerance is NOT held: with a key held
     # down the character keeps walking between readings, so correcting a

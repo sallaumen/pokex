@@ -44,6 +44,38 @@ defmodule Pokex.Vision.GlyphsMinimapTest do
     end
   end
 
+  describe "bright terrain AROUND the coordinate" do
+    # The field failure of 2026-08-10: the hover label rendered with its left
+    # half over GREY unexplored terrain (measured 140-159 — bright AND
+    # neutral, so it IS ink at floor 120). The terrain formed one huge blob
+    # sharing rows with the text, so no column between characters was ever
+    # empty and "(2396, 30621," welded into a single 35x134 glyph. The fix is
+    # dimensional: no character in any atlas is taller than 21 rows or wider
+    # than a fused pair (~25 cols) — a blob far beyond that is background by
+    # IMPOSSIBILITY, whatever rows it shares. The fixture is the real crop.
+    test "the real terrain-backed label reads whole" do
+      {:ok, frame} =
+        Frame.from_png_file("test/fixtures/screen/coord_label_terrain.png")
+
+      region = {0, 0, frame.width, frame.height}
+
+      assert Glyphs.read_coord(frame, region, ink: 120) == {2396, 30_621, 5}
+    end
+
+    test "the band search finds the band on the terrain-backed crop" do
+      {:ok, frame} =
+        Frame.from_png_file("test/fixtures/screen/coord_label_terrain.png")
+
+      assert {:ok, _band, {2396, 30_621, 5}} =
+               Pokex.Calibration.CoordBandSearch.search(
+                 frame,
+                 {0, 0, frame.width, frame.height},
+                 1.0,
+                 ink: 120
+               )
+    end
+  end
+
   describe "lit map behind the coordinate" do
     # The game draws the coordinate at a fixed point and scrolls the map under
     # it. The scenario transplants this capture's own lit ground (measured

@@ -40,7 +40,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
             retries: 0,
             config: nil,
             last_pos: nil,
-            last_enemies: nil
+            last_enemies: nil,
+            # the route is ENTERED at the nearest waypoint, once per run
+            homed?: false,
+            skips: 0
 
   @type state :: :walking | :fighting | :post_fight | :stuck | :fight_stalled | :blocked
 
@@ -67,7 +70,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           fight_timeout_ms: non_neg_integer,
           post_kill_dwell_ms: non_neg_integer,
           blind_kick_ms: non_neg_integer,
-          capture_wait_ms: non_neg_integer
+          capture_wait_ms: non_neg_integer,
+          step_confirm_ms: non_neg_integer
         }
 
   @type t :: %__MODULE__{
@@ -79,7 +83,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
           retries: non_neg_integer,
           config: config,
           last_pos: {integer, integer, integer} | nil,
-          last_enemies: non_neg_integer | nil
+          last_enemies: non_neg_integer | nil,
+          homed?: boolean,
+          skips: non_neg_integer
         }
 
   @doc """
@@ -151,7 +157,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp walk(logic, %{pos: nil}, now), do: logic |> blind(now) |> maybe_kick(now)
 
   defp walk(logic, %{pos: {x, y, _} = pos}, now) do
-    logic = sighted(logic)
+    logic = logic |> sighted() |> home_in(pos)
     wp = current_wp(logic)
     dx = wp.x - x
     dy = wp.y - y
@@ -160,16 +166,55 @@ defmodule Pokex.Bots.Cavebot.Logic do
     cond do
       abs(dx) <= tol and abs(dy) <= tol ->
         next = rem(logic.wp_index + 1, length(logic.route.waypoints))
-        {%{note_progress(logic, pos, now) | wp_index: next}, :none}
+        {%{note_progress(logic, pos, now) | wp_index: next, skips: 0}, :none}
 
       pos != logic.last_pos ->
-        {note_progress(logic, pos, now), {:walk, dx, dy}}
+        {logic |> note_progress(pos, now) |> pressed(now), {:walk, dx, dy}}
 
       now - Map.get(logic.since, :walk_progress, now) >= logic.config.walk_timeout_ms ->
         {%{logic | state: :stuck, retries: 0}, {:walk, dx, dy}}
 
       true ->
-        {logic, {:walk, dx, dy}}
+        press_or_wait(logic, now, dx, dy)
+    end
+  end
+
+  # The step has NOT landed yet: pressing again only queues arrows the client
+  # will replay later. Lucas's log (2026-08-10) shows 30 presses of `right`
+  # into a wall in six seconds — one per tick, blind to whether the last one
+  # moved anything. A press waits for its own tile.
+  #
+  # nil check, never a 0 sentinel: the monotonic clock is NEGATIVE for the
+  # first hours of a machine's uptime, and `now - 0` would then be below any
+  # window forever — the press that never goes out.
+  defp press_or_wait(logic, now, dx, dy) do
+    case Map.get(logic.since, :step) do
+      at when is_integer(at) and now - at < logic.config.step_confirm_ms ->
+        {logic, :none}
+
+      _never_or_expired ->
+        {pressed(logic, now), {:walk, dx, dy}}
+    end
+  end
+
+  defp pressed(logic, now), do: %{logic | since: Map.put(logic.since, :step, now)}
+
+  # A hunt does not begin at waypoint 1: it begins at the CLOSEST corner of the
+  # route. Restarting mid-route used to send the character back to the first
+  # waypoint — across the map, through walls it cannot path around with arrow
+  # keys (Lucas, 2026-08-10: "voltou pro começo e travou numa parede"). Done
+  # once per run, on the first sighting.
+  defp home_in(%__MODULE__{homed?: true} = logic, _pos), do: logic
+
+  defp home_in(logic, {x, y, _z}) do
+    nearest =
+      logic.route.waypoints
+      |> Enum.with_index()
+      |> Enum.min_by(fn {wp, _index} -> abs(wp.x - x) + abs(wp.y - y) end, fn -> nil end)
+
+    case nearest do
+      {_wp, index} -> %{logic | wp_index: index, homed?: true}
+      nil -> %{logic | homed?: true}
     end
   end
 
@@ -184,13 +229,36 @@ defmodule Pokex.Bots.Cavebot.Logic do
     else
       retries = logic.retries + 1
 
-      if retries > logic.config.stuck_max_retries do
-        {%{logic | state: :blocked}, {:block, :stuck}}
-      else
-        {dx, dy} = unstick(logic, pos, retries)
-        {%{logic | retries: retries}, {:walk, dx, dy}}
+      cond do
+        retries <= logic.config.stuck_max_retries ->
+          {dx, dy} = unstick(logic, pos, retries)
+          {%{logic | retries: retries}, {:walk, dx, dy}}
+
+        # A corner walled on every side is not the end of the hunt: the route
+        # is a LOOP, and the next corner is usually reachable from here. Only a
+        # full lap of unreachable corners means the character is somewhere the
+        # route cannot describe.
+        logic.skips < length(logic.route.waypoints) - 1 ->
+          {skip_waypoint(logic, now), :none}
+
+        true ->
+          {%{logic | state: :blocked}, {:block, :stuck}}
       end
     end
+  end
+
+  defp skip_waypoint(logic, now) do
+    next = rem(logic.wp_index + 1, length(logic.route.waypoints))
+
+    %{
+      logic
+      | state: :walking,
+        wp_index: next,
+        retries: 0,
+        skips: logic.skips + 1,
+        last_pos: nil,
+        since: Map.put(logic.since, :walk_progress, now)
+    }
   end
 
   # Screen clear: sustain the debounce before declaring the fight over.
@@ -360,7 +428,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp current_wp(logic), do: Enum.at(logic.route.waypoints, logic.wp_index)
 
   defp note_progress(logic, pos, now) do
-    %{logic | last_pos: pos, since: Map.put(logic.since, :walk_progress, now)}
+    since = logic.since |> Map.put(:walk_progress, now) |> Map.delete(:step)
+    %{logic | last_pos: pos, since: since}
   end
 
   # The blindness clock marks the FIRST read without a position and does not

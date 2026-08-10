@@ -43,9 +43,20 @@ defmodule Pokex.ScreenScale do
 
   alias Pokex.{Calibration, Settings}
 
-  # One skill slot on the screen every seed was measured on (profile of
-  # 2026-07-31: skill_bar_region 430 wide over 8 slots).
-  @reference_slot_pt 53.75
+  # One skill slot on the screen every seed was measured on: the 2026-07-31
+  # ultrawide profile, skill_bar_region 430 points wide over **9** slots (the
+  # file is named "8skill" but carries skill_bar_count 9 and nine
+  # skill_slot_refs). 53.75 = 430/8 read the NAME instead of the data and made
+  # the reference slot 12% too wide, so the reference screen itself measured
+  # 0.87 and every seed was offered back 12% (24% for the area family) smaller
+  # than it was measured. That is the shrink that reached his settings.
+  @reference_slot_pt 430 / 9
+
+  # How far the ruler may sit from the reference and still BE the reference. The
+  # game window is resizable, so the SAME ultrawide measures 47.0-49.0 pt/slot
+  # across his own saved profiles (±2.6%) — a tighter band would call one screen
+  # two. His other screen is at 0.76, nowhere near this.
+  @reference_tolerance 0.05
 
   @linear [
     :tile_px,
@@ -115,10 +126,17 @@ defmodule Pokex.ScreenScale do
   @doc """
   Is this screen close enough to the reference that rescaling is noise?
 
-  Within 2% the rounding moves almost nothing, and offering a "fix" that
+  Inside the band the rounding moves almost nothing, and offering a "fix" that
   changes two values by one point each only teaches him to distrust the screen.
+
+  This answers "which screen is this", NOT "are the numbers right" — a caller
+  that skips `proposals/2` on a true here is blind to the settings of a
+  DIFFERENT screen still being in force, which is exactly how the reference
+  monitor ended up fishing with the MacBook's thresholds (2026-08-10). Snap the
+  ratio to 1.0 on a true and let `proposals/2` answer; it returns [] on its own
+  when the values in force already match.
   """
-  def matches_reference?(ratio), do: abs(ratio - 1.0) < 0.02
+  def matches_reference?(ratio), do: abs(ratio - 1.0) < @reference_tolerance
 
   # An area threshold scales with the ratio SQUARED; a length, with the ratio.
   # Floor of 1: a rescaled threshold of zero would make every frame a match,

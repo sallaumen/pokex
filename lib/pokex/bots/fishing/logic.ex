@@ -32,11 +32,14 @@ defmodule Pokex.Bots.Fishing.Logic do
             # last PERFORMED actuation as %{text: String.t(), at: monotonic_ms} —
             # nil until the first cast (never a 0 sentinel).
             last_action: nil,
-            # The cast's WITNESS: was any bubble (settled glow) seen this cycle?
-            # Born true on purpose — the first cast must not inherit dryness
-            # from a cycle that never existed. Each cast resets it to false.
-            glow_seen?: true,
-            # CONSECUTIVE casts that ended with no bubble at all — at
+            # The cast's WITNESS: did the LINE ever show up in the water this
+            # cycle? It used to be "was a BITE seen", which made every ordinary
+            # fishless cycle look like a swallowed rod key — a cast that lands
+            # and waits is the normal case, not a dry one. Born true on purpose:
+            # the first cast must not inherit dryness from a cycle that never
+            # existed. Each cast resets it to false.
+            line_seen?: true,
+            # CONSECUTIVE casts whose line NEVER appeared — at
             # config.dry_casts_alarm the cast emits {:alarm, _} (the rod key is
             # probably not reaching the game) and the count restarts.
             dry_casts: 0,
@@ -92,8 +95,18 @@ defmodule Pokex.Bots.Fishing.Logic do
         {logic, []}
 
       true ->
-        do_step(maybe_settle_by_time(%{logic | waiting_until: nil}, now), obs, now)
+        logic = maybe_settle_by_time(%{logic | waiting_until: nil}, now)
+        do_step(witness_the_cast(logic, obs), obs, now)
     end
+  end
+
+  # One place decides that this cycle's cast really happened: any frame showing
+  # the line (or a bite, which implies it). Every clause below used to set this
+  # by hand on a BITE only.
+  defp witness_the_cast(logic, obs) do
+    if line_present?(obs) or Map.get(obs, :glow) == true,
+      do: %{logic | line_seen?: true},
+      else: logic
   end
 
   # FRAME-based settling (calm_streak) assumes ~150ms ticks. With a starved
@@ -166,7 +179,6 @@ defmodule Pokex.Bots.Fishing.Logic do
            logic
            | glow_streak: streak,
              dead_streak: 0,
-             glow_seen?: true,
              holding?: false,
              holding_since: nil,
              hold_reason: nil
@@ -190,7 +202,6 @@ defmodule Pokex.Bots.Fishing.Logic do
            logic
            | glow_streak: streak,
              dead_streak: 0,
-             glow_seen?: true,
              holding?: true,
              holding_since: logic.holding_since || now,
              # refreshed per peak, so a reason that changes mid-hold (cooldown
@@ -215,7 +226,6 @@ defmodule Pokex.Bots.Fishing.Logic do
            %{
              logic
              | glow_streak: 0,
-               glow_seen?: true,
                holding?: false,
                holding_since: nil,
                hold_reason: nil,
@@ -246,7 +256,7 @@ defmodule Pokex.Bots.Fishing.Logic do
     # while the line pulses (line? true) and entered_at was refreshed on the last
     # peak, so recast_if_dead is a no-op during a genuine hold and only recovers if
     # the bite truly dies.
-    recast_if_dead(%{logic | glow_streak: 0, dead_streak: next_dead_streak(logic, obs)}, now)
+    recast_if_dead(%{logic | glow_streak: 0, dead_streak: next_dead_streak(logic, obs, now)}, now)
   end
 
   # No bite while NOT yet settled → accumulate the consecutive-calm run; latch
@@ -262,7 +272,7 @@ defmodule Pokex.Bots.Fishing.Logic do
         | glow_streak: 0,
           calm_streak: calm,
           settled?: settled?,
-          dead_streak: next_dead_streak(logic, obs)
+          dead_streak: next_dead_streak(logic, obs, now)
       },
       now
     )
@@ -317,12 +327,16 @@ defmodule Pokex.Bots.Fishing.Logic do
   defp cast(logic, now, prefix_actions \\ []) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
 
-    # The DRY CAST: a whole cycle with NO bubble seen. A swallowed rod key
-    # (gate, focus, key helper) returns :ok and the water simply never bubbles
-    # — the screen is the only witness the cast happened. N dry cycles in a row
-    # → alarm, and the count restarts (re-alarms if still dry). Casting
+    # The DRY CAST: a whole cycle in which the LINE never showed up. A swallowed
+    # rod key (gate, focus, key helper) returns :ok and the water simply stays
+    # empty — the screen is the only witness the cast happened. N dry cycles in a
+    # row → alarm, and the count restarts (re-alarms if still dry). Casting
     # continues: the alarm wakes the human, it doesn't stop the rod.
-    dry = if logic.glow_seen?, do: 0, else: logic.dry_casts + 1
+    #
+    # The witness is the LINE, not a BITE. Waiting a whole cycle without a bite
+    # is what fishing IS — counting that as dry made the alarm cry "a tecla da
+    # vara não está chegando no jogo" over a rod that was working perfectly.
+    dry = if logic.line_seen?, do: 0, else: logic.dry_casts + 1
     threshold = Map.get(logic.config, :dry_casts_alarm, 0)
 
     {dry, alarm_actions} =
@@ -330,14 +344,14 @@ defmodule Pokex.Bots.Fishing.Logic do
         {0,
          [
            {:alarm,
-            "🎣 #{dry} arremessos sem NENHUMA bolha — a tecla da vara pode não estar " <>
-              "chegando no jogo (foco? portão? helper de teclas?)"}
+            "🎣 #{dry} arremessos sem a isca aparecer na água — a tecla da vara pode não " <>
+              "estar chegando no jogo (foco? portão? helper de teclas?)"}
          ]}
       else
         {dry, []}
       end
 
-    logic = %{logic | glow_seen?: false, dry_casts: dry}
+    logic = %{logic | line_seen?: false, dry_casts: dry}
 
     # Enter watching NOT settled: the cast splash also flashes cyan, so we must
     # first see the water go calm (splash gone) before a cyan spike counts as a
@@ -379,9 +393,26 @@ defmodule Pokex.Bots.Fishing.Logic do
   # resting between bites still pulses well above that floor, so it reads line? and
   # RESETS the streak — a live line is never recast. Only genuinely empty water (a
   # dropped rod / a cast that never landed, reading ~0) counts up toward re-throw.
-  defp next_dead_streak(logic, obs) do
-    if line_present?(obs), do: 0, else: logic.dead_streak + 1
+  #
+  # ...and only AFTER the bait has had time to land. The rod key does not put the
+  # lure in the water: the throw arcs, and the lure appears seconds later (MEASURED
+  # on Lucas's 3440×1440, journal 2026-08-10: 2-5s from the key to the first frame
+  # with any lure pixel, on every cast). The streak used to start at the instant of
+  # the cast, so "o cast falhou" was decided while the bait was still in the air —
+  # and the recast's key press yanked the bait that had just landed back OUT of the
+  # water. Empty water inside cast_grace_ms is EXPECTED, not evidence.
+  defp next_dead_streak(logic, obs, now) do
+    cond do
+      line_present?(obs) -> 0
+      within_cast_grace?(logic, now) -> 0
+      true -> logic.dead_streak + 1
+    end
   end
+
+  # Measured from entered_at, which the cast sets — and which only a bite peak
+  # refreshes (a bite resets the streak anyway, so a hold never re-opens the grace).
+  defp within_cast_grace?(logic, now),
+    do: now - logic.entered_at < Map.get(logic.config, :cast_grace_ms, 5_000)
 
   defp line_present?(%{line?: present?}), do: present?
   defp line_present?(_obs), do: false

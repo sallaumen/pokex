@@ -180,6 +180,16 @@ defmodule Pokex.Settings do
     # the glow clauses), so a live line is never cut short. Raise it if good lines
     # get recast mid-wait — watch the "N/M sem bolha" counter in the feed.
     watch_dead_streak_needed: 5,
+    # ...but the streak only starts counting THIS long after the cast. The rod key
+    # does not put the lure in the water: the throw arcs and the lure appears
+    # seconds later — MEASURED on the 3440×1440 (journal 2026-08-10): 2-5s from the
+    # key to the first frame with any lure pixel, on every cast. Without this the
+    # verdict "o cast falhou" was reached while the bait was still in the air (5
+    # frames ≈ 0.75s at tick_ms_watching) and the re-throw's key press yanked the
+    # bait that had just landed back OUT — "joga a vara, acha que não lançou nada e
+    # re-lança". 5s covers the slowest measured throw; raise it if the water is
+    # still empty when the streak starts, lower it to catch a swallowed key sooner.
+    cast_grace_ms: 5_000,
     # A locked target that hasn't died in this long isn't a real hostile (our own
     # pokemon) or is hopelessly tanky → drop it and try the next battle row.
     fight_timeout_ms: 6000,
@@ -869,6 +879,7 @@ defmodule Pokex.Settings do
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,
     settle_max_ms: 100..600_000,
+    cast_grace_ms: 0..600_000,
     minimap_coord_ink: 40..255,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,

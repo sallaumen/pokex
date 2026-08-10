@@ -875,8 +875,28 @@ defmodule PokexWeb.CalibrationLive do
 
   defp numbers_note(count), do: "com os #{count} números desta tela."
 
+  # Inside the noise band this screen IS the reference, so the numbers to offer
+  # are the SEEDS themselves — not seed×0.98. Snapping the ratio (instead of the
+  # old "return [] and say nothing") is what closes the hole that broke fishing
+  # on 2026-08-10: back on the reference monitor after a trip to the MacBook, the
+  # ruler matched, the panel had nothing to say, and the bot went on reading the
+  # water with the MacBook's thresholds (glow_threshold 496 where the bite was
+  # measured at 1100). `proposals/2` still returns [] by itself when the values
+  # in force already match, so a clean reference screen proposes nothing.
   defp proposals_for(ratio) do
-    if ScreenScale.matches_reference?(ratio), do: [], else: ScreenScale.proposals(ratio)
+    ratio = if ScreenScale.matches_reference?(ratio), do: 1.0, else: ratio
+    ScreenScale.proposals(ratio)
+  end
+
+  # Two different pieces of news, and calling both "esta tela mede 0.98×" hides
+  # the one that matters: on the reference screen a proposal is never about the
+  # size of THIS screen, it is the other screen's numbers still being in force.
+  defp scale_headline(ratio, count) do
+    if ScreenScale.matches_reference?(ratio),
+      do:
+        "Esta é a tela em que os números foram medidos — #{count} deles estão com o valor " <>
+          "de OUTRA tela:",
+      else: "Esta tela mede #{Float.round(ratio, 2)}× a de referência — #{count} ajuste(s):"
   end
 
   # An out-of-range or half-typed value leaves BOTH the setting and the drawing
@@ -1491,9 +1511,7 @@ defmodule PokexWeb.CalibrationLive do
 
             <div :if={@scale_proposals not in [nil, []]} class="mt-2 space-y-2">
               <p class="font-bold text-warning">
-                Esta tela mede {Float.round(@scale_ratio, 2)}× a de referência — {length(
-                  @scale_proposals
-                )} ajuste(s):
+                {scale_headline(@scale_ratio, length(@scale_proposals))}
               </p>
               <div class="max-h-56 overflow-y-auto rounded border border-base-content/20">
                 <table class="table table-xs">

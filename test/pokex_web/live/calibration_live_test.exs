@@ -505,7 +505,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       scale: 1.0,
       screen_w: 100,
       screen_h: 75,
-      # 325 points over 9 slots = 36.1 per slot against the reference's 53.75
+      # 325 points over 9 slots = 36.1 per slot against the reference's 47.8
       skill_bar_region: {10, 60, 325, 10},
       skill_bar_count: 9,
       neutral_point: {52, 36}
@@ -520,19 +520,75 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     html = view |> element("button", "Conferir a régua da tela") |> render_click()
 
-    assert html =~ "0.67× a de referência"
+    assert html =~ "0.76× a de referência"
     assert html =~ "tile_px"
-    # a length scales with the ruler (88 × 0.672); a pixel count with its
-    # square (1100 × 0.672²) — half the value a linear scaling would give,
+    # a length scales with the ruler (88 × 0.756); a pixel count with its
+    # square (1100 × 0.756²) — well under the value a linear scaling would give,
     # which is the difference between a bite registering and never registering
-    assert html =~ "→ 59"
-    assert html =~ "→ 496"
+    assert html =~ "→ 67"
+    assert html =~ "→ 628"
 
     view |> element("#apply-screen-scale") |> render_click()
 
-    assert Settings.get(:tile_px) == 59
-    assert Settings.get(:glow_threshold) == 496
+    assert Settings.get(:tile_px) == 67
+    assert Settings.get(:glow_threshold) == 628
     assert render(view) =~ "ajuste(s) aplicado(s)"
+  end
+
+  @tag :tmp_dir
+  # THE FIELD BUG (2026-08-10): back on the ultrawide after a trip to the
+  # MacBook, recalibrated and everything, the bot kept fishing with the
+  # MacBook's thresholds — glow_threshold 496 where the bite was MEASURED at
+  # 1100. The panel had nothing to say, because "the ruler matches the
+  # reference" was being read as "the numbers are right". It is the opposite:
+  # on the reference screen, a value that differs from the seed is another
+  # screen's, and this is the only place that can hand the measured one back.
+  test "on the reference screen, another screen's numbers are offered back", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    %{linear: linear, area: area} = Pokex.ScreenScale.keys()
+    before = Map.new(linear ++ area, &{&1, Settings.get(&1)})
+
+    on_exit(fn ->
+      Application.delete_env(:pokex, :home_dir)
+      Enum.each(before, fn {key, value} -> Settings.put(key, value) end)
+    end)
+
+    # what he came home with
+    Settings.put(:glow_threshold, 496)
+    Settings.put(:tile_px, 59)
+
+    Calibration.save(%Calibration{
+      scale: 1.0,
+      screen_w: 100,
+      screen_h: 75,
+      # his ultrawide profile: 430 points over 9 slots = the reference itself
+      skill_bar_region: {10, 60, 430, 10},
+      skill_bar_count: 9,
+      neutral_point: {52, 36}
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(100, 75, {9, 9, 9, 255}))
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("button", "Revisar áreas salvas") |> render_click()
+
+    html = view |> element("button", "Conferir a régua da tela") |> render_click()
+
+    assert html =~ "Esta é a tela em que os números foram medidos"
+    assert html =~ "com o valor de OUTRA tela"
+    # the SEEDS themselves, not seed × 0.98
+    assert html =~ "→ 1100"
+    assert html =~ "→ 88"
+
+    view |> element("#apply-screen-scale") |> render_click()
+
+    assert Settings.get(:glow_threshold) == 1100
+    assert Settings.get(:tile_px) == 88
   end
 
   @tag :tmp_dir

@@ -262,4 +262,46 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {_logic, :none} = Logic.step(logic, world(nil), 3000)
     end
   end
+
+  # Arrow walking does not pathfind (the minimap click used to): pressing the
+  # same direction into a wall burns the retries and blocks the hunt at the
+  # first corner. A stuck retry slides along the wall instead.
+  describe "unsticking against a wall" do
+    test "odd retries drop the stuck axis and push the other one" do
+      # wp 1 is {10, 10}; standing at {5, 8} the straight line is (5, 2) —
+      # dominant x. Walled on x, the slide must push y.
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 8, 7}), 0)
+      {l, {:walk, 5, 2}} = Logic.step(l, world({5, 8, 7}), 10)
+
+      # no progress for walk_timeout_ms: stuck, and the first retry slides
+      {l, {:walk, 5, 2}} = Logic.step(l, world({5, 8, 7}), 3_020)
+      assert l.state == :stuck
+
+      assert {l, {:walk, 0, 2}} = Logic.step(l, world({5, 8, 7}), 3_100)
+      # even retry: straight line again (the obstacle may have walked off)
+      assert {l, {:walk, 5, 2}} = Logic.step(l, world({5, 8, 7}), 3_200)
+      assert {_l, {:walk, 0, 2}} = Logic.step(l, world({5, 8, 7}), 3_300)
+    end
+
+    test "a single-axis leg has nothing to slide onto and keeps pushing" do
+      # standing at {5, 10}, wp 1 is {10, 10}: pure x, dy == 0
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
+      {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)
+      {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3_020)
+
+      assert {_l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3_100)
+    end
+
+    test "moving again resumes the route with the retries reset" do
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 8, 7}), 0)
+      {l, {:walk, 5, 2}} = Logic.step(l, world({5, 8, 7}), 10)
+      {l, {:walk, 5, 2}} = Logic.step(l, world({5, 8, 7}), 3_020)
+      {l, {:walk, 0, 2}} = Logic.step(l, world({5, 8, 7}), 3_100)
+
+      # the slide worked: one tile south
+      assert {l, {:walk, 5, 1}} = Logic.step(l, world({5, 9, 7}), 3_200)
+      assert l.state == :walking
+      assert l.retries == 0
+    end
+  end
 end

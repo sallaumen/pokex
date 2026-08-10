@@ -183,9 +183,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
       if retries > logic.config.stuck_max_retries do
         {%{logic | state: :blocked}, {:block, :stuck}}
       else
-        wp = current_wp(logic)
-        {x, y, _} = pos
-        {%{logic | retries: retries}, {:walk, wp.x - x, wp.y - y}}
+        {dx, dy} = unstick(logic, pos, retries)
+        {%{logic | retries: retries}, {:walk, dx, dy}}
       end
     end
   end
@@ -224,6 +223,26 @@ defmodule Pokex.Bots.Cavebot.Logic do
         else
           {%{logic | since: since}, :none}
         end
+    end
+  end
+
+  # Arrow walking does NOT pathfind: the client routed around obstacles when
+  # the step was a minimap click, and one key press just walks into the wall.
+  # Repeating the same direction burns the retries and blocks the hunt at the
+  # first corner, so a stuck retry SLIDES: odd retries drop the axis that is
+  # stuck and push the other one (the classic wall-follow), even retries try
+  # the straight line again in case the obstacle moved — a player standing in
+  # the way is the common case, and it walks off on its own.
+  defp unstick(logic, {x, y, _z}, retries) do
+    wp = current_wp(logic)
+    {dx, dy} = {wp.x - x, wp.y - y}
+
+    cond do
+      rem(retries, 2) == 0 -> {dx, dy}
+      abs(dx) >= abs(dy) and dy != 0 -> {0, dy}
+      abs(dy) > abs(dx) and dx != 0 -> {dx, 0}
+      # single-axis route leg: nothing to slide onto, keep pushing
+      true -> {dx, dy}
     end
   end
 

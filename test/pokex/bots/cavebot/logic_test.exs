@@ -351,4 +351,50 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert l.state == :walking
     end
   end
+
+  # Lucas's first real hunt (2026-08-10) died here: combat killed its target,
+  # said "caçando o próximo", the spot had more pokémon — and 20 seconds of
+  # honest work were declared "a luta não termina". The timeout measures a
+  # fight going NOWHERE, not a fight taking long.
+  describe "a fight that is progressing is not a stalled fight" do
+    defp fighting do
+      %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
+    end
+
+    defp battling(count), do: %{pos: {10, 10, 7}, enemies: count, combat_state: :fighting}
+
+    test "a changing enemy count restarts the clock — kills ARE progress" do
+      {l, :none} = Logic.step(fighting(), battling(3), 0)
+      {l, :none} = Logic.step(l, battling(3), 10_000)
+
+      # one died at 19s: the fight is working, the clock restarts
+      {l, :none} = Logic.step(l, battling(2), 19_000)
+      assert l.state == :fighting
+
+      # 19s later the old clock would have blocked twice over
+      {l, :none} = Logic.step(l, battling(2), 30_000)
+      assert l.state == :fighting
+
+      # and a new arrival counts as progress just the same
+      {l, :none} = Logic.step(l, battling(3), 38_000)
+      assert l.state == :fighting
+    end
+
+    test "a screen frozen through the whole timeout still stalls" do
+      {l, :none} = Logic.step(fighting(), battling(1), 0)
+      {l, :none} = Logic.step(l, battling(1), 10_000)
+      {l, :none} = Logic.step(l, battling(1), 20_001)
+
+      assert l.state == :fight_stalled
+    end
+
+    test "the count is remembered across the clear, so the next fight starts fresh" do
+      {l, :none} = Logic.step(fighting(), battling(2), 0)
+      # screen clears and the dwell runs out: back to walking
+      {l, :none} = Logic.step(l, battling(0), 1_000)
+      {l, _} = Logic.step(l, battling(0), 2_000)
+      assert l.state == :post_fight
+      assert l.last_enemies == 0
+    end
+  end
 end

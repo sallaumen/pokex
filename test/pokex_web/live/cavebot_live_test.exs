@@ -341,6 +341,37 @@ defmodule PokexWeb.CavebotLiveTest do
     assert html =~ "passo 5,0"
   end
 
+  test "the rehearsal names WHICH link broke, not just 'não andou'", %{conn: conn} do
+    route_with([{10, 10, 7}])
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    # no position read: nothing is pressed, and the screen says why
+    send(view.pid, {:walk_test, {:error, :no_position}})
+    html = render(view)
+    assert html =~ ~s(id="walk-test-result")
+    assert html =~ "coordenada não está sendo lida"
+
+    send(view.pid, {:walk_test, {:error, :did_not_move}})
+    assert render(view) =~ "teclas não estão chegando no jogo"
+
+    send(
+      view.pid,
+      {:walk_test, {:ok, %{from: {10, 10, 7}, to: {13, 10, 7}, tiles: 3, presses: ["right"]}}}
+    )
+
+    html = render(view)
+    assert html =~ "andou 3 tile(s)"
+    assert html =~ "10, 10 → 13, 10"
+  end
+
+  test "the rehearsal button is there and arms without a hunt", %{conn: conn} do
+    route_with([{10, 10, 7}])
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    html = view |> element("#walk-test") |> render_click()
+    assert html =~ "andando…"
+  end
+
   test "the route photos have their place before they exist", %{conn: conn} do
     route_with([{10, 10, 7}])
     {:ok, _view, html} = live(conn, ~p"/cavebot")

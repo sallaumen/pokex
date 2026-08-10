@@ -17,7 +17,7 @@ defmodule PokexWeb.CavebotLive do
 
   import PokexWeb.CavebotComponents
 
-  alias Pokex.Bots.Cavebot.{Photos, Route, Store, Worker}
+  alias Pokex.Bots.Cavebot.{Photos, Route, Store, WalkTest, Worker}
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.World
@@ -72,7 +72,8 @@ defmodule PokexWeb.CavebotLive do
        selected: nil,
        photo_busy?: false,
        # the hunt's own narration: what it just did, in its own words
-       log: []
+       log: [],
+       walk_test: nil
      )}
   end
 
@@ -106,6 +107,8 @@ defmodule PokexWeb.CavebotLive do
     do: {:noreply, assign(socket, world: World.snapshot())}
 
   def handle_info({:cavebot, snapshot}, socket), do: {:noreply, assign(socket, hunt: snapshot)}
+
+  def handle_info({:walk_test, result}, socket), do: {:noreply, assign(socket, walk_test: result)}
 
   # The hunt narrates its edges (waypoint reached, block, a hold appearing) —
   # the tail of that is what turns "parou" into "parou POR QUÊ".
@@ -234,6 +237,20 @@ defmodule PokexWeb.CavebotLive do
            notice_kind: :ok
          )}
     end
+  end
+
+  # The rehearsal: three tiles toward the next waypoint, and a verdict naming
+  # WHICH link broke. Arming a whole hunt to learn that the character does not
+  # move is an expensive question with a slow answer.
+  def handle_event("walk_test", _params, socket) do
+    target =
+      List.first((socket.assigns.active_route && socket.assigns.active_route.waypoints) || [])
+
+    page = self()
+
+    Task.start(fn -> send(page, {:walk_test, WalkTest.run(target)}) end)
+
+    {:noreply, assign(socket, walk_test: :running)}
   end
 
   def handle_event("select_waypoint", %{"index" => index}, socket) do
@@ -603,6 +620,16 @@ defmodule PokexWeb.CavebotLive do
                   {if @recording?, do: "Parar de gravar", else: "Gravar andando"}
                 </button>
                 <button
+                  id="walk-test"
+                  phx-click="walk_test"
+                  disabled={@walk_test == :running}
+                  aria-label="Testar se o personagem anda e se a posição é lida"
+                  class="flex cursor-pointer items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 py-2 text-pk-body text-pk-text-2 transition hover:border-pk-ok hover:text-pk-text disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <.icon name="hero-beaker" class="size-4" />
+                  {if @walk_test == :running, do: "andando…", else: "Testar movimento"}
+                </button>
+                <button
                   id="mark-waypoint"
                   phx-click="mark_waypoint"
                   aria-label="Marcar um waypoint só, na posição atual"
@@ -614,6 +641,17 @@ defmodule PokexWeb.CavebotLive do
                   gravando — volte pro jogo e ande
                 </span>
               </div>
+
+              <p
+                :if={@walk_test not in [nil, :running]}
+                id="walk-test-result"
+                class={[
+                  "mt-3 font-mono text-pk-meta",
+                  if(match?({:ok, _}, @walk_test), do: "text-pk-ok", else: "text-pk-warn")
+                ]}
+              >
+                {walk_test_text(@walk_test)}
+              </p>
 
               <p
                 :if={@notice}
@@ -853,6 +891,27 @@ defmodule PokexWeb.CavebotLive do
     </Layouts.app>
     """
   end
+
+  # Each verdict names the link that broke — that is the whole point of the
+  # rehearsal, and the difference between "não anda" and a diagnosis.
+  defp walk_test_text({:ok, %{from: from, to: to, tiles: tiles, presses: presses}}) do
+    "andou #{tiles} tile(s): #{coord(from)} → #{coord(to)} com #{Enum.join(presses, ", ")} ✓"
+  end
+
+  defp walk_test_text({:error, :no_position}),
+    do: "não testei: a coordenada não está sendo lida — sem ela eu andaria às cegas"
+
+  defp walk_test_text({:error, :did_not_move}),
+    do:
+      "apertei as setas e o personagem NÃO saiu do lugar — as teclas não estão chegando no " <>
+        "jogo (janela em foco? o jogo está atrás do navegador?)"
+
+  defp walk_test_text({:error, {:refused, reason}}),
+    do: "o corpo recusou o passo: #{inspect(reason)} (gate de segurança fechado)"
+
+  defp walk_test_text(other), do: "resultado inesperado: #{inspect(other)}"
+
+  defp coord({x, y, _z}), do: "#{x}, #{y}"
 
   defp hp_tone(%{me: %{hp_pct: pct}}) when is_integer(pct) and pct < 40, do: :warn
   defp hp_tone(_world), do: :neutral

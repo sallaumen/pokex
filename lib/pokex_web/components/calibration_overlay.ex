@@ -88,7 +88,10 @@ defmodule PokexWeb.CalibrationOverlay do
     <div id="mark-overlays" class="pointer-events-none">
       <div
         :if={@scan_region}
-        class={["absolute rounded border-dashed", box(@quiet, "border-2 border-success/70", "border border-success/60")]}
+        class={[
+          "absolute rounded border-dashed",
+          box(@quiet, "border-2 border-success/70", "border border-success/60")
+        ]}
         style={region_style(@scan_region, @screen)}
       >
         <span
@@ -100,7 +103,10 @@ defmodule PokexWeb.CalibrationOverlay do
       </div>
       <div
         :if={@glow_region}
-        class={["absolute rounded", box(@quiet, "border-2 border-info bg-info/10", "border border-info/70")]}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-info bg-info/10", "border border-info/70")
+        ]}
         style={region_style(@glow_region, @screen)}
       >
         <span
@@ -112,7 +118,10 @@ defmodule PokexWeb.CalibrationOverlay do
       </div>
       <div
         :if={@mini_game_region}
-        class={["absolute rounded", box(@quiet, "border-2 border-primary bg-primary/10", "border border-primary/70")]}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-primary bg-primary/10", "border border-primary/70")
+        ]}
         style={region_style(@mini_game_region, @screen)}
       >
         <span
@@ -124,7 +133,10 @@ defmodule PokexWeb.CalibrationOverlay do
       </div>
       <div
         :if={@minimap_region}
-        class={["absolute rounded", box(@quiet, "border-2 border-info bg-info/5", "border border-info/70")]}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-info bg-info/5", "border border-info/70")
+        ]}
         style={region_style(@minimap_region, @screen)}
       >
         <span
@@ -136,7 +148,10 @@ defmodule PokexWeb.CalibrationOverlay do
       </div>
       <div
         :if={@minimap_coord_region}
-        class={["absolute rounded", box(@quiet, "border-2 border-error bg-error/10", "border border-error/70")]}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-error bg-error/10", "border border-error/70")
+        ]}
         style={region_style(@minimap_coord_region, @screen)}
       >
         <span
@@ -148,7 +163,10 @@ defmodule PokexWeb.CalibrationOverlay do
       </div>
       <div
         :if={@battle_region}
-        class={["absolute rounded", box(@quiet, "border-2 border-warning bg-warning/10", "border border-warning/70")]}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-warning bg-warning/10", "border border-warning/70")
+        ]}
         style={region_style(@battle_region, @screen)}
       >
         <span
@@ -160,7 +178,10 @@ defmodule PokexWeb.CalibrationOverlay do
       </div>
       <div
         :if={@skill_bar_region}
-        class={["absolute rounded", box(@quiet, "border-2 border-secondary bg-secondary/10", "border border-secondary/70")]}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-secondary bg-secondary/10", "border border-secondary/70")
+        ]}
         style={region_style(@skill_bar_region, @screen)}
       >
         <span
@@ -188,7 +209,10 @@ defmodule PokexWeb.CalibrationOverlay do
       </div>
       <div
         :if={@pokemon_hp_region}
-        class={["absolute rounded", box(@quiet, "border-2 border-accent bg-accent/10", "border border-accent/70")]}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-accent bg-accent/10", "border border-accent/70")
+        ]}
         style={region_style(@pokemon_hp_region, @screen)}
       >
         <span
@@ -200,7 +224,10 @@ defmodule PokexWeb.CalibrationOverlay do
       </div>
       <div
         :for={{band, i} <- Enum.with_index(@bands)}
-        class={["absolute", box(@quiet, "border-2 border-error bg-error/25", "border border-error/50")]}
+        class={[
+          "absolute",
+          box(@quiet, "border-2 border-error bg-error/25", "border border-error/50")
+        ]}
         style={region_style(band, @screen)}
       >
         <span

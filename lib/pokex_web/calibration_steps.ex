@@ -48,12 +48,24 @@ defmodule PokexWeb.CalibrationSteps do
     minimap_cross:
       "Clique bem no CENTRO da CRUZ do personagem no minimapa — ela é fixa (o mapa " <>
         "desliza por baixo), então este ponto vira a origem de todo passo do cavebot.",
+    minimap_coord_search:
+      "A faixa da coordenada eu acho SOZINHO: passo o mouse no minimapa (o texto " <>
+        "\"(x, y, z)\" só aparece com o mouse lá), tiro a foto e procuro onde consigo LER.",
     minimap_coord_a:
       "Canto SUPERIOR-ESQUERDO da faixa da COORDENADA — o texto \"(x, y, z)\" no topo do " <>
         "minimapa. Deixe folga pra direita: a faixa precisa caber a coordenada mais " <>
         "LONGA (ex.: \"(2782, 30571, 5)\").",
     minimap_coord_b: "Canto INFERIOR-DIREITO da mesma faixa, fechando o texto inteiro."
   }
+
+  @doc """
+  Steps that carry COPY but no clickable screenshot — they bring their own UI
+  (the coord-band search hovers, photographs and reads instead of asking for
+  clicks). Declared as data so the instruction⟺marking contract test can
+  except exactly these and still fail loudly on a genuinely forgotten
+  `marking?/1` entry (the 2026-07-20 black-page bug).
+  """
+  def screenless, do: [:minimap_coord_search]
 
   @doc "What the wizard asks at `step` (nil for a step with no copy)."
   def instruction(step), do: @instructions[step]

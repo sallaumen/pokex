@@ -87,3 +87,7 @@ config :pokex, :guardian_session_rules, false
 # published (measured 2026-08-04, failed on some seeds only). Feed tests drive
 # their own unnamed Feed and are unaffected.
 config :pokex, :perception_feeds_active, false
+
+# The coord-band search holds a real hover for ~2s in production; tests only
+# need the ORDER of move -> shot -> restore, not the wall-clock.
+config :pokex, coord_hover_settle_ms: 10, coord_hover_hold_ms: 60

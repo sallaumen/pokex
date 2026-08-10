@@ -70,23 +70,25 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert actions == []
   end
 
+  # TWO rows on purpose: every extra Tab CYCLES to the next enemy, which is
+  # what re-Tabbing is for. With a single row it cycles nothing (own test).
   test "tabbing: window expiry re-Tabs up to max attempts, then hunt cooldown" do
-    {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
+    {logic, _} = Logic.step(hunting(0), obs(enemies: [0, 1], captured_at: 10), 10)
 
-    {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 800), 811)
+    {logic, actions} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 800), 811)
     assert logic.state == :tabbing and logic.tab_attempts == 2
     assert {:tab} in actions
 
-    {logic, _} = Logic.step(logic, obs(enemies: [0], captured_at: 1_600), 1_612)
+    {logic, _} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 1_600), 1_612)
     assert logic.tab_attempts == 3
-    {logic, _} = Logic.step(logic, obs(enemies: [0], captured_at: 2_400), 2_413)
+    {logic, _} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 2_400), 2_413)
     assert logic.state == :hunting
     assert logic.hold_until == 2_413 + 1_500
 
     assert {%Logic{state: :hunting}, []} =
-             Logic.step(logic, obs(enemies: [0], captured_at: 2_500), 2_500)
+             Logic.step(logic, obs(enemies: [0, 1], captured_at: 2_500), 2_500)
 
-    {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 4_000), 4_000)
+    {logic, actions} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 4_000), 4_000)
     assert logic.state == :tabbing
     assert {:tab} in actions
   end
@@ -123,15 +125,26 @@ defmodule Pokex.Bots.Combat.LogicTest do
 
   test "tabbing: with tab_confirm_frames 2, one frame does not authorize — two do" do
     {logic, _} =
-      Logic.step(hunting(0, tab_confirm_frames: 2), obs(enemies: [0], captured_at: 10), 10)
+      Logic.step(hunting(0, tab_confirm_frames: 2), obs(enemies: [0, 1], captured_at: 10), 10)
 
-    {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 750), 811)
+    {logic, actions} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 750), 811)
     assert logic.tab_attempts == 1
     refute {:tab} in actions
 
-    {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 900), 905)
+    {logic, actions} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 900), 905)
     assert logic.tab_attempts == 2
     assert {:tab} in actions
+  end
+
+  # Re-Tab exists to CYCLE targets. With one row it selects the same row again,
+  # three times, for two seconds — the slowness Lucas kept reporting.
+  test "one row: a single Tab is the whole question, never three" do
+    {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
+    assert logic.tab_attempts == 1
+
+    {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 800), 811)
+    refute {:tab} in actions
+    assert logic.state == :hunting
   end
 
   test "rescan clears the hunt hold (fish hooked → enemy imminent)" do
@@ -421,6 +434,16 @@ defmodule Pokex.Bots.Combat.LogicTest do
                {:log, msg} -> msg =~ "teu pokémon está fora — presumo que é ELE"
                _other -> false
              end)
+    end
+
+    test "one row WITHOUT his pokémon out still gives up in two hunts, not three" do
+      logic = hunting(0, scenery_config() ++ [scenery_hunts_needed: 3])
+
+      {logic, _} = failed_hunt(logic, [0], 10)
+      assert logic.scenery_rows == nil
+
+      {logic, _} = failed_hunt(logic, [0], 500)
+      assert logic.scenery_rows == 1
     end
 
     test "TWO rows keep the careful dance, even with his pokémon out" do

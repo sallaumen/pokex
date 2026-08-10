@@ -137,7 +137,7 @@ defmodule PokexWeb.CalibrationLive do
 
   def handle_event("save_found_band", _params, socket) do
     case socket.assigns.coord_search do
-      {:found, band, _pos} ->
+      {:found, band, _pos, _mode} ->
         {:noreply, socket |> assign(coord_search: nil) |> save_minimap(band)}
 
       _not_found ->
@@ -896,6 +896,9 @@ defmodule PokexWeb.CalibrationLive do
   @hover_settle_ms Application.compile_env(:pokex, :coord_hover_settle_ms, 900)
   @hover_hold_ms Application.compile_env(:pokex, :coord_hover_hold_ms, 3200)
   @hover_jiggle_ms Application.compile_env(:pokex, :coord_hover_jiggle_ms, 80)
+  # The label is up the moment the position changes; the photo only has to
+  # outlast the client's own frame.
+  @walk_settle_ms Application.compile_env(:pokex, :coord_walk_settle_ms, 350)
 
   # The game draws the coordinate only while the mouse is OVER the minimap
   # (measured 2026-08-10: the bot's captures had no text on the very minimap
@@ -942,37 +945,91 @@ defmodule PokexWeb.CalibrationLive do
       [{:wait, @hover_hold_ms}]
   end
 
+  # WALKING is the state that matters. Measured 2026-08-10 on Lucas's screen:
+  # standing still with the mouse away, the minimap has NO text at all — the
+  # client draws the coordinate only while the position CHANGES, or under a
+  # hovering mouse. Hovering is what the search used to photograph, and Lucas
+  # called it right: that state is ~0% of the bot's life, and its label sits in
+  # a different place (under the control bar that slides in). So the search
+  # takes a real STEP — arrow out, photo, arrow back — and calibrates the state
+  # the cavebot actually runs in. Hover stays as the last resort, flagged as
+  # such, for when both axes are walled.
+  @walk_pairs [{"right", "left"}, {"down", "up"}]
+
   defp run_coord_search(socket) do
     draft = socket.assigns.draft
-    hover = draft[:minimap_player_point] || region_center(draft[:minimap_region])
 
-    with {:ok, shot} <- hover_grab(hover),
+    attempts =
+      Enum.map(@walk_pairs, &{:walk, &1}) ++
+        [{:hover, draft[:minimap_player_point] || region_center(draft[:minimap_region])}]
+
+    Enum.reduce_while(attempts, assign(socket, coord_search: :not_found), fn attempt, socket ->
+      case try_attempt(attempt, draft) do
+        {:found, shot, band, pos, mode} ->
+          {:halt,
+           assign(socket,
+             screen: shot,
+             scale: shot.scale,
+             coord_search: {:found, band, pos, mode}
+           )}
+
+        {:shot, shot} ->
+          {:cont, assign(socket, screen: shot, scale: shot.scale)}
+
+        {:failed, reason} ->
+          {:cont, assign(socket, coord_search: {:failed, reason})}
+      end
+    end)
+  end
+
+  defp try_attempt({:walk, pair}, draft), do: attempt(fn -> walk_grab(pair) end, draft, :walk)
+
+  defp try_attempt({:hover, point}, draft),
+    do: attempt(fn -> hover_grab(point) end, draft, :hover)
+
+  defp attempt(grab, draft, mode) do
+    with {:ok, shot} <- grab.(),
          {:ok, frame} <- Vision.Frame.from_png_file(shot.path) do
-      search =
-        CoordBandSearch.search(
-          frame,
-          draft.minimap_region,
-          shot.scale || 1.0,
-          ink: Settings.get(:minimap_coord_ink)
-        )
-
-      case search do
-        {:ok, band, pos} ->
-          assign(socket, screen: shot, scale: shot.scale, coord_search: {:found, band, pos})
-
-        :error ->
-          assign(socket, screen: shot, scale: shot.scale, coord_search: :not_found)
+      case search_band(frame, draft, shot) do
+        {:ok, band, pos} -> {:found, shot, band, pos, mode}
+        :error -> {:shot, shot}
       end
     else
-      error -> assign(socket, coord_search: {:failed, inspect(error)})
+      error -> {:failed, inspect(error)}
     end
+  end
+
+  defp search_band(frame, draft, shot) do
+    CoordBandSearch.search(
+      frame,
+      draft.minimap_region,
+      shot.scale || 1.0,
+      ink: Settings.get(:minimap_coord_ink)
+    )
+  end
+
+  # One tile out, photo, one tile back: net zero movement, and the label is up
+  # for the shot because the position just changed. Ungated `{:tap, _}` for the
+  # same reason as the hover — the gate cannot open with the fleet down.
+  defp walk_grab({out_key, back_key}) do
+    result =
+      with_game_front(fn ->
+        Body.perform([{:tap, out_key}])
+        Process.sleep(@walk_settle_ms)
+        shot = Screenshot.take("calibration_screen.png")
+        Body.perform([{:tap, back_key}])
+        shot
+      end)
+
+    with {:ok, shot} <- result, do: {:ok, decorate_shot(shot)}
   end
 
   defp region_center({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
   defp region_center(nil), do: nil
 
-  defp found_band({:found, band, _pos}), do: band
-  defp found_pos_text({:found, _band, {x, y, z}}), do: "(#{x}, #{y}, #{z})"
+  defp found_band({:found, band, _pos, _mode}), do: band
+  defp found_pos_text({:found, _band, {x, y, z}, _mode}), do: "(#{x}, #{y}, #{z})"
+  defp found_mode({:found, _band, _pos, mode}), do: mode
 
   defp not_found?(:not_found), do: true
   defp not_found?({:failed, _reason}), do: true
@@ -1894,12 +1951,23 @@ defmodule PokexWeb.CalibrationLive do
 
           <div :if={@step == :minimap_coord_search} id="coord-band-search" class="space-y-2">
             <p :if={@coord_search == :searching} class="text-sm opacity-70">
-              Passando o mouse no minimapa e tirando a foto… (~2s)
+              Dando um passinho (seta e volta) pra fazer o texto aparecer, e fotografando…
             </p>
 
-            <div :if={match?({:found, _, _}, @coord_search)} class="space-y-2">
-              <p id="coord-band-found" class="text-sm font-semibold text-success">
+            <div :if={match?({:found, _, _, _}, @coord_search)} class="space-y-2">
+              <p
+                id="coord-band-found"
+                class={[
+                  "text-sm font-semibold",
+                  (found_mode(@coord_search) == :walk && "text-success") || "text-warning"
+                ]}
+              >
                 li: {found_pos_text(@coord_search)} ✓ — é onde você está? Então salva.
+                <span :if={found_mode(@coord_search) == :hover} class="block font-normal">
+                  Atenção: só consegui ler com o MOUSE em cima do minimapa — e no dia a dia
+                  ele nunca está lá. Se o personagem estava preso (parede dos dois lados),
+                  ande um tile e busque de novo pra pegar o estado normal.
+                </span>
               </p>
               <div
                 class="rounded border border-success/60 bg-base-300"
@@ -1920,8 +1988,9 @@ defmodule PokexWeb.CalibrationLive do
 
             <div :if={not_found?(@coord_search)} class="space-y-2">
               <p id="coord-band-not-found" class="text-sm font-semibold text-warning">
-                Não achei o texto da coordenada. Deixe o MINIMAPA visível (nenhuma janela por
-                cima dele) e busque de novo — ou marque a faixa na mão.
+                Não achei o texto da coordenada. O jogo só o desenha quando a posição MUDA —
+                deixe o personagem livre pra andar um tile (e o minimapa sem nada por cima) e
+                busque de novo, ou marque a faixa na mão.
               </p>
               <p :if={match?({:failed, _}, @coord_search)} class="font-mono text-[11px] opacity-60">
                 {elem(@coord_search, 1)}

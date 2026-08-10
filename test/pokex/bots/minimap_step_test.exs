@@ -155,6 +155,15 @@ defmodule Pokex.Bots.MinimapStepTest do
                [{:press, "right"}, {:press, "left"}, {:press, "down"}, {:press, "up"}]
     end
 
+    # The calibration's step: an UNGATED press (Rig.Mac.tap/1) — the gate's
+    # corner flag is proven by the Guardian, which only polls with the fleet
+    # up, so nothing could ever press during calibration. Here the wiring is
+    # what is provable: the Body's {:tap, _} reaches the Rig as a tap.
+    test "a {:tap, key} action reaches the Rig on its own path" do
+      assert Body.perform([{:tap, "right"}]) == :ok
+      assert Enum.any?(Fake.calls(), &match?({:tap, "right"}, &1))
+    end
+
     test "refuses out loud: no direction, and a shut gate" do
       assert Body.arrow_step(0, 0) == {:error, :no_direction}
 

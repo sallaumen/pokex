@@ -19,6 +19,7 @@ defmodule Pokex.Rig do
   @callback click(:left | :right, point) :: :ok | {:error, term}
   @callback move(point) :: :ok | {:error, term}
   @callback hover(point) :: :ok | {:error, term}
+  @callback tap(String.t()) :: :ok | {:error, term}
   @callback capture_sequence(point) :: :ok | {:error, term}
   @callback capture(region, filename :: String.t()) :: {:ok, String.t()} | {:error, term}
   @callback capture_screen() :: {:ok, String.t()} | {:error, term}

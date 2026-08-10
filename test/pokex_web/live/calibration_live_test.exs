@@ -1517,12 +1517,19 @@ defmodule PokexWeb.CalibrationLiveTest do
       cross = {mx + div(mw, 2), my + div(mh, 2)}
       click.(elem(cross, 0), elem(cross, 1))
 
-      # the cross was the last click: the band search hovers (through the Body)
-      # and reads the coordinate off the fresh shot — living proof on screen
+      # the cross was the last click: the band search takes a real STEP (arrow
+      # out, photo, arrow back — the state the bot reads in) and finds the band
       html = render(view)
       assert html =~ ~s(id="coord-band-found")
       assert html =~ "li: (337, 46107, 4)"
-      assert {:hover, ^cross} = Enum.find(Fake.calls(), &match?({:hover, _}, &1))
+
+      taps = Enum.filter(Fake.calls(), &match?({:tap, _}, &1))
+      assert taps == [{:tap, "right"}, {:tap, "left"}]
+
+      # walking answered, so the exceptional hover state is never photographed
+      refute Enum.any?(Fake.calls(), &match?({:hover, _}, &1))
+      refute render(view) =~ "só consegui ler com o MOUSE"
+      _ = cross
 
       html = view |> element("button", "Salvar assim") |> render_click()
       assert html =~ "salvos"
@@ -1538,6 +1545,72 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert by >= cy - 6 and by + bh <= cy + ch + 6
       assert bx >= cx - 6 and bx <= cx + 12
       assert bw >= div(cw, 2)
+    end
+
+    @tag :tmp_dir
+    # Both axes walled (or the step swallowed): only then is the mouse-hover
+    # state photographed — and the screen SAYS it is the exception, because a
+    # band calibrated there sits where the day-to-day reading never looks.
+    test "hover is the last resort, and it is flagged as the exception", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
+
+      real = "test/fixtures/screen/ultrawide_3440x1440_full.png"
+      frame = Pokex.ScreenFixtures.frame!("ultrawide_3440x1440_full")
+      {:ok, fix} = Pokex.Layout.locate(frame)
+      {mx, my, mw, mh} = Pokex.Layout.region(:minimap, fix)
+
+      probe =
+        Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+
+      blank =
+        Pokex.PngFixtures.write!(Path.join(tmp, "blank.png"), rows(200, 150, {9, 9, 9, 255}))
+
+      # the wizard's own opening screenshot comes first, then both walk shots
+      # come out textless (the character could not move); the hover shot is the
+      # real capture, and repeats from then on
+      {:ok, _} =
+        Fake.start_link(%{
+          capture: [{:ok, probe}],
+          capture_screen: [{:ok, blank}, {:ok, blank}, {:ok, blank}, {:ok, real}]
+        })
+
+      {:ok, view, _} = live(conn, ~p"/calibration")
+      view |> element("button", "Posição & minimapa") |> render_click()
+
+      click = fn x, y ->
+        params = %{
+          "x" => x / 1,
+          "y" => y / 1,
+          "cw" => 3440.0,
+          "ch" => 1440.0,
+          "nw" => 3440.0,
+          "nh" => 1440.0
+        }
+
+        render_hook(view, "img_click", params)
+        render_hook(view, "img_click", params)
+      end
+
+      click.(mx, my)
+      click.(mx + mw, my + mh)
+      click.(mx + div(mw, 2), my + div(mh, 2))
+
+      # render/1 blocks on the LiveView process, so the search is DONE by here
+      html = render(view)
+
+      # walking was tried on BOTH axes before the mouse was used at all
+      taps = Enum.filter(Fake.calls(), &match?({:tap, _}, &1))
+      assert taps == [{:tap, "right"}, {:tap, "left"}, {:tap, "down"}, {:tap, "up"}]
+      assert Enum.any?(Fake.calls(), &match?({:hover, _}, &1))
+
+      assert html =~ "li: (337, 46107, 4)"
+      assert html =~ "só consegui ler com o MOUSE"
     end
 
     @tag :tmp_dir

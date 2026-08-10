@@ -39,7 +39,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
             since: %{},
             retries: 0,
             config: nil,
-            last_pos: nil
+            last_pos: nil,
+            last_enemies: nil
 
   @type state :: :walking | :fighting | :post_fight | :stuck | :fight_stalled | :blocked
 
@@ -77,7 +78,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           since: %{optional(atom) => integer},
           retries: non_neg_integer,
           config: config,
-          last_pos: {integer, integer, integer} | nil
+          last_pos: {integer, integer, integer} | nil,
+          last_enemies: non_neg_integer | nil
         }
 
   @doc """
@@ -193,6 +195,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   # Screen clear: sustain the debounce before declaring the fight over.
   defp fight(logic, %{enemies: 0}, now) do
+    logic = %{logic | last_enemies: 0}
+
     case Map.get(logic.since, :clear) do
       nil ->
         {%{logic | since: Map.put(logic.since, :clear, now)}, :none}
@@ -211,20 +215,33 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # Enemy still alive: reset the clear and watch the fight timeout.
-  defp fight(logic, _world, now) do
+  # Enemy still alive: reset the clear and watch the fight timeout — but the
+  # timeout measures a fight going NOWHERE, not a fight taking long. Lucas's
+  # first real hunt (2026-08-10) died right here: combat killed its target and
+  # said "caçando o próximo", the spot had more pokémon, and 20 seconds of
+  # honest work were declared "a luta não termina" — the hunt blocked while
+  # everything else was working. A changing enemy count IS progress (one died,
+  # or one arrived), so it restarts the clock; only a screen that stays
+  # identical for the whole timeout is a stall.
+  defp fight(logic, %{enemies: enemies}, now) do
     since = Map.delete(logic.since, :clear)
+    progress? = logic.last_enemies != nil and logic.last_enemies != enemies
+    logic = %{logic | last_enemies: enemies}
 
     case Map.get(since, :fight) do
-      nil ->
-        {%{logic | since: Map.put(since, :fight, now)}, :none}
+      fight_since when fight_since != nil and not progress? ->
+        stall_or_wait(logic, since, fight_since, now)
 
-      fight_since ->
-        if now - fight_since >= logic.config.fight_timeout_ms do
-          {%{logic | state: :fight_stalled, since: since, retries: 0}, :none}
-        else
-          {%{logic | since: since}, :none}
-        end
+      _fresh_or_progressing ->
+        {%{logic | since: Map.put(since, :fight, now)}, :none}
+    end
+  end
+
+  defp stall_or_wait(logic, since, fight_since, now) do
+    if now - fight_since >= logic.config.fight_timeout_ms do
+      {%{logic | state: :fight_stalled, since: since, retries: 0}, :none}
+    else
+      {%{logic | since: since}, :none}
     end
   end
 

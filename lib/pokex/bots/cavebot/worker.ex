@@ -71,7 +71,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     clear_debounce_ms: :cavebot_clear_debounce_ms,
     fight_timeout_ms: :cavebot_fight_timeout_ms,
     post_kill_dwell_ms: :cavebot_post_kill_dwell_ms,
-    capture_wait_ms: :cavebot_capture_wait_ms
+    capture_wait_ms: :cavebot_capture_wait_ms,
+    step_confirm_ms: :cavebot_step_confirm_ms
   }
 
   def topic, do: @topic

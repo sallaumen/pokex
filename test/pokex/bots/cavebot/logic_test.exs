@@ -10,7 +10,8 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     fight_timeout_ms: 20_000,
     post_kill_dwell_ms: 1200,
     blind_kick_ms: 1200,
-    capture_wait_ms: 20_000
+    capture_wait_ms: 20_000,
+    step_confirm_ms: 450
   }
 
   defp route do
@@ -55,7 +56,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert {_l, {:block, :floor_changed}} = Logic.step(l, world({10, 10, 6}), 0)
   end
 
-  test "standing still becomes stuck and, retries exhausted, blocks" do
+  test "standing still becomes stuck; retries exhausted SKIPS the corner, and a lap blocks" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)
 
@@ -68,15 +69,25 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
     l =
       Enum.reduce(1..4, l, fn i, acc ->
-        {acc, {:walk, 5, 0}} = Logic.step(acc, world({5, 10, 7}), 3010 + i * 100)
+        {acc, {:walk, _dx, _dy}} = Logic.step(acc, world({5, 10, 7}), 3010 + i * 100)
         assert acc.retries == i
         acc
       end)
 
-    assert {l, {:block, :stuck}} = Logic.step(l, world({5, 10, 7}), 4000)
+    # a corner walled on every side is not the end of a LOOP: try the next one
+    assert {l, :none} = Logic.step(l, world({5, 10, 7}), 4000)
+    assert l.state == :walking
+    assert l.wp_index == 1
+    assert l.skips == 1
+
+    # …and a full lap of unreachable corners IS the end
+    # still standing on the same tile (a skip clears last_pos, and a resumed
+    # walk is exactly what SHOULD happen when the character moves)
+    l = %{l | state: :stuck, retries: 99, last_pos: {5, 10, 7}}
+    assert {l, {:block, :stuck}} = Logic.step(l, world({5, 10, 7}), 5000)
     assert l.state == :blocked
 
-    assert {_l, :none} = Logic.step(l, world({5, 10, 7}), 4100)
+    assert {_l, :none} = Logic.step(l, world({5, 10, 7}), 5100)
   end
 
   test "stuck: position changing again resumes walking and resets retries" do
@@ -395,6 +406,49 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {l, _} = Logic.step(l, battling(0), 2_000)
       assert l.state == :post_fight
       assert l.last_enemies == 0
+    end
+  end
+
+  # "voltou pro começo e travou numa parede" (Lucas, 2026-08-10): a restart
+  # mid-route sent the character back to waypoint 1, across the map, through
+  # walls arrow keys cannot path around. A hunt begins at the CLOSEST corner.
+  describe "entering the route" do
+    test "the first sighting picks the nearest waypoint, not the first" do
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({17, 10, 7}), 0)
+      {l, {:walk, dx, dy}} = Logic.step(l, world({17, 10, 7}), 10)
+
+      # wp 2 is {20, 10}: three tiles away, against seven for wp 1
+      assert l.wp_index == 1
+      assert {dx, dy} == {3, 0}
+    end
+
+    test "homing happens once — walking on does not re-enter the route" do
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({10, 10, 7}), 0)
+      {l, :none} = Logic.step(l, world({10, 10, 7}), 10)
+      assert l.wp_index == 1
+
+      # now standing next to wp 1 again: without the latch it would re-home
+      {l, {:walk, _dx, _dy}} = Logic.step(l, world({9, 10, 7}), 500)
+      assert l.wp_index == 1
+    end
+  end
+
+  # 30 presses of `right` in six seconds, one per tick, blind to whether any of
+  # them moved a tile — the client queues them all and replays them later.
+  describe "one press per tile" do
+    test "a press waits for its tile before the next one goes out" do
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
+      {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)
+
+      # same tile, inside the confirm window: nothing is pressed
+      {l, :none} = Logic.step(l, world({5, 10, 7}), 200)
+      {l, :none} = Logic.step(l, world({5, 10, 7}), 400)
+
+      # the window passes with no movement: press again (the tile may be walled)
+      {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 500)
+
+      # a tile landed: the next press goes out immediately
+      assert {_l, {:walk, 4, 0}} = Logic.step(l, world({6, 10, 7}), 560)
     end
   end
 end

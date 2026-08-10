@@ -599,7 +599,11 @@ defmodule Pokex.Settings do
     # scenery_ttl_ms and re-probes (self-correcting). 3 hunts × 3 Tabs ≈ the
     # ~10 attempts Lucas asked for (2026-07-30). 0 = off.
     scenery_hunts_needed: 3,
-    scenery_ttl_ms: 60_000,
+    # A row Combat gave up on is re-probed when this expires (3 Tabs, ~8s). His
+    # own pokémon lives in the battle list permanently, so a 60s TTL meant a
+    # stutter every minute of every hunt; 5 minutes keeps the re-probe (a mob
+    # CAN become reachable) without making it the loudest thing on screen.
+    scenery_ttl_ms: 300_000,
     skill_burst_every_ms: 300,
     # After every kill/timeout rehunt (and on a fish hook), hunting keeps PROBING with blind
     # Tabs for this long even when the HP-bar detector reports no enemy — "idle while fished
@@ -713,6 +717,11 @@ defmodule Pokex.Settings do
     # movement is what restores sight (Lucas's arrow-walking direction,
     # 2026-08-10).
     cavebot_blind_kick_ms: 1200,
+    # How long a pressed arrow has to land its tile before another one is
+    # pressed. Without it the tick rate IS the press rate: 5 arrows a second
+    # into a wall (measured on Lucas's first hunts), all of them queued by the
+    # client to be replayed later.
+    cavebot_step_confirm_ms: 450,
     cavebot_minimap_fact_max_age_ms: 800,
     cavebot_stuck_max_retries: 4,
     cavebot_group_min_enemies: 3,
@@ -904,6 +913,7 @@ defmodule Pokex.Settings do
     cast_grace_ms: 0..600_000,
     minimap_coord_ink: 40..255,
     cavebot_capture_wait_ms: 0..600_000,
+    cavebot_step_confirm_ms: 0..5_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,
     logout_verify_delay_ms: 0..600_000,

@@ -207,6 +207,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   test "a step refused by the gate becomes a visible reason, cleared when it reopens", %{
     worker: worker
   } do
+    # this test drives ticks by hand: the press pacing is another test's job
+    SettingsStash.stash!(cavebot_step_confirm_ms: 0)
     route!()
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})
@@ -452,6 +454,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   end
 
   test "the hunt narrates the edges: route, waypoint (macro) and step (debug)", %{worker: worker} do
+    # this test drives ticks by hand: the press pacing is another test's job
+    SettingsStash.stash!(cavebot_step_confirm_ms: 0)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     two_waypoint_route!()
     :ok = Worker.run(worker)
@@ -470,6 +474,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   end
 
   test "the hold reason becomes ONE feed line at the edge, not one per tick", %{worker: worker} do
+    # this test drives ticks by hand: the press pacing is another test's job
+    SettingsStash.stash!(cavebot_step_confirm_ms: 0)
     route!()
     :ok = Worker.run(worker)
     minimap!({10, 20, 7})

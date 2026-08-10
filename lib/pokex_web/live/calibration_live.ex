@@ -9,6 +9,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
   alias Pokex.Calibration.CoordBandSearch
+  alias Pokex.GameFocus
   alias Pokex.Home
   alias Pokex.Perception.Interpret.Minimap
   alias Pokex.Screenshot
@@ -675,68 +676,13 @@ defmodule PokexWeb.CalibrationLive do
         socket
 
       app ->
-        front_app(app)
+        GameFocus.front_app(app)
         assign(socket, return_app: nil)
     end
   end
 
-  # On a SINGLE monitor the panel browser covers the game — a naive screenshot calibrates the
-  # browser, so Lucas had to shrink the game window to calibrate at all. Instead: bring the game
-  # to the FRONT, wait for it to render, run `fun` (the capture), and hand focus back to whatever
-  # was frontmost (the browser) so he keeps clicking the wizard. The game can stay fullscreen.
-  # Env-gated off in tests (osascript); fail-open — a failed front-switch still captures.
-  defp with_game_front(fun) do
-    if Application.get_env(:pokex, :calibration_front_game, true) and
-         Settings.get(:ensure_game_focus) do
-      previous = frontmost_app()
-      front_app(Settings.get(:game_app_name))
-      Process.sleep(Settings.get(:calibration_front_delay_ms))
-
-      try do
-        fun.()
-      after
-        if previous, do: front_app(previous)
-      end
-    else
-      fun.()
-    end
-  end
-
-  defp frontmost_app do
-    case System.cmd(
-           "osascript",
-           [
-             "-e",
-             ~s(tell application "System Events" to name of first application process whose frontmost is true)
-           ],
-           stderr_to_stdout: true
-         ) do
-      {out, 0} -> String.trim(out)
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp front_app(nil), do: :ok
-
-  defp front_app(app_name) do
-    System.cmd(
-      "osascript",
-      [
-        "-e",
-        ~s(tell application "System Events" to set frontmost of application process "#{app_name}" to true)
-      ],
-      stderr_to_stdout: true
-    )
-
-    :ok
-  rescue
-    _ -> :ok
-  end
-
   # The screenshot the whole wizard marks on, taken while the GAME is fronted
-  # (see with_game_front/1). Measuring it is `Pokex.Screenshot`'s job — the same
+  # (see GameFocus.with_game_front/1). Measuring it is `Pokex.Screenshot`'s job — the same
   # recipe /diagnostics uses, so both pages and the bot share one coordinate space.
   # -- fine-tuning helpers -----------------------------------------------------
 
@@ -880,7 +826,8 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   defp grab_screen do
-    with {:ok, shot} <- with_game_front(fn -> Screenshot.take("calibration_screen.png") end) do
+    with {:ok, shot} <-
+           GameFocus.with_game_front(fn -> Screenshot.take("calibration_screen.png") end) do
       {:ok, decorate_shot(shot)}
     end
   end
@@ -938,7 +885,7 @@ defmodule PokexWeb.CalibrationLive do
     do: {:cont, assign(socket, coord_search: {:failed, reason})}
 
   defp try_attempt({:walk, pair, focus}, draft),
-    do: with_game_front(fn -> walk_burst(pair, focus, draft) end)
+    do: GameFocus.with_game_front(fn -> walk_burst(pair, focus, draft) end)
 
   defp search_band(frame, draft, shot) do
     CoordBandSearch.search(
@@ -968,7 +915,7 @@ defmodule PokexWeb.CalibrationLive do
   # beat: out, back, out, back — net zero movement, four samples spread over
   # the whole walk, first hit wins.
   defp walk_burst({out_key, back_key}, focus, draft) do
-    # INSIDE the front block, never before it: with_game_front restores the
+    # INSIDE the front block, never before it: GameFocus.with_game_front restores the
     # browser on the way out, so a click made outside would hand the focus
     # straight back before a single key was pressed.
     if focus, do: Body.perform([{:focus_click, focus}, {:wait, @focus_settle_ms}])

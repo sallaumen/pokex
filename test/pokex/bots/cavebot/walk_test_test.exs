@@ -33,8 +33,29 @@ defmodule Pokex.Bots.Cavebot.WalkTestTest do
     end
   end
 
-  defp opts(body, positions),
-    do: [body: body, read: reader(positions), sleep: fn _ms -> :ok end, steps: 3]
+  defp opts(body, positions) do
+    [
+      body: body,
+      read: reader(positions),
+      sleep: fn _ms -> :ok end,
+      steps: 3,
+      # the real ones front the game and click its neutral point; here they
+      # only have to prove they run BEFORE the first press
+      front: fn fun -> send(self(), :fronted) && fun.() end,
+      focus: fn -> send(self(), :focus_clicked) end
+    ]
+  end
+
+  test "the game is fronted and clicked BEFORE any key goes out" do
+    positions = [{10, 10, 7}, {11, 10, 7}]
+
+    assert {:ok, _result} = WalkTest.run(%{x: 20, y: 10}, opts(FakeBody, positions))
+
+    # order matters: a key pressed before the click lands in the BROWSER
+    assert_received :fronted
+    assert_received :focus_clicked
+    assert_received {:stepped, _dx, _dy}
+  end
 
   test "the character moved: it reports from where to where, and how far" do
     positions = [{10, 10, 7}, {11, 10, 7}, {12, 10, 7}, {13, 10, 7}]

@@ -79,7 +79,13 @@ defmodule Pokex.Settings.LegacyTest do
 
     assert length(migrated) == length(real)
 
+    # HIS ten, spelled out: "todos menos shiny" was a shortcut that only held
+    # while the sector list had exactly these — adding a sector later must not
+    # silence it retroactively for him.
     assert Enum.sort(migrated) ==
-             Enum.sort(Enum.map(AlarmCategories.keys() -- [:shiny], &to_string/1))
+             Enum.sort(~w(hp cavebot logout stock fishing capture command session escape error))
+
+    assert Enum.all?(migrated, &(AlarmCategories.from_string(&1) != nil)),
+           "a migração produziu um setor que não existe"
   end
 end

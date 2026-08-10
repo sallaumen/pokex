@@ -91,7 +91,8 @@ defmodule Pokex.Bots.MiniGame.Diag do
       blue_px: stats.blue_px,
       dark_rows: stats.dark_rows,
       blue_rows: stats.blue_rows,
-      other_rows: stats.other_rows
+      other_rows: stats.other_rows,
+      track_at_edge?: stats.track_at_edge?
     }
 
     case result do

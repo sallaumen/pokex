@@ -302,6 +302,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   defp leave_game(state, reason) do
     broadcast_summary(state, reason)
+    warn_if_clipped(state.play)
     log_export(Player.export(state.play, reason))
 
     state =
@@ -313,6 +314,22 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
     broadcast_log(:macro, "mini game saiu (#{reason}) — workers retomam sozinhos")
     {state, :left}
+  end
+
+  # A game that ends because the READING ran out of frame is not a game that
+  # ended: it hands the screen back to the other workers while the overlay is
+  # still up (2026-08-10). The strip is the thing to fix, and only the human can
+  # fix it — so it rings, in the mini-game sector, instead of dying in a counter.
+  defp warn_if_clipped(play) do
+    if Player.clipped?(play) do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:rule_alarm, :mini_game,
+         "🎮 a faixa do minigame está CURTA — a barra encosta no fim do recorte, e peixe " <>
+           "ou cápsula abaixo dela ficam invisíveis. Remarque em Calibração → Só o minigame."}
+      )
+    end
   end
 
   defp log_export({:ok, path, %{samples: samples, frames: frames}}),

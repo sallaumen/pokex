@@ -284,7 +284,7 @@ defmodule PokexWeb.Layouts do
                 <div class="max-h-64 space-y-0.5 overflow-y-auto">
                   <label
                     :for={{key, label} <- AlarmCategories.all()}
-                    id={"app-alarm-category-#{key}"}
+                    id={"app-alarm-category-#{dashed(key)}"}
                     class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-pk-body text-pk-text-2 hover:bg-pk-raised"
                   >
                     <input
@@ -505,7 +505,11 @@ defmodule PokexWeb.Layouts do
   # The id becomes DOM: `:fishing_lab` -> "app-nav-fishing-lab" (underscores in
   # markup ids are noise, and a test doing `refute html =~ "mini_game"` would
   # match the id).
-  defp nav_id(key), do: "app-nav-" <> String.replace(to_string(key), "_", "-")
+  defp nav_id(key), do: "app-nav-" <> dashed(key)
+
+  # Same rule for every id built from an atom — the alarm sectors learned it the
+  # same way the nav did, by a `refute html =~ "mini_game"` matching an id.
+  defp dashed(key), do: String.replace(to_string(key), "_", "-")
 
   defp nav_path(:panel), do: ~p"/"
   defp nav_path(:config), do: ~p"/config"

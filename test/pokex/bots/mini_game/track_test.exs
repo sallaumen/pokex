@@ -138,4 +138,33 @@ defmodule Pokex.Bots.MiniGame.TrackTest do
     assert reading.bar_y > 0.7
     assert_in_delta reading.fish_y, reading.bar_y, 0.08
   end
+
+  describe "a faixa curta" do
+    # Field trace 2026-08-10: the play strip stopped before the track did, and
+    # the reader had no way to say so — everything below the cut (the fish at
+    # the bottom end, the capsule that fell there) simply did not exist, the
+    # game declared itself over and the other workers came back over the
+    # overlay. A reading cut by the frame is not a bad reading, it is a MISSING
+    # one, and only the human can fix the mark.
+    test "a track running to the LAST row is reported as cut off" do
+      frame = frame([{20..59, @track_color}, {60..80, @fish}, {81..219, @track_color}])
+
+      {_result, stats} = Track.read_diag(frame, @bar)
+      assert stats.track_at_edge?
+    end
+
+    test "a track that ends inside the frame is not" do
+      frame =
+        frame([
+          {20..59, @track_color},
+          {60..80, @fish},
+          {81..180, @track_color},
+          {181..219, @floor}
+        ])
+
+      {result, stats} = Track.read_diag(frame, @bar)
+      assert {:ok, _reading} = result
+      refute stats.track_at_edge?
+    end
+  end
 end

@@ -36,7 +36,11 @@ defmodule Pokex.Bots.MiniGame.Player do
             diag: nil,
             last_path: nil,
             preview_at: nil,
-            preview_version: 0
+            preview_version: 0,
+            # the track ran off the BOTTOM of the strip at least once this game:
+            # whatever is below that line — fish, capsule — simply does not
+            # exist for the reader, and a blind pilot is worse than no pilot
+            clipped?: false
 
   @type t :: %__MODULE__{}
 
@@ -95,26 +99,11 @@ defmodule Pokex.Bots.MiniGame.Player do
   starts with a stuck key is unplayable by bot or by human.
   """
   @spec arm(t, Pokex.Calibration.t(), Pokex.Rig.region(), Detector.t()) :: t
-  def arm(%__MODULE__{} = player, calib, {rx, ry, _rw, rh}, %Detector{bar: bar})
+  def arm(%__MODULE__{} = player, calib, {rx, ry, _rw, _rh} = region, %Detector{bar: bar})
       when is_map(bar) do
     scale = calib.scale || 1.0
     center = rx + round(bar.x / scale)
-
-    # A CAUDA abaixo da barra é cortada. O Track elege a barra pela maior corrida
-    # de linhas ESCURAS e só procura o peixe DENTRO dela, então cada linha de
-    # cenário que sobra na faixa é candidata a roubar a eleição. Enquanto a
-    # região de detecção era uma caixa grandona colada na barra isso passava
-    # batido; com a região derivada das âncoras (#151) sobravam ~235 linhas de
-    # rocha escura abaixo da barra — o piloto ficou cego em 96% dos ticks
-    # (no_fish 302/316 no trace de 2026-08-05), soltou o Espaço e a cápsula morou
-    # no fundo.
-    #
-    # Só a cauda, de propósito: `bar.y2` é confiável (bate com o fim real da
-    # barra no fixture e no trace), mas `bar.y1` NÃO — o detector às vezes elege
-    # apenas o trecho ABAIXO da cápsula e reporta um topo bem depois do peixe.
-    # Cortar por ele comeria justamente o que o piloto precisa ver. O topo da
-    # região já é o personagem (#151), então sobra pouquíssimo cenário acima.
-    bottom = clamp_int(ry + round(bar.y2 / scale) + @strip_margin_pt, ry + 1, ry + rh)
+    bottom = strip_bottom(calib, region, bar, scale)
 
     strip = {max(center - @strip_half_pt, 0), ry, @strip_half_pt * 2, bottom - ry}
     mode = Mode.current()
@@ -134,6 +123,36 @@ defmodule Pokex.Bots.MiniGame.Player do
   end
 
   def arm(player, _calib, _region, _reading), do: player
+
+  # Where the playing strip ENDS — and the two opposite ways of getting it wrong.
+  #
+  # Cutting the tail below the bar exists for a reason: the Track elects the bar
+  # by the longest run of DARK rows and only looks for the fish INSIDE it, so
+  # every leftover row of scenery is a candidate to steal the election. With the
+  # region derived from anchors (#151) there were ~235 rows of dark rock below
+  # the bar and the pilot went blind on 96% of the ticks (no_fish 302/316, trace
+  # 2026-08-05).
+  #
+  # But cutting by `bar.y2` assumes the detector saw the WHOLE bar, and it does
+  # not always: on Lucas's trace of 2026-08-10 the strip stopped at y2+10 while
+  # the real track kept going — the dark run reached the strip's last row on
+  # frame after frame. Everything past that line was invisible: the fish sat at
+  # the bottom end for 26 ticks (`no_fish`), the capsule that fell there was
+  # never seen (`blue_px` 0 in all 54 samples), and `no_capsule_streak` hit its
+  # ceiling and declared the game OVER while it was still on screen. That is
+  # what the workers acting on top of the mini-game were made of.
+  #
+  # So: with a HAND-MARKED region the hand already framed the track — it is the
+  # source of truth (`a mão manda`, #109) and nothing is cut. The tail cut stays
+  # for the DERIVED region, which is the one that drags scenery in.
+  defp strip_bottom(calib, {_rx, ry, _rw, rh}, bar, scale) do
+    if hand_marked?(calib),
+      do: ry + rh,
+      else: clamp_int(ry + round(bar.y2 / scale) + @strip_margin_pt, ry + 1, ry + rh)
+  end
+
+  defp hand_marked?(%{mini_game_region: region}), do: is_tuple(region)
+  defp hand_marked?(_calib), do: false
 
   @doc """
   One play tick: capture the strip, read it, record it, and — in `:auto` only —
@@ -175,6 +194,23 @@ defmodule Pokex.Bots.MiniGame.Player do
   end
 
   defp clamp_int(v, lo, hi), do: v |> max(lo) |> min(hi)
+
+  @doc """
+  Did the track run off the bottom of the strip during this game?
+
+  A reading cut by the frame is not a bad reading, it is a MISSING one, and the
+  pilot cannot tell the two apart: everything below the cut simply is not there.
+  This is the state that spent 2026-08-10 silent — the game ended itself, the
+  workers came back over the overlay, and nothing said why.
+  """
+  @spec clipped?(t) :: boolean
+  def clipped?(%__MODULE__{clipped?: clipped?}), do: clipped?
+
+  # Latched, not sampled: one cut frame is proof enough, and the fish spends
+  # only part of the game down there.
+  defp note_clipping(%__MODULE__{clipped?: true} = player, _observation), do: player
+  defp note_clipping(player, %{track_at_edge?: true}), do: %{player | clipped?: true}
+  defp note_clipping(player, _observation), do: player
 
   @doc "Release Space only when this player believes it is holding."
   @spec release_if_holding(t) :: t
@@ -226,6 +262,7 @@ defmodule Pokex.Bots.MiniGame.Player do
     # with, and that geometry only exists once a frame's width is known.
     player = %{player | diag: Diag.remember_track_bar(player.diag, bar)}
     observation = Diag.observe(frame, bar)
+    player = note_clipping(player, observation)
 
     case observation.read do
       :ok ->

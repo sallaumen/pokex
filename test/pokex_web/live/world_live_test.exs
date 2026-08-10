@@ -144,8 +144,11 @@ defmodule PokexWeb.WorldLiveTest do
   test "the periodic refresh picks up facts published after mount", %{conn: conn} do
     Enum.each([:battle, :arena, :corpses, :mini_game], &WorldState.forget/1)
 
-    {:ok, view, html} = live(conn, ~p"/world")
-    refute html =~ "mini_game"
+    {:ok, view, _html} = live(conn, ~p"/world")
+    # scoped to the page's OWN snapshot: the header rides on every route and
+    # carries a `mini_game` alarm sector, so a bare substring over the whole
+    # document stopped answering the question this test asks
+    refute has_element?(view, "#world-facts")
 
     WorldState.put(
       :mini_game,
@@ -154,7 +157,7 @@ defmodule PokexWeb.WorldLiveTest do
     )
 
     send(view.pid, :refresh)
-    html = render(view)
+    html = view |> element("#world-facts") |> render()
 
     assert html =~ "mini_game"
     assert html =~ "fora do jogo"

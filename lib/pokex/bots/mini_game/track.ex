@@ -43,6 +43,7 @@ defmodule Pokex.Bots.MiniGame.Track do
           dark_rows: non_neg_integer,
           blue_rows: non_neg_integer,
           other_rows: non_neg_integer,
+          track_at_edge?: boolean,
           top: integer | nil,
           bottom: integer | nil,
           fish_rows: {integer, integer} | nil
@@ -86,6 +87,10 @@ defmodule Pokex.Bots.MiniGame.Track do
       dark_rows: Map.get(counts, :dark, 0),
       blue_rows: Map.get(counts, :blue, 0),
       other_rows: Map.get(counts, :other, 0),
+      # The track touching the LAST row means it had nowhere left to go, not
+      # that it ended there: the strip is cutting it, and everything below the
+      # cut (fish, capsule) is invisible to every reader downstream.
+      track_at_edge?: List.last(rows) in [:dark, :blue],
       top: nil,
       bottom: nil,
       fish_rows: nil

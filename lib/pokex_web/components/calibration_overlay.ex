@@ -77,138 +77,221 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :scan_region, :any, default: nil
   attr :bands, :list, default: []
 
+  attr :quiet, :boolean,
+    default: false,
+    doc:
+      "zoomed marking: hairline outlines only — a 10px label under scale(3.5) is 35px " <>
+        "of paint sitting exactly over the next click target"
+
   def overlays(assigns) do
     ~H"""
-    <div
-      :if={@scan_region}
-      class="absolute rounded border-2 border-dashed border-success/70"
-      style={region_style(@scan_region, @screen)}
-    >
-      <span class="absolute -top-4 right-0 rounded bg-success px-1 text-[10px] font-bold text-success-content">
-        busca de corpos
-      </span>
-    </div>
-    <div
-      :if={@glow_region}
-      class="absolute rounded border-2 border-info bg-info/10"
-      style={region_style(@glow_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content">
-        brilho
-      </span>
-    </div>
-    <div
-      :if={@mini_game_region}
-      class="absolute rounded border-2 border-primary bg-primary/10"
-      style={region_style(@mini_game_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-primary px-1 text-[10px] font-bold text-primary-content">
-        mini game
-      </span>
-    </div>
-    <div
-      :if={@minimap_region}
-      class="absolute rounded border-2 border-info bg-info/5"
-      style={region_style(@minimap_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content">
-        minimapa
-      </span>
-    </div>
-    <div
-      :if={@minimap_coord_region}
-      class="absolute rounded border-2 border-error bg-error/10"
-      style={region_style(@minimap_coord_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-error px-1 text-[10px] font-bold text-error-content">
-        coordenada
-      </span>
-    </div>
-    <div
-      :if={@battle_region}
-      class="absolute rounded border-2 border-warning bg-warning/10"
-      style={region_style(@battle_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-warning px-1 text-[10px] font-bold text-warning-content">
-        Battle
-      </span>
-    </div>
-    <div
-      :if={@skill_bar_region}
-      class="absolute rounded border-2 border-secondary bg-secondary/10"
-      style={region_style(@skill_bar_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-secondary px-1 text-[10px] font-bold text-secondary-content">
-        skills
-      </span>
-      <%!-- The CELLS, not just the box. `Vision.skill_slots/2` cuts this
-            rectangle into `count` equal columns and calls column i the hotkey
-            SkillBar.keys/1 gives it — so a box one cell off makes every skill
-            read the neighbour, silently. Lucas's bar on the small screen
-            (2026-08-06) enclosed the ROD and left skill 9 outside: every
-            cooldown read was one slot to the left, which shut the "só pescar
-            quando dá pra matar" gate forever. A box looks right at a glance;
-            numbered cells over the real icons cannot lie. --%>
-      <span
-        :for={{key, i} <- Enum.with_index(Pokex.Bots.SkillBar.keys(@skill_bar_count))}
-        class="absolute top-0 bottom-0 flex items-end justify-center border-l border-secondary/60 pb-px text-[9px] font-bold text-secondary first:border-l-0"
-        style={"left:#{i * 100 / @skill_bar_count}%;width:#{100 / @skill_bar_count}%"}
+    <div id="mark-overlays" class="pointer-events-none">
+      <div
+        :if={@scan_region}
+        class={[
+          "absolute rounded border-dashed",
+          box(@quiet, "border-2 border-success/70", "border border-success/60")
+        ]}
+        style={region_style(@scan_region, @screen)}
       >
-        {key}
-      </span>
-    </div>
-    <div
-      :if={@pokemon_hp_region}
-      class="absolute rounded border-2 border-accent bg-accent/10"
-      style={region_style(@pokemon_hp_region, @screen)}
-    >
-      <span class="absolute -top-4 left-0 rounded bg-accent px-1 text-[10px] font-bold text-accent-content">
-        vida
-      </span>
-    </div>
-    <div
-      :for={{band, i} <- Enum.with_index(@bands)}
-      class="absolute border-2 border-error bg-error/25"
-      style={region_style(band, @screen)}
-    >
-      <span class="absolute left-0 top-1/2 -translate-y-1/2 rounded-r bg-error px-1 text-[10px] font-bold leading-tight text-error-content">
-        L{i}
-      </span>
-    </div>
-    <div
-      :if={@water_point}
-      class="absolute -ml-1.5 -mt-1.5 size-3 rounded-full border-2 border-white bg-info shadow"
-      style={point_style(@water_point, @screen)}
-      title="água"
-    />
-    <div
-      :if={@neutral_point}
-      class="absolute -ml-1.5 -mt-1.5 size-3 rounded-full border-2 border-white bg-neutral shadow"
-      style={point_style(@neutral_point, @screen)}
-      title="neutro"
-    />
-    <div
-      :if={@player_point}
-      class="absolute -ml-2 -mt-2 size-4 rounded-full border-2 border-error bg-error/40 shadow"
-      style={point_style(@player_point, @screen)}
-      title="player"
-    />
-    <div
-      :if={@pokemon_photo_point}
-      class="absolute -ml-2 -mt-2 size-4 rounded-full border-2 border-white bg-accent shadow"
-      style={point_style(@pokemon_photo_point, @screen)}
-      title="foto do Pokémon"
-    />
-    <div
-      :if={@minimap_player_point}
-      class="absolute -ml-2 -mt-2 grid size-4 place-items-center rounded-full border-2 border-info bg-info/30 text-[10px] font-black leading-none text-info shadow"
-      style={point_style(@minimap_player_point, @screen)}
-      title="cruz do personagem no minimapa — a origem de todo passo do cavebot"
-    >
-      +
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 right-0 rounded bg-success px-1 text-[10px] font-bold text-success-content"
+        >
+          busca de corpos
+        </span>
+      </div>
+      <div
+        :if={@glow_region}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-info bg-info/10", "border border-info/70")
+        ]}
+        style={region_style(@glow_region, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content"
+        >
+          brilho
+        </span>
+      </div>
+      <div
+        :if={@mini_game_region}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-primary bg-primary/10", "border border-primary/70")
+        ]}
+        style={region_style(@mini_game_region, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 left-0 rounded bg-primary px-1 text-[10px] font-bold text-primary-content"
+        >
+          mini game
+        </span>
+      </div>
+      <div
+        :if={@minimap_region}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-info bg-info/5", "border border-info/70")
+        ]}
+        style={region_style(@minimap_region, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content"
+        >
+          minimapa
+        </span>
+      </div>
+      <div
+        :if={@minimap_coord_region}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-error bg-error/10", "border border-error/70")
+        ]}
+        style={region_style(@minimap_coord_region, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 left-0 rounded bg-error px-1 text-[10px] font-bold text-error-content"
+        >
+          coordenada
+        </span>
+      </div>
+      <div
+        :if={@battle_region}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-warning bg-warning/10", "border border-warning/70")
+        ]}
+        style={region_style(@battle_region, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 left-0 rounded bg-warning px-1 text-[10px] font-bold text-warning-content"
+        >
+          Battle
+        </span>
+      </div>
+      <div
+        :if={@skill_bar_region}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-secondary bg-secondary/10", "border border-secondary/70")
+        ]}
+        style={region_style(@skill_bar_region, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 left-0 rounded bg-secondary px-1 text-[10px] font-bold text-secondary-content"
+        >
+          skills
+        </span>
+        <%!-- The CELLS, not just the box. `Vision.skill_slots/2` cuts this
+              rectangle into `count` equal columns and calls column i the hotkey
+              SkillBar.keys/1 gives it — so a box one cell off makes every skill
+              read the neighbour, silently. Lucas's bar on the small screen
+              (2026-08-06) enclosed the ROD and left skill 9 outside: every
+              cooldown read was one slot to the left, which shut the "só pescar
+              quando dá pra matar" gate forever. A box looks right at a glance;
+              numbered cells over the real icons cannot lie. --%>
+        <span
+          :for={{key, i} <- Enum.with_index(Pokex.Bots.SkillBar.keys(@skill_bar_count))}
+          :if={!@quiet}
+          class="absolute top-0 bottom-0 flex items-end justify-center border-l border-secondary/60 pb-px text-[9px] font-bold text-secondary first:border-l-0"
+          style={"left:#{i * 100 / @skill_bar_count}%;width:#{100 / @skill_bar_count}%"}
+        >
+          {key}
+        </span>
+      </div>
+      <div
+        :if={@pokemon_hp_region}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-accent bg-accent/10", "border border-accent/70")
+        ]}
+        style={region_style(@pokemon_hp_region, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 left-0 rounded bg-accent px-1 text-[10px] font-bold text-accent-content"
+        >
+          vida
+        </span>
+      </div>
+      <div
+        :for={{band, i} <- Enum.with_index(@bands)}
+        class={[
+          "absolute",
+          box(@quiet, "border-2 border-error bg-error/25", "border border-error/50")
+        ]}
+        style={region_style(band, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute left-0 top-1/2 -translate-y-1/2 rounded-r bg-error px-1 text-[10px] font-bold leading-tight text-error-content"
+        >
+          L{i}
+        </span>
+      </div>
+      <div
+        :if={@water_point}
+        class={[
+          "absolute -ml-1.5 -mt-1.5 size-3 rounded-full",
+          box(@quiet, "border-2 border-white bg-info shadow", "border border-info")
+        ]}
+        style={point_style(@water_point, @screen)}
+        title="água"
+      />
+      <div
+        :if={@neutral_point}
+        class={[
+          "absolute -ml-1.5 -mt-1.5 size-3 rounded-full",
+          box(@quiet, "border-2 border-white bg-neutral shadow", "border border-neutral")
+        ]}
+        style={point_style(@neutral_point, @screen)}
+        title="neutro"
+      />
+      <div
+        :if={@player_point}
+        class={[
+          "absolute -ml-2 -mt-2 size-4 rounded-full",
+          box(@quiet, "border-2 border-error bg-error/40 shadow", "border border-error/80")
+        ]}
+        style={point_style(@player_point, @screen)}
+        title="player"
+      />
+      <div
+        :if={@pokemon_photo_point}
+        class={[
+          "absolute -ml-2 -mt-2 size-4 rounded-full",
+          box(@quiet, "border-2 border-white bg-accent shadow", "border border-accent/80")
+        ]}
+        style={point_style(@pokemon_photo_point, @screen)}
+        title="foto do Pokémon"
+      />
+      <div
+        :if={@minimap_player_point}
+        class={[
+          "absolute -ml-2 -mt-2 grid size-4 place-items-center rounded-full text-[10px] font-black leading-none text-info",
+          box(@quiet, "border-2 border-info bg-info/30 shadow", "border border-info/80")
+        ]}
+        style={point_style(@minimap_player_point, @screen)}
+        title="cruz do personagem no minimapa — a origem de todo passo do cavebot"
+      >
+        {!@quiet && "+"}
+      </div>
     </div>
     """
   end
+
+  # Marker paint is teaching aid, not calibration: while the zoom is on, the
+  # aid must never cover the thing being clicked — a point marker sits ON the
+  # very pixel being re-marked. Quiet = outline only.
+  defp box(quiet, loud, faint), do: if(quiet, do: faint, else: loud)
 
   def legend(assigns) do
     ~H"""

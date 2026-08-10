@@ -201,18 +201,70 @@ defmodule PokexWeb.CalibrationLiveTest do
       render_hook(view, "img_click", params)
     end
 
-    # minimap corners, then the cross
+    # both minimap corners: the next step (cross) must already SHOW the region
     click.(10.0, 10.0)
-    click.(40.0, 30.0)
-    html = click.(25.0, 15.0)
+    html = click.(40.0, 30.0)
 
     # the trace: the recorded click with its raw numbers and its computed point
     assert html =~ ~s(id="click-trace")
-    assert html =~ "✔ clique (25.0, 15.0)"
-    assert html =~ "(50, 30)"
+    assert html =~ "✔ clique (40.0, 30.0)"
+    assert html =~ "(80, 60)"
 
-    # and the cross marker is painted the moment it is recorded
-    assert html =~ ~s(title="cruz do personagem no minimapa)
+    # and the region overlay is painted the moment it is recorded
+    assert html =~ "overlay-label"
+  end
+
+  @tag :tmp_dir
+  # The "minimapa" label of an already-marked region rides INSIDE the container
+  # the zoom scales 3.5x: 10px type becomes 35px sitting exactly over the next
+  # target (the label hangs above the region's top edge — where the coord band
+  # lives), and the span STOLE the click, which never reached ImgClick. While
+  # zoomed the overlays go quiet — hairline outlines only, no labels, no fills
+  # — and the whole layer never intercepts a click.
+  test "overlays go quiet under zoom and never steal the click", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture_screen: [{:ok, screen}]})
+    Calibration.save(%Calibration{scale: 2.0, screen_w: 100, screen_h: 75})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element(~s(button[phx-click="calibrate_minimap"])) |> render_click()
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    # both minimap corners: the draft now carries minimap_region, no zoom active
+    click.(10.0, 10.0)
+    html = click.(40.0, 30.0)
+
+    assert html =~ ~s(id="mark-overlays")
+    assert html =~ "pointer-events-none"
+    assert html =~ "overlay-label"
+
+    # rough click of the NEXT step (the cross) turns the zoom on: labels gone
+    html =
+      render_hook(view, "img_click", %{
+        "x" => 25.0,
+        "y" => 15.0,
+        "cw" => 50.0,
+        "ch" => 37.5,
+        "nw" => 200.0,
+        "nh" => 150.0
+      })
+
+    assert html =~ "scale(3.5)"
+    refute html =~ "overlay-label"
+
+    # cancelling the zoom brings the teaching labels back
+    html = render_hook(view, "cancel_zoom", %{})
+    assert html =~ "overlay-label"
   end
 
   @tag :tmp_dir
@@ -1358,11 +1410,12 @@ defmodule PokexWeb.CalibrationLiveTest do
     end
   end
 
-  describe "position & minimap (5 clicks, the hand rules)" do
+  describe "position & minimap (3 clicks + band search, the hand rules)" do
     @tag :tmp_dir
-    # the calibration "photo" is a real capture: the final verdict must read the
-    # true coordinate off it
-    test "marks minimap+cross+coordinate, saves, and reads the coordinate off its own photo", %{
+    # the calibration "photo" is a real capture: after the 3 clicks the band is
+    # FOUND by hovering (through the Body) and reading — and the saved band must
+    # re-read on the save verdict
+    test "marks minimap+cross, the search finds the band, saving reads it back", %{
       conn: conn,
       tmp_dir: tmp
     } do
@@ -1415,20 +1468,86 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert render(view) =~ "INFERIOR-DIREITO"
       click.(mx + mw, my + mh)
       assert render(view) =~ "CRUZ"
-      click.(mx + div(mw, 2), my + div(mh, 2))
-      assert render(view) =~ "COORDENADA"
-      click.(cx, cy)
-      click.(cx + cw, cy + ch)
+      cross = {mx + div(mw, 2), my + div(mh, 2)}
+      click.(elem(cross, 0), elem(cross, 1))
 
+      # the cross was the last click: the band search hovers (through the Body)
+      # and reads the coordinate off the fresh shot — living proof on screen
       html = render(view)
+      assert html =~ ~s(id="coord-band-found")
+      assert html =~ "li: (337, 46107, 4)"
+      assert {:move, ^cross} = Enum.find(Fake.calls(), &match?({:move, _}, &1))
+
+      html = view |> element("button", "Salvar assim") |> render_click()
       assert html =~ "salvos"
       assert html =~ "li a coordenada da foto: (337, 46107, 4)"
 
       assert {:ok, calib} = Calibration.load()
       assert calib.minimap_region == {mx, my, mw, mh}
-      assert calib.minimap_player_point == {mx + div(mw, 2), my + div(mh, 2)}
-      assert calib.minimap_coord_region == {cx, cy, cw, ch}
+      assert calib.minimap_player_point == cross
       assert calib.water_point == {50, 30}
+
+      # the found band agrees with where the layout knows the strip lives
+      {bx, by, bw, bh} = calib.minimap_coord_region
+      assert by >= cy - 6 and by + bh <= cy + ch + 6
+      assert bx >= cx - 6 and bx <= cx + 12
+      assert bw >= div(cw, 2)
+    end
+
+    @tag :tmp_dir
+    # the hand still rules: "Marcar na mão" falls back to the 2-click band —
+    # and the screenshot being marked is by then the HOVER shot, the first
+    # picture that actually CONTAINS the numbers
+    test "the manual fallback still marks the band by hand", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
+
+      screen_png = "test/fixtures/screen/ultrawide_3440x1440_full.png"
+      frame = Pokex.ScreenFixtures.frame!("ultrawide_3440x1440_full")
+      {:ok, fix} = Pokex.Layout.locate(frame)
+      {mx, my, mw, mh} = Pokex.Layout.region(:minimap, fix)
+      {cx, cy, cw, ch} = Pokex.Layout.region(:minimap_coord, fix)
+
+      probe =
+        Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+
+      {:ok, _} =
+        Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen_png}]})
+
+      {:ok, view, _} = live(conn, ~p"/calibration")
+      view |> element("button", "Posição & minimapa") |> render_click()
+
+      click = fn x, y ->
+        params = %{
+          "x" => x / 1,
+          "y" => y / 1,
+          "cw" => 3440.0,
+          "ch" => 1440.0,
+          "nw" => 3440.0,
+          "nh" => 1440.0
+        }
+
+        render_hook(view, "img_click", params)
+        render_hook(view, "img_click", params)
+      end
+
+      click.(mx, my)
+      click.(mx + mw, my + mh)
+      click.(mx + div(mw, 2), my + div(mh, 2))
+
+      view |> element("button", "Marcar na mão") |> render_click()
+      assert render(view) =~ "COORDENADA"
+
+      click.(cx, cy)
+      html = click.(cx + cw, cy + ch)
+
+      assert html =~ "salvos"
+      assert html =~ "li a coordenada da foto: (337, 46107, 4)"
+      assert {:ok, calib} = Calibration.load()
+      assert calib.minimap_coord_region == {cx, cy, cw, ch}
+      assert calib.minimap_region == {mx, my, mw, mh}
     end
   end
 end

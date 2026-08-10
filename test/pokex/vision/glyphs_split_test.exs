@@ -65,7 +65,12 @@ defmodule Pokex.Vision.GlyphsSplitTest do
           end) ++ List.duplicate(black, margin)
       end)
 
-    path = PngFixtures.write!(Path.join(tmp, "fused-#{System.unique_integer([:positive])}.png"), blank ++ body ++ blank)
+    path =
+      PngFixtures.write!(
+        Path.join(tmp, "fused-#{System.unique_integer([:positive])}.png"),
+        blank ++ body ++ blank
+      )
+
     {:ok, frame} = Frame.from_png_file(path)
     {frame, {0, 0, width, height}}
   end
@@ -78,7 +83,9 @@ defmodule Pokex.Vision.GlyphsSplitTest do
     assert Glyphs.unknown_in(frame, region) == []
   end
 
-  test "the fused 70 refuses without a single 7, resolves once ONE character is taught", %{tmp: tmp} do
+  test "the fused 70 refuses without a single 7, resolves once ONE character is taught", %{
+    tmp: tmp
+  } do
     {frame, region} = frame_of(@fused_70, tmp)
 
     # the shipped atlas has no 17-row 7: the left half resolves to nothing

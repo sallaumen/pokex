@@ -10,9 +10,14 @@ defmodule PokexWeb.CalibrationStepsTest do
   test "every step with an instruction expects a click, and vice versa" do
     with_copy = CalibrationSteps.all() |> Map.keys() |> MapSet.new()
     marking = with_copy |> Enum.filter(&CalibrationSteps.marking?/1) |> MapSet.new()
+    screenless = MapSet.new(CalibrationSteps.screenless())
 
-    assert MapSet.difference(with_copy, marking) |> MapSet.to_list() == [],
+    assert MapSet.difference(with_copy, MapSet.union(marking, screenless))
+           |> MapSet.to_list() == [],
            "estes passos têm instrução mas não desenham a foto (página preta)"
+
+    # a screenless step must never ALSO claim a click — that is the black page again
+    assert MapSet.intersection(marking, screenless) |> MapSet.to_list() == []
   end
 
   test "the numbered run is 1..total with no gaps and no repeats" do

@@ -1,12 +1,14 @@
 defmodule PokexWeb.CalibrationLive do
   use PokexWeb, :live_view
 
+  alias Pokex.Bots.Body
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
+  alias Pokex.Calibration.CoordBandSearch
   alias Pokex.Home
   alias Pokex.Perception.Interpret.Minimap
   alias Pokex.Screenshot
@@ -14,7 +16,7 @@ defmodule PokexWeb.CalibrationLive do
   alias PokexWeb.CalibrationReview
   alias PokexWeb.CalibrationSteps
   alias PokexWeb.CalibrationZoom
-  import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1]
+  import PokexWeb.CalibrationOverlay, only: [overlays: 1, legend: 1, crop_style: 2]
   alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
@@ -52,6 +54,7 @@ defmodule PokexWeb.CalibrationLive do
        error: nil,
        skillbar_msg: nil,
        zoom_at: nil,
+       coord_search: nil,
        skill_count: skill_count,
        skill_count_form: skill_count_form(skill_count),
        row_height: Settings.get(:battle_row_height),
@@ -89,7 +92,8 @@ defmodule PokexWeb.CalibrationLive do
            review: nil,
            error: nil,
            skillbar_msg: nil,
-           zoom_at: nil
+           zoom_at: nil,
+           coord_search: nil
          )}
 
       error ->
@@ -117,6 +121,28 @@ defmodule PokexWeb.CalibrationLive do
   # before any field run.
   def handle_event("calibrate_minimap", _params, socket),
     do: start_quick_fix(socket, :minimap_a, :minimap_only)
+
+  # The band search re-run: another hover, another photo, another scan. The
+  # game must be visible (a window over the minimap blinds the hover).
+  def handle_event("coord_search_again", _params, socket) do
+    send(self(), :coord_search)
+    {:noreply, assign(socket, coord_search: :searching)}
+  end
+
+  # Hand-marking as fallback. The screenshot on file is the HOVER shot by now,
+  # so for the first time the numbers are actually IN the picture being marked.
+  def handle_event("coord_manual", _params, socket),
+    do: {:noreply, assign(socket, step: :minimap_coord_a, coord_search: nil)}
+
+  def handle_event("save_found_band", _params, socket) do
+    case socket.assigns.coord_search do
+      {:found, band, _pos} ->
+        {:noreply, socket |> assign(coord_search: nil) |> save_minimap(band)}
+
+      _not_found ->
+        {:noreply, socket}
+    end
+  end
 
   # Standalone correction: mark only the strip where the mini-game bar shows up
   # (2 corners) on an existing calibration. From then on the mini-game worker
@@ -559,6 +585,14 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   @impl true
+  # The band search runs OFF the event that scheduled it, so the "procurando…"
+  # state paints before the hover holds the page for ~2s. Only meaningful while
+  # the wizard still sits on the search step — a stale message dies quietly.
+  def handle_info(:coord_search, %{assigns: %{step: :minimap_coord_search}} = socket),
+    do: {:noreply, run_coord_search(socket)}
+
+  def handle_info(:coord_search, socket), do: {:noreply, socket}
+
   # The per-corpse count the Catcher publishes (R4). The topic's other traffic
   # (snapshots, logs) doesn't matter to this page — the catch-all below
   # swallows it, as the header already does on the other pages.
@@ -813,14 +847,86 @@ defmodule PokexWeb.CalibrationLive do
 
   defp grab_screen do
     with {:ok, shot} <- with_game_front(fn -> Screenshot.take("calibration_screen.png") end) do
-      {:ok,
-       Map.put(
-         shot,
-         :src,
-         "/captures/#{Path.basename(shot.path)}?t=#{System.unique_integer([:positive])}"
-       )}
+      {:ok, decorate_shot(shot)}
     end
   end
+
+  defp decorate_shot(shot) do
+    Map.put(
+      shot,
+      :src,
+      "/captures/#{Path.basename(shot.path)}?t=#{System.unique_integer([:positive])}"
+    )
+  end
+
+  @hover_settle_ms Application.compile_env(:pokex, :coord_hover_settle_ms, 250)
+  @hover_hold_ms Application.compile_env(:pokex, :coord_hover_hold_ms, 1600)
+
+  # The game draws the coordinate only while the mouse is OVER the minimap
+  # (measured 2026-08-10: the bot's captures had no text on the very minimap
+  # Lucas's hovered screenshot showed it on). So this photo hovers first: the
+  # game is re-fronted (the gated move demands it frontmost anyway), the Body —
+  # one pair of hands, as always — parks the cursor on the cross and HOLDS
+  # while the shot is taken; afterwards it restores Lucas's cursor on its own
+  # (restore_mouse_after_actions).
+  defp hover_grab(nil), do: {:error, :no_hover_point}
+
+  defp hover_grab(point) do
+    result =
+      with_game_front(fn ->
+        hold =
+          Task.async(fn ->
+            try do
+              Body.perform([{:move, point}, {:wait, @hover_hold_ms}])
+            catch
+              kind, reason -> {:error, {kind, reason}}
+            end
+          end)
+
+        Process.sleep(@hover_settle_ms)
+        shot = Screenshot.take("calibration_screen.png")
+        Task.await(hold, @hover_hold_ms + 5_000)
+        shot
+      end)
+
+    with {:ok, shot} <- result, do: {:ok, decorate_shot(shot)}
+  end
+
+  defp run_coord_search(socket) do
+    draft = socket.assigns.draft
+    hover = draft[:minimap_player_point] || region_center(draft[:minimap_region])
+
+    with {:ok, shot} <- hover_grab(hover),
+         {:ok, frame} <- Vision.Frame.from_png_file(shot.path) do
+      search =
+        CoordBandSearch.search(
+          frame,
+          draft.minimap_region,
+          shot.scale || 1.0,
+          ink: Settings.get(:minimap_coord_ink)
+        )
+
+      case search do
+        {:ok, band, pos} ->
+          assign(socket, screen: shot, scale: shot.scale, coord_search: {:found, band, pos})
+
+        :error ->
+          assign(socket, screen: shot, scale: shot.scale, coord_search: :not_found)
+      end
+    else
+      error -> assign(socket, coord_search: {:failed, inspect(error)})
+    end
+  end
+
+  defp region_center({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
+  defp region_center(nil), do: nil
+
+  defp found_band({:found, band, _pos}), do: band
+  defp found_pos_text({:found, _band, {x, y, z}}), do: "(#{x}, #{y}, #{z})"
+
+  defp not_found?(:not_found), do: true
+  defp not_found?({:failed, _reason}), do: true
+  defp not_found?(_other), do: false
 
   # Per-slot READY references, cropped from the SAME screenshot the user just marked the bar
   # on (no extra capture, exact same instant): each slot's non-white colour signature becomes
@@ -1080,10 +1186,18 @@ defmodule PokexWeb.CalibrationLive do
     )
   end
 
+  # The cross was the last click: the coordinate band is not clicked at all —
+  # the game only draws "(x, y, z)" under a hovering mouse, so the wizard's
+  # screenshot never contained it and Lucas marked the band from memory (the
+  # real 2026-08-10 band: 13pt tall, clipped, misplaced). The band is FOUND by
+  # reading instead; hand-marking stays as the fallback.
   defp record_step(:minimap_cross, socket, point, draft) do
+    send(self(), :coord_search)
+
     assign(socket,
       draft: Map.put(draft, :minimap_player_point, point),
-      step: :minimap_coord_a
+      step: :minimap_coord_search,
+      coord_search: :searching
     )
   end
 
@@ -1172,18 +1286,20 @@ defmodule PokexWeb.CalibrationLive do
   defp minimap_read_verdict(socket, calib, coord_region) do
     with path when is_binary(path) <- socket.assigns.screen && socket.assigns.screen.path,
          {:ok, frame} <- Vision.Frame.from_png_file(path) do
-      {mx, my, mw, mh} = calib.minimap_region
+      # The SAME union the feed captures (PR #180): a band poking outside the
+      # map region must not pass here and clip on the hunt — or vice versa.
+      {ux, uy, uw, uh} = Calibration.minimap_capture_region(calib)
       {cx, cy, cw, ch} = coord_region
       scale = socket.assigns.scale || 1.0
       to_px = fn v -> round(v * scale) end
 
       panel =
-        Vision.Frame.crop(frame, {to_px.(mx), to_px.(my), to_px.(mw), to_px.(mh)})
+        Vision.Frame.crop(frame, {to_px.(ux), to_px.(uy), to_px.(uw), to_px.(uh)})
 
       read =
         Vision.Glyphs.read_coord(
           panel,
-          {to_px.(cx - mx), to_px.(cy - my), to_px.(cw), to_px.(ch)},
+          {to_px.(cx - ux), to_px.(cy - uy), to_px.(cw), to_px.(ch)},
           ink: Settings.get(:minimap_coord_ink)
         )
 
@@ -1508,7 +1624,7 @@ defmodule PokexWeb.CalibrationLive do
                 event="calibrate_minimap"
                 icon="hero-map"
                 title="Posição & minimapa"
-                hint="o minimapa, a cruz do personagem e a faixa da coordenada (5 cliques) — a fundação do cavebot"
+                hint="o minimapa e a cruz do personagem (3 cliques) — a faixa da coordenada eu acho sozinho, lendo a foto"
               />
               <.quick_fix
                 event="calibrate_pokemon_spot"
@@ -1684,6 +1800,7 @@ defmodule PokexWeb.CalibrationLive do
               />
               <.overlays
                 screen={@screen}
+                quiet={@zoom_at != nil}
                 water_point={@draft[:water_point]}
                 glow_region={@draft[:glow_region]}
                 battle_region={@draft[:battle_region]}
@@ -1699,6 +1816,51 @@ defmodule PokexWeb.CalibrationLive do
                 minimap_player_point={@draft[:minimap_player_point]}
                 bands={draft_bands(@draft, @scale, @row_height, @max_rows)}
               />
+            </div>
+          </div>
+
+          <div :if={@step == :minimap_coord_search} id="coord-band-search" class="space-y-2">
+            <p :if={@coord_search == :searching} class="text-sm opacity-70">
+              Passando o mouse no minimapa e tirando a foto… (~2s)
+            </p>
+
+            <div :if={match?({:found, _, _}, @coord_search)} class="space-y-2">
+              <p id="coord-band-found" class="text-sm font-semibold text-success">
+                li: {found_pos_text(@coord_search)} ✓ — é onde você está? Então salva.
+              </p>
+              <div
+                class="rounded border border-success/60 bg-base-300"
+                style={crop_style(found_band(@coord_search), @screen)}
+              />
+              <div class="flex flex-wrap gap-2">
+                <button class="btn btn-primary btn-sm" phx-click="save_found_band">
+                  Salvar assim
+                </button>
+                <button class="btn btn-ghost btn-sm" phx-click="coord_search_again">
+                  Buscar de novo
+                </button>
+                <button class="btn btn-ghost btn-sm" phx-click="coord_manual">
+                  Marcar na mão
+                </button>
+              </div>
+            </div>
+
+            <div :if={not_found?(@coord_search)} class="space-y-2">
+              <p id="coord-band-not-found" class="text-sm font-semibold text-warning">
+                Não achei o texto da coordenada. Deixe o MINIMAPA visível (nenhuma janela por
+                cima dele) e busque de novo — ou marque a faixa na mão.
+              </p>
+              <p :if={match?({:failed, _}, @coord_search)} class="font-mono text-[11px] opacity-60">
+                {elem(@coord_search, 1)}
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn btn-primary btn-sm" phx-click="coord_search_again">
+                  Buscar de novo
+                </button>
+                <button class="btn btn-ghost btn-sm" phx-click="coord_manual">
+                  Marcar na mão
+                </button>
+              </div>
             </div>
           </div>
 

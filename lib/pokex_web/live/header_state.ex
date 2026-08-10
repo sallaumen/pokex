@@ -52,6 +52,9 @@ defmodule PokexWeb.HeaderState do
       socket
       |> assign(
         header_owns_workers?: owns_workers?,
+        # Pages that show the workers' OWN detail ask for the snapshots to be
+        # relayed (see relay_workers/1); the chip is fed either way.
+        header_relays_workers?: false,
         focused?: focused?(),
         characters: Characters.list(),
         active_character: Characters.active(),
@@ -65,6 +68,18 @@ defmodule PokexWeb.HeaderState do
 
     {:cont, socket}
   end
+
+  @doc """
+  Lets a page see the worker snapshots the header also listens to.
+
+  The header subscribes to the worker topics on every page but its `:handle_info`
+  hook HALTS them, because no page had a clause and letting them through raised
+  FunctionClauseError. A page that renders worker detail of its own (the hunt's
+  state and hold reason on /cavebot) needs the same message — so it says so,
+  and the hook relays instead of swallowing. The chip is assigned first either
+  way, so a relaying page never costs the header its state.
+  """
+  def relay_workers(socket), do: Phoenix.Component.assign(socket, header_relays_workers?: true)
 
   @doc """
   Realigns the running/stopped pill with a freshly read `BotSupervisor.status()`.
@@ -134,7 +149,7 @@ defmodule PokexWeb.HeaderState do
 
   defp info(msg, socket)
        when is_tuple(msg) and tuple_size(msg) >= 1 and elem(msg, 0) in @worker_noise,
-       do: {if(socket.assigns.header_owns_workers?, do: :halt, else: :cont), socket}
+       do: {if(swallow?(socket), do: :halt, else: :cont), socket}
 
   defp info(_msg, socket), do: {:cont, socket}
 
@@ -144,7 +159,11 @@ defmodule PokexWeb.HeaderState do
       |> assign(:header_states, Map.put(socket.assigns.header_states, key, state))
       |> assign_bot_active()
 
-    {if(socket.assigns.header_owns_workers?, do: :halt, else: :cont), socket}
+    {if(swallow?(socket), do: :halt, else: :cont), socket}
+  end
+
+  defp swallow?(socket) do
+    socket.assigns.header_owns_workers? and not socket.assigns.header_relays_workers?
   end
 
   defp event("set_character", %{"character" => slug}, socket) do

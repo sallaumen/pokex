@@ -52,6 +52,55 @@ defmodule Pokex.Bots.Cavebot.Route do
   def append(%__MODULE__{}, {_x, _y, _z}), do: {:error, :floor_mismatch}
 
   @doc """
+  Moves the waypoint at `index` one place `:up` or `:down`.
+
+  Recording lays waypoints in the order walked, and a route walked in the wrong
+  order is a route walked backwards — which used to mean deleting everything
+  and walking it again. Out-of-range moves (the first up, the last down) return
+  the route untouched: the button that cannot act is a no-op, never an error.
+  """
+  @spec move(t, non_neg_integer, :up | :down) :: t
+  def move(%__MODULE__{waypoints: waypoints} = route, index, direction)
+      when is_integer(index) and direction in [:up, :down] do
+    target = if direction == :up, do: index - 1, else: index + 1
+
+    if index in 0..(length(waypoints) - 1)//1 and target in 0..(length(waypoints) - 1)//1 do
+      moved = Enum.at(waypoints, index)
+      other = Enum.at(waypoints, target)
+
+      %{
+        route
+        | waypoints: waypoints |> List.replace_at(index, other) |> List.replace_at(target, moved)
+      }
+    else
+      route
+    end
+  end
+
+  @doc """
+  Inserts a waypoint AT `index`, pushing the rest down — the fix for "faltou um
+  canto no meio", which appending could never give.
+
+  Same floor invariant as `append/2`.
+  """
+  @spec insert_at(t, non_neg_integer, {integer, integer, integer}) ::
+          {:ok, t} | {:error, :floor_mismatch}
+  def insert_at(%__MODULE__{} = route, index, {x, y, z} = pos)
+      when is_integer(index) and is_integer(x) and is_integer(y) and is_integer(z) do
+    with {:ok, appended} <- append(route, pos) do
+      {popped, rest} = List.pop_at(appended.waypoints, -1)
+      {:ok, %{appended | waypoints: List.insert_at(rest, index, popped)}}
+    end
+  end
+
+  @doc """
+  Empties the route, floor included: the next recording starts on whatever
+  floor the character is actually standing on.
+  """
+  @spec clear(t) :: t
+  def clear(%__MODULE__{} = route), do: %{route | waypoints: [], z: nil}
+
+  @doc """
   Validates the route: at least one waypoint, all on the same floor.
   """
   @spec validate(t) :: :ok | {:error, :empty} | {:error, :floor_mismatch}

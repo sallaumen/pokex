@@ -531,6 +531,68 @@ defmodule Pokex.Bots.Combat.LogicTest do
       assert logic.failed_hunts == 0
     end
 
+    # The walked-off-mid-fight bug (Lucas, 2026-08-10): a presumption lives for
+    # its whole TTL (5 min in prod), and nothing killed it when a REAL fight
+    # started. One row on screen, one held lock, scenery_rows = 1 — the
+    # snapshot said "0 fightable rows" and the hunt strolled away from a live
+    # enemy after the clear debounce. A lock is the one fact a presumption
+    # cannot argue with.
+    test "a fresh lock disproves a presumption that covers the whole list" do
+      logic = %{hunting(0, scenery_config()) | scenery_rows: 1, scenery_until: 100_000}
+
+      # the post-kill probe is how a covered row gets Tabbed at all
+      logic = Logic.rescan(logic, 0)
+      {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 10), 10)
+      assert logic.state == :tabbing
+      assert {:tab} in actions
+
+      {logic, _} =
+        Logic.step(logic, obs(enemies: [0], locked?: true, locked_row: 0, captured_at: 20), 30)
+
+      assert logic.state == :fighting
+      assert logic.scenery_rows == nil
+    end
+
+    test "a lock with rows BEYOND the presumption only clamps it" do
+      # own pokémon (the presumed row) plus a real enemy: the lock proves one
+      # row fights — the other may still be the own pokémon, keep presuming it
+      logic = %{hunting(0, scenery_config()) | scenery_rows: 1, scenery_until: 100_000}
+
+      {logic, _} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 10), 10)
+      assert logic.state == :tabbing
+
+      {logic, _} =
+        Logic.step(
+          logic,
+          obs(enemies: [0, 1], locked?: true, locked_row: 1, captured_at: 20),
+          30
+        )
+
+      assert logic.state == :fighting
+      assert logic.scenery_rows == 1
+    end
+
+    test "a held lock keeps disproving: rows shrinking onto the presumption clear it" do
+      logic = %{hunting(0, scenery_config()) | scenery_rows: 1, scenery_until: 100_000}
+
+      {logic, _} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 10), 10)
+
+      {logic, _} =
+        Logic.step(
+          logic,
+          obs(enemies: [0, 1], locked?: true, locked_row: 1, captured_at: 20),
+          30
+        )
+
+      assert logic.scenery_rows == 1
+
+      # the other row left; the lock is still held on the one that remains
+      {logic, _} =
+        Logic.step(logic, obs(enemies: [0], locked?: true, locked_row: 0, captured_at: 40), 50)
+
+      assert logic.scenery_rows == nil
+    end
+
     test "a config without the scenery keys keeps the old behavior, clean log" do
       logic = hunting(0, tab_max_attempts: 1, tab_confirm_ms: 100)
 

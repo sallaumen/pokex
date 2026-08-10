@@ -145,18 +145,33 @@ defmodule Pokex.Bots.Cavebot.Logic do
   end
 
   # Enemy on screen: Combat (always running) already fights — just change state.
-  defp walk(logic, %{enemies: enemies}, now) when enemies > 0 do
+  defp walk(logic, %{enemies: enemies}, now) when enemies > 0, do: enter_fight(logic, now)
+
+  # The COUNT can lie — `enemies` is rows minus presumed scenery, and a stale
+  # presumption once swallowed the only real enemy (2026-08-10: fightable read
+  # 0 over a live lock, and the hunt strolled off mid-fight) — but an engaged
+  # Combat cannot: :tabbing/:fighting hold the road, whatever the subtraction
+  # says.
+  defp walk(logic, world, now) do
+    if engaged?(world), do: enter_fight(logic, now), else: follow_route(logic, world, now)
+  end
+
+  defp enter_fight(logic, now) do
     since = logic.since |> Map.delete(:clear) |> Map.put(:fight, now)
     {%{logic | state: :fighting, since: since}, :none}
   end
+
+  # What "engaged" means comes from the Combat snapshot the Worker relays:
+  # acquiring a target and holding a lock are both a claim on the road.
+  defp engaged?(world), do: Map.get(world, :combat_state) in [:tabbing, :fighting]
 
   # Unknown position: hold — never walk FAR blind. MARK the blindness so the
   # Worker can say how long it has lasted, and after blind_kick_ms KICK one
   # step toward the waypoint: the client only draws the coordinate while the
   # position changes, so one moved tile is what brings the reading back.
-  defp walk(logic, %{pos: nil}, now), do: logic |> blind(now) |> maybe_kick(now)
+  defp follow_route(logic, %{pos: nil}, now), do: logic |> blind(now) |> maybe_kick(now)
 
-  defp walk(logic, %{pos: {x, y, _} = pos}, now) do
+  defp follow_route(logic, %{pos: {x, y, _} = pos}, now) do
     logic = logic |> sighted() |> home_in(pos)
     wp = current_wp(logic)
     dx = wp.x - x
@@ -241,8 +256,17 @@ defmodule Pokex.Bots.Cavebot.Logic do
     }
   end
 
-  # Screen clear: sustain the debounce before declaring the fight over.
-  defp fight(logic, %{enemies: 0}, now) do
+  # Screen clear AND Combat disengaged: sustain the debounce before declaring
+  # the fight over. Clear rows alone are not enough — see `engaged?/1`: a held
+  # lock is a live fight the count cannot see, and the debounce must not even
+  # start under one.
+  defp fight(logic, %{enemies: 0} = world, now) do
+    if engaged?(world), do: fight_on(logic, 0, now), else: fight_clear(logic, now)
+  end
+
+  defp fight(logic, %{enemies: enemies}, now), do: fight_on(logic, enemies, now)
+
+  defp fight_clear(logic, now) do
     logic = %{logic | last_enemies: 0}
 
     case Map.get(logic.since, :clear) do
@@ -271,7 +295,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # everything else was working. A changing enemy count IS progress (one died,
   # or one arrived), so it restarts the clock; only a screen that stays
   # identical for the whole timeout is a stall.
-  defp fight(logic, %{enemies: enemies}, now) do
+  defp fight_on(logic, enemies, now) do
     since = Map.delete(logic.since, :clear)
     progress? = logic.last_enemies != nil and logic.last_enemies != enemies
     logic = %{logic | last_enemies: enemies}

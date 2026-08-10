@@ -899,6 +899,11 @@ defmodule PokexWeb.CalibrationLive do
   # The label is up the moment the position changes; the photo only has to
   # outlast the client's own frame.
   @walk_settle_ms Application.compile_env(:pokex, :coord_walk_settle_ms, 350)
+  # macOS gives a window KEY focus on a click, not on `set frontmost` alone:
+  # Lucas's arrows landed in the BROWSER (2026-08-10). One click on the
+  # calibrated neutral point — his own tile, a click-to-walk no-op — is what
+  # hands the keys to the game.
+  @focus_settle_ms Application.compile_env(:pokex, :coord_focus_settle_ms, 250)
 
   # The game draws the coordinate only while the mouse is OVER the minimap
   # (measured 2026-08-10: the bot's captures had no text on the very minimap
@@ -958,9 +963,10 @@ defmodule PokexWeb.CalibrationLive do
 
   defp run_coord_search(socket) do
     draft = socket.assigns.draft
+    focus = focus_point()
 
     attempts =
-      Enum.map(@walk_pairs, &{:walk, &1}) ++
+      Enum.map(@walk_pairs, &{:walk, &1, focus}) ++
         [{:hover, draft[:minimap_player_point] || region_center(draft[:minimap_region])}]
 
     Enum.reduce_while(attempts, assign(socket, coord_search: :not_found), fn attempt, socket ->
@@ -982,7 +988,8 @@ defmodule PokexWeb.CalibrationLive do
     end)
   end
 
-  defp try_attempt({:walk, pair}, draft), do: attempt(fn -> walk_grab(pair) end, draft, :walk)
+  defp try_attempt({:walk, pair, focus}, draft),
+    do: attempt(fn -> walk_grab(pair, focus) end, draft, :walk)
 
   defp try_attempt({:hover, point}, draft),
     do: attempt(fn -> hover_grab(point) end, draft, :hover)
@@ -1008,12 +1015,28 @@ defmodule PokexWeb.CalibrationLive do
     )
   end
 
+  # Where the focus click lands: the calibrated NEUTRAL point (his own tile —
+  # click-to-walk there lands where he already stands), falling back to the
+  # marked character. Never a guessed point: a click on an unknown tile is a
+  # walk order.
+  defp focus_point do
+    case Calibration.load() do
+      {:ok, calib} -> calib.neutral_point || calib.player_point
+      _no_calibration -> nil
+    end
+  end
+
   # One tile out, photo, one tile back: net zero movement, and the label is up
   # for the shot because the position just changed. Ungated `{:tap, _}` for the
   # same reason as the hover — the gate cannot open with the fleet down.
-  defp walk_grab({out_key, back_key}) do
+  defp walk_grab({out_key, back_key}, focus) do
     result =
       with_game_front(fn ->
+        # INSIDE the front block, never before it: with_game_front restores the
+        # browser on the way out, so a click made outside would hand the focus
+        # straight back before a single key was pressed.
+        if focus, do: Body.perform([{:focus_click, focus}, {:wait, @focus_settle_ms}])
+
         Body.perform([{:tap, out_key}])
         Process.sleep(@walk_settle_ms)
         shot = Screenshot.take("calibration_screen.png")
@@ -1951,7 +1974,8 @@ defmodule PokexWeb.CalibrationLive do
 
           <div :if={@step == :minimap_coord_search} id="coord-band-search" class="space-y-2">
             <p :if={@coord_search == :searching} class="text-sm opacity-70">
-              Dando um passinho (seta e volta) pra fazer o texto aparecer, e fotografando…
+              Clicando no ponto neutro pra dar foco ao jogo, dando um passinho (seta e volta)
+              pra fazer o texto aparecer, e fotografando…
             </p>
 
             <div :if={match?({:found, _, _, _}, @coord_search)} class="space-y-2">
@@ -1991,6 +2015,11 @@ defmodule PokexWeb.CalibrationLive do
                 Não achei o texto da coordenada. O jogo só o desenha quando a posição MUDA —
                 deixe o personagem livre pra andar um tile (e o minimapa sem nada por cima) e
                 busque de novo, ou marque a faixa na mão.
+                <span :if={is_nil(focus_point())} class="block font-normal">
+                  Dica: o <b>ponto neutro</b>
+                  não está calibrado — é nele que eu clico pra dar o foco ao jogo, senão as
+                  setas vão parar no navegador.
+                </span>
               </p>
               <p :if={match?({:failed, _}, @coord_search)} class="font-mono text-[11px] opacity-60">
                 {elem(@coord_search, 1)}

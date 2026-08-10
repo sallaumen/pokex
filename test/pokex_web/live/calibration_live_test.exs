@@ -1523,8 +1523,12 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert html =~ ~s(id="coord-band-found")
       assert html =~ "li: (337, 46107, 4)"
 
-      taps = Enum.filter(Fake.calls(), &match?({:tap, _}, &1))
-      assert taps == [{:tap, "right"}, {:tap, "left"}]
+      # the neutral point is CLICKED first: `set frontmost` alone does not give
+      # the game the keyboard, and the arrows landed in the browser (2026-08-10)
+      ordered =
+        Enum.filter(Fake.calls(), &(match?({:tap, _}, &1) or match?({:focus_click, _}, &1)))
+
+      assert ordered == [{:focus_click, {52, 36}}, {:tap, "right"}, {:tap, "left"}]
 
       # walking answered, so the exceptional hover state is never photographed
       refute Enum.any?(Fake.calls(), &match?({:hover, _}, &1))
@@ -1611,6 +1615,10 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       assert html =~ "li: (337, 46107, 4)"
       assert html =~ "só consegui ler com o MOUSE"
+
+      # this calibration has no neutral point, so nothing was clicked to hand
+      # the game the keyboard — the likeliest reason walking answered nothing
+      refute Enum.any?(Fake.calls(), &match?({:focus_click, _}, &1))
     end
 
     @tag :tmp_dir

@@ -40,6 +40,7 @@ defmodule Pokex.Bots.MiniGame.Replay do
                move: 1,
                hover: 1,
                tap: 1,
+               focus_click: 1,
                capture_sequence: 1,
                capture: 2,
                capture_screen: 0,
@@ -59,6 +60,8 @@ defmodule Pokex.Bots.MiniGame.Replay do
     def hover(_point), do: refuse(:hover)
     @impl true
     def tap(_combo), do: refuse(:tap)
+    @impl true
+    def focus_click(_point), do: refuse(:focus_click)
     @impl true
     def hold_latency_ms, do: 0
     @impl true

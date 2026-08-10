@@ -335,6 +335,7 @@ defmodule Pokex.Bots.Body do
 
   defp mouse_action?({:move, _point}), do: true
   defp mouse_action?({:hover, _point}), do: true
+  defp mouse_action?({:focus_click, _point}), do: true
   defp mouse_action?({:click, _button, _point}), do: true
   defp mouse_action?({:capture_sequence, _point}), do: true
   defp mouse_action?(_action), do: false
@@ -374,6 +375,7 @@ defmodule Pokex.Bots.Body do
   defp execute({:move, point}), do: Rig.impl().move(point)
   defp execute({:hover, point}), do: Rig.impl().hover(point)
   defp execute({:tap, combo}), do: Rig.impl().tap(combo)
+  defp execute({:focus_click, point}), do: Rig.impl().focus_click(point)
   defp execute({:capture_sequence, point}), do: Rig.impl().capture_sequence(point)
   # A pause WITHIN a sequence: lets one atomic perform hold a game-response gap
   # (e.g. between arming the rod and clicking the water) without releasing the Body
@@ -395,6 +397,7 @@ defmodule Pokex.Bots.Body do
 
   defp guarded_input?({:press, _key}), do: true
   defp guarded_input?({:tap, _combo}), do: true
+  defp guarded_input?({:focus_click, _point}), do: true
   defp guarded_input?({:click, _button, _point}), do: true
   defp guarded_input?({:capture_sequence, _point}), do: true
   defp guarded_input?(_action), do: false
@@ -406,6 +409,7 @@ defmodule Pokex.Bots.Body do
   defp first_action([{:move, _point} | _]), do: "move"
   defp first_action([{:hover, _point} | _]), do: "hover"
   defp first_action([{:tap, combo} | _]), do: "tap:#{combo}"
+  defp first_action([{:focus_click, _point} | _]), do: "focus_click"
   defp first_action([{:capture_sequence, _point} | _]), do: "capture_sequence"
   defp first_action([{:wait, _ms} | _]), do: "wait"
   defp first_action([_other | _]), do: "other"
@@ -461,6 +465,7 @@ defmodule Pokex.Bots.Body do
   defp action_label({:move, _point}), do: "move"
   defp action_label({:hover, _point}), do: "hover"
   defp action_label({:tap, combo}), do: "tap:#{combo}"
+  defp action_label({:focus_click, _point}), do: "focus_click"
   defp action_label({:capture_sequence, _point}), do: "cap"
   defp action_label({:wait, ms}) when is_integer(ms), do: "wait:#{ms}"
   defp action_label({:wait, _ms}), do: "wait"

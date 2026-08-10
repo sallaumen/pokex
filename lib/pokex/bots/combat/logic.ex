@@ -154,9 +154,10 @@ defmodule Pokex.Bots.Combat.Logic do
     cond do
       fresh_lock?(obs, logic.tabbed_at) ->
         # confirmed on a post-Tab frame → fight, and don't waste this event: first burst now.
-        # A real lock resets scenery learning: there was a real enemy.
+        # A real lock resets scenery learning — and disproves a presumption
+        # covering the whole list (disprove_scenery/2).
         logic = %{
-          logic
+          disprove_scenery(logic, obs)
           | state: :fighting,
             entered_at: now,
             lost_streak: 0,
@@ -205,7 +206,7 @@ defmodule Pokex.Bots.Combat.Logic do
         {rehunt(logic, now), [{:log, "timeout do alvo; recaçando"}]}
 
       locked?(obs) ->
-        logic = %{logic | lost_streak: 0, locked_row: obs.locked_row}
+        logic = %{disprove_scenery(logic, obs) | lost_streak: 0, locked_row: obs.locked_row}
         press_next_skill(logic, now, obs[:ready_skills])
 
       observed?(obs) and logic.lost_streak + 1 >= logic.config.target_lost_streak ->
@@ -359,6 +360,21 @@ defmodule Pokex.Bots.Combat.Logic do
   end
 
   defp own_out?(obs), do: obs != nil and obs[:own_out?] == true
+
+  # A held lock is the one fact a presumption cannot argue with: at least one
+  # row on screen is being fought RIGHT NOW, so a presumption covering the
+  # WHOLE list is disproved — clamp it to leave the locked row out. Before
+  # this, a presumption survived into a real fight for its whole TTL: one row
+  # on screen, one held lock, scenery_rows = 1 — the hunt read "0 fightable"
+  # and strolled off mid-fight (Lucas, 2026-08-10).
+  defp disprove_scenery(%{scenery_rows: nil} = logic, _obs), do: logic
+
+  defp disprove_scenery(logic, obs) do
+    case min(logic.scenery_rows, max(length(enemies(obs)) - 1, 0)) do
+      0 -> %{logic | scenery_rows: nil, scenery_until: nil, failed_hunts: 0}
+      clamped -> %{logic | scenery_rows: clamped}
+    end
+  end
 
   # The presumption self-corrects: it expires at the TTL (re-probe), and a list
   # SMALLER than it means the composition changed (the scenery left) — forget

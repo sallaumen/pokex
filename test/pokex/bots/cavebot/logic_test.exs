@@ -408,9 +408,10 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
     test "the count is remembered across the clear, so the next fight starts fresh" do
       {l, :none} = Logic.step(fighting(), battling(2), 0)
-      # screen clears and the dwell runs out: back to walking
-      {l, :none} = Logic.step(l, battling(0), 1_000)
-      {l, _} = Logic.step(l, battling(0), 2_000)
+      # screen clears AND Combat disengages (an engaged clear may not run the
+      # debounce — own describe): back to walking after the dwell
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :hunting), 1_000)
+      {l, _} = Logic.step(l, world({10, 10, 7}, 0, :hunting), 2_000)
       assert l.state == :post_fight
       assert l.last_enemies == 0
     end
@@ -437,6 +438,50 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       # now standing next to wp 1 again: without the latch it would re-home
       {l, {:walk, _dx, _dy}} = Logic.step(l, world({9, 10, 7}), 500)
       assert l.wp_index == 1
+    end
+  end
+
+  # 2026-08-10: a stale scenery presumption swallowed the only real enemy —
+  # `enemies` (rows minus presumed scenery) read 0 while Combat held a live
+  # lock, the clear debounce ran out, and the hunt strolled off mid-fight.
+  # The count can lie; a held lock cannot: :tabbing/:fighting hold the road.
+  describe "the fightable count can lie; an engaged Combat cannot" do
+    test "walking with zero fightable rows but Combat engaged → fighting" do
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({10, 10, 7}, 0, :fighting), 0)
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :fighting), 10)
+      assert l.state == :fighting
+    end
+
+    test ":tabbing counts as engaged — target acquisition holds the road too" do
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({10, 10, 7}, 0, :tabbing), 0)
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :tabbing), 10)
+      assert l.state == :fighting
+    end
+
+    test "the clear debounce never starts while Combat is engaged" do
+      l = %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
+
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :fighting), 0)
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :fighting), 900)
+      assert l.state == :fighting
+
+      # disengaged: NOW the debounce runs, and from zero
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :hunting), 1_000)
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :hunting), 1_700)
+      assert l.state == :fighting
+
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :hunting), 1_900)
+      assert l.state == :post_fight
+    end
+
+    # engagement must never become a freeze: a Combat wedged in :fighting with
+    # nothing changing on screen still hits the stall valve
+    test "engaged forever with zero rows still stalls at the fight timeout" do
+      l = %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
+
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :fighting), 0)
+      {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :fighting), 20_010)
+      assert l.state == :fight_stalled
     end
   end
 end

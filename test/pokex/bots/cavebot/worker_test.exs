@@ -526,6 +526,38 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
            }
   end
 
+  # Lucas's own pokémon shows up in the battle list (2026-08-10): Combat tabbed
+  # at it, failed three times, called it scenery and moved on — while the hunt,
+  # counting raw rows, stood still forever waiting for a fight that could never
+  # start. It yields the road only to rows Combat might still fight.
+  test "a row Combat gave up on does not hold the hunt", %{worker: worker} do
+    # leaving :fighting costs a debounce plus a dwell; this test is about WHO
+    # counts as an enemy, not about those clocks
+    SettingsStash.stash!(cavebot_clear_debounce_ms: 0, cavebot_post_kill_dwell_ms: 0)
+    route!()
+    :ok = Worker.run(worker)
+    minimap!({10, 20, 7})
+    battle!([%{row: 0, name: "meu próprio pokémon"}])
+
+    tick!(worker)
+    assert_receive {:combat_cmd, :run}, 1_000
+
+    # raw count says 1 enemy: without Combat's verdict the hunt stands still
+    tick!(worker)
+    refute_receive {:stepped, _dx, _dy}, 300
+
+    # Combat gave up on that row — the road is free again
+    send(worker, {:combat, %{state: :hunting, scenery: 1}})
+    # clear -> post_fight -> walking -> step, one tick each with the clocks at zero
+    Enum.each(1..4, fn _tick -> tick!(worker) end)
+    assert_receive {:stepped, 90, 80}, 1_000
+
+    # and a REAL target still stops it
+    send(worker, {:combat, %{state: :hunting, scenery: 0}})
+    tick!(worker)
+    refute_receive {:stepped, _dx2, _dy2}, 300
+  end
+
   # Heard, never asked: a `call` to the Catcher parks behind its multi-second
   # captures, and this worker ticks 5x a second. The snapshot it broadcasts is
   # what tells the hunt to hold its ground after a kill.

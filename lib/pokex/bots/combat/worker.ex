@@ -406,16 +406,22 @@ defmodule Pokex.Bots.Combat.Worker do
       counters: %Logic{}.counters,
       error: nil,
       locked_row: nil,
+      scenery: 0,
       hold_reason: nil,
       last_action: state.last_action
     }
 
+  # `scenery` is how many battle rows this worker has GIVEN UP on — the rows it
+  # tabbed at and never locked (his own pokémon in the list, an unreachable mob
+  # behind a wall). It was private knowledge that only shaped Tab; the HUNT
+  # needs it too, or it yields the road to a row nobody will ever fight.
   defp snapshot(logic, state),
     do: %{
       state: logic.state,
       counters: logic.counters,
       error: logic.error,
       locked_row: logic.locked_row,
+      scenery: logic.scenery_rows || 0,
       hold_reason: if(state.held?, do: "mini-game em jogo"),
       last_action: state.last_action
     }

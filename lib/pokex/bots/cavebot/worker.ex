@@ -87,6 +87,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       feed_ref: nil,
       reattach_attempts: 0,
       combat_state: :idle,
+      combat_scenery: 0,
       capture_pending: 0,
       last_step: nil,
       pos: nil,
@@ -213,8 +214,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  def handle_info({:combat, %{state: combat_state}}, state),
-    do: {:noreply, %{state | combat_state: combat_state}}
+  def handle_info({:combat, %{state: combat_state} = snapshot}, state) do
+    {:noreply,
+     %{state | combat_state: combat_state, combat_scenery: Map.get(snapshot, :scenery, 0)}}
+  end
 
   # Corpses still queued (mapped bodies waiting, plus the blind sweep's own
   # queue) — the hunt holds its ground while either has work.
@@ -275,7 +278,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
     world = %{
       pos: pos,
-      enemies: enemy_count(now),
+      enemies: fightable(state, now),
       combat_state: state.combat_state,
       capture_pending: state.capture_pending
     }
@@ -293,6 +296,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # Fail-safe 0: a missing/stale :battle fact reads as "screen clear" — the
   # cavebot keeps the route; a real enemy is still fought by Combat (always
   # running) and the next fresh fact corrects the count.
+  # What the hunt YIELDS the road to: rows Combat might still fight, never the
+  # ones it has given up on. Lucas's own pokémon shows in the battle list
+  # (2026-08-10): Combat tabbed at it, failed three times, called it scenery
+  # and moved on — while the hunt, counting raw rows, stood still forever
+  # waiting for a fight that could never start.
+  defp fightable(state, now) do
+    max(enemy_count(now) - state.combat_scenery, 0)
+  end
+
   defp enemy_count(now) do
     case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now) do
       {:ok, obs} -> length(Map.get(obs, :enemies) || [])

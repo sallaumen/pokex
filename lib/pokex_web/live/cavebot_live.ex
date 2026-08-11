@@ -270,6 +270,18 @@ defmodule PokexWeb.CavebotLive do
     {:noreply, assign(socket, selected: selected)}
   end
 
+  # A waypoint is not only a place: it can carry a JOB. "Mobar daqui" … "até
+  # aqui" brackets the stretch the hunt walks GATHERING mobs — drawn blue on
+  # the map, and obeyed by the hunt itself in the next step.
+  def handle_event("set_waypoint_action", %{"index" => index, "action" => action}, socket) do
+    index = String.to_integer(index)
+
+    with_route(socket, fn route ->
+      action = decode_action(action)
+      {Route.set_action(route, index, action), "waypoint #{index + 1}: #{action_label(action)}"}
+    end)
+  end
+
   # Recording lays waypoints in the order walked; a corner in the wrong place
   # used to mean walking the whole route again.
   def handle_event("move_waypoint", %{"index" => index, "dir" => dir}, socket) do
@@ -472,6 +484,37 @@ defmodule PokexWeb.CavebotLive do
 
   defp leg_label(0), do: "· fecha o ciclo:"
   defp leg_label(_index), do: "·"
+
+  # The jobs a waypoint can carry, in the order the editor offers them. The
+  # atoms are the domain's (`Route.action`); only the labels are Portuguese.
+  @waypoint_actions [
+    {:walk, "andar", "hero-arrow-long-right"},
+    {:lure_start, "mobar daqui", "hero-play"},
+    {:lure_end, "até aqui", "hero-stop"}
+  ]
+
+  defp waypoint_actions, do: @waypoint_actions
+
+  defp decode_action("lure_start"), do: :lure_start
+  defp decode_action("lure_end"), do: :lure_end
+  defp decode_action(_walk), do: :walk
+
+  defp action_label(action) do
+    Enum.find_value(@waypoint_actions, "andar", fn {a, label, _icon} -> a == action && label end)
+  end
+
+  # A stretch marked "mobar daqui" and never closed does not fail loudly — it
+  # lures the WHOLE loop, which reads as "the hunt stopped fighting". Say it
+  # where the marks are made.
+  defp lure_warning(%Route{} = route) do
+    case Route.lure_issue(route) do
+      :start_without_end -> "tem \"mobar daqui\" sem \"até aqui\" — o mob vale a rota inteira"
+      :end_without_start -> "tem \"até aqui\" sem \"mobar daqui\" — essa marca não faz nada"
+      nil -> nil
+    end
+  end
+
+  defp lure_warning(_no_route), do: nil
 
   defp default_active(routes), do: Enum.find(routes, & &1.enabled?)
 
@@ -830,69 +873,121 @@ defmodule PokexWeb.CavebotLive do
                 nenhum waypoint ainda — ande até o primeiro canto e marque
               </p>
 
+              <p
+                :if={lure_warning(@active_route)}
+                id="lure-warning"
+                class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+              >
+                <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
+                {lure_warning(@active_route)}
+              </p>
+
               <ol :if={@active_route.waypoints != []} class="mt-3 space-y-1.5">
                 <li
                   :for={{wp, index} <- Enum.with_index(@active_route.waypoints)}
                   id={"waypoint-#{index}"}
-                  phx-click="select_waypoint"
-                  phx-value-index={index}
                   class={[
-                    "flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition",
+                    "rounded-lg border px-3 py-2 transition",
                     if(@selected == index,
                       do: "border-pk-warn bg-pk-warn-dim",
                       else: "border-pk-line bg-pk-sunken hover:border-pk-line-strong"
                     )
                   ]}
                 >
-                  <span class="pk-num w-5 font-mono text-pk-meta text-pk-text-3">{index + 1}</span>
-                  <span class="pk-num flex-1 font-mono text-pk-body text-pk-text">
-                    {wp.x}, {wp.y}
-                    <span :if={leg_tiles(@active_route.waypoints, index)} class="text-pk-text-3">
-                      {leg_label(index)} {leg_tiles(@active_route.waypoints, index)} tiles
+                  <div
+                    class="flex cursor-pointer items-center gap-2"
+                    phx-click="select_waypoint"
+                    phx-value-index={index}
+                  >
+                    <span class="pk-num w-5 font-mono text-pk-meta text-pk-text-3">{index + 1}</span>
+                    <span class="pk-num flex-1 font-mono text-pk-body text-pk-text">
+                      {wp.x}, {wp.y}
+                      <span
+                        :if={wp.action != :walk}
+                        class="ml-1 rounded border border-pk-info-line bg-pk-info-dim px-1.5 py-0.5 text-pk-meta text-pk-info"
+                      >
+                        {action_label(wp.action)}
+                      </span>
+                      <span :if={leg_tiles(@active_route.waypoints, index)} class="text-pk-text-3">
+                        {leg_label(index)} {leg_tiles(@active_route.waypoints, index)} tiles
+                      </span>
                     </span>
-                  </span>
-                  <button
-                    id={"waypoint-up-#{index}"}
-                    phx-click="move_waypoint"
-                    phx-value-index={index}
-                    phx-value-dir="up"
-                    disabled={index == 0}
-                    aria-label={"Mover waypoint #{index + 1} para cima"}
-                    class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-text disabled:cursor-not-allowed disabled:opacity-30"
+                    <button
+                      id={"waypoint-up-#{index}"}
+                      phx-click="move_waypoint"
+                      phx-value-index={index}
+                      phx-value-dir="up"
+                      disabled={index == 0}
+                      aria-label={"Mover waypoint #{index + 1} para cima"}
+                      class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-text disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      <.icon name="hero-arrow-up" class="size-3.5" />
+                    </button>
+                    <button
+                      id={"waypoint-down-#{index}"}
+                      phx-click="move_waypoint"
+                      phx-value-index={index}
+                      phx-value-dir="down"
+                      disabled={index == length(@active_route.waypoints) - 1}
+                      aria-label={"Mover waypoint #{index + 1} para baixo"}
+                      class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-text disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      <.icon name="hero-arrow-down" class="size-3.5" />
+                    </button>
+                    <button
+                      id={"waypoint-insert-#{index}"}
+                      phx-click="insert_waypoint"
+                      phx-value-index={index}
+                      aria-label={"Inserir a posição atual antes do waypoint #{index + 1}"}
+                      title="inserir a posição atual aqui"
+                      class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-ok"
+                    >
+                      <.icon name="hero-plus" class="size-3.5" />
+                    </button>
+                    <button
+                      id={"waypoint-delete-#{index}"}
+                      phx-click="delete_waypoint"
+                      phx-value-index={index}
+                      data-confirm={"Apagar o waypoint #{index + 1} (#{wp.x}, #{wp.y})?"}
+                      aria-label={"Apagar waypoint #{index + 1}"}
+                      class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-danger"
+                    >
+                      <.icon name="hero-trash" class="size-3.5" />
+                    </button>
+                  </div>
+
+                  <%!-- The job lives on the SELECTED waypoint only: fourteen rows
+                       each carrying three more buttons is a wall, and the choice
+                       is rare — you mark a mob stretch once and hunt it for
+                       weeks. --%>
+                  <div
+                    :if={@selected == index}
+                    id={"waypoint-job-#{index}"}
+                    class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
                   >
-                    <.icon name="hero-arrow-up" class="size-3.5" />
-                  </button>
-                  <button
-                    id={"waypoint-down-#{index}"}
-                    phx-click="move_waypoint"
-                    phx-value-index={index}
-                    phx-value-dir="down"
-                    disabled={index == length(@active_route.waypoints) - 1}
-                    aria-label={"Mover waypoint #{index + 1} para baixo"}
-                    class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-text disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <.icon name="hero-arrow-down" class="size-3.5" />
-                  </button>
-                  <button
-                    id={"waypoint-insert-#{index}"}
-                    phx-click="insert_waypoint"
-                    phx-value-index={index}
-                    aria-label={"Inserir a posição atual antes do waypoint #{index + 1}"}
-                    title="inserir a posição atual aqui"
-                    class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-ok"
-                  >
-                    <.icon name="hero-plus" class="size-3.5" />
-                  </button>
-                  <button
-                    id={"waypoint-delete-#{index}"}
-                    phx-click="delete_waypoint"
-                    phx-value-index={index}
-                    data-confirm={"Apagar o waypoint #{index + 1} (#{wp.x}, #{wp.y})?"}
-                    aria-label={"Apagar waypoint #{index + 1}"}
-                    class="grid size-7 cursor-pointer place-items-center rounded text-pk-text-2 transition hover:bg-pk-raised hover:text-pk-danger"
-                  >
-                    <.icon name="hero-trash" class="size-3.5" />
-                  </button>
+                    <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                      função
+                    </span>
+                    <button
+                      :for={{action, label, icon} <- waypoint_actions()}
+                      id={"waypoint-#{index}-#{action}"}
+                      phx-click="set_waypoint_action"
+                      phx-value-index={index}
+                      phx-value-action={action}
+                      aria-pressed={to_string(wp.action == action)}
+                      aria-label={"Waypoint #{index + 1}: #{label}"}
+                      class={[
+                        "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
+                        if(wp.action == action,
+                          do: "border-pk-info bg-pk-info-dim text-pk-info",
+                          else:
+                            "border-pk-line-strong text-pk-text-2 hover:border-pk-info/60 hover:text-pk-text"
+                        )
+                      ]}
+                    >
+                      <.icon name={icon} class="size-3.5" />{label}
+                    </button>
+                  </div>
                 </li>
               </ol>
             </section>

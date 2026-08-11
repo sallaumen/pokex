@@ -42,7 +42,7 @@ defmodule PokexWeb.CavebotLiveTest do
     assert [%Route{name: "cavena", dungeon: "cavena-dg", z: 7, waypoints: waypoints}] =
              Store.all()
 
-    assert waypoints == [%{x: 10, y: 20, z: 7}]
+    assert waypoints == [%{x: 10, y: 20, z: 7, action: :walk}]
     assert has_element?(view, "#waypoint-0")
     assert html =~ "waypoint 1 marcado"
     assert view |> element("#cavebot-notice") |> render() =~ "text-pk-ok"
@@ -181,7 +181,11 @@ defmodule PokexWeb.CavebotLiveTest do
     render(view)
 
     assert [%Route{waypoints: waypoints}] = Store.all()
-    assert waypoints == [%{x: 10, y: 20, z: 7}, %{x: 20, y: 20, z: 7}]
+
+    assert waypoints == [
+             %{x: 10, y: 20, z: 7, action: :walk},
+             %{x: 20, y: 20, z: 7, action: :walk}
+           ]
 
     view |> element("#toggle-recording") |> render_click()
     assert render(view) =~ "gravação parada"
@@ -395,5 +399,76 @@ defmodule PokexWeb.CavebotLiveTest do
     assert html =~ "início da rota"
     assert html =~ "fim da rota"
     assert html =~ "sai sozinha quando você gravar"
+  end
+
+  # "quero poder configurar individualmente cada bolinha, para dar uma
+  # funcionalidade dela, tipo 'mobar daqui' e marcar em outra 'até aqui'"
+  # (Lucas, 2026-08-10).
+  describe "a waypoint carries a job" do
+    test "the job buttons appear on the SELECTED waypoint and nowhere else", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      {:ok, view, html} = live(conn, ~p"/cavebot")
+
+      refute html =~ ~s(id="waypoint-job-0")
+
+      html = view |> element("#map-waypoint-0") |> render_click()
+      assert html =~ ~s(id="waypoint-job-0")
+      refute html =~ ~s(id="waypoint-job-1")
+      assert html =~ "mobar daqui"
+    end
+
+    test "marking a stretch persists it and paints the leg blue", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}, {20, 20, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+      view |> element("#waypoint-0-lure_start") |> render_click()
+
+      view |> element("#map-waypoint-1") |> render_click()
+      html = view |> element("#waypoint-1-lure_end") |> render_click()
+
+      assert [%Route{waypoints: [%{action: :lure_start}, %{action: :lure_end}, %{action: :walk}]}] =
+               Store.all()
+
+      # the drawing says it in blue, the badge and the summary say it in words
+      assert html =~ "var(--color-pk-info)"
+      assert html =~ ~s(id="map-lure-legend")
+      assert html =~ "1 perna(s) em modo mob"
+    end
+
+    test "a plain route is not blue anywhere", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}, {20, 20, 7}])
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      refute html =~ "var(--color-pk-info)"
+      refute html =~ ~s(id="map-lure-legend")
+    end
+
+    # A start nobody closed lures the WHOLE loop — which on screen looks like
+    # "the hunt stopped fighting", with no error anywhere.
+    test "a stretch left open warns, and closing it takes the warning away", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+      html = view |> element("#waypoint-0-lure_start") |> render_click()
+      assert html =~ ~s(id="lure-warning")
+      assert html =~ "sem &quot;até aqui&quot;"
+
+      view |> element("#map-waypoint-1") |> render_click()
+      html = view |> element("#waypoint-1-lure_end") |> render_click()
+      refute html =~ ~s(id="lure-warning")
+    end
+
+    test "a job can be taken back", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+      view |> element("#waypoint-0-lure_start") |> render_click()
+      view |> element("#waypoint-0-walk") |> render_click()
+
+      assert [%Route{waypoints: [%{action: :walk}, %{action: :walk}]}] = Store.all()
+    end
   end
 end

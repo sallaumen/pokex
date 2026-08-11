@@ -692,6 +692,11 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       assert Enum.any?(actions, &match?({:press, "q"}, &1))
       assert Enum.any?(actions, &match?({:move, {120, 90}}, &1))
       assert Enum.any?(actions, &match?({:press, "shift+q"}, &1))
+
+      # and the tick did NOT wait on it: the Body's call has an :infinity
+      # timeout and may be seconds deep in a capture — a blocked tick would
+      # also time out the page's own status call
+      assert Worker.status(worker)
     end
 
     test "an unmarked waypoint asks for nothing", %{worker: worker} do

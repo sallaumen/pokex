@@ -469,6 +469,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
     dwell_since = Map.get(logic.since, :dwell, now)
 
     cond do
+      # A mob walking in during the stop is a FIGHT, not something to push
+      # through: the revive RECALLS the pokémon, and doing that while
+      # something is hitting it is the worst possible moment. What already ran
+      # stays done — the stop picks up where it left off once the screen is
+      # clear again.
+      world.enemies > 0 or engaged?(world) -> enter_fight(logic, now)
       capturing?(world, now, logic.config.capture_wait_ms) -> {logic, :none}
       sweeping?(logic, world, now) -> {logic, :none}
       standing_by?(logic, now) -> {logic, :none}

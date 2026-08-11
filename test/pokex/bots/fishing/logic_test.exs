@@ -382,14 +382,45 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
     defp empty_water, do: %{cursor: {500, 500}, glow: false, line?: false}
 
-    test "empty water inside the grace never counts toward the failed-cast streak" do
+    # The grace forbids the RE-THROW, never the looking. Withholding the looks made
+    # the verdict cost the grace PLUS a whole streak: 14.4s to notice a swallowed
+    # cast (measured in his journal, 2026-08-11) against 2.6s in the sessions before
+    # the grace existed — 30% of his fish per hour. Looking the whole time and
+    # refusing to ACT until the bait has had its chance costs neither.
+    test "empty water inside the grace is evidence, but never re-throws" do
       {logic, actions} =
         Enum.reduce(1..40, {watching_after_cast(), []}, fn i, {l, _} ->
           Logic.step(l, empty_water(), i * 100)
         end)
 
-      assert logic.dead_streak == 0
+      assert logic.dead_streak == 40
       assert actions == []
+    end
+
+    test "the looks taken during the grace re-throw the instant it ends" do
+      {logic, []} =
+        Enum.reduce(1..40, {watching_after_cast(), []}, fn i, {l, _} ->
+          Logic.step(l, empty_water(), i * 100)
+        end)
+
+      {_logic, actions} = Logic.step(logic, empty_water(), 5_001)
+
+      assert [{:log, msg}, {:move, _}, {:wait, _}, {:press, "shift+v"}] = actions
+      assert msg =~ "re-lançando"
+    end
+
+    test "a bait that lands inside the grace wipes the evidence against it" do
+      {logic, _} =
+        Enum.reduce(1..30, {watching_after_cast(), []}, fn i, {l, _} ->
+          Logic.step(l, empty_water(), i * 100)
+        end)
+
+      {logic, _} = Logic.step(logic, %{cursor: {500, 500}, glow: false, line?: true}, 4_000)
+      assert logic.dead_streak == 0
+
+      {logic, actions} = Logic.step(logic, empty_water(), 5_001)
+      assert actions == []
+      assert logic.dead_streak == 1
     end
 
     test "past the grace the streak counts again and the cast is re-thrown" do
@@ -412,6 +443,87 @@ defmodule Pokex.Bots.Fishing.LogicTest do
 
       assert logic.counters.hooked == 1
       assert {:press, "shift+v"} in actions
+    end
+  end
+
+  # The instrument, not a behaviour: two numbers nobody could read off the panel.
+  # 78% of the throws taken right after a catch never put a line in the water
+  # (measured over two sessions, 2026-08-11) — but "right after a catch" was a
+  # shape found by hand in the journal, and how long a good throw takes to prove
+  # itself was never recorded at all. Both are now stated by the cycle itself,
+  # so the grace can be tuned from a distribution instead of a guess.
+  describe "the throw states its own timing" do
+    defp thrown_after_hook do
+      watching = %Logic{state: :watching, config: grace_config(), entered_at: 0, settled?: true}
+      {hooked, _} = Logic.step(watching, %{cursor: {500, 500}, glow: true, line?: true}, 1_000)
+      assert hooked.state == :casting
+
+      {thrown, _} = Logic.step(hooked, cursor_obs(), 1_000 + 1_600)
+      assert thrown.state == :watching
+      thrown
+    end
+
+    test "the throw remembers when it happened and what came before it" do
+      thrown = thrown_after_hook()
+
+      assert thrown.cast_at == 2_600
+      assert thrown.cast_origin == :hook
+    end
+
+    test "the frame that first proves the cast says how long the bait took" do
+      thrown = thrown_after_hook()
+
+      {logic, actions} =
+        Logic.step(
+          thrown,
+          %{cursor: {500, 500}, glow: false, line?: true},
+          thrown.cast_at + 2_400
+        )
+
+      assert [{:log, msg}] = actions
+      assert msg =~ "2400ms"
+      assert msg =~ "fisgada"
+      assert logic.line_seen?
+    end
+
+    test "it says it once per throw, not once per frame" do
+      thrown = thrown_after_hook()
+      live = %{cursor: {500, 500}, glow: false, line?: true}
+
+      {logic, _} = Logic.step(thrown, live, thrown.cast_at + 2_400)
+      {_logic, actions} = Logic.step(logic, live, thrown.cast_at + 2_600)
+
+      assert actions == []
+    end
+
+    test "a throw that never proved itself says how long it waited, and after what" do
+      thrown = thrown_after_hook()
+
+      {logic, []} =
+        Enum.reduce(1..40, {thrown, []}, fn i, {l, _} ->
+          Logic.step(l, empty_water(), thrown.cast_at + i * 100)
+        end)
+
+      {_logic, actions} = Logic.step(logic, empty_water(), thrown.cast_at + 5_001)
+
+      assert [{:log, msg} | _] = actions
+      assert msg =~ "5001ms"
+      assert msg =~ "fisgada"
+      assert msg =~ "re-lançando"
+    end
+
+    test "the re-throw it produces is itself marked as a re-throw" do
+      thrown = thrown_after_hook()
+
+      {logic, _} =
+        Enum.reduce(1..40, {thrown, []}, fn i, {l, _} ->
+          Logic.step(l, empty_water(), thrown.cast_at + i * 100)
+        end)
+
+      {again, _} = Logic.step(logic, empty_water(), thrown.cast_at + 5_001)
+
+      assert again.cast_origin == :dry
+      assert again.cast_at == thrown.cast_at + 5_001
     end
   end
 

@@ -305,6 +305,35 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     end
   end
 
+  defp wait_for_macro_log(substr, deadline) do
+    receive do
+      {:fishing_log, :macro, text} when is_binary(text) ->
+        if String.contains?(text, substr),
+          do: true,
+          else: wait_for_macro_log(substr, deadline)
+
+      _ ->
+        wait_for_macro_log(substr, deadline)
+    after
+      max(0, deadline - System.monotonic_time(:millisecond)) -> false
+    end
+  end
+
+  # Measuring how long a throw takes to prove itself is only worth anything if the
+  # distribution can be read afterwards — and the journal keeps :macro and above.
+  # At :debug the number would exist and never be seen.
+  @tag :tmp_dir
+  test "the throw's flight time reaches the feed as macro", %{worker: worker} do
+    # 50 = the :focusing live-line check (under line_present_min_px → the normal
+    # cast path); 200 = a resting line, over the line floor and under the bite
+    # threshold — the frame that proves the cast landed without being a bite.
+    Agent.update(Sensors.Fake, &Map.merge(&1, %{glow: [50, 200]}))
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+    assert :ok = Worker.run(worker)
+    assert wait_for_macro_log("linha viva", System.monotonic_time(:millisecond) + 5_000)
+  end
+
   @tag :tmp_dir
   test "announces the catch so combat searches immediately", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.catch_topic())

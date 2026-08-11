@@ -186,4 +186,64 @@ defmodule Pokex.Pokedex.TeamTest do
       assert_raise ArgumentError, fn -> String.to_existing_atom("banana_xyz") end
     end
   end
+
+  # The bot cannot read which pokémon is out yet, so he says it. Every rule that
+  # depends on knowing — open with area, keep the control for the revive —
+  # hangs off this one answer.
+  describe "the pokémon on the field" do
+    @tag :tmp_dir
+    test "nobody is chosen until he chooses" do
+      assert Team.active() == nil
+    end
+
+    @tag :tmp_dir
+    test "the choice is stored, and nil clears it" do
+      {:ok, _} = Team.add("Seadra")
+
+      Team.set_active("Seadra")
+      assert Team.active() == "Seadra"
+
+      Team.set_active(nil)
+      assert Team.active() == nil
+    end
+
+    @tag :tmp_dir
+    test "a name outside the TEAM is not a choice — the bank is not on the field" do
+      {:ok, _} = Team.add("Venusaur", :bank)
+
+      Team.set_active("Venusaur")
+      assert Team.active() == nil
+
+      Team.set_active("Ninguém")
+      assert Team.active() == nil
+    end
+
+    # Fighting with the bar of a pokémon that left the team would press keys
+    # belonging to something that is not out.
+    @tag :tmp_dir
+    test "a chosen pokémon that leaves the team stops being the choice" do
+      {:ok, _} = Team.add("Seadra")
+      Team.set_active("Seadra")
+
+      Team.move("Seadra", :bank)
+      assert Team.active() == nil
+
+      Team.move("Seadra", :team)
+      assert Team.active() == "Seadra"
+    end
+
+    # Combat caches the loadout — a cache with no invalidation would keep
+    # pressing yesterday's keys after he re-classified them.
+    @tag :tmp_dir
+    test "choosing, and re-classifying, both announce themselves" do
+      {:ok, _} = Team.add("Seadra")
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Team.topic())
+
+      Team.set_active("Seadra")
+      assert_receive {:team_changed}
+
+      Team.set_skills("Seadra", %{"3" => :aoe})
+      assert_receive {:team_changed}
+    end
+  end
 end

@@ -14,11 +14,12 @@ defmodule Pokex.Bots.Combat.Worker do
   require Logger
 
   alias Pokex.Bots.Catcher.Worker
-  alias Pokex.Bots.Combat.Logic
+  alias Pokex.Bots.Combat.{Loadout, Logic, Strategy}
   alias Pokex.Bots.Perf
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
+  alias Pokex.Pokedex.Team
   alias Pokex.{Preflight, Settings}
 
   @topic "combat"
@@ -37,6 +38,7 @@ defmodule Pokex.Bots.Combat.Worker do
     :target_lost_streak,
     :skill_keys,
     :combat_skill_burst_size,
+    :combat_aoe_from_enemies,
     :max_consecutive_failures
   ]
 
@@ -58,11 +60,18 @@ defmodule Pokex.Bots.Combat.Worker do
   def init(:ok) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @catch_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
+    # Re-classifying a skill on /time has to reach the fight without a restart,
+    # and re-reading the team file every burst is the disk-hammering the
+    # recording audit killed. So: cached, invalidated by the change itself.
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Team.topic())
 
     {:ok,
      %{
        logic: nil,
        timer: nil,
+       # what the keys of the pokémon he chose DO — nil until :run, and nil
+       # forever if he chose none (the fight then presses the configured list)
+       loadout: nil,
        feed_ref: nil,
        reattach_attempts: 0,
        held?: false,
@@ -98,8 +107,11 @@ defmodule Pokex.Bots.Combat.Worker do
             feed_ref: ref,
             reattach_attempts: 0,
             held?: false,
-            last_action: nil
+            last_action: nil,
+            loadout: Loadout.current()
         }
+
+        log_loadout(state.loadout)
 
         broadcast(logic, state)
         # step immediately against whatever the world already knows
@@ -142,6 +154,18 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   def handle_info({:fish_caught}, state), do: {:noreply, state}
+
+  # He re-classified a skill, or chose another pokémon. Re-read now, while the
+  # fight is running: the whole point of moving the key order onto the profile
+  # is that correcting it is a page edit, not a restart. Only the LOADOUT is
+  # refreshed — never the logic, which would drop a fight in progress.
+  def handle_info({:team_changed}, state) do
+    loadout = Loadout.current()
+
+    if loadout != state.loadout, do: log_loadout(loadout)
+
+    {:noreply, %{state | loadout: loadout}}
+  end
 
   # A key burst failed on its async task (see `dispatch/1`/`tap_keys/2`). Ignore it while
   # halted/errored — same invariant as the world/wake paths above — so a stale failure from
@@ -221,7 +245,12 @@ defmodule Pokex.Bots.Combat.Worker do
   defp step(state, obs) do
     {posture, combo} = posture()
     state = open_with_combo(state, state.logic.posture, posture, combo)
-    logic = Logic.set_posture(state.logic, posture)
+
+    logic =
+      state.logic
+      |> Logic.set_posture(posture)
+      |> Logic.set_loadout(state.loadout)
+
     {logic, actions} = Logic.step(logic, with_ready_skills(obs), now())
     apply_step(state, logic, actions)
   end
@@ -235,17 +264,36 @@ defmodule Pokex.Bots.Combat.Worker do
   # and this would be dropped by the one-burst-in-flight rule. The combo IS
   # the opening move — area damage needs no target, and Tab comes on the next
   # frame anyway.
-  defp open_with_combo(state, :hold_fire, :free_fight, [_ | _] = combo) do
-    Phoenix.PubSub.broadcast(
-      Pokex.PubSub,
-      @topic,
-      {:combat_log, :macro, "combate: 💥 abrindo com o combo da caçada: #{Enum.join(combo, ", ")}"}
-    )
+  defp open_with_combo(state, :hold_fire, :free_fight, recorded) do
+    case opening_keys(state.loadout, recorded) do
+      {_source, []} ->
+        state
 
-    dispatch(state, Enum.map(combo, &{:press, &1}))
+      {source, keys} ->
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @topic,
+          {:combat_log, :macro, "combate: 💥 abrindo #{source}: #{Enum.join(keys, ", ")}"}
+        )
+
+        dispatch(state, Enum.map(keys, &{:press, &1}))
+    end
   end
 
   defp open_with_combo(state, _was, _now, _combo), do: state
+
+  # "Quando termina o período de mobar, ele vai começar sempre usando as skills
+  # em área" (2026-08-11). When the pokémon's keys are classified that is a rule
+  # the machine can KEEP — area, then single-target, control never.
+  #
+  # The recorded combo stays as the fallback, and it is a worse one on purpose:
+  # it presses whatever his hands pressed at that waypoint, which stops being
+  # true the moment he swaps pokémon, and can spend a control skill that was
+  # supposed to survive for the revive.
+  defp opening_keys(nil, recorded), do: {"com o combo da caçada", recorded}
+
+  defp opening_keys(loadout, _recorded),
+    do: {"em área com #{loadout.name}", Strategy.opening(loadout)}
 
   # What the hunt is asking of us, read as a FACT with an age — the same
   # contract as every other reading on the blackboard. Stale, missing or
@@ -261,6 +309,14 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   defp combo_of(fact), do: Map.get(fact, :combo) || []
+
+  defp log_loadout(loadout) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:combat_log, :macro, "combate: lutando como #{Loadout.describe(loadout)}"}
+    )
+  end
 
   # The freshest skill-bar reading rides along on every observation the logic sees, so the
   # burst it decides fires only READY skills. nil obs stays nil (a timer wake without a

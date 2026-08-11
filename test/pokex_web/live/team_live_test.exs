@@ -355,6 +355,47 @@ defmodule PokexWeb.TeamLiveTest do
       assert editor =~ "começa por elas"
     end
 
+    # The bot cannot read which pokémon is out yet. He says it, and the fight
+    # obeys — the choice is what turns the classified keys into an order.
+    @tag :tmp_dir
+    test "choosing the pokémon on the field shows what the fight will open with", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      view |> element("#skills-toggle-Charizard") |> render_click()
+
+      view
+      |> form("#skills-form-Charizard")
+      |> render_change(%{
+        "skill" => %{"3" => "aoe", "4" => "aoe", "7" => "single", "2" => "crowd"}
+      })
+
+      # nothing chosen: the page says the fight falls back to the fixed list
+      assert view |> element("#active-form") |> render() =~ "lista fixa do /config"
+
+      view |> form("#active-form", %{"active" => "Charizard"}) |> render_change()
+
+      assert Team.active() == "Charizard"
+      opening = view |> element("#active-opening") |> render()
+      assert opening =~ "3 4 7"
+      refute opening =~ "2"
+    end
+
+    @tag :tmp_dir
+    test "choosing one with nothing to attack with says the fight falls back", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      view |> element("#skills-toggle-Charizard") |> render_click()
+
+      view
+      |> form("#skills-form-Charizard")
+      |> render_change(%{"skill" => %{"2" => "crowd", "8" => "heal"}})
+
+      view |> form("#active-form", %{"active" => "Charizard"}) |> render_change()
+
+      assert view |> element("#active-form") |> render() =~ "cai na lista fixa"
+      refute has_element?(view, "#active-opening")
+    end
+
     @tag :tmp_dir
     test "with nothing recorded the page says so instead of an empty gap", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/time")

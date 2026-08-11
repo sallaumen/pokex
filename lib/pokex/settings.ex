@@ -37,6 +37,13 @@ defmodule Pokex.Settings do
     # per battle read, then re-check the ring/list. This keeps the mouse free for fishing and
     # reduces capture pressure during fights.
     combat_skill_burst_size: 3,
+    # From how many enemies on the battle list the fight leads with AREA damage
+    # instead of single-target. Below it the single-target skills go first: "ir
+    # usando as skills single target primeiro com poucos inimigos e guardar
+    # para mobar em inimigos maiores" (Lucas, 2026-08-11). Only consulted when
+    # the pokémon on the field has its keys classified (/time); the opening of
+    # a gathered pile is always area, whatever this says.
+    combat_aoe_from_enemies: 3,
     combat_skill_tap_count: 1,
     combat_skill_gap_ms: 35,
     combat_skill_jitter_ms: 20,
@@ -954,6 +961,7 @@ defmodule Pokex.Settings do
     scenery_hunts_needed: 0..99,
     scenery_ttl_ms: 1_000..3_600_000,
     target_lost_streak: 1..99,
+    combat_aoe_from_enemies: 1..20,
     dry_casts_alarm: 0..999,
     corpse_sprite_box_px: 8..512,
     corpse_scan_radius_tiles: 1..8,

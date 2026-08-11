@@ -21,6 +21,26 @@ defmodule Pokex.Pokedex.Team do
 
   @default_margin 15
 
+  @topic "team"
+
+  @doc """
+  Where a change to the team is announced.
+
+  The fight resolves its key order from the active pokémon's profile and must
+  not re-read a file every burst (the disk lesson from the recording audit), so
+  it caches — and a cache with no invalidation would keep pressing yesterday's
+  keys after he re-classified them.
+  """
+  def topic, do: @topic
+
+  defp announce(data) do
+    Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:team_changed})
+    data
+  catch
+    # a team edited with no PubSub running (scripts, tests) is still a saved team
+    :exit, _no_pubsub -> data
+  end
+
   @doc "The active team, in insertion order: [%{name, level}] (level nil = not set)."
   def members, do: read().members
 
@@ -181,7 +201,9 @@ defmodule Pokex.Pokedex.Team do
       end)
     end
 
-    persist(%{data | members: update.(data.members), bank: update.(data.bank)})
+    %{data | members: update.(data.members), bank: update.(data.bank)}
+    |> persist()
+    |> announce()
   end
 
   @doc "Sets Lucas's character level (nil clears)."
@@ -192,6 +214,37 @@ defmodule Pokex.Pokedex.Team do
   def set_level_margin(margin) when is_integer(margin) and margin > 0,
     do: persist(%{read() | level_margin: margin})
 
+  @doc """
+  The pokémon he says is on the field, or `nil`.
+
+  Reading it off the screen is the honest way and does not exist yet; waiting
+  for it would keep every rule that depends on knowing (open with area, hold
+  the aura, never spend the control) unimplemented behind a calibration. So he
+  chooses, and the choice is stored beside the team it belongs to.
+
+  A name that has since left the team answers `nil`: the bar of a pokémon that
+  is not his any more is not a bar to fight with.
+  """
+  @spec active() :: String.t() | nil
+  def active do
+    name = read().active
+    if name && Enum.any?(members(), &(&1.name == name)), do: name, else: nil
+  end
+
+  @doc """
+  Chooses the pokémon on the field. `nil` (or a name outside the TEAM) clears
+  it, which drops every consumer back to its pre-loadout behaviour.
+  """
+  @spec set_active(String.t() | nil) :: map
+  def set_active(name) do
+    data = read()
+    known? = is_binary(name) and Enum.any?(data.members, &(&1.name == name))
+
+    %{data | active: if(known?, do: name, else: nil)}
+    |> persist()
+    |> announce()
+  end
+
   # -- storage -----------------------------------------------------------------
 
   defp read do
@@ -201,13 +254,23 @@ defmodule Pokex.Pokedex.Team do
         members: entries(json["members"]),
         bank: entries(json["bank"]),
         player_level: int_or_nil(json["player_level"]),
-        level_margin: int_or_nil(json["level_margin"]) || @default_margin
+        level_margin: int_or_nil(json["level_margin"]) || @default_margin,
+        active: name_or_nil(json["active"])
       }
     else
       _missing_or_corrupt ->
-        %{members: [], bank: [], player_level: nil, level_margin: @default_margin}
+        %{
+          members: [],
+          bank: [],
+          player_level: nil,
+          level_margin: @default_margin,
+          active: nil
+        }
     end
   end
+
+  defp name_or_nil(value) when is_binary(value) and value != "", do: value
+  defp name_or_nil(_other), do: nil
 
   # v1 stored bare name strings; v2 added "level"; v3 "slot"; v4 "skills" —
   # every one of them still loads, and a missing field is simply unset.
@@ -265,7 +328,8 @@ defmodule Pokex.Pokedex.Team do
         members: Enum.map(data.members, &encode_entry/1),
         bank: Enum.map(data.bank, &encode_entry/1),
         player_level: data.player_level,
-        level_margin: data.level_margin
+        level_margin: data.level_margin,
+        active: data.active
       })
     )
 

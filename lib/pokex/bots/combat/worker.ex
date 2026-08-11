@@ -16,6 +16,7 @@ defmodule Pokex.Bots.Combat.Worker do
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.Logic
   alias Pokex.Bots.Perf
+  alias Pokex.Bots.SkillReceipt
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.{Preflight, Settings}
@@ -69,7 +70,10 @@ defmodule Pokex.Bots.Combat.Worker do
        # is still landing, instead of piling concurrent osascripts onto System Events
        burst_pid: nil,
        # last dispatched burst as %{text, at} (monotonic ms; nil until the first) — panel-facing
-       last_action: nil
+       last_action: nil,
+       # false only while a RETRY is being dispatched: its own miss must not
+       # start another one
+       retry_ok?: true
      }}
   end
 
@@ -142,6 +146,21 @@ defmodule Pokex.Bots.Combat.Worker do
   # A key burst failed on its async task (see `dispatch/1`/`tap_keys/2`). Ignore it while
   # halted/errored — same invariant as the world/wake paths above — so a stale failure from
   # a task that outlived a `halt` can't silently reactivate the machine.
+  # A skill that did not go off is STILL READY, so pressing it again is exactly
+  # right — once. The retry itself is never confirmed (retry_ok?: false), or a
+  # bar that cannot be read would keep the two of them pressing forever.
+  def handle_info({:skills_missed, keys}, %{logic: %Logic{}} = state) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:combat_log, :macro, "combate: 🔁 #{Enum.join(keys, ", ")} não saiu — apertando de novo"}
+    )
+
+    {:noreply, dispatch(%{state | retry_ok?: false}, Enum.map(keys, &{:press, &1}))}
+  end
+
+  def handle_info({:skills_missed, _keys}, state), do: {:noreply, state}
+
   def handle_info({:key_burst_failed, _reason}, %{logic: %Logic{state: s}} = state)
       when s in [:idle, :error],
       do: {:noreply, state}
@@ -304,16 +323,21 @@ defmodule Pokex.Bots.Combat.Worker do
 
       true ->
         parent = self()
+        confirm? = Settings.get(:combat_confirm_skills) and state.retry_ok?
 
         %{
           state
-          | burst_pid: spawn(fn -> tap_keys(keys, parent) end),
-            last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()}
+          | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?) end),
+            last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
+            retry_ok?: true
         }
     end
   end
 
-  defp tap_keys(keys, parent) do
+  defp tap_keys(keys, parent, confirm?) do
+    before = if confirm?, do: Perception.ready_skills()
+    at = now()
+
     opts = [
       tap_count: Settings.get(:combat_skill_tap_count) |> positive_int(1),
       gap_ms: Settings.get(:combat_skill_gap_ms) |> non_neg_int(0),
@@ -323,13 +347,42 @@ defmodule Pokex.Bots.Combat.Worker do
     with :ok <- Perception.mini_game_gate(),
          :ok <- Pokex.Rig.impl().press_many(keys, opts),
          :ok <- Perception.mini_game_gate() do
-      :ok
+      ask_for_receipt(keys, before, at, parent)
     else
       {:blocked, :mini_game_active} -> :ok
       {:error, reason} -> send(parent, {:key_burst_failed, reason})
     end
   catch
     kind, reason -> Logger.debug("combat key burst crashed: #{inspect({kind, reason})}")
+  end
+
+  # The receipt is read in its OWN process: this one has to die now so the next
+  # decision is not skipped as "a burst still in flight" — confirming must cost
+  # accuracy, never damage.
+  defp ask_for_receipt(_keys, nil, _at, _parent), do: :ok
+
+  defp ask_for_receipt(keys, before, at, parent) do
+    spawn(fn -> confirm_burst(keys, before, at, parent) end)
+    :ok
+  end
+
+  # Did the keys actually go off? The cooldown is the receipt: a skill that
+  # fired is no longer ready (Pokex.Bots.SkillReceipt). Tab is left out — it
+  # has no cooldown to spend, so it has no receipt to read.
+  #
+  # "A gente tem que sempre estar garantindo que a skill que a gente validou
+  # foi usada mesmo" (Lucas, 2026-08-11): hunting is not fishing, and a skill
+  # that silently never left is damage he is not doing while a pile eats him.
+  defp confirm_burst(keys, before, at, parent) do
+    skills = keys -- [Settings.get(:tab_key)]
+    later = Perception.ready_skills_after(at, Settings.get(:combat_confirm_ms))
+
+    case skills |> then(&SkillReceipt.check(before, later, &1)) |> SkillReceipt.verdict() do
+      {:missed, missed} -> send(parent, {:skills_missed, missed})
+      _confirmed_or_unknown -> :ok
+    end
+  catch
+    kind, reason -> Logger.debug("combat receipt crashed: #{inspect({kind, reason})}")
   end
 
   # The freshest battle picture, or nil (stale/missing → Logic acts time-only, fail-safe).

@@ -624,6 +624,12 @@ defmodule Pokex.Settings do
     # enemy. 2.5s still bounds how old a picture may act (enemy rows linger for many seconds),
     # while surviving a fully queued fallback pipeline.
     combat_world_max_age_ms: 2_500,
+    # Hunting is not fishing: a skill that silently never left is damage he is
+    # not doing while a pile eats him. After a burst, the bar is read again and
+    # a key that is STILL ready never fired — press it once more. Off, combat
+    # presses and hopes, exactly as it did before.
+    combat_confirm_skills: true,
+    combat_confirm_ms: 900,
     # How long the hunt's `:posture` fact stays believable. The cavebot
     # republishes it every tick, so this only has to survive a few missed
     # ticks — and it must stay SHORT, because EXPIRING is what frees combat
@@ -954,6 +960,7 @@ defmodule Pokex.Settings do
     cavebot_capture_wait_ms: 0..600_000,
     cavebot_gather_wait_ms: 0..60_000,
     rescue_confirm_ms: 0..10_000,
+    combat_confirm_ms: 0..10_000,
     cavebot_record_dwell_ms: 500..600_000,
     cavebot_record_fight_dwell_ms: 1_000..600_000,
     cavebot_sweep_grace_ms: 0..60_000,

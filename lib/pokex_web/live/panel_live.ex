@@ -1807,6 +1807,7 @@ defmodule PokexWeb.PanelLive do
   defp cavebot_label(:walking), do: "andando"
   defp cavebot_label(:fighting), do: "lutando"
   defp cavebot_label(:post_fight), do: "pós-luta"
+  defp cavebot_label(:stairs), do: "procurando a escada"
   defp cavebot_label(:stuck), do: "travado"
   defp cavebot_label(:fight_stalled), do: "luta travada"
   defp cavebot_label(:blocked), do: "bloqueado"

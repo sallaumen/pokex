@@ -17,6 +17,52 @@ defmodule Pokex.Bots.Cavebot.RouteTest do
     assert Route.floors(r) == [6, 7]
   end
 
+  # "Talvez até uma distância do meu personagem, algo assim mais fácil de eu
+  # poder medir" (Lucas, 2026-08-11): the park spot said in tiles instead of in
+  # screen points, which is the only form that survives the window moving.
+  describe "where the pokémon is parked" do
+    defp kill_spot do
+      {:ok, r} = Route.append(Route.new("cavena"), {100, 200, 7})
+      Route.set_action(r, 0, :lure_end)
+    end
+
+    test "his recorded click is a point; his correction is a distance" do
+      recorded = Route.set_park_point(kill_spot(), 0, {2490, 417})
+      assert Route.park_spot(hd(recorded.waypoints)) == {:point, {2490, 417}}
+
+      corrected = Route.set_park_tiles(recorded, 0, {6, -2})
+      assert Route.park_spot(hd(corrected.waypoints)) == {:tiles, {6, -2}}
+    end
+
+    # Two answers to one question: the newer one is the whole answer, and a
+    # waypoint carrying both would need a rule nobody can see.
+    test "correcting the distance forgets the recorded point" do
+      route =
+        kill_spot()
+        |> Route.set_park_point(0, {2490, 417})
+        |> Route.set_park_tiles(0, {6, -2})
+
+      assert hd(route.waypoints).park_point == nil
+    end
+
+    test "clearing it takes the waypoint back to having no spot" do
+      route = kill_spot() |> Route.set_park_tiles(0, {6, -2}) |> Route.set_park_tiles(0, nil)
+
+      assert Route.park_spot(hd(route.waypoints)) == nil
+    end
+
+    test "the hunt's default only speaks where the waypoint says nothing" do
+      plain = hd(kill_spot().waypoints)
+      assert Route.park_spot(plain, {-3, 1}) == {:tiles, {-3, 1}}
+
+      # …and 0,0 is "on top of me", which means don't send it anywhere
+      assert Route.park_spot(plain, {0, 0}) == nil
+
+      own = hd(Route.set_park_tiles(kill_spot(), 0, {6, -2}).waypoints)
+      assert Route.park_spot(own, {-3, 1}) == {:tiles, {6, -2}}
+    end
+  end
+
   test "validate requires waypoints" do
     assert {:error, :empty} = Route.validate(Route.new("x"))
     {:ok, r} = Route.append(Route.new("x"), {1, 1, 3})

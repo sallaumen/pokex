@@ -20,6 +20,7 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.Cavebot.{HandsRead, Photos, Recording, Route, Store, WalkTest, Worker}
   alias Pokex.Calibration
   alias Pokex.Perception
+  alias Pokex.Settings
   alias Pokex.World
   alias PokexWeb.CavebotMap
   alias PokexWeb.PositionReadout
@@ -93,7 +94,13 @@ defmodule PokexWeb.CavebotLive do
        pending_index: nil,
        # waypoints he marked with his own hands — never overwritten by the
        # inference
-       hand_marked: []
+       hand_marked: [],
+       # WHERE the pokémon is sent: read through the calibration, because a
+       # distance from the character is only a screen point once you know
+       # where the character is drawn — and how big a tile is.
+       calibration: loaded_calibration(),
+       tile_px: Calibration.tile_px(),
+       park_default: {Settings.get(:cavebot_park_tiles_x), Settings.get(:cavebot_park_tiles_y)}
      )}
   end
 
@@ -604,6 +611,59 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
+  # WHERE the pokémon is sent, as a distance from the character — "talvez até
+  # uma distância do meu personagem, algo assim mais fácil de eu poder medir e
+  # algo que eu possa configurar ali pela interface" (Lucas, 2026-08-11). The
+  # ruler rides along in the same form: it is the unit of the two numbers above
+  # it, and a distance in tiles is only as honest as the size of a tile.
+  def handle_event("save_park_tiles", %{"index" => index} = params, socket) do
+    index = String.to_integer(index)
+    save_tile_px(params["tile_px"])
+
+    case park_from(params) do
+      nil ->
+        {:noreply, assign(socket, notice: "distância inválida", notice_kind: :warn)}
+
+      {dx, dy} = tiles ->
+        with_route(socket, fn route ->
+          {Route.set_park_tiles(route, index, tiles),
+           "waypoint #{index + 1}: pokémon a #{dx}, #{dy} tiles de você"}
+        end)
+    end
+  end
+
+  def handle_event("clear_park_tiles", %{"index" => index}, socket) do
+    index = String.to_integer(index)
+
+    with_route(socket, fn route ->
+      {Route.set_park_tiles(route, index, nil),
+       "waypoint #{index + 1}: sem ponto próprio pro pokémon"}
+    end)
+  end
+
+  # One kill spot's distance, made the hunt's answer everywhere: the spots he
+  # never marked (two of five, 2026-08-11) gather the pile around HIM.
+  def handle_event("park_tiles_default", %{"index" => index}, socket) do
+    index = String.to_integer(index)
+    waypoint = Enum.at(socket.assigns.active_route.waypoints, index)
+
+    case park_tiles(waypoint, socket.assigns.calibration) do
+      nil ->
+        {:noreply, assign(socket, notice: "esse waypoint não tem ponto", notice_kind: :warn)}
+
+      {dx, dy} ->
+        Settings.put(:cavebot_park_tiles_x, dx)
+        Settings.put(:cavebot_park_tiles_y, dy)
+
+        {:noreply,
+         assign(socket,
+           park_default: {dx, dy},
+           notice: "padrão da caçada: pokémon a #{dx}, #{dy} tiles de você",
+           notice_kind: :ok
+         )}
+    end
+  end
+
   # Recording lays waypoints in the order walked; a corner in the wrong place
   # used to mean walking the whole route again.
   def handle_event("move_waypoint", %{"index" => index, "dir" => dir}, socket) do
@@ -824,6 +884,68 @@ defmodule PokexWeb.CavebotLive do
 
   defp place_from(_params, _absent), do: nil
 
+  defp park_from(params) do
+    with {:ok, dx} <- coord(params["park_x"], nil),
+         {:ok, dy} <- coord(params["park_y"], nil),
+         true <- is_integer(dx) and is_integer(dy) do
+      {dx, dy}
+    else
+      _invalid -> nil
+    end
+  end
+
+  # The ruler is saved only when it is a number AND actually different: a blank
+  # field means "leave it alone", never "the tile is zero pixels".
+  defp save_tile_px(value) do
+    case Integer.parse(to_string(value)) do
+      {px, ""} when px > 0 -> Settings.put(:tile_px, px)
+      _blank_or_garbage -> :ok
+    end
+  end
+
+  # What the form shows: the waypoint's own distance, or his recorded click
+  # converted into one (a click IS a distance from the character — it was just
+  # written down in the window's coordinates).
+  defp park_tiles(%{park_tiles: {_dx, _dy} = tiles}, _calib), do: tiles
+
+  defp park_tiles(%{park_point: {_x, _y} = point}, %Calibration{} = calib),
+    do: Calibration.tile_offset(calib, point)
+
+  defp park_tiles(_waypoint, _calib), do: nil
+
+  defp park_screen_point(tiles, %Calibration{} = calib), do: Calibration.tile_point(calib, tiles)
+  defp park_screen_point(_tiles, _uncalibrated), do: nil
+
+  defp park_fields(waypoint, calib) do
+    {dx, dy} = park_tiles(waypoint, calib) || {0, 0}
+    [{"park_x", "→", dx}, {"park_y", "↓", dy}]
+  end
+
+  # One line that says what will actually happen here, in his words: where the
+  # click lands, or which answer is being used when the waypoint has none.
+  defp park_hint(waypoint, calib, default) do
+    case {park_tiles(waypoint, calib), default} do
+      {nil, {0, 0}} ->
+        "sem ponto: o bolo se junta em cima de você"
+
+      {nil, {dx, dy}} ->
+        "sem ponto próprio — uso o padrão da caçada: #{dx}, #{dy} tiles"
+
+      {tiles, _default} ->
+        case park_screen_point(tiles, calib) do
+          {x, y} -> "clique do meio em #{x}, #{y} na tela"
+          nil -> "falta calibrar onde você aparece na tela"
+        end
+    end
+  end
+
+  defp loaded_calibration do
+    case Calibration.load() do
+      {:ok, calib} -> calib
+      _uncalibrated -> nil
+    end
+  end
+
   defp coord(value, fallback) do
     case Integer.parse(to_string(value)) do
       {number, ""} -> {:ok, number}
@@ -949,6 +1071,10 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
+  # A distance says something a screen point cannot: "6, -2" is six tiles right
+  # and two up, which he can picture. The raw point is still shown when it is
+  # all the waypoint has and there is no calibration to read it through.
+  defp park_part(%{park_tiles: {dx, dy}}), do: "🖱️ #{dx}, #{dy} tiles"
   defp park_part(%{park_point: {x, y}}), do: "🖱️ #{x}, #{y}"
   defp park_part(_none), do: nil
 
@@ -1083,7 +1209,17 @@ defmodule PokexWeb.CavebotLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_page={:cavebot} {Layouts.header(assigns)}>
+    <%!-- The widest page in the app, deliberately: this one holds a MAP of a
+          55-tile route beside a list of 45 corners, and on the default
+          `max-w-3xl` the drawing got 350px — six pixels per tile — while an
+          ultrawide screen sat empty around it. Same rule as the dashboard:
+          narrow where a phone would need it, wide where there is room. --%>
+    <Layouts.app
+      flash={@flash}
+      current_page={:cavebot}
+      max_width="max-w-[560px] xl:max-w-[1600px]"
+      {Layouts.header(assigns)}
+    >
       <div class="space-y-4">
         <header class="flex flex-wrap items-end justify-between gap-2">
           <div>
@@ -1174,7 +1310,10 @@ defmodule PokexWeb.CavebotLive do
                are two ends of one act, and putting a 45-row list between them
                made editing a scrolling exercise (2026-08-11). Top offset clears
                the app header. --%>
-          <div class="space-y-4 lg:sticky lg:top-14">
+          <%!-- …and the whole column is capped at the viewport: a sticky block
+               TALLER than the screen pins its top and hides its bottom, which
+               would put the workbench somewhere no scroll can reach. --%>
+          <div class="space-y-4 lg:sticky lg:top-14 lg:max-h-[calc(100dvh-4rem)] lg:overflow-y-auto">
             <section class="rounded-lg border border-pk-line bg-pk-surface p-4">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -1188,7 +1327,10 @@ defmodule PokexWeb.CavebotLive do
                 </span>
               </div>
 
-              <div class="mt-3">
+              <%!-- The drawing is a SQUARE sized by its width, so capping the
+                   width in viewport heights is what keeps it from growing
+                   taller than the screen on a wide monitor. --%>
+              <div class="mt-3 mx-auto w-full max-w-[min(100%,60vh)]">
                 <.route_map
                   floor={map_floor(@active_route, @pos)}
                   waypoints={(@active_route && @active_route.waypoints) || []}
@@ -1423,6 +1565,80 @@ defmodule PokexWeb.CavebotLive do
                   {stop_icon(stop)} {stop_label(stop)}
                 </button>
               </div>
+
+              <%!-- WHERE the pokémon waits for the pile. Recorded as a screen
+                     point from his own middle click, said here as a DISTANCE
+                     from the character: the form he can measure by eye, and
+                     the only one that survives the game window moving. The
+                     ruler rides in the same form because it is the unit of the
+                     two numbers beside it. --%>
+              <form
+                id={"waypoint-park-#{index}"}
+                phx-submit="save_park_tiles"
+                class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
+              >
+                <input type="hidden" name="index" value={index} />
+                <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                  pokémon
+                </span>
+                <label
+                  :for={{field, label, value} <- park_fields(wp, @calibration)}
+                  class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
+                >
+                  {label}
+                  <input
+                    type="number"
+                    name={field}
+                    value={value}
+                    class="pk-num h-8 w-16 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                  />
+                </label>
+                <span class="font-mono text-pk-meta text-pk-text-3">tiles de você</span>
+                <label
+                  class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
+                  title="quantos pixels da tela tem um tile — a régua dessa distância"
+                >
+                  1 tile =
+                  <input
+                    type="number"
+                    name="tile_px"
+                    value={@tile_px}
+                    class="pk-num h-8 w-16 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                  /> px
+                </label>
+                <button
+                  id={"waypoint-park-save-#{index}"}
+                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                >
+                  guardar
+                </button>
+                <button
+                  type="button"
+                  id={"waypoint-park-default-#{index}"}
+                  phx-click="park_tiles_default"
+                  phx-value-index={index}
+                  title="usar essa distância em todo canto de matar que não tem a sua"
+                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                >
+                  virar padrão
+                </button>
+                <button
+                  :if={park_tiles(wp, @calibration)}
+                  type="button"
+                  id={"waypoint-park-clear-#{index}"}
+                  phx-click="clear_park_tiles"
+                  phx-value-index={index}
+                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-warn/60 hover:text-white"
+                >
+                  tirar
+                </button>
+                <span
+                  id={"waypoint-park-hint-#{index}"}
+                  class="w-full font-mono text-pk-meta text-pk-text-3"
+                >
+                  {park_hint(wp, @calibration, @park_default)}
+                </span>
+              </form>
             </section>
 
             <section

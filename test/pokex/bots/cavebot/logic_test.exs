@@ -914,7 +914,18 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       route = Route.set_park_point(stop_route([:sweep]), 0, {2490, 417})
       logic = after_kill_at(1, route)
 
-      assert {_logic, {:sweep, {2490, 417}}} = Logic.step(logic, swept_world(0, nil), 10)
+      assert {_logic, {:sweep, {:point, {2490, 417}}}} =
+               Logic.step(logic, swept_world(0, nil), 10)
+    end
+
+    # …and the same answer said the other way: a distance from the character,
+    # which is the Worker's job to turn into a point (this module has neither
+    # calibration nor screen).
+    test "a park spot given in tiles reaches the sweep as tiles" do
+      route = Route.set_park_tiles(stop_route([:sweep]), 0, {6, -2})
+      logic = after_kill_at(1, route)
+
+      assert {_logic, {:sweep, {:tiles, {6, -2}}}} = Logic.step(logic, swept_world(0, nil), 10)
     end
 
     test "with no parked point the sweep falls back to the character" do

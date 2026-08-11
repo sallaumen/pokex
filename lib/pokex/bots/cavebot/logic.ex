@@ -61,9 +61,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | :run_combat
           | :halt_combat
           | {:nudge, integer, integer}
-          | {:sweep, {integer, integer} | nil}
+          | {:sweep, Route.spot() | nil}
           | :cooldown_revive
-          | {:park, {integer, integer}}
+          | {:park, Route.spot()}
           | {:block, atom}
 
   @type world :: %{
@@ -89,7 +89,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
           stop_wait_ms: non_neg_integer,
           gather_wait_ms: non_neg_integer,
           gather_wait_min_ms: non_neg_integer,
-          gather_wait_max_ms: non_neg_integer
+          gather_wait_max_ms: non_neg_integer,
+          stair_probe_ms: non_neg_integer,
+          stair_max_probes: non_neg_integer,
+          # the hunt's DEFAULT park spot, in tiles from the character — the
+          # only pair in here, because it is the only knob that is a place
+          park_tiles: {integer, integer} | nil
         }
 
   @type t :: %__MODULE__{
@@ -268,9 +273,19 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # Parking the pokémon is the FIRST thing that happens on arrival, before the
   # huddle clock has run: he middle-clicks a spot so the pile closes in around
   # the pokémon instead of around him, and the four seconds are counted from
-  # that click.
-  defp on_arrival(%{action: :lure_end, park_point: {_x, _y} = point}), do: {:park, point}
-  defp on_arrival(_plain_arrival), do: :none
+  # that click. WHERE is the waypoint's business (its own distance, its own
+  # recorded click) with the hunt's default distance behind it — and it stays a
+  # spec, never a screen point: this module has no calibration and no screen.
+  defp on_arrival(logic, %{action: :lure_end} = wp) do
+    case Route.park_spot(wp, default_park(logic)) do
+      nil -> :none
+      spot -> {:park, spot}
+    end
+  end
+
+  defp on_arrival(_logic, _plain_arrival), do: :none
+
+  defp default_park(%__MODULE__{config: config}), do: Map.get(config, :park_tiles)
 
   # Arriving at "até aqui" starts the huddle clock; arriving anywhere else
   # clears it, so a stale stamp can never hold fire on a plain corner.
@@ -358,7 +373,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       abs(dx) <= tol and abs(dy) <= tol and wp.z == z ->
         next = rem(logic.wp_index + 1, length(logic.route.waypoints))
         logic = note_progress(logic, pos, now)
-        {%{arrived(logic, wp, now) | wp_index: next, skips: 0}, on_arrival(wp)}
+        {%{arrived(logic, wp, now) | wp_index: next, skips: 0}, on_arrival(logic, wp)}
 
       # The right tile on the WRONG floor: the staircase is here somewhere and
       # was not taken. Standing on it asks for nothing — dx and dy are zero —
@@ -720,7 +735,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # The sweep is centred where the corpses ARE: after a gathered fight they lie
   # around the tile the pokémon was parked on, several tiles from him.
   defp run_stop(logic, :sweep, now) do
-    {mark_done(logic, :sweep, :sweep, now), {:sweep, park_point(logic)}}
+    {mark_done(logic, :sweep, :sweep, now), {:sweep, park_spot(logic)}}
   end
 
   # Reviving resets every cooldown: the fastest way back to a full bar is to
@@ -733,11 +748,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
     {mark_done(logic, :wait, :stop_wait, now), :none}
   end
 
-  defp park_point(%__MODULE__{route: %Route{waypoints: []}}), do: nil
+  defp park_spot(%__MODULE__{route: %Route{waypoints: []}}), do: nil
 
-  defp park_point(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
+  defp park_spot(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
     index = Integer.mod(logic.wp_index - 1, length(waypoints))
-    Enum.at(waypoints, index)[:park_point]
+    Route.park_spot(Enum.at(waypoints, index), default_park(logic))
   end
 
   defp mark_done(logic, stop, since_key, now) do

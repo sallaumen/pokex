@@ -46,6 +46,7 @@ defmodule PokexWeb.CavebotComponents do
   attr :pos, :any, default: nil
   attr :selected, :any, default: nil
   attr :recording?, :boolean, default: false
+  attr :floor, :any, default: nil
 
   @doc """
   The route, drawn in the game's own coordinate space (x east, y south) with
@@ -109,6 +110,9 @@ defmodule PokexWeb.CavebotComponents do
           stroke-width={leg_width(leg)}
           stroke-linecap="round"
           stroke-dasharray={leg_dash(leg)}
+          opacity={
+            if on_floor?(leg.from, @floor) and on_floor?(leg.to, @floor), do: "1", else: "0.25"
+          }
           vector-effect="non-scaling-stroke"
         />
 
@@ -132,11 +136,16 @@ defmodule PokexWeb.CavebotComponents do
           :for={leg <- @legs}
           points="0,-1 0,1 2,0"
           fill={if leg.luring?, do: "var(--color-pk-info)", else: "var(--color-pk-ok)"}
-          opacity="0.7"
+          opacity={
+            if on_floor?(leg.from, @floor) and on_floor?(leg.to, @floor), do: "0.7", else: "0.2"
+          }
           transform={"translate(#{leg.arrow.x} #{leg.arrow.y}) rotate(#{leg.arrow.angle}) scale(#{@view.unit * 0.9})"}
         />
 
-        <g :for={{wp, index} <- Enum.with_index(@waypoints)}>
+        <g
+          :for={{wp, index} <- Enum.with_index(@waypoints)}
+          opacity={if on_floor?(wp, @floor), do: "1", else: "0.3"}
+        >
           <circle
             id={"map-waypoint-#{index}"}
             cx={wp.x}
@@ -201,6 +210,14 @@ defmodule PokexWeb.CavebotComponents do
       </p>
 
       <p
+        :if={@floor && Enum.any?(@waypoints, &(!on_floor?(&1, @floor)))}
+        id="map-floor-legend"
+        class="pointer-events-none absolute left-3 top-2 font-mono text-pk-meta text-pk-text-2"
+      >
+        andar {@floor} · outros apagados
+      </p>
+
+      <p
         :if={Enum.any?(@legs, & &1.luring?)}
         id="map-lure-legend"
         class="pointer-events-none absolute bottom-2 right-3 flex items-center gap-1.5 font-mono text-pk-meta text-pk-info"
@@ -212,6 +229,13 @@ defmodule PokexWeb.CavebotComponents do
   end
 
   defp point_of({x, y, _z}), do: %{x: x, y: y}
+
+  # The drawing is flat, so floors sit on top of each other: everything that is
+  # NOT on the floor being looked at is faded, which is what gives the route a
+  # sense of height at a glance.
+  defp on_floor?(_waypoint, nil), do: true
+  defp on_floor?(%{z: z}, floor), do: z == floor
+  defp on_floor?(_no_floor, _floor), do: true
 
   defp leg_width(%{luring?: true}), do: "3"
   defp leg_width(%{closing?: true}), do: "1.5"

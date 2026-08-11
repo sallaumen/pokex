@@ -195,6 +195,30 @@ defmodule PokexWeb.CavebotLiveTest do
     assert render(view) =~ "gravação parada"
   end
 
+  # The tile at the top of a staircase shares x/y with the one at its foot, so
+  # the "far enough to be a new corner" rule would drop the one waypoint that
+  # teaches the route the upper floor exists — and then the hunt blocks up
+  # there on a floor it never heard of.
+  test "a CLIMB is always recorded, however little the tile moved", %{conn: conn} do
+    put_pos({10, 20, 7})
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    view |> form("#new-route-form", %{"name" => "escada", "dungeon" => ""}) |> render_submit()
+    view |> element("#toggle-recording") |> render_click()
+
+    put_pos({10, 20, 7})
+    send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
+    render(view)
+
+    # one tile up the stairs: same x, y one apart — nowhere near min_tiles
+    put_pos({10, 19, 6})
+    send(view.pid, {:world, :minimap, %{pos: {10, 19, 6}}})
+    render(view)
+
+    assert [%Route{waypoints: [%{z: 7}, %{z: 6}]} = route] = Store.all()
+    assert Route.floors(route) == [6, 7]
+  end
+
   test "recording without an active route warns instead of recording into the void", %{conn: conn} do
     put_pos({10, 20, 7})
     {:ok, view, _html} = live(conn, ~p"/cavebot")
@@ -405,6 +429,44 @@ defmodule PokexWeb.CavebotLiveTest do
     assert html =~ "sai sozinha quando você gravar"
   end
 
+  # 2026-08-11, live: two routes armed at once, the hunt walked the OTHER one
+  # and blocked on the first step while the page said this one was "a que a
+  # caçada vai andar".
+  describe "which route the hunt actually walks" do
+    test "arming one disarms the others, and the page says which is armed", %{conn: conn} do
+      {:ok, a} = Route.append(Route.new("teste"), {10, 10, 5})
+      {:ok, b} = Route.append(Route.new("azumaril"), {10, 10, 1})
+      :ok = Store.add(%{a | enabled?: true})
+      :ok = Store.add(%{b | enabled?: true})
+
+      {:ok, view, html} = live(conn, ~p"/cavebot")
+
+      # "teste" is the one the hunt would take (first armed); the page is
+      # showing it, so no warning yet
+      refute html =~ ~s(id="armed-elsewhere")
+
+      view |> form("#route-select-form", %{"name" => "azumaril"}) |> render_change()
+      html = render(view)
+      assert html =~ ~s(id="armed-elsewhere")
+      assert html =~ "a caçada vai andar &quot;teste&quot;"
+
+      # the warning carries its own cure: with two armed, the on/off toggle
+      # would turn THIS one off, which is the opposite of what he wants
+      html = view |> element("#arm-this-route") |> render_click()
+      refute html =~ ~s(id="armed-elsewhere")
+      assert Store.all() |> Enum.filter(& &1.enabled?) |> Enum.map(& &1.name) == ["azumaril"]
+    end
+
+    test "no route armed at all says so", %{conn: conn} do
+      {:ok, a} = Route.append(Route.new("teste"), {10, 10, 5})
+      :ok = Store.add(%{a | enabled?: false})
+
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ ~s(id="none-armed")
+    end
+  end
+
   # "to fazendo justamente uma rota com 2 andares, com escadas" (Lucas,
   # 2026-08-10). A flat drawing puts both floors on top of each other, so
   # where the floor changes has to be WRITTEN.
@@ -432,6 +494,29 @@ defmodule PokexWeb.CavebotLiveTest do
       assert html =~ ~s(stroke-dasharray="1 2")
       assert html =~ "Mapa da rota: 3 waypoints"
       assert html =~ "andares 6 e 7"
+    end
+
+    # "seria legal cores diferentes no mapa com as marcacoes vistas de acordo
+    # com o andar que estou" (Lucas, 2026-08-11) — a flat drawing stacks the
+    # floors on top of each other otherwise.
+    test "the map fades everything that is not on MY floor", %{conn: conn} do
+      stairs_route!()
+      put_pos({10, 10, 7})
+
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ ~s(id="map-floor-legend")
+      assert html =~ "andar 7 · outros apagados"
+      assert html =~ ~s(opacity="0.3")
+    end
+
+    test "with every waypoint on my floor there is nothing to fade", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      put_pos({10, 10, 7})
+
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      refute html =~ ~s(id="map-floor-legend")
     end
 
     test "a one-floor route says nothing about floors on its waypoints", %{conn: conn} do

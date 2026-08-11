@@ -129,14 +129,24 @@ defmodule PokexWeb.CavebotLive do
   # A waypoint per tile would be noise — the client pathfinds between points, so
   # what serves the walker are the CORNERS. Only record once he has walked
   # `cavebot_record_min_tiles` away from the last one.
-  defp maybe_record(socket, {x, y, _z} = pos) do
+  defp maybe_record(socket, {x, y, z} = pos) do
     route = socket.assigns.active_route
     min_tiles = Pokex.Settings.get(:cavebot_record_min_tiles)
 
     far_enough? =
       case List.last(route.waypoints) do
-        nil -> true
-        %{x: lx, y: ly} -> abs(x - lx) >= min_tiles or abs(y - ly) >= min_tiles
+        nil ->
+          true
+
+        # A CLIMB is always worth a waypoint, however little the tile moved:
+        # the top of a staircase shares x/y with its foot, so the distance
+        # rule alone would silently drop the one waypoint that teaches the
+        # route the floor exists.
+        %{z: lz} when lz != z ->
+          true
+
+        %{x: lx, y: ly} ->
+          abs(x - lx) >= min_tiles or abs(y - ly) >= min_tiles
       end
 
     if far_enough?, do: record_waypoint(socket, route, pos), else: socket
@@ -328,14 +338,49 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
+  # The one-click fix for the warning above: whatever the toggle happens to
+  # show, THIS is the route the hunt will walk from now on. With two routes
+  # armed the toggle is ambiguous — clicking it on the one he wants would turn
+  # it OFF — so the warning carries its own cure.
+  def handle_event("arm_route", _params, socket) do
+    case socket.assigns.active_route do
+      nil ->
+        {:noreply, socket}
+
+      %Route{} = route ->
+        :ok = Store.set_enabled(route.name, true)
+
+        {:noreply,
+         socket
+         |> assign(
+           notice: "\"#{route.name}\" é a rota armada — as outras foram desligadas",
+           notice_kind: :ok
+         )
+         |> reload_routes(route.name)}
+    end
+  end
+
+  # Through Store.set_enabled/2, NEVER through a whole-route write: arming is
+  # exclusive (one route is what the hunt walks) and that rule lives in the
+  # Store, where it cannot be bypassed by a page that forgot about it.
   def handle_event("toggle_route_enabled", _params, socket) do
-    with_route(socket, fn route ->
-      {%{route | enabled?: !route.enabled?},
-       if(route.enabled?,
-         do: "rota desligada — a caçada não vai usá-la",
-         else: "rota ligada — é a que a caçada vai andar"
-       )}
-    end)
+    case socket.assigns.active_route do
+      nil ->
+        {:noreply, socket}
+
+      %Route{} = route ->
+        :ok = Store.set_enabled(route.name, !route.enabled?)
+
+        notice =
+          if route.enabled?,
+            do: "\"#{route.name}\" desligada — nenhuma rota armada",
+            else: "\"#{route.name}\" é a rota armada — as outras foram desligadas"
+
+        {:noreply,
+         socket
+         |> assign(notice: notice, notice_kind: :ok)
+         |> reload_routes(route.name)}
+    end
   end
 
   def handle_event("retake_photo", %{"kind" => kind}, socket) do
@@ -512,6 +557,28 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
+  # The route the HUNT will walk: the armed one, which is exactly one since
+  # arming became exclusive (Store.set_enabled/2).
+  defp armed_route(routes), do: Enum.find(routes, & &1.enabled?)
+
+  # …and its name when it is NOT the one on screen — the silence that cost a
+  # live run.
+  defp armed_elsewhere(routes, active) do
+    case armed_route(routes) do
+      nil -> nil
+      %Route{name: name} -> if active && active.name == name, do: nil, else: name
+    end
+  end
+
+  # Which floor the drawing is drawn FROM: where the character stands, or the
+  # route's own first floor while the position is unknown. Everything on
+  # another floor is drawn faded — a flat picture puts the floors on top of
+  # each other otherwise, and "achei que tivesse funcionando" is what that
+  # costs (Lucas, 2026-08-11).
+  defp map_floor(_route, {_x, _y, z}), do: z
+  defp map_floor(%Route{z: z}, _no_pos), do: z
+  defp map_floor(_no_route, _no_pos), do: nil
+
   # A route may climb: say how many floors it touches, because "andar 7" on a
   # two-floor hunt is a lie the drawing cannot correct on its own.
   defp floors_label(%Route{} = route) do
@@ -681,6 +748,7 @@ defmodule PokexWeb.CavebotLive do
 
               <div class="mt-3">
                 <.route_map
+                  floor={map_floor(@active_route, @pos)}
                   waypoints={(@active_route && @active_route.waypoints) || []}
                   pos={@pos}
                   selected={@selected}
@@ -741,6 +809,38 @@ defmodule PokexWeb.CavebotLive do
                 ]}
               >
                 {walk_test_text(@walk_test)}
+              </p>
+
+              <%!-- The route being EDITED and the route the hunt WALKS are two
+                    different things, and believing they were the same cost a
+                    live run: two routes armed, the hunt took the other one and
+                    blocked on the first step (2026-08-11). --%>
+              <p
+                :if={armed_elsewhere(@routes, @active_route)}
+                id="armed-elsewhere"
+                class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+              >
+                <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
+                <span class="min-w-0 flex-1">
+                  a caçada vai andar "{armed_elsewhere(@routes, @active_route)}", não esta.
+                </span>
+                <button
+                  id="arm-this-route"
+                  phx-click="arm_route"
+                  aria-label={"Armar a rota #{@active_route.name} para a caçada"}
+                  class="shrink-0 cursor-pointer rounded border border-pk-warn px-2 py-0.5 font-mono text-pk-meta font-bold text-pk-warn transition hover:bg-pk-warn hover:text-pk-bg"
+                >
+                  armar esta
+                </button>
+              </p>
+
+              <p
+                :if={@routes != [] and armed_route(@routes) == nil}
+                id="none-armed"
+                class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+              >
+                <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
+                nenhuma rota armada — a caçada não tem o que andar
               </p>
 
               <p

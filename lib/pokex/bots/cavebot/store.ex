@@ -54,12 +54,22 @@ defmodule Pokex.Bots.Cavebot.Store do
     |> put()
   end
 
-  @doc "Enables or disables a route by name."
+  @doc """
+  Arms or disarms a route by name. Arming DISARMS every other one.
+
+  The hunt walks the first enabled route it finds, so two armed at once meant
+  the screen said "é a que a caçada vai andar" about one of them while the bot
+  walked the other. Live, 2026-08-11: "teste" (floor 5) and "Azumaril easy"
+  (floors 1 and 2) were both armed, he stood in the Azumaril, and the hunt
+  walked "teste" — every position on a floor that route never visits, blocked
+  on the first step. Exclusive here is the only place it cannot drift.
+  """
   def set_enabled(name, enabled?) when is_boolean(enabled?) do
     all()
     |> Enum.map(fn
       %Route{name: ^name} = route -> %Route{route | enabled?: enabled?}
-      route -> route
+      %Route{} = other when enabled? -> %Route{other | enabled?: false}
+      %Route{} = other -> other
     end)
     |> put()
   end

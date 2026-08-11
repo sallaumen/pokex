@@ -28,6 +28,8 @@ defmodule Pokex.Layout do
   defmodule Fix do
     @moduledoc "A located layout: where the anchors are and every region derived from them."
     defstruct [:profile, :anchors, :regions, :region_opts, :located_at]
+
+    @type t :: %__MODULE__{}
   end
 
   @profile_dir "priv/layouts"
@@ -221,22 +223,47 @@ defmodule Pokex.Layout do
   its position (2026-08-01). Geometry is the test, not the profile name: it
   also catches a game window that moved and pushed a region off-screen.
   """
-  def fits_screen?(%Fix{regions: regions}, screen_w, screen_h)
+  def fits_screen?(%Fix{} = fix, screen_w, screen_h)
       when is_integer(screen_w) and is_integer(screen_h) do
-    Enum.all?(regions, fn {_name, {x, y, w, h}} ->
-      x >= 0 and y >= 0 and x + w <= screen_w and y + h <= screen_h
-    end)
+    unfit_regions(fix, screen_w, screen_h) == []
   end
 
+  @doc "Which regions of `fix` cannot exist on this screen — `[]` when it fits whole."
+  @spec unfit_regions(Fix.t(), integer, integer) :: [atom]
+  def unfit_regions(%Fix{regions: regions}, screen_w, screen_h) do
+    for {name, rect} <- regions, not on_screen?(rect, screen_w, screen_h), do: name
+  end
+
+  defp on_screen?({x, y, w, h}, screen_w, screen_h),
+    do: x >= 0 and y >= 0 and x + w <= screen_w and y + h <= screen_h
+
   @doc """
-  `fix` when it fits the screen — nil when it provably does not.
-  An unknown screen size keeps the fix: no proof, no drop.
+  The fix with every IMPOSSIBLE region dropped — nil when none survives.
+  An unknown screen size keeps it whole: no proof, no drop.
+
+  This used to be all-or-nothing, and one region off the screen condemned the
+  other eighteen. But in this client the panels move INDEPENDENTLY: Lucas
+  enlarged his minimap, so its three regions came out at y=-218 — above the top
+  of the screen — while the battle list, the HUD strip and the team column sat
+  exactly where the profile says. The whole layout was thrown away because of
+  the panel he had moved, and with it the MEASURED battle-row geometry: no
+  names in the list, no per-row HP, and the shiny star searched in the wrong
+  zone — silently, for as long as the file said so (2026-08-11).
+
+  A region that cannot exist is unusable; one that fits is usable, and every
+  consumer already prefers a hand-marked region and tolerates a missing one.
+  The protection that made this rule (the ultrawide layout served on the 1512px
+  notebook, 2026-08-01) is untouched: there NOTHING fits, and nil is what comes
+  back.
   """
   def fitting(nil, _screen_w, _screen_h), do: nil
 
-  def fitting(%Fix{} = fix, screen_w, screen_h)
+  def fitting(%Fix{regions: regions} = fix, screen_w, screen_h)
       when is_integer(screen_w) and is_integer(screen_h) do
-    if fits_screen?(fix, screen_w, screen_h), do: fix, else: nil
+    case Map.filter(regions, fn {_name, rect} -> on_screen?(rect, screen_w, screen_h) end) do
+      none when map_size(none) == 0 -> nil
+      kept -> %{fix | regions: kept}
+    end
   end
 
   def fitting(%Fix{} = fix, _unknown_w, _unknown_h), do: fix

@@ -97,18 +97,35 @@ defmodule Pokex.LayoutTest do
       assert Layout.fitting(fix, 1512, 982) == fix
     end
 
-    test "a region past the screen edge condemns the whole fix" do
-      fix = fix_with(%{minimap: {3150, 300, 290, 458}})
+    test "a fix where NOTHING fits is dropped whole — the other screen's layout" do
+      fix = fix_with(%{minimap: {3150, 300, 290, 458}, hud_bottom: {2000, 900, 1140, 82}})
 
       refute Layout.fits_screen?(fix, 1512, 982)
       assert Layout.fitting(fix, 1512, 982) == nil
     end
 
-    test "a negative origin condemns the fix even on its own screen" do
-      fix = fix_with(%{minimap: {3150, -132, 290, 458}})
+    # His own file, 2026-08-11: he enlarged the minimap, so ITS three regions
+    # came out above the top of the screen (y -218) while the battle list and
+    # the HUD strip stayed exactly where the profile says. Condemning the whole
+    # fix for the panel he moved cost the MEASURED battle rows — no names, no
+    # per-row HP, the shiny star searched in the wrong zone.
+    test "the panel he moved is dropped; the ones that fit stay" do
+      fix =
+        fix_with(%{
+          minimap: {3150, -218, 290, 458},
+          battle_list: {3140, 287, 300, 310},
+          hud_bottom: {1200, 1330, 1140, 110}
+        })
 
       refute Layout.fits_screen?(fix, 3440, 1440)
-      assert Layout.fitting(fix, 3440, 1440) == nil
+      assert Layout.unfit_regions(fix, 3440, 1440) == [:minimap]
+
+      kept = Layout.fitting(fix, 3440, 1440)
+
+      assert Layout.region(:battle_list, kept) == {3140, 287, 300, 310}
+      assert Layout.region(:hud_bottom, kept) == {1200, 1330, 1140, 110}
+      # …and the impossible one reads as absent, so its consumer falls back
+      assert Layout.region(:minimap, kept) == nil
     end
 
     test "an unknown screen size never condemns — no proof, no drop" do

@@ -17,6 +17,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Focus
+  alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
   alias Pokex.Calibration
@@ -567,12 +568,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp fire_combo(state, calib) do
     at = now()
     {stun_steps, notes} = rescue_stun_steps()
+    notes = notes ++ crowd_control(state, stun_steps)
 
-    Body.perform(
-      Logic.combo(Map.put(combo_config(calib), :stun_steps, stun_steps)),
-      :critical,
-      state.body
-    )
+    Body.perform(Logic.combo(combo_config(calib)), :critical, state.body)
 
     state = %{
       state
@@ -589,6 +587,52 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     broadcast_log(:macro, "🚑 combo de sobrevivência — Pokémon com #{state.hp_pct}% de vida")
     state
   end
+
+  # The crowd control goes out FIRST, ALONE, and is CONFIRMED before the
+  # pokémon leaves the field.
+  #
+  # "Eu uso geralmente as skills 1 e 2 para justamente silenciar os pokémons ao
+  # redor, colocar eles para dormir, e aí, sim, eu tiro meu Pokémon de campo"
+  # (Lucas, 2026-08-11). Riding inside the same atomic sequence as the recall,
+  # the stun could silently not land — unfocused window, shut gate, no mana —
+  # and the recall would strip the field anyway, in front of everything, wide
+  # awake. The receipt is the cooldown (`Pokex.Bots.SkillReceipt`): a skill
+  # that fired is no longer ready.
+  #
+  # Splitting the sequence does NOT widen the exposure: the pokémon is still
+  # out, still tanking, while the confirmation is read. What it costs is one
+  # skill-bar reading, and what it buys is knowing.
+  defp crowd_control(_state, []), do: []
+
+  defp crowd_control(state, stun_steps) do
+    keys = for {:press, key} <- stun_steps, do: key
+    before = Pokex.Perception.ready_skills()
+    at = now()
+
+    Body.perform(stun_steps, :critical, state.body)
+
+    later = Pokex.Perception.ready_skills_after(at, Settings.get(:rescue_confirm_ms))
+
+    keys
+    |> then(&SkillReceipt.check(before, later, &1))
+    |> SkillReceipt.verdict()
+    |> stun_note(keys)
+  end
+
+  # Every outcome still ends in a revive — a pokémon left dead is worse than a
+  # pokémon revived in the open, and that was already this module's rule
+  # ("fail in the direction of SAVING"). What changes is that a stun that did
+  # not land now SAYS SO, loudly, instead of being assumed.
+  defp stun_note(:confirmed, keys),
+    do: [log: "🚑 stun confirmado (#{Enum.join(keys, ", ")}) — pode tirar o pokémon"]
+
+  defp stun_note({:missed, missed}, _keys),
+    do: [
+      alarm: "🚑 o stun NÃO saiu (#{Enum.join(missed, ", ")}) — revivendo exposto, confere o jogo"
+    ]
+
+  defp stun_note(:unconfirmed, _keys),
+    do: [log: "🚑 não consegui confirmar o stun (barra ilegível) — revivendo assim mesmo"]
 
   # The rescue's STUN prefix (2026-07-30): in "combo" mode the chosen combo's
   # steps become presses/waits BEFORE the recall — skills on cooldown are

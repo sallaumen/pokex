@@ -117,6 +117,39 @@ defmodule Pokex.Perception do
     end
   end
 
+  @doc """
+  The ready keys from a reading captured strictly AFTER `at` — the receipt for
+  a press, rather than the photo that was already on the wall when it went out.
+
+  Blocks up to `timeout_ms` waiting for the feed's next publish, then gives up
+  with `nil` (unknown, like every other unreadable bar). Callers use it with
+  `Pokex.Bots.SkillReceipt`: the reading BEFORE the press and this one after
+  it say whether the skill actually went off.
+  """
+  @spec ready_skills_after(integer, non_neg_integer) :: [String.t()] | nil
+  def ready_skills_after(at, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    await_skills(at, deadline)
+  end
+
+  defp await_skills(at, deadline) do
+    now = System.monotonic_time(:millisecond)
+
+    case WorldState.age(:skill_bar, now) do
+      age when is_integer(age) and now - age > at ->
+        ready_skills(now)
+
+      _older_or_missing ->
+        if now >= deadline, do: nil, else: sleep_and_await(at, deadline)
+    end
+  end
+
+  @poll_ms 40
+  defp sleep_and_await(at, deadline) do
+    Process.sleep(@poll_ms)
+    await_skills(at, deadline)
+  end
+
   def feed_specs do
     [
       %{

@@ -202,7 +202,11 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "combo mode: the stun comes before the recall, in the same :critical sequence", %{
+  # "eu uso geralmente as skills 1 e 2 para justamente silenciar os pokémons ao
+  # redor, colocar eles para dormir, e aí, sim, eu tiro meu Pokémon de campo"
+  # (Lucas, 2026-08-11). The stun is its OWN sequence now, so its receipt can
+  # be read before the recall strips the field.
+  test "combo mode: the stun goes out FIRST, alone, and the recall follows", %{
     tmp: tmp,
     body: body
   } do
@@ -224,10 +228,50 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
 
-    assert_receive {:performed, :critical, actions}, 1_000
-    assert [{:press, "1"}, {:wait, 5}, {:press, "2"}, {:wait, 0}, {:press, "q"} | _] = actions
-    assert {:press, "shift+q"} in actions
-    assert {:move, {40, 620}} in actions
+    # first sequence: the crowd control, and nothing else — no recall rides
+    # along, because it must not happen until this one is confirmed
+    assert_receive {:performed, :critical, stun}, 1_000
+    assert stun == [{:press, "1"}, {:wait, 5}, {:press, "2"}]
+
+    # second: the revive itself
+    assert_receive {:performed, :critical, revive}, 1_000
+    assert [{:press, "q"} | _] = revive
+    assert {:press, "shift+q"} in revive
+    assert {:move, {40, 620}} in revive
+  end
+
+  @tag :tmp_dir
+  test "an unreadable bar cannot confirm the stun, and the revive happens anyway", %{
+    tmp: tmp,
+    body: body
+  } do
+    Store.put([
+      %Pokex.Combos.Combo{
+        name: "stun-do-resgate",
+        trigger: nil,
+        steps: [{:skill, "1"}],
+        enabled?: true
+      }
+    ])
+
+    Settings.put(:rescue_mode, "combo")
+    Settings.put(:rescue_combo, "stun-do-resgate")
+    Settings.put(:rescue_confirm_ms, 0)
+
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, [{:press, "1"}]}, 1_000
+    assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_000
+
+    # a pokémon left dead is worse than a pokémon revived in the open — but
+    # the doubt is SAID, never assumed away
+    assert_receive {:game_log, _level, text}, 1_000
+    assert text =~ "não consegui confirmar o stun"
   end
 
   @tag :tmp_dir

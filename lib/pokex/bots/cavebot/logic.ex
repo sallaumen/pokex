@@ -45,7 +45,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
             homed?: false,
             skips: 0,
             # which of this stop's actions already ran — one each, not one per tick
-            stops_done: []
+            stops_done: [],
+            # how long to let the pile close in HERE: his own measured pause
+            # when the recording caught it, the configured default otherwise
+            gather_wait: nil
 
   @type state :: :walking | :fighting | :post_fight | :stuck | :fight_stalled | :blocked
 
@@ -96,7 +99,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           last_enemies: non_neg_integer | nil,
           homed?: boolean,
           skips: non_neg_integer,
-          stops_done: [Route.stop()]
+          stops_done: [Route.stop()],
+          gather_wait: non_neg_integer | nil
         }
 
   @doc """
@@ -185,12 +189,15 @@ defmodule Pokex.Bots.Cavebot.Logic do
   The Worker keeps publishing `:hold_fire` while this is true.
   """
   @spec gathering?(t, integer) :: boolean
-  def gathering?(%__MODULE__{since: since, config: config}, now) do
+  def gathering?(%__MODULE__{since: since} = logic, now) do
     case Map.get(since, :gather) do
       nil -> false
-      at -> now - at < Map.get(config, :gather_wait_ms, 0)
+      at -> now - at < gather_wait(logic)
     end
   end
+
+  defp gather_wait(%__MODULE__{gather_wait: measured}) when is_integer(measured), do: measured
+  defp gather_wait(%__MODULE__{config: config}), do: Map.get(config, :gather_wait_ms, 0)
 
   # Parking the pokémon is the FIRST thing that happens on arrival, before the
   # huddle clock has run: he middle-clicks a spot so the pile closes in around
@@ -201,11 +208,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   # Arriving at "até aqui" starts the huddle clock; arriving anywhere else
   # clears it, so a stale stamp can never hold fire on a plain corner.
-  defp arrived(logic, %{action: :lure_end}, now),
-    do: %{logic | since: Map.put(logic.since, :gather, now)}
+  # His own measured pause wins over the configured one: the recording watched
+  # him park the pokémon and counted to his first skill, which is the real
+  # answer for THIS spot ("quatro segundos" was his estimate of it).
+  defp arrived(logic, %{action: :lure_end} = wp, now),
+    do: %{logic | since: Map.put(logic.since, :gather, now), gather_wait: wp[:gather_ms]}
 
   defp arrived(logic, _plain_corner, _now),
-    do: %{logic | since: Map.delete(logic.since, :gather)}
+    do: %{logic | since: Map.delete(logic.since, :gather), gather_wait: nil}
 
   @doc """
   How many ms the machine has gone without knowing where the character is —

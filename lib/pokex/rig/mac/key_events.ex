@@ -79,6 +79,22 @@ defmodule Pokex.Rig.Mac.KeyEvents do
     :exit, _reason -> {:error, :unavailable}
   end
 
+  @doc """
+  Drains the presses HE made on `codes` since the last call:
+  `{:ok, [%{code: n, shift?: bool, at: ms}]}`.
+
+  Polled inside the helper at 8ms, never tapped — nothing is intercepted and
+  no keystroke of his can be swallowed by us. A round trip from Elixir at the
+  page's cadence would miss most presses (a press is ~60-100ms), which is why
+  the buffering lives on the other side.
+  """
+  @spec key_watch([non_neg_integer], GenServer.server()) :: {:ok, [map]} | {:error, term}
+  def key_watch(codes, server \\ __MODULE__) when is_list(codes) do
+    GenServer.call(server, {:key_watch, codes}, @command_timeout_ms + 500)
+  catch
+    :exit, _reason -> {:error, :unavailable}
+  end
+
   @impl true
   def init(opts) do
     # An explicit :executable (tests, power users) always runs; otherwise the
@@ -145,9 +161,23 @@ defmodule Pokex.Rig.Mac.KeyEvents do
 
   def handle_call(:middle_watch, _from, state) do
     with true <- safe_port_command(state.port, JSON.encode!(%{op: "middle_watch"}) <> "\n"),
-         {:ok, %{"ok" => true, "count" => count, "x" => x, "y" => y}} <-
+         {:ok, %{"ok" => true, "count" => count, "x" => x, "y" => y} = reply} <-
            read_line(state.port, @command_timeout_ms) do
-      {:reply, {:ok, %{count: count, point: {x, y}}}, state}
+      {:reply, {:ok, %{count: count, point: {x, y}, at: reply["at"]}}, state}
+    else
+      failure -> {:reply, {:error, {:helper_failed, failure}}, state}
+    end
+  end
+
+  def handle_call({:key_watch, _codes}, _from, %{status: status} = state) when status != :ready,
+    do: {:reply, {:error, status}, state}
+
+  def handle_call({:key_watch, codes}, _from, state) do
+    request = JSON.encode!(%{op: "key_watch", codes: codes})
+
+    with true <- safe_port_command(state.port, request <> "\n"),
+         {:ok, %{"ok" => true, "events" => events}} <- read_line(state.port, @command_timeout_ms) do
+      {:reply, {:ok, Enum.map(events, &decode_key_event/1)}, state}
     else
       failure -> {:reply, {:error, {:helper_failed, failure}}, state}
     end
@@ -161,6 +191,9 @@ defmodule Pokex.Rig.Mac.KeyEvents do
 
     send_command(request, state)
   end
+
+  defp decode_key_event(%{"code" => code, "shift" => shift, "at" => at}),
+    do: %{code: code, shift?: shift == true, at: at}
 
   defp send_command(request, state) do
     with true <- safe_port_command(state.port, request <> "\n"),

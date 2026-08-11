@@ -98,8 +98,14 @@ defmodule Pokex.Bots.Cavebot.Store do
       stops: decode_stops(map),
       at: decode_at(map["at"]),
       dwell_ms: decode_dwell(map["dwell_ms"]),
-      park_point: decode_point(map["park_point"])
+      park_point: decode_point(map["park_point"]),
+      fight_ms: decode_dwell(map["fight_ms"]),
+      gather_ms: decode_dwell(map["gather_ms"]),
+      combo: decode_combo(map["combo"])
     }
+
+  defp decode_combo(list) when is_list(list), do: Enum.filter(list, &is_binary/1)
+  defp decode_combo(_absent), do: []
 
   defp decode_point([x, y]) when is_integer(x) and is_integer(y), do: {x, y}
   defp decode_point(_absent), do: nil
@@ -152,7 +158,10 @@ defmodule Pokex.Bots.Cavebot.Store do
       "stops" => Enum.map(Map.get(waypoint, :stops) || [], &Atom.to_string/1),
       "at" => encode_at(Map.get(waypoint, :at)),
       "dwell_ms" => Map.get(waypoint, :dwell_ms),
-      "park_point" => encode_point(Map.get(waypoint, :park_point))
+      "park_point" => encode_point(Map.get(waypoint, :park_point)),
+      "fight_ms" => Map.get(waypoint, :fight_ms),
+      "gather_ms" => Map.get(waypoint, :gather_ms),
+      "combo" => Map.get(waypoint, :combo) || []
     }
 
   defp encode_point({x, y}), do: [x, y]

@@ -366,6 +366,74 @@ defmodule Pokex.Bots.Combat.LogicTest do
     end
   end
 
+  # "ele vai andar sem atacar ninguém" (Lucas, 2026-08-10). The hunt walking a
+  # mob stretch publishes a `:posture` fact; combat obeys it. Everything here
+  # is about NOT starting fights — the defensive skills a gathering pokémon
+  # should press are the strategy engine's business, not this gate's.
+  describe "holding fire while the hunt gathers mobs" do
+    test "a full battle list motivates no Tab at all" do
+      logic = Logic.set_posture(hunting(0), :hold_fire)
+
+      assert {%Logic{state: :hunting}, []} =
+               Logic.step(logic, obs(enemies: [0, 1, 2], captured_at: 10), 10)
+    end
+
+    test "the post-kill blind probe is silenced too" do
+      logic = hunting(0) |> Logic.rescan(0) |> Logic.set_posture(:hold_fire)
+
+      assert {%Logic{state: :hunting}, []} = Logic.step(logic, obs(captured_at: 10), 10)
+    end
+
+    test "a fight already under way is dropped: no more skills at that target" do
+      {logic, _} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
+
+      {logic, actions} =
+        Logic.step(logic, obs(enemies: [0], locked?: true, locked_row: 0, captured_at: 20), 30)
+
+      assert logic.state == :fighting
+      assert [{:press, _} | _rest] = actions
+
+      logic = Logic.set_posture(logic, :hold_fire)
+      {logic, actions} = Logic.step(logic, obs(enemies: [0], locked?: true, captured_at: 40), 50)
+
+      assert logic.state == :hunting
+      refute Enum.any?(actions, &match?({:press, _key}, &1))
+    end
+
+    test "free fire again: the very next list is Tabbed" do
+      logic = Logic.set_posture(hunting(0), :hold_fire)
+      {logic, []} = Logic.step(logic, obs(enemies: [0], captured_at: 10), 10)
+
+      logic = Logic.set_posture(logic, :free_fight)
+      {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 20), 20)
+
+      assert logic.state == :tabbing
+      assert {:tab} in actions
+    end
+
+    # Fail-open is the whole design of the fact: the hunt dying must never
+    # leave combat pacifist. The Worker reads a stale fact as free fire, and a
+    # machine that was never told anything fights, as it always did.
+    test "a logic nobody told anything fights" do
+      {logic, actions} = Logic.step(hunting(0), obs(enemies: [0], captured_at: 10), 10)
+
+      assert logic.state == :tabbing
+      assert {:tab} in actions
+    end
+
+    test "holding fire does not learn scenery — those rows were never hunted" do
+      logic =
+        hunting(0, scenery_config())
+        |> Logic.set_posture(:hold_fire)
+
+      {logic, []} = Logic.step(logic, obs(enemies: [0], captured_at: 10), 10)
+      {logic, []} = Logic.step(logic, obs(enemies: [0], captured_at: 900), 900)
+
+      assert logic.failed_hunts == 0
+      assert logic.scenery_rows == nil
+    end
+  end
+
   describe "presumed scenery (an unattackable mob stops motivating Tab)" do
     # Field 2026-07-30: a SCENERY pokemon parked in the list made combat "think it was
     # fighting", pressing Tab in a loop. After N full lockless hunts those targets are

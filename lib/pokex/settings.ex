@@ -619,6 +619,12 @@ defmodule Pokex.Settings do
     # enemy. 2.5s still bounds how old a picture may act (enemy rows linger for many seconds),
     # while surviving a fully queued fallback pipeline.
     combat_world_max_age_ms: 2_500,
+    # How long the hunt's `:posture` fact stays believable. The cavebot
+    # republishes it every tick, so this only has to survive a few missed
+    # ticks — and it must stay SHORT, because EXPIRING is what frees combat
+    # when the hunt dies in the middle of a mob stretch. Fail-open by ageing,
+    # never by someone remembering to say "you may fight again".
+    posture_max_age_ms: 3_000,
     # --- Keyboard focus guard --------------------------------------------------------------------
     # System Events keystrokes land in the FRONTMOST app: with the panel focused (watching the
     # activity feed in the browser), every bot key typed into Chrome and the game never saw it —
@@ -914,6 +920,7 @@ defmodule Pokex.Settings do
     minimap_coord_ink: 40..255,
     hold_max_ms: 200..30_000,
     cavebot_capture_wait_ms: 0..600_000,
+    posture_max_age_ms: 500..60_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,
     logout_verify_delay_ms: 0..600_000,

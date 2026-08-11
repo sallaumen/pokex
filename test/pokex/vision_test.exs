@@ -237,6 +237,53 @@ defmodule Pokex.VisionTest do
       assert Vision.red_row_counts(frame, top: 0, band: 52, rows: 1) == [0]
     end
 
+    # The bar does not have to be MEASURED to be watched: combat only asks
+    # whether it MOVED (2026-08-11, the target on the other side of a wall).
+    test "hp_row_counts counts the bar's green per band, and shrinks with it" do
+      frame = uniform(100, 104, {20, 20, 20})
+
+      # row 0: a 60px bar; row 1: the same bar after a hit, 30px
+      frame =
+        for x <- 30..89, reduce: frame do
+          acc -> put_px(acc, x, 10, {40, 200, 60})
+        end
+
+      frame =
+        for x <- 30..59, reduce: frame do
+          acc -> put_px(acc, x, 62, {40, 200, 60})
+        end
+
+      assert [60, 30] = Vision.hp_row_counts(frame, top: 0, band: 52, rows: 2)
+    end
+
+    test "hp_row_counts ignores the creature icon on the left" do
+      frame = uniform(100, 52, {20, 20, 20})
+
+      # a green icon at x 0..20 (min_x defaults to 30% of the width) and a 40px bar
+      frame =
+        for x <- 0..20, y <- 5..15, reduce: frame do
+          acc -> put_px(acc, x, y, {40, 200, 60})
+        end
+
+      frame =
+        for x <- 40..79, reduce: frame do
+          acc -> put_px(acc, x, 20, {40, 200, 60})
+        end
+
+      assert [40] = Vision.hp_row_counts(frame, top: 0, band: 52, rows: 1)
+    end
+
+    test "hp_row_counts rejects grey names and the dark red of a lock" do
+      frame = uniform(100, 52, {20, 20, 20})
+
+      frame =
+        for x <- 40..79, reduce: frame do
+          acc -> acc |> put_px(x, 10, {160, 25, 25}) |> put_px(x, 20, {200, 200, 200})
+        end
+
+      assert [0] = Vision.hp_row_counts(frame, top: 0, band: 52, rows: 1)
+    end
+
     test "red_row_counts splits red by band" do
       frame = uniform(60, 312, {20, 20, 20})
 

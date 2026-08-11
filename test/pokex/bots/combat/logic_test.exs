@@ -676,6 +676,91 @@ defmodule Pokex.Bots.Combat.LogicTest do
     end
   end
 
+  # "bugou com um pokemon do outro lado da parede que ele nao consegue atacar"
+  # (Lucas, 2026-08-11). The Tab LOCKS — so nothing in the lockless-scenery
+  # path can fire — and the fight simply never happens: the skills go out, the
+  # target's bar does not move, and the hunt waits forever on a fight that
+  # cannot end.
+  describe "a target that does not bleed is a wall, not a fight" do
+    defp wall_config do
+      [
+        no_damage_ms: 5_000,
+        scenery_hunts_needed: 1,
+        scenery_ttl_ms: 10_000,
+        hunt_cooldown_ms: 100,
+        fight_timeout_ms: 600_000
+      ]
+    end
+
+    defp locked_wall(hp_counts, at),
+      do: obs(locked?: true, locked_row: 0, enemies: [0], hp: hp_counts, captured_at: at)
+
+    test "the same green for the whole window gives the target up, with a reason" do
+      logic = confirmed(wall_config())
+
+      # the bar reads the same 800 green pixels, frame after frame
+      {logic, _} = Logic.step(logic, locked_wall([800], 100), 100)
+      assert logic.hp_seen == 800
+
+      {logic, actions} = Logic.step(logic, locked_wall([800], 3_000), 3_000)
+      assert logic.state == :fighting, "desistiu antes da janela: #{inspect(actions)}"
+
+      {logic, actions} = Logic.step(logic, locked_wall([800], 5_200), 5_200)
+
+      assert logic.state == :hunting
+
+      assert Enum.any?(actions, fn
+               {:log, msg} -> msg =~ "não perdeu vida"
+               _other -> false
+             end)
+
+      # …and it counts like a hunt that never locked: the row stops motivating
+      # Tab, which is what frees the caçada to walk away from the wall
+      assert logic.scenery_rows == 1
+
+      {_logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 6_000), 6_000)
+      refute {:tab} in actions
+    end
+
+    test "a bar that MOVES is a fight, however slow" do
+      logic = confirmed(wall_config())
+
+      logic =
+        Enum.reduce([{800, 100}, {780, 3_000}, {760, 6_000}, {700, 9_000}], logic, fn {hp, at},
+                                                                                      logic ->
+          {logic, _actions} = Logic.step(logic, locked_wall([hp], at), at)
+          assert logic.state == :fighting
+          logic
+        end)
+
+      assert logic.hp_seen == 700
+    end
+
+    # A frame nobody could read the bar in is UNKNOWN, and unknown never
+    # convicts: with no `:hp` the machine behaves exactly as it did before.
+    test "no HP reading at all never gives anything up" do
+      logic = confirmed(wall_config())
+
+      {logic, _} = Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 100), 100)
+
+      {logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 9_000), 9_000)
+
+      assert logic.state == :fighting
+      assert Enum.any?(actions, &match?({:press, _key}, &1))
+    end
+
+    test "turned off (0), a stalemate is fought forever, as before" do
+      logic = confirmed(Keyword.put(wall_config(), :no_damage_ms, 0))
+
+      {logic, _} = Logic.step(logic, locked_wall([800], 100), 100)
+      {logic, actions} = Logic.step(logic, locked_wall([800], 60_000), 60_000)
+
+      assert logic.state == :fighting
+      assert Enum.any?(actions, &match?({:press, _key}, &1))
+    end
+  end
+
   # hunting --Tab--> tabbing --locked frame--> fighting (first burst already fired at t=40)
   defp confirmed(config_overrides \\ []) do
     {logic, _} = Logic.step(hunting(0, config_overrides), obs(enemies: [0], captured_at: 10), 10)

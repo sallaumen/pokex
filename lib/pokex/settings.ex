@@ -619,6 +619,14 @@ defmodule Pokex.Settings do
     # stutter every minute of every hunt; 5 minutes keeps the re-probe (a mob
     # CAN become reachable) without making it the loudest thing on screen.
     scenery_ttl_ms: 300_000,
+    # THE STALEMATE. A locked target whose HP bar does not move a single pixel
+    # for this long, while skills go out, is not being fought — it is out of
+    # reach ("bugou com um pokemon do outro lado da parede que ele nao consegue
+    # atacar", 2026-08-11). Combat then gives up on it exactly as it gives up
+    # on a row that never locks, which is what frees the hunt to WALK — and
+    # walking is what solves a wall. Long enough that a burst on cooldown
+    # cannot look like one: 0 turns it off.
+    no_damage_ms: 8_000,
     skill_burst_every_ms: 300,
     # After every kill/timeout rehunt (and on a fish hook), hunting keeps PROBING with blind
     # Tabs for this long even when the HP-bar detector reports no enemy — "idle while fished
@@ -982,6 +990,7 @@ defmodule Pokex.Settings do
     tab_confirm_frames: 1..99,
     tab_max_attempts: 1..99,
     scenery_hunts_needed: 0..99,
+    no_damage_ms: 0..600_000,
     scenery_ttl_ms: 1_000..3_600_000,
     target_lost_streak: 1..99,
     dry_casts_alarm: 0..999,

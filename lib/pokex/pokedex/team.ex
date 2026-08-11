@@ -13,6 +13,7 @@ defmodule Pokex.Pokedex.Team do
   module (a bare list of names) load transparently as a level-less team.
   """
 
+  alias Pokex.Pokedex.SkillProfile
   alias Pokex.{Home, Pokedex}
 
   # The in-game hotkey slots a team member can answer to: C+2..C+6 on screen.
@@ -56,7 +57,7 @@ defmodule Pokex.Pokedex.Team do
           entry =
             Enum.find(
               data.members ++ data.bank,
-              %{name: name, level: nil, slot: nil},
+              %{name: name, level: nil, slot: nil, skills: %{}},
               &(&1.name == name)
             )
 
@@ -149,6 +150,34 @@ defmodule Pokex.Pokedex.Team do
     persist(%{data | members: update.(data.members), bank: update.(data.bank)})
   end
 
+  @doc """
+  What each of this pokémon's skills is for (see `Pokex.Pokedex.SkillProfile`).
+
+  Empty for a name nobody knows — a strategy asking an unknown pokémon for its
+  area damage gets `[]` and skips that step, exactly as it does for a pokémon
+  that genuinely has none.
+  """
+  def skills(name) do
+    case Enum.find(members() ++ bank(), &(&1.name == name)) do
+      %{skills: skills} -> skills
+      _absent -> %{}
+    end
+  end
+
+  @doc "Gives one of a pokémon's keys a job (`:none` takes it away). No-op if absent."
+  def set_skill(name, key, category) do
+    data = read()
+
+    update = fn list ->
+      Enum.map(list, fn
+        %{name: ^name} = entry -> %{entry | skills: SkillProfile.put(entry.skills, key, category)}
+        entry -> entry
+      end)
+    end
+
+    persist(%{data | members: update.(data.members), bank: update.(data.bank)})
+  end
+
   @doc "Sets Lucas's character level (nil clears)."
   def set_player_level(level) when is_integer(level) or is_nil(level),
     do: persist(%{read() | player_level: level})
@@ -174,15 +203,21 @@ defmodule Pokex.Pokedex.Team do
     end
   end
 
-  # v1 stored bare name strings; v2 added "level"; v3 adds "slot" — all load.
+  # v1 stored bare name strings; v2 added "level"; v3 "slot"; v4 "skills" —
+  # every one of them still loads, and a missing field is simply unset.
   defp entries(list) when is_list(list) do
     list
     |> Enum.map(fn
       name when is_binary(name) ->
-        %{name: name, level: nil, slot: nil}
+        %{name: name, level: nil, slot: nil, skills: %{}}
 
       %{"name" => name} = map when is_binary(name) ->
-        %{name: name, level: int_or_nil(map["level"]), slot: slot_or_nil(map["slot"])}
+        %{
+          name: name,
+          level: int_or_nil(map["level"]),
+          slot: slot_or_nil(map["slot"]),
+          skills: SkillProfile.decode(map["skills"])
+        }
 
       _corrupt ->
         nil
@@ -198,6 +233,15 @@ defmodule Pokex.Pokedex.Team do
   defp slot_or_nil(value) when value in 2..6, do: value
   defp slot_or_nil(_other), do: nil
 
+  defp encode_entry(entry) do
+    %{
+      "name" => entry.name,
+      "level" => entry.level,
+      "slot" => entry.slot,
+      "skills" => SkillProfile.encode(entry.skills)
+    }
+  end
+
   defp drop(data, name) do
     %{
       data
@@ -212,8 +256,8 @@ defmodule Pokex.Pokedex.Team do
     File.write!(
       file(),
       JSON.encode!(%{
-        members: data.members,
-        bank: data.bank,
+        members: Enum.map(data.members, &encode_entry/1),
+        bank: Enum.map(data.bank, &encode_entry/1),
         player_level: data.player_level,
         level_margin: data.level_margin
       })

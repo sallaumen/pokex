@@ -116,6 +116,46 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
     end
   end
 
+  # "eu mesmo errei alguns combos ali" (Lucas, 2026-08-11): his first real mob
+  # route came back with two "até aqui" in a row and a warning nobody could
+  # act on. The marks are HIS; only their pairing was wrong.
+  describe "tidying the marks" do
+    defp actions(route), do: Enum.map(route.waypoints, & &1.action)
+
+    defp with_kills(count, kills) do
+      Enum.reduce(kills, route_of(List.duplicate(100, count)), fn index, route ->
+        Route.set_stop(route, index, :sweep, true)
+      end)
+    end
+
+    test "every kill spot gets exactly ONE gathering leading into it" do
+      {tidy, note} = Recording.tidy(with_kills(6, [2, 5]))
+
+      assert actions(tidy) == [:lure_start, :walk, :lure_end, :lure_start, :walk, :lure_end]
+      assert note =~ "arrumei"
+    end
+
+    test "two kill spots in a row keep both, and invent no gathering between" do
+      {tidy, _note} = Recording.tidy(with_kills(4, [1, 2]))
+
+      assert actions(tidy) == [:lure_start, :lure_end, :lure_end, :walk]
+    end
+
+    test "a route with no kill spot has nothing to gather for" do
+      {tidy, note} = Recording.tidy(with_kills(4, []))
+
+      assert actions(tidy) == [:walk, :walk, :walk, :walk]
+      assert note =~ "já estavam certas"
+    end
+
+    test "the leftover 'até aqui' with no pair is gone afterwards" do
+      route = route_of([100, 100, 100]) |> Route.set_action(2, :lure_end)
+      {tidy, _note} = Recording.tidy(route)
+
+      assert Route.lure_issue(tidy) == nil
+    end
+  end
+
   describe "saying what it did" do
     test "the note names the stop and the marks" do
       route = route_of([100, 100, 34_000])

@@ -29,7 +29,8 @@ defmodule Pokex.Bots.Catcher.Sweep do
   def sides, do: @sides
 
   @doc """
-  The SCREEN points to throw at, nearest tile first.
+  The SCREEN points to throw at, nearest tile first, centred on `around` (the
+  tile his pokémon was parked on) or on the character when there is none.
 
   `{:error, :no_screen}` when the calibration has no display dimensions (there
   is nothing to clamp the grid against) and `{:error, :no_anchor}` when it
@@ -37,10 +38,11 @@ defmodule Pokex.Bots.Catcher.Sweep do
   guessed around the wrong point, which is how the mini-game box earned its
   ghosts.
   """
-  @spec points(Calibration.t()) :: {:ok, [{integer, integer}]} | {:error, :no_screen | :no_anchor}
-  def points(%Calibration{} = calib) do
+  @spec points(Calibration.t(), {integer, integer} | nil) ::
+          {:ok, [{integer, integer}]} | {:error, :no_screen | :no_anchor}
+  def points(%Calibration{} = calib, around \\ nil) do
     with {:ok, screen} <- screen(calib),
-         {:ok, anchor} <- anchor(calib) do
+         {:ok, anchor} <- anchor(calib, around) do
       {:ok, sweep(calib, anchor, screen)}
     end
   end
@@ -106,7 +108,16 @@ defmodule Pokex.Bots.Catcher.Sweep do
 
   defp screen(%Calibration{}), do: {:error, :no_screen}
 
-  defp anchor(calib) do
+  # Where the corpses ARE, which is not always where he is.
+  #
+  # "Como eu apertei o botão do meio do mouse, esses corpos de pokémons não
+  # estão ao redor do meu personagem" (Lucas, 2026-08-11): the pile dies
+  # around the tile his pokémon was PARKED on, several tiles away. Sweeping
+  # around the character throws balls at empty ground and leaves the corpses
+  # where they fell.
+  defp anchor(_calib, {_x, _y} = around), do: {:ok, around}
+
+  defp anchor(calib, _no_park) do
     case Calibration.player_point(calib) do
       {_x, _y} = point -> {:ok, point}
       nil -> {:error, :no_anchor}

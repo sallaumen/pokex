@@ -542,6 +542,13 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
+  # "me ajude a debalançar ali para não ter coisa repetida junto" (Lucas,
+  # 2026-08-11): his marks stay, their PAIRING gets fixed — one gathering into
+  # each kill spot, and no "até aqui" left dangling.
+  def handle_event("tidy_marks", _params, socket) do
+    with_route(socket, &Recording.tidy/1)
+  end
+
   def handle_event("clear_route", _params, socket) do
     with_route(socket, fn route ->
       Photos.forget(route.name)
@@ -893,7 +900,6 @@ defmodule PokexWeb.CavebotLive do
   defp lure_warning(%Route{} = route) do
     case Route.lure_issue(route) do
       :start_without_end -> "tem \"mobar daqui\" sem \"até aqui\" — o mob vale a rota inteira"
-      :end_without_start -> "tem \"até aqui\" sem \"mobar daqui\" — essa marca não faz nada"
       nil -> nil
     end
   end
@@ -1264,6 +1270,16 @@ defmodule PokexWeb.CavebotLive do
                   Waypoints
                 </h2>
                 <div class="flex items-center gap-3">
+                  <button
+                    :if={@active_route.waypoints != []}
+                    id="tidy-marks"
+                    phx-click="tidy_marks"
+                    aria-label="Arrumar as marcas de mobada da rota"
+                    title="uma mobada pra cada matança, sem marca solta"
+                    class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-info"
+                  >
+                    arrumar marcas
+                  </button>
                   <button
                     :if={@active_route.waypoints != []}
                     id="clear-route"

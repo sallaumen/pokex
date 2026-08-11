@@ -308,21 +308,22 @@ defmodule Pokex.Bots.Cavebot.Route do
   end
 
   @doc """
-  `nil` when the lure marks pair up, or which side is missing.
+  `nil` unless a gathering can never END — the one mark that actually breaks
+  the hunt.
 
-  In a loop an end BEFORE its start is perfectly fine (the stretch wraps), so
-  what makes a pair is the count, not the order.
+  Counting starts against ends was too crude, and cried wolf on shapes that
+  are perfectly fine: two kill spots in a row (two piles at the same corner)
+  and two gatherings closing on one end are both legitimate, and both were
+  being reported. An EXTRA "até aqui" costs nothing — it just marks another
+  kill spot. A "mobar daqui" that never closes costs everything: the hunt
+  walks the whole route refusing to fight.
   """
-  @spec lure_issue(t) :: nil | :start_without_end | :end_without_start
+  @spec lure_issue(t) :: nil | :start_without_end
   def lure_issue(%__MODULE__{waypoints: waypoints}) do
-    starts = Enum.count(waypoints, &(&1.action == :lure_start))
-    ends = Enum.count(waypoints, &(&1.action == :lure_end))
+    starts? = Enum.any?(waypoints, &(&1.action == :lure_start))
+    ends? = Enum.any?(waypoints, &(&1.action == :lure_end))
 
-    cond do
-      starts > ends -> :start_without_end
-      ends > starts -> :end_without_start
-      true -> nil
-    end
+    if starts? and not ends?, do: :start_without_end
   end
 
   @doc """

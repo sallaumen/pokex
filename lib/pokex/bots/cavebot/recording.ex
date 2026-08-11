@@ -55,6 +55,66 @@ defmodule Pokex.Bots.Cavebot.Recording do
   end
 
   @doc """
+  Cleans a route's marks up: every kill spot keeps its own, and each one gets
+  exactly ONE gathering leading into it.
+
+  His first real mob route came back with two "até aqui" in a row and a
+  warning nobody could act on ("eu mesmo errei alguns combos ali",
+  2026-08-11) — a middle click he made twice, or one made where no stretch
+  had been walked. The marks are his; what is wrong is only their pairing.
+  """
+  @spec tidy(Route.t()) :: {Route.t(), String.t()}
+  def tidy(%Route{} = route) do
+    kills = kill_spots(route)
+
+    cleaned =
+      route.waypoints
+      |> Enum.with_index()
+      |> Enum.reduce(route, fn {_wp, index}, acc ->
+        Route.set_action(acc, index, tidy_action(index, kills))
+      end)
+
+    {cleaned, tidy_note(route, cleaned)}
+  end
+
+  defp kill_spots(%Route{waypoints: waypoints}) do
+    for {wp, index} <- Enum.with_index(waypoints),
+        wp.action == :lure_end or :sweep in wp.stops or wp.park_point != nil,
+        do: index
+  end
+
+  # A gathering starts on the waypoint AFTER a kill spot — and only when the
+  # next kill spot is further along, because two in a row have no walk between
+  # them to gather on.
+  defp tidy_action(index, kills) do
+    cond do
+      index in kills -> :lure_end
+      starts_gathering?(index, kills) -> :lure_start
+      true -> :walk
+    end
+  end
+
+  defp starts_gathering?(index, kills) do
+    previous_end = index == 0 or (index - 1) in kills
+    next_kill = Enum.find(kills, &(&1 > index))
+
+    previous_end and next_kill != nil
+  end
+
+  defp tidy_note(before, after_route) do
+    changed =
+      Enum.count(Enum.zip(before.waypoints, after_route.waypoints), fn {a, b} ->
+        a.action != b.action
+      end)
+
+    case {changed, Route.lure_issue(after_route)} do
+      {0, _issue} -> "as marcas já estavam certas"
+      {n, nil} -> "arrumei #{n} marca(s): cada matança com uma mobada só"
+      {n, _issue} -> "arrumei #{n} marca(s), mas ainda sobrou marca sem par"
+    end
+  end
+
+  @doc """
   Marks a kill spot he pointed out HIMSELF — the middle click that parks his
   pokémon, which is the marker he asked for over the clock: "é uma marca muito
   mais fácil de eu te passar" (2026-08-11), and unlike standing still it is

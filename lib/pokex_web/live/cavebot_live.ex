@@ -616,12 +616,18 @@ defmodule PokexWeb.CavebotLive do
 
   # The missing corner in the MIDDLE: stand where it should be and insert.
   def handle_event("insert_waypoint", %{"index" => index}, socket) do
+    index = String.to_integer(index)
+
     case World.snapshot().pos do
       nil ->
         {:noreply, assign(socket, notice: "não estou lendo tua posição", notice_kind: :warn)}
 
       pos ->
-        with_route(socket, &insert_here(&1, String.to_integer(index), pos))
+        # the new point opens in the editor: inserting is how a custom point is
+        # born, and being born is exactly when it needs its tile corrected
+        socket
+        |> assign(selected: index)
+        |> with_route(&insert_here(&1, index, pos))
     end
   end
 
@@ -889,6 +895,18 @@ defmodule PokexWeb.CavebotLive do
   defp leg_label(0), do: "· fecha o ciclo:"
   defp leg_label(_index), do: "·"
 
+  # The selected waypoint as a ONE-ELEMENT list, so the detail pane can bind
+  # `wp` and `index` with `:for` — HEEx has no way to name a value inline, and
+  # an empty list is exactly "nothing selected".
+  defp selected_pair(%Route{waypoints: waypoints}, index) when is_integer(index) do
+    case Enum.at(waypoints, index) do
+      nil -> []
+      wp -> [{wp, index}]
+    end
+  end
+
+  defp selected_pair(_route, _none), do: []
+
   # A mark he made HIMSELF outranks anything the clock infers: the recorder
   # assists, it does not overrule.
   defp remember_hand_mark(socket, index) do
@@ -1150,9 +1168,13 @@ defmodule PokexWeb.CavebotLive do
           />
         </section>
 
-        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-          <%!-- LEFT: the drawing + the recorder that feeds it --%>
-          <div class="space-y-4">
+        <div class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+          <%!-- LEFT: the drawing, what is selected, and the recorder that feeds
+               them. STICKY on wide screens: the map and the waypoint's controls
+               are two ends of one act, and putting a 45-row list between them
+               made editing a scrolling exercise (2026-08-11). Top offset clears
+               the app header. --%>
+          <div class="space-y-4 lg:sticky lg:top-14">
             <section class="rounded-lg border border-pk-line bg-pk-surface p-4">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -1273,6 +1295,134 @@ defmodule PokexWeb.CavebotLive do
               >
                 {@notice}
               </p>
+            </section>
+
+            <%!-- The DETAIL of what is selected, pinned beside the drawing.
+                 Editing used to mean scrolling: the map at the top, the
+                 waypoint's controls at the bottom of a 45-row list, and no way
+                 to see both at once ("tenho que ficar scrollando pra cima e pra
+                 baixo pra saber o que estou editando", Lucas, 2026-08-11). The
+                 list stays the overview; this is the workbench. --%>
+            <section
+              :for={{wp, index} <- selected_pair(@active_route, @selected)}
+              id="waypoint-detail"
+              class="rounded-lg border border-pk-warn-line bg-pk-surface p-4"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-warn">
+                  editando o waypoint {index + 1}
+                </h2>
+                <span class="pk-num font-mono text-pk-body text-pk-text">
+                  {wp.x}, {wp.y} <span class="text-pk-text-3">· andar {wp.z}</span>
+                </span>
+                <button
+                  id="waypoint-detail-close"
+                  phx-click="select_waypoint"
+                  phx-value-index={index}
+                  aria-label="Fechar o editor deste waypoint"
+                  class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-text"
+                >
+                  fechar
+                </button>
+              </div>
+              <%!-- The job lives on the SELECTED waypoint only: fourteen rows
+                     each carrying three more buttons is a wall, and the choice
+                     is rare — you mark a mob stretch once and hunt it for
+                     weeks. --%>
+              <%!-- The exact tile, typed. A recording is a walk, and a walk
+                     rounds: the staircase he could not take was one tile
+                     wide and the waypoint sat beside it, with no way to say
+                     so except walking the whole route again (2026-08-11). --%>
+              <form
+                id={"waypoint-place-#{index}"}
+                phx-submit="move_waypoint_to"
+                class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
+              >
+                <input type="hidden" name="index" value={index} />
+                <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                  lugar
+                </span>
+                <label
+                  :for={{field, value} <- [{"x", wp.x}, {"y", wp.y}, {"z", wp.z}]}
+                  class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
+                >
+                  {field}
+                  <input
+                    type="number"
+                    name={field}
+                    value={value}
+                    class="pk-num h-8 w-20 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                  />
+                </label>
+                <button
+                  id={"waypoint-place-save-#{index}"}
+                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                >
+                  corrigir
+                </button>
+                <button
+                  :if={@pos}
+                  type="button"
+                  id={"waypoint-place-here-#{index}"}
+                  phx-click="move_waypoint_here"
+                  phx-value-index={index}
+                  title="usar a posição onde eu estou agora"
+                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                >
+                  é aqui que eu estou
+                </button>
+              </form>
+
+              <div
+                id={"waypoint-job-#{index}"}
+                class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
+              >
+                <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                  função
+                </span>
+                <button
+                  :for={{action, label, icon} <- waypoint_actions()}
+                  id={"waypoint-#{index}-#{action}"}
+                  phx-click="set_waypoint_action"
+                  phx-value-index={index}
+                  phx-value-action={action}
+                  aria-pressed={to_string(wp.action == action)}
+                  aria-label={"Waypoint #{index + 1}: #{label}"}
+                  class={[
+                    "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
+                    if(wp.action == action,
+                      do: "border-pk-info bg-pk-info-dim text-pk-info",
+                      else:
+                        "border-pk-line-strong text-pk-text-2 hover:border-pk-info/60 hover:text-pk-text"
+                    )
+                  ]}
+                >
+                  <.icon name={icon} class="size-3.5" />{label}
+                </button>
+
+                <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
+
+                <button
+                  :for={stop <- Route.stops()}
+                  id={"waypoint-#{index}-#{stop}"}
+                  phx-click="toggle_waypoint_stop"
+                  phx-value-index={index}
+                  phx-value-stop={stop}
+                  aria-pressed={to_string(stop in wp.stops)}
+                  aria-label={"Waypoint #{index + 1}: #{stop_label(stop)} depois da luta"}
+                  title={stop_hint(stop)}
+                  class={[
+                    "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
+                    if(stop in wp.stops,
+                      do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
+                      else:
+                        "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:text-pk-text"
+                    )
+                  ]}
+                >
+                  {stop_icon(stop)} {stop_label(stop)}
+                </button>
+              </div>
             </section>
 
             <section
@@ -1564,107 +1714,6 @@ defmodule PokexWeb.CavebotLive do
                       o que cada tecla faz
                     </.link>
                   </p>
-
-                  <%!-- The job lives on the SELECTED waypoint only: fourteen rows
-                       each carrying three more buttons is a wall, and the choice
-                       is rare — you mark a mob stretch once and hunt it for
-                       weeks. --%>
-                  <%!-- The exact tile, typed. A recording is a walk, and a walk
-                       rounds: the staircase he could not take was one tile
-                       wide and the waypoint sat beside it, with no way to say
-                       so except walking the whole route again (2026-08-11). --%>
-                  <form
-                    :if={@selected == index}
-                    id={"waypoint-place-#{index}"}
-                    phx-submit="move_waypoint_to"
-                    class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
-                  >
-                    <input type="hidden" name="index" value={index} />
-                    <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                      lugar
-                    </span>
-                    <label
-                      :for={{field, value} <- [{"x", wp.x}, {"y", wp.y}, {"z", wp.z}]}
-                      class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
-                    >
-                      {field}
-                      <input
-                        type="number"
-                        name={field}
-                        value={value}
-                        class="pk-num h-8 w-20 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                      />
-                    </label>
-                    <button
-                      id={"waypoint-place-save-#{index}"}
-                      class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                    >
-                      corrigir
-                    </button>
-                    <button
-                      :if={@pos}
-                      type="button"
-                      id={"waypoint-place-here-#{index}"}
-                      phx-click="move_waypoint_here"
-                      phx-value-index={index}
-                      title="usar a posição onde eu estou agora"
-                      class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                    >
-                      é aqui que eu estou
-                    </button>
-                  </form>
-
-                  <div
-                    :if={@selected == index}
-                    id={"waypoint-job-#{index}"}
-                    class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
-                  >
-                    <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                      função
-                    </span>
-                    <button
-                      :for={{action, label, icon} <- waypoint_actions()}
-                      id={"waypoint-#{index}-#{action}"}
-                      phx-click="set_waypoint_action"
-                      phx-value-index={index}
-                      phx-value-action={action}
-                      aria-pressed={to_string(wp.action == action)}
-                      aria-label={"Waypoint #{index + 1}: #{label}"}
-                      class={[
-                        "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
-                        if(wp.action == action,
-                          do: "border-pk-info bg-pk-info-dim text-pk-info",
-                          else:
-                            "border-pk-line-strong text-pk-text-2 hover:border-pk-info/60 hover:text-pk-text"
-                        )
-                      ]}
-                    >
-                      <.icon name={icon} class="size-3.5" />{label}
-                    </button>
-
-                    <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
-
-                    <button
-                      :for={stop <- Route.stops()}
-                      id={"waypoint-#{index}-#{stop}"}
-                      phx-click="toggle_waypoint_stop"
-                      phx-value-index={index}
-                      phx-value-stop={stop}
-                      aria-pressed={to_string(stop in wp.stops)}
-                      aria-label={"Waypoint #{index + 1}: #{stop_label(stop)} depois da luta"}
-                      title={stop_hint(stop)}
-                      class={[
-                        "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
-                        if(stop in wp.stops,
-                          do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
-                          else:
-                            "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:text-pk-text"
-                        )
-                      ]}
-                    >
-                      {stop_icon(stop)} {stop_label(stop)}
-                    </button>
-                  </div>
                 </li>
               </ol>
             </section>

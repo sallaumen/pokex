@@ -697,11 +697,18 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :walking
     end
 
-    test "the next stop may sweep again — the latch is per stop, not per hunt" do
+    # The latch belongs to the WAYPOINT: leaving the corner does NOT clear it —
+    # a fresh mob arriving before he walks away would replay the whole round
+    # (his journal, 2026-08-11, waypoint 33) — arriving at the next one does.
+    test "the latch survives leaving, and the next arrival arms it again" do
       logic = after_kill_at(1, swept_route())
       {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
       {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
       assert logic.state == :walking
+      assert logic.stops_done == [:sweep]
+
+      {logic, _walk} = Logic.step(logic, %{swept_world(0, nil) | pos: {15, 10, 7}}, 2_100)
+      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | pos: {20, 10, 7}}, 2_200)
       assert logic.stops_done == []
     end
   end
@@ -801,6 +808,53 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       logic = after_kill_at(1, stop_route([:sweep]))
 
       assert {_logic, {:sweep, nil}} = Logic.step(logic, swept_world(0, nil), 10)
+    end
+
+    # From his own journal (2026-08-11), waypoint 33: sweep + revive at
+    # 232370/232702, a new enemy, and the SAME two again at 244000/244308.
+    # The latch was cleared on RESUMING, so a fight that started before he
+    # left the corner sent the whole stop round again. It belongs to the
+    # WAYPOINT, not to the episode: arriving is what starts a new one.
+    test "a fight after the stops does not run them a second time" do
+      logic = after_kill_at(1, stop_route([:cooldown_revive, :sweep]))
+
+      {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, {:sweep, _around}} = Logic.step(logic, swept_world(0, nil), 100)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
+      assert logic.state == :walking
+
+      # an enemy walks in before he has left the corner
+      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | enemies: 2}, 2_100)
+      assert logic.state == :fighting
+
+      # the screen clears, the debounce runs out, and it is back in post_fight
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 3_000)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 4_000)
+      assert logic.state == :post_fight
+
+      # and now the ticks that WOULD run the stops again
+      {logic, first} = Logic.step(logic, swept_world(0, nil), 4_100)
+      {_logic, second} = Logic.step(logic, swept_world(0, nil), 4_200)
+
+      # nothing to redo: they were done for THIS waypoint
+      refute :cooldown_revive in [first, second]
+      refute Enum.any?([first, second], &match?({:sweep, _around}, &1))
+    end
+
+    test "arriving at the NEXT waypoint arms the stops again" do
+      route =
+        stop_route([:sweep])
+        |> Route.set_stop(1, :sweep, true)
+
+      logic = after_kill_at(1, route)
+      {logic, {:sweep, _around}} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
+      assert logic.state == :walking
+
+      # walks on and reaches waypoint 2, which asks for a sweep of its own
+      {logic, _walk} = Logic.step(logic, %{swept_world(0, nil) | pos: {15, 10, 7}}, 2_100)
+      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | pos: {20, 10, 7}}, 2_200)
+      assert logic.stops_done == []
     end
 
     test "a waypoint with no stops leaves on the dwell, as it always did" do

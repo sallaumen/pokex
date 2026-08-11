@@ -2,10 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "pokex",
+      "name": "pokex-rota",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "cd /Users/tavano/projects/pokex && exec mix phx.server"],
-      "port": 4004
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/tavano/projects/pokex-claude-rota && PORT=4012 PHX_SERVER=1 MIX_ENV=dev exec mix phx.server"
+      ],
+      "port": 4012
     }
   ]
 }

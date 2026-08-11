@@ -249,10 +249,16 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # His own measured pause wins over the configured one: the recording watched
   # him park the pokémon and counted to his first skill, which is the real
   # answer for THIS spot ("quatro segundos" was his estimate of it).
-  defp arrived(logic, %{action: :lure_end} = wp, now),
+  # Arriving is what ARMS the stops: a corner's round of actions belongs to
+  # that corner, and it is reaching a new one that starts a new round.
+  defp arrived(logic, wp, now) when is_map(wp) do
+    %{arrived_at(logic, wp, now) | stops_done: []}
+  end
+
+  defp arrived_at(logic, %{action: :lure_end} = wp, now),
     do: %{logic | since: Map.put(logic.since, :gather, now), gather_wait: wp[:gather_ms]}
 
-  defp arrived(logic, _plain_corner, _now),
+  defp arrived_at(logic, _plain_corner, _now),
     do: %{logic | since: Map.delete(logic.since, :gather), gather_wait: nil}
 
   @doc """
@@ -659,7 +665,13 @@ defmodule Pokex.Bots.Cavebot.Logic do
         |> Map.drop([:dwell, :sweep, :stop_wait])
         |> Map.put(:walk_progress, now)
 
-      {%{logic | state: :walking, since: since, last_pos: nil, stops_done: []}, :none}
+      # `stops_done` is NOT cleared here: it belongs to the WAYPOINT, not to
+      # this episode. Clearing it on the way out meant a new enemy arriving
+      # before he left the corner sent the whole round again — his journal,
+      # 2026-08-11, waypoint 33: sweep+revive at 232370, a fresh mob, and the
+      # same two at 244000. Arriving somewhere new is what arms them again
+      # (see `arrived/3`).
+      {%{logic | state: :walking, since: since, last_pos: nil}, :none}
     else
       {logic, :none}
     end

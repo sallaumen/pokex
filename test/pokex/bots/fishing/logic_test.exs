@@ -474,7 +474,11 @@ defmodule Pokex.Bots.Fishing.LogicTest do
       thrown = thrown_after_hook()
 
       {logic, actions} =
-        Logic.step(thrown, %{cursor: {500, 500}, glow: false, line?: true}, thrown.cast_at + 2_400)
+        Logic.step(
+          thrown,
+          %{cursor: {500, 500}, glow: false, line?: true},
+          thrown.cast_at + 2_400
+        )
 
       assert [{:log, msg}] = actions
       assert msg =~ "2400ms"

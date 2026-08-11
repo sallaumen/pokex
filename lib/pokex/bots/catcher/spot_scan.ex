@@ -108,7 +108,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # on the display, which the broker's quarantine would otherwise reject.
   defp scan_region({cx, cy}, %Calibration{screen_w: sw, screen_h: sh} = calib)
        when is_integer(sw) and is_integer(sh) do
-    tile = max(Settings.get(:tile_px), 1)
+    tile = Calibration.tile_px()
     raio = max(Settings.get(:corpse_scan_radius_tiles), 1)
     meia = div((2 * raio + 1) * tile, 2)
 
@@ -213,7 +213,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
 
   defp forbidden?(x, y, box, forbidden) do
     meia_caixa = div(box, 2)
-    limite = div(max(Settings.get(:tile_px), 1), 2)
+    limite = div(Calibration.tile_px(), 2)
     cx = x + meia_caixa
     cy = y + meia_caixa
 

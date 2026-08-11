@@ -316,6 +316,52 @@ defmodule Pokex.Vision do
     for i <- 0..(rows - 1), do: Map.get(counts, i, 0)
   end
 
+  @doc """
+  Per-row count of HP-BAR GREEN inside the battle body, one entry per row — the
+  same bands `red_row_counts/2` uses.
+
+  It answers ONE question: **is that bar moving?** Not "how much health is
+  left": the fraction needs the measured bar box, and this has to work with or
+  without a located layout. A count is enough for the question that matters — a
+  target being hit loses green, a target nobody can reach keeps every pixel.
+
+  Pixels left of `min_x` are skipped because the creature ICON lives there and
+  some are green (Vileplume's cap is the case at hand). A constant offset would
+  not break a CHANGE test, but an animated icon would.
+  """
+  @spec hp_row_counts(Frame.t(), keyword) :: [non_neg_integer]
+  def hp_row_counts(%Frame{width: w, rgba: rgba}, opts) do
+    top = Keyword.fetch!(opts, :top)
+    band = Keyword.fetch!(opts, :band)
+    rows = Keyword.fetch!(opts, :rows)
+    min_x = Keyword.get(opts, :min_x, div(w * 3, 10))
+    counts = green_band_counts(rgba, 0, w, min_x, top, band, rows, %{})
+    for i <- 0..(rows - 1), do: Map.get(counts, i, 0)
+  end
+
+  # Same shape (and the same clause-order rule) as red_band_counts: the
+  # predicate clause MUST come before the catch-all. The green is the HP bar's
+  # own — bright, and far from both the grey names and the dark red of a lock.
+  defp green_band_counts(<<r, g, b, _a, rest::binary>>, index, width, min_x, top, band, rows, acc)
+       when g >= 90 and g > r + 30 and g > b + 30 do
+    acc =
+      if rem(index, width) >= min_x,
+        do: bump_band(acc, div(index, width), top, band, rows),
+        else: acc
+
+    green_band_counts(rest, index + 1, width, min_x, top, band, rows, acc)
+  end
+
+  defp green_band_counts(<<_::32, rest::binary>>, index, width, min_x, top, band, rows, acc),
+    do: green_band_counts(rest, index + 1, width, min_x, top, band, rows, acc)
+
+  defp green_band_counts(<<>>, _index, _width, _min_x, _top, _band, _rows, acc), do: acc
+
+  defp bump_band(acc, y, top, band, rows) do
+    row = if y >= top, do: div(y - top, band), else: -1
+    if row >= 0 and row < rows, do: Map.update(acc, row, 1, &(&1 + 1)), else: acc
+  end
+
   # Clause order matters: the red-predicate clause MUST come before the catch-all
   # <<_::32, ...>> (which matches any 4 bytes). Mirrors pokeball_row_counts.
   defp red_band_counts(<<r, g, b, _a, rest::binary>>, index, width, top, band, rows, acc)

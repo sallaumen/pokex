@@ -78,7 +78,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
     stop_wait_ms: :cavebot_stop_wait_ms,
     gather_wait_ms: :cavebot_gather_wait_ms,
     gather_wait_min_ms: :cavebot_gather_wait_min_ms,
-    gather_wait_max_ms: :cavebot_gather_wait_max_ms
+    gather_wait_max_ms: :cavebot_gather_wait_max_ms,
+    stair_probe_ms: :cavebot_stair_probe_ms,
+    stair_max_probes: :cavebot_stair_max_probes
   }
 
   def topic, do: @topic
@@ -280,6 +282,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     {world, state} = observe(state, now)
     before = broadcast_key(state, now)
     wp_before = state.logic.wp_index
+    state_before = state.logic.state
 
     {logic, action} = Logic.step(state.logic, world, now)
 
@@ -287,6 +290,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       %{state | logic: logic}
       |> translate(action)
       |> note_arrival(wp_before, now)
+      |> note_search(state_before, now)
       |> log_hold_edge(now)
       |> publish_posture(now)
 
@@ -409,34 +413,26 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # corpses are worth a ball each. A cast, never a call — the Catcher parks on
   # multi-second captures and this worker ticks five times a second.
   def translate(state, {:sweep, around}) do
-    Catcher.Worker.sweep_now(state.catcher, around)
-    log(:macro, sweep_text(around))
+    point = spot_point(around)
+    Catcher.Worker.sweep_now(state.catcher, point)
+    log(:macro, sweep_text(point))
     release_walk(state)
   end
 
   # The middle click he makes himself when he finishes gathering: it parks the
   # active pokémon on a chosen tile so the pile closes in AROUND IT. Recorded
   # from his own hand (Cavebot.Recording.mark_park/4), replayed here.
-  def translate(state, {:park, point}) do
+  def translate(state, {:park, spot}) do
     state = release_walk(state)
-    times = Settings.get(:cavebot_park_clicks)
-    gap = Settings.get(:cavebot_park_gap_ms)
 
-    # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que
-    # mandar algumas vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11). The
-    # client drops the order when it is busy; the click is idempotent (the
-    # pokémon walks to the same tile) so repeating it costs nothing and is the
-    # difference between "andou" and "às vezes andou".
-    #
-    # Off the tick, like every other Body.perform here: it is a call with an
-    # :infinity timeout and the Body may be seconds deep in a capture.
-    clicks = List.duplicate({:click, :middle, point}, times)
-    actions = Enum.intersperse(clicks, {:wait, gap})
-    body = state.body
-    spawn(fn -> body.perform(actions, :high) end)
+    case spot_point(spot) do
+      nil ->
+        log(:macro, "🖱️ não mandei o pokémon: falta calibrar onde o personagem fica na tela")
+        state
 
-    log(:macro, "🖱️ pokémon posicionado em #{elem(point, 0)}, #{elem(point, 1)} (#{times}x)")
-    state
+      point ->
+        park_click(state, point)
+    end
   end
 
   # "Cooldown Ressurect" (Lucas, 2026-08-10): recall, max-revive on the
@@ -538,6 +534,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp block_text(:floor_changed), do: "BLOQUEADO: mudou de andar"
   defp block_text(:combat_preflight_failed), do: "BLOQUEADO: o combate recusou o arranque"
   defp block_text(:stuck), do: "parei: travado, sem sair do lugar"
+
+  defp block_text(:stairs),
+    do: "parei: não achei a escada — corrija o ponto da rota (o andar não mudou)"
+
   defp block_text(:fight_stalled), do: "parei: a luta não termina"
   defp block_text(reason), do: "parei: #{inspect(reason)}"
 
@@ -568,6 +568,42 @@ defmodule Pokex.Bots.Cavebot.Worker do
       end
     end)
   end
+
+  defp park_click(state, point) do
+    times = Settings.get(:cavebot_park_clicks)
+    gap = Settings.get(:cavebot_park_gap_ms)
+
+    # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que
+    # mandar algumas vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11). The
+    # client drops the order when it is busy; the click is idempotent (the
+    # pokémon walks to the same tile) so repeating it costs nothing and is the
+    # difference between "andou" and "às vezes andou".
+    #
+    # Off the tick, like every other Body.perform here: it is a call with an
+    # :infinity timeout and the Body may be seconds deep in a capture.
+    clicks = List.duplicate({:click, :middle, point}, times)
+    actions = Enum.intersperse(clicks, {:wait, gap})
+    body = state.body
+    spawn(fn -> body.perform(actions, :high) end)
+
+    log(:macro, "🖱️ pokémon posicionado em #{elem(point, 0)}, #{elem(point, 1)} (#{times}x)")
+    state
+  end
+
+  # A spot the Logic named, turned into a screen point HERE — where the
+  # calibration lives. A distance in tiles is measured from the character, so
+  # it survives the game window moving; a recorded click is taken as it was
+  # made. Nothing anchors the character = nothing is clicked, and it is said.
+  defp spot_point({:point, {x, y}}), do: {x, y}
+
+  defp spot_point({:tiles, {_dx, _dy} = tiles}) do
+    case Calibration.load() do
+      {:ok, calib} -> Calibration.tile_point(calib, tiles)
+      _uncalibrated -> nil
+    end
+  end
+
+  defp spot_point(_nothing), do: nil
 
   defp sweep_text({x, y}), do: "🧹 varrendo onde o pokémon estava (#{x}, #{y})"
   defp sweep_text(_character), do: "🧹 varrendo os corpos antes de seguir"
@@ -690,8 +726,17 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end)
   end
 
+  # Two shapes, on purpose: the scalar knobs come straight from Settings, and
+  # the hunt's DEFAULT park spot is a pair — where the pokémon goes at a kill
+  # spot he never marked one for. {0, 0} is "on top of me", which means don't
+  # send it anywhere.
   defp config do
-    Map.new(@config_keys, fn {key, setting} -> {key, Settings.get(setting)} end)
+    @config_keys
+    |> Map.new(fn {key, setting} -> {key, Settings.get(setting)} end)
+    |> Map.put(
+      :park_tiles,
+      {Settings.get(:cavebot_park_tiles_x), Settings.get(:cavebot_park_tiles_y)}
+    )
   end
 
   # :minimap is THIS worker's feed (monitored + reattached); :battle is already
@@ -907,6 +952,29 @@ defmodule Pokex.Bots.Cavebot.Worker do
     log(:macro, text)
     %{state | counters: bump(state.counters, :waypoints), last_action: %{text: text, at: now}}
   end
+
+  # Looking for the step, and finding it. A hunt standing on the right tile
+  # with the floor unchanged is doing something specific and invisible — the
+  # only thing on screen used to be the waypoint number, which is exactly what
+  # made "ele continua avançando nos waypoints" so hard to see (2026-08-11).
+  defp note_search(%{logic: %Logic{state: :stairs}} = state, before, now)
+       when before != :stairs do
+    case wp_target(state) do
+      %{x: x, y: y, z: z} ->
+        log(:macro, "🪜 procurando a escada perto de #{x}, #{y} (o andar #{z} não veio)")
+        %{state | last_action: %{text: "procurando a escada", at: now}}
+
+      nil ->
+        state
+    end
+  end
+
+  defp note_search(%{logic: %Logic{state: :walking}, pos: {_x, _y, z}} = state, :stairs, now) do
+    log(:macro, "🪜 achei a escada: agora no andar #{z}")
+    %{state | last_action: %{text: "escada tomada", at: now}}
+  end
+
+  defp note_search(state, _before, _now), do: state
 
   # The hold reason is EDGE information: one line when it APPEARS, silence
   # while it still applies. Repeating every 200ms would drown the feed exactly

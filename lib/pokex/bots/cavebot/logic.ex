@@ -48,9 +48,15 @@ defmodule Pokex.Bots.Cavebot.Logic do
             stops_done: [],
             # how long to let the pile close in HERE: his own measured pause
             # when the recording caught it, the configured default otherwise
-            gather_wait: nil
+            gather_wait: nil,
+            # where in the ring around a staircase the search is, and how many
+            # steps it has actually taken (a ring tile the character already
+            # stands on costs a cursor move, never a step)
+            probe: 0,
+            probe_steps: 0
 
-  @type state :: :walking | :fighting | :post_fight | :stuck | :fight_stalled | :blocked
+  @type state ::
+          :walking | :fighting | :post_fight | :stuck | :fight_stalled | :stairs | :blocked
 
   @type action ::
           :none
@@ -58,9 +64,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | :run_combat
           | :halt_combat
           | {:nudge, integer, integer}
-          | {:sweep, {integer, integer} | nil}
+          | {:sweep, Route.spot() | nil}
           | :cooldown_revive
-          | {:park, {integer, integer}}
+          | {:park, Route.spot()}
           | {:block, atom}
 
   @type world :: %{
@@ -86,7 +92,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
           stop_wait_ms: non_neg_integer,
           gather_wait_ms: non_neg_integer,
           gather_wait_min_ms: non_neg_integer,
-          gather_wait_max_ms: non_neg_integer
+          gather_wait_max_ms: non_neg_integer,
+          stair_probe_ms: non_neg_integer,
+          stair_max_probes: non_neg_integer,
+          # the hunt's DEFAULT park spot, in tiles from the character — the
+          # only pair in here, because it is the only knob that is a place
+          park_tiles: {integer, integer} | nil
         }
 
   @type t :: %__MODULE__{
@@ -102,8 +113,33 @@ defmodule Pokex.Bots.Cavebot.Logic do
           homed?: boolean,
           skips: non_neg_integer,
           stops_done: [Route.stop()],
-          gather_wait: non_neg_integer | nil
+          gather_wait: non_neg_integer | nil,
+          probe: non_neg_integer,
+          probe_steps: non_neg_integer
         }
+
+  # The ring the search walks around a staircase, in offsets from the recorded
+  # corner: the corner itself, then its four sides, then its four diagonals —
+  # with the corner between each, because a staircase is TAKEN by stepping onto
+  # it, and stepping back off is what makes the next step onto it possible.
+  @stair_ring [
+    {0, 0},
+    {0, -1},
+    {0, 0},
+    {0, 1},
+    {0, 0},
+    {-1, 0},
+    {0, 0},
+    {1, 0},
+    {0, 0},
+    {-1, -1},
+    {0, 0},
+    {1, -1},
+    {0, 0},
+    {-1, 1},
+    {0, 0},
+    {1, 1}
+  ]
 
   @doc """
   Creates the machine for a route: `state: :walking`, `wp_index: 0`,
@@ -150,6 +186,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp dispatch(%__MODULE__{state: :walking} = logic, world, now), do: walk(logic, world, now)
   defp dispatch(%__MODULE__{state: :stuck} = logic, world, now), do: stuck(logic, world, now)
+  defp dispatch(%__MODULE__{state: :stairs} = logic, world, now), do: stairs(logic, world, now)
   defp dispatch(%__MODULE__{state: :fighting} = logic, world, now), do: fight(logic, world, now)
 
   defp dispatch(%__MODULE__{state: :fight_stalled} = logic, world, now),
@@ -168,10 +205,21 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   The Worker turns this into the `:posture` fact Combat obeys; only a `:walking`
   hunt gathers, and a hunt that is fighting or stuck is doing something else.
+
+  Searching for a staircase counts — for ONE lap of the ring. A step usually
+  takes two or three probes, and interrupting the gathering for those would
+  waste the whole stretch. A full lap without finding it means the hunt is not
+  gathering any more, it is stuck at a door: the fire is released, because
+  standing still holding it while a pile hits him is the worst of both, and
+  because a mob standing ON the step is the commonest reason it cannot be
+  taken.
   """
   @spec luring?(t) :: boolean
-  def luring?(%__MODULE__{state: :walking, route: %Route{waypoints: waypoints}, wp_index: index})
-      when waypoints != [] do
+  def luring?(%__MODULE__{state: :stairs, probe_steps: steps}) when steps > length(@stair_ring),
+    do: false
+
+  def luring?(%__MODULE__{state: state, route: %Route{waypoints: waypoints}, wp_index: index})
+      when waypoints != [] and state in [:walking, :stairs] do
     Route.lure_leg?(waypoints, Integer.mod(index - 1, length(waypoints)))
   end
 
@@ -240,19 +288,35 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # Parking the pokémon is the FIRST thing that happens on arrival, before the
   # huddle clock has run: he middle-clicks a spot so the pile closes in around
   # the pokémon instead of around him, and the four seconds are counted from
-  # that click.
-  defp on_arrival(%{action: :lure_end, park_point: {_x, _y} = point}), do: {:park, point}
-  defp on_arrival(_plain_arrival), do: :none
+  # that click. WHERE is the waypoint's business (its own distance, its own
+  # recorded click) with the hunt's default distance behind it — and it stays a
+  # spec, never a screen point: this module has no calibration and no screen.
+  defp on_arrival(logic, %{action: :lure_end} = wp) do
+    case Route.park_spot(wp, default_park(logic)) do
+      nil -> :none
+      spot -> {:park, spot}
+    end
+  end
+
+  defp on_arrival(_logic, _plain_arrival), do: :none
+
+  defp default_park(%__MODULE__{config: config}), do: Map.get(config, :park_tiles)
 
   # Arriving at "até aqui" starts the huddle clock; arriving anywhere else
   # clears it, so a stale stamp can never hold fire on a plain corner.
   # His own measured pause wins over the configured one: the recording watched
   # him park the pokémon and counted to his first skill, which is the real
   # answer for THIS spot ("quatro segundos" was his estimate of it).
-  defp arrived(logic, %{action: :lure_end} = wp, now),
+  # Arriving is what ARMS the stops: a corner's round of actions belongs to
+  # that corner, and it is reaching a new one that starts a new round.
+  defp arrived(logic, wp, now) when is_map(wp) do
+    %{arrived_at(logic, wp, now) | stops_done: []}
+  end
+
+  defp arrived_at(logic, %{action: :lure_end} = wp, now),
     do: %{logic | since: Map.put(logic.since, :gather, now), gather_wait: wp[:gather_ms]}
 
-  defp arrived(logic, _plain_corner, _now),
+  defp arrived_at(logic, _plain_corner, _now),
     do: %{logic | since: Map.delete(logic.since, :gather), gather_wait: nil}
 
   @doc """
@@ -310,7 +374,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # position changes, so one moved tile is what brings the reading back.
   defp follow_route(logic, %{pos: nil}, now), do: logic |> blind(now) |> maybe_kick(now)
 
-  defp follow_route(logic, %{pos: {x, y, z} = pos}, now) do
+  defp follow_route(logic, %{pos: {x, y, z} = pos} = world, now) do
     logic = sighted(logic)
     wp = current_wp(logic)
     dx = wp.x - x
@@ -324,7 +388,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
       abs(dx) <= tol and abs(dy) <= tol and wp.z == z ->
         next = rem(logic.wp_index + 1, length(logic.route.waypoints))
         logic = note_progress(logic, pos, now)
-        {%{arrived(logic, wp, now) | wp_index: next, skips: 0}, on_arrival(wp)}
+        {%{arrived(logic, wp, now) | wp_index: next, skips: 0}, on_arrival(logic, wp)}
+
+      # The right tile on the WRONG floor: the staircase is here somewhere and
+      # was not taken. Standing on it asks for nothing — dx and dy are zero —
+      # so this used to time out into :stuck and then skip the corner. Search
+      # for the step instead.
+      abs(dx) <= tol and abs(dy) <= tol ->
+        stairs(enter_stairs(logic, pos, now), world, now)
 
       pos != logic.last_pos ->
         {note_progress(logic, pos, now), {:walk, dx, dy}}
@@ -360,6 +431,86 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
+  # Searching for the step. Entering resets the ring AND the clock, so a search
+  # interrupted by a fight starts over instead of resuming three probes from
+  # giving up.
+  defp enter_stairs(logic, pos, now) do
+    %{
+      note_progress(logic, pos, now)
+      | state: :stairs,
+        probe: 0,
+        since: Map.delete(logic.since, :probe)
+    }
+  end
+
+  # A staircase is taken by STEPPING on it, and the corner the recording left
+  # behind is where he LANDED — which on the floor above may be the step, or
+  # beside it, or one tile past it ("ela é fininha, e ele não conseguiu achar o
+  # spot exato", Lucas, 2026-08-11). So the search walks the ring around that
+  # corner, one tile per probe, and the floor changing is the answer.
+  #
+  # Nothing here may advance `wp_index`: walking the next corners of a floor
+  # the character never reached is the wall-pushing he watched.
+  defp stairs(logic, %{pos: nil}, now), do: {blind(logic, now), :none}
+
+  defp stairs(logic, %{pos: {_x, _y, z} = pos} = world, now) do
+    logic = sighted(logic)
+    wp = current_wp(logic)
+
+    cond do
+      # the step was found: the position itself says so
+      z == wp.z ->
+        walk(%{logic | state: :walking, retries: 0, probe: 0, probe_steps: 0}, world, now)
+
+      # a mob leg walks THROUGH what shows up — the same rule as the walking
+      # state, so a search inside a gathering does not turn into a fight
+      not luring?(logic) and (world.enemies > 0 or engaged?(world)) ->
+        enter_fight(logic, now)
+
+      logic.probe_steps >= stair_max_probes(logic) ->
+        {%{logic | state: :blocked}, {:block, :stairs}}
+
+      not probe_due?(logic, now) ->
+        {logic, :none}
+
+      true ->
+        probe_stairs(logic, pos, wp, now)
+    end
+  end
+
+  defp probe_due?(%__MODULE__{since: since} = logic, now) do
+    case Map.get(since, :probe) do
+      nil -> true
+      at -> now - at >= Map.get(logic.config, :stair_probe_ms, 400)
+    end
+  end
+
+  defp stair_max_probes(%__MODULE__{config: config}),
+    do: Map.get(config, :stair_max_probes, 32)
+
+  # ONE tile toward the ring's current tile. A probe whose tile is the one the
+  # character already stands on is not a step — it is skipped, never issued as
+  # `{:nudge, 0, 0}`, which the Body would turn into no key at all.
+  defp probe_stairs(logic, pos, wp, now, hops \\ 0)
+
+  defp probe_stairs(logic, _pos, _wp, _now, hops) when hops >= length(@stair_ring),
+    do: {logic, :none}
+
+  defp probe_stairs(logic, {x, y, _z} = pos, wp, now, hops) do
+    {ox, oy} = Enum.at(@stair_ring, Integer.mod(logic.probe, length(@stair_ring)))
+    logic = %{logic | probe: logic.probe + 1}
+
+    case {wp.x + ox - x, wp.y + oy - y} do
+      {0, 0} ->
+        probe_stairs(logic, pos, wp, now, hops + 1)
+
+      {dx, dy} ->
+        {sx, sy} = one_tile(dx, dy)
+        logic = %{logic | probe_steps: logic.probe_steps + 1}
+        {%{logic | since: Map.put(logic.since, :probe, now)}, {:nudge, sx, sy}}
+    end
+  end
+
   defp stuck(logic, %{pos: nil}, now), do: {blind(logic, now), :none}
 
   defp stuck(logic, %{pos: pos} = world, now) do
@@ -376,6 +527,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
           {dx, dy} = unstick(logic, pos, retries)
           {%{logic | retries: retries}, {:walk, dx, dy}}
 
+        # A corner on ANOTHER floor is never skipped. Skipping it moves the
+        # hunt on to corners that describe a map the character is not standing
+        # on — his 2026-08-11 run walked waypoints 15 and 16 (floor 2) while he
+        # was still on floor 1, pushing against the scenery beside the stairs.
+        # Stopping with a name is the honest end of a staircase nobody found.
+        crossing_floor?(logic, pos) ->
+          {%{logic | state: :blocked}, {:block, :stairs}}
+
         # A corner walled on every side is not the end of the hunt: the route
         # is a LOOP, and the next corner is usually reachable from here. Only a
         # full lap of unreachable corners means the character is somewhere the
@@ -386,6 +545,13 @@ defmodule Pokex.Bots.Cavebot.Logic do
         true ->
           {%{logic | state: :blocked}, {:block, :stuck}}
       end
+    end
+  end
+
+  defp crossing_floor?(logic, {_x, _y, z}) do
+    case current_wp(logic) do
+      %{z: target} -> target != z
+      _no_waypoint -> false
     end
   end
 
@@ -585,7 +751,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # The sweep is centred where the corpses ARE: after a gathered fight they lie
   # around the tile the pokémon was parked on, several tiles from him.
   defp run_stop(logic, :sweep, now) do
-    {mark_done(logic, :sweep, :sweep, now), {:sweep, park_point(logic)}}
+    {mark_done(logic, :sweep, :sweep, now), {:sweep, park_spot(logic)}}
   end
 
   # Reviving resets every cooldown: the fastest way back to a full bar is to
@@ -598,11 +764,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
     {mark_done(logic, :wait, :stop_wait, now), :none}
   end
 
-  defp park_point(%__MODULE__{route: %Route{waypoints: []}}), do: nil
+  defp park_spot(%__MODULE__{route: %Route{waypoints: []}}), do: nil
 
-  defp park_point(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
+  defp park_spot(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
     index = Integer.mod(logic.wp_index - 1, length(waypoints))
-    Enum.at(waypoints, index)[:park_point]
+    Route.park_spot(Enum.at(waypoints, index), default_park(logic))
   end
 
   defp mark_done(logic, stop, since_key, now) do
@@ -659,7 +825,13 @@ defmodule Pokex.Bots.Cavebot.Logic do
         |> Map.drop([:dwell, :sweep, :stop_wait])
         |> Map.put(:walk_progress, now)
 
-      {%{logic | state: :walking, since: since, last_pos: nil, stops_done: []}, :none}
+      # `stops_done` is NOT cleared here: it belongs to the WAYPOINT, not to
+      # this episode. Clearing it on the way out meant a new enemy arriving
+      # before he left the corner sent the whole round again — his journal,
+      # 2026-08-11, waypoint 33: sweep+revive at 232370, a fresh mob, and the
+      # same two at 244000. Arriving somewhere new is what arms them again
+      # (see `arrived/3`).
+      {%{logic | state: :walking, since: since, last_pos: nil}, :none}
     else
       {logic, :none}
     end

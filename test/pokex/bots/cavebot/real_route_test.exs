@@ -21,6 +21,8 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
   @moduletag :tmp_dir
 
   @cfg %{
+    stair_probe_ms: 450,
+    stair_max_probes: 32,
     arrival_tolerance: 1,
     walk_timeout_ms: 3_000,
     stuck_max_retries: 4,
@@ -92,6 +94,61 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
     end
   end
 
+  # The same walk against a HARSHER world: the character only changes floor by
+  # stepping on a real staircase tile, and the one on the way down from
+  # waypoint 14 sits one tile WEST of the corner the recording kept — exactly
+  # the "escada fininha" his route could not take (2026-08-11). Nothing else
+  # moves him between floors.
+  # `seen` is what the machine claimed AND where the character stood when it
+  # claimed it: `{waypoint it just left, position at that moment}`. A skipped
+  # corner and a reached one are indistinguishable by index alone — that is
+  # exactly how his hunt "advanced" two waypoints of floor 2 from floor 1.
+  defp walk_lap_with_stairs(logic, pos, steps, stairs) do
+    Enum.reduce_while(1..steps, {logic, pos, []}, fn step, {logic, pos, seen} ->
+      now = step * 500
+      was = logic.wp_index
+      {logic, action} = Logic.step(logic, world(pos, logic), now)
+      seen = if logic.wp_index == was, do: seen, else: [{was, pos} | seen]
+
+      case action do
+        {:block, reason} -> {:halt, {:blocked, reason, logic.wp_index, pos}}
+        _other -> {:cont, {logic, step_world(pos, logic, action, stairs), seen}}
+      end
+    end)
+  end
+
+  # The character moves ONE tile toward whatever was asked; the floor changes
+  # only when the tile he lands on is a staircase.
+  defp step_world({x, y, z} = pos, logic, action, stairs) do
+    {dx, dy} =
+      case action do
+        {:walk, ax, ay} -> {sign(ax), sign(ay)}
+        {:nudge, ax, ay} -> {sign(ax), sign(ay)}
+        _standing_still -> {0, 0}
+      end
+
+    landed = {x + dx, y + dy, z}
+
+    cond do
+      {dx, dy} == {0, 0} -> pos
+      blocked?(landed, logic) -> pos
+      true -> Map.get(stairs, landed, landed)
+    end
+  end
+
+  # Everything more than a tile off the straight line between the corner he
+  # left and the one he is heading for is scenery — the walls beside a thin
+  # staircase, which is what makes the search a search.
+  defp blocked?({x, y, z}, logic) do
+    count = length(logic.route.waypoints)
+    wp = Enum.at(logic.route.waypoints, logic.wp_index)
+    from = Enum.at(logic.route.waypoints, Integer.mod(logic.wp_index - 1, count))
+
+    z == from.z and z == wp.z and
+      (x < min(wp.x, from.x) - 1 or x > max(wp.x, from.x) + 1 or
+         y < min(wp.y, from.y) - 1 or y > max(wp.y, from.y) + 1)
+  end
+
   defp sign(0), do: 0
   defp sign(n) when n > 0, do: 1
   defp sign(_n), do: -1
@@ -157,6 +214,65 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
     # the configured 4s, not the measured 12s
     assert Logic.gathering?(logic, 4_500)
     refute Logic.gathering?(logic, 5_200)
+  end
+
+  # THE staircase of 2026-08-11: waypoint 15 of his route is on floor 2, and
+  # the step down from waypoint 14 is not on the tile the recording kept.
+  describe "his four staircases, each one tile off the recorded corner" do
+    # Every leg of the route that changes floor, with its step ONE TILE WEST of
+    # the corner the recording kept — the "escada fininha" shape: walking to
+    # the recorded tile is not taking the stairs.
+    defp offset_stairs(route) do
+      waypoints = route.waypoints
+      count = length(waypoints)
+
+      for index <- 0..(count - 1),
+          from = Enum.at(waypoints, index),
+          to = Enum.at(waypoints, rem(index + 1, count)),
+          from.z != to.z,
+          into: %{},
+          do: {{to.x - 1, to.y, from.z}, {to.x, to.y, to.z}}
+    end
+
+    test "a full lap still happens: the hunt finds every step" do
+      route = real_route()
+      first = hd(route.waypoints)
+      logic = %{Logic.new(route, @cfg) | combat_running?: true, homed?: true}
+
+      result =
+        walk_lap_with_stairs(
+          logic,
+          {first.x, first.y, first.z},
+          3_000,
+          offset_stairs(route)
+        )
+
+      assert {logic, _pos, seen} = result, "a caçada bloqueou: #{inspect(result)}"
+      assert length(Enum.uniq(Enum.map(seen, &elem(&1, 0)))) == 45
+      assert logic.state in [:walking, :post_fight, :stairs]
+
+      # …and every one of them was REACHED, floor included: the corner it left
+      # behind is a corner the character was actually standing on.
+      wrong =
+        Enum.reject(seen, fn {index, {_x, _y, z}} ->
+          Enum.at(route.waypoints, index).z == z
+        end)
+
+      assert wrong == [], "waypoints dados como feitos de outro andar: #{inspect(wrong)}"
+    end
+
+    test "with no step to find it stops with a name — it does NOT walk on" do
+      route = real_route()
+      waypoints = route.waypoints
+      index = Enum.find_index(waypoints, &(&1.z != hd(waypoints).z))
+      from = Enum.at(waypoints, index - 1)
+      logic = %{Logic.new(route, @cfg) | combat_running?: true, homed?: true, wp_index: index}
+
+      result = walk_lap_with_stairs(logic, {from.x, from.y, from.z}, 200, %{})
+
+      assert {:blocked, :stairs, ^index, {_x, _y, z}} = result
+      assert z == from.z, "parou, mas já estava no outro andar"
+    end
   end
 
   # A floor the route never visits is still the emergency it always was —

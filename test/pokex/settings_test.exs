@@ -32,7 +32,7 @@ defmodule Pokex.SettingsTest do
     {:ok, server2} = Settings.start_link(name: nil, path: path)
     assert Settings.get(:glow_threshold, server2) == 22.5
     assert Settings.get(:skill_keys, server2) == ["1", "2", "3", "4"]
-    assert Settings.get(:tile_px, server2) == 88
+    assert Settings.get(:tile_px, server2) == Settings.defaults()[:tile_px]
   end
 
   # A boolean turned OFF is the most common override there is; migrating values
@@ -127,7 +127,7 @@ defmodule Pokex.SettingsTest do
 
     :ok = Settings.put(:tile_px, Settings.defaults().tile_px, server)
 
-    assert Settings.get(:tile_px, server) == 88
+    assert Settings.get(:tile_px, server) == Settings.defaults()[:tile_px]
     assert path |> File.read!() |> JSON.decode!() == %{}
   end
 

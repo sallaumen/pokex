@@ -326,4 +326,23 @@ defmodule Pokex.CalibrationTest do
 
     assert Calibration.minimap_capture_region(%Calibration{scale: 1.0}) == nil
   end
+
+  # The ruler, and the unit anything measured FROM THE CHARACTER is written in.
+  test "tiles and screen points convert both ways around the character" do
+    calib = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, player_point: {1707, 689}}
+
+    Pokex.Settings.put(:tile_px, 131)
+    on_exit(fn -> Pokex.Settings.put(:tile_px, Pokex.Settings.defaults()[:tile_px]) end)
+
+    assert Calibration.tile_px() == 131
+    assert Calibration.tile_point(calib, {6, -2}) == {1707 + 786, 689 - 262}
+    assert Calibration.tile_offset(calib, {1707 + 786, 689 - 262}) == {6, -2}
+
+    # a click lands on a tile either way, so the rounding is not a loss
+    assert Calibration.tile_offset(calib, {1707 + 800, 689}) == {6, 0}
+
+    # nothing anchoring the character = no answer, never a guess
+    assert Calibration.tile_point(%Calibration{}, {1, 1}) == nil
+    assert Calibration.tile_offset(%Calibration{}, {1, 1}) == nil
+  end
 end

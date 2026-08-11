@@ -253,12 +253,22 @@ defmodule Pokex.Settings do
     # old 12 never matched and his own pokemon got clicked as an enemy. 5 catches it with margin;
     # RAISE it if a red enemy element in the strip ever gets mistaken for a pokeball.
     pokeball_min_red_px: 5,
-    # Screen pixels per game tile. MEASURED at 3440x1440, scale 1.0: the floor
-    # texture autocorrelates at 44px (two plank rows per tile sprite) → tile = 88;
-    # the character sprite (~88px) confirms it. Converts the corpse's screen
-    # offset into arrow-key steps, the capture click point, and the corpse's
-    # body position one tile below its floating name.
-    tile_px: 88,
+    # Screen points per game tile — the ruler for everything measured FROM THE
+    # CHARACTER. RE-MEASURED 2026-08-11 at 3440x1440, scale 1.0; the old 88 was
+    # two thirds of a tile.
+    #
+    # The method assumes nothing: two full-screen photos of the same hunt whose
+    # minimap coordinates differ (2652,30434 → 2644,30438 — 8 tiles west, 4
+    # south), matched against each other. The terrain moved 1047 points across
+    # and 524 down: 1047/8 = 130.9, 524/4 = 131.0. Two independent numbers
+    # agreeing to 0.1%, at a match score of 0.99.
+    #
+    # 88 came from the floor texture repeating every 44 points, read as TWO
+    # rows per tile sprite. It is three: 3 × 44 = 132. A ruler two thirds of
+    # size is why the blind sweep threw several balls at the same square and
+    # none at the ring around it, and why the corpse search covered 5.4 of the
+    # 8 tiles it was asked for.
+    tile_px: 131,
     # /diagnostics still shows the per-row red target-ring read for manual inspection; this
     # is the threshold it uses (a real ring is 600-900 red px, the unlocked baseline ~40-150).
     # Combat itself no longer reads the ring — it targets by HP bar + pokeball (enemy_rows).
@@ -616,6 +626,14 @@ defmodule Pokex.Settings do
     # stutter every minute of every hunt; 5 minutes keeps the re-probe (a mob
     # CAN become reachable) without making it the loudest thing on screen.
     scenery_ttl_ms: 300_000,
+    # THE STALEMATE. A locked target whose HP bar does not move a single pixel
+    # for this long, while skills go out, is not being fought — it is out of
+    # reach ("bugou com um pokemon do outro lado da parede que ele nao consegue
+    # atacar", 2026-08-11). Combat then gives up on it exactly as it gives up
+    # on a row that never locks, which is what frees the hunt to WALK — and
+    # walking is what solves a wall. Long enough that a burst on cooldown
+    # cannot look like one: 0 turns it off.
+    no_damage_ms: 8_000,
     skill_burst_every_ms: 300,
     # After every kill/timeout rehunt (and on a fish hook), hunting keeps PROBING with blind
     # Tabs for this long even when the HP-bar detector reports no enemy — "idle while fished
@@ -793,12 +811,32 @@ defmodule Pokex.Settings do
     # hunt spends one tap per tick instead, trading speed for landing exactly
     # where the waypoint is. 0 turns it off.
     cavebot_precise_tiles: 2,
+    # THE STAIRCASE. A recording keeps the tile he LANDED on, and a staircase
+    # is taken by STEPPING on it — so from the floor above, the step may be
+    # that tile, or beside it, or one past it. Standing on the recorded tile
+    # asks for nothing (dx and dy are both zero), which used to time out into a
+    # SKIP: on 2026-08-11 the hunt "advanced" waypoints 15 and 16 (floor 2)
+    # while he was still on floor 1, walking into the scenery beside the
+    # stairs. Now it walks the ring around that tile — one probe this far
+    # apart — and gives up with a name instead of walking the wrong floor.
+    cavebot_stair_probe_ms: 450,
+    # STEPS, not ring entries: 16 is one full lap around the corner (each side
+    # and each diagonal, with a step back to the middle between them), 32 is
+    # two — about 14 seconds of looking before the hunt stops with a name.
+    cavebot_stair_max_probes: 32,
     # How many times the park click goes out. One was not enough in the field:
     # "as vezes buga mesmo, nao vai, tem que mandar algumas vezes, umas 4x, pra
     # ter certeza" (2026-08-11). The click is idempotent — the pokémon walks to
     # the same tile — so repeating costs nothing but a few ms.
     cavebot_park_clicks: 4,
     cavebot_park_gap_ms: 120,
+    # WHERE the pokémon is sent at a kill spot that has no spot of its own —
+    # a distance from the character in TILES, right and down positive. Two of
+    # his five kill spots (2026-08-11) carry no recorded click at all, so the
+    # pile closed in around HIM. {0, 0} is "on top of me": no click at all,
+    # which is what this is until he picks a direction.
+    cavebot_park_tiles_x: 0,
+    cavebot_park_tiles_y: 0,
     # Recording reads the CLOCK too. Standing still this long lays a waypoint
     # right there even without walking the min tiles: a spot he stopped on is
     # a spot that matters, and it is usually not a corner.
@@ -959,6 +997,7 @@ defmodule Pokex.Settings do
     tab_confirm_frames: 1..99,
     tab_max_attempts: 1..99,
     scenery_hunts_needed: 0..99,
+    no_damage_ms: 0..600_000,
     scenery_ttl_ms: 1_000..3_600_000,
     target_lost_streak: 1..99,
     combat_aoe_from_enemies: 1..20,
@@ -992,7 +1031,11 @@ defmodule Pokex.Settings do
     rescue_confirm_ms: 0..10_000,
     combat_confirm_ms: 0..10_000,
     cavebot_precise_tiles: 0..10,
+    cavebot_stair_probe_ms: 100..5_000,
+    cavebot_stair_max_probes: 0..200,
     cavebot_park_clicks: 1..10,
+    cavebot_park_tiles_x: -12..12,
+    cavebot_park_tiles_y: -12..12,
     cavebot_park_gap_ms: 0..5_000,
     cavebot_record_dwell_ms: 500..600_000,
     cavebot_record_fight_dwell_ms: 1_000..600_000,

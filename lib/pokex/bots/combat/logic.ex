@@ -59,6 +59,12 @@ defmodule Pokex.Bots.Combat.Logic do
             hunt_enemies: 0,
             scenery_rows: nil,
             scenery_until: nil,
+            # THE STALEMATE (2026-08-11: um pokémon do outro lado da parede que
+            # ele não consegue atacar): how much HP-bar green the locked row
+            # had, and WHEN it last changed. A target being hit loses green; one
+            # nobody can reach keeps every pixel while the skills go out.
+            hp_seen: nil,
+            hp_changed_at: nil,
             failures: 0,
             error: nil,
             # What the HUNT asked of combat: `:free_fight` (always, historically
@@ -100,6 +106,8 @@ defmodule Pokex.Bots.Combat.Logic do
          hunt_enemies: 0,
          scenery_rows: nil,
          scenery_until: nil,
+         hp_seen: nil,
+         hp_changed_at: nil,
          failures: 0,
          error: nil
      }, []}
@@ -193,7 +201,9 @@ defmodule Pokex.Bots.Combat.Logic do
             lost_streak: 0,
             locked_row: obs.locked_row,
             last_burst_at: nil,
-            failed_hunts: 0
+            failed_hunts: 0,
+            hp_seen: nil,
+            hp_changed_at: now
         }
 
         press_next_skill(logic, now, obs)
@@ -236,8 +246,13 @@ defmodule Pokex.Bots.Combat.Logic do
         {rehunt(logic, now), [{:log, "timeout do alvo; recaçando"}]}
 
       locked?(obs) ->
-        logic = %{disprove_scenery(logic, obs) | lost_streak: 0, locked_row: obs.locked_row}
-        press_next_skill(logic, now, obs)
+        logic =
+          %{disprove_scenery(logic, obs) | lost_streak: 0, locked_row: obs.locked_row}
+          |> watch_damage(obs, now)
+
+        if stalemate?(logic, now),
+          do: give_up_target(logic, obs, now),
+          else: press_next_skill(logic, now, obs)
 
       observed?(obs) and logic.lost_streak + 1 >= logic.config.target_lost_streak ->
         logic = update_in(logic.counters.fights, &(&1 + 1))
@@ -250,6 +265,56 @@ defmodule Pokex.Bots.Combat.Logic do
         # timer wake without a fresh frame: only the timeout above may act.
         {logic, []}
     end
+  end
+
+  # How much green the locked row's bar has RIGHT NOW, and when that last
+  # CHANGED. A missing reading (no `:hp` in the observation, no locked row, row
+  # out of range) is UNKNOWN and never votes — it neither restarts the clock
+  # nor advances it.
+  defp watch_damage(logic, obs, now) do
+    case row_hp(obs, logic.locked_row) do
+      nil -> logic
+      hp when hp == logic.hp_seen -> logic
+      hp -> %{logic | hp_seen: hp, hp_changed_at: now}
+    end
+  end
+
+  defp row_hp(obs, row) when is_integer(row) do
+    case obs[:hp] do
+      hp when is_list(hp) -> Enum.at(hp, row)
+      _absent -> nil
+    end
+  end
+
+  defp row_hp(_obs, _no_row), do: nil
+
+  # THE STALEMATE: the lock is held, skills went out, and the target's bar has
+  # not moved a pixel for no_damage_ms. That is not a fight, it is a wall
+  # ("bugou com um pokemon do outro lado da parede que ele nao consegue
+  # atacar", Lucas, 2026-08-11). A burst must have been fired first — a target
+  # nobody has hit yet has no business being called unreachable — and a bar
+  # nobody could read (hp_seen nil) proves nothing either way.
+  defp stalemate?(logic, now) do
+    window = Map.get(logic.config, :no_damage_ms, 0)
+
+    window > 0 and logic.last_burst_at != nil and logic.hp_seen != nil and
+      logic.hp_changed_at != nil and now - logic.hp_changed_at >= window
+  end
+
+  # The same exit as a hunt whose Tabs never locked, for the same reason: this
+  # row is not worth attacking. It counts toward the scenery presumption, which
+  # is what eventually frees the HUNT to walk on — and walking is what actually
+  # solves a wall, because it changes what the character can reach.
+  defp give_up_target(logic, obs, now) do
+    {given_up, actions} = give_up_hunt(logic, obs, now)
+    {%{given_up | hp_seen: nil, hp_changed_at: nil}, [{:log, stalemate_log(logic)} | actions]}
+  end
+
+  defp stalemate_log(%{config: config}) do
+    seconds = div(Map.get(config, :no_damage_ms, 0), 1000)
+
+    "🧱 o alvo não perdeu vida em #{seconds}s — deve estar fora de alcance (parede?); " <>
+      "deixando pra lá"
   end
 
   # A genuinely new frame (dedup already filtered repeats), captured AFTER the

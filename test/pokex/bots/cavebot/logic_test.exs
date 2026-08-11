@@ -110,6 +110,139 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     end
   end
 
+  # "ele não conseguiu descer a escada e ele continua avançando nos waypoints
+  # mesmo, sem ter passado pela escada — fica tentando andar pelas paredes"
+  # (Lucas, 2026-08-11). Standing on the tile with the floor unchanged used to
+  # be a dead end: dx and dy are both zero, so the walk was a no-op, the walk
+  # timeout made it :stuck, `unstick` had no axis to slide onto, and the four
+  # retries SKIPPED the waypoint — onto the next corner of a floor the
+  # character never reached.
+  describe "finding the stairs" do
+    defp descent do
+      # the leg 1 → 2 goes down; the recorded corner is where he LANDED
+      {:ok, r} = Route.append(Route.new("escada"), {0, 0, 1})
+      {:ok, r} = Route.append(r, {0, 5, 1})
+      {:ok, r} = Route.append(r, {0, 7, 2})
+      {:ok, r} = Route.append(r, {4, 7, 2})
+      r
+    end
+
+    defp descending(pos_z) do
+      logic = %{Logic.new(descent(), @cfg) | combat_running?: true, homed?: true, wp_index: 2}
+      {logic, pos_z}
+    end
+
+    test "on the tile with the floor unchanged it SEARCHES instead of standing still" do
+      {logic, _} = descending(1)
+
+      {logic, action} = Logic.step(logic, world({0, 7, 1}), 100)
+
+      assert logic.state == :stairs
+      assert {:nudge, _dx, _dy} = action
+      assert logic.wp_index == 2, "a escada não foi descida: o waypoint não pode andar"
+    end
+
+    test "the search steps around the tile — one tile at a time, several directions" do
+      {logic, _} = descending(1)
+
+      {_logic, steps} =
+        Enum.reduce(1..12, {logic, []}, fn tick, {logic, steps} ->
+          {logic, action} = Logic.step(logic, world({0, 7, 1}), tick * 500)
+
+          case action do
+            {:nudge, dx, dy} -> {logic, [{dx, dy} | steps]}
+            _other -> {logic, steps}
+          end
+        end)
+
+      assert length(Enum.uniq(steps)) >= 4, "a busca repete o mesmo passo: #{inspect(steps)}"
+      assert Enum.all?(steps, fn {dx, dy} -> abs(dx) <= 1 and abs(dy) <= 1 end)
+      refute {0, 0} in steps
+    end
+
+    test "the floor changing ends the search and the corner is reached" do
+      {logic, _} = descending(1)
+
+      {logic, {:nudge, _dx, _dy}} = Logic.step(logic, world({0, 7, 1}), 100)
+      assert logic.state == :stairs
+
+      # one tile west of the recorded corner WAS the staircase
+      {logic, _action} = Logic.step(logic, world({0, 7, 2}), 600)
+
+      assert logic.state == :walking
+      assert logic.wp_index == 3, "chegou no andar certo e o waypoint não avançou"
+    end
+
+    test "giving up has a NAME, and never advances the route" do
+      {logic, _} = descending(1)
+
+      {logic, action} =
+        Enum.reduce_while(1..60, {logic, :none}, fn tick, {logic, _last} ->
+          case Logic.step(logic, world({0, 7, 1}), tick * 500) do
+            {logic, {:block, _reason} = block} -> {:halt, {logic, block}}
+            step -> {:cont, step}
+          end
+        end)
+
+      assert action == {:block, :stairs}
+      assert logic.state == :blocked
+      assert logic.wp_index == 2, "bloqueou mas deixou a rota andar"
+    end
+
+    # The journal of 2026-08-11: waypoints 15 and 16 (both on floor 2) went by
+    # in five and six seconds each while he stood on floor 1 — the skip, not an
+    # arrival. Walled short of the stairs, the hunt must stop, not walk the
+    # other floor's corners from here.
+    test "a cross-floor corner is never SKIPPED, however walled the way there" do
+      {logic, _} = descending(1)
+      logic = %{logic | state: :stuck, retries: 99, last_pos: {0, 6, 1}}
+
+      {logic, action} = Logic.step(logic, world({0, 6, 1}), 1_000)
+
+      assert action == {:block, :stairs}
+      assert logic.wp_index == 2
+      assert logic.skips == 0
+    end
+
+    test "searching for the stairs on a mob leg still holds the fire" do
+      route = descent() |> Route.set_action(1, :lure_start) |> Route.set_action(3, :lure_end)
+      logic = %{Logic.new(route, @cfg) | combat_running?: true, homed?: true, wp_index: 2}
+
+      {logic, {:nudge, _dx, _dy}} = Logic.step(logic, world({0, 7, 1}, 5), 100)
+
+      assert logic.state == :stairs
+      assert Logic.luring?(logic), "no meio da mobada a busca não pode liberar o fogo"
+    end
+
+    # …but only for a lap. A step takes two or three probes; a whole ring
+    # without one means something is IN THE WAY — often a mob standing on it —
+    # and holding the fire while the pile hits him is the worst of both.
+    test "after a full lap the fire is released and the pile becomes a fight" do
+      route = descent() |> Route.set_action(1, :lure_start) |> Route.set_action(3, :lure_end)
+      logic = %{Logic.new(route, @cfg) | combat_running?: true, homed?: true, wp_index: 2}
+
+      logic =
+        Enum.reduce(1..20, logic, fn tick, logic ->
+          {logic, _action} = Logic.step(logic, world({0, 7, 1}), tick * 500)
+          logic
+        end)
+
+      assert logic.state == :stairs
+      refute Logic.luring?(logic)
+
+      {logic, :none} = Logic.step(logic, world({0, 7, 1}, 4), 20 * 500 + 100)
+      assert logic.state == :fighting
+    end
+
+    test "off a mob leg, an enemy still interrupts the search" do
+      {logic, _} = descending(1)
+
+      {logic, :none} = Logic.step(logic, world({0, 7, 1}, 3), 100)
+
+      assert logic.state == :fighting
+    end
+  end
+
   test "standing still becomes stuck; retries exhausted SKIPS the corner, and a lap blocks" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)
@@ -697,11 +830,18 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :walking
     end
 
-    test "the next stop may sweep again — the latch is per stop, not per hunt" do
+    # The latch belongs to the WAYPOINT: leaving the corner does NOT clear it —
+    # a fresh mob arriving before he walks away would replay the whole round
+    # (his journal, 2026-08-11, waypoint 33) — arriving at the next one does.
+    test "the latch survives leaving, and the next arrival arms it again" do
       logic = after_kill_at(1, swept_route())
       {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
       {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
       assert logic.state == :walking
+      assert logic.stops_done == [:sweep]
+
+      {logic, _walk} = Logic.step(logic, %{swept_world(0, nil) | pos: {15, 10, 7}}, 2_100)
+      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | pos: {20, 10, 7}}, 2_200)
       assert logic.stops_done == []
     end
   end
@@ -794,13 +934,71 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       route = Route.set_park_point(stop_route([:sweep]), 0, {2490, 417})
       logic = after_kill_at(1, route)
 
-      assert {_logic, {:sweep, {2490, 417}}} = Logic.step(logic, swept_world(0, nil), 10)
+      assert {_logic, {:sweep, {:point, {2490, 417}}}} =
+               Logic.step(logic, swept_world(0, nil), 10)
+    end
+
+    # …and the same answer said the other way: a distance from the character,
+    # which is the Worker's job to turn into a point (this module has neither
+    # calibration nor screen).
+    test "a park spot given in tiles reaches the sweep as tiles" do
+      route = Route.set_park_tiles(stop_route([:sweep]), 0, {6, -2})
+      logic = after_kill_at(1, route)
+
+      assert {_logic, {:sweep, {:tiles, {6, -2}}}} = Logic.step(logic, swept_world(0, nil), 10)
     end
 
     test "with no parked point the sweep falls back to the character" do
       logic = after_kill_at(1, stop_route([:sweep]))
 
       assert {_logic, {:sweep, nil}} = Logic.step(logic, swept_world(0, nil), 10)
+    end
+
+    # From his own journal (2026-08-11), waypoint 33: sweep + revive at
+    # 232370/232702, a new enemy, and the SAME two again at 244000/244308.
+    # The latch was cleared on RESUMING, so a fight that started before he
+    # left the corner sent the whole stop round again. It belongs to the
+    # WAYPOINT, not to the episode: arriving is what starts a new one.
+    test "a fight after the stops does not run them a second time" do
+      logic = after_kill_at(1, stop_route([:cooldown_revive, :sweep]))
+
+      {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, {:sweep, _around}} = Logic.step(logic, swept_world(0, nil), 100)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
+      assert logic.state == :walking
+
+      # an enemy walks in before he has left the corner
+      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | enemies: 2}, 2_100)
+      assert logic.state == :fighting
+
+      # the screen clears, the debounce runs out, and it is back in post_fight
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 3_000)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 4_000)
+      assert logic.state == :post_fight
+
+      # and now the ticks that WOULD run the stops again
+      {logic, first} = Logic.step(logic, swept_world(0, nil), 4_100)
+      {_logic, second} = Logic.step(logic, swept_world(0, nil), 4_200)
+
+      # nothing to redo: they were done for THIS waypoint
+      refute :cooldown_revive in [first, second]
+      refute Enum.any?([first, second], &match?({:sweep, _around}, &1))
+    end
+
+    test "arriving at the NEXT waypoint arms the stops again" do
+      route =
+        stop_route([:sweep])
+        |> Route.set_stop(1, :sweep, true)
+
+      logic = after_kill_at(1, route)
+      {logic, {:sweep, _around}} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
+      assert logic.state == :walking
+
+      # walks on and reaches waypoint 2, which asks for a sweep of its own
+      {logic, _walk} = Logic.step(logic, %{swept_world(0, nil) | pos: {15, 10, 7}}, 2_100)
+      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | pos: {20, 10, 7}}, 2_200)
+      assert logic.stops_done == []
     end
 
     test "a waypoint with no stops leaves on the dwell, as it always did" do

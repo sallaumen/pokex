@@ -20,7 +20,7 @@ defmodule Pokex.Bots.SkillBar do
   @doc "Per-slot `%{brightness, saturation, state}` list, or `nil` (not calibrated / capture failed)."
   def read(calib, settings) do
     with %Calibration{skill_bar_region: region} when is_tuple(region) <- calib,
-         {:ok, frame} <- Capture.frame(region, "skillbar.png"),
+         {:ok, frame} <- Capture.frame(region, "skillbar.raw"),
          true <- Vision.skill_bar_frame?(frame) do
       slots_from_frame(frame, calib, settings)
     else

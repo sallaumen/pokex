@@ -49,7 +49,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     assert signal.line_present?
     assert signal.lure_count == 64
     assert signal.bubble_count > 1_000
-    assert {:capture, {176, 76, 448, 448}, "glow.png"} in Fake.calls()
+    assert {:capture, {176, 76, 448, 448}, "glow.raw"} in Fake.calls()
   end
 
   @tag :tmp_dir

@@ -29,6 +29,34 @@ defmodule Pokex.Vision.Frame do
   def with_scale(%__MODULE__{} = frame, _unknown_region), do: frame
 
   @doc """
+  Reads a captured frame, whatever format it arrived in.
+
+  The format is decided by the file's MAGIC BYTES, never by its name. A caller
+  asks the capture helper for `foo.raw`, but when ScreenCaptureKit is down the
+  `screencapture` fallback serves that same request as a PNG under that same
+  name — dispatching on the extension would read a PNG as raw pixels and hand
+  back garbage that still looks like a valid frame.
+
+  Raw is what the helper writes when it can: RGBA8, row-major, behind a 13-byte
+  header. MEASURED 2026-08-11 on the 3.2 Mpx capture square: 4752ms to decode as
+  PNG against 7ms to read as raw — for pixels the helper already held in memory
+  and compressed only so that we could decompress them again.
+  """
+  def from_file(path) do
+    case File.read(path) do
+      {:ok, <<"PXRW", 1, width::32, height::32, rgba::binary>>}
+      when byte_size(rgba) == width * height * 4 ->
+        {:ok, %__MODULE__{width: width, height: height, rgba: rgba}}
+
+      {:ok, _png_or_truncated_raw} ->
+        from_png_file(path)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Decodes a PNG file into a `Frame`.
 
   Adapter note: `ExPng.Image.from_file/1` does NOT return flat iodata in a

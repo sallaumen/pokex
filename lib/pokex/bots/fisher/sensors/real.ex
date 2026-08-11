@@ -31,20 +31,20 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   defp fetch(:glow, calib, settings) do
     region = Calibration.glow_search_region(calib, Settings.value(settings, :glow_search_margin))
 
-    with {:ok, frame} <- capture_frame(region, "glow.png") do
+    with {:ok, frame} <- capture_frame(region, "glow.raw") do
       {:ok, Vision.fishing_signal(frame, fishing_signal_opts(settings, calib, region, frame))}
     end
   end
 
   defp fetch(:wild, calib, settings) do
-    with {:ok, frame} <- capture_frame(Calibration.battle_strip(calib), "battle.png") do
+    with {:ok, frame} <- capture_frame(Calibration.battle_strip(calib), "battle.raw") do
       min_count = Settings.value(settings, :wild_min_red_pixels)
       {:ok, Vision.wild_present?(frame, min_count: min_count)}
     end
   end
 
   defp fetch(:battle_lock, calib, settings) do
-    with {:ok, frame} <- capture_frame(Calibration.battle_body(calib), "target.png") do
+    with {:ok, frame} <- capture_frame(Calibration.battle_body(calib), "target.raw") do
       # Return the RAW per-row red-pixel list (one entry per battle row); Logic
       # applies target_locked_min_pixels per band, so the threshold stays tunable
       # and the numbers stay visible in the activity feed.
@@ -82,7 +82,7 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
     # The square around the character, the same one capture sweeps — the
     # hand-marked arena is gone.
     with {:ok, region} <- SpotScan.region(calib),
-         {:ok, frame} <- capture_frame(region, "hostile.png") do
+         {:ok, frame} <- capture_frame(region, "hostile.raw") do
       case Vision.find_hostile(frame) do
         {:ok, pixel} -> {:ok, Calibration.frame_to_screen(calib, region, pixel)}
         :not_found -> {:ok, nil}
@@ -115,7 +115,7 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   end
 
   defp battle_view(calib, settings) do
-    with {:ok, frame} <- capture_frame(calib.battle_region, "battle.png") do
+    with {:ok, frame} <- capture_frame(calib.battle_region, "battle.raw") do
       {top, band} =
         Calibration.row_band_geometry(calib.scale, Settings.value(settings, :battle_row_height))
 

@@ -78,7 +78,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
     stop_wait_ms: :cavebot_stop_wait_ms,
     gather_wait_ms: :cavebot_gather_wait_ms,
     gather_wait_min_ms: :cavebot_gather_wait_min_ms,
-    gather_wait_max_ms: :cavebot_gather_wait_max_ms
+    gather_wait_max_ms: :cavebot_gather_wait_max_ms,
+    stair_probe_ms: :cavebot_stair_probe_ms,
+    stair_max_probes: :cavebot_stair_max_probes
   }
 
   def topic, do: @topic
@@ -280,6 +282,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     {world, state} = observe(state, now)
     before = broadcast_key(state, now)
     wp_before = state.logic.wp_index
+    state_before = state.logic.state
 
     {logic, action} = Logic.step(state.logic, world, now)
 
@@ -287,6 +290,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       %{state | logic: logic}
       |> translate(action)
       |> note_arrival(wp_before, now)
+      |> note_search(state_before, now)
       |> log_hold_edge(now)
       |> publish_posture(now)
 
@@ -538,6 +542,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp block_text(:floor_changed), do: "BLOQUEADO: mudou de andar"
   defp block_text(:combat_preflight_failed), do: "BLOQUEADO: o combate recusou o arranque"
   defp block_text(:stuck), do: "parei: travado, sem sair do lugar"
+
+  defp block_text(:stairs),
+    do: "parei: não achei a escada — corrija o ponto da rota (o andar não mudou)"
+
   defp block_text(:fight_stalled), do: "parei: a luta não termina"
   defp block_text(reason), do: "parei: #{inspect(reason)}"
 
@@ -907,6 +915,29 @@ defmodule Pokex.Bots.Cavebot.Worker do
     log(:macro, text)
     %{state | counters: bump(state.counters, :waypoints), last_action: %{text: text, at: now}}
   end
+
+  # Looking for the step, and finding it. A hunt standing on the right tile
+  # with the floor unchanged is doing something specific and invisible — the
+  # only thing on screen used to be the waypoint number, which is exactly what
+  # made "ele continua avançando nos waypoints" so hard to see (2026-08-11).
+  defp note_search(%{logic: %Logic{state: :stairs}} = state, before, now)
+       when before != :stairs do
+    case wp_target(state) do
+      %{x: x, y: y, z: z} ->
+        log(:macro, "🪜 procurando a escada perto de #{x}, #{y} (o andar #{z} não veio)")
+        %{state | last_action: %{text: "procurando a escada", at: now}}
+
+      nil ->
+        state
+    end
+  end
+
+  defp note_search(%{logic: %Logic{state: :walking}, pos: {_x, _y, z}} = state, :stairs, now) do
+    log(:macro, "🪜 achei a escada: agora no andar #{z}")
+    %{state | last_action: %{text: "escada tomada", at: now}}
+  end
+
+  defp note_search(state, _before, _now), do: state
 
   # The hold reason is EDGE information: one line when it APPEARS, silence
   # while it still applies. Repeating every 200ms would drown the feed exactly

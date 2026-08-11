@@ -786,6 +786,17 @@ defmodule Pokex.Settings do
     # hunt spends one tap per tick instead, trading speed for landing exactly
     # where the waypoint is. 0 turns it off.
     cavebot_precise_tiles: 2,
+    # THE STAIRCASE. A recording keeps the tile he LANDED on, and a staircase
+    # is taken by STEPPING on it — so from the floor above, the step may be
+    # that tile, or beside it, or one past it. Standing on the recorded tile
+    # asks for nothing (dx and dy are both zero), which used to time out into a
+    # SKIP: on 2026-08-11 the hunt "advanced" waypoints 15 and 16 (floor 2)
+    # while he was still on floor 1, walking into the scenery beside the
+    # stairs. Now it walks the ring around that tile — one probe this far
+    # apart — and gives up with a name instead of walking the wrong floor.
+    cavebot_stair_probe_ms: 450,
+    # 16 probes is one full lap of the ring; 32 is two, about 14s of looking.
+    cavebot_stair_max_probes: 32,
     # How many times the park click goes out. One was not enough in the field:
     # "as vezes buga mesmo, nao vai, tem que mandar algumas vezes, umas 4x, pra
     # ter certeza" (2026-08-11). The click is idempotent — the pokémon walks to
@@ -984,6 +995,8 @@ defmodule Pokex.Settings do
     rescue_confirm_ms: 0..10_000,
     combat_confirm_ms: 0..10_000,
     cavebot_precise_tiles: 0..10,
+    cavebot_stair_probe_ms: 100..5_000,
+    cavebot_stair_max_probes: 0..200,
     cavebot_park_clicks: 1..10,
     cavebot_park_gap_ms: 0..5_000,
     cavebot_record_dwell_ms: 500..600_000,

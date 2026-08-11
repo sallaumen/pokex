@@ -110,6 +110,119 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     end
   end
 
+  # "ele não conseguiu descer a escada e ele continua avançando nos waypoints
+  # mesmo, sem ter passado pela escada — fica tentando andar pelas paredes"
+  # (Lucas, 2026-08-11). Standing on the tile with the floor unchanged used to
+  # be a dead end: dx and dy are both zero, so the walk was a no-op, the walk
+  # timeout made it :stuck, `unstick` had no axis to slide onto, and the four
+  # retries SKIPPED the waypoint — onto the next corner of a floor the
+  # character never reached.
+  describe "finding the stairs" do
+    defp descent do
+      # the leg 1 → 2 goes down; the recorded corner is where he LANDED
+      {:ok, r} = Route.append(Route.new("escada"), {0, 0, 1})
+      {:ok, r} = Route.append(r, {0, 5, 1})
+      {:ok, r} = Route.append(r, {0, 7, 2})
+      {:ok, r} = Route.append(r, {4, 7, 2})
+      r
+    end
+
+    defp descending(pos_z) do
+      logic = %{Logic.new(descent(), @cfg) | combat_running?: true, homed?: true, wp_index: 2}
+      {logic, pos_z}
+    end
+
+    test "on the tile with the floor unchanged it SEARCHES instead of standing still" do
+      {logic, _} = descending(1)
+
+      {logic, action} = Logic.step(logic, world({0, 7, 1}), 100)
+
+      assert logic.state == :stairs
+      assert {:nudge, _dx, _dy} = action
+      assert logic.wp_index == 2, "a escada não foi descida: o waypoint não pode andar"
+    end
+
+    test "the search steps around the tile — one tile at a time, several directions" do
+      {logic, _} = descending(1)
+
+      {_logic, steps} =
+        Enum.reduce(1..12, {logic, []}, fn tick, {logic, steps} ->
+          {logic, action} = Logic.step(logic, world({0, 7, 1}), tick * 500)
+
+          case action do
+            {:nudge, dx, dy} -> {logic, [{dx, dy} | steps]}
+            _other -> {logic, steps}
+          end
+        end)
+
+      assert length(Enum.uniq(steps)) >= 4, "a busca repete o mesmo passo: #{inspect(steps)}"
+      assert Enum.all?(steps, fn {dx, dy} -> abs(dx) <= 1 and abs(dy) <= 1 end)
+      refute {0, 0} in steps
+    end
+
+    test "the floor changing ends the search and the corner is reached" do
+      {logic, _} = descending(1)
+
+      {logic, {:nudge, _dx, _dy}} = Logic.step(logic, world({0, 7, 1}), 100)
+      assert logic.state == :stairs
+
+      # one tile west of the recorded corner WAS the staircase
+      {logic, _action} = Logic.step(logic, world({0, 7, 2}), 600)
+
+      assert logic.state == :walking
+      assert logic.wp_index == 3, "chegou no andar certo e o waypoint não avançou"
+    end
+
+    test "giving up has a NAME, and never advances the route" do
+      {logic, _} = descending(1)
+
+      {logic, action} =
+        Enum.reduce_while(1..60, {logic, :none}, fn tick, {logic, _last} ->
+          case Logic.step(logic, world({0, 7, 1}), tick * 500) do
+            {logic, {:block, _reason} = block} -> {:halt, {logic, block}}
+            step -> {:cont, step}
+          end
+        end)
+
+      assert action == {:block, :stairs}
+      assert logic.state == :blocked
+      assert logic.wp_index == 2, "bloqueou mas deixou a rota andar"
+    end
+
+    # The journal of 2026-08-11: waypoints 15 and 16 (both on floor 2) went by
+    # in five and six seconds each while he stood on floor 1 — the skip, not an
+    # arrival. Walled short of the stairs, the hunt must stop, not walk the
+    # other floor's corners from here.
+    test "a cross-floor corner is never SKIPPED, however walled the way there" do
+      {logic, _} = descending(1)
+      logic = %{logic | state: :stuck, retries: 99, last_pos: {0, 6, 1}}
+
+      {logic, action} = Logic.step(logic, world({0, 6, 1}), 1_000)
+
+      assert action == {:block, :stairs}
+      assert logic.wp_index == 2
+      assert logic.skips == 0
+    end
+
+    test "searching for the stairs on a mob leg still holds the fire" do
+      route = descent() |> Route.set_action(1, :lure_start) |> Route.set_action(3, :lure_end)
+      logic = %{Logic.new(route, @cfg) | combat_running?: true, homed?: true, wp_index: 2}
+
+      {logic, {:nudge, _dx, _dy}} = Logic.step(logic, world({0, 7, 1}, 5), 100)
+
+      assert logic.state == :stairs
+      assert Logic.luring?(logic), "no meio da mobada a busca não pode liberar o fogo"
+    end
+
+    test "off a mob leg, an enemy still interrupts the search" do
+      {logic, _} = descending(1)
+
+      {logic, :none} = Logic.step(logic, world({0, 7, 1}, 3), 100)
+
+      assert logic.state == :fighting
+    end
+  end
+
   test "standing still becomes stuck; retries exhausted SKIPS the corner, and a lap blocks" do
     {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)

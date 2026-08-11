@@ -772,6 +772,19 @@ defmodule Pokex.Settings do
     # one waypoint per tile — the client already pathfinds between points, so
     # what matters is marking the path's corners, not every step.
     cavebot_record_min_tiles: 4,
+    # The last tiles are TAPPED, not held. A held arrow keeps walking between
+    # readings, so the character always overshoots the final tile — fine on a
+    # wide corner, fatal on a staircase one tile wide ("ela é fininha, e ele
+    # nao conseguiu achar o spot exato", 2026-08-11). Inside this range the
+    # hunt spends one tap per tick instead, trading speed for landing exactly
+    # where the waypoint is. 0 turns it off.
+    cavebot_precise_tiles: 2,
+    # How many times the park click goes out. One was not enough in the field:
+    # "as vezes buga mesmo, nao vai, tem que mandar algumas vezes, umas 4x, pra
+    # ter certeza" (2026-08-11). The click is idempotent — the pokémon walks to
+    # the same tile — so repeating costs nothing but a few ms.
+    cavebot_park_clicks: 4,
+    cavebot_park_gap_ms: 120,
     # Recording reads the CLOCK too. Standing still this long lays a waypoint
     # right there even without walking the min tiles: a spot he stopped on is
     # a spot that matters, and it is usually not a corner.
@@ -961,6 +974,9 @@ defmodule Pokex.Settings do
     cavebot_gather_wait_ms: 0..60_000,
     rescue_confirm_ms: 0..10_000,
     combat_confirm_ms: 0..10_000,
+    cavebot_precise_tiles: 0..10,
+    cavebot_park_clicks: 1..10,
+    cavebot_park_gap_ms: 0..5_000,
     cavebot_record_dwell_ms: 500..600_000,
     cavebot_record_fight_dwell_ms: 1_000..600_000,
     cavebot_sweep_grace_ms: 0..60_000,

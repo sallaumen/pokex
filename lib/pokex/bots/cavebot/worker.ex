@@ -390,7 +390,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # diagonal — and keeps holding while the intent is unchanged. Tapping one
   # arrow per tile was the client's slowest gear (Lucas, 2026-08-10: "está
   # dando pequenos cliques, o personagem tá andando muito lento").
-  def translate(state, {:walk, dx, dy}), do: hold_walk(state, dx, dy)
+  def translate(state, {:walk, dx, dy}) do
+    if precise?(dx, dy),
+      do: state |> release_walk() |> arrow_step(dx, dy),
+      else: hold_walk(state, dx, dy)
+  end
 
   # A nudge is ONE tile on purpose (the blind kick, the stall breaker): it taps,
   # and lets go of whatever was held first — a kick under a held key is not a
@@ -413,8 +417,23 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # from his own hand (Cavebot.Recording.mark_park/4), replayed here.
   def translate(state, {:park, point}) do
     state = release_walk(state)
-    state.body.perform([{:click, :middle, point}], :high)
-    log(:macro, "🖱️ pokémon posicionado em #{elem(point, 0)}, #{elem(point, 1)}")
+    times = Settings.get(:cavebot_park_clicks)
+    gap = Settings.get(:cavebot_park_gap_ms)
+
+    # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que
+    # mandar algumas vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11). The
+    # client drops the order when it is busy; the click is idempotent (the
+    # pokémon walks to the same tile) so repeating it costs nothing and is the
+    # difference between "andou" and "às vezes andou".
+    #
+    # Off the tick, like every other Body.perform here: it is a call with an
+    # :infinity timeout and the Body may be seconds deep in a capture.
+    clicks = List.duplicate({:click, :middle, point}, times)
+    actions = Enum.intersperse(clicks, {:wait, gap})
+    body = state.body
+    spawn(fn -> body.perform(actions, :high) end)
+
+    log(:macro, "🖱️ pokémon posicionado em #{elem(point, 0)}, #{elem(point, 1)} (#{times}x)")
     state
   end
 
@@ -582,6 +601,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
     if pending == state.sweep_pending,
       do: state,
       else: %{state | sweep_pending: pending, sweep_changed_at: now()}
+  end
+
+  # Close in, precision beats speed: a held arrow keeps walking between
+  # readings and always overshoots the last tile, which is fine on a wide
+  # corner and fatal on a staircase one tile wide (Lucas, 2026-08-11). One tap
+  # per tick lands exactly on it.
+  defp precise?(dx, dy) do
+    range = Settings.get(:cavebot_precise_tiles)
+    range > 0 and abs(dx) <= range and abs(dy) <= range
   end
 
   defp hold_walk(state, dx, dy) do

@@ -458,13 +458,22 @@ defmodule PokexWeb.TeamLive do
                 {row.name}
               </option>
             </select>
-            <span :if={@loadout} id="active-opening" class="font-mono text-[10px] text-[#3de083]">
+            <%!-- `attacks?` and not "has a loadout": a pokémon can be classified
+                  (an aura, a control) and still have nothing to fight with. --%>
+            <span
+              :if={Loadout.attacks?(@loadout)}
+              id="active-opening"
+              class="font-mono text-[10px] text-[#3de083]"
+            >
               a luta abre com 💥 {Enum.join(Strategy.opening(@loadout), " ")}
             </span>
             <span :if={is_nil(@active)} class="font-mono text-[10px] text-[#7f8992]">
               — sem escolha a luta aperta a lista fixa do /config, sem saber o que cada tecla faz
             </span>
-            <span :if={@active && is_nil(@loadout)} class="font-mono text-[10px] text-[#f2c45b]">
+            <span
+              :if={@active && !Loadout.attacks?(@loadout)}
+              class="font-mono text-[10px] text-[#f2c45b]"
+            >
               — sem skill de área nem de alvo único classificada, a luta cai na lista fixa
             </span>
           </form>

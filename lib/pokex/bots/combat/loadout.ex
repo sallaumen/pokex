@@ -71,17 +71,34 @@ defmodule Pokex.Bots.Combat.Loadout do
       crowd: SkillProfile.keys(profile, :crowd)
     }
 
-    # A pokémon he picked but never classified has nothing to say. Answering
-    # with an empty loadout instead of nil would make the fight press nothing
-    # at all, which is the one idle this machine exists to prevent.
-    if attacks?(loadout), do: loadout, else: nil
+    # nil ONLY when he classified nothing at all. It used to mean "nothing to
+    # attack with", and that conflated two different questions: the fight asks
+    # "can I fight with this?" (`attacks?/1`) while a scheduled aura asks "what
+    # is this pokémon's aura?" — and a pokémon with an aura and no area damage
+    # classified has an honest answer to the second and not the first.
+    if classified?(loadout), do: loadout, else: nil
   end
 
   def resolve(_no_name, _no_profile), do: nil
 
-  @doc "Whether this loadout has anything to attack with at all."
-  @spec attacks?(t) :: boolean
+  @doc """
+  Whether this loadout has anything to ATTACK with — the fight's question.
+
+  False sends combat back to the configured key list, because a fight that
+  presses nothing is the one idle the machine exists to prevent.
+  """
+  @spec attacks?(t | nil) :: boolean
   def attacks?(%__MODULE__{aoe: aoe, single: single}), do: aoe != [] or single != []
+  def attacks?(nil), do: false
+
+  @doc "Whether he classified ANY key of this pokémon, for any job."
+  @spec classified?(t) :: boolean
+  def classified?(%__MODULE__{} = loadout) do
+    Enum.any?(
+      [loadout.aoe, loadout.single, loadout.buffs, loadout.heal, loadout.crowd],
+      &(&1 != [])
+    )
+  end
 
   @doc "One line for a log or a panel: `\"Shiny Vileplume · área 3+4 · alvo 7\"`."
   @spec describe(t | nil) :: String.t()

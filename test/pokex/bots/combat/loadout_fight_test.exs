@@ -93,10 +93,10 @@ defmodule Pokex.Bots.Combat.LoadoutFightTest do
       assert fighting(nil, [0, 1, 2]) == ["9"]
     end
 
-    test "a pokémon with nothing to attack with resolves to no loadout at all" do
+    test "a pokémon with nothing to ATTACK with falls back, loadout or not" do
       only_reserved = Loadout.resolve("Gogoat", %{"2" => :crowd, "8" => :heal})
 
-      assert only_reserved == nil
+      refute Loadout.attacks?(only_reserved)
       assert fighting(only_reserved, [0, 1, 2]) == ["9"]
     end
   end

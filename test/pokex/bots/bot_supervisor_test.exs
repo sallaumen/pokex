@@ -79,6 +79,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     mini_game = :"#{tag}_mini_game"
     player_support = :"#{tag}_player_support"
     cavebot = :"#{tag}_cavebot"
+    timers = :"#{tag}_timers"
 
     start_supervised!(
       {BotSupervisor,
@@ -90,7 +91,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
        catcher: catcher,
        mini_game: mini_game,
        player_support: player_support,
-       cavebot: cavebot}
+       cavebot: cavebot,
+       timers: timers}
     )
 
     %{
@@ -99,7 +101,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
       catcher: catcher,
       mini_game: mini_game,
       player_support: player_support,
-      cavebot: cavebot
+      cavebot: cavebot,
+      timers: timers
     }
   end
 
@@ -118,6 +121,41 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert status.fishing.state != :idle
     assert status.combat.state != :idle
     assert status.catcher.state == :armed
+  end
+
+  # The Stop button, the panic corner, the logout and the focus hold all funnel
+  # through the same halt. A stop that left the scheduled actions running would
+  # keep pressing keys after the one act that means "stop touching the game" —
+  # they were wired into start_all and missing from the halt.
+  @tag :tmp_dir
+  test "stopping the fleet also stops the scheduled actions" do
+    servers = start_isolated_supervisor(:timers_stop_test)
+    Pokex.SettingsStash.stash!(player_mode: "still")
+
+    assert :ok =
+             BotSupervisor.start_all(
+               servers.fishing,
+               servers.combat,
+               servers.catcher,
+               servers.mini_game,
+               servers.player_support,
+               servers.cavebot,
+               servers.timers
+             )
+
+    assert Pokex.Bots.Timers.Worker.status(servers.timers).running?
+
+    BotSupervisor.stop_all(
+      servers.fishing,
+      servers.combat,
+      servers.catcher,
+      servers.mini_game,
+      servers.player_support,
+      servers.cavebot,
+      servers.timers
+    )
+
+    refute Pokex.Bots.Timers.Worker.status(servers.timers).running?
   end
 
   @tag :tmp_dir
@@ -209,7 +247,9 @@ defmodule Pokex.Bots.BotSupervisorTest do
                servers.combat,
                servers.catcher,
                servers.mini_game,
-               servers.player_support
+               servers.player_support,
+               servers.cavebot,
+               servers.timers
              )
 
     status = BotSupervisor.status(servers.fishing, servers.combat, servers.catcher)
@@ -240,7 +280,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
                servers.catcher,
                servers.mini_game,
                servers.player_support,
-               servers.cavebot
+               servers.cavebot,
+               servers.timers
              )
 
     status =

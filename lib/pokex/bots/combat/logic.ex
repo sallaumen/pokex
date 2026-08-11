@@ -604,13 +604,17 @@ defmodule Pokex.Bots.Combat.Logic do
   #
   # The fallback is not a degraded mode, it IS the behaviour that existed before
   # the loadout: no pokémon chosen means nothing changes.
-  defp attack_keys(%{loadout: nil, config: config}, _obs), do: config.skill_keys
-
   defp attack_keys(%{loadout: loadout, config: config}, obs) do
-    Strategy.skill_order(loadout,
-      enemies: length(enemies(obs)),
-      aoe_from: Map.get(config, :combat_aoe_from_enemies, 3)
-    )
+    if Loadout.attacks?(loadout) do
+      Strategy.skill_order(loadout,
+        enemies: length(enemies(obs)),
+        aoe_from: Map.get(config, :combat_aoe_from_enemies, 3)
+      )
+    else
+      # Nobody chosen, or one whose ATTACKS he has not classified — a pokémon
+      # can have a scheduled aura and still have nothing here.
+      config.skill_keys
+    end
   end
 
   # The ready keys in skill_keys priority order, or nil (→ blind rotation) when the

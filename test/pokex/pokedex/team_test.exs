@@ -147,32 +147,30 @@ defmodule Pokex.Pokedex.TeamTest do
   describe "what each skill is for" do
     @tag :tmp_dir
     test "a job round-trips, and moving to the bank keeps it" do
-      {:ok, _} = Team.add("Vileplume")
+      {:ok, _} = Team.add("Venusaur")
 
-      Team.set_skill("Vileplume", "4", :heal)
-      Team.set_skill("Vileplume", "3", :aoe)
-      Team.set_skill("Vileplume", "5", :aoe)
+      Team.set_skills("Venusaur", %{"4" => :heal, "3" => :aoe, "5" => :aoe})
 
-      assert SkillProfile.keys(Team.skills("Vileplume"), :aoe) == ["3", "5"]
-      assert SkillProfile.keys(Team.skills("Vileplume"), :heal) == ["4"]
+      assert SkillProfile.keys(Team.skills("Venusaur"), :aoe) == ["3", "5"]
+      assert SkillProfile.keys(Team.skills("Venusaur"), :heal) == ["4"]
 
-      Team.move("Vileplume", :bank)
-      assert SkillProfile.keys(Team.skills("Vileplume"), :aoe) == ["3", "5"]
+      Team.move("Venusaur", :bank)
+      assert SkillProfile.keys(Team.skills("Venusaur"), :aoe) == ["3", "5"]
     end
 
     @tag :tmp_dir
     test "the level and the slot survive a skill edit, and vice-versa" do
-      {:ok, _} = Team.add("Vileplume")
-      Team.set_level("Vileplume", 87)
-      Team.set_skill("Vileplume", "1", :crowd)
+      {:ok, _} = Team.add("Venusaur")
+      Team.set_level("Venusaur", 87)
+      Team.set_skills("Venusaur", %{"1" => :crowd})
 
-      assert [%{name: "Vileplume", level: 87, skills: %{"1" => :crowd}}] = Team.members()
+      assert [%{name: "Venusaur", level: 87, skills: %{"1" => :crowd}}] = Team.members()
     end
 
     @tag :tmp_dir
     test "a pokémon nobody has answers empty instead of raising" do
       assert Team.skills("Ninguém") == %{}
-      assert Team.set_skill("Ninguém", "1", :crowd)
+      assert Team.set_skills("Ninguém", %{"1" => :crowd})
     end
 
     @tag :tmp_dir
@@ -180,11 +178,11 @@ defmodule Pokex.Pokedex.TeamTest do
       File.write!(
         Path.join(Pokex.Home.dir(), "team.json"),
         JSON.encode!(%{
-          members: [%{"name" => "Vileplume", "skills" => %{"3" => "aoe", "9" => "banana_xyz"}}]
+          members: [%{"name" => "Venusaur", "skills" => %{"3" => "aoe", "9" => "banana_xyz"}}]
         })
       )
 
-      assert Team.skills("Vileplume") == %{"3" => :aoe}
+      assert Team.skills("Venusaur") == %{"3" => :aoe}
       assert_raise ArgumentError, fn -> String.to_existing_atom("banana_xyz") end
     end
   end

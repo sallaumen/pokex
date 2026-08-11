@@ -164,13 +164,19 @@ defmodule Pokex.Pokedex.Team do
     end
   end
 
-  @doc "Gives one of a pokémon's keys a job (`:none` takes it away). No-op if absent."
-  def set_skill(name, key, category) do
+  @doc """
+  Replaces a pokémon's whole skill profile. No-op if absent.
+
+  The whole map, not one key: the editor is a form that reports every select
+  on every change, so rebuilding is both simpler and impossible to get out of
+  step with what is on screen.
+  """
+  def set_skills(name, profile) when is_map(profile) do
     data = read()
 
     update = fn list ->
       Enum.map(list, fn
-        %{name: ^name} = entry -> %{entry | skills: SkillProfile.put(entry.skills, key, category)}
+        %{name: ^name} = entry -> %{entry | skills: profile}
         entry -> entry
       end)
     end

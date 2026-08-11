@@ -13,6 +13,7 @@ defmodule PokexWeb.TeamLive do
 
   alias Pokex.Bots.Capture
   alias Pokex.Pokedex
+  alias Pokex.Pokedex.SkillProfile
   alias Pokex.Pokedex.Team
   alias Pokex.Pokedex.TeamIcons
   alias Pokex.Vision.Icons
@@ -27,6 +28,9 @@ defmodule PokexWeb.TeamLive do
        page_title: "Meu Time",
        portraits: [],
        portrait_msg: nil,
+       # whose skill editor is open — one at a time, or six rows of selects
+       # per pokémon turn the list into a wall
+       open_skills: nil,
        species_names: Enum.map(Pokedex.search(%{}), & &1.name)
      )
      |> assign_team()}
@@ -99,6 +103,24 @@ defmodule PokexWeb.TeamLive do
     end
 
     {:noreply, assign_team(socket)}
+  end
+
+  # What each of a pokémon's skills is FOR. One job per key, so choosing a new
+  # one MOVES it — which is why this is a select per key and not a wall of
+  # toggles: the exclusivity is the control's shape, not a rule to enforce.
+  #
+  # The WHOLE form comes back on every change (one select per key, each with
+  # its own name) and the profile is rebuilt from it. The first cut sent the
+  # changed key in `phx-value-key`, which a form event does not carry — six
+  # selects sharing one name, and nothing would have saved in a real browser.
+  def handle_event("set_skills", %{"name" => name} = params, socket) do
+    Team.set_skills(name, SkillProfile.from_form(params["skill"]))
+    {:noreply, assign_team(socket)}
+  end
+
+  def handle_event("toggle_skills", %{"name" => name}, socket) do
+    open = if socket.assigns.open_skills == name, do: nil, else: name
+    {:noreply, assign(socket, open_skills: open)}
   end
 
   def handle_event("save_hunt_window", params, socket) do
@@ -176,10 +198,17 @@ defmodule PokexWeb.TeamLive do
   end
 
   defp with_entries(list) do
-    for %{name: name, level: level} <- list,
+    for %{name: name, level: level} = member <- list,
         entry = Pokedex.get(name),
         entry != nil,
-        do: %{name: name, level: level, entry: entry}
+        do: %{name: name, level: level, entry: entry, skills: Map.get(member, :skills) || %{}}
+  end
+
+  # The hotbar as far as HIS bar goes: reading past the last slot would offer
+  # jobs for keys that do not exist.
+  defp hotbar_keys do
+    count = Pokex.Settings.get(:skill_bar_count) || 6
+    Enum.take(SkillProfile.hotbar_keys(), count)
   end
 
   defp window_note(:all, _margin), do: nil
@@ -331,7 +360,14 @@ defmodule PokexWeb.TeamLive do
             cadastra teus Pokémon e eu te digo quem vale a caçada
           </p>
           <ul class="space-y-1">
-            <.member_row :for={row <- @team} row={row} other="bank" other_label="→ banco" />
+            <.member_row
+              :for={row <- @team}
+              row={row}
+              other="bank"
+              other_label="→ banco"
+              open?={@open_skills == row.name}
+              keys={hotbar_keys()}
+            />
           </ul>
         </section>
 
@@ -343,7 +379,14 @@ defmodule PokexWeb.TeamLive do
             o que você tem guardado mas não caça com — pra não perder de vista
           </p>
           <ul class="space-y-1">
-            <.member_row :for={row <- @bank} row={row} other="team" other_label="→ time" />
+            <.member_row
+              :for={row <- @bank}
+              row={row}
+              other="team"
+              other_label="→ time"
+              open?={@open_skills == row.name}
+              keys={hotbar_keys()}
+            />
           </ul>
         </section>
 
@@ -417,62 +460,127 @@ defmodule PokexWeb.TeamLive do
   attr :other, :string, required: true
   attr :other_label, :string, required: true
 
+  attr :open?, :boolean, default: false
+  attr :keys, :list, default: []
+
   defp member_row(assigns) do
     ~H"""
-    <li class="flex items-center gap-2 rounded-lg border border-[#293238] bg-[#101418] px-2.5 py-1.5">
-      <img
-        :if={@row.entry.sprite}
-        src={"/" <> @row.entry.sprite}
-        alt={@row.name}
-        onerror="this.style.display='none'"
-        class="size-6 shrink-0 object-contain"
-      />
-      <.link
-        navigate={~p"/pokedex/#{@row.name}"}
-        class="min-w-0 flex-1 truncate text-sm font-semibold hover:underline"
-      >
-        {@row.name}<span :if={@row.entry.shiny_of}> ✨</span>
-        <span
-          :for={el <- @row.entry.elements}
-          class="ml-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 align-middle font-mono text-[9px] font-normal"
-          style={PokedexStyle.element_style(el)}
+    <li class="rounded-lg border border-[#293238] bg-[#101418] px-2.5 py-1.5">
+      <div class="flex items-center gap-2">
+        <img
+          :if={@row.entry.sprite}
+          src={"/" <> @row.entry.sprite}
+          alt={@row.name}
+          onerror="this.style.display='none'"
+          class="size-6 shrink-0 object-contain"
+        />
+        <.link
+          navigate={~p"/pokedex/#{@row.name}"}
+          class="min-w-0 flex-1 truncate text-sm font-semibold hover:underline"
         >
-          {el}
-        </span>
-      </.link>
+          {@row.name}<span :if={@row.entry.shiny_of}> ✨</span>
+          <span
+            :for={el <- @row.entry.elements}
+            class="ml-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 align-middle font-mono text-[9px] font-normal"
+            style={PokedexStyle.element_style(el)}
+          >
+            {el}
+          </span>
+        </.link>
+        <form
+          id={"level-form-" <> String.replace(@row.name, ~r/\W+/, "-")}
+          phx-change="set_level"
+          class="flex items-center gap-1 font-mono text-[9px] text-[#737d85]"
+        >
+          <input type="hidden" name="name" value={@row.name} />
+          <span>lv</span>
+          <input
+            name="level"
+            type="number"
+            min="1"
+            max="999"
+            value={@row.level}
+            phx-debounce="500"
+            class="h-7 w-14 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[11px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+          />
+        </form>
+        <button
+          phx-click="move"
+          phx-value-name={@row.name}
+          phx-value-to={@other}
+          class="cursor-pointer font-mono text-[10px] text-[#89939a] hover:text-white"
+        >
+          {@other_label}
+        </button>
+        <button
+          id={"skills-toggle-" <> String.replace(@row.name, ~r/\W+/, "-")}
+          phx-click="toggle_skills"
+          phx-value-name={@row.name}
+          aria-expanded={to_string(@open?)}
+          aria-label={"Skills de " <> @row.name}
+          title="pra que serve cada skill dele"
+          class={[
+            "cursor-pointer rounded px-1.5 py-0.5 font-mono text-[10px] transition",
+            if(@open?,
+              do: "bg-[#0d3822] text-[#3de083]",
+              else: "text-[#89939a] hover:text-white"
+            )
+          ]}
+        >
+          skills
+        </button>
+        <button
+          phx-click="remove"
+          phx-value-name={@row.name}
+          title="remover"
+          class="cursor-pointer text-[#89939a] hover:text-[#ff9ca4]"
+        >
+          ×
+        </button>
+      </div>
+
+      <p
+        :if={!@open? and @row.skills != %{}}
+        class="mt-1 pl-8 font-mono text-[9px] text-[#7f8992]"
+      >
+        {SkillProfile.summary(@row.skills)}
+      </p>
+
+      <%!-- One select per hotbar key: a skill has exactly ONE job, so a
+            chooser that can only hold one answer is the honest control. --%>
       <form
-        id={"level-form-" <> String.replace(@row.name, ~r/\W+/, "-")}
-        phx-change="set_level"
-        class="flex items-center gap-1 font-mono text-[9px] text-[#737d85]"
+        :if={@open?}
+        id={"skills-form-" <> String.replace(@row.name, ~r/\W+/, "-")}
+        phx-change="set_skills"
+        class="mt-2 border-t border-[#293238] pt-2"
       >
         <input type="hidden" name="name" value={@row.name} />
-        <span>lv</span>
-        <input
-          name="level"
-          type="number"
-          min="1"
-          max="999"
-          value={@row.level}
-          phx-debounce="500"
-          class="h-7 w-14 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[11px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
-        />
+        <p class="mb-1.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[#69737b]">
+          pra que serve cada skill · {SkillProfile.summary(@row.skills)}
+        </p>
+        <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          <label
+            :for={key <- @keys}
+            class="flex items-center gap-1.5 font-mono text-[10px] text-[#8b949d]"
+          >
+            <span class="w-9 shrink-0 text-right">skill {key}</span>
+            <select
+              name={"skill[" <> key <> "]"}
+              aria-label={"Skill " <> key <> " de " <> @row.name}
+              class="h-7 w-full min-w-0 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+            >
+              <option value="none" selected={@row.skills[key] == nil}>—</option>
+              <option
+                :for={category <- SkillProfile.categories()}
+                value={category}
+                selected={@row.skills[key] == category}
+              >
+                {SkillProfile.label(category)}
+              </option>
+            </select>
+          </label>
+        </div>
       </form>
-      <button
-        phx-click="move"
-        phx-value-name={@row.name}
-        phx-value-to={@other}
-        class="cursor-pointer font-mono text-[10px] text-[#89939a] hover:text-white"
-      >
-        {@other_label}
-      </button>
-      <button
-        phx-click="remove"
-        phx-value-name={@row.name}
-        title="remover"
-        class="cursor-pointer text-[#89939a] hover:text-[#ff9ca4]"
-      >
-        ×
-      </button>
     </li>
     """
   end

@@ -95,6 +95,27 @@ defmodule Pokex.Pokedex.SkillProfile do
   end
 
   @doc """
+  Builds a profile from the editor's form data: `%{"1" => "none", "3" => "aoe"}`.
+
+  The WHOLE form comes back on every change — one select per key, each with its
+  own name — so the profile is rebuilt rather than patched. That is what makes
+  the editor stateless: no `_target` to interpret, no per-key event that a
+  browser was never going to send (`phx-value-*` does not ride on form events;
+  the first cut of this editor was silently unable to save anything).
+  """
+  @spec from_form(term) :: t
+  def from_form(params) when is_map(params) do
+    for {key, value} <- params,
+        key in @hotbar_keys,
+        category = decode_category(value),
+        into: %{} do
+      {key, category}
+    end
+  end
+
+  def from_form(_absent), do: %{}
+
+  @doc """
   Reads a profile off disk: keys and jobs are WHITELISTED, never
   `String.to_atom/1` — `team.json` is a file he can edit by hand, and a typo in
   it must not mint atoms.

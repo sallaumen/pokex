@@ -72,7 +72,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # A capture failure reads differently from "the calibration cannot tell me
   # where to look": it is tagged here so the log says which of the two it was.
   defp grab(capture, region) do
-    case capture.(region, "corpse_scan.png") do
+    case capture.(region, "corpse_scan.raw") do
       {:ok, %Frame{} = frame} -> {:ok, frame}
       {:error, reason} -> {:error, {:capture_failed, reason}}
       other -> {:error, {:capture_failed, other}}

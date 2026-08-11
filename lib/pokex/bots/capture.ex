@@ -528,7 +528,7 @@ defmodule Pokex.Bots.Capture do
   # so no consumer has to trust a scale persisted when another backend was live.
   defp timed_decode(path, filename, region) do
     started_at = now()
-    result = Frame.from_png_file(path)
+    result = Frame.from_file(path)
     Perf.record("capture.decode:#{filename}", now() - started_at)
 
     case result do

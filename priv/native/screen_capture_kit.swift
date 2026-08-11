@@ -168,6 +168,15 @@ final class FrameStore: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
       withIntermediateDirectories: true
     )
 
+    // The caller asks for the format by extension. PNG exists to TRAVEL; these
+    // frames never leave the machine and live for milliseconds. Encoding one
+    // cost this helper time and cost Elixir up to 4.7 SECONDS to undo (measured
+    // 2026-08-11 on the 3.2 Mpx capture square) for pixels already in memory here.
+    if path.hasSuffix(".raw") {
+      try writeRaw(cgImage, to: url)
+      return
+    }
+
     guard let destination = CGImageDestinationCreateWithURL(
       url as CFURL,
       UTType.png.identifier as CFString,
@@ -182,6 +191,47 @@ final class FrameStore: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
     guard CGImageDestinationFinalize(destination) else {
       throw CaptureError.writeFailed("could not finalize PNG")
     }
+  }
+
+  // RGBA8, row-major, behind a 13-byte header: "PXRW", format version, width
+  // and height as big-endian UInt32. Reading it back in Elixir is a File.read
+  // and one pattern match — 7ms against 4752ms of PNG decode for the same
+  // 3.2 Mpx frame.
+  private func writeRaw(_ image: CGImage, to url: URL) throws {
+    let width = image.width
+    let height = image.height
+    let bytesPerRow = width * 4
+    var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+
+    guard let context = CGContext(
+      data: &pixels,
+      width: width,
+      height: height,
+      bitsPerComponent: 8,
+      bytesPerRow: bytesPerRow,
+      space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        | CGBitmapInfo.byteOrder32Big.rawValue
+    ) else {
+      throw CaptureError.writeFailed("could not create RGBA context")
+    }
+
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+    var data = Data()
+    data.append(contentsOf: Array("PXRW".utf8))
+    data.append(1)
+    appendBigEndian(&data, UInt32(width))
+    appendBigEndian(&data, UInt32(height))
+    data.append(contentsOf: pixels)
+    try data.write(to: url)
+  }
+
+  private func appendBigEndian(_ data: inout Data, _ value: UInt32) {
+    data.append(UInt8((value >> 24) & 0xFF))
+    data.append(UInt8((value >> 16) & 0xFF))
+    data.append(UInt8((value >> 8) & 0xFF))
+    data.append(UInt8(value & 0xFF))
   }
 
   func waitForFrame(timeout: TimeInterval) throws -> CVPixelBuffer {

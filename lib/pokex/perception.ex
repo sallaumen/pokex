@@ -162,28 +162,28 @@ defmodule Pokex.Perception do
           Pokex.Layout.region(:battle_list, calib.layout) || calib.battle_region
         end,
         interval_setting: :feed_battle_ms,
-        filename: "feed_battle.png",
+        filename: "feed_battle.raw",
         interpret: &Interpret.battle/3
       },
       %{
         key: :skill_bar,
         region: fn calib -> calib.skill_bar_region end,
         interval_setting: :feed_skill_bar_ms,
-        filename: "feed_skill_bar.png",
+        filename: "feed_skill_bar.raw",
         interpret: &Interpret.skills/3
       },
       %{
         key: :hud,
         region: fn calib -> Pokex.Layout.region(:hud_bottom, calib.layout) end,
         interval_setting: :feed_hud_ms,
-        filename: "feed_hud.png",
+        filename: "feed_hud.raw",
         interpret: &Interpret.Hud.interpret/3
       },
       %{
         key: :team,
         region: fn calib -> Pokex.Layout.region(:team_column, calib.layout) end,
         interval_setting: :feed_team_ms,
-        filename: "feed_team.png",
+        filename: "feed_team.raw",
         interpret: &Interpret.Team.interpret/3
       },
       %{
@@ -193,7 +193,7 @@ defmodule Pokex.Perception do
         # silently clipped by a map-only capture (2026-08-10).
         region: fn calib -> Pokex.Calibration.minimap_capture_region(calib) end,
         interval_setting: :feed_minimap_ms,
-        filename: "feed_minimap.png",
+        filename: "feed_minimap.raw",
         interpret: &Interpret.Minimap.interpret/4
       },
       %{
@@ -207,7 +207,7 @@ defmodule Pokex.Perception do
           end
         end,
         interval_setting: :feed_corpses_ms,
-        filename: "feed_corpses.png",
+        filename: "feed_corpses.raw",
         interpret: &Interpret.Corpses.interpret/4
       }
     ]

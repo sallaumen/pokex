@@ -255,7 +255,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     min_b = Settings.get(:pokemon_hp_min_brightness)
     min_s = Settings.get(:pokemon_hp_min_saturation)
 
-    with {:ok, frame} <- Capture.frame(region, "pokemon_hp.png") do
+    with {:ok, frame} <- Capture.frame(region, "pokemon_hp.raw") do
       # A frame that doesn't LOOK like the bar (party window minimized → the region shows game
       # world) is UNKNOWN, not a reading: a garbage fill% here read as "low HP" and fired the
       # combo in an open/close loop, burning potions and revives.

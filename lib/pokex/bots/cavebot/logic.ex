@@ -43,7 +43,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
             last_enemies: nil,
             # the route is ENTERED at the nearest waypoint, once per run
             homed?: false,
-            skips: 0
+            skips: 0,
+            # one sweep per stop, not one per tick
+            swept?: false
 
   @type state :: :walking | :fighting | :post_fight | :stuck | :fight_stalled | :blocked
 
@@ -53,6 +55,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | :run_combat
           | :halt_combat
           | {:nudge, integer, integer}
+          | :sweep
           | {:block, atom}
 
   @type world :: %{
@@ -60,7 +63,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
           enemies: non_neg_integer,
           combat_state: atom,
           capture_pending: non_neg_integer,
-          capture_changed_at: integer | nil
+          capture_changed_at: integer | nil,
+          sweep_pending: non_neg_integer,
+          sweep_changed_at: integer | nil
         }
 
   @type config :: %{
@@ -71,7 +76,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           fight_timeout_ms: non_neg_integer,
           post_kill_dwell_ms: non_neg_integer,
           blind_kick_ms: non_neg_integer,
-          capture_wait_ms: non_neg_integer
+          capture_wait_ms: non_neg_integer,
+          sweep_grace_ms: non_neg_integer
         }
 
   @type t :: %__MODULE__{
@@ -85,7 +91,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           last_pos: {integer, integer, integer} | nil,
           last_enemies: non_neg_integer | nil,
           homed?: boolean,
-          skips: non_neg_integer
+          skips: non_neg_integer,
+          swept?: boolean
         }
 
   @doc """
@@ -459,10 +466,49 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp post_fight(logic, world, now) do
     dwell_since = Map.get(logic.since, :dwell, now)
 
-    if capturing?(world, now, logic.config.capture_wait_ms) do
-      {logic, :none}
-    else
-      resume_after_dwell(logic, dwell_since, now)
+    cond do
+      sweep_due?(logic) -> ask_for_sweep(logic, now)
+      capturing?(world, now, logic.config.capture_wait_ms) -> {logic, :none}
+      sweeping?(logic, world, now) -> {logic, :none}
+      true -> resume_after_dwell(logic, dwell_since, now)
+    end
+  end
+
+  # "depois que matar tudo, fazer aquela varredura de captura antes de andar"
+  # (Lucas, 2026-08-10). The waypoint the hunt last REACHED is the one that
+  # decides — the pile it gathered died right there — and the request goes out
+  # once per stop, never once per tick.
+  defp sweep_due?(%__MODULE__{swept?: true}), do: false
+
+  defp sweep_due?(%__MODULE__{route: %Route{waypoints: waypoints}, wp_index: index})
+       when waypoints != [],
+       do: Route.sweep_at?(waypoints, Integer.mod(index - 1, length(waypoints)))
+
+  defp sweep_due?(%__MODULE__{}), do: false
+
+  defp ask_for_sweep(logic, now) do
+    {%{logic | swept?: true, since: Map.put(logic.since, :sweep, now)}, :sweep}
+  end
+
+  # Waiting on the sweep follows the same rule as waiting on the capture: a
+  # queue that is not MOVING is a queue nobody is working, and the hunt must
+  # never be held by one. The first tick after the request has no queue yet, so
+  # a short grace lets the Catcher build one before the wait can end.
+  defp sweeping?(logic, world, now) do
+    case Map.get(logic.since, :sweep) do
+      nil ->
+        false
+
+      asked_at ->
+        pending = Map.get(world, :sweep_pending, 0)
+        changed_at = Map.get(world, :sweep_changed_at)
+        cap = logic.config.capture_wait_ms
+
+        cond do
+          now - asked_at < logic.config.sweep_grace_ms -> true
+          pending > 0 and changed_at != nil and now - changed_at < cap -> true
+          true -> false
+        end
     end
   end
 
@@ -481,10 +527,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
     if now - dwell_since >= logic.config.post_kill_dwell_ms do
       since =
         logic.since
-        |> Map.delete(:dwell)
+        |> Map.drop([:dwell, :sweep])
         |> Map.put(:walk_progress, now)
 
-      {%{logic | state: :walking, since: since, last_pos: nil}, :none}
+      {%{logic | state: :walking, since: since, last_pos: nil, swept?: false}, :none}
     else
       {logic, :none}
     end

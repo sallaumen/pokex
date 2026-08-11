@@ -10,7 +10,8 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     fight_timeout_ms: 20_000,
     post_kill_dwell_ms: 1200,
     blind_kick_ms: 1200,
-    capture_wait_ms: 20_000
+    capture_wait_ms: 20_000,
+    sweep_grace_ms: 1500
   }
 
   defp route do
@@ -593,6 +594,109 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {logic, :none} = Logic.step(logic, world({0, 10, 7}, 3), 10)
       assert logic.wp_index == 0
       refute Logic.luring?(logic)
+    end
+  end
+
+  # "depois que matar tudo, fazer aquela varredura de captura antes de andar e
+  # continuar a rota" (Lucas, 2026-08-10).
+  describe "sweeping where the pile died" do
+    defp swept_route do
+      {:ok, r} = Route.append(Route.new("r"), {10, 10, 7})
+      {:ok, r} = Route.append(r, {20, 10, 7})
+      Route.set_sweep(r, 0, true)
+    end
+
+    defp after_kill_at(index, route) do
+      %{
+        Logic.new(route, @cfg)
+        | state: :post_fight,
+          combat_running?: true,
+          homed?: true,
+          wp_index: index,
+          since: %{dwell: 0}
+      }
+    end
+
+    defp swept_world(pending, changed_at) do
+      %{
+        pos: {10, 10, 7},
+        enemies: 0,
+        combat_state: :hunting,
+        capture_pending: 0,
+        capture_changed_at: nil,
+        sweep_pending: pending,
+        sweep_changed_at: changed_at
+      }
+    end
+
+    test "the hunt asks for ONE sweep at a marked waypoint, then waits" do
+      logic = after_kill_at(1, swept_route())
+
+      assert {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 10)
+      assert logic.state == :post_fight
+
+      # and never asks twice for the same stop
+      assert {logic, :none} = Logic.step(logic, swept_world(8, 20), 20)
+      assert logic.state == :post_fight
+    end
+
+    test "an unmarked waypoint sweeps nothing and leaves on the dwell" do
+      {:ok, plain} = Route.append(Route.new("r"), {10, 10, 7})
+      logic = after_kill_at(0, plain)
+
+      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 10)
+      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_300)
+      assert logic.state == :walking
+    end
+
+    test "the route waits while the sweep is WORKING, and leaves when it stops" do
+      logic = after_kill_at(1, swept_route())
+      {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 0)
+
+      # queue moving: hold, however long the dwell says
+      {logic, :none} = Logic.step(logic, swept_world(8, 2_000), 2_100)
+      assert logic.state == :post_fight
+
+      {logic, :none} = Logic.step(logic, swept_world(3, 9_000), 9_100)
+      assert logic.state == :post_fight
+
+      # queue empty: the stop is over
+      {logic, :none} = Logic.step(logic, swept_world(0, 9_000), 10_000)
+      assert logic.state == :walking
+    end
+
+    # The grace exists for the first tick only: the Catcher has not built the
+    # queue yet, and an empty queue at that instant is not a finished sweep.
+    test "an empty queue right after the request is not a finished sweep" do
+      logic = after_kill_at(1, swept_route())
+      {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 0)
+
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_400)
+      assert logic.state == :post_fight
+
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_600)
+      assert logic.state == :walking
+    end
+
+    # Same rule as every other wait in this machine: a queue that is not
+    # MOVING is a queue nobody is working, and it must never hold the road.
+    test "a frozen queue releases the hunt at the cap" do
+      logic = after_kill_at(1, swept_route())
+      {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 0)
+
+      {logic, :none} = Logic.step(logic, swept_world(9, 1_000), 2_000)
+      assert logic.state == :post_fight
+
+      {logic, :none} = Logic.step(logic, swept_world(9, 1_000), 22_000)
+      assert logic.state == :walking
+    end
+
+    test "the next stop may sweep again — the latch is per stop, not per hunt" do
+      logic = after_kill_at(1, swept_route())
+      {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
+      assert logic.state == :walking
+      refute logic.swept?
     end
   end
 

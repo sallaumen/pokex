@@ -71,7 +71,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     clear_debounce_ms: :cavebot_clear_debounce_ms,
     fight_timeout_ms: :cavebot_fight_timeout_ms,
     post_kill_dwell_ms: :cavebot_post_kill_dwell_ms,
-    capture_wait_ms: :cavebot_capture_wait_ms
+    capture_wait_ms: :cavebot_capture_wait_ms,
+    sweep_grace_ms: :cavebot_sweep_grace_ms
   }
 
   def topic, do: @topic
@@ -80,6 +81,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     state = %{
       body: Keyword.get(opts, :body, Pokex.Bots.Body),
       combat: Keyword.get(opts, :combat, Combat.Worker),
+      catcher: Keyword.get(opts, :catcher, Catcher.Worker),
       active?: Keyword.get(opts, :active, Application.get_env(:pokex, :cavebot_active, true)),
       logic: nil,
       timer: nil,
@@ -93,6 +95,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       held_keys: [],
       capture_pending: 0,
       capture_changed_at: nil,
+      # the BLIND sweep's queue, same progress rule as the capture's
+      sweep_pending: 0,
+      sweep_changed_at: nil,
       last_step: nil,
       pos: nil,
       pos_at: nil,
@@ -231,7 +236,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # hunt wait on work nobody was going to do: after every kill it sat until the
   # cap, then again, and again.
   def handle_info({:catcher, snapshot}, state) do
-    {:noreply, note_capture(state, Map.get(snapshot, :pending_corpses, 0))}
+    sweep_pending = snapshot |> Map.get(:sweep, %{}) |> Map.get(:pending, 0)
+
+    {:noreply,
+     state
+     |> note_capture(Map.get(snapshot, :pending_corpses, 0))
+     |> note_sweep(sweep_pending)}
   end
 
   # The minimap feed died (its consumers map dies with it; a restarted feed
@@ -319,7 +329,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       enemies: fightable(state, now),
       combat_state: state.combat_state,
       capture_pending: state.capture_pending,
-      capture_changed_at: state.capture_changed_at
+      capture_changed_at: state.capture_changed_at,
+      sweep_pending: state.sweep_pending,
+      sweep_changed_at: state.sweep_changed_at
     }
 
     if pos, do: {world, %{state | pos: pos, pos_at: now}}, else: {world, state}
@@ -373,6 +385,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # kick, it is the same walk continuing.
   def translate(state, {:nudge, dx, dy}) do
     state |> release_walk() |> arrow_step(dx, dy)
+  end
+
+  # "varrer aqui": the pile the hunt gathered died on this tile, and its
+  # corpses are worth a ball each. A cast, never a call — the Catcher parks on
+  # multi-second captures and this worker ticks five times a second.
+  def translate(state, :sweep) do
+    Catcher.Worker.sweep_now(state.catcher)
+    log(:macro, "🧹 varrendo os corpos antes de seguir")
+    release_walk(state)
   end
 
   # Starting combat CAN fail preflight (no calibration, e.g.). On failure we
@@ -473,6 +494,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
     if pending == state.capture_pending,
       do: state,
       else: %{state | capture_pending: pending, capture_changed_at: now()}
+  end
+
+  # The sweep's own queue: the hunt does not count it as work to wait for
+  # UNLESS it asked for the sweep itself (see Logic.sweeping?/3), but when it
+  # did, the same "is it MOVING" rule decides how long it waits.
+  defp note_sweep(state, pending) do
+    if pending == state.sweep_pending,
+      do: state,
+      else: %{state | sweep_pending: pending, sweep_changed_at: now()}
   end
 
   defp hold_walk(state, dx, dy) do

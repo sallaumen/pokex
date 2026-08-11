@@ -80,7 +80,13 @@ defmodule Pokex.Bots.Cavebot.Store do
   end
 
   defp decode_waypoint(%{"x" => x, "y" => y, "z" => z} = map),
-    do: %{x: x, y: y, z: z, action: decode_action(map["action"])}
+    do: %{
+      x: x,
+      y: y,
+      z: z,
+      action: decode_action(map["action"]),
+      sweep?: map["sweep"] == true
+    }
 
   # Whitelisted, never `String.to_atom/1`: the file is user-editable, and a
   # typo in it must not mint atoms. Anything unknown — including the missing
@@ -104,6 +110,7 @@ defmodule Pokex.Bots.Cavebot.Store do
       "x" => x,
       "y" => y,
       "z" => z,
-      "action" => Atom.to_string(Map.get(waypoint, :action) || :walk)
+      "action" => Atom.to_string(Map.get(waypoint, :action) || :walk),
+      "sweep" => Map.get(waypoint, :sweep?) == true
     }
 end

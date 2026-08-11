@@ -16,7 +16,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     [got] = Store.all()
     assert got.name == "cavena"
     assert got.dungeon == "cavena-dg"
-    assert got.waypoints == [%{x: 10, y: 20, z: 7, action: :walk}]
+    assert got.waypoints == [%{x: 10, y: 20, z: 7, action: :walk, sweep?: false}]
   end
 
   test "a corrupted file becomes an empty list instead of crashing", %{tmp_dir: tmp} do
@@ -36,7 +36,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
 
     matching = Enum.filter(Store.all(), &(&1.name == "cavena"))
     assert length(matching) == 1
-    assert hd(matching).waypoints == [%{x: 3, y: 4, z: 7, action: :walk}]
+    assert hd(matching).waypoints == [%{x: 3, y: 4, z: 7, action: :walk, sweep?: false}]
   end
 
   test "an empty name is rejected" do
@@ -81,7 +81,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     [got] = Store.all()
     assert got.name == "sem-dg"
     assert got.dungeon == nil
-    assert got.waypoints == [%{x: 1, y: 2, z: 7, action: :walk}]
+    assert got.waypoints == [%{x: 1, y: 2, z: 7, action: :walk, sweep?: false}]
   end
 
   # Waypoints gained a JOB after his routes were already recorded and walked:

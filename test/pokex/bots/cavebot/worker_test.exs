@@ -66,6 +66,25 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCombat do
   end
 end
 
+defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCatcher do
+  @moduledoc """
+  Answers `Catcher.Worker.sweep_now/1` (a plain `:sweep_now` cast) and tells the
+  test the hunt asked for a sweep.
+  """
+  use GenServer
+
+  def start_link(test), do: GenServer.start_link(__MODULE__, test)
+
+  @impl true
+  def init(test), do: {:ok, test}
+
+  @impl true
+  def handle_cast(:sweep_now, test) do
+    send(test, :sweep_asked)
+    {:noreply, test}
+  end
+end
+
 defmodule Pokex.Bots.Cavebot.WorkerTest do
   @moduledoc """
   The Worker isolated with fake Body and Combat, driven by facts injected into the
@@ -80,6 +99,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   alias Pokex.Bots.Cavebot.Store
   alias Pokex.Bots.Cavebot.Worker
   alias Pokex.Bots.Cavebot.WorkerTest.FakeBody
+  alias Pokex.Bots.Cavebot.WorkerTest.FakeCatcher
   alias Pokex.Bots.Cavebot.WorkerTest.FakeCombat
   alias Pokex.Bots.InputGate
   alias Pokex.Perception.WorldState
@@ -102,9 +122,12 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     {:ok, _} = FakeBody.start_link(self())
     {:ok, combat} = FakeCombat.start_link(self())
+    {:ok, catcher} = FakeCatcher.start_link(self())
 
     worker =
-      start_supervised!({Worker, name: nil, body: FakeBody, combat: combat, active: false})
+      start_supervised!(
+        {Worker, name: nil, body: FakeBody, combat: combat, catcher: catcher, active: false}
+      )
 
     %{worker: worker}
   end
@@ -162,7 +185,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                route: "cavena",
                wp_index: 0,
                wp_total: 1,
-               wp_target: %{x: 100, y: 100, z: 7, action: :walk},
+               wp_target: %{x: 100, y: 100, z: 7, action: :walk, sweep?: false},
                pos: nil,
                pos_age_ms: nil,
                distance_tiles: nil,
@@ -425,7 +448,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.route == "cavena"
     assert status.wp_index == 0
     assert status.wp_total == 1
-    assert status.wp_target == %{x: 100, y: 100, z: 7, action: :walk}
+    assert status.wp_target == %{x: 100, y: 100, z: 7, action: :walk, sweep?: false}
     assert status.pos == {10, 20, 7}
     assert status.pos_age_ms >= 0
     assert status.distance_tiles == %{dx: 90, dy: 80}
@@ -606,6 +629,55 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     send(worker, {:catcher, %{pending_corpses: 1}})
     assert %{capture_changed_at: unchanged} = :sys.get_state(worker)
     assert unchanged == state.capture_changed_at
+  end
+
+  # "depois que matar tudo, fazer aquela varredura de captura antes de andar"
+  # (Lucas, 2026-08-10): a waypoint may ask for the ground to be swept, and
+  # the request has to actually REACH the Catcher.
+  describe "sweeping where the pile died" do
+    test "arriving at a marked waypoint after a fight asks the Catcher to sweep", %{
+      worker: worker
+    } do
+      # the debounce and the dwell are CLOCKS, and these ticks take microseconds
+      SettingsStash.stash!(cavebot_clear_debounce_ms: 0, cavebot_post_kill_dwell_ms: 0)
+
+      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
+      {:ok, route} = Route.append(route, {200, 100, 7})
+      :ok = Store.add(Route.set_sweep(route, 0, true))
+
+      :ok = Worker.run(worker)
+      minimap!({100, 100, 7})
+      tick!(worker)
+      tick!(worker)
+      assert Worker.status(worker).wp_index == 1
+
+      # a fight starts and ends right there
+      battle!([0])
+      tick!(worker)
+      assert Worker.status(worker).state == :fighting
+
+      battle!([])
+      Enum.each(1..6, fn _ -> tick!(worker) end)
+
+      assert_receive :sweep_asked, 1_000
+    end
+
+    test "an unmarked waypoint asks for nothing", %{worker: worker} do
+      SettingsStash.stash!(cavebot_clear_debounce_ms: 0, cavebot_post_kill_dwell_ms: 0)
+      two_waypoint_route!()
+
+      :ok = Worker.run(worker)
+      minimap!({100, 100, 7})
+      tick!(worker)
+      tick!(worker)
+
+      battle!([0])
+      tick!(worker)
+      battle!([])
+      Enum.each(1..6, fn _ -> tick!(worker) end)
+
+      refute_receive :sweep_asked, 300
+    end
   end
 
   # The hunt tells Combat to hold its fire by PUBLISHING A FACT, refreshed

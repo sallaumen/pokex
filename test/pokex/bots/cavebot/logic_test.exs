@@ -749,6 +749,40 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :walking
     end
 
+    # A mob walking in during the stop is a FIGHT, not an interruption to
+    # push through: reviving recalls the pokémon, and doing that while
+    # something is hitting it is the worst moment there is.
+    test "an enemy arriving mid-stop sends the hunt back to fighting" do
+      logic = after_kill_at(1, stop_route([:cooldown_revive, :sweep]))
+
+      {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
+
+      world = %{swept_world(0, nil) | enemies: 2}
+      {logic, :none} = Logic.step(logic, world, 100)
+      assert logic.state == :fighting
+
+      # and an ENGAGED combat holds it there too, whatever the count says
+      logic = after_kill_at(1, stop_route([:sweep]))
+      world = %{swept_world(0, nil) | combat_state: :fighting}
+      {logic, :none} = Logic.step(logic, world, 100)
+      assert logic.state == :fighting
+    end
+
+    test "what already ran is not run again when the new fight ends" do
+      logic = after_kill_at(1, stop_route([:cooldown_revive, :sweep]))
+      {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
+
+      # interrupted, fought, cleared again
+      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | enemies: 1}, 100)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 200)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_100)
+      assert logic.state == :post_fight
+
+      # the sweep still owed goes out; the revive does NOT happen twice
+      assert {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 1_200)
+      assert logic.stops_done == [:sweep, :cooldown_revive]
+    end
+
     test "a waypoint with no stops leaves on the dwell, as it always did" do
       logic = after_kill_at(1, stop_route([]))
 

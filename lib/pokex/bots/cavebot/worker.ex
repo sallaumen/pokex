@@ -413,8 +413,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         state
 
       actions ->
-        state.body.perform(actions, :high)
-        log(:macro, "⚡ resetando os cooldowns no revive")
+        fire_revive(state.body, actions)
         state
     end
   end
@@ -513,6 +512,23 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # y grows SOUTH.
   # WHEN the queue last changed, not just how big it is: a queue that shrinks is
   # the capture working, and one frozen at 2 is work that will never happen.
+  # OFF the tick, on purpose. `Body.perform/2` is a call with an :infinity
+  # timeout, and the Body may be several seconds deep in a capture when this
+  # goes out — blocking the tick would freeze the hunt AND time out the page's
+  # own `status` call, which is how a LiveView died once before (2026-07-30).
+  # The Body's queue keeps the ordering; the answer is only worth a log line,
+  # and a refusal must SAY so instead of narrating a revive that never
+  # happened.
+  defp fire_revive(body, actions) do
+    spawn(fn ->
+      case body.perform(actions, :high) do
+        :ok -> log(:macro, "⚡ resetei os cooldowns no revive")
+        {:error, reason} -> log(:macro, "⚡ o corpo recusou o revive: #{inspect(reason)}")
+        other -> log(:macro, "⚡ revive respondeu #{inspect(other)}")
+      end
+    end)
+  end
+
   # nil when the portrait or the neutral point was never marked: a missing
   # calibration must cost the hunt a log line, never a stuck stop.
   defp revive_combo do

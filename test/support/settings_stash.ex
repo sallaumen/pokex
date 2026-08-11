@@ -18,10 +18,25 @@ defmodule Pokex.SettingsStash do
 
   alias Pokex.Settings
 
-  @doc "Snapshot each key, register restore on exit, then apply the overrides."
+  @doc """
+  Snapshot each key, register restore on exit, then apply the overrides.
+
+  A REFUSED put RAISES. `Settings.put/3` answers `{:error, reason}` for a value
+  outside the key's range, and swallowing that let a test ask for 300ms on a key
+  with a 500ms floor and then assert against the untouched 3000 — green, while
+  proving the opposite of what it claimed (2026-08-10). A test that cannot get
+  the world it asked for has to fail HERE, not silently somewhere else.
+  """
   def stash!(overrides) do
     overrides |> Enum.map(fn {key, _value} -> key end) |> stash_keys!()
-    Enum.each(overrides, fn {key, value} -> Settings.put(key, value) end)
+
+    Enum.each(overrides, fn {key, value} ->
+      case Settings.put(key, value) do
+        {:error, reason} -> raise ArgumentError, "stash! recusado — #{reason}"
+        _applied -> :ok
+      end
+    end)
+
     :ok
   end
 

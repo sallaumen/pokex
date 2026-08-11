@@ -88,6 +88,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
       reattach_attempts: 0,
       combat_state: :idle,
       combat_scenery: 0,
+      # what the hunt last ASKED of combat — kept only to narrate the edge
+      posture: :free_fight,
       held_keys: [],
       capture_pending: 0,
       capture_changed_at: nil,
@@ -126,6 +128,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
           pos_age_ms: non_neg_integer | nil,
           distance_tiles: %{dx: integer, dy: integer} | nil,
           hold_reason: String.t() | nil,
+          luring?: boolean,
           last_action: %{text: String.t(), at: integer} | nil,
           counters: %{waypoints: non_neg_integer, steps: non_neg_integer}
         }
@@ -172,7 +175,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def handle_call(:halt, _from, %{logic: nil} = state), do: {:reply, :ok, state}
 
   def handle_call(:halt, _from, state) do
-    state = release_walk(state)
+    state = state |> release_walk() |> free_fire()
     Combat.Worker.halt(state.combat)
     WorldState.forget(:dungeon)
 
@@ -269,9 +272,41 @@ defmodule Pokex.Bots.Cavebot.Worker do
       |> translate(action)
       |> note_arrival(wp_before, now)
       |> log_hold_edge(now)
+      |> publish_posture(now)
 
     if broadcast_key(state, now) != before, do: broadcast_status(state)
     {:noreply, schedule_tick(state)}
+  end
+
+  # What the hunt asks of Combat, republished EVERY tick.
+  #
+  # It is a fact on the blackboard, not a message, and that is the whole
+  # design: facts carry their age, so a hunt that dies (or blocks, or is
+  # stopped) simply stops refreshing this one and Combat reads it as stale —
+  # which it treats as free fire. A pacifist bot left behind by a dead cavebot
+  # is the failure this shape makes impossible; the heartbeat is what buys it.
+  defp publish_posture(state, now) do
+    posture = if Logic.luring?(state.logic), do: :hold_fire, else: :free_fight
+    WorldState.put(:posture, %{posture: posture}, now)
+
+    if posture != state.posture do
+      log(:macro, posture_text(posture))
+      %{state | posture: posture}
+    else
+      state
+    end
+  end
+
+  defp posture_text(:hold_fire),
+    do: "🕊️ trecho de mob: andando sem atacar — o combate está segurando o fogo"
+
+  defp posture_text(:free_fight), do: "⚔️ fim do trecho de mob: o combate está liberado"
+
+  # Stopping for ANY reason frees Combat at once, instead of leaving it holding
+  # fire for as long as the fact takes to age out.
+  defp free_fire(state) do
+    WorldState.put(:posture, %{posture: :free_fight}, now())
+    %{state | posture: :free_fight}
   end
 
   # The combat snapshot, kept the Combos.Runner way: the Logic receives the
@@ -401,7 +436,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # Worker (combat refused to start) — either way the reported state must be
   # :blocked, terminal until a human restarts.
   defp stop_hunt(state, reason) do
-    state = release_walk(state)
+    state = state |> release_walk() |> free_fire()
     broadcast({:cavebot_alarm, reason})
     log(:macro, block_text(reason))
 
@@ -611,6 +646,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     pos_age_ms: nil,
     distance_tiles: nil,
     hold_reason: nil,
+    luring?: false,
     last_action: nil,
     counters: %{waypoints: 0, steps: 0}
   }
@@ -637,6 +673,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       pos_age_ms: state.pos_at && now - state.pos_at,
       distance_tiles: distance_tiles(state),
       hold_reason: hold_reason(state, now),
+      # gathering mobs instead of fighting them — "andando" on a mob leg and
+      # "andando" on a normal one are not the same thing to watch
+      luring?: Logic.luring?(logic),
       last_action: state.last_action,
       counters: state.counters
     }

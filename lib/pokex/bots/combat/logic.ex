@@ -54,6 +54,12 @@ defmodule Pokex.Bots.Combat.Logic do
             scenery_until: nil,
             failures: 0,
             error: nil,
+            # What the HUNT asked of combat: `:free_fight` (always, historically
+            # and by default) or `:hold_fire` while it walks a mob stretch
+            # gathering enemies instead of fighting them. Set from the
+            # `:posture` fact by the Worker; a stale or missing fact reads as
+            # free fire, so a dead hunt can never leave combat pacifist.
+            posture: :free_fight,
             # `captures` stays 0 here forever — captures live on Catcher.Logic since the
             # Catcher extraction — but the panel's merged_counters/3 still folds combat's
             # counters map into its merge (fishing → combat → catcher, last write wins), so
@@ -117,6 +123,17 @@ defmodule Pokex.Bots.Combat.Logic do
   end
 
   defp do_step(%__MODULE__{state: state} = logic, _obs, _now) when state in [:idle, :error],
+    do: {logic, []}
+
+  # Holding fire: no Tab, no probe, no skill at anything. A fight already under
+  # way is DROPPED rather than finished — the hunt is walking away with a crowd
+  # behind it, and skills landing on one of them is precisely what "andar sem
+  # atacar ninguém" rules out.
+  defp do_step(%__MODULE__{state: state, posture: :hold_fire} = logic, _obs, now)
+       when state in [:tabbing, :fighting],
+       do: {stand_down(logic, now), [{:log, "🕊️ segurando o fogo — a caçada está mobando"}]}
+
+  defp do_step(%__MODULE__{state: :hunting, posture: :hold_fire} = logic, _obs, _now),
     do: {logic, []}
 
   defp do_step(%{state: :hunting} = logic, obs, now) do
@@ -402,6 +419,37 @@ defmodule Pokex.Bots.Combat.Logic do
 
   # Every rehunt (kill landed, fight timed out, io failure) opens the probe window: "not
   # attacking while something is attackable" is the one state this machine must never rest in.
+  @doc """
+  What the hunt is asking of combat right now: `:free_fight` or `:hold_fire`.
+
+  The Worker sets it from the `:posture` fact before every step. Anything else
+  is ignored — an unreadable posture must mean "carry on", never "stop
+  fighting".
+  """
+  @spec set_posture(%__MODULE__{}, :free_fight | :hold_fire) :: %__MODULE__{}
+  def set_posture(%__MODULE__{} = logic, posture) when posture in [:free_fight, :hold_fire],
+    do: %{logic | posture: posture}
+
+  def set_posture(%__MODULE__{} = logic, _unknown), do: %{logic | posture: :free_fight}
+
+  # Back to hunting with nothing pending: no target, no Tab window, and no
+  # probe (a probe is a blind Tab, which is the one thing holding fire forbids).
+  defp stand_down(logic, now) do
+    %{
+      logic
+      | state: :hunting,
+        entered_at: now,
+        tabbed_at: nil,
+        tab_attempts: 0,
+        post_tab_frames: 0,
+        lost_streak: 0,
+        locked_row: nil,
+        last_burst_at: nil,
+        probe_until: nil,
+        hold_until: nil
+    }
+  end
+
   defp rehunt(logic, now) do
     %{
       logic

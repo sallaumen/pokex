@@ -167,6 +167,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                pos_age_ms: nil,
                distance_tiles: nil,
                hold_reason: nil,
+               luring?: false,
                last_action: nil,
                counters: %{waypoints: 0, steps: 0}
              }
@@ -529,6 +530,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              pos_age_ms: nil,
              distance_tiles: nil,
              hold_reason: nil,
+             luring?: false,
              last_action: nil,
              counters: %{waypoints: 0, steps: 0}
            }
@@ -604,5 +606,84 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     send(worker, {:catcher, %{pending_corpses: 1}})
     assert %{capture_changed_at: unchanged} = :sys.get_state(worker)
     assert unchanged == state.capture_changed_at
+  end
+
+  # The hunt tells Combat to hold its fire by PUBLISHING A FACT, refreshed
+  # every tick. Nothing is commanded and nobody is remembered: Combat obeys a
+  # reading with an age, exactly like every other reading it makes.
+  describe "the posture the hunt asks of Combat" do
+    defp lure_route! do
+      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
+      {:ok, route} = Route.append(route, {200, 100, 7})
+      {:ok, route} = Route.append(route, {200, 200, 7})
+      :ok = Store.add(Route.set_action(route, 0, :lure_start) |> Route.set_action(2, :lure_end))
+      route
+    end
+
+    defp posture! do
+      case WorldState.get(:posture, 60_000, System.monotonic_time(:millisecond)) do
+        {:ok, %{posture: posture}} -> posture
+        other -> other
+      end
+    end
+
+    test "a plain leg publishes free fire", %{worker: worker} do
+      two_waypoint_route!()
+      :ok = Worker.run(worker)
+      minimap!({10, 20, 7})
+      tick!(worker)
+      tick!(worker)
+
+      assert posture!() == :free_fight
+    end
+
+    # Reaching waypoint 1 ("mobar daqui") on a clear screen: from the next tick
+    # on, the leg being walked is a mob leg.
+    defp reach_lure_start!(worker) do
+      lure_route!()
+      :ok = Worker.run(worker)
+      minimap!({100, 100, 7})
+      tick!(worker)
+      tick!(worker)
+      assert Worker.status(worker).wp_index == 1
+    end
+
+    test "on a mob leg it asks Combat to hold fire, and walks THROUGH the enemies", %{
+      worker: worker
+    } do
+      reach_lure_start!(worker)
+
+      battle!([0, 1, 2])
+      tick!(worker)
+
+      assert posture!() == :hold_fire
+      # a crowd on screen would stop any other leg; this one it walks
+      assert Worker.status(worker).state == :walking
+      assert_receive {:held, [_ | _]}, 1_000
+    end
+
+    test "past 'até aqui' the fact goes back to free fire", %{worker: worker} do
+      reach_lure_start!(worker)
+      tick!(worker)
+      assert posture!() == :hold_fire
+
+      # arrive at waypoint 2, then at waypoint 3 ("até aqui")
+      minimap!({200, 100, 7})
+      tick!(worker)
+      minimap!({200, 200, 7})
+      tick!(worker)
+
+      assert Worker.status(worker).wp_index == 0
+      assert posture!() == :free_fight
+    end
+
+    test "stopping frees Combat at once, without waiting for the fact to age", %{worker: worker} do
+      reach_lure_start!(worker)
+      tick!(worker)
+      assert posture!() == :hold_fire
+
+      :ok = Worker.halt(worker)
+      assert posture!() == :free_fight
+    end
   end
 end

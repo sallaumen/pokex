@@ -132,6 +132,25 @@ defmodule Pokex.Bots.Cavebot.Logic do
   def step(%__MODULE__{state: :post_fight} = logic, world, now), do: post_fight(logic, world, now)
 
   @doc """
+  Is the hunt walking a MOB stretch right now?
+
+  The leg being walked is the one LEAVING the previous waypoint — `wp_index` is
+  where the character is heading, not where it stands — so arriving at "mobar
+  daqui" starts the gathering and arriving at "até aqui" ends it, both on the
+  tick of the arrival. Read around the loop, because the route is a loop.
+
+  The Worker turns this into the `:posture` fact Combat obeys; only a `:walking`
+  hunt gathers, and a hunt that is fighting or stuck is doing something else.
+  """
+  @spec luring?(t) :: boolean
+  def luring?(%__MODULE__{state: :walking, route: %Route{waypoints: waypoints}, wp_index: index})
+      when waypoints != [] do
+    Route.lure_leg?(waypoints, Integer.mod(index - 1, length(waypoints)))
+  end
+
+  def luring?(%__MODULE__{}), do: false
+
+  @doc """
   How many ms the machine has gone without knowing where the character is —
   `nil` while the coordinate is being read. The Worker turns this into a
   visible reason.
@@ -144,16 +163,22 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # Enemy on screen: Combat (always running) already fights — just change state.
-  defp walk(logic, %{enemies: enemies}, now) when enemies > 0, do: enter_fight(logic, now)
-
-  # The COUNT can lie — `enemies` is rows minus presumed scenery, and a stale
-  # presumption once swallowed the only real enemy (2026-08-10: fightable read
-  # 0 over a live lock, and the hunt strolled off mid-fight) — but an engaged
-  # Combat cannot: :tabbing/:fighting hold the road, whatever the subtraction
-  # says.
+  # Gathering: the whole point of a mob stretch is walking THROUGH what shows
+  # up, so neither a full battle list nor an engaged Combat stops the leg. The
+  # not-attacking half is Combat's, told by the `:posture` fact the Worker
+  # publishes — here the hunt simply keeps its feet moving.
   defp walk(logic, world, now) do
-    if engaged?(world), do: enter_fight(logic, now), else: follow_route(logic, world, now)
+    cond do
+      luring?(logic) -> follow_route(logic, world, now)
+      world.enemies > 0 -> enter_fight(logic, now)
+      # The COUNT can lie — `enemies` is rows minus presumed scenery, and a
+      # stale presumption once swallowed the only real enemy (2026-08-10:
+      # fightable read 0 over a live lock, and the hunt strolled off
+      # mid-fight) — but an engaged Combat cannot: :tabbing/:fighting hold the
+      # road, whatever the subtraction says.
+      engaged?(world) -> enter_fight(logic, now)
+      true -> follow_route(logic, world, now)
+    end
   end
 
   defp enter_fight(logic, now) do

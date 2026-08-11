@@ -452,6 +452,7 @@ defmodule PokexWeb.CavebotLive do
   defp enemy_count(_none), do: 0
 
   defp hunt_state_text(nil), do: "parada"
+  defp hunt_state_text(%{luring?: true}), do: "mobando"
   defp hunt_state_text(%{state: state}), do: state_word(state)
 
   defp state_word(:walking), do: "andando"

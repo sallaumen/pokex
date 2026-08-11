@@ -200,8 +200,21 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   defp step(state, obs) do
-    {logic, actions} = Logic.step(state.logic, with_ready_skills(obs), now())
+    logic = Logic.set_posture(state.logic, posture())
+    {logic, actions} = Logic.step(logic, with_ready_skills(obs), now())
     apply_step(state, logic, actions)
+  end
+
+  # What the hunt is asking of us, read as a FACT with an age — the same
+  # contract as every other reading on the blackboard. Stale, missing or
+  # unreadable all mean `:free_fight`: the posture may only ever stop combat
+  # while something is actively saying so, so a dead or stopped cavebot can
+  # never leave the bot standing pacifist in the middle of a crowd.
+  defp posture do
+    case WorldState.get(:posture, Settings.get(:posture_max_age_ms), now()) do
+      {:ok, %{posture: :hold_fire}} -> :hold_fire
+      _stale_missing_or_free -> :free_fight
+    end
   end
 
   # The freshest skill-bar reading rides along on every observation the logic sees, so the
@@ -434,9 +447,16 @@ defmodule Pokex.Bots.Combat.Worker do
       error: logic.error,
       locked_row: logic.locked_row,
       scenery: logic.scenery_rows || 0,
-      hold_reason: if(state.held?, do: "mini-game em jogo"),
+      hold_reason: hold_reason(logic, state),
       last_action: state.last_action
     }
+
+  # Why combat is quiet, in the ONE slot the panel already reads. A silent
+  # combat with a full battle list is the most alarming thing this bot can
+  # show; holding fire on purpose must never look like that.
+  defp hold_reason(_logic, %{held?: true}), do: "mini-game em jogo"
+  defp hold_reason(%Logic{posture: :hold_fire}, _state), do: "segurando o fogo (trecho de mob)"
+  defp hold_reason(_logic, _state), do: nil
 
   defp positive_int(value, _default) when is_integer(value) and value > 0, do: value
   defp positive_int(_value, default), do: default

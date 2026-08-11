@@ -29,6 +29,8 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       :ets.delete(:pokex_world, :battle)
       :ets.delete(:pokex_world, :arena)
       :ets.delete(:pokex_world, :skill_bar)
+      # a posture left behind would make the NEXT test's combat pacifist
+      :ets.delete(:pokex_world, :posture)
     end)
 
     Calibration.save(%Calibration{
@@ -301,6 +303,55 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     # once errored, further failures are ignored (no reactivation from a stale async task)
     send(worker, {:key_burst_failed, :boom})
     assert Worker.status(worker).counters.failures == 5
+  end
+
+  # The hunt asks for quiet by publishing the `:posture` fact; this worker
+  # obeys a READING with an age, never a command it has to remember.
+  describe "holding fire while the hunt gathers mobs" do
+    defp posture!(posture) do
+      WorldState.put(:posture, %{posture: posture}, System.monotonic_time(:millisecond))
+    end
+
+    @tag :tmp_dir
+    test "a full battle list presses nothing while the fact says hold fire", %{worker: worker} do
+      posture!(:hold_fire)
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+      refute eventually(fn -> Settings.get(:tab_key) in presses() end, 300)
+      assert Worker.status(worker).state == :hunting
+      assert Worker.status(worker).hold_reason == "segurando o fogo (trecho de mob)"
+
+      posture!(:free_fight)
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+      assert eventually(fn -> Settings.get(:tab_key) in presses() end)
+      assert Worker.status(worker).hold_reason == nil
+    end
+
+    # The fact ages out on its own: a hunt that dies mid mob stretch must not
+    # leave the bot standing pacifist in the crowd it just gathered.
+    @tag :tmp_dir
+    test "a posture nobody is refreshing goes stale and combat fights again", %{worker: worker} do
+      SettingsStash.stash!(posture_max_age_ms: 500)
+
+      WorldState.put(
+        :posture,
+        %{posture: :hold_fire},
+        System.monotonic_time(:millisecond) - 5_000
+      )
+
+      world!(worker, battle_obs(enemies: [0]))
+
+      assert eventually(fn -> Settings.get(:tab_key) in presses() end)
+    end
+
+    @tag :tmp_dir
+    test "with no fact at all it fights, exactly as it always did", %{worker: worker} do
+      WorldState.forget(:posture)
+      world!(worker, battle_obs(enemies: [0]))
+
+      assert eventually(fn -> Settings.get(:tab_key) in presses() end)
+    end
   end
 
   defp eventually(fun, timeout \\ 1_000) do

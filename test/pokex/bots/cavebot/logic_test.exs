@@ -441,6 +441,77 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     end
   end
 
+  # "ele vai andar sem atacar ninguém" (Lucas, 2026-08-10): between "mobar
+  # daqui" and "até aqui" the hunt walks THROUGH the mobs, gathering them,
+  # instead of stopping to fight each one.
+  describe "walking a mob stretch" do
+    defp lure_route do
+      {:ok, r} = Route.append(Route.new("r"), {0, 0, 7})
+      {:ok, r} = Route.append(r, {10, 0, 7})
+      {:ok, r} = Route.append(r, {10, 10, 7})
+      {:ok, r} = Route.append(r, {0, 10, 7})
+
+      # gather from waypoint 2 (index 1) until waypoint 4 (index 3)
+      r |> Route.set_action(1, :lure_start) |> Route.set_action(3, :lure_end)
+    end
+
+    defp walking_toward(index) do
+      %{Logic.new(lure_route(), @cfg) | combat_running?: true, wp_index: index, homed?: true}
+    end
+
+    test "the leg the hunt is ON is what counts, not the waypoint it left" do
+      # heading to index 1 = the leg 0 → 1, before the mark: a normal leg
+      refute Logic.luring?(walking_toward(1))
+
+      # heading to 2 and to 3 = the legs 1 → 2 → 3: inside the stretch
+      assert Logic.luring?(walking_toward(2))
+      assert Logic.luring?(walking_toward(3))
+
+      # heading back to 0 = the leg 3 → 0, out the other side of "até aqui"
+      refute Logic.luring?(walking_toward(0))
+    end
+
+    test "enemies on screen do NOT stop a mob leg — that is the whole point" do
+      logic = walking_toward(2)
+
+      {logic, {:walk, _dx, _dy}} = Logic.step(logic, world({5, 0, 7}, 4), 10)
+      assert logic.state == :walking
+    end
+
+    test "an engaged Combat does not hold the road either, while gathering" do
+      logic = walking_toward(2)
+
+      {logic, {:walk, _dx, _dy}} = Logic.step(logic, world({5, 0, 7}, 0, :fighting), 10)
+      assert logic.state == :walking
+    end
+
+    test "past 'até aqui' the pile is fought like any other" do
+      logic = walking_toward(0)
+
+      {logic, :none} = Logic.step(logic, world({0, 10, 7}, 4), 10)
+      assert logic.state == :fighting
+    end
+
+    test "a route with no marks never lures" do
+      logic = %{Logic.new(route(), @cfg) | combat_running?: true, homed?: true}
+
+      refute Logic.luring?(logic)
+      {logic, :none} = Logic.step(logic, world({5, 10, 7}, 1), 10)
+      assert logic.state == :fighting
+    end
+
+    # Arriving at "até aqui" is what ends the gathering — the hunt must not be
+    # left luring while it stands in the middle of everything it collected.
+    test "arriving at 'até aqui' ends the stretch on the same tick" do
+      logic = walking_toward(3)
+      assert Logic.luring?(logic)
+
+      {logic, :none} = Logic.step(logic, world({0, 10, 7}, 3), 10)
+      assert logic.wp_index == 0
+      refute Logic.luring?(logic)
+    end
+  end
+
   # 2026-08-10: a stale scenery presumption swallowed the only real enemy —
   # `enemies` (rows minus presumed scenery) read 0 while Combat held a live
   # lock, the clear debounce ran out, and the hunt strolled off mid-fight.

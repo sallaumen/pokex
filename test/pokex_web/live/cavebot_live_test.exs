@@ -295,6 +295,85 @@ defmodule PokexWeb.CavebotLiveTest do
       assert html =~ "luta de 8s medida aqui"
     end
 
+    # Writing the combo per drain meant reading, decoding, encoding and
+    # rewriting the WHOLE routes file eight times a second while he fought.
+    # It is collected in memory and written on a conclusion.
+    test "the combo is not written to disk until the fight closes", %{conn: conn} do
+      put_pos({10, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
+      view |> element("#toggle-recording") |> render_click()
+
+      put_pos({10, 20, 7})
+      send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
+      render(view)
+
+      clicks!(1, {0, 0}, 0)
+      send(view.pid, :watch_middle)
+      render(view)
+
+      {:ok, one} = Pokex.Rig.Mac.Commands.keycode("1")
+      {:ok, three} = Pokex.Rig.Mac.Commands.keycode("3")
+
+      # mid-fight: skills flying, nothing concluded
+      presses!([%{code: one, shift?: true, at: 1_000}, %{code: three, shift?: false, at: 1_200}])
+      send(view.pid, :watch_middle)
+      render(view)
+
+      presses!([%{code: one, shift?: false, at: 1_400}])
+      send(view.pid, :watch_middle)
+      render(view)
+
+      assert [%Route{waypoints: [%{combo: []}]}] = Store.all()
+
+      # he closes it with shift+3: NOW the disk hears the whole thing
+      presses!([%{code: three, shift?: true, at: 5_000}])
+      send(view.pid, :watch_middle)
+      render(view)
+
+      assert [%Route{waypoints: [%{combo: ~w(3 1), fight_ms: 4_000}]}] = Store.all()
+    end
+
+    test "a combo he never closed is still written when recording stops", %{conn: conn} do
+      put_pos({10, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
+      view |> element("#toggle-recording") |> render_click()
+
+      put_pos({10, 20, 7})
+      send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
+      render(view)
+
+      clicks!(1, {0, 0}, 0)
+      send(view.pid, :watch_middle)
+      render(view)
+
+      {:ok, five} = Pokex.Rig.Mac.Commands.keycode("5")
+      presses!([%{code: five, shift?: false, at: 900}])
+      send(view.pid, :watch_middle)
+      render(view)
+
+      view |> element("#toggle-recording") |> render_click()
+
+      assert [%Route{waypoints: [%{combo: ~w(5)}]}] = Store.all()
+    end
+
+    # The helper polls inside its own loop and cannot know the recording
+    # ended: without an off switch it reads ten key states every 8ms forever,
+    # competing with the game he is playing.
+    test "stopping the recording disarms the key watcher", %{conn: conn} do
+      put_pos({10, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
+      view |> element("#toggle-recording") |> render_click()
+      view |> element("#toggle-recording") |> render_click()
+
+      assert {:key_watch, []} in Pokex.Rig.Fake.calls()
+    end
+
     test "no click, no mark", %{conn: conn} do
       put_pos({10, 20, 7})
       {:ok, view, _html} = live(conn, ~p"/cavebot")

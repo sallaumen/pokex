@@ -87,6 +87,10 @@ defmodule PokexWeb.CavebotLive do
        # …and his KEYS: shift+1 opens a fight, shift+3 closes it, and the
        # skills in between are the combo he really used there
        hands: HandsRead.new(),
+       # the combo being pressed RIGHT NOW, held in memory: writing it per
+       # drain rewrote the whole routes file eight times a second, mid-fight
+       pending_combo: [],
+       pending_index: nil,
        # waypoints he marked with his own hands — never overwritten by the
        # inference
        hand_marked: []
@@ -167,7 +171,18 @@ defmodule PokexWeb.CavebotLive do
 
   defp stop_middle_watch(socket) do
     if socket.assigns.middle_timer, do: Process.cancel_timer(socket.assigns.middle_timer)
+    disarm_key_watch()
     assign(socket, middle_timer: nil, middle_count: nil)
+  end
+
+  # The helper polls the keys HE presses inside its own loop, and it has no way
+  # to know the recording ended: without this it would keep reading ten key
+  # states every 8ms forever, competing with the game he is playing. An empty
+  # watch list is the off switch.
+  defp disarm_key_watch do
+    Pokex.Rig.impl().key_watch([])
+  catch
+    :exit, _no_rig -> :ok
   end
 
   # What his hands did since the last look. Nothing here is a command: it is
@@ -185,45 +200,78 @@ defmodule PokexWeb.CavebotLive do
 
   defp apply_hands(socket, events) do
     {hands, reading} = HandsRead.read(socket.assigns.hands, events)
-    socket = assign(socket, hands: hands)
-    route = socket.assigns.active_route
-    index = length(route.waypoints) - 1
-
-    if index >= 0 do
-      timings =
-        [fight_ms: reading.fight_ms, gather_ms: reading.gather_ms]
-        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-        |> then(
-          &if reading.combo == [], do: &1, else: [{:combo, combo_at(route, index, reading)} | &1]
-        )
-
-      write_timings(socket, route, index, timings, reading)
-    else
-      socket
-    end
-  end
-
-  # The combo GROWS across drains: he presses 4, then 1, then 3, and each
-  # drain sees only its own slice.
-  defp combo_at(route, index, reading) do
-    existing = Enum.at(route.waypoints, index)[:combo] || []
-    existing ++ reading.combo
-  end
-
-  defp write_timings(socket, _route, _index, [], _reading), do: socket
-
-  defp write_timings(socket, route, index, timings, reading) do
-    updated = Route.set_timing(route, index, timings)
-    :ok = Store.add(updated)
+    index = length(socket.assigns.active_route.waypoints) - 1
 
     socket
+    |> assign(hands: hands)
+    |> flush_if_moved_on(index)
+    |> buffer_combo(index, reading.combo)
+    |> settle(index, reading)
+  end
+
+  # The combo GROWS across drains — he presses 4, then 1, then 3, and each look
+  # sees only its own slice — so it is collected in MEMORY. Writing it per
+  # drain meant `Store.add` reading, decoding, encoding and rewriting the whole
+  # routes file eight times a second, in the middle of a fight.
+  defp buffer_combo(socket, _index, []), do: socket
+
+  defp buffer_combo(socket, index, keys) do
+    assign(socket,
+      pending_index: index,
+      pending_combo: socket.assigns.pending_combo ++ keys
+    )
+  end
+
+  # He walked on: whatever he was pressing belongs to the waypoint he pressed
+  # it at, not to the one he reached afterwards.
+  defp flush_if_moved_on(%{assigns: %{pending_index: nil}} = socket, _index), do: socket
+
+  defp flush_if_moved_on(%{assigns: %{pending_index: index}} = socket, index), do: socket
+
+  defp flush_if_moved_on(socket, _index), do: flush_combo(socket)
+
+  # A closed fight (his shift+3) or a measured huddle is a CONCLUSION — that
+  # is when the disk hears about it, not every 120ms.
+  defp settle(socket, _index, %{fight_ms: nil, gather_ms: nil}), do: socket
+
+  defp settle(socket, index, reading) do
+    timings =
+      [fight_ms: reading.fight_ms, gather_ms: reading.gather_ms]
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+
+    socket
+    |> write_timings(index, timings)
+    |> flush_combo()
     |> then(
       &if reading.fight_ms,
         do: assign(&1, notice: fight_note(reading), notice_kind: :ok),
         else: &1
     )
-    |> reload_routes(updated.name)
   end
+
+  # Called when he moves on, when the fight closes, and when he stops
+  # recording: a combo he pressed and never closed with shift+3 is still what
+  # he pressed.
+  defp flush_combo(%{assigns: %{pending_combo: []}} = socket),
+    do: assign(socket, pending_index: nil)
+
+  defp flush_combo(%{assigns: %{pending_index: index, pending_combo: combo}} = socket) do
+    existing = Enum.at(socket.assigns.active_route.waypoints, index)[:combo] || []
+
+    socket
+    |> write_timings(index, combo: existing ++ combo)
+    |> assign(pending_combo: [], pending_index: nil)
+  end
+
+  defp write_timings(socket, _index, []), do: socket
+
+  defp write_timings(socket, index, timings) when is_integer(index) and index >= 0 do
+    updated = Route.set_timing(socket.assigns.active_route, index, timings)
+    :ok = Store.add(updated)
+    reload_routes(socket, updated.name)
+  end
+
+  defp write_timings(socket, _index, _timings), do: socket
 
   defp fight_note(%{fight_ms: ms, combo: combo}) do
     base = "⚔️ luta de #{round(ms / 1000)}s medida aqui"
@@ -437,6 +485,7 @@ defmodule PokexWeb.CavebotLive do
 
         {:noreply,
          socket
+         |> flush_combo()
          |> stop_middle_watch()
          |> assign(
            recording?: false,

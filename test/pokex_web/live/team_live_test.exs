@@ -145,4 +145,97 @@ defmodule PokexWeb.TeamLiveTest do
     assert html =~ "ordem dos atalhos C+N muda"
     refute html =~ "slot-form-"
   end
+
+  # A combo written as "aperta 4, depois 1, depois 3 e 5" only ever works for
+  # the pokémon whose bar it was written against. Here each pokémon says what
+  # ITS keys are for, so one written plan can drive all of them.
+  describe "what each skill is for" do
+    defp add!(view, name, where \\ "team") do
+      view |> form("#team-add-form", %{"member" => name, "where" => where}) |> render_submit()
+    end
+
+    @tag :tmp_dir
+    test "the editor opens on ONE pokémon at a time", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      add!(view, "Venusaur")
+
+      refute has_element?(view, "#skills-form-Charizard")
+
+      view |> element("#skills-toggle-Charizard") |> render_click()
+      assert has_element?(view, "#skills-form-Charizard")
+      refute has_element?(view, "#skills-form-Venusaur")
+
+      view |> element("#skills-toggle-Charizard") |> render_click()
+      refute has_element?(view, "#skills-form-Charizard")
+    end
+
+    @tag :tmp_dir
+    test "a job saves, shows in the summary, and MOVES when reassigned", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      view |> element("#skills-toggle-Charizard") |> render_click()
+
+      # the form reports EVERY select on every change — the shape a browser
+      # actually sends, which the first cut of this editor could not have read
+      form = "#skills-form-Charizard"
+
+      view
+      |> form(form)
+      |> render_change(%{"skill" => %{"3" => "aoe", "4" => "heal", "5" => "aoe"}})
+
+      assert Team.skills("Charizard") == %{"3" => :aoe, "5" => :aoe, "4" => :heal}
+      assert render(view) =~ "cura 4 · área 3+5"
+
+      # one job per key: choosing another MOVES it
+      view
+      |> form(form)
+      |> render_change(%{"skill" => %{"3" => "crowd", "4" => "heal", "5" => "aoe"}})
+
+      assert Team.skills("Charizard") == %{"3" => :crowd, "5" => :aoe, "4" => :heal}
+
+      # and "—" takes it away
+      view
+      |> form(form)
+      |> render_change(%{"skill" => %{"3" => "none", "4" => "heal", "5" => "aoe"}})
+
+      assert Team.skills("Charizard") == %{"5" => :aoe, "4" => :heal}
+    end
+
+    # The bug the first cut had: six selects sharing one name and the key
+    # riding in phx-value-*, which a FORM event never carries. Submitting the
+    # form as rendered has to save — that is the whole contract.
+    @tag :tmp_dir
+    test "the form as RENDERED saves, without params invented by the test", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      view |> element("#skills-toggle-Charizard") |> render_click()
+
+      html = view |> element("#skills-form-Charizard") |> render()
+      assert html =~ ~s(name="skill[1]")
+      assert html =~ ~s(name="skill[6]")
+      refute html =~ ~s(name="category")
+
+      # every select answers on its own name, so a change to ONE of them still
+      # reports the other five and nothing is lost
+      view
+      |> form("#skills-form-Charizard", %{"skill" => %{"2" => "buffs"}})
+      |> render_change()
+
+      assert Team.skills("Charizard") == %{"2" => :buffs}
+    end
+
+    @tag :tmp_dir
+    test "a pokémon in the BANK is configured the same way", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Venusaur", "bank")
+      view |> element("#skills-toggle-Venusaur") |> render_click()
+
+      view
+      |> form("#skills-form-Venusaur")
+      |> render_change(%{"skill" => %{"1" => "crowd"}})
+
+      assert Team.skills("Venusaur") == %{"1" => :crowd}
+    end
+  end
 end

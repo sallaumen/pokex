@@ -2,6 +2,7 @@ defmodule Pokex.Pokedex.TeamTest do
   # async: false — scopes the global :home_dir/:pokedex_path env per test
   use ExUnit.Case, async: false
 
+  alias Pokex.Pokedex.SkillProfile
   alias Pokex.Pokedex.Team
 
   @dataset %{
@@ -86,8 +87,8 @@ defmodule Pokex.Pokedex.TeamTest do
     )
 
     assert Team.members() == [
-             %{name: "Seadra", level: nil, slot: nil},
-             %{name: "Venusaur", level: nil, slot: nil}
+             %{name: "Seadra", level: nil, slot: nil, skills: %{}},
+             %{name: "Venusaur", level: nil, slot: nil, skills: %{}}
            ]
 
     assert Team.bank() == []
@@ -138,5 +139,51 @@ defmodule Pokex.Pokedex.TeamTest do
 
     Pokex.Settings.put(:active_character, "")
     assert Team.member_names() == ["Venusaur"]
+  end
+
+  # A strategy names JOBS ("use the area damage"), and each pokémon answers
+  # with its own keys — so the jobs have to survive the disk, per character,
+  # beside the level and the slot that were already there.
+  describe "what each skill is for" do
+    @tag :tmp_dir
+    test "a job round-trips, and moving to the bank keeps it" do
+      {:ok, _} = Team.add("Venusaur")
+
+      Team.set_skills("Venusaur", %{"4" => :heal, "3" => :aoe, "5" => :aoe})
+
+      assert SkillProfile.keys(Team.skills("Venusaur"), :aoe) == ["3", "5"]
+      assert SkillProfile.keys(Team.skills("Venusaur"), :heal) == ["4"]
+
+      Team.move("Venusaur", :bank)
+      assert SkillProfile.keys(Team.skills("Venusaur"), :aoe) == ["3", "5"]
+    end
+
+    @tag :tmp_dir
+    test "the level and the slot survive a skill edit, and vice-versa" do
+      {:ok, _} = Team.add("Venusaur")
+      Team.set_level("Venusaur", 87)
+      Team.set_skills("Venusaur", %{"1" => :crowd})
+
+      assert [%{name: "Venusaur", level: 87, skills: %{"1" => :crowd}}] = Team.members()
+    end
+
+    @tag :tmp_dir
+    test "a pokémon nobody has answers empty instead of raising" do
+      assert Team.skills("Ninguém") == %{}
+      assert Team.set_skills("Ninguém", %{"1" => :crowd})
+    end
+
+    @tag :tmp_dir
+    test "a hand-edited file with a bogus job loads as no job, never a new atom" do
+      File.write!(
+        Path.join(Pokex.Home.dir(), "team.json"),
+        JSON.encode!(%{
+          members: [%{"name" => "Venusaur", "skills" => %{"3" => "aoe", "9" => "banana_xyz"}}]
+        })
+      )
+
+      assert Team.skills("Venusaur") == %{"3" => :aoe}
+      assert_raise ArgumentError, fn -> String.to_existing_atom("banana_xyz") end
+    end
   end
 end

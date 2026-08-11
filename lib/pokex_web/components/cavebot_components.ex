@@ -108,9 +108,24 @@ defmodule PokexWeb.CavebotComponents do
           stroke={if leg.luring?, do: "var(--color-pk-info)", else: "var(--color-pk-ok-line)"}
           stroke-width={leg_width(leg)}
           stroke-linecap="round"
-          stroke-dasharray={leg.closing? && "4 4"}
+          stroke-dasharray={leg_dash(leg)}
           vector-effect="non-scaling-stroke"
         />
+
+        <%!-- A leg that CLIMBS: on a flat drawing, two floors sit on top of each
+             other, so the one thing that must be written is which floor this
+             leg lands on. --%>
+        <text
+          :for={leg <- Enum.filter(@legs, & &1.climb_to)}
+          x={leg.arrow.x}
+          y={leg.arrow.y - @view.unit * 0.9}
+          text-anchor="middle"
+          fill="var(--color-pk-text-2)"
+          font-size={@view.unit * 1.4}
+          class="pointer-events-none font-mono"
+        >
+          ⇅ {leg.climb_to}
+        </text>
 
         <%!-- Which WAY the hunt runs — the one thing coordinates never say. --%>
         <polygon
@@ -202,6 +217,12 @@ defmodule PokexWeb.CavebotComponents do
   defp leg_width(%{closing?: true}), do: "1.5"
   defp leg_width(_plain), do: "2"
 
+  # A climb is not a walk: the two ends sit on top of each other on a flat
+  # drawing, and a solid line between them would read as a corridor.
+  defp leg_dash(%{climb_to: floor}) when is_integer(floor), do: "1 2"
+  defp leg_dash(%{closing?: true}), do: "4 4"
+  defp leg_dash(_plain), do: nil
+
   defp dot_fill(%{action: :walk}, 0), do: "var(--color-pk-ok-dim)"
   defp dot_fill(%{action: :walk}, _index), do: "var(--color-pk-surface)"
   defp dot_fill(_marked, _index), do: "var(--color-pk-info-dim)"
@@ -210,9 +231,9 @@ defmodule PokexWeb.CavebotComponents do
   defp dot_stroke(%{action: :walk}, _selected), do: "var(--color-pk-ok)"
   defp dot_stroke(_marked, _selected), do: "var(--color-pk-info)"
 
-  defp job_suffix(%{action: :lure_start}), do: " — mobar daqui"
-  defp job_suffix(%{action: :lure_end}), do: " — mobar até aqui"
-  defp job_suffix(_walk), do: ""
+  defp job_suffix(%{action: :lure_start} = wp), do: " (andar #{wp.z}) — mobar daqui"
+  defp job_suffix(%{action: :lure_end} = wp), do: " (andar #{wp.z}) — mobar até aqui"
+  defp job_suffix(wp), do: " (andar #{wp.z})"
 
   # Every leg the hunt walks, INCLUDING the one that closes the loop: they are
   # drawn one by one because they are not all alike (the closing leg is dashed,
@@ -231,6 +252,7 @@ defmodule PokexWeb.CavebotComponents do
         to: to,
         arrow: CavebotMap.arrow(from, to),
         luring?: Route.lure_leg?(waypoints, index),
+        climb_to: Route.floor_change(waypoints, index),
         closing?: index == count - 1
       }
     end)
@@ -247,7 +269,10 @@ defmodule PokexWeb.CavebotComponents do
     base =
       "Mapa da rota: #{length(waypoints)} waypoints, #{CavebotMap.total_tiles(waypoints)} tiles"
 
+    floors = waypoints |> Enum.map(& &1.z) |> Enum.uniq() |> Enum.sort()
+
     base
+    |> then(&if length(floors) > 1, do: &1 <> ", andares #{Enum.join(floors, " e ")}", else: &1)
     |> then(&if lured > 0, do: &1 <> ", #{lured} perna(s) em modo mob", else: &1)
     |> then(&if pos, do: &1 <> ", personagem em #{elem(pos, 0)}, #{elem(pos, 1)}", else: &1)
   end

@@ -46,21 +46,25 @@ defmodule Pokex.Bots.Cavebot.Route do
   @doc """
   Appends a waypoint to the end of the route.
 
-  The first waypoint's `z` fixes the route's floor; waypoints on another floor
-  are refused with `{:error, :floor_mismatch}`.
+  A waypoint on ANOTHER floor is appended like any other: a hunt with stairs is
+  an ordinary hunt (2026-08-10 — refusing it stopped the first real route Lucas
+  tried to record). The route's `z` keeps meaning "the floor it starts on",
+  which is what the screen labels it with; `floors/1` is the whole set.
+
+  The safety this used to provide did not disappear, it moved to where it
+  belongs: the Logic blocks on a floor the route does NOT know, which is the
+  hole-and-teleport case it was really about.
   """
-  @spec append(t, {integer, integer, integer}) :: {:ok, t} | {:error, :floor_mismatch}
-  def append(%__MODULE__{z: nil} = route, {x, y, z})
+  @spec append(t, {integer, integer, integer}) :: {:ok, t}
+  def append(%__MODULE__{} = route, {x, y, z})
       when is_integer(x) and is_integer(y) and is_integer(z) do
-    {:ok, %{route | z: z, waypoints: route.waypoints ++ [%{x: x, y: y, z: z, action: :walk}]}}
+    {:ok,
+     %{
+       route
+       | z: route.z || z,
+         waypoints: route.waypoints ++ [%{x: x, y: y, z: z, action: :walk}]
+     }}
   end
-
-  def append(%__MODULE__{z: z} = route, {x, y, z})
-      when is_integer(x) and is_integer(y) and is_integer(z) do
-    {:ok, %{route | waypoints: route.waypoints ++ [%{x: x, y: y, z: z, action: :walk}]}}
-  end
-
-  def append(%__MODULE__{}, {_x, _y, _z}), do: {:error, :floor_mismatch}
 
   @doc """
   Moves the waypoint at `index` one place `:up` or `:down`.
@@ -177,16 +181,39 @@ defmodule Pokex.Bots.Cavebot.Route do
   def clear(%__MODULE__{} = route), do: %{route | waypoints: [], z: nil}
 
   @doc """
-  Validates the route: at least one waypoint, all on the same floor.
+  Every floor the route visits, ascending — what the Logic treats as EXPECTED.
   """
-  @spec validate(t) :: :ok | {:error, :empty} | {:error, :floor_mismatch}
-  def validate(%__MODULE__{waypoints: []}), do: {:error, :empty}
+  @spec floors(t) :: [integer]
+  def floors(%__MODULE__{waypoints: waypoints}),
+    do: waypoints |> Enum.map(& &1.z) |> Enum.uniq() |> Enum.sort()
 
-  def validate(%__MODULE__{waypoints: [%{z: z} | _] = waypoints}) do
-    if Enum.all?(waypoints, &(&1.z == z)) do
-      :ok
+  @doc """
+  The floor the leg LEAVING `index` arrives on, or `nil` when it stays put.
+
+  Same leg convention as `lure_leg?/2`, closing leg included: a loop that goes
+  up has to come back down, and that descent is a real leg of the walk.
+  """
+  @spec floor_change([waypoint], non_neg_integer) :: integer | nil
+  def floor_change(waypoints, index) when is_list(waypoints) and is_integer(index) do
+    count = length(waypoints)
+
+    with true <- index in 0..(count - 1)//1,
+         %{z: from} <- Enum.at(waypoints, index),
+         %{z: to} when to != from <- Enum.at(waypoints, rem(index + 1, count)) do
+      to
     else
-      {:error, :floor_mismatch}
+      _same_floor_or_out_of_range -> nil
     end
   end
+
+  @doc """
+  Validates the route: at least one waypoint.
+
+  Floors are no longer part of this — see `append/2`. The check that matters
+  moved to the Logic, which knows something a route cannot: where the
+  character actually IS.
+  """
+  @spec validate(t) :: :ok | {:error, :empty}
+  def validate(%__MODULE__{waypoints: []}), do: {:error, :empty}
+  def validate(%__MODULE__{}), do: :ok
 end

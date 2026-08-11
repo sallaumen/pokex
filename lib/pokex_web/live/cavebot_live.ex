@@ -9,9 +9,9 @@ defmodule PokexWeb.CavebotLive do
   The page is a `:minimap` consumer while it lives — `Perception.attach/1` in
   `mount` is what makes the feed capture at all (feeds are demand-driven), so
   without it the recorded position would be nil or stale. Persistence goes
-  through `Cavebot.Store` (same name = replace), and the floor invariant lives
-  in `Route.append/2` — this page only translates its `:floor_mismatch` into
-  words.
+  through `Cavebot.Store` (same name = replace). A route may climb: waypoints
+  carry their own floor, and stairs are recorded like any other pair of
+  corners.
   """
   use PokexWeb, :live_view
 
@@ -142,26 +142,23 @@ defmodule PokexWeb.CavebotLive do
     if far_enough?, do: record_waypoint(socket, route, pos), else: socket
   end
 
+  # Climbing is recorded like walking: taking the stairs mid-recording used to
+  # STOP it ("mudou de andar — parei a gravação", Lucas, 2026-08-10, on the
+  # first two-floor hunt he tried). The waypoint carries its own floor, so the
+  # stairs simply become two waypoints — one at each end.
   defp record_waypoint(socket, route, pos) do
-    case Route.append(route, pos) do
-      {:ok, updated} ->
-        :ok = Store.add(updated)
+    {:ok, updated} = Route.append(route, pos)
+    :ok = Store.add(updated)
 
-        socket
-        |> assign(
-          notice: "gravando — #{length(updated.waypoints)} waypoints",
-          notice_kind: :ok
-        )
-        |> reload_routes(updated.name)
+    socket
+    |> assign(notice: recording_notice(updated), notice_kind: :ok)
+    |> reload_routes(updated.name)
+  end
 
-      # floor changed mid-recording: STOP, rather than swallowing waypoints
-      # from another floor (a route is single-floor)
-      {:error, :floor_mismatch} ->
-        assign(socket,
-          recording?: false,
-          notice: "mudou de andar — parei a gravação (a rota é do andar #{route.z})",
-          notice_kind: :warn
-        )
+  defp recording_notice(route) do
+    case Route.floors(route) do
+      [_one] -> "gravando — #{length(route.waypoints)} waypoints"
+      many -> "gravando — #{length(route.waypoints)} waypoints, andares #{Enum.join(many, " e ")}"
     end
   end
 
@@ -185,29 +182,18 @@ defmodule PokexWeb.CavebotLive do
            pos: nil
          )}
 
-      {route, pos} ->
-        case Route.append(route, pos) do
-          {:ok, updated} ->
-            :ok = Store.add(updated)
+      {_route, {_x, _y, z} = pos} ->
+        {:ok, updated} = Route.append(socket.assigns.active_route, pos)
+        :ok = Store.add(updated)
 
-            {:noreply,
-             socket
-             |> assign(
-               notice: "waypoint #{length(updated.waypoints)} marcado (andar #{updated.z})",
-               notice_kind: :ok,
-               pos: pos
-             )
-             |> reload_routes(updated.name)}
-
-          {:error, :floor_mismatch} ->
-            {:noreply,
-             assign(socket,
-               notice:
-                 "essa posição é de outro andar — a rota \"#{route.name}\" é do andar #{route.z}",
-               notice_kind: :warn,
-               pos: pos
-             )}
-        end
+        {:noreply,
+         socket
+         |> assign(
+           notice: "waypoint #{length(updated.waypoints)} marcado (andar #{z})",
+           notice_kind: :ok,
+           pos: pos
+         )
+         |> reload_routes(updated.name)}
     end
   end
 
@@ -407,36 +393,25 @@ defmodule PokexWeb.CavebotLive do
   defp photo(_no_route, _kind), do: :ok
 
   defp insert_here(route, index, pos) do
-    case Route.insert_at(route, index, pos) do
-      {:ok, updated} -> {updated, "waypoint inserido na posição #{index + 1}"}
-      {:error, :floor_mismatch} -> {route, :floor_mismatch}
-    end
+    {:ok, updated} = Route.insert_at(route, index, pos)
+    {updated, "waypoint inserido na posição #{index + 1}"}
   end
 
-  # Every edit is the same three steps — take the active route, write it, show
-  # what happened — and the floor invariant answers in words, once.
+  # Every edit is the same three steps: take the active route, write it, show
+  # what happened.
   defp with_route(socket, edit) do
     case socket.assigns.active_route do
       nil ->
         {:noreply, socket}
 
       %Route{} = route ->
-        case edit.(route) do
-          {_route, :floor_mismatch} ->
-            {:noreply,
-             assign(socket,
-               notice: "essa posição é de outro andar — a rota é do andar #{route.z}",
-               notice_kind: :warn
-             )}
+        {updated, notice} = edit.(route)
+        :ok = Store.add(updated)
 
-          {updated, notice} ->
-            :ok = Store.add(updated)
-
-            {:noreply,
-             socket
-             |> assign(notice: notice, notice_kind: :ok)
-             |> reload_routes(updated.name)}
-        end
+        {:noreply,
+         socket
+         |> assign(notice: notice, notice_kind: :ok)
+         |> reload_routes(updated.name)}
     end
   end
 
@@ -485,6 +460,27 @@ defmodule PokexWeb.CavebotLive do
 
   defp leg_label(0), do: "· fecha o ciclo:"
   defp leg_label(_index), do: "·"
+
+  # "⇅ andar 6" on the waypoint the hunt ARRIVES at from another floor — the
+  # stairs, in the list, where they can be reordered and deleted like anything
+  # else.
+  defp climb_label(waypoints, index) do
+    previous = Integer.mod(index - 1, max(length(waypoints), 1))
+
+    case Route.floor_change(waypoints, previous) do
+      nil -> nil
+      floor -> "⇅ andar #{floor}"
+    end
+  end
+
+  # A route may climb: say how many floors it touches, because "andar 7" on a
+  # two-floor hunt is a lie the drawing cannot correct on its own.
+  defp floors_label(%Route{} = route) do
+    case Route.floors(route) do
+      [one] -> "andar #{one}"
+      many -> "andares #{Enum.join(many, " e ")}"
+    end
+  end
 
   # The jobs a waypoint can carry, in the order the editor offers them. The
   # atoms are the domain's (`Route.action`); only the labels are Portuguese.
@@ -640,7 +636,7 @@ defmodule PokexWeb.CavebotLive do
                   :if={@active_route && @active_route.z}
                   class="font-mono text-pk-meta text-pk-text-2"
                 >
-                  andar {@active_route.z}
+                  {floors_label(@active_route)}
                 </span>
               </div>
 
@@ -908,6 +904,15 @@ defmodule PokexWeb.CavebotLive do
                         class="ml-1 rounded border border-pk-info-line bg-pk-info-dim px-1.5 py-0.5 text-pk-meta text-pk-info"
                       >
                         {action_label(wp.action)}
+                      </span>
+                      <%!-- The floor is written only where it CHANGES: on a
+                            one-floor route it would be noise on every line, and
+                            on a route with stairs it is the whole story. --%>
+                      <span
+                        :if={climb_label(@active_route.waypoints, index)}
+                        class="ml-1 rounded border border-pk-line-strong px-1.5 py-0.5 text-pk-meta text-pk-text-2"
+                      >
+                        {climb_label(@active_route.waypoints, index)}
                       </span>
                       <span :if={leg_tiles(@active_route.waypoints, index)} class="text-pk-text-3">
                         {leg_label(index)} {leg_tiles(@active_route.waypoints, index)} tiles

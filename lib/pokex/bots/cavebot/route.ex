@@ -1,10 +1,15 @@
 defmodule Pokex.Bots.Cavebot.Route do
   @moduledoc """
-  Cavebot hunt route: an ordered waypoint sequence on a single floor.
+  Cavebot hunt route: an ordered waypoint sequence, walked as a loop.
 
-  Pure struct — no process, screen, Settings or IO. Central invariant is the
-  single floor (`z`): the first waypoint fixes the route's floor and all others
-  must share the same `z`.
+  Pure struct — no process, screen, Settings or IO. A waypoint is a place
+  (`x`, `y`, `z`) plus two independent things it can carry: a JOB
+  (`t:action/0` — the mob-stretch brackets) and a list of STOPS
+  (`t:stop/0` — what the hunt does there once the fighting ends).
+
+  A route may climb: `z` is the floor it STARTS on, `floors/1` is every floor
+  it visits, and it is the Logic — not this struct — that refuses a floor
+  nobody marked.
   """
 
   @enforce_keys [:name]
@@ -25,12 +30,29 @@ defmodule Pokex.Bots.Cavebot.Route do
 
   @actions [:walk, :lure_start, :lure_end]
 
+  @typedoc """
+  What the hunt DOES at a waypoint once it gets there and the fighting stops.
+
+  `:cooldown_revive` is the recall/max-revive/release combo (`Q`, `Shift+Q` on
+  the portrait, `Q`) — reviving resets every skill cooldown, which buys the
+  next fight a full bar instead of a wait. `:sweep` throws a ball at every
+  tile around, `:wait` simply stands still long enough for cooldowns to come
+  back on their own.
+
+  They run in THIS order, whichever are marked: the revive is instant and
+  should reset the bar before anything else spends time, the sweep spends that
+  time usefully, and the wait is the last resort that only costs seconds.
+  """
+  @type stop :: :cooldown_revive | :sweep | :wait
+
+  @stops [:cooldown_revive, :sweep, :wait]
+
   @type waypoint :: %{
           x: integer,
           y: integer,
           z: integer,
           action: action,
-          sweep?: boolean
+          stops: [stop]
         }
 
   @type t :: %__MODULE__{
@@ -68,7 +90,7 @@ defmodule Pokex.Bots.Cavebot.Route do
      %{
        route
        | z: route.z || z,
-         waypoints: route.waypoints ++ [%{x: x, y: y, z: z, action: :walk, sweep?: false}]
+         waypoints: route.waypoints ++ [%{x: x, y: y, z: z, action: :walk, stops: []}]
      }}
   end
 
@@ -101,11 +123,8 @@ defmodule Pokex.Bots.Cavebot.Route do
   @doc """
   Inserts a waypoint AT `index`, pushing the rest down — the fix for "faltou um
   canto no meio", which appending could never give.
-
-  Same floor invariant as `append/2`.
   """
-  @spec insert_at(t, non_neg_integer, {integer, integer, integer}) ::
-          {:ok, t} | {:error, :floor_mismatch}
+  @spec insert_at(t, non_neg_integer, {integer, integer, integer}) :: {:ok, t}
   def insert_at(%__MODULE__{} = route, index, {x, y, z} = pos)
       when is_integer(index) and is_integer(x) and is_integer(y) and is_integer(z) do
     with {:ok, appended} <- append(route, pos) do
@@ -134,27 +153,43 @@ defmodule Pokex.Bots.Cavebot.Route do
 
   def set_action(%__MODULE__{} = route, _index, _unknown), do: route
 
-  @doc """
-  Marks (or unmarks) the waypoint at `index` as one to SWEEP at.
+  @doc "Every stop action there is, in the order they run."
+  @spec stops() :: [stop]
+  def stops, do: @stops
 
-  Sweeping is a second axis, not another job: the waypoint where a gathered
-  pile dies is exactly the one worth sweeping for corpses, and it is already
-  carrying "até aqui". Forcing a choice between the two would make the most
+  @doc """
+  Turns one stop action on or off at `index`.
+
+  Stops are a SECOND axis, not more jobs: the waypoint where a gathered pile
+  dies is exactly the one worth sweeping and reviving at, and it is already
+  carrying "até aqui". Making them compete for one slot would make the most
   useful combination the impossible one.
+
+  An index nobody has, or an action nobody knows, leaves the route untouched.
   """
-  @spec set_sweep(t, non_neg_integer, boolean) :: t
-  def set_sweep(%__MODULE__{waypoints: waypoints} = route, index, sweep?)
-      when is_integer(index) and is_boolean(sweep?) do
+  @spec set_stop(t, non_neg_integer, stop, boolean) :: t
+  def set_stop(%__MODULE__{waypoints: waypoints} = route, index, stop, on?)
+      when is_integer(index) and stop in @stops and is_boolean(on?) do
     case Enum.at(waypoints, index) do
-      nil -> route
-      wp -> %{route | waypoints: List.replace_at(waypoints, index, %{wp | sweep?: sweep?})}
+      nil ->
+        route
+
+      wp ->
+        kept = if on?, do: [stop | wp.stops], else: wp.stops -- [stop]
+        wp = %{wp | stops: Enum.filter(@stops, &(&1 in kept))}
+        %{route | waypoints: List.replace_at(waypoints, index, wp)}
     end
   end
 
-  @doc "Does the waypoint at `index` ask for a sweep? False for an index nobody has."
-  @spec sweep_at?([waypoint], non_neg_integer) :: boolean
-  def sweep_at?(waypoints, index) when is_list(waypoints) and is_integer(index) do
-    match?(%{sweep?: true}, Enum.at(waypoints, index))
+  def set_stop(%__MODULE__{} = route, _index, _unknown, _on?), do: route
+
+  @doc "What the hunt does at the waypoint `index` — `[]` for an index nobody has."
+  @spec stops_at([waypoint], non_neg_integer) :: [stop]
+  def stops_at(waypoints, index) when is_list(waypoints) and is_integer(index) do
+    case Enum.at(waypoints, index) do
+      %{stops: stops} -> stops
+      _absent -> []
+    end
   end
 
   @doc """

@@ -49,6 +49,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
   alias Pokex.Bots.Cavebot.{Logic, Route, Store}
   alias Pokex.Bots.Combat
   alias Pokex.Bots.InputGate
+  alias Pokex.Bots.PlayerSupport
+  alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.Settings
@@ -72,7 +74,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     fight_timeout_ms: :cavebot_fight_timeout_ms,
     post_kill_dwell_ms: :cavebot_post_kill_dwell_ms,
     capture_wait_ms: :cavebot_capture_wait_ms,
-    sweep_grace_ms: :cavebot_sweep_grace_ms
+    sweep_grace_ms: :cavebot_sweep_grace_ms,
+    stop_wait_ms: :cavebot_stop_wait_ms
   }
 
   def topic, do: @topic
@@ -396,6 +399,26 @@ defmodule Pokex.Bots.Cavebot.Worker do
     release_walk(state)
   end
 
+  # "Cooldown Ressurect" (Lucas, 2026-08-10): recall, max-revive on the
+  # portrait, release. Reviving resets every skill cooldown, so the next fight
+  # starts with a full bar instead of a wait. The sequence is PlayerSupport's,
+  # calibrated and proven there — this only borrows it, at :high so it lands
+  # ahead of ordinary walking.
+  def translate(state, :cooldown_revive) do
+    state = release_walk(state)
+
+    case revive_combo() do
+      nil ->
+        log(:macro, "⚡ não resetei o cooldown: falta calibrar a foto do pokémon")
+        state
+
+      actions ->
+        state.body.perform(actions, :high)
+        log(:macro, "⚡ resetando os cooldowns no revive")
+        state
+    end
+  end
+
   # Starting combat CAN fail preflight (no calibration, e.g.). On failure we
   # cannot keep walking blind into enemies nobody will kill — the Logic would
   # believe combat is up. Better to block via the same brake, immediately, with
@@ -490,6 +513,24 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # y grows SOUTH.
   # WHEN the queue last changed, not just how big it is: a queue that shrinks is
   # the capture working, and one frozen at 2 is work that will never happen.
+  # nil when the portrait or the neutral point was never marked: a missing
+  # calibration must cost the hunt a log line, never a stuck stop.
+  defp revive_combo do
+    with {:ok, calib} <- Calibration.load(),
+         photo when is_tuple(photo) <- Calibration.pokemon_photo_point(calib),
+         neutral when is_tuple(neutral) <- calib.neutral_point || calib.player_point do
+      PlayerSupport.Logic.combo(%{
+        rescue_key: Settings.get(:rescue_key),
+        max_revive_key: Settings.get(:max_revive_key),
+        photo_point: photo,
+        neutral_point: neutral,
+        step_ms: Settings.get(:rescue_step_ms)
+      })
+    else
+      _uncalibrated -> nil
+    end
+  end
+
   defp note_capture(state, pending) do
     if pending == state.capture_pending,
       do: state,

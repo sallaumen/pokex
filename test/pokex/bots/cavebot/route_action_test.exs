@@ -100,38 +100,60 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
   # (Lucas, 2026-08-10). Sweeping is a SECOND axis, not another job: the
   # waypoint where the gathered pile dies is exactly the one worth sweeping,
   # and it is already carrying "até aqui".
-  describe "sweeping at a waypoint" do
-    test "a recorded waypoint does not sweep" do
-      assert [%{sweep?: false} | _rest] = square().waypoints
+  describe "what the hunt does when it stops there" do
+    test "a recorded waypoint does nothing beyond arriving" do
+      assert [%{stops: []} | _rest] = square().waypoints
     end
 
-    test "set_sweep/3 flips it, and only on that waypoint" do
-      route = Route.set_sweep(square(), 2, true)
+    test "set_stop/4 turns one on, and only on that waypoint" do
+      route = Route.set_stop(square(), 2, :sweep, true)
 
-      assert Enum.map(route.waypoints, & &1.sweep?) == [false, false, true, false]
-
-      assert Route.set_sweep(route, 2, false).waypoints
-             |> Enum.map(& &1.sweep?)
-             |> Enum.all?(&(!&1))
+      assert Enum.map(route.waypoints, & &1.stops) == [[], [], [:sweep], []]
+      assert Route.set_stop(route, 2, :sweep, false).waypoints |> Enum.all?(&(&1.stops == []))
     end
 
-    test "an index nobody has changes nothing" do
+    # The order is the RUNNING order, not the clicking order: the revive is
+    # instant and resets the bar, the sweep spends time usefully, and the
+    # plain wait is the last resort.
+    test "stops are kept in the order they run, however they were marked" do
+      route =
+        square()
+        |> Route.set_stop(1, :wait, true)
+        |> Route.set_stop(1, :sweep, true)
+        |> Route.set_stop(1, :cooldown_revive, true)
+
+      assert Route.stops_at(route.waypoints, 1) == [:cooldown_revive, :sweep, :wait]
+    end
+
+    test "turning one on twice does not double it" do
+      route = square() |> Route.set_stop(1, :sweep, true) |> Route.set_stop(1, :sweep, true)
+
+      assert Route.stops_at(route.waypoints, 1) == [:sweep]
+    end
+
+    test "an index nobody has, or an action nobody knows, changes nothing" do
       route = square()
-      assert Route.set_sweep(route, 9, true) == route
+
+      assert Route.set_stop(route, 9, :sweep, true) == route
+      assert Route.set_stop(route, 1, :teleport, true) == route
     end
 
-    test "a waypoint can gather AND sweep — the two do not compete" do
-      route = square() |> Route.set_action(3, :lure_end) |> Route.set_sweep(3, true)
+    test "a waypoint can gather AND sweep AND revive — they do not compete" do
+      route =
+        square()
+        |> Route.set_action(3, :lure_end)
+        |> Route.set_stop(3, :sweep, true)
+        |> Route.set_stop(3, :cooldown_revive, true)
 
-      assert %{action: :lure_end, sweep?: true} = Enum.at(route.waypoints, 3)
+      assert %{action: :lure_end, stops: [:cooldown_revive, :sweep]} = Enum.at(route.waypoints, 3)
     end
 
-    test "sweep_at?/2 answers for the waypoint the hunt just reached" do
-      waypoints = Route.set_sweep(square(), 2, true).waypoints
+    test "stops_at/2 answers for the waypoint the hunt just reached" do
+      waypoints = Route.set_stop(square(), 2, :sweep, true).waypoints
 
-      assert Route.sweep_at?(waypoints, 2)
-      refute Route.sweep_at?(waypoints, 1)
-      refute Route.sweep_at?(waypoints, 99)
+      assert Route.stops_at(waypoints, 2) == [:sweep]
+      assert Route.stops_at(waypoints, 1) == []
+      assert Route.stops_at(waypoints, 99) == []
     end
   end
 

@@ -85,8 +85,18 @@ defmodule Pokex.Bots.Cavebot.Store do
       y: y,
       z: z,
       action: decode_action(map["action"]),
-      sweep?: map["sweep"] == true
+      stops: decode_stops(map)
     }
+
+  # Whitelisted, like the action. `"sweep" => true` is the shape the very first
+  # marked routes were written with, before stops became a list — it reads as
+  # `[:sweep]` forever.
+  defp decode_stops(%{"stops" => list}) when is_list(list) do
+    Enum.filter(Route.stops(), &(Atom.to_string(&1) in list))
+  end
+
+  defp decode_stops(%{"sweep" => true}), do: [:sweep]
+  defp decode_stops(_none), do: []
 
   # Whitelisted, never `String.to_atom/1`: the file is user-editable, and a
   # typo in it must not mint atoms. Anything unknown — including the missing
@@ -111,6 +121,6 @@ defmodule Pokex.Bots.Cavebot.Store do
       "y" => y,
       "z" => z,
       "action" => Atom.to_string(Map.get(waypoint, :action) || :walk),
-      "sweep" => Map.get(waypoint, :sweep?) == true
+      "stops" => Enum.map(Map.get(waypoint, :stops) || [], &Atom.to_string/1)
     }
 end

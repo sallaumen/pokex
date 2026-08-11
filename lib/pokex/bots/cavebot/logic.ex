@@ -44,8 +44,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # the route is ENTERED at the nearest waypoint, once per run
             homed?: false,
             skips: 0,
-            # one sweep per stop, not one per tick
-            swept?: false
+            # which of this stop's actions already ran — one each, not one per tick
+            stops_done: []
 
   @type state :: :walking | :fighting | :post_fight | :stuck | :fight_stalled | :blocked
 
@@ -56,6 +56,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | :halt_combat
           | {:nudge, integer, integer}
           | :sweep
+          | :cooldown_revive
           | {:block, atom}
 
   @type world :: %{
@@ -77,7 +78,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           post_kill_dwell_ms: non_neg_integer,
           blind_kick_ms: non_neg_integer,
           capture_wait_ms: non_neg_integer,
-          sweep_grace_ms: non_neg_integer
+          sweep_grace_ms: non_neg_integer,
+          stop_wait_ms: non_neg_integer
         }
 
   @type t :: %__MODULE__{
@@ -92,7 +94,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           last_enemies: non_neg_integer | nil,
           homed?: boolean,
           skips: non_neg_integer,
-          swept?: boolean
+          stops_done: [Route.stop()]
         }
 
   @doc """
@@ -467,27 +469,52 @@ defmodule Pokex.Bots.Cavebot.Logic do
     dwell_since = Map.get(logic.since, :dwell, now)
 
     cond do
-      sweep_due?(logic) -> ask_for_sweep(logic, now)
       capturing?(world, now, logic.config.capture_wait_ms) -> {logic, :none}
       sweeping?(logic, world, now) -> {logic, :none}
+      standing_by?(logic, now) -> {logic, :none}
+      next_stop(logic) -> run_stop(logic, next_stop(logic), now)
       true -> resume_after_dwell(logic, dwell_since, now)
     end
   end
 
-  # "depois que matar tudo, fazer aquela varredura de captura antes de andar"
-  # (Lucas, 2026-08-10). The waypoint the hunt last REACHED is the one that
-  # decides — the pile it gathered died right there — and the request goes out
-  # once per stop, never once per tick.
-  defp sweep_due?(%__MODULE__{swept?: true}), do: false
+  # What this waypoint asks for, minus what already ran, in the canonical
+  # order — see `Route.stop/0`. The waypoint that decides is the one the hunt
+  # last REACHED (the pile it gathered died right there), same convention as
+  # the mob stretch.
+  defp next_stop(%__MODULE__{route: %Route{waypoints: []}}), do: nil
 
-  defp sweep_due?(%__MODULE__{route: %Route{waypoints: waypoints}, wp_index: index})
-       when waypoints != [],
-       do: Route.sweep_at?(waypoints, Integer.mod(index - 1, length(waypoints)))
+  defp next_stop(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
+    wanted = Route.stops_at(waypoints, Integer.mod(logic.wp_index - 1, length(waypoints)))
 
-  defp sweep_due?(%__MODULE__{}), do: false
+    Enum.find(Route.stops(), &(&1 in wanted and &1 not in logic.stops_done))
+  end
 
-  defp ask_for_sweep(logic, now) do
-    {%{logic | swept?: true, since: Map.put(logic.since, :sweep, now)}, :sweep}
+  defp run_stop(logic, :sweep, now) do
+    {mark_done(logic, :sweep, :sweep, now), :sweep}
+  end
+
+  # Reviving resets every cooldown: the fastest way back to a full bar is to
+  # recall the pokémon and bring it back, not to stand still waiting.
+  defp run_stop(logic, :cooldown_revive, now) do
+    {mark_done(logic, :cooldown_revive, nil, now), :cooldown_revive}
+  end
+
+  defp run_stop(logic, :wait, now) do
+    {mark_done(logic, :wait, :stop_wait, now), :none}
+  end
+
+  defp mark_done(logic, stop, since_key, now) do
+    since = if since_key, do: Map.put(logic.since, since_key, now), else: logic.since
+    %{logic | stops_done: [stop | logic.stops_done], since: since}
+  end
+
+  # The plain wait: seconds standing still, which is what cooldowns need when
+  # there is no revive to short-circuit them.
+  defp standing_by?(logic, now) do
+    case Map.get(logic.since, :stop_wait) do
+      nil -> false
+      at -> now - at < logic.config.stop_wait_ms
+    end
   end
 
   # Waiting on the sweep follows the same rule as waiting on the capture: a
@@ -527,10 +554,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
     if now - dwell_since >= logic.config.post_kill_dwell_ms do
       since =
         logic.since
-        |> Map.drop([:dwell, :sweep])
+        |> Map.drop([:dwell, :sweep, :stop_wait])
         |> Map.put(:walk_progress, now)
 
-      {%{logic | state: :walking, since: since, last_pos: nil, swept?: false}, :none}
+      {%{logic | state: :walking, since: since, last_pos: nil, stops_done: []}, :none}
     else
       {logic, :none}
     end

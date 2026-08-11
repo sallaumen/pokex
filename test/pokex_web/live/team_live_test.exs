@@ -187,7 +187,7 @@ defmodule PokexWeb.TeamLiveTest do
       |> render_change(%{"skill" => %{"3" => "aoe", "4" => "heal", "5" => "aoe"}})
 
       assert Team.skills("Charizard") == %{"3" => :aoe, "5" => :aoe, "4" => :heal}
-      assert render(view) =~ "cura 4 · área 3+5"
+      assert view |> element("#skills-form-Charizard") |> render() =~ "3+5"
 
       # one job per key: choosing another MOVES it
       view
@@ -240,24 +240,65 @@ defmodule PokexWeb.TeamLiveTest do
       refute view |> element("#bank-list") |> render() =~ "nenhuma skill classificada"
     end
 
+    # "eu seleciono, mas o combo não é uma junção" (2026-08-11). His exact
+    # screenshot: 3 4 5 6 as area, 1 as aura, 2 as control — and the page
+    # answered "combo: 1 → 2 → 3 → 4 → 5 → 6", which is four different moments
+    # glued into one sequence.
     @tag :tmp_dir
-    test "the row reads the profile back as the COMBO he came looking for", %{conn: conn} do
+    test "the kill is area-then-target; the aura and the control stay OUT", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/time")
       add!(view, "Charizard")
       view |> element("#skills-toggle-Charizard") |> render_click()
 
       view
       |> form("#skills-form-Charizard")
-      |> render_change(%{"skill" => %{"4" => "aoe", "1" => "heal", "3" => "aoe"}})
+      |> render_change(%{
+        "skill" => %{
+          "1" => "buffs",
+          "2" => "crowd",
+          "3" => "aoe",
+          "4" => "aoe",
+          "5" => "aoe",
+          "6" => "aoe",
+          "7" => "single"
+        }
+      })
 
-      # in the editor, live, while he classifies
-      assert view |> element("#skills-form-Charizard") |> render() =~ "1 → 3 → 4"
+      editor = view |> element("#skills-form-Charizard") |> render()
+      assert editor =~ "3+4+5+6 → 🎯 7"
+      refute editor =~ "1 → 2 →"
 
-      # and on the collapsed row afterwards
+      # the jobs that are not the kill say WHEN they are, and the control says
+      # out loud why it is not in the combo
+      moments = view |> element("#skills-moments-Charizard") |> render()
+      assert moments =~ "na mobada, no meio do bolo"
+      assert moments =~ "reservada pro stun antes do revive"
+      assert moments =~ "não está lá pro revive"
+
+      # and the collapsed row leads with the kill, the rest dimmer behind it
       view |> element("#skills-toggle-Charizard") |> render_click()
       row = view |> element("#team-list") |> render()
-      assert row =~ "1 → 3 → 4"
+      assert row =~ "3+4+5+6 → 🎯 7"
       refute row =~ "nenhuma skill classificada"
+    end
+
+    # A pokémon whose keys are all reserved has nothing to kill with, and a
+    # silent empty combo is how that ships unnoticed.
+    @tag :tmp_dir
+    test "classifying ONLY control leaves the kill empty, and the page says so", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      view |> element("#skills-toggle-Charizard") |> render_click()
+
+      view
+      |> form("#skills-form-Charizard")
+      |> render_change(%{"skill" => %{"2" => "crowd", "8" => "heal"}})
+
+      assert view |> element("#skills-form-Charizard") |> render() =~
+               "classifica pelo menos uma como área"
+
+      view |> element("#skills-toggle-Charizard") |> render_click()
+      assert view |> element("#team-list") |> render() =~ "falta uma skill de área"
     end
 
     @tag :tmp_dir

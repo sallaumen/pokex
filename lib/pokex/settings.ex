@@ -460,6 +460,11 @@ defmodule Pokex.Settings do
     rescue_cooldown_ms: 60_000,
     # ms between the presses/moves of the combo so the game registers each.
     rescue_step_ms: 40,
+    # How long to wait for a skill-bar reading NEWER than the crowd-control
+    # press, before giving up on confirming it. The receipt is the cooldown:
+    # a skill that fired is no longer ready. Costs one feed cycle, and buys
+    # knowing whether it is safe to take the pokémon off the field.
+    rescue_confirm_ms: 900,
     # Auto-revive with a STUN combo (2026-07-30): hunting strong mobs, the
     # area-stun skills are reserved for the rescue moment — the chosen combo
     # (skill/wait steps only; see Combos.rescue_eligible?) becomes the PREFIX
@@ -948,6 +953,7 @@ defmodule Pokex.Settings do
     hold_max_ms: 200..30_000,
     cavebot_capture_wait_ms: 0..600_000,
     cavebot_gather_wait_ms: 0..60_000,
+    rescue_confirm_ms: 0..10_000,
     cavebot_record_dwell_ms: 500..600_000,
     cavebot_record_fight_dwell_ms: 1_000..600_000,
     cavebot_sweep_grace_ms: 0..60_000,

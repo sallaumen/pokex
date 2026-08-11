@@ -55,6 +55,35 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     assert :ok = Store.delete("cavena")
   end
 
+  # 2026-08-11, live: "teste" (andar 5) and "Azumaril easy" (andares 1 e 2)
+  # were BOTH enabled. The hunt takes the first enabled one it finds, so it
+  # walked "teste" while he stood in the Azumaril — every position on a floor
+  # that route never visits, and it blocked on the first step ("BLOQUEADO:
+  # mudou de andar"). One route is armed at a time, or the screen is lying.
+  test "arming a route disarms every other one" do
+    {:ok, a} = Route.append(Route.new("teste"), {1, 2, 5})
+    {:ok, b} = Route.append(Route.new("azumaril"), {1, 2, 1})
+    :ok = Store.add(a)
+    :ok = Store.add(b)
+
+    assert :ok = Store.set_enabled("teste", true)
+    assert :ok = Store.set_enabled("azumaril", true)
+
+    armed = Store.all() |> Enum.filter(& &1.enabled?) |> Enum.map(& &1.name)
+    assert armed == ["azumaril"]
+  end
+
+  test "disarming leaves everyone else alone — including nobody armed at all" do
+    {:ok, a} = Route.append(Route.new("teste"), {1, 2, 5})
+    {:ok, b} = Route.append(Route.new("azumaril"), {1, 2, 1})
+    :ok = Store.add(a)
+    :ok = Store.add(b)
+    :ok = Store.set_enabled("azumaril", true)
+
+    assert :ok = Store.set_enabled("azumaril", false)
+    assert Store.all() |> Enum.filter(& &1.enabled?) == []
+  end
+
   test "set_enabled survives the round-trip" do
     {:ok, r} = Route.append(Route.new("cavena"), {1, 2, 7})
     :ok = Store.add(r)

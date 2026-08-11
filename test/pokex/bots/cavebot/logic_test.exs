@@ -214,6 +214,26 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert Logic.luring?(logic), "no meio da mobada a busca não pode liberar o fogo"
     end
 
+    # …but only for a lap. A step takes two or three probes; a whole ring
+    # without one means something is IN THE WAY — often a mob standing on it —
+    # and holding the fire while the pile hits him is the worst of both.
+    test "after a full lap the fire is released and the pile becomes a fight" do
+      route = descent() |> Route.set_action(1, :lure_start) |> Route.set_action(3, :lure_end)
+      logic = %{Logic.new(route, @cfg) | combat_running?: true, homed?: true, wp_index: 2}
+
+      logic =
+        Enum.reduce(1..20, logic, fn tick, logic ->
+          {logic, _action} = Logic.step(logic, world({0, 7, 1}), tick * 500)
+          logic
+        end)
+
+      assert logic.state == :stairs
+      refute Logic.luring?(logic)
+
+      {logic, :none} = Logic.step(logic, world({0, 7, 1}, 4), 20 * 500 + 100)
+      assert logic.state == :fighting
+    end
+
     test "off a mob leg, an enemy still interrupts the search" do
       {logic, _} = descending(1)
 

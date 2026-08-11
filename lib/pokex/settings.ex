@@ -805,7 +805,9 @@ defmodule Pokex.Settings do
     # stairs. Now it walks the ring around that tile — one probe this far
     # apart — and gives up with a name instead of walking the wrong floor.
     cavebot_stair_probe_ms: 450,
-    # 16 probes is one full lap of the ring; 32 is two, about 14s of looking.
+    # STEPS, not ring entries: 16 is one full lap around the corner (each side
+    # and each diagonal, with a step back to the middle between them), 32 is
+    # two — about 14 seconds of looking before the hunt stops with a name.
     cavebot_stair_max_probes: 32,
     # How many times the park click goes out. One was not enough in the field:
     # "as vezes buga mesmo, nao vai, tem que mandar algumas vezes, umas 4x, pra

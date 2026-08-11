@@ -57,9 +57,35 @@ struct KeyEventsHelper {
       handleKey(json)
     case "middle_click":
       handleMiddleClick(json)
+    case "middle_watch":
+      handleMiddleWatch()
     default:
       emit(["ok": false, "error": "unknown_op:\(op)"])
     }
+  }
+
+  // How many middle clicks HE has made, and where the cursor is now.
+  //
+  // Not an event tap: `CGEventSource.counterForEventType` is a plain counter
+  // of events seen by the session, so this needs no extra permission and
+  // cannot swallow or delay one of his clicks. Polling the counter (rather
+  // than the button STATE) is what makes a fast click impossible to miss —
+  // the count still went up even if the button was already back when we
+  // looked.
+  //
+  // The recorder uses it as the marker he asked for: "quando termino de
+  // mobar... eu geralmente clico com o botão do meio do mouse em um ponto da
+  // minha tela" (2026-08-11).
+  static func handleMiddleWatch() {
+    let count = CGEventSource.counterForEventType(.combinedSessionState, eventType: .otherMouseDown)
+    let point = CGEvent(source: nil)?.location ?? .zero
+
+    emit([
+      "ok": true,
+      "count": Int(count),
+      "x": Int(point.x.rounded()),
+      "y": Int(point.y.rounded()),
+    ])
   }
 
   // Middle click at a screen point (the game's "step here" command for the

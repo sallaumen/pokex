@@ -26,5 +26,15 @@ defmodule Pokex.Rig do
   # The screen size in POINTS, straight from the window server — the only source
   @callback cursor_position() :: {:ok, point} | {:error, term}
 
+  @doc """
+  How many middle clicks the session has seen, and where the cursor is.
+
+  A COUNTER, not an event tap: nothing is intercepted, no extra permission is
+  asked for, and a click too fast to catch by polling the button state still
+  shows up here. The recorder watches it for a jump — the marker Lucas makes
+  with his own hand when he parks his pokémon (2026-08-11).
+  """
+  @callback middle_watch() :: {:ok, %{count: integer, point: point}} | {:error, term}
+
   def impl, do: Application.get_env(:pokex, :rig, Pokex.Rig.Mac)
 end

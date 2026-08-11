@@ -57,6 +57,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | {:nudge, integer, integer}
           | :sweep
           | :cooldown_revive
+          | {:park, {integer, integer}}
           | {:block, atom}
 
   @type world :: %{
@@ -191,6 +192,13 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
+  # Parking the pokémon is the FIRST thing that happens on arrival, before the
+  # huddle clock has run: he middle-clicks a spot so the pile closes in around
+  # the pokémon instead of around him, and the four seconds are counted from
+  # that click.
+  defp on_arrival(%{action: :lure_end, park_point: {_x, _y} = point}), do: {:park, point}
+  defp on_arrival(_plain_arrival), do: :none
+
   # Arriving at "até aqui" starts the huddle clock; arriving anywhere else
   # clears it, so a stale stamp can never hold fire on a plain corner.
   defp arrived(logic, %{action: :lure_end}, now),
@@ -268,7 +276,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       abs(dx) <= tol and abs(dy) <= tol and wp.z == z ->
         next = rem(logic.wp_index + 1, length(logic.route.waypoints))
         logic = note_progress(logic, pos, now)
-        {%{arrived(logic, wp, now) | wp_index: next, skips: 0}, :none}
+        {%{arrived(logic, wp, now) | wp_index: next, skips: 0}, on_arrival(wp)}
 
       pos != logic.last_pos ->
         {note_progress(logic, pos, now), {:walk, dx, dy}}

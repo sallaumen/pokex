@@ -80,6 +80,10 @@ defmodule PokexWeb.CavebotLive do
        # kill spot (Cavebot.Recording).
        still_pos: nil,
        still_since: nil,
+       # his OWN marker: the middle click that parks his pokémon. Watched as a
+       # counter, so a click too fast to catch by polling still shows up.
+       middle_count: nil,
+       middle_timer: nil,
        # waypoints he marked with his own hands — never overwritten by the
        # inference
        hand_marked: []
@@ -105,9 +109,12 @@ defmodule PokexWeb.CavebotLive do
         do: assign(socket, world: world, pos: nil, misses: socket.assigns.misses + 1),
         else: assign(socket, world: world, pos: pos, reads: socket.assigns.reads + 1)
 
-    if socket.assigns.recording? and pos != nil and socket.assigns.active_route,
-      do: {:noreply, socket |> maybe_record(pos) |> track_dwell(pos)},
-      else: {:noreply, socket}
+    if socket.assigns.recording? and socket.assigns.active_route do
+      socket = if pos, do: maybe_record(socket, pos), else: socket
+      {:noreply, track_dwell(socket, pos)}
+    else
+      {:noreply, socket}
+    end
   end
 
   # Every other fact (battle above all: how many enemies are on screen) refreshes
@@ -132,7 +139,55 @@ defmodule PokexWeb.CavebotLive do
     {:noreply, assign(socket, log: Enum.take([line | socket.assigns.log], @log_lines))}
   end
 
+  # The marker he asked for: "eu geralmente clico com o botão do meio do mouse
+  # em um ponto da minha tela" (2026-08-11). Better than the clock in both
+  # directions — it says exactly WHERE, and standing still is invisible to the
+  # coordinate reader anyway.
+  def handle_info(:watch_middle, %{assigns: %{recording?: true}} = socket) do
+    {:noreply, socket |> read_middle_click() |> schedule_middle_watch()}
+  end
+
+  def handle_info(:watch_middle, socket), do: {:noreply, socket}
+
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  @middle_watch_ms 120
+
+  defp schedule_middle_watch(socket) do
+    if socket.assigns.middle_timer, do: Process.cancel_timer(socket.assigns.middle_timer)
+    assign(socket, middle_timer: Process.send_after(self(), :watch_middle, @middle_watch_ms))
+  end
+
+  defp stop_middle_watch(socket) do
+    if socket.assigns.middle_timer, do: Process.cancel_timer(socket.assigns.middle_timer)
+    assign(socket, middle_timer: nil, middle_count: nil)
+  end
+
+  defp read_middle_click(socket) do
+    case Pokex.Rig.impl().middle_watch() do
+      {:ok, %{count: count, point: point}} -> middle_click_edge(socket, count, point)
+      # no helper (tests, another OS): the clock keeps working on its own
+      _unavailable -> socket
+    end
+  catch
+    # the rig is not even running — recording must not die with it
+    :exit, _reason -> socket
+  end
+
+  # Only the JUMP counts, and the first reading only learns the baseline —
+  # a session with clicks already behind it must not mark on the first tick.
+  defp middle_click_edge(%{assigns: %{middle_count: nil}} = socket, count, _point),
+    do: assign(socket, middle_count: count)
+
+  defp middle_click_edge(%{assigns: %{middle_count: seen}} = socket, count, _point)
+       when count <= seen,
+       do: socket
+
+  defp middle_click_edge(socket, count, point) do
+    socket
+    |> assign(middle_count: count)
+    |> mark_park_here(point)
+  end
 
   # How long he has been standing on this tile, and what that MEANS.
   #
@@ -141,13 +196,28 @@ defmodule PokexWeb.CavebotLive do
   # nesse ponto" (Lucas, 2026-08-11). Standing still is the one thing the
   # recorder can read without any new feed, and it says more than the shape of
   # the walk ever did.
+  #
+  # Measured from the LAST TIME THE POSITION CHANGED, never from readings that
+  # repeat — because standing still is exactly when the readings stop. The
+  # client only draws the coordinate while the position CHANGES, so a standing
+  # character reads `nil` forever, and the first cut of this (2026-08-11)
+  # waited for two equal readings that could never arrive. It measured
+  # stillness with the one signal that vanishes during it, and recorded a dwell
+  # of nil on all 52 waypoints of his first real route.
   defp track_dwell(socket, pos) do
     now = System.monotonic_time(:millisecond)
 
-    if pos == socket.assigns.still_pos do
-      dwelling(socket, pos, now - socket.assigns.still_since)
-    else
-      assign(socket, still_pos: pos, still_since: now)
+    cond do
+      # a NEW place: whatever he was doing at the old one is over
+      pos != nil and pos != socket.assigns.still_pos ->
+        assign(socket, still_pos: pos, still_since: now)
+
+      # same place, or no reading at all (which IS the standing-still symptom)
+      socket.assigns.still_since != nil ->
+        dwelling(socket, socket.assigns.still_pos, now - socket.assigns.still_since)
+
+      true ->
+        socket
     end
   end
 
@@ -155,6 +225,8 @@ defmodule PokexWeb.CavebotLive do
   # stood is a place that matters, and it is rarely a corner); after that every
   # reading updates its dwell, so the number is right even if the recording is
   # stopped without him ever moving again.
+  defp dwelling(socket, nil, _dwell), do: socket
+
   defp dwelling(socket, pos, dwell) do
     route = socket.assigns.active_route
 
@@ -290,7 +362,9 @@ defmodule PokexWeb.CavebotLive do
         photo(socket, :finish)
 
         {:noreply,
-         assign(socket,
+         socket
+         |> stop_middle_watch()
+         |> assign(
            recording?: false,
            notice: "gravação parada — #{n} waypoints na rota, e tirei a foto do fim",
            notice_kind: :ok
@@ -307,11 +381,15 @@ defmodule PokexWeb.CavebotLive do
         photo(socket, :start)
 
         {:noreply,
-         assign(socket,
+         socket
+         |> assign(
            recording?: true,
-           notice: "gravando — volte pro jogo e ande a rota; eu marco sozinho",
+           notice:
+             "gravando — volte pro jogo e ande a rota. " <>
+               "Clique do meio marca onde o pokémon fica quando tu acaba de mobar.",
            notice_kind: :ok
-         )}
+         )
+         |> schedule_middle_watch()}
     end
   end
 
@@ -517,6 +595,35 @@ defmodule PokexWeb.CavebotLive do
 
   def handle_event("select_route", %{"name" => name}, socket) do
     {:noreply, socket |> assign(notice: nil) |> reload_routes(name)}
+  end
+
+  # He marked the spot with his own hand: the waypoint under him becomes the
+  # kill spot, and the point he clicked is where the pokémon will be parked
+  # when the hunt runs this route.
+  defp mark_park_here(socket, point) do
+    route = socket.assigns.active_route
+    pos = socket.assigns.pos
+
+    socket =
+      if pos && !last_waypoint_at?(route, pos),
+        do: record_waypoint(socket, route, pos),
+        else: socket
+
+    route = socket.assigns.active_route
+    index = length(route.waypoints) - 1
+
+    if index >= 0 do
+      {updated, note} =
+        Recording.mark_park(route, index, point, hand_marked: socket.assigns.hand_marked)
+
+      :ok = Store.add(updated)
+
+      socket
+      |> then(&if note, do: assign(&1, notice: note, notice_kind: :ok), else: &1)
+      |> reload_routes(updated.name)
+    else
+      socket
+    end
   end
 
   # The photos are a SIDE EFFECT of recording, never a gate on it: a failed

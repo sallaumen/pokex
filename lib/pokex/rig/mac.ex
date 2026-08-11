@@ -174,6 +174,9 @@ defmodule Pokex.Rig.Mac do
   end
 
   @impl true
+  def middle_watch, do: KeyEvents.middle_watch()
+
+  @impl true
   def cursor_position do
     with {:ok, out} <- run_capture_output(Commands.cursor_position()),
          {:ok, point} <- Commands.parse_point(out) do

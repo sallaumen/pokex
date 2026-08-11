@@ -54,6 +54,26 @@ defmodule Pokex.Bots.Cavebot.Recording do
     end
   end
 
+  @doc """
+  Marks a kill spot he pointed out HIMSELF — the middle click that parks his
+  pokémon, which is the marker he asked for over the clock: "é uma marca muito
+  mais fácil de eu te passar" (2026-08-11), and unlike standing still it is
+  never invisible to the reader.
+  """
+  @spec mark_park(Route.t(), non_neg_integer, {integer, integer}, keyword) ::
+          {Route.t(), String.t() | nil}
+  def mark_park(%Route{} = route, index, point, opts \\ []) do
+    if Enum.at(route.waypoints, index) do
+      {route, _note} = mark_kill_spot(route, index, nil, Keyword.get(opts, :hand_marked, []))
+      {Route.set_park_point(route, index, point), park_note(point)}
+    else
+      {route, nil}
+    end
+  end
+
+  defp park_note({x, y}),
+    do: "🖱️ clique do meio em #{x}, #{y} — marquei \"até aqui\" + varrer e guardei o ponto"
+
   defp mark_kill_spot(route, index, dwell, hand_marked) do
     route =
       route
@@ -85,6 +105,8 @@ defmodule Pokex.Bots.Cavebot.Recording do
 
     if start < index and start not in hand_marked, do: start, else: nil
   end
+
+  defp note(nil, _start), do: nil
 
   defp note(dwell, start) do
     seconds = round(dwell / 1000)

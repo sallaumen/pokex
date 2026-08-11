@@ -97,8 +97,12 @@ defmodule Pokex.Bots.Cavebot.Store do
       action: decode_action(map["action"]),
       stops: decode_stops(map),
       at: decode_at(map["at"]),
-      dwell_ms: decode_dwell(map["dwell_ms"])
+      dwell_ms: decode_dwell(map["dwell_ms"]),
+      park_point: decode_point(map["park_point"])
     }
+
+  defp decode_point([x, y]) when is_integer(x) and is_integer(y), do: {x, y}
+  defp decode_point(_absent), do: nil
 
   defp decode_at(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
@@ -147,8 +151,12 @@ defmodule Pokex.Bots.Cavebot.Store do
       "action" => Atom.to_string(Map.get(waypoint, :action) || :walk),
       "stops" => Enum.map(Map.get(waypoint, :stops) || [], &Atom.to_string/1),
       "at" => encode_at(Map.get(waypoint, :at)),
-      "dwell_ms" => Map.get(waypoint, :dwell_ms)
+      "dwell_ms" => Map.get(waypoint, :dwell_ms),
+      "park_point" => encode_point(Map.get(waypoint, :park_point))
     }
+
+  defp encode_point({x, y}), do: [x, y]
+  defp encode_point(_none), do: nil
 
   defp encode_at(%DateTime{} = at), do: DateTime.to_iso8601(at)
   defp encode_at(_none), do: nil

@@ -32,13 +32,15 @@ defmodule Pokex.Bots.Cavebot.RouteEditTest do
     assert Route.move(route, 9, :up) == route
   end
 
-  test "insert_at/3 pushes the rest down and keeps the floor invariant" do
+  test "insert_at/3 pushes the rest down, on this floor or another" do
     route = route_of([{1, 1}, {3, 3}])
 
     assert {:ok, inserted} = Route.insert_at(route, 1, {2, 2, 7})
     assert coords(inserted) == [{1, 1}, {2, 2}, {3, 3}]
 
-    assert Route.insert_at(route, 1, {2, 2, 8}) == {:error, :floor_mismatch}
+    # the missing corner may be up the stairs — see route_floors_test
+    assert {:ok, upstairs} = Route.insert_at(route, 1, {2, 2, 8})
+    assert Route.floors(upstairs) == [7, 8]
   end
 
   test "an insert past the end lands at the end, never dropped" do

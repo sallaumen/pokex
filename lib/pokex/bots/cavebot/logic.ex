@@ -104,8 +104,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
   Decision order:
 
   1. `:blocked` is terminal — always `{logic, :none}`.
-  2. Floor change (non-nil `pos` with z differing from the route) blocks in any
-     state: `{:block, :floor_changed}`. Safety first.
+  2. A position on a floor the route does NOT know blocks in any state:
+     `{:block, :floor_changed}`. Safety first.
   3. Startup: with `combat_running?` false, start Combat (`:run_combat`) and
      nothing else this tick.
   4. Dispatch by state.
@@ -113,23 +113,33 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @spec step(t, world, integer) :: {t, action}
   def step(%__MODULE__{state: :blocked} = logic, _world, _now), do: {logic, :none}
 
-  def step(%__MODULE__{route: %Route{z: route_z}} = logic, %{pos: pos}, _now)
-      when is_tuple(pos) and elem(pos, 2) != route_z do
-    {%{logic | state: :blocked}, {:block, :floor_changed}}
+  # A floor the route KNOWS is a floor it meant to reach — a hunt with stairs
+  # is an ordinary hunt (2026-08-10). Any OTHER floor is what this guard was
+  # always really about: a hole, a teleport, a character somewhere the route
+  # cannot describe.
+  def step(%__MODULE__{} = logic, %{pos: pos} = world, now) when is_tuple(pos) do
+    if elem(pos, 2) in Route.floors(logic.route) do
+      dispatch(logic, world, now)
+    else
+      {%{logic | state: :blocked}, {:block, :floor_changed}}
+    end
   end
 
-  def step(%__MODULE__{combat_running?: false} = logic, _world, _now) do
+  def step(%__MODULE__{} = logic, world, now), do: dispatch(logic, world, now)
+
+  defp dispatch(%__MODULE__{combat_running?: false} = logic, _world, _now) do
     {%{logic | combat_running?: true}, :run_combat}
   end
 
-  def step(%__MODULE__{state: :walking} = logic, world, now), do: walk(logic, world, now)
-  def step(%__MODULE__{state: :stuck} = logic, world, now), do: stuck(logic, world, now)
-  def step(%__MODULE__{state: :fighting} = logic, world, now), do: fight(logic, world, now)
+  defp dispatch(%__MODULE__{state: :walking} = logic, world, now), do: walk(logic, world, now)
+  defp dispatch(%__MODULE__{state: :stuck} = logic, world, now), do: stuck(logic, world, now)
+  defp dispatch(%__MODULE__{state: :fighting} = logic, world, now), do: fight(logic, world, now)
 
-  def step(%__MODULE__{state: :fight_stalled} = logic, world, now),
+  defp dispatch(%__MODULE__{state: :fight_stalled} = logic, world, now),
     do: fight_stalled(logic, world, now)
 
-  def step(%__MODULE__{state: :post_fight} = logic, world, now), do: post_fight(logic, world, now)
+  defp dispatch(%__MODULE__{state: :post_fight} = logic, world, now),
+    do: post_fight(logic, world, now)
 
   @doc """
   Is the hunt walking a MOB stretch right now?
@@ -196,16 +206,16 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # acquiring a target and holding a lock are both a claim on the road.
   defp engaged?(world), do: Map.get(world, :combat_state) in [:tabbing, :fighting]
 
+  defp home_if_sighted(logic, %{pos: pos}) when is_tuple(pos), do: home_in(logic, pos)
+  defp home_if_sighted(logic, _blind), do: logic
+
   # Unknown position: hold — never walk FAR blind. MARK the blindness so the
   # Worker can say how long it has lasted, and after blind_kick_ms KICK one
   # step toward the waypoint: the client only draws the coordinate while the
   # position changes, so one moved tile is what brings the reading back.
   defp follow_route(logic, %{pos: nil}, now), do: logic |> blind(now) |> maybe_kick(now)
 
-  defp home_if_sighted(logic, %{pos: pos}) when is_tuple(pos), do: home_in(logic, pos)
-  defp home_if_sighted(logic, _blind), do: logic
-
-  defp follow_route(logic, %{pos: {x, y, _} = pos}, now) do
+  defp follow_route(logic, %{pos: {x, y, z} = pos}, now) do
     logic = sighted(logic)
     wp = current_wp(logic)
     dx = wp.x - x
@@ -213,7 +223,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
     tol = logic.config.arrival_tolerance
 
     cond do
-      abs(dx) <= tol and abs(dy) <= tol ->
+      # ARRIVING means standing there, floor included: the tile at the top of
+      # the stairs has the same x/y as the one at their foot, and "arriving"
+      # from below would tick the waypoint off without ever climbing.
+      abs(dx) <= tol and abs(dy) <= tol and wp.z == z ->
         next = rem(logic.wp_index + 1, length(logic.route.waypoints))
         {%{note_progress(logic, pos, now) | wp_index: next, skips: 0}, :none}
 
@@ -235,10 +248,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # once per run, on the first sighting.
   defp home_in(%__MODULE__{homed?: true} = logic, _pos), do: logic
 
-  defp home_in(logic, {x, y, _z}) do
+  defp home_in(logic, {x, y, z}) do
+    # Only corners on THIS floor: tile distance across floors is a number with
+    # no meaning, and entering at a waypoint one floor up sends the character
+    # walking into a wall that is actually a ceiling.
     nearest =
       logic.route.waypoints
       |> Enum.with_index()
+      |> Enum.filter(fn {wp, _index} -> wp.z == z end)
       |> Enum.min_by(fn {wp, _index} -> abs(wp.x - x) + abs(wp.y - y) end, fn -> nil end)
 
     case nearest do

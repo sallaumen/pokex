@@ -50,9 +50,59 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert l.state == :walking
   end
 
-  test "a z change blocks" do
+  test "a z change to a floor the route never visits blocks" do
     l = Logic.new(route(), @cfg)
     assert {_l, {:block, :floor_changed}} = Logic.step(l, world({10, 10, 6}), 0)
+  end
+
+  # "to fazendo justamente uma rota com 2 andares, com escadas" (Lucas,
+  # 2026-08-10). Stairs are ordinary; a hole is not.
+  describe "a route with stairs" do
+    defp stairs_route do
+      {:ok, r} = Route.append(Route.new("escada"), {0, 0, 7})
+      {:ok, r} = Route.append(r, {5, 0, 7})
+      {:ok, r} = Route.append(r, {5, 0, 6})
+      {:ok, r} = Route.append(r, {9, 0, 6})
+      r
+    end
+
+    test "walking on a floor the route knows is business as usual" do
+      {l, :run_combat} = Logic.step(Logic.new(stairs_route(), @cfg), world({1, 0, 6}), 0)
+      {l, {:walk, _dx, _dy}} = Logic.step(l, world({1, 0, 6}), 10)
+
+      assert l.state == :walking
+    end
+
+    test "a floor NOBODY marked still blocks — the hole this guard was for" do
+      l = Logic.new(stairs_route(), @cfg)
+
+      assert {_l, {:block, :floor_changed}} = Logic.step(l, world({5, 0, 4}), 0)
+    end
+
+    test "the route is entered at the nearest corner ON THIS FLOOR" do
+      # From {2, 3, 6} the closest corner in plain tiles is waypoint 1
+      # ({0, 0, 7}, 5 tiles) — one FLOOR away, so unreachable by walking. The
+      # closest one actually on this floor is waypoint 3 ({5, 0, 6}, 6 tiles).
+      {l, :run_combat} = Logic.step(Logic.new(stairs_route(), @cfg), world({2, 3, 6}), 0)
+      {l, _action} = Logic.step(l, world({2, 3, 6}), 10)
+
+      assert l.wp_index == 2
+    end
+
+    # The tile at the top of the stairs shares x/y with the one at their foot:
+    # without the floor in the arrival check the hunt ticks the climb off
+    # without ever climbing, and walks the upper floor's route from below.
+    test "standing BELOW the target is not arriving at it" do
+      l = %{Logic.new(stairs_route(), @cfg) | combat_running?: true, homed?: true, wp_index: 2}
+
+      {l, action} = Logic.step(l, world({5, 0, 7}), 10)
+      assert l.wp_index == 2
+      assert action != :none
+
+      # and the same tile one floor up IS the arrival
+      {l, :none} = Logic.step(l, world({5, 0, 6}), 20)
+      assert l.wp_index == 3
+    end
   end
 
   test "standing still becomes stuck; retries exhausted SKIPS the corner, and a lap blocks" do

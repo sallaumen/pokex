@@ -104,7 +104,10 @@ defmodule PokexWeb.CavebotLiveTest do
     assert [%Route{waypoints: []}] = Store.all()
   end
 
-  test "a position from another floor is refused with a warning", %{conn: conn} do
+  # It used to be REFUSED ("a rota é do andar 7"), which stopped the first
+  # two-floor hunt Lucas tried to record (2026-08-10). A route may climb.
+  test "a position from another floor is recorded, and the route says both floors",
+       %{conn: conn} do
     {:ok, route} = Route.append(Route.new("cavena"), {1, 2, 7})
     :ok = Store.add(route)
     put_pos({5, 6, 3})
@@ -113,8 +116,9 @@ defmodule PokexWeb.CavebotLiveTest do
 
     html = view |> element("#mark-waypoint") |> render_click()
 
-    assert html =~ "outro andar"
-    assert [%Route{waypoints: [%{x: 1, y: 2, z: 7}]}] = Store.all()
+    assert html =~ "waypoint 2 marcado (andar 3)"
+    assert [%Route{waypoints: [%{z: 7}, %{z: 3}]} = saved] = Store.all()
+    assert Route.floors(saved) == [3, 7]
   end
 
   test "selecting another route directs marking to it", %{conn: conn} do
@@ -399,6 +403,45 @@ defmodule PokexWeb.CavebotLiveTest do
     assert html =~ "início da rota"
     assert html =~ "fim da rota"
     assert html =~ "sai sozinha quando você gravar"
+  end
+
+  # "to fazendo justamente uma rota com 2 andares, com escadas" (Lucas,
+  # 2026-08-10). A flat drawing puts both floors on top of each other, so
+  # where the floor changes has to be WRITTEN.
+  describe "a route with stairs" do
+    defp stairs_route! do
+      {:ok, route} = Route.append(Route.new("escada"), {10, 10, 7})
+      {:ok, route} = Route.append(route, {15, 10, 7})
+      {:ok, route} = Route.append(route, {15, 10, 6})
+      :ok = Store.add(route)
+    end
+
+    test "the header counts the floors, not just the first", %{conn: conn} do
+      stairs_route!()
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ "andares 6 e 7"
+      refute html =~ "andar 7</span>"
+    end
+
+    test "the climb is written on the waypoint it lands on, and drawn dotted", %{conn: conn} do
+      stairs_route!()
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ "⇅ andar 6"
+      assert html =~ ~s(stroke-dasharray="1 2")
+      assert html =~ "Mapa da rota: 3 waypoints"
+      assert html =~ "andares 6 e 7"
+    end
+
+    test "a one-floor route says nothing about floors on its waypoints", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ "andar 7"
+      refute html =~ "⇅ andar"
+      refute html =~ ~s(stroke-dasharray="1 2")
+    end
   end
 
   # "quero poder configurar individualmente cada bolinha, para dar uma

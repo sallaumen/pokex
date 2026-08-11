@@ -291,10 +291,11 @@ defmodule Pokex.Bots.Combat.Worker do
   # it presses whatever his hands pressed at that waypoint, which stops being
   # true the moment he swaps pokémon, and can spend a control skill that was
   # supposed to survive for the revive.
-  defp opening_keys(nil, recorded), do: {"com o combo da caçada", recorded}
-
-  defp opening_keys(loadout, _recorded),
-    do: {"em área com #{loadout.name}", Strategy.opening(loadout)}
+  defp opening_keys(loadout, recorded) do
+    if Loadout.attacks?(loadout),
+      do: {"em área com #{loadout.name}", Strategy.opening(loadout)},
+      else: {"com o combo da caçada", recorded}
+  end
 
   # What the hunt is asking of us, read as a FACT with an age — the same
   # contract as every other reading on the blackboard. Stale, missing or

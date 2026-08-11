@@ -95,8 +95,16 @@ defmodule Pokex.Bots.Combat.StrategyTest do
       assert Strategy.reserved(nil) == []
     end
 
-    test "a pokémon with only reserved and reactive keys has no loadout at all" do
-      assert Loadout.resolve("Gogoat", %{"2" => :crowd, "8" => :heal}) == nil
+    # nil means "he classified NOTHING". A pokémon with only a control and a
+    # heal is classified — it just has nothing to fight with, which is the
+    # fight's question (`attacks?/1`) and not the same one a scheduled aura asks.
+    test "only reserved and reactive keys: a loadout, but nothing to attack with" do
+      loadout = Loadout.resolve("Gogoat", %{"2" => :crowd, "8" => :heal})
+
+      refute Loadout.attacks?(loadout)
+      assert Strategy.skill_order(loadout, enemies: 4) == []
+      assert loadout.crowd == ["2"]
+
       assert Loadout.resolve("Gogoat", %{}) == nil
     end
   end

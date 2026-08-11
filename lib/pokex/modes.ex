@@ -33,21 +33,21 @@ defmodule Pokex.Modes do
 
   @bundles %{
     "still" => %{
-      workers: [:fishing, :combat, :catcher, :mini_game, :player_support],
+      workers: [:fishing, :combat, :catcher, :mini_game, :player_support, :timers],
       settings: %{capture_enabled: true, reposition_enabled: true}
     },
     "moving" => %{
       # The catcher stays UP: its Space-loot fires on the kill edge and reaches
       # the corpse on the adjacent tile from wherever he is standing. Only the
       # ball, gated separately, needs him still.
-      workers: [:combat, :catcher, :player_support],
+      workers: [:combat, :catcher, :player_support, :timers],
       settings: %{capture_enabled: false, reposition_enabled: false}
     },
     "hunt" => %{
       # NO :combat here — the cavebot OWNS the Combat's run/halt (it arms the
       # fight on its first tick and only drops it when it blocks). Starting the
       # fight directly would leave two owners disagreeing about it.
-      workers: [:catcher, :player_support, :cavebot],
+      workers: [:catcher, :player_support, :cavebot, :timers],
       settings: %{}
     }
   }

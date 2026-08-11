@@ -2153,6 +2153,7 @@ defmodule PokexWeb.PanelLive do
   defp worker_job(:mini_game), do: "mini game"
   defp worker_job(:player_support), do: "revive e poção"
   defp worker_job(:cavebot), do: "anda a rota e luta"
+  defp worker_job(:timers), do: "ações no relógio"
 
   # Exactly the five workers alarm_on_error/3 is called with. Wiring a sixth in
   # without adding its label here is a Dialyzer error, not a runtime surprise.

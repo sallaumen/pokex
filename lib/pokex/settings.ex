@@ -44,6 +44,11 @@ defmodule Pokex.Settings do
     # the pokémon on the field has its keys classified (/time); the opening of
     # a gathered pile is always area, whatever this says.
     combat_aoe_from_enemies: 3,
+    # How often the scheduled actions (`Pokex.Timers`) check their clocks. One
+    # second is far finer than anything he schedules — the shortest is eight
+    # seconds into a mob stretch — and costs nothing: a tick reads one fact and
+    # compares integers.
+    timers_tick_ms: 1_000,
     combat_skill_tap_count: 1,
     combat_skill_gap_ms: 35,
     combat_skill_jitter_ms: 20,
@@ -1001,6 +1006,7 @@ defmodule Pokex.Settings do
     scenery_ttl_ms: 1_000..3_600_000,
     target_lost_streak: 1..99,
     combat_aoe_from_enemies: 1..20,
+    timers_tick_ms: 100..60_000,
     dry_casts_alarm: 0..999,
     corpse_sprite_box_px: 8..512,
     corpse_scan_radius_tiles: 1..8,

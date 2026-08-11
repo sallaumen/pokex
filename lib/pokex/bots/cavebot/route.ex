@@ -25,7 +25,13 @@ defmodule Pokex.Bots.Cavebot.Route do
 
   @actions [:walk, :lure_start, :lure_end]
 
-  @type waypoint :: %{x: integer, y: integer, z: integer, action: action}
+  @type waypoint :: %{
+          x: integer,
+          y: integer,
+          z: integer,
+          action: action,
+          sweep?: boolean
+        }
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -62,7 +68,7 @@ defmodule Pokex.Bots.Cavebot.Route do
      %{
        route
        | z: route.z || z,
-         waypoints: route.waypoints ++ [%{x: x, y: y, z: z, action: :walk}]
+         waypoints: route.waypoints ++ [%{x: x, y: y, z: z, action: :walk, sweep?: false}]
      }}
   end
 
@@ -127,6 +133,29 @@ defmodule Pokex.Bots.Cavebot.Route do
   end
 
   def set_action(%__MODULE__{} = route, _index, _unknown), do: route
+
+  @doc """
+  Marks (or unmarks) the waypoint at `index` as one to SWEEP at.
+
+  Sweeping is a second axis, not another job: the waypoint where a gathered
+  pile dies is exactly the one worth sweeping for corpses, and it is already
+  carrying "até aqui". Forcing a choice between the two would make the most
+  useful combination the impossible one.
+  """
+  @spec set_sweep(t, non_neg_integer, boolean) :: t
+  def set_sweep(%__MODULE__{waypoints: waypoints} = route, index, sweep?)
+      when is_integer(index) and is_boolean(sweep?) do
+    case Enum.at(waypoints, index) do
+      nil -> route
+      wp -> %{route | waypoints: List.replace_at(waypoints, index, %{wp | sweep?: sweep?})}
+    end
+  end
+
+  @doc "Does the waypoint at `index` ask for a sweep? False for an index nobody has."
+  @spec sweep_at?([waypoint], non_neg_integer) :: boolean
+  def sweep_at?(waypoints, index) when is_list(waypoints) and is_integer(index) do
+    match?(%{sweep?: true}, Enum.at(waypoints, index))
+  end
 
   @doc """
   Is the leg LEAVING the waypoint at `index` walked while luring?

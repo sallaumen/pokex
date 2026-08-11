@@ -96,6 +96,45 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
     end
   end
 
+  # "depois que matar tudo, fazer aquela varredura de captura antes de andar"
+  # (Lucas, 2026-08-10). Sweeping is a SECOND axis, not another job: the
+  # waypoint where the gathered pile dies is exactly the one worth sweeping,
+  # and it is already carrying "até aqui".
+  describe "sweeping at a waypoint" do
+    test "a recorded waypoint does not sweep" do
+      assert [%{sweep?: false} | _rest] = square().waypoints
+    end
+
+    test "set_sweep/3 flips it, and only on that waypoint" do
+      route = Route.set_sweep(square(), 2, true)
+
+      assert Enum.map(route.waypoints, & &1.sweep?) == [false, false, true, false]
+
+      assert Route.set_sweep(route, 2, false).waypoints
+             |> Enum.map(& &1.sweep?)
+             |> Enum.all?(&(!&1))
+    end
+
+    test "an index nobody has changes nothing" do
+      route = square()
+      assert Route.set_sweep(route, 9, true) == route
+    end
+
+    test "a waypoint can gather AND sweep — the two do not compete" do
+      route = square() |> Route.set_action(3, :lure_end) |> Route.set_sweep(3, true)
+
+      assert %{action: :lure_end, sweep?: true} = Enum.at(route.waypoints, 3)
+    end
+
+    test "sweep_at?/2 answers for the waypoint the hunt just reached" do
+      waypoints = Route.set_sweep(square(), 2, true).waypoints
+
+      assert Route.sweep_at?(waypoints, 2)
+      refute Route.sweep_at?(waypoints, 1)
+      refute Route.sweep_at?(waypoints, 99)
+    end
+  end
+
   describe "an unfinished mark says so" do
     test "a paired stretch is quiet" do
       route =

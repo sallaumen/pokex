@@ -740,6 +740,11 @@ defmodule Pokex.Settings do
     # corpse queue is still MOVING; this is how long a frozen queue holds it
     # before the hunt goes on without it.
     cavebot_capture_wait_ms: 8_000,
+    # A sweep asked for by the hunt needs a beat before its queue exists: the
+    # Catcher builds the tile list on ITS next cycle, and an empty queue read
+    # in between is not a finished sweep. Only this first window is a clock;
+    # after it the wait follows the queue's own progress.
+    cavebot_sweep_grace_ms: 1_500,
     cavebot_clear_debounce_ms: 800,
     # Recording the route WHILE WALKING: a new waypoint only lands after
     # walking this far since the last one. Without it the route would become
@@ -920,6 +925,7 @@ defmodule Pokex.Settings do
     minimap_coord_ink: 40..255,
     hold_max_ms: 200..30_000,
     cavebot_capture_wait_ms: 0..600_000,
+    cavebot_sweep_grace_ms: 0..60_000,
     posture_max_age_ms: 500..60_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,

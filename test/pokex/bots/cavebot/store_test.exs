@@ -16,7 +16,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     [got] = Store.all()
     assert got.name == "cavena"
     assert got.dungeon == "cavena-dg"
-    assert got.waypoints == [%{x: 10, y: 20, z: 7}]
+    assert got.waypoints == [%{x: 10, y: 20, z: 7, action: :walk}]
   end
 
   test "a corrupted file becomes an empty list instead of crashing", %{tmp_dir: tmp} do
@@ -36,7 +36,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
 
     matching = Enum.filter(Store.all(), &(&1.name == "cavena"))
     assert length(matching) == 1
-    assert hd(matching).waypoints == [%{x: 3, y: 4, z: 7}]
+    assert hd(matching).waypoints == [%{x: 3, y: 4, z: 7, action: :walk}]
   end
 
   test "an empty name is rejected" do
@@ -81,6 +81,51 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     [got] = Store.all()
     assert got.name == "sem-dg"
     assert got.dungeon == nil
-    assert got.waypoints == [%{x: 1, y: 2, z: 7}]
+    assert got.waypoints == [%{x: 1, y: 2, z: 7, action: :walk}]
+  end
+
+  # Waypoints gained a JOB after his routes were already recorded and walked:
+  # every one of them must keep working, which means a missing key is a plain
+  # walking corner — never a crash, never a lost route.
+  describe "the job a waypoint carries survives the disk" do
+    test "a marked route round-trips" do
+      {:ok, route} = Route.append(Route.new("mob"), {1, 2, 7})
+      {:ok, route} = Route.append(route, {3, 4, 7})
+
+      :ok = Store.add(Route.set_action(route, 1, :lure_start))
+
+      assert [%Route{waypoints: [%{action: :walk}, %{action: :lure_start}]}] = Store.all()
+    end
+
+    test "a route recorded before jobs existed reads as plain walking", %{tmp_dir: tmp} do
+      body =
+        JSON.encode!(%{
+          "routes" => [
+            %{"name" => "antiga", "z" => 7, "waypoints" => [%{"x" => 1, "y" => 2, "z" => 7}]}
+          ]
+        })
+
+      File.write!(Path.join(tmp, "routes.json"), body)
+
+      assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
+    end
+
+    test "a job nobody knows reads as plain walking, never a new atom", %{tmp_dir: tmp} do
+      body =
+        JSON.encode!(%{
+          "routes" => [
+            %{
+              "name" => "estranha",
+              "z" => 7,
+              "waypoints" => [%{"x" => 1, "y" => 2, "z" => 7, "action" => "abracadabra_xyz"}]
+            }
+          ]
+        })
+
+      File.write!(Path.join(tmp, "routes.json"), body)
+
+      assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
+      assert_raise ArgumentError, fn -> String.to_existing_atom("abracadabra_xyz") end
+    end
   end
 end

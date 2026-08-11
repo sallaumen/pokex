@@ -10,6 +10,7 @@ defmodule PokexWeb.CavebotComponents do
   """
   use PokexWeb, :html
 
+  alias Pokex.Bots.Cavebot.Route
   alias PokexWeb.CavebotMap
 
   attr :label, :string, required: true
@@ -95,34 +96,29 @@ defmodule PokexWeb.CavebotComponents do
           fill="url(#map-grid)"
         />
 
-        <polyline
-          :if={length(@waypoints) > 1}
-          points={CavebotMap.path_attr(@waypoints)}
-          fill="none"
-          stroke="var(--color-pk-ok-line)"
-          stroke-width="2"
-          stroke-linejoin="round"
+        <%!-- Leg by leg, because they are not all the same leg: the closing one
+             is dashed (the loop is real, the hunt walks back to the first
+             waypoint) and a MOB stretch is blue. --%>
+        <line
+          :for={leg <- @legs}
+          x1={leg.from.x}
+          y1={leg.from.y}
+          x2={leg.to.x}
+          y2={leg.to.y}
+          stroke={if leg.luring?, do: "var(--color-pk-info)", else: "var(--color-pk-ok-line)"}
+          stroke-width={leg_width(leg)}
           stroke-linecap="round"
-          vector-effect="non-scaling-stroke"
-        />
-        <%!-- The loop is real: the hunt walks back to the first waypoint. --%>
-        <polyline
-          :if={length(@waypoints) > 2}
-          points={CavebotMap.path_attr([List.last(@waypoints), hd(@waypoints)])}
-          fill="none"
-          stroke="var(--color-pk-ok-line)"
-          stroke-width="1.5"
-          stroke-dasharray="4 4"
+          stroke-dasharray={leg.closing? && "4 4"}
           vector-effect="non-scaling-stroke"
         />
 
         <%!-- Which WAY the hunt runs — the one thing coordinates never say. --%>
         <polygon
-          :for={arrow <- @legs}
+          :for={leg <- @legs}
           points="0,-1 0,1 2,0"
-          fill="var(--color-pk-ok)"
+          fill={if leg.luring?, do: "var(--color-pk-info)", else: "var(--color-pk-ok)"}
           opacity="0.7"
-          transform={"translate(#{arrow.x} #{arrow.y}) rotate(#{arrow.angle}) scale(#{@view.unit * 0.9})"}
+          transform={"translate(#{leg.arrow.x} #{leg.arrow.y}) rotate(#{leg.arrow.angle}) scale(#{@view.unit * 0.9})"}
         />
 
         <g :for={{wp, index} <- Enum.with_index(@waypoints)}>
@@ -131,15 +127,15 @@ defmodule PokexWeb.CavebotComponents do
             cx={wp.x}
             cy={wp.y}
             r={@view.unit * if @selected == index, do: 1.6, else: 1.1}
-            fill={if index == 0, do: "var(--color-pk-ok-dim)", else: "var(--color-pk-surface)"}
-            stroke={if @selected == index, do: "var(--color-pk-warn)", else: "var(--color-pk-ok)"}
-            stroke-width="2"
+            fill={dot_fill(wp, index)}
+            stroke={dot_stroke(wp, @selected == index)}
+            stroke-width={if wp.action == :walk, do: "2", else: "3"}
             vector-effect="non-scaling-stroke"
             class="cursor-pointer"
             phx-click="select_waypoint"
             phx-value-index={index}
           >
-            <title>{"waypoint #{index + 1}: #{wp.x}, #{wp.y}"}</title>
+            <title>{"waypoint #{index + 1}: #{wp.x}, #{wp.y}#{job_suffix(wp)}"}</title>
           </circle>
           <text
             :if={length(@waypoints) <= 24}
@@ -188,25 +184,72 @@ defmodule PokexWeb.CavebotComponents do
       <p class="pointer-events-none absolute bottom-2 left-3 font-mono text-pk-meta text-pk-text-3">
         {if @view, do: "#{round(elem(@view.box, 2))} tiles de ponta a ponta", else: ""}
       </p>
+
+      <p
+        :if={Enum.any?(@legs, & &1.luring?)}
+        id="map-lure-legend"
+        class="pointer-events-none absolute bottom-2 right-3 flex items-center gap-1.5 font-mono text-pk-meta text-pk-info"
+      >
+        <span class="h-0.5 w-4 rounded-full bg-pk-info"></span> trecho de mob
+      </p>
     </div>
     """
   end
 
   defp point_of({x, y, _z}), do: %{x: x, y: y}
 
+  defp leg_width(%{luring?: true}), do: "3"
+  defp leg_width(%{closing?: true}), do: "1.5"
+  defp leg_width(_plain), do: "2"
+
+  defp dot_fill(%{action: :walk}, 0), do: "var(--color-pk-ok-dim)"
+  defp dot_fill(%{action: :walk}, _index), do: "var(--color-pk-surface)"
+  defp dot_fill(_marked, _index), do: "var(--color-pk-info-dim)"
+
+  defp dot_stroke(_wp, true), do: "var(--color-pk-warn)"
+  defp dot_stroke(%{action: :walk}, _selected), do: "var(--color-pk-ok)"
+  defp dot_stroke(_marked, _selected), do: "var(--color-pk-info)"
+
+  defp job_suffix(%{action: :lure_start}), do: " — mobar daqui"
+  defp job_suffix(%{action: :lure_end}), do: " — mobar até aqui"
+  defp job_suffix(_walk), do: ""
+
+  # Every leg the hunt walks, INCLUDING the one that closes the loop: they are
+  # drawn one by one because they are not all alike (the closing leg is dashed,
+  # a mob stretch is blue). With two waypoints the closing leg retraces the
+  # only segment there is, so it is left out.
   defp legs(waypoints) when length(waypoints) > 1 do
+    count = length(waypoints)
+
     waypoints
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.map(fn [a, b] -> CavebotMap.arrow(a, b) end)
+    |> Enum.with_index()
+    |> Enum.map(fn {from, index} ->
+      to = Enum.at(waypoints, rem(index + 1, count))
+
+      %{
+        from: from,
+        to: to,
+        arrow: CavebotMap.arrow(from, to),
+        luring?: Route.lure_leg?(waypoints, index),
+        closing?: index == count - 1
+      }
+    end)
+    |> Enum.reject(&(&1.closing? and count < 3))
   end
 
   defp legs(_short), do: []
 
+  # Colour is never the only carrier: what the drawing shows in blue, the
+  # screen reader hears in words.
   defp map_summary(waypoints, pos) do
+    lured = Enum.count(0..(length(waypoints) - 1)//1, &Route.lure_leg?(waypoints, &1))
+
     base =
       "Mapa da rota: #{length(waypoints)} waypoints, #{CavebotMap.total_tiles(waypoints)} tiles"
 
-    if pos, do: base <> ", personagem em #{elem(pos, 0)}, #{elem(pos, 1)}", else: base
+    base
+    |> then(&if lured > 0, do: &1 <> ", #{lured} perna(s) em modo mob", else: &1)
+    |> then(&if pos, do: &1 <> ", personagem em #{elem(pos, 0)}, #{elem(pos, 1)}", else: &1)
   end
 
   attr :kind, :atom, required: true

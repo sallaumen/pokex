@@ -79,7 +79,15 @@ defmodule Pokex.Bots.Cavebot.Store do
     }
   end
 
-  defp decode_waypoint(%{"x" => x, "y" => y, "z" => z}), do: %{x: x, y: y, z: z}
+  defp decode_waypoint(%{"x" => x, "y" => y, "z" => z} = map),
+    do: %{x: x, y: y, z: z, action: decode_action(map["action"])}
+
+  # Whitelisted, never `String.to_atom/1`: the file is user-editable, and a
+  # typo in it must not mint atoms. Anything unknown — including the missing
+  # key in every route recorded before waypoints had jobs — is a plain corner.
+  defp decode_action("lure_start"), do: :lure_start
+  defp decode_action("lure_end"), do: :lure_end
+  defp decode_action(_walk_or_unknown), do: :walk
 
   defp encode(%Route{} = route) do
     %{
@@ -91,5 +99,11 @@ defmodule Pokex.Bots.Cavebot.Store do
     }
   end
 
-  defp encode_waypoint(%{x: x, y: y, z: z}), do: %{"x" => x, "y" => y, "z" => z}
+  defp encode_waypoint(%{x: x, y: y, z: z} = waypoint),
+    do: %{
+      "x" => x,
+      "y" => y,
+      "z" => z,
+      "action" => Atom.to_string(Map.get(waypoint, :action) || :walk)
+    }
 end

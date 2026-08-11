@@ -162,7 +162,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                route: "cavena",
                wp_index: 0,
                wp_total: 1,
-               wp_target: %{x: 100, y: 100, z: 7},
+               wp_target: %{x: 100, y: 100, z: 7, action: :walk},
                pos: nil,
                pos_age_ms: nil,
                distance_tiles: nil,
@@ -424,7 +424,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.route == "cavena"
     assert status.wp_index == 0
     assert status.wp_total == 1
-    assert status.wp_target == %{x: 100, y: 100, z: 7}
+    assert status.wp_target == %{x: 100, y: 100, z: 7, action: :walk}
     assert status.pos == {10, 20, 7}
     assert status.pos_age_ms >= 0
     assert status.distance_tiles == %{dx: 90, dy: 80}

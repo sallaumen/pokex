@@ -1,0 +1,125 @@
+defmodule Pokex.Bots.Cavebot.RouteActionTest do
+  @moduledoc """
+  A waypoint stopped being only a place: it can carry a JOB. "Mobar daqui" and
+  "até aqui" (Lucas, 2026-08-10) mark a stretch of the route that is walked
+  gathering mobs instead of fighting them.
+
+  The route is a LOOP, so the stretch is read around the cycle — which is the
+  whole reason this lives in a pure function with its own tests instead of
+  inside a `for` in the template.
+  """
+  use ExUnit.Case, async: true
+
+  alias Pokex.Bots.Cavebot.Route
+
+  defp route_of(coords) do
+    Enum.reduce(coords, Route.new("r"), fn {x, y}, route ->
+      {:ok, route} = Route.append(route, {x, y, 7})
+      route
+    end)
+  end
+
+  defp square, do: route_of([{0, 0}, {4, 0}, {4, 4}, {0, 4}])
+
+  defp lure_legs(%Route{waypoints: waypoints}) do
+    waypoints
+    |> Enum.with_index()
+    |> Enum.filter(fn {_wp, index} -> Route.lure_leg?(waypoints, index) end)
+    |> Enum.map(fn {_wp, index} -> index end)
+  end
+
+  describe "the job a waypoint carries" do
+    test "a recorded waypoint just walks" do
+      assert [%{action: :walk} | _rest] = square().waypoints
+    end
+
+    test "set_action/3 writes the job, and only on that waypoint" do
+      route = Route.set_action(square(), 1, :lure_start)
+
+      assert Enum.map(route.waypoints, & &1.action) == [:walk, :lure_start, :walk, :walk]
+    end
+
+    test "an unknown job, or an index nobody has, leaves the route untouched" do
+      route = square()
+
+      assert Route.set_action(route, 1, :teleport) == route
+      assert Route.set_action(route, 9, :lure_start) == route
+    end
+  end
+
+  describe "which legs are walked luring" do
+    # The leg LEAVING a waypoint is the one that carries its job: arriving at
+    # "mobar daqui" is what starts the gathering, and arriving at "até aqui"
+    # is what ends it — so the leg out of the end waypoint is a normal leg.
+    test "the stretch runs from the start waypoint up to the end waypoint" do
+      route =
+        square()
+        |> Route.set_action(1, :lure_start)
+        |> Route.set_action(3, :lure_end)
+
+      assert lure_legs(route) == [1, 2]
+    end
+
+    test "a plain route lures nowhere" do
+      assert lure_legs(square()) == []
+    end
+
+    test "the stretch wraps around the loop, because the route IS a loop" do
+      route =
+        square()
+        |> Route.set_action(3, :lure_start)
+        |> Route.set_action(1, :lure_end)
+
+      # 3 → 0 (the closing leg) → 1, and then back to normal
+      assert lure_legs(route) == [0, 3]
+    end
+
+    test "two stretches in one route are two stretches" do
+      route =
+        route_of([{0, 0}, {1, 0}, {2, 0}, {3, 0}, {4, 0}, {5, 0}])
+        |> Route.set_action(0, :lure_start)
+        |> Route.set_action(1, :lure_end)
+        |> Route.set_action(3, :lure_start)
+        |> Route.set_action(4, :lure_end)
+
+      assert lure_legs(route) == [0, 3]
+    end
+
+    # An unfinished mark is a real footgun for the hunt that will obey it: with
+    # no end, the gathering never stops and the character walks the whole route
+    # refusing to fight. The drawing shows it (everything blue) and the editor
+    # says it in words — see lure_issue/1.
+    test "a start with no end lures the whole loop" do
+      route = Route.set_action(square(), 2, :lure_start)
+
+      assert lure_legs(route) == [0, 1, 2, 3]
+    end
+  end
+
+  describe "an unfinished mark says so" do
+    test "a paired stretch is quiet" do
+      route =
+        square()
+        |> Route.set_action(1, :lure_start)
+        |> Route.set_action(3, :lure_end)
+
+      assert Route.lure_issue(route) == nil
+      assert Route.lure_issue(square()) == nil
+    end
+
+    test "a start with no end, and an end with no start" do
+      assert Route.lure_issue(Route.set_action(square(), 1, :lure_start)) == :start_without_end
+      assert Route.lure_issue(Route.set_action(square(), 1, :lure_end)) == :end_without_start
+    end
+
+    test "two starts before one end is a start nobody closed" do
+      route =
+        square()
+        |> Route.set_action(0, :lure_start)
+        |> Route.set_action(1, :lure_start)
+        |> Route.set_action(2, :lure_end)
+
+      assert Route.lure_issue(route) == :start_without_end
+    end
+  end
+end

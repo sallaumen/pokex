@@ -79,6 +79,11 @@ defmodule Pokex.Perception.Interpret do
       enemies: Enum.sort(creatures),
       enemies_detail: detail,
       red: red,
+      # Per-row HP-bar green, on the SAME bands as the lock ring: how combat
+      # tells a fight from a stalemate. Deliberately not `enemies_detail`'s
+      # hp_pct — that one needs a located layout, and this must read with or
+      # without one.
+      hp: Vision.hp_row_counts(body, top: top, band: band, rows: rows),
       locked?: locked_row != nil,
       locked_row: locked_row,
       shiny_rows: Enum.map(stars, &elem(&1, 0)),

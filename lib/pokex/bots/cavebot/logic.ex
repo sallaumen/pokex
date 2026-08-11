@@ -84,7 +84,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
           capture_wait_ms: non_neg_integer,
           sweep_grace_ms: non_neg_integer,
           stop_wait_ms: non_neg_integer,
-          gather_wait_ms: non_neg_integer
+          gather_wait_ms: non_neg_integer,
+          gather_wait_min_ms: non_neg_integer,
+          gather_wait_max_ms: non_neg_integer
         }
 
   @type t :: %__MODULE__{
@@ -217,7 +219,22 @@ defmodule Pokex.Bots.Cavebot.Logic do
     Recording.combo_intent(Enum.at(waypoints, index)[:combo] || [])
   end
 
-  defp gather_wait(%__MODULE__{gather_wait: measured}) when is_integer(measured), do: measured
+  # His hands beat my guess — but only when the measurement is a measurement OF
+  # THIS. His own route (2026-08-11) learned 2.0s, 3.3s and 3.6s at three kill
+  # spots and 12.0s at a fourth; twelve seconds is not him waiting for a pile
+  # to close in, it is the recorder having timed something else. Obeyed raw it
+  # would stand there holding fire while the pile eats him, so an implausible
+  # one falls back to the configured wait instead of to itself.
+  defp gather_wait(%__MODULE__{gather_wait: measured, config: config})
+       when is_integer(measured) do
+    floor = Map.get(config, :gather_wait_min_ms, 0)
+    ceiling = Map.get(config, :gather_wait_max_ms, :infinity)
+
+    if measured >= floor and measured <= ceiling,
+      do: measured,
+      else: Map.get(config, :gather_wait_ms, 0)
+  end
+
   defp gather_wait(%__MODULE__{config: config}), do: Map.get(config, :gather_wait_ms, 0)
 
   # Parking the pokémon is the FIRST thing that happens on arrival, before the

@@ -396,7 +396,8 @@ defmodule PokexWeb.TeamLive do
             <.link navigate={~p"/config"} class="text-[#7cc0e8] hover:underline">
               O combate
             </.link>
-            aperta <span id="skills-map-combat" class="font-mono text-[#dce1e4]">{keys_text(@combat_keys)}</span>
+            aperta
+            <span id="skills-map-combat" class="font-mono text-[#dce1e4]">{keys_text(@combat_keys)}</span>
             sozinho durante a luta. E aqui embaixo tu diz o que cada tecla
             <b class="font-bold text-[#c3cad0]">faz</b>
             — é isso que vai deixar o mesmo plano servir quando tu trocar de pokémon.
@@ -634,8 +635,7 @@ defmodule PokexWeb.TeamLive do
           <span :if={@row.skills == %{}} class="text-[#f2c45b]">ainda vazio</span>
         </p>
         <p class="mb-2 font-mono text-[9px] text-[#69737b]">
-          dispara na ordem da barra, da esquerda pra direita · {SkillProfile.summary(@row.skills)}
-          · salva sozinho
+          dispara na ordem da barra, da esquerda pra direita · {SkillProfile.summary(@row.skills)} · salva sozinho
         </p>
 
         <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">

@@ -570,6 +570,40 @@ defmodule PokexWeb.CavebotLive do
     end)
   end
 
+  # The exact tile, typed by hand. A recording is a WALK, and a walk rounds:
+  # the staircase he could not take was one tile wide and the recorded corner
+  # sat beside it ("tem como eu editar na mao pontos da rota?", 2026-08-11).
+  def handle_event("move_waypoint_to", %{"index" => index} = params, socket) do
+    index = String.to_integer(index)
+
+    case place_from(params, Enum.at(socket.assigns.active_route.waypoints, index)) do
+      nil ->
+        {:noreply, assign(socket, notice: "coordenada inválida", notice_kind: :warn)}
+
+      {x, y, z} = place ->
+        with_route(socket, fn route ->
+          {Route.move_to(route, index, place),
+           "waypoint #{index + 1} corrigido: #{x}, #{y} (andar #{z})"}
+        end)
+    end
+  end
+
+  # …or simply: it is where I am standing right now.
+  def handle_event("move_waypoint_here", %{"index" => index}, socket) do
+    index = String.to_integer(index)
+
+    case World.snapshot().pos do
+      nil ->
+        {:noreply, assign(socket, notice: "não estou lendo tua posição", notice_kind: :warn)}
+
+      {x, y, z} = pos ->
+        with_route(socket, fn route ->
+          {Route.move_to(route, index, pos),
+           "waypoint #{index + 1} agora é #{x}, #{y} (andar #{z})"}
+        end)
+    end
+  end
+
   # Recording lays waypoints in the order walked; a corner in the wrong place
   # used to mean walking the whole route again.
   def handle_event("move_waypoint", %{"index" => index, "dir" => dir}, socket) do
@@ -768,6 +802,27 @@ defmodule PokexWeb.CavebotLive do
   defp insert_here(route, index, pos) do
     {:ok, updated} = Route.insert_at(route, index, pos, at: DateTime.utc_now())
     {updated, "waypoint inserido na posição #{index + 1}"}
+  end
+
+  # A blank or unreadable field keeps what the waypoint already had, so
+  # correcting only the x never wipes the floor.
+  defp place_from(params, %{x: x, y: y, z: z}) do
+    with {:ok, nx} <- coord(params["x"], x),
+         {:ok, ny} <- coord(params["y"], y),
+         {:ok, nz} <- coord(params["z"], z) do
+      {nx, ny, nz}
+    else
+      _invalid -> nil
+    end
+  end
+
+  defp place_from(_params, _absent), do: nil
+
+  defp coord(value, fallback) do
+    case Integer.parse(to_string(value)) do
+      {number, ""} -> {:ok, number}
+      _blank_or_garbage -> if value in [nil, ""], do: {:ok, fallback}, else: :error
+    end
   end
 
   # Every edit is the same three steps: take the active route, write it, show
@@ -1504,6 +1559,51 @@ defmodule PokexWeb.CavebotLive do
                        each carrying three more buttons is a wall, and the choice
                        is rare — you mark a mob stretch once and hunt it for
                        weeks. --%>
+                  <%!-- The exact tile, typed. A recording is a walk, and a walk
+                       rounds: the staircase he could not take was one tile
+                       wide and the waypoint sat beside it, with no way to say
+                       so except walking the whole route again (2026-08-11). --%>
+                  <form
+                    :if={@selected == index}
+                    id={"waypoint-place-#{index}"}
+                    phx-submit="move_waypoint_to"
+                    class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
+                  >
+                    <input type="hidden" name="index" value={index} />
+                    <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                      lugar
+                    </span>
+                    <label
+                      :for={{field, value} <- [{"x", wp.x}, {"y", wp.y}, {"z", wp.z}]}
+                      class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
+                    >
+                      {field}
+                      <input
+                        type="number"
+                        name={field}
+                        value={value}
+                        class="pk-num h-8 w-20 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                      />
+                    </label>
+                    <button
+                      id={"waypoint-place-save-#{index}"}
+                      class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                    >
+                      corrigir
+                    </button>
+                    <button
+                      :if={@pos}
+                      type="button"
+                      id={"waypoint-place-here-#{index}"}
+                      phx-click="move_waypoint_here"
+                      phx-value-index={index}
+                      title="usar a posição onde eu estou agora"
+                      class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                    >
+                      é aqui que eu estou
+                    </button>
+                  </form>
+
                   <div
                     :if={@selected == index}
                     id={"waypoint-job-#{index}"}

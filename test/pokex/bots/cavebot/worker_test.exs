@@ -216,6 +216,71 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:held, ["right", "down"]}, 1_000
   end
 
+  # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que
+  # mandar algumas vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11).
+  describe "parking the pokémon" do
+    test "the middle click goes out several times, off the tick", %{worker: worker} do
+      SettingsStash.stash!(cavebot_park_clicks: 4, cavebot_park_gap_ms: 0)
+
+      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
+
+      # the park click belongs to the kill spot: it is where the pile is meant
+      # to close in around the pokémon
+      :ok =
+        route
+        |> Route.set_action(0, :lure_end)
+        |> Route.set_park_point(0, {1240, 655})
+        |> Store.add()
+
+      :ok = Worker.run(worker)
+      minimap!({100, 100, 7})
+      Enum.each(1..3, fn _ -> tick!(worker) end)
+
+      assert_receive {:performed, :high, actions}, 1_000
+      assert Enum.count(actions, &match?({:click, :middle, {1240, 655}}, &1)) == 4
+
+      # and the tick never waited on it: Body.perform is a call with an
+      # :infinity timeout, and the Body may be seconds deep in a capture
+      assert Worker.status(worker)
+    end
+  end
+
+  # "teve uma escada que ele bugou para descer, ela é fininha, e ele nao
+  # conseguiu achar o spot exato" (Lucas, 2026-08-11). A held key keeps walking
+  # between readings, so the last tile is always overshot — and a staircase is
+  # exactly one tile wide.
+  describe "the last tiles are walked precisely" do
+    test "far from the waypoint it HOLDS, near it it TAPS", %{worker: worker} do
+      SettingsStash.stash!(cavebot_precise_tiles: 2)
+      route!()
+      :ok = Worker.run(worker)
+
+      # 90 tiles away: hold, the fast gear
+      minimap!({10, 100, 7})
+      tick!(worker)
+      tick!(worker)
+      assert_receive {:held, [_ | _]}, 1_000
+
+      # two tiles away: one tap per tick, so it can stop ON the tile
+      minimap!({98, 100, 7})
+      tick!(worker)
+      assert_receive {:held, []}, 1_000
+      assert_receive {:stepped, 2, 0}, 1_000
+    end
+
+    test "with the precise range at zero it holds all the way in", %{worker: worker} do
+      SettingsStash.stash!(cavebot_precise_tiles: 0)
+      route!()
+      :ok = Worker.run(worker)
+
+      minimap!({98, 100, 7})
+      tick!(worker)
+      tick!(worker)
+      assert_receive {:held, [_ | _]}, 1_000
+      refute_receive {:stepped, _dx, _dy}, 200
+    end
+  end
+
   test "enemies on screen: no walking — Logic yields to the fight", %{worker: worker} do
     route!()
     :ok = Worker.run(worker)

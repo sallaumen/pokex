@@ -50,6 +50,35 @@ defmodule Pokex.Bots.Cavebot.RouteEditTest do
     assert coords(inserted) == [{1, 1}, {2, 2}]
   end
 
+  # "tem como eu editar na mao pontos da rota?" (Lucas, 2026-08-11) — a thin
+  # staircase whose exact tile the recording missed by one, and no way to say
+  # so except walking the whole route again.
+  describe "correcting a point by hand" do
+    test "move_to/3 rewrites the place and leaves everything else alone" do
+      route =
+        route_of([{1, 1}, {3, 3}])
+        |> Route.set_action(1, :lure_end)
+        |> Route.set_stop(1, :sweep, true)
+
+      moved = Route.move_to(route, 1, {4, 9, 6})
+
+      assert %{x: 4, y: 9, z: 6, action: :lure_end, stops: [:sweep]} = Enum.at(moved.waypoints, 1)
+    end
+
+    test "correcting the FIRST point does not rewrite the route's floor" do
+      route = route_of([{1, 1}, {3, 3}])
+
+      assert Route.move_to(route, 0, {1, 1, 6}).z == 7
+      assert Route.floors(Route.move_to(route, 0, {1, 1, 6})) == [6, 7]
+    end
+
+    test "an index nobody has changes nothing" do
+      route = route_of([{1, 1}])
+
+      assert Route.move_to(route, 9, {4, 4, 7}) == route
+    end
+  end
+
   test "clear/1 empties the waypoints AND the floor" do
     cleared = Route.clear(route_of([{1, 1}, {2, 2}]))
 

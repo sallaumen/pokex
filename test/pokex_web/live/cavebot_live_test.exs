@@ -825,6 +825,59 @@ defmodule PokexWeb.CavebotLiveTest do
     end
   end
 
+  # "tem como eu editar na mao pontos da rota?" (Lucas, 2026-08-11) — the thin
+  # staircase whose exact tile the walk rounded past.
+  describe "correcting a point by hand" do
+    test "typing the tile moves the waypoint and keeps its marks", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-1") |> render_click()
+      view |> element("#waypoint-1-lure_end") |> render_click()
+
+      html =
+        view
+        |> form("#waypoint-place-1", %{"x" => "21", "y" => "11", "z" => "6"})
+        |> render_submit()
+
+      assert [%Route{waypoints: [_first, %{x: 21, y: 11, z: 6, action: :lure_end}]}] = Store.all()
+      assert html =~ "waypoint 2 corrigido: 21, 11 (andar 6)"
+    end
+
+    test "a blank field keeps what was there", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+      view |> form("#waypoint-place-0", %{"x" => "15", "y" => "", "z" => ""}) |> render_submit()
+
+      assert [%Route{waypoints: [%{x: 15, y: 10, z: 7}]}] = Store.all()
+    end
+
+    test "garbage is refused, and nothing moves", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+      html = view |> form("#waypoint-place-0", %{"x" => "abc"}) |> render_submit()
+
+      assert html =~ "coordenada inválida"
+      assert [%Route{waypoints: [%{x: 10, y: 10, z: 7}]}] = Store.all()
+    end
+
+    test "'é aqui que eu estou' uses the live position", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      put_pos({33, 44, 5})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+      html = view |> element("#waypoint-place-here-0") |> render_click()
+
+      assert [%Route{waypoints: [%{x: 33, y: 44, z: 5}]}] = Store.all()
+      assert html =~ "agora é 33, 44"
+    end
+  end
+
   # "quero poder configurar individualmente cada bolinha, para dar uma
   # funcionalidade dela, tipo 'mobar daqui' e marcar em outra 'até aqui'"
   # (Lucas, 2026-08-10).

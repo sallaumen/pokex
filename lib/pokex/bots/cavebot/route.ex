@@ -177,6 +177,24 @@ defmodule Pokex.Bots.Cavebot.Route do
   def set_action(%__MODULE__{} = route, _index, _unknown), do: route
 
   @doc """
+  Corrects WHERE the waypoint at `index` is, keeping everything else it carries.
+
+  "Tem como eu editar na mao pontos da rota?" (Lucas, 2026-08-11): a thin
+  staircase whose exact tile the recording missed by one tile, and no way to
+  say so except walking the whole route again. The route's own `z` is NOT
+  rewritten — it means "the floor it starts on", and correcting a point is not
+  starting over.
+  """
+  @spec move_to(t, non_neg_integer, {integer, integer, integer}) :: t
+  def move_to(%__MODULE__{waypoints: waypoints} = route, index, {x, y, z})
+      when is_integer(index) and is_integer(x) and is_integer(y) and is_integer(z) do
+    case Enum.at(waypoints, index) do
+      nil -> route
+      wp -> %{route | waypoints: List.replace_at(waypoints, index, %{wp | x: x, y: y, z: z})}
+    end
+  end
+
+  @doc """
   How long he stood on the waypoint at `index`, in ms.
 
   Written while recording, and the whole input to `Recording.infer/4`: a

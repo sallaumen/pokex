@@ -10,6 +10,70 @@ defmodule Pokex.Bots.CaptureTest do
     :ok
   end
 
+  # MEASURED on Lucas's Mac, 2026-08-11: the 3.2 Mpx square the capture feed
+  # watches costs 104ms to photograph through ScreenCaptureKit and **3833ms to
+  # DECODE** in pure Elixir (the fishing crop: 8ms and 94ms). With the decode
+  # inside the broker's handle_call, that is 3.8 seconds in which the ONE
+  # serialized camera answers nobody — and the fishing watcher, which wants a
+  # frame every 150ms, measured 4.1s per look, with the starvation alarm firing
+  # 47 times in one session ("quando ele tá em luta ele não tenta pescar").
+  #
+  # Photographing is shared and must be serialized. DECODING is private work on
+  # a file that already exists: it belongs in the caller's process, where it
+  # costs the caller alone and runs in parallel with everyone else's.
+  describe "the broker photographs, the caller decodes" do
+    defmodule PathOnlyBroker do
+      @moduledoc false
+      use GenServer
+
+      def start_link(png), do: GenServer.start_link(__MODULE__, png)
+      def requests(pid), do: GenServer.call(pid, :requests)
+
+      @impl true
+      def init(png), do: {:ok, %{png: png, requests: []}}
+
+      @impl true
+      def handle_call(:requests, _from, state), do: {:reply, Enum.reverse(state.requests), state}
+
+      def handle_call(request, _from, state),
+        do: {:reply, {:ok, state.png}, %{state | requests: [request | state.requests]}}
+    end
+
+    setup do
+      dir = Path.join(System.tmp_dir!(), "capture_decode_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf(dir) end)
+
+      png = Pokex.PngFixtures.write!(Path.join(dir, "f.png"), [[{1, 2, 3, 255}, {4, 5, 6, 255}]])
+      {:ok, broker} = PathOnlyBroker.start_link(png)
+      %{png: png, broker: broker}
+    end
+
+    test "frame/3 asks for a PATH and decodes it itself", %{broker: broker} do
+      assert {:ok, %Pokex.Vision.Frame{width: 2, height: 1}} =
+               Capture.frame({0, 0, 2, 1}, "f.png", broker)
+
+      assert [{:grab, {0, 0, 2, 1}, "f.png", _at}] = PathOnlyBroker.requests(broker)
+    end
+
+    test "frame_with_path/3 hands back the very file it read", %{broker: broker, png: png} do
+      assert {:ok, %Pokex.Vision.Frame{}, ^png} =
+               Capture.frame_with_path({0, 0, 2, 1}, "f.png", broker)
+
+      assert [{:grab, _region, _name, _at}] = PathOnlyBroker.requests(broker)
+    end
+
+    test "the uncached variants ask for a FRESH path, never a cached one", %{broker: broker} do
+      assert {:ok, %Pokex.Vision.Frame{}} = Capture.frame_uncached({0, 0, 2, 1}, "f.png", broker)
+
+      assert {:ok, %Pokex.Vision.Frame{}, _path} =
+               Capture.frame_with_path_uncached({0, 0, 2, 1}, "f.png", broker)
+
+      assert [{:grab_uncached, _, _, _}, {:grab_uncached, _, _, _}] =
+               PathOnlyBroker.requests(broker)
+    end
+  end
+
   test "grab falls back to a DIRECT capture when the broker isn't running" do
     assert {:ok, "/tmp/fake/z.png"} = Capture.grab({0, 0, 10, 10}, "z.png", :no_such_capture)
     assert {:capture, {0, 0, 10, 10}, "z.png"} in Fake.calls()

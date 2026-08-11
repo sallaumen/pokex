@@ -46,6 +46,18 @@ defmodule Pokex.Bots.Capture do
   end
 
   @doc """
+  `grab/3` without the short path cache — a fresh photograph every time.
+  """
+  def grab_uncached(region, filename, server \\ __MODULE__) do
+    requested_at = now()
+
+    case GenServer.whereis(server) do
+      nil -> timed_capture_path(:direct, region, filename)
+      pid -> GenServer.call(pid, {:grab_uncached, region, filename, requested_at}, :infinity)
+    end
+  end
+
+  @doc """
   Full-screen capture of the SAME display the capture backend films — `{:ok, path}`.
 
   Calibration/diagnostic screenshots must show exactly what production frames
@@ -210,19 +222,24 @@ defmodule Pokex.Bots.Capture do
   end
 
   @doc """
-  Serialized capture plus PNG decode. Returns a `%Frame{}` and caches it briefly by region.
+  A decoded `%Frame{}` for `region`.
 
-  This is the preferred API for workers that immediately decode the PNG anyway. It avoids
-  duplicate ExPng work when fishing/combat/panel all ask for the same skill-bar region in the
-  same burst, while keeping the domain-specific pixel analysis in each worker.
+  The photograph is taken by the broker (serialized — two screencaptures at once
+  balloon on macOS); the PNG is decoded HERE, in the calling process.
+
+  That split is the whole point. MEASURED on Lucas's 3440x1440 (2026-08-11): the
+  3.2 Mpx square the capture feed watches costs 104ms to photograph and **3833ms
+  to decode** in pure Elixir, while the fishing crop costs 8ms and 94ms. Decoding
+  inside the broker meant one reader's big frame stopped the camera for almost
+  four seconds — the fishing watcher, asking for a frame every 150ms, measured
+  4.1s per look. Photographing is shared; decoding is private work on a file that
+  already exists, and it parallelizes across callers for free.
+
+  A caller that only wants the file (no pixels) should use `grab/3`.
   """
   def frame(region, filename, server \\ __MODULE__) do
-    requested_at = now()
-
-    case GenServer.whereis(server) do
-      nil -> direct_frame(region, filename)
-      pid -> GenServer.call(pid, {:frame, region, filename, requested_at}, :infinity)
-    end
+    with {:ok, path} <- grab(region, filename, server),
+         do: timed_decode(path, filename, region)
   end
 
   @doc """
@@ -234,16 +251,14 @@ defmodule Pokex.Bots.Capture do
   capture (which would show a DIFFERENT moment) and no re-encoding.
   """
   def frame_with_path(region, filename, server \\ __MODULE__) do
-    requested_at = now()
-
-    case GenServer.whereis(server) do
-      nil -> direct_frame_with_path(region, filename)
-      pid -> GenServer.call(pid, {:frame_with_path, region, filename, requested_at}, :infinity)
+    with {:ok, path} <- grab(region, filename, server),
+         {:ok, frame} <- timed_decode(path, filename, region) do
+      {:ok, frame, path}
     end
   end
 
   @doc """
-  `frame_with_path/3` sem o cache de frames — o quadro é SEMPRE novo.
+  `frame_with_path/3` sem o cache — o quadro é SEMPRE novo.
 
   O laço de jogo do mini-game precisa disto: ele carimba a hora ANTES da
   captura pra que o piloto extrapole a latência real, e um frame servido do
@@ -252,34 +267,21 @@ defmodule Pokex.Bots.Capture do
   novos por segundo achando que via 12.
   """
   def frame_with_path_uncached(region, filename, server \\ __MODULE__) do
-    requested_at = now()
-
-    case GenServer.whereis(server) do
-      nil ->
-        direct_frame_with_path(region, filename)
-
-      pid ->
-        GenServer.call(
-          pid,
-          {:frame_with_path_uncached, region, filename, requested_at},
-          :infinity
-        )
+    with {:ok, path} <- grab_uncached(region, filename, server),
+         {:ok, frame} <- timed_decode(path, filename, region) do
+      {:ok, frame, path}
     end
   end
 
   @doc """
-  Serialized capture plus PNG decode, bypassing the short decoded-frame cache.
+  `frame/3` bypassing the short path cache — the photograph is always fresh.
 
   Use this only for guard reads where a just-triggered screen transition must not
-  reuse a frame captured a few milliseconds earlier.
+  reuse a capture taken a few milliseconds earlier.
   """
   def frame_uncached(region, filename, server \\ __MODULE__) do
-    requested_at = now()
-
-    case GenServer.whereis(server) do
-      nil -> direct_frame(region, filename)
-      pid -> GenServer.call(pid, {:frame_uncached, region, filename, requested_at}, :infinity)
-    end
+    with {:ok, path} <- grab_uncached(region, filename, server),
+         do: timed_decode(path, filename, region)
   end
 
   @doc "Which capture backend is live right now (panel diagnostics)."
@@ -383,59 +385,13 @@ defmodule Pokex.Bots.Capture do
     {:reply, cache_display_points(current_display_points(state)), state}
   end
 
-  def handle_call({:frame, region, filename, requested_at}, _from, state) do
+  # A fresh photograph, never a cached path: the caller is guarding against a
+  # screen transition it just triggered, so a file from a few milliseconds ago
+  # would answer about the world before the change.
+  def handle_call({:grab_uncached, region, filename, requested_at}, _from, state) do
     state = note_wait(state, filename, requested_at)
-    record_queue(:frame, filename, requested_at)
-    key = {:frame, region}
-
-    case cached(state, key) do
-      {:ok, frame, state} ->
-        Perf.count("capture.cache_hit.frame:#{filename}")
-        {:reply, {:ok, frame}, state}
-
-      :miss ->
-        case frame_from_backend(state, region, filename) do
-          {{:ok, %Frame{} = frame}, state} ->
-            {:reply, {:ok, frame}, put_cache(state, key, frame)}
-
-          {error, state} ->
-            {:reply, error, prune_cache(state)}
-        end
-    end
-  end
-
-  def handle_call({:frame_with_path, region, filename, requested_at}, _from, state) do
-    state = note_wait(state, filename, requested_at)
-    record_queue(:frame_with_path, filename, requested_at)
-    key = {:frame_path, region}
-
-    case cached(state, key) do
-      {:ok, {frame, path}, state} ->
-        Perf.count("capture.cache_hit.frame_path:#{filename}")
-        {:reply, {:ok, frame, path}, state}
-
-      :miss ->
-        case frame_and_path_from_backend(state, region, filename) do
-          {{:ok, %Frame{} = frame, path}, state} ->
-            {:reply, {:ok, frame, path}, put_cache(state, key, {frame, path})}
-
-          {error, state} ->
-            {:reply, error, prune_cache(state)}
-        end
-    end
-  end
-
-  def handle_call({:frame_with_path_uncached, region, filename, requested_at}, _from, state) do
-    state = note_wait(state, filename, requested_at)
-    record_queue(:frame_with_path_uncached, filename, requested_at)
-    {reply, state} = frame_and_path_from_backend(state, region, filename)
-    {:reply, reply, prune_cache(state)}
-  end
-
-  def handle_call({:frame_uncached, region, filename, requested_at}, _from, state) do
-    state = note_wait(state, filename, requested_at)
-    record_queue(:frame_uncached, filename, requested_at)
-    {reply, state} = frame_from_backend(state, region, filename)
+    record_queue(:grab_uncached, filename, requested_at)
+    {reply, state} = capture_path(state, region, filename)
     {:reply, reply, prune_cache(state)}
   end
 
@@ -500,38 +456,6 @@ defmodule Pokex.Bots.Capture do
   # unexpected message would otherwise crash the broker (dropping every queued capture). Keep the
   # broker resilient with an explicit catch-all.
   def handle_info(_message, state), do: {:noreply, state}
-
-  defp direct_frame(region, filename) do
-    with {:ok, path} <- timed_capture_path(:direct, region, filename) do
-      timed_decode(path, filename, region)
-    end
-  end
-
-  defp direct_frame_with_path(region, filename) do
-    with {:ok, path} <- timed_capture_path(:direct, region, filename),
-         {:ok, frame} <- timed_decode(path, filename, region) do
-      {:ok, frame, path}
-    end
-  end
-
-  defp frame_and_path_from_backend(state, region, filename) do
-    case capture_path(state, region, filename) do
-      {{:ok, path}, state} ->
-        case timed_decode(path, filename, region) do
-          {:ok, frame} -> {{:ok, frame, path}, state}
-          error -> {error, state}
-        end
-
-      {error, state} ->
-        {error, state}
-    end
-  end
-
-  defp frame_from_backend(state, region, filename) do
-    with {{:ok, path}, state} <- capture_path(state, region, filename) do
-      {timed_decode(path, filename, region), state}
-    end
-  end
 
   defp capture_path(%{backend: {:screen_capture_kit, backend}} = state, region, filename) do
     case state.impossible_regions do

@@ -5,28 +5,60 @@ defmodule Pokex.Pokedex.SkillProfile do
   A combo written as "press 4, then 1, then 3 and 5" only ever works for the
   pokémon whose bar it was written against — swap Vileplume for Vespiqueen and
   the same keys do something else entirely. So the plan stops naming keys and
-  names JOBS instead: heal, buffs (auras, barriers, armour), area damage and
-  crowd control (stun, blind, sleep, paralysis). Each pokémon says which of ITS
-  keys does what, and one written strategy drives all of them —
-  `Vileplume`'s area is 3 and 5, `Vespiqueen`'s is 3, 4 and 5, and a pokémon
-  with no barrier at all simply has nothing to press on that step.
+  names JOBS instead. Each pokémon says which of ITS keys does what, and one
+  written strategy drives all of them.
+
+  ## A job is a MOMENT, not a slot in one sequence
+
+  The first cut treated the profile as a single ordered list and printed every
+  classified key joined left to right — "combo: 1 → 2 → 3 → 4 → 5 → 6". He
+  rejected it on sight: "eu seleciono, mas o combo não é uma junção"
+  (2026-08-11). The jobs do not queue up behind each other; they happen at
+  different points of the hunt:
+
+    * `:buffs` (aura) — DURING the gathering, halfway through the huddle. It
+      is what he keeps up while walking the mob stretch, not something pressed
+      at the kill.
+    * `:aoe` (área) — opens the kill. Area damage needs no target, which is
+      why it can fire the instant the fire is released.
+    * `:single` (alvo único) — the kill's SECOND half, and only with something
+      marked: "skill single target só funciona se eu estiver marcando um
+      alvo". Before the target lock it presses into nothing.
+    * `:heal` (cura) — when the pokémon's life asks for it. Reactive, never a
+      step in an order.
+    * `:crowd` (controle) — RESERVED for the moment before an auto-revive, the
+      stun that buys the recall its time, "praticamente exclusivamente antes
+      do momento de ter que usar revive". Spending it in an ordinary fight is
+      the failure, so it is barred from the combo by construction — the same
+      rule `Pokex.Combos`'s `{:rescue_only}` trigger already enforces on the
+      rescue prefix.
+
+  So `combo/1` is area-then-target and NOTHING else, and the other three jobs
+  are read by whoever owns their moment.
 
   The profile is stored the way it is EDITED — one job per key
   (`%{"3" => :aoe}`) — which makes a key belonging to two categories
   impossible by construction rather than by validation. `by_category/1` and
   `keys/2` give the engine the view it wants.
 
-  Hotbar order is the firing order, because that is how he described every one
-  of his own combos ("as skills 3 e 5", "3, 4, 5"): left to right.
+  Within a moment, hotbar order is the firing order, because that is how he
+  described every one of his own combos ("as skills 3 e 5", "3, 4, 5").
   """
 
-  @categories [:heal, :buffs, :aoe, :crowd]
+  # Ordered by MOMENT, so reading the editor top to bottom tells the story of
+  # a hunt: hold the aura while gathering, open with area, finish on a target,
+  # heal when asked, and keep the control for the revive.
+  @categories [:buffs, :aoe, :single, :heal, :crowd]
+
+  # The two halves of the kill, in the order they fire. Area first because it
+  # needs no target; single-target after, once something is marked.
+  @combo_categories [:aoe, :single]
 
   # The hotbar as the game lays it out: 1..9 then 0 for the tenth slot, the
   # same mapping `Pokex.Bots.SkillBar` reads cooldowns from.
   @hotbar_keys ~w(1 2 3 4 5 6 7 8 9 0)
 
-  @type category :: :heal | :buffs | :aoe | :crowd
+  @type category :: :heal | :buffs | :aoe | :single | :crowd
   @type t :: %{optional(String.t()) => category}
 
   @doc "Every job a skill can have, in the order the editor offers them."
@@ -42,7 +74,33 @@ defmodule Pokex.Pokedex.SkillProfile do
   def label(:heal), do: "cura"
   def label(:buffs), do: "aura"
   def label(:aoe), do: "área"
+  def label(:single), do: "alvo único"
   def label(:crowd), do: "controle"
+
+  @doc "When this job happens, in one phrase — the thing the first cut got wrong."
+  @spec moment(category) :: String.t()
+  def moment(:buffs), do: "na mobada, no meio do bolo"
+  def moment(:aoe), do: "abre a matança — não precisa de alvo"
+  def moment(:single), do: "fecha a matança, só com alvo marcado"
+  def moment(:heal), do: "quando a vida do pokémon pede"
+  def moment(:crowd), do: "reservada pro stun antes do revive"
+
+  @doc "The icon each moment carries, so the row reads at a glance."
+  @spec icon(category) :: String.t()
+  def icon(:buffs), do: "✨"
+  def icon(:aoe), do: "💥"
+  def icon(:single), do: "🎯"
+  def icon(:heal), do: "❤️"
+  def icon(:crowd), do: "🌀"
+
+  @doc """
+  Whether this job is part of the kill combo at all.
+
+  `:crowd` answers false and that is the whole point: it must not be spent in
+  an ordinary fight, or it is not there when the revive needs it.
+  """
+  @spec in_combo?(category) :: boolean
+  def in_combo?(category), do: category in @combo_categories
 
   @doc """
   Gives `key` the job `category`, or takes its job away with `:none`.
@@ -65,15 +123,15 @@ defmodule Pokex.Pokedex.SkillProfile do
   def by_category(profile), do: Map.new(@categories, &{&1, keys(profile, &1)})
 
   @doc """
-  The combo this profile spells out: every key that has a job, in firing order.
+  The kill combo: the area keys, then the single-target ones.
 
-  He does not think in jobs, he thinks in combos — "eu aperto número 1 (…),
-  aperto 3 e 4" — so a grid of dropdowns is not what he came looking for. This
-  is the same profile read back as the thing he recognises, which also makes
-  the firing-order assumption visible enough for him to reject.
+  "O combo na prática deveria ser só as skills de área. Depois, as skills
+  single target" (2026-08-11). Not every classified key joined together —
+  the aura belongs to the gathering, the heal to a moment nobody schedules,
+  and the control is reserved for the revive.
   """
   @spec combo(t) :: [String.t()]
-  def combo(profile), do: Enum.filter(@hotbar_keys, &Map.has_key?(profile, &1))
+  def combo(profile), do: Enum.flat_map(@combo_categories, &keys(profile, &1))
 
   @doc """
   `keys` deduped and put in firing order; anything that is not a hotbar key
@@ -95,24 +153,19 @@ defmodule Pokex.Pokedex.SkillProfile do
   def keys(profile, category), do: Enum.filter(@hotbar_keys, &(profile[&1] == category))
 
   @doc """
-  The profile in one line, in firing order: `"cura 4 · área 3+5 · controle 1+2"`.
+  The profile as the hunt reads it: `[{category, keys}]` for the jobs this
+  pokémon actually has, in moment order.
 
-  Empty categories are left out; a profile with nothing in it says so, because
-  a blank line beside a pokémon reads as a rendering bug rather than as work
-  still to do.
+  Empty jobs are left out — a pokémon with no barrier at all simply has
+  nothing at that moment, which is what lets one written plan drive every one
+  of them.
   """
-  @spec summary(t) :: String.t()
-  def summary(profile) do
-    @categories
-    |> Enum.map(fn category -> {category, keys(profile, category)} end)
-    |> Enum.reject(fn {_category, keys} -> keys == [] end)
-    |> case do
-      [] ->
-        "nenhuma skill classificada"
-
-      filled ->
-        Enum.map_join(filled, " · ", &"#{label(elem(&1, 0))} #{Enum.join(elem(&1, 1), "+")}")
-    end
+  @spec moments(t) :: [{category, [String.t()]}]
+  def moments(profile) do
+    for category <- @categories,
+        keys = keys(profile, category),
+        keys != [],
+        do: {category, keys}
   end
 
   @doc """

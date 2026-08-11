@@ -12,7 +12,14 @@ defmodule Pokex.Pokedex.SkillProfileTest do
 
   describe "assigning a job to a key" do
     test "an empty profile categorises nothing" do
-      assert SkillProfile.by_category(%{}) == %{heal: [], buffs: [], aoe: [], crowd: []}
+      assert SkillProfile.by_category(%{}) == %{
+               buffs: [],
+               aoe: [],
+               single: [],
+               heal: [],
+               crowd: []
+             }
+
       assert SkillProfile.keys(%{}, :aoe) == []
     end
 
@@ -29,7 +36,13 @@ defmodule Pokex.Pokedex.SkillProfileTest do
     test ":none takes the job away" do
       profile = %{} |> SkillProfile.put("3", :aoe) |> SkillProfile.put("3", :none)
 
-      assert SkillProfile.by_category(profile) == %{heal: [], buffs: [], aoe: [], crowd: []}
+      assert SkillProfile.by_category(profile) == %{
+               buffs: [],
+               aoe: [],
+               single: [],
+               heal: [],
+               crowd: []
+             }
     end
 
     test "a job nobody knows, or a key no hotbar has, changes nothing" do
@@ -90,41 +103,58 @@ defmodule Pokex.Pokedex.SkillProfileTest do
     end
   end
 
-  describe "reading it out loud" do
-    test "a profile summarises itself in the order it fires" do
+  # "eu seleciono, mas o combo não é uma junção" (Lucas, 2026-08-11). The first
+  # cut printed every classified key joined left to right; the jobs happen at
+  # DIFFERENT moments of the hunt and only two of them are the kill.
+  describe "the kill combo" do
+    test "area first, single-target after — that is the whole combo" do
       profile =
         %{}
-        |> SkillProfile.put("1", :crowd)
-        |> SkillProfile.put("2", :crowd)
-        |> SkillProfile.put("4", :heal)
-        |> SkillProfile.put("3", :aoe)
-        |> SkillProfile.put("5", :aoe)
-
-      assert SkillProfile.summary(profile) == "cura 4 · área 3+5 · controle 1+2"
-    end
-
-    test "an empty profile says so, instead of an empty line" do
-      assert SkillProfile.summary(%{}) == "nenhuma skill classificada"
-    end
-  end
-
-  # He came to the team page looking for "o combo de cada um" and the word was
-  # not on it — even though the profile fully determines one.
-  describe "the combo the profile spells out" do
-    test "every classified key, in firing order — whatever order they were set in" do
-      profile =
-        %{}
+        |> SkillProfile.put("7", :single)
         |> SkillProfile.put("4", :aoe)
-        |> SkillProfile.put("1", :heal)
         |> SkillProfile.put("3", :aoe)
 
-      assert SkillProfile.combo(profile) == ["1", "3", "4"]
+      assert SkillProfile.combo(profile) == ["3", "4", "7"]
+    end
+
+    # Single target "só funciona se eu estiver marcando um alvo": it can never
+    # come first, however early on the bar it sits.
+    test "a single-target key on a LOW slot still fires after every area one" do
+      profile =
+        %{}
+        |> SkillProfile.put("1", :single)
+        |> SkillProfile.put("9", :aoe)
+
+      assert SkillProfile.combo(profile) == ["9", "1"]
+    end
+
+    test "the aura and the heal are NOT in it — they have their own moments" do
+      profile =
+        %{}
+        |> SkillProfile.put("1", :buffs)
+        |> SkillProfile.put("3", :aoe)
+        |> SkillProfile.put("8", :heal)
+
+      assert SkillProfile.combo(profile) == ["3"]
+    end
+
+    # The rule that protects the revive: a control skill spent on an ordinary
+    # fight is not there when the recall needs the stun.
+    test "control is BARRED from the combo, however he classifies it" do
+      profile =
+        %{}
+        |> SkillProfile.put("2", :crowd)
+        |> SkillProfile.put("3", :crowd)
+
+      assert SkillProfile.combo(profile) == []
+      assert SkillProfile.keys(profile, :crowd) == ["2", "3"]
+      refute SkillProfile.in_combo?(:crowd)
     end
 
     test "a key with its job taken away leaves the combo" do
       profile =
         %{}
-        |> SkillProfile.put("1", :heal)
+        |> SkillProfile.put("1", :aoe)
         |> SkillProfile.put("3", :aoe)
         |> SkillProfile.put("1", :none)
 
@@ -133,6 +163,41 @@ defmodule Pokex.Pokedex.SkillProfileTest do
 
     test "nothing classified is an empty combo, not a crash" do
       assert SkillProfile.combo(%{}) == []
+    end
+  end
+
+  describe "each job is a moment" do
+    test "the moments come back in the order the hunt lives them" do
+      profile =
+        %{}
+        |> SkillProfile.put("2", :crowd)
+        |> SkillProfile.put("3", :aoe)
+        |> SkillProfile.put("1", :buffs)
+        |> SkillProfile.put("7", :single)
+
+      assert SkillProfile.moments(profile) == [
+               {:buffs, ["1"]},
+               {:aoe, ["3"]},
+               {:single, ["7"]},
+               {:crowd, ["2"]}
+             ]
+    end
+
+    test "a job this pokémon does not have is simply absent" do
+      assert SkillProfile.moments(SkillProfile.put(%{}, "3", :aoe)) == [{:aoe, ["3"]}]
+      assert SkillProfile.moments(%{}) == []
+    end
+
+    test "only area and single-target belong to the kill" do
+      assert Enum.filter(SkillProfile.categories(), &SkillProfile.in_combo?/1) == [:aoe, :single]
+    end
+
+    test "every job says when it happens and carries an icon" do
+      for category <- SkillProfile.categories() do
+        assert is_binary(SkillProfile.moment(category))
+        assert is_binary(SkillProfile.icon(category))
+        assert is_binary(SkillProfile.label(category))
+      end
     end
   end
 

@@ -162,6 +162,29 @@ defmodule PokexWeb.TeamLive do
   defp keys_text([]), do: "nenhuma"
   defp keys_text(keys), do: Enum.join(keys, " ")
 
+  # The kill, written the way he says it: the area opens because it needs no
+  # target, and the single-target skills close once something is marked
+  # ("skill single target só funciona se eu estiver marcando um alvo"). `nil`
+  # when this pokémon has nothing to kill with — an empty string there would
+  # read as a rendering bug instead of as work still to do.
+  defp combo_text(profile) do
+    case {SkillProfile.keys(profile, :aoe), SkillProfile.keys(profile, :single)} do
+      {[], []} -> nil
+      {area, []} -> Enum.join(area, "+")
+      {[], single} -> "🎯 " <> Enum.join(single, "+")
+      {area, single} -> Enum.join(area, "+") <> " → 🎯 " <> Enum.join(single, "+")
+    end
+  end
+
+  # The jobs that are NOT the kill: the aura he holds while gathering, the heal
+  # nobody schedules, and the control that has to survive the fight to be there
+  # for the revive.
+  defp off_combo(profile) do
+    Enum.reject(SkillProfile.moments(profile), fn {category, _keys} ->
+      SkillProfile.in_combo?(category)
+    end)
+  end
+
   # Everything on this page derives from the saved team file + the Pokédex —
   # one funnel keeps the lists, the window and the suggestions in sync.
   defp assign_team(socket, team_msg \\ nil) do
@@ -604,13 +627,22 @@ defmodule PokexWeb.TeamLive do
             which is exactly the opposite of the truth. --%>
       <p
         :if={!@open? and (@row.skills != %{} or @warn?)}
-        class="mt-1 pl-8 font-mono text-[9px]"
+        class="mt-1 flex flex-wrap items-center gap-x-2 pl-8 font-mono text-[9px]"
       >
-        <span :if={@row.skills != %{}} class="text-[#7f8992]">
-          💥 {Enum.join(SkillProfile.combo(@row.skills), " → ")} · {SkillProfile.summary(@row.skills)}
-        </span>
         <span :if={@row.skills == %{}} class="text-[#f2c45b]">
           nenhuma skill classificada — abre o 💥 combo e diz o que cada tecla faz
+        </span>
+
+        <span :if={@row.skills != %{} and combo_text(@row.skills)} class="text-[#7f8992]">
+          💥 {combo_text(@row.skills)}
+        </span>
+        <span :if={@row.skills != %{} and is_nil(combo_text(@row.skills))} class="text-[#f2c45b]">
+          nada pra matar: falta uma skill de área
+        </span>
+
+        <%!-- the other moments, dimmer: they are not the kill --%>
+        <span :for={{category, keys} <- off_combo(@row.skills)} class="text-[#69737b]">
+          {SkillProfile.icon(category)} {Enum.join(keys, "+")}
         </span>
       </p>
 
@@ -624,18 +656,21 @@ defmodule PokexWeb.TeamLive do
       >
         <input type="hidden" name="name" value={@row.name} />
 
-        <%!-- What he actually came looking for, read back off the same profile:
-              the combo. Showing it is also what makes the firing-order rule
-              (left to right on the bar) visible enough to be argued with. --%>
+        <%!-- The kill, and ONLY the kill. The first cut printed every
+              classified key joined left to right and he threw it back: "eu
+              seleciono, mas o combo não é uma junção". --%>
         <p class="font-mono text-[10px] text-[#8b949d]">
-          combo:
-          <span :if={@row.skills != %{}} class="font-bold text-[#3de083]">
-            {Enum.join(SkillProfile.combo(@row.skills), " → ")}
+          na matança:
+          <span :if={combo_text(@row.skills)} class="font-bold text-[#3de083]">
+            💥 {combo_text(@row.skills)}
           </span>
-          <span :if={@row.skills == %{}} class="text-[#f2c45b]">ainda vazio</span>
+          <span :if={is_nil(combo_text(@row.skills))} class="text-[#f2c45b]">
+            ainda nada — classifica pelo menos uma como área
+          </span>
         </p>
         <p class="mb-2 font-mono text-[9px] text-[#69737b]">
-          dispara na ordem da barra, da esquerda pra direita · {SkillProfile.summary(@row.skills)} · salva sozinho
+          a área abre tudo de uma vez (não precisa de alvo) e o alvo único fecha, depois de
+          marcar · salva sozinho
         </p>
 
         <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
@@ -661,13 +696,34 @@ defmodule PokexWeb.TeamLive do
               <option
                 :for={category <- SkillProfile.categories()}
                 value={category}
+                title={SkillProfile.moment(category)}
                 selected={@row.skills[key] == category}
               >
-                {SkillProfile.label(category)}
+                {SkillProfile.icon(category)} {SkillProfile.label(category)}
               </option>
             </select>
           </label>
         </div>
+
+        <%!-- Every job he used that is NOT the kill, each with the moment it
+              belongs to. The control one carries its own warning: spending it
+              in an ordinary fight is exactly why it is barred from the combo. --%>
+        <ul
+          :if={off_combo(@row.skills) != []}
+          id={"skills-moments-" <> String.replace(@row.name, ~r/\W+/, "-")}
+          class="mt-2 space-y-0.5 border-t border-[#293238] pt-1.5 font-mono text-[9px] text-[#69737b]"
+        >
+          <li :for={{category, keys} <- off_combo(@row.skills)}>
+            {SkillProfile.icon(category)}
+            <span class="text-[#8b949d]">
+              {SkillProfile.label(category)} {Enum.join(keys, "+")}
+            </span>
+            — {SkillProfile.moment(category)}
+            <span :if={category == :crowd} class="text-[#e7ca82]">
+              (fora do combo de propósito: gasta na luta e ela não está lá pro revive)
+            </span>
+          </li>
+        </ul>
 
         <%!-- Ten dropdowns, and his hands use four of them. Which four is not
               a question for this page to ask — the recorded routes answer it. --%>

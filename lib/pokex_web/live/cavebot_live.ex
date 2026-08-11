@@ -814,6 +814,35 @@ defmodule PokexWeb.CavebotLive do
     do:
       "fica parado #{div(Pokex.Settings.get(:cavebot_stop_wait_ms), 1000)}s pra recuperar cooldown"
 
+  # What the recording learned from his hands at this waypoint, in one line:
+  # where he parked the pokémon, how long he let the pile close in, how long
+  # the kill took, and the combo he used (as INTENT — the mashing on cooldown
+  # is not a decision).
+  defp taught_label(wp) do
+    [park_part(wp), gather_part(wp), fight_part(wp), combo_part(wp)]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, " · ")
+    end
+  end
+
+  defp park_part(%{park_point: {x, y}}), do: "🖱️ #{x}, #{y}"
+  defp park_part(_none), do: nil
+
+  defp gather_part(%{gather_ms: ms}) when is_integer(ms), do: "bolo #{seconds(ms)}"
+  defp gather_part(_none), do: nil
+
+  defp fight_part(%{fight_ms: ms}) when is_integer(ms), do: "luta #{seconds(ms)}"
+  defp fight_part(_none), do: nil
+
+  defp combo_part(%{combo: [_ | _] = combo}),
+    do: "💥 " <> Enum.join(Recording.combo_intent(combo), " ")
+
+  defp combo_part(_none), do: nil
+
+  defp seconds(ms), do: "#{Float.round(ms / 1000, 1)}s"
+
   # Only a stop worth mentioning: every waypoint has SOME dwell, and printing
   # "0s" on each of forty of them is noise, not information.
   defp dwell_label(%{dwell_ms: ms}) when is_integer(ms) and ms >= 1_000,
@@ -1410,6 +1439,17 @@ defmodule PokexWeb.CavebotLive do
                       <.icon name="hero-trash" class="size-3.5" />
                     </button>
                   </div>
+
+                  <%!-- What HE did here, learned from his own hands. Only
+                        where there is something to say: forty lines of "—"
+                        would bury the four that matter. --%>
+                  <p
+                    :if={taught_label(wp)}
+                    id={"waypoint-taught-#{index}"}
+                    class="mt-1 pl-7 font-mono text-pk-meta text-pk-text-3"
+                  >
+                    {taught_label(wp)}
+                  </p>
 
                   <%!-- The job lives on the SELECTED waypoint only: fourteen rows
                        each carrying three more buttons is a wall, and the choice

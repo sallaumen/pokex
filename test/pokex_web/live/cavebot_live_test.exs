@@ -315,6 +315,42 @@ defmodule PokexWeb.CavebotLiveTest do
     end
   end
 
+  # The route knows a lot about his hunt now; the page has to SHOW it, or he
+  # cannot judge a recording before running it.
+  describe "what the waypoint learned, on screen" do
+    test "a kill spot shows the point, the huddle, the fight and the combo", %{conn: conn} do
+      {:ok, route} = Route.append(Route.new("mob"), {10, 10, 7})
+
+      :ok =
+        route
+        |> Route.set_park_point(0, {2490, 417})
+        |> Route.set_timing(0,
+          gather_ms: 3_300,
+          fight_ms: 9_900,
+          combo: ~w(1 1 3 3 3 4 4 5)
+        )
+        |> Store.add()
+
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ "🖱️ 2490, 417"
+      assert html =~ "bolo 3.3s"
+      assert html =~ "luta 9.9s"
+      # the INTENT, not the mashing
+      assert html =~ "💥 1 3 4 5"
+      refute html =~ "1 1 3 3 3"
+    end
+
+    test "a plain corner says nothing — forty empty lines would bury the four", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      refute html =~ ~s(id="waypoint-taught-0")
+      refute html =~ ~s(id="waypoint-taught-1")
+    end
+  end
+
   # THE bug of the first timed recording (2026-08-11): all 52 waypoints of his
   # first real route came back with dwell nil. Standing still is exactly when
   # the client STOPS drawing the coordinate, so the reader answers nil and two

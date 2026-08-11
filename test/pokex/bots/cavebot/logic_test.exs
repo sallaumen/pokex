@@ -492,6 +492,40 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :fighting
     end
 
+    # Entering the route at the nearest corner (#199) can drop the character
+    # INSIDE a mob stretch — restart the hunt while standing among the
+    # Venusaur and that is exactly what happens. It was reasoned to be
+    # harmless and never proven; here is the proof, because "I thought about
+    # it" is not a test.
+    test "restarting inside a stretch gathers from where it entered" do
+      logic = %{Logic.new(lure_route(), @cfg) | combat_running?: true}
+
+      # {9, 3} enters at waypoint index 1 — the "mobar daqui" itself, still
+      # ahead: the leg being walked is the plain one that leads INTO the mark
+      {logic, {:walk, _dx, _dy}} = Logic.step(logic, world({9, 3, 7}), 10)
+      assert logic.wp_index == 1
+      refute Logic.luring?(logic)
+
+      # and from the arrival on, it gathers — enemies BEFORE the mark are
+      # fought like anywhere else, so the arrival tick is a clear one
+      {logic, :none} = Logic.step(logic, world({10, 0, 7}), 20)
+      assert logic.wp_index == 2
+      assert Logic.luring?(logic)
+    end
+
+    test "restarting PAST the start mark gathers immediately, enemies and all" do
+      # {13, 8} enters at index 2, which sits INSIDE the marked stretch. The
+      # posture must come from the leg it entered on — before this, the
+      # decision was made on the un-homed index 0 and a crowd on screen
+      # stopped the hunt dead in the middle of the gathering.
+      logic = %{Logic.new(lure_route(), @cfg) | combat_running?: true}
+
+      {logic, {:walk, _dx, _dy}} = Logic.step(logic, world({13, 8, 7}, 2), 10)
+      assert logic.wp_index == 2
+      assert Logic.luring?(logic)
+      assert logic.state == :walking
+    end
+
     test "a route with no marks never lures" do
       logic = %{Logic.new(route(), @cfg) | combat_running?: true, homed?: true}
 

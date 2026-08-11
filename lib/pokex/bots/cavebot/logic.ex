@@ -168,6 +168,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # not-attacking half is Combat's, told by the `:posture` fact the Worker
   # publishes — here the hunt simply keeps its feet moving.
   defp walk(logic, world, now) do
+    # Enter the route BEFORE judging the leg: until the hunt has homed,
+    # `wp_index` is 0 by default and says nothing about where the character
+    # actually stands, so a restart inside a mob stretch read the posture off
+    # a leg it was not on.
+    logic = home_if_sighted(logic, world)
+
     cond do
       luring?(logic) -> follow_route(logic, world, now)
       world.enemies > 0 -> enter_fight(logic, now)
@@ -196,8 +202,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # position changes, so one moved tile is what brings the reading back.
   defp follow_route(logic, %{pos: nil}, now), do: logic |> blind(now) |> maybe_kick(now)
 
+  defp home_if_sighted(logic, %{pos: pos}) when is_tuple(pos), do: home_in(logic, pos)
+  defp home_if_sighted(logic, _blind), do: logic
+
   defp follow_route(logic, %{pos: {x, y, _} = pos}, now) do
-    logic = logic |> sighted() |> home_in(pos)
+    logic = sighted(logic)
     wp = current_wp(logic)
     dx = wp.x - x
     dy = wp.y - y

@@ -79,8 +79,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCatcher do
   def init(test), do: {:ok, test}
 
   @impl true
-  def handle_cast(:sweep_now, test) do
-    send(test, :sweep_asked)
+  def handle_cast({:sweep_now, around}, test) do
+    send(test, {:sweep_asked, around})
     {:noreply, test}
   end
 end
@@ -685,7 +685,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       battle!([])
       Enum.each(1..6, fn _ -> tick!(worker) end)
 
-      assert_receive :sweep_asked, 1_000
+      assert_receive {:sweep_asked, _around}, 1_000
     end
 
     test "the revive combo goes out through the Body, at :high", %{worker: worker} do
@@ -739,7 +739,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       battle!([])
       Enum.each(1..6, fn _ -> tick!(worker) end)
 
-      refute_receive :sweep_asked, 300
+      refute_receive {:sweep_asked, _around}, 300
     end
   end
 

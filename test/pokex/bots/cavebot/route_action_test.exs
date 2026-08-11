@@ -168,19 +168,25 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
       assert Route.lure_issue(square()) == nil
     end
 
-    test "a start with no end, and an end with no start" do
+    test "a start with no end at all is the one that breaks the hunt" do
       assert Route.lure_issue(Route.set_action(square(), 1, :lure_start)) == :start_without_end
-      assert Route.lure_issue(Route.set_action(square(), 1, :lure_end)) == :end_without_start
     end
 
-    test "two starts before one end is a start nobody closed" do
+    # An extra "até aqui" costs nothing: it just marks another kill spot,
+    # which is exactly what it is. Crying wolf about it taught him to ignore
+    # the warning that DOES matter.
+    test "an end with no start is not a problem" do
+      assert Route.lure_issue(Route.set_action(square(), 1, :lure_end)) == nil
+    end
+
+    test "two gatherings closing on one end are both closed" do
       route =
         square()
         |> Route.set_action(0, :lure_start)
         |> Route.set_action(1, :lure_start)
         |> Route.set_action(2, :lure_end)
 
-      assert Route.lure_issue(route) == :start_without_end
+      assert Route.lure_issue(route) == nil
     end
   end
 end

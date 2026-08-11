@@ -89,8 +89,15 @@ defmodule Pokex.Bots.Catcher.Worker do
   runs later, so "deu tempo" on screen would be a lie about a sweep that did
   start. The answer comes back as a `{:sweep_result, text}` broadcast on this
   worker's topic instead — the panel already listens there.
+
+  Centred on `around` (a screen point) when given, else on the character. The
+  hunt passes the tile his pokémon was parked on: after a gathered fight the
+  corpses lie around the POKÉMON, not around him ("esses corpos de pokémons
+  não estão ao redor do meu personagem" — 2026-08-11), and a sweep centred on
+  the character throws every ball at empty ground.
   """
-  def sweep_now(server \\ __MODULE__), do: GenServer.cast(server, :sweep_now)
+  def sweep_now(server \\ __MODULE__, around \\ nil),
+    do: GenServer.cast(server, {:sweep_now, around})
 
   @impl true
   def init(%{body: body, scanner: scanner}) do
@@ -200,10 +207,10 @@ defmodule Pokex.Bots.Catcher.Worker do
   # test), but never past a gate — the reasons a sweep is held are the reasons
   # it would be wrong or invisible, not paperwork. The verdict goes out as a
   # broadcast because the caller is a LiveView that must not wait on us.
-  def handle_cast(:sweep_now, state) do
+  def handle_cast({:sweep_now, around}, state) do
     case sweep_hold_reason(state) do
       nil ->
-        case begin_sweep(state) do
+        case begin_sweep(state, around) do
           {:ok, state} ->
             sweep_result("varrendo #{length(state.sweep_queue)} tile(s)…")
             {:noreply, state}
@@ -392,13 +399,13 @@ defmodule Pokex.Bots.Catcher.Worker do
     end
   end
 
-  defp begin_sweep(state) do
-    case sweep_points() do
+  defp begin_sweep(state, around \\ nil) do
+    case sweep_points(around) do
       {:ok, []} ->
         {:error, "nenhum tile sobrou dentro da tela"}
 
       {:ok, points} ->
-        log(:macro, "🧹 varredura cega em #{length(points)} tile(s) (#{Ball.key()} em cada um)")
+        log(:macro, "🧹 varredura cega em #{length(points)} tile(s)#{around_text(around)}")
         send(self(), :sweep_tile)
         {:ok, broadcast_and_return(%{state | sweep_queue: points, sweeps: state.sweeps + 1})}
 
@@ -409,12 +416,15 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # Loaded from disk on every sweep, like the rest of the fleet: recalibrating
   # applies without a restart.
-  defp sweep_points do
+  defp sweep_points(around) do
     case Calibration.load() do
-      {:ok, calib} -> Sweep.points(calib)
+      {:ok, calib} -> Sweep.points(calib, around)
       _no_calibration -> {:error, :no_calibration}
     end
   end
+
+  defp around_text({x, y}), do: " em volta do pokémon (#{x}, #{y})"
+  defp around_text(_character), do: " (#{Ball.key()} em cada um)"
 
   defp sweep_hold_reason(state) do
     cond do

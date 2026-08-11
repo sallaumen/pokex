@@ -795,6 +795,31 @@ defmodule PokexWeb.CavebotLiveTest do
       assert [%Route{waypoints: [_first, %{stops: [:cooldown_revive]}]}] = Store.all()
     end
 
+    # "eu mesmo errei alguns combos ali" — the marks are his, the pairing is
+    # what gets fixed.
+    test "arrumar marcas pairs one gathering per kill spot", %{conn: conn} do
+      {:ok, route} = Route.append(Route.new("mob"), {10, 10, 7})
+      {:ok, route} = Route.append(route, {20, 10, 7})
+      {:ok, route} = Route.append(route, {30, 10, 7})
+
+      :ok =
+        route
+        |> Route.set_action(1, :lure_end)
+        |> Route.set_action(2, :lure_end)
+        |> Store.add()
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      html = view |> element("#tidy-marks") |> render_click()
+
+      # the two kill spots stay (two piles at the same corner is real), and a
+      # gathering now leads into the first
+      assert [%Route{waypoints: [a, b, c]}] = Store.all()
+      assert {a.action, b.action, c.action} == {:lure_start, :lure_end, :lure_end}
+      refute html =~ ~s(id="lure-warning")
+      assert html =~ "arrumei"
+    end
+
     test "a job can be taken back", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
       {:ok, view, _html} = live(conn, ~p"/cavebot")

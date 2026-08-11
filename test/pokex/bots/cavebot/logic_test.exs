@@ -636,7 +636,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     test "the hunt asks for ONE sweep at a marked waypoint, then waits" do
       logic = after_kill_at(1, swept_route())
 
-      assert {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 10)
+      assert {logic, {:sweep, nil}} = Logic.step(logic, swept_world(0, nil), 10)
       assert logic.state == :post_fight
 
       # and never asks twice for the same stop
@@ -655,7 +655,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
     test "the route waits while the sweep is WORKING, and leaves when it stops" do
       logic = after_kill_at(1, swept_route())
-      {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
 
       # queue moving: hold, however long the dwell says
       {logic, :none} = Logic.step(logic, swept_world(8, 2_000), 2_100)
@@ -673,7 +673,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     # queue yet, and an empty queue at that instant is not a finished sweep.
     test "an empty queue right after the request is not a finished sweep" do
       logic = after_kill_at(1, swept_route())
-      {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
 
       {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_400)
       assert logic.state == :post_fight
@@ -686,7 +686,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     # MOVING is a queue nobody is working, and it must never hold the road.
     test "a frozen queue releases the hunt at the cap" do
       logic = after_kill_at(1, swept_route())
-      {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
 
       {logic, :none} = Logic.step(logic, swept_world(9, 1_000), 2_000)
       assert logic.state == :post_fight
@@ -697,7 +697,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
     test "the next stop may sweep again — the latch is per stop, not per hunt" do
       logic = after_kill_at(1, swept_route())
-      {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
       {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
       assert logic.state == :walking
       assert logic.stops_done == []
@@ -733,7 +733,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       logic = after_kill_at(1, stop_route([:wait, :sweep, :cooldown_revive]))
 
       assert {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
-      assert {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 10)
+      assert {logic, {:sweep, nil}} = Logic.step(logic, swept_world(0, nil), 10)
 
       # the sweep holds the road while its queue moves
       {logic, :none} = Logic.step(logic, swept_world(6, 100), 200)
@@ -780,8 +780,25 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :post_fight
 
       # the sweep still owed goes out; the revive does NOT happen twice
-      assert {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 1_200)
+      assert {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 1_200)
       assert logic.stops_done == [:sweep, :cooldown_revive]
+    end
+
+    # "esses corpos de pokémons não estão ao redor do meu personagem" (Lucas,
+    # 2026-08-11): he parks the pokémon with a middle click and the pile dies
+    # around IT. Sweeping around the character throws every ball at bare
+    # ground.
+    test "the sweep is centred where the pokémon was parked" do
+      route = Route.set_park_point(stop_route([:sweep]), 0, {2490, 417})
+      logic = after_kill_at(1, route)
+
+      assert {_logic, {:sweep, {2490, 417}}} = Logic.step(logic, swept_world(0, nil), 10)
+    end
+
+    test "with no parked point the sweep falls back to the character" do
+      logic = after_kill_at(1, stop_route([:sweep]))
+
+      assert {_logic, {:sweep, nil}} = Logic.step(logic, swept_world(0, nil), 10)
     end
 
     test "a waypoint with no stops leaves on the dwell, as it always did" do

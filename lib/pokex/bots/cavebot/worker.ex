@@ -398,9 +398,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # "varrer aqui": the pile the hunt gathered died on this tile, and its
   # corpses are worth a ball each. A cast, never a call — the Catcher parks on
   # multi-second captures and this worker ticks five times a second.
-  def translate(state, :sweep) do
-    Catcher.Worker.sweep_now(state.catcher)
-    log(:macro, "🧹 varrendo os corpos antes de seguir")
+  def translate(state, {:sweep, around}) do
+    Catcher.Worker.sweep_now(state.catcher, around)
+    log(:macro, sweep_text(around))
     release_walk(state)
   end
 
@@ -543,6 +543,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       end
     end)
   end
+
+  defp sweep_text({x, y}), do: "🧹 varrendo onde o pokémon estava (#{x}, #{y})"
+  defp sweep_text(_character), do: "🧹 varrendo os corpos antes de seguir"
 
   # nil when the portrait or the neutral point was never marked: a missing
   # calibration must cost the hunt a log line, never a stuck stop.

@@ -58,7 +58,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | :run_combat
           | :halt_combat
           | {:nudge, integer, integer}
-          | :sweep
+          | {:sweep, {integer, integer} | nil}
           | :cooldown_revive
           | {:park, {integer, integer}}
           | {:block, atom}
@@ -544,8 +544,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
     Enum.find(Route.stops(), &(&1 in wanted and &1 not in logic.stops_done))
   end
 
+  # The sweep is centred where the corpses ARE: after a gathered fight they lie
+  # around the tile the pokémon was parked on, several tiles from him.
   defp run_stop(logic, :sweep, now) do
-    {mark_done(logic, :sweep, :sweep, now), :sweep}
+    {mark_done(logic, :sweep, :sweep, now), {:sweep, park_point(logic)}}
   end
 
   # Reviving resets every cooldown: the fastest way back to a full bar is to
@@ -556,6 +558,13 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp run_stop(logic, :wait, now) do
     {mark_done(logic, :wait, :stop_wait, now), :none}
+  end
+
+  defp park_point(%__MODULE__{route: %Route{waypoints: []}}), do: nil
+
+  defp park_point(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
+    index = Integer.mod(logic.wp_index - 1, length(waypoints))
+    Enum.at(waypoints, index)[:park_point]
   end
 
   defp mark_done(logic, stop, since_key, now) do

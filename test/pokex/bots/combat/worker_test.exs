@@ -161,6 +161,35 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     assert skills != [] and Enum.uniq(skills) == ["2"]
   end
 
+  # "quando você fica tentando matar de um em um, ele é extremamente mais
+  # lento" (Lucas, 2026-08-11). The hunt gathers a pile and hands combat the
+  # combo HE recorded at that spot; it opens with it the moment the fire is
+  # released.
+  @tag :tmp_dir
+  test "the hunt's combo opens the fight, once, on the edge", %{worker: worker} do
+    posture = fn value, combo ->
+      WorldState.put(:posture, %{posture: value, combo: combo}, now_ms())
+    end
+
+    posture.(:hold_fire, ~w(1 3 4))
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+    refute eventually(fn -> "3" in presses() end, 250)
+
+    # released: his combo goes out
+    posture.(:free_fight, ~w(1 3 4))
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+    assert eventually(fn -> "4" in presses() end)
+    assert "3" in presses()
+
+    # and it is an EDGE, not a per-frame thing
+    before = Enum.count(presses(), &(&1 == "4"))
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+    Process.sleep(150)
+    assert Enum.count(presses(), &(&1 == "4")) == before
+  end
+
   @tag :tmp_dir
   test "lock lost for the streak broadcasts the kill", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.kill_topic())

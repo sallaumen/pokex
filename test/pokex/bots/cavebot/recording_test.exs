@@ -156,6 +156,24 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
     end
   end
 
+  # His real combos came back as 1,1,3,3,3,4,4,4,4,4,5,5,5 — he mashes the key
+  # while it is on cooldown. The intention underneath is 1,3,4,5.
+  describe "what he MEANT to press" do
+    test "consecutive repeats collapse into one" do
+      assert Recording.combo_intent(~w(1 1 3 3 3 4 4 4 4 4 5 5 5)) == ~w(1 3 4 5)
+    end
+
+    # Coming BACK to a skill after others is a decision, not mashing: his
+    # longest recorded combo ends 8,8,2,3,4 after a first 3 and 4.
+    test "a skill pressed again LATER stays" do
+      assert Recording.combo_intent(~w(3 3 4 4 5 3)) == ~w(3 4 5 3)
+    end
+
+    test "nothing pressed is nothing meant" do
+      assert Recording.combo_intent([]) == []
+    end
+  end
+
   describe "saying what it did" do
     test "the note names the stop and the marks" do
       route = route_of([100, 100, 34_000])

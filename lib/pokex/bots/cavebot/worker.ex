@@ -305,7 +305,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
     # gathering (Logic.gathering?/2).
     holding? = Logic.luring?(state.logic) or Logic.gathering?(state.logic, now)
     posture = if holding?, do: :hold_fire, else: :free_fight
-    WorldState.put(:posture, %{posture: posture}, now)
+
+    # …and WHAT to open with when the fire is released: his own combo from
+    # this kill spot, so the area damage lands on the whole pile instead of
+    # one straggler at a time.
+    WorldState.put(:posture, %{posture: posture, combo: Logic.combo(state.logic)}, now)
 
     if posture != state.posture do
       log(:macro, posture_text(posture))

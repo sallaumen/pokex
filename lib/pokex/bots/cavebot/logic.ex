@@ -29,7 +29,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   interval. Movement is what restores sight.
   """
 
-  alias Pokex.Bots.Cavebot.Route
+  alias Pokex.Bots.Cavebot.{Recording, Route}
 
   @enforce_keys [:route, :config]
   defstruct state: :walking,
@@ -194,6 +194,27 @@ defmodule Pokex.Bots.Cavebot.Logic do
       nil -> false
       at -> now - at < gather_wait(logic)
     end
+  end
+
+  @doc """
+  The combo HE recorded at the kill spot the hunt is standing on, as intent
+  (consecutive mashing collapsed) — `[]` anywhere else.
+
+  The Worker publishes it with the posture, and Combat fires it the moment the
+  fire is released: "quando você fica tentando matar de um em um, ele é
+  extremamente mais lento" (Lucas, 2026-08-11). The pile is around the pokémon
+  and the area damage has to land on all of it at once.
+  """
+  @spec combo(t) :: [String.t()]
+  def combo(%__MODULE__{since: since} = logic) do
+    if Map.has_key?(since, :gather), do: kill_spot_combo(logic), else: []
+  end
+
+  defp kill_spot_combo(%__MODULE__{route: %Route{waypoints: []}}), do: []
+
+  defp kill_spot_combo(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
+    index = Integer.mod(logic.wp_index - 1, length(waypoints))
+    Recording.combo_intent(Enum.at(waypoints, index)[:combo] || [])
   end
 
   defp gather_wait(%__MODULE__{gather_wait: measured}) when is_integer(measured), do: measured

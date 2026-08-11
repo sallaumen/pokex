@@ -318,6 +318,29 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       )
     end
 
+    # Publishes the bar the way the real feed does (every ~120ms, forever) for
+    # as long as the caller watches. The receipt blocks until a reading captured
+    # STRICTLY AFTER the press exists — a same-millisecond one could have been
+    # taken before the key landed. Writing that reading ONCE bets it lands in a
+    # later millisecond than the press; here the whole dance routinely fits in
+    # one, the receipt gives up unread and judges nothing (1 run in 4,
+    # 2026-08-11). No frame goes out meanwhile and the Logic dedups on
+    # captured_at, so the bar alone can never start a fresh burst.
+    defp feeding_bar(ready_keys, watch, timeout) do
+      deadline = System.monotonic_time(:millisecond) + timeout
+      feed_and_watch(ready_keys, watch, deadline)
+    end
+
+    defp feed_and_watch(ready_keys, watch, deadline) do
+      bar!(ready_keys)
+
+      cond do
+        watch.() -> true
+        System.monotonic_time(:millisecond) > deadline -> false
+        true -> Process.sleep(20) && feed_and_watch(ready_keys, watch, deadline)
+      end
+    end
+
     @tag :tmp_dir
     test "a key still ready after the burst is pressed AGAIN", %{worker: worker} do
       SettingsStash.stash!(skill_keys: ["1"], combat_skill_burst_size: 1)
@@ -332,26 +355,29 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       assert eventually(fn -> Worker.status(worker).state == :fighting end)
 
       # the same re-feed dance the other burst tests use: a burst landing while
-      # the Tab spawn is alive is legitimately skipped
+      # the Tab spawn is alive is legitimately skipped. FRAMES only — a bar
+      # rewritten here becomes the verdict of a burst that predates it.
       assert eventually(fn ->
                "1" in presses() or
-                 (bar!(["1"]) && world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
+                 (world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
              end)
 
+      # a fresh frame per poll is a fresh decision, so the dance above can land
+      # more than one ORDINARY burst: only presses after this line are retries
+      ordinary = Enum.count(presses(), &(&1 == "1"))
+
       # …and STILL ready after it: the press never landed
-      bar!(["1"])
+      assert feeding_bar(["1"], fn -> logged?("não saiu") end, 2_000)
 
-      # the receipt is the synchronisation point, not a sleep: it fires when the
-      # bar reading AFTER the press has been read and judged
-      assert await_log("não saiu", 2_000)
-
-      assert eventually(fn -> length(Enum.filter(presses(), &(&1 == "1"))) >= 2 end),
+      # announcing the retry is not doing it: the key has to reach the keyboard
+      assert eventually(fn -> Enum.count(presses(), &(&1 == "1")) > ordinary end),
              "não re-apertou: #{inspect(presses())}"
     end
 
     @tag :tmp_dir
     test "a key that went on cooldown is left alone", %{worker: worker} do
       SettingsStash.stash!(skill_keys: ["1"], combat_skill_burst_size: 1)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
 
       bar!(["1"])
       world!(worker, battle_obs(enemies: [0]))
@@ -361,13 +387,18 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
       assert eventually(fn ->
                "1" in presses() or
-                 (bar!(["1"]) && world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
+                 (world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
              end)
 
-      # it fired: no longer ready
-      bar!([])
-
-      refute eventually(fn -> length(Enum.filter(presses(), &(&1 == "1"))) >= 2 end, 400)
+      # it fired: no longer ready. Kept flowing for the reason above plus one
+      # more — a receipt with nothing to read answers "don't know", and this
+      # refute would pass without the retry path ever being asked the question.
+      #
+      # The DECISION is what is refuted, not the press count: the dance above
+      # can land two ordinary bursts by itself, which counting keys read as a
+      # retry (1 run in 12, 2026-08-11). Every retry is announced first, so
+      # silence on the log topic is the proof.
+      refute feeding_bar([], fn -> logged?("não saiu") end, 400)
     end
   end
 
@@ -420,25 +451,15 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     end
   end
 
-  # Drains combat's own log topic looking for one line: the Logic narrates on
-  # the same topic, so the first message is rarely the one being waited on.
-  defp await_log(fragment, timeout) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    drain_log(fragment, deadline)
-  end
-
-  defp drain_log(fragment, deadline) do
-    remaining = deadline - System.monotonic_time(:millisecond)
-
-    if remaining <= 0 do
-      false
-    else
-      receive do
-        {:combat_log, _level, text} ->
-          String.contains?(text, fragment) or drain_log(fragment, deadline)
-      after
-        remaining -> false
-      end
+  # Drains combat's own log topic looking for one line, WITHOUT blocking: the
+  # Logic narrates on the same topic, so the line being waited on is rarely the
+  # first message — and a caller polling while it feeds the world has to be able
+  # to ask again and again, rather than parking on a deadline.
+  defp logged?(fragment) do
+    receive do
+      {:combat_log, _level, text} -> String.contains?(text, fragment) or logged?(fragment)
+    after
+      0 -> false
     end
   end
 

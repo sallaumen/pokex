@@ -188,9 +188,13 @@ defmodule Pokex.Bots.Fishing.Worker do
   # tick is routine DEBUG chatter (per-frame bubble counts), hidden by default
   # in the panel feed. Elevating the hold transition means the lock never
   # scrolls past unseen the way the old once-only debug log did.
+  # ...and when the throw finally proved itself: that frame carries the only
+  # measurement of how long the bait took to land, and a measurement that lands
+  # at :debug is a measurement nobody will ever read (the journal keeps :macro
+  # and above).
   defp tick_level(logic, previous) do
     if logic.state != previous.state or logic.counters != previous.counters or
-         logic.holding? != previous.holding?,
+         logic.holding? != previous.holding? or logic.line_seen? != previous.line_seen?,
        do: :macro,
        else: :debug
   end

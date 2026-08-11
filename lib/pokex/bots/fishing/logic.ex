@@ -43,6 +43,15 @@ defmodule Pokex.Bots.Fishing.Logic do
             # config.dry_casts_alarm the cast emits {:alarm, _} (the rod key is
             # probably not reaching the game) and the count restarts.
             dry_casts: 0,
+            # WHEN this cycle's throw happened, and WHO asked for it. entered_at
+            # cannot answer either question: a bite peak refreshes it, and by the
+            # time the water is judged the throw's own history is gone. Both exist
+            # to be said out loud — 78% of the throws taken right after a catch
+            # never put a line in the water (measured across two of his sessions,
+            # 2026-08-11), a shape found by hand in the journal that the cycle
+            # should be stating itself.
+            cast_at: nil,
+            cast_origin: :start,
             failures: 0,
             error: nil,
             counters: %{cycles: 0, hooked: 0, failures: 0}
@@ -96,17 +105,43 @@ defmodule Pokex.Bots.Fishing.Logic do
 
       true ->
         logic = maybe_settle_by_time(%{logic | waiting_until: nil}, now)
-        do_step(witness_the_cast(logic, obs), obs, now)
+        {logic, witnessed} = witness_the_cast(logic, obs, now)
+        {logic, actions} = do_step(logic, obs, now)
+        {logic, witnessed ++ actions}
     end
   end
 
   # One place decides that this cycle's cast really happened: any frame showing
   # the line (or a bite, which implies it). Every clause below used to set this
   # by hand on a BITE only.
-  defp witness_the_cast(logic, obs) do
-    if line_present?(obs) or Map.get(obs, :glow) == true,
-      do: %{logic | line_seen?: true},
-      else: logic
+  #
+  # The frame that FIRST proves it also says how long the proof took. That number
+  # is the whole basis for cast_grace_ms — it was set to 5s off a handful of
+  # journal readings, and until it is a distribution the grace is a guess that
+  # every cycle pays for.
+  defp witness_the_cast(%__MODULE__{line_seen?: true} = logic, _obs, _now), do: {logic, []}
+
+  # Only the LINE times the throw. A bare bite-magnitude frame also witnesses the
+  # cast (it could not bite without one) but says nothing about when the bait
+  # landed — the cast splash flashes cyan too, and a splash counted as arrival
+  # would report a flight of 50ms and poison the very distribution this exists to
+  # collect. It witnesses silently.
+  defp witness_the_cast(logic, obs, now) do
+    cond do
+      line_present?(obs) ->
+        {%{logic | line_seen?: true},
+         [
+           {:log,
+            "🎣 linha viva #{now - cast_clock(logic)}ms depois do arremesso " <>
+              "(que veio depois de #{origin_label(logic.cast_origin)})"}
+         ]}
+
+      Map.get(obs, :glow) == true ->
+        {%{logic | line_seen?: true}, []}
+
+      true ->
+        {logic, []}
+    end
   end
 
   # FRAME-based settling (calm_streak) assumes ~150ms ticks. With a starved
@@ -150,7 +185,7 @@ defmodule Pokex.Bots.Fishing.Logic do
   end
 
   defp do_step(%{state: :focusing} = logic, _obs, now) do
-    {advance(logic, :casting, now, wait: logic.config.wait_focus_ms),
+    {advance(%{logic | cast_origin: :start}, :casting, now, wait: logic.config.wait_focus_ms),
      [{:click, :left, logic.config.neutral_point}]}
   end
 
@@ -229,6 +264,7 @@ defmodule Pokex.Bots.Fishing.Logic do
                holding?: false,
                holding_since: nil,
                hold_reason: nil,
+               cast_origin: :hook,
                last_action: %{text: "fisgada", at: now}
            },
            :casting,
@@ -292,7 +328,8 @@ defmodule Pokex.Bots.Fishing.Logic do
            error: "#{reason} (#{failures}x seguidas)"
        }, [{:log, reason}]}
     else
-      {advance(%{logic | failures: failures}, :casting, now), [{:log, reason}]}
+      {advance(%{logic | failures: failures, cast_origin: :failure}, :casting, now),
+       [{:log, reason}]}
     end
   end
 
@@ -309,20 +346,40 @@ defmodule Pokex.Bots.Fishing.Logic do
   # RE-THROWS atomically in the same step — a bare re-click of the water
   # can't recover a cast whose rod was never used. A real/building bite resets
   # dead_streak (see the glow:true clauses), so an active bite is never cut short.
+  #
+  # The grace forbids the RE-THROW, not the looking (see next_dead_streak): the
+  # bait may still be flying, so ACTING would yank it back out — but every empty
+  # frame of that flight is evidence, and withholding it made the verdict cost
+  # the grace PLUS a whole streak. Measured in his journal: 2.6s to notice a
+  # swallowed cast before the grace existed, 14.4s after, at an unchanged 78%
+  # of throws going dry — 136 fish/h down to 95.
   defp recast_if_dead(logic, now) do
     cond do
+      within_cast_grace?(logic, now) ->
+        {logic, []}
+
       logic.dead_streak >= logic.config.watch_dead_streak_needed ->
-        cast(logic, now, [
-          {:log, "sem bolha #{logic.dead_streak}f — re-lançando"}
-        ])
+        cast(%{logic | cast_origin: :dry}, now, [{:log, dry_log(logic, now)}])
 
       timed_out?(logic, now, logic.config.watch_timeout_ms) ->
-        cast(logic, now, [{:log, "timeout bolha — re-lançando"}])
+        cast(%{logic | cast_origin: :timeout}, now, [{:log, "timeout bolha — re-lançando"}])
 
       true ->
         {logic, []}
     end
   end
+
+  defp dry_log(logic, now) do
+    "sem linha #{now - cast_clock(logic)}ms depois do arremesso " <>
+      "(que veio depois de #{origin_label(logic.cast_origin)}), " <>
+      "#{logic.dead_streak}f de água vazia — re-lançando"
+  end
+
+  defp origin_label(:hook), do: "fisgada"
+  defp origin_label(:dry), do: "re-lance"
+  defp origin_label(:timeout), do: "timeout"
+  defp origin_label(:failure), do: "falha"
+  defp origin_label(_start), do: "início"
 
   defp cast(logic, now, prefix_actions \\ []) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
@@ -351,7 +408,9 @@ defmodule Pokex.Bots.Fishing.Logic do
         {dry, []}
       end
 
-    logic = %{logic | line_seen?: false, dry_casts: dry}
+    # cast_at is the throw's OWN clock: entered_at is refreshed by every bite peak,
+    # so by the time the water is judged it no longer says when the rod was pressed.
+    logic = %{logic | line_seen?: false, dry_casts: dry, cast_at: now}
 
     # Enter watching NOT settled: the cast splash also flashes cyan, so we must
     # first see the water go calm (splash gone) before a cyan spike counts as a
@@ -394,25 +453,30 @@ defmodule Pokex.Bots.Fishing.Logic do
   # RESETS the streak — a live line is never recast. Only genuinely empty water (a
   # dropped rod / a cast that never landed, reading ~0) counts up toward re-throw.
   #
-  # ...and only AFTER the bait has had time to land. The rod key does not put the
-  # lure in the water: the throw arcs, and the lure appears seconds later (MEASURED
-  # on Lucas's 3440×1440, journal 2026-08-10: 2-5s from the key to the first frame
-  # with any lure pixel, on every cast). The streak used to start at the instant of
-  # the cast, so "o cast falhou" was decided while the bait was still in the air —
-  # and the recast's key press yanked the bait that had just landed back OUT of the
-  # water. Empty water inside cast_grace_ms is EXPECTED, not evidence.
-  defp next_dead_streak(logic, obs, now) do
-    cond do
-      line_present?(obs) -> 0
-      within_cast_grace?(logic, now) -> 0
-      true -> logic.dead_streak + 1
-    end
+  # The streak counts from the instant of the cast, INCLUDING the flight: what the
+  # grace suspends is the re-throw (see recast_if_dead), not the looking. Empty
+  # water while the bait is in the air is not yet a verdict, but it is evidence —
+  # and evidence gathered for free during a wait we are taking anyway is what
+  # makes the verdict land the moment the grace ends instead of a streak later.
+  defp next_dead_streak(logic, obs, _now) do
+    if line_present?(obs), do: 0, else: logic.dead_streak + 1
   end
 
-  # Measured from entered_at, which the cast sets — and which only a bite peak
-  # refreshes (a bite resets the streak anyway, so a hold never re-opens the grace).
+  # The rod key does not put the lure in the water: the throw arcs, and the lure
+  # appears seconds later (MEASURED on Lucas's 3440×1440, journal 2026-08-10: 2-5s
+  # from the key to the first frame with any lure pixel). Re-throwing inside that
+  # window yanks the bait that has just landed back OUT — "joga a vara, acha que
+  # não lançou nada e re-lança".
+  #
+  # Timed from cast_at, the throw's own clock. entered_at is refreshed by every
+  # bite peak, so a held bite used to re-open the grace over a line that had been
+  # live for a minute. A hand-built struct (tests, a resumed cycle) has no
+  # cast_at yet and falls back to it.
   defp within_cast_grace?(logic, now),
-    do: now - logic.entered_at < Map.get(logic.config, :cast_grace_ms, 5_000)
+    do: now - cast_clock(logic) < Map.get(logic.config, :cast_grace_ms, 5_000)
+
+  defp cast_clock(%__MODULE__{cast_at: nil, entered_at: entered_at}), do: entered_at
+  defp cast_clock(%__MODULE__{cast_at: cast_at}), do: cast_at
 
   defp line_present?(%{line?: present?}), do: present?
   defp line_present?(_obs), do: false

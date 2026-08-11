@@ -745,6 +745,11 @@ defmodule Pokex.Settings do
     # in between is not a finished sweep. Only this first window is a clock;
     # after it the wait follows the queue's own progress.
     cavebot_sweep_grace_ms: 1_500,
+    # The plain "esperar" stop: seconds standing still so cooldowns come back
+    # on their own. The revive stop short-circuits this entirely (reviving
+    # resets the bar), so this is the fallback for a pokémon with no revive to
+    # spend.
+    cavebot_stop_wait_ms: 5_000,
     cavebot_clear_debounce_ms: 800,
     # Recording the route WHILE WALKING: a new waypoint only lands after
     # walking this far since the last one. Without it the route would become
@@ -926,6 +931,7 @@ defmodule Pokex.Settings do
     hold_max_ms: 200..30_000,
     cavebot_capture_wait_ms: 0..600_000,
     cavebot_sweep_grace_ms: 0..60_000,
+    cavebot_stop_wait_ms: 0..600_000,
     posture_max_age_ms: 500..60_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,

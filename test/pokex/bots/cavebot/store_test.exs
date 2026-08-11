@@ -16,7 +16,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     [got] = Store.all()
     assert got.name == "cavena"
     assert got.dungeon == "cavena-dg"
-    assert got.waypoints == [%{x: 10, y: 20, z: 7, action: :walk, sweep?: false}]
+    assert got.waypoints == [%{x: 10, y: 20, z: 7, action: :walk, stops: []}]
   end
 
   test "a corrupted file becomes an empty list instead of crashing", %{tmp_dir: tmp} do
@@ -36,7 +36,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
 
     matching = Enum.filter(Store.all(), &(&1.name == "cavena"))
     assert length(matching) == 1
-    assert hd(matching).waypoints == [%{x: 3, y: 4, z: 7, action: :walk, sweep?: false}]
+    assert hd(matching).waypoints == [%{x: 3, y: 4, z: 7, action: :walk, stops: []}]
   end
 
   test "an empty name is rejected" do
@@ -81,7 +81,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     [got] = Store.all()
     assert got.name == "sem-dg"
     assert got.dungeon == nil
-    assert got.waypoints == [%{x: 1, y: 2, z: 7, action: :walk, sweep?: false}]
+    assert got.waypoints == [%{x: 1, y: 2, z: 7, action: :walk, stops: []}]
   end
 
   # Waypoints gained a JOB after his routes were already recorded and walked:
@@ -108,6 +108,37 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
       File.write!(Path.join(tmp, "routes.json"), body)
 
       assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
+    end
+
+    # Stops shipped for an hour as a single boolean before becoming a list.
+    # Whatever he marked in that window still reads.
+    test "a waypoint written with the old sweep flag reads as the sweep stop", %{tmp_dir: tmp} do
+      body =
+        JSON.encode!(%{
+          "routes" => [
+            %{
+              "name" => "antiga",
+              "z" => 7,
+              "waypoints" => [%{"x" => 1, "y" => 2, "z" => 7, "sweep" => true}]
+            }
+          ]
+        })
+
+      File.write!(Path.join(tmp, "routes.json"), body)
+
+      assert [%Route{waypoints: [%{stops: [:sweep]}]}] = Store.all()
+    end
+
+    test "the stop list round-trips, in running order", %{tmp_dir: tmp} do
+      {:ok, route} = Route.append(Route.new("paradas"), {1, 2, 7})
+
+      route
+      |> Route.set_stop(0, :wait, true)
+      |> Route.set_stop(0, :cooldown_revive, true)
+      |> Store.add()
+
+      assert [%Route{waypoints: [%{stops: [:cooldown_revive, :wait]}]}] = Store.all()
+      assert File.read!(Path.join(tmp, "routes.json")) =~ "cooldown_revive"
     end
 
     test "a job nobody knows reads as plain walking, never a new atom", %{tmp_dir: tmp} do

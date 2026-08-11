@@ -185,7 +185,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                route: "cavena",
                wp_index: 0,
                wp_total: 1,
-               wp_target: %{x: 100, y: 100, z: 7, action: :walk, sweep?: false},
+               wp_target: %{x: 100, y: 100, z: 7, action: :walk, stops: []},
                pos: nil,
                pos_age_ms: nil,
                distance_tiles: nil,
@@ -448,7 +448,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.route == "cavena"
     assert status.wp_index == 0
     assert status.wp_total == 1
-    assert status.wp_target == %{x: 100, y: 100, z: 7, action: :walk, sweep?: false}
+    assert status.wp_target == %{x: 100, y: 100, z: 7, action: :walk, stops: []}
     assert status.pos == {10, 20, 7}
     assert status.pos_age_ms >= 0
     assert status.distance_tiles == %{dx: 90, dy: 80}
@@ -643,7 +643,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
       {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
       {:ok, route} = Route.append(route, {200, 100, 7})
-      :ok = Store.add(Route.set_sweep(route, 0, true))
+      :ok = Store.add(Route.set_stop(route, 0, :sweep, true))
 
       :ok = Worker.run(worker)
       minimap!({100, 100, 7})
@@ -660,6 +660,38 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       Enum.each(1..6, fn _ -> tick!(worker) end)
 
       assert_receive :sweep_asked, 1_000
+    end
+
+    test "the revive combo goes out through the Body, at :high", %{worker: worker} do
+      SettingsStash.stash!(cavebot_clear_debounce_ms: 0, cavebot_post_kill_dwell_ms: 0)
+
+      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
+      {:ok, route} = Route.append(route, {200, 100, 7})
+      :ok = Store.add(Route.set_stop(route, 0, :cooldown_revive, true))
+
+      Pokex.Calibration.save(%Pokex.Calibration{
+        scale: 1.0,
+        screen_w: 1000,
+        screen_h: 700,
+        pokemon_photo_point: {120, 90},
+        neutral_point: {500, 500}
+      })
+
+      :ok = Worker.run(worker)
+      minimap!({100, 100, 7})
+      tick!(worker)
+      tick!(worker)
+
+      battle!([0])
+      tick!(worker)
+      battle!([])
+      Enum.each(1..6, fn _ -> tick!(worker) end)
+
+      assert_receive {:performed, :high, actions}, 1_000
+      # Q → portrait → shift+Q → Q: the sequence PlayerSupport already proved
+      assert Enum.any?(actions, &match?({:press, "q"}, &1))
+      assert Enum.any?(actions, &match?({:move, {120, 90}}, &1))
+      assert Enum.any?(actions, &match?({:press, "shift+q"}, &1))
     end
 
     test "an unmarked waypoint asks for nothing", %{worker: worker} do

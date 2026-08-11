@@ -42,7 +42,7 @@ defmodule PokexWeb.CavebotLiveTest do
     assert [%Route{name: "cavena", dungeon: "cavena-dg", z: 7, waypoints: waypoints}] =
              Store.all()
 
-    assert waypoints == [%{x: 10, y: 20, z: 7, action: :walk, sweep?: false}]
+    assert waypoints == [%{x: 10, y: 20, z: 7, action: :walk, stops: []}]
     assert has_element?(view, "#waypoint-0")
     assert html =~ "waypoint 1 marcado"
     assert view |> element("#cavebot-notice") |> render() =~ "text-pk-ok"
@@ -187,8 +187,8 @@ defmodule PokexWeb.CavebotLiveTest do
     assert [%Route{waypoints: waypoints}] = Store.all()
 
     assert waypoints == [
-             %{x: 10, y: 20, z: 7, action: :walk, sweep?: false},
-             %{x: 20, y: 20, z: 7, action: :walk, sweep?: false}
+             %{x: 10, y: 20, z: 7, action: :walk, stops: []},
+             %{x: 20, y: 20, z: 7, action: :walk, stops: []}
            ]
 
     view |> element("#toggle-recording") |> render_click()
@@ -506,20 +506,27 @@ defmodule PokexWeb.CavebotLiveTest do
     # "depois que matar tudo, fazer aquela varredura de captura antes de andar"
     # (Lucas, 2026-08-10) — on the same waypoint that ends the gathering, so
     # the two marks must not compete for the one slot.
-    test "a waypoint can gather AND sweep", %{conn: conn} do
+    test "a waypoint can gather AND sweep AND reset cooldowns", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
       view |> element("#map-waypoint-1") |> render_click()
       view |> element("#waypoint-1-lure_end") |> render_click()
-      html = view |> element("#waypoint-1-sweep") |> render_click()
-
-      assert [%Route{waypoints: [_first, %{action: :lure_end, sweep?: true}]}] = Store.all()
-      assert html =~ "🧹 varre"
-
-      # and it toggles back off
       view |> element("#waypoint-1-sweep") |> render_click()
-      assert [%Route{waypoints: [_first, %{action: :lure_end, sweep?: false}]}] = Store.all()
+      html = view |> element("#waypoint-1-cooldown_revive") |> render_click()
+
+      assert [
+               %Route{
+                 waypoints: [_first, %{action: :lure_end, stops: [:cooldown_revive, :sweep]}]
+               }
+             ] = Store.all()
+
+      assert html =~ "🧹 varrer"
+      assert html =~ "⚡ resetar cooldown"
+
+      # and each toggles back off on its own
+      view |> element("#waypoint-1-sweep") |> render_click()
+      assert [%Route{waypoints: [_first, %{stops: [:cooldown_revive]}]}] = Store.all()
     end
 
     test "a job can be taken back", %{conn: conn} do

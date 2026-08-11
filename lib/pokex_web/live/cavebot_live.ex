@@ -268,17 +268,19 @@ defmodule PokexWeb.CavebotLive do
     end)
   end
 
-  # "varrer aqui": after the fight at this corner ends, sweep the ground for
-  # corpses before walking on. A second axis, not another job — the waypoint
-  # worth sweeping is usually the one already marked "até aqui".
-  def handle_event("toggle_waypoint_sweep", %{"index" => index}, socket) do
+  # What the hunt DOES at a waypoint once the fighting there stops: sweep the
+  # ground, reset the cooldowns on a revive, or simply stand still. A second
+  # axis, not more jobs — the waypoint worth sweeping and reviving at is
+  # usually the one already marked "até aqui".
+  def handle_event("toggle_waypoint_stop", %{"index" => index, "stop" => stop}, socket) do
     index = String.to_integer(index)
+    stop = decode_stop(stop)
 
     with_route(socket, fn route ->
-      sweep? = !match?(%{sweep?: true}, Enum.at(route.waypoints, index))
+      on? = stop not in Route.stops_at(route.waypoints, index)
 
-      {Route.set_sweep(route, index, sweep?),
-       "waypoint #{index + 1}: #{if sweep?, do: "varre antes de seguir", else: "não varre"}"}
+      {Route.set_stop(route, index, stop, on?),
+       "waypoint #{index + 1}: #{stop_label(stop)} #{if on?, do: "ligado", else: "desligado"}"}
     end)
   end
 
@@ -474,6 +476,29 @@ defmodule PokexWeb.CavebotLive do
 
   defp leg_label(0), do: "· fecha o ciclo:"
   defp leg_label(_index), do: "·"
+
+  # What the hunt does at a waypoint once the fighting stops. The atoms are the
+  # domain's (`Route.stop/0`); only these words are Portuguese.
+  defp decode_stop("cooldown_revive"), do: :cooldown_revive
+  defp decode_stop("wait"), do: :wait
+  defp decode_stop(_sweep), do: :sweep
+
+  defp stop_label(:sweep), do: "varrer"
+  defp stop_label(:cooldown_revive), do: "resetar cooldown"
+  defp stop_label(:wait), do: "esperar"
+
+  defp stop_icon(:sweep), do: "🧹"
+  defp stop_icon(:cooldown_revive), do: "⚡"
+  defp stop_icon(:wait), do: "⏱"
+
+  defp stop_hint(:sweep), do: "depois da luta aqui, varre o chão atrás de corpos antes de andar"
+
+  defp stop_hint(:cooldown_revive),
+    do: "guarda e revive o pokémon (Q → Shift+Q na foto → Q): zera todos os cooldowns"
+
+  defp stop_hint(:wait),
+    do:
+      "fica parado #{div(Pokex.Settings.get(:cavebot_stop_wait_ms), 1000)}s pra recuperar cooldown"
 
   # "⇅ andar 6" on the waypoint the hunt ARRIVES at from another floor — the
   # stairs, in the list, where they can be reordered and deleted like anything
@@ -923,10 +948,10 @@ defmodule PokexWeb.CavebotLive do
                             one-floor route it would be noise on every line, and
                             on a route with stairs it is the whole story. --%>
                       <span
-                        :if={wp.sweep?}
+                        :for={stop <- wp.stops}
                         class="ml-1 rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 py-0.5 text-pk-meta text-pk-ok"
                       >
-                        🧹 varre
+                        {stop_icon(stop)} {stop_label(stop)}
                       </span>
                       <span
                         :if={climb_label(@active_route.waypoints, index)}
@@ -1017,22 +1042,24 @@ defmodule PokexWeb.CavebotLive do
                     <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
 
                     <button
-                      id={"waypoint-#{index}-sweep"}
-                      phx-click="toggle_waypoint_sweep"
+                      :for={stop <- Route.stops()}
+                      id={"waypoint-#{index}-#{stop}"}
+                      phx-click="toggle_waypoint_stop"
                       phx-value-index={index}
-                      aria-pressed={to_string(wp.sweep?)}
-                      aria-label={"Waypoint #{index + 1}: varrer os corpos antes de seguir"}
-                      title="depois da luta aqui, varre o chão atrás de corpos antes de andar"
+                      phx-value-stop={stop}
+                      aria-pressed={to_string(stop in wp.stops)}
+                      aria-label={"Waypoint #{index + 1}: #{stop_label(stop)} depois da luta"}
+                      title={stop_hint(stop)}
                       class={[
                         "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
-                        if(wp.sweep?,
+                        if(stop in wp.stops,
                           do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
                           else:
                             "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:text-pk-text"
                         )
                       ]}
                     >
-                      🧹 varrer aqui
+                      {stop_icon(stop)} {stop_label(stop)}
                     </button>
                   </div>
                 </li>

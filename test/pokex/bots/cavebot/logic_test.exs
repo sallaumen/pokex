@@ -11,7 +11,8 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     post_kill_dwell_ms: 1200,
     blind_kick_ms: 1200,
     capture_wait_ms: 20_000,
-    sweep_grace_ms: 1500
+    sweep_grace_ms: 1500,
+    stop_wait_ms: 5_000
   }
 
   defp route do
@@ -600,11 +601,13 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
   # "depois que matar tudo, fazer aquela varredura de captura antes de andar e
   # continuar a rota" (Lucas, 2026-08-10).
   describe "sweeping where the pile died" do
-    defp swept_route do
+    defp stop_route(stops) do
       {:ok, r} = Route.append(Route.new("r"), {10, 10, 7})
       {:ok, r} = Route.append(r, {20, 10, 7})
-      Route.set_sweep(r, 0, true)
+      Enum.reduce(stops, r, &Route.set_stop(&2, 0, &1, true))
     end
+
+    defp swept_route, do: stop_route([:sweep])
 
     defp after_kill_at(index, route) do
       %{
@@ -696,7 +699,62 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 0)
       {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
       assert logic.state == :walking
-      refute logic.swept?
+      assert logic.stops_done == []
+    end
+  end
+
+  # "Cooldown Ressurect ... Q -> Shift + Q na foto do pokemon -> Q, para
+  # reviver, o que faz com que ele recupere os cooldowns" (Lucas, 2026-08-10).
+  describe "what else the hunt does at a stop" do
+    test "the revive goes out once, and the route resumes right after" do
+      logic = after_kill_at(1, stop_route([:cooldown_revive]))
+
+      assert {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 10)
+      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 20)
+      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_300)
+      assert logic.state == :walking
+    end
+
+    test "the plain wait stands still for stop_wait_ms, then leaves" do
+      logic = after_kill_at(1, stop_route([:wait]))
+
+      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 0)
+      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 4_000)
+      assert logic.state == :post_fight
+
+      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 5_100)
+      assert logic.state == :walking
+    end
+
+    # Marked together, they run in the canonical order — never two in one tick,
+    # because each one owns the Body while it lasts.
+    test "all three run in order, one per tick, and only then does it walk" do
+      logic = after_kill_at(1, stop_route([:wait, :sweep, :cooldown_revive]))
+
+      assert {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
+      assert {logic, :sweep} = Logic.step(logic, swept_world(0, nil), 10)
+
+      # the sweep holds the road while its queue moves
+      {logic, :none} = Logic.step(logic, swept_world(6, 100), 200)
+      assert logic.state == :post_fight
+
+      # queue drained: the wait is next, and it is a wait
+      {logic, :none} = Logic.step(logic, swept_world(0, 100), 2_000)
+      assert logic.state == :post_fight
+
+      {logic, :none} = Logic.step(logic, swept_world(0, 100), 2_100)
+      assert logic.state == :post_fight
+
+      {logic, :none} = Logic.step(logic, swept_world(0, 100), 7_200)
+      assert logic.state == :walking
+    end
+
+    test "a waypoint with no stops leaves on the dwell, as it always did" do
+      logic = after_kill_at(1, stop_route([]))
+
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 10)
+      {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_300)
+      assert logic.state == :walking
     end
   end
 

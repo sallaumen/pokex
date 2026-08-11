@@ -55,6 +55,22 @@ defmodule Pokex.Bots.Cavebot.Recording do
   end
 
   @doc """
+  What he MEANT to press, out of what he actually pressed.
+
+  A recorded combo looks like `1,1,3,3,3,4,4,4,4,4,5,5,5`: he holds the key
+  down on a cooldown until it goes off, so the same skill appears many times
+  in a row. The INTENTION is `1,3,4,5` — consecutive repeats collapse, but a
+  key pressed again LATER (after other skills) stays, because coming back to
+  a skill is a real decision.
+  """
+  @spec combo_intent([String.t()]) :: [String.t()]
+  def combo_intent(combo) when is_list(combo) do
+    combo
+    |> Enum.chunk_by(& &1)
+    |> Enum.map(&hd/1)
+  end
+
+  @doc """
   Cleans a route's marks up: every kill spot keeps its own, and each one gets
   exactly ONE gathering leading into it.
 

@@ -219,10 +219,33 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   defp step(state, obs) do
-    logic = Logic.set_posture(state.logic, posture())
+    {posture, combo} = posture()
+    state = open_with_combo(state, state.logic.posture, posture, combo)
+    logic = Logic.set_posture(state.logic, posture)
     {logic, actions} = Logic.step(logic, with_ready_skills(obs), now())
     apply_step(state, logic, actions)
   end
+
+  # The hunt's opening move, fired on the EDGE where the fire is released —
+  # once, not once per frame. It is the combo HE recorded at this kill spot,
+  # and it exists because killing one at a time throws away the gathering
+  # ("quando você fica tentando matar de um em um, ele é extremamente mais
+  # lento" — 2026-08-11).
+  # BEFORE the step, not after: the Logic's own Tab would be dispatched first
+  # and this would be dropped by the one-burst-in-flight rule. The combo IS
+  # the opening move — area damage needs no target, and Tab comes on the next
+  # frame anyway.
+  defp open_with_combo(state, :hold_fire, :free_fight, [_ | _] = combo) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:combat_log, :macro, "combate: 💥 abrindo com o combo da caçada: #{Enum.join(combo, ", ")}"}
+    )
+
+    dispatch(state, Enum.map(combo, &{:press, &1}))
+  end
+
+  defp open_with_combo(state, _was, _now, _combo), do: state
 
   # What the hunt is asking of us, read as a FACT with an age — the same
   # contract as every other reading on the blackboard. Stale, missing or
@@ -231,10 +254,13 @@ defmodule Pokex.Bots.Combat.Worker do
   # never leave the bot standing pacifist in the middle of a crowd.
   defp posture do
     case WorldState.get(:posture, Settings.get(:posture_max_age_ms), now()) do
-      {:ok, %{posture: :hold_fire}} -> :hold_fire
-      _stale_missing_or_free -> :free_fight
+      {:ok, %{posture: :hold_fire} = fact} -> {:hold_fire, combo_of(fact)}
+      {:ok, fact} -> {:free_fight, combo_of(fact)}
+      _stale_or_missing -> {:free_fight, []}
     end
   end
+
+  defp combo_of(fact), do: Map.get(fact, :combo) || []
 
   # The freshest skill-bar reading rides along on every observation the logic sees, so the
   # burst it decides fires only READY skills. nil obs stays nil (a timer wake without a

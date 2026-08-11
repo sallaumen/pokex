@@ -47,12 +47,22 @@ defmodule Pokex.Bots.Cavebot.Route do
 
   @stops [:cooldown_revive, :sweep, :wait]
 
+  @typedoc """
+  A place, what it is FOR, what happens there — and WHEN it was recorded.
+
+  `at` is the wall clock of the moment it was laid and `dwell_ms` how long he
+  stood on it. Both are how the recording stopped being a list of places and
+  became a list of intentions (see `Pokex.Bots.Cavebot.Recording`); both are
+  nil on every route recorded before the clock was read.
+  """
   @type waypoint :: %{
           x: integer,
           y: integer,
           z: integer,
           action: action,
-          stops: [stop]
+          stops: [stop],
+          at: DateTime.t() | nil,
+          dwell_ms: non_neg_integer | nil
         }
 
   @type t :: %__MODULE__{
@@ -83,15 +93,20 @@ defmodule Pokex.Bots.Cavebot.Route do
   belongs: the Logic blocks on a floor the route does NOT know, which is the
   hole-and-teleport case it was really about.
   """
-  @spec append(t, {integer, integer, integer}) :: {:ok, t}
-  def append(%__MODULE__{} = route, {x, y, z})
+  @spec append(t, {integer, integer, integer}, keyword) :: {:ok, t}
+  def append(%__MODULE__{} = route, {x, y, z}, opts \\ [])
       when is_integer(x) and is_integer(y) and is_integer(z) do
-    {:ok,
-     %{
-       route
-       | z: route.z || z,
-         waypoints: route.waypoints ++ [%{x: x, y: y, z: z, action: :walk, stops: []}]
-     }}
+    waypoint = %{
+      x: x,
+      y: y,
+      z: z,
+      action: :walk,
+      stops: [],
+      at: Keyword.get(opts, :at),
+      dwell_ms: nil
+    }
+
+    {:ok, %{route | z: route.z || z, waypoints: route.waypoints ++ [waypoint]}}
   end
 
   @doc """
@@ -124,10 +139,10 @@ defmodule Pokex.Bots.Cavebot.Route do
   Inserts a waypoint AT `index`, pushing the rest down — the fix for "faltou um
   canto no meio", which appending could never give.
   """
-  @spec insert_at(t, non_neg_integer, {integer, integer, integer}) :: {:ok, t}
-  def insert_at(%__MODULE__{} = route, index, {x, y, z} = pos)
+  @spec insert_at(t, non_neg_integer, {integer, integer, integer}, keyword) :: {:ok, t}
+  def insert_at(%__MODULE__{} = route, index, {x, y, z} = pos, opts \\ [])
       when is_integer(index) and is_integer(x) and is_integer(y) and is_integer(z) do
-    with {:ok, appended} <- append(route, pos) do
+    with {:ok, appended} <- append(route, pos, opts) do
       {popped, rest} = List.pop_at(appended.waypoints, -1)
       {:ok, %{appended | waypoints: List.insert_at(rest, index, popped)}}
     end
@@ -152,6 +167,22 @@ defmodule Pokex.Bots.Cavebot.Route do
   end
 
   def set_action(%__MODULE__{} = route, _index, _unknown), do: route
+
+  @doc """
+  How long he stood on the waypoint at `index`, in ms.
+
+  Written while recording, and the whole input to `Recording.infer/4`: a
+  corner marked in passing is a corner he walked through, a spot he stood on
+  for half a minute is where he killed a pile.
+  """
+  @spec set_dwell(t, non_neg_integer, non_neg_integer) :: t
+  def set_dwell(%__MODULE__{waypoints: waypoints} = route, index, dwell_ms)
+      when is_integer(index) and is_integer(dwell_ms) and dwell_ms >= 0 do
+    case Enum.at(waypoints, index) do
+      nil -> route
+      wp -> %{route | waypoints: List.replace_at(waypoints, index, %{wp | dwell_ms: dwell_ms})}
+    end
+  end
 
   @doc "Every stop action there is, in the order they run."
   @spec stops() :: [stop]

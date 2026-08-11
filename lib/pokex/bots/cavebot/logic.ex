@@ -79,7 +79,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           blind_kick_ms: non_neg_integer,
           capture_wait_ms: non_neg_integer,
           sweep_grace_ms: non_neg_integer,
-          stop_wait_ms: non_neg_integer
+          stop_wait_ms: non_neg_integer,
+          gather_wait_ms: non_neg_integer
         }
 
   @type t :: %__MODULE__{
@@ -170,6 +171,35 @@ defmodule Pokex.Bots.Cavebot.Logic do
   def luring?(%__MODULE__{}), do: false
 
   @doc """
+  Is the pile still walking in?
+
+  "Quando termino de mobar, eu geralmente dá quatro segundos até todos os
+  bichos se agruparem ao redor do meu para daí eu voltar a mobar e matar todo
+  mundo" (Lucas, 2026-08-11). When he stops at "até aqui" the pile is BEHIND
+  him, strung out along the way he came — attacking the first one to arrive
+  throws away everything the gathering was for. So the fire stays held for
+  `gather_wait_ms` after arriving, and THEN the area damage lands on a crowd
+  instead of on a straggler.
+
+  The Worker keeps publishing `:hold_fire` while this is true.
+  """
+  @spec gathering?(t, integer) :: boolean
+  def gathering?(%__MODULE__{since: since, config: config}, now) do
+    case Map.get(since, :gather) do
+      nil -> false
+      at -> now - at < Map.get(config, :gather_wait_ms, 0)
+    end
+  end
+
+  # Arriving at "até aqui" starts the huddle clock; arriving anywhere else
+  # clears it, so a stale stamp can never hold fire on a plain corner.
+  defp arrived(logic, %{action: :lure_end}, now),
+    do: %{logic | since: Map.put(logic.since, :gather, now)}
+
+  defp arrived(logic, _plain_corner, _now),
+    do: %{logic | since: Map.delete(logic.since, :gather)}
+
+  @doc """
   How many ms the machine has gone without knowing where the character is —
   `nil` while the coordinate is being read. The Worker turns this into a
   visible reason.
@@ -237,7 +267,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
       # from below would tick the waypoint off without ever climbing.
       abs(dx) <= tol and abs(dy) <= tol and wp.z == z ->
         next = rem(logic.wp_index + 1, length(logic.route.waypoints))
-        {%{note_progress(logic, pos, now) | wp_index: next, skips: 0}, :none}
+        logic = note_progress(logic, pos, now)
+        {%{arrived(logic, wp, now) | wp_index: next, skips: 0}, :none}
 
       pos != logic.last_pos ->
         {note_progress(logic, pos, now), {:walk, dx, dy}}

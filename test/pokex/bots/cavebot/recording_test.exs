@@ -1,0 +1,136 @@
+defmodule Pokex.Bots.Cavebot.RecordingTest do
+  @moduledoc """
+  Reading what he was DOING from how long he stood still.
+
+  "Aqui ele só marcou ponto rápido, então ele só tá andando, e aqui ele ficou
+  um tempão nesse ponto, então ele tá matando bichos nesse ponto, capturando
+  nesse ponto" (Lucas, 2026-08-11). A recorded route used to be a list of
+  places; the clock turns it into a list of INTENTIONS, and the hunt can obey
+  intentions.
+  """
+  use ExUnit.Case, async: true
+
+  alias Pokex.Bots.Cavebot.{Recording, Route}
+
+  @fight_ms 12_000
+
+  defp route_of(dwells) do
+    Enum.reduce(Enum.with_index(dwells), Route.new("r"), fn {dwell, index}, route ->
+      {:ok, route} = Route.append(route, {index * 5, 0, 7})
+      if dwell, do: Route.set_dwell(route, index, dwell), else: route
+    end)
+  end
+
+  defp marks(route), do: Enum.map(route.waypoints, &{&1.action, &1.stops})
+
+  describe "a long stop is a kill spot" do
+    test "standing there long enough marks the end of a gathering and a sweep" do
+      route = route_of([200, 300, 30_000])
+
+      assert marks(Recording.infer(route, 2, @fight_ms)) == [
+               {:lure_start, []},
+               {:walk, []},
+               {:lure_end, [:sweep]}
+             ]
+    end
+
+    test "a quick mark is just walking, and changes nothing" do
+      route = route_of([200, 300, 400])
+
+      assert marks(Recording.infer(route, 2, @fight_ms)) == [
+               {:walk, []},
+               {:walk, []},
+               {:walk, []}
+             ]
+    end
+
+    test "exactly at the threshold counts — the number he tuned is the number" do
+      route = route_of([100, @fight_ms])
+
+      assert {:lure_end, [:sweep]} = List.last(marks(Recording.infer(route, 1, @fight_ms)))
+    end
+  end
+
+  # His loop: kill at a spot, walk gathering the next pile, kill again. So the
+  # stretch BETWEEN two kill spots is the mob stretch — no guessing needed,
+  # the route says it.
+  describe "the stretch between two kill spots is the gathering" do
+    # Inferred stop by stop, the way the recorder actually calls it: the first
+    # kill spot is already marked by the time the second one happens.
+    test "the gathering starts right after the previous kill spot" do
+      route =
+        [100, 30_000, 100, 100, 30_000]
+        |> route_of()
+        |> Recording.infer(1, @fight_ms)
+        |> Recording.infer(4, @fight_ms)
+
+      # the walk INTO the first kill spot is a gathering too — the route
+      # begins where the first pile starts being collected
+      assert marks(route) == [
+               {:lure_start, []},
+               {:lure_end, [:sweep]},
+               {:lure_start, []},
+               {:walk, []},
+               {:lure_end, [:sweep]}
+             ]
+    end
+
+    test "with no earlier kill spot it starts at the first waypoint" do
+      route = route_of([100, 100, 30_000])
+
+      assert [{:lure_start, []} | _rest] = marks(Recording.infer(route, 2, @fight_ms))
+    end
+
+    # A kill spot immediately after another one has nothing in between: two
+    # piles at the same corner, not a walk. Marking a zero-length stretch
+    # would leave a lure_start ON the kill spot.
+    test "two kill spots in a row do not invent a gathering between them" do
+      inferred =
+        [100, 30_000, 30_000]
+        |> route_of()
+        |> Recording.infer(1, @fight_ms)
+        |> Recording.infer(2, @fight_ms)
+
+      # both are kill spots, and NOTHING was marked as a gathering between
+      # them — there is no walk in between to gather on
+      assert Enum.at(marks(inferred), 1) == {:lure_end, [:sweep]}
+      assert Enum.at(marks(inferred), 2) == {:lure_end, [:sweep]}
+
+      starts = for {wp, i} <- Enum.with_index(inferred.waypoints), wp.action == :lure_start, do: i
+      assert starts == [0]
+    end
+  end
+
+  describe "what it refuses to touch" do
+    test "an index nobody has changes nothing" do
+      route = route_of([100, 100])
+
+      assert Recording.infer(route, 9, @fight_ms) == route
+    end
+
+    test "a waypoint he marked BY HAND is left alone" do
+      route = route_of([100, 100, 30_000]) |> Route.set_action(2, :walk)
+      inferred = Recording.infer(route, 2, @fight_ms, hand_marked: [2])
+
+      assert Enum.at(marks(inferred), 2) == {:walk, []}
+    end
+  end
+
+  describe "saying what it did" do
+    test "the note names the stop and the marks" do
+      route = route_of([100, 100, 34_000])
+      {_route, note} = Recording.infer_with_note(route, 2, @fight_ms)
+
+      assert note =~ "34s parado"
+      assert note =~ "até aqui"
+      assert note =~ "varrer"
+      assert note =~ ~s("mobar daqui" no waypoint 1)
+    end
+
+    test "a short stop says nothing at all" do
+      route = route_of([100, 100, 400])
+
+      assert {_route, nil} = Recording.infer_with_note(route, 2, @fight_ms)
+    end
+  end
+end

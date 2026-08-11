@@ -95,8 +95,22 @@ defmodule Pokex.Bots.Cavebot.Store do
       y: y,
       z: z,
       action: decode_action(map["action"]),
-      stops: decode_stops(map)
+      stops: decode_stops(map),
+      at: decode_at(map["at"]),
+      dwell_ms: decode_dwell(map["dwell_ms"])
     }
+
+  defp decode_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, at, _offset} -> at
+      _unreadable -> nil
+    end
+  end
+
+  defp decode_at(_absent), do: nil
+
+  defp decode_dwell(value) when is_integer(value) and value >= 0, do: value
+  defp decode_dwell(_absent), do: nil
 
   # Whitelisted, like the action. `"sweep" => true` is the shape the very first
   # marked routes were written with, before stops became a list — it reads as
@@ -131,6 +145,11 @@ defmodule Pokex.Bots.Cavebot.Store do
       "y" => y,
       "z" => z,
       "action" => Atom.to_string(Map.get(waypoint, :action) || :walk),
-      "stops" => Enum.map(Map.get(waypoint, :stops) || [], &Atom.to_string/1)
+      "stops" => Enum.map(Map.get(waypoint, :stops) || [], &Atom.to_string/1),
+      "at" => encode_at(Map.get(waypoint, :at)),
+      "dwell_ms" => Map.get(waypoint, :dwell_ms)
     }
+
+  defp encode_at(%DateTime{} = at), do: DateTime.to_iso8601(at)
+  defp encode_at(_none), do: nil
 end

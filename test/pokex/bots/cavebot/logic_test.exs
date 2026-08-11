@@ -12,7 +12,8 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     blind_kick_ms: 1200,
     capture_wait_ms: 20_000,
     sweep_grace_ms: 1500,
-    stop_wait_ms: 5_000
+    stop_wait_ms: 5_000,
+    gather_wait_ms: 4_000
   }
 
   defp route do
@@ -789,6 +790,65 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {logic, :none} = Logic.step(logic, swept_world(0, nil), 10)
       {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_300)
       assert logic.state == :walking
+    end
+  end
+
+  # "quando termino de mobar, eu geralmente dá quatro segundos até todos os
+  # bichos se agruparem ao redor do meu para daí eu voltar a mobar e matar todo
+  # mundo" (Lucas, 2026-08-11). The pile is BEHIND him when he stops; hitting
+  # the first one to arrive wastes the whole point of gathering.
+  describe "letting the pile close in" do
+    defp gather_route do
+      {:ok, r} = Route.append(Route.new("r"), {0, 0, 7})
+      {:ok, r} = Route.append(r, {10, 0, 7})
+      {:ok, r} = Route.append(r, {10, 10, 7})
+      r |> Route.set_action(0, :lure_start) |> Route.set_action(1, :lure_end)
+    end
+
+    defp arriving_at_end do
+      %{
+        Logic.new(gather_route(), @cfg)
+        | combat_running?: true,
+          homed?: true,
+          wp_index: 1,
+          last_pos: {9, 0, 7}
+      }
+    end
+
+    test "arriving at 'até aqui' keeps holding fire while they gather" do
+      logic = arriving_at_end()
+
+      {logic, :none} = Logic.step(logic, world({10, 0, 7}, 4), 1_000)
+      assert logic.wp_index == 2
+      assert Logic.gathering?(logic, 1_000)
+
+      # still holding two seconds later — they are still walking in
+      assert Logic.gathering?(logic, 3_000)
+
+      # …and free at four
+      refute Logic.gathering?(logic, 5_100)
+    end
+
+    test "the hunt does not walk away during the huddle" do
+      logic = arriving_at_end()
+      {logic, :none} = Logic.step(logic, world({10, 0, 7}, 4), 1_000)
+
+      # enemies on screen and the gathering window still open: it stands
+      {logic, :none} = Logic.step(logic, world({10, 0, 7}, 4), 2_000)
+      assert logic.state == :fighting
+    end
+
+    test "a plain waypoint has no huddle to wait for" do
+      logic = %{
+        Logic.new(route(), @cfg)
+        | combat_running?: true,
+          homed?: true,
+          wp_index: 1,
+          last_pos: {9, 10, 7}
+      }
+
+      {logic, _action} = Logic.step(logic, world({10, 10, 7}), 1_000)
+      refute Logic.gathering?(logic, 1_100)
     end
   end
 

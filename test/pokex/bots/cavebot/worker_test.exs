@@ -185,7 +185,15 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                route: "cavena",
                wp_index: 0,
                wp_total: 1,
-               wp_target: %{x: 100, y: 100, z: 7, action: :walk, stops: []},
+               wp_target: %{
+                 x: 100,
+                 y: 100,
+                 z: 7,
+                 action: :walk,
+                 stops: [],
+                 at: nil,
+                 dwell_ms: nil
+               },
                pos: nil,
                pos_age_ms: nil,
                distance_tiles: nil,
@@ -448,7 +456,17 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.route == "cavena"
     assert status.wp_index == 0
     assert status.wp_total == 1
-    assert status.wp_target == %{x: 100, y: 100, z: 7, action: :walk, stops: []}
+
+    assert status.wp_target == %{
+             x: 100,
+             y: 100,
+             z: 7,
+             action: :walk,
+             stops: [],
+             at: nil,
+             dwell_ms: nil
+           }
+
     assert status.pos == {10, 20, 7}
     assert status.pos_age_ms >= 0
     assert status.distance_tiles == %{dx: 90, dy: 80}
@@ -772,6 +790,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     end
 
     test "past 'até aqui' the fact goes back to free fire", %{worker: worker} do
+      # the huddle is its own test below; here the pile is already around him
+      SettingsStash.stash!(cavebot_gather_wait_ms: 0)
       reach_lure_start!(worker)
       tick!(worker)
       assert posture!() == :hold_fire
@@ -784,6 +804,24 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
       assert Worker.status(worker).wp_index == 0
       assert posture!() == :free_fight
+    end
+
+    # "quando termino de mobar, eu geralmente dá quatro segundos até todos os
+    # bichos se agruparem ao redor do meu" (Lucas, 2026-08-11).
+    test "arriving at 'até aqui' keeps holding fire while the pile closes in", %{worker: worker} do
+      SettingsStash.stash!(cavebot_gather_wait_ms: 30_000)
+      reach_lure_start!(worker)
+      tick!(worker)
+
+      minimap!({200, 100, 7})
+      tick!(worker)
+      minimap!({200, 200, 7})
+      tick!(worker)
+
+      # arrived at the end of the gathering, and STILL holding: they are
+      # walking in behind him
+      assert Worker.status(worker).wp_index == 0
+      assert posture!() == :hold_fire
     end
 
     test "stopping frees Combat at once, without waiting for the fact to age", %{worker: worker} do

@@ -49,8 +49,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # how long to let the pile close in HERE: his own measured pause
             # when the recording caught it, the configured default otherwise
             gather_wait: nil,
-            # how far into the ring around a staircase the search has walked
-            probe: 0
+            # where in the ring around a staircase the search is, and how many
+            # steps it has actually taken (a ring tile the character already
+            # stands on costs a cursor move, never a step)
+            probe: 0,
+            probe_steps: 0
 
   @type state ::
           :walking | :fighting | :post_fight | :stuck | :fight_stalled | :stairs | :blocked
@@ -111,7 +114,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           skips: non_neg_integer,
           stops_done: [Route.stop()],
           gather_wait: non_neg_integer | nil,
-          probe: non_neg_integer
+          probe: non_neg_integer,
+          probe_steps: non_neg_integer
         }
 
   # The ring the search walks around a staircase, in offsets from the recorded
@@ -201,8 +205,19 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   The Worker turns this into the `:posture` fact Combat obeys; only a `:walking`
   hunt gathers, and a hunt that is fighting or stuck is doing something else.
+
+  Searching for a staircase counts — for ONE lap of the ring. A step usually
+  takes two or three probes, and interrupting the gathering for those would
+  waste the whole stretch. A full lap without finding it means the hunt is not
+  gathering any more, it is stuck at a door: the fire is released, because
+  standing still holding it while a pile hits him is the worst of both, and
+  because a mob standing ON the step is the commonest reason it cannot be
+  taken.
   """
   @spec luring?(t) :: boolean
+  def luring?(%__MODULE__{state: :stairs, probe_steps: steps}) when steps > length(@stair_ring),
+    do: false
+
   def luring?(%__MODULE__{state: state, route: %Route{waypoints: waypoints}, wp_index: index})
       when waypoints != [] and state in [:walking, :stairs] do
     Route.lure_leg?(waypoints, Integer.mod(index - 1, length(waypoints)))
@@ -445,14 +460,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
     cond do
       # the step was found: the position itself says so
       z == wp.z ->
-        walk(%{logic | state: :walking, retries: 0, probe: 0}, world, now)
+        walk(%{logic | state: :walking, retries: 0, probe: 0, probe_steps: 0}, world, now)
 
       # a mob leg walks THROUGH what shows up — the same rule as the walking
       # state, so a search inside a gathering does not turn into a fight
       not luring?(logic) and (world.enemies > 0 or engaged?(world)) ->
         enter_fight(logic, now)
 
-      logic.probe >= stair_max_probes(logic) ->
+      logic.probe_steps >= stair_max_probes(logic) ->
         {%{logic | state: :blocked}, {:block, :stairs}}
 
       not probe_due?(logic, now) ->
@@ -491,6 +506,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
       {dx, dy} ->
         {sx, sy} = one_tile(dx, dy)
+        logic = %{logic | probe_steps: logic.probe_steps + 1}
         {%{logic | since: Map.put(logic.since, :probe, now)}, {:nudge, sx, sy}}
     end
   end

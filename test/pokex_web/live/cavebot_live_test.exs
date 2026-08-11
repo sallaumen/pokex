@@ -897,6 +897,113 @@ defmodule PokexWeb.CavebotLiveTest do
     end
   end
 
+  # "um ponto que eu senti falta aqui é eu poder calibrar melhor a parte de
+  # onde ele clica com o botão do meio. Talvez até uma distância do meu
+  # personagem, algo assim mais fácil de eu poder medir e algo que eu possa
+  # configurar ali pela interface" (Lucas, 2026-08-11).
+  describe "where the pokémon is sent, in tiles" do
+    setup do
+      Pokex.Calibration.save(%Pokex.Calibration{
+        scale: 1.0,
+        screen_w: 3440,
+        screen_h: 1440,
+        player_point: {1700, 700}
+      })
+
+      before = Pokex.Settings.get(:tile_px)
+      on_exit(fn -> Pokex.Settings.put(:tile_px, before) end)
+      Pokex.Settings.put(:tile_px, 100)
+      :ok
+    end
+
+    test "typing a distance saves it, and the hint says where it lands", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+
+      html =
+        view
+        |> form("#waypoint-park-0", %{"park_x" => "6", "park_y" => "-2", "tile_px" => "100"})
+        |> render_submit()
+
+      assert [%Route{waypoints: [%{park_tiles: {6, -2}}]}] = Store.all()
+      assert html =~ "pokémon a 6, -2 tiles de você"
+      # 1700 + 6×100, 700 − 2×100
+      assert view |> element("#waypoint-park-hint-0") |> render() =~ "2300, 500"
+    end
+
+    # His recorded click is the same answer written in the window's
+    # coordinates: the form opens with it already converted.
+    test "a recorded click opens as a distance", %{conn: conn} do
+      {:ok, route} = Route.append(Route.new("cavena"), {10, 10, 7})
+      :ok = route |> Route.set_park_point(0, {2300, 500}) |> Store.add()
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      view |> element("#map-waypoint-0") |> render_click()
+
+      assert view |> element("#waypoint-park-0") |> render() =~ ~s(value="6")
+    end
+
+    test "the ruler saved with it is the unit of the numbers above it", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+
+      view
+      |> form("#waypoint-park-0", %{"park_x" => "1", "park_y" => "0", "tile_px" => "131"})
+      |> render_submit()
+
+      assert Pokex.Settings.get(:tile_px) == 131
+      assert view |> element("#waypoint-park-hint-0") |> render() =~ "1831, 700"
+    end
+
+    test "'virar padrão' answers for every kill spot that has none", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+
+      before =
+        {Pokex.Settings.get(:cavebot_park_tiles_x), Pokex.Settings.get(:cavebot_park_tiles_y)}
+
+      on_exit(fn ->
+        Pokex.Settings.put(:cavebot_park_tiles_x, elem(before, 0))
+        Pokex.Settings.put(:cavebot_park_tiles_y, elem(before, 1))
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+
+      view
+      |> form("#waypoint-park-0", %{"park_x" => "-3", "park_y" => "1", "tile_px" => "100"})
+      |> render_submit()
+
+      view |> element("#waypoint-park-default-0") |> render_click()
+
+      assert Pokex.Settings.get(:cavebot_park_tiles_x) == -3
+      assert Pokex.Settings.get(:cavebot_park_tiles_y) == 1
+
+      # …and the waypoint with nothing of its own now says so
+      view |> element("#map-waypoint-1") |> render_click()
+      assert view |> element("#waypoint-park-hint-1") |> render() =~ "padrão da caçada: -3, 1"
+    end
+
+    test "tirar takes the waypoint back to having no spot", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+
+      view
+      |> form("#waypoint-park-0", %{"park_x" => "6", "park_y" => "-2", "tile_px" => "100"})
+      |> render_submit()
+
+      view |> element("#waypoint-park-clear-0") |> render_click()
+
+      assert [%Route{waypoints: [%{park_tiles: nil, park_point: nil}]}] = Store.all()
+    end
+  end
+
   # "quero poder configurar individualmente cada bolinha, para dar uma
   # funcionalidade dela, tipo 'mobar daqui' e marcar em outra 'até aqui'"
   # (Lucas, 2026-08-10).

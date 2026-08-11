@@ -99,6 +99,7 @@ defmodule Pokex.Bots.Cavebot.Store do
       at: decode_at(map["at"]),
       dwell_ms: decode_dwell(map["dwell_ms"]),
       park_point: decode_point(map["park_point"]),
+      park_tiles: decode_point(map["park_tiles"]),
       fight_ms: decode_dwell(map["fight_ms"]),
       gather_ms: decode_dwell(map["gather_ms"]),
       combo: decode_combo(map["combo"])
@@ -159,6 +160,7 @@ defmodule Pokex.Bots.Cavebot.Store do
       "at" => encode_at(Map.get(waypoint, :at)),
       "dwell_ms" => Map.get(waypoint, :dwell_ms),
       "park_point" => encode_point(Map.get(waypoint, :park_point)),
+      "park_tiles" => encode_point(Map.get(waypoint, :park_tiles)),
       "fight_ms" => Map.get(waypoint, :fight_ms),
       "gather_ms" => Map.get(waypoint, :gather_ms),
       "combo" => Map.get(waypoint, :combo) || []

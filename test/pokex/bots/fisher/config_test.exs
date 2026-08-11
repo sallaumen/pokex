@@ -28,7 +28,7 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.combat_skill_jitter_ms == 20
     assert config.watch_timeout_ms == 30_000
     assert config.target_lost_streak == 2
-    assert config.tile_px == 88
+    assert config.tile_px == Pokex.Settings.defaults()[:tile_px]
     refute Map.has_key?(config, :fallback_points)
 
     # rows spaced by battle_row_height (52 pts, the measured real row spacing):

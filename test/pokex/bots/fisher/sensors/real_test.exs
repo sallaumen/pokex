@@ -80,7 +80,10 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     hostile = Pokex.PngFixtures.write!(Path.join(tmp, "hostile.png"), hostile_rows)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, hostile}]})
 
-    assert {:ok, %{hostile: {217, 57}}} =
+    # The scan square is (2×3+1) tiles around the character (500,350), clamped
+    # to the screen: with tile_px 131 it starts at x 42, y 0 — and the red blob
+    # centred on frame pixel (49,29), at scale 2.0, lands there plus (24,14).
+    assert {:ok, %{hostile: {67, 15}}} =
              Sensors.Real.observe([:hostile], calib(tmp, baseline), Pokex.Settings.defaults())
   end
 

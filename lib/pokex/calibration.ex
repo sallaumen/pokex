@@ -499,6 +499,47 @@ defmodule Pokex.Calibration do
   def player_point({x, y, w, h}), do: {x + div(w, 2), y + div(h, 2)}
 
   @doc """
+  Screen points per game tile — the game's own ruler, and the unit anything
+  measured FROM THE CHARACTER is written in.
+
+  One name for it, because it is one measurement: the sweep's grid, the corpse
+  search square and the tile the pokémon is parked on all stretch or shrink
+  together, and two of them disagreeing is a bug nobody can see.
+  """
+  @spec tile_px() :: pos_integer
+  def tile_px, do: max(Pokex.Settings.get(:tile_px), 1)
+
+  @doc """
+  The screen point `{dx, dy}` TILES from the character — right and down positive.
+
+  "Talvez até uma distância do meu personagem, algo assim mais fácil de eu
+  poder medir" (Lucas, 2026-08-11). A screen point recorded from his own click
+  is only true while the game window stays put; a distance from the character
+  survives the window moving, because the character is re-marked with it.
+
+  `nil` when nothing anchors the character (no calibration, no screen).
+  """
+  @spec tile_point(t, {integer, integer}) :: {integer, integer} | nil
+  def tile_point(%__MODULE__{} = calib, {dx, dy}) do
+    case player_point(calib) do
+      {px, py} -> {px + dx * tile_px(), py + dy * tile_px()}
+      nil -> nil
+    end
+  end
+
+  @doc """
+  The reverse: how many TILES from the character a screen point is, rounded to
+  whole tiles — which is not a loss, since a click lands on a tile either way.
+  """
+  @spec tile_offset(t, {integer, integer}) :: {integer, integer} | nil
+  def tile_offset(%__MODULE__{} = calib, {x, y}) do
+    case player_point(calib) do
+      {px, py} -> {round((x - px) / tile_px()), round((y - py) / tile_px())}
+      nil -> nil
+    end
+  end
+
+  @doc """
   How the saved calibration relates to the display in front of him NOW:
   `:same`, `:unknown` (nothing to compare), `{:another_screen, saved, current}`
   or `{:rescalable, saved, current}`.

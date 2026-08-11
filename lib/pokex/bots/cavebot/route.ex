@@ -64,10 +64,21 @@ defmodule Pokex.Bots.Cavebot.Route do
           at: DateTime.t() | nil,
           dwell_ms: non_neg_integer | nil,
           park_point: {integer, integer} | nil,
+          park_tiles: {integer, integer} | nil,
           fight_ms: non_neg_integer | nil,
           gather_ms: non_neg_integer | nil,
           combo: [String.t()]
         }
+
+  @typedoc """
+  WHERE the pokémon is sent, said in one of the two languages that make sense.
+
+  `{:point, {x, y}}` is a screen point — his own middle click, exactly where he
+  made it, true for as long as the game window does not move. `{:tiles, {dx,
+  dy}}` is a distance from the character, which survives the window moving and
+  is the one he can measure by eye ("6 tiles à direita, 2 acima").
+  """
+  @type spot :: {:point, {integer, integer}} | {:tiles, {integer, integer}}
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -109,6 +120,7 @@ defmodule Pokex.Bots.Cavebot.Route do
       at: Keyword.get(opts, :at),
       dwell_ms: nil,
       park_point: nil,
+      park_tiles: nil,
       fight_ms: nil,
       gather_ms: nil,
       combo: []
@@ -228,6 +240,46 @@ defmodule Pokex.Bots.Cavebot.Route do
       wp -> %{route | waypoints: List.replace_at(waypoints, index, %{wp | park_point: point})}
     end
   end
+
+  @doc """
+  Where the pokémon is parked, said as a DISTANCE FROM THE CHARACTER in tiles —
+  right and down positive.
+
+  Writing it clears the recorded screen point: they are two answers to the same
+  question, and a waypoint carrying both would need a rule nobody can see. His
+  hand correcting the distance is the newer answer.
+
+  `nil` takes the waypoint back to having no spot of its own.
+  """
+  @spec set_park_tiles(t, non_neg_integer, {integer, integer} | nil) :: t
+  def set_park_tiles(%__MODULE__{waypoints: waypoints} = route, index, tiles)
+      when is_nil(tiles) or (is_tuple(tiles) and tuple_size(tiles) == 2) do
+    case Enum.at(waypoints, index) do
+      nil ->
+        route
+
+      wp ->
+        wp = %{wp | park_tiles: tiles, park_point: nil}
+        %{route | waypoints: List.replace_at(waypoints, index, wp)}
+    end
+  end
+
+  @doc """
+  Where the pokémon goes at this waypoint: its own distance, its own recorded
+  click, or the hunt's default distance — in that order, `nil` when none of the
+  three says anything.
+
+  The default is what makes a kill spot he never marked still park the pokémon
+  away from him: two of his five kill spots (2026-08-11) carry no point at all,
+  so the pile closed in around HIM.
+  """
+  @spec park_spot(waypoint, {integer, integer} | nil) :: spot | nil
+  def park_spot(waypoint, default_tiles \\ nil)
+  def park_spot(%{park_tiles: {_dx, _dy} = tiles}, _default), do: {:tiles, tiles}
+  def park_spot(%{park_point: {_x, _y} = point}, _default), do: {:point, point}
+  def park_spot(_waypoint, {0, 0}), do: nil
+  def park_spot(_waypoint, {_dx, _dy} = default), do: {:tiles, default}
+  def park_spot(_waypoint, _no_default), do: nil
 
   @doc """
   What HE did at this waypoint, measured from his own hands.

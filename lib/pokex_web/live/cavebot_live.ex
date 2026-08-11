@@ -17,7 +17,7 @@ defmodule PokexWeb.CavebotLive do
 
   import PokexWeb.CavebotComponents
 
-  alias Pokex.Bots.Cavebot.{Photos, Route, Store, WalkTest, Worker}
+  alias Pokex.Bots.Cavebot.{Photos, Recording, Route, Store, WalkTest, Worker}
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.World
@@ -74,7 +74,15 @@ defmodule PokexWeb.CavebotLive do
        # the hunt's own narration: what it just did, in its own words
        log: [],
        walk_test: nil,
-       walk_ref: nil
+       walk_ref: nil,
+       # Recording reads the CLOCK: where he has been standing and since when.
+       # A corner marked in passing is a walk; half a minute on one tile is a
+       # kill spot (Cavebot.Recording).
+       still_pos: nil,
+       still_since: nil,
+       # waypoints he marked with his own hands — never overwritten by the
+       # inference
+       hand_marked: []
      )}
   end
 
@@ -98,7 +106,7 @@ defmodule PokexWeb.CavebotLive do
         else: assign(socket, world: world, pos: pos, reads: socket.assigns.reads + 1)
 
     if socket.assigns.recording? and pos != nil and socket.assigns.active_route,
-      do: {:noreply, maybe_record(socket, pos)},
+      do: {:noreply, socket |> maybe_record(pos) |> track_dwell(pos)},
       else: {:noreply, socket}
   end
 
@@ -125,6 +133,71 @@ defmodule PokexWeb.CavebotLive do
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # How long he has been standing on this tile, and what that MEANS.
+  #
+  # "Aqui ele só marcou ponto rápido, então ele só tá andando, e aqui ele ficou
+  # um tempão nesse ponto, então ele tá matando bichos nesse ponto, capturando
+  # nesse ponto" (Lucas, 2026-08-11). Standing still is the one thing the
+  # recorder can read without any new feed, and it says more than the shape of
+  # the walk ever did.
+  defp track_dwell(socket, pos) do
+    now = System.monotonic_time(:millisecond)
+
+    if pos == socket.assigns.still_pos do
+      dwelling(socket, pos, now - socket.assigns.still_since)
+    else
+      assign(socket, still_pos: pos, still_since: now)
+    end
+  end
+
+  # Crossing the "he stopped here" mark lays a waypoint on the spot (a place he
+  # stood is a place that matters, and it is rarely a corner); after that every
+  # reading updates its dwell, so the number is right even if the recording is
+  # stopped without him ever moving again.
+  defp dwelling(socket, pos, dwell) do
+    route = socket.assigns.active_route
+
+    cond do
+      dwell < Pokex.Settings.get(:cavebot_record_dwell_ms) ->
+        socket
+
+      last_waypoint_at?(route, pos) ->
+        write_dwell(socket, route, dwell)
+
+      true ->
+        socket
+        |> record_waypoint(route, pos)
+        |> then(&write_dwell(&1, &1.assigns.active_route, dwell))
+    end
+  end
+
+  defp last_waypoint_at?(%Route{waypoints: waypoints}, {x, y, z}) do
+    match?(%{x: ^x, y: ^y, z: ^z}, List.last(waypoints))
+  end
+
+  defp write_dwell(socket, %Route{waypoints: waypoints} = route, dwell) do
+    index = length(waypoints) - 1
+    updated = Route.set_dwell(route, index, dwell)
+
+    {updated, note} =
+      if Pokex.Settings.get(:cavebot_smart_recording) do
+        Recording.infer_with_note(
+          updated,
+          index,
+          Pokex.Settings.get(:cavebot_record_fight_dwell_ms),
+          hand_marked: socket.assigns.hand_marked
+        )
+      else
+        {updated, nil}
+      end
+
+    :ok = Store.add(updated)
+
+    socket
+    |> then(&if note, do: assign(&1, notice: note, notice_kind: :ok), else: &1)
+    |> reload_routes(updated.name)
+  end
 
   # A waypoint per tile would be noise — the client pathfinds between points, so
   # what serves the walker are the CORNERS. Only record once he has walked
@@ -157,7 +230,7 @@ defmodule PokexWeb.CavebotLive do
   # first two-floor hunt he tried). The waypoint carries its own floor, so the
   # stairs simply become two waypoints — one at each end.
   defp record_waypoint(socket, route, pos) do
-    {:ok, updated} = Route.append(route, pos)
+    {:ok, updated} = Route.append(route, pos, at: DateTime.utc_now())
     :ok = Store.add(updated)
 
     socket
@@ -193,7 +266,7 @@ defmodule PokexWeb.CavebotLive do
          )}
 
       {_route, {_x, _y, z} = pos} ->
-        {:ok, updated} = Route.append(socket.assigns.active_route, pos)
+        {:ok, updated} = Route.append(socket.assigns.active_route, pos, at: DateTime.utc_now())
         :ok = Store.add(updated)
 
         {:noreply,
@@ -271,6 +344,7 @@ defmodule PokexWeb.CavebotLive do
   # the map, and obeyed by the hunt itself in the next step.
   def handle_event("set_waypoint_action", %{"index" => index, "action" => action}, socket) do
     index = String.to_integer(index)
+    socket = remember_hand_mark(socket, index)
 
     with_route(socket, fn route ->
       action = decode_action(action)
@@ -285,6 +359,7 @@ defmodule PokexWeb.CavebotLive do
   def handle_event("toggle_waypoint_stop", %{"index" => index, "stop" => stop}, socket) do
     index = String.to_integer(index)
     stop = decode_stop(stop)
+    socket = remember_hand_mark(socket, index)
 
     with_route(socket, fn route ->
       on? = stop not in Route.stops_at(route.waypoints, index)
@@ -454,7 +529,7 @@ defmodule PokexWeb.CavebotLive do
   defp photo(_no_route, _kind), do: :ok
 
   defp insert_here(route, index, pos) do
-    {:ok, updated} = Route.insert_at(route, index, pos)
+    {:ok, updated} = Route.insert_at(route, index, pos, at: DateTime.utc_now())
     {updated, "waypoint inserido na posição #{index + 1}"}
   end
 
@@ -522,6 +597,12 @@ defmodule PokexWeb.CavebotLive do
   defp leg_label(0), do: "· fecha o ciclo:"
   defp leg_label(_index), do: "·"
 
+  # A mark he made HIMSELF outranks anything the clock infers: the recorder
+  # assists, it does not overrule.
+  defp remember_hand_mark(socket, index) do
+    update(socket, :hand_marked, &Enum.uniq([index | &1]))
+  end
+
   # What the hunt does at a waypoint once the fighting stops. The atoms are the
   # domain's (`Route.stop/0`); only these words are Portuguese.
   defp decode_stop("cooldown_revive"), do: :cooldown_revive
@@ -544,6 +625,25 @@ defmodule PokexWeb.CavebotLive do
   defp stop_hint(:wait),
     do:
       "fica parado #{div(Pokex.Settings.get(:cavebot_stop_wait_ms), 1000)}s pra recuperar cooldown"
+
+  # Only a stop worth mentioning: every waypoint has SOME dwell, and printing
+  # "0s" on each of forty of them is noise, not information.
+  defp dwell_label(%{dwell_ms: ms}) when is_integer(ms) and ms >= 1_000,
+    do: "⏱ #{round(ms / 1000)}s parado"
+
+  defp dwell_label(_passing_through), do: nil
+
+  # His clock, not the server's: waypoints are stored in UTC (unambiguous on
+  # disk) and read in the machine's own time, which is the only one he can
+  # compare with his memory of the session. Computed from the OS rather than
+  # from a timezone database this project does not carry.
+  defp clock_label(%DateTime{} = at) do
+    at |> DateTime.add(local_offset_seconds(), :second) |> Calendar.strftime("%H:%M")
+  end
+
+  defp local_offset_seconds do
+    NaiveDateTime.diff(NaiveDateTime.local_now(), DateTime.to_naive(DateTime.utc_now()))
+  end
 
   # "⇅ andar 6" on the waypoint the hunt ARRIVES at from another floor — the
   # stairs, in the list, where they can be reordered and deleted like anything
@@ -1062,6 +1162,13 @@ defmodule PokexWeb.CavebotLive do
                       <span :if={leg_tiles(@active_route.waypoints, index)} class="text-pk-text-3">
                         {leg_label(index)} {leg_tiles(@active_route.waypoints, index)} tiles
                       </span>
+                      <%!-- What he was DOING here, in the only unit that says
+                            it: a corner passed through vs half a minute
+                            standing on one tile. --%>
+                      <span :if={dwell_label(wp)} class="ml-1 text-pk-warn">
+                        {dwell_label(wp)}
+                      </span>
+                      <span :if={wp.at} class="ml-1 text-pk-text-3">{clock_label(wp.at)}</span>
                     </span>
                     <button
                       id={"waypoint-up-#{index}"}

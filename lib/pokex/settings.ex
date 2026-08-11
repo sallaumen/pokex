@@ -750,12 +750,29 @@ defmodule Pokex.Settings do
     # resets the bar), so this is the fallback for a pokémon with no revive to
     # spend.
     cavebot_stop_wait_ms: 5_000,
+    # "quando termino de mobar, eu geralmente dá quatro segundos até todos os
+    # bichos se agruparem ao redor do meu" (Lucas, 2026-08-11). Arriving at
+    # "até aqui" the pile is still strung out behind him; the fire stays held
+    # this long so the area damage lands on a crowd, not on a straggler.
+    cavebot_gather_wait_ms: 4_000,
     cavebot_clear_debounce_ms: 800,
     # Recording the route WHILE WALKING: a new waypoint only lands after
     # walking this far since the last one. Without it the route would become
     # one waypoint per tile — the client already pathfinds between points, so
     # what matters is marking the path's corners, not every step.
     cavebot_record_min_tiles: 4,
+    # Recording reads the CLOCK too. Standing still this long lays a waypoint
+    # right there even without walking the min tiles: a spot he stopped on is
+    # a spot that matters, and it is usually not a corner.
+    cavebot_record_dwell_ms: 5_000,
+    # …and standing still THIS long is a kill spot: he gathered a pile, killed
+    # it and picked it up. The recorder marks it "até aqui" + varrer, and the
+    # stretch back to the previous kill spot as the gathering
+    # (Pokex.Bots.Cavebot.Recording).
+    cavebot_record_fight_dwell_ms: 12_000,
+    # Reading intentions off the clock is a big assist and a big assumption:
+    # off, the recording is the plain list of places it always was.
+    cavebot_smart_recording: true,
     cavebot_fight_timeout_ms: 20_000,
     cavebot_combo_timeout_ms: 6000,
     cavebot_cleanup_timeout_ms: 8000
@@ -930,6 +947,9 @@ defmodule Pokex.Settings do
     minimap_coord_ink: 40..255,
     hold_max_ms: 200..30_000,
     cavebot_capture_wait_ms: 0..600_000,
+    cavebot_gather_wait_ms: 0..60_000,
+    cavebot_record_dwell_ms: 500..600_000,
+    cavebot_record_fight_dwell_ms: 1_000..600_000,
     cavebot_sweep_grace_ms: 0..60_000,
     cavebot_stop_wait_ms: 0..600_000,
     posture_max_age_ms: 500..60_000,

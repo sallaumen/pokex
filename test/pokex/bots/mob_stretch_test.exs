@@ -114,6 +114,13 @@ defmodule Pokex.Bots.MobStretchTest do
     send(combat, {:world, :battle, obs})
   end
 
+  defp free_fire? do
+    match?(
+      {:ok, %{posture: :free_fight}},
+      WorldState.get(:posture, 60_000, System.monotonic_time(:millisecond))
+    )
+  end
+
   defp pressed_tab? do
     Settings.get(:tab_key) in for({:press, key} <- Fake.calls(), do: key)
   end
@@ -140,6 +147,9 @@ defmodule Pokex.Bots.MobStretchTest do
     hunt: hunt,
     combat: combat
   } do
+    # the huddle after "até aqui" is real (4s in production); shortened here so
+    # the test measures the WIRE, not the wait
+    Pokex.SettingsStash.stash!(cavebot_gather_wait_ms: 200)
     lure_route!()
     :ok = Cavebot.run(hunt)
 
@@ -164,6 +174,17 @@ defmodule Pokex.Bots.MobStretchTest do
     at!({120, 100, 7})
     tick!(hunt)
     refute Cavebot.status(hunt).luring?
+
+    # still holding while the pile closes in…
+    enemies!(combat, 3)
+    refute eventually(&pressed_tab?/0, 150)
+
+    # …and free once they are around him. Waiting on the FACT, never on a
+    # clock: a sleep long enough today is a flake on a loaded machine.
+    assert eventually(fn ->
+             tick!(hunt)
+             free_fire?()
+           end)
 
     enemies!(combat, 3)
     assert eventually(&pressed_tab?/0)

@@ -42,7 +42,7 @@ defmodule PokexWeb.CavebotLiveTest do
     assert [%Route{name: "cavena", dungeon: "cavena-dg", z: 7, waypoints: waypoints}] =
              Store.all()
 
-    assert waypoints == [%{x: 10, y: 20, z: 7, action: :walk, stops: []}]
+    assert [%{x: 10, y: 20, z: 7, action: :walk, stops: [], at: %DateTime{}}] = waypoints
     assert has_element?(view, "#waypoint-0")
     assert html =~ "waypoint 1 marcado"
     assert view |> element("#cavebot-notice") |> render() =~ "text-pk-ok"
@@ -186,10 +186,11 @@ defmodule PokexWeb.CavebotLiveTest do
 
     assert [%Route{waypoints: waypoints}] = Store.all()
 
-    assert waypoints == [
-             %{x: 10, y: 20, z: 7, action: :walk, stops: []},
-             %{x: 20, y: 20, z: 7, action: :walk, stops: []}
-           ]
+    # every recorded waypoint now carries the clock: WHEN he laid it
+    assert [
+             %{x: 10, y: 20, z: 7, action: :walk, stops: [], at: %DateTime{}},
+             %{x: 20, y: 20, z: 7, action: :walk, stops: [], at: %DateTime{}}
+           ] = waypoints
 
     view |> element("#toggle-recording") |> render_click()
     assert render(view) =~ "gravação parada"

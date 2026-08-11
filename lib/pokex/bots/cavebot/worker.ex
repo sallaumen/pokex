@@ -75,7 +75,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     post_kill_dwell_ms: :cavebot_post_kill_dwell_ms,
     capture_wait_ms: :cavebot_capture_wait_ms,
     sweep_grace_ms: :cavebot_sweep_grace_ms,
-    stop_wait_ms: :cavebot_stop_wait_ms
+    stop_wait_ms: :cavebot_stop_wait_ms,
+    gather_wait_ms: :cavebot_gather_wait_ms
   }
 
   def topic, do: @topic
@@ -299,7 +300,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # which it treats as free fire. A pacifist bot left behind by a dead cavebot
   # is the failure this shape makes impossible; the heartbeat is what buys it.
   defp publish_posture(state, now) do
-    posture = if Logic.luring?(state.logic), do: :hold_fire, else: :free_fight
+    # Holding fire outlives the walking: after arriving at "até aqui" the pile
+    # is still closing in, and hitting the first straggler wastes the whole
+    # gathering (Logic.gathering?/2).
+    holding? = Logic.luring?(state.logic) or Logic.gathering?(state.logic, now)
+    posture = if holding?, do: :hold_fire, else: :free_fight
     WorldState.put(:posture, %{posture: posture}, now)
 
     if posture != state.posture do
@@ -311,9 +316,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
   end
 
   defp posture_text(:hold_fire),
-    do: "🕊️ trecho de mob: andando sem atacar — o combate está segurando o fogo"
+    do: "🕊️ mobando: sem atacar — o combate está segurando o fogo"
 
-  defp posture_text(:free_fight), do: "⚔️ fim do trecho de mob: o combate está liberado"
+  defp posture_text(:free_fight), do: "⚔️ o bolo se juntou: o combate está liberado"
 
   # Stopping for ANY reason frees Combat at once, instead of leaving it holding
   # fire for as long as the fact takes to age out.

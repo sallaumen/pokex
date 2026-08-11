@@ -17,15 +17,22 @@ defmodule Pokex.Bots.Combat.Logic do
   fighting — lock up → fire the next skill burst, throttled by skill_burst_every_ms
              (observations arrive faster than keys should). When the observation carries a
              fresh :skill_bar reading (obs[:ready_skills], merged in by the driver), only
-             READY skills fire, in skill_keys priority order; without one (nil/empty/none
+             READY skills fire, in priority order; without one (nil/empty/none
              of ours) the blind rotation runs unchanged — a bad read may waste presses,
              never stop the attack. Lock gone
              target_lost_streak OBSERVED frames in a row → the target died: count the kill
              and hunt the next one (a nil/timer wake never counts — only real frames vote).
 
+  The PRIORITY ORDER is `Pokex.Bots.Combat.Strategy`'s when a loadout says what this
+  pokémon's keys do — area first on a crowd, single-target first on one or two, the
+  control skill never — and the configured `skill_keys` list otherwise. The fallback is
+  not a degraded mode: it is the behaviour that existed before loadouts.
+
   There is NO mouse anywhere: Tab and skills are keys, the Guardian owns the panic corner,
   and the Body is not involved.
   """
+
+  alias Pokex.Bots.Combat.{Loadout, Strategy}
 
   defstruct state: :idle,
             config: nil,
@@ -66,6 +73,12 @@ defmodule Pokex.Bots.Combat.Logic do
             # `:posture` fact by the Worker; a stale or missing fact reads as
             # free fire, so a dead hunt can never leave combat pacifist.
             posture: :free_fight,
+            # WHAT the keys of the pokémon on the field do, when he has said so
+            # (`Pokex.Bots.Combat.Loadout`). nil — no pokémon chosen, or one
+            # whose skills are unclassified — falls back to the configured
+            # `skill_keys` list, which is exactly the behaviour that existed
+            # before any of this.
+            loadout: nil,
             # `captures` stays 0 here forever — captures live on Catcher.Logic since the
             # Catcher extraction — but the panel's merged_counters/3 still folds combat's
             # counters map into its merge (fishing → combat → catcher, last write wins), so
@@ -193,7 +206,7 @@ defmodule Pokex.Bots.Combat.Logic do
             hp_changed_at: now
         }
 
-        press_next_skill(logic, now, obs[:ready_skills])
+        press_next_skill(logic, now, obs)
 
       # Re-Tab ONLY with evidence: the window expired AND post-Tab frame(s)
       # without a lock were seen. Each extra Tab CYCLES the target to the next
@@ -239,7 +252,7 @@ defmodule Pokex.Bots.Combat.Logic do
 
         if stalemate?(logic, now),
           do: give_up_target(logic, obs, now),
-          else: press_next_skill(logic, now, obs[:ready_skills])
+          else: press_next_skill(logic, now, obs)
 
       observed?(obs) and logic.lost_streak + 1 >= logic.config.target_lost_streak ->
         logic = update_in(logic.counters.fights, &(&1 + 1))
@@ -497,6 +510,18 @@ defmodule Pokex.Bots.Combat.Logic do
 
   def set_posture(%__MODULE__{} = logic, _unknown), do: %{logic | posture: :free_fight}
 
+  @doc """
+  What the keys of the pokémon on the field DO, or `nil` to go back to pressing
+  the configured list.
+
+  NOT a fact with an age, unlike the posture: this is something he configured,
+  and a configuration that rotted mid-hunt would silently drop the fight back
+  to a key order that cannot tell area from single-target.
+  """
+  @spec set_loadout(%__MODULE__{}, Loadout.t() | nil) :: %__MODULE__{}
+  def set_loadout(%__MODULE__{} = logic, %Loadout{} = loadout), do: %{logic | loadout: loadout}
+  def set_loadout(%__MODULE__{} = logic, _none), do: %{logic | loadout: nil}
+
   # Back to hunting with nothing pending: no target, no Tab window, and no
   # probe (a probe is a blind Tab, which is the one thing holding fire forbids).
   defp stand_down(logic, now) do
@@ -544,29 +569,48 @@ defmodule Pokex.Bots.Combat.Logic do
   # presses (a cooling key is a no-op in game — today's behavior) but must never stop the
   # attack: not attacking while something is attackable is the one idle this machine
   # exists to prevent.
-  defp press_next_skill(%{config: %{skill_keys: []}} = logic, _now, _ready), do: {logic, []}
+  defp press_next_skill(%{config: config} = logic, now, obs) do
+    order = attack_keys(logic, obs)
 
-  defp press_next_skill(%{config: config} = logic, now, ready) do
     cond do
+      order == [] ->
+        {logic, []}
+
       logic.last_burst_at != nil and now - logic.last_burst_at < config.skill_burst_every_ms ->
         {logic, []}
 
-      keys = ready_in_priority(config.skill_keys, ready) ->
+      keys = ready_in_priority(order, obs[:ready_skills]) ->
         burst = max(config.combat_skill_burst_size, 1)
         actions = keys |> Enum.take(burst) |> Enum.map(&{:press, &1})
         {%{logic | last_burst_at: now}, actions}
 
       true ->
         burst = max(config.combat_skill_burst_size, 1)
-        len = length(config.skill_keys)
+        len = length(order)
 
         actions =
           for offset <- 0..(burst - 1) do
-            {:press, Enum.at(config.skill_keys, rem(logic.skill_idx + offset, len))}
+            {:press, Enum.at(order, rem(logic.skill_idx + offset, len))}
           end
 
         {%{logic | skill_idx: logic.skill_idx + burst, last_burst_at: now}, actions}
     end
+  end
+
+  # The order comes from what the keys DO whenever he has said so, and from the
+  # hand-written list when he has not. Two things the list could never know:
+  # a swap makes it wrong, and it cannot tell area from single-target — so it
+  # cannot lead with area on a crowd, nor keep the control skill for the revive.
+  #
+  # The fallback is not a degraded mode, it IS the behaviour that existed before
+  # the loadout: no pokémon chosen means nothing changes.
+  defp attack_keys(%{loadout: nil, config: config}, _obs), do: config.skill_keys
+
+  defp attack_keys(%{loadout: loadout, config: config}, obs) do
+    Strategy.skill_order(loadout,
+      enemies: length(enemies(obs)),
+      aoe_from: Map.get(config, :combat_aoe_from_enemies, 3)
+    )
   end
 
   # The ready keys in skill_keys priority order, or nil (→ blind rotation) when the

@@ -13,6 +13,7 @@ defmodule PokexWeb.TeamLive do
 
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Cavebot.Recording
+  alias Pokex.Bots.Combat.{Loadout, Strategy}
   alias Pokex.Bots.Cavebot.Store, as: RouteStore
   alias Pokex.Pokedex
   alias Pokex.Pokedex.SkillProfile
@@ -121,6 +122,16 @@ defmodule PokexWeb.TeamLive do
     {:noreply, assign_team(socket)}
   end
 
+  # Which pokémon is on the field. Reading it off the screen is the honest way
+  # and does not exist yet; waiting for it would keep every rule that depends on
+  # knowing (open with area, never spend the control) unimplemented behind a
+  # calibration. So he says it, and the fight obeys immediately — Team announces
+  # the change and Combat re-reads without a restart.
+  def handle_event("set_active", %{"active" => name}, socket) do
+    Team.set_active(if(name == "", do: nil, else: name))
+    {:noreply, assign_team(socket)}
+  end
+
   def handle_event("toggle_skills", %{"name" => name}, socket) do
     open = if socket.assigns.open_skills == name, do: nil, else: name
     {:noreply, assign(socket, open_skills: open)}
@@ -206,6 +217,8 @@ defmodule PokexWeb.TeamLive do
     assign(socket,
       team: with_entries(members),
       bank: with_entries(bank),
+      active: Team.active(),
+      loadout: Loadout.current(),
       player_level: player_level,
       level_margin: margin,
       targets: Enum.take(suggestions.targets, 24),
@@ -425,6 +438,36 @@ defmodule PokexWeb.TeamLive do
             <b class="font-bold text-[#c3cad0]">faz</b>
             — é isso que vai deixar o mesmo plano servir quando tu trocar de pokémon.
           </p>
+
+          <%!-- Which one is on the field. The bot cannot read the portrait yet,
+                and every rule that depends on knowing (abrir com área, guardar
+                o controle) would sit unimplemented waiting for it. --%>
+          <form
+            id="active-form"
+            phx-change="set_active"
+            class="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[#293238] bg-[#101418] px-2.5 py-2"
+          >
+            <span class="font-mono text-[10px] text-[#8b949d]">caçando com</span>
+            <select
+              name="active"
+              aria-label="Pokémon em campo"
+              class="h-8 rounded border border-[#293238] bg-[#090d0f] px-2 font-mono text-[11px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+            >
+              <option value="" selected={is_nil(@active)}>— nenhum —</option>
+              <option :for={row <- @team} value={row.name} selected={@active == row.name}>
+                {row.name}
+              </option>
+            </select>
+            <span :if={@loadout} id="active-opening" class="font-mono text-[10px] text-[#3de083]">
+              a luta abre com 💥 {Enum.join(Strategy.opening(@loadout), " ")}
+            </span>
+            <span :if={is_nil(@active)} class="font-mono text-[10px] text-[#7f8992]">
+              — sem escolha a luta aperta a lista fixa do /config, sem saber o que cada tecla faz
+            </span>
+            <span :if={@active && is_nil(@loadout)} class="font-mono text-[10px] text-[#f2c45b]">
+              — sem skill de área nem de alvo único classificada, a luta cai na lista fixa
+            </span>
+          </form>
 
           <p :if={@team == []} class="text-[11px] text-[#7f8992]">
             cadastra teus Pokémon e eu te digo quem vale a caçada

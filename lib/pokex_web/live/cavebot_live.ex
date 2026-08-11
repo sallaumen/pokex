@@ -1553,6 +1553,16 @@ defmodule PokexWeb.CavebotLive do
                     class="mt-1 pl-7 font-mono text-pk-meta text-pk-text-3"
                   >
                     {taught_label(wp)}
+                    <%!-- The keys are here; what they MEAN lives on the team
+                          page. Without a way across, the two screens describe
+                          the same combo and never mention each other. --%>
+                    <.link
+                      :if={wp[:combo] not in [nil, []]}
+                      navigate={~p"/time"}
+                      class="text-pk-info hover:underline"
+                    >
+                      o que cada tecla faz
+                    </.link>
                   </p>
 
                   <%!-- The job lives on the SELECTED waypoint only: fourteen rows

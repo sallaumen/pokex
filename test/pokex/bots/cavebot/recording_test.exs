@@ -174,6 +174,65 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
     end
   end
 
+  # The team page offers ten keys to classify; his hands press four. Which
+  # four is not a question for a settings screen — the routes already answer it.
+  describe "which skills his hands habitually use" do
+    defp with_combo(route, index, combo), do: Route.set_timing(route, index, combo: combo)
+
+    test "the mashing collapses and the keys are pooled across kill spots" do
+      route =
+        [nil, nil, nil]
+        |> route_of()
+        |> with_combo(0, ~w(1 1 3 3 3 4 4 4 5 5))
+        |> with_combo(2, ~w(1 1 1 3 4 4 4 4 5))
+
+      assert Enum.sort(Recording.habitual_skills([route])) == ~w(1 3 4 5)
+    end
+
+    # His real "Azumaril easy": 1 3 4 5 at every kill spot, and 2 6 7 8 at the
+    # one he fumbled. The union answers "eight of your nine keys" — useless.
+    test "a key he pressed at ONE spot out of five is a slip, not a combo" do
+      route =
+        [nil, nil, nil, nil, nil]
+        |> route_of()
+        |> with_combo(0, ~w(1 3 4 5))
+        |> with_combo(1, ~w(1 3 4 5 6 7 8 8 2 3 4))
+        |> with_combo(2, ~w(1 3 4 5))
+        |> with_combo(3, ~w(1 3 4 5))
+        |> with_combo(4, ~w(1 3 4 5))
+
+      assert Enum.sort(Recording.habitual_skills([route])) == ~w(1 3 4 5)
+    end
+
+    test "half the kill spots is enough — a second opinion is not a slip" do
+      route =
+        [nil, nil]
+        |> route_of()
+        |> with_combo(0, ~w(3 4))
+        |> with_combo(1, ~w(3 9))
+
+      assert Enum.sort(Recording.habitual_skills([route])) == ~w(3 4 9)
+    end
+
+    test "one recorded kill spot is all the evidence there is, so it all counts" do
+      route = with_combo(route_of([nil]), 0, ~w(3 3 4))
+
+      assert Enum.sort(Recording.habitual_skills([route])) == ~w(3 4)
+    end
+
+    test "two routes count as spots of the same hand" do
+      grass = with_combo(route_of([nil]), 0, ~w(3 3 4))
+      water = with_combo(route_of([nil]), 0, ~w(3 8 8))
+
+      assert Enum.sort(Recording.habitual_skills([grass, water])) == ~w(3 4 8)
+    end
+
+    test "routes he never fought on report nothing" do
+      assert Recording.habitual_skills([route_of([nil, nil])]) == []
+      assert Recording.habitual_skills([]) == []
+    end
+  end
+
   describe "saying what it did" do
     test "the note names the stop and the marks" do
       route = route_of([100, 100, 34_000])

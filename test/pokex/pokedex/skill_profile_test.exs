@@ -107,4 +107,46 @@ defmodule Pokex.Pokedex.SkillProfileTest do
       assert SkillProfile.summary(%{}) == "nenhuma skill classificada"
     end
   end
+
+  # He came to the team page looking for "o combo de cada um" and the word was
+  # not on it — even though the profile fully determines one.
+  describe "the combo the profile spells out" do
+    test "every classified key, in firing order — whatever order they were set in" do
+      profile =
+        %{}
+        |> SkillProfile.put("4", :aoe)
+        |> SkillProfile.put("1", :heal)
+        |> SkillProfile.put("3", :aoe)
+
+      assert SkillProfile.combo(profile) == ["1", "3", "4"]
+    end
+
+    test "a key with its job taken away leaves the combo" do
+      profile =
+        %{}
+        |> SkillProfile.put("1", :heal)
+        |> SkillProfile.put("3", :aoe)
+        |> SkillProfile.put("1", :none)
+
+      assert SkillProfile.combo(profile) == ["3"]
+    end
+
+    test "nothing classified is an empty combo, not a crash" do
+      assert SkillProfile.combo(%{}) == []
+    end
+  end
+
+  describe "putting his own keys in firing order" do
+    test "dedupes and sorts by the bar, never by the order they arrived" do
+      assert SkillProfile.in_firing_order(["5", "1", "3", "1"]) == ["1", "3", "5"]
+    end
+
+    test "the tenth slot fires LAST, because on the bar 0 comes after 9" do
+      assert SkillProfile.in_firing_order(["0", "9", "2"]) == ["2", "9", "0"]
+    end
+
+    test "a key no hotbar has drops out" do
+      assert SkillProfile.in_firing_order(["3", "f1", ""]) == ["3"]
+    end
+  end
 end

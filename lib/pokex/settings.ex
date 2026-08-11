@@ -766,6 +766,13 @@ defmodule Pokex.Settings do
     # "até aqui" the pile is still strung out behind him; the fire stays held
     # this long so the area damage lands on a crowd, not on a straggler.
     cavebot_gather_wait_ms: 4_000,
+    # The recorder learns this pause from his own hands, and a learned number
+    # is only trusted inside a plausible band: his real route came back with
+    # 2.0s, 3.3s and 3.6s at three kill spots — and 12.0s at a fourth, which
+    # is the recorder having timed something other than a pile closing in.
+    # Outside the band the configured wait wins.
+    cavebot_gather_wait_min_ms: 500,
+    cavebot_gather_wait_max_ms: 8_000,
     cavebot_clear_debounce_ms: 800,
     # Recording the route WHILE WALKING: a new waypoint only lands after
     # walking this far since the last one. Without it the route would become
@@ -972,6 +979,8 @@ defmodule Pokex.Settings do
     hold_max_ms: 200..30_000,
     cavebot_capture_wait_ms: 0..600_000,
     cavebot_gather_wait_ms: 0..60_000,
+    cavebot_gather_wait_min_ms: 0..60_000,
+    cavebot_gather_wait_max_ms: 0..120_000,
     rescue_confirm_ms: 0..10_000,
     combat_confirm_ms: 0..10_000,
     cavebot_precise_tiles: 0..10,

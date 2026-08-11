@@ -76,7 +76,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
     capture_wait_ms: :cavebot_capture_wait_ms,
     sweep_grace_ms: :cavebot_sweep_grace_ms,
     stop_wait_ms: :cavebot_stop_wait_ms,
-    gather_wait_ms: :cavebot_gather_wait_ms
+    gather_wait_ms: :cavebot_gather_wait_ms,
+    gather_wait_min_ms: :cavebot_gather_wait_min_ms,
+    gather_wait_max_ms: :cavebot_gather_wait_max_ms
   }
 
   def topic, do: @topic

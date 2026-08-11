@@ -13,7 +13,9 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     capture_wait_ms: 20_000,
     sweep_grace_ms: 1500,
     stop_wait_ms: 5_000,
-    gather_wait_ms: 4_000
+    gather_wait_ms: 4_000,
+    gather_wait_min_ms: 500,
+    gather_wait_max_ms: 8_000
   }
 
   defp route do
@@ -857,8 +859,13 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
     # "quatro segundos" was his estimate; the recording measures the real one
     # by watching him park the pokémon and counting to his first skill.
+    # 7s, not 9s: the band that rejects his route's bogus 12s measurement tops
+    # out at 8s (see "a learned pause has to be plausible"). He describes the
+    # pile taking about four seconds, so obeying a measured NINE would be
+    # standing still twice as long as he ever does — and standing still is
+    # exactly when the pile is eating him.
     test "a pause he was MEASURED taking wins over the configured one" do
-      route = Route.set_timing(gather_route(), 1, gather_ms: 9_000)
+      route = Route.set_timing(gather_route(), 1, gather_ms: 7_000)
 
       logic = %{
         Logic.new(route, @cfg)
@@ -871,7 +878,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {logic, :none} = Logic.step(logic, world({10, 0, 7}, 4), 1_000)
 
       # the configured 4s is long past and it is STILL holding
-      assert Logic.gathering?(logic, 7_000)
+      assert Logic.gathering?(logic, 6_000)
       refute Logic.gathering?(logic, 10_100)
     end
 
@@ -886,6 +893,62 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
       {logic, _action} = Logic.step(logic, world({10, 10, 7}), 1_000)
       refute Logic.gathering?(logic, 1_100)
+    end
+  end
+
+  # His own recorded route (2026-08-11) learned 2.0s, 3.3s and 3.6s of huddle
+  # at three kill spots — and 12.0s at a fourth. Twelve seconds is not him
+  # waiting for the pile; it is the recorder having measured something else.
+  # Obeyed raw, it would stand there holding fire while the pile eats him.
+  describe "a learned pause has to be plausible" do
+    defp huddle_route(measured) do
+      {:ok, r} = Route.append(Route.new("r"), {0, 0, 7})
+      {:ok, r} = Route.append(r, {10, 0, 7})
+
+      r
+      |> Route.set_action(1, :lure_end)
+      |> Route.set_timing(1, gather_ms: measured)
+    end
+
+    defp arrive(route, now) do
+      logic = %{
+        Logic.new(route, @cfg)
+        | combat_running?: true,
+          homed?: true,
+          wp_index: 1,
+          last_pos: {9, 0, 7}
+      }
+
+      {logic, _action} = Logic.step(logic, world({10, 0, 7}), now)
+      logic
+    end
+
+    test "a measurement in range is obeyed — his hands beat my guess" do
+      logic = arrive(huddle_route(2_027), 1_000)
+
+      assert Logic.gathering?(logic, 2_500)
+      refute Logic.gathering?(logic, 3_100)
+    end
+
+    test "a wild measurement falls back to the configured wait, not to itself" do
+      logic = arrive(huddle_route(12_015), 1_000)
+
+      # the configured 4s, not the measured 12s
+      assert Logic.gathering?(logic, 4_000)
+      refute Logic.gathering?(logic, 5_100)
+    end
+
+    test "an impossibly short one falls back too" do
+      logic = arrive(huddle_route(80), 1_000)
+
+      assert Logic.gathering?(logic, 3_000)
+    end
+
+    test "no measurement at all is the configured wait, as before" do
+      logic = arrive(huddle_route(nil), 1_000)
+
+      assert Logic.gathering?(logic, 3_000)
+      refute Logic.gathering?(logic, 5_100)
     end
   end
 

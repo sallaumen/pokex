@@ -26,7 +26,10 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                stops: [],
                at: nil,
                dwell_ms: nil,
-               park_point: nil
+               park_point: nil,
+               fight_ms: nil,
+               gather_ms: nil,
+               combo: []
              }
            ]
   end
@@ -58,7 +61,10 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                stops: [],
                at: nil,
                dwell_ms: nil,
-               park_point: nil
+               park_point: nil,
+               fight_ms: nil,
+               gather_ms: nil,
+               combo: []
              }
            ]
   end
@@ -144,7 +150,10 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                stops: [],
                at: nil,
                dwell_ms: nil,
-               park_point: nil
+               park_point: nil,
+               fight_ms: nil,
+               gather_ms: nil,
+               combo: []
              }
            ]
   end

@@ -193,7 +193,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                  stops: [],
                  at: nil,
                  dwell_ms: nil,
-                 park_point: nil
+                 park_point: nil,
+                 fight_ms: nil,
+                 gather_ms: nil,
+                 combo: []
                },
                pos: nil,
                pos_age_ms: nil,
@@ -466,7 +469,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              stops: [],
              at: nil,
              dwell_ms: nil,
-             park_point: nil
+             park_point: nil,
+             fight_ms: nil,
+             gather_ms: nil,
+             combo: []
            }
 
     assert status.pos == {10, 20, 7}

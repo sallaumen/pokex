@@ -94,7 +94,10 @@ defmodule Pokex.Rig.Fake do
 
   @impl true
   def middle_watch,
-    do: record({:middle_watch}, :middle_watch, {:ok, %{count: 0, point: {0, 0}}})
+    do: record({:middle_watch}, :middle_watch, {:ok, %{count: 0, point: {0, 0}, at: 0}})
+
+  @impl true
+  def key_watch(codes), do: record({:key_watch, codes}, :key_watch, {:ok, []})
 
   defp record(call, key, default) do
     Agent.get_and_update(__MODULE__, fn state ->

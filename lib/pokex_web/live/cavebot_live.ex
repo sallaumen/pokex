@@ -17,7 +17,7 @@ defmodule PokexWeb.CavebotLive do
 
   import PokexWeb.CavebotComponents
 
-  alias Pokex.Bots.Cavebot.{Photos, Recording, Route, Store, WalkTest, Worker}
+  alias Pokex.Bots.Cavebot.{HandsRead, Photos, Recording, Route, Store, WalkTest, Worker}
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.World
@@ -84,6 +84,9 @@ defmodule PokexWeb.CavebotLive do
        # counter, so a click too fast to catch by polling still shows up.
        middle_count: nil,
        middle_timer: nil,
+       # …and his KEYS: shift+1 opens a fight, shift+3 closes it, and the
+       # skills in between are the combo he really used there
+       hands: HandsRead.new(),
        # waypoints he marked with his own hands — never overwritten by the
        # inference
        hand_marked: []
@@ -144,7 +147,11 @@ defmodule PokexWeb.CavebotLive do
   # directions — it says exactly WHERE, and standing still is invisible to the
   # coordinate reader anyway.
   def handle_info(:watch_middle, %{assigns: %{recording?: true}} = socket) do
-    {:noreply, socket |> read_middle_click() |> schedule_middle_watch()}
+    {:noreply,
+     socket
+     |> read_middle_click()
+     |> read_his_keys()
+     |> schedule_middle_watch()}
   end
 
   def handle_info(:watch_middle, socket), do: {:noreply, socket}
@@ -163,11 +170,74 @@ defmodule PokexWeb.CavebotLive do
     assign(socket, middle_timer: nil, middle_count: nil)
   end
 
+  # What his hands did since the last look. Nothing here is a command: it is
+  # the recording learning the fight it just watched — how long it took, the
+  # skills he used, and the pause he leaves for the pile to close in.
+  defp read_his_keys(socket) do
+    case Pokex.Rig.impl().key_watch(HandsRead.codes()) do
+      {:ok, []} -> socket
+      {:ok, events} -> apply_hands(socket, events)
+      _unavailable -> socket
+    end
+  catch
+    :exit, _reason -> socket
+  end
+
+  defp apply_hands(socket, events) do
+    {hands, reading} = HandsRead.read(socket.assigns.hands, events)
+    socket = assign(socket, hands: hands)
+    route = socket.assigns.active_route
+    index = length(route.waypoints) - 1
+
+    if index >= 0 do
+      timings =
+        [fight_ms: reading.fight_ms, gather_ms: reading.gather_ms]
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> then(
+          &if reading.combo == [], do: &1, else: [{:combo, combo_at(route, index, reading)} | &1]
+        )
+
+      write_timings(socket, route, index, timings, reading)
+    else
+      socket
+    end
+  end
+
+  # The combo GROWS across drains: he presses 4, then 1, then 3, and each
+  # drain sees only its own slice.
+  defp combo_at(route, index, reading) do
+    existing = Enum.at(route.waypoints, index)[:combo] || []
+    existing ++ reading.combo
+  end
+
+  defp write_timings(socket, _route, _index, [], _reading), do: socket
+
+  defp write_timings(socket, route, index, timings, reading) do
+    updated = Route.set_timing(route, index, timings)
+    :ok = Store.add(updated)
+
+    socket
+    |> then(
+      &if reading.fight_ms,
+        do: assign(&1, notice: fight_note(reading), notice_kind: :ok),
+        else: &1
+    )
+    |> reload_routes(updated.name)
+  end
+
+  defp fight_note(%{fight_ms: ms, combo: combo}) do
+    base = "⚔️ luta de #{round(ms / 1000)}s medida aqui"
+    if combo == [], do: base, else: base <> " — skills #{Enum.join(combo, ", ")}"
+  end
+
   defp read_middle_click(socket) do
     case Pokex.Rig.impl().middle_watch() do
-      {:ok, %{count: count, point: point}} -> middle_click_edge(socket, count, point)
+      {:ok, %{count: count, point: point} = watch} ->
+        middle_click_edge(socket, count, point, watch[:at])
+
       # no helper (tests, another OS): the clock keeps working on its own
-      _unavailable -> socket
+      _unavailable ->
+        socket
     end
   catch
     # the rig is not even running — recording must not die with it
@@ -176,16 +246,20 @@ defmodule PokexWeb.CavebotLive do
 
   # Only the JUMP counts, and the first reading only learns the baseline —
   # a session with clicks already behind it must not mark on the first tick.
-  defp middle_click_edge(%{assigns: %{middle_count: nil}} = socket, count, _point),
+  defp middle_click_edge(%{assigns: %{middle_count: nil}} = socket, count, _point, _at),
     do: assign(socket, middle_count: count)
 
-  defp middle_click_edge(%{assigns: %{middle_count: seen}} = socket, count, _point)
+  defp middle_click_edge(%{assigns: %{middle_count: seen}} = socket, count, _point, _at)
        when count <= seen,
        do: socket
 
-  defp middle_click_edge(socket, count, point) do
+  # `at` is the HELPER's clock, the same one the key presses are stamped with —
+  # the huddle is the gap between this click and his first skill.
+  defp middle_click_edge(socket, count, point, at) do
+    hands = if at, do: HandsRead.parked(socket.assigns.hands, at), else: socket.assigns.hands
+
     socket
-    |> assign(middle_count: count)
+    |> assign(middle_count: count, hands: hands)
     |> mark_park_here(point)
   end
 

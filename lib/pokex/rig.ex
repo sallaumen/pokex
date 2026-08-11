@@ -34,7 +34,19 @@ defmodule Pokex.Rig do
   shows up here. The recorder watches it for a jump — the marker Lucas makes
   with his own hand when he parks his pokémon (2026-08-11).
   """
-  @callback middle_watch() :: {:ok, %{count: integer, point: point}} | {:error, term}
+  @callback middle_watch() ::
+              {:ok, %{count: integer, point: point, at: integer | nil}} | {:error, term}
+
+  @doc """
+  The presses HE made on `codes` since the last call, oldest first.
+
+  Same contract as `middle_watch/0`: polled, never tapped. What it buys is the
+  recording knowing what he was DOING — "shift+3 é pq eu já terminei de matar
+  tudo, shift+1 é por que vou matar monstro" (2026-08-11) — plus the skills in
+  between and how long he took to fire them.
+  """
+  @callback key_watch([non_neg_integer]) ::
+              {:ok, [%{code: non_neg_integer, shift?: boolean, at: integer}]} | {:error, term}
 
   def impl, do: Application.get_env(:pokex, :rig, Pokex.Rig.Mac)
 end

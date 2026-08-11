@@ -63,7 +63,10 @@ defmodule Pokex.Bots.Cavebot.Route do
           stops: [stop],
           at: DateTime.t() | nil,
           dwell_ms: non_neg_integer | nil,
-          park_point: {integer, integer} | nil
+          park_point: {integer, integer} | nil,
+          fight_ms: non_neg_integer | nil,
+          gather_ms: non_neg_integer | nil,
+          combo: [String.t()]
         }
 
   @type t :: %__MODULE__{
@@ -105,7 +108,10 @@ defmodule Pokex.Bots.Cavebot.Route do
       stops: [],
       at: Keyword.get(opts, :at),
       dwell_ms: nil,
-      park_point: nil
+      park_point: nil,
+      fight_ms: nil,
+      gather_ms: nil,
+      combo: []
     }
 
     {:ok, %{route | z: route.z || z, waypoints: route.waypoints ++ [waypoint]}}
@@ -204,6 +210,36 @@ defmodule Pokex.Bots.Cavebot.Route do
       wp -> %{route | waypoints: List.replace_at(waypoints, index, %{wp | park_point: point})}
     end
   end
+
+  @doc """
+  What HE did at this waypoint, measured from his own hands.
+
+  `fight_ms` is how long the kill took (shift+1 to shift+3 — "shift+3 é pq eu
+  já terminei de matar tudo, shift+1 é por que vou matar monstro"),
+  `gather_ms` how long he waited between parking the pokémon and firing the
+  first skill (the huddle, measured instead of guessed at four seconds), and
+  `combo` the skills he actually pressed there, in order.
+
+  Learning material, not orders: the hunt reads `gather_ms` today, and the
+  strategy engine will read `combo`.
+  """
+  @spec set_timing(t, non_neg_integer, keyword) :: t
+  def set_timing(%__MODULE__{waypoints: waypoints} = route, index, fields) do
+    case Enum.at(waypoints, index) do
+      nil ->
+        route
+
+      wp ->
+        wp = Enum.reduce(fields, wp, fn {key, value}, acc -> put_timing(acc, key, value) end)
+        %{route | waypoints: List.replace_at(waypoints, index, wp)}
+    end
+  end
+
+  defp put_timing(wp, key, value) when key in [:fight_ms, :gather_ms] and is_integer(value),
+    do: Map.put(wp, key, value)
+
+  defp put_timing(wp, :combo, keys) when is_list(keys), do: Map.put(wp, :combo, keys)
+  defp put_timing(wp, _unknown, _value), do: wp
 
   @doc "Every stop action there is, in the order they run."
   @spec stops() :: [stop]

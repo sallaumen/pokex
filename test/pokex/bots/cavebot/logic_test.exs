@@ -838,6 +838,26 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :fighting
     end
 
+    # "quatro segundos" was his estimate; the recording measures the real one
+    # by watching him park the pokémon and counting to his first skill.
+    test "a pause he was MEASURED taking wins over the configured one" do
+      route = Route.set_timing(gather_route(), 1, gather_ms: 9_000)
+
+      logic = %{
+        Logic.new(route, @cfg)
+        | combat_running?: true,
+          homed?: true,
+          wp_index: 1,
+          last_pos: {9, 0, 7}
+      }
+
+      {logic, :none} = Logic.step(logic, world({10, 0, 7}, 4), 1_000)
+
+      # the configured 4s is long past and it is STILL holding
+      assert Logic.gathering?(logic, 7_000)
+      refute Logic.gathering?(logic, 10_100)
+    end
+
     test "a plain waypoint has no huddle to wait for" do
       logic = %{
         Logic.new(route(), @cfg)

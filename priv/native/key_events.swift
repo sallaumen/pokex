@@ -59,6 +59,8 @@ struct KeyEventsHelper {
       handleMiddleClick(json)
     case "middle_watch":
       handleMiddleWatch()
+    case "key_watch":
+      handleKeyWatch(json)
     default:
       emit(["ok": false, "error": "unknown_op:\(op)"])
     }
@@ -85,7 +87,90 @@ struct KeyEventsHelper {
       "count": Int(count),
       "x": Int(point.x.rounded()),
       "y": Int(point.y.rounded()),
+      // The SAME clock the key watcher stamps with: the huddle is measured
+      // between a click and a key press, and two clocks would make that
+      // subtraction meaningless.
+      "at": Int(DispatchTime.now().uptimeNanoseconds / 1_000_000),
     ])
+  }
+
+  // ---------------------------------------------------------------------
+  // Watching HIS keys, so the recording can learn what he was doing.
+  //
+  // "quando eu aperto Shift+3 é pq eu ja terminei de matar tudo, quando eu
+  // aperto shift+1 é por que vou matar monstro" (Lucas, 2026-08-11) — the
+  // boundaries of a fight, told by his own hands, plus the skills he fires in
+  // between and how long he takes to fire them.
+  //
+  // Polled, never tapped: `CGEventSource.keyState` only ASKS whether a key is
+  // down right now, so nothing is intercepted and no keystroke can be
+  // swallowed by us. The polling runs INSIDE the helper at 8ms because a
+  // press is ~60-100ms and a round trip from Elixir every 120ms would miss
+  // most of them.
+  static let watchLock = NSLock()
+  static var watchedCodes: [CGKeyCode] = []
+  static var wasDown: Set<CGKeyCode> = []
+  static var keyBuffer: [[String: Any]] = []
+  static var watching = false
+
+  static func handleKeyWatch(_ json: [String: Any]) {
+    if let codes = json["codes"] as? [Int] {
+      watchLock.lock()
+      watchedCodes = codes.map { CGKeyCode($0) }
+      watchLock.unlock()
+    }
+
+    startWatchingIfNeeded()
+
+    watchLock.lock()
+    let events = keyBuffer
+    keyBuffer = []
+    watchLock.unlock()
+
+    emit(["ok": true, "events": events])
+  }
+
+  static func startWatchingIfNeeded() {
+    guard !watching else { return }
+    watching = true
+
+    Thread.detachNewThread {
+      while true {
+        pollWatchedKeys()
+        usleep(8_000)
+      }
+    }
+  }
+
+  static func pollWatchedKeys() {
+    watchLock.lock()
+    let codes = watchedCodes
+    watchLock.unlock()
+
+    guard !codes.isEmpty else { return }
+
+    let shift = CGEventSource.flagsState(.combinedSessionState).contains(.maskShift)
+    let at = Int(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+
+    for code in codes {
+      let down = CGEventSource.keyState(.combinedSessionState, key: code)
+
+      watchLock.lock()
+      let previously = wasDown.contains(code)
+
+      if down && !previously {
+        wasDown.insert(code)
+        // A buffer nobody drains must not grow without bound: the recorder
+        // drains every ~120ms, and 500 presses is far more than a session
+        // between drains could ever produce.
+        if keyBuffer.count < 500 {
+          keyBuffer.append(["code": Int(code), "shift": shift, "at": at])
+        }
+      } else if !down && previously {
+        wasDown.remove(code)
+      }
+      watchLock.unlock()
+    }
   }
 
   // Middle click at a screen point (the game's "step here" command for the

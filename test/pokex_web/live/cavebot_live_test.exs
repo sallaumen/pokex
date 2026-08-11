@@ -206,9 +206,16 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     # the Fake answers from its SCRIPT, and repeats the last entry forever
-    defp clicks!(count, point) do
+    # the Fake answers from its SCRIPT, and repeats the last entry forever
+    defp clicks!(count, point, at \\ 0) do
       Agent.update(Pokex.Rig.Fake, fn state ->
-        put_in(state.script[:middle_watch], [{:ok, %{count: count, point: point}}])
+        put_in(state.script[:middle_watch], [{:ok, %{count: count, point: point, at: at}}])
+      end)
+    end
+
+    defp presses!(events) do
+      Agent.update(Pokex.Rig.Fake, fn state ->
+        put_in(state.script[:key_watch], [{:ok, events}])
       end)
     end
 
@@ -240,6 +247,52 @@ defmodule PokexWeb.CavebotLiveTest do
       assert wp.stops == [:sweep]
       assert wp.park_point == {1240, 655}
       assert html =~ "clique do meio em 1240, 655"
+    end
+
+    # "shift+3 é pq eu já terminei de matar tudo, shift+1 é por que vou matar
+    # monstro" (Lucas, 2026-08-11): the fight's boundaries, told by his hands.
+    test "his own keys measure the fight, the huddle and the combo", %{conn: conn} do
+      put_pos({10, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
+      view |> element("#toggle-recording") |> render_click()
+
+      put_pos({10, 20, 7})
+      send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
+      render(view)
+
+      clicks!(1, {0, 0}, 0)
+      send(view.pid, :watch_middle)
+      render(view)
+
+      # he parks the pokémon at 1_000 on the helper's clock
+      clicks!(2, {1240, 655}, 1_000)
+      presses!([])
+      send(view.pid, :watch_middle)
+      render(view)
+
+      {:ok, one} = Pokex.Rig.Mac.Commands.keycode("1")
+      {:ok, three} = Pokex.Rig.Mac.Commands.keycode("3")
+      {:ok, five} = Pokex.Rig.Mac.Commands.keycode("5")
+
+      # shift+1 opens the fight, skills fly, shift+3 closes it
+      presses!([
+        %{code: one, shift?: true, at: 4_000},
+        %{code: five, shift?: false, at: 4_600},
+        %{code: three, shift?: false, at: 5_000},
+        %{code: three, shift?: true, at: 12_000}
+      ])
+
+      send(view.pid, :watch_middle)
+      html = render(view)
+
+      assert [%Route{waypoints: [wp]}] = Store.all()
+      # from parking to the first skill — the huddle, MEASURED
+      assert wp.gather_ms == 3_600
+      assert wp.fight_ms == 8_000
+      assert wp.combo == ["5", "3"]
+      assert html =~ "luta de 8s medida aqui"
     end
 
     test "no click, no mark", %{conn: conn} do

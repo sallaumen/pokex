@@ -39,6 +39,7 @@ defmodule Pokex.Bots.MiniGame.Replay do
                click: 2,
                move: 1,
                middle_watch: 0,
+               key_watch: 1,
                tap: 1,
                focus_click: 1,
                capture_sequence: 1,
@@ -76,6 +77,8 @@ defmodule Pokex.Bots.MiniGame.Replay do
     def cursor_position, do: refuse(:cursor_position)
     @impl true
     def middle_watch, do: refuse(:middle_watch)
+    @impl true
+    def key_watch(_codes), do: refuse(:key_watch)
 
     defp refuse(action) do
       raise "mini-game replay is offline: #{action} is not allowed"

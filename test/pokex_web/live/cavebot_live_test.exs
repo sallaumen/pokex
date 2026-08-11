@@ -428,6 +428,25 @@ defmodule PokexWeb.CavebotLiveTest do
       refute html =~ ~s(id="waypoint-taught-0")
       refute html =~ ~s(id="waypoint-taught-1")
     end
+
+    # "as telas tao mal integradas poxa" — the keys live here, what they MEAN
+    # lives on the team page, and neither one used to mention the other.
+    test "a recorded combo points at the page that says what the keys do", %{conn: conn} do
+      {:ok, route} = Route.append(Route.new("mob"), {10, 10, 7})
+      {:ok, route} = Route.append(route, {20, 10, 7})
+
+      :ok =
+        route
+        |> Route.set_timing(0, combo: ~w(3 4))
+        |> Route.set_timing(1, fight_ms: 4_000)
+        |> Store.add()
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#waypoint-taught-0") |> render() =~ ~s(href="/time")
+      # the waypoint that only timed a fight has no keys to explain
+      refute view |> element("#waypoint-taught-1") |> render() =~ ~s(href="/time")
+    end
   end
 
   # THE bug of the first timed recording (2026-08-11): all 52 waypoints of his

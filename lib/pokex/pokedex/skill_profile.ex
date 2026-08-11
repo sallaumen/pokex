@@ -65,6 +65,27 @@ defmodule Pokex.Pokedex.SkillProfile do
   def by_category(profile), do: Map.new(@categories, &{&1, keys(profile, &1)})
 
   @doc """
+  The combo this profile spells out: every key that has a job, in firing order.
+
+  He does not think in jobs, he thinks in combos — "eu aperto número 1 (…),
+  aperto 3 e 4" — so a grid of dropdowns is not what he came looking for. This
+  is the same profile read back as the thing he recognises, which also makes
+  the firing-order assumption visible enough for him to reject.
+  """
+  @spec combo(t) :: [String.t()]
+  def combo(profile), do: Enum.filter(@hotbar_keys, &Map.has_key?(profile, &1))
+
+  @doc """
+  `keys` deduped and put in firing order; anything that is not a hotbar key
+  drops out.
+
+  Used to show his OWN keys — the ones his hands press in the recorded routes —
+  in the same order the editor lists them.
+  """
+  @spec in_firing_order([String.t()]) :: [String.t()]
+  def in_firing_order(keys) when is_list(keys), do: Enum.filter(@hotbar_keys, &(&1 in keys))
+
+  @doc """
   The keys of one job, in firing order — `[]` when this pokémon has none.
 
   The empty list is not a failure: it is what makes one strategy fit every

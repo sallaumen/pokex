@@ -12,6 +12,8 @@ defmodule PokexWeb.TeamLive do
   @behaviour PokexWeb.CharacterAware
 
   alias Pokex.Bots.Capture
+  alias Pokex.Bots.Cavebot.Recording
+  alias Pokex.Bots.Cavebot.Store, as: RouteStore
   alias Pokex.Pokedex
   alias Pokex.Pokedex.SkillProfile
   alias Pokex.Pokedex.Team
@@ -33,6 +35,7 @@ defmodule PokexWeb.TeamLive do
        open_skills: nil,
        species_names: Enum.map(Pokedex.search(%{}), & &1.name)
      )
+     |> assign_hands()
      |> assign_team()}
   end
 
@@ -40,7 +43,7 @@ defmodule PokexWeb.TeamLive do
   # header has to swap the list right here, right now — this is the page that
   # lied the loudest without it.
   @impl PokexWeb.CharacterAware
-  def on_character_change(socket), do: assign_team(socket)
+  def on_character_change(socket), do: socket |> assign_hands() |> assign_team()
 
   @impl true
   def handle_event("add", %{"member" => name, "where" => where}, socket) do
@@ -136,6 +139,28 @@ defmodule PokexWeb.TeamLive do
 
     {:noreply, assign_team(socket)}
   end
+
+  # Where his keys ALREADY live, so this page stops talking about a different
+  # game than the other two: the routes hold the combo his hands recorded, and
+  # Settings holds what Combat presses on its own.
+  #
+  # Read on mount and on a character switch, NOT inside `assign_team/2`: that
+  # one runs on every level keystroke, and `RouteStore.all/0` reads and decodes
+  # the whole routes file (the disk lesson from the recording audit).
+  defp assign_hands(socket) do
+    used =
+      RouteStore.all()
+      |> Recording.habitual_skills()
+      |> SkillProfile.in_firing_order()
+
+    assign(socket,
+      used_keys: used,
+      combat_keys: Pokex.Settings.get(:skill_keys) || []
+    )
+  end
+
+  defp keys_text([]), do: "nenhuma"
+  defp keys_text(keys), do: Enum.join(keys, " ")
 
   # Everything on this page derives from the saved team file + the Pokédex —
   # one funnel keeps the lists, the window and the suggestions in sync.
@@ -356,6 +381,27 @@ defmodule PokexWeb.TeamLive do
           <h2 class="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
             🧢 time ({length(@team)})
           </h2>
+
+          <%!-- The three places his keys live, named in one paragraph. He came
+                here looking for "o combo de cada um" and found neither the word
+                nor a hint of which screen owns it. --%>
+          <p id="skills-map" class="mb-2 text-[11px] leading-relaxed text-[#7f8992]">
+            Tuas teclas vivem em três lugares.
+            <.link navigate={~p"/cavebot"} class="text-[#7cc0e8] hover:underline">
+              A rota gravada
+            </.link>
+            guarda o combo que tuas mãos apertaram em cada matança — as teclas que
+            tu repete são <span id="skills-map-recorded" class="font-mono text-[#dce1e4]">{keys_text(@used_keys)}</span>,
+            e é esse combo que a caçada dispara hoje.
+            <.link navigate={~p"/config"} class="text-[#7cc0e8] hover:underline">
+              O combate
+            </.link>
+            aperta <span id="skills-map-combat" class="font-mono text-[#dce1e4]">{keys_text(@combat_keys)}</span>
+            sozinho durante a luta. E aqui embaixo tu diz o que cada tecla
+            <b class="font-bold text-[#c3cad0]">faz</b>
+            — é isso que vai deixar o mesmo plano servir quando tu trocar de pokémon.
+          </p>
+
           <p :if={@team == []} class="text-[11px] text-[#7f8992]">
             cadastra teus Pokémon e eu te digo quem vale a caçada
           </p>
@@ -367,6 +413,8 @@ defmodule PokexWeb.TeamLive do
               other_label="→ banco"
               open?={@open_skills == row.name}
               keys={hotbar_keys()}
+              used={@used_keys}
+              warn?={true}
             />
           </ul>
         </section>
@@ -379,6 +427,9 @@ defmodule PokexWeb.TeamLive do
             o que você tem guardado mas não caça com — pra não perder de vista
           </p>
           <ul class="space-y-1">
+            <%!-- No warning down here: the bank is inventory, not the six he
+                  hunts with, and fifteen amber lines would drown the ones on
+                  the team that mean something. --%>
             <.member_row
               :for={row <- @bank}
               row={row}
@@ -386,6 +437,8 @@ defmodule PokexWeb.TeamLive do
               other_label="→ time"
               open?={@open_skills == row.name}
               keys={hotbar_keys()}
+              used={@used_keys}
+              warn?={false}
             />
           </ul>
         </section>
@@ -462,6 +515,8 @@ defmodule PokexWeb.TeamLive do
 
   attr :open?, :boolean, default: false
   attr :keys, :list, default: []
+  attr :used, :list, default: []
+  attr :warn?, :boolean, default: false
 
   defp member_row(assigns) do
     ~H"""
@@ -512,22 +567,26 @@ defmodule PokexWeb.TeamLive do
         >
           {@other_label}
         </button>
+        <%!-- It used to be bare grey 10px text between "→ banco" and "×" — the
+              one control on the row that opens an editor, dressed exactly like
+              the two that do not. A border and his own word for it ("combo")
+              are what make it findable. --%>
         <button
           id={"skills-toggle-" <> String.replace(@row.name, ~r/\W+/, "-")}
           phx-click="toggle_skills"
           phx-value-name={@row.name}
           aria-expanded={to_string(@open?)}
-          aria-label={"Skills de " <> @row.name}
-          title="pra que serve cada skill dele"
+          aria-label={"Combo de " <> @row.name}
+          title="pra que serve cada skill dele — e o combo que sai disso"
           class={[
-            "cursor-pointer rounded px-1.5 py-0.5 font-mono text-[10px] transition",
+            "shrink-0 cursor-pointer rounded border px-2 py-1 font-mono text-[10px] transition",
             if(@open?,
-              do: "bg-[#0d3822] text-[#3de083]",
-              else: "text-[#89939a] hover:text-white"
+              do: "border-[#37d07d] bg-[#0d3822] text-[#3de083]",
+              else: "border-[#293238] text-[#89939a] hover:border-[#4a565e] hover:text-white"
             )
           ]}
         >
-          skills
+          💥 combo
         </button>
         <button
           phx-click="remove"
@@ -539,11 +598,19 @@ defmodule PokexWeb.TeamLive do
         </button>
       </div>
 
+      <%!-- A row with nothing configured used to render NOTHING — six pokémon
+            in a row saying nothing reads as "there is nothing to do here",
+            which is exactly the opposite of the truth. --%>
       <p
-        :if={!@open? and @row.skills != %{}}
-        class="mt-1 pl-8 font-mono text-[9px] text-[#7f8992]"
+        :if={!@open? and (@row.skills != %{} or @warn?)}
+        class="mt-1 pl-8 font-mono text-[9px]"
       >
-        {SkillProfile.summary(@row.skills)}
+        <span :if={@row.skills != %{}} class="text-[#7f8992]">
+          💥 {Enum.join(SkillProfile.combo(@row.skills), " → ")} · {SkillProfile.summary(@row.skills)}
+        </span>
+        <span :if={@row.skills == %{}} class="text-[#f2c45b]">
+          nenhuma skill classificada — abre o 💥 combo e diz o que cada tecla faz
+        </span>
       </p>
 
       <%!-- One select per hotbar key: a skill has exactly ONE job, so a
@@ -555,15 +622,36 @@ defmodule PokexWeb.TeamLive do
         class="mt-2 border-t border-[#293238] pt-2"
       >
         <input type="hidden" name="name" value={@row.name} />
-        <p class="mb-1.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[#69737b]">
-          pra que serve cada skill · {SkillProfile.summary(@row.skills)}
+
+        <%!-- What he actually came looking for, read back off the same profile:
+              the combo. Showing it is also what makes the firing-order rule
+              (left to right on the bar) visible enough to be argued with. --%>
+        <p class="font-mono text-[10px] text-[#8b949d]">
+          combo:
+          <span :if={@row.skills != %{}} class="font-bold text-[#3de083]">
+            {Enum.join(SkillProfile.combo(@row.skills), " → ")}
+          </span>
+          <span :if={@row.skills == %{}} class="text-[#f2c45b]">ainda vazio</span>
         </p>
+        <p class="mb-2 font-mono text-[9px] text-[#69737b]">
+          dispara na ordem da barra, da esquerda pra direita · {SkillProfile.summary(@row.skills)}
+          · salva sozinho
+        </p>
+
         <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           <label
             :for={key <- @keys}
             class="flex items-center gap-1.5 font-mono text-[10px] text-[#8b949d]"
           >
-            <span class="w-9 shrink-0 text-right">skill {key}</span>
+            <%!-- nowrap: the used-key dot pushed "1•" onto a second line and
+                  every label in the grid lost its baseline. --%>
+            <span class="w-12 shrink-0 whitespace-nowrap text-right">
+              skill {key}<span
+                :if={key in @used}
+                title="tu aperta esta tecla nas tuas rotas gravadas"
+                class="text-[#3de083]"
+              >•</span>
+            </span>
             <select
               name={"skill[" <> key <> "]"}
               aria-label={"Skill " <> key <> " de " <> @row.name}
@@ -580,6 +668,14 @@ defmodule PokexWeb.TeamLive do
             </select>
           </label>
         </div>
+
+        <%!-- Ten dropdowns, and his hands use four of them. Which four is not
+              a question for this page to ask — the recorded routes answer it. --%>
+        <p :if={@used != []} class="mt-1.5 font-mono text-[9px] text-[#69737b]">
+          <span class="text-[#3de083]">•</span>
+          são as teclas que tu repete nas matanças das tuas rotas ({Enum.join(@used, " ")}) —
+          começa por elas
+        </p>
       </form>
     </li>
     """

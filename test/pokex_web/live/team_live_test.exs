@@ -1,6 +1,8 @@
 defmodule PokexWeb.TeamLiveTest do
   use PokexWeb.ConnCase, async: false
 
+  alias Pokex.Bots.Cavebot.Route
+  alias Pokex.Bots.Cavebot.Store, as: RouteStore
   alias Pokex.Pokedex.Team
   import Phoenix.LiveViewTest
 
@@ -225,6 +227,39 @@ defmodule PokexWeb.TeamLiveTest do
       assert Team.skills("Charizard") == %{"2" => :buffs}
     end
 
+    # "ja marquei os pokmons como parte do meu time, mas nao sei como
+    # configurar o combo de cada um" (Lucas, 2026-08-11). Six rows that render
+    # NOTHING when unconfigured read as "there is nothing to do here".
+    @tag :tmp_dir
+    test "an unclassified team member says so; the bank stays quiet", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      add!(view, "Venusaur", "bank")
+
+      assert view |> element("#team-list") |> render() =~ "nenhuma skill classificada"
+      refute view |> element("#bank-list") |> render() =~ "nenhuma skill classificada"
+    end
+
+    @tag :tmp_dir
+    test "the row reads the profile back as the COMBO he came looking for", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      view |> element("#skills-toggle-Charizard") |> render_click()
+
+      view
+      |> form("#skills-form-Charizard")
+      |> render_change(%{"skill" => %{"4" => "aoe", "1" => "heal", "3" => "aoe"}})
+
+      # in the editor, live, while he classifies
+      assert view |> element("#skills-form-Charizard") |> render() =~ "1 → 3 → 4"
+
+      # and on the collapsed row afterwards
+      view |> element("#skills-toggle-Charizard") |> render_click()
+      row = view |> element("#team-list") |> render()
+      assert row =~ "1 → 3 → 4"
+      refute row =~ "nenhuma skill classificada"
+    end
+
     @tag :tmp_dir
     test "a pokémon in the BANK is configured the same way", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/time")
@@ -236,6 +271,72 @@ defmodule PokexWeb.TeamLiveTest do
       |> render_change(%{"skill" => %{"1" => "crowd"}})
 
       assert Team.skills("Venusaur") == %{"1" => :crowd}
+    end
+  end
+
+  # "as telas tao mal integradas poxa" — three screens hold his keys and none
+  # of them used to admit the other two existed.
+  describe "where his keys already live" do
+    defp record!(name, combo) do
+      {:ok, route} = Route.append(Route.new(name), {10, 20, 7})
+
+      route
+      |> Route.set_timing(0, combo: combo)
+      |> RouteStore.add()
+    end
+
+    @tag :tmp_dir
+    test "the page names the recorded route and the combat, and links to both", %{conn: conn} do
+      :ok = record!("Azumaril easy", ~w(1 1 3 3 4 4 4 5))
+
+      {:ok, view, _html} = live(conn, ~p"/time")
+
+      # his own keys, mashing collapsed, in firing order
+      assert view |> element("#skills-map-recorded") |> render() =~ "1 3 4 5"
+      # and the OTHER place keys live, which is not the same list
+      assert view |> element("#skills-map-combat") |> render() =~ "1 2 3"
+
+      map = view |> element("#skills-map") |> render()
+      assert map =~ ~s(href="/cavebot")
+      assert map =~ ~s(href="/config")
+    end
+
+    @tag :tmp_dir
+    test "the editor marks the keys his hands actually press", %{conn: conn} do
+      :ok = record!("Azumaril easy", ~w(3 3 4))
+
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      view |> element("#skills-toggle-Charizard") |> render_click()
+
+      editor = view |> element("#skills-form-Charizard") |> render()
+      assert editor =~ "(3 4)"
+      assert editor =~ "começa por elas"
+    end
+
+    @tag :tmp_dir
+    test "with nothing recorded the page says so instead of an empty gap", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+
+      assert view |> element("#skills-map-recorded") |> render() =~ "nenhuma"
+    end
+
+    # `RouteStore.all/0` reads and decodes the whole routes file; doing it on
+    # every level keystroke is the disk-hammering the recording audit killed.
+    @tag :tmp_dir
+    test "the routes file is not re-read on every team edit", %{conn: conn} do
+      :ok = record!("Azumaril easy", ~w(3 4))
+
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+
+      File.rm!(Path.join(Pokex.Home.dir(), "routes.json"))
+
+      view
+      |> element(~s(#team-list form[phx-change="set_level"]))
+      |> render_change(%{"name" => "Charizard", "level" => "95"})
+
+      assert view |> element("#skills-map-recorded") |> render() =~ "3 4"
     end
   end
 end

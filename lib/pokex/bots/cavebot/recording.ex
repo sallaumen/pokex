@@ -71,6 +71,41 @@ defmodule Pokex.Bots.Cavebot.Recording do
   end
 
   @doc """
+  The skill keys he uses HABITUALLY across these routes: the ones that show up
+  at most of his kill spots.
+
+  The editor offers ten keys and his hands use four. Which four cannot be the
+  union of everything he ever pressed — his real route pressed `1 3 4 5` at
+  five kill spots and `2 6 7 8` at exactly one, the one he told us he fumbled
+  ("eu mesmo errei alguns combos ali", 2026-08-11). The union answers "eight of
+  your nine keys", which is not an answer.
+
+  So a key counts when it appears at HALF or more of the kill spots that have a
+  combo. A slip happens once; a combo happens every time.
+  """
+  @spec habitual_skills([Route.t()]) :: [String.t()]
+  def habitual_skills(routes) when is_list(routes) do
+    combos =
+      for %Route{waypoints: waypoints} <- routes,
+          waypoint <- waypoints,
+          intent = combo_intent(Map.get(waypoint, :combo) || []),
+          intent != [],
+          do: Enum.uniq(intent)
+
+    case length(combos) do
+      0 ->
+        []
+
+      spots ->
+        combos
+        |> List.flatten()
+        |> Enum.frequencies()
+        |> Enum.filter(fn {_key, seen} -> seen * 2 >= spots end)
+        |> Enum.map(&elem(&1, 0))
+    end
+  end
+
+  @doc """
   Cleans a route's marks up: every kill spot keeps its own, and each one gets
   exactly ONE gathering leading into it.
 

@@ -92,6 +92,10 @@ defmodule Pokex.Rig.Fake do
   @impl true
   def cursor_position, do: record({:cursor_position}, :cursor_position, {:ok, {500, 500}})
 
+  @impl true
+  def middle_watch,
+    do: record({:middle_watch}, :middle_watch, {:ok, %{count: 0, point: {0, 0}}})
+
   defp record(call, key, default) do
     Agent.get_and_update(__MODULE__, fn state ->
       state = %{state | calls: [call | state.calls]}

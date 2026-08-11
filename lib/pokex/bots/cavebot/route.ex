@@ -62,7 +62,8 @@ defmodule Pokex.Bots.Cavebot.Route do
           action: action,
           stops: [stop],
           at: DateTime.t() | nil,
-          dwell_ms: non_neg_integer | nil
+          dwell_ms: non_neg_integer | nil,
+          park_point: {integer, integer} | nil
         }
 
   @type t :: %__MODULE__{
@@ -103,7 +104,8 @@ defmodule Pokex.Bots.Cavebot.Route do
       action: :walk,
       stops: [],
       at: Keyword.get(opts, :at),
-      dwell_ms: nil
+      dwell_ms: nil,
+      park_point: nil
     }
 
     {:ok, %{route | z: route.z || z, waypoints: route.waypoints ++ [waypoint]}}
@@ -181,6 +183,25 @@ defmodule Pokex.Bots.Cavebot.Route do
     case Enum.at(waypoints, index) do
       nil -> route
       wp -> %{route | waypoints: List.replace_at(waypoints, index, %{wp | dwell_ms: dwell_ms})}
+    end
+  end
+
+  @doc """
+  Where the active pokémon is PARKED at this waypoint, in screen pixels.
+
+  "Quando a gente termina de mobar, a gente normalmente manda o pokémon ficar
+  em algum lugar da tela específico para facilitar um grupo ao redor dele —
+  eu geralmente clico com o botão do meio do mouse em um ponto da minha tela"
+  (Lucas, 2026-08-11). The recorder captures the point from his own middle
+  click; the hunt reproduces it on arrival, and the pile closes in around the
+  pokémon instead of around him.
+  """
+  @spec set_park_point(t, non_neg_integer, {integer, integer} | nil) :: t
+  def set_park_point(%__MODULE__{waypoints: waypoints} = route, index, point)
+      when is_nil(point) or (is_tuple(point) and tuple_size(point) == 2) do
+    case Enum.at(waypoints, index) do
+      nil -> route
+      wp -> %{route | waypoints: List.replace_at(waypoints, index, %{wp | park_point: point})}
     end
   end
 

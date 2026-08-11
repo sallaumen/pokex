@@ -192,7 +192,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                  action: :walk,
                  stops: [],
                  at: nil,
-                 dwell_ms: nil
+                 dwell_ms: nil,
+                 park_point: nil
                },
                pos: nil,
                pos_age_ms: nil,
@@ -464,7 +465,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              action: :walk,
              stops: [],
              at: nil,
-             dwell_ms: nil
+             dwell_ms: nil,
+             park_point: nil
            }
 
     assert status.pos == {10, 20, 7}

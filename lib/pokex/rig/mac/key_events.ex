@@ -61,6 +61,24 @@ defmodule Pokex.Rig.Mac.KeyEvents do
     :exit, _reason -> {:error, :unavailable}
   end
 
+  @doc """
+  How many middle clicks the SESSION has seen, and where the cursor is now:
+  `{:ok, %{count: n, point: {x, y}}}`.
+
+  A counter, not an event tap — no extra permission, nothing intercepted, and
+  a fast click cannot be missed the way polling the button STATE would miss
+  it. The recorder watches the count for a jump; the point is the marker he
+  makes with his own hand ("eu geralmente clico com o botão do meio do mouse
+  em um ponto da minha tela", 2026-08-11).
+  """
+  @spec middle_watch(GenServer.server()) ::
+          {:ok, %{count: integer, point: {integer, integer}}} | {:error, term}
+  def middle_watch(server \\ __MODULE__) do
+    GenServer.call(server, :middle_watch, @command_timeout_ms + 500)
+  catch
+    :exit, _reason -> {:error, :unavailable}
+  end
+
   @impl true
   def init(opts) do
     # An explicit :executable (tests, power users) always runs; otherwise the
@@ -120,6 +138,19 @@ defmodule Pokex.Rig.Mac.KeyEvents do
   def handle_call({:middle_click, _x, _y, _app}, _from, %{status: status} = state)
       when status != :ready do
     {:reply, {:error, status}, state}
+  end
+
+  def handle_call(:middle_watch, _from, %{status: status} = state) when status != :ready,
+    do: {:reply, {:error, status}, state}
+
+  def handle_call(:middle_watch, _from, state) do
+    with true <- safe_port_command(state.port, JSON.encode!(%{op: "middle_watch"}) <> "\n"),
+         {:ok, %{"ok" => true, "count" => count, "x" => x, "y" => y}} <-
+           read_line(state.port, @command_timeout_ms) do
+      {:reply, {:ok, %{count: count, point: {x, y}}}, state}
+    else
+      failure -> {:reply, {:error, {:helper_failed, failure}}, state}
+    end
   end
 
   def handle_call({:middle_click, x, y, app}, _from, state) do

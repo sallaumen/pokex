@@ -196,6 +196,133 @@ defmodule PokexWeb.CavebotLiveTest do
     assert render(view) =~ "gravação parada"
   end
 
+  # "eu geralmente clico com o botão do meio do mouse em um ponto da minha
+  # tela" (Lucas, 2026-08-11) — the marker he makes with his own hand, and the
+  # spot the pokémon is parked on when the hunt runs this route.
+  describe "the middle click marks the kill spot" do
+    setup do
+      {:ok, _} = Pokex.Rig.Fake.start_link(%{})
+      :ok
+    end
+
+    # the Fake answers from its SCRIPT, and repeats the last entry forever
+    defp clicks!(count, point) do
+      Agent.update(Pokex.Rig.Fake, fn state ->
+        put_in(state.script[:middle_watch], [{:ok, %{count: count, point: point}}])
+      end)
+    end
+
+    test "a click while recording marks the spot and remembers the point", %{conn: conn} do
+      put_pos({10, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
+      view |> element("#toggle-recording") |> render_click()
+
+      put_pos({10, 20, 7})
+      send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
+      render(view)
+
+      # the first watch only learns the baseline — a session with clicks
+      # already behind it must not mark on the first tick
+      clicks!(7, {1000, 500})
+      send(view.pid, :watch_middle)
+      render(view)
+      assert [%Route{waypoints: [%{action: :walk, park_point: nil}]}] = Store.all()
+
+      # now HE clicks
+      clicks!(8, {1240, 655})
+      send(view.pid, :watch_middle)
+      html = render(view)
+
+      assert [%Route{waypoints: [wp]}] = Store.all()
+      assert wp.action == :lure_end
+      assert wp.stops == [:sweep]
+      assert wp.park_point == {1240, 655}
+      assert html =~ "clique do meio em 1240, 655"
+    end
+
+    test "no click, no mark", %{conn: conn} do
+      put_pos({10, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
+      view |> element("#toggle-recording") |> render_click()
+
+      put_pos({10, 20, 7})
+      send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
+      render(view)
+
+      clicks!(3, {1000, 500})
+      send(view.pid, :watch_middle)
+      send(view.pid, :watch_middle)
+      render(view)
+
+      assert [%Route{waypoints: [%{action: :walk, park_point: nil}]}] = Store.all()
+    end
+  end
+
+  # THE bug of the first timed recording (2026-08-11): all 52 waypoints of his
+  # first real route came back with dwell nil. Standing still is exactly when
+  # the client STOPS drawing the coordinate, so the reader answers nil and two
+  # equal readings never arrive — stillness was being measured with the one
+  # signal that vanishes during it.
+  describe "how long he stood there" do
+    defp recording!(view) do
+      view |> form("#new-route-form", %{"name" => "medida", "dungeon" => ""}) |> render_submit()
+      view |> element("#toggle-recording") |> render_click()
+    end
+
+    defp reading!(view, pos) do
+      put_pos(pos)
+      send(view.pid, {:world, :minimap, %{pos: pos}})
+      render(view)
+    end
+
+    test "the dwell is counted even when the coordinate goes unreadable", %{conn: conn} do
+      Pokex.SettingsStash.stash!(
+        cavebot_record_dwell_ms: 500,
+        cavebot_record_fight_dwell_ms: 1_000
+      )
+
+      put_pos({10, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      recording!(view)
+
+      reading!(view, {10, 20, 7})
+
+      # he stops: the client stops drawing the coordinate, so every reading
+      # from here on is nil — which is the SYMPTOM of standing still
+      Process.sleep(1_100)
+      reading!(view, nil)
+
+      assert [%Route{waypoints: waypoints}] = Store.all()
+      assert %{dwell_ms: dwell} = List.last(waypoints)
+      assert dwell >= 1_000
+
+      # …and the stop was long enough to be read as a kill spot
+      assert %{action: :lure_end, stops: [:sweep]} = List.last(waypoints)
+    end
+
+    test "walking on keeps every dwell short and marks nothing", %{conn: conn} do
+      Pokex.SettingsStash.stash!(
+        cavebot_record_dwell_ms: 500,
+        cavebot_record_fight_dwell_ms: 1_000
+      )
+
+      put_pos({10, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      recording!(view)
+
+      reading!(view, {10, 20, 7})
+      reading!(view, {20, 20, 7})
+      reading!(view, {30, 20, 7})
+
+      assert [%Route{waypoints: waypoints}] = Store.all()
+      assert Enum.all?(waypoints, &(&1.action == :walk))
+    end
+  end
+
   # The tile at the top of a staircase shares x/y with the one at its foot, so
   # the "far enough to be a new corner" rule would drop the one waypoint that
   # teaches the route the upper floor exists — and then the hunt blocks up

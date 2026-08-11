@@ -404,6 +404,16 @@ defmodule Pokex.Bots.Cavebot.Worker do
     release_walk(state)
   end
 
+  # The middle click he makes himself when he finishes gathering: it parks the
+  # active pokémon on a chosen tile so the pile closes in AROUND IT. Recorded
+  # from his own hand (Cavebot.Recording.mark_park/4), replayed here.
+  def translate(state, {:park, point}) do
+    state = release_walk(state)
+    state.body.perform([{:click, :middle, point}], :high)
+    log(:macro, "🖱️ pokémon posicionado em #{elem(point, 0)}, #{elem(point, 1)}")
+    state
+  end
+
   # "Cooldown Ressurect" (Lucas, 2026-08-10): recall, max-revive on the
   # portrait, release. Reviving resets every skill cooldown, so the next fight
   # starts with a full bar instead of a wait. The sequence is PlayerSupport's,

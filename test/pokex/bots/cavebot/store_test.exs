@@ -18,7 +18,16 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     assert got.dungeon == "cavena-dg"
 
     assert got.waypoints == [
-             %{x: 10, y: 20, z: 7, action: :walk, stops: [], at: nil, dwell_ms: nil}
+             %{
+               x: 10,
+               y: 20,
+               z: 7,
+               action: :walk,
+               stops: [],
+               at: nil,
+               dwell_ms: nil,
+               park_point: nil
+             }
            ]
   end
 
@@ -41,7 +50,16 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     assert length(matching) == 1
 
     assert hd(matching).waypoints == [
-             %{x: 3, y: 4, z: 7, action: :walk, stops: [], at: nil, dwell_ms: nil}
+             %{
+               x: 3,
+               y: 4,
+               z: 7,
+               action: :walk,
+               stops: [],
+               at: nil,
+               dwell_ms: nil,
+               park_point: nil
+             }
            ]
   end
 
@@ -118,7 +136,16 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     assert got.dungeon == nil
 
     assert got.waypoints == [
-             %{x: 1, y: 2, z: 7, action: :walk, stops: [], at: nil, dwell_ms: nil}
+             %{
+               x: 1,
+               y: 2,
+               z: 7,
+               action: :walk,
+               stops: [],
+               at: nil,
+               dwell_ms: nil,
+               park_point: nil
+             }
            ]
   end
 

@@ -252,8 +252,8 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   defp step(state, obs) do
-    {posture, combo} = posture()
-    state = open_with_combo(state, state.logic.posture, posture, combo)
+    {posture, combo, orders} = posture()
+    state = open_with_combo(state, state.logic.posture, posture, combo, orders)
 
     logic =
       state.logic
@@ -265,31 +265,43 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   # The hunt's opening move, fired on the EDGE where the fire is released —
-  # once, not once per frame. It is the combo HE recorded at this kill spot,
-  # and it exists because killing one at a time throws away the gathering
+  # once, not once per frame. It is what HE left at this kill spot: the keys he
+  # ORDERED there, then the opening (his recorded combo, or the strategy's area
+  # keys). It exists because killing one at a time throws away the gathering
   # ("quando você fica tentando matar de um em um, ele é extremamente mais
   # lento" — 2026-08-11).
   # BEFORE the step, not after: the Logic's own Tab would be dispatched first
   # and this would be dropped by the one-burst-in-flight rule. The combo IS
   # the opening move — area damage needs no target, and Tab comes on the next
   # frame anyway.
-  defp open_with_combo(state, :hold_fire, :free_fight, recorded) do
-    case opening_keys(state.loadout, recorded) do
-      {_source, []} ->
+  defp open_with_combo(state, :hold_fire, :free_fight, recorded, orders) do
+    {source, keys} = opening_keys(state.loadout, recorded)
+
+    # The order HE left on the kill spot goes FIRST: the Body runs the list in
+    # order, and an aura that lands after the area damage did nothing at all.
+    # Deduped by key — pressing the same one twice only burns its cooldown.
+    # These are already keys: resolving a category is the hunt's job, never
+    # ours (it is the one that knows which pokémon is out).
+    case orders ++ Enum.reject(keys, &(&1 in orders)) do
+      [] ->
         state
 
-      {source, keys} ->
+      all ->
         Phoenix.PubSub.broadcast(
           Pokex.PubSub,
           @topic,
-          {:combat_log, :macro, "combate: 💥 abrindo #{source}: #{Enum.join(keys, ", ")}"}
+          {:combat_log, :macro,
+           "combate: 💥 abrindo #{open_source(source, orders)}: #{Enum.join(all, ", ")}"}
         )
 
-        dispatch(state, Enum.map(keys, &{:press, &1}))
+        dispatch(state, Enum.map(all, &{:press, &1}))
     end
   end
 
-  defp open_with_combo(state, _was, _now, _combo), do: state
+  defp open_with_combo(state, _was, _now, _combo, _orders), do: state
+
+  defp open_source(source, []), do: source
+  defp open_source(source, _orders), do: "com a ordem da rota + #{source}"
 
   # "Quando termina o período de mobar, ele vai começar sempre usando as skills
   # em área" (2026-08-11). When the pokémon's keys are classified that is a rule
@@ -312,13 +324,17 @@ defmodule Pokex.Bots.Combat.Worker do
   # never leave the bot standing pacifist in the middle of a crowd.
   defp posture do
     case WorldState.get(:posture, Settings.get(:posture_max_age_ms), now()) do
-      {:ok, %{posture: :hold_fire} = fact} -> {:hold_fire, combo_of(fact)}
-      {:ok, fact} -> {:free_fight, combo_of(fact)}
-      _stale_or_missing -> {:free_fight, []}
+      {:ok, %{posture: :hold_fire} = fact} -> {:hold_fire, combo_of(fact), orders_of(fact)}
+      {:ok, fact} -> {:free_fight, combo_of(fact), orders_of(fact)}
+      _stale_or_missing -> {:free_fight, [], []}
     end
   end
 
   defp combo_of(fact), do: Map.get(fact, :combo) || []
+
+  # A fact published by a hunt that predates the field simply has no orders.
+  # Map.get, not a pattern: a missing key must read as "none", never crash.
+  defp orders_of(fact), do: Map.get(fact, :orders) || []
 
   defp log_loadout(loadout) do
     Phoenix.PubSub.broadcast(

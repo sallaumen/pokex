@@ -56,6 +56,19 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCombat do
 
   @impl true
   def handle_call(:run, _from, {test, run_reply} = state) do
+    # what Combat would have read on its own first step: the posture fact as it
+    # stands the instant the hunt starts it
+    posture =
+      case Pokex.Perception.WorldState.get(
+             :posture,
+             :infinity,
+             System.monotonic_time(:millisecond)
+           ) do
+        {:ok, fact} -> fact[:posture]
+        _missing -> :no_fact
+      end
+
+    send(test, {:posture_at_run, posture})
     send(test, {:combat_cmd, :run})
     {:reply, run_reply, state}
   end
@@ -217,6 +230,36 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:held, ["right", "down"]}, 1_000
   end
 
+  # "Eu acho que o modo de ataque começa primeiro e depois muda para mobado,
+  # mas ele já deveria iniciar o processo sabendo disso" (Lucas, 2026-08-11).
+  # His journal: Iniciar at 15:27:02, six pokémon killed one by one, and the
+  # first "🕊️ mobando" only at 15:27:57 — 55 seconds of free fire because
+  # combat was started before the hunt knew which leg it was on.
+  describe "starting a hunt already knowing what to do with the fire" do
+    test "combat is started with the posture ALREADY published", %{worker: worker} do
+      lure_route!()
+      :ok = Worker.run(worker)
+
+      # already INSIDE the mob stretch: the nearest corner is the second one,
+      # so the leg being walked is the one leaving "mobar daqui"
+      minimap!({200, 100, 7})
+      tick!(worker)
+
+      assert_receive {:posture_at_run, :hold_fire}, 1_000
+      assert_receive {:combat_cmd, :run}, 1_000
+    end
+
+    test "with no position it waits instead of opening fire on the pile", %{worker: worker} do
+      lure_route!()
+      :ok = Worker.run(worker)
+
+      tick!(worker)
+
+      refute_receive {:combat_cmd, :run}, 200
+      assert Worker.status(worker).hold_reason =~ "não sei onde estou"
+    end
+  end
+
   # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que
   # mandar algumas vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11).
   describe "parking the pokémon" do
@@ -370,9 +413,18 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   end
 
   test "an unknown position holds the step — never walks blind", %{worker: worker} do
+    # the grace after which a hunt that cannot read its coordinate starts
+    # combat ANYWAY: zero here, so the second tick is enough to prove it
+    SettingsStash.stash!(cavebot_blind_kick_ms: 0)
     route!()
     :ok = Worker.run(worker)
 
+    # not knowing where it is, it does not start combat on the spot: the leg is
+    # unknown and so is the posture (2026-08-11)
+    tick!(worker)
+    refute_receive {:combat_cmd, :run}, 200
+
+    # …but it is never pacifist forever
     tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
@@ -480,6 +532,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     route!()
     :ok = Worker.run(own)
+    minimap!({100, 100, 7})
     tick!(own)
 
     assert_receive {:combat_cmd, :run}, 1_000

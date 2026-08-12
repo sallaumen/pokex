@@ -180,8 +180,24 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   def step(%__MODULE__{} = logic, world, now), do: dispatch(logic, world, now)
 
-  defp dispatch(%__MODULE__{combat_running?: false} = logic, _world, _now) do
-    {%{logic | combat_running?: true}, :run_combat}
+  # Combat starts only once the hunt knows WHERE IT IS.
+  #
+  # Starting it on the first tick starts it with no leg and therefore no
+  # posture — free fire, the default — and his journal says what that costs:
+  # from 15:27:02 (Iniciar) to 15:27:57 (waypoint 1) combat killed SIX pokémon
+  # one by one while the hunt stood still, and only then did the first
+  # "🕊️ mobando" appear. "Eu acho que o modo de ataque começa primeiro e depois
+  # muda para mobado; ele já deveria iniciar o processo sabendo disso"
+  # (2026-08-11). The position is what tells the machine which leg it is on,
+  # and the leg is what the posture is made of.
+  defp dispatch(%__MODULE__{combat_running?: false} = logic, world, now) do
+    logic = home_if_sighted(logic, world)
+
+    if logic.homed? or waited_for_sight?(logic, now) do
+      {%{logic | combat_running?: true}, :run_combat}
+    else
+      {blind(logic, now), :none}
+    end
   end
 
   defp dispatch(%__MODULE__{state: :walking} = logic, world, now), do: walk(logic, world, now)
@@ -367,6 +383,17 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp home_if_sighted(logic, %{pos: pos}) when is_tuple(pos), do: home_in(logic, pos)
   defp home_if_sighted(logic, _blind), do: logic
+
+  # …but never pacifist FOREVER: a hunt that cannot read its coordinate at all
+  # still gets its combat, just late. Same tolerance the walking blindness
+  # already uses — "how long we accept not knowing where we are before acting
+  # anyway" is one question, not two.
+  defp waited_for_sight?(%__MODULE__{since: since, config: config}, now) do
+    case Map.get(since, :blind) do
+      nil -> false
+      at -> now - at >= Map.get(config, :blind_kick_ms, 0)
+    end
+  end
 
   # Unknown position: hold — never walk FAR blind. MARK the blindness so the
   # Worker can say how long it has lasted, and after blind_kick_ms KICK one

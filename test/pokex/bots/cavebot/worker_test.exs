@@ -955,7 +955,35 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       end
     end
 
-    test "a plain leg publishes free fire", %{worker: worker} do
+    # "se não tá lutando, ele tá no modo mobado, onde ele não deveria atacar
+    # NUNCA usando a tecla tab — só quando parar de andar e realmente entrar no
+    # modo de luta" (Lucas, 2026-08-11). Walking is walking, marked or not.
+    test "a plain leg holds fire too: walking is not fighting", %{worker: worker} do
+      two_waypoint_route!()
+      :ok = Worker.run(worker)
+      minimap!({10, 20, 7})
+      tick!(worker)
+      tick!(worker)
+
+      assert posture!() == :hold_fire
+    end
+
+    test "…and the fire is free the moment the hunt STOPS to fight", %{worker: worker} do
+      two_waypoint_route!()
+      :ok = Worker.run(worker)
+      minimap!({10, 20, 7})
+      tick!(worker)
+      tick!(worker)
+
+      battle!([0, 1])
+      tick!(worker)
+
+      assert Worker.status(worker).state == :fighting
+      assert posture!() == :free_fight
+    end
+
+    test "the old rule is one setting away", %{worker: worker} do
+      SettingsStash.stash!(cavebot_fight_only_at_stops: false)
       two_waypoint_route!()
       :ok = Worker.run(worker)
       minimap!({10, 20, 7})
@@ -1004,6 +1032,13 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       tick!(worker)
 
       assert Worker.status(worker).wp_index == 0
+
+      # past the gathering AND with the pile on screen, the hunt stops and the
+      # fire is free — the kill spot is a stop like any other
+      battle!([0, 1])
+      tick!(worker)
+
+      assert Worker.status(worker).state == :fighting
       assert posture!() == :free_fight
     end
 

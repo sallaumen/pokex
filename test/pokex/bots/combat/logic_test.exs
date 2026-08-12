@@ -832,6 +832,41 @@ defmodule Pokex.Bots.Combat.LogicTest do
 
       assert actions == [{:press, "1"}, {:press, "2"}, {:press, "3"}]
     end
+
+    # The driver may throw a whole burst away (one-burst-in-flight). Everything
+    # else in it is re-decided from a fresher world on the next frame; the stance
+    # is the one thing LATCHED while deciding, so a dropped list has to un-latch
+    # it — or the fight spends the rest of the session in a stance the game was
+    # never told about.
+    test "a dropped list un-latches the stance, and the next burst wears it for real" do
+      {logic, _} = Logic.step(hunting(0, stanced()), obs(enemies: [0], captured_at: 10), 10)
+
+      {logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 30), 40)
+
+      assert logic.stance == :attack
+      assert {:press, "shift+1"} in actions
+
+      logic = Logic.dropped(logic, actions)
+      assert logic.stance == nil
+
+      {logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 400), 400)
+
+      assert hd(actions) == {:press, "shift+1"}
+      assert logic.stance == :attack
+    end
+
+    test "a dropped list that carried no stance key leaves the stance alone" do
+      logic = confirmed(stanced())
+      assert logic.stance == :attack
+
+      {logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 460), 460)
+
+      refute {:press, "shift+1"} in actions
+      assert Logic.dropped(logic, actions).stance == :attack
+    end
   end
 
   # "quando ele entra numa batalha, uma opção poderia ser só matar aquele lá e

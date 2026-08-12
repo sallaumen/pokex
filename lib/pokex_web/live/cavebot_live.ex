@@ -628,22 +628,6 @@ defmodule PokexWeb.CavebotLive do
     toggle_skill(socket, index, decode_skill(raw))
   end
 
-  # The nil clause is the whole reason this is a function and not a `case`: a
-  # category nobody knows leaves HERE, before anything tries to name it.
-  defp toggle_skill(socket, _index, nil), do: {:noreply, socket}
-
-  defp toggle_skill(socket, index, skill) do
-    index = String.to_integer(index)
-    socket = remember_hand_mark(socket, index)
-
-    with_route(socket, fn route ->
-      on? = skill not in Route.skills_at(route.waypoints, index)
-
-      {Route.set_skill(route, index, skill, on?),
-       "waypoint #{index + 1}: #{SkillProfile.label(skill)} #{if on?, do: "ligada", else: "desligada"}"}
-    end)
-  end
-
   # The whole route's ruler: the number he dials down until he finds the limit
   # where the pile still closes. An empty field hands the command back to
   # /config.
@@ -1178,6 +1162,22 @@ defmodule PokexWeb.CavebotLive do
   # nobody knows answers nil, and the handler above drops the event rather than
   # trying to name it.
   defp decode_skill(value), do: Enum.find(Route.skills(), &(Atom.to_string(&1) == value))
+
+  # The nil clause is the whole reason this is a function and not a `case`: a
+  # category nobody knows leaves HERE, before anything tries to name it.
+  defp toggle_skill(socket, _index, nil), do: {:noreply, socket}
+
+  defp toggle_skill(socket, index, skill) do
+    index = String.to_integer(index)
+    socket = remember_hand_mark(socket, index)
+
+    with_route(socket, fn route ->
+      on? = skill not in Route.skills_at(route.waypoints, index)
+
+      {Route.set_skill(route, index, skill, on?),
+       "waypoint #{index + 1}: #{SkillProfile.label(skill)} #{if on?, do: "ligada", else: "desligada"}"}
+    end)
+  end
 
   # Every category paired with whether THIS waypoint carries it, read once per
   # row. Each chip asking on its own walked the waypoint list twice over, for
@@ -2342,11 +2342,27 @@ defmodule PokexWeb.CavebotLive do
                     >
                       guardar
                     </button>
+                    <%!-- What his hands measured, with somewhere to click that
+                          adopts it: reading a number and retyping it is the
+                          same work twice. `type="button"` because this sits
+                          INSIDE the form — a click here is the adoption, not a
+                          submit of whatever is in the field. It is the same
+                          command the field sends, so it is the same event. --%>
                     <span
                       :for={ms <- gather_suggestion(wp)}
                       class="font-mono text-pk-meta text-pk-text-3"
                     >
                       (suas mãos esperaram {ms}ms aqui)
+                      <button
+                        type="button"
+                        id={"waypoint-gather-wait-adopt-#{index}"}
+                        phx-click="set_waypoint_gather_wait"
+                        phx-value-index={index}
+                        phx-value-gather_wait_ms={ms}
+                        class="ml-1 cursor-pointer rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                      >
+                        usar {ms}ms
+                      </button>
                     </span>
                   </.form>
                 </li>

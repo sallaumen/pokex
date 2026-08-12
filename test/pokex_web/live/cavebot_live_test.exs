@@ -1455,5 +1455,27 @@ defmodule PokexWeb.CavebotLiveTest do
 
       refute view |> element("#waypoint-gather-wait-0") |> render() =~ "suas mãos esperaram"
     end
+
+    # Reading the number off the screen and retyping it is the same work twice:
+    # one click writes the measurement into this corner's ruler.
+    test "um clique adota a medição como régua do waypoint", %{conn: conn} do
+      kill_spot_with(3_300)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#waypoint-gather-wait-adopt-0") |> render_click()
+
+      [route] = Store.all()
+      assert hd(route.waypoints)[:gather_wait_ms] == 3_300
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 3_300
+    end
+
+    test "sem medição não existe botão pra adotar", %{conn: conn} do
+      kill_spot_with(nil)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      refute has_element?(view, "#waypoint-gather-wait-adopt-0")
+    end
   end
 end

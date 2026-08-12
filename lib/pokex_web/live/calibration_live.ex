@@ -4,6 +4,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Bots.Body
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Vision.Recolor
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.SkillBar
@@ -22,6 +23,10 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Settings
   alias Pokex.Vision
   alias Pokex.Vision.Frame
+
+  # Neutral: no turn, no scaling. Also the shape every paint carries, so the
+  # template can render three sliders without knowing what any of them mean.
+  @neutral_paint %{hue: 0, saturation: 100, brightness: 100}
 
   @glow_half 32
 
@@ -67,6 +72,7 @@ defmodule PokexWeb.CalibrationLive do
        click_trace: [],
        corpse_shot: nil,
        corpse_crop: nil,
+       corpse_paint: @neutral_paint,
        corpse_msg: nil,
        corpse_list: CorpseLibrary.list(),
        corpse_counts: %{},
@@ -553,9 +559,31 @@ defmodule PokexWeb.CalibrationLive do
             {cx - half, cy - half, min(box, frame.width), min(box, frame.height)}
           )
 
-        {:noreply, assign(socket, corpse_crop: %{frame: crop, at: {cx, cy}}, corpse_msg: nil)}
+        {:noreply,
+         assign(socket,
+           corpse_crop: %{frame: crop, at: {cx, cy}},
+           corpse_paint: @neutral_paint,
+           corpse_msg: nil
+         )}
     end
   end
+
+  # A shiny is a RECOLOR: same sprite, different palette. He cannot photograph a
+  # corpse he has never made, so he turns the hue of the ordinary species' body
+  # until it looks like the shiny he is hunting and teaches THAT. The knobs are
+  # deliberately three — this moves a palette, it does not edit an image.
+  def handle_event("corpse_paint", params, socket) do
+    paint = %{
+      hue: paint_value(params, "hue", -180, 180),
+      saturation: paint_value(params, "saturation", 0, 200),
+      brightness: paint_value(params, "brightness", 50, 150)
+    }
+
+    {:noreply, assign(socket, corpse_paint: paint)}
+  end
+
+  def handle_event("corpse_paint_reset", _params, socket),
+    do: {:noreply, assign(socket, corpse_paint: @neutral_paint)}
 
   def handle_event("corpse_save", %{"name" => name}, socket) do
     case socket.assigns.corpse_crop do
@@ -563,11 +591,15 @@ defmodule PokexWeb.CalibrationLive do
         {:noreply, socket}
 
       %{frame: crop} ->
-        case CorpseLibrary.add(name, crop) do
+        paint = socket.assigns.corpse_paint
+        crop = painted_crop(crop, paint)
+
+        case CorpseLibrary.add(name, crop, painted?: painted?(paint)) do
           {:ok, n} ->
             {:noreply,
              assign(socket,
                corpse_crop: nil,
+               corpse_paint: @neutral_paint,
                corpse_msg:
                  {:ok,
                   "amostra #{n}/#{CorpseLibrary.max_samples()} de #{String.trim(name)} salva"},
@@ -1391,6 +1423,39 @@ defmodule PokexWeb.CalibrationLive do
     """
   end
 
+  defp painted?(%{hue: 0, saturation: 100, brightness: 100}), do: false
+  defp painted?(_paint), do: true
+
+  defp painted_crop(crop, paint),
+    do:
+      Recolor.apply(crop,
+        hue: paint.hue,
+        saturation: paint.saturation,
+        brightness: paint.brightness
+      )
+
+  # The preview is the crop as it will be SAVED — the same repaint the library
+  # will store, rendered through the same thumbnail encoder the taught samples
+  # use, so what he tunes is exactly what aims.
+  defp paint_preview(crop, paint) do
+    painted = painted_crop(crop, paint)
+
+    CorpseLibrary.thumb(%{
+      "w" => painted.width,
+      "h" => painted.height,
+      "rgba" => Base.encode64(painted.rgba)
+    })
+  end
+
+  defp paint_value(params, field, lo, hi) do
+    default = Map.fetch!(@neutral_paint, String.to_existing_atom(field))
+
+    case Integer.parse(Map.get(params, field, "")) do
+      {value, _rest} -> value |> Kernel.max(lo) |> Kernel.min(hi)
+      :error -> default
+    end
+  end
+
   defp profile_thumb_file(slug), do: "calib_profile_#{slug}.png"
 
   defp load_profiles do
@@ -2036,26 +2101,75 @@ defmodule PokexWeb.CalibrationLive do
             class="max-w-full cursor-crosshair rounded-lg border border-base-300"
           />
 
-          <form
-            :if={@corpse_crop}
-            id="corpse-name-form"
-            phx-submit="corpse_save"
-            class="flex flex-wrap items-center gap-2"
-          >
-            <span class="font-mono text-sm opacity-70">
-              corpo {@corpse_crop.frame.width}×{@corpse_crop.frame.height} @ {elem(
-                @corpse_crop.at,
-                0
-              )},{elem(@corpse_crop.at, 1)} —
-            </span>
-            <input
-              name="name"
-              placeholder="nome do Pokémon"
-              autocomplete="off"
-              class="input input-sm input-bordered"
-            />
-            <button class="btn btn-sm btn-success">Salvar corpo</button>
-          </form>
+          <div :if={@corpse_crop} class="space-y-3">
+            <form
+              id="corpse-paint-form"
+              phx-change="corpse_paint"
+              class="flex flex-wrap items-end gap-4"
+            >
+              <figure class="flex flex-col items-center gap-1">
+                <img
+                  src={paint_preview(@corpse_crop.frame, @corpse_paint)}
+                  class="h-20 w-20 rounded border border-base-300 [image-rendering:pixelated]"
+                />
+                <figcaption class="font-mono text-xs opacity-60">
+                  {@corpse_crop.frame.width}×{@corpse_crop.frame.height} @ {elem(
+                    @corpse_crop.at,
+                    0
+                  )},{elem(@corpse_crop.at, 1)}
+                </figcaption>
+              </figure>
+
+              <label
+                :for={
+                  {field, label, min, max, value} <- [
+                    {"hue", "matiz", -180, 180, @corpse_paint.hue},
+                    {"saturation", "saturação", 0, 200, @corpse_paint.saturation},
+                    {"brightness", "brilho", 50, 150, @corpse_paint.brightness}
+                  ]
+                }
+                class="flex flex-col gap-1"
+              >
+                <span class="font-mono text-xs opacity-70">{label} {value}</span>
+                <input
+                  type="range"
+                  name={field}
+                  min={min}
+                  max={max}
+                  value={value}
+                  class="range range-xs w-40"
+                />
+              </label>
+
+              <button
+                :if={painted?(@corpse_paint)}
+                type="button"
+                phx-click="corpse_paint_reset"
+                class="btn btn-ghost btn-xs"
+              >
+                voltar ao original
+              </button>
+            </form>
+
+            <p :if={painted?(@corpse_paint)} class="text-xs opacity-70">
+              🎨 este corpo vai entrar como <strong>pintado à mão</strong> — serve de mira
+              enquanto o de verdade não aparece. Quando matares um, fotografa e ensina de novo.
+            </p>
+
+            <form
+              id="corpse-name-form"
+              phx-submit="corpse_save"
+              class="flex flex-wrap items-center gap-2"
+            >
+              <input
+                name="name"
+                placeholder="nome do Pokémon"
+                autocomplete="off"
+                class="input input-sm input-bordered"
+              />
+              <button class="btn btn-sm btn-success">Salvar corpo</button>
+            </form>
+          </div>
 
           <ul :if={@corpse_list != []} id="corpse-list" class="space-y-2">
             <li
@@ -2067,9 +2181,16 @@ defmodule PokexWeb.CalibrationLive do
                 :for={{sample, idx} <- Enum.with_index(c["samples"])}
                 class="group relative inline-block"
               >
+                <span
+                  :if={sample["painted"]}
+                  class="absolute -left-1 -top-1 z-10 text-[10px] leading-none"
+                  title="pintada à mão — troque quando o corpo real aparecer"
+                >
+                  🎨
+                </span>
                 <img
                   src={CorpseLibrary.thumb(sample)}
-                  title={"amostra #{idx + 1} · #{sample["added_at"]}"}
+                  title={"amostra #{idx + 1} · #{sample["added_at"]}#{if sample["painted"], do: " · pintada à mão"}"}
                   class="h-10 w-10 rounded border border-base-300 [image-rendering:pixelated]"
                 />
                 <button

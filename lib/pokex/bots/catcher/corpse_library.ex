@@ -36,8 +36,16 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
 
   def empty?, do: list() == []
 
-  @doc "Teaches a corpse: the crop (Frame) joins the library under the given name."
-  def add(name, %Frame{} = crop) when is_binary(name) do
+  @doc """
+  Teaches a corpse: the crop (Frame) joins the library under the given name.
+
+  `painted?: true` marks the sample as a HAND-PAINTED stand-in — the ordinary
+  species' corpse with its hue turned toward a shiny nobody has killed yet (see
+  `Pokex.Vision.Recolor`). It aims exactly like any other sample; the flag
+  exists so the library can say which entries are guesses, and so the day the
+  real body drops he knows which one to replace.
+  """
+  def add(name, %Frame{} = crop, opts \\ []) when is_binary(name) do
     name = String.trim(name)
 
     if name == "" do
@@ -47,7 +55,8 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
         "w" => crop.width,
         "h" => crop.height,
         "rgba" => Base.encode64(crop.rgba),
-        "added_at" => DateTime.to_iso8601(DateTime.utc_now())
+        "added_at" => DateTime.to_iso8601(DateTime.utc_now()),
+        "painted" => Keyword.get(opts, :painted?, false) == true
       }
 
       slug = slug(name)

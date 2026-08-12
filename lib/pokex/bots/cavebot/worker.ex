@@ -56,6 +56,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
+  alias Pokex.Pokedex.SkillProfile
+  alias Pokex.Pokedex.Team
   alias Pokex.Settings
 
   @topic "cavebot"
@@ -103,6 +105,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
       # what the hunt last ASKED of combat — kept only to narrate the edge
       posture: :free_fight,
       held_keys: [],
+      # the pokémon on the field, so a category the route ordered can become a
+      # key. Kept here and refreshed on the event, never read per tick:
+      # `Loadout.current/0` reads the team file.
+      loadout: Combat.Loadout.current(),
       capture_pending: 0,
       capture_changed_at: nil,
       # the BLIND sweep's queue, same progress rule as the capture's
@@ -159,6 +165,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     # (the 2026-07-30 timeout that killed a page), and this worker ticks 5x a
     # second.
     Phoenix.PubSub.subscribe(Pokex.PubSub, Catcher.Worker.topic())
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Team.topic())
     {:ok, state}
   end
 
@@ -254,6 +261,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
      |> note_sweep(sweep_pending)}
   end
 
+  # Changing pokémon changes which key is the aura — the route stores the
+  # category and this is where it becomes a key, so this copy has to keep up.
+  def handle_info({:team_changed}, state),
+    do: {:noreply, %{state | loadout: Combat.Loadout.current()}}
+
   # The minimap feed died (its consumers map dies with it; a restarted feed
   # starts with nobody attached). Without reattaching, the :minimap fact ages,
   # the position becomes :unknown and the cavebot stays stopped FOREVER —
@@ -316,9 +328,19 @@ defmodule Pokex.Bots.Cavebot.Worker do
     posture = if Logic.hold_fire?(state.logic, now), do: :hold_fire, else: :free_fight
 
     # …and WHAT to open with when the fire is released: his own combo from
-    # this kill spot, so the area damage lands on the whole pile instead of
-    # one straggler at a time.
-    WorldState.put(:posture, %{posture: posture, combo: Logic.combo(state.logic)}, now)
+    # this kill spot, so the area damage lands on the whole pile instead of one
+    # straggler at a time, plus the categories he ORDERED there — already
+    # resolved to keys, because Combat has no business asking which pokémon is
+    # out.
+    WorldState.put(
+      :posture,
+      %{
+        posture: posture,
+        combo: Logic.combo(state.logic),
+        orders: skill_keys(state.loadout, Logic.orders(state.logic))
+      },
+      now
+    )
 
     if posture != state.posture do
       log(:macro, posture_text(posture))
@@ -435,6 +457,31 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
       point ->
         park_click(state, point)
+    end
+  end
+
+  # The skill HE put at this corner — the aura in the middle of the pile,
+  # almost always. The category becomes a key here and not in the Logic,
+  # because the process that knows which pokémon is on the field is this one.
+  # A tap, never a hold, and only after the arrows are let go: a stuck key is
+  # the worst bug this system can produce.
+  def translate(state, {:skills, categories}) do
+    state = release_walk(state)
+
+    case skill_keys(state.loadout, categories) do
+      [] ->
+        log(
+          :macro,
+          "✨ não apertei nada aqui: #{Combat.Loadout.describe(state.loadout)} não tem #{skills_text(categories)}"
+        )
+
+        state
+
+      keys ->
+        log(:macro, "✨ skill da rota: #{Enum.join(keys, ", ")}")
+        actions = Enum.map(keys, &{:press, &1})
+        state.body.perform(actions, :normal)
+        state
     end
   end
 
@@ -571,6 +618,18 @@ defmodule Pokex.Bots.Cavebot.Worker do
       end
     end)
   end
+
+  # The categories in their canonical order, deduplicated by KEY: two
+  # categories can land on the same key, and pressing it twice is not what he
+  # asked for.
+  defp skill_keys(loadout, categories) do
+    categories
+    |> Enum.flat_map(&Combat.Loadout.keys(loadout, &1))
+    |> Enum.uniq()
+  end
+
+  defp skills_text(categories),
+    do: Enum.map_join(categories, ", ", &"#{SkillProfile.icon(&1)} #{SkillProfile.label(&1)}")
 
   defp park_click(state, point) do
     times = Settings.get(:cavebot_park_clicks)

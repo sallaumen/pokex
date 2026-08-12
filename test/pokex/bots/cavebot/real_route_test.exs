@@ -33,10 +33,14 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
     capture_wait_ms: 20_000,
     sweep_grace_ms: 1_500,
     stop_wait_ms: 5_000,
-    gather_wait_ms: 4_000,
-    gather_wait_min_ms: 500,
-    gather_wait_max_ms: 8_000
+    gather_wait_ms: 4_000
   }
+
+  # What counts as an implausible recorded measurement. It used to be the
+  # Logic's own upper clamp; the clamp is gone (the measurement became a screen
+  # suggestion), so the threshold now belongs to the test that goes looking for
+  # a wild one in his real route.
+  @wild_gather_ms 8_000
 
   setup %{tmp_dir: tmp} do
     File.cp!("test/support/fixtures/rota_real.json", Path.join(tmp, "routes.json"))
@@ -195,7 +199,7 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
   # the pile eats it — so the route itself is the regression test.
   test "the twelve-second measurement in his route is NOT obeyed" do
     route = real_route()
-    wild = Enum.find(route.waypoints, &((&1[:gather_ms] || 0) > @cfg.gather_wait_max_ms))
+    wild = Enum.find(route.waypoints, &((&1[:gather_ms] || 0) > @wild_gather_ms))
 
     assert wild, "a rota real não tem mais a medição absurda — atualize a fixture"
 

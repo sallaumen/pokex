@@ -114,6 +114,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   alias Pokex.Bots.Cavebot.WorkerTest.FakeBody
   alias Pokex.Bots.Cavebot.WorkerTest.FakeCatcher
   alias Pokex.Bots.Cavebot.WorkerTest.FakeCombat
+  alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.InputGate
   alias Pokex.Perception.WorldState
   alias Pokex.Rig.Fake
@@ -1071,6 +1072,68 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
       :ok = Worker.halt(worker)
       assert posture!() == :free_fight
+    end
+  end
+
+  # The route stores a CATEGORY; the key is only known here, where the pokémon
+  # on the field is. `FakeBody` is already started by the module setup and
+  # already reports to this pid, so a minimal state is enough — `release_walk/1`
+  # with `held_keys: []` is a no-op.
+  describe "as skills da rota" do
+    defp skill_state(loadout),
+      do: %{body: FakeBody, held_keys: [], loadout: loadout}
+
+    test "a ordem do canto vira tecla do pokémon em campo e sai pelo Body" do
+      state = skill_state(Loadout.resolve("Vespiquen", %{"2" => :buffs}))
+
+      Worker.translate(state, {:skills, [:buffs]})
+
+      assert_receive {:performed, :normal, [{:press, "2"}]}
+    end
+
+    # Changing pokémon changes the key without touching the route — the whole
+    # reason the route stores a category and not a key.
+    test "o mesmo canto aperta outra tecla com outro pokémon" do
+      state = skill_state(Loadout.resolve("Shiny Vileplume", %{"1" => :buffs}))
+
+      Worker.translate(state, {:skills, [:buffs]})
+
+      assert_receive {:performed, :normal, [{:press, "1"}]}
+    end
+
+    test "duas categorias saem na ordem, sem repetir tecla" do
+      state = skill_state(Loadout.resolve("Gogoat", %{"1" => :buffs, "4" => :aoe}))
+
+      Worker.translate(state, {:skills, [:buffs, :aoe]})
+
+      assert_receive {:performed, :normal, [{:press, "1"}, {:press, "4"}]}
+    end
+
+    # A route pointing at a skill this pokémon does not have must never wedge
+    # the hunt.
+    test "categoria não classificada não aperta nada e não quebra" do
+      state = skill_state(Loadout.resolve("Sunkern", %{"3" => :aoe}))
+
+      assert %{} = Worker.translate(state, {:skills, [:heal]})
+      refute_receive {:performed, _priority, _actions}, 50
+    end
+
+    test "sem pokémon em campo não aperta nada e não quebra" do
+      state = skill_state(nil)
+
+      assert %{} = Worker.translate(state, {:skills, [:buffs]})
+      refute_receive {:performed, _priority, _actions}, 50
+    end
+
+    # A stuck key is the worst bug this system can produce: the skill only goes
+    # out after the arrows have been let go.
+    test "solta o hold das setas antes de apertar" do
+      state = %{skill_state(Loadout.resolve("Vespiquen", %{"2" => :buffs})) | held_keys: ["right"]}
+
+      Worker.translate(state, {:skills, [:buffs]})
+
+      assert_receive {:held, []}
+      assert_receive {:performed, :normal, [{:press, "2"}]}
     end
   end
 end

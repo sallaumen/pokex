@@ -316,8 +316,11 @@ defmodule Pokex.Bots.Cavebot.Route do
   first skill (the huddle, measured instead of guessed at four seconds), and
   `combo` the skills he actually pressed there, in order.
 
-  Learning material, not orders: the hunt reads `gather_ms` today, and the
-  strategy engine will read `combo`.
+  Learning material, not orders: since 2026-08-12 the hunt no longer obeys
+  `gather_ms` — the eight kill spots of Meganium 1 measured anywhere from 569ms
+  to 4534ms, which is a lottery and not a ruler. What the hunt obeys is
+  `gather_wait/3`; the measurement is only what the screen offers as a starting
+  point. The strategy engine will read `combo`.
   """
   @spec set_timing(t, non_neg_integer, keyword) :: t
   def set_timing(%__MODULE__{waypoints: waypoints} = route, index, fields) do

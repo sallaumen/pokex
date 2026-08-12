@@ -80,8 +80,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     sweep_grace_ms: :cavebot_sweep_grace_ms,
     stop_wait_ms: :cavebot_stop_wait_ms,
     gather_wait_ms: :cavebot_gather_wait_ms,
-    gather_wait_min_ms: :cavebot_gather_wait_min_ms,
-    gather_wait_max_ms: :cavebot_gather_wait_max_ms,
     fight_only_at_stops: :cavebot_fight_only_at_stops,
     stair_probe_ms: :cavebot_stair_probe_ms,
     stair_max_probes: :cavebot_stair_max_probes

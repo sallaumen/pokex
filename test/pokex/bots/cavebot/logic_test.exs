@@ -13,9 +13,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     capture_wait_ms: 20_000,
     sweep_grace_ms: 1500,
     stop_wait_ms: 5_000,
-    gather_wait_ms: 4_000,
-    gather_wait_min_ms: 500,
-    gather_wait_max_ms: 8_000
+    gather_wait_ms: 4_000
   }
 
   defp route do
@@ -1055,31 +1053,6 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :fighting
     end
 
-    # "quatro segundos" was his estimate; the recording measures the real one
-    # by watching him park the pokémon and counting to his first skill.
-    # 7s, not 9s: the band that rejects his route's bogus 12s measurement tops
-    # out at 8s (see "a learned pause has to be plausible"). He describes the
-    # pile taking about four seconds, so obeying a measured NINE would be
-    # standing still twice as long as he ever does — and standing still is
-    # exactly when the pile is eating him.
-    test "a pause he was MEASURED taking wins over the configured one" do
-      route = Route.set_timing(gather_route(), 1, gather_ms: 7_000)
-
-      logic = %{
-        Logic.new(route, @cfg)
-        | combat_running?: true,
-          homed?: true,
-          wp_index: 1,
-          last_pos: {9, 0, 7}
-      }
-
-      {logic, :none} = Logic.step(logic, world({10, 0, 7}, 4), 1_000)
-
-      # the configured 4s is long past and it is STILL holding
-      assert Logic.gathering?(logic, 6_000)
-      refute Logic.gathering?(logic, 10_100)
-    end
-
     test "a plain waypoint has no huddle to wait for" do
       logic = %{
         Logic.new(route(), @cfg)
@@ -1091,62 +1064,6 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
       {logic, _action} = Logic.step(logic, world({10, 10, 7}), 1_000)
       refute Logic.gathering?(logic, 1_100)
-    end
-  end
-
-  # His own recorded route (2026-08-11) learned 2.0s, 3.3s and 3.6s of huddle
-  # at three kill spots — and 12.0s at a fourth. Twelve seconds is not him
-  # waiting for the pile; it is the recorder having measured something else.
-  # Obeyed raw, it would stand there holding fire while the pile eats him.
-  describe "a learned pause has to be plausible" do
-    defp huddle_route(measured) do
-      {:ok, r} = Route.append(Route.new("r"), {0, 0, 7})
-      {:ok, r} = Route.append(r, {10, 0, 7})
-
-      r
-      |> Route.set_action(1, :lure_end)
-      |> Route.set_timing(1, gather_ms: measured)
-    end
-
-    defp arrive(route, now) do
-      logic = %{
-        Logic.new(route, @cfg)
-        | combat_running?: true,
-          homed?: true,
-          wp_index: 1,
-          last_pos: {9, 0, 7}
-      }
-
-      {logic, _action} = Logic.step(logic, world({10, 0, 7}), now)
-      logic
-    end
-
-    test "a measurement in range is obeyed — his hands beat my guess" do
-      logic = arrive(huddle_route(2_027), 1_000)
-
-      assert Logic.gathering?(logic, 2_500)
-      refute Logic.gathering?(logic, 3_100)
-    end
-
-    test "a wild measurement falls back to the configured wait, not to itself" do
-      logic = arrive(huddle_route(12_015), 1_000)
-
-      # the configured 4s, not the measured 12s
-      assert Logic.gathering?(logic, 4_000)
-      refute Logic.gathering?(logic, 5_100)
-    end
-
-    test "an impossibly short one falls back too" do
-      logic = arrive(huddle_route(80), 1_000)
-
-      assert Logic.gathering?(logic, 3_000)
-    end
-
-    test "no measurement at all is the configured wait, as before" do
-      logic = arrive(huddle_route(nil), 1_000)
-
-      assert Logic.gathering?(logic, 3_000)
-      refute Logic.gathering?(logic, 5_100)
     end
   end
 
@@ -1191,6 +1108,119 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :fighting), 0)
       {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :fighting), 20_010)
       assert l.state == :fight_stalled
+    end
+  end
+
+  describe "the route's skills — the moment each one comes out" do
+    # Two corners: the first is walking with an AURA, the second is the kill
+    # spot. Arriving at each is what arms each thing.
+    defp aura_route do
+      {:ok, r} = Route.append(Route.new("meganium"), {10, 10, 5})
+      {:ok, r} = Route.append(r, {12, 10, 5})
+
+      r
+      |> Route.set_skill(0, :buffs, true)
+      |> Route.set_action(1, :lure_end)
+      |> Route.set_skill(1, :heal, true)
+    end
+
+    defp at_first_corner(route) do
+      logic = Logic.new(route, @cfg)
+      {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
+      Logic.step(logic, world({10, 10, 5}), 200)
+    end
+
+    test "arriving at a walking corner with a skill emits the order" do
+      {_logic, action} = at_first_corner(aura_route())
+
+      assert action == {:skills, [:buffs]}
+    end
+
+    # Once per arrival, never per tick: the next corner is already another
+    # destination.
+    test "the next tick does not repeat the order" do
+      {logic, _arrival} = at_first_corner(aura_route())
+      {_logic, again} = Logic.step(logic, world({10, 10, 5}), 400)
+
+      refute match?({:skills, _}, again)
+    end
+
+    test "a corner carrying no skill at all emits no order" do
+      {:ok, r} = Route.append(Route.new("lisa"), {10, 10, 5})
+      {:ok, r} = Route.append(r, {12, 10, 5})
+      {_logic, action} = at_first_corner(r)
+
+      refute match?({:skills, _}, action)
+    end
+
+    # At the kill spot the order does NOT come out as an action: it travels
+    # with the posture, because there is a burst there to get in front of.
+    test "at the kill spot the order goes to the posture, not to the action" do
+      {logic, _} = at_first_corner(aura_route())
+      {logic, action} = Logic.step(logic, world({12, 10, 5}), 1_000)
+
+      refute match?({:skills, _}, action)
+      assert Logic.orders(logic) == [:heal]
+    end
+
+    test "away from a kill spot there is no order for the burst" do
+      {logic, _} = at_first_corner(aura_route())
+
+      assert Logic.orders(logic) == []
+    end
+  end
+
+  describe "the huddle — the ruler beats the measurement" do
+    # Arrives at the kill spot (waypoint 1) at instant 1_000, which is when the
+    # huddle clock starts counting.
+    defp arrived_at_kill(edit) do
+      {:ok, r} = Route.append(Route.new("meganium"), {10, 10, 5})
+      {:ok, r} = Route.append(r, {12, 10, 5})
+      route = r |> Route.set_action(1, :lure_end) |> then(edit)
+
+      logic = Logic.new(route, @cfg)
+      {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
+      {logic, _} = Logic.step(logic, world({10, 10, 5}), 200)
+      {logic, _} = Logic.step(logic, world({12, 10, 5}), 1_000)
+      logic
+    end
+
+    test "with no ruler at all, it holds fire for the @cfg's 4s" do
+      logic = arrived_at_kill(& &1)
+
+      assert Logic.gathering?(logic, 4_900)
+      refute Logic.gathering?(logic, 5_100)
+    end
+
+    test "the route's ruler beats the global one" do
+      logic = arrived_at_kill(&Route.set_gather_wait(&1, 1_800))
+
+      assert Logic.gathering?(logic, 2_700)
+      refute Logic.gathering?(logic, 2_900)
+    end
+
+    test "the waypoint beats the route's ruler" do
+      logic =
+        arrived_at_kill(fn r ->
+          r |> Route.set_gather_wait(1_800) |> Route.set_gather_wait(1, 600)
+        end)
+
+      assert Logic.gathering?(logic, 1_500)
+      refute Logic.gathering?(logic, 1_700)
+    end
+
+    test "a zero on the waypoint frees the fire right away" do
+      logic = arrived_at_kill(&Route.set_gather_wait(&1, 1, 0))
+
+      refute Logic.gathering?(logic, 1_000)
+    end
+
+    # His hands' measurement stopped ruling: 569ms to 4534ms across the eight
+    # kill spots of Meganium 1 is not an order, it is a lottery.
+    test "the measured gather_ms no longer holds the fire" do
+      logic = arrived_at_kill(&Route.set_timing(&1, 1, gather_ms: 8_000))
+
+      refute Logic.gathering?(logic, 5_100)
     end
   end
 end

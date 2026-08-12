@@ -63,7 +63,7 @@ defmodule Pokex.Bots.ActiveBarTest do
   describe "with the pokémon on the field carrying its own" do
     setup do
       {:ok, _} = Team.add("Vespiquen")
-      Team.set_bar("Vespiquen", %{region: {5, 5, 900, 50}, count: 9, refs: [[9, 9, 9]]})
+      Team.set_bar("Vespiquen", %{region: {5, 5, 900, 50}, count: 9, refs: [{9, 9, 9}]})
       Team.set_active("Vespiquen")
       :ok
     end
@@ -73,7 +73,9 @@ defmodule Pokex.Bots.ActiveBarTest do
 
       assert bar.region == {5, 5, 900, 50}
       assert bar.count == 9
-      assert bar.refs == [[9, 9, 9]]
+      # {r,g,b}, the shape Vision.slot_distance/2 needs — a list would be
+      # silently ignored and the slot judged by brightness alone
+      assert bar.refs == [{9, 9, 9}]
       assert bar.name == "Vespiquen"
       assert ActiveBar.own?()
     end
@@ -104,6 +106,25 @@ defmodule Pokex.Bots.ActiveBarTest do
       Team.set_bar("Vespiquen", %{region: {7, 8, 500, 48}, count: 8, refs: nil})
 
       assert %{region: {7, 8, 500, 48}, count: 8} = Team.bar("Vespiquen")
+    end
+
+    # The refs the calibration page samples are {r,g,b} TUPLES — the first cut
+    # only translated the region, so this raised inside JSON.encode! and took
+    # the page down on the very first real save. And a ref that came back a
+    # LIST would be worse than the crash: Vision.slot_distance/2 answers nil for
+    # anything that is not {r,g,b}, so every reference would be silently
+    # ignored and the reading would quietly fall back to the brightness rule —
+    # the exact failure this whole feature exists to prevent.
+    test "the READY references survive as {r,g,b} tuples, holes included" do
+      {:ok, _} = Team.add("Vespiquen")
+
+      Team.set_bar("Vespiquen", %{
+        region: {10, 20, 300, 40},
+        count: 3,
+        refs: [{200, 30, 30}, nil, {40, 90, 220}]
+      })
+
+      assert %{refs: [{200, 30, 30}, nil, {40, 90, 220}]} = Team.bar("Vespiquen")
     end
 
     test "a pokémon nobody has, and one never calibrated, both answer nil" do

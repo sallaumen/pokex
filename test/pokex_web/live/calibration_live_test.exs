@@ -876,6 +876,126 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.battle_region == {70, 10, 20, 30}
   end
 
+  # The ONLY way a pokémon gets a bar of its own is this flow, and it had never
+  # been walked end to end: the refs it samples off the screenshot are {r,g,b}
+  # TUPLES, and storing them raised inside JSON.encode! — the page died on the
+  # second click and nothing was ever saved.
+  @tag :tmp_dir
+  test "?bar=<pokémon> saves the bar to the POKÉMON, refs and all", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+
+    File.write!(
+      Path.join(tmp, "pokedex.json"),
+      JSON.encode!(%{
+        "species" => [%{"name" => "Vespiquen", "number" => 416, "elements" => ["Bug"]}],
+        "lures" => []
+      })
+    )
+
+    Application.put_env(:pokex, :pokedex_path, Path.join(tmp, "pokedex.json"))
+
+    on_exit(fn ->
+      Application.delete_env(:pokex, :home_dir)
+      Application.delete_env(:pokex, :pokedex_path)
+    end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      neutral_point: {52, 36},
+      skill_bar_region: {1, 1, 10, 10},
+      skill_bar_count: 4
+    })
+
+    {:ok, _} = Pokex.Pokedex.Team.add("Vespiquen")
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration?bar=Vespiquen")
+
+    view |> element("button", "Só as skills") |> render_click()
+
+    view
+    |> form("#skill-count-form-marking", skill_bar: %{count: "6"})
+    |> render_change()
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    click.(10.0, 10.0)
+    click.(40.0, 30.0)
+
+    assert render(view) =~ "Barra de Vespiquen salva"
+
+    bar = Pokex.Pokedex.Team.bar("Vespiquen")
+    assert bar.region == {20, 20, 60, 40}
+    assert bar.count == 6
+    # the references are the skill ICONS: {r,g,b}, six of them, one per slot
+    assert length(bar.refs) == 6
+    assert Enum.all?(bar.refs, &match?({_r, _g, _b}, &1))
+
+    # the shared calibration is left exactly as it was
+    assert {:ok, calib} = Calibration.load()
+    assert calib.skill_bar_region == {1, 1, 10, 10}
+    assert calib.skill_bar_count == 4
+  end
+
+  # A name nobody has would write a bar nothing will ever read.
+  @tag :tmp_dir
+  test "?bar=<a name not on the team> falls back to the shared calibration", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      neutral_point: {52, 36}
+    })
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration?bar=Ninguém")
+
+    view |> element("button", "Só as skills") |> render_click()
+
+    view
+    |> form("#skill-count-form-marking", skill_bar: %{count: "6"})
+    |> render_change()
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    click.(10.0, 10.0)
+    click.(40.0, 30.0)
+
+    assert render(view) =~ "Barra salva com"
+    assert {:ok, calib} = Calibration.load()
+    assert calib.skill_bar_region == {20, 20, 60, 40}
+  end
+
   # The screenshot he is looking at is itself the measurement of his screen, so
   # reviewing the areas re-judges the saved calibration against it. On mount the
   # backend answers instead — `:unknown` in tests, which must never accuse.

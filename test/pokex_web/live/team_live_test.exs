@@ -448,5 +448,50 @@ defmodule PokexWeb.TeamLiveTest do
       assert row =~ "barra própria"
       assert row =~ "9 skills"
     end
+
+    # The row said "9 skills" and the editor right under it offered six selects:
+    # the same screen contradicting itself, and no way at all to say what skills
+    # 7, 8 and 9 are for.
+    @tag :tmp_dir
+    test "the job editor offers THIS pokémon's slots, not the shared count", %{conn: conn} do
+      Pokex.SettingsStash.stash_keys!([:skill_bar_count])
+      Pokex.Settings.put(:skill_bar_count, 6)
+
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      add!(view, "Venusaur")
+      Team.set_bar("Charizard", %{region: {1, 2, 300, 40}, count: 9, refs: nil})
+
+      {:ok, view, _html} = live(conn, ~p"/time")
+      view |> element("#skills-toggle-Charizard") |> render_click()
+      editor = view |> element("#skills-form-Charizard") |> render()
+
+      assert editor =~ "Skill 9 de Charizard"
+
+      # and the one with no bar of its own still follows the shared count
+      view |> element("#skills-toggle-Venusaur") |> render_click()
+      editor = view |> element("#skills-form-Venusaur") |> render()
+
+      assert editor =~ "Skill 6 de Venusaur"
+      refute editor =~ "Skill 7 de Venusaur"
+    end
+
+    # A four-move pokémon must not be offered jobs for keys its bar does not have.
+    @tag :tmp_dir
+    test "a shorter bar SHRINKS the editor too", %{conn: conn} do
+      Pokex.SettingsStash.stash_keys!([:skill_bar_count])
+      Pokex.Settings.put(:skill_bar_count, 9)
+
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+      Team.set_bar("Charizard", %{region: {1, 2, 300, 40}, count: 4, refs: nil})
+
+      {:ok, view, _html} = live(conn, ~p"/time")
+      view |> element("#skills-toggle-Charizard") |> render_click()
+      editor = view |> element("#skills-form-Charizard") |> render()
+
+      assert editor =~ "Skill 4 de Charizard"
+      refute editor =~ "Skill 5 de Charizard"
+    end
   end
 end

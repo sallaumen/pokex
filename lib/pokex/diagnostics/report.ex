@@ -16,6 +16,7 @@ defmodule Pokex.Diagnostics.Report do
   directory are all injectable so the whole thing is testable with a Fake rig.
   """
 
+  alias Pokex.Bots.ActiveBar
   alias Pokex.Bots.BotSupervisor
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.SpotScan
@@ -188,10 +189,22 @@ defmodule Pokex.Diagnostics.Report do
   # The skill hotbar with the per-slot brightness/saturation/state — the numbers to
   # tune skill_ready_min_saturation/vivid_pct against. `calibrated?: false` when the
   # skill bar hasn't been calibrated yet.
-  defp skill_bar_report(_rig, %Calibration{skill_bar_region: nil}, _settings),
-    do: %{calibrated?: false}
+  #
+  # The region is the ACTIVE POKÉMON's, not the screen calibration's: a diagnostic
+  # that photographs one bar and slices it with another one's slot count reports
+  # numbers for something nobody is looking at. `pokemon` says whose bar this is
+  # (nil = the shared calibration standing in).
+  defp skill_bar_report(rig, calib, settings) do
+    case ActiveBar.current(calib) do
+      %{region: {_x, _y, _w, _h} = region, name: name} ->
+        skill_bar_report(rig, calib, settings, region, name)
 
-  defp skill_bar_report(rig, %Calibration{skill_bar_region: region} = calib, settings) do
+      _uncalibrated ->
+        %{calibrated?: false}
+    end
+  end
+
+  defp skill_bar_report(rig, calib, settings, region, name) do
     case capture_frame(rig, region, "diag_skill_bar.png") do
       {:ok, frame, image} ->
         if SkillBar.valid_frame?(frame) do
@@ -200,6 +213,7 @@ defmodule Pokex.Diagnostics.Report do
           %{
             calibrated?: true,
             valid?: true,
+            pokemon: name,
             region: Tuple.to_list(region),
             image: image,
             width: frame.width,
@@ -212,12 +226,13 @@ defmodule Pokex.Diagnostics.Report do
               ref_max_distance: settings[:skill_ref_max_distance]
             },
             states: Enum.map(slots, & &1.state),
-            slots: slots
+            slots: Enum.map(slots, &jsonable_slot/1)
           }
         else
           %{
             calibrated?: true,
             valid?: false,
+            pokemon: name,
             region: Tuple.to_list(region),
             image: image,
             width: frame.width,
@@ -227,9 +242,18 @@ defmodule Pokex.Diagnostics.Report do
         end
 
       {:error, reason} ->
-        %{calibrated?: true, region: Tuple.to_list(region), error: inspect(reason)}
+        %{calibrated?: true, pokemon: name, region: Tuple.to_list(region), error: inspect(reason)}
     end
   end
+
+  # Each slot carries its colour SIGNATURE as an {r,g,b} tuple, which JSON cannot
+  # encode: the dump raised the moment the bar was calibrated at all, so the one
+  # button that exports what the bot sees died exactly when there was something
+  # to see.
+  defp jsonable_slot(%{signature: signature} = slot),
+    do: %{slot | signature: to_list(signature)}
+
+  defp jsonable_slot(slot), do: slot
 
   defp region_report(rig, {x, y, w, h} = region, filename, metrics_fun, opts) do
     case capture_frame(rig, region, filename) do

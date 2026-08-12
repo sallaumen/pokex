@@ -54,14 +54,10 @@ defmodule Pokex.Bots.ActiveBar do
   @spec own?() :: boolean
   def own?, do: active_bar() != nil
 
-  defp active_bar do
-    with name when is_binary(name) <- Team.active(),
-         %{region: {_x, _y, _w, _h}} = bar <- Team.bar(name) do
-      {name, bar}
-    else
-      _no_choice_or_no_bar -> nil
-    end
-  end
+  # Team resolves it in one read of the file: this is asked twice per skill-bar
+  # feed tick, so `active/0` followed by `bar/1` — four reads for one answer —
+  # is not a spelling detail down here.
+  defp active_bar, do: Team.active_bar()
 
   defp from_calibration(%Calibration{} = calib),
     do: %{

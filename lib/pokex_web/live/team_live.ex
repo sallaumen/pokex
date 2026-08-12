@@ -275,9 +275,15 @@ defmodule PokexWeb.TeamLive do
         }
   end
 
-  # The hotbar as far as HIS bar goes: reading past the last slot would offer
-  # jobs for keys that do not exist.
-  defp hotbar_keys do
+  # The hotbar as far as THIS pokémon's bar goes: reading past the last slot
+  # would offer jobs for keys that do not exist — and stopping short of it hides
+  # the ones that do. The row above says "barra própria · 9 skills"; offering
+  # six selects under that sentence is the same screen contradicting itself.
+  # Only a pokémon with no bar of its own falls back to the shared count.
+  defp hotbar_keys(%{bar: %{count: count}}) when is_integer(count) and count in 1..10,
+    do: Enum.take(SkillProfile.hotbar_keys(), count)
+
+  defp hotbar_keys(_no_own_bar) do
     count = Pokex.Settings.get(:skill_bar_count) || 6
     Enum.take(SkillProfile.hotbar_keys(), count)
   end
@@ -498,7 +504,7 @@ defmodule PokexWeb.TeamLive do
               other="bank"
               other_label="→ banco"
               open?={@open_skills == row.name}
-              keys={hotbar_keys()}
+              keys={hotbar_keys(row)}
               used={@used_keys}
               warn?={true}
             />
@@ -522,7 +528,7 @@ defmodule PokexWeb.TeamLive do
               other="team"
               other_label="→ time"
               open?={@open_skills == row.name}
-              keys={hotbar_keys()}
+              keys={hotbar_keys(row)}
               used={@used_keys}
               warn?={false}
             />

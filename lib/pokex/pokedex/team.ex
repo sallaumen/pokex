@@ -246,22 +246,40 @@ defmodule Pokex.Pokedex.Team do
     |> announce()
   end
 
-  # Tuples do not survive JSON: the region rides as a list and comes back a
-  # tuple, because every consumer pattern-matches {x, y, w, h}.
+  # Tuples do not survive JSON — and the bar carries TWO kinds of them: the
+  # region, and one {r,g,b} READY reference per slot. The first cut only
+  # translated the region, so the first real save (the page samples the refs
+  # off the screenshot) died inside JSON.encode!, taking the calibration page
+  # down with it. Both ride as lists and come back as tuples, because every
+  # consumer pattern-matches {x, y, w, h} and Vision.slot_distance/2 answers
+  # nil — silently dropping the reference — for anything that is not {r,g,b}.
   defp encode_bar(%{region: {x, y, w, h}} = bar),
     do: %{
       "region" => [x, y, w, h],
       "count" => bar[:count],
-      "refs" => bar[:refs]
+      "refs" => encode_refs(bar[:refs])
     }
 
   defp encode_bar(_none), do: nil
 
+  defp encode_refs(refs) when is_list(refs), do: Enum.map(refs, &tuple_to_list/1)
+  defp encode_refs(_none), do: nil
+
+  defp tuple_to_list({_r, _g, _b} = ref), do: Tuple.to_list(ref)
+  defp tuple_to_list([_r, _g, _b] = ref), do: ref
+  defp tuple_to_list(_no_ref), do: nil
+
   defp decode_bar(%{"region" => [x, y, w, h], "count" => count} = map)
        when is_integer(count) and count in 1..10,
-       do: %{region: {x, y, w, h}, count: count, refs: map["refs"]}
+       do: %{region: {x, y, w, h}, count: count, refs: decode_refs(map["refs"])}
 
   defp decode_bar(_absent_or_corrupt), do: nil
+
+  defp decode_refs(refs) when is_list(refs), do: Enum.map(refs, &list_to_tuple/1)
+  defp decode_refs(_none), do: nil
+
+  defp list_to_tuple([_r, _g, _b] = ref), do: List.to_tuple(ref)
+  defp list_to_tuple(_no_ref), do: nil
 
   @doc "Sets Lucas's character level (nil clears)."
   def set_player_level(level) when is_integer(level) or is_nil(level),
@@ -286,6 +304,28 @@ defmodule Pokex.Pokedex.Team do
   def active do
     name = read().active
     if name && Enum.any?(members(), &(&1.name == name)), do: name, else: nil
+  end
+
+  @doc """
+  The pokémon on the field together with its own skill bar, or `nil` when
+  nobody is chosen or the chosen one has no bar of its own.
+
+  One question, ONE read of the file. Asking `active/0` and then `bar/1` costs
+  four — and the skill-bar feed asks this twice per tick, so the convenient
+  spelling put a couple of hundred file reads a second into the perception
+  loop for an answer that was already on the first page.
+  """
+  @spec active_bar() :: {String.t(), map} | nil
+  def active_bar do
+    data = read()
+
+    with name when is_binary(name) <- data.active,
+         %{bar: %{region: {_x, _y, _w, _h}} = bar} <-
+           Enum.find(data.members, &(&1.name == name)) do
+      {name, bar}
+    else
+      _no_choice_or_no_bar -> nil
+    end
   end
 
   @doc """

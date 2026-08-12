@@ -1720,10 +1720,21 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  defp region_spec("skills", %{skill_bar_region: nil}), do: :error
+  # The bar of whoever is on the field — photographing the shared calibration
+  # while the bot reads the pokémon's own bar would answer a question he did
+  # not ask.
+  defp region_spec("skills", calib) do
+    case Pokex.Bots.ActiveBar.current(calib) do
+      %{region: {_x, _y, _w, _h} = region, name: nil} ->
+        {region, "barra de skills", "shot_skills.png"}
 
-  defp region_spec("skills", calib),
-    do: {calib.skill_bar_region, "barra de skills", "shot_skills.png"}
+      %{region: {_x, _y, _w, _h} = region, name: name} ->
+        {region, "barra de skills de #{name}", "shot_skills.png"}
+
+      _uncalibrated ->
+        :error
+    end
+  end
 
   defp region_spec(_other, _calib), do: :error
 

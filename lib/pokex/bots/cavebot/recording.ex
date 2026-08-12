@@ -130,7 +130,8 @@ defmodule Pokex.Bots.Cavebot.Recording do
   def tidy(%Route{} = route) do
     {merged, merges} = merge_kill_spots(route)
     {cleaned, note} = pair_marks(merged)
-    {cleaned, merge_note(merges) <> note}
+    {moved, moves} = move_lessons(cleaned)
+    {moved, merge_note(merges) <> move_note(moves) <> note}
   end
 
   # A RUN of kill spots within a few tiles of each other is ONE kill spot,
@@ -241,6 +242,56 @@ defmodule Pokex.Bots.Cavebot.Recording do
     end
   end
 
+  # The lesson of a fight that closed away from its kill spot goes back to it.
+  #
+  # What says "this is a fight lesson" is `fight_ms`: a combo with NO fight is
+  # the aura he presses while walking a mob stretch (waypoints 2, 10, 23 and 36
+  # of Meganium 1 as the page numbers them, all of them the key 2 and none of
+  # them a fight), and gathering that into a kill spot would erase exactly what
+  # he wants to see.
+  defp move_lessons(%Route{} = route) do
+    kills = kill_spots(route)
+
+    route.waypoints
+    |> Enum.with_index()
+    |> Enum.filter(fn {wp, index} -> wp[:fight_ms] != nil and index not in kills end)
+    |> Enum.reduce({route, 0}, fn {_wp, index}, {acc, moved} ->
+      case same_fight_spot(acc, index, []) do
+        nil -> {acc, moved}
+        target -> {move_lesson(acc, index, target), moved + 1}
+      end
+    end)
+  end
+
+  # The destination gets what it did not have; what it already had is its own.
+  # Combos add up in route order, because both halves are the same fight.
+  defp move_lesson(%Route{waypoints: waypoints} = route, from, to) do
+    orphan = Enum.at(waypoints, from)
+    target = Enum.at(waypoints, to)
+
+    kept = [
+      fight_ms: target[:fight_ms] || orphan[:fight_ms],
+      gather_ms: target[:gather_ms] || orphan[:gather_ms],
+      combo: (target[:combo] || []) ++ (orphan[:combo] || [])
+    ]
+
+    route
+    |> Route.set_timing(to, kept)
+    |> clear_lesson(from)
+  end
+
+  # `set_timing/3` only ever writes an integer, on purpose (`put_timing/3`):
+  # erasing is another operation, and this is it.
+  defp clear_lesson(%Route{waypoints: waypoints} = route, index) do
+    wp = waypoints |> Enum.at(index) |> Map.merge(%{fight_ms: nil, gather_ms: nil, combo: []})
+    %{route | waypoints: List.replace_at(waypoints, index, wp)}
+  end
+
+  defp move_note(0), do: ""
+
+  defp move_note(count),
+    do: "levei #{count} lição(ões) de luta de volta pro ponto de matança; "
+
   @doc """
   Marks a kill spot he pointed out HIMSELF — the middle click that parks his
   pokémon, which is the marker he asked for over the clock: "é uma marca muito
@@ -323,6 +374,25 @@ defmodule Pokex.Bots.Cavebot.Recording do
       _closed_spot_or_already_said ->
         {route, nil}
     end
+  end
+
+  @doc """
+  Which waypoint this fight's lesson belongs to.
+
+  Measured on the Meganium 1 route (2026-08-12): four of the eight fights
+  closed one or two tiles PAST the "até aqui" — he kills, takes a step, and
+  only then presses the shift+3 that closes the fight. The `fight_ms`, the
+  `gather_ms` and the combo landed on the tile he was standing on, and the hunt
+  reads those three things only at the kill spot: 4 of the 8 lessons were
+  invisible.
+
+  The answer is the same ruler the middle click and the shift+1 already use to
+  decide "this is the same fight" — 6 tiles and 10 seconds. With no kill spot
+  nearby, the lesson stays where it is.
+  """
+  @spec lesson_index(Route.t(), non_neg_integer, keyword) :: non_neg_integer
+  def lesson_index(%Route{} = route, index, opts \\ []) do
+    same_fight_spot(route, index, opts) || index
   end
 
   # The LAST kill spot close enough to be the same fight. Distance, not

@@ -284,7 +284,8 @@ defmodule PokexWeb.CavebotLive do
     do: assign(socket, pending_index: nil)
 
   defp flush_combo(%{assigns: %{pending_index: index, pending_combo: combo}} = socket) do
-    existing = Enum.at(socket.assigns.active_route.waypoints, index)[:combo] || []
+    route = socket.assigns.active_route
+    existing = Enum.at(route.waypoints, Recording.lesson_index(route, index))[:combo] || []
 
     socket
     |> write_timings(index, combo: existing ++ combo)
@@ -293,8 +294,13 @@ defmodule PokexWeb.CavebotLive do
 
   defp write_timings(socket, _index, []), do: socket
 
+  # The lesson goes to THIS fight's kill spot, not to the tile he was standing
+  # on when the shift+3 closed it: he kills, takes a step, and only then closes
+  # — four of the eight fights of Meganium 1 landed one waypoint past the "até
+  # aqui", where the hunt does not read. (Recording.lesson_index/3.)
   defp write_timings(socket, index, timings) when is_integer(index) and index >= 0 do
-    updated = Route.set_timing(socket.assigns.active_route, index, timings)
+    route = socket.assigns.active_route
+    updated = Route.set_timing(route, Recording.lesson_index(route, index), timings)
     :ok = Store.add(updated)
     reload_routes(socket, updated.name)
   end

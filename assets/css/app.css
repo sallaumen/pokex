@@ -124,17 +124,20 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Foco visível em tudo que é operável: este painel comanda o mouse dele de
-   verdade, então "onde estou" não pode depender de enxergar o cursor. */
-#panel-dashboard :is(button, input, select, summary, a):focus-visible {
+/* Foco visível em tudo que é operável: este app comanda o mouse dele de
+   verdade, então "onde estou" não pode depender de enxergar o cursor.
+   A regra era do #panel-dashboard, mas ela não é do painel — é do app: a
+   calibração se opera no teclado (Tab por 25 corpos, cada um com nome
+   editável, switch e lixeira) e não tinha anel nenhum. Sem o `border-radius`
+   da versão antiga, que arredondava o ELEMENTO focado, não só o anel. */
+:is(button, input, select, summary, a, [role="button"]):focus-visible {
   outline: 2px solid var(--color-pk-ok);
   outline-offset: 2px;
-  border-radius: 0.375rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #panel-dashboard *,
-  #panel-dashboard *::before {
+  *,
+  *::before {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }

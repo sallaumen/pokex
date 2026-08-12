@@ -1843,4 +1843,78 @@ defmodule PokexWeb.CalibrationLiveTest do
       refute has_element?(view, "#pokemon-locate-btn[disabled]")
     end
   end
+
+  # A tira de fotos de cada linha tem um ✕ por amostra — e ele nunca teve teste.
+  # Os dois acervos nomeiam o índice diferente ("idx" no corpo, "index" no
+  # pokémon): trocar um pelo outro apaga a amostra errada, ou nenhuma, sem
+  # ninguém perceber até faltar a foto que mirava.
+  describe "os acervos ensinados, como tabela" do
+    defp frame(color), do: %Pokex.Vision.Frame{width: 4, height: 4, rgba: :binary.copy(color, 16)}
+
+    defp first_pixel(sample), do: binary_part(Base.decode64!(sample["rgba"]), 0, 4)
+
+    @tag :tmp_dir
+    test "apagar uma amostra do corpo tira SÓ ela", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, 1} = CorpseLibrary.add("Krabby", frame(<<10, 20, 30, 255>>))
+      {:ok, 2} = CorpseLibrary.add("Krabby", frame(<<200, 100, 50, 255>>))
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      # a mais nova entra na frente: índice 0 é a laranja, 1 é a que veio antes
+      view
+      |> element(~s(#corpse-list button[phx-click="corpse_delete_sample"][phx-value-idx="1"]))
+      |> render_click()
+
+      assert [%{"samples" => [survivor]}] = CorpseLibrary.list()
+      assert first_pixel(survivor) == <<200, 100, 50, 255>>
+    end
+
+    @tag :tmp_dir
+    test "apagar um ângulo do pokémon tira SÓ ele", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, 1} = Pokex.Bots.PokemonSprites.add("Vileplume", frame(<<10, 20, 30, 255>>))
+      {:ok, 2} = Pokex.Bots.PokemonSprites.add("Vileplume", frame(<<200, 100, 50, 255>>))
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      view
+      |> element(~s(#pokemon-list button[phx-click="pokemon_delete_sample"][phx-value-index="1"]))
+      |> render_click()
+
+      assert [%{"samples" => [survivor]}] = Pokex.Bots.PokemonSprites.list()
+      assert first_pixel(survivor) == <<200, 100, 50, 255>>
+    end
+
+    # Com 25 corpos na tela, o veto (#253) espalhado no meio da lista não se lê:
+    # quem leva bola vem primeiro, e o placar diz de quantos se está falando.
+    @tag :tmp_dir
+    test "quem está na mira vem primeiro, e o placar conta os dois lados", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, 1} = CorpseLibrary.add("Abra", frame(<<10, 20, 30, 255>>))
+      {:ok, 1} = CorpseLibrary.add("Zubat", frame(<<200, 100, 50, 255>>))
+      :ok = CorpseLibrary.set_enabled("abra", false)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      html = view |> element("#corpse-list") |> render()
+      {zubat, _} = :binary.match(html, "Zubat")
+      {abra, _} = :binary.match(html, "Abra")
+      assert zubat < abra
+
+      page = render(view)
+      assert page =~ "2 corpos ensinados"
+      assert page =~ "1 na mira"
+      assert page =~ "1 vetado (nunca leva bola)"
+    end
+  end
 end

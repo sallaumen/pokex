@@ -19,6 +19,13 @@ This is a web application written using the Phoenix web framework.
 - **Push the branch the moment you create it, even empty** (`git push -u origin <branch>`). That is the claim: `git branch -r` becomes the board of who is working on what, versioned and with no extra file to keep in sync. Start every session with `git fetch && git log origin/main --oneline -10` to read what landed while you were away, and `git branch -r` to see which lanes are taken.
 - **Remove the worktree when its PR merges** (`git worktree remove <path>` from the main checkout, then `git worktree prune`). Merged branches — local and remote — get deleted too. Stale worktrees piled up to 15 folders once; they are workspace litter, not history.
 
+### Bot worker rules (hard requirement)
+
+- **Never `GenServer.call` a bot worker from a process that has to survive.** A worker parks inside a SINGLE message for seconds (a screen capture the broker holds) or indefinitely (`Body.perform/3` waits `:infinity`), and while parked it reads nothing else in its mailbox. The default 5s call then EXITS the caller. On 2026-08-11 the caller was the Guardian's panic corner: it died halting the catcher, so the mini game, the player support and the timers still pressing keys were never stopped at all, and nobody was watching the corner any more.
+- **Stop a worker with `BotSupervisor.safe_halt/1`; read one with `BotSupervisor.safe_status/2`.** Both bound the wait and survive the timeout. Waiting longer buys nothing: a timed-out call is still DELIVERED, and the worker still acts on it the moment it frees up.
+- **From a LiveView, an advisory poke is a `cast`** (`Catcher.Worker.sweep_now/2`) or goes through a catch (`catcher_poke/1`) — an exit inside a `handle_event` takes the whole page down (2026-08-05).
+- **A safety path never depends on the stopped party answering.** `InputGate.set_panic_latch/1` is what actually stops the keys and it is set BEFORE anything is halted; halting only stops the deciding. Anything new on the panic path must keep that order, and must not be able to kill the Guardian.
+
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 

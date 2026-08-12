@@ -13,9 +13,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
       map's edges with CONTROLS, and pressing also makes the coordinate
       label render, so walking feeds its own position reading). The Rig is
       never touched from here.
-    * Combat.Worker is driven exclusively via `run/1` and `halt/1` — the Logic
-      starts it and it fights on its own; the cavebot only yields while
-      enemies are on screen.
+    * Combat.Worker is driven exclusively via `run/1` and
+      `BotSupervisor.safe_halt/1` — the Logic starts it and it fights on its
+      own; the cavebot only yields while enemies are on screen. The BOUNDED
+      halt, because this runs inside the cavebot's own loop, which is itself
+      halted on a budget: a worker that stopped answering must never wedge the
+      hunt that is stopping it.
 
   Layered fail-safe: unknown position (missing/stale fact, unread anchor) holds
   the step — never walk blind; and a `{:block, _}` from the Logic has TWO
@@ -189,7 +192,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   def handle_call(:halt, _from, state) do
     state = state |> release_walk() |> free_fire()
-    Combat.Worker.halt(state.combat)
+    BotSupervisor.safe_halt(state.combat)
     WorldState.forget(:dungeon)
 
     state =
@@ -476,7 +479,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   end
 
   def translate(state, :halt_combat) do
-    Combat.Worker.halt(state.combat)
+    BotSupervisor.safe_halt(state.combat)
     release_walk(state)
   end
 
@@ -496,7 +499,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     state = release_walk(state)
     Logger.warning("Cavebot: BLOQUEADO (#{inspect(reason)}) — parando a frota")
     InputGate.set_panic_latch(true)
-    Combat.Worker.halt(state.combat)
+    BotSupervisor.safe_halt(state.combat)
     BotSupervisor.stop_all("caçada — " <> block_text(reason))
     stop_hunt(state, reason)
   end
@@ -510,7 +513,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def translate(state, {:block, reason}) do
     state = release_walk(state)
     Logger.warning("Cavebot: parei (#{inspect(reason)}) — o resto da frota segue")
-    Combat.Worker.halt(state.combat)
+    BotSupervisor.safe_halt(state.combat)
     stop_hunt(state, reason)
   end
 

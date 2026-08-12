@@ -210,9 +210,26 @@ defmodule Pokex.Bots.Guardian do
     # poller's refocus resume) from restarting workers over this human order — set it before
     # anything else so no resume can slip in between. Only Iniciar bot clears it.
     InputGate.set_panic_latch(true)
-    state.on_panic.()
+    stop_fleet(state)
     Phoenix.PubSub.broadcast(Pokex.PubSub, @fishing_topic, {:panic, "kill corner"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:panic, "kill corner"})
+  end
+
+  # This process is the LAST thing standing, so stopping the fleet must never be
+  # able to take it down with it. On 2026-08-11 a worker parked on a capture did
+  # not answer its `:halt` inside the default 5s, the call exited, and this
+  # Guardian died mid-panic: everything below the slow worker stayed running and
+  # nobody was watching the corner any more. `BotSupervisor.safe_halt/1` bounds
+  # that wait now — this is the belt under it, so whatever `on_panic` grows into
+  # (or is injected as) can never again cost the corner.
+  defp stop_fleet(state) do
+    state.on_panic.()
+  catch
+    kind, reason ->
+      Logger.error(
+        "Guardian: a parada do pânico falhou (#{inspect({kind, reason})}) — " <>
+          "a trava está armada e o canto segue vigiado"
+      )
   end
 
   # The COMMAND corner (top-right): holding the mouse there for

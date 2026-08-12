@@ -73,6 +73,26 @@ defmodule Pokex.Bots.GuardianTest do
     assert_receive :panicked, 500
   end
 
+  # The corner is the LAST thing standing, so stopping the fleet must never be
+  # able to take it down. On 2026-08-11 a worker parked on a capture did not
+  # answer its :halt inside the default 5s, the call exited, and the Guardian
+  # died mid-panic — the rest of the fleet stayed running with nobody watching
+  # the corner. BotSupervisor bounds that wait now; this is the belt under it,
+  # so anything new in the stop path can never cost the corner again.
+  test "a stop that blows up neither kills the Guardian nor swallows the panic" do
+    Process.flag(:trap_exit, true)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
+    wedged = fn -> exit({:timeout, {GenServer, :call, [Pokex.Bots.Catcher.Worker, :halt]}}) end
+
+    {:ok, guardian} = Guardian.start_link(name: nil, body: body, on_panic: wedged, poll_ms: 5)
+
+    assert_receive {:panic, "kill corner"}, 500
+    refute_receive {:EXIT, ^guardian, _reason}, 100
+    assert Process.alive?(guardian)
+  end
+
   test "a safe cursor position never triggers on_panic", %{on_panic: on_panic} do
     {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
 

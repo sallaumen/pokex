@@ -1,7 +1,51 @@
+defmodule Pokex.Bots.BotSupervisorTest.ParkedWorker do
+  @moduledoc """
+  A worker doing what the real ones legitimately do: parked INSIDE one long
+  message. The catcher blocks for seconds on a capture the broker holds, and
+  every Body user blocks in `Body.perform/3`, which waits `:infinity`. While it
+  is parked nothing else in its mailbox is read — the fleet's `:halt` included.
+  """
+  use GenServer
+
+  def start_link(park_ms), do: GenServer.start_link(__MODULE__, park_ms)
+
+  @impl true
+  def init(park_ms) do
+    send(self(), :park)
+    {:ok, park_ms}
+  end
+
+  @impl true
+  def handle_info(:park, park_ms) do
+    Process.sleep(park_ms)
+    {:noreply, park_ms}
+  end
+
+  @impl true
+  def handle_call(:halt, _from, park_ms), do: {:reply, :ok, park_ms}
+end
+
+defmodule Pokex.Bots.BotSupervisorTest.EchoWorker do
+  @moduledoc "Answers :halt at once and tells the test it was asked."
+  use GenServer
+
+  def start_link(test), do: GenServer.start_link(__MODULE__, test)
+
+  @impl true
+  def init(test), do: {:ok, test}
+
+  @impl true
+  def handle_call(:halt, _from, test) do
+    send(test, {:halted, self()})
+    {:reply, :ok, test}
+  end
+end
+
 defmodule Pokex.Bots.BotSupervisorTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.BotSupervisorTest.{EchoWorker, ParkedWorker}
   alias Pokex.Bots.Fisher.Sensors
   alias Pokex.Bots.MiniGame.Worker
   alias Pokex.Bots.Session
@@ -392,6 +436,41 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
     assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
     assert Worker.status(mini_game).state == :off
+  end
+
+  # A fleet stop is the one thing that must work when everything else is wedged.
+  # It was built out of plain GenServer.calls, so the first worker that did not
+  # answer within the default 5s EXITED the caller: on 2026-08-11 that caller
+  # was the Guardian's panic corner, it died on the catcher, and the mini game,
+  # the player support and both `forget`s that come after it never ran.
+  @tag :tmp_dir
+  test "a worker that will not answer neither aborts the fleet stop nor kills the caller" do
+    # longer than any call timeout: it is killed outright on teardown, since it
+    # traps nothing — exactly like a worker still inside a wedged capture
+    parked = start_supervised!({ParkedWorker, 60_000}, id: :parked)
+    cavebot = start_supervised!({EchoWorker, self()}, id: :cavebot)
+    fishing = start_supervised!({EchoWorker, self()}, id: :fishing)
+    combat = start_supervised!({EchoWorker, self()}, id: :combat)
+    mini_game = start_supervised!({EchoWorker, self()}, id: :mini_game)
+    player_support = start_supervised!({EchoWorker, self()}, id: :player_support)
+
+    # the catcher slot is the parked one — the two workers below it in
+    # halt_fleet's order are what the crash never reached
+    assert :ok =
+             BotSupervisor.stop_all(
+               fishing,
+               combat,
+               parked,
+               mini_game,
+               player_support,
+               cavebot
+             )
+
+    assert_receive {:halted, ^cavebot}
+    assert_receive {:halted, ^fishing}
+    assert_receive {:halted, ^combat}
+    assert_receive {:halted, ^mini_game}
+    assert_receive {:halted, ^player_support}
   end
 
   # Header, panel, and Focus all consult active?/1 — the single "is it running" gauge.

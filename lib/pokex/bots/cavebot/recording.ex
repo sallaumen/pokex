@@ -255,17 +255,51 @@ defmodule Pokex.Bots.Cavebot.Recording do
     route.waypoints
     |> Enum.with_index()
     |> Enum.filter(fn {wp, index} -> wp[:fight_ms] != nil and index not in kills end)
-    |> Enum.reduce({route, 0}, fn {_wp, index}, {acc, moved} ->
-      case same_fight_spot(acc, index, []) do
-        nil -> {acc, moved}
-        target -> {move_lesson(acc, index, target), moved + 1}
+    |> Enum.reduce({route, {0, 0}}, fn {_wp, index}, {acc, tally} ->
+      case dated_fight_spot(acc, index) do
+        nil -> {acc, tally}
+        target -> {move_lesson(acc, index, target), tally(tally, acc, target)}
       end
     end)
   end
 
-  # The destination ends up with ONE fight, whole: `fight_ms` and `gather_ms`
-  # are two halves of the same measurement and travel together or not at all.
-  # Only the combos add up, in route order, because a fight that closed a tile
+  # The same ruler as everywhere else, minus its blind fallback. `mark_park/4`
+  # only moves a park point when it guesses wrong; this one DELETES — it takes
+  # the lesson off the waypoint it was measured on. A route recorded before the
+  # recorder read the clock has no `at` at all (see `Route`), and 3 tiles alone
+  # is not a fight: a loop that passes within 3 tiles of an old kill spot,
+  # minutes later and around a different pile, would have its lesson taken.
+  # With no clock on BOTH ends the lesson stays where his hands measured it.
+  defp dated_fight_spot(%Route{waypoints: waypoints} = route, index) do
+    case Enum.at(waypoints, index) do
+      %{at: %DateTime{}} = here ->
+        route
+        |> kill_spots()
+        |> Enum.reject(&(&1 == index))
+        |> Enum.filter(&dated_same_fight?(Enum.at(waypoints, &1), here))
+        |> Enum.max(fn -> nil end)
+
+      _clockless ->
+        nil
+    end
+  end
+
+  defp dated_same_fight?(%{at: %DateTime{}} = spot, here), do: same_fight?(spot, here)
+  defp dated_same_fight?(_clockless, _here), do: false
+
+  # ONE fight, assembled: whatever the destination is missing, the orphan
+  # supplies. What licensed this is the ruler that chose the destination in the
+  # first place — `dated_fight_spot/2` only answers a kill spot within 6 tiles
+  # and 10 seconds, which IS this project's definition of the same fight
+  # (`same_fight?/3`). Halves of the same fight are not strangers.
+  #
+  # A value the destination already measured is never overwritten: the huddle
+  # and the fight are drained at two different MOMENTS (`gather_ms` on the
+  # first bare skill after parking, `fight_ms` seconds later on the shift+3),
+  # so the destination may hold the huddle it timed with its own clock while
+  # the fight closed a tile later. Its own clock wins over the neighbour's.
+  #
+  # The combos add up, destination first, because a fight that closed a tile
   # late pressed its keys on both waypoints.
   defp move_lesson(%Route{waypoints: waypoints} = route, from, to) do
     orphan = Enum.at(waypoints, from)
@@ -277,26 +311,8 @@ defmodule Pokex.Bots.Cavebot.Recording do
     |> clear_lesson(from)
   end
 
-  # Whose fight the destination ends up describing decides the whole rule, and
-  # the two halves are NOT symmetric — do not "simplify" them into one line.
-  #
-  # A kill spot that already measured a fight of its OWN keeps it whole,
-  # including a huddle of nothing: the orphan is then a DIFFERENT fight, and
-  # filling that gap from it would report a wait he never had. Kill spot 23 of
-  # Meganium 1 is exactly that shape: `fight_ms` 7910 with no `gather_ms`.
-  #
-  # A kill spot with no fight of its own is the opposite case: the orphan IS
-  # this fight, so its `fight_ms` is welcome — but the huddle and the fight are
-  # drained at two different MOMENTS (`gather_ms` on the first bare skill after
-  # parking, `fight_ms` seconds later on the shift+3), so the destination may
-  # already hold the huddle it measured with its own clock while the fight
-  # closed a tile later. That measurement is this same fight's and stays; the
-  # orphan's half only fills a gap.
-  defp fight_pair(%{fight_ms: measured} = target, _orphan) when measured != nil,
-    do: {measured, target[:gather_ms]}
-
   defp fight_pair(target, orphan),
-    do: {orphan[:fight_ms], target[:gather_ms] || orphan[:gather_ms]}
+    do: {target[:fight_ms] || orphan[:fight_ms], target[:gather_ms] || orphan[:gather_ms]}
 
   # `set_timing/3` only ever writes an integer, on purpose (`put_timing/3`), so
   # a pair with a nil half is written here.
@@ -312,10 +328,31 @@ defmodule Pokex.Bots.Cavebot.Recording do
     |> Route.set_timing(index, combo: [])
   end
 
-  defp move_note(0), do: ""
+  # The collision he must SEE. Both waypoints carrying a `fight_ms` is not
+  # something one fight's single shift+3 drain can produce, so the destination
+  # keeps its own and the orphan's number is thrown away — counting that as a
+  # lesson taken back would report a measurement that no longer exists
+  # anywhere.
+  defp tally({moved, dropped}, route, target) do
+    if Enum.at(route.waypoints, target)[:fight_ms] == nil,
+      do: {moved + 1, dropped},
+      else: {moved, dropped + 1}
+  end
 
-  defp move_note(count),
+  defp move_note({0, 0}), do: ""
+  defp move_note({moved, dropped}), do: moved_note(moved) <> dropped_note(dropped)
+
+  defp moved_note(0), do: ""
+
+  defp moved_note(count),
     do: "levei #{count} lição(ões) de luta de volta pro ponto de matança; "
+
+  defp dropped_note(0), do: ""
+
+  defp dropped_note(count),
+    do:
+      "descartei #{count} medição(ões) de luta: o ponto de matança já tinha a sua e eu " <>
+        "fiquei com ela (só o combo veio junto); "
 
   @doc """
   Marks a kill spot he pointed out HIMSELF — the middle click that parks his
@@ -419,12 +456,20 @@ defmodule Pokex.Bots.Cavebot.Recording do
   deleted mid-recording leaves the buffered combo pointing past the end, and
   the drain right after it must not take the recording — and the combo — down
   with it. `Route.set_timing/3` has always no-opped there; so does this.
+
+  A kill spot is its own answer too, and for a harder reason: the ruler rejects
+  only `index` itself, so a fight closed ON a kill spot would file its lesson
+  onto the NEXT kill spot within 6 tiles, and `Route.set_timing/3` overwrites
+  what that one was holding. Two kill spots that close are reachable —
+  `infer_with_note/4` mints one from a long dwell with no ruler in the way, so
+  standing 12s on the tile after a kill spot makes one a tile away.
   """
-  @spec lesson_index(Route.t(), non_neg_integer, keyword) :: non_neg_integer
-  def lesson_index(%Route{waypoints: waypoints} = route, index, opts \\ []) do
-    case Enum.at(waypoints, index) do
-      nil -> index
-      _here -> same_fight_spot(route, index, opts) || index
+  @spec lesson_index(Route.t(), non_neg_integer) :: non_neg_integer
+  def lesson_index(%Route{waypoints: waypoints} = route, index) do
+    cond do
+      Enum.at(waypoints, index) == nil -> index
+      index in kill_spots(route) -> index
+      true -> same_fight_spot(route, index, []) || index
     end
   end
 

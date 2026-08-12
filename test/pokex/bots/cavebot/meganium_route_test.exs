@@ -55,12 +55,19 @@ defmodule Pokex.Bots.Cavebot.MeganiumRouteTest do
   test "the lesson goes to the RIGHT kill spot, huddle and all", %{route: route} do
     {tidied, _note} = Recording.tidy(route)
 
-    # waypoint 5 measured 11310ms of fight and 1851ms of huddle; they belong to 4
-    assert Enum.at(tidied.waypoints, 4).fight_ms == 11_310
-    assert Enum.at(tidied.waypoints, 4).gather_ms == 1_851
-    assert Enum.at(tidied.waypoints, 14).fight_ms == 14_469
-    assert Enum.at(tidied.waypoints, 38).fight_ms == 12_213
-    assert Enum.at(tidied.waypoints, 57).fight_ms == 8_528
+    # waypoint 5 measured 11310ms of fight and 1851ms of huddle; they belong to
+    # 4 — and none of these four kill spots had measured anything of its own,
+    # so both halves of the fight arrive whole.
+    for {kill, {fight_ms, gather_ms}} <- %{
+          4 => {11_310, 1_851},
+          14 => {14_469, 2_088},
+          38 => {12_213, 4_534},
+          57 => {8_528, 3_918}
+        } do
+      wp = Enum.at(tidied.waypoints, kill)
+      assert wp.fight_ms == fight_ms, "o ponto de matança #{kill} ficou com outra luta"
+      assert wp.gather_ms == gather_ms, "o ponto de matança #{kill} ficou com outro abraço"
+    end
   end
 
   # The aura he presses WHILE WALKING is not a fight lesson and must not be

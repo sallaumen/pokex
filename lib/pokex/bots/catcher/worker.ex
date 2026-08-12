@@ -428,6 +428,14 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp sweep_hold_reason(state) do
     cond do
+      # "Captura desligada" has to mean NO BALL, full stop. The sweep consulted
+      # only its own switch, so with capture off the panel alarmed "nenhuma
+      # Pokébola será arremessada" while the sweep kept throwing one at every
+      # tile around him. Found the day its switch moved next to capture's in the
+      # quick strip (2026-08-11): a promise on screen the code did not keep.
+      not Settings.get(:capture_enabled) ->
+        "a captura está desligada"
+
       Perception.mini_game_playing?() ->
         "mini-game em jogo"
 

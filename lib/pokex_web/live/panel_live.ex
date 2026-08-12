@@ -2224,7 +2224,8 @@ defmodule PokexWeb.PanelLive do
          loot_enabled,
          capture_enabled,
          rescue_enabled,
-         potion_enabled
+         potion_enabled,
+         sweep_enabled
        ) do
     [
       active?(fishing.state),
@@ -2232,7 +2233,8 @@ defmodule PokexWeb.PanelLive do
       loot_enabled and player_mode == "still",
       capture_enabled and player_mode == "still",
       rescue_enabled,
-      potion_enabled
+      potion_enabled,
+      sweep_enabled and player_mode == "still"
     ]
     |> Enum.count(& &1)
   end
@@ -3087,10 +3089,13 @@ defmodule PokexWeb.PanelLive do
               <.icon name="hero-stop-solid" class="size-4" /> Parar bot
             </button>
 
-            <%!-- The QUICK STRIP: the six switches that change per SESSION
+            <%!-- The QUICK STRIP: the switches that change per SESSION
                   (2026-07-30). Every number, key and threshold went to the ⚙️;
-                  these six stayed because turning fishing off mid-hunt must not
-                  cost opening a screen. --%>
+                  these stayed because turning fishing off mid-hunt must not
+                  cost opening a screen. The blind sweep joined them: it is
+                  excellent for an ordinary fishing hunt and wrong for a
+                  specific quarry, and Lucas switches between the two in the
+                  same session (2026-08-11). --%>
             <div id="quick-toggles" class="rounded-xl border border-pk-line bg-pk-surface p-2">
               <div class="mb-1.5 flex items-center justify-between px-1">
                 <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
@@ -3104,8 +3109,9 @@ defmodule PokexWeb.PanelLive do
                     @loot_enabled,
                     @capture_enabled,
                     @rescue_enabled,
-                    @potion_enabled
-                  )}/6 on
+                    @potion_enabled,
+                    @sweep_enabled
+                  )}/7 on
                 </span>
               </div>
               <div class="grid grid-cols-3 gap-1.5">
@@ -3133,6 +3139,12 @@ defmodule PokexWeb.PanelLive do
                   label="Loot"
                   active={@loot_enabled}
                   event="toggle_loot_enabled"
+                />
+                <.quick_toggle
+                  id="quick-sweep"
+                  label="Varredura"
+                  active={@sweep_enabled}
+                  event="toggle_sweep_enabled"
                 />
                 <.quick_toggle
                   id="quick-rescue"

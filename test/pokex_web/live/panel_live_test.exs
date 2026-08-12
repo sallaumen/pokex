@@ -898,6 +898,25 @@ defmodule PokexWeb.PanelLiveTest do
     refute render(view) =~ "restore-mode-defaults"
   end
 
+  # The blind sweep is excellent for an ordinary fishing hunt and wrong when he
+  # is after one specific quarry, and he switches between the two in the same
+  # session — so it belongs on the strip he can reach without opening a screen,
+  # not three clicks deep in the ⚙️.
+  test "the blind sweep can be flipped from the panel itself", %{conn: conn} do
+    original = Pokex.Settings.get(:sweep_enabled)
+    on_exit(fn -> Pokex.Settings.put(:sweep_enabled, original) end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+
+    assert has_element?(view, "#quick-sweep")
+
+    view |> element("#quick-sweep") |> render_click()
+    refute Pokex.Settings.get(:sweep_enabled) == original
+
+    view |> element("#quick-sweep") |> render_click()
+    assert Pokex.Settings.get(:sweep_enabled) == original
+  end
+
   test "loot and capture toggles persist independently", %{conn: conn} do
     loot = Pokex.Settings.get(:loot_enabled)
     cap = Pokex.Settings.get(:capture_enabled)

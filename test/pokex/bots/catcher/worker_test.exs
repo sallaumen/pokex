@@ -499,6 +499,19 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       :ok
     end
 
+    # "Captura desligada" alarms "nenhuma Pokébola será arremessada" on the
+    # panel. The sweep used to read only its own switch and kept throwing one at
+    # every tile anyway — a promise on screen the code did not keep.
+    @tag :tmp_dir
+    test "with capture off, no ball flies — not even a blind one", %{worker: worker} do
+      SettingsStash.stash!(capture_enabled: false)
+
+      :ok = Worker.sweep_now(worker)
+
+      assert_receive {:sweep_result, "não varreu: a captura está desligada"}, 1_000
+      refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:press, "f1"}, &1))
+    end
+
     @tag :tmp_dir
     test "throws the ball at every tile around the character, nearest ring first", %{
       worker: worker

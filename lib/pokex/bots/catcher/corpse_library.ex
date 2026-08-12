@@ -57,7 +57,14 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   @doc "Sample thumbnail as a BMP data-URL."
   defdelegate thumb(sample), to: SpriteLibrary
 
-  @doc "Is this corpse participating in the aim? (old entries without the field participate)"
+  @doc "Renames a taught corpse, keeping its photographs and its switch."
+  def rename(slug, new_name), do: SpriteLibrary.rename(library(), slug, new_name)
+
+  @doc """
+  Is this corpse a TARGET? (old entries without the field are). A corpse that is
+  not aimed still competes for the match — winning while off is how he says "I
+  know this creature and I do not want it".
+  """
   defdelegate enabled?(entry), to: SpriteLibrary
 
   @doc """

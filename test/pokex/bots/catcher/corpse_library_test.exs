@@ -49,6 +49,82 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
     assert {:ok, %{name: "Krabby shiny"}} = CorpseLibrary.match(solid(40, 200, 190), 0.72)
   end
 
+  # MEASURED on his real library (2026-08-11, 24 taught bodies): a corpse against
+  # its own entry scores 1.0, and against the nearest DIFFERENT creature 0.78
+  # (Shiny Magikarp vs Shiny Giant Magikarp — same family). That margin is what
+  # makes the veto work: with only the shiny taught, a normal Krabby corpse had
+  # nowhere else to land and matched it at 0.8+, and he woke up to a bank full
+  # of ordinary Krabby. Teaching the ordinary body and switching it OFF is how
+  # he says "I know this one and I do NOT want it".
+  describe "a corpse switched off is a veto, not an absence" do
+    @tag :tmp_dir
+    test "the closest taught body wins, and winning while off means no ball" do
+      {:ok, 1} = CorpseLibrary.add("Krabby shiny", solid(40, 200, 190))
+      {:ok, 1} = CorpseLibrary.add("Krabby", solid(200, 120, 40))
+      :ok = CorpseLibrary.set_enabled("krabby", false)
+
+      # the ordinary body: closest to the entry he switched off
+      assert :nomatch = CorpseLibrary.match(solid(200, 120, 40), 0.72)
+
+      # the shiny: still a target
+      assert {:ok, %{name: "Krabby shiny"}} = CorpseLibrary.match(solid(40, 200, 190), 0.72)
+    end
+
+    @tag :tmp_dir
+    test "best/1 still reports the vetoed winner — a refusal has to be explainable" do
+      {:ok, 1} = CorpseLibrary.add("Krabby", solid(200, 120, 40))
+      :ok = CorpseLibrary.set_enabled("krabby", false)
+
+      assert %{name: "Krabby", score: score, aimed?: false} =
+               CorpseLibrary.best(solid(200, 120, 40))
+
+      assert score > 0.9
+    end
+
+    @tag :tmp_dir
+    test "with nothing switched off, the aim is exactly what it was" do
+      {:ok, 1} = CorpseLibrary.add("Corsola", solid(180, 120, 200))
+
+      assert {:ok, %{name: "Corsola", aimed?: true}} =
+               CorpseLibrary.match(solid(180, 120, 200), 0.72)
+    end
+  end
+
+  # A name typed wrong is not cosmetic: the ball rules match on it, so
+  # "Shiny Craby" answers to no rule written for Krabby.
+  describe "fixing a name without losing the photographs" do
+    @tag :tmp_dir
+    test "renaming keeps the samples and the switch" do
+      {:ok, 1} = CorpseLibrary.add("Shiny Craby", solid(40, 200, 190))
+      :ok = CorpseLibrary.set_enabled("shiny-craby", false)
+
+      assert {:ok, "shiny-krabby"} = CorpseLibrary.rename("shiny-craby", "Shiny Krabby")
+
+      assert [entry] = CorpseLibrary.list()
+      assert entry["name"] == "Shiny Krabby"
+      assert entry["slug"] == "shiny-krabby"
+      assert length(entry["samples"]) == 1
+      refute CorpseLibrary.enabled?(entry)
+    end
+
+    @tag :tmp_dir
+    test "an empty name and a name already taken are refused" do
+      {:ok, 1} = CorpseLibrary.add("Shiny Craby", solid(40, 200, 190))
+      {:ok, 1} = CorpseLibrary.add("Kingler", solid(200, 120, 40))
+
+      assert {:error, :empty_name} = CorpseLibrary.rename("shiny-craby", "   ")
+      assert {:error, :taken} = CorpseLibrary.rename("shiny-craby", "Kingler")
+      assert length(CorpseLibrary.list()) == 2
+    end
+
+    @tag :tmp_dir
+    test "re-typing the same name is not a collision with itself" do
+      {:ok, 1} = CorpseLibrary.add("Kingler", solid(200, 120, 40))
+
+      assert {:ok, "kingler"} = CorpseLibrary.rename("kingler", "Kingler")
+    end
+  end
+
   @tag :tmp_dir
   test "teaching accumulates samples per corpse, capped, dropping the oldest" do
     assert CorpseLibrary.empty?()

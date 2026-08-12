@@ -1422,6 +1422,28 @@ defmodule PokexWeb.CalibrationLiveTest do
     end
 
     @tag :tmp_dir
+    test "a name typed wrong can be fixed in place", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, 1} =
+        CorpseLibrary.add("Shiny Craby", %Pokex.Vision.Frame{
+          width: 4,
+          height: 4,
+          rgba: :binary.copy(<<40, 200, 190, 255>>, 16)
+        })
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      view
+      |> element("#corpse-rename-shiny-craby")
+      |> render_submit(%{"slug" => "shiny-craby", "name" => "Shiny Krabby"})
+
+      assert [%{"name" => "Shiny Krabby", "samples" => [_photo]}] = CorpseLibrary.list()
+      assert has_element?(view, ~s(#corpse-list input[value="Shiny Krabby"]))
+    end
+
+    @tag :tmp_dir
     test "the teaching section exists and lists the library", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
@@ -1436,7 +1458,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       {:ok, view, _html} = live(conn, "/calibration")
 
       assert has_element?(view, "#corpse-shot-btn")
-      assert has_element?(view, "#corpse-list", "Rattata")
+      assert has_element?(view, ~s(#corpse-list input[value="Rattata"]))
       assert render(view) =~ "data:image/bmp;base64,"
 
       view
@@ -1512,8 +1534,8 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert has_element?(view, "#corpse-toggle-kingler", "na mira")
 
       view |> element("#corpse-toggle-kingler") |> render_click()
-      assert has_element?(view, "#corpse-toggle-kingler", "fora")
-      assert has_element?(view, "#corpse-list", "Kingler")
+      assert has_element?(view, "#corpse-toggle-kingler", "ignorar")
+      assert has_element?(view, ~s(#corpse-list input[value="Kingler"]))
 
       view |> element("#corpse-toggle-kingler") |> render_click()
       assert has_element?(view, "#corpse-toggle-kingler", "na mira")

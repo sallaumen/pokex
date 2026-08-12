@@ -16,6 +16,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Body
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.Worker
+  alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Focus
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.InputGate
@@ -28,7 +29,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Vision
 
   @topic "game"
-  @default_counters %{rescues: 0, potions: 0, reads: 0, failures: 0, repositions: 0}
+  @default_counters %{rescues: 0, potions: 0, heals: 0, reads: 0, failures: 0, repositions: 0}
 
   def topic, do: @topic
 
@@ -45,6 +46,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       prev_hp_pct: nil,
       last_rescue_at: nil,
       last_potion_at: nil,
+      # the pokémon's OWN healing skill — the rung above the potion, and the only
+      # one that works while it is being hit
+      last_heal_at: nil,
       # first monotonic ms of the CURRENT battle-free streak of potion-gate reads
       # (nil = last read saw combat, or the potion isn't due so nobody is watching)
       battle_clear_since: nil,
@@ -295,7 +299,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     if InputGate.allowed?() do
       case Logic.decide(decision_input(state)) do
         :rescue -> fire_combo(%{state | gate: nil}, calib)
-        :hold -> maybe_potion(%{state | gate: nil}, calib)
+        :hold -> %{state | gate: nil} |> maybe_heal_skill() |> maybe_potion(calib)
       end
     else
       # Everything this worker exists for is blocked here, and until now the ONLY
@@ -313,6 +317,59 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       %{focus_ok: false} -> :unfocused
       _both_open -> nil
     end
+  end
+
+  # The rung ABOVE the potion, and the only one that works mid-fight.
+  #
+  # No combat gate on purpose: the potion is a channel the game cancels the
+  # moment something hits, which is why it only ever fires out of battle — and
+  # that leaves HP falling DURING a fight with nothing between the full bar and
+  # the revive. A skill is one press.
+  #
+  # WHICH key comes from `/time` (the `:heal` job of whoever is on the field), so
+  # a pokémon with none classified simply never gets here. Cooling keys are
+  # dropped against the bar and fail OPEN when there is no reading: a cooling key
+  # is a no-op in game, and holding a heal waiting for a read costs HP.
+  defp maybe_heal_skill(state) do
+    with true <- Logic.heal_wanted?(heal_input(state)),
+         [_ | _] = keys <- ready_heal_keys() do
+      broadcast_log(
+        :macro,
+        "💚 cura do pokémon: #{Enum.join(keys, ", ")} (vida em #{state.hp_pct}%)"
+      )
+
+      Body.perform(Enum.map(keys, &{:press, &1}), :high, state.body)
+
+      %{state | last_heal_at: now(), counters: bump(state.counters, :heals)}
+    else
+      _no_heal_or_all_cooling -> state
+    end
+  end
+
+  defp ready_heal_keys do
+    case Loadout.current() do
+      nil -> []
+      loadout -> ready_only(loadout.heal)
+    end
+  end
+
+  defp ready_only(keys) do
+    case Pokex.Perception.ready_skills() do
+      ready when is_list(ready) and ready != [] -> Enum.filter(keys, &(&1 in ready))
+      _no_reading -> keys
+    end
+  end
+
+  defp heal_input(state) do
+    %{
+      hp_pct: state.hp_pct,
+      prev_hp_pct: state.prev_hp_pct,
+      threshold_pct: Settings.get(:pokemon_hp_heal_pct),
+      enabled?: Settings.get(:heal_skill_enabled),
+      cooldown_ms: Settings.get(:heal_skill_cooldown_ms),
+      last_heal_at: state.last_heal_at,
+      now: now()
+    }
   end
 
   # The combat read costs a screen capture, so it only happens when a potion is otherwise due.
@@ -651,13 +708,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     cond do
       combo == nil ->
-        {[], [alarm: "🚑 combo de resgate \"#{name}\" não existe — revivendo direto"]}
+        fall_back_to_control("combo de resgate \"#{name}\" não existe")
 
       not combo.enabled? ->
-        {[], [alarm: "🚑 combo de resgate \"#{name}\" está desligado — revivendo direto"]}
+        fall_back_to_control("combo de resgate \"#{name}\" está desligado")
 
       not Pokex.Combos.rescue_eligible?(combo) ->
-        {[], [alarm: "🚑 combo de resgate \"#{name}\" tem troca de time — revivendo direto"]}
+        fall_back_to_control("combo de resgate \"#{name}\" tem troca de time")
 
       true ->
         {actions, skipped} =
@@ -671,6 +728,33 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
             else: [log: "🚑 stun do resgate: pulei #{Enum.join(skipped, ", ")} (cooldown)"]
 
         {actions, notes}
+    end
+  end
+
+  # The configured combo cannot run. Before giving up on the stun entirely, ask
+  # the pokémon on the field: the `:crowd` job on `/time` IS "reservada pro stun
+  # antes do revive", classified per pokémon — which is the answer a globally
+  # named combo cannot give after a swap.
+  #
+  # It never OVERRIDES his combo: this is only reached where the code used to
+  # revive with no stun at all. Still fails toward SAVING — no control keys, no
+  # prefix, and the revive happens either way. Like any stun prefix it goes out
+  # alone and is CONFIRMED against the bar before the pokémon leaves the field.
+  defp fall_back_to_control(why) do
+    case ready_control_keys() do
+      [] ->
+        {[], [alarm: "🚑 #{why} — revivendo direto"]}
+
+      keys ->
+        {Logic.stun_prefix(Enum.map(keys, &{:skill, &1}), nil) |> elem(0),
+         [log: "🚑 #{why} — usando o controle do pokémon em campo (#{Enum.join(keys, ", ")})"]}
+    end
+  end
+
+  defp ready_control_keys do
+    case Loadout.current() do
+      nil -> []
+      loadout -> ready_only(loadout.crowd)
     end
   end
 

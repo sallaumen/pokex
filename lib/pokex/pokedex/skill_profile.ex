@@ -25,7 +25,9 @@ defmodule Pokex.Pokedex.SkillProfile do
       marked: "skill single target só funciona se eu estiver marcando um
       alvo". Before the target lock it presses into nothing.
     * `:heal` (cura) — when the pokémon's life asks for it. Reactive, never a
-      step in an order.
+      step in an order: `Pokex.Bots.PlayerSupport` presses it a rung ABOVE the
+      potion, because a skill is one press and a potion is a channel combat
+      cancels — so it is the only one of the two that works mid-fight.
     * `:crowd` (controle) — RESERVED for the moment before an auto-revive, the
       stun that buys the recall its time, "praticamente exclusivamente antes
       do momento de ter que usar revive". Spending it in an ordinary fight is
@@ -82,7 +84,7 @@ defmodule Pokex.Pokedex.SkillProfile do
   def moment(:buffs), do: "na mobada, no meio do bolo"
   def moment(:aoe), do: "abre a matança — não precisa de alvo"
   def moment(:single), do: "fecha a matança, só com alvo marcado"
-  def moment(:heal), do: "quando a vida do pokémon pede"
+  def moment(:heal), do: "quando a vida do pokémon pede — antes da poção"
   def moment(:crowd), do: "reservada pro stun antes do revive"
 
   @doc "The icon each moment carries, so the row reads at a glance."

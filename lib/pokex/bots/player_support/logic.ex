@@ -63,6 +63,44 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
     do: now - last >= cooldown
 
   @doc """
+  True when the main Pokémon should press its own HEALING SKILL — the one job on
+  `/time` that nothing used to fire.
+
+  This exists because of what `potion_wanted?/1` says right above: a potion is a
+  CHANNEL and combat cancels it, so the sip only ever happens out of battle.
+  Which leaves the case that actually kills a pokémon — HP falling WHILE it
+  fights — with nothing at all between the last full bar and the revive. A skill
+  is an instant press, not a channel: it is the only one of the three that works
+  mid-fight, so this predicate deliberately has NO combat gate.
+
+  Hence the ladder, cheapest and most available first:
+
+      heal skill  — free, works in combat        (pokemon_hp_heal_pct, highest)
+      potion      — costs money, out of combat   (pokemon_hp_potion_pct)
+      revive      — costs a revive, last resort  (pokemon_hp_rescue_pct, lowest)
+
+  Same two-consecutive-reads rule as the other two: one garbage frame must not
+  spend a cooldown either. The cooldown here is only anti-spam — whether the
+  skill is actually up is the SKILL BAR's answer, and the caller asks it.
+
+  Expects `:hp_pct`, `:prev_hp_pct`, `:threshold_pct`, `:enabled?`,
+  `:cooldown_ms`, `:last_heal_at` and `:now`.
+  """
+  @spec heal_wanted?(map) :: boolean
+  def heal_wanted?(%{enabled?: false}), do: false
+  def heal_wanted?(%{hp_pct: nil}), do: false
+  def heal_wanted?(%{hp_pct: hp, threshold_pct: threshold}) when hp >= threshold, do: false
+
+  def heal_wanted?(%{prev_hp_pct: prev, threshold_pct: threshold})
+      when is_nil(prev) or prev >= threshold,
+      do: false
+
+  def heal_wanted?(%{last_heal_at: nil}), do: true
+
+  def heal_wanted?(%{now: now, last_heal_at: last, cooldown_ms: cooldown}),
+    do: now - last >= cooldown
+
+  @doc """
   The atomic combo, as a Body action list: an optional STUN PREFIX (`stun_steps`, already-compiled
   `{:press, _}`/`{:wait, _}` actions — see `stun_prefix/2`), then recall (`rescue_key`), move onto
   the portrait, max-revive (`max_revive_key`), release (`rescue_key`), recentre the cursor.

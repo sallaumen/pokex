@@ -496,6 +496,17 @@ defmodule Pokex.Settings do
     # that moment → direct revive + alarm (fail in the direction of SAVING).
     rescue_mode: "direct",
     rescue_combo: "",
+    # The main Pokémon's own HEALING SKILL — the rung above the potion. A skill is
+    # an instant press, not a channel, so unlike the potion it works MID-FIGHT,
+    # which is the case that actually kills a pokémon. Higher than the potion
+    # threshold on purpose: free and always available goes first.
+    # Which key it is comes from /time (the `:heal` job of whoever is on the
+    # field), so a pokémon with none simply never triggers this.
+    heal_skill_enabled: true,
+    pokemon_hp_heal_pct: 70,
+    # Anti-spam only: whether the skill is UP is the skill bar's answer, not a
+    # guess kept here.
+    heal_skill_cooldown_ms: 3_000,
     # How often the PlayerSupport samples the main Pokémon's HP bar.
     support_tick_ms: 120,
     # HP-bar fill detection is COLOUR-AGNOSTIC: a column counts as filled when it holds a COLOURED
@@ -1007,6 +1018,8 @@ defmodule Pokex.Settings do
     target_lost_streak: 1..99,
     combat_aoe_from_enemies: 1..20,
     timers_tick_ms: 100..60_000,
+    pokemon_hp_heal_pct: 1..100,
+    heal_skill_cooldown_ms: 0..600_000,
     dry_casts_alarm: 0..999,
     corpse_sprite_box_px: 8..512,
     corpse_scan_radius_tiles: 1..8,

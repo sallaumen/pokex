@@ -1260,10 +1260,10 @@ defmodule PokexWeb.CavebotLiveTest do
   end
 
   describe "skills e respiro no editor" do
-    # `put/1` e não `add/1`: esta rota tem que ser a ÚNICA, senão qual delas a
-    # página abre como ativa vira sorte, e `[route] = Store.all()` nas
-    # asserções vira flake. O waypoint 0 é ponto de matança porque é onde o
-    # campo do respiro aparece.
+    # `put/1` and not `add/1`: this route has to be the ONLY one, or which of
+    # them the page opens as active is luck, and `[route] = Store.all()` in the
+    # assertions becomes a flake. Waypoint 0 is the kill spot because that is
+    # where the huddle field shows up.
     setup do
       {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
       {:ok, route} = Route.append(route, {12, 10, 5})
@@ -1271,8 +1271,23 @@ defmodule PokexWeb.CavebotLiveTest do
       :ok
     end
 
+    # The chips live where the job and the stops live — on the SELECTED
+    # waypoint. Five of them on each of his 67 corners was 335 buttons for the
+    # handful of corners that carry one.
+    test "os chips só existem no waypoint selecionado", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/cavebot")
+
+      refute html =~ ~s(id="waypoint-skill-0-buffs")
+
+      html = view |> element("#map-waypoint-0") |> render_click()
+      assert html =~ ~s(id="waypoint-skill-0-buffs")
+      refute html =~ ~s(id="waypoint-skill-1-buffs")
+    end
+
     test "clicar no chip liga a categoria no waypoint", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
 
       view
       |> element("#waypoint-skill-0-buffs")
@@ -1285,11 +1300,47 @@ defmodule PokexWeb.CavebotLiveTest do
     test "clicar de novo desliga", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
+      view |> element("#map-waypoint-0") |> render_click()
       view |> element("#waypoint-skill-0-buffs") |> render_click()
       view |> element("#waypoint-skill-0-buffs") |> render_click()
 
       [route] = Store.all()
       assert Route.skills_at(route.waypoints, 0) == []
+    end
+
+    # A category nobody knows can only arrive forged — the chips emit
+    # whitelisted values and nothing else. It used to KILL the page: the
+    # whitelist correctly answered nil, and the notice then asked
+    # `SkillProfile.label/1` to name it, which has one clause per category and
+    # no catch-all.
+    test "uma categoria forjada não derruba a página", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      render_click(view, "toggle_waypoint_skill", %{"index" => "0", "skill" => "swim"})
+
+      assert render(view) =~ ~s(id="cavebot-waypoints")
+      [route] = Store.all()
+      assert Route.skills_at(route.waypoints, 0) == []
+    end
+
+    # The row keeps a read-only badge so the list still says which corners
+    # carry an order, without carrying the buttons that change it.
+    test "a linha mostra em selo o que o canto carrega, e só onde carrega", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#map-waypoint-0") |> render_click()
+      view |> element("#waypoint-skill-0-buffs") |> render_click()
+      html = view |> element("#waypoint-skill-0-heal") |> render_click()
+
+      assert html =~ ~s(id="waypoint-skills-0")
+      refute html =~ ~s(id="waypoint-skills-1")
+
+      badge = view |> element("#waypoint-skills-0") |> render()
+      assert badge =~ "✨"
+      assert badge =~ "❤️"
+      assert badge =~ "aura, cura"
+      # read-only: the badge is a label, never a button
+      refute badge =~ "phx-click"
     end
 
     test "a régua da rota é salva", %{conn: conn} do
@@ -1301,6 +1352,16 @@ defmodule PokexWeb.CavebotLiveTest do
 
       [route] = Store.all()
       assert route.gather_wait_ms == 1_800
+    end
+
+    # The number is one he dials DOWN over and over, so both forms carry the
+    # same "guardar" the park form has: typing 1200 and clicking away must not
+    # be the way he loses it.
+    test "as duas réguas têm onde clicar pra guardar", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert has_element?(view, "#route-gather-wait-save")
+      assert has_element?(view, "#waypoint-gather-wait-save-0")
     end
 
     test "campo vazio devolve o comando pro número global", %{conn: conn} do
@@ -1324,6 +1385,75 @@ defmodule PokexWeb.CavebotLiveTest do
 
       [route] = Store.all()
       assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 600
+    end
+
+    # Zero is an ORDER — "wait for nothing here" — and it has to survive the
+    # trip through the form, where an empty field means the opposite ("I have
+    # no ruler here, ask the route").
+    test "zero é guardado como zero, não como campo vazio", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> form("#waypoint-gather-wait-0", %{"gather_wait_ms" => "0"}) |> render_submit()
+
+      [route] = Store.all()
+      assert hd(route.waypoints)[:gather_wait_ms] == 0
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 0
+    end
+
+    # The huddle exists where the pile closes and nowhere else: waypoint 1 is a
+    # plain corner.
+    test "o campo do respiro não existe num canto comum", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert has_element?(view, "#waypoint-gather-wait-0")
+      refute has_element?(view, "#waypoint-gather-wait-1")
+    end
+  end
+
+  # The one piece of thinking in the editor: what his hands measured is offered
+  # as a starting point, and only when it could plausibly BE a huddle. 12s
+  # measured at a kill spot is the recorder having timed something else.
+  defp kill_spot_with(gather_ms) do
+    {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
+
+    route = Route.set_action(route, 0, :lure_end)
+    route = if gather_ms, do: Route.set_timing(route, 0, gather_ms: gather_ms), else: route
+    :ok = Store.put([route])
+  end
+
+  describe "a medição das mãos, oferecida" do
+    test "uma medição plausível é oferecida", %{conn: conn} do
+      # inside cavebot_gather_wait_min_ms..cavebot_gather_wait_max_ms (500..8000)
+      kill_spot_with(3_300)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#waypoint-gather-wait-0") |> render() =~
+               "suas mãos esperaram 3300ms aqui"
+    end
+
+    test "uma medição fora da faixa não é oferecida", %{conn: conn} do
+      kill_spot_with(12_000)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      refute view |> element("#waypoint-gather-wait-0") |> render() =~ "suas mãos esperaram"
+    end
+
+    test "uma medição curta demais também não", %{conn: conn} do
+      kill_spot_with(120)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      refute view |> element("#waypoint-gather-wait-0") |> render() =~ "suas mãos esperaram"
+    end
+
+    test "sem medição nenhuma, nada é oferecido", %{conn: conn} do
+      kill_spot_with(nil)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      refute view |> element("#waypoint-gather-wait-0") |> render() =~ "suas mãos esperaram"
     end
   end
 end

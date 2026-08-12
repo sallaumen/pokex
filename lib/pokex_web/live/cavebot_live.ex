@@ -614,12 +614,26 @@ defmodule PokexWeb.CavebotLive do
     end)
   end
 
-  # A skill que ELE quer neste canto, dita por categoria — a aura no meio da
-  # mobada é o caso que ele pediu. Terceiro eixo, ao lado da função e das
-  # paradas: o canto da aura costuma ser o canto do "até aqui".
-  def handle_event("toggle_waypoint_skill", %{"index" => index, "skill" => skill}, socket) do
+  # The skill HE wants at this corner, said by category — the aura in the
+  # middle of the gathering is the case he asked for. Third axis, beside the
+  # job and the stops: the corner of the aura is usually the corner already
+  # marked "até aqui".
+  #
+  # A category nobody knows leaves before anything is named. It can only come
+  # from a forged event — the chips emit whitelisted values and nothing else —
+  # but `SkillProfile.label/1` has one clause per category and no catch-all, so
+  # naming a nil in the notice would kill this LiveView over a click that could
+  # not have changed the route anyway.
+  def handle_event("toggle_waypoint_skill", %{"index" => index, "skill" => raw}, socket) do
+    toggle_skill(socket, index, decode_skill(raw))
+  end
+
+  # The nil clause is the whole reason this is a function and not a `case`: a
+  # category nobody knows leaves HERE, before anything tries to name it.
+  defp toggle_skill(socket, _index, nil), do: {:noreply, socket}
+
+  defp toggle_skill(socket, index, skill) do
     index = String.to_integer(index)
-    skill = decode_skill(skill)
     socket = remember_hand_mark(socket, index)
 
     with_route(socket, fn route ->
@@ -630,11 +644,14 @@ defmodule PokexWeb.CavebotLive do
     end)
   end
 
-  # A régua da rota inteira: o número que ele dial pra baixo até achar o limite
-  # onde o bolo ainda fecha. Campo vazio devolve o comando pro /config.
+  # The whole route's ruler: the number he dials down until he finds the limit
+  # where the pile still closes. An empty field hands the command back to
+  # /config.
   def handle_event("set_route_gather_wait", %{"gather_wait_ms" => raw}, socket) do
+    ms = parse_ms(raw)
+
     with_route(socket, fn route ->
-      {Route.set_gather_wait(route, parse_ms(raw)), gather_wait_note("a rota", parse_ms(raw))}
+      {Route.set_gather_wait(route, ms), gather_wait_note("a rota", ms)}
     end)
   end
 
@@ -1157,11 +1174,38 @@ defmodule PokexWeb.CavebotLive do
   defp decode_stop("wait"), do: :wait
   defp decode_stop(_sweep), do: :sweep
 
-  # Whitelist, nunca String.to_atom/1: o valor vem do DOM.
+  # Whitelist, never String.to_atom/1: the value comes from the DOM. A category
+  # nobody knows answers nil, and the handler above drops the event rather than
+  # trying to name it.
   defp decode_skill(value), do: Enum.find(Route.skills(), &(Atom.to_string(&1) == value))
 
-  # Campo vazio é "não tenho régua aqui", que é diferente de zero ("não espera
-  # nada aqui"). Lixo digitado também vira nil, nunca crash.
+  # Every category paired with whether THIS waypoint carries it, read once per
+  # row. Each chip asking on its own walked the waypoint list twice over, for
+  # ten walks per row to answer one question about one place.
+  defp waypoint_skill_chips(wp) do
+    carried = List.wrap(wp[:skills])
+    Enum.map(Route.skills(), &{&1, &1 in carried})
+  end
+
+  # What this corner tells the pokémon to fire, as icons: the READ-ONLY half of
+  # the chips, so a 67-corner route reads at a glance instead of carrying 335
+  # buttons. Answered as a list of nothing or one, the same trick
+  # `selected_pair/2` uses, so a corner with no skill renders no badge at all.
+  defp skill_badge(wp) do
+    case List.wrap(wp[:skills]) do
+      [] ->
+        []
+
+      skills ->
+        [
+          {Enum.map_join(skills, " ", &SkillProfile.icon/1),
+           Enum.map_join(skills, ", ", &SkillProfile.label/1)}
+        ]
+    end
+  end
+
+  # An empty field is "I have no ruler here", which is not zero ("wait for
+  # nothing here"). Typed garbage becomes nil too, never a crash.
   defp parse_ms(raw) when is_binary(raw) do
     case Integer.parse(String.trim(raw)) do
       {ms, ""} when ms >= 0 -> ms
@@ -1174,17 +1218,21 @@ defmodule PokexWeb.CavebotLive do
   defp gather_wait_note(what, nil), do: "#{what} voltou a usar o respiro do /config"
   defp gather_wait_note(what, ms), do: "#{what} espera #{ms}ms o bolo fechar"
 
-  # A medição das mãos dele, oferecida como ponto de partida — e só quando é
-  # plausível. As duas settings que antes limitavam a Logic vivem aqui agora:
-  # 12s medidos num ponto de matança não são ele esperando o bolo, são o
-  # gravador tendo cronometrado outra coisa.
+  # What his hands measured, offered as a starting point — and only when it is
+  # plausible. The two settings that used to bound the Logic live here now: 12s
+  # measured at a kill spot is not him waiting for the pile, it is the recorder
+  # having timed something else.
+  #
+  # Answered as a list of nothing or one so the row asks once: `:if` plus the
+  # text ran the whole check twice on every kill spot.
   defp gather_suggestion(%{gather_ms: ms}) when is_integer(ms) do
     if ms >= Settings.get(:cavebot_gather_wait_min_ms) and
          ms <= Settings.get(:cavebot_gather_wait_max_ms),
-       do: ms
+       do: [ms],
+       else: []
   end
 
-  defp gather_suggestion(_no_measurement), do: nil
+  defp gather_suggestion(_no_measurement), do: []
 
   defp stop_label(:sweep), do: "varrer"
   defp stop_label(:cooldown_revive), do: "resetar cooldown"
@@ -1816,6 +1864,37 @@ defmodule PokexWeb.CavebotLive do
                 >
                   {stop_icon(stop)} {stop_label(stop)}
                 </button>
+
+                <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
+
+                <%!-- The third axis: what the pokémon FIRES here, said by
+                      category. It lives beside the job and the stops for the
+                      reason they do — the corner of the aura is usually the
+                      corner already marked "até aqui" — and on the SELECTED
+                      waypoint only: five chips on each of his 67 corners is
+                      335 buttons for the handful of corners that carry one.
+                      A lit chip is an order; the key comes from whichever
+                      pokémon is in the field at the time. --%>
+                <button
+                  :for={{skill, on?} <- waypoint_skill_chips(wp)}
+                  id={"waypoint-skill-#{index}-#{skill}"}
+                  phx-click="toggle_waypoint_skill"
+                  phx-value-index={index}
+                  phx-value-skill={skill}
+                  aria-pressed={to_string(on?)}
+                  aria-label={"Waypoint #{index + 1}: #{SkillProfile.label(skill)}"}
+                  title={SkillProfile.moment(skill)}
+                  class={[
+                    "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
+                    if(on?,
+                      do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
+                      else:
+                        "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:text-pk-text"
+                    )
+                  ]}
+                >
+                  {SkillProfile.icon(skill)} {SkillProfile.label(skill)}
+                </button>
               </div>
 
               <%!-- WHERE the pokémon waits for the pile. Recorded as a screen
@@ -2027,7 +2106,10 @@ defmodule PokexWeb.CavebotLive do
                     phx-submit="set_route_gather_wait"
                     class="flex items-center gap-1"
                   >
-                    <label for="route-gather-wait-input" class="text-pk-meta text-pk-text-3">
+                    <label
+                      for="route-gather-wait-input"
+                      class="font-mono text-pk-meta text-pk-text-3"
+                    >
                       respiro da rota
                     </label>
                     <input
@@ -2038,9 +2120,15 @@ defmodule PokexWeb.CavebotLive do
                       min="0"
                       step="100"
                       placeholder={Settings.get(:cavebot_gather_wait_ms)}
-                      class="pk-num w-24 rounded border border-pk-line bg-pk-sunken px-1.5 py-0.5 text-pk-meta"
+                      class="pk-num w-24 rounded border border-pk-line-strong bg-pk-sunken px-1.5 py-0.5 text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                     />
-                    <span class="text-pk-meta text-pk-text-3">ms</span>
+                    <span class="font-mono text-pk-meta text-pk-text-3">ms</span>
+                    <button
+                      id="route-gather-wait-save"
+                      class="cursor-pointer rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                    >
+                      guardar
+                    </button>
                   </.form>
                   <button
                     :if={@active_route.waypoints != []}
@@ -2121,6 +2209,18 @@ defmodule PokexWeb.CavebotLive do
                         class="ml-1 rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 py-0.5 text-pk-meta text-pk-ok"
                       >
                         {stop_icon(stop)} {stop_label(stop)}
+                      </span>
+                      <%!-- What the pokémon fires here, READ-ONLY: the chips
+                            that change it live in the editor above, on the
+                            selected waypoint. The badge only shows up where
+                            there is something to say. --%>
+                      <span
+                        :for={{icons, labels} <- skill_badge(wp)}
+                        id={"waypoint-skills-#{index}"}
+                        title={labels}
+                        class="ml-1 rounded border border-pk-line-strong px-1.5 py-0.5 text-pk-meta text-pk-text-2"
+                      >
+                        {icons}
                       </span>
                       <span
                         :if={climb_label(@active_route.waypoints, index)}
@@ -2204,61 +2304,51 @@ defmodule PokexWeb.CavebotLive do
                     </.link>
                   </p>
 
-                  <%!-- O terceiro eixo: o que o pokémon FAZ aqui, por
-                        categoria. Chip ligado é ordem; a tecla sai do pokémon
-                        que estiver em campo na hora. --%>
-                  <div class="mt-1 flex flex-wrap items-center gap-1 pl-7">
-                    <button
-                      :for={skill <- Route.skills()}
-                      id={"waypoint-skill-#{index}-#{skill}"}
-                      phx-click="toggle_waypoint_skill"
-                      phx-value-index={index}
-                      phx-value-skill={skill}
-                      aria-pressed={
-                        to_string(skill in Route.skills_at(@active_route.waypoints, index))
+                  <%!-- The huddle only makes sense where the pile closes.
+                        Typed and SUBMITTED: the number is one he dials down
+                        again and again, so it needs somewhere to click that
+                        says the typing landed, the same way the park form
+                        does. --%>
+                  <.form
+                    :if={wp.action == :lure_end}
+                    id={"waypoint-gather-wait-#{index}"}
+                    for={%{}}
+                    phx-submit="set_waypoint_gather_wait"
+                    class="mt-1 flex flex-wrap items-center gap-1 pl-7"
+                  >
+                    <input type="hidden" name="index" value={index} />
+                    <label
+                      for={"gather-wait-input-#{index}"}
+                      class="font-mono text-pk-meta text-pk-text-3"
+                    >
+                      respiro
+                    </label>
+                    <input
+                      type="number"
+                      id={"gather-wait-input-#{index}"}
+                      name="gather_wait_ms"
+                      value={wp[:gather_wait_ms]}
+                      min="0"
+                      step="100"
+                      placeholder={
+                        @active_route.gather_wait_ms || Settings.get(:cavebot_gather_wait_ms)
                       }
-                      title={SkillProfile.label(skill)}
-                      class={[
-                        "cursor-pointer rounded border px-1.5 py-0.5 text-pk-meta transition",
-                        if(skill in Route.skills_at(@active_route.waypoints, index),
-                          do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
-                          else: "border-pk-line text-pk-text-3 hover:border-pk-line-strong"
-                        )
-                      ]}
+                      class="pk-num w-20 rounded border border-pk-line-strong bg-pk-sunken px-1 py-0.5 text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                    />
+                    <span class="font-mono text-pk-meta text-pk-text-3">ms</span>
+                    <button
+                      id={"waypoint-gather-wait-save-#{index}"}
+                      class="cursor-pointer rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
                     >
-                      {SkillProfile.icon(skill)} {SkillProfile.label(skill)}
+                      guardar
                     </button>
-
-                    <%!-- O respiro só faz sentido onde o bolo fecha. --%>
-                    <.form
-                      :if={wp.action == :lure_end}
-                      id={"waypoint-gather-wait-#{index}"}
-                      for={%{}}
-                      phx-submit="set_waypoint_gather_wait"
-                      class="ml-2 flex items-center gap-1"
+                    <span
+                      :for={ms <- gather_suggestion(wp)}
+                      class="font-mono text-pk-meta text-pk-text-3"
                     >
-                      <input type="hidden" name="index" value={index} />
-                      <label for={"gather-wait-input-#{index}"} class="text-pk-meta text-pk-text-3">
-                        respiro
-                      </label>
-                      <input
-                        type="number"
-                        id={"gather-wait-input-#{index}"}
-                        name="gather_wait_ms"
-                        value={wp[:gather_wait_ms]}
-                        min="0"
-                        step="100"
-                        placeholder={
-                          @active_route.gather_wait_ms || Settings.get(:cavebot_gather_wait_ms)
-                        }
-                        class="pk-num w-20 rounded border border-pk-line bg-pk-sunken px-1 py-0.5 text-pk-meta"
-                      />
-                      <span class="text-pk-meta text-pk-text-3">ms</span>
-                      <span :if={gather_suggestion(wp)} class="text-pk-meta text-pk-text-3">
-                        (suas mãos esperaram {gather_suggestion(wp)}ms aqui)
-                      </span>
-                    </.form>
-                  </div>
+                      (suas mãos esperaram {ms}ms aqui)
+                    </span>
+                  </.form>
                 </li>
               </ol>
             </section>

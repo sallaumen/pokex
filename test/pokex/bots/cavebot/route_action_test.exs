@@ -246,10 +246,12 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
       assert Route.skills_at(route.waypoints, 99) == []
     end
 
-    # The Route keeps its own literal on purpose — the pure struct must not
-    # reach into the Pokédex at runtime — so THIS is the tie between the two
-    # lists. A sixth category taught to the profile without teaching it here
-    # would leave the editor offering five, silently.
+    # The Route reads the list off the Pokédex at COMPILE time, so a sixth
+    # category taught to the profile arrives here on its own. This pins that
+    # tie: the day someone writes a second literal back into the Route, the
+    # editor would offer a category whose label and icon the profile does not
+    # have — and the page would raise while RENDERING, on every load, not
+    # while clicking.
     test "the categories are exactly the Pokédex's, in the same order" do
       assert Route.skills() == SkillProfile.categories()
     end

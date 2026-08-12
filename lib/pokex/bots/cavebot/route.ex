@@ -13,6 +13,8 @@ defmodule Pokex.Bots.Cavebot.Route do
   nobody marked.
   """
 
+  alias Pokex.Pokedex.SkillProfile
+
   @enforce_keys [:name]
   defstruct name: nil,
             dungeon: nil,
@@ -66,7 +68,15 @@ defmodule Pokex.Bots.Cavebot.Route do
   """
   @type skill :: :buffs | :aoe | :single | :heal | :crowd
 
-  @skills [:buffs, :aoe, :single, :heal, :crowd]
+  # Read from the Pokédex at COMPILE time, never written twice. The categories
+  # are the profile's to define, and a second literal here is a drift waiting
+  # to happen: the editor iterates this list while the labels and icons come
+  # from `SkillProfile`, so one list gaining a category the other never heard
+  # of makes the page raise while RENDERING, on every load. Compile-time and
+  # not a runtime call, so the struct stays what the moduledoc promises — no
+  # process, no screen, no Settings, no IO. (The typespec above cannot be
+  # computed; `route_action_test.exs` pins the two lists equal.)
+  @skills SkillProfile.categories()
 
   @typedoc """
   A place, what it is FOR, what happens there — and WHEN it was recorded.

@@ -100,6 +100,21 @@ defmodule Pokex.Bots.Combat.Loadout do
     )
   end
 
+  @doc """
+  The keys of this category on THIS pokémon — `[]` when there is no answer.
+
+  The question a scheduled order asks ("what is his aura?"), separate from the
+  one the fight asks (`attacks?/1`). With no pokémon on the field, or a category
+  he never classified, the answer is empty and never an exception: whoever is
+  asking is a worker in the middle of a tick.
+  """
+  @spec keys(t | nil, atom) :: [String.t()]
+  def keys(%__MODULE__{} = loadout, category) do
+    if category in SkillProfile.categories(), do: Map.get(loadout, category, []), else: []
+  end
+
+  def keys(nil, _no_pokemon), do: []
+
   @doc "One line for a log or a panel: `\"Shiny Vileplume · área 3+4 · alvo 7\"`."
   @spec describe(t | nil) :: String.t()
   def describe(nil), do: "sem pokémon escolhido"

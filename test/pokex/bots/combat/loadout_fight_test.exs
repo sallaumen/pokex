@@ -122,4 +122,31 @@ defmodule Pokex.Bots.Combat.LoadoutFightTest do
       assert logic_keys.(2) == ~w(3 4 5 6 7)
     end
   end
+
+  describe "keys/2 — this category's key on this pokémon" do
+    test "answers with the keys classified for the category" do
+      loadout = Loadout.resolve("Vespiquen", %{"2" => :buffs, "3" => :aoe, "4" => :aoe})
+
+      assert Loadout.keys(loadout, :buffs) == ["2"]
+      assert Loadout.keys(loadout, :aoe) == ["3", "4"]
+    end
+
+    test "a category with no key classified is an empty list, not an error" do
+      loadout = Loadout.resolve("Sunkern", %{"3" => :aoe})
+
+      assert Loadout.keys(loadout, :heal) == []
+    end
+
+    # With no pokémon on the field the question has no answer — and whoever is
+    # asking (the hunt, the timers) must not break because of it.
+    test "no loadout is an empty list" do
+      assert Loadout.keys(nil, :buffs) == []
+    end
+
+    test "a category nobody knows is an empty list" do
+      loadout = Loadout.resolve("Gogoat", %{"1" => :buffs})
+
+      assert Loadout.keys(loadout, :name) == []
+    end
+  end
 end

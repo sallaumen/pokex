@@ -13,7 +13,11 @@ defmodule Pokex.Vision.GlyphsRealMinimapTest do
   "did I produce a character", which a guess always does, so nothing anywhere
   could tell a read from a guess.
   """
-  use ExUnit.Case, async: true
+  # async: false — the teach test writes a learned atlas into a tmp home AND
+  # clears the process-wide glyph cache, both global. Left async it moved the
+  # ground under whatever else was running: the screen-mismatch strip read an
+  # empty home and reported a different screen (measured, consistently).
+  use ExUnit.Case, async: false
 
   alias Pokex.Vision.{Frame, Glyphs}
 

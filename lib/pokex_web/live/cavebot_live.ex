@@ -213,6 +213,7 @@ defmodule PokexWeb.CavebotLive do
     # gathering: "toda luta é uma parada na rota" (2026-08-11). It may lay the
     # waypoint itself, so the index is read after it.
     socket = if reading.fight_started?, do: mark_fight_here(socket), else: socket
+    socket = if reading.gathering_started?, do: mark_gathering_here(socket), else: socket
     index = length(socket.assigns.active_route.waypoints) - 1
 
     socket
@@ -855,6 +856,26 @@ defmodule PokexWeb.CavebotLive do
       |> reload_routes(updated.name)
     else
       socket
+    end
+  end
+
+  # …and shift+3 says the other half: from here on he is gathering again. On
+  # the spot he just closed it says nothing (see Recording.mark_gathering_start/3).
+  defp mark_gathering_here(socket) do
+    socket = waypoint_here(socket)
+    route = socket.assigns.active_route
+    index = length(route.waypoints) - 1
+
+    with true <- index >= 0,
+         {updated, note} when is_binary(note) <- Recording.mark_gathering_start(route, index) do
+      :ok = Store.add(updated)
+
+      socket
+      |> remember_hand_mark(index)
+      |> assign(notice: note, notice_kind: :ok)
+      |> reload_routes(updated.name)
+    else
+      _nothing_to_say -> socket
     end
   end
 

@@ -86,6 +86,40 @@ defmodule Pokex.Vision.SpriteLibrary do
     end
   end
 
+  @doc """
+  Renames an entry, keeping its samples and its switch.
+
+  A name typed wrong is not cosmetic here: the corpse's name is what the ball
+  rules match on, so "Shiny Craby" silently answered to no rule written for
+  Krabby. Deleting and re-teaching would cost the photographs — and the whole
+  point of a real shiny corpse is that he may never get another.
+  """
+  @spec rename(t, String.t(), String.t()) :: {:ok, String.t()} | {:error, :empty_name | :taken}
+  def rename(lib, slug, new_name) do
+    name = String.trim(new_name)
+    novo_slug = slug(name)
+    entries = raw_entries(lib)
+
+    cond do
+      name == "" ->
+        {:error, :empty_name}
+
+      novo_slug != slug and Enum.any?(entries, &(&1["slug"] == novo_slug)) ->
+        {:error, :taken}
+
+      true ->
+        persist(
+          lib,
+          Enum.map(entries, fn
+            %{"slug" => ^slug} = entry -> %{entry | "name" => name, "slug" => novo_slug}
+            other -> other
+          end)
+        )
+
+        {:ok, novo_slug}
+    end
+  end
+
   @spec delete(t, String.t()) :: :ok
   def delete(lib, slug) do
     persist(lib, Enum.reject(raw_entries(lib), &(&1["slug"] == slug)))
@@ -159,14 +193,17 @@ defmodule Pokex.Vision.SpriteLibrary do
   end
 
   @doc """
-  Best match of the crop: `{:ok, %{name, score}}` above the threshold,
-  `:nomatch` otherwise (including an empty library — the caller decides).
+  Best match of the crop: `{:ok, %{name, score, aimed?}}` above the threshold,
+  `:nomatch` otherwise — which now covers three different things: nothing was
+  close enough, the library is empty, OR the closest taught body is one he
+  switched OFF. That last one is a VETO, not an absence: it is how he says "I
+  know this creature and I do not want it".
   """
   @spec match(t, Frame.t(), float) :: {:ok, map} | :nomatch
   def match(lib, %Frame{} = crop, min_similarity) do
     case best(lib, crop) do
-      %{score: score} = info when score >= min_similarity -> {:ok, info}
-      _below_or_empty -> :nomatch
+      %{score: score, aimed?: true} = info when score >= min_similarity -> {:ok, info}
+      _below_or_vetoed_or_empty -> :nomatch
     end
   end
 
@@ -200,12 +237,12 @@ defmodule Pokex.Vision.SpriteLibrary do
 
   defp best_of(sig, lib) do
     cache(lib).signatures
-    |> Enum.map(fn {name, ref_sigs} ->
-      {name, ref_sigs |> Enum.map(&intersection(sig, &1)) |> Enum.max(fn -> 0.0 end)}
+    |> Enum.map(fn {name, ref_sigs, aimed?} ->
+      {name, ref_sigs |> Enum.map(&intersection(sig, &1)) |> Enum.max(fn -> 0.0 end), aimed?}
     end)
-    |> Enum.max_by(fn {_name, score} -> score end, fn -> nil end)
+    |> Enum.max_by(fn {_name, score, _aimed?} -> score end, fn -> nil end)
     |> case do
-      {name, score} -> %{name: name, score: score}
+      {name, score, aimed?} -> %{name: name, score: score, aimed?: aimed?}
       nil -> nil
     end
   end
@@ -260,14 +297,18 @@ defmodule Pokex.Vision.SpriteLibrary do
         cache = %{
           stamp: stamp,
           entries: entries,
-          # Only ENABLED entries join the aim. `entries` stays whole so the UI
-          # shows disabled ones — disabling filters the search, it does not
-          # delete. This is the ONE point where matching sees the library.
+          # EVERY entry competes, aimed or not. A disabled one used to be dropped
+          # from the search, which quietly made it impossible to say "I know this
+          # creature and I do NOT want it": with only the shiny taught, a normal
+          # Krabby corpse had nowhere else to land and matched the shiny at 0.8+
+          # (measured on his library, 2026-08-11: a self-match scores 1.0 and the
+          # nearest different creature 0.78 — the margin that makes this work).
+          # Now the closest taught body wins, and winning while disabled is a
+          # VETO: known, and deliberately not a target.
           signatures:
-            entries
-            |> Enum.filter(&enabled?/1)
-            |> Enum.map(fn e ->
-              {e["name"], Enum.map(e["samples"], &signature(Base.decode64!(&1["rgba"])))}
+            Enum.map(entries, fn e ->
+              {e["name"], Enum.map(e["samples"], &signature(Base.decode64!(&1["rgba"]))),
+               enabled?(e)}
             end)
         }
 

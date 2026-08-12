@@ -198,7 +198,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
         not forbidden?(x, y, box, forbidden),
         info = CorpseLibrary.best_in(frame, {x, y, box, box}),
         info != nil,
-        do: %{x: x, y: y, name: info.name, score: info.score}
+        do: %{x: x, y: y, name: info.name, score: info.score, aimed?: info.aimed?}
   end
 
   # Tiles OCCUPIED by live anchors: a standing sprite of the same species would
@@ -223,9 +223,12 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # Local maxima above the threshold with neighbor suppression: the dense scan
   # yields a plateau of good windows over the SAME corpse — without this each
   # corpse would become dozens of queue targets.
+  # A window only becomes a TARGET when it clears the threshold AND the body it
+  # looks most like is one he still wants. Everything stays in `candidatos` for
+  # the diagnostic line, so a vetoed corpse shows its score instead of vanishing.
   defp peaks(candidatos, min_sim, tolerancia) do
     candidatos
-    |> Enum.filter(&(&1.score >= min_sim))
+    |> Enum.filter(&(&1.score >= min_sim and &1.aimed?))
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.reduce([], fn cand, aceitos ->
       if Enum.any?(aceitos, &near?(&1, cand, tolerancia)),

@@ -718,6 +718,19 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  def handle_event("corpse_rename", %{"slug" => slug, "name" => name}, socket) do
+    case CorpseLibrary.rename(slug, name) do
+      {:ok, _slug} ->
+        {:noreply, assign(socket, corpse_list: CorpseLibrary.list(), corpse_msg: nil)}
+
+      {:error, :empty_name} ->
+        {:noreply, assign(socket, corpse_msg: {:error, "dê um nome ao corpo"})}
+
+      {:error, :taken} ->
+        {:noreply, assign(socket, corpse_msg: {:error, "já existe um corpo com esse nome"})}
+    end
+  end
+
   # R4: disabling removes the corpse from the AIM without deleting its samples
   # — previously, silencing a false positive meant re-photographing everything.
   def handle_event("corpse_toggle", %{"slug" => slug}, socket) do
@@ -2433,7 +2446,19 @@ defmodule PokexWeb.CalibrationLive do
               :for={c <- @corpse_list}
               class="flex flex-wrap items-center gap-2 font-mono text-sm"
             >
-              <span class="min-w-24">{c["name"]}</span>
+              <%!-- The name is not a label: the ball rules match on it, so a typo
+                    ("Shiny Craby") silently answers to no rule written for Krabby.
+                    Editable in place, because deleting and re-teaching would cost
+                    the photographs — and a real shiny corpse may never come again. --%>
+              <form phx-submit="corpse_rename" class="contents" id={"corpse-rename-#{c["slug"]}"}>
+                <input type="hidden" name="slug" value={c["slug"]} />
+                <input
+                  name="name"
+                  value={c["name"]}
+                  aria-label={"nome de #{c["name"]}"}
+                  class="input input-xs input-ghost min-w-32 px-1 font-mono"
+                />
+              </form>
               <span
                 :for={{sample, idx} <- Enum.with_index(c["samples"])}
                 class="group relative inline-block"
@@ -2471,9 +2496,9 @@ defmodule PokexWeb.CalibrationLive do
                 ]}
                 phx-click="corpse_toggle"
                 phx-value-slug={c["slug"]}
-                title="Participa da mira da captura?"
+                title="Na mira leva Pokébola. Ignorado é um VETO: o corpo mais parecido com ele nunca recebe bola."
               >
-                {if CorpseLibrary.enabled?(c), do: "● na mira", else: "○ fora"}
+                {if CorpseLibrary.enabled?(c), do: "● na mira", else: "🚫 ignorar"}
               </button>
               <span
                 :if={Map.get(@corpse_counts, c["name"], 0) > 0}

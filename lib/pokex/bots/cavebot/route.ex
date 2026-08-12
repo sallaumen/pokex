@@ -447,8 +447,11 @@ defmodule Pokex.Bots.Cavebot.Route do
   How long to wait for the pile to close in at this waypoint: his hand on the
   corner, else the route's ruler, else the global number — in that order.
 
-  `nil` is absence and zero is an answer ("wait for nothing here"), so the
-  choice is made with `is_integer/1` and never with `||`.
+  `nil` is absence and zero is an answer ("wait for nothing here") — but zero
+  is truthy in Elixir, so `||` would honour it just as well. `is_integer/1`
+  earns its place against the OTHER shape: a `"600"` or a `600.0` decoded from
+  a hand-edited `routes.json` is truthy too, and `||` would hand it back as a
+  wait. Only an integer answers here; anything else falls through.
   """
   @spec gather_wait(t, waypoint, non_neg_integer) :: non_neg_integer
   def gather_wait(%__MODULE__{gather_wait_ms: route_ms}, waypoint, default) do

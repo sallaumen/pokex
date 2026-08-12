@@ -202,6 +202,14 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
       assert Route.skills_at(route.waypoints, 0) == []
     end
 
+    # The test above would still pass if `append/3` stopped writing the field,
+    # because `skills_at/2` answers `[]` for an absent key too. The Store
+    # serialises exactly these two keys, so a fresh waypoint has to carry them.
+    test "a fresh waypoint carries both new keys, not just readable defaults", %{route: route} do
+      assert Map.fetch(hd(route.waypoints), :skills) == {:ok, []}
+      assert Map.fetch(hd(route.waypoints), :gather_wait_ms) == {:ok, nil}
+    end
+
     test "turns a category on and off", %{route: route} do
       route = Route.set_skill(route, 0, :buffs, true)
       assert Route.skills_at(route.waypoints, 0) == [:buffs]

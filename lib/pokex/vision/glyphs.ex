@@ -416,19 +416,52 @@ defmodule Pokex.Vision.Glyphs do
   end
 
   @doc """
-  The glyphs in `region` this install cannot read — each with its bitmap, so a
-  human can look at it and say what it is.
+  The glyphs in `region` this install is not SURE of — each with its bitmap, so
+  a human can look at it and say what it is, and with the character it would
+  have guessed.
+
+  It used to list only the ones that could not be read at all, and that hid the
+  failure this exists to fix. Measured on Lucas's own minimap (2026-08-12): the
+  coordinate band read `(3418, 30963, 3)` where the screen said
+  `(3415, 30964, 2)` — three digits wrong — and NOT ONE glyph was an atlas hit.
+  Every one came from `nearest/1`, whose slack is wide enough to confuse 5 with
+  8 and 2 with 3 at this render. The teach page had nothing to offer him,
+  because by its old question everything was "known".
+
+  A guess is not knowledge. `guessed?` says which is which, so the page can
+  offer the guesses first: teaching them is what turns a render the atlas has
+  never seen into one it reads exactly.
   """
-  def unknown_in(%Frame{} = frame, region, opts \\ []) do
+  def uncertain_in(%Frame{} = frame, region, opts \\ []) do
     atlas = atlas()
 
     frame
     |> segment(region, opts)
-    |> Enum.filter(fn glyph ->
-      lookup(glyph.bitmap, atlas) == nil and split_fused(glyph.bitmap) == nil
+    |> Enum.map(fn glyph ->
+      %{
+        bitmap: glyph.bitmap,
+        signature: signature(glyph.bitmap),
+        # split_fused is part of the answer, not an afterthought: a pair welded
+        # by the background reads perfectly once cut, and calling it illegible
+        # is what broke the fused-pair tests the moment this was rewritten.
+        guess:
+          Map.get(atlas, signature(glyph.bitmap)) || lookup(glyph.bitmap, atlas) ||
+            split_fused(glyph.bitmap),
+        exact?: Map.has_key?(atlas, signature(glyph.bitmap))
+      }
     end)
-    |> Enum.map(fn glyph -> %{bitmap: glyph.bitmap, signature: signature(glyph.bitmap)} end)
+    |> Enum.reject(& &1.exact?)
     |> Enum.uniq_by(& &1.signature)
+  end
+
+  @doc """
+  The glyphs in `region` this install cannot read AT ALL. Kept for callers that
+  want only the blanks; `uncertain_in/3` is what a teach page should ask for.
+  """
+  def unknown_in(%Frame{} = frame, region, opts \\ []) do
+    frame
+    |> uncertain_in(region, opts)
+    |> Enum.filter(&(&1.guess == nil))
   end
 
   @doc "Drops the cached atlas (tests, and after `mix glyphs.learn`)."
@@ -611,20 +644,39 @@ defmodule Pokex.Vision.Glyphs do
     atlas = atlas()
     gap = space_gap(glyphs)
 
-    {chars, known} =
+    {chars, known, guessed} =
       glyphs
       |> Enum.chunk_every(2, 1, [nil])
-      |> Enum.reduce({[], 0}, fn [g, next], {acc, known} ->
-        {char, known} =
-          case lookup(g.bitmap, atlas) || split_fused(g.bitmap) do
-            nil -> {"?", known}
-            char -> {char, known + 1}
-          end
-
-        {[maybe_space(g, next, gap), char | acc], known}
+      |> Enum.reduce({[], 0, 0}, fn [g, next], {acc, known, guessed} ->
+        {char, hit, guess} = read_glyph(g, atlas)
+        {[maybe_space(g, next, gap), char | acc], known + hit, guessed + guess}
       end)
 
-    %{text: chars |> Enum.reverse() |> Enum.join(), confidence: confidence(known, glyphs)}
+    # `guessed` is reported and NOT folded into the confidence: a reader that
+    # suddenly refused every guessed line would stop the hunt of anyone whose
+    # render the atlas has never seen — which is exactly the person who needs
+    # it working while he teaches it. Callers that care can ask.
+    %{
+      text: chars |> Enum.reverse() |> Enum.join(),
+      confidence: confidence(known, glyphs),
+      guessed: guessed
+    }
+  end
+
+  # {character, counts-as-read, counts-as-guessed}. An atlas signature hit is
+  # knowledge; anything `nearest/1` or the fused split produced is a guess that
+  # happened to land — see `uncertain_in/3` for why that distinction matters.
+  defp read_glyph(glyph, atlas) do
+    case Map.get(atlas, signature(glyph.bitmap)) do
+      nil ->
+        case lookup(glyph.bitmap, atlas) || split_fused(glyph.bitmap) do
+          nil -> {"?", 0, 0}
+          char -> {char, 1, 1}
+        end
+
+      char ->
+        {char, 1, 0}
+    end
   end
 
   @doc """

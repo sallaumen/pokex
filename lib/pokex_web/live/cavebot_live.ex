@@ -22,6 +22,7 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Calibration
   alias Pokex.Perception
+  alias Pokex.Pokedex.SkillProfile
   alias Pokex.Settings
   alias Pokex.World
   alias PokexWeb.CavebotMap
@@ -613,6 +614,40 @@ defmodule PokexWeb.CavebotLive do
     end)
   end
 
+  # A skill que ELE quer neste canto, dita por categoria — a aura no meio da
+  # mobada é o caso que ele pediu. Terceiro eixo, ao lado da função e das
+  # paradas: o canto da aura costuma ser o canto do "até aqui".
+  def handle_event("toggle_waypoint_skill", %{"index" => index, "skill" => skill}, socket) do
+    index = String.to_integer(index)
+    skill = decode_skill(skill)
+    socket = remember_hand_mark(socket, index)
+
+    with_route(socket, fn route ->
+      on? = skill not in Route.skills_at(route.waypoints, index)
+
+      {Route.set_skill(route, index, skill, on?),
+       "waypoint #{index + 1}: #{SkillProfile.label(skill)} #{if on?, do: "ligada", else: "desligada"}"}
+    end)
+  end
+
+  # A régua da rota inteira: o número que ele dial pra baixo até achar o limite
+  # onde o bolo ainda fecha. Campo vazio devolve o comando pro /config.
+  def handle_event("set_route_gather_wait", %{"gather_wait_ms" => raw}, socket) do
+    with_route(socket, fn route ->
+      {Route.set_gather_wait(route, parse_ms(raw)), gather_wait_note("a rota", parse_ms(raw))}
+    end)
+  end
+
+  def handle_event("set_waypoint_gather_wait", %{"index" => index} = params, socket) do
+    index = String.to_integer(index)
+    ms = parse_ms(params["gather_wait_ms"])
+    socket = remember_hand_mark(socket, index)
+
+    with_route(socket, fn route ->
+      {Route.set_gather_wait(route, index, ms), gather_wait_note("o waypoint #{index + 1}", ms)}
+    end)
+  end
+
   # The exact tile, typed by hand. A recording is a WALK, and a walk rounds:
   # the staircase he could not take was one tile wide and the recorded corner
   # sat beside it ("tem como eu editar na mao pontos da rota?", 2026-08-11).
@@ -1121,6 +1156,35 @@ defmodule PokexWeb.CavebotLive do
   defp decode_stop("cooldown_revive"), do: :cooldown_revive
   defp decode_stop("wait"), do: :wait
   defp decode_stop(_sweep), do: :sweep
+
+  # Whitelist, nunca String.to_atom/1: o valor vem do DOM.
+  defp decode_skill(value), do: Enum.find(Route.skills(), &(Atom.to_string(&1) == value))
+
+  # Campo vazio é "não tenho régua aqui", que é diferente de zero ("não espera
+  # nada aqui"). Lixo digitado também vira nil, nunca crash.
+  defp parse_ms(raw) when is_binary(raw) do
+    case Integer.parse(String.trim(raw)) do
+      {ms, ""} when ms >= 0 -> ms
+      _empty_or_junk -> nil
+    end
+  end
+
+  defp parse_ms(_absent), do: nil
+
+  defp gather_wait_note(what, nil), do: "#{what} voltou a usar o respiro do /config"
+  defp gather_wait_note(what, ms), do: "#{what} espera #{ms}ms o bolo fechar"
+
+  # A medição das mãos dele, oferecida como ponto de partida — e só quando é
+  # plausível. As duas settings que antes limitavam a Logic vivem aqui agora:
+  # 12s medidos num ponto de matança não são ele esperando o bolo, são o
+  # gravador tendo cronometrado outra coisa.
+  defp gather_suggestion(%{gather_ms: ms}) when is_integer(ms) do
+    if ms >= Settings.get(:cavebot_gather_wait_min_ms) and
+         ms <= Settings.get(:cavebot_gather_wait_max_ms),
+       do: ms
+  end
+
+  defp gather_suggestion(_no_measurement), do: nil
 
   defp stop_label(:sweep), do: "varrer"
   defp stop_label(:cooldown_revive), do: "resetar cooldown"
@@ -1957,6 +2021,27 @@ defmodule PokexWeb.CavebotLive do
                   Waypoints
                 </h2>
                 <div class="flex items-center gap-3">
+                  <.form
+                    id="route-gather-wait"
+                    for={%{}}
+                    phx-submit="set_route_gather_wait"
+                    class="flex items-center gap-1"
+                  >
+                    <label for="route-gather-wait-input" class="text-pk-meta text-pk-text-3">
+                      respiro da rota
+                    </label>
+                    <input
+                      type="number"
+                      id="route-gather-wait-input"
+                      name="gather_wait_ms"
+                      value={@active_route.gather_wait_ms}
+                      min="0"
+                      step="100"
+                      placeholder={Settings.get(:cavebot_gather_wait_ms)}
+                      class="pk-num w-24 rounded border border-pk-line bg-pk-sunken px-1.5 py-0.5 text-pk-meta"
+                    />
+                    <span class="text-pk-meta text-pk-text-3">ms</span>
+                  </.form>
                   <button
                     :if={@active_route.waypoints != []}
                     id="tidy-marks"
@@ -2118,6 +2203,62 @@ defmodule PokexWeb.CavebotLive do
                       o que cada tecla faz
                     </.link>
                   </p>
+
+                  <%!-- O terceiro eixo: o que o pokémon FAZ aqui, por
+                        categoria. Chip ligado é ordem; a tecla sai do pokémon
+                        que estiver em campo na hora. --%>
+                  <div class="mt-1 flex flex-wrap items-center gap-1 pl-7">
+                    <button
+                      :for={skill <- Route.skills()}
+                      id={"waypoint-skill-#{index}-#{skill}"}
+                      phx-click="toggle_waypoint_skill"
+                      phx-value-index={index}
+                      phx-value-skill={skill}
+                      aria-pressed={
+                        to_string(skill in Route.skills_at(@active_route.waypoints, index))
+                      }
+                      title={SkillProfile.label(skill)}
+                      class={[
+                        "cursor-pointer rounded border px-1.5 py-0.5 text-pk-meta transition",
+                        if(skill in Route.skills_at(@active_route.waypoints, index),
+                          do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                          else: "border-pk-line text-pk-text-3 hover:border-pk-line-strong"
+                        )
+                      ]}
+                    >
+                      {SkillProfile.icon(skill)} {SkillProfile.label(skill)}
+                    </button>
+
+                    <%!-- O respiro só faz sentido onde o bolo fecha. --%>
+                    <.form
+                      :if={wp.action == :lure_end}
+                      id={"waypoint-gather-wait-#{index}"}
+                      for={%{}}
+                      phx-submit="set_waypoint_gather_wait"
+                      class="ml-2 flex items-center gap-1"
+                    >
+                      <input type="hidden" name="index" value={index} />
+                      <label for={"gather-wait-input-#{index}"} class="text-pk-meta text-pk-text-3">
+                        respiro
+                      </label>
+                      <input
+                        type="number"
+                        id={"gather-wait-input-#{index}"}
+                        name="gather_wait_ms"
+                        value={wp[:gather_wait_ms]}
+                        min="0"
+                        step="100"
+                        placeholder={
+                          @active_route.gather_wait_ms || Settings.get(:cavebot_gather_wait_ms)
+                        }
+                        class="pk-num w-20 rounded border border-pk-line bg-pk-sunken px-1 py-0.5 text-pk-meta"
+                      />
+                      <span class="text-pk-meta text-pk-text-3">ms</span>
+                      <span :if={gather_suggestion(wp)} class="text-pk-meta text-pk-text-3">
+                        (suas mãos esperaram {gather_suggestion(wp)}ms aqui)
+                      </span>
+                    </.form>
+                  </div>
                 </li>
               </ol>
             </section>

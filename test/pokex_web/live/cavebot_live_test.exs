@@ -1258,4 +1258,72 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#cavebot-last-press") |> render() =~ "3, 4"
     end
   end
+
+  describe "skills e respiro no editor" do
+    # `put/1` e não `add/1`: esta rota tem que ser a ÚNICA, senão qual delas a
+    # página abre como ativa vira sorte, e `[route] = Store.all()` nas
+    # asserções vira flake. O waypoint 0 é ponto de matança porque é onde o
+    # campo do respiro aparece.
+    setup do
+      {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
+      {:ok, route} = Route.append(route, {12, 10, 5})
+      :ok = Store.put([Route.set_action(route, 0, :lure_end)])
+      :ok
+    end
+
+    test "clicar no chip liga a categoria no waypoint", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view
+      |> element("#waypoint-skill-0-buffs")
+      |> render_click()
+
+      [route] = Store.all()
+      assert Route.skills_at(route.waypoints, 0) == [:buffs]
+    end
+
+    test "clicar de novo desliga", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#waypoint-skill-0-buffs") |> render_click()
+      view |> element("#waypoint-skill-0-buffs") |> render_click()
+
+      [route] = Store.all()
+      assert Route.skills_at(route.waypoints, 0) == []
+    end
+
+    test "a régua da rota é salva", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view
+      |> form("#route-gather-wait", %{"gather_wait_ms" => "1800"})
+      |> render_submit()
+
+      [route] = Store.all()
+      assert route.gather_wait_ms == 1_800
+    end
+
+    test "campo vazio devolve o comando pro número global", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> form("#route-gather-wait", %{"gather_wait_ms" => "1800"}) |> render_submit()
+      view |> form("#route-gather-wait", %{"gather_wait_ms" => ""}) |> render_submit()
+
+      [route] = Store.all()
+      assert route.gather_wait_ms == nil
+    end
+
+    test "o respiro do waypoint é salvo e ganha da rota", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> form("#route-gather-wait", %{"gather_wait_ms" => "1800"}) |> render_submit()
+
+      view
+      |> form("#waypoint-gather-wait-0", %{"gather_wait_ms" => "600"})
+      |> render_submit()
+
+      [route] = Store.all()
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 600
+    end
+  end
 end

@@ -1168,6 +1168,48 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
       assert Logic.orders(logic) == []
     end
+
+    # Giving up on a corner is LEAVING it. A skip never passes through the
+    # arrival, so the huddle stamp used to survive it — and `orders/1` reads
+    # the corner BEHIND the index, which after a skip is the corner the hunt
+    # could not reach. The burst of a place nobody arrived at is not an order.
+    test "skipping a corner disarms the huddle: nothing is ordered for it" do
+      {:ok, r} = Route.append(Route.new("meganium"), {10, 10, 5})
+      {:ok, r} = Route.append(r, {12, 10, 5})
+      {:ok, r} = Route.append(r, {14, 10, 5})
+
+      route =
+        r
+        |> Route.set_action(0, :lure_end)
+        |> Route.set_skill(1, :heal, true)
+        |> Route.set_timing(1, combo: ~w(4))
+
+      logic = Logic.new(route, @cfg)
+      {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
+      {logic, _arrival} = Logic.step(logic, world({10, 10, 5}), 200)
+
+      assert logic.wp_index == 1
+      assert Logic.gathering?(logic, 400)
+
+      # walled in on the way to corner 1: the walk times out, the retries run
+      # out, and the hunt gives that corner up
+      logic =
+        Enum.reduce(1..8, logic, fn tick, acc ->
+          if acc.skips == 0 do
+            {acc, _command} = Logic.step(acc, world({10, 10, 5}), 3_200 + tick * 100)
+            acc
+          else
+            acc
+          end
+        end)
+
+      assert logic.skips == 1
+      assert logic.wp_index == 2
+
+      assert Logic.orders(logic) == []
+      assert Logic.combo(logic) == []
+      refute Logic.gathering?(logic, 4_500)
+    end
   end
 
   describe "the huddle — the ruler beats the measurement" do

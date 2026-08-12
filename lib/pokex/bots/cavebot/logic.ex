@@ -637,6 +637,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
+  # Giving up on a corner is LEAVING it, so the huddle goes out with it — the
+  # same thing `arrived_at/3` does on a plain corner. A skip never passes
+  # through `arrived/3`, so the stamp and the ruler used to survive it, and
+  # `combo/1` and `orders/1` read them off the corner the hunt COULD NOT REACH:
+  # the burst of a kill spot nobody arrived at, or the aura of a walking corner
+  # he never marked as an order.
   defp skip_waypoint(logic, now) do
     next = rem(logic.wp_index + 1, length(logic.route.waypoints))
 
@@ -647,7 +653,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
         retries: 0,
         skips: logic.skips + 1,
         last_pos: nil,
-        since: Map.put(logic.since, :walk_progress, now)
+        gather_wait: nil,
+        since: logic.since |> Map.delete(:gather) |> Map.put(:walk_progress, now)
     }
   end
 

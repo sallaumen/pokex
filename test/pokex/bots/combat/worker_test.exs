@@ -80,6 +80,21 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     for {:press, key} <- Fake.calls(), do: key
   end
 
+  # What the fight SPENT, with the keys that are not skills taken out: Tab targets and
+  # the stance keys set the game's mode. Both ride in the same burst as the damage keys
+  # (the stance deliberately so, ahead of the first one), and whether a given burst
+  # carried one is a race with the previous burst still being in flight — reading them
+  # as skills is what made this file's skill assertions a coin flip.
+  defp skill_presses do
+    not_skills = [
+      Settings.get(:tab_key),
+      Settings.get(:attack_mode_key),
+      Settings.get(:defense_mode_key)
+    ]
+
+    Enum.reject(presses(), &(&1 in not_skills))
+  end
+
   @tag :tmp_dir
   test "at most ONE key burst in flight — a decision landing mid-burst skips, never stacks", %{
     worker: worker
@@ -103,6 +118,35 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     # burst 1 done → the next locked frame fires a fresh skill burst normally
     world!(worker, battle_obs(locked?: true, locked_row: 0))
     assert eventually(fn -> length(presses()) > 1 end)
+  end
+
+  # The stance is the one decision this machine LATCHES after deciding it, and the
+  # one-burst-in-flight rule is allowed to throw the list it rode in on away. Believing
+  # a stance the game never heard is exactly the failure the feature exists to prevent
+  # ("uso skill de dano antes de mudar o modo para ataque").
+  @tag :tmp_dir
+  test "a stance key the one-burst rule threw away is pressed again, never believed", %{
+    worker: worker
+  } do
+    # slow (osascript-like) burst: the Tab spawn is still in flight when the lock lands,
+    # so the whole action list behind it — attack stance included — is dropped
+    Agent.stop(Fake)
+    {:ok, _} = Fake.start_link(%{press_many_sleep_ms: 250})
+
+    world!(worker, battle_obs(enemies: [0]))
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+
+    world!(worker, battle_obs(locked?: true, locked_row: 0))
+    assert eventually(fn -> Worker.status(worker).state == :fighting end)
+
+    # the fight goes on; the stance never reached the game, so it still has to go out
+    assert eventually(
+             fn ->
+               Settings.get(:attack_mode_key) in presses() or
+                 (world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
+             end,
+             2_000
+           )
   end
 
   @tag :tmp_dir
@@ -136,7 +180,8 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
   @tag :tmp_dir
   test "a fresh :skill_bar fact narrows every skill burst to READY keys only", %{worker: worker} do
-    # only "2" is ready → all skill presses must be "2"; Tab is not a skill and stays
+    # only "2" is ready → every SKILL press must be "2" (Tab and the stance are not
+    # skills and ride along untouched — see skill_presses/0)
     put_fact = fn ->
       at = System.monotonic_time(:millisecond)
       WorldState.put(:skill_bar, %{states: [:cooldown, :ready], ready_keys: ["2"]}, at)
@@ -151,13 +196,13 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     # keep the fact fresh and the frames flowing (same re-feed dance as the burst tests)
     assert eventually(fn ->
-             skills = Enum.reject(presses(), &(&1 == Settings.get(:tab_key)))
+             skills = skill_presses()
 
              (skills != [] and Enum.uniq(skills) == ["2"]) or
                (put_fact.() && world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
            end)
 
-    skills = Enum.reject(presses(), &(&1 == Settings.get(:tab_key)))
+    skills = skill_presses()
     assert skills != [] and Enum.uniq(skills) == ["2"]
   end
 

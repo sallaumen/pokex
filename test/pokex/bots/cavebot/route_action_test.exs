@@ -189,4 +189,96 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
       assert Route.lure_issue(route) == nil
     end
   end
+
+  describe "skills — the waypoint's third axis" do
+    setup do
+      {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
+      {:ok, route} = Route.append(route, {12, 10, 5})
+      %{route: route}
+    end
+
+    test "is born carrying none", %{route: route} do
+      assert Route.skills_at(route.waypoints, 0) == []
+    end
+
+    test "turns a category on and off", %{route: route} do
+      route = Route.set_skill(route, 0, :buffs, true)
+      assert Route.skills_at(route.waypoints, 0) == [:buffs]
+
+      route = Route.set_skill(route, 0, :buffs, false)
+      assert Route.skills_at(route.waypoints, 0) == []
+    end
+
+    # The order is the canonical one, not the clicking one: two routes with the
+    # same skills have to produce the same key sequence.
+    test "keeps the canonical order, not the clicking order", %{route: route} do
+      route =
+        route
+        |> Route.set_skill(0, :single, true)
+        |> Route.set_skill(0, :buffs, true)
+
+      assert Route.skills_at(route.waypoints, 0) == [:buffs, :single]
+    end
+
+    test "turning one on twice does not double it", %{route: route} do
+      route = route |> Route.set_skill(0, :buffs, true) |> Route.set_skill(0, :buffs, true)
+      assert Route.skills_at(route.waypoints, 0) == [:buffs]
+    end
+
+    test "does not leak into the neighbouring waypoint", %{route: route} do
+      route = Route.set_skill(route, 0, :buffs, true)
+      assert Route.skills_at(route.waypoints, 1) == []
+    end
+
+    # Same rule as set_stop: a control that cannot act is a no-op, never an error.
+    test "an index nobody has, or a category nobody knows, changes nothing", %{route: route} do
+      assert Route.set_skill(route, 99, :buffs, true) == route
+      assert Route.set_skill(route, 0, :nadar, true) == route
+      assert Route.skills_at(route.waypoints, 99) == []
+    end
+  end
+
+  describe "gather_wait/3 — the huddle ruler" do
+    setup do
+      {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
+      %{route: route, wp: hd(route.waypoints)}
+    end
+
+    test "with nothing written down, the global number rules", %{route: route, wp: wp} do
+      assert Route.gather_wait(route, wp, 4_000) == 4_000
+    end
+
+    test "the route's own ruler beats the global one", %{route: route, wp: wp} do
+      route = Route.set_gather_wait(route, 1_800)
+      assert Route.gather_wait(route, wp, 4_000) == 1_800
+    end
+
+    test "the waypoint beats the route's ruler", %{route: route} do
+      route = route |> Route.set_gather_wait(1_800) |> Route.set_gather_wait(0, 600)
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 600
+    end
+
+    # Zero is a legitimate answer — "wait for nothing here" — and must not fall
+    # through to the next level.
+    test "zero is obeyed, it is not absence", %{route: route} do
+      route = route |> Route.set_gather_wait(1_800) |> Route.set_gather_wait(0, 0)
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 0
+    end
+
+    test "erasing hands the answer back to the level above", %{route: route} do
+      route =
+        route
+        |> Route.set_gather_wait(1_800)
+        |> Route.set_gather_wait(0, 600)
+        |> Route.set_gather_wait(0, nil)
+
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 1_800
+    end
+
+    # What his hands measured stays stored and stays NOT in charge.
+    test "the measured gather_ms does not enter the sum", %{route: route} do
+      route = Route.set_timing(route, 0, gather_ms: 4_534)
+      assert Route.gather_wait(route, hd(route.waypoints), 1_000) == 1_000
+    end
+  end
 end

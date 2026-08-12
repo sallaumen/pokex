@@ -3,9 +3,10 @@ defmodule Pokex.Bots.Cavebot.Route do
   Cavebot hunt route: an ordered waypoint sequence, walked as a loop.
 
   Pure struct — no process, screen, Settings or IO. A waypoint is a place
-  (`x`, `y`, `z`) plus two independent things it can carry: a JOB
-  (`t:action/0` — the mob-stretch brackets) and a list of STOPS
-  (`t:stop/0` — what the hunt does there once the fighting ends).
+  (`x`, `y`, `z`) plus three independent things it can carry: a JOB
+  (`t:action/0` — the mob-stretch brackets), a list of STOPS
+  (`t:stop/0` — what the hunt does there once the fighting ends) and a list of
+  SKILLS (`t:skill/0` — what the pokémon fires there, said by category).
 
   A route may climb: `z` is the floor it STARTS on, `floors/1` is every floor
   it visits, and it is the Logic — not this struct — that refuses a floor
@@ -17,6 +18,9 @@ defmodule Pokex.Bots.Cavebot.Route do
             dungeon: nil,
             z: nil,
             enabled?: true,
+            # THIS route's huddle ruler; nil hands the answer to the global
+            # number in /config
+            gather_wait_ms: nil,
             waypoints: []
 
   @typedoc """
@@ -48,6 +52,23 @@ defmodule Pokex.Bots.Cavebot.Route do
   @stops [:cooldown_revive, :sweep, :wait]
 
   @typedoc """
+  What work the pokémon does HERE, said by category and never by key.
+
+  Third axis of the waypoint, beside the job and the stops, for the same reason
+  that split the first two: the corner where he casts the aura is usually
+  exactly the corner already marked "até aqui", and making the two compete for
+  one slot would make the most useful combination the impossible one.
+
+  Category, never key: the key comes from whichever pokémon is out at the
+  moment of pressing, so swapping Vileplume (aura on 1) for Vespiquen (aura on
+  2) does not make the route lie. Written ONLY by his hand — the recorder never
+  touches this.
+  """
+  @type skill :: :buffs | :aoe | :single | :heal | :crowd
+
+  @skills [:buffs, :aoe, :single, :heal, :crowd]
+
+  @typedoc """
   A place, what it is FOR, what happens there — and WHEN it was recorded.
 
   `at` is the wall clock of the moment it was laid and `dwell_ms` how long he
@@ -67,7 +88,9 @@ defmodule Pokex.Bots.Cavebot.Route do
           park_tiles: {integer, integer} | nil,
           fight_ms: non_neg_integer | nil,
           gather_ms: non_neg_integer | nil,
-          combo: [String.t()]
+          combo: [String.t()],
+          skills: [skill],
+          gather_wait_ms: non_neg_integer | nil
         }
 
   @typedoc """
@@ -85,6 +108,7 @@ defmodule Pokex.Bots.Cavebot.Route do
           dungeon: String.t() | nil,
           z: integer | nil,
           enabled?: boolean,
+          gather_wait_ms: non_neg_integer | nil,
           waypoints: [waypoint]
         }
 
@@ -123,7 +147,9 @@ defmodule Pokex.Bots.Cavebot.Route do
       park_tiles: nil,
       fight_ms: nil,
       gather_ms: nil,
-      combo: []
+      combo: [],
+      skills: [],
+      gather_wait_ms: nil
     }
 
     {:ok, %{route | z: route.z || z, waypoints: route.waypoints ++ [waypoint]}}
@@ -347,6 +373,86 @@ defmodule Pokex.Bots.Cavebot.Route do
     case Enum.at(waypoints, index) do
       %{stops: stops} -> stops
       _absent -> []
+    end
+  end
+
+  @doc "Every category a waypoint can carry, in the order they come out."
+  @spec skills() :: [skill]
+  def skills, do: @skills
+
+  @doc """
+  Turns one category on or off at the waypoint `index`.
+
+  Kept in the canonical order and not in the clicking order: two routes with
+  the same skills have to press the same sequence. An index nobody has, or a
+  category nobody knows, returns the route untouched — same rule as
+  `set_stop/4`.
+  """
+  @spec set_skill(t, non_neg_integer, skill, boolean) :: t
+  def set_skill(%__MODULE__{waypoints: waypoints} = route, index, skill, on?)
+      when is_integer(index) and skill in @skills and is_boolean(on?) do
+    case Enum.at(waypoints, index) do
+      nil ->
+        route
+
+      wp ->
+        carried = wp[:skills] || []
+        kept = if on?, do: [skill | carried], else: carried -- [skill]
+        wp = Map.put(wp, :skills, Enum.filter(@skills, &(&1 in kept)))
+        %{route | waypoints: List.replace_at(waypoints, index, wp)}
+    end
+  end
+
+  def set_skill(%__MODULE__{} = route, _index, _unknown, _on?), do: route
+
+  @doc "The categories of the waypoint `index` — `[]` for an index nobody has."
+  @spec skills_at([waypoint], non_neg_integer) :: [skill]
+  def skills_at(waypoints, index) when is_list(waypoints) and is_integer(index) do
+    case Enum.at(waypoints, index) do
+      %{skills: skills} when is_list(skills) -> skills
+      _absent_or_old -> []
+    end
+  end
+
+  @doc """
+  THIS route's huddle ruler — how long it waits for the pile to close in before
+  firing the first skill. `nil` hands the answer back to the global number.
+
+  It exists because what the recording measured does not work as an order: the
+  eight kill spots of Meganium 1 measured anywhere from 569ms to 4534ms. A
+  number he can dial DOWN is what makes the route faster; the measurement is
+  only where to start.
+  """
+  @spec set_gather_wait(t, non_neg_integer | nil) :: t
+  def set_gather_wait(%__MODULE__{} = route, ms) when is_nil(ms) or (is_integer(ms) and ms >= 0),
+    do: %{route | gather_wait_ms: ms}
+
+  @doc "THIS waypoint's huddle; `nil` hands the answer back to the route's ruler."
+  @spec set_gather_wait(t, non_neg_integer, non_neg_integer | nil) :: t
+  def set_gather_wait(%__MODULE__{waypoints: waypoints} = route, index, ms)
+      when is_integer(index) and (is_nil(ms) or (is_integer(ms) and ms >= 0)) do
+    case Enum.at(waypoints, index) do
+      nil ->
+        route
+
+      wp ->
+        %{route | waypoints: List.replace_at(waypoints, index, Map.put(wp, :gather_wait_ms, ms))}
+    end
+  end
+
+  @doc """
+  How long to wait for the pile to close in at this waypoint: his hand on the
+  corner, else the route's ruler, else the global number — in that order.
+
+  `nil` is absence and zero is an answer ("wait for nothing here"), so the
+  choice is made with `is_integer/1` and never with `||`.
+  """
+  @spec gather_wait(t, waypoint, non_neg_integer) :: non_neg_integer
+  def gather_wait(%__MODULE__{gather_wait_ms: route_ms}, waypoint, default) do
+    cond do
+      is_integer(waypoint[:gather_wait_ms]) -> waypoint[:gather_wait_ms]
+      is_integer(route_ms) -> route_ms
+      true -> default
     end
   end
 

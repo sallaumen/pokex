@@ -3,6 +3,7 @@ defmodule Pokex.Diagnostics.ReportTest do
   alias Pokex.Bots.Session
   alias Pokex.Calibration
   alias Pokex.Diagnostics.Report
+  alias Pokex.Pokedex.Team
   alias Pokex.Rig.Fake
 
   @calib %Calibration{
@@ -115,6 +116,98 @@ defmodule Pokex.Diagnostics.ReportTest do
     assert decoded["regions"]["glow"]["metrics"]["bite?"] == true
 
     assert JSON.encode!(report) == File.read!(path)
+  end
+
+  # The bundle is the tool he tunes the thresholds with, so it has to photograph
+  # the bar the BOT reads — and it has to survive being written.
+  describe "the skill bar it photographs" do
+    setup %{tmp_dir: tmp} do
+      dataset = %{
+        "species" => [%{"name" => "Vespiquen", "number" => 416, "elements" => ["Bug"]}],
+        "lures" => []
+      }
+
+      File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(dataset))
+      Application.put_env(:pokex, :pokedex_path, Path.join(tmp, "pokedex.json"))
+      Application.put_env(:pokex, :home_dir, tmp)
+
+      on_exit(fn ->
+        Application.delete_env(:pokex, :pokedex_path)
+        Application.delete_env(:pokex, :home_dir)
+      end)
+
+      # 7 slots × 2px: slots 1-6 bright, slot 7 dark — a frame SkillBar accepts.
+      row = List.duplicate({200, 200, 0, 255}, 12) ++ List.duplicate({20, 20, 20, 255}, 2)
+      bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), [row])
+
+      Agent.stop(Fake)
+
+      {:ok, _} =
+        Fake.start_link(%{
+          capture: [
+            {:ok, png!(tmp, "glow.png", 16, 16, {0, 180, 200})},
+            {:ok, png!(tmp, "battle.png", 20, 12, {0, 200, 0})},
+            {:ok, png!(tmp, "strip.png", 8, 12, {255, 0, 0})},
+            {:ok, png!(tmp, "box.png", 12, 12, {0, 0, 0})},
+            {:ok, bar},
+            {:ok, png!(tmp, "probe.png", 50, 50, {0, 0, 0})}
+          ],
+          capture_screen: [{:ok, png!(tmp, "screen.png", 60, 40, {0, 0, 0})}]
+        })
+
+      %{
+        calib: %Calibration{@calib | skill_bar_region: {0, 0, 14, 1}, skill_bar_count: 7},
+        exports: Path.join(tmp, "exports")
+      }
+    end
+
+    defp capture!(calib, exports) do
+      assert {:ok, report, path} =
+               Report.capture(
+                 rig: Fake,
+                 calib: calib,
+                 settings: @settings,
+                 exports_dir: exports,
+                 now: 1_700_000_000_000
+               )
+
+      {report, path}
+    end
+
+    # A slot carries its colour signature as an {r,g,b} tuple, which JSON cannot
+    # encode: the export RAISED the moment the bar was calibrated at all — the
+    # one button that dumps what the bot sees died exactly when there was
+    # something to see.
+    @tag :tmp_dir
+    test "the dump survives a calibrated bar with nobody on the field", %{
+      calib: calib,
+      exports: exports
+    } do
+      assert Team.active() == nil
+
+      {report, path} = capture!(calib, exports)
+
+      assert report.regions.skill_bar.region == [0, 0, 14, 1]
+      assert report.regions.skill_bar.pokemon == nil
+      assert [signature | _] = Enum.map(report.regions.skill_bar.slots, & &1.signature)
+      assert is_list(signature)
+      assert path |> File.read!() |> JSON.decode!()
+    end
+
+    @tag :tmp_dir
+    test "with a pokémon on the field it photographs ITS bar, and says whose", %{
+      calib: calib,
+      exports: exports
+    } do
+      {:ok, _} = Team.add("Vespiquen")
+      Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 2, refs: nil})
+      Team.set_active("Vespiquen")
+
+      {report, _path} = capture!(calib, exports)
+
+      assert report.regions.skill_bar.pokemon == "Vespiquen"
+      assert report.regions.skill_bar.slot_count == 2
+    end
   end
 
   defp png!(dir, name, w, h, rgba) do

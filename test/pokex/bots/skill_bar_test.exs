@@ -2,6 +2,7 @@ defmodule Pokex.Bots.SkillBarTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
+  alias Pokex.Pokedex.Team
   alias Pokex.Rig.Fake
   alias Pokex.Vision.Frame
 
@@ -143,6 +144,69 @@ defmodule Pokex.Bots.SkillBarTest do
       assert SkillBar.slot_refs(nil, %{}) == nil
 
       assert SkillBar.slot_refs([%{signature: {1, 2, 3}, white_pct: 5}], %{}) == [nil]
+    end
+  end
+
+  # The bar belongs to the pokémon (#257). Proving that inside ActiveBar is not
+  # the same as proving it reaches the READING — this is where the feature
+  # either affects the fight or does not.
+  describe "the pokémon on the field owns the reading" do
+    setup %{tmp_dir: tmp} do
+      dataset = %{
+        "species" => [%{"name" => "Vespiquen", "number" => 416, "elements" => ["Bug"]}],
+        "lures" => []
+      }
+
+      File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(dataset))
+      Application.put_env(:pokex, :pokedex_path, Path.join(tmp, "pokedex.json"))
+      Application.put_env(:pokex, :home_dir, tmp)
+
+      on_exit(fn ->
+        Application.delete_env(:pokex, :pokedex_path)
+        Application.delete_env(:pokex, :home_dir)
+      end)
+
+      {:ok, _} = Team.add("Vespiquen")
+      :ok
+    end
+
+    @tag :tmp_dir
+    test "ITS slot count slices the frame — not the calibration's, not the setting's" do
+      Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 2, refs: nil})
+      Team.set_active("Vespiquen")
+
+      # the calibration says 6 and the settings say 7; the pokémon says 2
+      slots = SkillBar.read(calib({0, 0, 14, 1}, 6), @settings)
+
+      assert length(slots) == 2
+    end
+
+    # The reason the bar had to move: the READY references ARE the skill icons.
+    @tag :tmp_dir
+    test "ITS references decide readiness, so a swap cannot judge against old art" do
+      # slots 1-6 are bright yellow in the fixture; slot 7 is dark.
+      Team.set_bar("Vespiquen", %{
+        region: {0, 0, 14, 1},
+        count: 2,
+        # one reference matching the bright half, one nowhere near it
+        refs: [{200, 200, 0}, {255, 0, 255}]
+      })
+
+      Team.set_active("Vespiquen")
+
+      slots =
+        SkillBar.read(calib({0, 0, 14, 1}, 6), Map.put(@settings, :skill_ref_max_distance, 25))
+
+      assert SkillBar.states(slots) == [:ready, :cooldown]
+    end
+
+    @tag :tmp_dir
+    test "nobody on the field falls back to the screen calibration" do
+      Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 2, refs: nil})
+
+      slots = SkillBar.read(calib({0, 0, 14, 1}, 6), @settings)
+
+      assert length(slots) == 6
     end
   end
 end

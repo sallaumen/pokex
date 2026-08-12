@@ -170,8 +170,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     assert Worker.status(worker).state == :idle
   end
 
-  # {:cursor_position} is excluded from the quiet check: the app-global Guardian polls the
-  # panic corner against the same shared Rig.Fake on its own timer.
   @tag :tmp_dir
   test "holds itself while the :mini_game fact says playing, recasting fresh when it clears", %{
     worker: worker
@@ -186,14 +184,13 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     assert_receive {:fishing, %{hold_reason: "mini-game em jogo"}}, 5_000
 
-    input_calls = fn ->
-      Enum.reject(Pokex.Rig.Fake.calls(), &match?({:cursor_position}, &1))
-    end
-
+    # A frozen cycle is quiet ALL the way down: no action, and no sensing either
+    # (the cursor restore that follows a mouse sequence is the only cursor read
+    # here, and it belongs to the casts that ran BEFORE the freeze).
     Process.sleep(150)
-    frozen = length(input_calls.())
+    frozen = length(Pokex.Rig.Fake.calls())
     Process.sleep(300)
-    assert length(input_calls.()) == frozen
+    assert length(Pokex.Rig.Fake.calls()) == frozen
 
     focus_clicks = fn ->
       Enum.count(Pokex.Rig.Fake.calls(), &(&1 == {:click, :left, {420, 350}}))

@@ -81,6 +81,13 @@ config :pokex, :cavebot_active, false
 # stop_all, racing the test's own scoped Guardian (measured flaky). Guardian tests opt
 # back in with `session_rules: true`.
 config :pokex, :guardian_session_rules, false
+# ...and its panic-corner POLL is off for the same family of reasons: it reads the cursor
+# every 100ms through the SHARED Rig.Fake, so any test asserting "nothing reached the Rig"
+# was racing a timer it never started (the fishing gate test failed on ~1 seed in 3; six
+# other files carry an Enum.reject({:cursor_position}) to hide the same noise). The gate
+# flag the poller writes is already opened once by test_helper. Guardian tests that
+# exercise the corner opt back in with `auto_poll: true`.
+config :pokex, :guardian_auto_poll, false
 # Waking a NAMED perception feed starts a real capture loop that writes into the
 # shared blackboard behind whatever test is running — the cavebot's own worker
 # attaches :minimap and the feed then overwrote the position the test had just

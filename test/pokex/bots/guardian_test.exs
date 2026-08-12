@@ -27,6 +27,7 @@ defmodule Pokex.Bots.GuardianTest do
   alias Pokex.Bots.GuardianTest.FakeBody
   alias Pokex.Bots.InputGate
   alias Pokex.Perception.WorldState
+  alias Pokex.Rig.Fake
 
   setup do
     # one shared blackboard: start from an empty world, never from the last test's
@@ -64,11 +65,26 @@ defmodule Pokex.Bots.GuardianTest do
     poll.(poll)
   end
 
+  # The app-global Guardian kept its 100ms corner poll running for the WHOLE suite, and
+  # every poll read the cursor through the SHARED Pokex.Rig.Fake. Any test asserting
+  # "nothing reached the Rig" then failed whenever a poll landed inside its window — the
+  # fishing gate test's ~1-in-3 ghost (measured 2026-08-11, seed 3). Same contract the
+  # other app-global loops already keep (:focus_auto_monitor, :sweep_auto_tick,
+  # :stock_alerts_active): the poller is OFF in the suite and test instances opt in.
+  test "the app-global Guardian never polls during the suite — the shared Rig stays quiet" do
+    {:ok, _fake} = Fake.start_link()
+
+    # three default poll windows: a live poller would have logged three cursor reads
+    Process.sleep(3 * 100)
+
+    assert Fake.calls() == []
+  end
+
   test "a cursor in the kill corner triggers on_panic", %{on_panic: on_panic} do
     {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
 
     {:ok, _guardian} =
-      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5, auto_poll: true)
 
     assert_receive :panicked, 500
   end
@@ -86,7 +102,8 @@ defmodule Pokex.Bots.GuardianTest do
     {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
     wedged = fn -> exit({:timeout, {GenServer, :call, [Pokex.Bots.Catcher.Worker, :halt]}}) end
 
-    {:ok, guardian} = Guardian.start_link(name: nil, body: body, on_panic: wedged, poll_ms: 5)
+    {:ok, guardian} =
+      Guardian.start_link(name: nil, body: body, on_panic: wedged, poll_ms: 5, auto_poll: true)
 
     assert_receive {:panic, "kill corner"}, 500
     refute_receive {:EXIT, ^guardian, _reason}, 100
@@ -97,7 +114,7 @@ defmodule Pokex.Bots.GuardianTest do
     {:ok, body} = FakeBody.start_link({:ok, {500, 500}})
 
     {:ok, _guardian} =
-      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5, auto_poll: true)
 
     refute_receive :panicked, 100
   end
@@ -111,7 +128,7 @@ defmodule Pokex.Bots.GuardianTest do
     {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
 
     {:ok, _guardian} =
-      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5, auto_poll: true)
 
     assert eventually(fn -> InputGate.panic_latched?() end)
 
@@ -131,7 +148,7 @@ defmodule Pokex.Bots.GuardianTest do
     {:ok, body} = FakeBody.start_link({:ok, {0, 0}})
 
     {:ok, _guardian} =
-      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5, auto_poll: true)
 
     assert eventually(fn -> InputGate.state().corner_ok == false end)
 
@@ -143,7 +160,7 @@ defmodule Pokex.Bots.GuardianTest do
     {:ok, body} = FakeBody.start_link({:error, :not_ready})
 
     {:ok, _guardian} =
-      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5, auto_poll: true)
 
     refute_receive :panicked, 100
 
@@ -159,7 +176,7 @@ defmodule Pokex.Bots.GuardianTest do
     on_panic = fn -> :ok end
 
     {:ok, _guardian} =
-      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5)
+      Guardian.start_link(name: nil, body: body, on_panic: on_panic, poll_ms: 5, auto_poll: true)
 
     assert_receive {:panic, "kill corner"}, 500
     assert_receive {:panic, "kill corner"}, 500
@@ -167,7 +184,7 @@ defmodule Pokex.Bots.GuardianTest do
 
   # Pokex.Application permanently runs a Guardian at this same default name (under
   # BotSupervisor), so free the name for this test and hand it back afterwards.
-  test "defaults: registers as Pokex.Bots.Guardian, polls every 100ms against Pokex.Bots.Body" do
+  test "defaults: registers as Pokex.Bots.Guardian, 100ms cadence against Pokex.Bots.Body" do
     :ok = Supervisor.terminate_child(Pokex.Bots.BotSupervisor, Pokex.Bots.Guardian)
     on_exit(fn -> Supervisor.restart_child(Pokex.Bots.BotSupervisor, Pokex.Bots.Guardian) end)
 
@@ -212,7 +229,8 @@ defmodule Pokex.Bots.GuardianTest do
           body: body,
           on_panic: on_panic,
           poll_ms: 5,
-          session_rules: true
+          session_rules: true,
+          auto_poll: true
         )
 
       send(guardian, {:combat, %{state: :hunting, counters: %{fights: 2}, error: nil}})
@@ -235,7 +253,8 @@ defmodule Pokex.Bots.GuardianTest do
           body: body,
           on_panic: on_panic,
           poll_ms: 5,
-          session_rules: true
+          session_rules: true,
+          auto_poll: true
         )
 
       assert_receive :panicked, 1_000
@@ -255,7 +274,8 @@ defmodule Pokex.Bots.GuardianTest do
           body: body,
           on_panic: on_panic,
           poll_ms: 5,
-          session_rules: true
+          session_rules: true,
+          auto_poll: true
         )
 
       send(guardian, {:combat, %{state: :hunting, counters: %{fights: 99}, error: nil}})
@@ -274,7 +294,8 @@ defmodule Pokex.Bots.GuardianTest do
           body: body,
           on_panic: on_panic,
           poll_ms: 5,
-          session_rules: true
+          session_rules: true,
+          auto_poll: true
         )
 
       send(guardian, {:combat, %{state: :hunting, counters: %{fights: 99}, error: nil}})
@@ -303,7 +324,8 @@ defmodule Pokex.Bots.GuardianTest do
           body: body,
           on_panic: on_panic,
           poll_ms: 5,
-          session_rules: true
+          session_rules: true,
+          auto_poll: true
         )
 
       guardian
@@ -377,6 +399,7 @@ defmodule Pokex.Bots.GuardianTest do
           on_panic: on_panic,
           poll_ms: 5,
           session_rules: true,
+          auto_poll: true,
           logout_fun: logout_fun
         )
 
@@ -479,7 +502,7 @@ defmodule Pokex.Bots.GuardianTest do
       {:ok, guardian} =
         Guardian.start_link(
           Keyword.merge(
-            [name: nil, body: body, on_panic: on_panic, poll_ms: 5],
+            [name: nil, body: body, on_panic: on_panic, poll_ms: 5, auto_poll: true],
             opts
           )
         )

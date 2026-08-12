@@ -49,6 +49,10 @@ defmodule Pokex.Bots.Guardian do
   The poll loop must never crash on a bad cursor read: an `{:error, _}`
   reply (or any other unexpected shape) just reschedules the next poll.
 
+  The poll loop itself is gated by `:guardian_auto_poll` (false in test): it
+  reads the cursor through the shared Rig, which in the suite is the same
+  `Rig.Fake` other tests assert on. Test Guardians opt in with `auto_poll: true`.
+
   Bound on the panic guarantee: panic is delivered promptly but is bounded
   by whatever `Body` action is currently in flight — a worker blocked
   mid-action is halted once that action returns (actions are short: one
@@ -90,10 +94,24 @@ defmodule Pokex.Bots.Guardian do
         Application.get_env(:pokex, :guardian_session_rules, true)
       )
 
+    # Same contract as :focus_auto_monitor and :sweep_auto_tick: an app-global
+    # loop that reaches the Rig is OFF in the suite. This one reads the cursor
+    # through the SHARED Rig.Fake every 100ms, so every test that asserts
+    # "nothing reached the Rig" was racing it — six files carried an
+    # `Enum.reject({:cursor_position})` workaround and the one that didn't was
+    # the ~1-in-3 flake. Test Guardians opt back in with `auto_poll: true`.
+    auto_poll? =
+      Keyword.get(
+        opts,
+        :auto_poll,
+        Application.get_env(:pokex, :guardian_auto_poll, true)
+      )
+
     state = %{
       on_panic: on_panic,
       body: body,
       poll_ms: poll_ms,
+      auto_poll?: auto_poll?,
       session_rules?: session_rules?,
       logout_fun: Keyword.get(opts, :logout_fun, &Logout.request/1),
       # COMMAND corner (top-right): injectable deps so tests never start the
@@ -130,7 +148,7 @@ defmodule Pokex.Bots.Guardian do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
     # the REAL fish (won mini-game) and whether the watcher is up
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    schedule_poll(state.poll_ms)
+    if state.auto_poll?, do: schedule_poll(state.poll_ms)
     {:ok, state}
   end
 

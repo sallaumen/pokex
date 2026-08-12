@@ -518,6 +518,28 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     assert Enum.count(presses(), &(&1 == "3")) == 1
   end
 
+  # The dedup is NOT `Enum.uniq/1` over the concatenation: the ordered key
+  # keeps its place in FRONT even when the opening already has it. Recorded
+  # 3 then 4, ordered 4 → the 4 opens and the 3 follows. Backwards is exactly
+  # the bug the order exists to prevent — an aura that lands after the area
+  # damage did nothing for anyone.
+  @tag :tmp_dir
+  test "a tecla ordenada abre, mesmo já estando no meio do combo", %{worker: worker} do
+    posture = fn value ->
+      WorldState.put(:posture, %{posture: value, combo: ~w(3 4), orders: ~w(4)}, now_ms())
+    end
+
+    posture.(:hold_fire)
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+    refute eventually(fn -> "3" in presses() end, 250)
+
+    posture.(:free_fight)
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+    assert eventually(fn -> "3" in presses() end)
+    assert Enum.filter(presses(), &(&1 in ~w(3 4))) == ~w(4 3)
+  end
+
   # A hunt from an earlier version still publishing the fact without the new
   # field must not crash combat, nor silence the opening.
   @tag :tmp_dir

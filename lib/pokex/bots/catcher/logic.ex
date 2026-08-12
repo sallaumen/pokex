@@ -132,7 +132,7 @@ defmodule Pokex.Bots.Catcher.Logic do
 
         {%{logic | throw: %{throw | balls: throw.balls + 1, at: now}},
          [
-           {:capture_sequence, throw.point},
+           {:capture_sequence, throw.point, throw.name},
            {:log, "bola #{throw.balls + 1} em #{point_str(throw.point)}"}
          ]}
 
@@ -258,8 +258,11 @@ defmodule Pokex.Bots.Catcher.Logic do
       name: name_in(obs, point, logic.config.corpse_match_tolerance_px)
     }
 
+    # The name rides ALONG with the action, not just in the throw record: the
+    # worker is what turns a point into a key press, and which BALL to press is
+    # decided by who is lying there.
     {%{logic | throw: throw, queue: rest},
-     [{:capture_sequence, point}, {:log, "bola em #{point_str(point)}"}]}
+     [{:capture_sequence, point, throw.name}, {:log, "bola em #{point_str(point)}"}]}
   end
 
   defp maybe_throw(logic, _obs, _now), do: {logic, []}

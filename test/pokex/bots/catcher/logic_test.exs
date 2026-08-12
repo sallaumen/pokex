@@ -22,11 +22,11 @@ defmodule Pokex.Bots.Catcher.LogicTest do
 
   test "a corpse observation throws ONE ball and awaits confirmation" do
     {logic, actions} = Logic.step(armed(), obs([{100, 200}], 10), 10)
-    assert {:capture_sequence, {100, 200}} in actions
+    assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}, _}, &1))
     assert logic.counters.throws == 1
 
     {logic, actions} = Logic.step(logic, obs([{100, 200}, {300, 300}], 700), 700)
-    refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
+    refute Enum.any?(actions, &match?({:capture_sequence, _, _}, &1))
     assert logic.queue == [{300, 300}]
   end
 
@@ -35,7 +35,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
 
     {logic, actions} = Logic.step(logic, obs([{300, 300}], 900), 900)
     assert logic.counters.captures == 1
-    assert {:capture_sequence, {300, 300}} in actions
+    assert Enum.any?(actions, &match?({:capture_sequence, {300, 300}, _}, &1))
   end
 
   test "an observation captured BEFORE the flight window never confirms nor retries" do
@@ -50,11 +50,11 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
 
     {logic, actions} = Logic.step(logic, obs([{100, 200}], 900), 900)
-    assert {:capture_sequence, {100, 200}} in actions
+    assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}, _}, &1))
     assert logic.throw.balls == 2
 
     {logic, actions} = Logic.step(logic, obs([{100, 200}], 1_800), 1_800)
-    refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
+    refute Enum.any?(actions, &match?({:capture_sequence, _, _}, &1))
     assert logic.counters.ignored == 1
     assert logic.throw == nil
 
@@ -63,7 +63,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     assert logic.queue == []
 
     {_logic, actions} = Logic.step(logic, obs([{100, 200}], 130_000), 130_000)
-    assert {:capture_sequence, {100, 200}} in actions
+    assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}, _}, &1))
   end
 
   test "stale/nil observations do nothing" do
@@ -165,7 +165,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
 
       assert logic.counters.captures == 1
       assert Enum.any?(actions, &match?({:log, "capturado" <> _}, &1))
-      assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}}, &1))
+      assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}, _}, &1))
       assert logic.throw.name == "Gyarados"
     end
 
@@ -206,7 +206,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
       assert Enum.any?(actions, &match?({:log, "não é corpo" <> _}, &1))
 
       {logic, actions} = Logic.step(logic, %{obs_pet | captured_at: 2_000}, 2_000)
-      refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
+      refute Enum.any?(actions, &match?({:capture_sequence, _, _}, &1))
 
       obs_kingler = %{
         scanning?: true,
@@ -216,7 +216,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
       }
 
       {_logic, actions} = Logic.step(logic, obs_kingler, 2_200)
-      assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}}, &1))
+      assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}, _}, &1))
     end
 
     test "without identity on either side, the per-point veto still applies" do
@@ -225,7 +225,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
       {logic, _} = Logic.step(logic, obs([{100, 200}], 1_800), 1_800)
 
       {_logic, actions} = Logic.step(logic, obs([{100, 200}], 2_000), 2_000)
-      refute Enum.any?(actions, &match?({:capture_sequence, _}, &1))
+      refute Enum.any?(actions, &match?({:capture_sequence, _, _}, &1))
     end
   end
 end

@@ -24,13 +24,15 @@ defmodule Pokex.Bots.Catcher.Ball do
   without it the mouse was yanked ~2ms after the key, before the game registered
   the target.
   """
-  def sequence(point) do
-    [{:move, point}, {:wait, Settings.get(:capture_aim_settle_ms)}, {:press, key()}] ++
+  def sequence(point, ball_key \\ nil) do
+    key = ball_key || key()
+
+    [{:move, point}, {:wait, Settings.get(:capture_aim_settle_ms)}, {:press, key}] ++
       clique(point) ++
       [{:wait, Settings.get(:capture_hold_ms)}]
   end
 
-  @doc "The configured throw key."
+  @doc "The DEFAULT throw key — `Pokex.Bots.Catcher.Balls` picks per corpse."
   def key, do: Settings.get(:ball_key)
 
   defp clique(point) do

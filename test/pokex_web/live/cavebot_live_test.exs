@@ -295,6 +295,54 @@ defmodule PokexWeb.CavebotLiveTest do
       assert html =~ "luta de 8s medida aqui"
     end
 
+    # The shape half of Meganium 1 has (2026-08-12): he kills the pile, takes
+    # ONE step, and only then presses the shift+3 that closes the fight. The
+    # lesson belongs to the "até aqui" he just closed — the only waypoint the
+    # hunt ever reads it from — and the notice has to say so, because it is
+    # not being written where he is standing.
+    test "a fight closed one tile past the kill spot lands on the kill spot", %{conn: conn} do
+      now = DateTime.utc_now()
+      {:ok, route} = Route.append(Route.new("mob"), {10, 20, 7}, at: now)
+      {:ok, route} = Route.append(route, {11, 20, 7}, at: now)
+
+      route = route |> Route.set_action(0, :lure_end) |> Route.set_stop(0, :sweep, true)
+      :ok = Store.add(route)
+
+      put_pos({11, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      view |> element("#toggle-recording") |> render_click()
+
+      send(view.pid, {:world, :minimap, %{pos: {11, 20, 7}}})
+      render(view)
+
+      clicks!(1, {0, 0}, 0)
+      send(view.pid, :watch_middle)
+      render(view)
+
+      {:ok, one} = Pokex.Rig.Mac.Commands.keycode("1")
+      {:ok, three} = Pokex.Rig.Mac.Commands.keycode("3")
+
+      # shift+1 opens the fight on the kill spot behind him, a skill flies,
+      # shift+3 closes it a tile later
+      presses!([
+        %{code: one, shift?: true, at: 1_000},
+        %{code: three, shift?: false, at: 1_500},
+        %{code: three, shift?: true, at: 9_000}
+      ])
+
+      send(view.pid, :watch_middle)
+      html = render(view)
+
+      assert [%Route{waypoints: [kill, standing]}] = Store.all()
+      assert kill.fight_ms == 8_000
+      assert kill.combo == ~w(3)
+      assert standing.fight_ms == nil
+      assert standing.combo == []
+
+      # the waypoint numbers he reads on the page are 1-based
+      assert html =~ "anotada no waypoint 1"
+    end
+
     # Writing the combo per drain meant reading, decoding, encoding and
     # rewriting the WHOLE routes file eight times a second while he fought.
     # It is collected in memory and written on a conclusion.

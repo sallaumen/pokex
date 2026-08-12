@@ -156,6 +156,58 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
     end
   end
 
+  # He kills the pile, takes a step, and only THEN presses the shift+3 that
+  # closes the fight — half of Meganium 1 was recorded that way (2026-08-12).
+  # The lesson belongs to the kill spot, which is the only waypoint the hunt
+  # ever reads it from.
+  describe "taking the lesson back to the kill spot" do
+    # One tile apart: a route with no clock on its waypoints is measured with
+    # the blind ruler, which is 3 tiles.
+    defp tight_route(count, kills) do
+      route =
+        Enum.reduce(0..(count - 1), Route.new("r"), fn index, acc ->
+          {:ok, acc} = Route.append(acc, {index, 0, 7})
+          acc
+        end)
+
+      Enum.reduce(kills, route, &Route.set_stop(&2, &1, :sweep, true))
+    end
+
+    test "a fight closed one tile past the kill spot belongs to the kill spot" do
+      assert Recording.lesson_index(tight_route(3, [0]), 1) == 0
+    end
+
+    test "with no kill spot in reach the lesson stays where it was measured" do
+      assert Recording.lesson_index(tight_route(3, []), 1) == 1
+    end
+
+    # Deleting a waypoint mid-recording leaves the buffered combo pointing PAST
+    # the end of the route, and the drain right after it must not take the
+    # recording down: an index nobody has is its own answer, the same quiet
+    # no-op `Route.set_timing/3` has always been.
+    test "an index nobody has is its own answer" do
+      assert Recording.lesson_index(tight_route(3, [0]), 7) == 7
+    end
+
+    # `fight_ms` and `gather_ms` are ONE fight, and a lesson assembled out of
+    # two of them describes neither: a kill spot that measured its own fight
+    # keeps its own huddle, even when that huddle is nothing.
+    test "a kill spot with its own fight keeps its own huddle, nil and all" do
+      route =
+        tight_route(3, [0])
+        |> Route.set_timing(0, fight_ms: 7_910, combo: ~w(3 4))
+        |> Route.set_timing(1, fight_ms: 11_310, gather_ms: 1_851, combo: ~w(5))
+
+      {tidied, _note} = Recording.tidy(route)
+
+      assert Enum.at(tidied.waypoints, 0).fight_ms == 7_910
+      assert Enum.at(tidied.waypoints, 0).gather_ms == nil
+      assert Enum.at(tidied.waypoints, 0).combo == ~w(3 4 5)
+      assert Enum.at(tidied.waypoints, 1).fight_ms == nil
+      assert Enum.at(tidied.waypoints, 1).gather_ms == nil
+    end
+  end
+
   # His real combos came back as 1,1,3,3,3,4,4,4,4,4,5,5,5 — he mashes the key
   # while it is on cooldown. The intention underneath is 1,3,4,5.
   describe "what he MEANT to press" do

@@ -263,28 +263,41 @@ defmodule Pokex.Bots.Cavebot.Recording do
     end)
   end
 
-  # The destination gets what it did not have; what it already had is its own.
-  # Combos add up in route order, because both halves are the same fight.
+  # The destination ends up with ONE fight, whole: `fight_ms` and `gather_ms`
+  # are two halves of the same measurement and travel together or not at all.
+  # Only the combos add up, in route order, because a fight that closed a tile
+  # late pressed its keys on both waypoints.
   defp move_lesson(%Route{waypoints: waypoints} = route, from, to) do
     orphan = Enum.at(waypoints, from)
     target = Enum.at(waypoints, to)
 
-    kept = [
-      fight_ms: target[:fight_ms] || orphan[:fight_ms],
-      gather_ms: target[:gather_ms] || orphan[:gather_ms],
-      combo: (target[:combo] || []) ++ (orphan[:combo] || [])
-    ]
-
     route
-    |> Route.set_timing(to, kept)
+    |> put_fight(to, fight_pair(target, orphan))
+    |> Route.set_timing(to, combo: (target[:combo] || []) ++ (orphan[:combo] || []))
     |> clear_lesson(from)
   end
 
-  # `set_timing/3` only ever writes an integer, on purpose (`put_timing/3`):
-  # erasing is another operation, and this is it.
-  defp clear_lesson(%Route{waypoints: waypoints} = route, index) do
-    wp = waypoints |> Enum.at(index) |> Map.merge(%{fight_ms: nil, gather_ms: nil, combo: []})
+  # A kill spot that already measured a fight of its own keeps it — including
+  # a huddle of nothing, because filling that gap from ANOTHER fight would
+  # report a wait he never had. Kill spot 23 of Meganium 1 is exactly that
+  # shape: `fight_ms` 7910 with no `gather_ms` at all.
+  defp fight_pair(%{fight_ms: measured} = target, _orphan) when measured != nil,
+    do: {measured, target[:gather_ms]}
+
+  defp fight_pair(_target, orphan), do: {orphan[:fight_ms], orphan[:gather_ms]}
+
+  # `set_timing/3` only ever writes an integer, on purpose (`put_timing/3`), so
+  # a pair with a nil half is written here.
+  defp put_fight(%Route{waypoints: waypoints} = route, index, {fight_ms, gather_ms}) do
+    wp = waypoints |> Enum.at(index) |> Map.merge(%{fight_ms: fight_ms, gather_ms: gather_ms})
     %{route | waypoints: List.replace_at(waypoints, index, wp)}
+  end
+
+  # Erasing is another operation than writing, and this is it.
+  defp clear_lesson(%Route{} = route, index) do
+    route
+    |> put_fight(index, {nil, nil})
+    |> Route.set_timing(index, combo: [])
   end
 
   defp move_note(0), do: ""
@@ -389,10 +402,18 @@ defmodule Pokex.Bots.Cavebot.Recording do
   The answer is the same ruler the middle click and the shift+1 already use to
   decide "this is the same fight" — 6 tiles and 10 seconds. With no kill spot
   nearby, the lesson stays where it is.
+
+  An index the route does not have is its own answer, quietly: a waypoint
+  deleted mid-recording leaves the buffered combo pointing past the end, and
+  the drain right after it must not take the recording — and the combo — down
+  with it. `Route.set_timing/3` has always no-opped there; so does this.
   """
   @spec lesson_index(Route.t(), non_neg_integer, keyword) :: non_neg_integer
-  def lesson_index(%Route{} = route, index, opts \\ []) do
-    same_fight_spot(route, index, opts) || index
+  def lesson_index(%Route{waypoints: waypoints} = route, index, opts \\ []) do
+    case Enum.at(waypoints, index) do
+      nil -> index
+      _here -> same_fight_spot(route, index, opts) || index
+    end
   end
 
   # The LAST kill spot close enough to be the same fight. Distance, not

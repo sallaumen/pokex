@@ -267,12 +267,14 @@ defmodule PokexWeb.CavebotLive do
       [fight_ms: reading.fight_ms, gather_ms: reading.gather_ms]
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
 
+    filed = Recording.lesson_index(socket.assigns.active_route, index)
+
     socket
     |> write_timings(index, timings)
     |> flush_combo()
     |> then(
       &if reading.fight_ms,
-        do: assign(&1, notice: fight_note(reading), notice_kind: :ok),
+        do: assign(&1, notice: fight_note(reading, index, filed), notice_kind: :ok),
         else: &1
     )
   end
@@ -307,10 +309,17 @@ defmodule PokexWeb.CavebotLive do
 
   defp write_timings(socket, _index, _timings), do: socket
 
-  defp fight_note(%{fight_ms: ms, combo: combo}) do
-    base = "⚔️ luta de #{round(ms / 1000)}s medida aqui"
+  # "aqui" only when it really was here: the lesson may have been filed on the
+  # kill spot one or two tiles back (`Recording.lesson_index/3`), and a notice
+  # that says "aqui" about another waypoint is one he cannot check.
+  defp fight_note(%{fight_ms: ms, combo: combo}, index, filed) do
+    base = "⚔️ luta de #{round(ms / 1000)}s medida #{fight_place(index, filed)}"
     if combo == [], do: base, else: base <> " — skills #{Enum.join(combo, ", ")}"
   end
+
+  # the waypoint numbers he reads on the page are 1-based
+  defp fight_place(index, index), do: "aqui"
+  defp fight_place(_index, filed), do: "e anotada no waypoint #{filed + 1}"
 
   defp read_middle_click(socket) do
     case Pokex.Rig.impl().middle_watch() do

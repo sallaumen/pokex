@@ -18,6 +18,8 @@ defmodule PokexWeb.CavebotLive do
   import PokexWeb.CavebotComponents
 
   alias Pokex.Bots.Cavebot.{HandsRead, Photos, Recording, Route, Store, WalkTest, Worker}
+  alias Pokex.Bots.Combat
+  alias Pokex.Bots.Combat.Loadout
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.Settings
@@ -36,6 +38,11 @@ defmodule PokexWeb.CavebotLive do
       # to the worker parks behind whatever the Body is doing, and this page
       # must stay alive while the fleet works.
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      # The FIGHT narrates itself too, and this page had no idea who it was
+      # fighting as — "não vejo isso visível aqui na Central de caçada e nem
+      # vejo na prática se realmente isso tá impactando" (Lucas, 2026-08-12).
+      # Heard, never asked, for the same reason as the hunt above.
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Combat.Worker.topic())
       # the minimap feed only captures while someone is attached — the
       # recording page IS that someone, exactly while it is open.
       #
@@ -57,6 +64,9 @@ defmodule PokexWeb.CavebotLive do
        routes: routes,
        active_route: default_active(routes),
        pos: World.snapshot().pos,
+       # what the RUNNING fight holds; nil until it says so, and then the page
+       # falls back to the configuration and labels it as such
+       combat: nil,
        minimap_gap?: minimap_gap?(),
        recording?: false,
        # Read health: read_coord is all-or-nothing (requires 1.0 confidence),
@@ -137,6 +147,11 @@ defmodule PokexWeb.CavebotLive do
     do: {:noreply, assign(socket, world: World.snapshot())}
 
   def handle_info({:cavebot, snapshot}, socket), do: {:noreply, assign(socket, hunt: snapshot)}
+
+  def handle_info({:combat, snapshot}, socket), do: {:noreply, assign(socket, combat: snapshot)}
+
+  # the fight's log lines ride the same topic and are not this page's business
+  def handle_info({:combat_log, _level, _text}, socket), do: {:noreply, socket}
 
   def handle_info({:walk_test, result}, socket),
     do: {:noreply, assign(socket, walk_test: result, walk_ref: nil)}
@@ -1113,6 +1128,31 @@ defmodule PokexWeb.CavebotLive do
   # where he parked the pokémon, how long he let the pile close in, how long
   # the kill took, and the combo he used (as INTENT — the mashing on cooldown
   # is not a decision).
+  # The RUNNING fight's answer when there is one — that is the proof the profile
+  # is being obeyed. Falling back to the configuration keeps the page useful
+  # with the bot stopped, and the badge beside it says which one he is reading.
+  defp fighting_as(%{loadout: %{} = live}), do: live
+  defp fighting_as(_no_running_fight), do: configured_loadout()
+
+  defp configured_loadout do
+    case Loadout.current() do
+      nil ->
+        nil
+
+      loadout ->
+        %{
+          name: loadout.name,
+          opening: Combat.Strategy.opening(loadout),
+          reserved: Combat.Strategy.reserved(loadout),
+          buffs: loadout.buffs,
+          heal: loadout.heal
+        }
+    end
+  end
+
+  defp keys_line([]), do: "—"
+  defp keys_line(keys), do: Enum.join(keys, " ")
+
   defp taught_label(wp) do
     [park_part(wp), gather_part(wp), fight_part(wp), combo_part(wp)]
     |> Enum.reject(&is_nil/1)
@@ -1299,6 +1339,88 @@ defmodule PokexWeb.CavebotLive do
             Refaça o passo <strong>Posição & minimapa</strong>
             na <.link navigate={~p"/calibration"} class="underline">Calibração</.link>
             e volte aqui.
+          </p>
+        </section>
+
+        <%!-- WHO the fight is fighting as. He classifies each pokémon's keys on
+              /time and the hunt page said nothing about it: "sinto falta dele
+              falar ali qual pokémon que eu tô usando (…) pra eu saber que os
+              combos que ele tá me mostrando ali na caçada são de acordo com
+              aquele meu pokémon" (2026-08-12).
+
+              LIVE when the fight is running (that is the proof it is being
+              obeyed), the CONFIGURATION otherwise, and it says which. --%>
+        <section
+          id="cavebot-loadout"
+          class="rounded-lg border border-pk-line bg-pk-surface p-3"
+        >
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
+              lutando como
+            </span>
+
+            <span :if={fighting_as(@combat)} class="text-pk-body font-bold">
+              {fighting_as(@combat).name}
+            </span>
+            <.link
+              :if={is_nil(fighting_as(@combat))}
+              navigate={~p"/time"}
+              class="text-pk-body font-bold text-pk-warn hover:underline"
+            >
+              ninguém escolhido — escolhe no /time
+            </.link>
+
+            <span
+              :if={@combat && @combat[:loadout]}
+              class="rounded bg-pk-ok-dim px-1.5 py-0.5 font-mono text-pk-meta text-pk-ok"
+              title="veio da luta que está rodando agora"
+            >
+              ao vivo
+            </span>
+            <span
+              :if={fighting_as(@combat) && is_nil(@combat && @combat[:loadout])}
+              class="rounded bg-pk-raised px-1.5 py-0.5 font-mono text-pk-meta text-pk-text-3"
+              title="a luta não está rodando — isto é o que está configurado"
+            >
+              configurado
+            </span>
+
+            <.link navigate={~p"/time"} class="ml-auto text-pk-meta text-pk-info hover:underline">
+              mudar no /time
+            </.link>
+          </div>
+
+          <p :if={fighting_as(@combat)} class="mt-1.5 flex flex-wrap gap-x-3 font-mono text-pk-meta">
+            <span class="text-pk-ok">
+              💥 abre com {keys_line(fighting_as(@combat).opening)}
+            </span>
+            <span :if={fighting_as(@combat).buffs != []} class="text-pk-text-2">
+              ✨ aura {keys_line(fighting_as(@combat).buffs)}
+            </span>
+            <span :if={fighting_as(@combat).heal != []} class="text-pk-text-2">
+              ❤️ cura {keys_line(fighting_as(@combat).heal)}
+            </span>
+            <span :if={fighting_as(@combat).reserved != []} class="text-pk-warn">
+              🌀 guarda {keys_line(fighting_as(@combat).reserved)} pro revive
+            </span>
+          </p>
+
+          <p
+            :if={fighting_as(@combat) && fighting_as(@combat).opening == []}
+            class="mt-1 text-pk-meta text-pk-warn"
+          >
+            sem skill de área nem de alvo único classificada — a luta cai na lista fixa do
+            <.link navigate={~p"/config"} class="underline">/config</.link>
+          </p>
+
+          <%!-- The proof he asked for: not what is configured, what the fight
+                last actually pressed. --%>
+          <p
+            :if={@combat && @combat[:last_action]}
+            id="cavebot-last-press"
+            class="mt-1 font-mono text-pk-meta text-pk-text-3"
+          >
+            último aperto da luta: {@combat.last_action.text}
           </p>
         </section>
 

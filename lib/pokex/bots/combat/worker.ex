@@ -76,6 +76,10 @@ defmodule Pokex.Bots.Combat.Worker do
        # what the keys of the pokémon he chose DO — nil until :run, and nil
        # forever if he chose none (the fight then presses the configured list)
        loadout: nil,
+       # the same loadout in the shape a page reads, computed WHEN IT CHANGES —
+       # snapshots go out on every step, and recomputing an order per broadcast
+       # is work inside the hot path for a value that only moves when he edits
+       loadout_view: nil,
        feed_ref: nil,
        reattach_attempts: 0,
        held?: false,
@@ -105,15 +109,16 @@ defmodule Pokex.Bots.Combat.Worker do
         demonitor_feed(state.feed_ref)
         ref = Process.monitor(Feed.name(:battle))
 
-        state = %{
-          state
-          | logic: logic,
-            feed_ref: ref,
-            reattach_attempts: 0,
-            held?: false,
-            last_action: nil,
-            loadout: Loadout.current()
-        }
+        state =
+          %{
+            state
+            | logic: logic,
+              feed_ref: ref,
+              reattach_attempts: 0,
+              held?: false,
+              last_action: nil
+          }
+          |> put_loadout(Loadout.current())
 
         log_loadout(state.loadout)
 
@@ -168,7 +173,7 @@ defmodule Pokex.Bots.Combat.Worker do
 
     if loadout != state.loadout, do: log_loadout(loadout)
 
-    {:noreply, %{state | loadout: loadout}}
+    {:noreply, put_loadout(state, loadout)}
   end
 
   # A key burst failed on its async task (see `dispatch/1`/`tap_keys/2`). Ignore it while
@@ -573,7 +578,8 @@ defmodule Pokex.Bots.Combat.Worker do
       locked_row: nil,
       scenery: 0,
       hold_reason: nil,
-      last_action: state.last_action
+      last_action: state.last_action,
+      loadout: state.loadout_view
     }
 
   # `scenery` is how many battle rows this worker has GIVEN UP on — the rows it
@@ -588,7 +594,27 @@ defmodule Pokex.Bots.Combat.Worker do
       locked_row: logic.locked_row,
       scenery: logic.scenery_rows || 0,
       hold_reason: hold_reason(logic, state),
-      last_action: state.last_action
+      last_action: state.last_action,
+      loadout: state.loadout_view
+    }
+
+  # WHO the running fight thinks it is fighting as, and what that decides. The
+  # profile lives on /time and the pages that show it were showing the CONFIG —
+  # "não vejo na prática se realmente isso tá impactando" (Lucas, 2026-08-12).
+  # This is the fight's own answer, so a page can show what is happening instead
+  # of what was configured.
+  defp put_loadout(state, loadout),
+    do: %{state | loadout: loadout, loadout_view: loadout_view(loadout)}
+
+  defp loadout_view(nil), do: nil
+
+  defp loadout_view(loadout),
+    do: %{
+      name: loadout.name,
+      opening: Strategy.opening(loadout),
+      reserved: Strategy.reserved(loadout),
+      buffs: loadout.buffs,
+      heal: loadout.heal
     }
 
   # Why combat is quiet, in the ONE slot the panel already reads. A silent

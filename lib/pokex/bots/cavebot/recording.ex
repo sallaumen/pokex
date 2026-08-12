@@ -277,14 +277,26 @@ defmodule Pokex.Bots.Cavebot.Recording do
     |> clear_lesson(from)
   end
 
-  # A kill spot that already measured a fight of its own keeps it — including
-  # a huddle of nothing, because filling that gap from ANOTHER fight would
-  # report a wait he never had. Kill spot 23 of Meganium 1 is exactly that
-  # shape: `fight_ms` 7910 with no `gather_ms` at all.
+  # Whose fight the destination ends up describing decides the whole rule, and
+  # the two halves are NOT symmetric — do not "simplify" them into one line.
+  #
+  # A kill spot that already measured a fight of its OWN keeps it whole,
+  # including a huddle of nothing: the orphan is then a DIFFERENT fight, and
+  # filling that gap from it would report a wait he never had. Kill spot 23 of
+  # Meganium 1 is exactly that shape: `fight_ms` 7910 with no `gather_ms`.
+  #
+  # A kill spot with no fight of its own is the opposite case: the orphan IS
+  # this fight, so its `fight_ms` is welcome — but the huddle and the fight are
+  # drained at two different MOMENTS (`gather_ms` on the first bare skill after
+  # parking, `fight_ms` seconds later on the shift+3), so the destination may
+  # already hold the huddle it measured with its own clock while the fight
+  # closed a tile later. That measurement is this same fight's and stays; the
+  # orphan's half only fills a gap.
   defp fight_pair(%{fight_ms: measured} = target, _orphan) when measured != nil,
     do: {measured, target[:gather_ms]}
 
-  defp fight_pair(_target, orphan), do: {orphan[:fight_ms], orphan[:gather_ms]}
+  defp fight_pair(target, orphan),
+    do: {orphan[:fight_ms], target[:gather_ms] || orphan[:gather_ms]}
 
   # `set_timing/3` only ever writes an integer, on purpose (`put_timing/3`), so
   # a pair with a nil half is written here.

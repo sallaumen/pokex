@@ -206,6 +206,27 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
       assert Enum.at(tidied.waypoints, 1).fight_ms == nil
       assert Enum.at(tidied.waypoints, 1).gather_ms == nil
     end
+
+    # The other half of the rule. The huddle and the fight are drained at two
+    # different moments — `gather_ms` on the first bare skill after parking,
+    # `fight_ms` seconds later on the shift+3 — so a kill spot can hold the
+    # huddle it measured itself while the fight closed one tile later. That
+    # orphan IS this fight: its `fight_ms` is welcome, its empty huddle must
+    # not erase the one the kill spot measured with its own clock.
+    test "a kill spot that only measured the huddle keeps it and takes the fight" do
+      route =
+        tight_route(3, [0])
+        |> Route.set_timing(0, gather_ms: 1_851, combo: ~w(3))
+        |> Route.set_timing(1, fight_ms: 11_310, gather_ms: 4_000, combo: ~w(4 5))
+
+      {tidied, _note} = Recording.tidy(route)
+
+      assert Enum.at(tidied.waypoints, 0).fight_ms == 11_310
+      assert Enum.at(tidied.waypoints, 0).gather_ms == 1_851
+      assert Enum.at(tidied.waypoints, 0).combo == ~w(3 4 5)
+      assert Enum.at(tidied.waypoints, 1).fight_ms == nil
+      assert Enum.at(tidied.waypoints, 1).gather_ms == nil
+    end
   end
 
   # His real combos came back as 1,1,3,3,3,4,4,4,4,4,5,5,5 — he mashes the key

@@ -210,7 +210,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                  park_tiles: nil,
                  fight_ms: nil,
                  gather_ms: nil,
-                 combo: []
+                 combo: [],
+                 skills: [],
+                 gather_wait_ms: nil
                },
                pos: nil,
                pos_age_ms: nil,
@@ -665,7 +667,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              park_tiles: nil,
              fight_ms: nil,
              gather_ms: nil,
-             combo: []
+             combo: [],
+             skills: [],
+             gather_wait_ms: nil
            }
 
     assert status.pos == {10, 20, 7}

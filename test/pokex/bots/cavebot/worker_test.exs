@@ -1189,7 +1189,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     # press is even spawned, so mailbox order here IS send order — and the
     # order is the whole assertion.
     test "it lets go of the arrows before pressing" do
-      state = %{skill_state(Loadout.resolve("Vespiquen", %{"2" => :buffs})) | held_keys: ["right"]}
+      state = %{
+        skill_state(Loadout.resolve("Vespiquen", %{"2" => :buffs}))
+        | held_keys: ["right"]
+      }
 
       Worker.translate(state, {:skills, [:buffs]})
 

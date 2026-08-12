@@ -366,7 +366,7 @@ defmodule PokexWeb.DiagnosticsLive do
          {px, py, pw, ph} = panel_rect,
          {rx, ry, rw, rh} = region_rect,
          {:ok, frame} <- Capture.frame({px, py, pw, ph}, filename) do
-      Glyphs.unknown_in(
+      Glyphs.uncertain_in(
         frame,
         {rx - px, ry - py, rw, rh},
         Pokex.Layout.region_opts(fix, region)
@@ -394,9 +394,16 @@ defmodule PokexWeb.DiagnosticsLive do
             <div>
               <h2 class="text-sm font-bold">Ensinar glifos</h2>
               <p class="mt-0.5 text-xs leading-relaxed opacity-60">
-                Todo "?" no painel é UM caractere que esta instalação nunca viu — um dígito que
-                nunca esteve na tela quando as capturas foram feitas. Varra o HUD, olhe o
-                desenho e diga o que é: fica sabido pra sempre, e sobrevive a atualizações.
+                Aqui aparece todo caractere que esta instalação <b>não sabe de verdade</b>
+                —
+                tanto o que virou "?" quanto o que ela apenas <b>chutou</b>
+                pelo desenho mais
+                parecido. Chute erra: medido na tua coordenada em 2026-08-12, a faixa dizia
+                <span class="font-mono">(3415, 30964, 2)</span>
+                e o leitor respondeu <span class="font-mono">(3418, 30963, 3)</span>
+                — inclusive
+                o andar, que é do que a escada depende. Varra, <b>confira o desenho</b>
+                e confirme: fica sabido pra sempre e o chute acaba.
               </p>
             </div>
             <button class="btn btn-sm btn-primary shrink-0" phx-click="scan_glyphs">
@@ -426,11 +433,21 @@ defmodule PokexWeb.DiagnosticsLive do
                   name="char"
                   maxlength="2"
                   autocomplete="off"
+                  value={glyph[:guess]}
                   placeholder="?"
                   class="input input-bordered input-sm w-14 text-center font-mono"
                 />
                 <button class="btn btn-sm">Aprender</button>
               </form>
+              <%!-- The guess is filled in and LABELLED as a guess: it is right
+                    often enough to save typing and wrong often enough that
+                    hiding its nature would be the bug all over again. --%>
+              <span :if={glyph[:guess]} class="text-xs opacity-60">
+                chutou <b class="font-mono">{glyph[:guess]}</b> — confere no desenho
+              </span>
+              <span :if={is_nil(glyph[:guess])} class="text-xs text-warning">
+                não leu nada
+              </span>
             </li>
           </ul>
         </section>

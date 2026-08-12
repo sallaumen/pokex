@@ -28,6 +28,7 @@ defmodule PokexWeb.HeaderState do
   alias Pokex.Bots.Focus
   alias Pokex.Calibration
   alias Pokex.Characters
+  alias Pokex.Machine.Presence
   alias Pokex.Settings
 
   @focus_topic "focus"
@@ -39,10 +40,12 @@ defmodule PokexWeb.HeaderState do
 
   def on_mount(:default, _params, _session, socket) do
     owns_workers? = socket.view != PokexWeb.PanelLive
+    machine = machine()
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @focus_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, Characters.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Presence.topic())
 
       if owns_workers?,
         do: Enum.each(@worker_topics, &Phoenix.PubSub.subscribe(Pokex.PubSub, &1))
@@ -60,7 +63,9 @@ defmodule PokexWeb.HeaderState do
         active_character: Characters.active(),
         alarm_sound: Settings.get(:alarm_sound),
         alarm_muted_categories: Settings.get(:alarm_muted_categories),
-        screen_check: screen_check()
+        screen_check: screen_check(),
+        machine_others: machine.others,
+        machine_first?: machine.first?
       )
       |> sync_workers(BotSupervisor.status())
       |> attach_hook(:header_state, :handle_info, &info/2)
@@ -107,6 +112,14 @@ defmodule PokexWeb.HeaderState do
   # runs on EVERY mount, and the broker is busy for seconds at a time while the
   # bot works. No proof (:unknown) shows nothing — a strip that cries wolf on a
   # missing reading would be worse than the silence it replaces.
+  # Never a reason to fail a mount: a detector that can't answer just means no warning. In the
+  # test env the app-wide Presence doesn't poll, so this is an empty list there by design.
+  defp machine do
+    Presence.status()
+  catch
+    _kind, _reason -> %{others: [], first?: true}
+  end
+
   defp screen_check do
     case Calibration.load() do
       {:ok, calib} -> Calibration.screen_check(calib, Capture.display_points_cached())
@@ -118,6 +131,11 @@ defmodule PokexWeb.HeaderState do
 
   defp info({:focus, %{focused?: focused?}}, socket),
     do: {:halt, assign(socket, focused?: focused?)}
+
+  # Another Pokex can be opened or closed under a tab that is already sitting there, so the
+  # warning is fed by broadcast, not only at mount.
+  defp info({:machine_presence, %{others: others, first?: first?}}, socket),
+    do: {:halt, assign(socket, machine_others: others, machine_first?: first?)}
 
   # ALWAYS `:halt`: no page handles `{:character, _}` in its own
   # `handle_info/2` — whoever owns character data implements

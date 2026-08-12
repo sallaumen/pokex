@@ -44,6 +44,10 @@ defmodule Pokex.Application do
       # Pauses everything when the game window loses focus (and resumes on refocus). After the
       # BotSupervisor so it can halt/resume those workers.
       Pokex.Bots.Focus,
+      # Notices OTHER Pokex VMs running on this Mac and says so on every page. Detection only:
+      # it holds no authority over anything above it, so its position in this list is free and
+      # a failure of its own can never stop the bot.
+      Pokex.Machine.Presence,
       PokexWeb.Endpoint
     ]
 

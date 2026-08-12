@@ -7,6 +7,7 @@ defmodule PokexWeb.Layouts do
 
   alias Pokex.Bots.AlarmCategories
   alias Pokex.Calibration
+  alias Pokex.Machine.Presence
 
   # Embed all files in layouts/* within this module.
   # The default root.html.heex file contains the HTML
@@ -92,6 +93,14 @@ defmodule PokexWeb.Layouts do
   attr :screen_check, :any,
     default: :unknown,
     doc: "does the saved calibration match this screen (HeaderState)"
+
+  attr :machine_others, :list,
+    default: [],
+    doc: "other live Pokex VMs on this Mac (HeaderState)"
+
+  attr :machine_first?, :boolean,
+    default: true,
+    doc: "did THIS VM start before them (HeaderState)"
 
   attr :max_width, :string,
     default: "max-w-3xl",
@@ -340,6 +349,8 @@ defmodule PokexWeb.Layouts do
         </div>
       </header>
 
+      <.other_pokex_strip others={@machine_others} first?={@machine_first?} />
+
       <.screen_mismatch_strip check={@screen_check} current_page={@current_page} />
 
       <main class={["mx-auto w-full px-2 py-3", @max_width]}>
@@ -350,6 +361,45 @@ defmodule PokexWeb.Layouts do
     </div>
     """
   end
+
+  attr :others, :list, required: true, doc: "other live Pokex VMs (Machine.Presence)"
+  attr :first?, :boolean, default: true
+
+  @doc """
+  Says, on every page, that another Pokex is running on this Mac.
+
+  On 2026-08-12 a second server — opened in a worktree only to review the UI — started fishing
+  by itself next to the real one. Nobody had clicked Iniciar: the `Guardian`'s command corner is
+  a MOUSE dwell, and the mouse belongs to the machine, so both VMs obeyed it at once.
+
+  This is a warning and nothing more. Both windows get it, and it deliberately promises no
+  protection: neither one is read-only, so text implying "the other one is in charge" would be a
+  lie that makes the human relax. It names the ports because that is what he needs to know which
+  terminal to close.
+  """
+  def other_pokex_strip(%{others: [_ | _]} = assigns) do
+    ~H"""
+    <div
+      id="other-pokex-strip"
+      role="status"
+      class="sticky top-12 z-30 border-b border-pk-warn-line bg-pk-warn-dim/95 backdrop-blur"
+    >
+      <div class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5">
+        <.icon name="hero-exclamation-triangle" class="size-4 shrink-0 text-pk-warn" />
+        <p class="flex-1 text-pk-body text-pk-text">
+          <b class="text-pk-warn">Tem outro Pokex rodando nesta máquina</b>
+          <span class="pk-num text-pk-text-2">
+            — {Presence.describe(@others)}. Os dois obedecem o mesmo mouse: o <b>canto de comando</b>
+            (mouse no topo-direito) liga e desliga a frota dos DOIS ao mesmo tempo, e as capturas
+            de tela disputam a mesma fila. Feche um dos servidores antes de caçar.
+          </span>
+        </p>
+      </div>
+    </div>
+    """
+  end
+
+  def other_pokex_strip(assigns), do: ~H""
 
   attr :check, :any, required: true, doc: "Calibration.screen_check/2 result"
   attr :current_page, :atom, default: nil
@@ -500,7 +550,9 @@ defmodule PokexWeb.Layouts do
         :active_character,
         :alarm_sound,
         :alarm_muted_categories,
-        :screen_check
+        :screen_check,
+        :machine_others,
+        :machine_first?
       ])
 
   # The id becomes DOM: `:fishing_lab` -> "app-nav-fishing-lab" (underscores in

@@ -76,7 +76,13 @@ defmodule PokexWeb.PanelLive do
      "sorteia +0..N ms depois de cada skill; 20 = intervalo base + 0 a 20ms"},
     {:target_lost_streak, "Confirmações de morte",
      "quantas leituras sem inimigo até considerar o alvo morto"},
-    {:fight_timeout_ms, "Timeout de alvo (ms)", "desiste de um alvo que não morre nesse tempo"}
+    {:fight_timeout_ms, "Timeout de alvo (ms)", "desiste de um alvo que não morre nesse tempo"},
+    {:after_kill_hold_ms, "Pausa depois de matar (ms)",
+     "0 = já caça o próximo; acima disso mata um por vez e deixa o resto no teu pokémon"},
+    {:hunt_probe_window_ms, "Sonda pós-kill (ms)",
+     "quanto tempo ele dá Tab às cegas depois de matar, caso a lista demore a aparecer"},
+    {:no_damage_ms, "Alvo que não sangra (ms)",
+     "sem tirar vida nesse tempo, larga o alvo (parede/fora de alcance); 0 desliga"}
   ]
 
   @positive_timing_keys [:combat_skill_burst_size, :combat_skill_tap_count]

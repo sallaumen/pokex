@@ -269,6 +269,35 @@ defmodule Pokex.Bots.Cavebot.Recording do
     end
   end
 
+  @doc """
+  Marks the kill spot his own hand announced: shift+1 is the game's attack
+  mode, and pressing it means "saio do modo mobado, vou matar" — so the fight
+  starts HERE, and this is a stop on the route ("toda luta é uma parada na
+  rota", Lucas, 2026-08-11).
+
+  The same marker as the middle click, with the same guard: a fight already
+  marked next door is not marked twice — shift+1 pressed again mid-pile, or
+  pressed right after the click that parked the pokémon, is the same fight.
+  A quiet `nil` note is the answer then, because nothing happened.
+  """
+  @spec mark_fight_start(Route.t(), non_neg_integer, keyword) ::
+          {Route.t(), String.t() | nil}
+  def mark_fight_start(%Route{} = route, index, opts \\ []) do
+    cond do
+      Enum.at(route.waypoints, index) == nil ->
+        {route, nil}
+
+      same_fight_spot(route, index, opts) ->
+        {route, nil}
+
+      true ->
+        {marked, _note} =
+          mark_kill_spot(route, index, nil, Keyword.get(opts, :hand_marked, []))
+
+        {marked, "⚔️ shift+1: aqui é matança — marquei \"até aqui\" + varrer"}
+    end
+  end
+
   # The LAST kill spot close enough to be the same fight. Distance, not
   # adjacency: between two real piles he walks ten tiles or more (measured on
   # his own route), and inside one fight he moves one or two.

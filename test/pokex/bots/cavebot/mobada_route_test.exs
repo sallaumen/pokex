@@ -89,6 +89,47 @@ defmodule Pokex.Bots.Cavebot.MobadaRouteTest do
     end
   end
 
+  # "o Shift+1 é o modo de combate, quando uso ele quer dizer que sai do modo
+  # mobado… dá pra usar isso pro save dos mapas!" (Lucas, 2026-08-11)
+  describe "shift+1 marks the map" do
+    test "it makes the waypoint a kill spot, with a gathering leading in" do
+      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
+      {:ok, route} = Route.append(route, {110, 100, 7})
+      {:ok, route} = Route.append(route, {120, 100, 7})
+
+      {route, note} = Recording.mark_fight_start(route, 2)
+
+      assert Enum.at(route.waypoints, 2).action == :lure_end
+      assert :sweep in Enum.at(route.waypoints, 2).stops
+      assert Enum.at(route.waypoints, 0).action == :lure_start
+      assert note =~ "shift+1"
+    end
+
+    test "pressed twice in the same fight it marks once, quietly" do
+      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
+      {:ok, route} = Route.append(route, {101, 100, 7})
+
+      {route, _note} = Recording.mark_fight_start(route, 0)
+      {route, note} = Recording.mark_fight_start(route, 1)
+
+      assert kill_spots(route) == [0]
+      assert note == nil
+    end
+
+    # The click that parks the pokémon lands in the middle of the same fight:
+    # it moves the spot's point instead of opening a second one.
+    test "the middle click after it belongs to the same spot" do
+      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
+      {:ok, route} = Route.append(route, {102, 100, 7})
+
+      {route, _note} = Recording.mark_fight_start(route, 0)
+      {route, _note} = Recording.mark_park(route, 1, {1300, 650})
+
+      assert kill_spots(route) == [0]
+      assert Enum.at(route.waypoints, 0).park_point == {1300, 650}
+    end
+  end
+
   # The recorder itself, so the mess does not come back on the next recording.
   describe "the middle clicks of one fight" do
     test "a click next to a kill spot MOVES the pokémon instead of marking again" do

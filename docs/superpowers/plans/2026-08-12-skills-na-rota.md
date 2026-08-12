@@ -19,8 +19,15 @@ sugestão de tela.
 
 ## Global Constraints
 
-- **Código e identificadores em INGLÊS**; português só no que aparece na tela e
-  em log pro Lucas. (Convenção do repo, PRs #133/#135/#136.)
+- **Código, identificadores, `@moduledoc`, `@doc` e comentários em INGLÊS.**
+  Português só em três lugares: texto que aparece na tela, texto de log pro
+  Lucas, e **citações dele preservadas literalmente** dentro de um comentário
+  (é assim que `route.ex` e `recording.ex` já são — prosa em inglês, a fala
+  dele em português entre aspas com a data). ⚠️ **Os trechos de código deste
+  plano trazem `@doc` e comentários em português porque o plano é escrito pro
+  Lucas ler — ao implementar, escreva essa mesma prosa em INGLÊS**, mantendo o
+  conteúdo e preservando as citações dele em português. (Convenção do repo,
+  PRs #133/#135/#136.)
 - **Categoria, nunca tecla literal**, no que a rota guarda. As cinco categorias
   são exatamente `SkillProfile.categories/0` = `[:buffs, :aoe, :single, :heal, :crowd]`.
 - **Decodificação de arquivo é sempre whitelist**, nunca `String.to_atom/1`:

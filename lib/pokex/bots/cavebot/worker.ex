@@ -478,9 +478,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         state
 
       keys ->
-        log(:macro, "✨ skill da rota: #{Enum.join(keys, ", ")}")
-        actions = Enum.map(keys, &{:press, &1})
-        state.body.perform(actions, :normal)
+        fire_skills(state.body, keys)
         state
     end
   end
@@ -615,6 +613,34 @@ defmodule Pokex.Bots.Cavebot.Worker do
         :ok -> log(:macro, "⚡ resetei os cooldowns no revive")
         {:error, reason} -> log(:macro, "⚡ o corpo recusou o revive: #{inspect(reason)}")
         other -> log(:macro, "⚡ revive respondeu #{inspect(other)}")
+      end
+    end)
+  end
+
+  # OFF the tick, like every other `perform` here: it is a call with an
+  # :infinity timeout and the Body may be several seconds deep in a capture —
+  # blocking this tick would freeze the hunt AND time out the page's own
+  # `status` call. The arrows are already down before the spawn (release_walk/1
+  # is synchronous), so letting go still happens strictly before the press.
+  #
+  # :high, not :normal, and the ORDERING is why: `hold/1` is answered inline by
+  # the Body loop while a `perform` sequence waits its turn in the queue. A
+  # press parked in the normal queue could still be pending when the NEXT tick
+  # holds the arrows back down — a press under a hold, exactly the bug the
+  # release above exists to prevent. :high preempts the queue and narrows that
+  # window to near-zero; it is the same trade `park_click/2` already takes.
+  #
+  # The answer is worth a log line: a refusal must SAY so instead of narrating
+  # a skill that never went out.
+  defp fire_skills(body, keys) do
+    actions = Enum.map(keys, &{:press, &1})
+    text = Enum.join(keys, ", ")
+
+    spawn(fn ->
+      case body.perform(actions, :high) do
+        :ok -> log(:macro, "✨ skill da rota: #{text}")
+        {:error, reason} -> log(:macro, "✨ o corpo recusou a skill: #{inspect(reason)}")
+        other -> log(:macro, "✨ a skill respondeu #{inspect(other)}")
       end
     end)
   end

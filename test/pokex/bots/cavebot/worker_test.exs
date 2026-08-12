@@ -117,7 +117,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.InputGate
   alias Pokex.Perception.WorldState
-  alias Pokex.Rig.Fake
+  alias Pokex.Pokedex.Team
   alias Pokex.SettingsStash
 
   @moduletag :tmp_dir
@@ -1073,52 +1073,107 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       :ok = Worker.halt(worker)
       assert posture!() == :free_fight
     end
+
+    defp orders! do
+      case WorldState.get(:posture, 60_000, System.monotonic_time(:millisecond)) do
+        {:ok, fact} -> Map.get(fact, :orders)
+        other -> other
+      end
+    end
+
+    defp classify!(name, profile) do
+      {:ok, _} = Team.add(name)
+      Team.set_skills(name, profile)
+      Team.set_active(name)
+    end
+
+    # The kill spot's order rides the posture as KEYS, never as categories:
+    # Combat has no business asking which pokémon is out. Two hops have to
+    # survive the trip — the category the route stores, and the loadout of the
+    # pokémon he chose on /time.
+    test "the kill spot's orders travel already resolved to keys", %{worker: worker} do
+      # the worker's cached loadout is nil until the team file says otherwise;
+      # `set_active` broadcasts {:team_changed} from THIS process, so the
+      # refresh is already in the worker's mailbox before the first tick.
+      classify!("Vespiquen", %{"2" => :buffs})
+
+      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
+      {:ok, route} = Route.append(route, {200, 100, 7})
+      {:ok, route} = Route.append(route, {200, 200, 7})
+
+      :ok =
+        Store.add(
+          route
+          |> Route.set_action(0, :lure_start)
+          |> Route.set_action(2, :lure_end)
+          |> Route.set_skill(2, :buffs, true)
+        )
+
+      :ok = Worker.run(worker)
+      minimap!({100, 100, 7})
+      tick!(worker)
+      tick!(worker)
+      minimap!({200, 100, 7})
+      tick!(worker)
+      minimap!({200, 200, 7})
+      tick!(worker)
+
+      # standing on the kill spot: the aura he ordered there, as Vespiquen's key
+      assert orders!() == ["2"]
+    end
+
+    test "away from the kill spot the posture carries no orders", %{worker: worker} do
+      classify!("Vespiquen", %{"2" => :buffs})
+      reach_lure_start!(worker)
+
+      assert orders!() == []
+    end
   end
 
   # The route stores a CATEGORY; the key is only known here, where the pokémon
   # on the field is. `FakeBody` is already started by the module setup and
   # already reports to this pid, so a minimal state is enough — `release_walk/1`
   # with `held_keys: []` is a no-op.
-  describe "as skills da rota" do
+  describe "the route's skills" do
     defp skill_state(loadout),
       do: %{body: FakeBody, held_keys: [], loadout: loadout}
 
-    test "a ordem do canto vira tecla do pokémon em campo e sai pelo Body" do
+    test "the corner's order becomes the key of the pokémon on the field and goes out via the Body" do
       state = skill_state(Loadout.resolve("Vespiquen", %{"2" => :buffs}))
 
       Worker.translate(state, {:skills, [:buffs]})
 
-      assert_receive {:performed, :normal, [{:press, "2"}]}
+      assert_receive {:performed, :high, [{:press, "2"}]}
     end
 
     # Changing pokémon changes the key without touching the route — the whole
     # reason the route stores a category and not a key.
-    test "o mesmo canto aperta outra tecla com outro pokémon" do
+    test "the same corner presses another key with another pokémon" do
       state = skill_state(Loadout.resolve("Shiny Vileplume", %{"1" => :buffs}))
 
       Worker.translate(state, {:skills, [:buffs]})
 
-      assert_receive {:performed, :normal, [{:press, "1"}]}
+      assert_receive {:performed, :high, [{:press, "1"}]}
     end
 
-    test "duas categorias saem na ordem, sem repetir tecla" do
+    test "two categories go out in order, without repeating a key" do
       state = skill_state(Loadout.resolve("Gogoat", %{"1" => :buffs, "4" => :aoe}))
 
       Worker.translate(state, {:skills, [:buffs, :aoe]})
 
-      assert_receive {:performed, :normal, [{:press, "1"}, {:press, "4"}]}
+      assert_receive {:performed, :high, [{:press, "1"}, {:press, "4"}]}
     end
 
     # A route pointing at a skill this pokémon does not have must never wedge
     # the hunt.
-    test "categoria não classificada não aperta nada e não quebra" do
+    test "an unclassified category presses nothing and breaks nothing" do
       state = skill_state(Loadout.resolve("Sunkern", %{"3" => :aoe}))
 
       assert %{} = Worker.translate(state, {:skills, [:heal]})
       refute_receive {:performed, _priority, _actions}, 50
     end
 
-    test "sem pokémon em campo não aperta nada e não quebra" do
+    test "with no pokémon on the field it presses nothing and breaks nothing" do
       state = skill_state(nil)
 
       assert %{} = Worker.translate(state, {:skills, [:buffs]})
@@ -1127,13 +1182,20 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     # A stuck key is the worst bug this system can produce: the skill only goes
     # out after the arrows have been let go.
-    test "solta o hold das setas antes de apertar" do
+    #
+    # Received POSITIONALLY, never as two `assert_receive` patterns: those scan
+    # the mailbox and skip what does not match, so a press that arrived FIRST
+    # would pass both. `{:held, []}` is enqueued by `release_walk/1` before the
+    # press is even spawned, so mailbox order here IS send order — and the
+    # order is the whole assertion.
+    test "it lets go of the arrows before pressing" do
       state = %{skill_state(Loadout.resolve("Vespiquen", %{"2" => :buffs})) | held_keys: ["right"]}
 
       Worker.translate(state, {:skills, [:buffs]})
 
-      assert_receive {:held, []}
-      assert_receive {:performed, :normal, [{:press, "2"}]}
+      assert_receive first
+      assert_receive second
+      assert {first, second} == {{:held, []}, {:performed, :high, [{:press, "2"}]}}
     end
   end
 end

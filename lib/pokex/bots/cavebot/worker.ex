@@ -82,6 +82,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     gather_wait_ms: :cavebot_gather_wait_ms,
     gather_wait_min_ms: :cavebot_gather_wait_min_ms,
     gather_wait_max_ms: :cavebot_gather_wait_max_ms,
+    fight_only_at_stops: :cavebot_fight_only_at_stops,
     stair_probe_ms: :cavebot_stair_probe_ms,
     stair_max_probes: :cavebot_stair_max_probes
   }
@@ -314,11 +315,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # which it treats as free fire. A pacifist bot left behind by a dead cavebot
   # is the failure this shape makes impossible; the heartbeat is what buys it.
   defp publish_posture(state, now) do
-    # Holding fire outlives the walking: after arriving at "até aqui" the pile
-    # is still closing in, and hitting the first straggler wastes the whole
-    # gathering (Logic.gathering?/2).
-    holding? = Logic.luring?(state.logic) or Logic.gathering?(state.logic, now)
-    posture = if holding?, do: :hold_fire, else: :free_fight
+    posture = if Logic.hold_fire?(state.logic, now), do: :hold_fire, else: :free_fight
 
     # …and WHAT to open with when the fire is released: his own combo from
     # this kill spot, so the area damage lands on the whole pile instead of

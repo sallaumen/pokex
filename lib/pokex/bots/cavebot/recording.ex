@@ -269,6 +269,62 @@ defmodule Pokex.Bots.Cavebot.Recording do
     end
   end
 
+  @doc """
+  Marks the kill spot his own hand announced: shift+1 is the game's attack
+  mode, and pressing it means "saio do modo mobado, vou matar" — so the fight
+  starts HERE, and this is a stop on the route ("toda luta é uma parada na
+  rota", Lucas, 2026-08-11).
+
+  The same marker as the middle click, with the same guard: a fight already
+  marked next door is not marked twice — shift+1 pressed again mid-pile, or
+  pressed right after the click that parked the pokémon, is the same fight.
+  A quiet `nil` note is the answer then, because nothing happened.
+  """
+  @spec mark_fight_start(Route.t(), non_neg_integer, keyword) ::
+          {Route.t(), String.t() | nil}
+  def mark_fight_start(%Route{} = route, index, opts \\ []) do
+    cond do
+      Enum.at(route.waypoints, index) == nil ->
+        {route, nil}
+
+      same_fight_spot(route, index, opts) ->
+        {route, nil}
+
+      true ->
+        {marked, _note} =
+          mark_kill_spot(route, index, nil, Keyword.get(opts, :hand_marked, []))
+
+        {marked, "⚔️ shift+1: aqui é matança — marquei \"até aqui\" + varrer"}
+    end
+  end
+
+  @doc """
+  Marks where the gathering STARTS AGAIN — his shift+3, the game's defence mode
+  ("o shift+3 é o modo mobando", Lucas, 2026-08-11).
+
+  Two silences, both deliberate. Pressed ON the spot he just closed — which is
+  where he presses it most of the time, right after the pile dies — it says
+  nothing new: the gathering resumes on the NEXT corner, which is exactly what
+  `mark_kill_spot/4` already infers, and marking here would erase the "até
+  aqui" he just made. Pressed on a corner that already says "mobar daqui", it
+  says nothing twice.
+
+  Anywhere else it is information nothing else has: the corners between the
+  kill spot and this one are where he kept FIGHTING, and only his hand knows
+  where that ended.
+  """
+  @spec mark_gathering_start(Route.t(), non_neg_integer, keyword) ::
+          {Route.t(), String.t() | nil}
+  def mark_gathering_start(%Route{} = route, index, _opts \\ []) do
+    case Enum.at(route.waypoints, index) do
+      %{action: :walk} ->
+        {Route.set_action(route, index, :lure_start), "🛡️ shift+3: daqui pra frente é mobada"}
+
+      _closed_spot_or_already_said ->
+        {route, nil}
+    end
+  end
+
   # The LAST kill spot close enough to be the same fight. Distance, not
   # adjacency: between two real piles he walks ten tiles or more (measured on
   # his own route), and inside one fight he moves one or two.
@@ -322,7 +378,20 @@ defmodule Pokex.Bots.Cavebot.Recording do
 
     start = if previous, do: elem(previous, 1) + 1, else: 0
 
-    if start < index and start not in hand_marked, do: start, else: nil
+    cond do
+      start >= index -> nil
+      start in hand_marked -> nil
+      # he already said where it starts (his shift+3) — inventing a second
+      # "mobar daqui" earlier would swallow the corners he meant to fight on
+      gathering_between?(route, start, index) -> nil
+      true -> start
+    end
+  end
+
+  defp gathering_between?(route, from, to) do
+    route.waypoints
+    |> Enum.slice(from..(to - 1)//1)
+    |> Enum.any?(&(&1.action == :lure_start))
   end
 
   defp note(nil, _start), do: nil

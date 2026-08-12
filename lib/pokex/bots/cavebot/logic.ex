@@ -95,6 +95,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           gather_wait_max_ms: non_neg_integer,
           stair_probe_ms: non_neg_integer,
           stair_max_probes: non_neg_integer,
+          fight_only_at_stops: boolean,
           # the hunt's DEFAULT park spot, in tiles from the character — the
           # only pair in here, because it is the only knob that is a place
           park_tiles: {integer, integer} | nil
@@ -240,6 +241,32 @@ defmodule Pokex.Bots.Cavebot.Logic do
   end
 
   def luring?(%__MODULE__{}), do: false
+
+  @doc """
+  Should Combat hold its fire right now?
+
+  His rule, 2026-08-11: "se não tá lutando, ele tá no modo mobado, onde ele não
+  deveria atacar NUNCA usando a tecla tab — só quando parar de andar e realmente
+  entrar no modo de luta". Every fight is a STOP on the route, so the fire is
+  free in exactly one state — `:fighting` — and held everywhere else: walking
+  (marked as a gathering or not), searching for a staircase, standing on a stop.
+  A hunt walking past a pokémon no longer collects a fight it never chose.
+
+  Holding also outlives the walking: after arriving at "até aqui" the pile is
+  still closing in, and hitting the first straggler wastes the gathering
+  (`gathering?/2`) — that one applies even in `:fighting`.
+
+  `cavebot_fight_only_at_stops: false` goes back to the old rule, where only a
+  marked mob stretch held the fire.
+  """
+  @spec hold_fire?(t, integer) :: boolean
+  def hold_fire?(%__MODULE__{} = logic, now) do
+    cond do
+      gathering?(logic, now) -> true
+      not Map.get(logic.config, :fight_only_at_stops, true) -> luring?(logic)
+      true -> logic.state != :fighting
+    end
+  end
 
   @doc """
   Is the pile still walking in?

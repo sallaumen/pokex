@@ -185,6 +185,21 @@ defmodule Pokex.Settings do
     # waits for a click.
     ball_key: "f1",
     ball_needs_click: false,
+    # The balls on his hotbar. `ball_key` above is the DEFAULT — what an
+    # unrecognised corpse, or one no rule mentions, gets thrown at it.
+    ball_types: [
+      %{"key" => "f1", "name" => "Poké Ball"},
+      %{"key" => "f2", "name" => "Bola de aquáticos"}
+    ],
+    # WHICH ball for WHICH corpse, read like the combo triggers: naming the
+    # creature beats naming what it is made of, and both beat the default.
+    # Seeded with the two he hunts (2026-08-11) — the rules stand ready and
+    # start working the moment their corpses are in the library, painted by
+    # hand or photographed for real.
+    ball_rules: [
+      %{"trigger" => %{"kind" => "species", "value" => "Tentacool"}, "key" => "f2"},
+      %{"trigger" => %{"kind" => "species", "value" => "Krabby"}, "key" => "f2"}
+    ],
     # The beat between positioning the cursor and firing the hotkey. The rod
     # has the SAME shape and uses 30ms (wait_after_equip_ms) — the ball had no
     # beat at all.
@@ -855,6 +870,13 @@ defmodule Pokex.Settings do
     # while he was still on floor 1, walking into the scenery beside the
     # stairs. Now it walks the ring around that tile — one probe this far
     # apart — and gives up with a name instead of walking the wrong floor.
+    # "se não tá lutando, ele tá no modo mobado, onde ele não deveria atacar
+    # nunca usando a tecla tab — só quando parar de andar e realmente entrar no
+    # modo de luta" (2026-08-11). Every fight is a stop on the route: while the
+    # hunt walks, the fire is held whether the leg is marked as a gathering or
+    # not, and Combat only opens up once the hunt has stopped to fight. false
+    # goes back to holding only on marked mob stretches.
+    cavebot_fight_only_at_stops: true,
     cavebot_stair_probe_ms: 450,
     # STEPS, not ring entries: 16 is one full lap around the corner (each side
     # and each diagonal, with a step back to the middle between them), 32 is
@@ -1152,6 +1174,7 @@ defmodule Pokex.Settings do
       is_integer(seed) -> "inteiro"
       is_float(seed) -> "número"
       is_binary(seed) -> "texto"
+      list_of_maps?(seed) -> "lista de registros"
       is_list(seed) -> "lista de textos"
       true -> "?"
     end
@@ -1450,10 +1473,16 @@ defmodule Pokex.Settings do
       is_integer(seed) -> is_integer(value)
       is_float(seed) -> is_number(value)
       is_binary(seed) -> is_binary(value)
+      # A list key carries EITHER strings (skill keys, muted sectors) or maps
+      # (the balls on the hotbar and the rules that pick between them). The seed
+      # says which — the same way it says every other type here.
+      list_of_maps?(seed) -> list_of_maps?(value)
       is_list(seed) -> is_list(value) and Enum.all?(value, &is_binary/1)
       true -> false
     end
   end
+
+  defp list_of_maps?(value), do: is_list(value) and value != [] and Enum.all?(value, &is_map/1)
 
   defp preset_entry(file) do
     slug = String.trim_trailing(file, ".json")

@@ -207,10 +207,16 @@ defmodule PokexWeb.CavebotLive do
 
   defp apply_hands(socket, events) do
     {hands, reading} = HandsRead.read(socket.assigns.hands, events)
+    socket = assign(socket, hands: hands)
+
+    # shift+1 is the game's attack mode, and he presses it to LEAVE the
+    # gathering: "toda luta é uma parada na rota" (2026-08-11). It may lay the
+    # waypoint itself, so the index is read after it.
+    socket = if reading.fight_started?, do: mark_fight_here(socket), else: socket
+    socket = if reading.gathering_started?, do: mark_gathering_here(socket), else: socket
     index = length(socket.assigns.active_route.waypoints) - 1
 
     socket
-    |> assign(hands: hands)
     |> flush_if_moved_on(index)
     |> buffer_combo(index, reading.combo)
     |> settle(index, reading)
@@ -832,15 +838,58 @@ defmodule PokexWeb.CavebotLive do
   # He marked the spot with his own hand: the waypoint under him becomes the
   # kill spot, and the point he clicked is where the pokémon will be parked
   # when the hunt runs this route.
-  defp mark_park_here(socket, point) do
+  # Same shape as the middle click below: the spot is where he STANDS when he
+  # says so, so a waypoint is laid first if there is none here yet.
+  defp mark_fight_here(socket) do
+    socket = waypoint_here(socket)
+    route = socket.assigns.active_route
+    index = length(route.waypoints) - 1
+
+    if index >= 0 do
+      {updated, note} =
+        Recording.mark_fight_start(route, index, hand_marked: socket.assigns.hand_marked)
+
+      :ok = Store.add(updated)
+
+      socket
+      |> then(&if note, do: assign(&1, notice: note, notice_kind: :ok), else: &1)
+      |> reload_routes(updated.name)
+    else
+      socket
+    end
+  end
+
+  # …and shift+3 says the other half: from here on he is gathering again. On
+  # the spot he just closed it says nothing (see Recording.mark_gathering_start/3).
+  defp mark_gathering_here(socket) do
+    socket = waypoint_here(socket)
+    route = socket.assigns.active_route
+    index = length(route.waypoints) - 1
+
+    with true <- index >= 0,
+         {updated, note} when is_binary(note) <- Recording.mark_gathering_start(route, index) do
+      :ok = Store.add(updated)
+
+      socket
+      |> remember_hand_mark(index)
+      |> assign(notice: note, notice_kind: :ok)
+      |> reload_routes(updated.name)
+    else
+      _nothing_to_say -> socket
+    end
+  end
+
+  defp waypoint_here(socket) do
     route = socket.assigns.active_route
     pos = socket.assigns.pos
 
-    socket =
-      if pos && !last_waypoint_at?(route, pos),
-        do: record_waypoint(socket, route, pos),
-        else: socket
+    if pos && !last_waypoint_at?(route, pos),
+      do: record_waypoint(socket, route, pos),
+      else: socket
+  end
 
+  defp mark_park_here(socket, point) do
+    socket = waypoint_here(socket)
     route = socket.assigns.active_route
     index = length(route.waypoints) - 1
 

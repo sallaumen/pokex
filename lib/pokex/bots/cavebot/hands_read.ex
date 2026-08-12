@@ -18,6 +18,7 @@ defmodule Pokex.Bots.Cavebot.HandsRead do
   @typedoc "What his hands said, between two drains."
   @type reading :: %{
           fight_started?: boolean,
+          gathering_started?: boolean,
           fight_ms: non_neg_integer | nil,
           combo: [String.t()],
           gather_ms: non_neg_integer | nil
@@ -55,17 +56,30 @@ defmodule Pokex.Bots.Cavebot.HandsRead do
     end)
   end
 
-  defp blank, do: %{fight_started?: false, fight_ms: nil, combo: [], gather_ms: nil}
+  defp blank,
+    do: %{
+      fight_started?: false,
+      gathering_started?: false,
+      fight_ms: nil,
+      combo: [],
+      gather_ms: nil
+    }
 
   # shift+1: "vou matar monstro" — the fight starts here.
   defp step(state, reading, "1", %{shift?: true, at: at}),
     do: {%{state | fight_at: at}, %{reading | fight_started?: true}}
 
-  # shift+3: "já terminei de matar tudo" — and the fight's length is known.
-  defp step(%{fight_at: nil} = state, reading, "3", %{shift?: true}), do: {state, reading}
+  # shift+3: "já terminei de matar tudo" — the fight's length is known, and he
+  # is back in the game's defence mode, which is the one a gathering is walked
+  # in ("o shift+3 é o modo mobando", 2026-08-11). It says the second thing
+  # even with no fight open: pressing it IS going back to gathering.
+  defp step(%{fight_at: nil} = state, reading, "3", %{shift?: true}),
+    do: {state, %{reading | gathering_started?: true}}
 
-  defp step(state, reading, "3", %{shift?: true, at: at}),
-    do: {%{state | fight_at: nil}, %{reading | fight_ms: max(at - state.fight_at, 0)}}
+  defp step(state, reading, "3", %{shift?: true, at: at}) do
+    {%{state | fight_at: nil},
+     %{reading | fight_ms: max(at - state.fight_at, 0), gathering_started?: true}}
+  end
 
   # any other modified press is somebody else's business
   defp step(state, reading, _key, %{shift?: true}), do: {state, reading}

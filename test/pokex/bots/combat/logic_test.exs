@@ -761,6 +761,79 @@ defmodule Pokex.Bots.Combat.LogicTest do
     end
   end
 
+  # "o shift+1 é o modo de combate… o shift+3 é o modo mobando (eles mudam o
+  # modo dentro do jogo: attack aumenta o dano e diminui a defesa, defense faz o
+  # contrário). Vi que quando dou play ele nao usa esses comandos… às vezes eu
+  # mesmo erro, uso skill de dano antes de mudar o modo para ataque, mas tu,
+  # criando um bot, uma máquina nao deveria falhar em algo tão simples"
+  # (Lucas, 2026-08-11).
+  describe "the stance the game itself is in" do
+    defp stanced(overrides \\ []) do
+      Keyword.merge([attack_mode_key: "shift+1", defense_mode_key: "shift+3"], overrides)
+    end
+
+    test "the attack key comes BEFORE the first damage key, in the same list" do
+      {logic, actions} = Logic.step(hunting(0, stanced()), obs(enemies: [0], captured_at: 10), 10)
+
+      {logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 30), 40)
+
+      assert logic.state == :fighting
+      assert [{:press, "shift+1"} | rest] = actions
+      assert rest == [{:press, "1"}, {:press, "2"}, {:press, "3"}]
+    end
+
+    test "…and only on the edge: the next burst is skills alone" do
+      logic = confirmed(stanced())
+      assert logic.stance == :attack
+
+      {_logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 460), 460)
+
+      assert actions == [{:press, "1"}, {:press, "2"}, {:press, "3"}]
+    end
+
+    test "holding fire wears the defence stance, once" do
+      logic = %{confirmed(stanced()) | posture: :hold_fire}
+
+      {logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 100), 100)
+
+      assert {:press, "shift+3"} in actions
+      assert logic.stance == :defense
+
+      {logic, actions} = Logic.step(logic, obs(enemies: [0], captured_at: 200), 200)
+      refute {:press, "shift+3"} in actions
+      assert logic.stance == :defense
+    end
+
+    # The whole point: gathering in defence, killing in attack, and the switch
+    # never late.
+    test "released after a gathering, it goes back to attack before the combo" do
+      logic = %{confirmed(stanced()) | posture: :hold_fire}
+      {logic, _} = Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 100), 100)
+      assert logic.stance == :defense
+
+      logic = Logic.set_posture(logic, :free_fight)
+      {logic, _} = Logic.step(logic, obs(enemies: [0], captured_at: 1_000), 1_000)
+
+      {logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 1_100), 1_200)
+
+      assert logic.stance == :attack
+      assert hd(actions) == {:press, "shift+1"}
+    end
+
+    test "with no keys configured nothing changes — the old behaviour" do
+      logic = confirmed()
+
+      {_logic, actions} =
+        Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 460), 460)
+
+      assert actions == [{:press, "1"}, {:press, "2"}, {:press, "3"}]
+    end
+  end
+
   # "quando ele entra numa batalha, uma opção poderia ser só matar aquele lá e
   # não dar mais tab depois" (Lucas, 2026-08-11).
   describe "one fight at a time" do

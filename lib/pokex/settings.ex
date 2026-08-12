@@ -44,6 +44,21 @@ defmodule Pokex.Settings do
     # the pokémon on the field has its keys classified (/time); the opening of
     # a gathered pile is always area, whatever this says.
     combat_aoe_from_enemies: 3,
+    # --- Tracking HIS OWN pokémon on screen (Pokex.Bots.PokemonTracker) ---
+    # The teach-sized square, and the coarse stride the finder slides it by. The
+    # box is a tile and a bit: a pokémon is bigger than a corpse and the taught
+    # framing is what the search has to reproduce.
+    pokemon_sprite_box_px: 96,
+    pokemon_track_step_px: 8,
+    # How far around the expected point to look. Small on purpose — asking "is
+    # it here?" costs a fraction of asking "where is it?", and the callers all
+    # know roughly where to look.
+    pokemon_track_radius_px: 160,
+    # Above this the sighting counts. Lower than the corpse threshold because a
+    # pokémon TURNS: the sample that matches is rarely the exact angle.
+    pokemon_track_min_similarity: 0.55,
+    # How far from the park point still counts as "it got there".
+    pokemon_park_tolerance_px: 90,
     # How often the scheduled actions (`Pokex.Timers`) check their clocks. One
     # second is far finer than anything he schedules — the shortest is eight
     # seconds into a mob stretch — and costs nothing: a tick reads one fact and
@@ -1046,6 +1061,10 @@ defmodule Pokex.Settings do
     target_lost_streak: 1..99,
     combat_aoe_from_enemies: 1..20,
     timers_tick_ms: 100..60_000,
+    pokemon_sprite_box_px: 16..512,
+    pokemon_track_step_px: 1..64,
+    pokemon_track_radius_px: 32..1200,
+    pokemon_park_tolerance_px: 1..1200,
     pokemon_hp_heal_pct: 1..100,
     heal_skill_cooldown_ms: 0..600_000,
     dry_casts_alarm: 0..999,

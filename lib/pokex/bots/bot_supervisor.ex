@@ -18,6 +18,7 @@ defmodule Pokex.Bots.BotSupervisor do
   `test/pokex/bots/bot_supervisor_test.exs`.
   """
   use Supervisor
+  require Logger
 
   alias Pokex.Bots.Body
   alias Pokex.Bots.Catcher
@@ -301,12 +302,49 @@ defmodule Pokex.Bots.BotSupervisor do
     )
   end
 
+  @doc """
+  Stops one worker WITHOUT depending on it answering.
+
+  The mirror of `safe_status/2`, on the path where no answer costs the most. A
+  worker parks for SECONDS inside a capture the broker holds, and indefinitely
+  inside `Body.perform/3` (which waits `:infinity`) — and while it is parked
+  nothing else in its mailbox is read, this `:halt` included. The default 5s
+  call then EXITS the caller, and the caller is usually the Guardian's panic
+  corner: on 2026-08-11 it died on the catcher, so the mini game, the player
+  support, the timers still pressing keys and both `forget`s below them in
+  `halt_fleet` never ran at all, and the corner stopped being watched.
+
+  Waiting longer would buy nothing: a timed-out call is still DELIVERED, and the
+  worker still halts on it the moment it frees up. So bound the wait, survive
+  it, and say out loud who has not answered yet — a stop that half happened in
+  silence is exactly how the fleet kept hunting through a panic.
+
+  Speaks `:halt` straight to the server, like `safe_status/2` speaks `:status`:
+  it is the protocol every worker in the fleet implements, not one module's
+  private detail.
+  """
+  @halt_timeout_ms 1_000
+
+  @spec safe_halt(GenServer.server()) :: :ok
+  def safe_halt(server) do
+    GenServer.call(server, :halt, @halt_timeout_ms)
+    :ok
+  catch
+    :exit, _reason ->
+      Logger.warning(
+        "parada: #{inspect(server)} não respondeu em #{@halt_timeout_ms}ms (ocupado?) — " <>
+          "o halt fica na fila dele e a frota seguiu parando"
+      )
+
+      :ok
+  end
+
   @doc "Halts all workers. Safe to call repeatedly — halting an idle worker is a no-op."
   @spec stop_all(GenServer.server(), GenServer.server(), GenServer.server()) :: :ok
   def stop_all(fishing, combat, catcher) do
-    Fishing.Worker.halt(fishing)
-    Combat.Worker.halt(combat)
-    Catcher.Worker.halt(catcher)
+    safe_halt(fishing)
+    safe_halt(combat)
+    safe_halt(catcher)
     :ok
   end
 
@@ -318,7 +356,7 @@ defmodule Pokex.Bots.BotSupervisor do
         ) :: :ok
   def stop_all(fishing, combat, catcher, mini_game) do
     stop_all(fishing, combat, catcher)
-    MiniGame.Worker.halt(mini_game)
+    safe_halt(mini_game)
     :ok
   end
 
@@ -389,12 +427,12 @@ defmodule Pokex.Bots.BotSupervisor do
     # The self() guard is for its {:block, _} brake, which calls the global
     # stop_all/0 from INSIDE the cavebot's own process — a halt call back into
     # itself would deadlock, and it has already stopped itself at that point.
-    unless GenServer.whereis(cavebot) == self(), do: Cavebot.Worker.halt(cavebot)
+    unless GenServer.whereis(cavebot) == self(), do: safe_halt(cavebot)
     stop_all(fishing, combat, catcher, mini_game)
-    PlayerSupport.Worker.halt(player_support)
+    safe_halt(player_support)
     # A stop that leaves the clocks running would keep pressing keys after the
     # panic corner, the Stop button and the logout — the one thing a stop means.
-    Timers.Worker.halt(timers)
+    safe_halt(timers)
     # nothing is running an old calibration anymore — the banner has no meaning
     WorldState.forget(:calibration)
     # the hunt session ended with the workers

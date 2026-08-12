@@ -362,10 +362,20 @@ defmodule PokexWeb.MiniGameLive do
 
   defp assign_bundles(socket), do: assign(socket, bundles: Enum.take(Export.list(), 10))
 
+  # `whereis` only rules out a worker that is not there. One that IS there can
+  # be parked inside a capture, answering nothing for seconds, and that exit
+  # would take this page down. Unknown reads as "not running" — the same shape
+  # the nil branch already produces.
   defp worker_status do
     case GenServer.whereis(Worker) do
       nil -> nil
-      _pid -> Worker.status()
+      _pid -> safe_worker_status()
     end
+  end
+
+  defp safe_worker_status do
+    Worker.status()
+  catch
+    :exit, _reason -> nil
   end
 end

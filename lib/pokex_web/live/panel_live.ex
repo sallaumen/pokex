@@ -2194,15 +2194,27 @@ defmodule PokexWeb.PanelLive do
 
   defp active?(state), do: BotSupervisor.active?(state)
 
+  # Stopping goes through the BOUNDED halt and the read-back through a catch,
+  # for the same reason `catcher_poke/1` exists: a worker parked on a capture
+  # answers nothing for seconds, and an exit inside a `handle_event` takes the
+  # whole page down. The worker broadcasts its own snapshot on halting anyway,
+  # so a read that does not come back costs a moment of staleness, never the
+  # panel.
   defp toggle_worker(socket, key, worker) do
     current = Map.fetch!(socket.assigns, key)
-    result = if active?(current.state), do: worker.halt(), else: worker.run()
+    result = if active?(current.state), do: BotSupervisor.safe_halt(worker), else: worker.run()
 
     case result do
-      :ok -> {:noreply, assign(socket, key, worker.status())}
+      :ok -> {:noreply, assign(socket, key, worker_status(worker, current))}
       {:error, messages} when is_list(messages) -> {:noreply, assign(socket, errors: messages)}
       {:error, reason} -> {:noreply, assign(socket, errors: [inspect(reason)])}
     end
+  end
+
+  defp worker_status(worker, current) do
+    worker.status()
+  catch
+    :exit, _reason -> current
   end
 
   defp automation_count(

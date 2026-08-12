@@ -155,7 +155,7 @@ o `category_field/1` inteiro (as cinco cláusulas nas linhas 79-83):
 - [ ] **Step 5: Run the tests**
 
 ```bash
-cd /Users/tavano/projects/pokex-claude-skills && mix test test/pokex/bots/combat/loadout_fight_test.exs test/pokex/timers_test.exs test/pokex/bots/timers/worker_test.exs
+cd /Users/tavano/projects/pokex-claude-skills && mix test test/pokex/bots/combat/loadout_fight_test.exs test/pokex/timers/schedule_test.exs test/pokex/bots/timers/worker_test.exs
 ```
 
 Esperado: PASS em todos. Os testes dos timers provam que a troca não mudou o

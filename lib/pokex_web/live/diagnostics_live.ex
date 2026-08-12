@@ -3,8 +3,10 @@ defmodule PokexWeb.DiagnosticsLive do
 
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.KeyProbe
   alias Pokex.Calibration
   alias Pokex.Rig
+  alias Pokex.Rig.Mac.KeyEvents
   alias Pokex.Screenshot
   alias Pokex.Settings
   alias Pokex.Vision
@@ -22,11 +24,36 @@ defmodule PokexWeb.DiagnosticsLive do
        preview: nil,
        xray: nil,
        unknown_glyphs: [],
+       probe: nil,
        calibrated?: Calibration.exists?()
      )}
   end
 
+  # THE STANCE KEYS HAVE NO RECEIPT. A skill proves itself with its cooldown
+  # (Pokex.Bots.SkillReceipt); shift+1 and shift+3 change a mode and leave
+  # nothing on the bar, so they were pressed blind — and they never once worked
+  # ("nunca até hoje funcionou isso de mudar para modo de ataque ou defesa com
+  # os comandos de shift", 2026-08-12).
+  #
+  # Two rounds, drained apart, so the two suspects cannot hide behind each
+  # other: the NATIVE path alone, then a list carrying a "+" — which drops the
+  # WHOLE burst onto osascript (Rig.Mac.native_pressable?/1), putting the plain
+  # key and the shifted ones on the very same road.
+  @probe_focus_ms 3_000
+  @probe_native ["1"]
+  @probe_osa ["1", "shift+1", "shift+3"]
+
   @impl true
+  def handle_event("probe_keys", _params, socket) do
+    Process.send_after(self(), :probe_native, @probe_focus_ms)
+
+    {:noreply,
+     assign(socket,
+       msg: "Clique na janela do JOGO agora! Medindo em #{probe_focus_seconds()}s…",
+       probe: %{stage: :waiting, native: [], osa: [], error: nil, helper: KeyEvents.status()}
+     )}
+  end
+
   def handle_event("press", %{"combo" => combo}, socket) do
     Process.send_after(self(), {:delayed_press, combo}, 2_000)
     {:noreply, assign(socket, msg: "Clique na janela do JOGO agora! Tecla #{combo} em 2s...")}
@@ -300,6 +327,30 @@ defmodule PokexWeb.DiagnosticsLive do
   end
 
   @impl true
+  def handle_info(:probe_native, socket) do
+    {:noreply, fire_probe(socket, :native, @probe_native, :probe_osa)}
+  end
+
+  def handle_info(:probe_osa, socket) do
+    {:noreply, fire_probe(socket, :osa, @probe_osa, nil)}
+  end
+
+  def handle_info({:probe_read, stage, combos, next}, socket) do
+    case Rig.impl().key_watch(KeyProbe.codes(combos)) do
+      {:ok, sightings} ->
+        rows = Enum.map(combos, &%{combo: &1, result: KeyProbe.verdict(&1, sightings)})
+        probe = socket.assigns.probe |> Map.put(stage, rows) |> Map.put(:stage, stage)
+        if next, do: send(self(), next)
+        {:noreply, assign(socket, probe: probe, msg: probe_msg(stage, next))}
+
+      # The watcher itself is the instrument; if IT cannot answer, nothing below
+      # is a statement about the keys.
+      {:error, reason} ->
+        probe = %{socket.assigns.probe | stage: :failed, error: inspect(reason)}
+        {:noreply, assign(socket, probe: probe, msg: "não deu para medir: #{inspect(reason)}")}
+    end
+  end
+
   def handle_info({:delayed_press, combo}, socket) do
     {:noreply, assign(socket, msg: "press #{combo} → #{inspect(Rig.impl().press(combo))}")}
   end
@@ -308,6 +359,63 @@ defmodule PokexWeb.DiagnosticsLive do
     {:noreply,
      assign(socket, msg: "capture_sequence → #{inspect(Rig.impl().capture_sequence(point))}")}
   end
+
+  # Arms the watcher (the first call sets the codes AND drains whatever was
+  # buffered, so each round is measured clean), fires the burst off the LiveView
+  # process — an osascript burst takes ~1.2s and the page must stay alive — and
+  # reads back once the keys have had time to land.
+  @probe_settle_ms 700
+  defp fire_probe(socket, stage, combos, next) do
+    codes = KeyProbe.codes(combos)
+    Rig.impl().key_watch(codes)
+
+    page = self()
+
+    Task.start(fn ->
+      Rig.impl().press_many(combos, tap_count: 2, gap_ms: 80)
+      Process.sleep(@probe_settle_ms)
+      send(page, {:probe_read, stage, combos, next})
+    end)
+
+    assign(socket, msg: "disparando #{Enum.join(combos, ", ")}…")
+  end
+
+  defp probe_msg(:native, _next), do: "caminho nativo medido; indo pro osascript…"
+  defp probe_msg(_stage, nil), do: "medição encerrada — agora olhe o JOGO"
+  defp probe_msg(_stage, _next), do: "medindo…"
+
+  defp probe_focus_seconds, do: div(@probe_focus_ms, 1000)
+
+  attr :title, :string, required: true
+  attr :rows, :list, required: true
+
+  defp probe_round(assigns) do
+    ~H"""
+    <div class="space-y-1.5 rounded-xl border border-base-content/10 bg-base-300 p-3">
+      <h3 class="text-xs font-semibold opacity-70">{@title}</h3>
+      <p :if={@rows == []} class="text-xs opacity-40">aguardando…</p>
+      <ul class="space-y-1">
+        <li :for={row <- @rows} class="flex items-center gap-2 text-sm">
+          <span class="w-20 font-mono">{row.combo}</span>
+          <span class={["font-semibold", probe_tone(row.result.verdict)]}>
+            {probe_label(row.result.verdict)}
+          </span>
+          <span class="text-xs opacity-40">{row.result.seen}×</span>
+        </li>
+      </ul>
+    </div>
+    """
+  end
+
+  defp probe_label(:posted), do: "saiu inteira"
+  defp probe_label(:naked), do: "saiu SEM o shift"
+  defp probe_label(:silent), do: "não saiu"
+  defp probe_label(:unmeasurable), do: "não dá para medir"
+
+  defp probe_tone(:posted), do: "text-success"
+  defp probe_tone(:naked), do: "text-error"
+  defp probe_tone(:silent), do: "text-error"
+  defp probe_tone(:unmeasurable), do: "opacity-50"
 
   # Literally the recipe CalibrationLive marks on, so this preview lines up 1:1
   # with the saved points instead of measuring the screen its own way.
@@ -457,6 +565,52 @@ defmodule PokexWeb.DiagnosticsLive do
           <span :if={@msg}>{@msg}</span>
           <span :if={is_nil(@msg)} class="opacity-40">resultado aparece aqui…</span>
         </div>
+
+        <section
+          id="key-probe"
+          class="space-y-3 rounded-2xl border border-warning/30 bg-base-200 p-5"
+        >
+          <div>
+            <h2 class="text-sm font-bold">A tecla chegou? (modo de ataque / defesa)</h2>
+            <p class="mt-0.5 text-xs leading-relaxed opacity-60">
+              As skills provam que saíram pelo <b>cooldown</b>. O <b>shift+1</b>
+              e o <b>shift+3</b>
+              mudam um modo e não gastam nada, então sempre foram apertados <b>às cegas</b>.
+              Aqui a máquina se escuta: dispara e depois lê o teclado de verdade para dizer
+              se a tecla saiu <b>e se o shift foi junto</b>.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3">
+            <button class="btn btn-sm btn-warning" phx-click="probe_keys">
+              Medir as teclas de modo
+            </button>
+            <span class="text-xs opacity-60">
+              clique e vá para o JOGO — o disparo sai em {probe_focus_seconds()}s
+            </span>
+          </div>
+
+          <div :if={@probe} class="space-y-3">
+            <p :if={@probe.helper != :ready} class="text-xs text-error">
+              O ajudante nativo está <b class="font-mono">{@probe.helper}</b>
+              — sem ele não há leitura nenhuma, e nada abaixo significa coisa alguma.
+            </p>
+            <p :if={@probe.error} class="text-xs text-error">
+              A leitura falhou: <span class="font-mono">{@probe.error}</span>
+            </p>
+
+            <div class="grid gap-3 sm:grid-cols-2">
+              <.probe_round title="Caminho nativo (controle)" rows={@probe.native} />
+              <.probe_round title="Caminho osascript (é por aqui que o shift vai)" rows={@probe.osa} />
+            </div>
+
+            <p :if={@probe.stage == :osa} class="text-xs leading-relaxed opacity-70">
+              Isto diz só o que <b>o macOS viu sair</b>. Se tudo acima estiver verde e mesmo
+              assim o modo <b>não mudar no jogo</b>, então a tecla morre do outro lado da
+              janela — e essa parte só o seu olho na tela responde.
+            </p>
+          </div>
+        </section>
 
         <div class="grid gap-4 sm:grid-cols-2">
           <section class="space-y-2 rounded-xl border border-base-content/10 bg-base-200 p-4">

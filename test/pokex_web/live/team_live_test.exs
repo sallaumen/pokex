@@ -421,4 +421,32 @@ defmodule PokexWeb.TeamLiveTest do
       assert view |> element("#skills-map-recorded") |> render() =~ "3 4"
     end
   end
+
+  # "calibrar uma barra de skills para cada pokémon (…) e agora depende do nome
+  # do pokémon" (Lucas, 2026-08-12).
+  describe "each pokémon's own skill bar" do
+    @tag :tmp_dir
+    test "a pokémon without one says so, and links to calibrate ITS bar", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+
+      row = view |> element("#team-list") |> render()
+      assert row =~ "sem barra própria"
+      assert row =~ "/calibration?bar=Charizard"
+    end
+
+    @tag :tmp_dir
+    test "with one calibrated the row says how many slots it has", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/time")
+      add!(view, "Charizard")
+
+      Team.set_bar("Charizard", %{region: {1, 2, 300, 40}, count: 9, refs: nil})
+
+      {:ok, view, _html} = live(conn, ~p"/time")
+      row = view |> element("#team-list") |> render()
+
+      assert row =~ "barra própria"
+      assert row =~ "9 skills"
+    end
+  end
 end

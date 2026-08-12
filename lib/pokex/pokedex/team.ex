@@ -77,7 +77,7 @@ defmodule Pokex.Pokedex.Team do
           entry =
             Enum.find(
               data.members ++ data.bank,
-              %{name: name, level: nil, slot: nil, skills: %{}},
+              %{name: name, level: nil, slot: nil, skills: %{}, bar: nil},
               &(&1.name == name)
             )
 
@@ -206,6 +206,63 @@ defmodule Pokex.Pokedex.Team do
     |> announce()
   end
 
+  @doc """
+  This pokémon's OWN skill bar: where it is on screen, how many slots it has,
+  and the per-slot READY colour references.
+
+  It used to be one global calibration, and that is wrong on two counts he ran
+  into: different pokémon have different numbers of moves, and the READY
+  references ARE the skill icons — so a set captured with Vespiquen out is a
+  set of the wrong pictures the moment he swaps.
+
+  `nil` when this one has never been calibrated, which is what makes the global
+  calibration the fallback instead of a broken read.
+  """
+  @spec bar(String.t()) :: map | nil
+  def bar(name) do
+    case Enum.find(members() ++ bank(), &(&1.name == name)) do
+      %{bar: %{} = bar} -> bar
+      _absent_or_uncalibrated -> nil
+    end
+  end
+
+  @doc """
+  Stores a pokémon's bar. `nil` clears it, which drops that pokémon back to the
+  global calibration.
+  """
+  @spec set_bar(String.t(), map | nil) :: map
+  def set_bar(name, bar) do
+    data = read()
+
+    update = fn list ->
+      Enum.map(list, fn
+        %{name: ^name} = entry -> Map.put(entry, :bar, bar)
+        entry -> entry
+      end)
+    end
+
+    %{data | members: update.(data.members), bank: update.(data.bank)}
+    |> persist()
+    |> announce()
+  end
+
+  # Tuples do not survive JSON: the region rides as a list and comes back a
+  # tuple, because every consumer pattern-matches {x, y, w, h}.
+  defp encode_bar(%{region: {x, y, w, h}} = bar),
+    do: %{
+      "region" => [x, y, w, h],
+      "count" => bar[:count],
+      "refs" => bar[:refs]
+    }
+
+  defp encode_bar(_none), do: nil
+
+  defp decode_bar(%{"region" => [x, y, w, h], "count" => count} = map)
+       when is_integer(count) and count in 1..10,
+       do: %{region: {x, y, w, h}, count: count, refs: map["refs"]}
+
+  defp decode_bar(_absent_or_corrupt), do: nil
+
   @doc "Sets Lucas's character level (nil clears)."
   def set_player_level(level) when is_integer(level) or is_nil(level),
     do: persist(%{read() | player_level: level})
@@ -278,14 +335,15 @@ defmodule Pokex.Pokedex.Team do
     list
     |> Enum.map(fn
       name when is_binary(name) ->
-        %{name: name, level: nil, slot: nil, skills: %{}}
+        %{name: name, level: nil, slot: nil, skills: %{}, bar: nil}
 
       %{"name" => name} = map when is_binary(name) ->
         %{
           name: name,
           level: int_or_nil(map["level"]),
           slot: slot_or_nil(map["slot"]),
-          skills: SkillProfile.decode(map["skills"])
+          skills: SkillProfile.decode(map["skills"]),
+          bar: decode_bar(map["bar"])
         }
 
       _corrupt ->
@@ -307,7 +365,8 @@ defmodule Pokex.Pokedex.Team do
       "name" => entry.name,
       "level" => entry.level,
       "slot" => entry.slot,
-      "skills" => SkillProfile.encode(entry.skills)
+      "skills" => SkillProfile.encode(entry.skills),
+      "bar" => encode_bar(Map.get(entry, :bar))
     }
   end
 

@@ -38,8 +38,13 @@ defmodule PokexWeb.CalibrationLive do
   @zoom_factor 3.5
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     skill_count = configured_skill_count()
+
+    # `?bar=<pokémon>` turns the standalone skill-bar fix into that POKÉMON's
+    # bar instead of the screen's: the /time page links here per pokémon, and
+    # this page keeps the two clicks it already knew how to take.
+    bar_target = bar_target(params["bar"])
 
     # The per-corpse counter (R4) updates on its own: the Catcher publishes the
     # session count on every sweep that finds something new.
@@ -77,6 +82,7 @@ defmodule PokexWeb.CalibrationLive do
        corpse_paint: @neutral_paint,
        corpse_msg: nil,
        corpse_list: CorpseLibrary.list(),
+       bar_target: bar_target,
        pokemon_shot: nil,
        pokemon_crop: nil,
        pokemon_msg: nil,
@@ -1404,6 +1410,22 @@ defmodule PokexWeb.CalibrationLive do
 
   defp region_from({x1, y1}, {x2, y2}), do: {min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)}
 
+  # A pokémon was named: the bar is ITS bar, and the screen calibration is left
+  # alone. The refs go with it — they are the skill icons, so they belong to the
+  # creature carrying them.
+  defp save_skill_bar(%{assigns: %{bar_target: name}} = socket, region, count)
+       when is_binary(name) do
+    refs = skill_slot_refs(socket.assigns.screen, region, count)
+    Pokex.Pokedex.Team.set_bar(name, %{region: region, count: count, refs: refs})
+
+    assign(socket,
+      draft: %{},
+      step: nil,
+      screen: nil,
+      skillbar_msg: "Barra de #{name} salva com #{count} skills — só dele."
+    )
+  end
+
   defp save_skill_bar(socket, region, count) do
     case Calibration.load() do
       {:ok, calib} ->
@@ -1721,6 +1743,14 @@ defmodule PokexWeb.CalibrationLive do
     Settings.put(:skill_bar_count, count)
     Settings.put(:skill_keys, SkillBar.fit_order(Settings.get(:skill_keys), count))
   end
+
+  # Only a pokémon he actually HAS: a name typed into the URL that is not on the
+  # team would write a bar nothing will ever read.
+  defp bar_target(name) when is_binary(name) do
+    if Enum.any?(Pokex.Pokedex.Team.members(), &(&1.name == name)), do: name, else: nil
+  end
+
+  defp bar_target(_absent), do: nil
 
   defp configured_skill_count do
     case Calibration.load() do

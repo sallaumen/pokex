@@ -170,6 +170,10 @@ defmodule PokexWeb.TeamLive do
     )
   end
 
+  # A bar of his own, or the shared calibration standing in for it.
+  defp bar_text(%{count: count}) when is_integer(count), do: "🎛 barra própria · #{count} skills"
+  defp bar_text(_none), do: "🎛 sem barra própria — usa a da calibração"
+
   defp keys_text([]), do: "nenhuma"
   defp keys_text(keys), do: Enum.join(keys, " ")
 
@@ -262,7 +266,13 @@ defmodule PokexWeb.TeamLive do
     for %{name: name, level: level} = member <- list,
         entry = Pokedex.get(name),
         entry != nil,
-        do: %{name: name, level: level, entry: entry, skills: Map.get(member, :skills) || %{}}
+        do: %{
+          name: name,
+          level: level,
+          entry: entry,
+          skills: Map.get(member, :skills) || %{},
+          bar: Map.get(member, :bar)
+        }
   end
 
   # The hotbar as far as HIS bar goes: reading past the last slot would offer
@@ -696,6 +706,18 @@ defmodule PokexWeb.TeamLive do
         <span :for={{category, keys} <- off_combo(@row.skills)} class="text-[#69737b]">
           {SkillProfile.icon(category)} {Enum.join(keys, "+")}
         </span>
+
+        <%!-- The bar is HIS, not the screen's: different pokémon carry different
+              numbers of moves, and the READY references are the skill icons. --%>
+        <.link
+          navigate={~p"/calibration?#{[bar: @row.name]}"}
+          class={[
+            "ml-auto",
+            if(@row.bar, do: "text-[#69737b] hover:underline", else: "text-[#f2c45b] hover:underline")
+          ]}
+        >
+          {bar_text(@row.bar)}
+        </.link>
       </p>
 
       <%!-- One select per hotbar key: a skill has exactly ONE job, so a

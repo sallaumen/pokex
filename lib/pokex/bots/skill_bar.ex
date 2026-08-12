@@ -15,11 +15,12 @@ defmodule Pokex.Bots.SkillBar do
   """
 
   alias Pokex.Bots.Capture
-  alias Pokex.{Calibration, Vision}
+  alias Pokex.Bots.ActiveBar
+  alias Pokex.Vision
 
   @doc "Per-slot `%{brightness, saturation, state}` list, or `nil` (not calibrated / capture failed)."
   def read(calib, settings) do
-    with %Calibration{skill_bar_region: region} when is_tuple(region) <- calib,
+    with %{region: region} when is_tuple(region) <- ActiveBar.current(calib),
          {:ok, frame} <- Capture.frame(region, "skillbar.raw"),
          true <- Vision.skill_bar_frame?(frame) do
       slots_from_frame(frame, calib, settings)
@@ -30,11 +31,13 @@ defmodule Pokex.Bots.SkillBar do
 
   @doc "Reads slot states from an already captured frame using the same rules as `read/2`."
   def slots_from_frame(frame, calib, settings) do
-    count = calibrated_count(calib, settings)
+    bar = ActiveBar.current(calib)
 
     Vision.skill_slots(frame,
-      count: count,
-      refs: calib.skill_slot_refs,
+      count: calibrated_count(bar, settings),
+      # the READY references travel with the bar: they are the skill ICONS, so
+      # the calibration's set belongs to whatever pokémon was out that day
+      refs: bar.refs,
       max_distance: settings[:skill_ref_max_distance],
       min_saturation: settings[:skill_ready_min_saturation],
       min_vivid_pct: settings[:skill_ready_min_vivid_pct],
@@ -136,11 +139,11 @@ defmodule Pokex.Bots.SkillBar do
   def ready_keys(slots),
     do: for({%{state: :ready}, i} <- Enum.with_index(slots), do: key_for_index(i))
 
-  defp calibrated_count(%Calibration{skill_bar_count: count}, _settings)
+  defp calibrated_count(%{count: count}, _settings)
        when is_integer(count) and count in 1..10,
        do: count
 
-  defp calibrated_count(_calib, settings) do
+  defp calibrated_count(_bar, settings) do
     case settings[:skill_bar_count] do
       count when is_integer(count) and count in 1..10 -> count
       _ -> 6

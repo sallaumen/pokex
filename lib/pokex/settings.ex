@@ -840,6 +840,13 @@ defmodule Pokex.Settings do
     # while he was still on floor 1, walking into the scenery beside the
     # stairs. Now it walks the ring around that tile — one probe this far
     # apart — and gives up with a name instead of walking the wrong floor.
+    # "se não tá lutando, ele tá no modo mobado, onde ele não deveria atacar
+    # nunca usando a tecla tab — só quando parar de andar e realmente entrar no
+    # modo de luta" (2026-08-11). Every fight is a stop on the route: while the
+    # hunt walks, the fire is held whether the leg is marked as a gathering or
+    # not, and Combat only opens up once the hunt has stopped to fight. false
+    # goes back to holding only on marked mob stretches.
+    cavebot_fight_only_at_stops: true,
     cavebot_stair_probe_ms: 450,
     # STEPS, not ring entries: 16 is one full lap around the corner (each side
     # and each diagonal, with a step back to the middle between them), 32 is

@@ -73,6 +73,11 @@ defmodule Pokex.Bots.Combat.Logic do
             # `:posture` fact by the Worker; a stale or missing fact reads as
             # free fire, so a dead hunt can never leave combat pacifist.
             posture: :free_fight,
+            # WHICH STANCE the game is in, as far as this machine knows.
+            # shift+1 is attack (more damage, less defence) and shift+3 is
+            # defence — the keys he presses by hand, and the ones the bot never
+            # touched. nil = not set yet this run.
+            stance: nil,
             # WHAT the keys of the pokémon on the field do, when he has said so
             # (`Pokex.Bots.Combat.Loadout`). nil — no pokémon chosen, or one
             # whose skills are unclassified — falls back to the configured
@@ -108,6 +113,7 @@ defmodule Pokex.Bots.Combat.Logic do
          scenery_until: nil,
          hp_seen: nil,
          hp_changed_at: nil,
+         stance: nil,
          failures: 0,
          error: nil
      }, []}
@@ -151,11 +157,13 @@ defmodule Pokex.Bots.Combat.Logic do
   # behind it, and skills landing on one of them is precisely what "andar sem
   # atacar ninguém" rules out.
   defp do_step(%__MODULE__{state: state, posture: :hold_fire} = logic, _obs, now)
-       when state in [:tabbing, :fighting],
-       do: {stand_down(logic, now), [{:log, "🕊️ segurando o fogo — a caçada está mobando"}]}
+       when state in [:tabbing, :fighting] do
+    {logic, stance} = wear(logic, :defense)
+    {stand_down(logic, now), stance ++ [{:log, "🕊️ segurando o fogo — a caçada está mobando"}]}
+  end
 
   defp do_step(%__MODULE__{state: :hunting, posture: :hold_fire} = logic, _obs, _now),
-    do: {logic, []}
+    do: wear(logic, :defense)
 
   defp do_step(%{state: :hunting} = logic, obs, now) do
     logic = refresh_scenery(logic, obs, now)
@@ -522,6 +530,35 @@ defmodule Pokex.Bots.Combat.Logic do
   def set_loadout(%__MODULE__{} = logic, %Loadout{} = loadout), do: %{logic | loadout: loadout}
   def set_loadout(%__MODULE__{} = logic, _none), do: %{logic | loadout: nil}
 
+  # THE GAME'S OWN STANCE. shift+1 is attack mode — more damage, less defence —
+  # and shift+3 is defence, which is the one to walk a gathering in. He presses
+  # them by hand and the bot never did ("vi que quando dou play ele nao usa
+  # esses comandos"), and he named the failure himself: "às vezes eu mesmo erro,
+  # uso skill de dano antes de mudar o modo para ataque... uma máquina não
+  # deveria falhar em algo tão simples".
+  #
+  # So it does not depend on timing: the stance key travels in the SAME action
+  # list as the burst, ahead of the first damage key. The Body performs a list
+  # in order, so the order cannot come apart.
+  #
+  # Only on the EDGE — pressing it before every burst would be a key per 300ms.
+  # An unconfigured key changes nothing and leaves the stance unknown, so it is
+  # retried rather than believed.
+  defp wear(%__MODULE__{stance: stance} = logic, stance), do: {logic, []}
+
+  defp wear(logic, wanted) do
+    case stance_key(logic, wanted) do
+      nil -> {logic, []}
+      key -> {%{logic | stance: wanted}, [{:press, key}]}
+    end
+  end
+
+  defp stance_key(%{config: config}, :attack), do: usable(Map.get(config, :attack_mode_key))
+  defp stance_key(%{config: config}, :defense), do: usable(Map.get(config, :defense_mode_key))
+
+  defp usable(key) when is_binary(key) and key != "", do: key
+  defp usable(_unset), do: nil
+
   # Back to hunting with nothing pending: no target, no Tab window, and no
   # probe (a probe is a blind Tab, which is the one thing holding fire forbids).
   defp stand_down(logic, now) do
@@ -601,19 +638,21 @@ defmodule Pokex.Bots.Combat.Logic do
 
       keys = ready_in_priority(order, obs[:ready_skills]) ->
         burst = max(config.combat_skill_burst_size, 1)
+        {logic, stance} = wear(logic, :attack)
         actions = keys |> Enum.take(burst) |> Enum.map(&{:press, &1})
-        {%{logic | last_burst_at: now}, actions}
+        {%{logic | last_burst_at: now}, stance ++ actions}
 
       true ->
         burst = max(config.combat_skill_burst_size, 1)
         len = length(order)
+        {logic, stance} = wear(logic, :attack)
 
         actions =
           for offset <- 0..(burst - 1) do
             {:press, Enum.at(order, rem(logic.skill_idx + offset, len))}
           end
 
-        {%{logic | skill_idx: logic.skill_idx + burst, last_burst_at: now}, actions}
+        {%{logic | skill_idx: logic.skill_idx + burst, last_burst_at: now}, stance ++ actions}
     end
   end
 

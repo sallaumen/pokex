@@ -52,6 +52,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :potion_enabled,
       :potion_cooldown_ms,
       :pokemon_hp_potion_pct,
+      :heal_skill_enabled,
+      :pokemon_hp_heal_pct,
+      :heal_skill_cooldown_ms,
       :reposition_enabled,
       :reposition_battle_clear_ms,
       :player_mode,
@@ -101,6 +104,108 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   defp battle_png(dir, name, color) do
     rows = for _y <- 1..400, do: List.duplicate(color, 100)
     Pokex.PngFixtures.write!(Path.join(dir, name), rows)
+  end
+
+  # The pokémon's OWN healing skill: the rung above the potion, and the only one
+  # that works while it is being hit — a potion is a channel and combat cancels
+  # it, so HP falling mid-fight used to have nothing before the revive.
+  describe "the pokémon's healing skill" do
+    setup do
+      Settings.put(:rescue_enabled, false)
+      Settings.put(:potion_enabled, false)
+      Settings.put(:heal_skill_enabled, true)
+      Settings.put(:pokemon_hp_heal_pct, 70)
+      Settings.put(:heal_skill_cooldown_ms, 60_000)
+      :ok
+    end
+
+    defp classify!(name, profile) do
+      File.write!(
+        Path.join(Pokex.Home.dir(), "pokedex.json"),
+        JSON.encode!(%{"species" => [%{"name" => name, "number" => 1, "elements" => ["Grass"]}]})
+      )
+
+      Application.put_env(:pokex, :pokedex_path, Path.join(Pokex.Home.dir(), "pokedex.json"))
+      on_exit(fn -> Application.delete_env(:pokex, :pokedex_path) end)
+
+      {:ok, _} = Pokex.Pokedex.Team.add(name)
+      Pokex.Pokedex.Team.set_skills(name, profile)
+      Pokex.Pokedex.Team.set_active(name)
+    end
+
+    @tag :tmp_dir
+    test "low HP presses the :heal key of the pokémon on the field", %{tmp: tmp, body: body} do
+      classify!("Venusaur", %{"3" => :aoe, "8" => :heal})
+      low = hp_png(tmp, "low_heal.png", 10)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :high, [{:press, "8"}]}, 800
+    end
+
+    # No combat gate is the WHOLE point: the potion has one and that is the hole
+    # this fills.
+    @tag :tmp_dir
+    test "it fires with a fight locked on screen — where the potion cannot", %{
+      tmp: tmp,
+      body: body
+    } do
+      classify!("Venusaur", %{"8" => :heal})
+      low = hp_png(tmp, "low_fight.png", 10)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      WorldState.put(
+        :battle,
+        %{enemies: [0], locked?: true, locked_row: 0},
+        System.monotonic_time(:millisecond)
+      )
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :high, [{:press, "8"}]}, 800
+    end
+
+    @tag :tmp_dir
+    test "a pokémon with no heal classified presses nothing", %{tmp: tmp, body: body} do
+      classify!("Venusaur", %{"3" => :aoe})
+      low = hp_png(tmp, "low_none.png", 10)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, _priority, _actions}, 300
+    end
+
+    @tag :tmp_dir
+    test "a full bar presses nothing", %{tmp: tmp, body: body} do
+      classify!("Venusaur", %{"8" => :heal})
+      full = hp_png(tmp, "full_heal.png", 20)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, full}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, _priority, _actions}, 300
+    end
+
+    # The tick is 20ms here; without the cooldown this would be a key every tick.
+    @tag :tmp_dir
+    test "the cooldown holds it to ONE press, not one per tick", %{tmp: tmp, body: body} do
+      classify!("Venusaur", %{"8" => :heal})
+      low = hp_png(tmp, "low_once.png", 10)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :high, [{:press, "8"}]}, 800
+      refute_receive {:performed, _priority, _actions}, 300
+      assert Worker.status(worker).counters.heals == 1
+    end
   end
 
   @tag :tmp_dir
@@ -293,6 +398,48 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert_receive {:rule_alarm, msg}, 1_000
     assert msg =~ "sumiu"
     assert msg =~ "revivendo direto"
+  end
+
+  # The `:crowd` job on /time IS "reservada pro stun antes do revive", and it is
+  # per pokémon — the answer a globally named combo cannot give after a swap. It
+  # never overrides his combo: this only fills the case that used to revive with
+  # no stun at all.
+  @tag :tmp_dir
+  test "a dangling combo falls back to the CONTROL keys of the pokémon on the field", %{
+    tmp: tmp,
+    body: body
+  } do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
+    Settings.put(:rescue_mode, "combo")
+    Settings.put(:rescue_combo, "sumiu")
+
+    File.write!(
+      Path.join(Pokex.Home.dir(), "pokedex.json"),
+      JSON.encode!(%{
+        "species" => [%{"name" => "Gardevoir", "number" => 282, "elements" => ["Psychic"]}]
+      })
+    )
+
+    Application.put_env(:pokex, :pokedex_path, Path.join(Pokex.Home.dir(), "pokedex.json"))
+    on_exit(fn -> Application.delete_env(:pokex, :pokedex_path) end)
+
+    {:ok, _} = Pokex.Pokedex.Team.add("Gardevoir")
+    Pokex.Pokedex.Team.set_skills("Gardevoir", %{"2" => :crowd, "3" => :aoe})
+    Pokex.Pokedex.Team.set_active("Gardevoir")
+
+    low = hp_png(tmp, "low_crowd.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    # the stun goes out FIRST and ALONE — the recall waits for it to be confirmed
+    assert_receive {:performed, :critical, [{:press, "2"}]}, 1_000
+    assert_receive {:performed, :critical, revive}, 1_500
+    assert {:press, "shift+q"} in revive
+
+    assert_receive {:game_log, _level, text}, 1_000
+    assert text =~ "controle do pokémon em campo"
   end
 
   @tag :tmp_dir

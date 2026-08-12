@@ -288,11 +288,16 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
     state =
       %{state | logic: logic}
+      # BEFORE the action, always: the tick that STARTS Combat is the tick that
+      # must already have said what to do with the fire. Published after, the
+      # first thing Combat read was an absent posture fact — which it correctly
+      # takes for free fire — and it opened up on the crowd the hunt was about
+      # to gather.
+      |> publish_posture(now)
       |> translate(action)
       |> note_arrival(wp_before, now)
       |> note_search(state_before, now)
       |> log_hold_edge(now)
-      |> publish_posture(now)
 
     if broadcast_key(state, now) != before, do: broadcast_status(state)
     {:noreply, schedule_tick(state)}

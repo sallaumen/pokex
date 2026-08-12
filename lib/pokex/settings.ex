@@ -170,6 +170,21 @@ defmodule Pokex.Settings do
     # waits for a click.
     ball_key: "f1",
     ball_needs_click: false,
+    # The balls on his hotbar. `ball_key` above is the DEFAULT — what an
+    # unrecognised corpse, or one no rule mentions, gets thrown at it.
+    ball_types: [
+      %{"key" => "f1", "name" => "Poké Ball"},
+      %{"key" => "f2", "name" => "Bola de aquáticos"}
+    ],
+    # WHICH ball for WHICH corpse, read like the combo triggers: naming the
+    # creature beats naming what it is made of, and both beat the default.
+    # Seeded with the two he hunts (2026-08-11) — the rules stand ready and
+    # start working the moment their corpses are in the library, painted by
+    # hand or photographed for real.
+    ball_rules: [
+      %{"trigger" => %{"kind" => "species", "value" => "Tentacool"}, "key" => "f2"},
+      %{"trigger" => %{"kind" => "species", "value" => "Krabby"}, "key" => "f2"}
+    ],
     # The beat between positioning the cursor and firing the hotkey. The rod
     # has the SAME shape and uses 30ms (wait_after_equip_ms) — the ball had no
     # beat at all.
@@ -1133,6 +1148,7 @@ defmodule Pokex.Settings do
       is_integer(seed) -> "inteiro"
       is_float(seed) -> "número"
       is_binary(seed) -> "texto"
+      list_of_maps?(seed) -> "lista de registros"
       is_list(seed) -> "lista de textos"
       true -> "?"
     end
@@ -1431,10 +1447,16 @@ defmodule Pokex.Settings do
       is_integer(seed) -> is_integer(value)
       is_float(seed) -> is_number(value)
       is_binary(seed) -> is_binary(value)
+      # A list key carries EITHER strings (skill keys, muted sectors) or maps
+      # (the balls on the hotbar and the rules that pick between them). The seed
+      # says which — the same way it says every other type here.
+      list_of_maps?(seed) -> list_of_maps?(value)
       is_list(seed) -> is_list(value) and Enum.all?(value, &is_binary/1)
       true -> false
     end
   end
+
+  defp list_of_maps?(value), do: is_list(value) and value != [] and Enum.all?(value, &is_map/1)
 
   defp preset_entry(file) do
     slug = String.trim_trailing(file, ".json")

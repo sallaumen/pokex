@@ -23,6 +23,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   alias Pokex.Bots.Body
   alias Pokex.Bots.Catcher.Ball
+  alias Pokex.Bots.Catcher.Balls
   alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.Logic
   alias Pokex.Bots.Catcher.SpotScan
@@ -640,8 +641,20 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp throw_balls(performs, body) do
     performs
-    |> Enum.flat_map(fn {:capture_sequence, point} -> Ball.sequence(point) end)
+    |> Enum.flat_map(fn {:capture_sequence, point, name} ->
+      key = Balls.key_for(name)
+      announce_special_ball(key, name)
+      Ball.sequence(point, key)
+    end)
     |> Body.perform(:high, body)
+  end
+
+  # Only when a RULE fired. The ordinary ball is the silent case — saying
+  # "Poké Ball" on every throw would bury the one line that matters, which is
+  # the good ball leaving for the creature he is actually hunting.
+  defp announce_special_ball(key, name) do
+    if key != Balls.default_key(),
+      do: log(:macro, "🔴 #{Balls.label(key)} (#{key}) para #{name}")
   end
 
   # The return used to be DISCARDED — a real actuation error vanished and the
@@ -672,7 +685,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp run_step(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())
 
-    performs = Enum.filter(actions, &match?({:capture_sequence, _}, &1))
+    performs = Enum.filter(actions, &match?({:capture_sequence, _, _}, &1))
 
     # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
     # configured hotkey, hold the cursor). Each step passes the input and
@@ -697,7 +710,9 @@ defmodule Pokex.Bots.Catcher.Worker do
     # The ball says WHO is in the aim: the interpreter already recognized the
     # corpse via the library (only mapped corpses are targets since 2026-07-30)
     # and the name travels in the observation — dropping it meant blind validation.
-    for {:capture_sequence, point} <- performs, info = known_at(obs, point), info != nil do
+    for {:capture_sequence, point, _name} <- performs,
+        info = known_at(obs, point),
+        info != nil do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @topic,

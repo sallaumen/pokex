@@ -917,6 +917,66 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:sweep_enabled) == original
   end
 
+  # He keeps more than one kind of ball on the hotbar and wants the good one
+  # spent on the creature he is hunting, not on everything.
+  describe "which ball for which corpse" do
+    setup do
+      types = Pokex.Settings.get(:ball_types)
+      rules = Pokex.Settings.get(:ball_rules)
+
+      on_exit(fn ->
+        Pokex.Settings.put(:ball_types, types)
+        Pokex.Settings.put(:ball_rules, rules)
+      end)
+
+      :ok
+    end
+
+    test "a rule written on the screen is the rule the aim obeys", %{conn: conn} do
+      Pokex.Settings.put(:ball_rules, [
+        %{"trigger" => %{"kind" => "species", "value" => "Rattata"}, "key" => "f2"}
+      ])
+
+      {:ok, view, _} = live(conn, ~p"/config")
+
+      view
+      |> element("#ball-rule-0")
+      |> render_change(%{"idx" => "0", "kind" => "element", "value" => "Water", "key" => "f2"})
+
+      assert [%{"trigger" => %{"kind" => "element", "value" => "Water"}, "key" => "f2"}] =
+               Pokex.Settings.get(:ball_rules)
+
+      assert Pokex.Bots.Catcher.Balls.key_for("Tentacool") == "f2"
+    end
+
+    test "a rule can be added and thrown away", %{conn: conn} do
+      before = length(Pokex.Settings.get(:ball_rules))
+      {:ok, view, _} = live(conn, ~p"/config")
+
+      view |> element("#ball-rule-add") |> render_click()
+      assert length(Pokex.Settings.get(:ball_rules)) == before + 1
+
+      view
+      |> element(~s(button[phx-click="ball_rule_remove"][phx-value-idx="0"]))
+      |> render_click()
+
+      assert length(Pokex.Settings.get(:ball_rules)) == before
+    end
+
+    # Removing the last ball would leave nothing to throw AND a value Settings
+    # refuses (a list key's type is read off its seed, which is never empty).
+    test "throwing away the last ball falls back to the shipped list", %{conn: conn} do
+      Pokex.Settings.put(:ball_types, [%{"key" => "f2", "name" => "Só essa"}])
+      {:ok, view, _} = live(conn, ~p"/config")
+
+      view
+      |> element(~s(button[phx-click="ball_type_remove"][phx-value-idx="0"]))
+      |> render_click()
+
+      assert Pokex.Settings.get(:ball_types) == Map.fetch!(Pokex.Settings.defaults(), :ball_types)
+    end
+  end
+
   test "loot and capture toggles persist independently", %{conn: conn} do
     loot = Pokex.Settings.get(:loot_enabled)
     cap = Pokex.Settings.get(:capture_enabled)

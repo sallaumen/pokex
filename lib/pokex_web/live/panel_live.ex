@@ -182,6 +182,8 @@ defmodule PokexWeb.PanelLive do
        shiny_guard_enabled: Settings.get(:shiny_guard_enabled),
        corpse_match_pct: round(Settings.get(:corpse_match_min_similarity) * 100),
        ball_key: Settings.get(:ball_key),
+       ball_types: Settings.get(:ball_types),
+       ball_rules: Settings.get(:ball_rules),
        ball_needs_click: Settings.get(:ball_needs_click),
        corpse_max_balls: Settings.get(:corpse_max_balls),
        corpse_scan_radius_tiles: Settings.get(:corpse_scan_radius_tiles),
@@ -1211,6 +1213,47 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, ball_needs_click: value)}
   end
 
+  # The balls on his hotbar and the rules that pick between them. Each row is its
+  # own little form carrying its index, so a change to one never rewrites the
+  # others — the editor that lost a draft on every keystroke is a mistake this
+  # project already made once.
+  def handle_event("ball_type_change", %{"idx" => idx, "key" => key, "name" => name}, socket) do
+    {:noreply,
+     put_ball_list(socket, :ball_types, fn list ->
+       replace_at(list, idx, %{"key" => String.trim(key), "name" => name})
+     end)}
+  end
+
+  def handle_event("ball_type_add", _params, socket) do
+    {:noreply, put_ball_list(socket, :ball_types, &(&1 ++ [%{"key" => "", "name" => ""}]))}
+  end
+
+  def handle_event("ball_type_remove", %{"idx" => idx}, socket) do
+    {:noreply, put_ball_list(socket, :ball_types, &delete_at(&1, idx))}
+  end
+
+  def handle_event(
+        "ball_rule_change",
+        %{"idx" => idx, "kind" => kind, "value" => value, "key" => key},
+        socket
+      ) do
+    rule = %{"trigger" => %{"kind" => kind, "value" => String.trim(value)}, "key" => key}
+    {:noreply, put_ball_list(socket, :ball_rules, &replace_at(&1, idx, rule))}
+  end
+
+  def handle_event("ball_rule_add", _params, socket) do
+    novo = %{
+      "trigger" => %{"kind" => "species", "value" => ""},
+      "key" => Settings.get(:ball_key)
+    }
+
+    {:noreply, put_ball_list(socket, :ball_rules, &(&1 ++ [novo]))}
+  end
+
+  def handle_event("ball_rule_remove", %{"idx" => idx}, socket) do
+    {:noreply, put_ball_list(socket, :ball_rules, &delete_at(&1, idx))}
+  end
+
   # The blind sweep's switch and cadence. `mode_changed` is what makes the flip
   # apply to a bot ALREADY running — without it the sweep would only start (or
   # stop) at the next Iniciar, which is exactly the kind of "I turned it on and
@@ -2221,6 +2264,33 @@ defmodule PokexWeb.PanelLive do
     worker.status()
   catch
     :exit, _reason -> current
+  end
+
+  # An EMPTY list is refused by Settings (a list key's type is read off its
+  # seed), and it is also nonsense: with no balls configured nothing could be
+  # thrown. Removing the last row leaves the seed's list instead of a wedge.
+  defp put_ball_list(socket, key, fun) do
+    value = socket.assigns |> Map.fetch!(key) |> fun.() |> Enum.reject(&(&1 == nil))
+    value = if value == [], do: Settings.defaults() |> Map.fetch!(key), else: value
+
+    case Settings.put(key, value) do
+      {:error, _reason} -> socket
+      _applied -> assign(socket, key, Settings.get(key))
+    end
+  end
+
+  defp replace_at(list, idx, value) do
+    case Integer.parse(to_string(idx)) do
+      {i, _rest} when i >= 0 -> List.replace_at(list, i, value)
+      _bad -> list
+    end
+  end
+
+  defp delete_at(list, idx) do
+    case Integer.parse(to_string(idx)) do
+      {i, _rest} when i >= 0 -> List.delete_at(list, i)
+      _bad -> list
+    end
   end
 
   defp automation_count(
@@ -3534,6 +3604,8 @@ defmodule PokexWeb.PanelLive do
             dry_balls_alarm: @dry_balls_alarm
           }
         }
+        ball_types={@ball_types}
+        ball_rules={@ball_rules}
         sweep_cfg={
           %{
             enabled: @sweep_enabled,

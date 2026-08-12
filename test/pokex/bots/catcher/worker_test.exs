@@ -106,6 +106,58 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).counters.throws == 1
   end
 
+  # He keeps more than one kind of ball on the hotbar: F1 ordinary, F2 better at
+  # water types. The aim already knows WHO is lying there, so the ball can be
+  # chosen instead of always spending the same one.
+  @tag :tmp_dir
+  test "the corpse's name decides WHICH ball key is pressed", %{worker: worker} do
+    SettingsStash.stash!(
+      ball_key: "f1",
+      ball_types: [
+        %{"key" => "f1", "name" => "Poké Ball"},
+        %{"key" => "f2", "name" => "Aquática"}
+      ],
+      ball_rules: [
+        %{"trigger" => %{"kind" => "species", "value" => "Tentacool"}, "key" => "f2"}
+      ]
+    )
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    obs =
+      corpses_obs([{130, 224}])
+      |> Map.put(:known, %{{130, 224} => %{name: "Tentacool shiny", score: 0.9}})
+
+    world!(worker, obs)
+
+    assert_receive {:performed, :high, actions}, 1_000
+    assert {:press, "f2"} in actions
+    assert_log_eventually("🔴 Aquática (f2) para Tentacool shiny")
+  end
+
+  @tag :tmp_dir
+  test "a corpse no rule mentions keeps the ordinary ball, quietly", %{worker: worker} do
+    SettingsStash.stash!(
+      ball_key: "f1",
+      ball_types: [
+        %{"key" => "f1", "name" => "Poké Ball"},
+        %{"key" => "f2", "name" => "Aquática"}
+      ],
+      ball_rules: [
+        %{"trigger" => %{"kind" => "species", "value" => "Tentacool"}, "key" => "f2"}
+      ]
+    )
+
+    obs =
+      corpses_obs([{130, 224}])
+      |> Map.put(:known, %{{130, 224} => %{name: "Rattata", score: 0.9}})
+
+    world!(worker, obs)
+
+    assert_receive {:performed, :high, actions}, 1_000
+    assert {:press, "f1"} in actions
+  end
+
   @tag :tmp_dir
   test "the throw log names which pokemon the library recognized", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")

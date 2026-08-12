@@ -40,6 +40,9 @@ defmodule PokexWeb.Panel.SettingsOverlay do
     required: true,
     doc: "match_pct, ball_key, ball_needs_click, max_balls, radius_tiles, dry_balls_alarm"
 
+  attr :ball_types, :list, required: true, doc: "as pokébolas do hotbar: key + name"
+  attr :ball_rules, :list, required: true, doc: "qual bola para qual corpo"
+
   attr :sweep_cfg, :map, required: true, doc: "enabled, interval_s, radius_tiles, side, msg"
 
   attr :stock_cfg, :map, required: true, doc: "f1, f2, e, s_q"
@@ -472,6 +475,125 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               event="toggle_ball_needs_click"
             />
 
+            <%!-- WHICH ball for WHICH corpse. He keeps more than one kind on the
+                  hotbar and the aim already knows who is lying there, so the
+                  good ball can be spent on the creature he is hunting instead
+                  of on everything. Reads like his combo triggers, and settles
+                  the same way: the creature's name beats its element, and both
+                  beat the default. --%>
+            <.group_header
+              label="Pokébolas"
+              accent="bg-[#8f6ad1]"
+              note="as bolas do hotbar; a marcada como padrão é o que um corpo sem regra recebe"
+            />
+            <div class="space-y-1 px-1">
+              <form
+                :for={{ball, idx} <- Enum.with_index(@ball_types)}
+                id={"ball-type-#{idx}"}
+                phx-change="ball_type_change"
+                class="flex items-center gap-2 font-mono text-pk-meta text-pk-text-2"
+              >
+                <input type="hidden" name="idx" value={idx} />
+                <input
+                  name="key"
+                  value={ball["key"]}
+                  aria-label="tecla da pokébola"
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <input
+                  name="name"
+                  value={ball["name"]}
+                  aria-label="nome da pokébola"
+                  phx-debounce="500"
+                  class="h-6 flex-1 rounded border border-pk-line-strong bg-pk-bg px-2 text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span :if={ball["key"] == @capture_cfg.ball_key} class="text-pk-text-3">padrão</span>
+                <button
+                  type="button"
+                  phx-click="ball_type_remove"
+                  phx-value-idx={idx}
+                  aria-label="remover pokébola"
+                  class="px-1 text-pk-danger"
+                >
+                  ×
+                </button>
+              </form>
+              <button
+                id="ball-type-add"
+                type="button"
+                phx-click="ball_type_add"
+                class="font-mono text-pk-meta text-pk-text-3 hover:text-pk-text"
+              >
+                + pokébola
+              </button>
+            </div>
+
+            <.group_header
+              label="Qual bola para qual corpo"
+              accent="bg-[#8f6ad1]"
+              note="o nome da criatura ganha do elemento dela, e os dois ganham da bola padrão"
+            />
+            <div class="space-y-1 px-1">
+              <p :if={@ball_rules == []} class="font-mono text-pk-meta text-pk-text-3">
+                nenhuma regra — todo corpo leva a bola padrão
+              </p>
+              <form
+                :for={{rule, idx} <- Enum.with_index(@ball_rules)}
+                id={"ball-rule-#{idx}"}
+                phx-change="ball_rule_change"
+                class="flex items-center gap-2 font-mono text-pk-meta text-pk-text-2"
+              >
+                <input type="hidden" name="idx" value={idx} />
+                <select
+                  name="kind"
+                  aria-label="tipo do gatilho"
+                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-text focus:border-pk-ok focus:outline-none"
+                >
+                  <option value="species" selected={rule_kind(rule) == "species"}>espécie</option>
+                  <option value="element" selected={rule_kind(rule) == "element"}>elemento</option>
+                </select>
+                <input
+                  name="value"
+                  value={rule_value(rule)}
+                  aria-label="nome da espécie ou do elemento"
+                  phx-debounce="500"
+                  class="h-6 flex-1 rounded border border-pk-line-strong bg-pk-bg px-2 text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span class="text-pk-text-3">→</span>
+                <select
+                  name="key"
+                  aria-label="pokébola da regra"
+                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-text focus:border-pk-ok focus:outline-none"
+                >
+                  <option
+                    :for={ball <- @ball_types}
+                    value={ball["key"]}
+                    selected={ball["key"] == rule["key"]}
+                  >
+                    {ball["key"]} · {ball["name"]}
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  phx-click="ball_rule_remove"
+                  phx-value-idx={idx}
+                  aria-label="remover regra"
+                  class="px-1 text-pk-danger"
+                >
+                  ×
+                </button>
+              </form>
+              <button
+                id="ball-rule-add"
+                type="button"
+                phx-click="ball_rule_add"
+                class="font-mono text-pk-meta text-pk-text-3 hover:text-pk-text"
+              >
+                + regra
+              </button>
+            </div>
+
             <%!-- The brute-force net UNDER the aimed capture. Deliberately its
                   own switch: this is what you turn on when you stopped trusting
                   the aim, so it must not hang off the aim's own switch. --%>
@@ -898,4 +1020,10 @@ defmodule PokexWeb.Panel.SettingsOverlay do
         for {:skill, key} <- combo.steps, key in combat_keys, uniq: true, do: "skill #{key}"
     end
   end
+
+  defp rule_kind(%{"trigger" => %{"kind" => kind}}) when is_binary(kind), do: kind
+  defp rule_kind(_rule), do: "species"
+
+  defp rule_value(%{"trigger" => %{"value" => value}}) when is_binary(value), do: value
+  defp rule_value(_rule), do: ""
 end

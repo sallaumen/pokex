@@ -19,6 +19,9 @@ config :pokex, sweep_auto_tick: false
 # Tests often script different fake images for the same region back-to-back. Keep
 # the global broker uncached there; targeted Capture tests enable cache explicitly.
 config :pokex, capture_cache_ttl_ms: 0
+# The presence poll writes a card into the home and shells out to `kill -0`. Off for the
+# app-wide instance in the suite; its own tests boot isolated ones against temp directories.
+config :pokex, machine_presence_auto: false
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

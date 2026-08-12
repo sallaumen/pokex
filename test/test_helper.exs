@@ -12,3 +12,6 @@ ExUnit.start(timeout: timeout)
 # false and restore it in on_exit — the pattern the files already follow.
 Pokex.Bots.InputGate.set_corner_ok(true)
 Pokex.Bots.InputGate.set_focus_ok(true)
+# :owner_ok plays the same role for Machine.Owner, whose poll is off in the suite
+# (:machine_owner_auto) so no test writes a lockfile into the real home.
+Pokex.Bots.InputGate.set_owner_ok(true)

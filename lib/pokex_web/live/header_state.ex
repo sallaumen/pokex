@@ -28,6 +28,7 @@ defmodule PokexWeb.HeaderState do
   alias Pokex.Bots.Focus
   alias Pokex.Calibration
   alias Pokex.Characters
+  alias Pokex.Machine.Owner
   alias Pokex.Settings
 
   @focus_topic "focus"
@@ -43,6 +44,7 @@ defmodule PokexWeb.HeaderState do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @focus_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, Characters.topic())
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Owner.topic())
 
       if owns_workers?,
         do: Enum.each(@worker_topics, &Phoenix.PubSub.subscribe(Pokex.PubSub, &1))
@@ -60,7 +62,9 @@ defmodule PokexWeb.HeaderState do
         active_character: Characters.active(),
         alarm_sound: Settings.get(:alarm_sound),
         alarm_muted_categories: Settings.get(:alarm_muted_categories),
-        screen_check: screen_check()
+        screen_check: screen_check(),
+        machine_owner?: machine_owner?(),
+        machine_holder: machine_holder()
       )
       |> sync_workers(BotSupervisor.status())
       |> attach_hook(:header_state, :handle_info, &info/2)
@@ -116,8 +120,23 @@ defmodule PokexWeb.HeaderState do
     _kind, _reason -> :unknown
   end
 
+  # The verdict comes off the gate's ETS table (lock-free) and only the holder's NAME needs a
+  # call — skipped entirely when we own the machine, which is the common case.
+  defp machine_owner?, do: Owner.owner?()
+
+  defp machine_holder do
+    if Owner.owner?(), do: nil, else: Owner.status().holder
+  catch
+    _kind, _reason -> nil
+  end
+
   defp info({:focus, %{focused?: focused?}}, socket),
     do: {:halt, assign(socket, focused?: focused?)}
+
+  # Ownership of the Mac can change under an open tab (the owning server was closed and this
+  # window was promoted, or the reverse), so the banner is fed by broadcast, not only at mount.
+  defp info({:machine_owner, %{owner?: owner?, holder: holder}}, socket),
+    do: {:halt, assign(socket, machine_owner?: owner?, machine_holder: holder)}
 
   # ALWAYS `:halt`: no page handles `{:character, _}` in its own
   # `handle_info/2` — whoever owns character data implements

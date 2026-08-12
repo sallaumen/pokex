@@ -7,6 +7,7 @@ defmodule PokexWeb.Layouts do
 
   alias Pokex.Bots.AlarmCategories
   alias Pokex.Calibration
+  alias Pokex.Machine.Owner
 
   # Embed all files in layouts/* within this module.
   # The default root.html.heex file contains the HTML
@@ -92,6 +93,14 @@ defmodule PokexWeb.Layouts do
   attr :screen_check, :any,
     default: :unknown,
     doc: "does the saved calibration match this screen (HeaderState)"
+
+  attr :machine_owner?, :boolean,
+    default: true,
+    doc: "does THIS VM command the Mac (HeaderState)"
+
+  attr :machine_holder, :any,
+    default: nil,
+    doc: "who commands it when we don't (HeaderState)"
 
   attr :max_width, :string,
     default: "max-w-3xl",
@@ -340,6 +349,8 @@ defmodule PokexWeb.Layouts do
         </div>
       </header>
 
+      <.read_only_strip owner?={@machine_owner?} holder={@machine_holder} />
+
       <.screen_mismatch_strip check={@screen_check} current_page={@current_page} />
 
       <main class={["mx-auto w-full px-2 py-3", @max_width]}>
@@ -350,6 +361,41 @@ defmodule PokexWeb.Layouts do
     </div>
     """
   end
+
+  attr :owner?, :boolean, required: true
+  attr :holder, :any, default: nil
+
+  @doc """
+  Says, on every page, that THIS window cannot touch the game.
+
+  Only one Pokex may drive the Mac (`Pokex.Machine.Owner`). A second server — the worktree
+  opened just to look at the UI — is read-only: it senses and renders, but the input gate is
+  shut and Iniciar is refused. Without a strip, that VM looks completely normal, which is
+  exactly how the 2026-08-12 incident stayed invisible until the two bots were already
+  fighting over the mouse.
+  """
+  def read_only_strip(%{owner?: false} = assigns) do
+    ~H"""
+    <div
+      id="machine-owner-strip"
+      role="status"
+      class="sticky top-12 z-30 border-b border-pk-warn-line bg-pk-warn-dim/95 backdrop-blur"
+    >
+      <div class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5">
+        <.icon name="hero-lock-closed" class="size-4 shrink-0 text-pk-warn" />
+        <p class="flex-1 text-pk-body text-pk-text">
+          <b class="text-pk-warn">Outro Pokex está no comando</b>
+          <span class="pk-num text-pk-text-2">
+            — esta janela é só leitura ({Owner.describe(@holder)}). Ela mostra tudo, mas não
+            digita, não clica e não liga o bot. Feche o outro servidor pra assumir aqui.
+          </span>
+        </p>
+      </div>
+    </div>
+    """
+  end
+
+  def read_only_strip(assigns), do: ~H""
 
   attr :check, :any, required: true, doc: "Calibration.screen_check/2 result"
   attr :current_page, :atom, default: nil
@@ -500,7 +546,9 @@ defmodule PokexWeb.Layouts do
         :active_character,
         :alarm_sound,
         :alarm_muted_categories,
-        :screen_check
+        :screen_check,
+        :machine_owner?,
+        :machine_holder
       ])
 
   # The id becomes DOM: `:fishing_lab` -> "app-nav-fishing-lab" (underscores in

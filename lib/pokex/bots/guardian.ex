@@ -267,6 +267,15 @@ defmodule Pokex.Bots.Guardian do
       not enabled? or screen_w == nil ->
         %{state | command_since: nil, command_fired?: false}
 
+      # The mouse belongs to the MACHINE, not to a VM: every live Pokex polls the same cursor
+      # and each obeys the same dwell on its own. That is precisely how a second server, opened
+      # only to review the UI, started fishing on 2026-08-12 with nobody clicking Iniciar. The
+      # human giving this order is talking to whichever VM commands the Mac; the observers stay
+      # quiet rather than announcing a toggle they would only be refused for.
+      # (The PANIC corner, deliberately, is not filtered: "stop" is safe from anyone.)
+      not InputGate.owner_ok?() ->
+        %{state | command_since: nil, command_fired?: false}
+
       not Corner.in_command_corner?(point, screen_w) ->
         %{state | command_since: nil, command_fired?: false}
 

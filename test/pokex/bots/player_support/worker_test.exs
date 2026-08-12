@@ -548,6 +548,28 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert Worker.status(worker).hold_reason =~ "minigame"
   end
 
+  # PlayerSupport is the ONE worker that arms itself on boot with no order from anybody — so on
+  # 2026-08-12 a server opened just to look at the UI was already watching HP and free to
+  # potion. Every other worker needs start_all, which an observer VM refuses outright. Skipping
+  # the CAPTURE (not merely the actuation) also keeps the second VM out of the serialized
+  # capture broker the real one depends on — the same reasoning as the minigame skip above.
+  @tag :tmp_dir
+  test "does not read HP while another Pokex owns the machine", %{tmp: tmp, body: body} do
+    on_exit(fn -> InputGate.set_owner_ok(true) end)
+    Settings.put(:rescue_enabled, true)
+
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    InputGate.set_owner_ok(false)
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    refute_receive {:performed, _priority, _actions}, 250
+    assert Worker.status(worker).counters.reads == 0
+    assert Worker.status(worker).hold_reason =~ "outro Pokex"
+  end
+
   @tag :tmp_dir
   test "sips a potion when HP is below the potion threshold and no fight is engaged", %{
     tmp: tmp,

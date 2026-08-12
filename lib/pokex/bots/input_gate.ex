@@ -1,13 +1,22 @@
 defmodule Pokex.Bots.InputGate do
   @moduledoc """
-  The hard safety floor for ACTUATION. A single named public ETS table holds two independent
+  The hard safety floor for ACTUATION. A single named public ETS table holds three independent
   boolean flags; `allowed?/0` is their AND. `Rig.Mac` consults it before EVERY key/click/move
   (never before a capture or a cursor read — sensing must keep working so we can tell when it's
   safe to act again), so no input reaches the OS while the gate is closed.
 
-  Two owners, one flag each, so neither clobbers the other:
+  Three owners, one flag each, so none clobbers the others:
     * `:corner_ok` — the `Guardian` clears it while the cursor sits in the panic corner.
     * `:focus_ok`  — the `Focus` poller clears it while the game window is not frontmost.
+    * `:owner_ok`  — `Pokex.Machine.Owner` clears it while ANOTHER Pokex VM holds the machine.
+
+  That third flag exists because focus and the panic corner are conditions of the SCREEN, and
+  every VM running on this Mac reads the same screen. On 2026-08-12 a `mix phx.server` opened in
+  a worktree only to review the UI started fishing on its own: nobody clicked Iniciar — the
+  Guardian's COMMAND CORNER (a mouse dwell: a machine-global input) is obeyed by every live VM
+  at once. The journal caught two beams toggling 18ms apart with independent session
+  generations while the real server was hunting. The Mac has exactly one keyboard, so it gets
+  exactly one owner.
 
   Why this exists: with only the "re-front the game then fire the key" guard, a modal menu that
   stole focus (and could not be re-fronted) still received hundreds of stray keystrokes/clicks
@@ -45,14 +54,24 @@ defmodule Pokex.Bots.InputGate do
     {:ok, %{}}
   end
 
-  @doc "True only when BOTH guards allow actuation. Missing table or flag → false (fail-closed)."
-  def allowed?, do: flag(:corner_ok) and flag(:focus_ok)
+  @doc "True only when ALL guards allow actuation. Missing table or flag → false (fail-closed)."
+  def allowed?, do: flag(:corner_ok) and flag(:focus_ok) and flag(:owner_ok)
 
   @doc "The panic-corner guard: set false while the cursor is parked in the kill corner."
   def set_corner_ok(ok?) when is_boolean(ok?), do: put(:corner_ok, ok?)
 
   @doc "The focus guard: set false while the game window is not frontmost."
   def set_focus_ok(ok?) when is_boolean(ok?), do: put(:focus_ok, ok?)
+
+  @doc "The single-owner guard: set false while another Pokex VM holds this machine."
+  def set_owner_ok(ok?) when is_boolean(ok?), do: put(:owner_ok, ok?)
+
+  @doc """
+  True while THIS VM is the machine's owner. Read by the callers that must refuse an ORDER
+  (starting the fleet) rather than merely swallow an input — a lock-free ETS read, never a
+  call into `Machine.Owner`, so a busy owner can never stall the panel or a worker.
+  """
+  def owner_ok?, do: flag(:owner_ok)
 
   @doc """
   The PANIC LATCH. Unlike the two gate flags (which reflect a live condition and reopen when it
@@ -90,7 +109,12 @@ defmodule Pokex.Bots.InputGate do
 
   @doc "All flags at once, for the panel/diagnostics."
   def state,
-    do: %{corner_ok: flag(:corner_ok), focus_ok: flag(:focus_ok), panic_latch: panic_latched?()}
+    do: %{
+      corner_ok: flag(:corner_ok),
+      focus_ok: flag(:focus_ok),
+      owner_ok: flag(:owner_ok),
+      panic_latch: panic_latched?()
+    }
 
   # Only write on a real change: ETS writes are cheap but the pollers call these every tick, and
   # keeping the table quiet avoids needless churn.

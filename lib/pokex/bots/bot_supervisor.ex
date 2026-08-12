@@ -152,21 +152,36 @@ defmodule Pokex.Bots.BotSupervisor do
   # is worse than a stopped one, because the half that IS running keeps touching
   # the game.
   defp run_chain(servers, wanted) do
-    result =
-      @run_order
-      |> Enum.filter(&(&1 in wanted and is_map_key(servers, &1)))
-      |> Enum.reduce_while(:ok, fn worker, :ok ->
-        case run_worker(worker, servers) do
-          :ok -> {:cont, :ok}
-          {:error, _messages} = error -> {:halt, error}
-        end
-      end)
+    result = with :ok <- owner_check(), do: run_each(servers, wanted)
 
     with {:error, messages} <- result do
       halt_chain(servers)
       announce_refusal(messages)
       result
     end
+  end
+
+  defp run_each(servers, wanted) do
+    @run_order
+    |> Enum.filter(&(&1 in wanted and is_map_key(servers, &1)))
+    |> Enum.reduce_while(:ok, fn worker, :ok -> run_step(worker, servers) end)
+  end
+
+  defp run_step(worker, servers) do
+    case run_worker(worker, servers) do
+      :ok -> {:cont, :ok}
+      {:error, _messages} = error -> {:halt, error}
+    end
+  end
+
+  # Only ONE Pokex VM drives this Mac (`Pokex.Machine.Owner`). An observer refuses the order
+  # itself instead of leaning on the input gate: the gate would swallow the keys silently while
+  # the workers still captured, logged and believed they were hunting. Read straight off the
+  # gate's ETS table — a call into the Owner from here could stall a start behind its poll.
+  defp owner_check do
+    if InputGate.owner_ok?(),
+      do: :ok,
+      else: {:error, ["outro Pokex está no comando desta máquina (esta janela é só leitura)"]}
   end
 
   defp run_worker(:mini_game, %{mini_game: server}), do: MiniGame.Worker.run(server)
@@ -214,6 +229,19 @@ defmodule Pokex.Bots.BotSupervisor do
         # isolated supervisor in a test must never arm the app-global one.
         timers \\ Timers.Worker
       ) do
+    # Refused before ANYTHING below happens: a VM that doesn't own the machine must not bump the
+    # generation, clear the panic latch or arm PlayerSupport — those are acts of command.
+    case owner_check() do
+      :ok ->
+        start_owned(fishing, combat, catcher, mini_game, player_support, cavebot, timers)
+
+      {:error, messages} = refusal ->
+        announce_refusal(messages)
+        refusal
+    end
+  end
+
+  defp start_owned(fishing, combat, catcher, mini_game, player_support, cavebot, timers) do
     # Every order bumps the GENERATION — even a start that will fail preflight
     # below: the intent was expressed, so any resume pending from before it
     # (Focus holding a "re-arm later") goes stale and is dropped. Deliberately

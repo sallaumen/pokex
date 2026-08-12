@@ -47,6 +47,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   alias Pokex.Bots.BotSupervisor
   alias Pokex.Bots.BotSupervisorTest.{EchoWorker, ParkedWorker}
   alias Pokex.Bots.Fisher.Sensors
+  alias Pokex.Bots.InputGate
   alias Pokex.Bots.MiniGame.Worker
   alias Pokex.Bots.Session
   alias Pokex.{Calibration, Settings}
@@ -153,6 +154,25 @@ defmodule Pokex.Bots.BotSupervisorTest do
   defp start_isolated_trio(tag) do
     %{fishing: fishing, combat: combat, catcher: catcher} = start_isolated_supervisor(tag)
     {fishing, combat, catcher}
+  end
+
+  # The 2026-08-12 incident in one test: a second VM must not be startable AT ALL, whoever gives
+  # the order. The order that actually did it was the Guardian's command corner (a mouse dwell —
+  # machine-global, so every live VM obeys it), which lands here exactly like the Iniciar button.
+  # Refusing at the ORDER, not only at the input gate, also keeps the observer from spinning up
+  # workers that would burn captures and pollute the shared journal on their way to a shut gate.
+  @tag :tmp_dir
+  test "the fleet refuses to start while another Pokex owns the machine" do
+    on_exit(fn -> InputGate.set_owner_ok(true) end)
+    {fishing, combat, catcher} = start_isolated_trio(:not_the_owner_test)
+    InputGate.set_owner_ok(false)
+
+    assert {:error, [message]} = BotSupervisor.start_all(fishing, combat, catcher)
+    assert message =~ "outro Pokex"
+
+    status = BotSupervisor.status(fishing, combat, catcher)
+    assert status.fishing.state == :idle
+    assert status.combat.state == :idle
   end
 
   @tag :tmp_dir

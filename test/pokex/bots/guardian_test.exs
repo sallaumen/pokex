@@ -532,6 +532,26 @@ defmodule Pokex.Bots.GuardianTest do
       assert_receive :toggled, 1_000
     end
 
+    # The corner is a MACHINE-global input: the mouse belongs to the Mac, not to a VM, so every
+    # live Pokex sees the same dwell and each obeys it on its own. That is how the second server
+    # got started on 2026-08-12 with nobody clicking Iniciar. An observer must not even announce
+    # the toggle — a "ligando o modo X" it cannot honour is a lie in the shared journal.
+    test "an observer VM ignores the corner entirely", %{on_panic: on_panic} do
+      on_exit(fn -> InputGate.set_owner_ok(true) end)
+      owner = self()
+      Pokex.Settings.put(:command_corner, true)
+      Pokex.Settings.put(:command_corner_dwell_ms, 10)
+      {:ok, body} = FakeBody.start_link({:ok, {3435, 5}})
+      InputGate.set_owner_ok(false)
+
+      guardian_no_canto!(on_panic, body,
+        screen_w_fun: fn -> 3440 end,
+        command_toggle: fn -> send(owner, :toggled) end
+      )
+
+      refute_receive :toggled, 300
+    end
+
     test "just passing the mouse through the corner (under the dwell) does not fire", %{
       on_panic: on_panic
     } do

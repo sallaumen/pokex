@@ -19,6 +19,10 @@ config :pokex, sweep_auto_tick: false
 # Tests often script different fake images for the same region back-to-back. Keep
 # the global broker uncached there; targeted Capture tests enable cache explicitly.
 config :pokex, capture_cache_ttl_ms: 0
+# The machine-ownership poll writes a lockfile and shells out to `kill -0`. Off in the suite:
+# test_helper opens the gate's :owner_ok directly, and the Owner's own tests boot isolated
+# instances against temp lock paths.
+config :pokex, machine_owner_auto: false
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

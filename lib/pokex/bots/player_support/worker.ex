@@ -169,11 +169,16 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # broker and starves them (measured 2026-07-23: the game's cadence blew from
   # 80ms to ~250ms behind ~6 feed/support captures per 250ms). Skip the capture,
   # say so on the pill, and resume the instant the overlay clears.
+  #
+  # A VM that does not COMMAND the machine is held for the same reason and skips the same
+  # capture. This worker is the only one that arms itself with no order from anybody, so
+  # without this a server opened just to look at the UI (2026-08-12) sits watching HP, ready
+  # to potion the OWNER's Pokémon, with its captures queued in front of the owner's.
   def handle_info(:tick, state) do
-    if Pokex.Perception.mini_game_playing?() do
-      handle_mini_game_tick(state)
-    else
-      run_tick(state)
+    cond do
+      not InputGate.owner_ok?() -> handle_held_tick(state, :not_owner)
+      Pokex.Perception.mini_game_playing?() -> handle_held_tick(state, :mini_game)
+      true -> run_tick(state)
     end
   end
 
@@ -189,12 +194,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # The catcher topic also carries {:catcher_log, ...} chatter — not ours.
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # Nothing here can act (Body gated) and nothing reads our fact (peers frozen),
-  # so we do NOT capture — that only starves the game's strip captures. Announce
-  # once on the entering edge, then stay silent until the overlay clears.
-  defp handle_mini_game_tick(state) do
-    entered? = state.gate != :mini_game
-    state = %{state | gate: :mini_game}
+  # Nothing here can act (Body gated, or this VM isn't the one in command) and nothing reads
+  # our fact, so we do NOT capture — that only starves the real captures. Announce once on the
+  # entering edge, then stay silent. Keeps ticking, so the hold lifts by itself the moment the
+  # overlay clears or this VM is promoted to owner.
+  defp handle_held_tick(state, gate) do
+    entered? = state.gate != gate
+    state = %{state | gate: gate}
     if entered?, do: broadcast(state)
     {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
   end
@@ -837,6 +843,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp gate_text(:panic_corner), do: "parado pelo canto de pânico"
   defp gate_text(:potion_in_combat), do: "poção devida, mas a leitura diz que há luta"
   defp gate_text(:mini_game), do: "minigame em jogo — retoma quando o overlay sair"
+
+  defp gate_text(:not_owner),
+    do: "outro Pokex está no comando desta máquina — esta janela não age"
+
   defp gate_text(_none), do: nil
 
   # The capture wait only shows while something is actually due (a bare pending

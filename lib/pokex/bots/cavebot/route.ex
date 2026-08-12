@@ -352,18 +352,9 @@ defmodule Pokex.Bots.Cavebot.Route do
   An index nobody has, or an action nobody knows, leaves the route untouched.
   """
   @spec set_stop(t, non_neg_integer, stop, boolean) :: t
-  def set_stop(%__MODULE__{waypoints: waypoints} = route, index, stop, on?)
-      when is_integer(index) and stop in @stops and is_boolean(on?) do
-    case Enum.at(waypoints, index) do
-      nil ->
-        route
-
-      wp ->
-        kept = if on?, do: [stop | wp.stops], else: wp.stops -- [stop]
-        wp = %{wp | stops: Enum.filter(@stops, &(&1 in kept))}
-        %{route | waypoints: List.replace_at(waypoints, index, wp)}
-    end
-  end
+  def set_stop(%__MODULE__{} = route, index, stop, on?)
+      when is_integer(index) and stop in @stops and is_boolean(on?),
+      do: toggle_in(route, index, :stops, @stops, stop, on?)
 
   def set_stop(%__MODULE__{} = route, _index, _unknown, _on?), do: route
 
@@ -389,21 +380,33 @@ defmodule Pokex.Bots.Cavebot.Route do
   `set_stop/4`.
   """
   @spec set_skill(t, non_neg_integer, skill, boolean) :: t
-  def set_skill(%__MODULE__{waypoints: waypoints} = route, index, skill, on?)
-      when is_integer(index) and skill in @skills and is_boolean(on?) do
+  def set_skill(%__MODULE__{} = route, index, skill, on?)
+      when is_integer(index) and skill in @skills and is_boolean(on?),
+      do: toggle_in(route, index, :skills, @skills, skill, on?)
+
+  def set_skill(%__MODULE__{} = route, _index, _unknown, _on?), do: route
+
+  # The one rule both toggled axes obey, written once: take what the waypoint
+  # carries in `field`, add or drop `value`, and store the result in the
+  # CANONICAL order rather than the clicking order — two waypoints marked the
+  # same have to run the same sequence.
+  #
+  # Read through Access and written with `Map.put/3`, never `%{wp | field}`: a
+  # waypoint decoded from a routes.json older than the field has no such key
+  # (there is no migration by design), and toggling it must work rather than
+  # raise. An index nobody has is a no-op, never an error.
+  defp toggle_in(%__MODULE__{waypoints: waypoints} = route, index, field, canonical, value, on?) do
     case Enum.at(waypoints, index) do
       nil ->
         route
 
       wp ->
-        carried = wp[:skills] || []
-        kept = if on?, do: [skill | carried], else: carried -- [skill]
-        wp = Map.put(wp, :skills, Enum.filter(@skills, &(&1 in kept)))
+        carried = wp[field] || []
+        kept = if on?, do: [value | carried], else: carried -- [value]
+        wp = Map.put(wp, field, Enum.filter(canonical, &(&1 in kept)))
         %{route | waypoints: List.replace_at(waypoints, index, wp)}
     end
   end
-
-  def set_skill(%__MODULE__{} = route, _index, _unknown, _on?), do: route
 
   @doc "The categories of the waypoint `index` — `[]` for an index nobody has."
   @spec skills_at([waypoint], non_neg_integer) :: [skill]
@@ -449,8 +452,10 @@ defmodule Pokex.Bots.Cavebot.Route do
   """
   @spec gather_wait(t, waypoint, non_neg_integer) :: non_neg_integer
   def gather_wait(%__MODULE__{gather_wait_ms: route_ms}, waypoint, default) do
+    waypoint_ms = waypoint[:gather_wait_ms]
+
     cond do
-      is_integer(waypoint[:gather_wait_ms]) -> waypoint[:gather_wait_ms]
+      is_integer(waypoint_ms) -> waypoint_ms
       is_integer(route_ms) -> route_ms
       true -> default
     end

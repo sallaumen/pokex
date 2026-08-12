@@ -24,6 +24,18 @@ defmodule Pokex.Bots.Cavebot.Recording do
 
   alias Pokex.Bots.Cavebot.Route
 
+  # When two kill spots are ONE kill spot. Measured on his own recording
+  # (2026-08-11): the runs a single fight's middle clicks leave behind sit 1-5
+  # tiles and 1-2 SECONDS apart, while between real piles he walks 10 tiles or
+  # more and 15-23 seconds pass — a pile takes that long to die.
+  #
+  # The clock is the decisive one and the distance is its sanity bound. A route
+  # recorded before the recorder read the clock has no `at` at all; there,
+  # distance is all there is, so it has to be tight enough to be safe alone.
+  @merge_tiles 6
+  @merge_seconds 10
+  @merge_tiles_blind 3
+
   @doc """
   Marks the waypoint at `index` from its dwell, and the gathering that led to
   it. Returns the route unchanged when the stop was short.
@@ -116,6 +128,70 @@ defmodule Pokex.Bots.Cavebot.Recording do
   """
   @spec tidy(Route.t()) :: {Route.t(), String.t()}
   def tidy(%Route{} = route) do
+    {merged, merges} = merge_kill_spots(route)
+    {cleaned, note} = pair_marks(merged)
+    {cleaned, merge_note(merges) <> note}
+  end
+
+  # A RUN of kill spots within a few tiles of each other is ONE kill spot,
+  # recorded several times — the middle clicks of a single fight (see
+  # `mark_park/4`). The LAST of the run survives: it is where the pile actually
+  # died, and it is the one his recording gave the combo and the huddle to. The
+  # others go back to being plain corners, keeping the SHAPE of the walk while
+  # giving up their marks — deleting them would move the path.
+  defp merge_kill_spots(%Route{waypoints: waypoints} = route) do
+    runs = route |> kill_spots() |> group_runs(waypoints)
+    demoted = runs |> Enum.flat_map(fn run -> Enum.drop(run, -1) end)
+
+    {Enum.reduce(demoted, route, &demote/2), length(demoted)}
+  end
+
+  # Consecutive kill spots close enough to be the same fight, grouped in order.
+  defp group_runs(kills, waypoints) do
+    kills
+    |> Enum.sort()
+    |> Enum.chunk_while([], &keep_or_close(&1, &2, waypoints), &close_run/1)
+    |> Enum.filter(&(length(&1) > 1))
+  end
+
+  defp keep_or_close(index, [], _waypoints), do: {:cont, [index]}
+
+  defp keep_or_close(index, [last | _rest] = run, waypoints) do
+    if same_fight?(Enum.at(waypoints, last), Enum.at(waypoints, index)),
+      do: {:cont, [index | run]},
+      else: {:cont, Enum.reverse(run), [index]}
+  end
+
+  defp close_run([]), do: {:cont, []}
+  defp close_run(run), do: {:cont, Enum.reverse(run), []}
+
+  # Same fight: near in space AND, when the recording knows, near in time. The
+  # reach is a parameter because the recorder may be told another one.
+  defp same_fight?(one, other, reach \\ @merge_tiles)
+
+  defp same_fight?(%{at: %DateTime{} = a} = one, %{at: %DateTime{} = b} = other, reach),
+    do: tiles_between(one, other) <= reach and abs(DateTime.diff(a, b)) <= @merge_seconds
+
+  defp same_fight?(one, other, _no_clock),
+    do: tiles_between(one, other) <= @merge_tiles_blind
+
+  # A demoted kill spot keeps its place in the walk and loses everything that
+  # made it a spot: the job, the stops, and the park point of a click that was
+  # only moving the pokémon mid-fight.
+  defp demote(index, route) do
+    route
+    |> Route.set_action(index, :walk)
+    |> Route.set_park_point(index, nil)
+    |> Route.set_park_tiles(index, nil)
+    |> then(fn r -> Enum.reduce(Route.stops(), r, &Route.set_stop(&2, index, &1, false)) end)
+  end
+
+  defp merge_note(0), do: ""
+
+  defp merge_note(count),
+    do: "juntei #{count} marca(s) de uma matança só (cliques do meio da mesma luta); "
+
+  defp pair_marks(%Route{} = route) do
     kills = kill_spots(route)
 
     cleaned =
@@ -174,16 +250,48 @@ defmodule Pokex.Bots.Cavebot.Recording do
   @spec mark_park(Route.t(), non_neg_integer, {integer, integer}, keyword) ::
           {Route.t(), String.t() | nil}
   def mark_park(%Route{} = route, index, point, opts \\ []) do
-    if Enum.at(route.waypoints, index) do
-      {route, _note} = mark_kill_spot(route, index, nil, Keyword.get(opts, :hand_marked, []))
-      {Route.set_park_point(route, index, point), park_note(point)}
-    else
-      {route, nil}
+    cond do
+      Enum.at(route.waypoints, index) == nil ->
+        {route, nil}
+
+      # ONE fight, several clicks. He middle-clicks three, five, eight times
+      # while a pile dies — moving the pokémon around — and each click used to
+      # open a kill spot of its OWN: his 2026-08-11 recording came back with
+      # eight "até aqui" in ten seconds, one per tile, each with its own park
+      # point and its own sweep. A click next door to a kill spot belongs to
+      # that kill spot: it moves where the pokémon waits and marks nothing new.
+      spot = same_fight_spot(route, index, opts) ->
+        {Route.set_park_point(route, spot, point), moved_note(point, spot)}
+
+      true ->
+        {route, _note} = mark_kill_spot(route, index, nil, Keyword.get(opts, :hand_marked, []))
+        {Route.set_park_point(route, index, point), park_note(point)}
     end
+  end
+
+  # The LAST kill spot close enough to be the same fight. Distance, not
+  # adjacency: between two real piles he walks ten tiles or more (measured on
+  # his own route), and inside one fight he moves one or two.
+  defp same_fight_spot(%Route{waypoints: waypoints} = route, index, opts) do
+    reach = Keyword.get(opts, :merge_tiles, @merge_tiles)
+    here = Enum.at(waypoints, index)
+
+    route
+    |> kill_spots()
+    |> Enum.reject(&(&1 == index))
+    |> Enum.filter(&same_fight?(Enum.at(waypoints, &1), here, reach))
+    |> Enum.max(fn -> nil end)
+  end
+
+  defp tiles_between(%{x: ax, y: ay, z: az}, %{x: bx, y: by, z: bz}) do
+    if az == bz, do: abs(ax - bx) + abs(ay - by), else: 1_000
   end
 
   defp park_note({x, y}),
     do: "🖱️ clique do meio em #{x}, #{y} — marquei \"até aqui\" + varrer e guardei o ponto"
+
+  defp moved_note({x, y}, spot),
+    do: "🖱️ #{x}, #{y} — mesma matança do waypoint #{spot + 1}; só mudei onde o pokémon fica"
 
   defp mark_kill_spot(route, index, dwell, hand_marked) do
     route =

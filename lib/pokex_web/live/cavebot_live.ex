@@ -691,9 +691,11 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
-  # "me ajude a debalançar ali para não ter coisa repetida junto" (Lucas,
-  # 2026-08-11): his marks stay, their PAIRING gets fixed — one gathering into
-  # each kill spot, and no "até aqui" left dangling.
+  # "de repente a gente não cria um botão para otimizar a rota e garantir que,
+  # quando ele começa a mobar, ele realmente sempre termina" (Lucas,
+  # 2026-08-11). Two passes: the middle clicks of ONE fight become one kill
+  # spot, and then every kill spot gets exactly one gathering leading into it.
+  # The walk itself is never touched — only what the corners MEAN.
   def handle_event("tidy_marks", _params, socket) do
     with_route(socket, &Recording.tidy/1)
   end
@@ -1773,11 +1775,11 @@ defmodule PokexWeb.CavebotLive do
                     :if={@active_route.waypoints != []}
                     id="tidy-marks"
                     phx-click="tidy_marks"
-                    aria-label="Arrumar as marcas de mobada da rota"
-                    title="uma mobada pra cada matança, sem marca solta"
+                    aria-label="Otimizar a rota: juntar marcas repetidas e fechar as mobadas"
+                    title="junta os cliques de uma luta só e garante uma mobada pra cada matança"
                     class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-info"
                   >
-                    arrumar marcas
+                    otimizar rota
                   </button>
                   <button
                     :if={@active_route.waypoints != []}

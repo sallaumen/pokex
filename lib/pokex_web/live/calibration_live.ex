@@ -16,6 +16,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Perception.Interpret.Minimap
   alias Pokex.Screenshot
   alias PokexWeb.CalibrationClick
+  alias PokexWeb.CalibrationLibrary
   alias PokexWeb.CalibrationReview
   alias PokexWeb.CalibrationSteps
   alias PokexWeb.CalibrationZoom
@@ -1531,12 +1532,12 @@ defmodule PokexWeb.CalibrationLive do
     ~H"""
     <button
       phx-click={@event}
-      class="flex items-start gap-2.5 rounded-xl border border-base-content/10 bg-base-100 px-3 py-2.5 text-left transition hover:border-primary/40 hover:bg-base-100/60"
+      class="flex items-start gap-2.5 rounded-lg border border-pk-line bg-pk-sunken px-3 py-2.5 text-left transition hover:border-pk-ok/50 hover:bg-pk-raised"
     >
-      <.icon name={@icon} class="mt-0.5 size-4 shrink-0 text-primary" />
+      <.icon name={@icon} class="mt-0.5 size-4 shrink-0 text-pk-ok" />
       <span class="min-w-0">
-        <span class="block text-xs font-semibold">{@title}</span>
-        <span class="mt-0.5 block text-[11px] leading-snug opacity-60">{@hint}</span>
+        <span class="block text-pk-body font-semibold text-pk-text">{@title}</span>
+        <span class="mt-0.5 block text-pk-meta leading-snug text-pk-text-2">{@hint}</span>
       </span>
     </button>
     """
@@ -1565,6 +1566,17 @@ defmodule PokexWeb.CalibrationLive do
 
   defp painted?(%{hue: 0, saturation: 100, brightness: 100}), do: false
   defp painted?(_paint), do: true
+
+  # O placar do acervo: quantos corpos levam bola e quantos estão vetados. Com
+  # 25 linhas na tela, "quantos eu desliguei?" não pode ser uma contagem no olho.
+  defp corpse_aimed(list), do: Enum.count(list, &CorpseLibrary.enabled?/1)
+  defp corpse_vetoed(list), do: length(list) - corpse_aimed(list)
+
+  defp taught_word(1), do: "1 corpo ensinado"
+  defp taught_word(n), do: "#{n} corpos ensinados"
+
+  defp vetoed_word(1), do: "1 vetado (nunca leva bola)"
+  defp vetoed_word(n), do: "#{n} vetados (nunca levam bola)"
 
   defp painted_crop(crop, paint),
     do:
@@ -1735,10 +1747,10 @@ defmodule PokexWeb.CalibrationLive do
   # mini_game quick-fix steps were absent).
   defp step_pill_class(n, step) do
     case CalibrationSteps.index(step) do
-      nil -> "bg-base-300 opacity-50"
-      current when n < current -> "bg-success text-success-content"
-      current when n == current -> "bg-primary text-primary-content"
-      _ -> "bg-base-300 opacity-50"
+      nil -> "border border-pk-line text-pk-text-3"
+      current when n < current -> "border border-pk-ok-line bg-pk-ok-dim text-pk-ok"
+      current when n == current -> "bg-pk-ok text-pk-bg"
+      _ -> "border border-pk-line text-pk-text-3"
     end
   end
 
@@ -1758,18 +1770,33 @@ defmodule PokexWeb.CalibrationLive do
     assigns = assign(assigns, total_steps: CalibrationSteps.total(), zoom_factor: @zoom_factor)
 
     ~H"""
-    <Layouts.app flash={@flash} current_page={:calibration} {Layouts.header(assigns)}>
-      <div class="space-y-4">
-        <header>
-          <h1 class="text-xl font-bold">Calibração</h1>
-          <p class="mt-1 text-sm opacity-70">
+    <Layouts.app
+      flash={@flash}
+      current_page={:calibration}
+      max_width="max-w-[900px] 2xl:max-w-[1600px]"
+      {Layouts.header(assigns)}
+    >
+      <div class="space-y-3">
+        <%!-- Título e regra na MESMA linha: a tela é larga, e um parágrafo de
+              aviso ocupando uma faixa inteira só empurra o trabalho pra baixo. --%>
+        <header class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <h1 class="text-base font-bold text-pk-text">Calibração</h1>
+          <p class="min-w-0 flex-1 text-pk-body text-pk-text-2">
             Deixe a janela do jogo visível e SEM o navegador na frente. Depois de calibrar,
             não mova nem redimensione a janela do jogo (senão recalibre).
           </p>
         </header>
 
-        <p :if={@error} class="rounded-lg bg-error/15 px-3 py-2 text-sm text-error">{@error}</p>
-        <p :if={@skillbar_msg} class="rounded-lg bg-success/15 px-3 py-2 text-sm text-success">
+        <p
+          :if={@error}
+          class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
+        >
+          {@error}
+        </p>
+        <p
+          :if={@skillbar_msg}
+          class="rounded-lg border border-pk-ok-line bg-pk-ok-dim px-3 py-2 text-pk-body text-pk-ok"
+        >
           {@skillbar_msg}
         </p>
 
@@ -1788,179 +1815,442 @@ defmodule PokexWeb.CalibrationLive do
           coord_probe={@coord_probe}
         />
 
-        <div :if={is_nil(@screen) and is_nil(@review)} class="space-y-4">
-          <section class="space-y-4 rounded-2xl border border-base-content/10 bg-base-200 p-5">
-            <div class="flex items-start gap-3">
-              <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
-                <.icon name="hero-camera" class="size-5" />
-              </span>
-              <div class="min-w-0">
-                <h2 class="text-sm font-bold">Calibração completa</h2>
-                <p class="mt-0.5 text-xs leading-relaxed opacity-60">
-                  Os 10 passos guiados: água, Battle, ponto neutro, personagem, skills e
-                  vida. Pode deixar o jogo em TELA CHEIA — ao capturar, ele vem pra frente por
-                  ~1s, tira a foto e volta pra cá sozinho.
-                </p>
-              </div>
-            </div>
-            <div class="flex flex-wrap items-end justify-center gap-3">
-              <.form
-                for={@skill_count_form}
-                id="skill-count-form"
-                phx-change="set_skill_count"
-                class="w-40 text-left"
-              >
-                <.input
-                  field={@skill_count_form[:count]}
-                  type="number"
-                  min="1"
-                  max="10"
-                  label="Quantidade de skills"
-                />
-              </.form>
-              <button class="btn btn-primary" phx-click="capture_screen">
-                <.icon name="hero-camera" class="size-4" /> Capturar tela e começar
-              </button>
-            </div>
-          </section>
-
-          <section
-            :if={@calibrated?}
-            class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5"
-          >
-            <div class="flex items-center justify-between gap-2">
-              <div>
-                <h2 class="text-sm font-bold">Correções rápidas</h2>
-                <p class="mt-0.5 text-xs opacity-60">
-                  Ajusta UM ponto da calibração atual, sem refazer o resto.
-                </p>
-              </div>
-              <button class="btn btn-ghost btn-xs shrink-0" phx-click="review">
-                <.icon name="hero-eye" class="size-3.5" /> Revisar áreas salvas
-              </button>
-            </div>
-            <div class="grid gap-2 sm:grid-cols-2">
-              <.quick_fix
-                event="calibrate_skillbar"
-                icon="hero-bolt"
-                title="Só as skills"
-                hint="re-marca a barra de skills e a referência de 'pronta' de cada ícone"
-              />
-              <.quick_fix
-                event="calibrate_player"
-                icon="hero-user"
-                title="Só o personagem"
-                hint="âncora da detecção do minigame quando não há faixa dedicada"
-              />
-              <.quick_fix
-                event="calibrate_mini_game"
-                icon="hero-flag"
-                title="Só o minigame"
-                hint="a faixa onde a barra do minigame aparece (2 cliques) — detecção direta"
-              />
-              <.quick_fix
-                event="calibrate_minimap"
-                icon="hero-map"
-                title="Posição & minimapa"
-                hint="o minimapa e a cruz do personagem (3 cliques) — a faixa da coordenada eu acho sozinho, lendo a foto"
-              />
-              <.quick_fix
-                event="calibrate_pokemon_spot"
-                icon="hero-map-pin"
-                title="Posição do Pokémon"
-                hint="o tile estratégico pro reposicionamento depois das lutas"
-              />
-              <.quick_fix
-                event="calibrate_escape_point"
-                icon="hero-arrow-up-on-square"
-                title="Escada de fuga"
-                hint="o tile do caminho COLADO na escada — a fuga anda até ele e entra de seta"
-              />
-              <.quick_fix
-                event="calibrate_water"
-                icon="hero-beaker"
-                title="Só a água"
-                hint="o ponto do arremesso (1 clique) — o brilho da isca acompanha sozinho"
-              />
-              <.quick_fix
-                event="calibrate_battle"
-                icon="hero-list-bullet"
-                title="Só a Battle"
-                hint="a janela da lista de batalha (2 cliques) — onde o combate lê inimigos e lock"
-              />
-              <.quick_fix
-                event="calibrate_neutral"
-                icon="hero-cursor-arrow-rays"
-                title="Só o ponto neutro"
-                hint="onde o mouse descansa sem clicar em nada (1 clique)"
-              />
-              <.quick_fix
-                event="calibrate_hp"
-                icon="hero-heart"
-                title="Só a vida"
-                hint="a barra de vida do Pokémon (2 cliques) + a foto dele (1 clique)"
-              />
-            </div>
-          </section>
-
-          <section
-            :if={@calibrated? or @profiles != []}
-            class="space-y-3 rounded-2xl border border-base-content/10 bg-base-200 p-5"
-          >
-            <div>
-              <h2 class="text-sm font-bold">Perfis de calibração</h2>
-              <p class="mt-0.5 text-xs opacity-60">
-                Um por layout de monitor — trocar de setup vira um clique em "Usar" (+
-                Parar/Iniciar nos bots).
-              </p>
-            </div>
-            <form
-              :if={@calibrated?}
-              id="profile-form"
-              phx-submit="save_profile"
-              class="flex max-w-xs gap-2"
-            >
-              <input
-                name="profile_name"
-                placeholder="ex: 2-monitores"
-                class="input input-bordered input-sm min-w-0 flex-1"
-              />
-              <button class="btn btn-primary btn-sm">Salvar atual</button>
-            </form>
-            <ul :if={@profiles != []} class="space-y-1.5">
-              <li
-                :for={profile <- @profiles}
-                class="flex items-center gap-3 rounded-lg border border-base-content/10 bg-base-100 px-3 py-2 text-left"
-              >
-                <img
-                  :if={profile.thumb_src}
-                  src={profile.thumb_src}
-                  class="h-10 w-16 shrink-0 rounded border border-base-content/20 object-cover"
-                />
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-semibold">{profile.name}</p>
-                  <p class="font-mono text-[10px] opacity-60">
-                    {profile.screen_w}×{profile.screen_h} pt · escala {profile.scale}
+        <%!-- Duas colunas na tela larga: à ESQUERDA o ato de calibrar (capturar,
+              corrigir um ponto, perfis), à DIREITA o que ele já ensinou. Eram
+              duas pilhas de 3.200px numa coluna de 768 no meio de um monitor de
+              3.440 — o acervo de 25 corpos ficava a três rolagens do botão que
+              tira a foto. --%>
+        <div
+          :if={is_nil(@screen) and is_nil(@review)}
+          class="grid items-start gap-3 2xl:grid-cols-2"
+        >
+          <div class="space-y-3">
+            <section class="space-y-4 rounded-xl border border-pk-line bg-pk-surface p-4">
+              <div class="flex items-start gap-3">
+                <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-pk-ok-dim text-pk-ok">
+                  <.icon name="hero-camera" class="size-5" />
+                </span>
+                <div class="min-w-0">
+                  <h2 class="text-pk-title font-bold text-pk-text">Calibração completa</h2>
+                  <p class="mt-0.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
+                    Os 10 passos guiados: água, Battle, ponto neutro, personagem, skills e
+                    vida. Pode deixar o jogo em TELA CHEIA — ao capturar, ele vem pra frente por
+                    ~1s, tira a foto e volta pra cá sozinho.
                   </p>
                 </div>
-                <button
-                  class="btn btn-success btn-xs"
-                  phx-click="apply_profile"
-                  phx-value-name={profile.name}
+              </div>
+              <div class="flex flex-wrap items-end justify-center gap-3">
+                <.form
+                  for={@skill_count_form}
+                  id="skill-count-form"
+                  phx-change="set_skill_count"
+                  class="w-40 text-left"
                 >
-                  Usar
+                  <.input
+                    field={@skill_count_form[:count]}
+                    type="number"
+                    min="1"
+                    max="10"
+                    label="Quantidade de skills"
+                  />
+                </.form>
+                <button class="btn btn-primary" phx-click="capture_screen">
+                  <.icon name="hero-camera" class="size-4" /> Capturar tela e começar
                 </button>
-                <button
-                  class="btn btn-ghost btn-xs text-error"
-                  phx-click="delete_profile"
-                  phx-value-name={profile.name}
-                  data-confirm={"Excluir o perfil \"#{profile.name}\"?"}
+              </div>
+            </section>
+
+            <section
+              :if={@calibrated?}
+              class="space-y-3 rounded-xl border border-pk-line bg-pk-surface p-4"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <h2 class="text-pk-title font-bold text-pk-text">Correções rápidas</h2>
+                  <p class="mt-0.5 text-pk-body text-pk-text-2">
+                    Ajusta UM ponto da calibração atual, sem refazer o resto.
+                  </p>
+                </div>
+                <button class="btn btn-ghost btn-xs shrink-0" phx-click="review">
+                  <.icon name="hero-eye" class="size-3.5" /> Revisar áreas salvas
+                </button>
+              </div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                <.quick_fix
+                  event="calibrate_skillbar"
+                  icon="hero-bolt"
+                  title="Só as skills"
+                  hint="re-marca a barra de skills e a referência de 'pronta' de cada ícone"
+                />
+                <.quick_fix
+                  event="calibrate_player"
+                  icon="hero-user"
+                  title="Só o personagem"
+                  hint="âncora da detecção do minigame quando não há faixa dedicada"
+                />
+                <.quick_fix
+                  event="calibrate_mini_game"
+                  icon="hero-flag"
+                  title="Só o minigame"
+                  hint="a faixa onde a barra do minigame aparece (2 cliques) — detecção direta"
+                />
+                <.quick_fix
+                  event="calibrate_minimap"
+                  icon="hero-map"
+                  title="Posição & minimapa"
+                  hint="o minimapa e a cruz do personagem (3 cliques) — a faixa da coordenada eu acho sozinho, lendo a foto"
+                />
+                <.quick_fix
+                  event="calibrate_pokemon_spot"
+                  icon="hero-map-pin"
+                  title="Posição do Pokémon"
+                  hint="o tile estratégico pro reposicionamento depois das lutas"
+                />
+                <.quick_fix
+                  event="calibrate_escape_point"
+                  icon="hero-arrow-up-on-square"
+                  title="Escada de fuga"
+                  hint="o tile do caminho COLADO na escada — a fuga anda até ele e entra de seta"
+                />
+                <.quick_fix
+                  event="calibrate_water"
+                  icon="hero-beaker"
+                  title="Só a água"
+                  hint="o ponto do arremesso (1 clique) — o brilho da isca acompanha sozinho"
+                />
+                <.quick_fix
+                  event="calibrate_battle"
+                  icon="hero-list-bullet"
+                  title="Só a Battle"
+                  hint="a janela da lista de batalha (2 cliques) — onde o combate lê inimigos e lock"
+                />
+                <.quick_fix
+                  event="calibrate_neutral"
+                  icon="hero-cursor-arrow-rays"
+                  title="Só o ponto neutro"
+                  hint="onde o mouse descansa sem clicar em nada (1 clique)"
+                />
+                <.quick_fix
+                  event="calibrate_hp"
+                  icon="hero-heart"
+                  title="Só a vida"
+                  hint="a barra de vida do Pokémon (2 cliques) + a foto dele (1 clique)"
+                />
+              </div>
+            </section>
+
+            <section
+              :if={@calibrated? or @profiles != []}
+              class="space-y-3 rounded-xl border border-pk-line bg-pk-surface p-4"
+            >
+              <div>
+                <h2 class="text-pk-title font-bold text-pk-text">Perfis de calibração</h2>
+                <p class="mt-0.5 text-pk-body text-pk-text-2">
+                  Um por layout de monitor — trocar de setup vira um clique em "Usar" (+
+                  Parar/Iniciar nos bots).
+                </p>
+              </div>
+              <form
+                :if={@calibrated?}
+                id="profile-form"
+                phx-submit="save_profile"
+                class="flex max-w-xs gap-2"
+              >
+                <input
+                  name="profile_name"
+                  placeholder="ex: 2-monitores"
+                  class="input input-bordered input-sm min-w-0 flex-1"
+                />
+                <button class="btn btn-primary btn-sm">Salvar atual</button>
+              </form>
+              <ul :if={@profiles != []} class="space-y-1.5">
+                <li
+                  :for={profile <- @profiles}
+                  class="flex items-center gap-3 rounded-lg border border-pk-line bg-pk-sunken px-3 py-2 text-left"
                 >
-                  <.icon name="hero-trash" class="size-3.5" />
+                  <img
+                    :if={profile.thumb_src}
+                    src={profile.thumb_src}
+                    class="h-10 w-16 shrink-0 rounded border border-pk-line-strong object-cover"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-pk-body font-semibold text-pk-text">{profile.name}</p>
+                    <p class="pk-num font-mono text-pk-meta text-pk-text-3">
+                      {profile.screen_w}×{profile.screen_h} pt · escala {profile.scale}
+                    </p>
+                  </div>
+                  <button
+                    class="btn btn-success btn-xs"
+                    phx-click="apply_profile"
+                    phx-value-name={profile.name}
+                  >
+                    Usar
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-xs text-error"
+                    phx-click="delete_profile"
+                    phx-value-name={profile.name}
+                    data-confirm={"Excluir o perfil \"#{profile.name}\"?"}
+                  >
+                    <.icon name="hero-trash" class="size-3.5" />
+                  </button>
+                </li>
+              </ul>
+            </section>
+          </div>
+
+          <div class="space-y-3">
+            <%!-- His OWN pokémon, so the bot can SEE where it is instead of
+                  assuming the middle click landed. --%>
+            <section
+              id="pokemon-teach"
+              class="space-y-3 rounded-xl border border-pk-line bg-pk-surface p-4"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <h2 class="text-pk-title font-bold text-pk-text">Meu pokémon (rastreio)</h2>
+                  <p class="mt-0.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
+                    Fotografe e clique <b class="text-pk-text">em cima do seu pokémon</b>, de
+                    vários ângulos — ele vira, e cada direção é uma paleta diferente. Com isso o
+                    bot para de <i>supor</i>
+                    que o clique do meio pegou: ele <b class="text-pk-text">olha</b>
+                    se o pokémon está onde deveria antes de varrer os corpos.
+                    Acervo separado do de corpos de propósito — pokémon no acervo de corpos
+                    é coisa em que o bot joga Pokébola.
+                  </p>
+                </div>
+                <div class="flex shrink-0 flex-wrap gap-2">
+                  <button id="pokemon-shot-btn" class="btn btn-sm" phx-click="pokemon_shot">
+                    📸 Fotografar o quadro
+                  </button>
+                  <button
+                    id="pokemon-locate-btn"
+                    class="btn btn-outline btn-sm"
+                    phx-click="pokemon_locate"
+                    disabled={@pokemon_list == []}
+                  >
+                    🔎 Onde ele está agora?
+                  </button>
+                </div>
+              </div>
+
+              <p
+                :if={@pokemon_found}
+                id="pokemon-found"
+                class={[
+                  "rounded-lg border px-3 py-2 font-mono text-pk-meta",
+                  @pokemon_found.found? && "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                  !@pokemon_found.found? && "border-pk-warn-line bg-pk-warn-dim text-pk-warn"
+                ]}
+              >
+                {locate_text(@pokemon_found)}
+              </p>
+
+              <p
+                :if={@pokemon_msg}
+                class={[
+                  "rounded-lg border px-3 py-2 text-pk-body",
+                  elem(@pokemon_msg, 0) == :ok && "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                  elem(@pokemon_msg, 0) == :error &&
+                    "border-pk-danger-line bg-pk-danger-dim text-pk-danger"
+                ]}
+              >
+                {elem(@pokemon_msg, 1)}
+              </p>
+
+              <img
+                :if={@pokemon_shot}
+                id="pokemon-shot"
+                src={"/captures/pokemon_teach.png?v=#{@pokemon_shot.v}"}
+                phx-hook="ImgClick"
+                data-click-event="pokemon_click"
+                alt="quadro para ensinar o pokémon"
+                class="w-full cursor-crosshair rounded-lg border border-pk-line"
+              />
+
+              <div
+                :if={@pokemon_crop}
+                class="flex flex-wrap items-end gap-3 rounded-lg border border-pk-line bg-pk-sunken p-3"
+              >
+                <img
+                  src={PokemonSprites.thumb(crop_sample(@pokemon_crop.frame))}
+                  alt="recorte do pokémon"
+                  class="w-24 rounded border border-pk-line [image-rendering:pixelated]"
+                />
+                <form
+                  id="pokemon-name-form"
+                  phx-submit="pokemon_save"
+                  class="flex flex-wrap items-end gap-2"
+                >
+                  <label class="flex flex-col gap-1 text-pk-meta text-pk-text-2">
+                    nome do pokémon
+                    <input
+                      name="name"
+                      value={Pokex.Pokedex.Team.active()}
+                      list="pokemon-team-names"
+                      autocomplete="off"
+                      class="input input-bordered input-sm w-56"
+                    />
+                  </label>
+                  <datalist id="pokemon-team-names">
+                    <option :for={row <- Pokex.Pokedex.Team.members()} value={row.name} />
+                  </datalist>
+                  <button class="btn btn-primary btn-sm">Salvar ângulo</button>
+                </form>
+              </div>
+
+              <CalibrationLibrary.taught_pokemon
+                :if={@pokemon_list != []}
+                entries={@pokemon_list}
+              />
+            </section>
+
+            <section
+              id="corpse-teach"
+              class="space-y-3 rounded-xl border border-pk-line bg-pk-surface p-4"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <h2 class="text-pk-title font-bold text-pk-text">Corpos mapeados (captura)</h2>
+                  <p class="mt-0.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
+                    O acervo É a mira da captura: mate um monstro, deixe o corpo no chão,
+                    fotografe e clique EM CIMA do corpo. A foto mostra
+                    <b class="text-pk-text">exatamente o
+                    quadro que a busca varre</b>
+                    — o quadradão ao redor do seu personagem, não uma área marcada à mão. Só
+                    corpo conhecido recebe Pokébola; o log da bola diz QUAL pokémon foi
+                    reconhecido, e o switch de cada corpo tira ele da mira sem apagar as fotos.
+                  </p>
+                </div>
+                <button id="corpse-shot-btn" class="btn btn-sm shrink-0" phx-click="corpse_shot">
+                  📸 Fotografar o quadro da busca
                 </button>
-              </li>
-            </ul>
-          </section>
+              </div>
+
+              <p :if={@corpse_shot[:region]} class="pk-num font-mono text-pk-meta text-pk-text-3">
+                quadro varrido: {elem(@corpse_shot.region, 2)}×{elem(@corpse_shot.region, 3)} pt em {elem(
+                  @corpse_shot.region,
+                  0
+                )},{elem(@corpse_shot.region, 1)}
+              </p>
+
+              <p
+                :if={@corpse_msg}
+                class={[
+                  "rounded-lg border px-3 py-2 text-pk-body",
+                  elem(@corpse_msg, 0) == :ok && "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                  elem(@corpse_msg, 0) == :error &&
+                    "border-pk-danger-line bg-pk-danger-dim text-pk-danger"
+                ]}
+              >
+                {elem(@corpse_msg, 1)}
+              </p>
+
+              <img
+                :if={@corpse_shot}
+                id="corpse-shot"
+                src={"/captures/corpse_teach.png?v=#{@corpse_shot.v}"}
+                phx-hook="ImgClick"
+                data-click-event="corpse_click"
+                alt="quadro da busca de corpos"
+                class="w-full cursor-crosshair rounded-lg border border-pk-line"
+              />
+
+              <div
+                :if={@corpse_crop}
+                class="space-y-3 rounded-lg border border-pk-line bg-pk-sunken p-3"
+              >
+                <form
+                  id="corpse-paint-form"
+                  phx-change="corpse_paint"
+                  class="flex flex-wrap items-end gap-4"
+                >
+                  <figure class="flex flex-col items-center gap-1">
+                    <img
+                      src={paint_preview(@corpse_crop.frame, @corpse_paint)}
+                      alt="prévia do corpo como ele vai ser salvo"
+                      class="size-20 rounded border border-pk-line [image-rendering:pixelated]"
+                    />
+                    <figcaption class="pk-num font-mono text-pk-meta text-pk-text-3">
+                      {@corpse_crop.frame.width}×{@corpse_crop.frame.height} @ {elem(
+                        @corpse_crop.at,
+                        0
+                      )},{elem(@corpse_crop.at, 1)}
+                    </figcaption>
+                  </figure>
+
+                  <label
+                    :for={
+                      {field, label, min, max, value} <- [
+                        {"hue", "matiz", -180, 180, @corpse_paint.hue},
+                        {"saturation", "saturação", 0, 200, @corpse_paint.saturation},
+                        {"brightness", "brilho", 50, 150, @corpse_paint.brightness}
+                      ]
+                    }
+                    class="flex flex-col gap-1"
+                  >
+                    <span class="pk-num font-mono text-pk-meta text-pk-text-2">
+                      {label} {value}
+                    </span>
+                    <input
+                      type="range"
+                      name={field}
+                      min={min}
+                      max={max}
+                      value={value}
+                      class="range range-xs w-40"
+                    />
+                  </label>
+
+                  <button
+                    :if={painted?(@corpse_paint)}
+                    type="button"
+                    phx-click="corpse_paint_reset"
+                    class="btn btn-ghost btn-xs"
+                  >
+                    voltar ao original
+                  </button>
+                </form>
+
+                <p :if={painted?(@corpse_paint)} class="text-pk-meta text-pk-text-2">
+                  🎨 este corpo vai entrar como <strong class="text-pk-text">pintado à mão</strong>
+                  — serve de mira enquanto o de verdade não aparece. Quando matares um,
+                  fotografa e ensina de novo.
+                </p>
+
+                <form
+                  id="corpse-name-form"
+                  phx-submit="corpse_save"
+                  class="flex flex-wrap items-center gap-2"
+                >
+                  <input
+                    name="name"
+                    placeholder="nome do Pokémon"
+                    autocomplete="off"
+                    class="input input-sm input-bordered"
+                  />
+                  <button class="btn btn-sm btn-success">Salvar corpo</button>
+                </form>
+              </div>
+
+              <p
+                :if={@corpse_list != []}
+                class="pk-num flex flex-wrap gap-x-3 font-mono text-pk-meta text-pk-text-3"
+              >
+                <span>{taught_word(length(@corpse_list))}</span>
+                <span class="text-pk-ok">{corpse_aimed(@corpse_list)} na mira</span>
+                <span :if={corpse_vetoed(@corpse_list) > 0}>
+                  {vetoed_word(corpse_vetoed(@corpse_list))}
+                </span>
+              </p>
+
+              <CalibrationLibrary.taught_corpses
+                :if={@corpse_list != []}
+                entries={@corpse_list}
+                counts={@corpse_counts}
+              />
+            </section>
+          </div>
         </div>
 
         <div :if={@screen} class="space-y-3">
@@ -1971,7 +2261,7 @@ defmodule PokexWeb.CalibrationLive do
             <li
               :for={n <- 1..@total_steps}
               class={[
-                "flex size-6 items-center justify-center rounded-full text-xs font-semibold",
+                "flex size-6 items-center justify-center rounded-full text-pk-meta font-bold",
                 step_pill_class(n, @step)
               ]}
             >
@@ -1981,7 +2271,7 @@ defmodule PokexWeb.CalibrationLive do
 
           <div
             :if={@step}
-            class="rounded-lg bg-info/15 px-3 py-2 text-sm font-medium"
+            class="rounded-lg border border-pk-info-line bg-pk-info-dim px-3 py-2 text-pk-body font-medium text-pk-text"
           >
             <span :if={@mode == :full} class="font-bold">
               Passo {CalibrationSteps.index(@step)}/{@total_steps} —
@@ -2027,11 +2317,11 @@ defmodule PokexWeb.CalibrationLive do
             </button>
           </div>
 
-          <p :if={CalibrationSteps.marking?(@step)} class="text-xs">
-            <span :if={is_nil(@zoom_at)} class="opacity-70">
+          <p :if={CalibrationSteps.marking?(@step)} class="text-pk-body">
+            <span :if={is_nil(@zoom_at)} class="text-pk-text-2">
               Dê um clique APROXIMADO no alvo — a imagem amplia pra você mirar com precisão.
             </span>
-            <span :if={@zoom_at} class="font-semibold text-primary">
+            <span :if={@zoom_at} class="font-semibold text-pk-ok">
               Ampliado {@zoom_factor}× — agora clique PRECISO no alvo.
             </span>
             <button
@@ -2048,7 +2338,7 @@ defmodule PokexWeb.CalibrationLive do
 
           <div
             :if={CalibrationSteps.marking?(@step)}
-            class="overflow-hidden rounded-lg border border-base-content/20"
+            class="overflow-hidden rounded-lg border border-pk-line-strong"
           >
             <div class="relative" style={CalibrationZoom.style(@zoom_at, @screen, @zoom_factor)}>
               <img
@@ -2081,17 +2371,17 @@ defmodule PokexWeb.CalibrationLive do
           </div>
 
           <div :if={@step == :minimap_coord_search} id="coord-band-search" class="space-y-2">
-            <p :if={@coord_search == :searching} class="text-sm opacity-70">
+            <p :if={@coord_search == :searching} class="text-pk-body text-pk-text-2">
               Clicando no ponto neutro pra dar foco ao jogo, dando um passinho (seta e volta)
               pra fazer o texto aparecer, e fotografando…
             </p>
 
             <div :if={match?({:found, _, _, _}, @coord_search)} class="space-y-2">
-              <p id="coord-band-found" class="text-sm font-semibold text-success">
+              <p id="coord-band-found" class="text-pk-body font-semibold text-pk-ok">
                 li: {found_pos_text(@coord_search)} ✓ — é onde você está? Então salva.
               </p>
               <div
-                class="rounded border border-success/60 bg-base-300"
+                class="rounded border border-pk-ok-line bg-pk-sunken"
                 style={crop_style(found_band(@coord_search), @screen)}
               />
               <div class="flex flex-wrap gap-2">
@@ -2108,7 +2398,7 @@ defmodule PokexWeb.CalibrationLive do
             </div>
 
             <div :if={@coord_search == :hovered} class="space-y-2">
-              <p id="coord-band-hovered" class="text-sm font-semibold text-warning">
+              <p id="coord-band-hovered" class="text-pk-body font-semibold text-pk-warn">
                 O relógio apareceu no minimapa — isso só acontece com o MOUSE em cima dele, e
                 nesse estado a coordenada é desenhada em outro lugar. Tire o mouse de cima do
                 minimapa e busque de novo: eu preciso calibrar o estado do dia a dia.
@@ -2119,7 +2409,7 @@ defmodule PokexWeb.CalibrationLive do
             </div>
 
             <div :if={not_found?(@coord_search)} class="space-y-2">
-              <p id="coord-band-not-found" class="text-sm font-semibold text-warning">
+              <p id="coord-band-not-found" class="text-pk-body font-semibold text-pk-warn">
                 Não achei o texto da coordenada. O jogo só o desenha quando a posição MUDA —
                 deixe o personagem livre pra andar um tile (e o minimapa sem nada por cima) e
                 busque de novo, ou marque a faixa na mão.
@@ -2129,7 +2419,10 @@ defmodule PokexWeb.CalibrationLive do
                   setas vão parar no navegador.
                 </span>
               </p>
-              <p :if={match?({:failed, _}, @coord_search)} class="font-mono text-[11px] opacity-60">
+              <p
+                :if={match?({:failed, _}, @coord_search)}
+                class="font-mono text-pk-meta text-pk-text-3"
+              >
                 {elem(@coord_search, 1)}
               </p>
               <%!-- The evidence, not just the verdict: this is the minimap as
@@ -2138,10 +2431,10 @@ defmodule PokexWeb.CalibrationLive do
                     no label up. Two opposite fixes that used to look
                     identical from here. --%>
               <div :if={@screen && @draft[:minimap_region]} class="space-y-1">
-                <p class="text-xs opacity-70">Foi isto que eu fotografei do minimapa:</p>
+                <p class="text-pk-body text-pk-text-2">Foi isto que eu fotografei do minimapa:</p>
                 <div
                   id="coord-search-evidence"
-                  class="rounded border border-warning/60 bg-base-300"
+                  class="rounded border border-pk-warn-line bg-pk-sunken"
                   style={crop_style(@draft[:minimap_region], @screen)}
                 />
               </div>
@@ -2161,7 +2454,7 @@ defmodule PokexWeb.CalibrationLive do
           <div
             :if={@click_trace != [] and CalibrationSteps.marking?(@step)}
             id="click-trace"
-            class="space-y-0.5 font-mono text-[11px] opacity-70"
+            class="pk-num space-y-0.5 font-mono text-pk-meta text-pk-text-2"
           >
             <p
               :for={{t, i} <- Enum.with_index(@click_trace)}
@@ -2178,11 +2471,11 @@ defmodule PokexWeb.CalibrationLive do
 
         <div
           :if={@done}
-          class="space-y-3 rounded-2xl border border-success/40 bg-success/10 p-6 text-center"
+          class="space-y-3 rounded-xl border border-pk-ok-line bg-pk-ok-dim p-6 text-center"
         >
-          <.icon name="hero-check-circle" class="mx-auto size-8 text-success" />
+          <.icon name="hero-check-circle" class="mx-auto size-8 text-pk-ok" />
           <p class="font-semibold">Calibração salva!</p>
-          <p class="text-sm opacity-70">
+          <p class="text-pk-body text-pk-text-2">
             Brilho, {@draft[:skill_bar_count] || Settings.get(:skill_bar_count)} skills e a vida do
             Pokémon gravados. Confira a vida no painel e ligue o combo de sobrevivência.
           </p>
@@ -2193,331 +2486,6 @@ defmodule PokexWeb.CalibrationLive do
             <.link navigate={~p"/"} class="btn btn-success btn-sm">Ir ao painel →</.link>
           </div>
         </div>
-
-        <%!-- His OWN pokémon, so the bot can SEE where it is instead of
-              assuming the middle click landed. --%>
-        <section id="pokemon-teach" class="space-y-3 rounded-2xl border border-base-300 p-4">
-          <div>
-            <h2 class="font-semibold">Meu pokémon (rastreio)</h2>
-            <p class="mt-1 text-sm opacity-70">
-              Fotografe e clique <b>em cima do seu pokémon</b>, de vários ângulos — ele vira,
-              e cada direção é uma paleta diferente. Com isso o bot para de <i>supor</i>
-              que o clique do meio pegou: ele <b>olha</b>
-              se o pokémon está onde deveria antes
-              de varrer os corpos. Acervo separado do de corpos de propósito — pokémon no
-              acervo de corpos é coisa em que o bot joga Pokébola.
-            </p>
-          </div>
-
-          <div class="flex flex-wrap gap-2">
-            <button id="pokemon-shot-btn" class="btn btn-sm" phx-click="pokemon_shot">
-              📸 Fotografar o quadro
-            </button>
-            <button
-              id="pokemon-locate-btn"
-              class="btn btn-outline btn-sm"
-              phx-click="pokemon_locate"
-              disabled={@pokemon_list == []}
-            >
-              🔎 Onde ele está agora?
-            </button>
-          </div>
-
-          <p
-            :if={@pokemon_found}
-            id="pokemon-found"
-            class={[
-              "rounded-lg px-3 py-2 font-mono text-xs",
-              @pokemon_found.found? && "bg-success/15 text-success",
-              !@pokemon_found.found? && "bg-warning/15 text-warning"
-            ]}
-          >
-            {locate_text(@pokemon_found)}
-          </p>
-
-          <p
-            :if={@pokemon_msg}
-            class={[
-              "rounded-lg px-3 py-2 text-sm",
-              elem(@pokemon_msg, 0) == :ok && "bg-success/15 text-success",
-              elem(@pokemon_msg, 0) == :error && "bg-error/15 text-error"
-            ]}
-          >
-            {elem(@pokemon_msg, 1)}
-          </p>
-
-          <img
-            :if={@pokemon_shot}
-            id="pokemon-shot"
-            src={"/captures/pokemon_teach.png?v=#{@pokemon_shot.v}"}
-            phx-hook="ImgClick"
-            data-click-event="pokemon_click"
-            alt="quadro para ensinar o pokémon"
-            class="max-w-full cursor-crosshair rounded-lg border border-base-300"
-          />
-
-          <div :if={@pokemon_crop} class="flex flex-wrap items-end gap-3">
-            <img
-              src={PokemonSprites.thumb(crop_sample(@pokemon_crop.frame))}
-              alt="recorte do pokémon"
-              class="rounded border border-base-300"
-              style="image-rendering: pixelated; width: 96px"
-            />
-            <form
-              id="pokemon-name-form"
-              phx-submit="pokemon_save"
-              class="flex flex-wrap items-end gap-2"
-            >
-              <label class="flex flex-col gap-1 text-xs opacity-70">
-                nome do pokémon
-                <input
-                  name="name"
-                  value={Pokex.Pokedex.Team.active()}
-                  list="pokemon-team-names"
-                  autocomplete="off"
-                  class="input input-bordered input-sm w-56"
-                />
-              </label>
-              <datalist id="pokemon-team-names">
-                <option :for={row <- Pokex.Pokedex.Team.members()} value={row.name} />
-              </datalist>
-              <button class="btn btn-primary btn-sm">Salvar ângulo</button>
-            </form>
-          </div>
-
-          <ul :if={@pokemon_list != []} id="pokemon-list" class="space-y-2">
-            <li
-              :for={entry <- @pokemon_list}
-              id={"pokemon-" <> entry["slug"]}
-              class="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 px-3 py-2"
-            >
-              <span class="font-semibold">{entry["name"]}</span>
-              <span class="font-mono text-xs opacity-60">
-                {length(entry["samples"])}/{PokemonSprites.max_samples()} ângulos
-              </span>
-
-              <span class="flex flex-wrap gap-1">
-                <button
-                  :for={{sample, i} <- Enum.with_index(entry["samples"])}
-                  phx-click="pokemon_delete_sample"
-                  phx-value-slug={entry["slug"]}
-                  phx-value-index={i}
-                  title="apagar este ângulo"
-                  class="rounded border border-base-300 p-0.5 hover:border-error"
-                >
-                  <img
-                    src={PokemonSprites.thumb(sample)}
-                    alt={"ângulo #{i + 1}"}
-                    style="image-rendering: pixelated; width: 40px"
-                  />
-                </button>
-              </span>
-
-              <button
-                phx-click="pokemon_delete"
-                phx-value-slug={entry["slug"]}
-                class="btn btn-ghost btn-xs ml-auto text-error"
-              >
-                apagar
-              </button>
-            </li>
-          </ul>
-        </section>
-
-        <section
-          id="corpse-teach"
-          class="space-y-3 rounded-2xl border border-base-300 p-4"
-        >
-          <div>
-            <h2 class="font-semibold">Corpos mapeados (captura)</h2>
-            <p class="mt-1 text-sm opacity-70">
-              O acervo É a mira da captura: mate um monstro, deixe o corpo no chão,
-              fotografe e clique EM CIMA do corpo. A foto mostra <b>exatamente o
-              quadro que a busca varre</b> — o quadradão ao redor do seu personagem,
-              não uma área marcada à mão. Só corpo conhecido recebe Pokébola; o log da bola
-              diz QUAL pokémon foi reconhecido, e o switch de cada corpo tira ele da
-              mira sem apagar as fotos.
-            </p>
-          </div>
-
-          <button id="corpse-shot-btn" class="btn btn-sm" phx-click="corpse_shot">
-            📸 Fotografar o quadro da busca
-          </button>
-
-          <p :if={@corpse_shot[:region]} class="font-mono text-xs opacity-60">
-            quadro varrido: {elem(@corpse_shot.region, 2)}×{elem(@corpse_shot.region, 3)} pt em {elem(
-              @corpse_shot.region,
-              0
-            )},{elem(@corpse_shot.region, 1)}
-          </p>
-
-          <p
-            :if={@corpse_msg}
-            class={[
-              "rounded-lg px-3 py-2 text-sm",
-              elem(@corpse_msg, 0) == :ok && "bg-success/15 text-success",
-              elem(@corpse_msg, 0) == :error && "bg-error/15 text-error"
-            ]}
-          >
-            {elem(@corpse_msg, 1)}
-          </p>
-
-          <img
-            :if={@corpse_shot}
-            id="corpse-shot"
-            src={"/captures/corpse_teach.png?v=#{@corpse_shot.v}"}
-            phx-hook="ImgClick"
-            data-click-event="corpse_click"
-            class="max-w-full cursor-crosshair rounded-lg border border-base-300"
-          />
-
-          <div :if={@corpse_crop} class="space-y-3">
-            <form
-              id="corpse-paint-form"
-              phx-change="corpse_paint"
-              class="flex flex-wrap items-end gap-4"
-            >
-              <figure class="flex flex-col items-center gap-1">
-                <img
-                  src={paint_preview(@corpse_crop.frame, @corpse_paint)}
-                  class="h-20 w-20 rounded border border-base-300 [image-rendering:pixelated]"
-                />
-                <figcaption class="font-mono text-xs opacity-60">
-                  {@corpse_crop.frame.width}×{@corpse_crop.frame.height} @ {elem(
-                    @corpse_crop.at,
-                    0
-                  )},{elem(@corpse_crop.at, 1)}
-                </figcaption>
-              </figure>
-
-              <label
-                :for={
-                  {field, label, min, max, value} <- [
-                    {"hue", "matiz", -180, 180, @corpse_paint.hue},
-                    {"saturation", "saturação", 0, 200, @corpse_paint.saturation},
-                    {"brightness", "brilho", 50, 150, @corpse_paint.brightness}
-                  ]
-                }
-                class="flex flex-col gap-1"
-              >
-                <span class="font-mono text-xs opacity-70">{label} {value}</span>
-                <input
-                  type="range"
-                  name={field}
-                  min={min}
-                  max={max}
-                  value={value}
-                  class="range range-xs w-40"
-                />
-              </label>
-
-              <button
-                :if={painted?(@corpse_paint)}
-                type="button"
-                phx-click="corpse_paint_reset"
-                class="btn btn-ghost btn-xs"
-              >
-                voltar ao original
-              </button>
-            </form>
-
-            <p :if={painted?(@corpse_paint)} class="text-xs opacity-70">
-              🎨 este corpo vai entrar como <strong>pintado à mão</strong> — serve de mira
-              enquanto o de verdade não aparece. Quando matares um, fotografa e ensina de novo.
-            </p>
-
-            <form
-              id="corpse-name-form"
-              phx-submit="corpse_save"
-              class="flex flex-wrap items-center gap-2"
-            >
-              <input
-                name="name"
-                placeholder="nome do Pokémon"
-                autocomplete="off"
-                class="input input-sm input-bordered"
-              />
-              <button class="btn btn-sm btn-success">Salvar corpo</button>
-            </form>
-          </div>
-
-          <ul :if={@corpse_list != []} id="corpse-list" class="space-y-2">
-            <li
-              :for={c <- @corpse_list}
-              class="flex flex-wrap items-center gap-2 font-mono text-sm"
-            >
-              <%!-- The name is not a label: the ball rules match on it, so a typo
-                    ("Shiny Craby") silently answers to no rule written for Krabby.
-                    Editable in place, because deleting and re-teaching would cost
-                    the photographs — and a real shiny corpse may never come again. --%>
-              <form phx-submit="corpse_rename" class="contents" id={"corpse-rename-#{c["slug"]}"}>
-                <input type="hidden" name="slug" value={c["slug"]} />
-                <input
-                  name="name"
-                  value={c["name"]}
-                  aria-label={"nome de #{c["name"]}"}
-                  class="input input-xs input-ghost min-w-32 px-1 font-mono"
-                />
-              </form>
-              <span
-                :for={{sample, idx} <- Enum.with_index(c["samples"])}
-                class="group relative inline-block"
-              >
-                <span
-                  :if={sample["painted"]}
-                  class="absolute -left-1 -top-1 z-10 text-[10px] leading-none"
-                  title="pintada à mão — troque quando o corpo real aparecer"
-                >
-                  🎨
-                </span>
-                <img
-                  src={CorpseLibrary.thumb(sample)}
-                  title={"amostra #{idx + 1} · #{sample["added_at"]}#{if sample["painted"], do: " · pintada à mão"}"}
-                  class="h-10 w-10 rounded border border-base-300 [image-rendering:pixelated]"
-                />
-                <button
-                  class="absolute -right-1 -top-1 hidden size-4 items-center justify-center rounded-full bg-error text-[10px] leading-none text-white group-hover:flex"
-                  phx-click="corpse_delete_sample"
-                  phx-value-slug={c["slug"]}
-                  phx-value-idx={idx}
-                  data-confirm="Apagar esta amostra?"
-                >
-                  ✕
-                </button>
-              </span>
-              <span class="opacity-50">
-                {length(c["samples"])}/{CorpseLibrary.max_samples()} chãos
-              </span>
-              <button
-                id={"corpse-toggle-#{c["slug"]}"}
-                class={[
-                  "btn btn-xs",
-                  if(CorpseLibrary.enabled?(c), do: "btn-success", else: "btn-outline opacity-60")
-                ]}
-                phx-click="corpse_toggle"
-                phx-value-slug={c["slug"]}
-                title="Na mira leva Pokébola. Ignorado é um VETO: o corpo mais parecido com ele nunca recebe bola."
-              >
-                {if CorpseLibrary.enabled?(c), do: "● na mira", else: "🚫 ignorar"}
-              </button>
-              <span
-                :if={Map.get(@corpse_counts, c["name"], 0) > 0}
-                class="rounded bg-primary/15 px-1.5 text-primary"
-                title="encontrados nesta sessão"
-              >
-                {Map.get(@corpse_counts, c["name"])}× nesta sessão
-              </span>
-              <button
-                class="btn btn-ghost btn-xs text-error"
-                phx-click="corpse_delete"
-                phx-value-slug={c["slug"]}
-                data-confirm={"Apagar o corpo de #{c["name"]} inteiro?"}
-              >
-                apagar tudo
-              </button>
-            </li>
-          </ul>
-        </section>
       </div>
     </Layouts.app>
     """

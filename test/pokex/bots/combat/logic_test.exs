@@ -761,6 +761,50 @@ defmodule Pokex.Bots.Combat.LogicTest do
     end
   end
 
+  # "quando ele entra numa batalha, uma opção poderia ser só matar aquele lá e
+  # não dar mais tab depois" (Lucas, 2026-08-11).
+  describe "one fight at a time" do
+    defp killed_at(config_overrides, at) do
+      logic = confirmed(config_overrides)
+      # the lock is gone on two observed frames in a row: the target died
+      {logic, _} = Logic.step(logic, obs(enemies: [], captured_at: at - 10), at - 10)
+      Logic.step(logic, obs(enemies: [], captured_at: at), at)
+    end
+
+    test "by default the kill chains straight into the next hunt" do
+      {logic, actions} = killed_at([target_lost_streak: 2], 1_000)
+
+      assert logic.state == :hunting
+      assert logic.hold_until == nil
+      assert logic.probe_until != nil
+      assert Enum.any?(actions, &match?({:log, "alvo morto; caçando o próximo"}, &1))
+    end
+
+    test "with a hold it kills ONE and stops looking" do
+      {logic, actions} = killed_at([target_lost_streak: 2, after_kill_hold_ms: 5_000], 1_000)
+
+      assert logic.state == :hunting
+      assert logic.hold_until == 6_000
+      # …and the blind probe is closed too: not looking means not looking
+      assert logic.probe_until == nil
+
+      assert Enum.any?(actions, fn
+               {:log, msg} -> msg =~ "parando 5s antes de caçar outro"
+               _other -> false
+             end)
+
+      # a full battle list does NOT restart the hunt while the hold stands
+      {logic, actions} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 2_000), 2_000)
+      assert logic.state == :hunting
+      refute {:tab} in actions
+
+      # …and it does when the hold expires
+      {logic, actions} = Logic.step(logic, obs(enemies: [0, 1], captured_at: 7_000), 7_000)
+      assert logic.state == :tabbing
+      assert {:tab} in actions
+    end
+  end
+
   # hunting --Tab--> tabbing --locked frame--> fighting (first burst already fired at t=40)
   defp confirmed(config_overrides \\ []) do
     {logic, _} = Logic.step(hunting(0, config_overrides), obs(enemies: [0], captured_at: 10), 10)

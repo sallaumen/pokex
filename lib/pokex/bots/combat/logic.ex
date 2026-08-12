@@ -256,7 +256,7 @@ defmodule Pokex.Bots.Combat.Logic do
 
       observed?(obs) and logic.lost_streak + 1 >= logic.config.target_lost_streak ->
         logic = update_in(logic.counters.fights, &(&1 + 1))
-        {rehunt(logic, now), [{:log, "alvo morto; caçando o próximo"}]}
+        killed(rehunt(logic, now), now)
 
       observed?(obs) ->
         {%{logic | lost_streak: logic.lost_streak + 1}, []}
@@ -538,6 +538,26 @@ defmodule Pokex.Bots.Combat.Logic do
         probe_until: nil,
         hold_until: nil
     }
+  end
+
+  # ONE fight, then a breath — when he asks for one.
+  #
+  # "quando ele entra numa batalha, uma opção poderia ser só matar aquele lá e
+  # não dar mais tab depois, para não entrar em outra batalha individual"
+  # (Lucas, 2026-08-11). Chaining is what combat does by default: the kill
+  # opens the blind probe and the next Tab goes out at once, so walking past
+  # three pokémon means three fights. With a hold, the kill ends the round —
+  # no probe, no Tab — and what is still around stays busy with his pokémon
+  # instead of being pulled in one by one. 0 keeps the old behaviour.
+  defp killed(logic, now) do
+    case Map.get(logic.config, :after_kill_hold_ms, 0) do
+      ms when is_integer(ms) and ms > 0 ->
+        {%{logic | hold_until: now + ms, probe_until: nil},
+         [{:log, "alvo morto; parando #{div(ms, 1000)}s antes de caçar outro"}]}
+
+      _chaining ->
+        {logic, [{:log, "alvo morto; caçando o próximo"}]}
+    end
   end
 
   defp rehunt(logic, now) do

@@ -650,6 +650,11 @@ defmodule Pokex.Settings do
     # walking is what solves a wall. Long enough that a burst on cooldown
     # cannot look like one: 0 turns it off.
     no_damage_ms: 8_000,
+    # ONE fight at a time, when he wants it: how long combat waits after a kill
+    # before hunting anything else. 0 = chain, which is what it has always
+    # done. Raise it to walk past a crowd killing only what actually engages —
+    # "só matar aquele lá e não dar mais tab depois" (2026-08-11).
+    after_kill_hold_ms: 0,
     skill_burst_every_ms: 300,
     # After every kill/timeout rehunt (and on a fish hook), hunting keeps PROBING with blind
     # Tabs for this long even when the HP-bar detector reports no enemy — "idle while fished
@@ -1014,6 +1019,7 @@ defmodule Pokex.Settings do
     tab_max_attempts: 1..99,
     scenery_hunts_needed: 0..99,
     no_damage_ms: 0..600_000,
+    after_kill_hold_ms: 0..600_000,
     scenery_ttl_ms: 1_000..3_600_000,
     target_lost_streak: 1..99,
     combat_aoe_from_enemies: 1..20,

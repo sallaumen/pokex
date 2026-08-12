@@ -33,6 +33,7 @@ defmodule Pokex.Bots.Combat.Worker do
     :scenery_hunts_needed,
     :scenery_ttl_ms,
     :no_damage_ms,
+    :after_kill_hold_ms,
     :hunt_probe_window_ms,
     :skill_burst_every_ms,
     :fight_timeout_ms,

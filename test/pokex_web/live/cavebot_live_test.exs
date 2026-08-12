@@ -1125,4 +1125,89 @@ defmodule PokexWeb.CavebotLiveTest do
       assert [%Route{waypoints: [%{action: :walk}, %{action: :walk}]}] = Store.all()
     end
   end
+
+  # "sinto falta dele falar ali qual pokémon que eu tô usando (…) pra eu saber
+  # que os combos que ele tá me mostrando ali na caçada são de acordo com aquele
+  # meu pokémon" (Lucas, 2026-08-12).
+  describe "who the hunt is fighting as" do
+    defp classify!(name, profile) do
+      File.write!(
+        Path.join(Pokex.Home.dir(), "pokedex.json"),
+        JSON.encode!(%{
+          "species" => [%{"name" => name, "number" => 1, "elements" => ["Bug"]}],
+          "lures" => []
+        })
+      )
+
+      Application.put_env(:pokex, :pokedex_path, Path.join(Pokex.Home.dir(), "pokedex.json"))
+      on_exit(fn -> Application.delete_env(:pokex, :pokedex_path) end)
+
+      {:ok, _} = Pokex.Pokedex.Team.add(name)
+      Pokex.Pokedex.Team.set_skills(name, profile)
+      Pokex.Pokedex.Team.set_active(name)
+    end
+
+    test "with nobody chosen it says so and points at /time", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      card = view |> element("#cavebot-loadout") |> render()
+      assert card =~ "ninguém escolhido"
+      assert card =~ ~s(href="/time")
+    end
+
+    # His real Vespiquen: 1 stun (reserved), 2 defence aura, 3/4/5 damage.
+    test "it names the pokémon and what its keys decide", %{conn: conn} do
+      classify!("Vespiquen", %{
+        "1" => :crowd,
+        "2" => :buffs,
+        "3" => :aoe,
+        "4" => :aoe,
+        "5" => :aoe
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      card = view |> element("#cavebot-loadout") |> render()
+      assert card =~ "Vespiquen"
+      assert card =~ "3 4 5"
+      assert card =~ "guarda 1"
+      assert card =~ "aura 2"
+      # stopped, the page is honest about reading the configuration
+      assert card =~ "configurado"
+      refute card =~ "ao vivo"
+    end
+
+    # The proof he asked for: the RUNNING fight's own answer, not the file's.
+    test "a running fight makes the card live, with what it last pressed", %{conn: conn} do
+      classify!("Vespiquen", %{"1" => :crowd, "3" => :aoe})
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(
+        view.pid,
+        {:combat,
+         %{
+           state: :fighting,
+           counters: %{},
+           error: nil,
+           locked_row: 0,
+           scenery: 0,
+           hold_reason: nil,
+           last_action: %{text: "3, 4", at: 0},
+           loadout: %{
+             name: "Vespiquen",
+             opening: ["3"],
+             reserved: ["1"],
+             buffs: [],
+             heal: []
+           }
+         }}
+      )
+
+      card = view |> element("#cavebot-loadout") |> render()
+      assert card =~ "ao vivo"
+      refute card =~ "configurado"
+      assert view |> element("#cavebot-last-press") |> render() =~ "3, 4"
+    end
+  end
 end

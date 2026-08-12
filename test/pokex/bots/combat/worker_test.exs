@@ -492,7 +492,12 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     end
   end
 
-  defp eventually(fun, timeout \\ 1_000) do
+  # 4s, not 1s. The wait is for a WORKER to react, and under `--max-cases 4`
+  # with the suite this size the machine genuinely stalls — the run that flaked
+  # in CI (seed 948137) has seventeen 5-second Guardian halt timeouts logged
+  # around it. A second was patience calibrated for a smaller suite; the
+  # assertion is unchanged, only how long it is willing to wait for it.
+  defp eventually(fun, timeout \\ 4_000) do
     deadline = System.monotonic_time(:millisecond) + timeout
     poll(fun, deadline)
   end

@@ -28,6 +28,27 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
     }
   end
 
+  # A shiny is a recolor of a body he has never killed. Until one drops he teaches
+  # the ordinary corpse with its hue turned toward the shiny — a stand-in that
+  # aims like any other sample, and says so, so he knows which to replace.
+  @tag :tmp_dir
+  test "a hand-painted sample says it is one; an ordinary one says it is not" do
+    {:ok, 1} = CorpseLibrary.add("Tentacool shiny", solid(40, 200, 190), painted?: true)
+    {:ok, 1} = CorpseLibrary.add("Tentacool", solid(180, 120, 200))
+
+    by_name = Map.new(CorpseLibrary.list(), &{&1["name"], &1})
+
+    assert [%{"painted" => true}] = by_name["Tentacool shiny"]["samples"]
+    assert [%{"painted" => false}] = by_name["Tentacool"]["samples"]
+  end
+
+  @tag :tmp_dir
+  test "a painted corpse aims exactly like a photographed one" do
+    {:ok, 1} = CorpseLibrary.add("Krabby shiny", solid(40, 200, 190), painted?: true)
+
+    assert {:ok, %{name: "Krabby shiny"}} = CorpseLibrary.match(solid(40, 200, 190), 0.72)
+  end
+
   @tag :tmp_dir
   test "teaching accumulates samples per corpse, capped, dropping the oldest" do
     assert CorpseLibrary.empty?()

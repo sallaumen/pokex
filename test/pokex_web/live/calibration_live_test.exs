@@ -1336,6 +1336,91 @@ defmodule PokexWeb.CalibrationLiveTest do
   end
 
   describe "mapped corpses" do
+    # He hunts a shiny Tentacool. A shiny is a RECOLOR of a corpse he has never
+    # made, so until one drops he photographs the ordinary body, turns its hue
+    # toward the shiny, and teaches THAT. The sample carries the fact that it is
+    # a guess, and the list shows it, so the day the real one dies he knows
+    # exactly which entry to replace.
+    @tag :tmp_dir
+    test "a corpse can be repainted before it is taught", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      # The PHOTOGRAPH needs a live capture, so it is injected; everything after
+      # it — the click that crops, the knobs, the save — runs for real.
+      shot = %Pokex.Vision.Frame{
+        width: 64,
+        height: 64,
+        rgba: :binary.copy(<<255, 0, 0, 255>>, 64 * 64)
+      }
+
+      :sys.replace_state(view.pid, fn state ->
+        put_in(state.socket.assigns.corpse_shot, %{frame: shot, v: 1, region: {0, 0, 64, 64}})
+      end)
+
+      render_click(view, "corpse_click", %{"x" => 32, "y" => 32, "cw" => 64, "nw" => 64})
+      refute render(view) =~ "pintado à mão"
+
+      html =
+        render_click(view, "corpse_paint", %{
+          "hue" => "120",
+          "saturation" => "100",
+          "brightness" => "100"
+        })
+
+      assert html =~ "pintado à mão"
+      assert html =~ "voltar ao original"
+
+      render_click(view, "corpse_save", %{"name" => "Tentacool shiny"})
+
+      assert [entry] = CorpseLibrary.list()
+      assert entry["name"] == "Tentacool shiny"
+      assert [%{"painted" => true} = sample] = entry["samples"]
+
+      # red turned 120 degrees is green — what he tuned is what was taught
+      assert <<0, 255, 0, 255, _rest::binary>> = Base.decode64!(sample["rgba"])
+    end
+
+    @tag :tmp_dir
+    test "the knobs can be put back, and then nothing is marked as painted", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      shot = %Pokex.Vision.Frame{
+        width: 64,
+        height: 64,
+        rgba: :binary.copy(<<255, 0, 0, 255>>, 64 * 64)
+      }
+
+      :sys.replace_state(view.pid, fn state ->
+        put_in(state.socket.assigns.corpse_shot, %{frame: shot, v: 1, region: {0, 0, 64, 64}})
+      end)
+
+      render_click(view, "corpse_click", %{"x" => 32, "y" => 32, "cw" => 64, "nw" => 64})
+
+      render_click(view, "corpse_paint", %{
+        "hue" => "90",
+        "saturation" => "150",
+        "brightness" => "120"
+      })
+
+      assert render(view) =~ "pintado à mão"
+
+      refute render_click(view, "corpse_paint_reset", %{}) =~ "pintado à mão"
+
+      render_click(view, "corpse_save", %{"name" => "Tentacool"})
+
+      assert [%{"samples" => [%{"painted" => false} = sample]}] = CorpseLibrary.list()
+      assert <<255, 0, 0, 255, _rest::binary>> = Base.decode64!(sample["rgba"])
+    end
+
     @tag :tmp_dir
     test "the teaching section exists and lists the library", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)

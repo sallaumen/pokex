@@ -4,6 +4,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Bots.Body
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.{PokemonSprites, PokemonTracker}
   alias Pokex.Vision.Recolor
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Catcher.Worker
@@ -75,6 +76,11 @@ defmodule PokexWeb.CalibrationLive do
        corpse_paint: @neutral_paint,
        corpse_msg: nil,
        corpse_list: CorpseLibrary.list(),
+       pokemon_shot: nil,
+       pokemon_crop: nil,
+       pokemon_msg: nil,
+       pokemon_found: nil,
+       pokemon_list: PokemonSprites.list(),
        corpse_counts: %{},
        adjust_target: nil,
        adjust_step: 5,
@@ -535,6 +541,106 @@ defmodule PokexWeb.CalibrationLive do
       _no_calibration_or_capture ->
         {:noreply,
          assign(socket, corpse_msg: {:error, "precisa de calibração e da captura viva"})}
+    end
+  end
+
+  # --- His OWN pokémon, from several angles -----------------------------------
+  #
+  # The same photograph-and-name flow as the corpses, over the same square, and
+  # deliberately into a DIFFERENT file: a pokémon taught into the corpse library
+  # is something the Catcher throws Pokéballs at.
+  def handle_event("pokemon_shot", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, region} <- SpotScan.region(calib),
+         {:ok, frame, _path} <- Capture.frame_with_path(region, "pokemon_teach.png") do
+      {:noreply,
+       assign(socket,
+         pokemon_shot: %{frame: frame, v: System.system_time(:millisecond), region: region},
+         pokemon_crop: nil,
+         pokemon_found: nil,
+         pokemon_msg: nil
+       )}
+    else
+      {:error, reason} when reason in [:no_anchor, :no_screen, :frame_too_small] ->
+        {:noreply, assign(socket, pokemon_msg: {:error, photo_error(reason)})}
+
+      _no_calibration_or_capture ->
+        {:noreply,
+         assign(socket, pokemon_msg: {:error, "precisa de calibração e da captura viva"})}
+    end
+  end
+
+  def handle_event("pokemon_click", %{"x" => x, "y" => y, "cw" => cw, "nw" => nw}, socket) do
+    case socket.assigns.pokemon_shot do
+      nil ->
+        {:noreply, socket}
+
+      %{frame: frame} ->
+        box = Settings.get(:pokemon_sprite_box_px)
+        half = div(box, 2)
+        px = round(x * nw / cw)
+        py = round(y * nw / cw)
+        cx = px |> max(half) |> min(max(frame.width - half, half))
+        cy = py |> max(half) |> min(max(frame.height - half, half))
+
+        crop =
+          Frame.crop(
+            frame,
+            {cx - half, cy - half, min(box, frame.width), min(box, frame.height)}
+          )
+
+        {:noreply, assign(socket, pokemon_crop: %{frame: crop, at: {cx, cy}}, pokemon_msg: nil)}
+    end
+  end
+
+  def handle_event("pokemon_save", %{"name" => name}, socket) do
+    case socket.assigns.pokemon_crop do
+      nil ->
+        {:noreply, socket}
+
+      %{frame: crop} ->
+        case PokemonSprites.add(name, crop) do
+          {:ok, n} ->
+            {:noreply,
+             assign(socket,
+               pokemon_crop: nil,
+               pokemon_msg:
+                 {:ok,
+                  "ângulo #{n}/#{PokemonSprites.max_samples()} de #{String.trim(name)} salvo"},
+               pokemon_list: PokemonSprites.list()
+             )}
+
+          {:error, :empty_name} ->
+            {:noreply, assign(socket, pokemon_msg: {:error, "dê o nome do pokémon"})}
+        end
+    end
+  end
+
+  def handle_event("pokemon_delete", %{"slug" => slug}, socket) do
+    PokemonSprites.delete(slug)
+    {:noreply, assign(socket, pokemon_list: PokemonSprites.list())}
+  end
+
+  def handle_event("pokemon_delete_sample", %{"slug" => slug, "index" => idx}, socket) do
+    PokemonSprites.delete_sample(slug, String.to_integer(idx))
+    {:noreply, assign(socket, pokemon_list: PokemonSprites.list())}
+  end
+
+  # The payoff, and the only honest way to judge the teaching: ask the tracker
+  # to find it RIGHT NOW and say where and how sure. A library he cannot test is
+  # a library he has to trust.
+  def handle_event("pokemon_locate", _params, socket) do
+    point =
+      case Calibration.load() do
+        {:ok, %Calibration{player_point: {_x, _y} = p}} -> p
+        _no_point -> nil
+      end
+
+    if point do
+      seen = PokemonTracker.look_around(point, Settings.get(:pokemon_track_radius_px) * 2)
+      {:noreply, assign(socket, pokemon_found: seen, pokemon_msg: nil)}
+    else
+      {:noreply, assign(socket, pokemon_msg: {:error, "calibra o ponto do personagem antes"})}
     end
   end
 
@@ -1423,6 +1529,27 @@ defmodule PokexWeb.CalibrationLive do
     """
   end
 
+  # The tracker's answer in one line — including the score it FAILED with, which
+  # is the difference between "the aim is off" and "nothing like it on screen".
+  defp locate_text(%{found?: true} = seen) do
+    {x, y} = seen.point
+    "achei #{seen.name} em #{x}, #{y} · #{round(seen.score * 100)}% · #{seen.windows} janelas"
+  end
+
+  defp locate_text(%{reason: :no_library}), do: "nenhum pokémon ensinado ainda"
+  defp locate_text(%{reason: :not_calibrated}), do: "falta calibração"
+  defp locate_text(%{reason: :no_frame}), do: "não consegui capturar a tela"
+
+  defp locate_text(%{score: score}) when is_float(score) do
+    precisa = round(Settings.get(:pokemon_track_min_similarity) * 100)
+    "não achei — o melhor quadro deu #{round(score * 100)}% (precisa de #{precisa}%)"
+  end
+
+  defp locate_text(_unknown), do: "não achei"
+
+  defp crop_sample(%Frame{} = crop),
+    do: %{"w" => crop.width, "h" => crop.height, "rgba" => Base.encode64(crop.rgba)}
+
   defp painted?(%{hue: 0, saturation: 100, brightness: 100}), do: false
   defp painted?(_paint), do: true
 
@@ -2053,6 +2180,136 @@ defmodule PokexWeb.CalibrationLive do
             <.link navigate={~p"/"} class="btn btn-success btn-sm">Ir ao painel →</.link>
           </div>
         </div>
+
+        <%!-- His OWN pokémon, so the bot can SEE where it is instead of
+              assuming the middle click landed. --%>
+        <section id="pokemon-teach" class="space-y-3 rounded-2xl border border-base-300 p-4">
+          <div>
+            <h2 class="font-semibold">Meu pokémon (rastreio)</h2>
+            <p class="mt-1 text-sm opacity-70">
+              Fotografe e clique <b>em cima do seu pokémon</b>, de vários ângulos — ele vira,
+              e cada direção é uma paleta diferente. Com isso o bot para de <i>supor</i>
+              que o clique do meio pegou: ele <b>olha</b>
+              se o pokémon está onde deveria antes
+              de varrer os corpos. Acervo separado do de corpos de propósito — pokémon no
+              acervo de corpos é coisa em que o bot joga Pokébola.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button id="pokemon-shot-btn" class="btn btn-sm" phx-click="pokemon_shot">
+              📸 Fotografar o quadro
+            </button>
+            <button
+              id="pokemon-locate-btn"
+              class="btn btn-outline btn-sm"
+              phx-click="pokemon_locate"
+              disabled={@pokemon_list == []}
+            >
+              🔎 Onde ele está agora?
+            </button>
+          </div>
+
+          <p
+            :if={@pokemon_found}
+            id="pokemon-found"
+            class={[
+              "rounded-lg px-3 py-2 font-mono text-xs",
+              @pokemon_found.found? && "bg-success/15 text-success",
+              !@pokemon_found.found? && "bg-warning/15 text-warning"
+            ]}
+          >
+            {locate_text(@pokemon_found)}
+          </p>
+
+          <p
+            :if={@pokemon_msg}
+            class={[
+              "rounded-lg px-3 py-2 text-sm",
+              elem(@pokemon_msg, 0) == :ok && "bg-success/15 text-success",
+              elem(@pokemon_msg, 0) == :error && "bg-error/15 text-error"
+            ]}
+          >
+            {elem(@pokemon_msg, 1)}
+          </p>
+
+          <img
+            :if={@pokemon_shot}
+            id="pokemon-shot"
+            src={"/captures/pokemon_teach.png?v=#{@pokemon_shot.v}"}
+            phx-hook="ImgClick"
+            data-click-event="pokemon_click"
+            alt="quadro para ensinar o pokémon"
+            class="max-w-full cursor-crosshair rounded-lg border border-base-300"
+          />
+
+          <div :if={@pokemon_crop} class="flex flex-wrap items-end gap-3">
+            <img
+              src={PokemonSprites.thumb(crop_sample(@pokemon_crop.frame))}
+              alt="recorte do pokémon"
+              class="rounded border border-base-300"
+              style="image-rendering: pixelated; width: 96px"
+            />
+            <form
+              id="pokemon-name-form"
+              phx-submit="pokemon_save"
+              class="flex flex-wrap items-end gap-2"
+            >
+              <label class="flex flex-col gap-1 text-xs opacity-70">
+                nome do pokémon
+                <input
+                  name="name"
+                  value={Pokex.Pokedex.Team.active()}
+                  list="pokemon-team-names"
+                  autocomplete="off"
+                  class="input input-bordered input-sm w-56"
+                />
+              </label>
+              <datalist id="pokemon-team-names">
+                <option :for={row <- Pokex.Pokedex.Team.members()} value={row.name} />
+              </datalist>
+              <button class="btn btn-primary btn-sm">Salvar ângulo</button>
+            </form>
+          </div>
+
+          <ul :if={@pokemon_list != []} id="pokemon-list" class="space-y-2">
+            <li
+              :for={entry <- @pokemon_list}
+              id={"pokemon-" <> entry["slug"]}
+              class="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 px-3 py-2"
+            >
+              <span class="font-semibold">{entry["name"]}</span>
+              <span class="font-mono text-xs opacity-60">
+                {length(entry["samples"])}/{PokemonSprites.max_samples()} ângulos
+              </span>
+
+              <span class="flex flex-wrap gap-1">
+                <button
+                  :for={{sample, i} <- Enum.with_index(entry["samples"])}
+                  phx-click="pokemon_delete_sample"
+                  phx-value-slug={entry["slug"]}
+                  phx-value-index={i}
+                  title="apagar este ângulo"
+                  class="rounded border border-base-300 p-0.5 hover:border-error"
+                >
+                  <img
+                    src={PokemonSprites.thumb(sample)}
+                    alt={"ângulo #{i + 1}"}
+                    style="image-rendering: pixelated; width: 40px"
+                  />
+                </button>
+              </span>
+
+              <button
+                phx-click="pokemon_delete"
+                phx-value-slug={entry["slug"]}
+                class="btn btn-ghost btn-xs ml-auto text-error"
+              >
+                apagar
+              </button>
+            </li>
+          </ul>
+        </section>
 
         <section
           id="corpse-teach"

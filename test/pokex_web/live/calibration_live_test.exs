@@ -1770,4 +1770,55 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert calib.minimap_region == {mx, my, mw, mh}
     end
   end
+
+  # He asked for it: "calibrar o meu pokémon de todos ângulos, para tu usar e
+  # assim sempre ter tracking de onde ele tá na tela".
+  describe "teaching his own pokémon" do
+    @tag :tmp_dir
+    test "the card is on the page and says it is a separate library", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/calibration")
+
+      assert html =~ "Meu pokémon (rastreio)"
+      assert html =~ "Acervo separado do de corpos"
+    end
+
+    @tag :tmp_dir
+    test "with nothing taught there is nothing to locate", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      {:ok, view, _html} = live(conn, ~p"/calibration")
+
+      assert has_element?(view, "#pokemon-locate-btn[disabled]")
+      refute has_element?(view, "#pokemon-list")
+    end
+
+    # The safety line, asserted on the page and not only in the library: a
+    # pokémon in the corpse list is something the Catcher throws balls at.
+    @tag :tmp_dir
+    test "a taught pokémon shows up in ITS list and never among the corpses", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+
+      crop = %Pokex.Vision.Frame{
+        width: 16,
+        height: 16,
+        rgba: :binary.copy(<<220, 40, 200, 255>>, 16 * 16),
+        scale: 1.0
+      }
+
+      {:ok, 1} = Pokex.Bots.PokemonSprites.add("Shiny Vileplume", crop)
+
+      {:ok, view, _html} = live(conn, ~p"/calibration")
+
+      assert view |> element("#pokemon-list") |> render() =~ "Shiny Vileplume"
+
+      corpse_names = Enum.map(Pokex.Bots.Catcher.CorpseLibrary.list(), & &1["name"])
+      refute "Shiny Vileplume" in corpse_names
+      refute has_element?(view, "#pokemon-locate-btn[disabled]")
+    end
+  end
 end

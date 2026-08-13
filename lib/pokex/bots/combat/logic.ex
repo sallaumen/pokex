@@ -530,6 +530,29 @@ defmodule Pokex.Bots.Combat.Logic do
   def set_loadout(%__MODULE__{} = logic, %Loadout{} = loadout), do: %{logic | loadout: loadout}
   def set_loadout(%__MODULE__{} = logic, _none), do: %{logic | loadout: nil}
 
+  @doc """
+  The driver threw this action list away without performing it — the
+  one-burst-in-flight rule (see `Pokex.Bots.Combat.Worker`).
+
+  Skipping a burst is free for everything the Logic re-decides from a fresher
+  world on the next frame. The STANCE is the exception: it is the one decision
+  this machine LATCHES the moment it makes it, so a dropped list would leave the
+  fight believing it wears a stance the game never heard — and it would never
+  press that key again. Forget it, and the next burst wears it for real.
+
+  Only when the stance key was actually in the dropped list: forgetting on every
+  skip would put the key back on the "one per burst" cadence the edge exists to
+  avoid.
+  """
+  @spec dropped(%__MODULE__{}, [tuple]) :: %__MODULE__{}
+  def dropped(%__MODULE__{stance: nil} = logic, _actions), do: logic
+
+  def dropped(%__MODULE__{stance: stance} = logic, actions) do
+    if {:press, stance_key(logic, stance)} in actions,
+      do: %{logic | stance: nil},
+      else: logic
+  end
+
   # THE GAME'S OWN STANCE. shift+1 is attack mode — more damage, less defence —
   # and shift+3 is defence, which is the one to walk a gathering in. He presses
   # them by hand and the bot never did ("vi que quando dou play ele nao usa

@@ -388,7 +388,11 @@ defmodule Pokex.Bots.Combat.Worker do
     previous = state.logic
     previous_action = state.last_action
 
-    state = dispatch(state, actions)
+    # A skipped burst is not a performed one: the Logic has to hear about it, or the
+    # stance it latched while deciding would be believed on a key that never went out.
+    {state, outcome} = try_dispatch(state, actions)
+    logic = if outcome == :skipped, do: Logic.dropped(logic, actions), else: logic
+
     broadcast_activity(previous, logic, actions)
 
     # KILL first, snapshot second: the Catcher loots on {:kill} (Space presses) and throws the
@@ -411,9 +415,12 @@ defmodule Pokex.Bots.Combat.Worker do
   # AT MOST ONE burst in flight: a burst takes ~1.2s on the osascript path (taps × gaps) while
   # the logic re-decides every ~300ms — spawning every decision stacked 3-4 concurrent key
   # scripts onto System Events (one OS queue), lagging EVERY key in the app seconds behind its
-  # mouse move. Skipping is correct, not lossy: the next decision re-reads the world and fires
-  # a FRESHER burst than the one skipped.
-  defp dispatch(state, actions) do
+  # mouse move. Skipping is correct, not lossy FOR THE KEYS: the next decision re-reads the
+  # world and fires a FRESHER burst than the one skipped. It IS lossy for what the Logic
+  # latched while deciding, which is why the outcome travels back to it (Logic.dropped/2).
+  defp dispatch(state, actions), do: state |> try_dispatch(actions) |> elem(0)
+
+  defp try_dispatch(state, actions) do
     keys =
       Enum.flat_map(actions, fn
         {:tab} -> [Settings.get(:tab_key)]
@@ -423,22 +430,22 @@ defmodule Pokex.Bots.Combat.Worker do
 
     cond do
       keys == [] ->
-        state
+        {state, :nothing}
 
       state.burst_pid != nil and Process.alive?(state.burst_pid) ->
         Perf.count("combat.burst_skipped")
-        state
+        {state, :skipped}
 
       true ->
         parent = self()
         confirm? = Settings.get(:combat_confirm_skills) and state.retry_ok?
 
-        %{
-          state
-          | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?) end),
-            last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
-            retry_ok?: true
-        }
+        {%{
+           state
+           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?) end),
+             last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
+             retry_ok?: true
+         }, :sent}
     end
   end
 

@@ -26,6 +26,99 @@ defmodule PokexWeb.DiagnosticsLiveTest do
     assert calls == [{:press, "shift+v"}]
   end
 
+  # The measurement itself, end to end: the two rounds are drained APART (the
+  # plain key rides the native path alone, then rides osascript alongside the
+  # shifted ones), so a silent shift cannot hide behind a working "1".
+  describe "measuring whether the stance keys leave this machine" do
+    # The Fake replays SCRIPTED LISTS; a bare tuple silently falls through to
+    # its default of "saw nothing", which is the reading this whole card exists
+    # to distinguish from a real silence.
+    defp watcher_sees(events) do
+      Agent.stop(Fake)
+      {:ok, _} = Fake.start_link(%{key_watch: [{:ok, events}]})
+    end
+
+    defp seen(code, shift?), do: %{code: code, shift?: shift?, at: 0}
+
+    # Scoped to the card: the prose around it talks ABOUT the verdicts, and a
+    # test matching the explanation instead of the reading proves nothing.
+    defp verdicts(view), do: view |> element("#key-probe") |> render()
+
+    # The read comes back from a Task that lets the keys land first, so the
+    # test hands the round its reading directly rather than waiting out a
+    # wall-clock settle it would then have to guess the length of.
+    defp reading(view, stage, combos, next \\ nil) do
+      send(view.pid, {:probe_read, stage, combos, next})
+      verdicts(view)
+    end
+
+    test "arming a round drains the watcher and fires the burst", %{conn: conn} do
+      watcher_sees([])
+      {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+      view |> element("button[phx-click='probe_keys']") |> render_click()
+      assert render(view) =~ "Medindo em"
+
+      send(view.pid, :probe_native)
+      assert render(view) =~ "disparando 1"
+      assert {:key_watch, [18]} in Fake.calls()
+
+      # the osascript round arms BOTH digits, because both ride that road
+      send(view.pid, :probe_osa)
+      assert render(view) =~ "disparando 1, shift+1, shift+3"
+      assert {:key_watch, [18, 20]} in Fake.calls()
+    end
+
+    test "a shift that never left is named, not hidden by the plain key", %{conn: conn} do
+      # code 18 is "1" and it arrived; nothing ever arrived for shift+1 / shift+3
+      watcher_sees([seen(18, false)])
+      {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+      view |> element("button[phx-click='probe_keys']") |> render_click()
+      html = reading(view, :osa, ["1", "shift+1", "shift+3"])
+
+      assert html =~ "saiu inteira"
+      assert html =~ "não saiu"
+    end
+
+    # The expensive one to miss: the game would read a bare "1" and fire the
+    # skill bound to it instead of switching stance.
+    test "a shift that got stripped on the way reads as NAKED, not as success", %{conn: conn} do
+      watcher_sees([seen(18, false), seen(20, false)])
+      {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+      view |> element("button[phx-click='probe_keys']") |> render_click()
+      html = reading(view, :osa, ["1", "shift+1", "shift+3"])
+
+      assert html =~ "saiu SEM o shift"
+      refute html =~ "não saiu"
+    end
+
+    test "a watcher that cannot answer says so instead of blaming the keys", %{conn: conn} do
+      Agent.stop(Fake)
+      {:ok, _} = Fake.start_link(%{key_watch: [{:error, :untrusted}]})
+      {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+      view |> element("button[phx-click='probe_keys']") |> render_click()
+      html = reading(view, :native, ["1"])
+
+      assert html =~ "A leitura falhou"
+      refute html =~ "não saiu"
+    end
+
+    # The first round must hand the baton to the second on its own — a probe
+    # that measured only the native path would say nothing about the shift.
+    test "the native round chains into the osascript one", %{conn: conn} do
+      watcher_sees([])
+      {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+      view |> element("button[phx-click='probe_keys']") |> render_click()
+      reading(view, :native, ["1"], :probe_osa)
+
+      assert render(view) =~ "disparando 1, shift+1, shift+3"
+    end
+  end
+
   test "click goes straight through", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/diagnostics")
 

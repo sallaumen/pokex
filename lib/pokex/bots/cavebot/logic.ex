@@ -46,8 +46,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
             skips: 0,
             # which of this stop's actions already ran — one each, not one per tick
             stops_done: [],
-            # how long to let the pile close in HERE: his own measured pause
-            # when the recording caught it, the configured default otherwise
+            # how long to let the pile close in HERE, resolved on arrival by
+            # `Route.gather_wait/3`: the corner's own ruler, else the route's,
+            # else the global number
             gather_wait: nil,
             # where in the ring around a staircase the search is, and how many
             # steps it has actually taken (a ring tile the character already
@@ -74,6 +75,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | {:sweep, Route.spot() | nil}
           | :cooldown_revive
           | {:park, Route.spot()}
+          | {:skills, [Route.skill()]}
           | {:block, atom}
 
   @type world :: %{
@@ -101,8 +103,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
           sweep_grace_ms: non_neg_integer,
           stop_wait_ms: non_neg_integer,
           gather_wait_ms: non_neg_integer,
-          gather_wait_min_ms: non_neg_integer,
-          gather_wait_max_ms: non_neg_integer,
           stair_probe_ms: non_neg_integer,
           stair_max_probes: non_neg_integer,
           fight_only_at_stops: boolean,
@@ -353,23 +353,39 @@ defmodule Pokex.Bots.Cavebot.Logic do
     Recording.combo_intent(Enum.at(waypoints, index)[:combo] || [])
   end
 
-  # His hands beat my guess — but only when the measurement is a measurement OF
-  # THIS. His own route (2026-08-11) learned 2.0s, 3.3s and 3.6s at three kill
-  # spots and 12.0s at a fourth; twelve seconds is not him waiting for a pile
-  # to close in, it is the recorder having timed something else. Obeyed raw it
-  # would stand there holding fire while the pile eats him, so an implausible
-  # one falls back to the configured wait instead of to itself.
-  defp gather_wait(%__MODULE__{gather_wait: measured, config: config})
-       when is_integer(measured) do
-    floor = Map.get(config, :gather_wait_min_ms, 0)
-    ceiling = Map.get(config, :gather_wait_max_ms, :infinity)
+  @doc """
+  The categories HE ordered at the kill spot the hunt is standing on — `[]`
+  anywhere else.
 
-    if measured >= floor and measured <= ceiling,
-      do: measured,
-      else: Map.get(config, :gather_wait_ms, 0)
+  Pair of `combo/1` and delivered by the same road (the `:posture` fact), for a
+  reason the `{:skills, _}` action could not solve: there is a burst here, and
+  an aura that comes out AFTER the area damage did nothing for anyone.
+  Travelling with the posture, Combat builds one list and the Body runs it in
+  order — the same solution that made the posture key work.
+
+  Category, never key: whoever has the pokémon on the field is the Worker.
+  """
+  @spec orders(t) :: [Route.skill()]
+  def orders(%__MODULE__{since: since} = logic) do
+    if Map.has_key?(since, :gather), do: kill_spot_skills(logic), else: []
   end
 
-  defp gather_wait(%__MODULE__{config: config}), do: Map.get(config, :gather_wait_ms, 0)
+  defp kill_spot_skills(%__MODULE__{route: %Route{waypoints: []}}), do: []
+
+  defp kill_spot_skills(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
+    Route.skills_at(waypoints, Integer.mod(logic.wp_index - 1, length(waypoints)))
+  end
+
+  # His ruler, resolved on arrival: the corner, else the route, else the global
+  # number (`Route.gather_wait/3`). The MEASURED `gather_ms` left this sum on
+  # 2026-08-12 — the eight measurements of Meganium 1 run from 569ms to 4534ms,
+  # and half of them were not even on the right waypoint. The measurement
+  # became a screen suggestion; what the hunt obeys is a number written by
+  # hand, with no clamp in the middle.
+  defp gather_wait(%__MODULE__{gather_wait: ms}) when is_integer(ms), do: ms
+  defp gather_wait(%__MODULE__{} = logic), do: config_gather_wait(logic)
+
+  defp config_gather_wait(%__MODULE__{config: config}), do: Map.get(config, :gather_wait_ms, 0)
 
   # Parking the pokémon is the FIRST thing that happens on arrival, before the
   # huddle clock has run: he middle-clicks a spot so the pile closes in around
@@ -377,6 +393,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # that click. WHERE is the waypoint's business (its own distance, its own
   # recorded click) with the hunt's default distance behind it — and it stays a
   # spec, never a screen point: this module has no calibration and no screen.
+  #
+  # A kill spot's own skills do NOT come out here: there is a burst to get in
+  # front of, so they travel with the posture (`orders/1`) instead.
   defp on_arrival(logic, %{action: :lure_end} = wp) do
     case Route.park_spot(wp, default_park(logic)) do
       nil -> :none
@@ -384,15 +403,20 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
+  # A walking corner carrying skills: the aura he presses himself in the middle
+  # of a mob stretch. Nothing is fighting here, so nobody is competing for the
+  # keyboard — the order goes out as an action and the Worker taps it. Once per
+  # arrival, like every other thing a corner does.
+  defp on_arrival(_logic, %{skills: [_ | _] = skills}), do: {:skills, skills}
+
   defp on_arrival(_logic, _plain_arrival), do: :none
 
   defp default_park(%__MODULE__{config: config}), do: Map.get(config, :park_tiles)
 
   # Arriving at "até aqui" starts the huddle clock; arriving anywhere else
-  # clears it, so a stale stamp can never hold fire on a plain corner.
-  # His own measured pause wins over the configured one: the recording watched
-  # him park the pokémon and counted to his first skill, which is the real
-  # answer for THIS spot ("quatro segundos" was his estimate of it).
+  # clears it, so a stale stamp can never hold fire on a plain corner. The
+  # ruler for THIS spot is resolved on arrival, by hand and never by
+  # measurement — see `gather_wait/1`.
   # Arriving is what ARMS the stops: a corner's round of actions belongs to
   # that corner, and it is reaching a new one that starts a new round.
   defp arrived(logic, wp, now) when is_map(wp) do
@@ -400,7 +424,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
   end
 
   defp arrived_at(logic, %{action: :lure_end} = wp, now),
-    do: %{logic | since: Map.put(logic.since, :gather, now), gather_wait: wp[:gather_ms]}
+    do: %{
+      logic
+      | since: Map.put(logic.since, :gather, now),
+        gather_wait: Route.gather_wait(logic.route, wp, config_gather_wait(logic))
+    }
 
   defp arrived_at(logic, _plain_corner, _now),
     do: %{logic | since: Map.delete(logic.since, :gather), gather_wait: nil}
@@ -606,18 +634,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
       z == wp.z ->
         walk(%{logic | state: :walking, retries: 0, probe: 0, probe_steps: 0}, world, now)
 
-      # same abandon rule as the walking state: a dying pokémon ends the
-      # search — fight what came, or stand still until the support fixes it
-      logic.recovering? and (world.enemies > 0 or engaged?(world) or luring?(logic)) ->
+      search_interrupted?(logic, world) ->
         enter_fight(logic, now)
 
+      # recovering, and nothing came: stand still until the support fixes it
       logic.recovering? ->
         {logic, :none}
-
-      # a mob leg walks THROUGH what shows up — the same rule as the walking
-      # state, so a search inside a gathering does not turn into a fight
-      not luring?(logic) and (world.enemies > 0 or engaged?(world)) ->
-        enter_fight(logic, now)
 
       logic.probe_steps >= stair_max_probes(logic) ->
         {%{logic | state: :blocked}, {:block, :stairs}}
@@ -628,6 +650,23 @@ defmodule Pokex.Bots.Cavebot.Logic do
       true ->
         probe_stairs(logic, pos, wp, now)
     end
+  end
+
+  # What ENDS the staircase search and sends the machine to fight, in the two
+  # moods it can be in. Recovering, the abandon rule of the walking state
+  # applies — a dying pokémon ends the search, and even a mob leg counts,
+  # because standing in a gathering with no health is how it dies. Healthy, a
+  # mob leg walks THROUGH what shows up, so only an unlured fight interrupts.
+  #
+  # One predicate rather than three `cond` arms: the two moods answer the same
+  # question and used to be spelled out separately, which is what pushed this
+  # function past its complexity budget when the two were merged.
+  defp search_interrupted?(logic, world) do
+    fight? = world.enemies > 0 or engaged?(world)
+
+    if logic.recovering?,
+      do: fight? or luring?(logic),
+      else: fight? and not luring?(logic)
   end
 
   defp probe_due?(%__MODULE__{since: since} = logic, now) do
@@ -707,6 +746,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
+  # Giving up on a corner is LEAVING it, so the huddle goes out with it — the
+  # same thing `arrived_at/3` does on a plain corner. A skip never passes
+  # through `arrived/3`, so the stamp and the ruler used to survive it, and
+  # `combo/1` and `orders/1` read them off the corner the hunt COULD NOT REACH:
+  # the burst of a kill spot nobody arrived at, or the aura of a walking corner
+  # he never marked as an order.
   defp skip_waypoint(logic, now) do
     next = rem(logic.wp_index + 1, length(logic.route.waypoints))
 
@@ -717,7 +762,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
         retries: 0,
         skips: logic.skips + 1,
         last_pos: nil,
-        since: Map.put(logic.since, :walk_progress, now)
+        gather_wait: nil,
+        since: logic.since |> Map.delete(:gather) |> Map.put(:walk_progress, now)
     }
   end
 

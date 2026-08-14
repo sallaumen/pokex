@@ -525,6 +525,80 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     end
   end
 
+  # The skill HE left marked on the route's kill spot opens the burst. It comes
+  # in FRONT because an aura landing after the area damage did nothing at all.
+  @tag :tmp_dir
+  test "a ordem da rota abre a rajada, na frente do combo", %{worker: worker} do
+    posture = fn value, combo, orders ->
+      WorldState.put(:posture, %{posture: value, combo: combo, orders: orders}, now_ms())
+    end
+
+    posture.(:hold_fire, ~w(3 4), ~w(1))
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+    refute eventually(fn -> "4" in presses() end, 250)
+
+    posture.(:free_fight, ~w(3 4), ~w(1))
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+    assert eventually(fn -> "4" in presses() end)
+    assert Enum.filter(presses(), &(&1 in ~w(1 3 4))) == ~w(1 3 4)
+  end
+
+  # He may have put a 💥 area order on a spot whose opening is already area.
+  # Pressing the same key twice only burns its cooldown.
+  @tag :tmp_dir
+  test "tecla que já está na abertura não é apertada duas vezes", %{worker: worker} do
+    posture = fn value ->
+      WorldState.put(:posture, %{posture: value, combo: ~w(3 4), orders: ~w(3)}, now_ms())
+    end
+
+    posture.(:hold_fire)
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+    refute eventually(fn -> "4" in presses() end, 250)
+
+    posture.(:free_fight)
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+    assert eventually(fn -> "4" in presses() end)
+    assert Enum.count(presses(), &(&1 == "3")) == 1
+  end
+
+  # The dedup is NOT `Enum.uniq/1` over the concatenation: the ordered key
+  # keeps its place in FRONT even when the opening already has it. Recorded
+  # 3 then 4, ordered 4 → the 4 opens and the 3 follows. Backwards is exactly
+  # the bug the order exists to prevent — an aura that lands after the area
+  # damage did nothing for anyone.
+  @tag :tmp_dir
+  test "a tecla ordenada abre, mesmo já estando no meio do combo", %{worker: worker} do
+    posture = fn value ->
+      WorldState.put(:posture, %{posture: value, combo: ~w(3 4), orders: ~w(4)}, now_ms())
+    end
+
+    posture.(:hold_fire)
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+    refute eventually(fn -> "3" in presses() end, 250)
+
+    posture.(:free_fight)
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+    assert eventually(fn -> "3" in presses() end)
+    assert Enum.filter(presses(), &(&1 in ~w(3 4))) == ~w(4 3)
+  end
+
+  # A hunt from an earlier version still publishing the fact without the new
+  # field must not crash combat, nor silence the opening.
+  @tag :tmp_dir
+  test "fato sem o campo orders é lido como sem ordem", %{worker: worker} do
+    WorldState.put(:posture, %{posture: :hold_fire, combo: ~w(3)}, now_ms())
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+    refute eventually(fn -> "3" in presses() end, 250)
+
+    WorldState.put(:posture, %{posture: :free_fight, combo: ~w(3)}, now_ms())
+    world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+    assert eventually(fn -> "3" in presses() end)
+  end
+
   # Drains combat's own log topic looking for one line, WITHOUT blocking: the
   # Logic narrates on the same topic, so the line being waited on is rarely the
   # first message — and a caller polling while it feeds the world has to be able

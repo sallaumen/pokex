@@ -85,6 +85,7 @@ defmodule Pokex.Bots.Cavebot.Store do
       dungeon: map["dungeon"],
       z: map["z"],
       enabled?: map["enabled"] != false,
+      gather_wait_ms: decode_dwell(map["gather_wait_ms"]),
       waypoints: Enum.map(map["waypoints"] || [], &decode_waypoint/1)
     }
   end
@@ -102,11 +103,21 @@ defmodule Pokex.Bots.Cavebot.Store do
       park_tiles: decode_point(map["park_tiles"]),
       fight_ms: decode_dwell(map["fight_ms"]),
       gather_ms: decode_dwell(map["gather_ms"]),
-      combo: decode_combo(map["combo"])
+      combo: decode_combo(map["combo"]),
+      skills: decode_skills(map["skills"]),
+      gather_wait_ms: decode_dwell(map["gather_wait_ms"])
     }
 
   defp decode_combo(list) when is_list(list), do: Enum.filter(list, &is_binary/1)
   defp decode_combo(_absent), do: []
+
+  # Whitelisted, like the action and the stops: `routes.json` is hand-editable
+  # and a typo in it must not mint an atom. Canonical order on the way out, not
+  # the file's order.
+  defp decode_skills(list) when is_list(list),
+    do: Enum.filter(Route.skills(), &(Atom.to_string(&1) in list))
+
+  defp decode_skills(_absent), do: []
 
   defp decode_point([x, y]) when is_integer(x) and is_integer(y), do: {x, y}
   defp decode_point(_absent), do: nil
@@ -146,6 +157,7 @@ defmodule Pokex.Bots.Cavebot.Store do
       "dungeon" => route.dungeon,
       "z" => route.z,
       "enabled" => route.enabled?,
+      "gather_wait_ms" => route.gather_wait_ms,
       "waypoints" => Enum.map(route.waypoints, &encode_waypoint/1)
     }
   end
@@ -163,7 +175,9 @@ defmodule Pokex.Bots.Cavebot.Store do
       "park_tiles" => encode_point(Map.get(waypoint, :park_tiles)),
       "fight_ms" => Map.get(waypoint, :fight_ms),
       "gather_ms" => Map.get(waypoint, :gather_ms),
-      "combo" => Map.get(waypoint, :combo) || []
+      "combo" => Map.get(waypoint, :combo) || [],
+      "skills" => Enum.map(Map.get(waypoint, :skills) || [], &Atom.to_string/1),
+      "gather_wait_ms" => Map.get(waypoint, :gather_wait_ms)
     }
 
   defp encode_point({x, y}), do: [x, y]

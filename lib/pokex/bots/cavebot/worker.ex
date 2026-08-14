@@ -56,6 +56,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
+  alias Pokex.Pokedex.SkillProfile
+  alias Pokex.Pokedex.Team
   alias Pokex.Settings
 
   @topic "cavebot"
@@ -80,8 +82,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     sweep_grace_ms: :cavebot_sweep_grace_ms,
     stop_wait_ms: :cavebot_stop_wait_ms,
     gather_wait_ms: :cavebot_gather_wait_ms,
-    gather_wait_min_ms: :cavebot_gather_wait_min_ms,
-    gather_wait_max_ms: :cavebot_gather_wait_max_ms,
     fight_only_at_stops: :cavebot_fight_only_at_stops,
     stair_probe_ms: :cavebot_stair_probe_ms,
     stair_max_probes: :cavebot_stair_max_probes,
@@ -107,6 +107,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
       # what the hunt last ASKED of combat — kept only to narrate the edge
       posture: :free_fight,
       held_keys: [],
+      # the pokémon on the field, so a category the route ordered can become a
+      # key. Kept here and refreshed on the event, never read per tick:
+      # `Loadout.current/0` reads the team file.
+      loadout: Combat.Loadout.current(),
       capture_pending: 0,
       capture_changed_at: nil,
       # the BLIND sweep's queue, same progress rule as the capture's
@@ -163,6 +167,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     # (the 2026-07-30 timeout that killed a page), and this worker ticks 5x a
     # second.
     Phoenix.PubSub.subscribe(Pokex.PubSub, Catcher.Worker.topic())
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Team.topic())
     {:ok, state}
   end
 
@@ -259,6 +264,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
      |> note_sweep(sweep_pending)}
   end
 
+  # Changing pokémon changes which key is the aura — the route stores the
+  # category and this is where it becomes a key, so this copy has to keep up.
+  def handle_info({:team_changed}, state),
+    do: {:noreply, %{state | loadout: Combat.Loadout.current()}}
+
   # The minimap feed died (its consumers map dies with it; a restarted feed
   # starts with nobody attached). Without reattaching, the :minimap fact ages,
   # the position becomes :unknown and the cavebot stays stopped FOREVER —
@@ -323,9 +333,19 @@ defmodule Pokex.Bots.Cavebot.Worker do
     posture = if Logic.hold_fire?(state.logic, now), do: :hold_fire, else: :free_fight
 
     # …and WHAT to open with when the fire is released: his own combo from
-    # this kill spot, so the area damage lands on the whole pile instead of
-    # one straggler at a time.
-    WorldState.put(:posture, %{posture: posture, combo: Logic.combo(state.logic)}, now)
+    # this kill spot, so the area damage lands on the whole pile instead of one
+    # straggler at a time, plus the categories he ORDERED there — already
+    # resolved to keys, because Combat has no business asking which pokémon is
+    # out.
+    WorldState.put(
+      :posture,
+      %{
+        posture: posture,
+        combo: Logic.combo(state.logic),
+        orders: skill_keys(state.loadout, Logic.orders(state.logic))
+      },
+      now
+    )
 
     if posture != state.posture do
       log(:macro, posture_text(posture))
@@ -455,6 +475,29 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
       point ->
         park_click(state, point)
+    end
+  end
+
+  # The skill HE put at this corner — the aura in the middle of the pile,
+  # almost always. The category becomes a key here and not in the Logic,
+  # because the process that knows which pokémon is on the field is this one.
+  # A tap, never a hold, and only after the arrows are let go: a stuck key is
+  # the worst bug this system can produce.
+  def translate(state, {:skills, categories}) do
+    state = release_walk(state)
+
+    case skill_keys(state.loadout, categories) do
+      [] ->
+        log(
+          :macro,
+          "✨ não apertei nada aqui: #{Combat.Loadout.describe(state.loadout)} não tem #{skills_text(categories)}"
+        )
+
+        state
+
+      keys ->
+        fire_skills(state.body, keys)
+        state
     end
   end
 
@@ -591,6 +634,46 @@ defmodule Pokex.Bots.Cavebot.Worker do
       end
     end)
   end
+
+  # OFF the tick, like every other `perform` here: it is a call with an
+  # :infinity timeout and the Body may be several seconds deep in a capture —
+  # blocking this tick would freeze the hunt AND time out the page's own
+  # `status` call. The arrows are already down before the spawn (release_walk/1
+  # is synchronous), so letting go still happens strictly before the press.
+  #
+  # :high, not :normal, and the ORDERING is why: `hold/1` is answered inline by
+  # the Body loop while a `perform` sequence waits its turn in the queue. A
+  # press parked in the normal queue could still be pending when the NEXT tick
+  # holds the arrows back down — a press under a hold, exactly the bug the
+  # release above exists to prevent. :high preempts the queue and narrows that
+  # window to near-zero; it is the same trade `park_click/2` already takes.
+  #
+  # The answer is worth a log line: a refusal must SAY so instead of narrating
+  # a skill that never went out.
+  defp fire_skills(body, keys) do
+    actions = Enum.map(keys, &{:press, &1})
+    text = Enum.join(keys, ", ")
+
+    spawn(fn ->
+      case body.perform(actions, :high) do
+        :ok -> log(:macro, "✨ skill da rota: #{text}")
+        {:error, reason} -> log(:macro, "✨ o corpo recusou a skill: #{inspect(reason)}")
+        other -> log(:macro, "✨ a skill respondeu #{inspect(other)}")
+      end
+    end)
+  end
+
+  # The categories in their canonical order, deduplicated by KEY: two
+  # categories can land on the same key, and pressing it twice is not what he
+  # asked for.
+  defp skill_keys(loadout, categories) do
+    categories
+    |> Enum.flat_map(&Combat.Loadout.keys(loadout, &1))
+    |> Enum.uniq()
+  end
+
+  defp skills_text(categories),
+    do: Enum.map_join(categories, ", ", &"#{SkillProfile.icon(&1)} #{SkillProfile.label(&1)}")
 
   defp park_click(state, point) do
     times = Settings.get(:cavebot_park_clicks)

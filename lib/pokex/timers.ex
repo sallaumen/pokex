@@ -71,16 +71,7 @@ defmodule Pokex.Timers do
   def keys_for(%Timer{category: nil, keys: keys}, _loadout),
     do: Enum.filter(keys, &(&1 in SkillProfile.hotbar_keys()))
 
-  def keys_for(%Timer{category: _category}, nil), do: []
-
-  def keys_for(%Timer{category: category}, %Loadout{} = loadout),
-    do: Map.get(loadout, category_field(category), [])
-
-  defp category_field(:aoe), do: :aoe
-  defp category_field(:single), do: :single
-  defp category_field(:buffs), do: :buffs
-  defp category_field(:heal), do: :heal
-  defp category_field(:crowd), do: :crowd
+  def keys_for(%Timer{category: category}, loadout), do: Loadout.keys(loadout, category)
 
   @doc """
   One line describing what a timer does: `"aura na mobada · 8s depois de

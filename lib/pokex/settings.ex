@@ -846,7 +846,10 @@ defmodule Pokex.Settings do
     # is only trusted inside a plausible band: his real route came back with
     # 2.0s, 3.3s and 3.6s at three kill spots — and 12.0s at a fourth, which
     # is the recorder having timed something other than a pile closing in.
-    # Outside the band the configured wait wins.
+    # The hunt no longer clamps anything with this band: what it obeys is the
+    # ruler he typed (waypoint > route > `cavebot_gather_wait_ms`). This is now
+    # only the plausibility filter for what the editor OFFERS on screen — a
+    # measurement outside the band is not shown as a suggestion at all.
     cavebot_gather_wait_min_ms: 500,
     cavebot_gather_wait_max_ms: 8_000,
     cavebot_clear_debounce_ms: 800,

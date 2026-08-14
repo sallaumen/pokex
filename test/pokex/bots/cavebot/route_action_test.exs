@@ -11,6 +11,7 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
   use ExUnit.Case, async: true
 
   alias Pokex.Bots.Cavebot.Route
+  alias Pokex.Pokedex.SkillProfile
 
   defp route_of(coords) do
     Enum.reduce(coords, Route.new("r"), fn {x, y}, route ->
@@ -187,6 +188,179 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
         |> Route.set_action(2, :lure_end)
 
       assert Route.lure_issue(route) == nil
+    end
+  end
+
+  describe "skills — the waypoint's third axis" do
+    setup do
+      {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
+      {:ok, route} = Route.append(route, {12, 10, 5})
+      %{route: route}
+    end
+
+    test "is born carrying none", %{route: route} do
+      assert Route.skills_at(route.waypoints, 0) == []
+    end
+
+    # The test above would still pass if `append/3` stopped writing the field,
+    # because `skills_at/2` answers `[]` for an absent key too. The Store
+    # serialises exactly these two keys, so a fresh waypoint has to carry them.
+    test "a fresh waypoint carries both new keys, not just readable defaults", %{route: route} do
+      assert Map.fetch(hd(route.waypoints), :skills) == {:ok, []}
+      assert Map.fetch(hd(route.waypoints), :gather_wait_ms) == {:ok, nil}
+    end
+
+    test "turns a category on and off", %{route: route} do
+      route = Route.set_skill(route, 0, :buffs, true)
+      assert Route.skills_at(route.waypoints, 0) == [:buffs]
+
+      route = Route.set_skill(route, 0, :buffs, false)
+      assert Route.skills_at(route.waypoints, 0) == []
+    end
+
+    # The order is the canonical one, not the clicking one: two routes with the
+    # same skills have to produce the same key sequence.
+    test "keeps the canonical order, not the clicking order", %{route: route} do
+      route =
+        route
+        |> Route.set_skill(0, :single, true)
+        |> Route.set_skill(0, :buffs, true)
+
+      assert Route.skills_at(route.waypoints, 0) == [:buffs, :single]
+    end
+
+    test "turning one on twice does not double it", %{route: route} do
+      route = route |> Route.set_skill(0, :buffs, true) |> Route.set_skill(0, :buffs, true)
+      assert Route.skills_at(route.waypoints, 0) == [:buffs]
+    end
+
+    test "does not leak into the neighbouring waypoint", %{route: route} do
+      route = Route.set_skill(route, 0, :buffs, true)
+      assert Route.skills_at(route.waypoints, 1) == []
+    end
+
+    # Same rule as set_stop: a control that cannot act is a no-op, never an error.
+    test "an index nobody has, or a category nobody knows, changes nothing", %{route: route} do
+      assert Route.set_skill(route, 99, :buffs, true) == route
+      assert Route.set_skill(route, 0, :swim, true) == route
+      assert Route.skills_at(route.waypoints, 99) == []
+    end
+
+    # The Route reads the list off the Pokédex at COMPILE time, so a sixth
+    # category taught to the profile arrives here on its own. This pins that
+    # tie: the day someone writes a second literal back into the Route, the
+    # editor would offer a category whose label and icon the profile does not
+    # have — and the page would raise while RENDERING, on every load, not
+    # while clicking.
+    test "the categories are exactly the Pokédex's, in the same order" do
+      assert Route.skills() == SkillProfile.categories()
+    end
+  end
+
+  describe "gather_wait/3 — the huddle ruler" do
+    setup do
+      {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
+      %{route: route, wp: hd(route.waypoints)}
+    end
+
+    test "with nothing written down, the global number rules", %{route: route, wp: wp} do
+      assert Route.gather_wait(route, wp, 4_000) == 4_000
+    end
+
+    test "the route's own ruler beats the global one", %{route: route, wp: wp} do
+      route = Route.set_gather_wait(route, 1_800)
+      assert Route.gather_wait(route, wp, 4_000) == 1_800
+    end
+
+    test "the waypoint beats the route's ruler", %{route: route} do
+      route = route |> Route.set_gather_wait(1_800) |> Route.set_gather_wait(0, 600)
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 600
+    end
+
+    # Zero is a legitimate answer — "wait for nothing here" — and must not fall
+    # through to the next level.
+    test "zero is obeyed, it is not absence", %{route: route} do
+      route = route |> Route.set_gather_wait(1_800) |> Route.set_gather_wait(0, 0)
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 0
+    end
+
+    # And zero on the ROUTE's ruler is just as much an answer: "this whole hunt
+    # fires the moment it parks". What this pins is that a level which says a
+    # number settles it — reading zero as "nothing written here" anywhere in the
+    # chain would send the answer up to the global instead.
+    test "zero on the route's ruler is obeyed too", %{route: route, wp: wp} do
+      assert Route.gather_wait(Route.set_gather_wait(route, 0), wp, 4_000) == 0
+    end
+
+    test "erasing hands the answer back to the level above", %{route: route} do
+      route =
+        route
+        |> Route.set_gather_wait(1_800)
+        |> Route.set_gather_wait(0, 600)
+        |> Route.set_gather_wait(0, nil)
+
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 1_800
+    end
+
+    # What his hands measured stays stored and stays NOT in charge.
+    test "the measured gather_ms does not enter the sum", %{route: route} do
+      route = Route.set_timing(route, 0, gather_ms: 4_534)
+      assert Route.gather_wait(route, hd(route.waypoints), 1_000) == 1_000
+    end
+
+    # Same rule as every other control on this struct.
+    test "an index nobody has changes nothing", %{route: route} do
+      assert Route.set_gather_wait(route, 99, 600) == route
+    end
+  end
+
+  # Every route on disk today reaches these functions through
+  # Store.decode_waypoint/1, which builds a waypoint with neither `skills` nor
+  # `gather_wait_ms` — the fields are younger than his routes.json and there is
+  # no migration by design. So the reads have to be the tolerant kind, and a
+  # route made of such waypoints is the only thing that proves it.
+  describe "a waypoint recorded before these fields existed" do
+    setup do
+      legacy = %{x: 10, y: 10, z: 5, action: :walk, stops: []}
+
+      %{route: %Route{name: "meganium", z: 5, waypoints: [legacy]}, wp: legacy}
+    end
+
+    test "carries no skills instead of blowing up", %{route: route} do
+      assert Route.skills_at(route.waypoints, 0) == []
+    end
+
+    test "has no huddle of its own, so the levels above answer", %{route: route, wp: wp} do
+      assert Route.gather_wait(route, wp, 4_000) == 4_000
+      assert Route.gather_wait(Route.set_gather_wait(route, 1_800), wp, 4_000) == 1_800
+    end
+
+    test "can still be given a skill, and reads it back", %{route: route} do
+      on = Route.set_skill(route, 0, :buffs, true)
+      assert Route.skills_at(on.waypoints, 0) == [:buffs]
+
+      # Turning one OFF on a waypoint that never carried any is the other half
+      # of the tolerant read, and it must not raise either.
+      off = Route.set_skill(route, 0, :buffs, false)
+      assert Route.skills_at(off.waypoints, 0) == []
+    end
+
+    test "can still be given a huddle of its own, and reads it back", %{route: route} do
+      route = Route.set_gather_wait(route, 0, 600)
+
+      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 600
+    end
+
+    # `stops` is older than both new fields, so no route on disk lacks it —
+    # but set_stop/4 now shares the toggle with set_skill/4, and the tolerance
+    # is the whole point of sharing it. This is what keeps the next axis from
+    # having to rediscover it.
+    test "set_stop/4 survives a waypoint missing even the key it toggles", ctx do
+      %{route: %Route{} = route} = ctx
+      route = %{route | waypoints: Enum.map(route.waypoints, &Map.delete(&1, :stops))}
+      route = Route.set_stop(route, 0, :sweep, true)
+
+      assert Route.stops_at(route.waypoints, 0) == [:sweep]
     end
   end
 end

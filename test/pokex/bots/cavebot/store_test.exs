@@ -30,7 +30,9 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                park_tiles: nil,
                fight_ms: nil,
                gather_ms: nil,
-               combo: []
+               combo: [],
+               skills: [],
+               gather_wait_ms: nil
              }
            ]
   end
@@ -66,7 +68,9 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                park_tiles: nil,
                fight_ms: nil,
                gather_ms: nil,
-               combo: []
+               combo: [],
+               skills: [],
+               gather_wait_ms: nil
              }
            ]
   end
@@ -156,7 +160,9 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                park_tiles: nil,
                fight_ms: nil,
                gather_ms: nil,
-               combo: []
+               combo: [],
+               skills: [],
+               gather_wait_ms: nil
              }
            ]
   end
@@ -234,6 +240,71 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
 
       assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
       assert_raise ArgumentError, fn -> String.to_existing_atom("abracadabra_xyz") end
+    end
+  end
+
+  describe "the new fields on disk" do
+    test "skills and both rulers round-trip" do
+      {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
+
+      route =
+        route
+        |> Route.set_skill(0, :buffs, true)
+        |> Route.set_skill(0, :aoe, true)
+        |> Route.set_gather_wait(1_800)
+        |> Route.set_gather_wait(0, 600)
+
+      :ok = Store.add(route)
+      [read] = Store.all()
+
+      assert read.gather_wait_ms == 1_800
+      assert Route.skills_at(read.waypoints, 0) == [:buffs, :aoe]
+      assert Route.gather_wait(read, hd(read.waypoints), 4_000) == 600
+    end
+
+    test "nil does not become zero on the way there and back" do
+      {:ok, route} = Route.append(Route.new("sem régua"), {10, 10, 5})
+      :ok = Store.add(route)
+      [read] = Store.all()
+
+      assert read.gather_wait_ms == nil
+      assert hd(read.waypoints)[:gather_wait_ms] == nil
+      assert Route.gather_wait(read, hd(read.waypoints), 4_000) == 4_000
+    end
+
+    # The file is hand-editable: a typo in it can neither mint an atom nor break
+    # the reading of the whole route. Same rule the action and the stops follow.
+    #
+    # The literal JSON also pins the ruler's NAME on disk, at both levels. A
+    # round-trip test goes through encode AND decode, so renaming both sides at
+    # once would keep it green while resetting every route he already has to
+    # `nil` — his five routes live on this disk, not in a fixture.
+    test "a category nobody knows is dropped, and the ruler is read by its name" do
+      File.write!(Path.join(Pokex.Home.dir(), "routes.json"), """
+      {"routes":[{"name":"suja","dungeon":null,"z":5,"enabled":true,"gather_wait_ms":1800,
+      "waypoints":[{"x":1,"y":2,"z":5,"skills":["buffs","voar","aoe"],"gather_wait_ms":600}]}]}
+      """)
+
+      [read] = Store.all()
+
+      assert Route.skills_at(read.waypoints, 0) == [:buffs, :aoe]
+      assert read.gather_wait_ms == 1_800
+      assert hd(read.waypoints)[:gather_wait_ms] == 600
+      assert Route.gather_wait(read, hd(read.waypoints), 4_000) == 600
+    end
+
+    # The five routes he already has were recorded before these fields existed.
+    test "an old route, without the fields, reads as empty" do
+      File.write!(Path.join(Pokex.Home.dir(), "routes.json"), """
+      {"routes":[{"name":"antiga","dungeon":null,"z":5,"enabled":true,
+      "waypoints":[{"x":1,"y":2,"z":5,"action":"lure_end","stops":["sweep"]}]}]}
+      """)
+
+      [read] = Store.all()
+
+      assert read.gather_wait_ms == nil
+      assert Route.skills_at(read.waypoints, 0) == []
+      assert Route.gather_wait(read, hd(read.waypoints), 4_000) == 4_000
     end
   end
 end

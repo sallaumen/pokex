@@ -156,6 +156,134 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
     end
   end
 
+  # He kills the pile, takes a step, and only THEN presses the shift+3 that
+  # closes the fight — half of Meganium 1 was recorded that way (2026-08-12).
+  # The lesson belongs to the kill spot, which is the only waypoint the hunt
+  # ever reads it from.
+  describe "taking the lesson back to the kill spot" do
+    # One tile apart: a route with no clock on its waypoints is measured with
+    # the blind ruler, which is 3 tiles.
+    defp tight_route(count, kills) do
+      route =
+        Enum.reduce(0..(count - 1), Route.new("r"), fn index, acc ->
+          {:ok, acc} = Route.append(acc, {index, 0, 7})
+          acc
+        end)
+
+      Enum.reduce(kills, route, &Route.set_stop(&2, &1, :sweep, true))
+    end
+
+    # The same route WITH a clock, one second per tile: moving a lesson erases
+    # it from where it was measured, so `move_lessons/1` demands a real
+    # `%DateTime{}` on both ends before it does that.
+    defp timed_route(count, kills) do
+      route =
+        Enum.reduce(0..(count - 1), Route.new("r"), fn index, acc ->
+          at = DateTime.add(~U[2026-08-12 16:50:00Z], index, :second)
+          {:ok, acc} = Route.append(acc, {index, 0, 7}, at: at)
+          acc
+        end)
+
+      Enum.reduce(kills, route, &Route.set_stop(&2, &1, :sweep, true))
+    end
+
+    test "a fight closed one tile past the kill spot belongs to the kill spot" do
+      assert Recording.lesson_index(tight_route(3, [0]), 1) == 0
+    end
+
+    test "with no kill spot in reach the lesson stays where it was measured" do
+      assert Recording.lesson_index(tight_route(3, []), 1) == 1
+    end
+
+    # Deleting a waypoint mid-recording leaves the buffered combo pointing PAST
+    # the end of the route, and the drain right after it must not take the
+    # recording down: an index nobody has is its own answer, the same quiet
+    # no-op `Route.set_timing/3` has always been.
+    test "an index nobody has is its own answer" do
+      assert Recording.lesson_index(tight_route(3, [0]), 7) == 7
+    end
+
+    # A fight that closed ON a kill spot is already home. The ruler rejects
+    # only `index` itself, so without this the lesson would land on the NEXT
+    # kill spot within reach and `Route.set_timing/3` would overwrite what that
+    # one was holding — and `infer_with_note/4` mints kill spots from a long
+    # dwell with no ruler in the way, so two of them a tile apart happen.
+    test "a kill spot files its own lesson, never a neighbour's" do
+      assert Recording.lesson_index(tight_route(3, [0, 1]), 1) == 1
+    end
+
+    # The ruler that chose the destination — 6 tiles and 10 seconds — IS this
+    # project's definition of the same fight, so the destination ends up with
+    # ONE fight assembled out of both halves: whatever it is missing, the
+    # orphan supplies, and whatever it measured itself it keeps.
+    test "the kill spot's own huddle survives and the orphan's fills the gap" do
+      route =
+        timed_route(3, [0])
+        |> Route.set_timing(0, gather_ms: 1_851, combo: ~w(3))
+        |> Route.set_timing(1, fight_ms: 11_310, gather_ms: 4_000, combo: ~w(4 5))
+
+      {tidied, _note} = Recording.tidy(route)
+
+      assert Enum.at(tidied.waypoints, 0).fight_ms == 11_310
+      assert Enum.at(tidied.waypoints, 0).gather_ms == 1_851
+      assert Enum.at(tidied.waypoints, 0).combo == ~w(3 4 5)
+      assert Enum.at(tidied.waypoints, 1).fight_ms == nil
+      assert Enum.at(tidied.waypoints, 1).gather_ms == nil
+    end
+
+    test "a kill spot with no huddle of its own takes the orphan's" do
+      route =
+        timed_route(3, [0])
+        |> Route.set_timing(0, combo: ~w(3))
+        |> Route.set_timing(1, fight_ms: 11_310, gather_ms: 1_851, combo: ~w(4))
+
+      {tidied, _note} = Recording.tidy(route)
+
+      assert Enum.at(tidied.waypoints, 0).fight_ms == 11_310
+      assert Enum.at(tidied.waypoints, 0).gather_ms == 1_851
+    end
+
+    # BOTH carrying a `fight_ms` is not something one fight's single shift+3
+    # drain can produce. The destination's own number wins, the other one is
+    # thrown away — and thrown away is not "taken back", so the note says so
+    # instead of counting it as a lesson recovered.
+    test "two fight measurements collide: the kill spot's wins and the note says it" do
+      route =
+        timed_route(3, [0])
+        |> Route.set_timing(0, fight_ms: 7_910, combo: ~w(3 4))
+        |> Route.set_timing(1, fight_ms: 11_310, gather_ms: 1_851, combo: ~w(5))
+
+      {tidied, note} = Recording.tidy(route)
+
+      assert Enum.at(tidied.waypoints, 0).fight_ms == 7_910
+      assert Enum.at(tidied.waypoints, 0).gather_ms == 1_851
+      assert Enum.at(tidied.waypoints, 0).combo == ~w(3 4 5)
+      assert Enum.at(tidied.waypoints, 1).fight_ms == nil
+      assert Enum.at(tidied.waypoints, 1).gather_ms == nil
+
+      assert note =~ "descartei 1 medição(ões) de luta"
+      refute note =~ "levei 1 lição(ões)"
+    end
+
+    # Moving a lesson DELETES it from where his hands measured it, and a route
+    # recorded before the recorder read the clock has no `at` at all — there
+    # the blind ruler is 3 tiles and no clock, so a loop passing near an old
+    # kill spot minutes later would match. With no clock, nothing moves.
+    test "a clockless route keeps its lesson where it was measured" do
+      route =
+        tight_route(3, [0])
+        |> Route.set_timing(2, fight_ms: 11_310, gather_ms: 1_851, combo: ~w(4 5))
+
+      {tidied, note} = Recording.tidy(route)
+
+      assert Enum.at(tidied.waypoints, 2).fight_ms == 11_310
+      assert Enum.at(tidied.waypoints, 2).gather_ms == 1_851
+      assert Enum.at(tidied.waypoints, 2).combo == ~w(4 5)
+      assert Enum.at(tidied.waypoints, 0).fight_ms == nil
+      refute note =~ "lição(ões)"
+    end
+  end
+
   # His real combos came back as 1,1,3,3,3,4,4,4,4,4,5,5,5 — he mashes the key
   # while it is on cooldown. The intention underneath is 1,3,4,5.
   describe "what he MEANT to press" do

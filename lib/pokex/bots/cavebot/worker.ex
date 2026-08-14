@@ -36,10 +36,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
   (`{:cavebot_log, level, text}`) are the edge narrative — route loaded,
   waypoint reached, block, a hold reason appearing. Nothing here may speak per
   tick: the cadence is 200ms and a line per tick is noise that buries the fact.
+  The single exception is `log_walk_decision/4`, which is an INSTRUMENT and
+  emits NOTHING AT ALL until `cavebot_measure_walk` is switched on — see its
+  doc.
 
   The injected `body` is a MODULE (production: `Pokex.Bots.Body`; tests: a fake
-  with the same signature), because `minimap_step/3` is a module function — the
-  click geometry lives in the Body, not here. `combat` is a server (production:
+  with the same signature), because `arrow_step/3` is a module function — the
+  key geometry lives in the Body, not here. `combat` is a server (production:
   the named `Combat.Worker`), because `run/1`/`halt/1` take the server.
   `active: false` (tests) prepares everything on `run` but does NOT schedule
   the automatic tick — tests send `:tick` by hand, each step deterministic.
@@ -86,7 +89,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
     stair_probe_ms: :cavebot_stair_probe_ms,
     stair_max_probes: :cavebot_stair_max_probes,
     hp_abort_pct: :cavebot_hp_abort_pct,
-    hp_resume_pct: :cavebot_hp_resume_pct
+    hp_resume_pct: :cavebot_hp_resume_pct,
+    stair_step_ms: :cavebot_stair_step_ms,
+    stair_step_taps: :cavebot_stair_step_taps
   }
 
   def topic, do: @topic
@@ -119,6 +124,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
       last_step: nil,
       pos: nil,
       pos_at: nil,
+      # how old the :minimap fact was on the tick that decided — see observe/2
+      pos_age: nil,
       counters: %{waypoints: 0, steps: 0},
       last_action: nil,
       hold_note: nil,
@@ -301,6 +308,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
     wp_before = state.logic.wp_index
     state_before = state.logic.state
     recovering_before = state.logic.recovering?
+    # taps are reset by the arrival itself, so the count has to be read BEFORE
+    # the step that arrives — see `note_stair_taken/5`
+    taps_before = state.logic.stair_taps
 
     {logic, action} = Logic.step(state.logic, world, now)
 
@@ -314,6 +324,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       |> publish_posture(now)
       |> translate(action)
       |> note_arrival(wp_before, now)
+      |> note_stair_taken(wp_before, state_before, taps_before, now)
       |> note_search(state_before, now)
       |> note_recovery(recovering_before, now)
       |> log_hold_edge(now)
@@ -371,6 +382,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # last heard state as world.combat_state.
   defp observe(state, now) do
     pos = position(now)
+
+    # How old the reading the decision is about to be made ON is. `get/3` hides
+    # the age of a fresh fact on purpose, so ask for it directly: a decision
+    # taken on an 800ms-old position (`cavebot_minimap_fact_max_age_ms`) is a
+    # decision taken about where he WAS. Kept on both paths — the blind kick is
+    # a decision too, and there the age is the whole story.
+    state = %{state | pos_age: WorldState.age(:minimap, now)}
 
     world = %{
       pos: pos,
@@ -439,17 +457,28 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # diagonal — and keeps holding while the intent is unchanged. Tapping one
   # arrow per tile was the client's slowest gear (Lucas, 2026-08-10: "está
   # dando pequenos cliques, o personagem tá andando muito lento").
+  #
+  # Measured AFTER the choice, never before: "how many tiles did that decision
+  # actually buy" is the number the instrument exists for, and `{:walk, 4, -3}`
+  # reads identically whether it then held two keys, held one, tapped one or
+  # pressed nothing. What went out is the half that differs.
   def translate(state, {:walk, dx, dy}) do
-    if precise?(dx, dy),
-      do: state |> release_walk() |> arrow_step(dx, dy),
-      else: hold_walk(state, dx, dy)
+    {stepped, went_out} =
+      if precise?(dx, dy),
+        do: state |> release_walk() |> arrow_step(dx, dy),
+        else: hold_walk(state, dx, dy)
+
+    log_walk_decision({:walk, dx, dy}, state.pos, state.pos_age, went_out)
+    stepped
   end
 
   # A nudge is ONE tile on purpose (the blind kick, the stall breaker): it taps,
   # and lets go of whatever was held first — a kick under a held key is not a
   # kick, it is the same walk continuing.
   def translate(state, {:nudge, dx, dy}) do
-    state |> release_walk() |> arrow_step(dx, dy)
+    {stepped, went_out} = state |> release_walk() |> arrow_step(dx, dy)
+    log_walk_decision({:nudge, dx, dy}, state.pos, state.pos_age, went_out)
+    stepped
   end
 
   # "varrer aqui": the pile the hunt gathered died on this tile, and its
@@ -763,6 +792,24 @@ defmodule Pokex.Bots.Cavebot.Worker do
     # (left+down → down → right+down → down, around the same corner).
     tol = Settings.get(:cavebot_arrival_tolerance_tiles)
     keys = Enum.reject([horizontal(dx, tol), vertical(dy, tol)], &is_nil/1)
+
+    if keys == [] and {dx, dy} != {0, 0} do
+      # …but a decision to WALK must never come out as no key. Both axes inside
+      # the tolerance left `hold([])` as the whole step — the release, nothing
+      # pressed — and the character could not close the last tile: the position
+      # never changed, `walk_timeout_ms` made it `:stuck`, and the four
+      # `unstick/3` retries each produced the same empty hold before the corner
+      # was skipped. Reachable at `cavebot_precise_tiles: 0` (in range, and the
+      # gear he asked for when the hold is the fast one), and newly SO on the
+      # corner a staircase leaves from, which is now reached EXACTLY. One tap
+      # closes it.
+      state |> release_walk() |> arrow_step(dx, dy)
+    else
+      hold_keys(state, keys, dx, dy)
+    end
+  end
+
+  defp hold_keys(state, keys, dx, dy) do
     at = now()
     text = "segurando #{Enum.join(keys, "+")}"
     result = step_result(state.body.hold(keys))
@@ -772,17 +819,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
       if action_text(state) != text,
         do: log(:debug, "#{text} → wp #{stepped.logic.wp_index + 1}/#{wp_total(stepped)}")
 
-      %{
-        stepped
-        | held_keys: keys,
-          counters: bump(stepped.counters, :steps),
-          last_action: %{text: text, at: at}
-      }
+      {%{
+         stepped
+         | held_keys: keys,
+           counters: bump(stepped.counters, :steps),
+           last_action: %{text: text, at: at}
+       }, held_outcome(keys)}
     else
       Logger.debug("Cavebot: segurar (#{dx},#{dy}) falhou: #{inspect(result)}")
-      %{stepped | held_keys: []}
+      {%{stepped | held_keys: []}, :nothing}
     end
   end
+
+  defp held_outcome([]), do: :nothing
+  defp held_outcome(keys), do: {:hold, keys}
 
   defp release_walk(%{held_keys: []} = state), do: state
 
@@ -799,6 +849,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp vertical(dy, _tol) when dy > 0, do: "down"
   defp vertical(_dy, _tol), do: "up"
 
+  # Returns the state AND the key that actually left the hands (`nil` when the
+  # Body answered without naming one), because a refused step is not a step —
+  # see `log_walk_decision/4`.
   defp arrow_step(state, dx, dy) do
     at = now()
     raw = state.body.arrow_step(dx, dy, [])
@@ -812,12 +865,16 @@ defmodule Pokex.Bots.Cavebot.Worker do
       if action_text(state) != text,
         do: log(:debug, "#{text} → wp #{stepped.logic.wp_index + 1}/#{wp_total(stepped)}")
 
-      %{stepped | counters: bump(stepped.counters, :steps), last_action: %{text: text, at: at}}
+      {%{stepped | counters: bump(stepped.counters, :steps), last_action: %{text: text, at: at}},
+       {:tap, step_key(raw)}}
     else
       Logger.debug("Cavebot: passo (#{dx},#{dy}) falhou: #{inspect(result)}")
-      stepped
+      {stepped, :nothing}
     end
   end
+
+  defp step_key({:ok, key}) when is_binary(key), do: key
+  defp step_key(_unnamed), do: nil
 
   defp step_result(:ok), do: :ok
   defp step_result({:ok, _point}), do: :ok
@@ -1077,6 +1134,27 @@ defmodule Pokex.Bots.Cavebot.Worker do
     %{state | counters: bump(state.counters, :waypoints), last_action: %{text: text, at: now}}
   end
 
+  # The staircase that WORKED. A leg taken by tap never enters `:stairs`, so
+  # the success this whole mechanism exists to create was silent while the
+  # failure ("🪜 procurando a escada") was loud — and in the journal, where he
+  # judges whether the tap helped, a staircase taken in one key and one nobody
+  # ever found looked exactly the same.
+  #
+  # Once per staircase, because one arrival ends one leg. The three conditions
+  # are what make it that leg: the index moved, the state before was `:walking`
+  # (a skip moves the index from `:stuck`, and the ring's own find moves it from
+  # `:stairs` — `note_search/3` already narrates that one), and taps had been
+  # spent on the leg being finished.
+  defp note_stair_taken(%{logic: %Logic{wp_index: same}} = state, same, _before, _taps, _now),
+    do: state
+
+  defp note_stair_taken(state, _wp_before, :walking, taps, now) when taps > 0 do
+    log(:macro, "🪜 escada tomada no toque: uma tecla, dois tiles, sem procurar")
+    %{state | last_action: %{text: "escada no toque", at: now}}
+  end
+
+  defp note_stair_taken(state, _wp_before, _before, _taps, _now), do: state
+
   # Looking for the step, and finding it. A hunt standing on the right tile
   # with the floor unchanged is doing something specific and invisible — the
   # only thing on screen used to be the waypoint number, which is exactly what
@@ -1144,6 +1222,75 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
+  @typedoc """
+  What actually left the hands on a walking decision: keys held down, ONE arrow
+  tapped (named by the Body, `nil` when it did not name it), or nothing —
+  a refusal, or a direction with no key in it.
+  """
+  @type walk_outcome :: {:hold, [String.t()]} | {:tap, String.t() | nil} | :nothing
+
+  @doc """
+  One line per walking decision, carrying everything a hunt cannot be read back
+  from afterwards: where he WAS, how far the target was when the decision was
+  taken, how old the reading it was taken on was, and what actually went out.
+
+  The four together answer the three questions this instrument exists for —
+  real speed in tiles/s (absolute positions, differenced by nobody), tiles
+  covered per decision (`{:walk, 4, -3}` reads identically whether the Worker
+  then held two keys, held one, tapped one or pressed nothing: what went out is
+  the half that differs), and whether decisions are taken on stale readings.
+
+  `cavebot_measure_walk` (off by default) is the whole switch, and off means
+  SILENCE: the hunt decides ~5x a second, `/cavebot` keeps 8 log lines and does
+  not filter by level, so a line per decision turned that box into a rolling
+  1.6-second window — `waypoint 12/67`, `🪜 procurando a escada` and `BLOQUEADO`
+  scrolled away before he could read them. Measuring is opt-in; off costs
+  exactly zero lines.
+
+  On, the line is `:macro`, because `:debug` is exactly what
+  `Journal.persist_event/2` refuses to write: measured at `:debug` a hunt leaves
+  nothing on disk and can only be read off the panel's last ~200 lines. `:macro`
+  is the lowest level the journal keeps, so a whole hunt lands in
+  `~/.pokex/journal/*.jsonl`. It does bury the narrative while it is on — which
+  is what measuring means, and why nobody hunts with it on.
+
+  Public because it is instrumentation: the point is to be callable from a test
+  without standing up a whole hunt. "a movimentação tá muito ruim ainda"
+  (Lucas, 2026-08-12) — and neither the overshoot nor the wall-pushing has ever
+  been measured, only watched.
+  """
+  @spec log_walk_decision(
+          Logic.action(),
+          {integer, integer, integer} | nil,
+          non_neg_integer | nil,
+          walk_outcome
+        ) :: :ok
+  def log_walk_decision({kind, dx, dy}, pos, age_ms, went_out)
+      when kind in [:walk, :nudge] do
+    # Read per decision, not frozen into `config/0` at `run`: turning measuring
+    # on is something he does BECAUSE the hunt is walking badly right now, and a
+    # switch that only took effect on the next hunt would measure the next hunt.
+    if Settings.get(:cavebot_measure_walk) do
+      log(
+        :macro,
+        "andar #{kind} #{walk_pos_text(pos)}: faltam #{dx},#{dy} tiles · " <>
+          "leitura de #{age_ms || "?"}ms atrás · #{went_out_text(went_out)}"
+      )
+    end
+
+    :ok
+  end
+
+  def log_walk_decision(_other_action, _pos, _age, _went_out), do: :ok
+
+  defp walk_pos_text({x, y, z}), do: "de #{x},#{y},#{z}"
+  defp walk_pos_text(_never_read), do: "de lugar nenhum"
+
+  defp went_out_text({:hold, keys}), do: "segurei #{Enum.join(keys, "+")}"
+  defp went_out_text({:tap, nil}), do: "toquei uma seta"
+  defp went_out_text({:tap, key}), do: "toquei #{key}"
+  defp went_out_text(:nothing), do: "NENHUMA tecla saiu"
+
   defp log(level, text), do: broadcast({:cavebot_log, level, "caçada: " <> text})
 
   defp bump(counters, key), do: Map.update(counters, key, 1, &(&1 + 1))
@@ -1162,6 +1309,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       | last_step: nil,
         pos: nil,
         pos_at: nil,
+        pos_age: nil,
         counters: %{waypoints: 0, steps: 0},
         last_action: nil,
         hold_note: nil,

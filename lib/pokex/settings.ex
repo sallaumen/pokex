@@ -816,6 +816,20 @@ defmodule Pokex.Settings do
     # 2026-08-10).
     cavebot_blind_kick_ms: 1200,
     cavebot_minimap_fact_max_age_ms: 800,
+    # MEASURING THE WALK — off, and off means SILENT. On, the hunt emits one
+    # `:macro` line per walking decision (`Cavebot.Worker`'s
+    # `log_walk_decision/4`) carrying where he was, how far the target was, how
+    # old the reading was and what actually went out — the four together answer
+    # tiles/s, tiles covered per decision, and "was this decided on a stale
+    # reading". `:macro` is the lowest level `Journal` persists, so a whole hunt
+    # survives in `~/.pokex/journal/*.jsonl` to be read afterwards.
+    #
+    # The price is that the line lands in the narrative he reads five times a
+    # second, and /cavebot's log box keeps EIGHT lines: measuring on, that box
+    # is a rolling 1.6-second window and the waypoints, the 🪜 lines and the
+    # blocks scroll away before they can be read. So OFF emits nothing at all —
+    # measuring is opt-in and costs exactly zero lines until he asks for it.
+    cavebot_measure_walk: false,
     cavebot_stuck_max_retries: 4,
     cavebot_group_min_enemies: 3,
     cavebot_group_max_wait_ms: 4000,
@@ -885,6 +899,19 @@ defmodule Pokex.Settings do
     # and each diagonal, with a step back to the middle between them), 32 is
     # two — about 14 seconds of looking before the hunt stops with a name.
     cavebot_stair_max_probes: 32,
+    # ONE KEY, TWO TILES. A staircase is taken with a single arrow press that
+    # moves the step AND the tile past it, changing floor on the way — which is
+    # why he marks the corner right before and the corner right after. Holding
+    # the key instead takes the stair on the first press and then keeps walking
+    # on the floor above until the next tick ("a movimentação tá muito ruim
+    # ainda", 2026-08-12), so a stair leg TAPS. This is how long to give the
+    # client to answer that tap before repeating it: a second key on top of the
+    # first is a second staircase.
+    cavebot_stair_step_ms: 700,
+    # How many taps a staircase gets before the ring search above takes over.
+    # The ring is the NET, for the legs whose marking has extra walking folded
+    # in — not the road.
+    cavebot_stair_step_taps: 3,
     # How many times the park click goes out. One was not enough in the field:
     # "as vezes buga mesmo, nao vai, tem que mandar algumas vezes, umas 4x, pra
     # ter certeza" (2026-08-11). The click is idempotent — the pokémon walks to
@@ -1112,6 +1139,8 @@ defmodule Pokex.Settings do
     cavebot_precise_tiles: 0..10,
     cavebot_stair_probe_ms: 100..5_000,
     cavebot_stair_max_probes: 0..200,
+    cavebot_stair_step_ms: 100..10_000,
+    cavebot_stair_step_taps: 1..10,
     cavebot_park_clicks: 1..10,
     cavebot_park_tiles_x: -12..12,
     cavebot_park_tiles_y: -12..12,

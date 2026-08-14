@@ -1,0 +1,860 @@
+{
+ "routes": [
+  {
+   "dungeon": null,
+   "enabled": false,
+   "name": "Azumaril easy",
+   "waypoints": [
+    {
+     "action": "lure_start",
+     "at": "2026-08-11T18:23:34.066883Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3254,
+     "y": 30158,
+     "z": 2
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:23:35.261305Z",
+     "combo": [
+      "2",
+      "3",
+      "1",
+      "1",
+      "3",
+      "4",
+      "4",
+      "4",
+      "5",
+      "5",
+      "5",
+      "5"
+     ],
+     "dwell_ms": null,
+     "fight_ms": 8167,
+     "gather_ms": 4707,
+     "park_point": [
+      2947,
+      465
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3252,
+     "y": 30158,
+     "z": 2
+    },
+    {
+     "action": "lure_start",
+     "at": "2026-08-11T18:23:57.424755Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3254,
+     "y": 30155,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:23:59.054028Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3254,
+     "y": 30151,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:24:01.772854Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3250,
+     "y": 30148,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:24:04.496452Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3246,
+     "y": 30147,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:24:07.760502Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3242,
+     "y": 30144,
+     "z": 1
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:24:10.489341Z",
+     "combo": [
+      "1",
+      "1",
+      "1",
+      "1",
+      "3",
+      "3",
+      "3",
+      "3",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4"
+     ],
+     "dwell_ms": null,
+     "fight_ms": 11663,
+     "gather_ms": 3274,
+     "park_point": [
+      1965,
+      1116
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3240,
+     "y": 30140,
+     "z": 1
+    },
+    {
+     "action": "lure_start",
+     "at": "2026-08-11T18:24:33.883878Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3240,
+     "y": 30136,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:24:36.056889Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3239,
+     "y": 30132,
+     "z": 1
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:24:38.234048Z",
+     "combo": [
+      "1",
+      "1",
+      "1",
+      "1",
+      "3",
+      "3",
+      "3",
+      "3",
+      "4",
+      "4",
+      "4",
+      "4"
+     ],
+     "dwell_ms": null,
+     "fight_ms": 4094,
+     "gather_ms": 3332,
+     "park_point": [
+      2437,
+      203
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3238,
+     "y": 30127,
+     "z": 1
+    },
+    {
+     "action": "lure_start",
+     "at": "2026-08-11T18:24:58.902748Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3234,
+     "y": 30123,
+     "z": 2
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:00.527204Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      2144,
+      502
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3230,
+     "y": 30124,
+     "z": 2
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:02.158314Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1819,
+      494
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3229,
+     "y": 30125,
+     "z": 2
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:03.490313Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1711,
+      491
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3228,
+     "y": 30127,
+     "z": 2
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:05.669300Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1404,
+      231
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3230,
+     "y": 30130,
+     "z": 2
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:06.638396Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1585,
+      194
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3230,
+     "y": 30132,
+     "z": 2
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:08.817280Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1551,
+      332
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3231,
+     "y": 30132,
+     "z": 2
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:09.423313Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1419,
+      396
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3231,
+     "y": 30131,
+     "z": 2
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:10.029320Z",
+     "combo": [
+      "1",
+      "3",
+      "3",
+      "3",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4"
+     ],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": 1651,
+     "park_point": [
+      1215,
+      275
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3232,
+     "y": 30131,
+     "z": 2
+    },
+    {
+     "action": "lure_start",
+     "at": "2026-08-11T18:25:25.507667Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3229,
+     "y": 30127,
+     "z": 2
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:27.677191Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3230,
+     "y": 30123,
+     "z": 2
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:29.846361Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3234,
+     "y": 30122,
+     "z": 2
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:31.476073Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3235,
+     "y": 30125,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:34.192531Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3236,
+     "y": 30129,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:36.378525Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3240,
+     "y": 30128,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:38.549794Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3241,
+     "y": 30124,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:41.816301Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": 16213,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3245,
+     "y": 30120,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:43.997406Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3249,
+     "y": 30120,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:45.631275Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3253,
+     "y": 30120,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:47.806516Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3257,
+     "y": 30119,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:49.980682Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3261,
+     "y": 30118,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:25:52.156878Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3266,
+     "y": 30118,
+     "z": 1
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:54.203307Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1346,
+      614
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3268,
+     "y": 30117,
+     "z": 1
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:56.141485Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1349,
+      489
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3269,
+     "y": 30120,
+     "z": 1
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:25:58.684410Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1340,
+      405
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3271,
+     "y": 30121,
+     "z": 1
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:26:00.138528Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": [
+      1566,
+      330
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3270,
+     "y": 30122,
+     "z": 1
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:26:00.866289Z",
+     "combo": [
+      "1",
+      "1",
+      "1",
+      "3",
+      "3",
+      "3",
+      "3",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4"
+     ],
+     "dwell_ms": null,
+     "fight_ms": 8846,
+     "gather_ms": 1158,
+     "park_point": [
+      1589,
+      291
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3270,
+     "y": 30123,
+     "z": 1
+    },
+    {
+     "action": "lure_start",
+     "at": "2026-08-11T18:26:13.940194Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3271,
+     "y": 30127,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:26:16.115866Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3272,
+     "y": 30131,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:26:18.289875Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3273,
+     "y": 30135,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:26:19.922316Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3272,
+     "y": 30139,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:26:22.639545Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3267,
+     "y": 30141,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:26:25.358432Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3263,
+     "y": 30144,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:26:28.626277Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3259,
+     "y": 30147,
+     "z": 1
+    },
+    {
+     "action": "lure_end",
+     "at": "2026-08-11T18:26:32.573304Z",
+     "combo": [
+      "1",
+      "1",
+      "1",
+      "1",
+      "3",
+      "3",
+      "3",
+      "3",
+      "3",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4",
+      "4"
+     ],
+     "dwell_ms": null,
+     "fight_ms": 5099,
+     "gather_ms": 1326,
+     "park_point": [
+      2404,
+      445
+     ],
+     "park_tiles": null,
+     "stops": [
+      "sweep"
+     ],
+     "x": 3256,
+     "y": 30148,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:26:49.883416Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3254,
+     "y": 30152,
+     "z": 1
+    },
+    {
+     "action": "walk",
+     "at": "2026-08-11T18:26:52.651851Z",
+     "combo": [],
+     "dwell_ms": null,
+     "fight_ms": null,
+     "gather_ms": null,
+     "park_point": null,
+     "park_tiles": null,
+     "stops": [],
+     "x": 3254,
+     "y": 30156,
+     "z": 1
+    }
+   ],
+   "z": 2
+  }
+ ]
+}

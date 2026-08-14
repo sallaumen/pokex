@@ -557,6 +557,63 @@ defmodule Pokex.Bots.Cavebot.Route do
   end
 
   @doc """
+  The leg LEAVING `index`, when it is a staircase step — `{:stair, sx, sy}` with
+  the direction to press, `nil` otherwise.
+
+  Taking a staircase is ONE key that moves TWO tiles: the step and the tile past
+  it. "se fui de um ponto X para um ponto Y à minha esquerda, a coordenada Y vai
+  subir em 2 pontos, 1 bloco da escada e 1 bloco de depois da escada, com 1
+  passo só" (Lucas, 2026-08-12). He marks the corner right before and the one
+  right after, so the pair describes the whole staircase.
+
+  The signature is therefore exact and narrow: the floor changes AND one axis
+  moved exactly two tiles while the other did not move at all. Seven of the
+  fourteen floor changes in the three recorded routes the tests assert —
+  Meganium 1, Xatu easy, Azumaril easy — match it; the other seven have extra
+  walking folded into the same corner and are left to the ring search, which is
+  what that search is for.
+
+  Same leg convention as `lure_leg?/2` and `floor_change/2`: the closing leg of
+  the loop is a real leg — his Azumaril takes its stairs there.
+  """
+  @spec stair_leg([waypoint], non_neg_integer) :: {:stair, -1..1, -1..1} | nil
+  def stair_leg(waypoints, index) when is_list(waypoints) and is_integer(index) do
+    count = length(waypoints)
+
+    with true <- index in 0..(count - 1)//1,
+         %{x: x1, y: y1, z: z1} <- Enum.at(waypoints, index),
+         %{x: x2, y: y2, z: z2} when z2 != z1 <- Enum.at(waypoints, rem(index + 1, count)),
+         {dx, dy} when abs(dx) + abs(dy) == 2 and (dx == 0 or dy == 0) <- {x2 - x1, y2 - y1} do
+      {:stair, sign(dx), sign(dy)}
+    else
+      _not_a_stair -> nil
+    end
+  end
+
+  defp sign(0), do: 0
+  defp sign(n) when n > 0, do: 1
+  defp sign(_negative), do: -1
+
+  @doc """
+  The staircase tile itself: the midpoint of the pair — `nil` unless the leg
+  leaving `index` is a stair.
+
+  Derivable, never calibrated: two tiles apart with the step in between is what
+  makes the midpoint exact. The screen shows it so he can see the route agrees
+  with the map.
+  """
+  @spec stair_step([waypoint], non_neg_integer) :: {integer, integer} | nil
+  def stair_step(waypoints, index) when is_list(waypoints) and is_integer(index) do
+    with {:stair, _sx, _sy} <- stair_leg(waypoints, index),
+         %{x: x1, y: y1} <- Enum.at(waypoints, index),
+         %{x: x2, y: y2} <- Enum.at(waypoints, rem(index + 1, length(waypoints))) do
+      {div(x1 + x2, 2), div(y1 + y2, 2)}
+    else
+      _not_a_stair -> nil
+    end
+  end
+
+  @doc """
   Validates the route: at least one waypoint.
 
   Floors are no longer part of this — see `append/2`. The check that matters

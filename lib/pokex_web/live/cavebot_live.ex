@@ -1381,13 +1381,58 @@ defmodule PokexWeb.CavebotLive do
   # stairs, in the list, where they can be reordered and deleted like anything
   # else.
   defp climb_label(waypoints, index) do
-    previous = Integer.mod(index - 1, max(length(waypoints), 1))
-
-    case Route.floor_change(waypoints, previous) do
+    case Route.floor_change(waypoints, arriving_leg(waypoints, index)) do
       nil -> nil
       floor -> "⇅ andar #{floor}"
     end
   end
+
+  # The convention of this list, and the reason for every `index - 1` in it: a
+  # waypoint's badges describe the leg that ARRIVES at it, never the one that
+  # leaves it. `climb_label/2` and `leg_tiles/2` are the other two witnesses.
+  # Mixing the two directions puts one row's badges on two different legs, which
+  # reads as a straight lie — "⇅ andar 6" beside "a marcação não está limpa"
+  # when it is the descent AFTER that row that is crooked. Do not simplify the
+  # shift away.
+  defp arriving_leg(waypoints, index), do: Integer.mod(index - 1, max(length(waypoints), 1))
+
+  # A floor change is either a staircase the route describes exactly — one key,
+  # two tiles, the step in the middle — or a corner with extra walking folded
+  # into it, which costs the hunt the ring search. Saying which is which is the
+  # difference between "it is slow at the stairs" and a corner he can fix.
+  #
+  # Nothing is offered on a crooked one, and nothing can be: the step is the
+  # midpoint of two tiles exactly two apart, so it exists only once the pair is
+  # already clean. On a folded corner the staircase's real position is not in
+  # the recording at all — he is the one who knows it, by walking there.
+  #
+  # `{tone, short, full}`: this row already carries eight things on one line, so
+  # the badge shows the verdict and the sentence that acts on it travels in
+  # `title`/`sr-only` — the same split the skill badge beside it uses.
+  defp stair_label(waypoints, index) do
+    leg = arriving_leg(waypoints, index)
+
+    case {Route.floor_change(waypoints, leg), Route.stair_leg(waypoints, leg)} do
+      {nil, _no_stair} ->
+        nil
+
+      {_floor, {:stair, _sx, _sy}} ->
+        {x, y} = Route.stair_step(waypoints, leg)
+        step = "🪜 escada: o degrau é #{x}, #{y}"
+        {:ok, step, step}
+
+      {_floor, nil} ->
+        crooked = "🪜 troca de andar, mas a marcação não está limpa"
+
+        {:warn, crooked,
+         crooked <>
+           " — o passo da escada é 1 tecla que anda 2 tiles: marque o canto logo" <>
+           " ANTES e o logo DEPOIS"}
+    end
+  end
+
+  defp stair_tone(:ok), do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok"
+  defp stair_tone(:warn), do: "border-pk-warn-line bg-pk-warn-dim text-pk-warn"
 
   # The route the HUNT will walk: the armed one, which is exactly one since
   # arming became exclusive (Store.set_enabled/2).
@@ -2445,6 +2490,26 @@ defmodule PokexWeb.CavebotLive do
                         class="ml-1 rounded border border-pk-line-strong px-1.5 py-0.5 text-pk-meta text-pk-text-2"
                       >
                         {climb_label(@active_route.waypoints, index)}
+                      </span>
+                      <%!-- Same leg as the climb badge above it, by the list's
+                            convention: whether THAT floor change is a staircase
+                            the route describes exactly, and where its step is.
+                            The full sentence rides in `title` for the mouse and
+                            in `sr-only` for everyone else. --%>
+                      <span
+                        :for={
+                          {tone, short, full} <-
+                            List.wrap(stair_label(@active_route.waypoints, index))
+                        }
+                        id={"waypoint-stair-#{index}"}
+                        title={full}
+                        class={[
+                          "ml-1 rounded border px-1.5 py-0.5 text-pk-meta",
+                          stair_tone(tone)
+                        ]}
+                      >
+                        <span aria-hidden="true">{short}</span>
+                        <span class="sr-only">{full}</span>
                       </span>
                       <span :if={leg_tiles(@active_route.waypoints, index)} class="text-pk-text-3">
                         {leg_label(index)} {leg_tiles(@active_route.waypoints, index)} tiles

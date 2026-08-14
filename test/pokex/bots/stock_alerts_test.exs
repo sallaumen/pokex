@@ -31,6 +31,7 @@ defmodule Pokex.Bots.StockAlertsTest do
 
   defp settle(alerts), do: StockAlerts.status(alerts)
 
+  @tag :capture_log
   test "alarms ONCE when a stock crosses below, then stays quiet", %{alerts: alerts} do
     hud(%{f1: 28, f2: 36, e: 7, s_q: 43})
 
@@ -44,6 +45,7 @@ defmodule Pokex.Bots.StockAlertsTest do
     settle(alerts)
   end
 
+  @tag :capture_log
   test "re-arms on restock — after 3 consecutive reads above the threshold", %{alerts: alerts} do
     hud(%{f1: 10, f2: 36, e: 7, s_q: 43})
     assert_receive {:rule_alarm, :stock, _}, 500
@@ -62,6 +64,7 @@ defmodule Pokex.Bots.StockAlertsTest do
   # Journal 2026-07-30: F2 stuck at 0 fired 56 times — a wrong OCR frame read high,
   # re-armed, and the next correct read alarmed again; 322 alarms in 9.7h muted 10 of 11
   # sectors.
+  @tag :capture_log
   test "a single spurious read above the threshold does not re-arm — no machine-gun alarm",
        %{alerts: alerts} do
     hud(%{f1: 10, f2: 36, e: 7, s_q: 43})
@@ -101,6 +104,7 @@ defmodule Pokex.Bots.StockAlertsTest do
     assert %{enabled?: false} = StockAlerts.status(alerts)
   end
 
+  @tag :capture_log
   test "each of the four slots alarms with its own label", %{alerts: alerts} do
     hud(%{f1: 322, f2: 3, e: 2, s_q: 43})
 

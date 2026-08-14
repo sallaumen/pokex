@@ -74,6 +74,7 @@ defmodule Pokex.Machine.PresenceTest do
       assert to_string(os_pid) == System.pid()
     end
 
+    @tag :capture_log
     test "a card from a LIVE process is another Pokex, named for the warning", %{dir: dir} do
       alien = live_os_process()
       write_card!(dir, alien, port: 4004)
@@ -104,6 +105,7 @@ defmodule Pokex.Machine.PresenceTest do
       assert eventually(fn -> length(File.ls!(dir)) == 1 end)
     end
 
+    @tag :capture_log
     test "the VM that started EARLIER is the first one — that is the real server", %{dir: dir} do
       write_card!(dir, live_os_process(), started_at: 1)
 
@@ -119,6 +121,7 @@ defmodule Pokex.Machine.PresenceTest do
 
   # The whole point of choosing detection over a lock: this can annoy, never block.
   describe "it cannot stop anything" do
+    @tag :capture_log
     test "the actuation floor is untouched — no third flag, nothing shut", %{dir: dir} do
       before = Pokex.Bots.InputGate.state()
 

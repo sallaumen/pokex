@@ -254,6 +254,7 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  @tag :capture_log
   test "screen capture kit retries a transient start timeout before falling back" do
     start_supervised!(
       {Pokex.CaptureBackendFake,
@@ -286,6 +287,7 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  @tag :capture_log
   test "screen capture kit start falls back only after retry exhaustion" do
     start_supervised!({Pokex.CaptureBackendFake, %{start: [{:error, :timeout}]}})
 
@@ -435,6 +437,7 @@ defmodule Pokex.Bots.CaptureTest do
     end
   end
 
+  @tag :capture_log
   test "screen capture kit retries a transient capture failure before falling back" do
     start_supervised!(
       {Pokex.CaptureBackendFake,
@@ -467,6 +470,7 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  @tag :capture_log
   test "a stopped stream is never retried — straight to fallback (SCK can't resume it)" do
     start_supervised!(
       {Pokex.CaptureBackendFake,
@@ -500,6 +504,7 @@ defmodule Pokex.Bots.CaptureTest do
     GenServer.stop(pid)
   end
 
+  @tag :capture_log
   test "screen capture kit falls back to screencapture after retry exhaustion" do
     start_supervised!(
       {Pokex.CaptureBackendFake,

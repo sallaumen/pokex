@@ -573,6 +573,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert reason =~ "jogo sem foco"
   end
 
+  @tag :capture_log
   test "a floor change blocks everything: latch, combat, alarm", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     route!(7)
@@ -591,6 +592,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     refute_receive {:combat_cmd, :run}, 100
   end
 
+  @tag :capture_log
   test "combat refusing the start (preflight) blocks instead of walking blind", %{tmp_dir: _tmp} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     {:ok, failing} = FakeCombat.start_link(self(), {:error, ["sem calibração"]})
@@ -670,6 +672,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   # A LOCAL block (wall bump) is the cavebot's own problem — treating it like a floor
   # change killed capture, support AND the Focus auto-resume (the panic latch vetoes even
   # that) over a one-tile obstacle.
+  @tag :capture_log
   test "a LOCAL block stops only the cavebot: no panic latch", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     SettingsStash.stash!(cavebot_walk_timeout_ms: 0, cavebot_stuck_max_retries: 0)
@@ -692,6 +695,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.hold_reason =~ "travado"
   end
 
+  @tag :capture_log
   test "a DANGEROUS block still sets the latch — floor change", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     route!(7)
@@ -817,6 +821,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
   # Giving up on reattach used to be mute: the worker sat forever with no position, no
   # reason and no log — the worst possible failure mode.
+  @tag :capture_log
   test "giving up on the feed reattach becomes a written reason and a feed line", %{
     worker: worker
   } do

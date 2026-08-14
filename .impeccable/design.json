@@ -1,0 +1,299 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-14T00:00:00Z",
+  "title": "Design System: Pokex",
+  "extensions": {
+    "colorMeta": {
+      "pk-bg": {
+        "role": "neutral",
+        "displayName": "Vidro",
+        "canonical": "#080b0d",
+        "tonalRamp": ["#080b0d", "#0c1013", "#111519", "#171c21"]
+      },
+      "pk-sunken": { "role": "neutral", "displayName": "Afundado", "canonical": "#0c1013" },
+      "pk-surface": { "role": "neutral", "displayName": "Superfície", "canonical": "#111519" },
+      "pk-raised": { "role": "neutral", "displayName": "Elevado", "canonical": "#171c21" },
+      "pk-line": {
+        "role": "neutral",
+        "displayName": "Fio",
+        "canonical": "#232b30",
+        "tonalRamp": ["#232b30", "#313a40"]
+      },
+      "pk-line-strong": { "role": "neutral", "displayName": "Fio Forte", "canonical": "#313a40" },
+      "pk-text": {
+        "role": "neutral",
+        "displayName": "Texto",
+        "canonical": "#dfe3e7",
+        "tonalRamp": ["#838d95", "#97a1a9", "#dfe3e7"]
+      },
+      "pk-text-2": { "role": "neutral", "displayName": "Texto 2", "canonical": "#97a1a9" },
+      "pk-text-3": { "role": "neutral", "displayName": "Texto 3", "canonical": "#838d95" },
+      "pk-ok": {
+        "role": "primary",
+        "displayName": "Verde Ácido",
+        "canonical": "#37d07d",
+        "tonalRamp": ["#0d3822", "#237d4d", "#37d07d"]
+      },
+      "pk-ok-dim": { "role": "primary", "displayName": "Verde Ácido (fundo)", "canonical": "#0d3822" },
+      "pk-ok-line": { "role": "primary", "displayName": "Verde Ácido (fio)", "canonical": "#237d4d" },
+      "pk-warn": {
+        "role": "secondary",
+        "displayName": "Âmbar de Aviso",
+        "canonical": "#f2c45b",
+        "tonalRamp": ["#211b0d", "#674f20", "#f2c45b"]
+      },
+      "pk-warn-dim": { "role": "secondary", "displayName": "Âmbar (fundo)", "canonical": "#211b0d" },
+      "pk-warn-line": { "role": "secondary", "displayName": "Âmbar (fio)", "canonical": "#674f20" },
+      "pk-danger": {
+        "role": "secondary",
+        "displayName": "Rosa de Perigo",
+        "canonical": "#ff9ca4",
+        "tonalRamp": ["#241114", "#5f292f", "#ff9ca4"]
+      },
+      "pk-danger-dim": { "role": "secondary", "displayName": "Rosa (fundo)", "canonical": "#241114" },
+      "pk-danger-line": { "role": "secondary", "displayName": "Rosa (fio)", "canonical": "#5f292f" },
+      "pk-info": {
+        "role": "tertiary",
+        "displayName": "Azul de Modalidade",
+        "canonical": "#6cb8f2",
+        "tonalRamp": ["#0c1f2e", "#2b6086", "#6cb8f2"]
+      },
+      "pk-info-dim": { "role": "tertiary", "displayName": "Azul (fundo)", "canonical": "#0c1f2e" },
+      "pk-info-line": { "role": "tertiary", "displayName": "Azul (fio)", "canonical": "#2b6086" },
+
+      "element-fire": { "role": "tertiary", "displayName": "Fogo", "canonical": "#ffb37a", "tonalRamp": ["#2a1408"] },
+      "element-water": { "role": "tertiary", "displayName": "Água", "canonical": "#7cc0e8", "tonalRamp": ["#0b1d28"] },
+      "element-grass": { "role": "tertiary", "displayName": "Planta", "canonical": "#7fd88f", "tonalRamp": ["#0c2413"] },
+      "element-electric": { "role": "tertiary", "displayName": "Elétrico", "canonical": "#f5d967", "tonalRamp": ["#241f07"] },
+      "element-ice": { "role": "tertiary", "displayName": "Gelo", "canonical": "#96e0e6", "tonalRamp": ["#0b2326"] },
+      "element-fighting": { "role": "tertiary", "displayName": "Lutador", "canonical": "#f09a86", "tonalRamp": ["#280f0a"] },
+      "element-poison": { "role": "tertiary", "displayName": "Venenoso", "canonical": "#c99ae8", "tonalRamp": ["#1d0f28"] },
+      "element-ground": { "role": "tertiary", "displayName": "Terrestre", "canonical": "#e0c58a", "tonalRamp": ["#241c0b"] },
+      "element-flying": { "role": "tertiary", "displayName": "Voador", "canonical": "#b9c8f0", "tonalRamp": ["#131a2b"] },
+      "element-psychic": { "role": "tertiary", "displayName": "Psíquico", "canonical": "#f79ac0", "tonalRamp": ["#2a0f1d"] },
+      "element-bug": { "role": "tertiary", "displayName": "Inseto", "canonical": "#bfd86a", "tonalRamp": ["#1b2409"] },
+      "element-rock": { "role": "tertiary", "displayName": "Pedra", "canonical": "#d6c08f", "tonalRamp": ["#221b0d"] },
+      "element-ghost": { "role": "tertiary", "displayName": "Fantasma", "canonical": "#a99ae0", "tonalRamp": ["#171128"] },
+      "element-dragon": { "role": "tertiary", "displayName": "Dragão", "canonical": "#9aa8f0", "tonalRamp": ["#111429"] },
+      "element-dark": { "role": "tertiary", "displayName": "Sombrio", "canonical": "#a9a2ab", "tonalRamp": ["#1a171c"] },
+      "element-steel": { "role": "tertiary", "displayName": "Aço", "canonical": "#b8c6cf", "tonalRamp": ["#141b21"] },
+      "element-fairy": { "role": "tertiary", "displayName": "Fada", "canonical": "#f7a8d8", "tonalRamp": ["#2a1122"] },
+      "element-crystal": { "role": "tertiary", "displayName": "Cristal", "canonical": "#8ee8dc", "tonalRamp": ["#0a2422"] },
+      "element-normal": { "role": "tertiary", "displayName": "Normal / Neutro", "canonical": "#c8cdd1", "tonalRamp": ["#191c1f"] },
+      "element-fallback": { "role": "tertiary", "displayName": "Elemento desconhecido", "canonical": "#aeb6bd", "tonalRamp": ["#161b1f"] }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "0.9375rem/15px. Título de card, marca no header, leitura-chave de um bloco. É o maior tamanho do sistema — não existe display aqui."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "0.8125rem/13px. Texto corrido, item de nav, linha de tarja. O piso de leitura é 12px."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "0.6875rem/11px. Nome do número, título de grupo, pill de estado. Caixa alta com tracking 0.12em quando é cabeçalho de seção."
+      },
+      "readout": {
+        "displayName": "Readout",
+        "purpose": "Mono tabular, qualquer tamanho da escala. Todo número que muda sozinho — contagem, coordenada, percentual, cronômetro."
+      }
+    },
+    "roundedMeta": {
+      "lg": { "role": "default", "canonical": "0.5rem", "aliases": ["8px"] },
+      "full": { "role": "pill", "canonical": "9999px" }
+    },
+    "shadows": [
+      {
+        "name": "flutuante",
+        "value": "0 25px 50px -12px rgba(0,0,0,0.5)",
+        "purpose": "Tailwind shadow-2xl + shadow-black/50. Popover, menu de navegação e gerenciador de personagem — os três elementos que saem do fluxo. Preta e forte porque a superfície abaixo é quase preta."
+      },
+      {
+        "name": "brilho-de-partida",
+        "value": "0 8px 24px rgba(57,205,118,0.16)",
+        "purpose": "Exceção nomeada, uma só: o botão Iniciar. O único momento em que o verde emite luz em vez de apenas colorir. Não estenda a outro botão."
+      }
+    ],
+    "motion": [
+      {
+        "name": "transition-padrao",
+        "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "A classe `transition` crua do Tailwind. Hover de botão de ícone, item de nav, campo — troca de cor e fio, nada de layout."
+      },
+      {
+        "name": "transition-width",
+        "value": "transition-[width] 150ms",
+        "purpose": "Barras de leitura (HP, estrela de shiny, skill). A única animação de layout do sistema, e existe porque o valor muda sozinho e o olho precisa perceber a direção."
+      },
+      {
+        "name": "press",
+        "value": "active:scale-[0.99]",
+        "purpose": "O afundar do clique nos dois botões de comando de 48px. Sutil de propósito: é confirmação tátil, não celebração."
+      },
+      {
+        "name": "overlay-in",
+        "value": "300ms ease-out — opacity 0→100, translate-y-4→0, sm:scale-95→100",
+        "purpose": "Entrada de flash/overlay (CoreComponents.show/2). A saída é o inverso em 200ms ease-in."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce) { transition-duration: 0.01ms; animation-duration: 0.01ms }",
+        "purpose": "Invariante global já aplicado em app.css. Qualquer movimento novo cai junto — não há exceção."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "conteudo", "value": "1600px (header e tarjas) / max-w-3xl padrão por página" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Botão Iniciar",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "O comando principal do painel e o único elemento cheio de verde do app. Texto escuro sobre verde, nunca branco.",
+      "html": "<button class=\"ds-btn-primary\"><svg viewBox=\"0 0 20 20\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M6.3 2.84A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.27l9.34-5.89a1.5 1.5 0 0 0 0-2.54L6.3 2.84Z\"/></svg>Iniciar — modo Parado</button>",
+      "css": ".ds-btn-primary { display: flex; height: 48px; width: 100%; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 0.75rem; background: #37d07d; color: #080b0d; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 700; box-shadow: 0 8px 24px rgba(57,205,118,0.16); transition: background 150ms cubic-bezier(0.4,0,0.2,1), transform 150ms cubic-bezier(0.4,0,0.2,1); cursor: pointer; } .ds-btn-primary svg { width: 16px; height: 16px; } .ds-btn-primary:hover { background: #45da83; } .ds-btn-primary:active { transform: scale(0.99); } .ds-btn-primary:focus-visible { outline: 2px solid #37d07d; outline-offset: 2px; }"
+    },
+    {
+      "name": "Botão Parar",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Mesma silhueta do Iniciar, invertida. Parar nunca é um botão vermelho cheio: precisa ser óbvio sem gritar mais que o estado do jogo.",
+      "html": "<button class=\"ds-btn-danger\"><svg viewBox=\"0 0 20 20\" fill=\"currentColor\" aria-hidden=\"true\"><rect x=\"5\" y=\"5\" width=\"10\" height=\"10\" rx=\"1.5\"/></svg>Parar bot</button>",
+      "css": ".ds-btn-danger { display: flex; height: 48px; width: 100%; align-items: center; justify-content: center; gap: 8px; border: 1px solid #5f292f; border-radius: 0.75rem; background: #241114; color: #ff9ca4; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 700; transition: background 150ms cubic-bezier(0.4,0,0.2,1), transform 150ms cubic-bezier(0.4,0,0.2,1); cursor: pointer; } .ds-btn-danger svg { width: 16px; height: 16px; } .ds-btn-danger:hover { background: #35171b; } .ds-btn-danger:active { transform: scale(0.99); } .ds-btn-danger:focus-visible { outline: 2px solid #37d07d; outline-offset: 2px; }"
+    },
+    {
+      "name": "Botão de ícone",
+      "kind": "button",
+      "refersTo": "button-icon",
+      "description": "A forma padrão de tudo que abre popover no header. Quadrado de 32px, fio forte, fundo transparente.",
+      "html": "<button class=\"ds-btn-icon\" aria-label=\"Abrir navegação\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5\"/></svg></button>",
+      "css": ".ds-btn-icon { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid #313a40; border-radius: 0.5rem; background: transparent; color: #97a1a9; transition: border-color 150ms cubic-bezier(0.4,0,0.2,1), background 150ms cubic-bezier(0.4,0,0.2,1), color 150ms cubic-bezier(0.4,0,0.2,1); cursor: pointer; } .ds-btn-icon svg { width: 16px; height: 16px; } .ds-btn-icon:hover { border-color: rgba(55,208,125,0.6); background: #171c21; color: #ffffff; } .ds-btn-icon:focus-visible { outline: 2px solid #37d07d; outline-offset: 2px; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "O contêiner padrão: tom + fio, sem sombra. Cabeçalho de seção em mono, caixa alta, com a contagem à direita.",
+      "html": "<section class=\"ds-card\"><header class=\"ds-card-head\"><span class=\"ds-card-title\">Automações</span><span class=\"ds-card-count\">4/8</span></header><p class=\"ds-card-body\">Pesca, luta, captura e loot ligados.</p></section>",
+      "css": ".ds-card { border: 1px solid #232b30; border-radius: 0.5rem; background: #111519; padding: 12px; color: #dfe3e7; } .ds-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; } .ds-card-title { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: #838d95; } .ds-card-count { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.6875rem; font-variant-numeric: tabular-nums; color: #838d95; } .ds-card-body { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.8125rem; line-height: 1.5; color: #dfe3e7; margin: 0; }"
+    },
+    {
+      "name": "Campo de texto",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Altura fixa de 32px, fio forte, fundo elevado. O foco troca o fio para o verde — e o anel global de :focus-visible continua desenhado por cima.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"nome do personagem\" aria-label=\"Nome do novo personagem\" />",
+      "css": ".ds-input { height: 32px; min-height: 0; width: 100%; border: 1px solid #313a40; border-radius: 0.5rem; background: #171c21; padding: 0 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.6875rem; color: #dfe3e7; transition: border-color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-input::placeholder { color: #838d95; } .ds-input:focus { border-color: rgba(55,208,125,0.6); outline: none; } .ds-input:focus-visible { outline: 2px solid #37d07d; outline-offset: 2px; }"
+    },
+    {
+      "name": "Pill de estado",
+      "kind": "chip",
+      "refersTo": "pill-status",
+      "description": "Diz, no header de toda página, se a máquina está viva. A cor está no ponto; a palavra está do lado — cor nunca viaja sozinha.",
+      "html": "<span class=\"ds-pill\"><span class=\"ds-pill-dot\"></span>Ativo</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #313a40; border-radius: 9999px; padding: 4px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: #97a1a9; } .ds-pill-dot { width: 6px; height: 6px; border-radius: 9999px; background: #37d07d; }"
+    },
+    {
+      "name": "Item de navegação",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Menu em <details> ancorado à direita. O item ativo ganha fundo pk-ok-dim, texto verde e aria-current=page.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Navegação principal\"><a class=\"ds-nav-item ds-nav-item--active\" href=\"#\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8.25\"/><path d=\"M10 9.75l4.5 2.25L10 14.25v-4.5Z\"/></svg>Painel</a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><path d=\"M12 6.75A5.25 5.25 0 0 0 6.75 4.5H3.75v13.5h3A5.25 5.25 0 0 1 12 20.25a5.25 5.25 0 0 1 5.25-2.25h3V4.5h-3A5.25 5.25 0 0 0 12 6.75Zm0 0v13.5\"/></svg>Pokédex</a></nav>",
+      "css": ".ds-nav { width: 208px; overflow: hidden; border: 1px solid #313a40; border-radius: 0.5rem; background: #111519; padding: 4px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); } .ds-nav-item { display: flex; align-items: center; gap: 8px; border-radius: 0.375rem; padding: 10px 12px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.8125rem; color: #dfe3e7; text-decoration: none; transition: background 150ms cubic-bezier(0.4,0,0.2,1), color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-nav-item svg { width: 16px; height: 16px; flex-shrink: 0; color: #97a1a9; } .ds-nav-item:hover { background: #171c21; color: #ffffff; } .ds-nav-item--active { background: #0d3822; color: #37d07d; font-weight: 600; } .ds-nav-item--active svg { color: #37d07d; } .ds-nav-item:focus-visible { outline: 2px solid #37d07d; outline-offset: 2px; }"
+    },
+    {
+      "name": "Tarja de aviso",
+      "kind": "custom",
+      "refersTo": "strip-warn",
+      "description": "A faixa fixa abaixo do header, para o estado que torna TODA leitura errada. Some sozinha quando a condição passa — nunca vira aviso permanente.",
+      "html": "<div class=\"ds-strip\" role=\"status\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M12 9v3.75m0 3.75h.008M10.34 3.94 2.7 17.1A1.5 1.5 0 0 0 4 19.35h16a1.5 1.5 0 0 0 1.3-2.25L13.66 3.94a1.5 1.5 0 0 0-2.6 0Z\"/></svg><p class=\"ds-strip-text\"><b>A calibração é de outra tela</b><span> — marcada em 1512×982 pt, esta tem 1728×1117 pt. O bot vai ler no lugar errado.</span></p><a class=\"ds-strip-action\" href=\"#\">Resolver</a></div>",
+      "css": ".ds-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; border-bottom: 1px solid #674f20; background: rgba(33,27,13,0.95); backdrop-filter: blur(8px); padding: 6px 8px; } .ds-strip svg { width: 16px; height: 16px; flex-shrink: 0; color: #f2c45b; } .ds-strip-text { flex: 1; margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.8125rem; line-height: 1.5; color: #dfe3e7; } .ds-strip-text b { color: #f2c45b; } .ds-strip-text span { color: #97a1a9; font-variant-numeric: tabular-nums; } .ds-strip-action { flex-shrink: 0; border: 1px solid #674f20; border-radius: 0.5rem; background: rgba(242,196,91,0.15); padding: 4px 10px; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 0.6875rem; font-weight: 600; color: #f2c45b; text-decoration: none; } .ds-strip-action:hover { background: rgba(242,196,91,0.25); }"
+    },
+    {
+      "name": "Chip de elemento",
+      "kind": "chip",
+      "refersTo": "chip-element",
+      "description": "Componente-assinatura: o único lugar colorido do sistema. Par color/background vindo de PokedexStyle.element_style/1, mais o ícone do wiki quando existe. Nunca escreva o par à mão.",
+      "html": "<span class=\"ds-chip-element ds-chip-element--fire\">Fire</span><span class=\"ds-chip-element ds-chip-element--water\">Water</span><span class=\"ds-chip-element ds-chip-element--psychic\">Psychic</span>",
+      "css": ".ds-chip-element { display: inline-flex; align-items: center; gap: 4px; border-radius: 0.25rem; padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.6875rem; font-weight: 600; } .ds-chip-element--fire { color: #ffb37a; background-color: #2a1408; } .ds-chip-element--water { color: #7cc0e8; background-color: #0b1d28; } .ds-chip-element--psychic { color: #f79ac0; background-color: #2a0f1d; }"
+    },
+    {
+      "name": "Barra de leitura",
+      "kind": "custom",
+      "refersTo": "bar-readout",
+      "description": "Trilho fino + preenchimento cuja cor é o estado da leitura. A única animação de layout do sistema: o valor muda sozinho e o olho precisa perceber a direção.",
+      "html": "<div class=\"ds-bar-row\"><span class=\"ds-bar-value\">312<span class=\"ds-bar-unit\">/480 hp</span></span><div class=\"ds-bar-track\"><div class=\"ds-bar-fill ds-bar-fill--ok\" style=\"width:65%\"></div></div></div>",
+      "css": ".ds-bar-row { display: flex; align-items: center; gap: 8px; } .ds-bar-value { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.9375rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #dfe3e7; } .ds-bar-unit { font-size: 0.6875rem; font-weight: 400; color: #838d95; } .ds-bar-track { height: 6px; flex: 1; overflow: hidden; border-radius: 9999px; background: #232b30; } .ds-bar-fill { height: 100%; border-radius: 9999px; transition: width 150ms cubic-bezier(0.4,0,0.2,1); } .ds-bar-fill--ok { background: #37d07d; } .ds-bar-fill--warn { background: #f2c45b; } .ds-bar-fill--danger { background: #ff9ca4; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "O Painel de Fósforo",
+    "overview": "O Pokex não é uma página: é um aparelho ligado ao lado de um jogo em tela cheia, lendo pixels e movendo o mouse de verdade. A herança visual é de osciloscópio e CRT — vidro quase preto (pk-bg), UM verde que significa que a máquina está viva, e número monoespaçado tabular porque uma contagem que vai de 99 pra 100 não pode empurrar a linha inteira de lado a cada leitura. Escuro não é tema escolhido: é o único tema, cravado em root.html.heex, porque uma segunda aparência pra manter era um botão a mais em cada header e ninguém usava.\n\nA densidade é deliberadamente alta. Este painel é lido de canto de olho, no meio de uma caçada, por alguém cuja atenção principal está no jogo — não numa sessão de leitura confortável. Por isso hairline em vez de caixa, quatro superfícies tonais em vez de sombra, e um rótulo de 11px que existe pra dizer o nome do número, não pra ser lido devagar. O lúdico está no equipamento e na paleta de elementos da Pokédex, não em enfeite aplicado por cima: o charme vem do artesanato — tipo disciplinado, paleta comprometida, movimento com propósito.\n\nDuas coisas este sistema nunca pode virar, e ambas são armadilhas reais para ele. Dashboard SaaS genérico — card claro flutuando, sombra difusa em tudo, gráfico colorido por padrão, respiro largo — mata a densidade de que o painel depende. Site infantil de Pokémon — amarelo-e-vermelho de marca, canto de bolha, emoji como decoração, ilustração fofa — é lúdico virando infantil, que é exatamente a linha que o AGENTS.md traça.",
+    "keyCharacteristics": [
+      "Um tema só, escuro, sem toggle: data-theme=\"dark\" cravado no root.",
+      "Quatro superfícies tonais (bg → sunken → surface → raised) e fio de 1px fazendo todo o trabalho que sombra faria em outro sistema.",
+      "Um sotaque só: Verde Ácido. Estado é sempre cor mais ícone ou rótulo.",
+      "Monoespaçado tabular para todo número que muda sozinho.",
+      "Três degraus de tipo e nada além; rótulo em caixa alta com 0.12em.",
+      "Foco visível obrigatório: o app comanda o mouse de verdade, então \"onde estou\" não pode depender de enxergar o cursor."
+    ],
+    "rules": [
+      {
+        "name": "A Regra do Sotaque Único",
+        "body": "Verde Ácido é a única cor saturada do sistema e significa uma coisa só: algo está vivo agora. Se o elemento não representa máquina rodando, estado ok ou o lugar onde você está, ele não é verde. Verde como enfeite, como cor de marca ou como \"cor bonita de destaque\" é defeito.",
+        "section": "colors"
+      },
+      {
+        "name": "A Regra da Cor Acompanhada",
+        "body": "Cor de estado nunca viaja sozinha. Todo uso de pk-ok/pk-warn/pk-danger carrega ícone ou rótulo textual junto — quem não distingue as três matizes ainda precisa saber o que está acontecendo.",
+        "section": "colors"
+      },
+      {
+        "name": "A Regra do Azul Sem Estado",
+        "body": "Azul não é um quarto estado. Se você quer dizer \"ok\", \"atenção\" ou \"erro\", há três cores para isso. pk-info marca modalidade — outro modo de operação da mesma coisa.",
+        "section": "colors"
+      },
+      {
+        "name": "A Regra dos Três Degraus",
+        "body": "A escala tem três tamanhos: 11, 13 e 15px. Não há um quarto. Antes deles o painel tinha OITO tamanhos diferentes espalhados pelo template, incluindo 8px e 9px, e nada estava desalinhado por acaso — não havia sistema para alinhar. Texto de leitura nunca abaixo de 12px.",
+        "section": "typography"
+      },
+      {
+        "name": "A Regra do Número Tabular",
+        "body": "Todo número que se atualiza sozinho é mono e tabular (.pk-num ou tabular-nums). Sem isso, uma contagem que vai de 99 pra 100 empurra a linha inteira de lado a cada leitura.",
+        "section": "typography"
+      },
+      {
+        "name": "A Regra do Plano por Padrão",
+        "body": "Superfície não tem sombra. Profundidade se faz com tom e fio. Sombra é permitida exclusivamente no que sai do fluxo — popover, menu, overlay. O brilho do botão Iniciar é a única exceção do sistema, e é exceção mesmo: não a estenda para outro botão sem decidir que ela virou padrão.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do pedir um papel, não uma cor: bg-pk-surface, text-pk-text-2, border-pk-line. Os tokens --color-pk-* são a fonte da verdade; hex literal em template é deriva mesmo quando acerta o valor.",
+      "Do usar os três degraus de tipo (text-pk-meta, text-pk-body, text-pk-title). Nenhuma tela nova precisa de um quarto tamanho.",
+      "Do marcar todo número que muda sozinho com .pk-num ou tabular-nums, em font-mono.",
+      "Do acompanhar cor de estado com ícone heroicon ou rótulo textual.",
+      "Do fazer profundidade com tom e fio (pk-sunken/pk-surface/pk-raised + border-pk-line), e reservar sombra para popover e overlay.",
+      "Do usar 8px (rounded-lg) como raio padrão, e rounded-full só onde círculo significa \"indicador\".",
+      "Do chamar PokedexStyle.element_style/1 para qualquer cor de elemento ou de clã.",
+      "Do deixar o foco visível: o app comanda o mouse de verdade, então \"onde estou\" não pode depender de enxergar o cursor.",
+      "Do respeitar prefers-reduced-motion — o app já zera transição e animação nesse modo, e qualquer movimento novo precisa cair junto."
+    ],
+    "donts": [
+      "Don't parecer dashboard SaaS genérico: card claro flutuando, sombra difusa em todo bloco, respiro largo, gráfico colorido por padrão. A densidade aqui é requisito, não descuido.",
+      "Don't parecer site infantil de Pokémon: amarelo-e-vermelho de marca, canto de bolha, ilustração fofa, emoji de enfeite. Lúdico vem do artesanato — tipo disciplinado, paleta comprometida, movimento com propósito.",
+      "Don't usar emoji na interface. Onde hoje há emoji em rótulo, opção ou título, o alvo é heroicon — o app já embute o set inteiro.",
+      "Don't escrever text-[10px], text-[9px] ou qualquer tamanho arbitrário; e nunca texto de leitura abaixo de 12px.",
+      "Don't usar verde fora de \"algo está vivo\". Verde não é cor de marca nem destaque decorativo.",
+      "Don't usar azul como estado. pk-info é modalidade.",
+      "Don't adicionar um segundo tema ou um toggle claro/escuro. Um tema só, cravado em root.html.heex, é decisão tomada.",
+      "Don't carregar fonte externa. A stack de sistema é a voz do produto.",
+      "Don't aplicar borda lateral de destaque, texto com gradiente, glow em texto ou neon roxo-e-ciano. É o vocabulário de cheat/trainer, e é o que este sistema não é."
+    ]
+  }
+}

@@ -262,6 +262,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                distance_tiles: nil,
                hold_reason: nil,
                luring?: false,
+               comeback?: false,
                last_action: nil,
                counters: %{waypoints: 0, steps: 0}
              }
@@ -709,6 +710,120 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert Worker.status(worker).hold_reason =~ "mudou de andar"
   end
 
+  # A madrugada é o produto: um obstáculo de um tile às 3h terminava a noite —
+  # a caçada ia pra :blocked e esperava um humano até de manhã. Um bloqueio
+  # LOCAL agora para, espera, e REENTRA na rota (Logic.new refaz o home_in pelo
+  # canto mais perto, que é o que destrava um empurrão ou um player que saiu).
+  describe "a caçada se levanta sozinha" do
+    setup do
+      SettingsStash.stash!(
+        cavebot_walk_timeout_ms: 0,
+        cavebot_stuck_max_retries: 0,
+        cavebot_block_retries: 2,
+        cavebot_block_retry_ms: 100
+      )
+
+      :ok
+    end
+
+    defp stick!(worker, pos \\ {10, 20, 7}) do
+      minimap!(pos)
+      tick!(worker)
+      Enum.each(1..3, fn _ -> tick!(worker) end)
+    end
+
+    @tag :capture_log
+    test "a local block waits and comes back instead of ending the night", %{worker: worker} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      route!()
+      :ok = Worker.run(worker)
+
+      stick!(worker)
+
+      assert_receive {:cavebot_alarm, :stuck}, 1_000
+      assert Worker.status(worker).state == :blocked
+      assert Worker.status(worker).hold_reason =~ "tento de novo"
+
+      assert_receive {:cavebot_log, :macro, "caçada: 🔁 retomando" <> _}, 1_000
+      assert Worker.status(worker).state == :walking
+    end
+
+    @tag :capture_log
+    test "the budget is finite: the last block stays down", %{worker: worker} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      SettingsStash.stash!(cavebot_block_retries: 0)
+      route!()
+      :ok = Worker.run(worker)
+
+      stick!(worker)
+
+      assert_receive {:cavebot_alarm, :stuck}, 1_000
+      refute_receive {:cavebot_log, :macro, "caçada: 🔁 retomando" <> _}, 300
+      assert Worker.status(worker).state == :blocked
+    end
+
+    # Reentering after a floor change is walking a route the character is not
+    # standing on — the one block that must stay terminal, latch and all.
+    @tag :capture_log
+    test "a DANGEROUS block never comes back on its own", %{worker: worker} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      route!(7)
+      :ok = Worker.run(worker)
+      minimap!({10, 20, 5})
+
+      tick!(worker)
+
+      assert_receive {:cavebot_log, :macro, "caçada: BLOQUEADO: mudou de andar"}, 1_000
+      refute_receive {:cavebot_log, :macro, "caçada: 🔁 retomando" <> _}, 300
+      assert Worker.status(worker).state == :blocked
+    end
+
+    # "panic/Stop nunca são revertidos automaticamente" — the latch outranks
+    # the budget, and says so instead of retrying in silence.
+    @tag :capture_log
+    test "the panic latch vetoes the comeback", %{worker: worker} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      SettingsStash.stash!(cavebot_block_retry_ms: 400)
+      route!()
+      :ok = Worker.run(worker)
+
+      stick!(worker)
+      assert_receive {:cavebot_alarm, :stuck}, 1_000
+      InputGate.set_panic_latch(true)
+
+      assert_receive {:cavebot_log, :macro, "caçada: não retomo" <> _}, 1_000
+      assert Worker.status(worker).state == :blocked
+    end
+
+    # Otherwise a ten-hour night with three unrelated hiccups runs out of
+    # budget: what proves the hunt is healthy is REACHING corners.
+    # Two waypoints, because a one-corner route never ANNOUNCES an arrival: the
+    # index wraps onto itself and `note_arrival/3` has nothing to report.
+    @tag :capture_log
+    test "reaching a waypoint refreshes the budget", %{worker: worker} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      SettingsStash.stash!(cavebot_block_retries: 1)
+      two_waypoint_route!()
+      :ok = Worker.run(worker)
+
+      minimap!({10, 20, 7})
+      Enum.each(1..8, fn _ -> tick!(worker) end)
+      assert_receive {:cavebot_alarm, :stuck}, 1_000
+      assert_receive {:cavebot_log, :macro, "caçada: 🔁 retomando" <> _}, 1_000
+
+      # the first tick after a comeback is the combat bootstrap (combat_running?
+      # is false on a fresh Logic); the second is the one that walks
+      minimap!({100, 100, 7})
+      tick!(worker)
+      tick!(worker)
+      assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2"}, 1_000
+
+      minimap!({10, 20, 7})
+      Enum.each(1..8, fn _ -> tick!(worker) end)
+      assert_receive {:cavebot_log, :macro, "caçada: 🔁 retomando" <> _}, 1_000
+    end
+  end
+
   # When blind, the snapshot keeps the LAST coordinate with its age — "was at 10,20 Xms
   # ago" is diagnostic, "no position" is not.
   test "the snapshot tells the whole hunt: target, position, distance, counters", %{
@@ -851,6 +966,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              distance_tiles: nil,
              hold_reason: nil,
              luring?: false,
+             comeback?: false,
              last_action: nil,
              counters: %{waypoints: 0, steps: 0}
            }

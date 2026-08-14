@@ -126,6 +126,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       pos_at: nil,
       # how old the :minimap fact was on the tick that decided — see observe/2
       pos_age: nil,
+      # comebacks already spent on local blocks tonight; reaching a waypoint
+      # gives them all back (see note_arrival/3)
+      block_retries: 0,
       counters: %{waypoints: 0, steps: 0},
       last_action: nil,
       hold_note: nil,
@@ -158,6 +161,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
           pos_age_ms: non_neg_integer | nil,
           distance_tiles: %{dx: integer, dy: integer} | nil,
           hold_reason: String.t() | nil,
+          comeback?: boolean,
           luring?: boolean,
           last_action: %{text: String.t(), at: integer} | nil,
           counters: %{waypoints: non_neg_integer, steps: non_neg_integer}
@@ -194,7 +198,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         WorldState.put(:dungeon, %{id: route.dungeon}, now())
 
         state =
-          %{cancel_timer(state) | logic: Logic.new(route, config())}
+          %{cancel_timer(state) | logic: Logic.new(route, config()), block_retries: 0}
           |> reset_session()
           |> attach()
           |> schedule_tick()
@@ -249,6 +253,30 @@ defmodule Pokex.Bots.Cavebot.Worker do
       }
 
       {:noreply, schedule_tick(state)}
+    end
+  end
+
+  # The comeback from a local block (see schedule_comeback/1). A halt in the
+  # meantime cancelled this timer and nil'd the logic — the clause below is for
+  # the message already in flight when it happened.
+  def handle_info(:comeback, %{logic: nil} = state), do: {:noreply, state}
+
+  def handle_info(:comeback, state) do
+    cond do
+      # "panic/Stop nunca são revertidos automaticamente": the Guardian may
+      # have latched while this hunt was waiting, and a timer fired from before
+      # must never be what undoes it. Said out loud, because a silent refusal
+      # is indistinguishable from a broken comeback.
+      InputGate.panic_latched?() ->
+        log(:macro, "não retomo: o pânico está travado — solte pelo painel")
+        {:noreply, %{state | timer: nil}}
+
+      route = active_route() ->
+        {:noreply, resume_hunt(state, route)}
+
+      true ->
+        log(:macro, "não retomo: nenhuma rota armada agora")
+        {:noreply, %{state | timer: nil}}
     end
   end
 
@@ -601,14 +629,77 @@ defmodule Pokex.Bots.Cavebot.Worker do
     state = release_walk(state)
     Logger.warning("Cavebot: parei (#{inspect(reason)}) — o resto da frota segue")
     BotSupervisor.safe_halt(state.combat)
-    stop_hunt(state, reason)
+
+    state
+    |> stop_hunt(reason)
+    |> schedule_comeback()
+  end
+
+  # The night is the product ("ele vai estar lá a madrugada inteira farmando"),
+  # and a one-tile obstacle used to end it: the hunt stopped and waited for a
+  # human until morning. A LOCAL block now stands down and comes back — a fresh
+  # Logic re-enters at the nearest corner, which is exactly what unsticks a
+  # knockback, a closed door, or a player who has since walked off.
+  #
+  # Everything stays as it was WHILE it waits (blocked, alarmed, reason on
+  # screen): the comeback is an extra, never a reason to be quieter about the
+  # stop. Two things it never does — retry a dangerous block (that one latched
+  # the panic, and auto-resuming over a latch is the one thing this codebase
+  # refuses), and retry without a budget: `cavebot_block_retries` bounds the
+  # loop, and reaching a waypoint refills it.
+  defp schedule_comeback(state) do
+    budget = Settings.get(:cavebot_block_retries)
+
+    if state.block_retries < budget do
+      ms = Settings.get(:cavebot_block_retry_ms)
+      attempt = state.block_retries + 1
+      note = "tento de novo em #{div(ms, 1000)}s (tentativa #{attempt} de #{budget})"
+
+      log(:macro, note)
+
+      state = %{
+        state
+        | timer: Process.send_after(self(), :comeback, ms),
+          block_retries: attempt,
+          hold_note: "#{block_text_of(state)} — #{note}"
+      }
+
+      broadcast_status(state)
+      state
+    else
+      state
+    end
+  end
+
+  defp block_text_of(%{hold_note: note}) when is_binary(note), do: note
+  defp block_text_of(_state), do: "parei"
+
+  # Re-entering, not resuming: a brand-new Logic homes in at the nearest corner
+  # on the current floor, which is the whole point — wherever the character
+  # ended up, the route restarts from there instead of from where it gave up.
+  # The session COUNTERS survive: it is the same night, and "12 waypoints" that
+  # resets to zero on every hiccup answers nothing in the morning.
+  defp resume_hunt(state, route) do
+    log(:macro, "🔁 retomando a caçada: reentro pela rota \"#{route.name}\"")
+    WorldState.put(:dungeon, %{id: route.dungeon}, now())
+    counters = state.counters
+
+    state =
+      %{cancel_timer(state) | logic: Logic.new(route, config())}
+      |> reset_session()
+      |> Map.put(:counters, counters)
+      |> attach()
+      |> schedule_tick()
+
+    broadcast_status(state)
+    state
   end
 
   # What both levels share: alarm, reason written on screen, tick cancelled,
   # feeds released (capturing for nobody only loads the broker). The Logic is
   # forced to :blocked because the block can come from it (floor change) OR the
   # Worker (combat refused to start) — either way the reported state must be
-  # :blocked, terminal until a human restarts.
+  # :blocked while it lasts.
   defp stop_hunt(state, reason) do
     state = state |> release_walk() |> free_fire()
     broadcast({:cavebot_alarm, reason})
@@ -994,6 +1085,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     distance_tiles: nil,
     hold_reason: nil,
     luring?: false,
+    comeback?: false,
     last_action: nil,
     counters: %{waypoints: 0, steps: 0}
   }
@@ -1023,6 +1115,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
       # gathering mobs instead of fighting them — "andando" on a mob leg and
       # "andando" on a normal one are not the same thing to watch
       luring?: Logic.luring?(logic),
+      # a stop that ENDS the night and a stop that lasts 30 seconds look
+      # identical from `state: :blocked` alone, and the screen must not tell
+      # him to go fix something the hunt is about to fix itself
+      comeback?: logic.state == :blocked and state.timer != nil,
       last_action: state.last_action,
       counters: state.counters
     }
@@ -1128,10 +1224,19 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # a human recognizes in the route list.
   defp note_arrival(%{logic: %Logic{wp_index: same}} = state, same, _now), do: state
 
+  # Reaching a corner is the proof the hunt is HEALTHY, so it hands every
+  # comeback back: a ten-hour night with three unrelated hiccups must not run
+  # out of budget over hiccups that were hours apart.
   defp note_arrival(state, wp_before, now) do
     text = "waypoint #{wp_before + 1}/#{wp_total(state)}"
     log(:macro, text)
-    %{state | counters: bump(state.counters, :waypoints), last_action: %{text: text, at: now}}
+
+    %{
+      state
+      | counters: bump(state.counters, :waypoints),
+        last_action: %{text: text, at: now},
+        block_retries: 0
+    }
   end
 
   # The staircase that WORKED. A leg taken by tap never enters `:stairs`, so

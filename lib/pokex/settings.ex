@@ -840,6 +840,17 @@ defmodule Pokex.Settings do
     # measuring is opt-in and costs exactly zero lines until he asks for it.
     cavebot_measure_walk: false,
     cavebot_stuck_max_retries: 4,
+    # A NOITE é o produto: "ele vai estar lá a madrugada inteira farmando"
+    # (Lucas). Um bloqueio local — travado, escada não achada, luta que não
+    # termina — matava as horas seguintes esperando um humano. Agora a caçada
+    # espera e REENTRA na rota (pelo canto mais perto, que é o que destrava um
+    # empurrão ou um player que saiu do caminho). Nunca vale para os bloqueios
+    # perigosos (mudou de andar, combate recusado): esses travam o pânico e
+    # retomar sozinho seria desfazer uma parada de segurança. 0 desliga.
+    cavebot_block_retries: 3,
+    # Tempo parado antes de tentar de novo — longo o bastante para o obstáculo
+    # que se resolve sozinho (um player passando) ter passado.
+    cavebot_block_retry_ms: 30_000,
     cavebot_group_min_enemies: 3,
     cavebot_group_max_wait_ms: 4000,
     cavebot_stance_settle_ms: 400,
@@ -1149,6 +1160,8 @@ defmodule Pokex.Settings do
     cavebot_precise_tiles: 0..10,
     cavebot_stair_probe_ms: 100..5_000,
     cavebot_stair_max_probes: 0..200,
+    cavebot_block_retries: 0..50,
+    cavebot_block_retry_ms: 100..600_000,
     cavebot_stair_step_ms: 100..10_000,
     cavebot_stair_step_taps: 1..10,
     cavebot_park_clicks: 1..10,

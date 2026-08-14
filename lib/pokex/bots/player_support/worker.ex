@@ -186,6 +186,33 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     {:noreply, %{state | capture_pending: pending, capture_busy_since: busy_since}}
   end
 
+  # The rescue task reporting back (see fire_combo/2). Narrated even after a
+  # halt — the attempt happened, and a revive that silently failed was exactly
+  # the invisibility this message exists to end. The cooldown was stamped at
+  # dispatch and stands either way: a dying-pokémon loop must never re-fire.
+  def handle_info({:rescue_done, notes, outcome}, state) do
+    drain_notes(notes)
+
+    state =
+      case outcome do
+        :ok ->
+          broadcast_log(:macro, "🚑 revive despachado — as teclas saíram")
+          %{state | last_action: %{text: "revive despachado", at: now()}}
+
+        {:error, reason} ->
+          Phoenix.PubSub.broadcast(
+            Pokex.PubSub,
+            @topic,
+            {:rule_alarm, "🚑 o revive NÃO saiu (#{refusal_text(reason)}) — confere o pokémon"}
+          )
+
+          %{state | last_action: %{text: "revive recusado", at: now()}}
+      end
+
+    broadcast(state)
+    {:noreply, state}
+  end
+
   # The catcher topic also carries {:catcher_log, ...} chatter — not ours.
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -622,12 +649,17 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   # Mark the attempt time BEFORE dispatching, so the cooldown holds even if the combo errors —
   # a dying-Pokémon loop must never re-fire and burn the expensive revives.
+  #
+  # The HANDS are a spawned task's, never this GenServer's: the stun receipt
+  # sleeps up to `rescue_confirm_ms` and the Body call waits `:infinity`, and
+  # run inside the tick they made the worker deaf for longer than safe_halt's
+  # 1s — a panic mid-rescue timed out halting the one worker guarding the
+  # player. The task reports back as {:rescue_done, notes, outcome}, where a
+  # refused revive finally gets NAMED instead of burning the cooldown mutely.
   defp fire_combo(state, calib) do
     at = now()
     {stun_steps, notes} = rescue_stun_steps()
-    notes = notes ++ crowd_control(state, stun_steps)
-
-    Body.perform(Logic.combo(combo_config(calib)), :critical, state.body)
+    dispatch_rescue(state.body, calib, stun_steps)
 
     state = %{
       state
@@ -636,14 +668,34 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
         last_action: %{text: "combo de sobrevivência", at: at}
     }
 
+    drain_notes(notes)
+    broadcast_log(:macro, "🚑 combo de sobrevivência — Pokémon com #{state.hp_pct}% de vida")
+    state
+  end
+
+  # Unlinked on purpose: a Body crash mid-rescue must not take the monitor
+  # down with it — the next tick still reads the bar, and the cooldown
+  # already stamped keeps the loop from re-firing.
+  defp dispatch_rescue(body, calib, stun_steps) do
+    worker = self()
+    actions = Logic.combo(combo_config(calib))
+
+    spawn(fn ->
+      notes = crowd_control(body, stun_steps)
+      outcome = Body.perform(actions, :critical, body)
+      send(worker, {:rescue_done, notes, outcome})
+    end)
+  end
+
+  defp drain_notes(notes) do
     Enum.each(notes, fn
       {:alarm, text} -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, text})
       {:log, text} -> broadcast_log(:macro, text)
     end)
-
-    broadcast_log(:macro, "🚑 combo de sobrevivência — Pokémon com #{state.hp_pct}% de vida")
-    state
   end
+
+  defp refusal_text(:input_gate_closed), do: "jogo sem foco ou pânico — nada é pressionado"
+  defp refusal_text(reason), do: inspect(reason)
 
   # The crowd control goes out FIRST, ALONE, and is CONFIRMED before the
   # pokémon leaves the field.
@@ -658,15 +710,17 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   #
   # Splitting the sequence does NOT widen the exposure: the pokémon is still
   # out, still tanking, while the confirmation is read. What it costs is one
-  # skill-bar reading, and what it buys is knowing.
-  defp crowd_control(_state, []), do: []
+  # skill-bar reading, and what it buys is knowing. Runs INSIDE the rescue
+  # task (see dispatch_rescue/3) — the receipt wait belongs to the hands, not
+  # to the monitor's loop.
+  defp crowd_control(_body, []), do: []
 
-  defp crowd_control(state, stun_steps) do
+  defp crowd_control(body, stun_steps) do
     keys = for {:press, key} <- stun_steps, do: key
     before = Pokex.Perception.ready_skills()
     at = now()
 
-    Body.perform(stun_steps, :critical, state.body)
+    Body.perform(stun_steps, :critical, body)
 
     later = Pokex.Perception.ready_skills_after(at, Settings.get(:rescue_confirm_ms))
 

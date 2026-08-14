@@ -51,11 +51,23 @@ defmodule Pokex.Machine.PresenceTest do
     File.write!(Path.join(dir, "#{os_pid}.json"), JSON.encode!(card))
   end
 
+  # No free-running timer in the suite: a 50ms poll logs whenever it likes, and
+  # "whenever" lands outside the window `@tag :capture_log` covers — CI caught
+  # one such line on 2026-08-14 with nothing able to say whose it was. Sweeps
+  # here are asked for, not waited for: `sweep/1` below sends :poll and reads
+  # the status back, and the GenServer serialises the two.
   defp boot(dir, opts \\ []) do
     {:ok, pid} =
-      Presence.start_link([name: nil, auto_start: true, dir: dir, poll_ms: 50] ++ opts)
+      Presence.start_link(
+        [name: nil, auto_start: true, dir: dir, poll_ms: :timer.hours(1)] ++ opts
+      )
 
     pid
+  end
+
+  defp sweep(pid) do
+    send(pid, :poll)
+    Presence.status(pid)
   end
 
   describe "seeing the others" do
@@ -125,9 +137,9 @@ defmodule Pokex.Machine.PresenceTest do
     test "the actuation floor is untouched — no third flag, nothing shut", %{dir: dir} do
       before = Pokex.Bots.InputGate.state()
 
-      boot(dir, port: 4013)
+      presence = boot(dir, port: 4013)
       write_card!(dir, live_os_process())
-      assert eventually(fn -> Presence.status(boot(dir)).others != [] end)
+      assert sweep(presence).others != []
 
       assert Pokex.Bots.InputGate.state() == before
       assert Pokex.Bots.InputGate.allowed?()

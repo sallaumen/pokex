@@ -459,3 +459,35 @@ And **never** do this:
 <!-- phoenix:liveview-end -->
 
 <!-- usage-rules-end -->
+## Skills routing (Claude Code)
+
+Skills live in `~/.claude/skills` (machine-global). Invoke BEFORE starting the
+work, not after it is already done the old way:
+
+- **impeccable**: any task touching UI (.heex, `~H` components, CSS, screens).
+  A new surface goes through `shape` before code; reviews use `audit`/`critique`.
+- **ui-ux-pro-max**: UX pattern decisions (which component, which flow, which
+  layout) and usability review.
+- **huashu-design**: throwaway HTML prototypes to discuss direction before
+  touching the app. Prototypes are not committed.
+- **tdd**: every feature and every bugfix.
+- **elixir-antipatterns** (+ elixir, elixir-ecto-patterns): Elixir review and
+  refactors.
+
+Design posture: this is a game, so playful is the brief — but playful is not
+childish. Charm comes from craft: type discipline, a committed palette,
+purposeful motion. Generator-default UI is a defect even when the detector
+stays quiet: side-tab accent borders, glow, gradient text, flat hierarchy,
+default emoji as decoration, bubble corners without intent. The impeccable
+hook (`.impeccable/config.json`) is the mechanical floor, not the ceiling.
+
+`DESIGN.md` at the root is the visual authority — read it before touching UI.
+Do not trust the hook to enforce it. Measured on 2026-08-14: `design-system-font`
+and `design-system-radius` are live but only read real CSS declarations;
+`design-system-color` is live and blind to `bg-[#hex]` utility classes, which is
+the form this repo's colour drift actually takes; `design-system-font-size` is
+deliberately dormant (no `fontSize` in the frontmatter) because declaring the
+three-step ramp today fires 105 findings across the pre-token pages. The named
+rules and the two "dívida conhecida" sections in DESIGN.md are enforced by
+review, not by the detector. Re-run `/impeccable document` after a page migrates
+off literals.

@@ -43,3 +43,11 @@ lib/.DS_Store
 # Pokédex sprites: 61MB scraped from the wiki — local only, repopulate with `mix pokedex.scrape`
 /priv/static/images/pokedex/
 priv/plts/*.plt*
+
+# Impeccable: per-machine runtime. config.json stays committed on purpose:
+# it carries the shared detector config. The tool writes its own exclusion
+# into the worktree gitdir, which git does not read, so this is the entry
+# that actually works in every worktree and clone.
+/.impeccable/config.local.json
+/.impeccable/hook.cache.json
+/.impeccable/hook.pending.json

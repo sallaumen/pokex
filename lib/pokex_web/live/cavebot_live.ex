@@ -1607,11 +1607,11 @@ defmodule PokexWeb.CavebotLive do
 
         <%!-- A STOPPED hunt is this page's loudest fact, and it lived in a
               tile's small print: "parou POR QUÊ" needs no hunting of its own.
-              Blocked is the alarm (it never resumes alone); a hold is the
-              explanation (it resolves itself, but he deserves to know what
-              the bot is waiting for). --%>
+              Three states, three tones — and the middle one only exists because
+              a hunt that is about to fix itself must not read like one asking
+              to be rescued (`comeback?`). --%>
         <section
-          :if={@hunt && @hunt.state == :blocked}
+          :if={@hunt && @hunt.state == :blocked && !@hunt[:comeback?]}
           id="cavebot-blocked"
           class="rounded-lg border border-pk-danger-line bg-pk-danger-dim p-4"
         >
@@ -1621,6 +1621,20 @@ defmodule PokexWeb.CavebotLive do
           <p class="mt-1 text-pk-body text-pk-text-2">
             {@hunt.hold_reason || "bloqueada sem motivo escrito"} — resolva e solte a caçada de
             novo no painel.
+          </p>
+        </section>
+
+        <section
+          :if={@hunt && @hunt.state == :blocked && @hunt[:comeback?]}
+          id="cavebot-comeback"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4"
+        >
+          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
+            <.icon name="hero-arrow-path" class="size-4" /> A caçada tropeçou — e vai tentar de novo
+          </p>
+          <p class="mt-1 text-pk-body text-pk-text-2">
+            {@hunt.hold_reason || "parada sem motivo escrito"}. Ela reentra pelo canto mais perto;
+            se as tentativas acabarem, aí sim precisa de você.
           </p>
         </section>
 

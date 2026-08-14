@@ -1489,6 +1489,26 @@ defmodule PokexWeb.CavebotLiveTest do
       refute has_element?(view, "#cavebot-held")
     end
 
+    # A hunt about to re-enter the route on its own must not read like one
+    # asking to be rescued: the difference between "vai lá consertar" and
+    # "deixa que ela volta" is the whole tone of a 3am screen.
+    test "a hunt with a comeback scheduled says it will try again", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(
+        view.pid,
+        {:cavebot,
+         %{
+           state: :blocked,
+           comeback?: true,
+           hold_reason: "parei: travado — tento de novo em 30s (tentativa 1 de 3)"
+         }}
+      )
+
+      assert view |> element("#cavebot-comeback") |> render() =~ "tentativa 1 de 3"
+      refute has_element?(view, "#cavebot-blocked")
+    end
+
     test "a held hunt shows the hold without the alarm", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 

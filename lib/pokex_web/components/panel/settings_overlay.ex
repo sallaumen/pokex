@@ -17,7 +17,10 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   """
   use PokexWeb, :html
 
-  attr :rescue_cfg, :map, required: true, doc: "pct, cooldown_s, mode, combo, enabled"
+  attr :rescue_cfg, :map,
+    required: true,
+    doc: "pct, cooldown_s, mode, combo, stun_settle_ms, enabled"
+
   attr :potion_cfg, :map, required: true, doc: "pct, cooldown_s, enabled"
 
   attr :fishing_cfg, :map,
@@ -190,6 +193,27 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                       do: " (tem troca de time)"}
                   </option>
                 </select>
+
+                <%!-- O recibo prova que a TECLA saiu, nunca que o bicho dormiu:
+                      em campo o revive vinha 100ms depois e a selva atacou o
+                      personagem (2026-08-14). --%>
+                <label :if={@rescue_cfg.mode == "combo"} for="stun-settle-ms" class="ml-1">
+                  dorme em
+                </label>
+                <input
+                  :if={@rescue_cfg.mode == "combo"}
+                  id="stun-settle-ms"
+                  type="number"
+                  name="stun_settle_ms"
+                  aria-label="Tempo que o stun leva pra pegar antes de recolher o pokémon"
+                  min="0"
+                  max="10000"
+                  step="100"
+                  value={@rescue_cfg.stun_settle_ms}
+                  phx-debounce="500"
+                  class="h-6 w-16 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span :if={@rescue_cfg.mode == "combo"}>ms</span>
               </form>
 
               <div

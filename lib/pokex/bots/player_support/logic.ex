@@ -109,6 +109,11 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   targeting and never touches the Body) can move the cursor off the portrait mid-combo. The stun
   prefix rides INSIDE that same perform: hunting strong mobs, the area stuns buy the revive its
   time — nothing may wedge itself between the stun and the recall (2026-07-30).
+
+  `settle_ms` (optional) is how long the game's sleep still needs to LAND before the field may be
+  emptied — a lead wait the caller computes from when the stun was actually pressed. It rides
+  inside this same perform on purpose: the whole point is that nothing separates the pile falling
+  asleep from the pokémon leaving (2026-08-14, a rescue that exposed the character himself).
   """
   @spec combo(map) :: [tuple]
   def combo(
@@ -122,9 +127,11 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
       ) do
     stun = Map.get(config, :stun_steps, [])
     glue = if stun == [], do: [], else: [{:wait, step_ms}]
+    settle = settle_wait(Map.get(config, :settle_ms, 0))
 
     stun ++
       glue ++
+      settle ++
       [
         {:press, rescue_key},
         {:wait, step_ms},
@@ -137,6 +144,9 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
         {:move, neutral_point}
       ]
   end
+
+  defp settle_wait(ms) when is_integer(ms) and ms > 0, do: [{:wait, ms}]
+  defp settle_wait(_none), do: []
 
   @doc """
   Compiles a combo's stun steps into Body actions against the skill-bar reading.

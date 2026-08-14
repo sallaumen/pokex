@@ -77,6 +77,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     SettingsStash.stash!(
       support_tick_ms: 20,
       rescue_step_ms: 0,
+      # the settle is real time the suite would spend sleeping; the tests that
+      # are ABOUT it set their own
+      rescue_stun_settle_ms: 0,
       rescue_enabled: true,
       potion_battle_clear_ms: 0
     )
@@ -396,6 +399,92 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert [{:press, "q"} | _] = revive
     assert {:press, "shift+q"} in revive
     assert {:move, {40, 620}} in revive
+  end
+
+  # 2026-08-14, live: the recall followed the confirmation by ~100ms and the
+  # field went empty while the game's sleep was still in flight — the jungle
+  # turned on Lucas himself ("quase me fez morrer"). The receipt proves the KEY
+  # fired; the monsters take ~800ms to be DOWN. The pokémon keeps tanking
+  # through that, and the wait rides INSIDE the revive sequence so nothing can
+  # slip between the pile falling asleep and the field emptying.
+  @tag :tmp_dir
+  test "the recall waits for the sleep to LAND, not just for the key to fire", %{
+    tmp: tmp,
+    body: body
+  } do
+    Store.put([
+      %Pokex.Combos.Combo{
+        name: "stun-do-resgate",
+        trigger: nil,
+        steps: [{:skill, "1"}],
+        enabled?: true
+      }
+    ])
+
+    Settings.put(:rescue_mode, "combo")
+    Settings.put(:rescue_combo, "stun-do-resgate")
+    Settings.put(:rescue_confirm_ms, 0)
+    Settings.put(:rescue_stun_settle_ms, 500)
+
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, [{:press, "1"}]}, 1_000
+    assert_receive {:performed, :critical, [{:wait, settle} | rest]}, 1_000
+
+    assert settle > 0 and settle <= 500
+    assert [{:press, "q"} | _] = rest
+  end
+
+  @tag :tmp_dir
+  test "with nothing stunned there is nothing to settle: the recall is immediate", %{
+    tmp: tmp,
+    body: body
+  } do
+    Settings.put(:rescue_stun_settle_ms, 500)
+
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, revive}, 1_000
+    assert [{:press, "q"} | _] = revive
+  end
+
+  @tag :tmp_dir
+  test "the settle counts from the press, so a slow confirmation is not paid twice", %{
+    tmp: tmp,
+    body: body
+  } do
+    Store.put([
+      %Pokex.Combos.Combo{
+        name: "stun-do-resgate",
+        trigger: nil,
+        steps: [{:skill, "1"}],
+        enabled?: true
+      }
+    ])
+
+    Settings.put(:rescue_mode, "combo")
+    Settings.put(:rescue_combo, "stun-do-resgate")
+    # the confirmation alone outlasts the settle: nothing is left to wait for
+    Settings.put(:rescue_confirm_ms, 300)
+    Settings.put(:rescue_stun_settle_ms, 100)
+
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, [{:press, "1"}]}, 1_000
+    assert_receive {:performed, :critical, revive}, 1_500
+    assert [{:press, "q"} | _] = revive
   end
 
   @tag :tmp_dir

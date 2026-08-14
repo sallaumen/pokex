@@ -176,6 +176,7 @@ defmodule PokexWeb.PanelLive do
        rescue_cooldown_s: div(Settings.get(:rescue_cooldown_ms), 1000),
        rescue_mode: Settings.get(:rescue_mode),
        rescue_combo: Settings.get(:rescue_combo),
+       stun_settle_ms: Settings.get(:rescue_stun_settle_ms),
        potion_enabled: Settings.get(:potion_enabled),
        reposition_enabled: Settings.get(:reposition_enabled),
        support_waits_capture: Settings.get(:support_waits_capture),
@@ -297,6 +298,7 @@ defmodule PokexWeb.PanelLive do
       rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
       rescue_mode: Settings.get(:rescue_mode),
       rescue_combo: Settings.get(:rescue_combo),
+      stun_settle_ms: Settings.get(:rescue_stun_settle_ms),
       potion_enabled: Settings.get(:potion_enabled),
       potion_pct: Settings.get(:pokemon_hp_potion_pct),
       reposition_enabled: Settings.get(:reposition_enabled),
@@ -1157,8 +1159,9 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, rescue_enabled: value)}
   end
 
-  # The rescue mode (direct vs stun combo) and the chosen combo — one form,
-  # both selects send both fields on every change.
+  # The rescue mode (direct vs stun combo), the chosen combo, and how long the
+  # game's sleep needs to LAND before the field may be emptied — one form, every
+  # field sent on each change.
   def handle_event("save_rescue_combo_cfg", params, socket) do
     mode = params["rescue_mode"] || "direct"
     combo = params["rescue_combo"] || ""
@@ -1166,7 +1169,12 @@ defmodule PokexWeb.PanelLive do
     Settings.put(:rescue_mode, mode)
     Settings.put(:rescue_combo, combo)
 
-    {:noreply, assign(socket, rescue_mode: mode, rescue_combo: combo)}
+    socket =
+      socket
+      |> assign(rescue_mode: mode, rescue_combo: combo)
+      |> save_int(params["stun_settle_ms"], 0..10_000, :rescue_stun_settle_ms, :stun_settle_ms)
+
+    {:noreply, socket}
   end
 
   # Threshold + cooldown are expensive to get wrong in BOTH directions: a too-eager rescue burns
@@ -3616,6 +3624,7 @@ defmodule PokexWeb.PanelLive do
             cooldown_s: @rescue_cooldown_s,
             mode: @rescue_mode,
             combo: @rescue_combo,
+            stun_settle_ms: @stun_settle_ms,
             enabled: @rescue_enabled
           }
         }

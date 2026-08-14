@@ -689,10 +689,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # already stamped keeps the loop from re-firing.
   defp dispatch_rescue(body, calib, stun_steps) do
     worker = self()
-    actions = Logic.combo(combo_config(calib))
+    config = combo_config(calib)
 
     spawn(fn ->
-      notes = crowd_control(body, stun_steps)
+      {notes, settle_ms} = crowd_control(body, stun_steps)
+      actions = Logic.combo(Map.put(config, :settle_ms, settle_ms))
       outcome = Body.perform(actions, :critical, body)
       send(worker, {:rescue_done, notes, outcome})
     end)
@@ -724,7 +725,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # skill-bar reading, and what it buys is knowing. Runs INSIDE the rescue
   # task (see dispatch_rescue/3) — the receipt wait belongs to the hands, not
   # to the monitor's loop.
-  defp crowd_control(_body, []), do: []
+  #
+  # The receipt is NOT the sleep, and reading it as such is what nearly killed
+  # the character on 2026-08-14: the cooldown starts the instant the key goes
+  # out, so the confirmation came back in ~100ms and the recall stripped the
+  # field while the pile was still awake. So the answer carries what is LEFT
+  # of the settle, and the revive waits it out (see `Logic.combo/1`).
+  defp crowd_control(_body, []), do: {[], 0}
 
   defp crowd_control(body, stun_steps) do
     keys = for {:press, key} <- stun_steps, do: key
@@ -734,27 +741,46 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     Body.perform(stun_steps, :critical, body)
 
     later = Pokex.Perception.ready_skills_after(at, Settings.get(:rescue_confirm_ms))
+    settle = settle_remaining(at)
 
-    keys
-    |> then(&SkillReceipt.check(before, later, &1))
-    |> SkillReceipt.verdict()
-    |> stun_note(keys)
+    notes =
+      keys
+      |> then(&SkillReceipt.check(before, later, &1))
+      |> SkillReceipt.verdict()
+      |> stun_note(keys, settle)
+
+    {notes, settle}
   end
+
+  # What is LEFT of the sleep's landing time, counted from the PRESS — the
+  # confirmation already spent part of it, and charging the full settle again
+  # would keep a low-HP pokémon on the field for nothing.
+  defp settle_remaining(pressed_at),
+    do: max(Settings.get(:rescue_stun_settle_ms) - (now() - pressed_at), 0)
 
   # Every outcome still ends in a revive — a pokémon left dead is worse than a
   # pokémon revived in the open, and that was already this module's rule
   # ("fail in the direction of SAVING"). What changes is that a stun that did
   # not land now SAYS SO, loudly, instead of being assumed.
-  defp stun_note(:confirmed, keys),
-    do: [log: "🚑 stun confirmado (#{Enum.join(keys, ", ")}) — pode tirar o pokémon"]
+  defp stun_note(:confirmed, keys, settle),
+    do: [
+      log:
+        "🚑 stun confirmado (#{Enum.join(keys, ", ")})#{settle_text(settle)} — aí sim tiro o pokémon"
+    ]
 
-  defp stun_note({:missed, missed}, _keys),
+  defp stun_note({:missed, missed}, _keys, _settle),
     do: [
       alarm: "🚑 o stun NÃO saiu (#{Enum.join(missed, ", ")}) — revivendo exposto, confere o jogo"
     ]
 
-  defp stun_note(:unconfirmed, _keys),
-    do: [log: "🚑 não consegui confirmar o stun (barra ilegível) — revivendo assim mesmo"]
+  defp stun_note(:unconfirmed, _keys, settle),
+    do: [
+      log:
+        "🚑 não consegui confirmar o stun (barra ilegível)#{settle_text(settle)} — revivendo assim mesmo"
+    ]
+
+  defp settle_text(0), do: ""
+  defp settle_text(ms), do: ", esperando #{ms}ms o bolo dormir"
 
   # The rescue's STUN prefix (2026-07-30): in "combo" mode the chosen combo's
   # steps become presses/waits BEFORE the recall — skills on cooldown are

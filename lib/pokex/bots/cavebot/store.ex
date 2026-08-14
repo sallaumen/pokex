@@ -11,6 +11,7 @@ defmodule Pokex.Bots.Cavebot.Store do
 
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Home
+  alias Pokex.StateFile
 
   @filename "routes.json"
 
@@ -38,19 +39,23 @@ defmodule Pokex.Bots.Cavebot.Store do
   routes sharing a name would make both unreachable.
   """
   def add(%Route{name: name} = route) when is_binary(name) and name != "" do
-    all()
-    |> Enum.reject(&(&1.name == name))
-    |> Kernel.++([route])
-    |> put()
+    StateFile.update(fn ->
+      all()
+      |> Enum.reject(&(&1.name == name))
+      |> Kernel.++([route])
+      |> put()
+    end)
   end
 
   def add(_nameless), do: {:error, :invalid_name}
 
   @doc "Removes a route by name."
   def delete(name) do
-    all()
-    |> Enum.reject(&(&1.name == name))
-    |> put()
+    StateFile.update(fn ->
+      all()
+      |> Enum.reject(&(&1.name == name))
+      |> put()
+    end)
   end
 
   @doc """
@@ -64,13 +69,15 @@ defmodule Pokex.Bots.Cavebot.Store do
   on the first step. Exclusive here is the only place it cannot drift.
   """
   def set_enabled(name, enabled?) when is_boolean(enabled?) do
-    all()
-    |> Enum.map(fn
-      %Route{name: ^name} = route -> %Route{route | enabled?: enabled?}
-      %Route{} = other when enabled? -> %Route{other | enabled?: false}
-      %Route{} = other -> other
+    StateFile.update(fn ->
+      all()
+      |> Enum.map(fn
+        %Route{name: ^name} = route -> %Route{route | enabled?: enabled?}
+        %Route{} = other when enabled? -> %Route{other | enabled?: false}
+        %Route{} = other -> other
+      end)
+      |> put()
     end)
-    |> put()
   end
 
   defp path, do: Path.join(Home.dir(), @filename)

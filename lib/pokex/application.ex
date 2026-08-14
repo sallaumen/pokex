@@ -10,6 +10,9 @@ defmodule Pokex.Application do
       {DNSCluster, query: Application.get_env(:pokex, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Pokex.PubSub},
       Pokex.Settings,
+      # One queue for the read-modify-write of the state files under the home:
+      # two of those at once lose one of the two writes whole (see Pokex.StateFile).
+      Pokex.StateFile,
       Pokex.Bots.Perf,
       # The actuation safety floor — owns the gate ETS table. MUST start before anything that
       # can send a key/click so Rig.Mac's gate check always has a table to read.

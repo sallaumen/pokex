@@ -336,7 +336,12 @@ defmodule PokexWeb.Panel.CombosCard do
             {step_kind_label(step)}
           </span>
 
-          <form :if={Edit.editable_value(step)} phx-change="change_combo_step" class="contents">
+          <form
+            :if={Edit.editable_value(step)}
+            id={"combo-edit-step-form-#{index}"}
+            phx-change="change_combo_step"
+            class="contents"
+          >
             <input type="hidden" name="index" value={index} />
             <select
               :if={match?({:swap_member, _}, step) and @team != []}

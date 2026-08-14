@@ -182,6 +182,22 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert_receive {:performed, :high, [{:press, "8"}]}, 800
     end
 
+    @tag :tmp_dir
+    test "a refused heal is named in the feed, and the cooldown still holds", %{tmp: tmp} do
+      classify!("Venusaur", %{"8" => :heal})
+      low = hp_png(tmp, "low_refused.png", 10)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      {:ok, refusing} = Pokex.Bots.PlayerSupport.WorkerTest.RefusingBody.start_link(self())
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(refusing)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :high, [{:press, "8"}]}, 800
+      assert await_log("cura não saiu") =~ "cura não saiu"
+      refute_receive {:performed, :high, _}, 300
+    end
+
     # No combat gate is the WHOLE point: the potion has one and that is the hole
     # this fills.
     @tag :tmp_dir
@@ -565,6 +581,36 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   defp await_log(matching) do
     assert_receive {:game_log, _level, text}, 1_000
     if text =~ matching, do: text, else: await_log(matching)
+  end
+
+  defp await_snapshot(matcher) do
+    assert_receive {:game, snap}, 1_000
+    if matcher.(snap), do: snap, else: await_snapshot(matcher)
+  end
+
+  # 2026-08-14: the gate was only cleared inside act/2, so the branches that
+  # never reach it (unreadable bar, capture error, no calibration) kept
+  # yesterday's gate on screen — the panel showed "fora de foco" for as long
+  # as the reading stayed bad, in front of the real reason.
+  @tag :tmp_dir
+  test "an unreadable bar clears yesterday's gate instead of parroting it", %{
+    tmp: tmp,
+    body: body
+  } do
+    low = hp_png(tmp, "low_gate.png", 6)
+    rows = for _y <- 1..4, do: List.duplicate({120, 180, 235, 255}, 20)
+    world = Pokex.PngFixtures.write!(Path.join(tmp, "world.png"), rows)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}, {:ok, world}]})
+
+    InputGate.set_focus_ok(false)
+    on_exit(fn -> InputGate.set_focus_ok(true) end)
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    snap = await_snapshot(&(&1.error != nil and &1.error =~ "não reconhecida"))
+    refute (snap.hold_reason || "") =~ "fora de foco"
   end
 
   @tag :tmp_dir

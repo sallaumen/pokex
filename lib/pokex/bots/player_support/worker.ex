@@ -251,6 +251,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
             # out of the ball): UNKNOWN — clear the reading so nothing can act on a
             # stale/garbage value, and say why in the panel. The fact says readable?: false,
             # which is exactly what the fishing gate treats as "sem pokémon ativo".
+            # gate: nil here and below — these branches never reach act/2 (the
+            # only other place that clears it), so a gate from a previous tick
+            # used to survive the whole bad-reading stretch, explaining the
+            # screen with a reason that already passed.
             :unrecognized ->
               publish_pokemon_fact(%{hp_pct: nil, readable?: false})
 
@@ -258,6 +262,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                 state
                 | hp_pct: nil,
                   prev_hp_pct: nil,
+                  gate: nil,
                   error: "barra de vida não reconhecida (janela do Pokémon minimizada?)"
               }
 
@@ -267,7 +272,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
         # No calibration yet → nothing to read; keep monitoring so it starts the instant one exists.
         {:error, _reason} ->
-          %{state | hp_pct: nil, error: "sem calibração"}
+          %{state | hp_pct: nil, gate: nil, error: "sem calibração"}
       end
 
     state = maybe_reposition(state)
@@ -365,7 +370,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
         "💚 cura do pokémon: #{Enum.join(keys, ", ")} (vida em #{state.hp_pct}%)"
       )
 
-      Body.perform(Enum.map(keys, &{:press, &1}), :high, state.body)
+      # The cooldown is stamped either way — a refused press must not
+      # machine-gun the queue — but the refusal is SAID: an announced heal
+      # that never landed used to be indistinguishable from one that did.
+      case Body.perform(Enum.map(keys, &{:press, &1}), :high, state.body) do
+        :ok -> :ok
+        {:error, reason} -> broadcast_log(:macro, "💚 a cura não saiu (#{refusal_text(reason)})")
+      end
 
       %{state | last_heal_at: now(), counters: bump(state.counters, :heals)}
     else
@@ -848,7 +859,14 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # agreeing reads before acting again (garbage often comes in bursts around failures).
   defp fail(state, reason) do
     broadcast_log(:debug, "erro ao ler a vida: #{inspect(reason)}")
-    %{state | prev_hp_pct: nil, error: inspect(reason), counters: bump(state.counters, :failures)}
+
+    %{
+      state
+      | prev_hp_pct: nil,
+        gate: nil,
+        error: inspect(reason),
+        counters: bump(state.counters, :failures)
+    }
   end
 
   defp changed?(previous, state),

@@ -2,6 +2,8 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.Cavebot.{Route, Store}
 
+  import ExUnit.CaptureLog
+
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Pokex.TestHome.restore() end)
@@ -37,13 +39,30 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
            ]
   end
 
-  test "a corrupted file becomes an empty list instead of crashing", %{tmp_dir: tmp} do
+  # Surviving the corruption is right; doing it quietly is what made a broken
+  # routes.json read exactly like "there are no routes" — the hunt with nothing
+  # to walk and no way to tell why. The fallback stays, the silence does not.
+  test "a corrupted file becomes an empty list, and says which file it was", %{tmp_dir: tmp} do
     File.write!(Path.join(tmp, "routes.json"), "{ not json")
-    assert Store.all() == []
+
+    log = capture_log(fn -> assert Store.all() == [] end)
+
+    assert log =~ "routes.json"
+    assert log =~ "ilegível"
   end
 
-  test "a missing file becomes an empty list" do
-    assert Store.all() == []
+  # Valid JSON of the wrong shape is what a hand-edit leaves behind, and it used
+  # to fall through a catch-all clause without even reaching the rescue.
+  test "a file with valid JSON but no routes key is just as loud", %{tmp_dir: tmp} do
+    File.write!(Path.join(tmp, "routes.json"), ~s({"rotas": []}))
+
+    log = capture_log(fn -> assert Store.all() == [] end)
+
+    assert log =~ "routes.json"
+  end
+
+  test "a missing file becomes an empty list, and says nothing" do
+    assert capture_log(fn -> assert Store.all() == [] end) == ""
   end
 
   test "add over an existing name replaces instead of duplicating" do

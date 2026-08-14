@@ -172,6 +172,7 @@ defmodule Pokex.CombosTest do
   end
 
   describe "the store" do
+    @tag :capture_log
     test "seeds itself, round-trips, and survives a corrupt file" do
       assert [%Combo{name: "sing"}, %Combo{name: "resgate"}] = Store.all()
 

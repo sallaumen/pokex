@@ -10,6 +10,8 @@ defmodule Pokex.Timers.Store do
   """
 
   alias Pokex.Home
+
+  require Logger
   alias Pokex.StateFile
   alias Pokex.Timers
   alias Pokex.Timers.Timer
@@ -24,8 +26,12 @@ defmodule Pokex.Timers.Store do
       _no_file -> Timers.seed()
     end
   rescue
-    # a corrupted timers.json must not take the bot down with it
-    _error -> Timers.seed()
+    error ->
+      Logger.warning(
+        "timers: #{path()} ilegível (#{Exception.message(error)}) — voltando aos timers de fábrica"
+      )
+
+      Timers.seed()
   end
 
   @doc "Replaces the whole list."
@@ -81,7 +87,9 @@ defmodule Pokex.Timers.Store do
   defp decode(%{"timers" => list}) when is_list(list),
     do: list |> Enum.map(&Timers.decode/1) |> Enum.reject(&is_nil/1)
 
-  defp decode(_shapeless), do: Timers.seed()
+  defp decode(shapeless),
+    do:
+      raise(ArgumentError, "sem a chave \"timers\": #{inspect(shapeless) |> String.slice(0, 80)}")
 
   defp path, do: Path.join(Home.dir(), @filename)
 end

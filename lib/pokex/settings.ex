@@ -517,6 +517,15 @@ defmodule Pokex.Settings do
     # a skill that fired is no longer ready. Costs one feed cycle, and buys
     # knowing whether it is safe to take the pokémon off the field.
     rescue_confirm_ms: 900,
+    # …and the receipt is NOT the sleep. It proves the KEY fired (the cooldown
+    # started), which happens instantly; the monsters take about eight tenths
+    # of a second to actually fall asleep. On 2026-08-14 Lucas watched the
+    # recall follow the confirmation by ~100ms — with the game's sleep still
+    # in flight, the field went empty and the jungle turned on HIM ("quase me
+    # fez morrer"). The pokémon stays out, tanking, for this long AFTER the
+    # stun key so the pile is really down before it leaves. Counted from the
+    # press, so the confirmation's own wait is part of it. 0 disables.
+    rescue_stun_settle_ms: 800,
     # Auto-revive with a STUN combo (2026-07-30): hunting strong mobs, the
     # area-stun skills are reserved for the rescue moment — the chosen combo
     # (skill/wait steps only; see Combos.rescue_eligible?) becomes the PREFIX
@@ -1135,6 +1144,7 @@ defmodule Pokex.Settings do
     cavebot_gather_wait_min_ms: 0..60_000,
     cavebot_gather_wait_max_ms: 0..120_000,
     rescue_confirm_ms: 0..10_000,
+    rescue_stun_settle_ms: 0..10_000,
     combat_confirm_ms: 0..10_000,
     cavebot_precise_tiles: 0..10,
     cavebot_stair_probe_ms: 100..5_000,

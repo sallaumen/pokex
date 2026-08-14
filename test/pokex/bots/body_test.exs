@@ -3,7 +3,7 @@ defmodule Pokex.Bots.BodyTest.RaisingRig do
   # Pokex.Rig.Mac.Commands.press/1's Map.fetch!/2 blowing up on a mis-keyed
   # modifier (e.g. "super+1"). Everything else behaves like Pokex.Rig.Fake so
   # the Body can still run a normal follow-up sequence through it.
-  @behaviour Pokex.Rig
+  use Pokex.RigDouble
 
   def start_link, do: Agent.start_link(fn -> [] end, name: __MODULE__)
 
@@ -27,19 +27,6 @@ defmodule Pokex.Bots.BodyTest.RaisingRig do
 
     :ok
   end
-
-  @impl true
-  def click(_button, _point), do: :ok
-  @impl true
-  def move(_point), do: :ok
-  @impl true
-  def capture_sequence(_point), do: :ok
-  @impl true
-  def capture(_region, filename), do: {:ok, filename}
-  @impl true
-  def capture_screen, do: {:ok, "screen.png"}
-  @impl true
-  def cursor_position, do: {:ok, {500, 500}}
 end
 
 defmodule Pokex.Bots.BodyTest.SlowRig do
@@ -51,7 +38,7 @@ defmodule Pokex.Bots.BodyTest.SlowRig do
   # is not reliable, since GenServer.reply/2 order doesn't guarantee which
   # process the scheduler resumes first. Scoped to this test file only; does
   # not touch the shared Pokex.Rig.Fake used elsewhere.
-  @behaviour Pokex.Rig
+  use Pokex.RigDouble
 
   def start_link, do: Agent.start_link(fn -> %{held?: true, log: []} end, name: __MODULE__)
 
@@ -85,19 +72,6 @@ defmodule Pokex.Bots.BodyTest.SlowRig do
       :ok
     end
   end
-
-  @impl true
-  def click(_button, _point), do: :ok
-  @impl true
-  def move(_point), do: :ok
-  @impl true
-  def capture_sequence(_point), do: :ok
-  @impl true
-  def capture(_region, filename), do: {:ok, filename}
-  @impl true
-  def capture_screen, do: {:ok, "screen.png"}
-  @impl true
-  def cursor_position, do: {:ok, {500, 500}}
 end
 
 defmodule Pokex.Bots.BodyTest.GameOpeningRig do
@@ -106,7 +80,7 @@ defmodule Pokex.Bots.BodyTest.GameOpeningRig do
   # Test-local Rig double: press("open") publishes a playing :mini_game fact
   # before returning — simulating the overlay appearing exactly as an input
   # lands. The Body's after-input gate must stop the rest of the sequence.
-  @behaviour Pokex.Rig
+  use Pokex.RigDouble
 
   def start_link, do: Agent.start_link(fn -> [] end, name: __MODULE__)
 
@@ -137,19 +111,6 @@ defmodule Pokex.Bots.BodyTest.GameOpeningRig do
 
     :ok
   end
-
-  @impl true
-  def click(_button, _point), do: :ok
-  @impl true
-  def move(_point), do: :ok
-  @impl true
-  def capture_sequence(_point), do: :ok
-  @impl true
-  def capture(_region, filename), do: {:ok, filename}
-  @impl true
-  def capture_screen, do: {:ok, "screen.png"}
-  @impl true
-  def cursor_position, do: {:ok, {500, 500}}
 end
 
 defmodule Pokex.Bots.BodyTest do

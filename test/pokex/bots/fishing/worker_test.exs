@@ -5,7 +5,7 @@ defmodule Pokex.Bots.Fishing.WorkerTest.SlowRig do
   # in arrival order. Execution order into the Rig is what actually proves
   # priority was honored. Scoped to this test file only; does not touch the
   # shared Pokex.Rig.Fake used elsewhere.
-  @behaviour Pokex.Rig
+  use Pokex.RigDouble
 
   def start_link, do: Agent.start_link(fn -> %{held?: true, log: []} end, name: __MODULE__)
 
@@ -45,17 +45,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest.SlowRig do
 
     :ok
   end
-
-  @impl true
-  def move(_point), do: :ok
-  @impl true
-  def capture_sequence(_point), do: :ok
-  @impl true
-  def capture(_region, filename), do: {:ok, filename}
-  @impl true
-  def capture_screen, do: {:ok, "screen.png"}
-  @impl true
-  def cursor_position, do: {:ok, {500, 500}}
 end
 
 defmodule Pokex.Bots.Fishing.WorkerTest do
@@ -453,22 +442,8 @@ defmodule Pokex.Bots.Fishing.WorkerTest.FailingRig do
   alias Pokex.Bots.Body
   alias Pokex.Bots.InputGate
   @moduledoc "Rig double whose click always errors, to drive the worker's io_failed path."
-  @behaviour Pokex.Rig
+  use Pokex.RigDouble
 
   @impl true
-  def press(_combo), do: :ok
-  @impl true
-  def press_many(_combos, _opts), do: :ok
-  @impl true
   def click(_button, _point), do: {:error, :boom}
-  @impl true
-  def move(_point), do: :ok
-  @impl true
-  def capture_sequence(_point), do: :ok
-  @impl true
-  def capture(_region, filename), do: {:ok, filename}
-  @impl true
-  def capture_screen, do: {:ok, "screen.png"}
-  @impl true
-  def cursor_position, do: {:ok, {500, 500}}
 end

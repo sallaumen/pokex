@@ -773,7 +773,8 @@ defmodule Pokex.Bots.Combat.LogicTest do
     end
 
     test "the attack key comes BEFORE the first damage key, in the same list" do
-      {logic, actions} = Logic.step(hunting(0, stanced()), obs(enemies: [0], captured_at: 10), 10)
+      {logic, _actions} =
+        Logic.step(hunting(0, stanced()), obs(enemies: [0], captured_at: 10), 10)
 
       {logic, actions} =
         Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 30), 40)

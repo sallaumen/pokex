@@ -38,7 +38,11 @@ jobs:
       - run: mix deps.unlock --check-unused
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
-      - run: mix test
+      # `mix compile` only reaches elixirc_paths(:test) — "lib" and "test/support".
+      # The *_test.exs files are compiled by `mix test`, so 41 warnings lived
+      # there for as long as anyone can remember: the gate had never looked at
+      # them. This flag is that gate.
+      - run: mix test --warnings-as-errors
 
   assets:
     runs-on: ubuntu-latest

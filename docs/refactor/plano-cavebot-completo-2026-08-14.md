@@ -40,6 +40,18 @@ Validar o que já entrou, em caçada real:
 
 **Aceite:** uma madrugada sem morte, com a caçada ativa e o motivo de cada pausa escrito.
 
+### O que a Fase 0 já rendeu (14/08, primeira caçada real)
+
+A rota "Meganium and Venoss" foi redesenhada e rodada: **a escada desceu certo** (#264 funcionando em campo). E o resgate quase matou o PERSONAGEM — não o pokémon:
+
+> "deu muito pouco tempo entre usar a skill de sleep… e ele já foi tirando meu pokémon e revivendo, o que quase me fez morrer, porque por um curto e breve instante os pokémons da selva puderam me atacar" (Lucas)
+
+Causa: o recibo do stun (`SkillReceipt`) prova que a TECLA saiu — o cooldown começa na hora — e nunca que o efeito PEGOU; o sono do jogo leva ~800ms. Corrigido em #285 (`rescue_stun_settle_ms`, contado desde o aperto, dentro da mesma sequência do revive).
+
+**A lição que generaliza, e vale para qualquer confirmação futura:** ler mudança de estado da interface (cooldown iniciou, item consumiu, barra apagou) prova que o INPUT foi aceito, nunca que o mundo mudou. Quando o passo seguinte depende do mundo ter mudado, ele precisa de um tempo de assentamento medido a partir do input — pergunte a duração ao Lucas, não a deduza do recibo.
+
+**Continua faltando da Fase 0:** a madrugada inteira e a volta com `cavebot_measure_walk`.
+
 ## Fase 1 — Movimento medido (bloqueada pela volta instrumentada)
 
 Com o journal da volta: testar as hipóteses da IA anterior (leitura de até 800ms de idade; diagonal cortando caminho em ~62% das pernas) e consertar o que os NÚMEROS mostrarem.
@@ -78,10 +90,11 @@ Candidatas, em ordem de valor aparente — nenhuma é compromisso até ele escol
 
 ## Decisões que são do Lucas (paradas até ele falar)
 
-1. Alarme do resgate: continua inmutável (`:geral`) ou vira categoria `:hp` (mutável)?
-2. Resgate armado por padrão no modo caçada, ou continua opt-in?
-3. Fuga automática: existe mesmo desligada, ou nem existe?
-4. Quais candidatas da Fase 5 entram.
+1. **Stun que NÃO saiu (novo, 14/08):** hoje o revive acontece assim mesmo, com alarme ("fail in the direction of SAVING"). Depois do susto de campo, vale trocar por "não recolhe sem stun confirmado"? Pokémon morto custa as skills guardadas; personagem morto custa a noite inteira. É risco por risco — decisão dele.
+2. Alarme do resgate: continua inmutável (`:geral`) ou vira categoria `:hp` (mutável)?
+3. Resgate armado por padrão no modo caçada, ou continua opt-in?
+4. Fuga automática: existe mesmo desligada, ou nem existe?
+5. Quais candidatas da Fase 5 entram.
 
 ## Prompt de continuação
 

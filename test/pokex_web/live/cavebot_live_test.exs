@@ -1211,6 +1211,63 @@ defmodule PokexWeb.CavebotLiveTest do
     end
   end
 
+  describe "the stop banner" do
+    test "a blocked hunt is announced with its reason", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(view.pid, {:cavebot, %{state: :blocked, hold_reason: "a caçada parou (escada)"}})
+
+      assert view |> element("#cavebot-blocked") |> render() =~ "a caçada parou (escada)"
+      refute has_element?(view, "#cavebot-held")
+    end
+
+    test "a held hunt shows the hold without the alarm", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(
+        view.pid,
+        {:cavebot, %{state: :walking, hold_reason: "vida em 40% — a rota segue quando voltar"}}
+      )
+
+      assert view |> element("#cavebot-held") |> render() =~ "vida em 40%"
+      refute has_element?(view, "#cavebot-blocked")
+    end
+
+    test "a walking hunt with no hold shows no banner", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(view.pid, {:cavebot, %{state: :walking, hold_reason: nil}})
+      render(view)
+
+      refute has_element?(view, "#cavebot-blocked")
+      refute has_element?(view, "#cavebot-held")
+    end
+  end
+
+  describe "the map marks" do
+    test "a kill spot is drawn solid, not like a plain mark", %{conn: conn} do
+      {:ok, route} = Route.append(Route.new("cavena"), {1, 1, 7})
+      {:ok, route} = Route.append(route, {8, 1, 7})
+      {:ok, route} = Route.append(route, {8, 8, 7})
+
+      route =
+        route
+        |> Route.set_action(1, :lure_start)
+        |> Route.set_action(2, :lure_end)
+
+      :ok = Store.add(route)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#map-waypoint-2") |> render() =~ ~s{fill="var(--color-pk-info)"}
+
+      assert view |> element("#map-waypoint-1") |> render() =~
+               ~s{fill="var(--color-pk-info-dim)"}
+
+      assert view |> element("#map-lure-legend") |> render() =~ "matança"
+    end
+  end
+
   describe "the safety card" do
     setup do
       Pokex.SettingsStash.stash!(

@@ -251,11 +251,13 @@ defmodule PokexWeb.CavebotComponents do
       </p>
 
       <p
-        :if={Enum.any?(@legs, & &1.luring?)}
+        :if={Enum.any?(@legs, & &1.luring?) or Enum.any?(@waypoints, &(&1.action == :lure_end))}
         id="map-lure-legend"
         class="pointer-events-none absolute bottom-2 right-3 flex items-center gap-1.5 font-mono text-pk-meta text-pk-info"
       >
-        <span class="h-0.5 w-4 rounded-full bg-pk-info"></span> trecho de mob
+        <span class="h-0.5 w-4 rounded-full bg-pk-info"></span>
+        trecho de mob <span class="ml-1.5 size-2 rounded-full bg-pk-info"></span>
+        matança
       </p>
     </div>
     """
@@ -280,6 +282,9 @@ defmodule PokexWeb.CavebotComponents do
   defp leg_dash(%{closing?: true}), do: "4 4"
   defp leg_dash(_plain), do: nil
 
+  # The kill spot is SOLID: "mobar daqui" and "até aqui" carried the same dot,
+  # and the one place everything dies is the one place worth spotting first.
+  defp dot_fill(%{action: :lure_end}, _index), do: "var(--color-pk-info)"
   defp dot_fill(%{action: :walk}, 0), do: "var(--color-pk-ok-dim)"
   defp dot_fill(%{action: :walk}, _index), do: "var(--color-pk-surface)"
   defp dot_fill(_marked, _index), do: "var(--color-pk-info-dim)"

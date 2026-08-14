@@ -28,8 +28,10 @@ defmodule PokexWeb.CavebotLive do
   alias PokexWeb.PanelForms
   alias PokexWeb.PositionReadout
 
-  # Enough to see the last decisions without the page becoming a terminal.
-  @log_lines 8
+  # Eight lines hid the story of a whole fight ("mais linhas", 2026-08-14):
+  # the card shows the first eight and scrolls for the rest, so the page reads
+  # like a page and the history is still there when a stop needs explaining.
+  @log_lines 40
 
   @impl true
   def mount(_params, _session, socket) do
@@ -1431,6 +1433,36 @@ defmodule PokexWeb.CavebotLive do
           </p>
         </section>
 
+        <%!-- A STOPPED hunt is this page's loudest fact, and it lived in a
+              tile's small print: "parou POR QUÊ" needs no hunting of its own.
+              Blocked is the alarm (it never resumes alone); a hold is the
+              explanation (it resolves itself, but he deserves to know what
+              the bot is waiting for). --%>
+        <section
+          :if={@hunt && @hunt.state == :blocked}
+          id="cavebot-blocked"
+          class="rounded-lg border border-pk-danger-line bg-pk-danger-dim p-4"
+        >
+          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-danger">
+            <.icon name="hero-hand-raised" class="size-4" /> A caçada parou e não volta sozinha
+          </p>
+          <p class="mt-1 text-pk-body text-pk-text-2">
+            {@hunt.hold_reason || "bloqueada sem motivo escrito"} — resolva e solte a caçada de
+            novo no painel.
+          </p>
+        </section>
+
+        <section
+          :if={@hunt && @hunt.state != :blocked && @hunt.hold_reason}
+          id="cavebot-held"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4"
+        >
+          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
+            <.icon name="hero-pause-circle" class="size-4" /> A caçada está esperando
+          </p>
+          <p class="mt-1 text-pk-body text-pk-text-2">{@hunt.hold_reason}</p>
+        </section>
+
         <%!-- WHO the fight is fighting as. He classifies each pokémon's keys on
               /time and the hunt page said nothing about it: "sinto falta dele
               falar ali qual pokémon que eu tô usando (…) pra eu saber que os
@@ -2006,7 +2038,7 @@ defmodule PokexWeb.CavebotLive do
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 O que ela acabou de fazer
               </h2>
-              <ol class="mt-2 space-y-0.5">
+              <ol class="mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1">
                 <li
                   :for={line <- @log}
                   class="flex gap-2 font-mono text-pk-meta text-pk-text-2"

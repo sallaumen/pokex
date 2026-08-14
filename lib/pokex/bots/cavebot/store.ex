@@ -11,6 +11,8 @@ defmodule Pokex.Bots.Cavebot.Store do
 
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Home
+
+  require Logger
   alias Pokex.StateFile
 
   @filename "routes.json"
@@ -22,8 +24,15 @@ defmodule Pokex.Bots.Cavebot.Store do
       _no_file -> []
     end
   rescue
-    # a corrupted routes.json must not take the cavebot down with it
-    _error -> []
+    # Keeping the cavebot up is right; doing it in silence is not. `routes.json`
+    # is hand-editable, and a broken one read exactly like "there are no routes":
+    # the hunt had nothing to walk and nobody could say why.
+    error ->
+      Logger.warning(
+        "rotas: #{path()} ilegível (#{Exception.message(error)}) — seguindo sem rota nenhuma"
+      )
+
+      []
   end
 
   @doc "Replaces the whole list."
@@ -83,7 +92,10 @@ defmodule Pokex.Bots.Cavebot.Store do
   defp path, do: Path.join(Home.dir(), @filename)
 
   defp decode(%{"routes" => list}) when is_list(list), do: Enum.map(list, &decode_route/1)
-  defp decode(_corrupt), do: []
+
+  defp decode(shapeless),
+    do:
+      raise(ArgumentError, "sem a chave \"routes\": #{inspect(shapeless) |> String.slice(0, 80)}")
 
   defp decode_route(map) do
     %Route{

@@ -11,6 +11,8 @@ defmodule Pokex.Combos.Store do
 
   alias Pokex.Combos.Combo
   alias Pokex.Home
+
+  require Logger
   alias Pokex.StateFile
 
   @filename "combos.json"
@@ -65,8 +67,14 @@ defmodule Pokex.Combos.Store do
       _no_file -> seed()
     end
   rescue
-    # a corrupt file must not take the combat path down with it
-    _error -> seed()
+    # Falling back to the seed keeps the combat path alive, and saying nothing
+    # made it look like his combos were simply gone.
+    error ->
+      Logger.warning(
+        "combos: #{path()} ilegível (#{Exception.message(error)}) — voltando aos combos de fábrica"
+      )
+
+      seed()
   end
 
   @doc "Replaces the whole list."
@@ -135,7 +143,10 @@ defmodule Pokex.Combos.Store do
   defp path, do: Path.join(Home.dir(), @filename)
 
   defp decode(%{"combos" => list}) when is_list(list), do: Enum.map(list, &decode_combo/1)
-  defp decode(_corrupt), do: seed()
+
+  defp decode(shapeless),
+    do:
+      raise(ArgumentError, "sem a chave \"combos\": #{inspect(shapeless) |> String.slice(0, 80)}")
 
   defp decode_combo(map) do
     %Combo{

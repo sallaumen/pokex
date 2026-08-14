@@ -22,10 +22,11 @@ This is a web application written using the Phoenix web framework.
 
 ### CI and merging (hard requirement)
 
-- **The quality gate is the LOCAL `mix precommit`, run in the worktree.** GitHub Actions on this repo is born red: the Actions billing is blown, jobs die in ~3s with zero steps executed, and a red check here cannot tell "broke" from "never ran". Do not read red checks as broken code, and do not wait for green CI to merge.
+- **The gate is the LOCAL `mix precommit`, run in the worktree, and the CI is the second opinion.** The Actions billing was paid on 2026-08-14 and the workflow runs again (~4-5 min), mirroring the alias step for step. A red check now means something — read it before merging.
 - **Green local precommit = merge without fear** — "se o pipeline local tiver sempre sendo confiável, olhando warning, teste, credo e tudo o que tem que ver de qualidade, pode mergir o PR sem medo" (Lucas, 2026-08-14). That means the whole alias, fixed to zero: warnings-as-errors, format, tests — plus any check the alias grows.
 - One blind spot the gate has: **a stale build can pass in silence**. `touch` does not force recompilation (Elixir compares digests) — when in doubt, `mix compile --force --warnings-as-errors`. A `defp` dropped between `handle_event` clauses kills the compile without `mix test`, credo or dialyzer ever seeing it.
-- When the billing is fixed, `.github/workflows/ci.yml` already mirrors the precommit and becomes confirmation again — update this rule then.
+- **The other blind spot is this Mac.** CI runs Ubuntu on 2 cores with `max_cases: 4`; local is Apple Silicon with 28. On 2026-08-14 CI went red twice on a log line that eight local full-suite runs — same seed, same `--max-cases 4` — never produced. Green here is not green there: when CI disagrees with the laptop, CI is the one holding new information.
+- **A gate run on a busy laptop is not a gate run.** Several AI sessions share this Mac, and with four suites running at once (load average 30) the three vision modules starve and blow the 60s timeout — the same three pass in 40s alone. Read a red like that as "measure again on a quiet machine", never as a reason to raise the timeout: locally, past 60s is still a hang to investigate.
 
 ### Bot worker rules (hard requirement)
 

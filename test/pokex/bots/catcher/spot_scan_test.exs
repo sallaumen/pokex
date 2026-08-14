@@ -11,7 +11,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
   # Small exact geometry: tile 40, box 24, coarse step 20, refine 4.
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     SettingsStash.stash!(
       tile_px: 40,

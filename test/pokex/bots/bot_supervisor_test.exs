@@ -79,7 +79,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     Application.put_env(:pokex, :home_dir, tmp)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Enum.each(Settings.defaults(), fn {k, v} -> Settings.put(k, v) end)
     end)
 
@@ -376,7 +376,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     Application.put_env(:pokex, :home_dir, tmp)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       InputGate.set_panic_latch(false)
     end)
 

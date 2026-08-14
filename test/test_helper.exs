@@ -5,6 +5,9 @@
 timeout = if System.get_env("CI"), do: 300_000, else: 60_000
 ExUnit.start(timeout: timeout)
 
+# Read before any test can erase it: this is the home the suite may touch.
+Pokex.TestHome.remember()
+
 # The InputGate is FAIL-CLOSED: it starts blocked and the pollers open it
 # (Guardian every 100ms, Focus every ~250ms) — deliberately disabled in the
 # suite (:focus_auto_monitor etc.). Opening it here, once, simulates the steady

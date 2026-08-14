@@ -26,7 +26,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   # click-to-zoom: every point takes a rough click (magnifies) then a precise click (records)
   test "full wizard produces a saved calibration", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
     Settings.put(:skill_keys, ["6", "5", "4", "3", "2", "1"])
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
@@ -111,7 +111,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     # a calibration that belongs to the ultrawide is what is loaded
     Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
@@ -149,7 +149,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     # this monitor (100×75) was calibrated once; then an ultrawide calibration
     # became active
@@ -181,7 +181,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
 
@@ -223,7 +223,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   # — and the whole layer never intercepts a click.
   test "overlays go quiet under zoom and never steal the click", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     screen =
       Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
@@ -270,7 +270,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   @tag :tmp_dir
   test "review draws the saved regions over a fresh screenshot", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -338,7 +338,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -405,7 +405,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -457,7 +457,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -501,7 +501,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -542,7 +542,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -581,7 +581,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     before = Map.new(linear ++ area, &{&1, Settings.get(&1)})
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Enum.each(before, fn {key, value} -> Settings.put(key, value) end)
     end)
 
@@ -642,7 +642,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     before = Map.new(linear ++ area, &{&1, Settings.get(&1)})
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Enum.each(before, fn {key, value} -> Settings.put(key, value) end)
     end)
 
@@ -694,7 +694,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     rows = Settings.get(:battle_max_rows)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Settings.put(:battle_row_height, height)
       Settings.put(:battle_max_rows, rows)
     end)
@@ -740,7 +740,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   # keeps the tools folded until asked for.
   test "the review opens on the crops, with the tools folded away", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -787,7 +787,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -828,7 +828,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -895,7 +895,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     Application.put_env(:pokex, :pokedex_path, Path.join(tmp, "pokedex.json"))
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Application.delete_env(:pokex, :pokedex_path)
     end)
 
@@ -959,7 +959,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -1006,7 +1006,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   describe "a calibration whose screen does not match the picture" do
     defp saved_on(conn, tmp, saved_w, saved_h) do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       Calibration.save(%Calibration{
         scale: 2.0,
@@ -1097,7 +1097,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   describe "screenshot scale" do
     defp wizard_on(conn, tmp, probe_px) do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       # the quick fixes only exist once there is a calibration to fix
       Calibration.save(%Calibration{
@@ -1177,7 +1177,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -1231,7 +1231,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -1277,7 +1277,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   test "standalone mini-game strip calibration merges mini_game_region into the saved calibration",
        %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -1329,7 +1329,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -1369,7 +1369,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   test "standalone Pokémon-spot calibration merges pokemon_spot_point into the saved calibration",
        %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 2.0,
@@ -1426,7 +1426,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(%Calibration{
       scale: 1.0,
@@ -1468,7 +1468,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     @tag :tmp_dir
     test "a corpse can be repainted before it is taught", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, view, _html} = live(conn, "/calibration")
 
@@ -1513,7 +1513,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       tmp_dir: tmp
     } do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, view, _html} = live(conn, "/calibration")
 
@@ -1548,7 +1548,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     @tag :tmp_dir
     test "a name typed wrong can be fixed in place", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, 1} =
         CorpseLibrary.add("Shiny Craby", %Pokex.Vision.Frame{
@@ -1570,7 +1570,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     @tag :tmp_dir
     test "the teaching section exists and lists the library", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, 1} =
         CorpseLibrary.add("Rattata", %Pokex.Vision.Frame{
@@ -1598,7 +1598,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       tmp_dir: tmp
     } do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, view, _html} = live(conn, "/calibration")
       render_click(view, "corpse_shot")
@@ -1612,7 +1612,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     # could not even be clicked to teach
     test "the teaching photo is the same frame the search scans", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       calib = %Pokex.Calibration{
         scale: 1.0,
@@ -1644,7 +1644,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     @tag :tmp_dir
     test "each corpse has a targeting switch and a session counter", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, 1} =
         CorpseLibrary.add("Kingler", %Pokex.Vision.Frame{
@@ -1674,7 +1674,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     # that topic (snapshots, logs, alarms) must die without a crash
     test "the rest of the catcher traffic does not crash the page", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, view, _html} = live(conn, "/calibration")
 
@@ -1697,7 +1697,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       tmp_dir: tmp
     } do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       Calibration.save(%Calibration{
         scale: 1.0,
@@ -1791,7 +1791,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       tmp_dir: tmp
     } do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
 
@@ -1829,7 +1829,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     # the two apart at a glance.
     test "a failed search shows the minimap crop it photographed", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       Calibration.save(%Calibration{scale: 1.0, screen_w: 200, screen_h: 150})
 
@@ -1866,7 +1866,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     # picture that actually CONTAINS the numbers
     test "the manual fallback still marks the band by hand", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
 
@@ -1931,7 +1931,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     @tag :tmp_dir
     test "with nothing taught there is nothing to locate", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, view, _html} = live(conn, ~p"/calibration")
 
@@ -1947,7 +1947,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       tmp_dir: tmp
     } do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       crop = %Pokex.Vision.Frame{
         width: 16,
@@ -1980,7 +1980,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     @tag :tmp_dir
     test "apagar uma amostra do corpo tira SÓ ela", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, 1} = CorpseLibrary.add("Krabby", frame(<<10, 20, 30, 255>>))
       {:ok, 2} = CorpseLibrary.add("Krabby", frame(<<200, 100, 50, 255>>))
@@ -1999,7 +1999,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     @tag :tmp_dir
     test "apagar um ângulo do pokémon tira SÓ ele", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, 1} = Pokex.Bots.PokemonSprites.add("Vileplume", frame(<<10, 20, 30, 255>>))
       {:ok, 2} = Pokex.Bots.PokemonSprites.add("Vileplume", frame(<<200, 100, 50, 255>>))
@@ -2022,7 +2022,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       tmp_dir: tmp
     } do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       {:ok, 1} = CorpseLibrary.add("Abra", frame(<<10, 20, 30, 255>>))
       {:ok, 1} = CorpseLibrary.add("Zubat", frame(<<200, 100, 50, 255>>))

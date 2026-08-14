@@ -69,7 +69,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     WorldState.clear()
 
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     # the combo ships OFF by default; the enabled-path tests turn it on ("toggle off" flips it
     # back). potion_battle_clear_ms: 0 keeps the pre-window tests meaningful (one clear read

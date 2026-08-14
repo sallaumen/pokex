@@ -158,7 +158,7 @@ defmodule PokexWeb.DiagnosticsLiveTest do
 
     setup %{tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       # Pin the bite threshold below the bright-cyan fixture so "mordida? true"
       # is deterministic. Settings is a shared named GenServer, so without this the

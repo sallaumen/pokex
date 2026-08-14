@@ -4,7 +4,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
     :ok
   end
 

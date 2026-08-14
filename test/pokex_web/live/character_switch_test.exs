@@ -58,7 +58,7 @@ defmodule PokexWeb.CharacterSwitchTest do
     on_exit(fn ->
       Characters.set_active("")
       Application.delete_env(:pokex, :pokedex_path)
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       # the character layer lives beside the suite's settings.json — leaving a
       # chars/ behind would let one test's skills reach the next one
       File.rm_rf!(Path.join(Path.dirname(Pokex.Home.settings_file()), "chars"))

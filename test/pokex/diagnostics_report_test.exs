@@ -133,7 +133,7 @@ defmodule Pokex.Diagnostics.ReportTest do
 
       on_exit(fn ->
         Application.delete_env(:pokex, :pokedex_path)
-        Application.delete_env(:pokex, :home_dir)
+        Pokex.TestHome.restore()
       end)
 
       # 7 slots × 2px: slots 1-6 bright, slot 7 dark — a frame SkillBar accepts.
@@ -226,7 +226,7 @@ defmodule Pokex.Diagnostics.ReportTest do
     # snapshots carry tuples; sanitization exists so the WHOLE report encodes to JSON
     test "includes a sanitized, JSON-encodable operacao section", %{tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
-      on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+      on_exit(fn -> Pokex.TestHome.restore() end)
 
       Session.order(:stop, "teste do bundle")
       Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "linha do bundle"})

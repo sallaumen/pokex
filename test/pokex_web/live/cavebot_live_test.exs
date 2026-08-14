@@ -17,7 +17,7 @@ defmodule PokexWeb.CavebotLiveTest do
     WorldState.forget(:minimap)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       WorldState.forget(:minimap)
     end)
 

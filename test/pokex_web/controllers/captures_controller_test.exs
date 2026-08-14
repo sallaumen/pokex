@@ -4,7 +4,7 @@ defmodule PokexWeb.CapturesControllerTest do
   @tag :tmp_dir
   test "serves an existing capture inline", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     File.write!(Path.join(Pokex.Home.captures_dir(), "diag.png"), "fakepng")
 
@@ -16,7 +16,7 @@ defmodule PokexWeb.CapturesControllerTest do
   @tag :tmp_dir
   test "404 for missing file and rejects traversal", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     assert response(get(conn, ~p"/captures/nope.png"), 404)
     assert response(get(conn, ~p"/captures/#{"..%2Fcalibration.json"}"), 404)
@@ -25,7 +25,7 @@ defmodule PokexWeb.CapturesControllerTest do
   @tag :tmp_dir
   test "a real ../ traversal name cannot escape the captures dir", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     # sentinel lives in home dir, one level ABOVE captures/ — must never be served
     File.mkdir_p!(Pokex.Home.captures_dir())

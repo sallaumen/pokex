@@ -25,7 +25,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     ])
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       :ets.delete(:pokex_world, :battle)
       :ets.delete(:pokex_world, :arena)
       :ets.delete(:pokex_world, :skill_bar)

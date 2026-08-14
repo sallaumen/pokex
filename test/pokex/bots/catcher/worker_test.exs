@@ -37,7 +37,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     capture_enabled = Settings.get(:capture_enabled)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Settings.put(:player_mode, mode)
       Settings.put(:loot_enabled, loot_enabled)
       Settings.put(:capture_enabled, capture_enabled)

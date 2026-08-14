@@ -215,7 +215,7 @@ defmodule PokexWeb.AppHeaderTest do
 
     on_exit(fn ->
       Pokex.Characters.set_active("")
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
     end)
 
     {:ok, slug} = Pokex.Characters.create("Header Teste")
@@ -328,7 +328,7 @@ defmodule PokexWeb.AppHeaderTest do
       Application.put_env(:pokex, :home_dir, tmp)
 
       on_exit(fn ->
-        Application.delete_env(:pokex, :home_dir)
+        Pokex.TestHome.restore()
         :persistent_term.erase(@display_key)
       end)
 

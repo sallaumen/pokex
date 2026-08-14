@@ -42,6 +42,39 @@ defmodule PokexWeb.CavebotComponents do
   defp tone_text(:danger), do: "text-pk-danger"
   defp tone_text(_neutral), do: "text-pk-text"
 
+  attr :id, :string, required: true
+  attr :key, :string, required: true
+  attr :armed?, :boolean, required: true
+  attr :icon, :string, required: true
+  attr :on, :string, required: true
+  attr :off, :string, required: true
+
+  @doc """
+  One net of the hunt's safety, as a switch: the state IS the label ("resgate
+  armado", never a lone green dot), same rule as the tiles above.
+  """
+  def safety_toggle(assigns) do
+    ~H"""
+    <button
+      id={@id}
+      phx-click="toggle_safety"
+      phx-value-key={@key}
+      aria-pressed={to_string(@armed?)}
+      class={[
+        "flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-3 font-mono",
+        "text-pk-meta font-semibold transition",
+        if(@armed?,
+          do: "border-pk-ok/60 bg-pk-ok-dim text-pk-ok hover:border-pk-ok",
+          else: "border-pk-line-strong text-pk-text-3 hover:border-pk-warn/60 hover:text-pk-text"
+        )
+      ]}
+    >
+      <.icon name={@icon} class="size-4" />
+      {if @armed?, do: @on, else: @off}
+    </button>
+    """
+  end
+
   attr :waypoints, :list, required: true
   attr :pos, :any, default: nil
   attr :selected, :any, default: nil
@@ -218,11 +251,13 @@ defmodule PokexWeb.CavebotComponents do
       </p>
 
       <p
-        :if={Enum.any?(@legs, & &1.luring?)}
+        :if={Enum.any?(@legs, & &1.luring?) or Enum.any?(@waypoints, &(&1.action == :lure_end))}
         id="map-lure-legend"
         class="pointer-events-none absolute bottom-2 right-3 flex items-center gap-1.5 font-mono text-pk-meta text-pk-info"
       >
-        <span class="h-0.5 w-4 rounded-full bg-pk-info"></span> trecho de mob
+        <span class="h-0.5 w-4 rounded-full bg-pk-info"></span>
+        trecho de mob <span class="ml-1.5 size-2 rounded-full bg-pk-info"></span>
+        matança
       </p>
     </div>
     """
@@ -247,6 +282,9 @@ defmodule PokexWeb.CavebotComponents do
   defp leg_dash(%{closing?: true}), do: "4 4"
   defp leg_dash(_plain), do: nil
 
+  # The kill spot is SOLID: "mobar daqui" and "até aqui" carried the same dot,
+  # and the one place everything dies is the one place worth spotting first.
+  defp dot_fill(%{action: :lure_end}, _index), do: "var(--color-pk-info)"
   defp dot_fill(%{action: :walk}, 0), do: "var(--color-pk-ok-dim)"
   defp dot_fill(%{action: :walk}, _index), do: "var(--color-pk-surface)"
   defp dot_fill(_marked, _index), do: "var(--color-pk-info-dim)"

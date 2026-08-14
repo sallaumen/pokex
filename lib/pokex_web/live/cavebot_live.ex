@@ -26,10 +26,13 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Settings
   alias Pokex.World
   alias PokexWeb.CavebotMap
+  alias PokexWeb.PanelForms
   alias PokexWeb.PositionReadout
 
-  # Enough to see the last decisions without the page becoming a terminal.
-  @log_lines 8
+  # Eight lines hid the story of a whole fight ("mais linhas", 2026-08-14):
+  # the card shows the first eight and scrolls for the rest, so the page reads
+  # like a page and the history is still there when a stop needs explaining.
+  @log_lines 40
 
   @impl true
   def mount(_params, _session, socket) do
@@ -111,7 +114,8 @@ defmodule PokexWeb.CavebotLive do
        # where the character is drawn — and how big a tile is.
        calibration: loaded_calibration(),
        tile_px: Calibration.tile_px(),
-       park_default: {Settings.get(:cavebot_park_tiles_x), Settings.get(:cavebot_park_tiles_y)}
+       park_default: {Settings.get(:cavebot_park_tiles_x), Settings.get(:cavebot_park_tiles_y)},
+       safety: safety_snapshot()
      )}
   end
 
@@ -772,6 +776,51 @@ defmodule PokexWeb.CavebotLive do
     with_route(socket, &Recording.tidy/1)
   end
 
+  # The pre-sleep checklist, on the hunt's own page. Same settings the panel
+  # flips — Settings is the one truth — and arming re-runs the idempotent
+  # support monitor exactly like the panel does, so a net turned on here is a
+  # net that is actually watching.
+  def handle_event("toggle_safety", %{"key" => key}, socket) do
+    case safety_key(key) do
+      nil ->
+        {:noreply, socket}
+
+      setting ->
+        value = not Settings.get(setting)
+        Settings.put(setting, value)
+        if value, do: arm_support()
+
+        {:noreply,
+         assign(socket,
+           safety: safety_snapshot(),
+           notice: safety_notice(setting, value),
+           notice_kind: if(value, do: :ok, else: :warn)
+         )}
+    end
+  end
+
+  def handle_event("hp_guard", %{"abort" => abort, "resume" => resume}, socket) do
+    with {:ok, abort} <- PanelForms.parse_int(abort, 0..100),
+         {:ok, resume} <- PanelForms.parse_int(resume, 1..100) do
+      Settings.put(:cavebot_hp_abort_pct, abort)
+      Settings.put(:cavebot_hp_resume_pct, resume)
+
+      {:noreply,
+       assign(socket,
+         safety: safety_snapshot(),
+         notice: hp_guard_notice(abort, resume),
+         notice_kind: :ok
+       )}
+    else
+      :error ->
+        {:noreply,
+         assign(socket,
+           notice: "porcentagens entre 0 e 100 — abandono 0 desliga a guarda",
+           notice_kind: :warn
+         )}
+    end
+  end
+
   def handle_event("clear_route", _params, socket) do
     with_route(socket, fn route ->
       Photos.forget(route.name)
@@ -1424,6 +1473,48 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
+  defp safety_snapshot do
+    %{
+      rescue?: Settings.get(:rescue_enabled),
+      heal?: Settings.get(:heal_skill_enabled),
+      potion?: Settings.get(:potion_enabled),
+      abort_pct: Settings.get(:cavebot_hp_abort_pct),
+      resume_pct: Settings.get(:cavebot_hp_resume_pct)
+    }
+  end
+
+  # The whitelist IS the parser: client strings never become atoms.
+  defp safety_key("rescue"), do: :rescue_enabled
+  defp safety_key("heal"), do: :heal_skill_enabled
+  defp safety_key("potion"), do: :potion_enabled
+  defp safety_key(_unknown), do: nil
+
+  defp safety_notice(:rescue_enabled, true),
+    do: "resgate armado — o suporte revive se a vida despencar"
+
+  defp safety_notice(:rescue_enabled, false), do: "resgate desligado — ninguém revive o pokémon"
+  defp safety_notice(:heal_skill_enabled, true), do: "cura armada"
+  defp safety_notice(:heal_skill_enabled, false), do: "cura desligada"
+  defp safety_notice(:potion_enabled, true), do: "poção armada"
+  defp safety_notice(:potion_enabled, false), do: "poção desligada"
+
+  defp hp_guard_notice(0, _resume), do: "guarda de HP desligada — a mobada nunca é abandonada"
+
+  defp hp_guard_notice(abort, resume),
+    do: "abandona a mobada abaixo de #{abort}% e volta em #{resume}% — vale da próxima caçada"
+
+  # Same semantics as the panel's arm_support/0: turning a net ON re-runs the
+  # idempotent monitor, the natural re-enable after a panic halted it. Gated by
+  # the same env flag so tests never tick the app-global worker.
+  defp arm_support do
+    if Application.get_env(:pokex, :player_support_auto_monitor, true),
+      do: Pokex.Bots.PlayerSupport.Worker.run()
+
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -1467,6 +1558,36 @@ defmodule PokexWeb.CavebotLive do
             na <.link navigate={~p"/calibration"} class="underline">Calibração</.link>
             e volte aqui.
           </p>
+        </section>
+
+        <%!-- A STOPPED hunt is this page's loudest fact, and it lived in a
+              tile's small print: "parou POR QUÊ" needs no hunting of its own.
+              Blocked is the alarm (it never resumes alone); a hold is the
+              explanation (it resolves itself, but he deserves to know what
+              the bot is waiting for). --%>
+        <section
+          :if={@hunt && @hunt.state == :blocked}
+          id="cavebot-blocked"
+          class="rounded-lg border border-pk-danger-line bg-pk-danger-dim p-4"
+        >
+          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-danger">
+            <.icon name="hero-hand-raised" class="size-4" /> A caçada parou e não volta sozinha
+          </p>
+          <p class="mt-1 text-pk-body text-pk-text-2">
+            {@hunt.hold_reason || "bloqueada sem motivo escrito"} — resolva e solte a caçada de
+            novo no painel.
+          </p>
+        </section>
+
+        <section
+          :if={@hunt && @hunt.state != :blocked && @hunt.hold_reason}
+          id="cavebot-held"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4"
+        >
+          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
+            <.icon name="hero-pause-circle" class="size-4" /> A caçada está esperando
+          </p>
+          <p class="mt-1 text-pk-body text-pk-text-2">{@hunt.hold_reason}</p>
         </section>
 
         <%!-- WHO the fight is fighting as. He classifies each pokémon's keys on
@@ -1602,6 +1723,101 @@ defmodule PokexWeb.CavebotLive do
             note="do pokémon ativo"
             tone={hp_tone(@world)}
           />
+        </section>
+
+        <%!-- The pre-sleep checklist: whether TONIGHT's hunt survives without
+              him. The three switches are the support worker's (same settings
+              the panel flips); the guard is the cavebot's own. Shown HERE
+              because this is the page he checks before letting it run the
+              madrugada — "não podemos morrer" (2026-08-14). --%>
+        <section id="cavebot-safety" class="rounded-lg border border-pk-line bg-pk-surface p-4">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+              Segurança da caçada
+            </h2>
+            <span
+              :if={is_nil(@world.me.hp_pct)}
+              id="safety-no-reading"
+              class="font-mono text-pk-meta text-pk-warn"
+            >
+              sem leitura de vida — a guarda e o resgate não enxergam o pokémon
+            </span>
+          </div>
+
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <.safety_toggle
+              id="safety-rescue"
+              key="rescue"
+              armed?={@safety.rescue?}
+              icon="hero-lifebuoy"
+              on="resgate armado"
+              off="resgate desligado"
+            />
+            <.safety_toggle
+              id="safety-heal"
+              key="heal"
+              armed?={@safety.heal?}
+              icon="hero-heart"
+              on="cura armada"
+              off="cura desligada"
+            />
+            <.safety_toggle
+              id="safety-potion"
+              key="potion"
+              armed?={@safety.potion?}
+              icon="hero-beaker"
+              on="poção armada"
+              off="poção desligada"
+            />
+          </div>
+
+          <form
+            id="hp-guard-form"
+            phx-submit="hp_guard"
+            class="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2"
+          >
+            <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
+              abandona a mobada abaixo de
+              <span class="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  name="abort"
+                  value={@safety.abort_pct}
+                  min="0"
+                  max="100"
+                  inputmode="numeric"
+                  aria-label="Abandonar a mobada abaixo desta porcentagem de vida"
+                  class="pk-num h-9 w-20 rounded border border-pk-line-strong bg-pk-sunken px-2 text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                /> %
+              </span>
+            </label>
+            <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
+              rota volta com vida em
+              <span class="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  name="resume"
+                  value={@safety.resume_pct}
+                  min="1"
+                  max="100"
+                  inputmode="numeric"
+                  aria-label="Retomar a rota nesta porcentagem de vida"
+                  class="pk-num h-9 w-20 rounded border border-pk-line-strong bg-pk-sunken px-2 text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                /> %
+              </span>
+            </label>
+            <button
+              aria-label="Salvar os limites da guarda de HP"
+              class="h-9 cursor-pointer rounded-lg border border-pk-line-strong px-3 text-pk-body font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+            >
+              Salvar
+            </button>
+          </form>
+
+          <p class="mt-2 text-pk-meta text-pk-text-3">
+            Abaixo do limite a caçada solta o combo no que já juntou, desiste do mob e só volta
+            a andar com o pokémon recuperado. 0 desliga a guarda. Vale a partir da próxima caçada.
+          </p>
         </section>
 
         <div class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
@@ -1980,7 +2196,7 @@ defmodule PokexWeb.CavebotLive do
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 O que ela acabou de fazer
               </h2>
-              <ol class="mt-2 space-y-0.5">
+              <ol class="mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1">
                 <li
                   :for={line <- @log}
                   class="flex gap-2 font-mono text-pk-meta text-pk-text-2"
@@ -2130,15 +2346,17 @@ defmodule PokexWeb.CavebotLive do
                       guardar
                     </button>
                   </.form>
+                  <%!-- A REAL button: as a bare text link he never found it —
+                        "não consegui encontrar esse botão" (2026-08-14). --%>
                   <button
                     :if={@active_route.waypoints != []}
                     id="tidy-marks"
                     phx-click="tidy_marks"
                     aria-label="Otimizar a rota: juntar marcas repetidas e fechar as mobadas"
                     title="junta os cliques de uma luta só e garante uma mobada pra cada matança"
-                    class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-info"
+                    class="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-semibold text-pk-text transition hover:border-pk-info/60 hover:text-pk-info"
                   >
-                    otimizar rota
+                    <.icon name="hero-sparkles" class="size-3.5" /> otimizar rota
                   </button>
                   <button
                     :if={@active_route.waypoints != []}

@@ -84,7 +84,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
     gather_wait_ms: :cavebot_gather_wait_ms,
     fight_only_at_stops: :cavebot_fight_only_at_stops,
     stair_probe_ms: :cavebot_stair_probe_ms,
-    stair_max_probes: :cavebot_stair_max_probes
+    stair_max_probes: :cavebot_stair_max_probes,
+    hp_abort_pct: :cavebot_hp_abort_pct,
+    hp_resume_pct: :cavebot_hp_resume_pct
   }
 
   def topic, do: @topic
@@ -178,6 +180,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       route ->
         Logger.info("Cavebot: rota \"#{route.name}\" (#{length(route.waypoints)} waypoints)")
         log(:macro, "rota \"#{route.name}\": #{length(route.waypoints)} waypoints")
+        warn_unarmed_safety()
 
         # The per-dungeon combo gate reads this fact (Combos.Runner). Published
         # even with nil dungeon — the Runner treats nil as "global combos only".
@@ -297,6 +300,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     before = broadcast_key(state, now)
     wp_before = state.logic.wp_index
     state_before = state.logic.state
+    recovering_before = state.logic.recovering?
 
     {logic, action} = Logic.step(state.logic, world, now)
 
@@ -311,6 +315,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       |> translate(action)
       |> note_arrival(wp_before, now)
       |> note_search(state_before, now)
+      |> note_recovery(recovering_before, now)
       |> log_hold_edge(now)
 
     if broadcast_key(state, now) != before, do: broadcast_status(state)
@@ -374,10 +379,23 @@ defmodule Pokex.Bots.Cavebot.Worker do
       capture_pending: state.capture_pending,
       capture_changed_at: state.capture_changed_at,
       sweep_pending: state.sweep_pending,
-      sweep_changed_at: state.sweep_changed_at
+      sweep_changed_at: state.sweep_changed_at,
+      hp_pct: own_hp(now)
     }
 
     if pos, do: {world, %{state | pos: pos, pos_at: now}}, else: {world, state}
+  end
+
+  # The :pokemon fact PlayerSupport already publishes 8x a second — read, never
+  # asked. Absent, stale and unreadable all come out nil: without a running
+  # health monitor the HP guard is inert (fail-open, like every fact), and
+  # inside a recovery the Logic reads nil as "still down" — a recalled pokémon
+  # has no bar, and the revive is exactly the wait.
+  defp own_hp(now) do
+    case Perception.pokemon(now) do
+      {:ok, %{hp_pct: pct}} when is_integer(pct) -> pct
+      _unreadable_or_unknown -> nil
+    end
   end
 
   defp position(now) do
@@ -997,7 +1015,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   defp holds(state, now) do
     Enum.reject(
-      [note_hold(state.hold_note), step_hold(state.last_step), blind_hold(state.logic, now)],
+      [
+        note_hold(state.hold_note),
+        step_hold(state.last_step),
+        hp_hold(state.logic),
+        blind_hold(state.logic, now)
+      ],
       &is_nil/1
     )
   end
@@ -1018,6 +1041,19 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp step_hold_text(:input_gate_closed), do: "jogo sem foco (ou pânico) — nada é clicado"
   defp step_hold_text(:no_layout), do: "HUD não localizado — não sei onde fica o minimapa"
   defp step_hold_text(reason), do: "o passo no minimapa falhou: #{inspect(reason)}"
+
+  defp hp_hold(logic) do
+    case Logic.recovery(logic) do
+      nil ->
+        nil
+
+      %{hp_pct: nil, resume_pct: pct} ->
+        {:hp, "esperando o pokémon voltar da poké bola — a rota segue com #{pct}% de vida"}
+
+      %{hp_pct: hp, resume_pct: pct} ->
+        {:hp, "vida em #{hp}% — a rota segue quando voltar a #{pct}%"}
+    end
+  end
 
   defp blind_hold(logic, now) do
     case Logic.blind_ms(logic, now) do
@@ -1064,6 +1100,21 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   defp note_search(state, _before, _now), do: state
 
+  # The abandon and the comeback are EDGES worth one line each; the route held
+  # in between is the hold reason's job, not the feed's.
+  defp note_recovery(%{logic: %Logic{recovering?: true} = logic} = state, false, now) do
+    log(:macro, "🩸 vida em #{logic.last_hp}% — modo sobrevivência: mato o que veio e espero")
+    %{state | last_action: %{text: "vida baixa — segurei a rota", at: now}}
+  end
+
+  defp note_recovery(%{logic: %Logic{recovering?: false, last_hp: hp}} = state, true, now)
+       when is_integer(hp) do
+    log(:macro, "💚 vida em #{hp}% — pokémon recuperado, a caçada segue")
+    %{state | last_action: %{text: "recuperado — rota retomada", at: now}}
+  end
+
+  defp note_recovery(state, _same, _now), do: state
+
   # The hold reason is EDGE information: one line when it APPEARS, silence
   # while it still applies. Repeating every 200ms would drown the feed exactly
   # when it most needs reading. Gone and back = new edge, new line.
@@ -1078,6 +1129,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # A reason already announced by its creator (block, lost feed) must not be
   # announced again by the edge on the next tick.
   defp mark_logged(state, kind), do: %{state | logged_holds: [kind | state.logged_holds]}
+
+  # An overnight hunt's job is surviving unattended, and both its nets can be
+  # silently missing: the revive toggle ships OFF, and the HP guard reads a
+  # fact only the support worker publishes. Named at the START, in the feed he
+  # reads before sleeping — discovering either at 4am costs the night.
+  defp warn_unarmed_safety do
+    unless Settings.get(:rescue_enabled) do
+      log(:macro, "⚠️ resgate desligado: se o pokémon cair, ninguém revive — arme na Central")
+    end
+
+    if Perception.pokemon(now()) == :unknown do
+      log(:macro, "⚠️ sem leitura de vida ainda — a guarda de HP só age com o suporte rodando")
+    end
+  end
 
   defp log(level, text), do: broadcast({:cavebot_log, level, "caçada: " <> text})
 

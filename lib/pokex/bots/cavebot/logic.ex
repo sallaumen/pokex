@@ -54,7 +54,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # steps it has actually taken (a ring tile the character already
             # stands on costs a cursor move, never a step)
             probe: 0,
-            probe_steps: 0
+            probe_steps: 0,
+            # the previous tick's HP reading: the guard trips on TWO agreeing
+            # reads, same rule PlayerSupport uses — one garbage frame must not
+            # abort a gathering
+            last_hp: nil,
+            # latched below `hp_abort_pct`, released at `hp_resume_pct`: while
+            # set, the hunt fights what it has and the route does not advance
+            recovering?: false
 
   @type state ::
           :walking | :fighting | :post_fight | :stuck | :fight_stalled | :stairs | :blocked
@@ -78,7 +85,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
           capture_pending: non_neg_integer,
           capture_changed_at: integer | nil,
           sweep_pending: non_neg_integer,
-          sweep_changed_at: integer | nil
+          sweep_changed_at: integer | nil,
+          # own pokémon's HP — nil when the bar is unreadable (recalled into
+          # the ball, covered) or the :pokemon fact is stale/absent
+          hp_pct: integer | nil
         }
 
   @type config :: %{
@@ -96,6 +106,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
           stair_probe_ms: non_neg_integer,
           stair_max_probes: non_neg_integer,
           fight_only_at_stops: boolean,
+          # below this HP the mob is abandoned (0 = guard off); at or above
+          # `hp_resume_pct` the route resumes — the gap is the hysteresis
+          hp_abort_pct: non_neg_integer,
+          hp_resume_pct: non_neg_integer,
           # the hunt's DEFAULT park spot, in tiles from the character — the
           # only pair in here, because it is the only knob that is a place
           park_tiles: {integer, integer} | nil
@@ -116,7 +130,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
           stops_done: [Route.stop()],
           gather_wait: non_neg_integer | nil,
           probe: non_neg_integer,
-          probe_steps: non_neg_integer
+          probe_steps: non_neg_integer,
+          last_hp: integer | nil,
+          recovering?: boolean
         }
 
   # The ring the search walks around a staircase, in offsets from the recorded
@@ -172,6 +188,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # always really about: a hole, a teleport, a character somewhere the route
   # cannot describe.
   def step(%__MODULE__{} = logic, %{pos: pos} = world, now) when is_tuple(pos) do
+    logic = track_hp(logic, world)
+
     if elem(pos, 2) in Route.floors(logic.route) do
       dispatch(logic, world, now)
     else
@@ -179,7 +197,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  def step(%__MODULE__{} = logic, world, now), do: dispatch(logic, world, now)
+  def step(%__MODULE__{} = logic, world, now), do: dispatch(track_hp(logic, world), world, now)
 
   # Combat starts only once the hunt knows WHERE IT IS.
   #
@@ -262,6 +280,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @spec hold_fire?(t, integer) :: boolean
   def hold_fire?(%__MODULE__{} = logic, now) do
     cond do
+      # Survival outranks the huddle: with the pokémon this low, waiting the
+      # gather_wait out is exactly the wait that kills it. "Já, clicando em
+      # dois botões, já poderia ter matado o mob todo" (Lucas, 2026-08-14).
+      logic.recovering? -> false
       gathering?(logic, now) -> true
       not Map.get(logic.config, :fight_only_at_stops, true) -> luring?(logic)
       true -> logic.state != :fighting
@@ -300,7 +322,28 @@ defmodule Pokex.Bots.Cavebot.Logic do
   """
   @spec combo(t) :: [String.t()]
   def combo(%__MODULE__{since: since} = logic) do
-    if Map.has_key?(since, :gather), do: kill_spot_combo(logic), else: []
+    cond do
+      Map.has_key?(since, :gather) -> kill_spot_combo(logic)
+      # An aborted gather never reached its kill spot, but the combo he meant
+      # for this pile is recorded THERE — publish it so the freed fire opens
+      # with the full-mob answer, not one straggler at a time.
+      logic.recovering? -> destination_combo(logic)
+      true -> []
+    end
+  end
+
+  defp destination_combo(%__MODULE__{route: %Route{waypoints: []}}), do: []
+
+  defp destination_combo(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
+    len = length(waypoints)
+
+    0..(len - 1)//1
+    |> Enum.map(&Enum.at(waypoints, Integer.mod(logic.wp_index + &1, len)))
+    |> Enum.find(&(&1.action == :lure_end))
+    |> case do
+      nil -> []
+      wp -> Recording.combo_intent(wp[:combo] || [])
+    end
   end
 
   defp kill_spot_combo(%__MODULE__{route: %Route{waypoints: []}}), do: []
@@ -391,6 +434,44 @@ defmodule Pokex.Bots.Cavebot.Logic do
     do: %{logic | since: Map.delete(logic.since, :gather), gather_wait: nil}
 
   @doc """
+  Why the route is held by the pokémon's health — `nil` while it is not.
+
+  `hp_pct: nil` inside a recovery is the revive itself: the rescue RECALLS the
+  pokémon, and a recalled pokémon has no readable bar. Waiting through it is
+  the point; the Worker turns this into a visible reason either way.
+  """
+  @spec recovery(t) :: %{hp_pct: integer | nil, resume_pct: non_neg_integer} | nil
+  def recovery(%__MODULE__{recovering?: true} = logic),
+    do: %{hp_pct: logic.last_hp, resume_pct: Map.get(logic.config, :hp_resume_pct, 100)}
+
+  def recovery(%__MODULE__{}), do: nil
+
+  # The guard trips on two agreeing low reads and releases on two agreeing
+  # recovered ones — symmetric, so neither a garbage frame nor a lucky one
+  # moves the latch. Everything between the thresholds keeps whatever the
+  # latch already says: that gap is what stops a heal to 70% from resuming a
+  # route that will be back at 55% two tiles later.
+  defp track_hp(%__MODULE__{} = logic, world) do
+    hp = Map.get(world, :hp_pct)
+    %{logic | last_hp: hp, recovering?: recovering_after(logic, hp)}
+  end
+
+  defp recovering_after(%__MODULE__{config: config} = logic, hp) do
+    abort = Map.get(config, :hp_abort_pct, 0)
+    resume = Map.get(config, :hp_resume_pct, 100)
+
+    cond do
+      abort <= 0 -> false
+      both?(logic.last_hp, hp, &(&1 < abort)) -> true
+      logic.recovering? -> not both?(logic.last_hp, hp, &(&1 >= resume))
+      true -> false
+    end
+  end
+
+  defp both?(a, b, check),
+    do: is_integer(a) and is_integer(b) and check.(a) and check.(b)
+
+  @doc """
   How many ms the machine has gone without knowing where the character is —
   `nil` while the coordinate is being read. The Worker turns this into a
   visible reason.
@@ -415,6 +496,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
     logic = home_if_sighted(logic, world)
 
     cond do
+      # A mob a bit bigger than the stretch expected: the pokémon is dying
+      # UNDER the pile being gathered, and finishing the leg finishes it. So
+      # the gather is ABANDONED — the fight starts here, on whatever already
+      # came, and the freed fire opens with the kill spot's combo ("desiste do
+      # mob, e continua depois que ele tiver revivido", Lucas, 2026-08-14).
+      luring?(logic) and logic.recovering? -> enter_fight(logic, now)
       luring?(logic) -> follow_route(logic, world, now)
       world.enemies > 0 -> enter_fight(logic, now)
       # The COUNT can lie — `enemies` is rows minus presumed scenery, and a
@@ -423,6 +510,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
       # mid-fight) — but an engaged Combat cannot: :tabbing/:fighting hold the
       # road, whatever the subtraction says.
       engaged?(world) -> enter_fight(logic, now)
+      # Walking on with the pokémon this hurt walks it into the NEXT pile:
+      # stand still, let the support heal or revive, resume at hp_resume_pct.
+      logic.recovering? -> {logic, :none}
       true -> follow_route(logic, world, now)
     end
   end
@@ -544,10 +634,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
       z == wp.z ->
         walk(%{logic | state: :walking, retries: 0, probe: 0, probe_steps: 0}, world, now)
 
-      # a mob leg walks THROUGH what shows up — the same rule as the walking
-      # state, so a search inside a gathering does not turn into a fight
-      not luring?(logic) and (world.enemies > 0 or engaged?(world)) ->
+      search_interrupted?(logic, world) ->
         enter_fight(logic, now)
+
+      # recovering, and nothing came: stand still until the support fixes it
+      logic.recovering? ->
+        {logic, :none}
 
       logic.probe_steps >= stair_max_probes(logic) ->
         {%{logic | state: :blocked}, {:block, :stairs}}
@@ -558,6 +650,23 @@ defmodule Pokex.Bots.Cavebot.Logic do
       true ->
         probe_stairs(logic, pos, wp, now)
     end
+  end
+
+  # What ENDS the staircase search and sends the machine to fight, in the two
+  # moods it can be in. Recovering, the abandon rule of the walking state
+  # applies — a dying pokémon ends the search, and even a mob leg counts,
+  # because standing in a gathering with no health is how it dies. Healthy, a
+  # mob leg walks THROUGH what shows up, so only an unlured fight interrupts.
+  #
+  # One predicate rather than three `cond` arms: the two moods answer the same
+  # question and used to be spelled out separately, which is what pushed this
+  # function past its complexity budget when the two were merged.
+  defp search_interrupted?(logic, world) do
+    fight? = world.enemies > 0 or engaged?(world)
+
+    if logic.recovering?,
+      do: fight? or luring?(logic),
+      else: fight? and not luring?(logic)
   end
 
   defp probe_due?(%__MODULE__{since: since} = logic, now) do
@@ -821,6 +930,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
       sweeping?(logic, world, now) -> {logic, :none}
       standing_by?(logic, now) -> {logic, :none}
       next_stop(logic) -> run_stop(logic, next_stop(logic), now)
+      # The stops above still ran — a :cooldown_revive IS the recovery — but
+      # the route does not resume until the pokémon is back on its feet: the
+      # next leg is the next pile ("continua depois que ele tiver revivido").
+      logic.recovering? -> {logic, :none}
       true -> resume_after_dwell(logic, dwell_since, now)
     end
   end

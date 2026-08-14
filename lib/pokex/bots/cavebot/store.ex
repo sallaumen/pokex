@@ -28,8 +28,7 @@ defmodule Pokex.Bots.Cavebot.Store do
   @doc "Replaces the whole list."
   def put(routes) when is_list(routes) do
     File.mkdir_p!(Home.dir())
-    File.write!(path(), JSON.encode!(%{routes: Enum.map(routes, &encode/1)}))
-    :ok
+    Home.write!(path(), JSON.encode!(%{routes: Enum.map(routes, &encode/1)}))
   end
 
   @doc """

@@ -71,7 +71,7 @@ defmodule Pokex.Combos.Store do
   @doc "Replaces the whole list."
   def put(combos) when is_list(combos) do
     File.mkdir_p!(Home.dir())
-    File.write!(path(), JSON.encode!(%{combos: Enum.map(combos, &encode/1)}))
+    Home.write!(path(), JSON.encode!(%{combos: Enum.map(combos, &encode/1)}))
     :ok
   end
 

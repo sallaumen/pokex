@@ -247,7 +247,7 @@ defmodule Pokex.Calibration do
       "pokemon_photo_point" => to_list(calib.pokemon_photo_point)
     }
 
-    File.write!(path, JSON.encode!(map))
+    Pokex.Home.write!(path, JSON.encode!(map))
   end
 
   # JSON has no tuples, and an unmarked field stays nil rather than becoming [].

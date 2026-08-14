@@ -421,7 +421,7 @@ defmodule Pokex.Pokedex.Team do
   defp persist(data) do
     File.mkdir_p!(Path.dirname(file()))
 
-    File.write!(
+    Pokex.Home.write!(
       file(),
       JSON.encode!(%{
         members: Enum.map(data.members, &encode_entry/1),

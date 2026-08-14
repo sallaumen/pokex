@@ -431,11 +431,11 @@ defmodule Pokex.Settings do
     command_corner_dwell_ms: 600,
     # Shiny guard (Lucas's anti-shiny protocol): watch the arena feed for the
     # COLOR signature of the watched Shinies (built from the wiki sprites — a
-    # PXG shiny is a full recolor, so no in-game photo is needed). Action on a
+    # PokeTibia shiny is a full recolor, so no in-game photo is needed). Action on a
     # confirmed sighting: "escape" = the emergency-escape protocol (staircase);
     # "alarm" = keep fighting, just scream (his "lutar se quiser").
     shiny_guard_enabled: false,
-    # The battle-list STAR detector (the reliable path — PXG marks a shiny with
+    # The battle-list STAR detector (the reliable path — PokeTibia marks a shiny with
     # a gold ★ before its name). A row is shiny when its densest 3-column gold
     # window reaches this many pixels; MEASURED on Lucas's real capture
     # (2026-07-21): the star reads 15+ in that window, a non-shiny row 0, and a

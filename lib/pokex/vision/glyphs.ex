@@ -2,7 +2,7 @@ defmodule Pokex.Vision.Glyphs do
   @moduledoc """
   Deterministic bitmap-font reader — the eye that turns pixels into text.
 
-  The PXG client draws every label, name and number with a fixed bitmap font:
+  The PokeTibia client draws every label, name and number with a fixed bitmap font:
   a given character is ALWAYS the same pixels. So reading is exact matching
   against a learned atlas (`priv/glyphs/atlas.json`, built by `mix
   glyphs.learn` from the labeled real captures) — no OCR, no dependency, no

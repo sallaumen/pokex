@@ -66,7 +66,7 @@ defmodule Pokex.Bots.SkillBar do
     end)
   end
 
-  @doc "Hotbar keys for `count` slots. PokeXGames labels slot 10 with `0`."
+  @doc "Hotbar keys for `count` slots. PokeTibia labels slot 10 with `0`."
   def keys(count) when is_integer(count) and count > 0,
     do: for(index <- 0..(min(count, 10) - 1), do: key_for_index(index))
 

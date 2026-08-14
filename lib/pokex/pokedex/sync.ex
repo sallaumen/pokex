@@ -18,7 +18,6 @@ defmodule Pokex.Pokedex.Sync do
   alias Pokex.Pokedex
   alias Pokex.Pokedex.Scraper
 
-  @base "https://wiki.pokexgames.com"
   @topic "pokedex_sync"
   @process_name :pokedex_sync
 
@@ -98,7 +97,7 @@ defmodule Pokex.Pokedex.Sync do
 
     File.mkdir_p!(out_dir())
 
-    json = %{scraped_at: scraped_at, base: @base, species: merged, lures: lures}
+    json = %{scraped_at: scraped_at, base: base(), species: merged, lures: lures}
     File.write!(Path.join(out_dir(), "pokedex.json"), JSON.encode!(json))
 
     {:ok,
@@ -175,7 +174,7 @@ defmodule Pokex.Pokedex.Sync do
     if File.exists?(dest) do
       :skip
     else
-      case Req.get(@base <> url, retry: :transient, max_retries: 2) do
+      case Req.get(base() <> url, retry: :transient, max_retries: 2) do
         {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(dest, body)
         _error -> :skip
       end
@@ -201,7 +200,7 @@ defmodule Pokex.Pokedex.Sync do
     if File.exists?(path) do
       :skip
     else
-      case Req.get(@base <> url, retry: :transient, max_retries: 2) do
+      case Req.get(base() <> url, retry: :transient, max_retries: 2) do
         {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(path, body)
         _error -> :skip
       end
@@ -392,7 +391,7 @@ defmodule Pokex.Pokedex.Sync do
   # -- IO ----------------------------------------------------------------------
 
   defp fetch(path) do
-    case Req.get(@base <> path, retry: :transient, max_retries: 2) do
+    case Req.get(base() <> path, retry: :transient, max_retries: 2) do
       {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
       other -> {:error, other}
     end
@@ -405,6 +404,11 @@ defmodule Pokex.Pokedex.Sync do
 
   # Relative to the repo root — where both `mix pokedex.scrape` and the dev
   # server run from (dev-only tooling; priv/ is symlinked into _build).
+  # The wiki origin lives in config (`:wiki_base`) — the one place the specific
+  # server is named. It is also written into pokedex.json, so a dataset always
+  # records where it was harvested from.
+  defp base, do: Application.get_env(:pokex, :wiki_base)
+
   defp out_dir, do: "priv/pokedex"
 
   defp sprites_dir,

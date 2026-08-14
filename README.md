@@ -4,9 +4,13 @@ A game-automation bot for a 2D tile-based MMORPG, written in Elixir/OTP.
 It sees with screen captures, thinks in supervised processes, and acts through
 synthetic mouse and keyboard events on macOS.
 
-[![CI](https://github.com/sallaumen/pokex/actions/workflows/ci.yml/badge.svg)](https://github.com/sallaumen/pokex/actions/workflows/ci.yml)
-[![Elixir](https://img.shields.io/badge/elixir-1.19-purple)](https://elixir-lang.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![CI](https://github.com/sallaumen/pokex/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sallaumen/pokex/actions/workflows/ci.yml)
+[![Elixir](https://img.shields.io/badge/Elixir-1.19-4B275F?logo=elixir&logoColor=white)](https://elixir-lang.org)
+[![OTP](https://img.shields.io/badge/OTP-27-A90533?logo=erlang&logoColor=white)](https://www.erlang.org)
+[![Phoenix](https://img.shields.io/badge/Phoenix-1.8-FD4F00?logo=phoenixframework&logoColor=white)](https://www.phoenixframework.org)
+[![LiveView](https://img.shields.io/badge/LiveView-1.2-FD4F00)](https://hexdocs.pm/phoenix_live_view)
+[![Platform](https://img.shields.io/badge/platform-macOS-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 ---
 
@@ -24,8 +28,8 @@ that makes it portable in principle, and the [Running it](#running-it) section i
 an honest account of what you would have to redo. But nothing here is packaged,
 and nothing here is supported.
 
-What it is worth reading for is the middle layer: roughly 49k lines of Elixir
-and 34k lines of tests spent on the problem of driving a hostile, API-less
+What it is worth reading for is the middle layer: roughly 50k lines of Elixir
+and 37k lines of tests spent on the problem of driving a hostile, API-less
 system reliably.
 
 ## Why it's an interesting engineering problem
@@ -262,11 +266,19 @@ halts immediately, including mid-pause.
 Thresholds are runtime settings, measured against the real game and documented
 inline in [`settings.ex`](lib/pokex/settings.ex).
 
+The Pokédex is populated by `mix pokedex.scrape`, which reads the game's wiki.
+That origin is the single piece of configuration naming a specific server —
+`config :pokex, :wiki_base`, overridable with `POKEX_WIKI_BASE`. Pointing it at a
+different wiki also means rewriting the parsers in
+[`pokedex/scraper.ex`](lib/pokex/pokedex/scraper.ex): the HTML shape is not
+portable.
+
 ## Tests
 
-147 test files, ~34k lines. The suite runs on **Linux** in CI on purpose: every
-path that genuinely touches macOS is disabled in the test environment, and the
-workflow proves that separation holds on every pull request.
+2033 tests across 150 files, ~37k lines. The suite runs on **Linux** in CI on
+purpose: every path that genuinely touches macOS is disabled in the test
+environment, and the workflow proves that separation holds on every pull
+request.
 
 ```bash
 mix test

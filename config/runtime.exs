@@ -22,6 +22,11 @@ end
 
 config :pokex, PokexWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4004"))]
 
+# The wiki origin is configuration, not identity — see config/config.exs.
+if wiki_base = System.get_env("POKEX_WIKI_BASE") do
+  config :pokex, :wiki_base, wiki_base
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

@@ -55,7 +55,7 @@ defmodule Pokex.LayoutLiveTest do
     end
   end
 
-  # level reads 90, 91, 90 — going DOWN is real, not a misread: dying in PXG
+  # level reads 90, 91, 90 — going DOWN is real, not a misread: dying in PokeTibia
   # costs experience, and the player died between captures two and three.
   test "the readings track his session across all three captures" do
     reads =

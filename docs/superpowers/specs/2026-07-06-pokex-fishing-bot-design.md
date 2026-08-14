@@ -6,7 +6,7 @@
 
 ## 1. Contexto e objetivo
 
-Lucas joga PokeXGames (Poketibia) no macOS via Wine/CrossOver — o client roda como
+Lucas joga PokeTibia (Poketibia) no macOS via Wine/CrossOver — o client roda como
 janela nativa do macOS. A pesca manual é um ciclo lento e repetitivo:
 
 1. `Shift+Z` equipa a vara;

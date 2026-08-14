@@ -1,7 +1,7 @@
 defmodule Pokex.Pokedex do
   @moduledoc """
   The local Pokédex: every species (and its Shiny variant) scraped from the
-  PXG wiki by `mix pokedex.scrape`, loaded once from priv/pokedex/pokedex.json
+  PokeTibia wiki by `mix pokedex.scrape`, loaded once from priv/pokedex/pokedex.json
   and served from :persistent_term — pure reads, no process.
 
   This is the queryable base Lucas asked for (search by level, element,
@@ -57,16 +57,18 @@ defmodule Pokex.Pokedex do
   @doc "Every species name — the lexicon a screen reading is closed against."
   def names, do: Enum.map(species(), & &1.name)
 
-  @wiki_base "https://wiki.pokexgames.com/index.php/"
+  # The origin lives in config (`:wiki_base`) — the one place the specific
+  # server is named, so the rest of this codebase can say PokeTibia.
+  defp wiki_base, do: Application.get_env(:pokex, :wiki_base) <> "/index.php/"
 
   @doc """
-  The entry's page on the PXG wiki — where every field here came from, and the
-  escape hatch whenever the harvest still looks thin (Lucas asked for the
+  The entry's page on the PokeTibia wiki — where every field here came from, and
+  the escape hatch whenever the harvest still looks thin (Lucas asked for the
   original wiki link on every pokémon). Derived from the name exactly like
   the scraper derives it, so the link points at the page we actually read.
   """
   def wiki_url(%{name: name}) when is_binary(name) and name != "",
-    do: @wiki_base <> URI.encode(String.replace(name, " ", "_"))
+    do: wiki_base() <> URI.encode(String.replace(name, " ", "_"))
 
   def wiki_url(_nameless), do: nil
 
@@ -78,7 +80,7 @@ defmodule Pokex.Pokedex do
       `:element` binary still works, for bookmarked URLs)
     * `:weak_to` — ANY of these elements hits the species hard (list, or the
       old singular binary)
-    * `:clans` — species belongs to ANY of these PXG clans (derived from materia)
+    * `:clans` — species belongs to ANY of these PokeTibia clans (derived from materia)
     * `:min_level` / `:max_level` — inclusive bounds (species without a level drop)
     * `:only_shiny` — only Shiny variants
     * `:edited_after` — wiki page edited on/after this "YYYY-MM-DD" (entries
@@ -462,12 +464,12 @@ defmodule Pokex.Pokedex do
   # element: filtering by Flying simply MISSED Rayquaza, and the filter's own
   # option list showed 40 phantom "elements". Normalising here (not in the
   # scraper) heals the base already on disk, with no re-sync.
-  # No PXG element name has a space, so whitespace is a separator too — that is
+  # No PokeTibia element name has a space, so whitespace is a separator too — that is
   # what rescues "Ice Poison", written with no separator at all.
   @element_separators ~r{\s*(?:/|&amp;|&|,|\.|\be\b|\band\b)\s*|\s+}
 
   # One-off wiki misspellings, each measured at 1-5 occurrences in the whole
-  # base (against Crystal's 865, which is a REAL PXG type, not a typo).
+  # base (against Crystal's 865, which is a REAL PokeTibia type, not a typo).
   @element_aliases %{
     "Gound" => "Ground",
     "Groud" => "Ground",
@@ -514,7 +516,7 @@ defmodule Pokex.Pokedex do
       boost: map["boost"],
       habilidades: map["habilidades"] || [],
       materia: map["materia"],
-      # PXG clan(s), derived from materia at load time — filterable, with no
+      # PokeTibia clan(s), derived from materia at load time — filterable, with no
       # hand-marking of 866 entries; a shiny without materia inherits from its
       # base form (see inherit_clans/1)
       clans: Clans.parse(map["materia"]),

@@ -1,6 +1,6 @@
 defmodule Pokex.Pokedex.Scraper do
   @moduledoc """
-  Pure HTML → data parsers for the PXG wiki (wiki.pokexgames.com).
+  Pure HTML → data parsers for the PokeTibia wiki (origin in config `:wiki_base`).
 
   The wiki's markup is machine-generated and extremely regular (`<b>Campo:</b>
   valor<br />` fields, `wikitable` lure tables with captions), so targeted
@@ -69,7 +69,7 @@ defmodule Pokex.Pokedex.Scraper do
   The moves of one arena → a map per slot (M1..M8 + P for the passive):
   `%{slot, name, cooldown_s, element, tags, level}`.
 
-  PXG pages carry TWO movesets under "Movimentos" — `Moveset PVE` (hunting,
+  PokeTibia pages carry TWO movesets under "Movimentos" — `Moveset PVE` (hunting,
   what this bot cares about) and `Moveset PVP` — with the SAME slot names and
   DIFFERENT cooldowns (unsplit they showed as one in-order, duplicated list).
   `arena` picks one: `:pve` (default, falls back to the whole Movimentos
@@ -197,7 +197,7 @@ defmodule Pokex.Pokedex.Scraper do
   @doc """
   The page's last-edit date from the MediaWiki footer ("modificada pela última
   vez em 6 de fevereiro de 2026") as "YYYY-MM-DD" — the filterable freshness
-  signal (a recently edited page usually means new/changed PXG content).
+  signal (a recently edited page usually means new/changed PokeTibia content).
   """
   def parse_edited_at(html) do
     with [_, day, month_name, year] <-

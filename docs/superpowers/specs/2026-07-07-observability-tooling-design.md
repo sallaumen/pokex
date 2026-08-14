@@ -17,7 +17,7 @@ data Claude can read in the morning, plus cleaner, exportable logs.
 - Combat scan still felt slow last test (no pre-click enemy signal → search is near its
   floor; timing knobs already tuned). Observability first, so the next test produces data.
 
-**Game facts confirmed (PokeXGames wiki):** fishing = cast rod hotkey + click water →
+**Game facts confirmed (PokeTibia wiki):** fishing = cast rod hotkey + click water →
 water *bubbles* (the cyan glow) → press rod to hook; combat has a "moves charged" bar
 (hover shows how many are ready) — the real Phase-2 skill-cooldown signal; a fishing
 *challenge* minigame appears at fishing level 30 (bar over a moving fish), bypassed by

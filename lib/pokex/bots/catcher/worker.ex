@@ -9,7 +9,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   a ball takes its loot with it. `capture_enabled` independently gates the entire ball
   pipeline (and the feed attach) so loot-only operation never throws.
 
-  Combat-engagement gate: PXG combat is tile-locked — a FIGHTING sprite stands still,
+  Combat-engagement gate: PokeTibia combat is tile-locked — a FIGHTING sprite stands still,
   indistinguishable from a corpse to the stationary-blob detector — so this worker also
   tracks Combat.Worker's "combat" snapshots. While combat is :tabbing/:fighting, observations
   are held (no admissions/throws/confirms: they would be contaminated by the live enemy) and

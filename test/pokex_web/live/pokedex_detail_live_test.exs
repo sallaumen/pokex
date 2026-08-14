@@ -4,6 +4,11 @@ defmodule PokexWeb.PokedexDetailLiveTest do
   alias Pokex.Pokedex.Team
   import Phoenix.LiveViewTest
 
+  # Derived from config `:wiki_base`, not hardcoded: the domain lives in exactly
+  # one place, and pointing the app at another wiki must not break these.
+  defp wiki_url(name),
+    do: Application.get_env(:pokex, :wiki_base) <> "/index.php/" <> name
+
   @dataset %{
     "species" => [
       %{
@@ -276,7 +281,7 @@ defmodule PokexWeb.PokedexDetailLiveTest do
 
     missing = view |> element("#entry-moves-missing") |> render()
     assert missing =~ "sem tabela de golpes"
-    assert missing =~ "https://wiki.pokexgames.com/index.php/Horsea"
+    assert missing =~ wiki_url("Horsea")
 
     assert html =~ "Horsea"
     assert view |> element("#entry-evolutions") |> render() =~ "Seadra"
@@ -299,12 +304,12 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     {:ok, view, _} = live(conn, ~p"/pokedex/Seadra")
 
     assert view |> element("#wiki-link") |> render() =~
-             "https://wiki.pokexgames.com/index.php/Seadra"
+             wiki_url("Seadra")
 
     {:ok, shiny, _} = live(conn, ~p"/pokedex/#{"Shiny Seadra"}")
 
     assert shiny |> element("#wiki-link") |> render() =~
-             "https://wiki.pokexgames.com/index.php/Shiny_Seadra"
+             wiki_url("Shiny_Seadra")
   end
 
   @tag :tmp_dir

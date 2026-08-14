@@ -1,6 +1,6 @@
 defmodule PokexWeb.PokedexLive do
   @moduledoc """
-  The local Pokédex (scraped from the PXG wiki by `mix pokedex.scrape`):
+  The local Pokédex (scraped from the PokeTibia wiki by `mix pokedex.scrape`):
   Lucas's queryable base — search by name, element, WEAKNESS ("which are
   weak to grass?") and level — plus the per-lure view that answers "fishing
   with THIS lure, which Shinies can come?". Every card links into
@@ -491,7 +491,7 @@ defmodule PokexWeb.PokedexLive do
             </label>
             <label
               class="flex flex-col gap-1"
-              title="páginas da wiki editadas a partir desta data — bom pra caçar NOVIDADES do PXG"
+              title="páginas da wiki editadas a partir desta data — bom pra caçar NOVIDADES do PokeTibia"
             >
               wiki editada após
               <input

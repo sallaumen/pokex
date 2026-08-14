@@ -2,7 +2,7 @@ defmodule Pokex.Bots.Fisher.Skills do
   @moduledoc """
   Picks the next combat skill to press, VERIFIED against the skill-bar image.
 
-  PokeXGames drops inputs — you press a skill and nothing comes out. A human spams the
+  PokeTibia drops inputs — you press a skill and nothing comes out. A human spams the
   key and watches the bar: only when the icon darkens (goes on cooldown) did the press
   actually land, and only then do they move to the next skill. So we don't pace to a
   clock and assume the press stuck; the driver re-reads the skill bar EVERY tick and we

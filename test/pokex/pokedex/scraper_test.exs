@@ -3,7 +3,7 @@ defmodule Pokex.Pokedex.ScraperTest do
 
   alias Pokex.Pokedex.Scraper
 
-  # REAL pages downloaded from wiki.pokexgames.com on 2026-07-20 — these pin
+  # REAL pages downloaded from the PokeTibia wiki on 2026-07-20 — these pin
   # the wiki's markup: if the wiki changes format, these break loudly here
   # instead of silently producing an empty/garbled pokedex.json.
   defp fixture(name), do: File.read!(Path.join("test/fixtures/pokedex", name))

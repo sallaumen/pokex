@@ -60,7 +60,7 @@ defmodule Pokex.Bots.Body do
 
   The minimap is the cheapest way to move in this game — the client walks the
   character there itself, around obstacles, without the bot having to
-  understand the map. Arrival is confirmed by the `:minimap` fact, since PXG
+  understand the map. Arrival is confirmed by the `:minimap` fact, since PokeTibia
   prints the position as text.
 
   The click is clamped inside the map area: a click on the frame does nothing,

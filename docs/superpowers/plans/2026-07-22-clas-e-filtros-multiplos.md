@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** todo Pokémon marcado com seu clã PXG (derivado da matéria, zero marcação manual) e filtráveis em `/pokedex` por clã E por múltiplos valores ao mesmo tempo ("todos de planta e todos de veneno").
+**Goal:** todo Pokémon marcado com seu clã PokeTibia (derivado da matéria, zero marcação manual) e filtráveis em `/pokedex` por clã E por múltiplos valores ao mesmo tempo ("todos de planta e todos de veneno").
 
 **Architecture:** o clã é DERIVADO do campo `materia` que o scraper já colhe ("Naturia Enhanced ou Malefic Enhanced" → clãs Naturia + Malefic) — um módulo puro novo (`Pokex.Pokedex.Clans`) parseia, o load do `Pokex.Pokedex` enriquece cada entrada com `clans: [...]` (shinies sem matéria herdam do base-form), e `matches?/2` ganha cláusulas de lista com semântica OR-dentro-do-grupo / AND-entre-grupos. Na UI, os dois `<select>` exclusivos viram fileiras de chips togglables (elemento, fraco contra, clã), com o estado nas URLs como sempre (`?elements[]=Grass&elements[]=Poison`).
 
@@ -96,7 +96,7 @@ Expected: FAIL — `module Pokex.Pokedex.Clans is not available`
 ```elixir
 defmodule Pokex.Pokedex.Clans do
   @moduledoc """
-  The PXG clan of a species, DERIVED from the wiki's "Materia" field — no new
+  The PokeTibia clan of a species, DERIVED from the wiki's "Materia" field — no new
   scraping and no hand-marking 866 entries: "Naturia Enhanced ou Malefic
   Enhanced" already names the clan(s); the tier suffix is noise here.
 
@@ -110,7 +110,7 @@ defmodule Pokex.Pokedex.Clans do
 
   @typos %{"Oreboun" => "Orebound"}
 
-  @doc "The 10 PXG clans, canonical order — the filter UI's option list."
+  @doc "The 10 PokeTibia clans, canonical order — the filter UI's option list."
   def all, do: @clans
 
   @doc """
@@ -195,7 +195,7 @@ Expected: FAIL — `key :clans not found`
 (b) em `species_entry/1`, adicionar o campo logo após `materia: map["materia"],`:
 
 ```elixir
-      # PXG clan(s), derived from materia at load time — filterable, no manual
+      # PokeTibia clan(s), derived from materia at load time — filterable, no manual
       # marking; a shiny without materia inherits from its base form (below)
       clans: Clans.parse(map["materia"]),
 ```
@@ -340,7 +340,7 @@ E na docstring de `search/1`, trocar as linhas dos dois filtros por:
       `:element` binary still works)
     * `:weak_to` — ANY of these elements hits the species hard (list or the
       old singular binary)
-    * `:clans` — species belongs to ANY of these PXG clans (derived from materia)
+    * `:clans` — species belongs to ANY of these PokeTibia clans (derived from materia)
 ```
 
 - [ ] **Step 4: Run to verify they pass**
@@ -401,7 +401,7 @@ Expected: FAIL — `clan_style/1 is undefined`
 - [ ] **Step 3: Implement** — em `lib/pokex_web/pokedex_style.ex`, após `element_style/1`:
 
 ```elixir
-  # Clan → the element whose palette it wears (PXG's own pairing: Volcanic is
+  # Clan → the element whose palette it wears (PokeTibia's own pairing: Volcanic is
   # the Fire clan, Seavell the Water one…). Reusing the element colours means
   # the eye learns ONE palette, not two.
   @clan_elements %{

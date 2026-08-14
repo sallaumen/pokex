@@ -2,7 +2,7 @@ defmodule Pokex.Perception.Interpret.Minimap do
   @moduledoc """
   Where we are — read, not inferred.
 
-  PXG prints the player's position as text at the top of the minimap
+  PokeTibia prints the player's position as text at the top of the minimap
   ("(337, 46107, 4)"), which is why this bot will never need to understand the
   map picture to walk it.
 

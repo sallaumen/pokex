@@ -1,6 +1,6 @@
 defmodule Pokex.Pokedex.Clans do
   @moduledoc """
-  The PXG clan of a species, DERIVED from the wiki's "Materia" field — no new
+  The PokeTibia clan of a species, DERIVED from the wiki's "Materia" field — no new
   scraping and no hand-marking 866 entries: "Naturia Enhanced ou Malefic
   Enhanced" already names the clan(s); the tier suffix is noise here.
 
@@ -14,7 +14,7 @@ defmodule Pokex.Pokedex.Clans do
 
   @typos %{"Oreboun" => "Orebound"}
 
-  @doc "The 10 PXG clans, canonical order — the filter UI's option list."
+  @doc "The 10 PokeTibia clans, canonical order — the filter UI's option list."
   def all, do: @clans
 
   @doc """

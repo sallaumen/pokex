@@ -210,7 +210,7 @@ quando há estado. A única saturação alta do sistema é o verde.
 Sistema à parte e legítimo: `PokexWeb.PokedexStyle` guarda 20 pares
 `{texto, fundo}`, um por elemento (fire, water, grass…), tunados para a
 superfície quase-preta — saturados o bastante para ler como "o de Fogo" de
-relance, escuros o bastante para não vibrarem numa lista densa. Os clãs do PXG
+relance, escuros o bastante para não vibrarem numa lista densa. Os clãs do PokeTibia
 vestem a paleta do seu elemento (Volcanic usa Fogo, Seavell usa Água), então o
 olho aprende UMA paleta, não duas. Os valores são normativos e vivem no sidecar
 `.impeccable/design.json` (`extensions.colorMeta.element-*`); nunca escreva um

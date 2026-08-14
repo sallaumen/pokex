@@ -47,7 +47,7 @@ defmodule PokexWeb.PokedexStyle do
     "color: #{text}; background-color: #{background};"
   end
 
-  # Clan → the element whose palette it wears (PXG's own pairing: Volcanic is
+  # Clan → the element whose palette it wears (PokeTibia's own pairing: Volcanic is
   # the Fire clan, Seavell the Water one…). Reusing the element colours means
   # the eye learns ONE palette, not two.
   @clan_elements %{

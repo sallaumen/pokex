@@ -6,7 +6,7 @@ defmodule Pokex.VisionStarTest do
 
   # Lucas's REAL battle list (2026-07-21): row 0 = Wigglytuff (normal, with the
   # quest pokeball), row 1 = Shiny Seadra (gold ★ before the name). This is the
-  # ground truth the star detector is tuned against — if PXG ever restyles the
+  # ground truth the star detector is tuned against — if PokeTibia ever restyles the
   # list, this test breaks loudly instead of the bot silently going blind.
   @fixture "test/fixtures/battle/shiny_star_list.png"
 

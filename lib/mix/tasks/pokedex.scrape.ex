@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Pokedex.Scrape do
-  @shortdoc "Scrapes the PXG wiki into priv/pokedex/pokedex.json (+ sprites)"
+  @shortdoc "Scrapes the PokeTibia wiki into priv/pokedex/pokedex.json (+ sprites)"
 
   @moduledoc """
   Terminal wrapper around `Pokex.Pokedex.Sync` (the /pokedex "Sincronizar"

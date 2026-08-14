@@ -167,7 +167,7 @@ defmodule Pokex.VisionSkillStatesTest do
     end
 
     test "the dark REPLACEMENT panel reads :cooldown under the DEFAULT ceiling" do
-      # Measured live (2026-07-20): PXG's cooldown REPLACES the icon with a dark panel +
+      # Measured live (2026-07-20): PokeTibia's cooldown REPLACES the icon with a dark panel +
       # countdown number — it does not darken the art in place. Icons whose ready art is a
       # small glyph on black average out DARK (slot 3's ref measured {46, 75, 40}), so the
       # dark panel ({24, 35, 25}) sits only ~48 away — the old 60 ceiling read slots 3/6/8

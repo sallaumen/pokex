@@ -207,7 +207,7 @@ end
 ```elixir
 defmodule Pokex.Vision.Glyphs do
   @moduledoc """
-  Deterministic bitmap-font reader. The PXG client draws text as fixed pixel
+  Deterministic bitmap-font reader. The PokeTibia client draws text as fixed pixel
   glyphs; reading is exact-match against a learned atlas — no OCR, no deps.
   Ground truth: the labeled screen fixtures (test/fixtures/glyphs/labels.json).
   """

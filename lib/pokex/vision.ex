@@ -378,7 +378,7 @@ defmodule Pokex.Vision do
   defp red_band_counts(<<>>, _index, _width, _top, _band, _rows, acc), do: acc
 
   @doc """
-  Battle rows marked with the SHINY star: PXG paints a gold ★ before a shiny's
+  Battle rows marked with the SHINY star: PokeTibia paints a gold ★ before a shiny's
   name in the battle list — an EXPLICIT game signal, far better than guessing
   the sprite's recolor.
 
@@ -580,7 +580,7 @@ defmodule Pokex.Vision do
 
   @doc """
   Center Y (frame pixels, top→bottom) of each battle-list HP bar. Every creature
-  row in the PXG battle list carries a thin horizontal HP bar; detecting the bars
+  row in the PokeTibia battle list carries a thin horizontal HP bar; detecting the bars
   gives the EXACT vertical position of every row, so the lock bands can be
   anchored to real landmarks instead of a hand-marked offset that drifts.
 
@@ -755,7 +755,7 @@ defmodule Pokex.Vision do
   colour tests (Lucas, 2026-07-10). A slot with no reference (nil, or an all-white live
   read) falls back to the threshold rules below.
 
-  The ceiling is TIGHT by measurement: PXG's cooldown REPLACES the icon with a dark panel
+  The ceiling is TIGHT by measurement: PokeTibia's cooldown REPLACES the icon with a dark panel
   + countdown number, and for icons whose ready art is a small glyph on black the ref
   averages out dark too — the panel lands only ~44-60 away (measured 2026-07-20; a red
   countdown glyph pulls even closer). A TRUE ready match measures 0-1: the icon is static

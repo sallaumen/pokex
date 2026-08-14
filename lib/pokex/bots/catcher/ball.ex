@@ -10,7 +10,7 @@ defmodule Pokex.Bots.Catcher.Ball do
   sequence every step passes the input and mini-game gates, the wait is
   configurable, and the return is real.
 
-  `ball_needs_click` covers what only the game can answer: whether the PXG hotkey
+  `ball_needs_click` covers what only the game can answer: whether the PokeTibia hotkey
   uses the ball directly (commit 2f21811 assumed so) or arms an aim that awaits a
   click. When on, the sequence clicks the target after the key.
   """

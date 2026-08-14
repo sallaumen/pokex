@@ -51,7 +51,7 @@ defmodule Pokex.Perception.BattleEnemiesTest do
   test "the hand-marked region loses five of the six enemies" do
     # Not a hypothetical: this is what combat has been seeing.
     frame = ScreenFixtures.frame!("ultrawide_3440x1440_outro_mapa")
-    {:ok, fix} = Layout.locate(frame)
+    {:ok, _fix} = Layout.locate(frame)
     stale = {3178, 287, 250, 347}
     {x, y, w, h} = stale
 

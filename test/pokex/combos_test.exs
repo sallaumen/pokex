@@ -9,7 +9,6 @@ defmodule Pokex.CombosTest do
 
   alias Pokex.Combos
   alias Pokex.Combos.{Combo, Store}
-  alias Pokex.Pokedex.Team
 
   setup do
     tmp = Path.join(System.tmp_dir!(), "pokex-combos-#{System.unique_integer([:positive])}")

@@ -42,7 +42,8 @@ defmodule Pokex.LayoutContractTest do
   test "every layout-derived feed takes its region from the calibration it was handed" do
     # If a spec ever reaches for a fresh lookup instead, this fails: the calib
     # here carries a DELIBERATELY different fix than the one on the blackboard.
-    {:ok, real} = Layout.locate(Pokex.ScreenFixtures.frame!("ultrawide_3440x1440_full"))
+    {:ok, %Layout.Fix{} = real} =
+      Layout.locate(Pokex.ScreenFixtures.frame!("ultrawide_3440x1440_full"))
 
     shifted = %Layout.Fix{
       real

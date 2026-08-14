@@ -175,6 +175,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       route ->
         Logger.info("Cavebot: rota \"#{route.name}\" (#{length(route.waypoints)} waypoints)")
         log(:macro, "rota \"#{route.name}\": #{length(route.waypoints)} waypoints")
+        warn_unarmed_safety()
 
         # The per-dungeon combo gate reads this fact (Combos.Runner). Published
         # even with nil dungeon — the Runner treats nil as "global combos only".
@@ -1045,6 +1046,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # A reason already announced by its creator (block, lost feed) must not be
   # announced again by the edge on the next tick.
   defp mark_logged(state, kind), do: %{state | logged_holds: [kind | state.logged_holds]}
+
+  # An overnight hunt's job is surviving unattended, and both its nets can be
+  # silently missing: the revive toggle ships OFF, and the HP guard reads a
+  # fact only the support worker publishes. Named at the START, in the feed he
+  # reads before sleeping — discovering either at 4am costs the night.
+  defp warn_unarmed_safety do
+    unless Settings.get(:rescue_enabled) do
+      log(:macro, "⚠️ resgate desligado: se o pokémon cair, ninguém revive — arme na Central")
+    end
+
+    if Perception.pokemon(now()) == :unknown do
+      log(:macro, "⚠️ sem leitura de vida ainda — a guarda de HP só age com o suporte rodando")
+    end
+  end
 
   defp log(level, text), do: broadcast({:cavebot_log, level, "caçada: " <> text})
 

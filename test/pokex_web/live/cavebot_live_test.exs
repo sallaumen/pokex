@@ -1210,4 +1210,69 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#cavebot-last-press") |> render() =~ "3, 4"
     end
   end
+
+  describe "the safety card" do
+    setup do
+      Pokex.SettingsStash.stash!(
+        rescue_enabled: false,
+        heal_skill_enabled: true,
+        potion_enabled: false,
+        cavebot_hp_abort_pct: 60,
+        cavebot_hp_resume_pct: 85
+      )
+
+      :ok
+    end
+
+    test "shows each net by its state, in words", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#safety-rescue") |> render() =~ "resgate desligado"
+      assert view |> element("#safety-heal") |> render() =~ "cura armada"
+      assert view |> element("#safety-potion") |> render() =~ "poção desligada"
+    end
+
+    test "arms the rescue from the hunt page", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#safety-rescue") |> render_click()
+
+      assert Pokex.Settings.get(:rescue_enabled) == true
+      assert view |> element("#safety-rescue") |> render() =~ "resgate armado"
+      assert view |> element("#cavebot-notice") |> render() =~ "resgate armado"
+    end
+
+    test "disarms an armed net and says so", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#safety-heal") |> render_click()
+
+      assert Pokex.Settings.get(:heal_skill_enabled) == false
+      assert view |> element("#safety-heal") |> render() =~ "cura desligada"
+    end
+
+    test "saves the hp guard thresholds", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view
+      |> form("#hp-guard-form", %{"abort" => "55", "resume" => "90"})
+      |> render_submit()
+
+      assert Pokex.Settings.get(:cavebot_hp_abort_pct) == 55
+      assert Pokex.Settings.get(:cavebot_hp_resume_pct) == 90
+      assert view |> element("#cavebot-notice") |> render() =~ "55%"
+    end
+
+    test "a percentage outside the range changes nothing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view
+      |> form("#hp-guard-form", %{"abort" => "150", "resume" => "90"})
+      |> render_submit()
+
+      assert Pokex.Settings.get(:cavebot_hp_abort_pct) == 60
+      assert Pokex.Settings.get(:cavebot_hp_resume_pct) == 85
+      assert view |> element("#cavebot-notice") |> render() =~ "entre 0 e 100"
+    end
+  end
 end

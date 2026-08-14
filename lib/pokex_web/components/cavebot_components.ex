@@ -42,6 +42,39 @@ defmodule PokexWeb.CavebotComponents do
   defp tone_text(:danger), do: "text-pk-danger"
   defp tone_text(_neutral), do: "text-pk-text"
 
+  attr :id, :string, required: true
+  attr :key, :string, required: true
+  attr :armed?, :boolean, required: true
+  attr :icon, :string, required: true
+  attr :on, :string, required: true
+  attr :off, :string, required: true
+
+  @doc """
+  One net of the hunt's safety, as a switch: the state IS the label ("resgate
+  armado", never a lone green dot), same rule as the tiles above.
+  """
+  def safety_toggle(assigns) do
+    ~H"""
+    <button
+      id={@id}
+      phx-click="toggle_safety"
+      phx-value-key={@key}
+      aria-pressed={to_string(@armed?)}
+      class={[
+        "flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-3 font-mono",
+        "text-pk-meta font-semibold transition",
+        if(@armed?,
+          do: "border-pk-ok/60 bg-pk-ok-dim text-pk-ok hover:border-pk-ok",
+          else: "border-pk-line-strong text-pk-text-3 hover:border-pk-warn/60 hover:text-pk-text"
+        )
+      ]}
+    >
+      <.icon name={@icon} class="size-4" />
+      {if @armed?, do: @on, else: @off}
+    </button>
+    """
+  end
+
   attr :waypoints, :list, required: true
   attr :pos, :any, default: nil
   attr :selected, :any, default: nil

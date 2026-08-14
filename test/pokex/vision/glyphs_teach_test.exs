@@ -17,7 +17,7 @@ defmodule Pokex.Vision.GlyphsTeachTest do
     Glyphs.clear()
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       File.rm_rf!(tmp)
       Glyphs.clear()
     end)

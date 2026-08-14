@@ -8,6 +8,9 @@ config :pokex, rig: Pokex.Rig.Fake
 config :pokex, settings_path: "tmp/test-home/settings.json"
 config :pokex, sensors: Pokex.Bots.Fisher.Sensors.Fake
 config :pokex, home_dir: "tmp/test-home"
+# ...and falling back to the real ~/.pokex is never right here: a test that
+# erases :home_dir must blow up naming itself, not read Lucas's live home.
+config :pokex, home_dir_required: true
 config :pokex, baseline_gap_ms: 1
 config :pokex, capture_backend: :screencapture
 # Never compile/spawn the native key helper in tests (stubbed via :executable).

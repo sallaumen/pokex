@@ -45,7 +45,7 @@ defmodule Pokex.Combos.RunnerTest do
     )
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       File.rm_rf!(tmp)
       Enum.each([:battle, :team, :dungeon], &WorldState.forget/1)
     end)

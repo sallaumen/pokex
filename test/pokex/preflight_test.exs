@@ -5,7 +5,7 @@ defmodule Pokex.PreflightTest do
   @tag :tmp_dir
   test "fails without calibration, passes with it (non-mac rig skips OS checks)", %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     assert {:error, [msg]} = Preflight.run(Pokex.Rig.Fake)
     assert msg =~ "calibração"

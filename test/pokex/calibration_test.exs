@@ -122,7 +122,7 @@ defmodule Pokex.CalibrationTest do
   @tag :tmp_dir
   test "profiles: save/list/apply/delete round-trip", %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     assert Calibration.list_profiles() == []
 
@@ -159,7 +159,7 @@ defmodule Pokex.CalibrationTest do
     glow = Settings.get(:glow_threshold)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Settings.put(:tile_px, tile)
       Settings.put(:glow_threshold, glow)
     end)
@@ -195,7 +195,7 @@ defmodule Pokex.CalibrationTest do
     tile = Settings.get(:tile_px)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Settings.put(:tile_px, tile)
     end)
 
@@ -229,7 +229,7 @@ defmodule Pokex.CalibrationTest do
   # MARKS are good. The count is what tells him the numbers did not come.
   test "a profile without numbers applies its marks and reports zero", %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Calibration.save(sample())
     assert {:ok, "antigo"} = Calibration.save_profile("antigo")

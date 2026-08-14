@@ -130,7 +130,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     Application.put_env(:pokex, :home_dir, tmp)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Enum.each([:minimap, :battle, :dungeon, :pokemon], &WorldState.forget/1)
       InputGate.set_panic_latch(false)
     end)

@@ -89,7 +89,7 @@ defmodule Pokex.Bots.MinimapStepTest do
   test "with no layout it refuses instead of clicking somewhere plausible", %{tmp_dir: tmp} do
     WorldState.forget(:layout)
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     assert Body.minimap_step(1, 1, layout: nil) == {:error, :no_layout}
   end

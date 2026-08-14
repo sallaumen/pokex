@@ -28,7 +28,7 @@ defmodule Pokex.CalibrationLayoutTest do
     WorldState.forget(:layout)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       WorldState.forget(:layout)
     end)
 

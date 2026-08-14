@@ -16,7 +16,7 @@ defmodule Pokex.CombosTest do
     Application.put_env(:pokex, :home_dir, tmp)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       File.rm_rf!(tmp)
     end)
 

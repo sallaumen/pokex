@@ -76,7 +76,7 @@ defmodule PokexWeb.PokedexLiveTest do
 
     on_exit(fn ->
       Application.delete_env(:pokex, :pokedex_path)
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
     end)
 
     %{path: path}

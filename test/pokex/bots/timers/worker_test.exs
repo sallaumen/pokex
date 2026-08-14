@@ -22,7 +22,7 @@ defmodule Pokex.Bots.Timers.WorkerTest do
 
     on_exit(fn ->
       Application.delete_env(:pokex, :pokedex_path)
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       WorldState.forget(:posture)
     end)
 

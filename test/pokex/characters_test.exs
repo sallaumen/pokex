@@ -5,7 +5,7 @@ defmodule Pokex.CharactersTest do
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     {:ok, s} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
     %{settings: s}
   end
 

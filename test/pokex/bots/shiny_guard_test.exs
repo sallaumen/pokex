@@ -10,7 +10,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   setup %{tmp_dir: tmp} do
     # the trophy shelf writes under the Pokex home — keep it out of the real one
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     SettingsStash.stash!(
       shiny_guard_enabled: true,

@@ -41,7 +41,7 @@ defmodule Pokex.Perception.FeedTest do
     Application.put_env(:pokex, :home_dir, tmp)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       :ets.delete(:pokex_world, :feed_test)
     end)
 

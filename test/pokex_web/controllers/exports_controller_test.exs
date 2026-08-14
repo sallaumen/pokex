@@ -4,7 +4,7 @@ defmodule PokexWeb.ExportsControllerTest do
   @tag :tmp_dir
   test "serves a JSON export with the right content-type", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     File.write!(Path.join(Pokex.Home.exports_dir(), "latest.json"), ~s({"ok":true}))
 
@@ -16,7 +16,7 @@ defmodule PokexWeb.ExportsControllerTest do
   @tag :tmp_dir
   test "serves an event log as text", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     File.write!(Path.join(Pokex.Home.exports_dir(), "events.log"), "linha 1\nlinha 2\n")
 
@@ -28,7 +28,7 @@ defmodule PokexWeb.ExportsControllerTest do
   @tag :tmp_dir
   test "rejects path traversal and 404s a missing file", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     # basename strips the traversal — it looks for "settings.json" in exports/, not ../
     assert conn |> get(~p"/exports/nope.json") |> response(404)

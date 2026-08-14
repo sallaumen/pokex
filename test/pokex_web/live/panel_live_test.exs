@@ -179,7 +179,7 @@ defmodule PokexWeb.PanelLiveTest do
   @tag :tmp_dir
   test "start without calibration shows preflight error", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     {:ok, view, html} = live(conn, ~p"/")
     assert html =~ "parado"
@@ -677,7 +677,7 @@ defmodule PokexWeb.PanelLiveTest do
     action = Pokex.Settings.get(:shiny_action)
 
     on_exit(fn ->
-      Application.delete_env(:pokex, :home_dir)
+      Pokex.TestHome.restore()
       Pokex.Settings.put(:shiny_guard_enabled, enabled)
       Pokex.Settings.put(:shiny_action, action)
     end)
@@ -1147,7 +1147,7 @@ defmodule PokexWeb.PanelLiveTest do
   @tag :tmp_dir
   test "exports the recent events to a downloadable file", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     {:ok, view, _} = live(conn, ~p"/")
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "matou o bicho"})
@@ -1164,7 +1164,7 @@ defmodule PokexWeb.PanelLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
     save_calibration()
 
     {:ok, view, _} = live(conn, ~p"/config")
@@ -1179,7 +1179,7 @@ defmodule PokexWeb.PanelLiveTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
     save_calibration()
 
     Agent.stop(Fake)
@@ -1233,7 +1233,7 @@ defmodule PokexWeb.PanelLiveTest do
   @tag :tmp_dir
   test "per-Pokémon preset: save → apply → delete in the panel", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     keys = Pokex.Settings.get(:hook_skill_keys)
     on_exit(fn -> Pokex.Settings.put(:hook_skill_keys, keys) end)
@@ -1405,7 +1405,7 @@ defmodule PokexWeb.PanelLiveTest do
   @tag :tmp_dir
   test "the 'Ler' button reads the skill bar on demand", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     row = List.duplicate({200, 200, 0, 255}, 12) ++ List.duplicate({20, 20, 20, 255}, 2)
     bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), [row])
@@ -1782,7 +1782,7 @@ defmodule PokexWeb.PanelLiveTest do
       Application.put_env(:pokex, :home_dir, tmp)
 
       on_exit(fn ->
-        Application.delete_env(:pokex, :home_dir)
+        Pokex.TestHome.restore()
         File.rm_rf!(tmp)
         # mounting the panel attaches the display feeds, which can leave a
         # :layout fact behind — and a test elsewhere asserts on NOT having one
@@ -2102,7 +2102,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.SettingsStash.stash_keys!([:active_character])
 
       on_exit(fn ->
-        Application.delete_env(:pokex, :home_dir)
+        Pokex.TestHome.restore()
         File.rm_rf!(tmp)
       end)
 
@@ -2177,7 +2177,7 @@ defmodule PokexWeb.PanelLiveTest do
       Pokex.SettingsStash.stash_keys!([:rescue_mode, :rescue_combo])
 
       on_exit(fn ->
-        Application.delete_env(:pokex, :home_dir)
+        Pokex.TestHome.restore()
         File.rm_rf!(tmp)
         Enum.each([:team, :layout], &WorldState.forget/1)
       end)
@@ -2261,7 +2261,7 @@ defmodule PokexWeb.PanelLiveTest do
       Application.put_env(:pokex, :home_dir, tmp)
 
       on_exit(fn ->
-        Application.delete_env(:pokex, :home_dir)
+        Pokex.TestHome.restore()
         File.rm_rf!(tmp)
         Enum.each([:team, :layout], &WorldState.forget/1)
       end)

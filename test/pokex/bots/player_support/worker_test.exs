@@ -14,6 +14,43 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest.FakeBody do
   end
 end
 
+defmodule Pokex.Bots.PlayerSupport.WorkerTest.BlockingBody do
+  @moduledoc "A Body whose perform parks until the test sends :release — the real Body under load."
+  use GenServer
+
+  def start_link(test), do: GenServer.start_link(__MODULE__, test)
+
+  @impl true
+  def init(test), do: {:ok, test}
+
+  @impl true
+  def handle_call({:perform, actions, priority, _requested_at}, _from, test) do
+    send(test, {:performing, priority, actions})
+
+    receive do
+      :release -> :ok
+    end
+
+    {:reply, :ok, test}
+  end
+end
+
+defmodule Pokex.Bots.PlayerSupport.WorkerTest.RefusingBody do
+  @moduledoc "A Body that refuses every perform, the way a closed gate does."
+  use GenServer
+
+  def start_link(test), do: GenServer.start_link(__MODULE__, test)
+
+  @impl true
+  def init(test), do: {:ok, test}
+
+  @impl true
+  def handle_call({:perform, actions, priority, _requested_at}, _from, test) do
+    send(test, {:performed, priority, actions})
+    {:reply, {:error, :input_gate_closed}, test}
+  end
+end
+
 defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   use ExUnit.Case, async: false
 
@@ -374,9 +411,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_000
 
     # a pokémon left dead is worse than a pokémon revived in the open — but
-    # the doubt is SAID, never assumed away
-    assert_receive {:game_log, _level, text}, 1_000
-    assert text =~ "não consegui confirmar o stun"
+    # the doubt is SAID, never assumed away (after the dispatch line: the
+    # receipt is read by the rescue task, so its note arrives with the report)
+    assert await_log("não consegui confirmar o stun") =~ "revivendo assim mesmo"
   end
 
   @tag :tmp_dir
@@ -470,6 +507,64 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert_receive {:performed, :critical, _}, 1_000
     refute_receive {:performed, :critical, _}, 300
     assert Worker.status(worker).counters.rescues == 1
+  end
+
+  # 2026-08-14: the 900ms stun receipt plus the :infinity Body call used to run
+  # INSIDE the tick — a panic during a rescue outlived safe_halt's 1s and the
+  # Guardian logged "não respondeu em 1000ms" while stopping the fleet.
+  @tag :tmp_dir
+  test "the rescue never parks the worker: status and halt answer mid-combo", %{tmp: tmp} do
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, blocking} = Pokex.Bots.PlayerSupport.WorkerTest.BlockingBody.start_link(self())
+
+    worker = start_worker(blocking)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performing, :critical, _}, 1_000
+
+    assert Worker.status(worker).counters.rescues == 1
+    assert :ok = Worker.halt(worker)
+
+    send(blocking, :release)
+  end
+
+  @tag :tmp_dir
+  test "a refused revive is NAMED, and the cooldown still holds", %{tmp: tmp} do
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, refusing} = Pokex.Bots.PlayerSupport.WorkerTest.RefusingBody.start_link(self())
+    Settings.put(:rescue_cooldown_ms, 60_000)
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_worker(refusing)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, _}, 1_000
+    assert_receive {:rule_alarm, msg}, 1_000
+    assert msg =~ "revive"
+    assert msg =~ "NÃO saiu"
+
+    refute_receive {:performed, :critical, _}, 300
+    assert Worker.status(worker).counters.rescues == 1
+  end
+
+  @tag :tmp_dir
+  test "a delivered revive is confirmed in the feed", %{tmp: tmp, body: body} do
+    low = hp_png(tmp, "low.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, _}, 1_000
+    assert await_log("revive despachado") =~ "revive despachado"
+  end
+
+  defp await_log(matching) do
+    assert_receive {:game_log, _level, text}, 1_000
+    if text =~ matching, do: text, else: await_log(matching)
   end
 
   @tag :tmp_dir

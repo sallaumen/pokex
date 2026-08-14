@@ -50,4 +50,34 @@ defmodule Pokex.Home do
 
   def calibration_file, do: Path.join(dir(), "calibration.json")
   def settings_file, do: Path.join(dir(), "settings.json")
+
+  @doc """
+  Writes a state file so a reader never catches it half-written.
+
+  `File.write!/2` truncates and then fills: a reader landing inside that window
+  gets a partial file. Every store here answers a decode error with "empty", so
+  a torn read does not look like a failure — it looks exactly like *there is
+  nothing here*. Measured 2026-08-14 with `routes.json` rewritten in a loop:
+  6 concurrent reads came back with ZERO routes. The cavebot rewrites that same
+  file about 8x/s while recording a fight, and a hunt reading it in that window
+  would believe it had no route at all.
+
+  Rename within a filesystem is atomic, so the reader sees either the whole old
+  file or the whole new one, never the seam. The temp name carries a unique
+  integer because two writers racing on one temp path would corrupt each other.
+  """
+  @spec write!(Path.t(), iodata) :: :ok
+  def write!(path, contents) do
+    tmp = "#{path}.#{System.unique_integer([:positive])}.tmp"
+
+    try do
+      File.write!(tmp, contents)
+      File.rename!(tmp, path)
+      :ok
+    rescue
+      error ->
+        File.rm(tmp)
+        reraise error, __STACKTRACE__
+    end
+  end
 end

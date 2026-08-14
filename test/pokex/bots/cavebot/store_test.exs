@@ -307,4 +307,42 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
       assert Route.gather_wait(read, hd(read.waypoints), 4_000) == 4_000
     end
   end
+
+  # `File.write!/2` truncates and then fills, and `all/0` answers a decode error
+  # with "empty" — so a reader landing inside a write does not see a failure, it
+  # sees ZERO ROUTES. Measured 2026-08-14 with the old write: 6 of ~20k reads
+  # came back empty while one writer looped. The cavebot rewrites this file ~8x/s
+  # while recording a fight, and a hunt reading it then would believe it had no
+  # route to walk. Home.write! renames into place, so a reader gets the whole old
+  # file or the whole new one.
+  test "a reader never catches the routes file half-written" do
+    :ok = Store.add(Route.new("mob", nil))
+    parent = self()
+
+    writer =
+      spawn_link(fn ->
+        Enum.each(1..400, fn i ->
+          Store.add(%Route{
+            Route.new("mob", nil)
+            | waypoints: List.duplicate(%{x: i, y: i, z: 7}, 40)
+          })
+        end)
+
+        send(parent, :done)
+      end)
+
+    empty_reads =
+      Enum.reduce_while(1..20_000, 0, fn _read, empty ->
+        empty = if Store.all() == [], do: empty + 1, else: empty
+
+        receive do
+          :done -> {:halt, empty}
+        after
+          0 -> {:cont, empty}
+        end
+      end)
+
+    Process.exit(writer, :kill)
+    assert empty_reads == 0
+  end
 end

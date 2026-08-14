@@ -1236,7 +1236,7 @@ defmodule Pokex.Settings do
     with {:ok, slug} <- preset_slug(name) do
       data = Map.new(@preset_keys, fn key -> {key, get(key, server)} end)
       File.mkdir_p!(presets_dir())
-      File.write!(preset_path(slug), JSON.encode!(data))
+      Pokex.Home.write!(preset_path(slug), JSON.encode!(data))
       {:ok, slug}
     end
   end
@@ -1465,7 +1465,7 @@ defmodule Pokex.Settings do
 
   defp persist!(path, data) do
     File.mkdir_p!(Path.dirname(path))
-    File.write!(path, JSON.encode!(data))
+    Pokex.Home.write!(path, JSON.encode!(data))
   end
 
   # The boot-time rewrite that trims a fat/materialized file down to overrides. Never fatal: if

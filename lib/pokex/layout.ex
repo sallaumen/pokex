@@ -155,7 +155,7 @@ defmodule Pokex.Layout do
       {:ok, fix} ->
         WorldState.put(:layout, to_fact(fix), System.monotonic_time(:millisecond))
         File.mkdir_p!(Home.dir())
-        File.write!(path(), Jason.encode!(to_fact(fix), pretty: true))
+        Home.write!(path(), Jason.encode!(to_fact(fix), pretty: true))
         {:ok, fix}
 
       error ->

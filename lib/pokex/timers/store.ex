@@ -31,7 +31,7 @@ defmodule Pokex.Timers.Store do
   @spec put([Timer.t()]) :: :ok
   def put(timers) when is_list(timers) do
     File.mkdir_p!(Home.dir())
-    File.write!(path(), JSON.encode!(%{timers: Enum.map(timers, &Timers.encode/1)}))
+    Home.write!(path(), JSON.encode!(%{timers: Enum.map(timers, &Timers.encode/1)}))
     :ok
   end
 

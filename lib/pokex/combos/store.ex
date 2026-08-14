@@ -11,6 +11,7 @@ defmodule Pokex.Combos.Store do
 
   alias Pokex.Combos.Combo
   alias Pokex.Home
+  alias Pokex.StateFile
 
   @filename "combos.json"
 
@@ -83,19 +84,23 @@ defmodule Pokex.Combos.Store do
   "salvar" onto a name already in the list.
   """
   def add(%Combo{name: name} = combo) when is_binary(name) and name != "" do
-    all()
-    |> Enum.reject(&(&1.name == name))
-    |> Kernel.++([combo])
-    |> put()
+    StateFile.update(fn ->
+      all()
+      |> Enum.reject(&(&1.name == name))
+      |> Kernel.++([combo])
+      |> put()
+    end)
   end
 
   def add(_nameless), do: {:error, :invalid_name}
 
   @doc "Removes one combo by name."
   def delete(name) do
-    all()
-    |> Enum.reject(&(&1.name == name))
-    |> put()
+    StateFile.update(fn ->
+      all()
+      |> Enum.reject(&(&1.name == name))
+      |> put()
+    end)
   end
 
   @doc """
@@ -117,12 +122,14 @@ defmodule Pokex.Combos.Store do
 
   @doc "Flips one combo on or off by name."
   def set_enabled(name, enabled?) when is_boolean(enabled?) do
-    all()
-    |> Enum.map(fn
-      %Combo{name: ^name} = combo -> %Combo{combo | enabled?: enabled?}
-      combo -> combo
+    StateFile.update(fn ->
+      all()
+      |> Enum.map(fn
+        %Combo{name: ^name} = combo -> %Combo{combo | enabled?: enabled?}
+        combo -> combo
+      end)
+      |> put()
     end)
-    |> put()
   end
 
   defp path, do: Path.join(Home.dir(), @filename)

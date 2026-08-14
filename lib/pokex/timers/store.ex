@@ -10,6 +10,7 @@ defmodule Pokex.Timers.Store do
   """
 
   alias Pokex.Home
+  alias Pokex.StateFile
   alias Pokex.Timers
   alias Pokex.Timers.Timer
 
@@ -44,10 +45,12 @@ defmodule Pokex.Timers.Store do
   """
   @spec add(Timer.t()) :: :ok
   def add(%Timer{id: id} = timer) when is_binary(id) and id != "" do
-    all()
-    |> Enum.reject(&(&1.id == id))
-    |> Kernel.++([timer])
-    |> put()
+    StateFile.update(fn ->
+      all()
+      |> Enum.reject(&(&1.id == id))
+      |> Kernel.++([timer])
+      |> put()
+    end)
   end
 
   def add(_idless), do: {:error, :invalid_id}
@@ -55,20 +58,24 @@ defmodule Pokex.Timers.Store do
   @doc "Removes a timer by id."
   @spec delete(String.t()) :: :ok
   def delete(id) do
-    all()
-    |> Enum.reject(&(&1.id == id))
-    |> put()
+    StateFile.update(fn ->
+      all()
+      |> Enum.reject(&(&1.id == id))
+      |> put()
+    end)
   end
 
   @doc "Turns one on or off, keeping everything else about it."
   @spec toggle(String.t(), boolean) :: :ok
   def toggle(id, enabled?) do
-    all()
-    |> Enum.map(fn
-      %Timer{id: ^id} = timer -> %{timer | enabled?: enabled?}
-      timer -> timer
+    StateFile.update(fn ->
+      all()
+      |> Enum.map(fn
+        %Timer{id: ^id} = timer -> %{timer | enabled?: enabled?}
+        timer -> timer
+      end)
+      |> put()
     end)
-    |> put()
   end
 
   defp decode(%{"timers" => list}) when is_list(list),

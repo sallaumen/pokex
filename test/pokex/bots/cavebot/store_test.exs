@@ -345,4 +345,29 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
     Process.exit(writer, :kill)
     assert empty_reads == 0
   end
+
+  # Every mutation here reads the whole file, changes one entry and writes the
+  # whole file back. Two of those at once do not conflict and do not error —
+  # one of them simply never happened. Measured 2026-08-14 before Pokex.StateFile:
+  # two processes adding a route each, 60 times, ended with ONE route on disk.
+  # Live, that is arming a route in the panel while the cavebot page files the
+  # lesson of a fight.
+  test "two writers at once both survive — neither write is lost" do
+    parent = self()
+
+    for name <- ~w(alfa beta) do
+      spawn_link(fn ->
+        Enum.each(1..60, fn i ->
+          Store.add(%Route{Route.new(name, nil) | waypoints: [%{x: i, y: i, z: 7}]})
+        end)
+
+        send(parent, {:written, name})
+      end)
+    end
+
+    assert_receive {:written, _one}, 30_000
+    assert_receive {:written, _other}, 30_000
+
+    assert Store.all() |> Enum.map(& &1.name) |> Enum.sort() == ["alfa", "beta"]
+  end
 end

@@ -117,9 +117,13 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
   # character never reached.
   describe "finding the stairs" do
     defp descent do
-      # the leg 1 → 2 goes down; the recorded corner is where he LANDED
+      # The leg 1 → 2 goes down; the recorded corner is where he LANDED. THREE
+      # tiles apart, not two: this is a marking with extra walking folded into
+      # it, which is precisely what the ring is the net for — a marking that
+      # describes the staircase exactly is taken with one tap and never comes
+      # here (see "a staircase is one tap, not a held key").
       {:ok, r} = Route.append(Route.new("escada"), {0, 0, 1})
-      {:ok, r} = Route.append(r, {0, 5, 1})
+      {:ok, r} = Route.append(r, {0, 4, 1})
       {:ok, r} = Route.append(r, {0, 7, 2})
       {:ok, r} = Route.append(r, {4, 7, 2})
       r
@@ -238,6 +242,77 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {logic, :none} = Logic.step(logic, world({0, 7, 1}, 3), 100)
 
       assert logic.state == :fighting
+    end
+
+    # "Entering resets the ring AND the clock, so a search interrupted by a
+    # fight starts over instead of resuming three probes from giving up" — what
+    # `enter_stairs/3` says it does. It used to reset the CURSOR and leave the
+    # budget behind, and `probe_steps` is the half that actually decides giving
+    # up: a search that kept being interrupted resumed its budget while
+    # restarting its cursor, and `{:block, :stairs}` fired well before the 32
+    # probes `cavebot_stair_max_probes` documents.
+    defp searched_then_fought do
+      {logic, _} = descending(1)
+
+      logic =
+        Enum.reduce([100, 600, 1_100, 1_600], logic, fn now, logic ->
+          {logic, _probe} = Logic.step(logic, world({0, 7, 1}), now)
+          logic
+        end)
+
+      {logic, :none} = Logic.step(logic, world({0, 7, 1}, 3), 2_000)
+      logic
+    end
+
+    test "the search spends its budget one probe at a time" do
+      logic = searched_then_fought()
+
+      assert logic.probe_steps == 4
+      assert logic.state == :fighting
+    end
+
+    test "a search interrupted by a fight starts its budget over, not where it stopped" do
+      logic = searched_then_fought()
+
+      # the screen clears, the debounce is sustained and the dwell runs out
+      {logic, :none} = Logic.step(logic, world({0, 7, 1}, 0), 2_100)
+      {logic, :none} = Logic.step(logic, world({0, 7, 1}, 0), 3_000)
+      assert logic.state == :post_fight
+      {logic, :none} = Logic.step(logic, world({0, 7, 1}, 0), 4_500)
+      assert logic.state == :walking
+
+      {logic, {:nudge, _dx, _dy}} = Logic.step(logic, world({0, 7, 1}), 4_700)
+
+      assert logic.state == :stairs
+      assert logic.probe_steps == 1, "a busca retomou o orçamento em vez de recomeçar"
+    end
+
+    # The budget is per-STAIRCASE, and a skip is walking away from one. Carried,
+    # it lands on the NEXT staircase of the lap already half spent.
+    test "giving up on the corner after the stairs leaves no probe budget behind" do
+      logic = searched_then_fought()
+      assert logic.probe_steps == 4
+
+      # the step was taken DURING the fight (a probe landed just as the mob
+      # arrived), so the search's target is reached the moment walking resumes
+      {logic, :none} = Logic.step(logic, world({0, 7, 2}, 0), 2_100)
+      {logic, :none} = Logic.step(logic, world({0, 7, 2}, 0), 3_000)
+      {logic, :none} = Logic.step(logic, world({0, 7, 2}, 0), 4_500)
+      {logic, _arrival} = Logic.step(logic, world({0, 7, 2}), 4_700)
+
+      assert logic.wp_index == 3
+      assert logic.probe_steps == 4, "a chegada não zera o orçamento — só a entrada e o skip"
+
+      # walled on the way to the next corner, on the SAME floor: the corner is
+      # given up instead of blocking
+      logic =
+        Enum.reduce(1..8, logic, fn tick, logic ->
+          {logic, _command} = Logic.step(logic, world({0, 7, 2}), 8_000 + tick * 200)
+          logic
+        end)
+
+      assert logic.skips == 1
+      assert logic.probe_steps == 0
     end
   end
 
@@ -1263,6 +1338,256 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       logic = arrived_at_kill(&Route.set_timing(&1, 1, gather_ms: 8_000))
 
       refute Logic.gathering?(logic, 5_100)
+    end
+  end
+
+  describe "a staircase is one tap, not a held key" do
+    # Two corners: the one right before the staircase and the one right after,
+    # two tiles up and one floor above. His signature.
+    defp stair_route do
+      {:ok, r} = Route.append(Route.new("meganium"), {2368, 30_030, 5})
+      {:ok, r} = Route.append(r, {2368, 30_028, 6})
+      r
+    end
+
+    defp standing_before(cfg \\ @cfg) do
+      logic = Logic.new(stair_route(), cfg)
+      {logic, :run_combat} = Logic.step(logic, world({2368, 30_030, 5}), 0)
+      {logic, _arrival} = Logic.step(logic, world({2368, 30_030, 5}), 200)
+      logic
+    end
+
+    test "standing on the corner before it, the leg is ONE tap toward the step" do
+      {_logic, action} = Logic.step(standing_before(), world({2368, 30_030, 5}), 400)
+
+      assert action == {:nudge, 0, -1}
+    end
+
+    # A held key takes the stair on the first press and keeps walking on the
+    # floor above until the next tick — the overshoot he reported.
+    test "it is never a held walk" do
+      {_logic, action} = Logic.step(standing_before(), world({2368, 30_030, 5}), 400)
+
+      refute match?({:walk, _, _}, action)
+    end
+
+    # One tap per stair_step_ms, not one per 200ms tick: the client needs time
+    # to answer, and a second key on top of the first is a second stair.
+    test "it does not tap again before the step has had time to answer" do
+      logic = standing_before()
+      {logic, {:nudge, 0, -1}} = Logic.step(logic, world({2368, 30_030, 5}), 400)
+      {_logic, again} = Logic.step(logic, world({2368, 30_030, 5}), 600)
+
+      assert again == :none
+    end
+
+    test "still on the old floor after the wait, it taps again" do
+      logic = standing_before()
+      {logic, {:nudge, 0, -1}} = Logic.step(logic, world({2368, 30_030, 5}), 400)
+      {_logic, again} = Logic.step(logic, world({2368, 30_030, 5}), 1_200)
+
+      assert again == {:nudge, 0, -1}
+    end
+
+    test "the floor changed: it arrived, and the taps reset" do
+      logic = standing_before()
+      {logic, {:nudge, 0, -1}} = Logic.step(logic, world({2368, 30_030, 5}), 400)
+      {logic, _} = Logic.step(logic, world({2368, 30_028, 6}), 1_200)
+
+      assert logic.wp_index == 0
+      assert logic.state == :walking
+
+      # the RESET the name promises: the taps belong to the staircase that was
+      # just taken, and the next one of the lap must not start with them spent.
+      # Without these two, the whole test still passed with the reset deleted.
+      assert logic.stair_taps == 0
+      refute Map.has_key?(logic.since, :stair_tap)
+    end
+
+    # The ring search is the NET, not the road: it only gets its turn once the
+    # taps are spent.
+    test "taps spent falls back to the ring search" do
+      cfg = Map.merge(@cfg, %{stair_step_ms: 100, stair_step_taps: 2})
+      logic = standing_before(cfg)
+
+      {logic, {:nudge, 0, -1}} = Logic.step(logic, world({2368, 30_030, 5}), 400)
+      {logic, {:nudge, 0, -1}} = Logic.step(logic, world({2368, 30_030, 5}), 600)
+      {logic, _third} = Logic.step(logic, world({2368, 30_030, 5}), 800)
+
+      assert logic.state == :stairs
+    end
+  end
+
+  # The SECOND thing a skip stranded: it advances `wp_index` without passing
+  # through `arrived/3`, so everything that belongs to the corner being left has
+  # to be dropped here too — the huddle was the first (see above), the taps are
+  # the second.
+  describe "giving up on a corner also gives up its taps" do
+    # Two staircases in a row, his Meganium shape: corner, step, corner, step,
+    # corner. `stair_step_taps: 1` is what makes the strand visible in one tap
+    # instead of three.
+    defp two_stair_route do
+      {:ok, r} = Route.append(Route.new("meganium"), {10, 10, 5})
+      {:ok, r} = Route.append(r, {10, 8, 6})
+      {:ok, r} = Route.append(r, {10, 6, 7})
+      r
+    end
+
+    # Takes the first staircase (one tap), lands three tiles off the corner it
+    # marks, finds a wall there, and gives that corner up.
+    defp skipped_after_a_tap do
+      cfg = Map.merge(@cfg, %{stair_step_taps: 1})
+      logic = Logic.new(two_stair_route(), cfg)
+
+      {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
+      {logic, _arrival} = Logic.step(logic, world({10, 10, 5}), 200)
+      {logic, {:nudge, 0, -1}} = Logic.step(logic, world({10, 10, 5}), 400)
+
+      # the step worked, but it left him beside the corner it marks — the tap
+      # is spent and the leg is ordinary walking again
+      {logic, {:walk, -3, 0}} = Logic.step(logic, world({13, 8, 6}), 600)
+
+      # walled in: the walk times out and the retries run out on the same tile
+      Enum.reduce(1..8, logic, fn tick, acc ->
+        if acc.skips == 0 do
+          {acc, _command} = Logic.step(acc, world({13, 8, 6}), 3_600 + tick * 200)
+          acc
+        else
+          acc
+        end
+      end)
+    end
+
+    test "the skip drops the taps of the staircase it walked away from" do
+      logic = skipped_after_a_tap()
+
+      assert logic.skips == 1
+      assert logic.wp_index == 2
+      assert logic.stair_taps == 0
+      refute Map.has_key?(logic.since, :stair_tap)
+    end
+
+    # "One key, two tiles" is true from ONE tile: the corner the staircase
+    # leaves from. A skip advances `wp_index` WITHOUT arriving anywhere, so
+    # after it the character is standing wherever he was walled — and a tap
+    # from there presses an arrow into whatever is beside the staircase. From
+    # three tiles off the corner the next leg is ordinary walking.
+    test "the staircase after the skip is NOT tapped from off the corner" do
+      logic = skipped_after_a_tap()
+      {logic, action} = Logic.step(logic, world({13, 8, 6}), 5_600)
+
+      refute match?({:nudge, _dx, _dy}, action)
+      assert action == {:walk, -3, -2}
+      assert logic.state == :walking
+    end
+
+    # …and once the walking has closed the distance without the floor changing,
+    # the ring gets the leg. Which is what the ring is for: a staircase nobody
+    # is standing at the foot of.
+    test "walked to the corner without the floor changing, the ring takes over" do
+      logic = skipped_after_a_tap()
+      {logic, _walk} = Logic.step(logic, world({13, 8, 6}), 5_600)
+      {logic, action} = Logic.step(logic, world({11, 7, 6}), 5_800)
+
+      assert logic.state == :stairs
+      assert {:nudge, _dx, _dy} = action
+    end
+
+    # The other side of the same gate: standing exactly ON the corner the
+    # staircase leaves from, the tap is the road again — the taps the skip
+    # dropped are what make it available.
+    test "standing on the corner it leaves from, the tap is back" do
+      logic = skipped_after_a_tap()
+      {logic, action} = Logic.step(logic, world({10, 8, 6}), 5_600)
+
+      assert action == {:nudge, 0, -1}
+      assert logic.state == :walking
+    end
+  end
+
+  # The THIRD thing a skip stranded, found sweeping the class: the round of
+  # stops. `next_stop/1` and `park_spot/1` read the corner BEHIND the index —
+  # "the one the hunt last REACHED" — and after a skip that corner is precisely
+  # the one it could not reach. A ball thrown at a pile that died somewhere
+  # else, and a revive spent for a stop nobody stood at.
+  describe "giving up on a corner also gives up its round of stops" do
+    defp skipped_a_kill_spot do
+      {:ok, r} = Route.append(Route.new("meganium"), {10, 10, 5})
+      {:ok, r} = Route.append(r, {12, 10, 5})
+      {:ok, r} = Route.append(r, {14, 10, 5})
+
+      route = r |> Route.set_action(1, :lure_end) |> Route.set_stop(1, :sweep, true)
+
+      logic = Logic.new(route, @cfg)
+      {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
+      {logic, _arrival} = Logic.step(logic, world({10, 10, 5}), 200)
+
+      # walled in on the way to the kill spot: the walk times out, the retries
+      # run out, and the hunt gives that corner up
+      Enum.reduce(1..8, logic, fn tick, acc ->
+        if acc.skips == 0 do
+          {acc, _command} = Logic.step(acc, world({10, 10, 5}), 3_200 + tick * 100)
+          acc
+        else
+          acc
+        end
+      end)
+    end
+
+    test "a fight after the skip does not sweep the corner nobody reached" do
+      logic = skipped_a_kill_spot()
+      assert logic.skips == 1
+
+      # something walks in, dies, and the screen clears — the stop round of the
+      # waypoint behind the index is what post_fight would run
+      {logic, _} = Logic.step(logic, world({10, 10, 5}, 1), 5_000)
+      assert logic.state == :fighting
+      {logic, _} = Logic.step(logic, world({10, 10, 5}, 0), 5_200)
+      {logic, _clear} = Logic.step(logic, world({10, 10, 5}, 0), 6_100)
+      assert logic.state == :post_fight
+
+      {_logic, action} = Logic.step(logic, world({10, 10, 5}, 0), 6_300)
+
+      refute match?({:sweep, _spot}, action)
+    end
+
+    # Arriving somewhere new is what arms a round again — the skip must not
+    # leave the NEXT corner's stops disarmed too.
+    test "the next corner it actually reaches still runs its round" do
+      logic = skipped_a_kill_spot()
+      {logic, _arrival} = Logic.step(logic, world({14, 10, 5}), 5_000)
+
+      assert logic.wp_index == 0
+      assert logic.stops_done == []
+    end
+  end
+
+  describe "the corner before a staircase is reached EXACTLY" do
+    defp approach_route do
+      {:ok, r} = Route.append(Route.new("meganium"), {2368, 30_030, 5})
+      {:ok, r} = Route.append(r, {2368, 30_028, 6})
+      {:ok, r} = Route.append(r, {2360, 30_028, 6})
+      r
+    end
+
+    # Arrival tolerance is one tile, and from one tile off the tap misses the
+    # step entirely — so the corner a staircase leaves from is the one place
+    # the tolerance may not apply.
+    test "one tile off the corner before a stair is not arrival" do
+      logic = Logic.new(approach_route(), @cfg)
+      {logic, :run_combat} = Logic.step(logic, world({2368, 30_031, 5}), 0)
+      {logic, action} = Logic.step(logic, world({2368, 30_031, 5}), 200)
+
+      assert logic.wp_index == 0
+      assert match?({:walk, _, _}, action)
+    end
+
+    test "an ordinary corner still arrives within the tolerance" do
+      logic = Logic.new(approach_route(), @cfg)
+      {logic, :run_combat} = Logic.step(logic, world({2360, 30_029, 6}), 0)
+      {logic, _} = Logic.step(logic, world({2360, 30_029, 6}), 200)
+
+      assert logic.wp_index == 0
     end
   end
 end

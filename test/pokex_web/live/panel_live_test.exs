@@ -286,6 +286,23 @@ defmodule PokexWeb.PanelLiveTest do
       view |> element("#quick-rescue") |> render_click()
       refute Pokex.Settings.get(:rescue_enabled) == antes.rescue
     end
+
+    # A measuring switch nobody can find is a measuring switch nobody uses: the
+    # only other way to flip it is editing ~/.pokex/settings.json by hand.
+    test "measuring the walk is a switch on this screen, off until he flips it", %{conn: conn} do
+      antes = Pokex.Settings.get(:cavebot_measure_walk)
+      on_exit(fn -> Pokex.Settings.put(:cavebot_measure_walk, antes) end)
+      Pokex.Settings.put(:cavebot_measure_walk, false)
+
+      {:ok, view, _html} = live(conn, ~p"/config")
+      assert has_element?(view, "#measure-walk-toggle")
+
+      view |> element("#measure-walk-toggle") |> render_click()
+      assert Pokex.Settings.get(:cavebot_measure_walk)
+
+      view |> element("#measure-walk-toggle") |> render_click()
+      refute Pokex.Settings.get(:cavebot_measure_walk)
+    end
   end
 
   # Judging the layout while the game is BEHIND the panel is judging the wrong

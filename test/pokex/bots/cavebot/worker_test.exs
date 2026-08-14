@@ -116,6 +116,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   alias Pokex.Bots.Cavebot.WorkerTest.FakeCombat
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.InputGate
+  alias Pokex.Journal
   alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.Team
   alias Pokex.SettingsStash
@@ -155,6 +156,15 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   defp two_waypoint_route! do
     {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
     {:ok, route} = Route.append(route, {200, 200, 7})
+    :ok = Store.add(route)
+    route
+  end
+
+  # His signature staircase: the corner it leaves from and the corner it lands
+  # on, two tiles apart and one floor down — "one key, two tiles".
+  defp stair_route! do
+    {:ok, route} = Route.append(Route.new("meganium"), {100, 100, 7})
+    {:ok, route} = Route.append(route, {100, 98, 6})
     :ok = Store.add(route)
     route
   end
@@ -430,6 +440,32 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       tick!(worker)
       assert_receive {:held, [_ | _]}, 1_000
       refute_receive {:stepped, _dx, _dy}, 200
+    end
+
+    # A DECISION TO WALK MUST NEVER COME OUT AS NO KEY. `hold_walk/3` refuses to
+    # hold an axis already inside `cavebot_arrival_tolerance_tiles` (a held key
+    # keeps walking between readings and overshoots the correction), and with
+    # `cavebot_precise_tiles: 0` — in range, and the gear he asked for when the
+    # hold is the fast one — a one-tile leg had NO axis left to hold: `hold([])`
+    # is the release, nothing is pressed, the position never changes,
+    # `walk_timeout_ms` makes it `:stuck` and the four `unstick/3` retries each
+    # produce the same empty hold before the corner is skipped.
+    #
+    # Newly reachable because the corner a staircase LEAVES from is now reached
+    # exactly (tolerance does not apply there), so `{:walk, 1, 0}` on it is a
+    # real decision instead of an arrival.
+    test "the last tile of a stair corner is a tap, never an empty hold", %{worker: worker} do
+      SettingsStash.stash!(cavebot_precise_tiles: 0, cavebot_arrival_tolerance_tiles: 1)
+      stair_route!()
+      :ok = Worker.run(worker)
+
+      # one tile short of the corner the staircase leaves from
+      minimap!({99, 100, 7})
+      tick!(worker)
+      tick!(worker)
+
+      assert_receive {:stepped, 1, 0}, 1_000
+      assert Worker.status(worker).state == :walking
     end
   end
 
@@ -1231,6 +1267,271 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       assert_receive first
       assert_receive second
       assert {first, second} == {{:held, []}, {:performed, :high, [{:press, "2"}]}}
+    end
+  end
+
+  # `note_search/3` narrates the ring — "🪜 procurando a escada", "🪜 achei a
+  # escada" — and a staircase taken by TAP never enters `:stairs`, so the
+  # success this whole mechanism exists to create was silent while the failure
+  # was loud. In the journal, where he judges whether the tap helped, the two
+  # were indistinguishable.
+  describe "taking the staircase with a tap leaves a trace" do
+    defp took_the_stair(worker) do
+      stair_route!()
+      :ok = Worker.run(worker)
+
+      # standing on the corner the staircase leaves from
+      minimap!({100, 100, 7})
+      tick!(worker)
+      assert_receive {:combat_cmd, :run}, 1_000
+      # the arrival at that corner, then the tap toward the step
+      tick!(worker)
+      tick!(worker)
+      assert_receive {:stepped, 0, -1}, 1_000
+
+      # the client answered: one key, two tiles, one floor
+      minimap!({100, 98, 6})
+      tick!(worker)
+    end
+
+    test "the staircase taken by tap says so, in the narrative he reads", %{worker: worker} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      took_the_stair(worker)
+
+      assert_receive {:cavebot_log, :macro, "caçada: 🪜 escada tomada no toque" <> _}, 1_000
+      assert Worker.status(worker).last_action.text =~ "escada"
+    end
+
+    # …and it never says it about a corner that was simply walked to: the line
+    # belongs to a leg that spent taps, not to every arrival.
+    test "a plain arrival says nothing about a staircase", %{worker: worker} do
+      two_waypoint_route!()
+      :ok = Worker.run(worker)
+
+      minimap!({100, 100, 7})
+      tick!(worker)
+      assert_receive {:combat_cmd, :run}, 1_000
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      tick!(worker)
+
+      assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2"}, 1_000
+      refute_receive {:cavebot_log, :macro, "caçada: 🪜" <> _}, 200
+    end
+  end
+
+  # "a movimentação tá muito ruim ainda" (Lucas, 2026-08-12). Both complaints
+  # outside the staircase — passing the corner and coming back, pushing against
+  # walls — are still HYPOTHESES: nobody ever measured his speed in tiles/s, how
+  # many tiles a walking decision covers, or whether the decision was taken on a
+  # reading up to `cavebot_minimap_fact_max_age_ms` old.
+  describe "the walk decision is measurable" do
+    # Every test here is about what a switch does, so none of them may inherit
+    # whichever value the previous test left in the global settings: the state
+    # being measured is named out loud, starting from the default a normal hunt
+    # has.
+    setup do
+      SettingsStash.stash!(cavebot_measure_walk: false)
+      :ok
+    end
+
+    defp measuring! do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      SettingsStash.stash!(cavebot_measure_walk: true)
+    end
+
+    test "a walk log carries where he was, how far, how old the reading and what went out" do
+      measuring!()
+
+      Worker.log_walk_decision({:walk, 4, -3}, {100, 200, 7}, 250, {:hold, ["right", "up"]})
+
+      assert_receive {:cavebot_log, :macro, text}
+      assert text =~ "100,200,7"
+      assert text =~ "4,-3"
+      assert text =~ "250ms"
+      assert text =~ "right+up"
+    end
+
+    # The question the instrument exists for is "how many tiles did that
+    # decision actually buy", and `{:walk, 4, -3}` reads identically whether the
+    # Worker then held two keys, held one, tapped one or pressed nothing. So the
+    # three outcomes must be three different lines.
+    test "the same decision reads differently for a hold, a tap and nothing at all" do
+      measuring!()
+
+      Worker.log_walk_decision({:walk, 4, -3}, {1, 2, 7}, 10, {:hold, ["right", "up"]})
+      assert_receive {:cavebot_log, :macro, held}
+
+      Worker.log_walk_decision({:walk, 4, -3}, {1, 2, 7}, 10, {:tap, "right"})
+      assert_receive {:cavebot_log, :macro, tapped}
+
+      Worker.log_walk_decision({:walk, 4, -3}, {1, 2, 7}, 10, :nothing)
+      assert_receive {:cavebot_log, :macro, nothing}
+
+      assert length(Enum.uniq([held, tapped, nothing])) == 3
+      assert held =~ "segurei right+up"
+      assert tapped =~ "toquei right"
+      assert nothing =~ "NENHUMA tecla"
+    end
+
+    # Never read = never published: the number has to say "I don't know"
+    # instead of quietly reading as zero, which is the freshest reading there is.
+    test "a reading that was never published says so instead of pretending to be fresh" do
+      measuring!()
+
+      Worker.log_walk_decision({:nudge, 0, -1}, {1, 2, 7}, nil, {:tap, "up"})
+
+      assert_receive {:cavebot_log, :macro, text}
+      assert text =~ "?ms"
+      refute text =~ "0ms"
+    end
+
+    test "anything that is not a step says nothing" do
+      measuring!()
+
+      Worker.log_walk_decision(:none, {1, 2, 7}, 250, :nothing)
+
+      refute_receive {:cavebot_log, _level, _text}, 50
+    end
+
+    # The wiring, which the direct call cannot prove: a walking hunt has to
+    # produce the line by itself, on the reading and the position it actually
+    # decided on, and saying what its own translation put out.
+    test "a walking hunt logs the decision it took and the keys it held", %{worker: worker} do
+      two_waypoint_route!()
+      :ok = Worker.run(worker)
+
+      minimap!({100, 100, 7})
+      tick!(worker)
+      assert_receive {:combat_cmd, :run}, 1_000
+
+      # arrival at the first corner; the next tick is the walk toward the second
+      tick!(worker)
+      measuring!()
+      tick!(worker)
+
+      assert_receive {:cavebot_log, :macro,
+                      "caçada: andar walk de 100,100,7: faltam 100,100 tiles" <> rest},
+                     1_000
+
+      assert rest =~ ~r/leitura de \d+ms atrás/
+      assert rest =~ "segurei right+down"
+    end
+
+    # THE DEFAULT PATH. The hunt decides ~5x a second; /cavebot keeps 8 log
+    # lines and does not filter by level, so a line per decision turned that box
+    # into a rolling 1.6-second window — `waypoint 12/67`, `🪜 procurando a
+    # escada` and `BLOQUEADO` scrolled away before he could read them, on the
+    # very page the 🪜 badges were added to. Off must cost exactly zero lines,
+    # at ANY level.
+    test "measuring off, the decision does not speak at all", %{worker: worker} do
+      two_waypoint_route!()
+      :ok = Worker.run(worker)
+
+      minimap!({100, 100, 7})
+      tick!(worker)
+      assert_receive {:combat_cmd, :run}, 1_000
+
+      tick!(worker)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      tick!(worker)
+
+      refute_receive {:cavebot_log, _level, "caçada: andar" <> _}, 200
+    end
+
+    test "measuring off, a direct call emits nothing either" do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      SettingsStash.stash!(cavebot_measure_walk: false)
+
+      Worker.log_walk_decision({:walk, 4, -3}, {1, 2, 7}, 250, {:tap, "right"})
+
+      refute_receive {:cavebot_log, _level, "caçada: andar" <> _}, 50
+    end
+
+    # On, the level is `:macro` and not `:debug`, because `Journal.persist_event/2`
+    # refuses `:debug`: measured at `:debug` a hunt leaves nothing on disk.
+    # Asserted on the level that came OUT of the worker, never on the setting —
+    # reading the setting back would prove only that `put` works.
+    test "measuring on, the decision comes out at the level the journal keeps" do
+      measuring!()
+
+      Worker.log_walk_decision({:walk, 4, -3}, {1, 2, 7}, 250, {:tap, "right"})
+
+      assert_receive {:cavebot_log, level, "caçada: andar walk" <> _}
+      assert level == :macro
+    end
+
+    # The mechanism (`:macro` comes out) is not the consequence (a full hunt can
+    # be read back tomorrow), and the two live in different modules. So this one
+    # runs the line through a REAL journal writing a REAL file: without it, both
+    # halves could be green while the level that survives is a third one.
+    test "measuring on is what puts the walking lines in the journal FILE" do
+      {:ok, journal} = Journal.start_link(name: nil, persist: true)
+
+      SettingsStash.stash!(cavebot_measure_walk: false)
+      Worker.log_walk_decision({:walk, 9, 9}, {1, 2, 7}, 100, {:tap, "right"})
+      _drained = Journal.recent([], journal)
+
+      refute journal_today() =~ "9,9"
+
+      SettingsStash.stash!(cavebot_measure_walk: true)
+      Worker.log_walk_decision({:walk, 4, -3}, {1, 2, 7}, 250, {:tap, "right"})
+      _drained = Journal.recent([], journal)
+
+      assert journal_today() =~ "4,-3"
+    end
+
+    # `Journal.record/4` folds consecutive identical `{source, text}` into a
+    # `repeats` count that `persist_event/2` never writes, so identical lines
+    # land on disk as ONE line with no duration — and a stationary stretch (his
+    # "fica empurrando parede") is precisely where the lines repeat.
+    #
+    # What breaks the fold there is the AGE of the reading, not the position:
+    # standing still, the position is by definition the same tile, and it is the
+    # reading underneath that keeps moving. So these two pin the real boundary
+    # instead of a hoped-for one.
+    test "a stationary stretch lands one line per decision while the reading ages" do
+      {:ok, journal} = Journal.start_link(name: nil, persist: true)
+      SettingsStash.stash!(cavebot_measure_walk: true)
+
+      for age <- [120, 340, 560] do
+        Worker.log_walk_decision({:walk, 3, 0}, {77, 88, 7}, age, {:hold, ["right"]})
+      end
+
+      _drained = Journal.recent([], journal)
+
+      assert length(journal_lines_matching("77,88,7")) == 3
+    end
+
+    # The limit, written down: two decisions identical down to the age of the
+    # reading are ONE line on disk. The position does not save them — it is the
+    # same tile — and neither does what went out.
+    test "decisions identical down to the reading age still fold into one line" do
+      {:ok, journal} = Journal.start_link(name: nil, persist: true)
+      SettingsStash.stash!(cavebot_measure_walk: true)
+
+      for _repeat <- 1..3 do
+        Worker.log_walk_decision({:walk, 3, 0}, {55, 66, 7}, 120, {:hold, ["right"]})
+      end
+
+      _drained = Journal.recent([], journal)
+
+      assert length(journal_lines_matching("55,66,7")) == 1
+    end
+  end
+
+  defp journal_lines_matching(needle),
+    do: journal_today() |> String.split("\n", trim: true) |> Enum.filter(&(&1 =~ needle))
+
+  # Today's journal file, or "" while nothing has been written to it — a hunt
+  # that persisted nothing must read as an empty day, not as a crash.
+  defp journal_today do
+    Journal.dir()
+    |> Path.join(Date.to_iso8601(Date.utc_today()) <> ".jsonl")
+    |> File.read()
+    |> case do
+      {:ok, body} -> body
+      _no_file -> ""
     end
   end
 end

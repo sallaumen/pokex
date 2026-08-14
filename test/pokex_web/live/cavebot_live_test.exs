@@ -1600,4 +1600,89 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#cavebot-notice") |> render() =~ "entre 0 e 100"
     end
   end
+
+  # Seven of the fourteen floor changes in his three recorded routes are marked
+  # the way a staircase is — the corner right before and the corner right after,
+  # two tiles apart with the step in the middle. The other seven have extra
+  # walking folded into the same corner, and those are the ones still paying for
+  # the ring search. He cannot tell them apart until the page says so.
+  #
+  # Every assertion here is scoped to ONE ROW: a badge on the wrong row is the
+  # exact defect these tests exist to catch, and a page-wide `html =~` cannot
+  # see it.
+  describe "the staircase legs on the page" do
+    setup do
+      {:ok, route} = Route.append(Route.new("meganium"), {2368, 30_030, 5})
+      {:ok, route} = Route.append(route, {2368, 30_028, 6})
+      {:ok, route} = Route.append(route, {2360, 30_025, 5})
+      :ok = Store.put([route])
+      :ok
+    end
+
+    # Waypoint 1 → 2 is the clean one: dx = 0, dy = −2, one key, and the step is
+    # the tile in between. Like every other badge in that row, it lands on the
+    # waypoint the leg ARRIVES at — waypoint 2, `#waypoint-1`.
+    test "a clean stair leg says where the step is", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      row = view |> element("#waypoint-1") |> render()
+
+      assert row =~ "🪜"
+      assert row =~ "2368, 30029"
+    end
+
+    # Waypoint 2 → 3 changes floor with dx = −8, dy = −3: extra walking folded
+    # into the corner. It must be called out, not silently left to the ring
+    # search — and named with the rule he can act on.
+    test "a dirty stair leg is named as dirty", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      row = view |> element("#waypoint-2") |> render()
+
+      assert row =~ "não está limpa"
+      assert row =~ "marque o canto logo ANTES e o logo DEPOIS"
+    end
+
+    # The step is the midpoint of two tiles exactly two apart, so it exists only
+    # once the pair is clean. On a folded corner the staircase's real position is
+    # not in the recording at all: the page says what is wrong and what the rule
+    # is, and never guesses a coordinate.
+    test "a dirty stair leg is given no coordinates", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      refute view |> element("#waypoint-2") |> render() =~ "o degrau é"
+    end
+
+    # The pairing, pinned: reading the leg that LEAVES a waypoint instead of the
+    # one that arrives at it splits a staircase across two rows and parks "não
+    # está limpa" beside the climb that is actually clean.
+    test "the step and its own climb sit on the same row", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      clean = view |> element("#waypoint-1") |> render()
+      crooked = view |> element("#waypoint-2") |> render()
+
+      assert clean =~ "⇅ andar 6"
+      assert clean =~ "2368, 30029"
+      refute clean =~ "não está limpa"
+
+      assert crooked =~ "⇅ andar 5"
+      refute crooked =~ "escada: o degrau"
+
+      # …and the corner the staircase leaves FROM carries neither badge.
+      refute has_element?(view, "#waypoint-stair-0")
+    end
+  end
+
+  # A route that never changes floor has nothing to say about stairs: no badge,
+  # and no empty element left behind either.
+  test "a one-floor route says nothing about stairs", %{conn: conn} do
+    route_with([{10, 10, 7}, {20, 10, 7}, {20, 20, 7}])
+
+    {:ok, view, html} = live(conn, ~p"/cavebot")
+
+    refute html =~ "escada: o degrau"
+    refute html =~ "não está limpa"
+    refute has_element?(view, "[id^='waypoint-stair-']")
+  end
 end

@@ -180,6 +180,7 @@ defmodule PokexWeb.PanelLive do
        reposition_enabled: Settings.get(:reposition_enabled),
        support_waits_capture: Settings.get(:support_waits_capture),
        shiny_guard_enabled: Settings.get(:shiny_guard_enabled),
+       measure_walk: Settings.get(:cavebot_measure_walk),
        corpse_match_pct: round(Settings.get(:corpse_match_min_similarity) * 100),
        ball_key: Settings.get(:ball_key),
        ball_types: Settings.get(:ball_types),
@@ -1314,6 +1315,14 @@ defmodule PokexWeb.PanelLive do
     value = not Settings.get(:support_waits_capture)
     Settings.put(:support_waits_capture, value)
     {:noreply, assign(socket, support_waits_capture: value)}
+  end
+
+  # Instrumentation, not behaviour: the hunt walks the same either way, only
+  # the walking line's level changes — and with it whether the journal keeps it.
+  def handle_event("toggle_measure_walk", _params, socket) do
+    value = not Settings.get(:cavebot_measure_walk)
+    Settings.put(:cavebot_measure_walk, value)
+    {:noreply, assign(socket, measure_walk: value)}
   end
 
   def handle_event("toggle_shiny_guard", _params, socket) do
@@ -2833,6 +2842,33 @@ defmodule PokexWeb.PanelLive do
                   />
                 </div>
               </div>
+            </div>
+          </section>
+
+          <%!-- This switch is the whole existence of the line that measures the
+                walk: off it is not emitted at all, on it speaks per decision
+                and the journal FILE keeps it. Measuring means speaking in the
+                narrative — so the trade is written out and left to him. --%>
+          <section class="border-t border-pk-line pt-4">
+            <div class="flex items-start gap-3">
+              <div class="min-w-0 flex-1">
+                <h3 class="text-pk-body font-semibold">Medir a caminhada</h3>
+                <p class="mt-0.5 text-pk-meta text-pk-text-3">
+                  Ligado, a caçada fala uma linha a cada decisão de andar (~5 por segundo) e
+                  o histórico guarda a caçada INTEIRA em disco — dá pra medir depois tiles/s,
+                  quantos tiles cada decisão anda e se ela decidiu numa leitura velha. O relato
+                  fica barulhento enquanto isso, e esse barulho é o que você pediu ao ligar.
+                  Desligado, a linha não sai — nem no histórico, nem na caixa de log da caçada.
+                </p>
+              </div>
+              <input
+                id="measure-walk-toggle"
+                type="checkbox"
+                class="toggle toggle-success toggle-sm shrink-0"
+                checked={@measure_walk}
+                phx-click="toggle_measure_walk"
+                aria-label="Medir a caminhada da caçada"
+              />
             </div>
           </section>
 

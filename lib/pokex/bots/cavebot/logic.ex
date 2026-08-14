@@ -61,7 +61,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
             last_hp: nil,
             # latched below `hp_abort_pct`, released at `hp_resume_pct`: while
             # set, the hunt fights what it has and the route does not advance
-            recovering?: false
+            recovering?: false,
+            # how many taps this staircase has already been given — spent, the
+            # ring search gets its turn
+            stair_taps: 0
 
   @type state ::
           :walking | :fighting | :post_fight | :stuck | :fight_stalled | :stairs | :blocked
@@ -105,6 +108,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           gather_wait_ms: non_neg_integer,
           stair_probe_ms: non_neg_integer,
           stair_max_probes: non_neg_integer,
+          stair_step_ms: non_neg_integer,
+          stair_step_taps: non_neg_integer,
           fight_only_at_stops: boolean,
           # below this HP the mob is abandoned (0 = guard off); at or above
           # `hp_resume_pct` the route resumes — the gap is the hysteresis
@@ -132,7 +137,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           probe: non_neg_integer,
           probe_steps: non_neg_integer,
           last_hp: integer | nil,
-          recovering?: boolean
+          recovering?: boolean,
+          stair_taps: non_neg_integer
         }
 
   # The ring the search walks around a staircase, in offsets from the recorded
@@ -419,8 +425,17 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # measurement — see `gather_wait/1`.
   # Arriving is what ARMS the stops: a corner's round of actions belongs to
   # that corner, and it is reaching a new one that starts a new round.
+  # The taps go out with it: they belong to the staircase that was just taken,
+  # and the next one of the lap must not start with them already spent.
   defp arrived(logic, wp, now) when is_map(wp) do
-    %{arrived_at(logic, wp, now) | stops_done: []}
+    logic = arrived_at(logic, wp, now)
+
+    %{
+      logic
+      | stops_done: [],
+        stair_taps: 0,
+        since: Map.delete(logic.since, :stair_tap)
+    }
   end
 
   defp arrived_at(logic, %{action: :lure_end} = wp, now),
@@ -553,20 +568,43 @@ defmodule Pokex.Bots.Cavebot.Logic do
     dy = wp.y - y
     tol = logic.config.arrival_tolerance
 
+    # Computed ONCE, because a `cond` cannot bind.
+    stair = stair_ahead(logic, pos, wp)
+    tap = stair_step_due(logic, stair, now)
+
     cond do
       # ARRIVING means standing there, floor included: the tile at the top of
       # the stairs has the same x/y as the one at their foot, and "arriving"
       # from below would tick the waypoint off without ever climbing.
-      abs(dx) <= tol and abs(dy) <= tol and wp.z == z ->
+      #
+      # On the corner a STAIRCASE leaves from, the tolerance does not apply: the
+      # tap that takes the step only works from the exact tile, and one tile off
+      # presses an arrow into whatever is beside the staircase.
+      arrived_here?(logic, dx, dy, z, wp, tol) ->
         next = rem(logic.wp_index + 1, length(logic.route.waypoints))
         logic = note_progress(logic, pos, now)
         {%{arrived(logic, wp, now) | wp_index: next, skips: 0}, on_arrival(logic, wp)}
 
+      # A staircase is ONE key that moves TWO tiles. Holding the arrow takes the
+      # step on the first press and keeps walking on the floor above until the
+      # next tick — so this leg taps, waits for the client to answer, and taps
+      # again. The ring search below is the NET for the legs his marking left
+      # crooked, not the road.
+      tap != nil ->
+        tap_stair(logic, tap, now)
+
+      # Between taps: the client is still answering the last one, and a second
+      # key on top of it is a second staircase.
+      waiting_for_step?(logic, stair) ->
+        {logic, :none}
+
       # The right tile on the WRONG floor: the staircase is here somewhere and
       # was not taken. Standing on it asks for nothing — dx and dy are zero —
       # so this used to time out into :stuck and then skip the corner. Search
-      # for the step instead.
-      abs(dx) <= tol and abs(dy) <= tol ->
+      # for the step instead. A stair leg whose taps are spent comes here too,
+      # however far off the tolerance it is: the marking has extra walking
+      # folded into it, and the ring is what finds the step anyway.
+      searching_stairs?(stair, dx, dy, z, wp, tol) ->
         stairs(enter_stairs(logic, pos, now), world, now)
 
       pos != logic.last_pos ->
@@ -578,6 +616,89 @@ defmodule Pokex.Bots.Cavebot.Logic do
       true ->
         {logic, {:walk, dx, dy}}
     end
+  end
+
+  # The staircase is only still AHEAD of the character while the floor
+  # disagrees with the corner he is heading to. Once it matches, the step is
+  # behind him and what is left of the leg is ordinary walking.
+  #
+  # And "one key, two tiles" is true from ONE tile: the corner the staircase
+  # leaves from. The arrival path supplies that by itself (a stair-departure
+  # corner is reached EXACTLY — see `arrived_here?/6`), but the SKIP path does
+  # not: `skip_waypoint/3` advances `wp_index` without arriving anywhere, so a
+  # tap fired from wherever the character was walled would press an arrow into
+  # whatever is beside the staircase. Off the corner the leg goes to the ring,
+  # which is what the ring is for.
+  defp stair_ahead(_logic, {_x, _y, z}, %{z: z}), do: nil
+
+  defp stair_ahead(logic, {x, y, _z}, _wp) do
+    if on_stair_corner?(logic, x, y), do: stair_leg(logic), else: nil
+  end
+
+  # Standing on the waypoint the leg LEAVES — the one before the target, same
+  # convention as `stair_leg/1`.
+  defp on_stair_corner?(%__MODULE__{route: %Route{waypoints: []}}, _x, _y), do: false
+
+  defp on_stair_corner?(%__MODULE__{route: %Route{waypoints: waypoints}, wp_index: index}, x, y) do
+    case Enum.at(waypoints, Integer.mod(index - 1, length(waypoints))) do
+      %{x: ^x, y: ^y} -> true
+      _elsewhere -> false
+    end
+  end
+
+  # The leg the character is walking RIGHT NOW is the one leaving the waypoint
+  # before the target — same convention as `lure_leg?/2`.
+  defp stair_leg(%__MODULE__{route: %Route{waypoints: []}}), do: nil
+
+  defp stair_leg(%__MODULE__{route: %Route{waypoints: waypoints}, wp_index: index}) do
+    Route.stair_leg(waypoints, Integer.mod(index - 1, length(waypoints)))
+  end
+
+  # ONE key toward the step, and the stamp that keeps the next tick from
+  # pressing a second one on top of it.
+  defp tap_stair(logic, {sx, sy}, now) do
+    {%{logic | stair_taps: logic.stair_taps + 1, since: Map.put(logic.since, :stair_tap, now)},
+     {:nudge, sx, sy}}
+  end
+
+  defp waiting_for_step?(logic, stair),
+    do: stair != nil and logic.stair_taps < stair_step_taps(logic)
+
+  # The ring gets its turn on the WRONG floor only: standing off the exact tile
+  # with the floor already right is plain walking, not a staircase nobody found.
+  defp searching_stairs?(stair, dx, dy, z, wp, tol) do
+    z != wp.z and ((abs(dx) <= tol and abs(dy) <= tol) or stair != nil)
+  end
+
+  # A tap is due when this leg is a staircase, the taps are not spent, and the
+  # client has had `stair_step_ms` to answer the last one.
+  defp stair_step_due(logic, stair, now) do
+    with {:stair, sx, sy} <- stair,
+         true <- logic.stair_taps < stair_step_taps(logic),
+         true <- tap_settled?(logic, now) do
+      {sx, sy}
+    else
+      _not_due -> nil
+    end
+  end
+
+  defp tap_settled?(%__MODULE__{since: since} = logic, now) do
+    case Map.get(since, :stair_tap) do
+      nil -> true
+      at -> now - at >= Map.get(logic.config, :stair_step_ms, 700)
+    end
+  end
+
+  defp stair_step_taps(%__MODULE__{config: config}),
+    do: Map.get(config, :stair_step_taps, 3)
+
+  # Arrival, with the one exception the staircase forces: the corner a stair
+  # leaves from is reached EXACTLY, because the tap only works from that tile.
+  defp arrived_here?(logic, dx, dy, z, wp, tol) do
+    exact? = Route.stair_leg(logic.route.waypoints, logic.wp_index) != nil
+    reach = if exact?, do: 0, else: tol
+
+    abs(dx) <= reach and abs(dy) <= reach and wp.z == z
   end
 
   # A hunt does not begin at waypoint 1: it begins at the CLOSEST corner of the
@@ -606,12 +727,19 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # Searching for the step. Entering resets the ring AND the clock, so a search
   # interrupted by a fight starts over instead of resuming three probes from
   # giving up.
+  #
+  # `probe_steps` is the half that actually decides giving up (`stairs/3` blocks
+  # on it), so leaving it behind made the comment a lie: the cursor restarted
+  # while the budget resumed, and `{:block, :stairs}` fired well before the 32
+  # probes `cavebot_stair_max_probes` documents.
   defp enter_stairs(logic, pos, now) do
     %{
       note_progress(logic, pos, now)
       | state: :stairs,
         probe: 0,
-        since: Map.delete(logic.since, :probe)
+        probe_steps: 0,
+        stair_taps: 0,
+        since: Map.drop(logic.since, [:probe, :stair_tap])
     }
   end
 
@@ -746,12 +874,27 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # Giving up on a corner is LEAVING it, so the huddle goes out with it — the
-  # same thing `arrived_at/3` does on a plain corner. A skip never passes
-  # through `arrived/3`, so the stamp and the ruler used to survive it, and
-  # `combo/1` and `orders/1` read them off the corner the hunt COULD NOT REACH:
-  # the burst of a kill spot nobody arrived at, or the aura of a walking corner
-  # he never marked as an order.
+  # Giving up on a corner is LEAVING it, so everything that belongs to it goes
+  # out with it — the same thing `arrived_at/3` does on a plain corner. A skip
+  # never passes through `arrived/3`, so per-waypoint state used to survive it
+  # and got read off the corner the hunt COULD NOT REACH. TWICE now:
+  #
+  #   * the huddle stamp and its ruler, which `combo/1` and `orders/1` turned
+  #     into the burst of a kill spot nobody arrived at, or the aura of a
+  #     walking corner he never marked as an order;
+  #   * the taps, which belong to the staircase being walked away from — the
+  #     next leg of the lap is often a staircase too, and starting it with its
+  #     taps already spent sends it straight to the ring search, which is the
+  #     NET and not the road;
+  #   * the probe budget, which is per-STAIRCASE: carried into the next one, the
+  #     32 probes `cavebot_stair_max_probes` promises were already half spent on
+  #     a staircase nobody is looking for any more;
+  #   * the round of stops, which `next_stop/1` and `park_spot/1` read off "the
+  #     waypoint the hunt last REACHED" — the corner behind the index, which
+  #     after a skip is the one it gave up on. The first fight after a skip ran
+  #     that corner's round: a ball at a pile that died somewhere else, a revive
+  #     spent, seconds standing still. The round is marked SPENT instead of
+  #     empty, because arriving somewhere new is what arms it again.
   defp skip_waypoint(logic, now) do
     next = rem(logic.wp_index + 1, length(logic.route.waypoints))
 
@@ -763,7 +906,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
         skips: logic.skips + 1,
         last_pos: nil,
         gather_wait: nil,
-        since: logic.since |> Map.delete(:gather) |> Map.put(:walk_progress, now)
+        stair_taps: 0,
+        probe_steps: 0,
+        stops_done: Route.stops(),
+        since: logic.since |> Map.drop([:gather, :stair_tap]) |> Map.put(:walk_progress, now)
     }
   end
 
@@ -850,8 +996,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   # The nudge exists to unstick a fight that won't end — so it must MOVE the
   # character. `{:nudge, 0, 0}` didn't: the Worker translates a nudge into
-  # `Body.minimap_step/3`, which clicks the minimap center — the tile the
-  # character already occupies. A guaranteed no-op that burned the retries into
+  # `Body.arrow_step/3` (a TAP of one arrow key, after letting go of whatever
+  # was held — minimap clicks are retired), and (0,0) is no direction, so no key
+  # is pressed at all. A guaranteed no-op that burned the retries into
   # `{:block, :fight_stalled}` without ever trying anything.
   defp fight_stalled(logic, world, _now) do
     retries = logic.retries + 1

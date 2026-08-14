@@ -18,6 +18,14 @@ This is a web application written using the Phoenix web framework.
 - **Never `git checkout`, `reset` or `rebase` inside a worktree you did not create.** If a branch you need is checked out elsewhere, make your own worktree from `origin/main`. Re-read `git branch --show-current` right before committing: it is the cheap check that catches a lane you did not notice changing.
 - **Push the branch the moment you create it, even empty** (`git push -u origin <branch>`). That is the claim: `git branch -r` becomes the board of who is working on what, versioned and with no extra file to keep in sync. Start every session with `git fetch && git log origin/main --oneline -10` to read what landed while you were away, and `git branch -r` to see which lanes are taken.
 - **Remove the worktree when its PR merges** (`git worktree remove <path>` from the main checkout, then `git worktree prune`). Merged branches — local and remote — get deleted too. Stale worktrees piled up to 15 folders once; they are workspace litter, not history.
+- **Merging a stacked PR's parent with `--delete-branch` CLOSES the child, and it cannot reopen** (its base is gone — GitHub refuses). It happened on 2026-08-14 (#268 had to be recreated as #269). Retarget the child's base to `main` BEFORE merging the parent, or plan to recreate the child PR.
+
+### CI and merging (hard requirement)
+
+- **The quality gate is the LOCAL `mix precommit`, run in the worktree.** GitHub Actions on this repo is born red: the Actions billing is blown, jobs die in ~3s with zero steps executed, and a red check here cannot tell "broke" from "never ran". Do not read red checks as broken code, and do not wait for green CI to merge.
+- **Green local precommit = merge without fear** — "se o pipeline local tiver sempre sendo confiável, olhando warning, teste, credo e tudo o que tem que ver de qualidade, pode mergir o PR sem medo" (Lucas, 2026-08-14). That means the whole alias, fixed to zero: warnings-as-errors, format, tests — plus any check the alias grows.
+- One blind spot the gate has: **a stale build can pass in silence**. `touch` does not force recompilation (Elixir compares digests) — when in doubt, `mix compile --force --warnings-as-errors`. A `defp` dropped between `handle_event` clauses kills the compile without `mix test`, credo or dialyzer ever seeing it.
+- When the billing is fixed, `.github/workflows/ci.yml` already mirrors the precommit and becomes confirmation again — update this rule then.
 
 ### Bot worker rules (hard requirement)
 

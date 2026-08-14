@@ -46,6 +46,11 @@ config :phoenix, :plug_init_mode, :runtime
 config :phoenix_live_view,
   enable_expensive_runtime_checks: true
 
+# A form with phx-change and no id cannot be recovered after a reconnect, and the
+# warning for it printed 64 times (1152 lines, 75% of the suite's whole output)
+# without anyone reading it. Raising turns it into one failing test instead.
+config :phoenix_live_view, :test_warnings, missing_form_id: :raise
+
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true

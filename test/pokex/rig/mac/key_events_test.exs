@@ -16,6 +16,7 @@ defmodule Pokex.Rig.Mac.KeyEventsTest do
   end
 
   @tag :tmp_dir
+  @tag :capture_log
   test "middle_click degrades to an error when the helper isn't ready", %{tmp_dir: tmp} do
     stub = write_stub!(tmp, trusted: false)
     pid = start_supervised!({KeyEvents, name: nil, executable: stub})
@@ -26,6 +27,7 @@ defmodule Pokex.Rig.Mac.KeyEventsTest do
   end
 
   @tag :tmp_dir
+  @tag :capture_log
   test "an untrusted helper degrades to an error so the Rig falls back", %{tmp_dir: tmp} do
     stub = write_stub!(tmp, trusted: false)
     pid = start_supervised!({KeyEvents, name: nil, executable: stub})

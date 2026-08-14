@@ -100,6 +100,7 @@ defmodule Pokex.Bots.LogoutTest do
     assert_receive {:logout, %{state: :out}}, 1_000
   end
 
+  @tag :capture_log
   test "a HUD that stays readable becomes a loud failure after the attempts", ctx do
     pid = start_logout(ctx, read_fun: leitor(:present), attempts_override: 2)
 
@@ -113,6 +114,7 @@ defmodule Pokex.Bots.LogoutTest do
     assert text =~ "logout"
   end
 
+  @tag :capture_log
   test "an always-unreadable read never reports logged out", ctx do
     pid = start_logout(ctx, read_fun: leitor(:unreadable), attempts_override: 2)
 
@@ -123,6 +125,7 @@ defmodule Pokex.Bots.LogoutTest do
     refute snap.state == :out
   end
 
+  @tag :capture_log
   test "a request during an in-flight logout is ignored and counted", ctx do
     pid = start_logout(ctx, read_fun: leitor(:present), attempts_override: 3)
 
@@ -135,6 +138,7 @@ defmodule Pokex.Bots.LogoutTest do
     assert snap.duplicates == 2
   end
 
+  @tag :capture_log
   test "panic corner engaged: fails without ever touching the Body", ctx do
     pid =
       start_logout(ctx,
@@ -162,6 +166,7 @@ defmodule Pokex.Bots.LogoutTest do
   # Real scenario: a miscalibrated sub-region, or the atlas missing a digit (the missing
   # "9") — the HUD returns nil throughout, and without a baseline the bot would swear it
   # logged out when nothing happened.
+  @tag :capture_log
   test "a HUD already unreadable BEFORE the press is no proof of logout", ctx do
     pid =
       start_logout(ctx,

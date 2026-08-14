@@ -444,6 +444,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # was the Guardian's panic corner, it died on the catcher, and the mini game,
   # the player support and both `forget`s that come after it never ran.
   @tag :tmp_dir
+  @tag :capture_log
   test "a worker that will not answer neither aborts the fleet stop nor kills the caller" do
     # longer than any call timeout: it is killed outright on teardown, since it
     # traps nothing — exactly like a worker still inside a wedged capture

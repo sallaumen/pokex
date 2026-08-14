@@ -163,6 +163,7 @@ defmodule Pokex.Combos.RunnerTest do
     assert settle(runner).last_skip == nil
   end
 
+  @tag :capture_log
   test "the fight ending mid-combo stops it where it stands" do
     world("Magikarp", [row(5, "Jigglypuff"), row(4, "Sceptile")])
     runner = start_runner()
@@ -175,6 +176,7 @@ defmodule Pokex.Combos.RunnerTest do
     refute {:press, "ctrl+4"} in FakeBody.pressed()
   end
 
+  @tag :capture_log
   test "the enemy dying mid-combo stops it too" do
     world("Magikarp", [row(5, "Jigglypuff"), row(4, "Sceptile")])
     runner = start_runner()
@@ -187,6 +189,7 @@ defmodule Pokex.Combos.RunnerTest do
     refute {:press, "ctrl+4"} in FakeBody.pressed()
   end
 
+  @tag :capture_log
   test "a Body that refuses a press aborts the whole combo" do
     world("Magikarp", [row(5, "Jigglypuff"), row(4, "Sceptile")])
     runner = start_runner({:error, :blocked})

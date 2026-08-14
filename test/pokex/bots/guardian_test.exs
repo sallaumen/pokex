@@ -95,6 +95,7 @@ defmodule Pokex.Bots.GuardianTest do
   # died mid-panic — the rest of the fleet stayed running with nobody watching
   # the corner. BotSupervisor bounds that wait now; this is the belt under it,
   # so anything new in the stop path can never cost the corner again.
+  @tag :capture_log
   test "a stop that blows up neither kills the Guardian nor swallows the panic" do
     Process.flag(:trap_exit, true)
     Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")

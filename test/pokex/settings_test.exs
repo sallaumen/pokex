@@ -134,6 +134,7 @@ defmodule Pokex.SettingsTest do
   @tag :tmp_dir
   # the parent of the settings path is a file, so mkdir_p!/write! deterministically
   # raise inside init's heal
+  @tag :capture_log
   test "a non-writable settings path does not crash boot — runs off the code defaults", %{
     tmp_dir: tmp
   } do

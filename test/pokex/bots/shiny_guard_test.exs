@@ -47,6 +47,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   # The feed dedupes: a calm list with a shiny broadcasts ONCE — one message must be
   # enough once the confirm window passes clean.
   @tag :tmp_dir
+  @tag :capture_log
   test "a sighting not refuted within the confirm window fires the alarm once", %{
     guard: guard
   } do
@@ -66,6 +67,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   # The old bug wrote star_run:, a key record/1 never read — every trophy lost the star
   # measurement.
   @tag :tmp_dir
+  @tag :capture_log
   test "the alarm names WHICH shiny it is, and the trophy records the star (star_px)", %{
     guard: guard
   } do
@@ -114,6 +116,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   end
 
   @tag :tmp_dir
+  @tag :capture_log
   test "action fugir triggers the injected escape protocol", %{guard: _guard} do
     Settings.put(:shiny_action, "escape")
 
@@ -148,6 +151,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     end
 
     @tag :tmp_dir
+    @tag :capture_log
     test "with the latch set and action fugir, it does not flee" do
       SettingsStash.stash!(shiny_action: "escape")
       InputGate.set_panic_latch(true)
@@ -158,6 +162,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     end
 
     @tag :tmp_dir
+    @tag :capture_log
     test "with the latch set, the alarm still goes out" do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
       SettingsStash.stash!(shiny_action: "escape")
@@ -171,6 +176,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     end
 
     @tag :tmp_dir
+    @tag :capture_log
     test "with the latch free and action fugir, it flees — no regression" do
       SettingsStash.stash!(shiny_action: "escape")
       InputGate.set_panic_latch(false)

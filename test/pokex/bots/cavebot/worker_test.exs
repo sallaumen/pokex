@@ -129,7 +129,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     on_exit(fn ->
       Application.delete_env(:pokex, :home_dir)
-      Enum.each([:minimap, :battle, :dungeon], &WorldState.forget/1)
+      Enum.each([:minimap, :battle, :dungeon, :pokemon], &WorldState.forget/1)
       InputGate.set_panic_latch(false)
     end)
 
@@ -186,6 +186,38 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert {:error, [msg]} = Worker.run(worker)
     assert msg =~ "nenhuma rota"
     assert Worker.status(worker).state == :idle
+  end
+
+  test "the hunt start names each missing safety net", %{worker: worker} do
+    SettingsStash.stash!(rescue_enabled: false)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    route!()
+
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:cavebot_log, :macro, "caçada: rota" <> _}
+    assert_receive {:cavebot_log, :macro, rescue_line}
+    assert rescue_line =~ "resgate desligado"
+    assert_receive {:cavebot_log, :macro, reading_line}
+    assert reading_line =~ "sem leitura de vida"
+  end
+
+  test "an armed rescue with a live reading starts without warnings", %{worker: worker} do
+    SettingsStash.stash!(rescue_enabled: true)
+
+    WorldState.put(
+      :pokemon,
+      %{hp_pct: 100, readable?: true},
+      System.monotonic_time(:millisecond)
+    )
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    route!()
+
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:cavebot_log, :macro, "caçada: rota" <> _}
+    refute_received {:cavebot_log, :macro, "caçada: ⚠️" <> _}
   end
 
   test "the first tick turns combat on; the next walks toward the waypoint", %{worker: worker} do

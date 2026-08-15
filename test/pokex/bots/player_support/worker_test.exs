@@ -362,6 +362,51 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert Worker.status(worker).counters.rescues >= 1
   end
 
+  # "ele não está usando a skill 1, que seria a skill guardada para reviver, e
+  # a skill de stun (…) eu morri já por culpa disso!" (Lucas, 2026-08-14).
+  # Combat RESERVES the control keys for this exact moment, and plain "direto"
+  # never pressed them: reserved by everyone, pressed by nobody.
+  @tag :tmp_dir
+  test "the reserved control key IS the stun, with no combo configured", %{
+    tmp: tmp,
+    body: body
+  } do
+    SettingsStash.stash_keys!([:rescue_mode])
+    Settings.put(:rescue_mode, "direct")
+    classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
+
+    low = hp_png(tmp, "low_reserved.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    # the stun goes out FIRST and alone — the recall waits for its receipt
+    assert_receive {:performed, :critical, [{:press, "1"}]}, 1_500
+    assert_receive {:performed, :critical, revive}, 1_500
+    assert {:press, "shift+q"} in revive
+
+    assert await_log("stun do resgate") =~ "guardado no /time"
+  end
+
+  @tag :tmp_dir
+  test "with no control classified it revives direct, and says why", %{tmp: tmp, body: body} do
+    SettingsStash.stash_keys!([:rescue_mode])
+    Settings.put(:rescue_mode, "direct")
+    classify!("Magikarp", %{"3" => :aoe})
+
+    low = hp_png(tmp, "low_no_control.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_500
+    assert await_log("sem controle pronto") =~ "revivendo direto"
+  end
+
   @tag :tmp_dir
   # "eu uso geralmente as skills 1 e 2 para justamente silenciar os pokémons ao
   # redor, colocar eles para dormir, e aí, sim, eu tiro meu Pokémon de campo"

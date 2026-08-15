@@ -466,9 +466,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # moves the latch. Everything between the thresholds keeps whatever the
   # latch already says: that gap is what stops a heal to 70% from resuming a
   # route that will be back at 55% two tiles later.
+  # A FALLEN pokémon outranks every percentage in here, including a guard
+  # turned off: there is nothing on the field, so the route waits whatever the
+  # thresholds would have said. The support's revive is what ends the wait.
   defp track_hp(%__MODULE__{} = logic, world) do
     hp = Map.get(world, :hp_pct)
-    %{logic | last_hp: hp, recovering?: recovering_after(logic, hp)}
+    down? = Map.get(world, :fainted?, false)
+
+    %{logic | last_hp: hp, recovering?: down? or recovering_after(logic, hp)}
   end
 
   defp recovering_after(%__MODULE__{config: config} = logic, hp) do

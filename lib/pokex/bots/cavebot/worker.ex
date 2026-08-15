@@ -426,7 +426,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
       capture_changed_at: state.capture_changed_at,
       sweep_pending: state.sweep_pending,
       sweep_changed_at: state.sweep_changed_at,
-      hp_pct: own_hp(now)
+      hp_pct: own_hp(now),
+      fainted?: own_fainted?(now)
     }
 
     if pos, do: {world, %{state | pos: pos, pos_at: now}}, else: {world, state}
@@ -443,6 +444,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
       _unreadable_or_unknown -> nil
     end
   end
+
+  # A pokémon on the floor is not a threshold question: whatever percentages
+  # the guard was given, walking on with nothing in front of the character
+  # walks him into the next pile alone.
+  defp own_fainted?(now), do: match?({:ok, %{fainted?: true}}, Perception.pokemon(now))
 
   defp position(now) do
     case Perception.minimap(now) do

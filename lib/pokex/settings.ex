@@ -526,6 +526,16 @@ defmodule Pokex.Settings do
     # stun key so the pile is really down before it leaves. Counted from the
     # press, so the confirmation's own wait is part of it. 0 disables.
     rescue_stun_settle_ms: 800,
+    # MORREU. A janela do pokémon muda de forma quando ele cai, então a barra
+    # some do lugar calibrado e a leitura vira "não reconheço" — igualzinho a
+    # uma janela coberta. O que separa os dois é a TRAJETÓRIA: uma barra que
+    # sumiu vindo DAQUI pra baixo é morte; vinda de 100% é alguém que mexeu na
+    # janela. Acima disto, a barra some sem revive nenhum.
+    pokemon_hp_fainted_below_pct: 35,
+    # Cinto de segurança depois de reviver um caído. A regra que de verdade
+    # impede o loop é outra: exigir ver o pokémon VIVO de novo antes de gastar
+    # o próximo revive.
+    fainted_revive_cooldown_ms: 15_000,
     # Auto-revive with a STUN combo (2026-07-30): hunting strong mobs, the
     # area-stun skills are reserved for the rescue moment — the chosen combo
     # (skill/wait steps only; see Combos.rescue_eligible?) becomes the PREFIX
@@ -1156,6 +1166,8 @@ defmodule Pokex.Settings do
     cavebot_gather_wait_max_ms: 0..120_000,
     rescue_confirm_ms: 0..10_000,
     rescue_stun_settle_ms: 0..10_000,
+    pokemon_hp_fainted_below_pct: 0..100,
+    fainted_revive_cooldown_ms: 0..600_000,
     combat_confirm_ms: 0..10_000,
     cavebot_precise_tiles: 0..10,
     cavebot_stair_probe_ms: 100..5_000,

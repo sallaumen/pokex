@@ -178,4 +178,89 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
       assert Logic.stun_prefix(steps, nil) == {[{:press, "1"}], []}
     end
   end
+
+  # "se o pokémon morrer naturalmente, a gente tem que saber lidar com o fluxo"
+  # (Lucas, 2026-08-14). A dead pokémon has no bar to read — the window itself
+  # changes shape — so death is read from the TRAJECTORY of the last bar seen.
+  describe "reading a death off the vanished bar" do
+    defp faint(overrides) do
+      Map.merge(
+        %{
+          enabled?: true,
+          unreadable_streak: 2,
+          last_seen_hp: 10,
+          faint_below_pct: 35,
+          cooldown_ms: 15_000,
+          last_faint_at: nil,
+          now: 0
+        },
+        Map.new(overrides)
+      )
+    end
+
+    test "a low bar that vanishes for two reads is a death" do
+      assert Logic.fainted?(faint([]))
+    end
+
+    test "one unreadable frame is never a death" do
+      refute Logic.fainted?(faint(unreadable_streak: 1))
+    end
+
+    # The covered-window case: a healthy bar does not stop being healthy
+    # because someone put a browser in front of the game.
+    test "a HEALTHY bar that vanishes is a window, not a death" do
+      refute Logic.fainted?(faint(last_seen_hp: 100))
+      refute Logic.fainted?(faint(last_seen_hp: 36))
+    end
+
+    # Never seeing it alive is "no pokémon out", which is not something to
+    # spend a revive on.
+    test "with no live reading behind it, nothing fires" do
+      refute Logic.fainted?(faint(last_seen_hp: nil))
+    end
+
+    test "the toggle and the cooldown both hold it" do
+      refute Logic.fainted?(faint(enabled?: false))
+      refute Logic.fainted?(faint(last_faint_at: 0, now: 14_999))
+      assert Logic.fainted?(faint(last_faint_at: 0, now: 15_000))
+    end
+  end
+
+  describe "the fallen combo" do
+    defp fallen_config do
+      %{
+        rescue_key: "q",
+        max_revive_key: "shift+q",
+        photo_point: {40, 620},
+        neutral_point: {500, 500},
+        step_ms: 40
+      }
+    end
+
+    # He is already inside the ball: opening with a recall would be pressing Q
+    # at nothing, and the first press has to be the revive itself.
+    test "it starts on the portrait and revives — never a recall" do
+      assert [{:move, {40, 620}} | rest] = Logic.fallen_combo(fallen_config())
+      assert [{:wait, 40}, {:press, "shift+q"} | _] = rest
+    end
+
+    test "the release comes after the revive, and the cursor goes home" do
+      combo = Logic.fallen_combo(fallen_config())
+
+      revive = Enum.find_index(combo, &(&1 == {:press, "shift+q"}))
+      release = Enum.find_index(combo, &(&1 == {:press, "q"}))
+
+      assert revive < release
+      assert List.last(combo) == {:move, {500, 500}}
+    end
+
+    # The low-HP combo pays a stun and a settle because a pokémon is still out
+    # there tanking. Here nobody is: the shortest path IS the safety.
+    test "it is shorter than the low-HP combo — no stun, no settle" do
+      fallen = Logic.fallen_combo(fallen_config())
+
+      refute Enum.any?(fallen, &match?({:wait, ms} when ms > 40, &1))
+      assert length(fallen) < length(Logic.combo(fallen_config()))
+    end
+  end
 end

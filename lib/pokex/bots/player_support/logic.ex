@@ -101,6 +101,70 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
     do: now - last >= cooldown
 
   @doc """
+  True when the pokémon on the field DIED — read from the bar's trajectory,
+  because a dead pokémon has no bar left to read.
+
+  When it falls, the game's pokémon window changes shape and the calibrated
+  strip stops holding a bar at all (Lucas, 2026-08-14) — so the reading goes
+  `:unrecognized`, which is exactly what a covered game or a minimized party
+  window also produce. Identical in the pixels; what tells them apart is where
+  the bar WAS the moment before. A bar at 12% that vanishes is a death; a bar
+  at 100% that vanishes is a window someone moved.
+
+  Hence: unreadable for two consecutive reads (the house rule against a single
+  garbage frame) AND the last thing actually SEEN was below `faint_below_pct`.
+
+  The caller clears `last_seen_hp` once this fires, so a death costs exactly
+  one revive: firing again requires seeing the pokémon alive first. That is
+  what stops a pokémon merely STORED in its ball from burning the stock.
+
+  Expects `:enabled?`, `:unreadable_streak`, `:last_seen_hp`, `:faint_below_pct`,
+  `:cooldown_ms`, `:last_faint_at` and `:now`.
+  """
+  @spec fainted?(map) :: boolean
+  def fainted?(%{enabled?: false}), do: false
+  def fainted?(%{unreadable_streak: streak}) when streak < 2, do: false
+  def fainted?(%{last_seen_hp: nil}), do: false
+  def fainted?(%{last_seen_hp: hp, faint_below_pct: below}) when hp > below, do: false
+  def fainted?(%{last_faint_at: nil}), do: true
+
+  def fainted?(%{now: now, last_faint_at: last, cooldown_ms: cooldown}),
+    do: now - last >= cooldown
+
+  @doc """
+  The FALLEN combo: he is already inside the ball, so there is nothing to
+  recall — cursor onto the portrait, max revive, and out he comes alive.
+
+  "Você apertar Shift+Q com o mouse em cima do pokémon é instantâneo, e aí
+  depois você apertar Q, ele já sai da pokébola viva (…) esse combo é bem
+  feitinho" (Lucas, 2026-08-14).
+
+  Deliberately shorter than `combo/1`: that one opens by recalling a pokémon
+  who is still out and still tanking, and pays a settle so the pile is asleep
+  before the field empties. Here the field is ALREADY empty and the character
+  is the one being hit — every millisecond is exposure, so there is no stun and
+  no settle, only the two presses that end it.
+  """
+  @spec fallen_combo(map) :: [tuple]
+  def fallen_combo(%{
+        rescue_key: rescue_key,
+        max_revive_key: max_revive_key,
+        photo_point: photo_point,
+        neutral_point: neutral_point,
+        step_ms: step_ms
+      }) do
+    [
+      {:move, photo_point},
+      {:wait, step_ms},
+      {:press, max_revive_key},
+      {:wait, step_ms},
+      {:press, rescue_key},
+      {:wait, step_ms},
+      {:move, neutral_point}
+    ]
+  end
+
+  @doc """
   The atomic combo, as a Body action list: an optional STUN PREFIX (`stun_steps`, already-compiled
   `{:press, _}`/`{:wait, _}` actions — see `stun_prefix/2`), then recall (`rescue_key`), move onto
   the portrait, max-revive (`max_revive_key`), release (`rescue_key`), recentre the cursor.

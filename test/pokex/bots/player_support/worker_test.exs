@@ -672,6 +672,102 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     if text =~ matching, do: text, else: await_log(matching)
   end
 
+  # "se o pokémon morrer naturalmente, a gente tem que saber lidar com o fluxo"
+  # (Lucas, 2026-08-14): when it falls the pokémon window changes shape, so the
+  # calibrated strip stops holding a bar — the same `:unrecognized` a covered
+  # game produces. What separates them is where the bar WAS.
+  describe "when the pokémon falls" do
+    setup do
+      SettingsStash.stash!(
+        rescue_enabled: true,
+        pokemon_hp_fainted_below_pct: 35,
+        fainted_revive_cooldown_ms: 15_000
+      )
+
+      :ok
+    end
+
+    # what the region shows once the window has moved off it
+    defp world_png(dir, name) do
+      rows = for _y <- 1..4, do: List.duplicate({120, 180, 235, 255}, 20)
+      Pokex.PngFixtures.write!(Path.join(dir, name), rows)
+    end
+
+    defp dying_then_gone(tmp) do
+      low = hp_png(tmp, "dying.png", 4)
+      gone = world_png(tmp, "gone.png")
+
+      {:ok, _} =
+        Fake.start_link(%{
+          capture: [{:ok, low}, {:ok, gone}, {:ok, gone}, {:ok, gone}, {:ok, gone}, {:ok, gone}]
+        })
+    end
+
+    @tag :tmp_dir
+    test "the bar vanishing off a dying pokémon brings him back", %{tmp: tmp, body: body} do
+      dying_then_gone(tmp)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert await_log("caiu") =~ "revive na hora"
+      assert Worker.status(worker).last_action.text == "revive do caído"
+    end
+
+    @tag :tmp_dir
+    test "the fallen combo opens on the PORTRAIT, never with a recall", %{tmp: tmp, body: body} do
+      dying_then_gone(tmp)
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      combo = await_fallen_combo()
+
+      assert [{:move, {40, 620}} | _] = combo
+      assert {:press, "shift+q"} in combo
+      assert {:press, "q"} in combo
+      assert List.last(combo) == {:move, {500, 500}}
+    end
+
+    @tag :tmp_dir
+    test "a HEALTHY bar that vanishes is a covered window, not a death", %{
+      tmp: tmp,
+      body: body
+    } do
+      full = hp_png(tmp, "full.png", 20)
+      gone = world_png(tmp, "gone.png")
+
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, full}, {:ok, gone}, {:ok, gone}, {:ok, gone}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, :critical, _}, 500
+      assert Worker.status(worker).error =~ "não reconhecida"
+    end
+
+    # The anti-loop that matters overnight: a pokémon merely STORED in its ball
+    # must never drain the revives — the next one costs a fresh live sighting.
+    @tag :tmp_dir
+    test "one death costs exactly one revive", %{tmp: tmp, body: body} do
+      dying_then_gone(tmp)
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      _fallen = await_fallen_combo()
+      refute_receive {:performed, :critical, [{:move, _} | _]}, 500
+    end
+
+    # The low-HP rescue may fire first (it can still see him); the fallen combo
+    # is the one that opens with the cursor move.
+    defp await_fallen_combo do
+      assert_receive {:performed, :critical, actions}, 2_000
+      if match?([{:move, _} | _], actions), do: actions, else: await_fallen_combo()
+    end
+  end
+
   defp await_snapshot(matcher) do
     assert_receive {:game, snap}, 1_000
     if matcher.(snap), do: snap, else: await_snapshot(matcher)
@@ -716,11 +812,14 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert :ok = Worker.run(worker)
 
     assert wait_until(fn ->
-             Pokex.Perception.pokemon() == {:ok, %{hp_pct: 100, readable?: true}}
+             Pokex.Perception.pokemon() ==
+               {:ok, %{hp_pct: 100, readable?: true, fainted?: false}}
            end)
 
+    # a bar that vanishes off a FULL pokémon is a window, never a death
     assert wait_until(fn ->
-             Pokex.Perception.pokemon() == {:ok, %{hp_pct: nil, readable?: false}}
+             Pokex.Perception.pokemon() ==
+               {:ok, %{hp_pct: nil, readable?: false, fainted?: false}}
            end)
   end
 

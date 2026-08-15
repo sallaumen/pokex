@@ -140,4 +140,35 @@ defmodule Pokex.Bots.Cavebot.HpGuardTest do
     assert l.state == :walking
     assert match?({:walk, _, _}, action)
   end
+
+  # A pokémon on the floor is not a percentage question: there is nothing in
+  # front of the character, so the route waits even with the guard turned off.
+  describe "when the pokemon is down" do
+    defp down(pos \\ {5, 10, 7}),
+      do: %{pos: pos, enemies: 0, combat_state: :hunting, hp_pct: nil, fainted?: true}
+
+    defp back(pos \\ {5, 10, 7}),
+      do: %{pos: pos, enemies: 0, combat_state: :hunting, hp_pct: 100, fainted?: false}
+
+    test "the route holds whatever the thresholds say" do
+      cfg = Map.drop(@cfg, [:hp_abort_pct, :hp_resume_pct])
+      l = %{Logic.new(plain_route(), cfg) | combat_running?: true, homed?: true}
+
+      {l, :none} = Logic.step(l, down(), 0)
+
+      assert Logic.recovery(l) == %{hp_pct: nil, resume_pct: 100}
+    end
+
+    test "it only walks again after he is back and READ twice" do
+      l = %{Logic.new(plain_route(), @cfg) | combat_running?: true, homed?: true}
+
+      {l, :none} = Logic.step(l, down(), 0)
+      {l, :none} = Logic.step(l, back(), 200)
+      assert Logic.recovery(l)
+
+      {l, action} = Logic.step(l, back(), 400)
+      assert Logic.recovery(l) == nil
+      assert match?({:walk, _, _}, action)
+    end
+  end
 end

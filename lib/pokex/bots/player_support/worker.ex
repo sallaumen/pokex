@@ -45,6 +45,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       hp_pct: nil,
       prev_hp_pct: nil,
       last_rescue_at: nil,
+      # DEATH is read from the bar's trajectory (Logic.fainted?/1): how many
+      # reads in a row failed to find a bar, the last HP actually SEEN before
+      # they did, and whether the fallen combo already went out for it.
+      unreadable_streak: 0,
+      last_seen_hp: nil,
+      last_faint_at: nil,
+      fainted?: false,
       last_potion_at: nil,
       # the pokémon's OWN healing skill — the rung above the potion, and the only
       # one that works while it is being hit
@@ -213,6 +220,25 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     {:noreply, state}
   end
 
+  # The fallen revive reporting back. A refusal here is louder than the low-HP
+  # one: with nobody on the field, "as teclas não saíram" means the character
+  # is standing there alone.
+  def handle_info({:fallen_done, :ok}, state) do
+    broadcast_log(:macro, "💚 revive do caído despachado — ele volta pro campo")
+    {:noreply, state}
+  end
+
+  def handle_info({:fallen_done, {:error, reason}}, state) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:rule_alarm,
+       "💀 o revive do caído NÃO saiu (#{refusal_text(reason)}) — sem pokémon em campo"}
+    )
+
+    {:noreply, state}
+  end
+
   # The catcher topic also carries {:catcher_log, ...} chatter — not ours.
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -234,7 +260,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
         {:ok, calib} ->
           case read_hp(calib) do
             {:ok, hp} ->
-              publish_pokemon_fact(%{hp_pct: hp, readable?: true})
+              publish_pokemon_fact(%{hp_pct: hp, readable?: true, fainted?: false})
 
               act(
                 %{
@@ -242,6 +268,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                   | prev_hp_pct: state.hp_pct,
                     hp_pct: hp,
                     error: nil,
+                    # a bar that reads again is the proof he is back: the death
+                    # trail resets, and only a NEW live reading can arm it
+                    unreadable_streak: 0,
+                    last_seen_hp: hp,
+                    fainted?: false,
                     counters: bump(state.counters, :reads)
                 },
                 calib
@@ -256,15 +287,24 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
             # used to survive the whole bad-reading stretch, explaining the
             # screen with a reason that already passed.
             :unrecognized ->
-              publish_pokemon_fact(%{hp_pct: nil, readable?: false})
+              state =
+                %{
+                  state
+                  | hp_pct: nil,
+                    prev_hp_pct: nil,
+                    gate: nil,
+                    unreadable_streak: state.unreadable_streak + 1,
+                    error: "barra de vida não reconhecida (janela do Pokémon minimizada?)"
+                }
+                |> maybe_revive_fallen(calib)
 
-              %{
-                state
-                | hp_pct: nil,
-                  prev_hp_pct: nil,
-                  gate: nil,
-                  error: "barra de vida não reconhecida (janela do Pokémon minimizada?)"
-              }
+              publish_pokemon_fact(%{
+                hp_pct: nil,
+                readable?: false,
+                fainted?: state.fainted?
+              })
+
+              state
 
             {:error, reason} ->
               fail(state, reason)
@@ -339,6 +379,57 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # happened" is unanswerable when the closed gate is invisible: name it.
       %{state | gate: closed_gate()}
     end
+  end
+
+  # The pokémon FELL. Nothing is on the field, which means the character is the
+  # one taking the hits — so this is the shortest path in the whole module:
+  # portrait, max revive, out. No stun (there is nobody left to protect), no
+  # settle (every ms is exposure), and the hands go to a task like every other
+  # actuation so the monitor keeps answering `:halt` (2026-08-14).
+  #
+  # `last_seen_hp: nil` afterwards is the anti-loop: the next revive costs a
+  # fresh sighting of a LIVE bar, so a pokémon simply stored in its ball can
+  # never drain the stock.
+  defp maybe_revive_fallen(state, calib) do
+    if InputGate.allowed?() and Logic.fainted?(faint_input(state)) do
+      at = now()
+      dispatch_fallen(state.body, calib)
+
+      broadcast_log(:macro, "💀 o pokémon caiu — revive na hora (#{state.last_seen_hp}% e sumiu)")
+
+      %{
+        state
+        | fainted?: true,
+          last_faint_at: at,
+          last_seen_hp: nil,
+          unreadable_streak: 0,
+          counters: bump(state.counters, :rescues),
+          last_action: %{text: "revive do caído", at: at}
+      }
+    else
+      state
+    end
+  end
+
+  defp dispatch_fallen(body, calib) do
+    worker = self()
+    actions = Logic.fallen_combo(combo_config(calib))
+
+    spawn(fn ->
+      send(worker, {:fallen_done, Body.perform(actions, :critical, body)})
+    end)
+  end
+
+  defp faint_input(state) do
+    %{
+      enabled?: Settings.get(:rescue_enabled),
+      unreadable_streak: state.unreadable_streak,
+      last_seen_hp: state.last_seen_hp,
+      faint_below_pct: Settings.get(:pokemon_hp_fainted_below_pct),
+      cooldown_ms: Settings.get(:fainted_revive_cooldown_ms),
+      last_faint_at: state.last_faint_at,
+      now: now()
+    }
   end
 
   # WHICH guard is closed — they mean very different things to the human: one is

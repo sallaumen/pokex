@@ -1675,6 +1675,24 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#cavebot-notice") |> render() =~ "55%"
     end
 
+    # "a parte de waypoints tem que caber na minha tela com uma caixa que
+    # dentro dela tem o scroll" (Lucas, 2026-08-15). The page is a viewport-tall
+    # column of strips plus a workbench that takes what is left, and each side
+    # of the workbench scrolls inside itself — a structural promise, so it gets
+    # a structural test instead of being re-broken by the next spacing tweak.
+    test "the workbench is bounded by the screen and scrolls inside itself", %{conn: conn} do
+      {:ok, route} = Route.append(Route.new("cavena"), {1, 1, 7})
+      :ok = Store.add(route)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      bench = view |> element("#cavebot-workbench") |> render()
+      assert bench =~ "lg:flex-1"
+      assert bench =~ "lg:overflow-y-auto"
+
+      assert view |> element("#cavebot-waypoints ol") |> render() =~ "overflow-y-auto"
+    end
+
     test "saves how many times the hunt comes back, and how long it waits", %{conn: conn} do
       Pokex.SettingsStash.stash_keys!([:cavebot_block_retries, :cavebot_block_retry_ms])
 

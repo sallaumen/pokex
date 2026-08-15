@@ -1626,7 +1626,7 @@ defmodule PokexWeb.CavebotLive do
       max_width="max-w-[560px] xl:max-w-[1600px]"
       {Layouts.header(assigns)}
     >
-      <div class="space-y-3">
+      <div class="flex flex-col gap-3 lg:h-[calc(100dvh-4.5rem)]">
         <header class="flex flex-wrap items-end justify-between gap-2">
           <div>
             <%!-- The subtitle explained the page to someone reading it for the
@@ -1716,9 +1716,9 @@ defmodule PokexWeb.CavebotLive do
               obeyed), the CONFIGURATION otherwise, and it says which. --%>
         <section
           id="cavebot-loadout"
-          class="rounded-lg border border-pk-line bg-pk-surface p-3"
+          class="rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
         >
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
               lutando como
             </span>
@@ -1754,7 +1754,7 @@ defmodule PokexWeb.CavebotLive do
             </.link>
           </div>
 
-          <p :if={fighting_as(@combat)} class="mt-1.5 flex flex-wrap gap-x-3 font-mono text-pk-meta">
+          <p :if={fighting_as(@combat)} class="mt-0.5 flex flex-wrap gap-x-3 font-mono text-pk-meta">
             <span class="text-pk-ok">
               💥 abre com {keys_line(fighting_as(@combat).opening)}
             </span>
@@ -1846,21 +1846,20 @@ defmodule PokexWeb.CavebotLive do
               the panel flips); the guard is the cavebot's own. Shown HERE
               because this is the page he checks before letting it run the
               madrugada — "não podemos morrer" (2026-08-14). --%>
-        <section id="cavebot-safety" class="rounded-lg border border-pk-line bg-pk-surface p-3">
-          <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-              Segurança da caçada
-            </h2>
-            <span
-              :if={is_nil(@world.me.hp_pct)}
-              id="safety-no-reading"
-              class="font-mono text-pk-meta text-pk-warn"
-            >
-              sem leitura de vida — a guarda e o resgate não enxergam o pokémon
-            </span>
-          </div>
+        <%!-- ONE ROW. This card was 360px tall with 60% of its width empty —
+              two stacked forms, each with a paragraph under it, on the screen
+              he needs for the route ("altos espaços vazios", 2026-08-15). The
+              paragraphs became titles: they explain a knob he tunes twice a
+              month, and they were costing a third of the fold every day. --%>
+        <section
+          id="cavebot-safety"
+          class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
+        >
+          <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+            Segurança
+          </h2>
 
-          <div class="mt-2 flex flex-wrap items-center gap-1.5">
+          <div class="flex flex-wrap items-center gap-1.5">
             <.safety_toggle
               id="safety-rescue"
               key="rescue"
@@ -1890,114 +1889,102 @@ defmodule PokexWeb.CavebotLive do
           <form
             id="hp-guard-form"
             phx-submit="hp_guard"
-            class="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1.5"
+            title="Abaixo do limite: solta o combo no que juntou, desiste do mob, e só volta a andar com ele recuperado. 0 desliga a guarda. Vale a partir da próxima caçada."
+            class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
           >
-            <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
-              abandona a mobada abaixo de
-              <span class="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  name="abort"
-                  value={@safety.abort_pct}
-                  min="0"
-                  max="100"
-                  inputmode="numeric"
-                  aria-label="Abandonar a mobada abaixo desta porcentagem de vida"
-                  class="pk-num h-9 w-20 rounded border border-pk-line-strong bg-pk-sunken px-2 text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                /> %
-              </span>
-            </label>
-            <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
-              rota volta com vida em
-              <span class="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  name="resume"
-                  value={@safety.resume_pct}
-                  min="1"
-                  max="100"
-                  inputmode="numeric"
-                  aria-label="Retomar a rota nesta porcentagem de vida"
-                  class="pk-num h-9 w-20 rounded border border-pk-line-strong bg-pk-sunken px-2 text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                /> %
-              </span>
-            </label>
+            <span>larga o mob &lt;</span>
+            <input
+              type="number"
+              name="abort"
+              value={@safety.abort_pct}
+              min="0"
+              max="100"
+              inputmode="numeric"
+              aria-label="Abandonar a mobada abaixo desta porcentagem de vida"
+              class="pk-num h-7 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            />
+            <span>% · volta em</span>
+            <input
+              type="number"
+              name="resume"
+              value={@safety.resume_pct}
+              min="1"
+              max="100"
+              inputmode="numeric"
+              aria-label="Retomar a rota nesta porcentagem de vida"
+              class="pk-num h-7 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            />
+            <span>%</span>
             <button
               aria-label="Salvar os limites da guarda de HP"
-              class="h-9 cursor-pointer rounded-lg border border-pk-line-strong px-3 text-pk-body font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+              class="h-7 cursor-pointer rounded border border-pk-line-strong px-2 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
             >
-              Salvar
+              salvar
             </button>
           </form>
 
-          <p class="mt-1.5 text-pk-meta text-pk-text-3">
-            Abaixo do limite: solta o combo no que juntou, desiste do mob, só anda com ele
-            recuperado. 0 desliga. Vale da próxima caçada.
-          </p>
-
-          <%!-- The other half of an unattended night: a local trip (wall,
-                staircase, a fight that will not end) used to END it. These two
-                are what bound the comeback, and they were reachable only by
-                editing a file — useless on the night he is tuning them. --%>
           <form
             id="comeback-form"
             phx-submit="comeback_cfg"
-            class="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1.5 border-t border-pk-line pt-2"
+            title="Só pra tropeço local — mudar de andar ou o combate recusar continua parando de vez. Chegar num waypoint devolve as tentativas. 0 desliga a volta automática."
+            class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
           >
-            <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
-              tropeçou: tenta de novo
-              <span class="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  name="retries"
-                  value={@safety.block_retries}
-                  min="0"
-                  max="50"
-                  inputmode="numeric"
-                  aria-label="Quantas vezes a caçada tenta voltar sozinha"
-                  class="pk-num h-9 w-20 rounded border border-pk-line-strong bg-pk-sunken px-2 text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                /> vez(es)
-              </span>
-            </label>
-            <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
-              esperando
-              <span class="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  name="wait_s"
-                  value={div(@safety.block_retry_ms, 1000)}
-                  min="1"
-                  max="600"
-                  inputmode="numeric"
-                  aria-label="Quantos segundos ela espera antes de tentar voltar"
-                  class="pk-num h-9 w-20 rounded border border-pk-line-strong bg-pk-sunken px-2 text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                /> s
-              </span>
-            </label>
+            <span>tropeço:</span>
+            <input
+              type="number"
+              name="retries"
+              value={@safety.block_retries}
+              min="0"
+              max="50"
+              inputmode="numeric"
+              aria-label="Quantas vezes a caçada tenta voltar sozinha"
+              class="pk-num h-7 w-12 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            />
+            <span>× a cada</span>
+            <input
+              type="number"
+              name="wait_s"
+              value={div(@safety.block_retry_ms, 1000)}
+              min="1"
+              max="600"
+              inputmode="numeric"
+              aria-label="Quantos segundos ela espera antes de tentar voltar"
+              class="pk-num h-7 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            />
+            <span>s</span>
             <button
               aria-label="Salvar as tentativas de volta da caçada"
-              class="h-9 cursor-pointer rounded-lg border border-pk-line-strong px-3 text-pk-body font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+              class="h-7 cursor-pointer rounded border border-pk-line-strong px-2 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
             >
-              Salvar
+              salvar
             </button>
           </form>
 
-          <p class="mt-1.5 text-pk-meta text-pk-text-3">
-            Só pra tropeço local (mudar de andar segue parando de vez). Chegar num waypoint
-            devolve as tentativas. 0 desliga.
-          </p>
+          <span
+            :if={is_nil(@world.me.hp_pct)}
+            id="safety-no-reading"
+            class="ml-auto font-mono text-pk-meta text-pk-warn"
+          >
+            sem leitura de vida — a guarda e o resgate não enxergam o pokémon
+          </span>
         </section>
 
-        <div class="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <%!-- THE WORKBENCH, bounded by the screen. Everything above is a strip
+             of fixed height; this grid takes what is left of the viewport and
+             each column scrolls INSIDE itself. That is what makes the map and
+             the waypoints reachable without scrolling the page — "a parte de
+             waypoints tem que caber na minha tela com uma caixa que dentro
+             dela tem o scroll" (Lucas, 2026-08-15). The `min-h-0` is what lets
+             a grid child shrink below its content and scroll at all. --%>
+        <div
+          id="cavebot-workbench"
+          class="grid gap-3 lg:min-h-[20rem] lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]"
+        >
           <%!-- LEFT: the drawing, what is selected, and the recorder that feeds
-               them. STICKY on wide screens: the map and the waypoint's controls
-               are two ends of one act, and putting a 45-row list between them
-               made editing a scrolling exercise (2026-08-11). Top offset clears
-               the app header. --%>
-          <%!-- …and the whole column is capped at the viewport: a sticky block
-               TALLER than the screen pins its top and hides its bottom, which
-               would put the workbench somewhere no scroll can reach. --%>
-          <div class="space-y-3 lg:sticky lg:top-14 lg:max-h-[calc(100dvh-4rem)] lg:overflow-y-auto">
+               them. The map and the waypoint's controls are two ends of one
+               act, and putting a 45-row list between them made editing a
+               scrolling exercise (2026-08-11). --%>
+          <div class="space-y-3 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
             <section class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -2393,8 +2380,9 @@ defmodule PokexWeb.CavebotLive do
             </section>
           </div>
 
-          <%!-- RIGHT: the routes and the waypoint editor --%>
-          <div class="space-y-3">
+          <%!-- RIGHT: the routes and the waypoint editor, scrolling inside
+               its own column so the list never pushes the page down --%>
+          <div class="space-y-3 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
             <section id="cavebot-routes" class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 Rotas
@@ -2568,7 +2556,7 @@ defmodule PokexWeb.CavebotLive do
                    editor and the list stay on ONE screen. --%>
               <ol
                 :if={@active_route.waypoints != []}
-                class="mt-2 max-h-[42vh] space-y-1 overflow-y-auto pr-1"
+                class="mt-2 max-h-[46vh] space-y-1 overflow-y-auto pr-1"
               >
                 <li
                   :for={{wp, index} <- Enum.with_index(@active_route.waypoints)}

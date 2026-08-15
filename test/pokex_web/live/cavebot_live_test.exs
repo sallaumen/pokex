@@ -654,7 +654,11 @@ defmodule PokexWeb.CavebotLiveTest do
     html = render(view)
     assert html =~ "presa"
     assert html =~ "parei: bati numa parede"
-    assert html =~ ">3<"
+
+    # Through the TILE, never through `">3<"`: that shape asserted the
+    # formatter's line breaks, and it broke the day a class list grew long
+    # enough for `mix format` to reflow the value onto its own line.
+    assert view |> element("#tile-capture") |> render() =~ "3"
   end
 
   test "the route is DRAWN: waypoints, the character, and the walked order", %{conn: conn} do

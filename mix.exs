@@ -95,10 +95,18 @@ defmodule Pokex.MixProject do
         "esbuild pokex --minify",
         "phx.digest"
       ],
+      # FORMAT FIRST. With `format` after `compile`, the formatter rewrites
+      # source that the same run had already compiled, and the `test` that
+      # follows reuses that build inside the same mix session — so the suite
+      # green-lights code nobody compiled. It happened for real on 2026-08-15:
+      # a HEEx line reflowed by the formatter changed the rendered whitespace,
+      # the local gate stayed green, and CI (clean checkout) went red on a PR
+      # already merged. Formatting first is what makes the gate test what will
+      # actually be pushed.
       precommit: [
+        "format",
         "compile --warnings-as-errors",
         "deps.unlock --unused",
-        "format",
         "test --warnings-as-errors"
       ],
       lint: ["credo", "dialyzer"]

@@ -179,6 +179,44 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
     end
   end
 
+  # "se não tem mais outras skills pra usar, pra tentar dar aquele último dano,
+  # daí recolhe" (Lucas, 2026-08-14): a stun that never fired must not end with
+  # the field emptied and the hand still full.
+  describe "the last card, when the stun refused to go out" do
+    @kit %{crowd: ["1", "2"], aoe: ["3"], single: ["4"], heal: ["8"], buffs: ["5"]}
+
+    test "control first, then area, then single target" do
+      assert Logic.last_resort_keys(@kit, [], nil) == ["1", "2", "3", "4"]
+    end
+
+    test "what was already pressed is not pressed again" do
+      assert Logic.last_resort_keys(@kit, ["1", "2"], nil) == ["3", "4"]
+    end
+
+    test "cooling keys are dropped against the bar" do
+      assert Logic.last_resort_keys(@kit, ["1"], ["2", "4"]) == ["2", "4"]
+    end
+
+    # Same fail-open rule as the stun prefix: in this exact moment a blind
+    # press beats no press at all.
+    test "no bar reading presses everything that is left" do
+      assert Logic.last_resort_keys(@kit, ["1"], nil) == ["2", "3", "4"]
+    end
+
+    test "heal and buffs are never the last card — other rungs own those" do
+      keys = Logic.last_resort_keys(@kit, [], nil)
+
+      refute "8" in keys
+      refute "5" in keys
+    end
+
+    test "an empty hand is an empty list, never a crash" do
+      assert Logic.last_resort_keys(nil, [], nil) == []
+      assert Logic.last_resort_keys(%{crowd: ["1"]}, ["1"], nil) == []
+      assert Logic.last_resort_keys(@kit, [], []) == []
+    end
+  end
+
   # "se o pokémon morrer naturalmente, a gente tem que saber lidar com o fluxo"
   # (Lucas, 2026-08-14). A dead pokémon has no bar to read — the window itself
   # changes shape — so death is read from the TRAJECTORY of the last bar seen.

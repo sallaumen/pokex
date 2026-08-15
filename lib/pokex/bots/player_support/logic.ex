@@ -101,6 +101,34 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
     do: now - last >= cooldown
 
   @doc """
+  Everything he still has in hand when the stun did NOT go out — the last
+  thing tried before the field is given up.
+
+  "Stun não confirmado: se não tem mais outras skills pra usar, pra tentar dar
+  aquele último dano, daí recolhe" (Lucas, 2026-08-14). Recalling with a full
+  hand is the worst of both worlds: the pokémon leaves, the pile stays awake,
+  and the character is the one standing there. So a refused stun escalates
+  instead — another control key may put the pile down, and damage may simply
+  end it.
+
+  Order IS the priority: `crowd` first (it is what the stun was for), then
+  `aoe` (a gathered pile is a crowd by definition), then `single`. Keys already
+  pressed drop out — pressing again what just failed to fire buys nothing.
+  `ready` filters against the skill bar, and `nil` (no reading) keeps
+  everything: the same fail-open rule as `stun_prefix/2`, because in this
+  moment a blind press beats no press at all.
+  """
+  @spec last_resort_keys(map | nil, [String.t()], [String.t()] | nil) :: [String.t()]
+  def last_resort_keys(nil, _tried, _ready), do: []
+
+  def last_resort_keys(loadout, tried, ready) do
+    (Map.get(loadout, :crowd, []) ++ Map.get(loadout, :aoe, []) ++ Map.get(loadout, :single, []))
+    |> Enum.uniq()
+    |> Enum.reject(&(&1 in tried))
+    |> then(fn keys -> if is_list(ready), do: Enum.filter(keys, &(&1 in ready)), else: keys end)
+  end
+
+  @doc """
   True when the pokémon on the field DIED — read from the bar's trajectory,
   because a dead pokémon has no bar left to read.
 

@@ -672,6 +672,94 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     if text =~ matching, do: text, else: await_log(matching)
   end
 
+  # "se não tem mais outras skills pra usar, pra tentar dar aquele último dano,
+  # daí recolhe" (Lucas, 2026-08-14). A bar still showing the key as READY
+  # after the press is the receipt saying it never fired.
+  describe "a stun that never went out" do
+    setup do
+      SettingsStash.stash!(rescue_enabled: true, rescue_confirm_ms: 120)
+      SettingsStash.stash_keys!([:rescue_stun_settle_ms, :rescue_mode, :rescue_combo])
+      Settings.put(:rescue_stun_settle_ms, 0)
+      :ok
+    end
+
+    # The bar never changes, so every press reads as refused — the only way to
+    # walk the refusal path without inventing pixels.
+    defp bar_stuck_ready(keys) do
+      publisher =
+        spawn(fn ->
+          Enum.each(1..400, fn _ ->
+            WorldState.put(:skill_bar, %{ready_keys: keys}, System.monotonic_time(:millisecond))
+            Process.sleep(15)
+          end)
+        end)
+
+      on_exit(fn -> Process.exit(publisher, :kill) end)
+      Process.sleep(30)
+    end
+
+    defp stun_combo!(steps) do
+      Store.put([
+        %Pokex.Combos.Combo{
+          name: "stun-do-resgate",
+          trigger: nil,
+          steps: steps,
+          enabled?: true
+        }
+      ])
+
+      Settings.put(:rescue_mode, "combo")
+      Settings.put(:rescue_combo, "stun-do-resgate")
+    end
+
+    @tag :tmp_dir
+    test "everything still in hand is tried BEFORE the field is given up", %{
+      tmp: tmp,
+      body: body
+    } do
+      classify!("Gardevoir", %{"1" => :crowd, "2" => :crowd, "3" => :aoe})
+      stun_combo!([{:skill, "1"}])
+      bar_stuck_ready(["1", "2", "3"])
+
+      low = hp_png(tmp, "low_last_card.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      # the stun that refused…
+      assert_receive {:performed, :critical, [{:press, "1"}]}, 2_000
+
+      # …then the rest of the hand, control before area, never "1" again
+      assert_receive {:performed, :critical, last_card}, 2_000
+      assert last_card == [{:press, "2"}, {:press, "3"}]
+
+      # and only THEN does the field empty
+      assert_receive {:performed, :critical, revive}, 2_000
+      assert {:press, "shift+q"} in revive
+    end
+
+    @tag :tmp_dir
+    test "with nothing left in hand it recalls at once, and says so", %{tmp: tmp, body: body} do
+      classify!("Abra", %{"1" => :crowd})
+      stun_combo!([{:skill, "1"}])
+      bar_stuck_ready(["1"])
+
+      low = hp_png(tmp, "low_empty_hand.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :critical, [{:press, "1"}]}, 2_000
+      assert_receive {:performed, :critical, revive}, 2_000
+      assert {:press, "shift+q"} in revive
+
+      assert await_log("não sobrou skill") =~ "recolhendo agora"
+    end
+  end
+
   # "se o pokémon morrer naturalmente, a gente tem que saber lidar com o fluxo"
   # (Lucas, 2026-08-14): when it falls the pokémon window changes shape, so the
   # calibrated strip stops holding a bar — the same `:unrecognized` a covered

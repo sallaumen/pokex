@@ -826,21 +826,54 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   defp crowd_control(body, stun_steps) do
     keys = for {:press, key} <- stun_steps, do: key
+    {verdict, at} = fire_and_confirm(body, stun_steps, keys)
+
+    case verdict do
+      # NOTHING went out. Leaving now would empty the field in front of a pile
+      # that is wide awake, with skills still in hand — so everything he has
+      # left is tried first, and the settle is recounted from THAT press.
+      {:missed, _} ->
+        {extra_notes, extra_settle} = last_resort(body, keys)
+        {stun_note(verdict, keys, 0) ++ extra_notes, extra_settle}
+
+      _landed_or_unreadable ->
+        settle = settle_remaining(at)
+        {stun_note(verdict, keys, settle), settle}
+    end
+  end
+
+  defp fire_and_confirm(body, steps, keys) do
     before = Pokex.Perception.ready_skills()
     at = now()
 
-    Body.perform(stun_steps, :critical, body)
+    Body.perform(steps, :critical, body)
 
     later = Pokex.Perception.ready_skills_after(at, Settings.get(:rescue_confirm_ms))
-    settle = settle_remaining(at)
 
-    notes =
-      keys
-      |> then(&SkillReceipt.check(before, later, &1))
-      |> SkillReceipt.verdict()
-      |> stun_note(keys, settle)
+    {SkillReceipt.verdict(SkillReceipt.check(before, later, keys)), at}
+  end
 
-    {notes, settle}
+  # The escalation Lucas asked for (2026-08-14): another control key may still
+  # put the pile down, and plain damage may simply end it. With nothing left to
+  # press there is nothing to wait for either — recall AT ONCE, because from
+  # there on the clock only costs the pokémon's HP.
+  defp last_resort(body, tried) do
+    keys = Logic.last_resort_keys(Loadout.current(), tried, Pokex.Perception.ready_skills())
+
+    if keys == [] do
+      {[log: "🚑 não sobrou skill pra tentar — recolhendo agora"], 0}
+    else
+      {verdict, at} = fire_and_confirm(body, Enum.map(keys, &{:press, &1}), keys)
+
+      case verdict do
+        {:missed, _still_nothing} ->
+          {[alarm: "🚑 nem #{Enum.join(keys, ", ")} saiu — recolhendo exposto"], 0}
+
+        _landed_or_unreadable ->
+          settle = settle_remaining(at)
+          {[log: "🚑 última cartada: #{Enum.join(keys, ", ")}#{settle_text(settle)}"], settle}
+      end
+    end
   end
 
   # What is LEFT of the sleep's landing time, counted from the PRESS — the

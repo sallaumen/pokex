@@ -62,6 +62,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # latched below `hp_abort_pct`, released at `hp_resume_pct`: while
             # set, the hunt fights what it has and the route does not advance
             recovering?: false,
+            # WHY the last waypoint changed — the Worker turns it into the line
+            # that makes a route readable after the fact
+            advance: nil,
             # how many taps this staircase has already been given — spent, the
             # ring search gets its turn
             stair_taps: 0
@@ -597,7 +600,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
       arrived_here?(logic, dx, dy, z, wp, tol) ->
         next = rem(logic.wp_index + 1, length(logic.route.waypoints))
         logic = note_progress(logic, pos, now)
-        {%{arrived(logic, wp, now) | wp_index: next, skips: 0}, on_arrival(logic, wp)}
+
+        {%{arrived(logic, wp, now) | wp_index: next, skips: 0, advance: :arrived},
+         on_arrival(logic, wp)}
 
       # A staircase is ONE key that moves TWO tiles. Holding the arrow takes the
       # step on the first press and keeps walking on the floor above until the
@@ -916,6 +921,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       logic
       | state: :walking,
         wp_index: next,
+        advance: :skipped,
         retries: 0,
         skips: logic.skips + 1,
         last_pos: nil,

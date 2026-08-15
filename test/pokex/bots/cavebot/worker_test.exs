@@ -182,6 +182,11 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     Worker.status(worker)
   end
 
+  defp await_log(matching) do
+    assert_receive {:cavebot_log, :macro, text}, 1_000
+    if text =~ matching, do: text, else: await_log(matching)
+  end
+
   defp minimap!(pos),
     do: WorldState.put(:minimap, %{pos: pos}, System.monotonic_time(:millisecond))
 
@@ -197,6 +202,35 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert {:error, [msg]} = Worker.run(worker)
     assert msg =~ "nenhuma rota"
     assert Worker.status(worker).state == :idle
+  end
+
+  # "ele já sai usando todas as esquinas antes da hora" (Lucas, 2026-08-15) is a
+  # claim about the SEQUENCE of corners, and the old line could not tell an
+  # arrival from a corner the hunt gave up on — nor say where the character
+  # actually was. Both are :macro because :debug never reaches the journal.
+  @tag :capture_log
+  test "a corner reached says WHERE, and a corner skipped says it was skipped", %{
+    worker: worker
+  } do
+    SettingsStash.stash!(cavebot_walk_timeout_ms: 0, cavebot_stuck_max_retries: 0)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    two_waypoint_route!()
+    :ok = Worker.run(worker)
+
+    minimap!({100, 100, 7})
+    tick!(worker)
+    tick!(worker)
+
+    arrived = await_log("waypoint 1/2")
+    assert arrived =~ "100,100 andar 7"
+    refute arrived =~ "pulei"
+
+    # now it cannot reach the next corner and gives up on it
+    minimap!({10, 20, 7})
+    Enum.each(1..6, fn _ -> tick!(worker) end)
+
+    skipped = await_log("pulei (não cheguei)")
+    assert skipped =~ "10,20 andar 7"
   end
 
   test "the hunt start names each missing safety net", %{worker: worker} do
@@ -816,7 +850,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       minimap!({100, 100, 7})
       tick!(worker)
       tick!(worker)
-      assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2"}, 1_000
+      assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2" <> _}, 1_000
 
       minimap!({10, 20, 7})
       Enum.each(1..8, fn _ -> tick!(worker) end)
@@ -906,7 +940,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:combat_cmd, :run}, 1_000
 
     tick!(worker)
-    assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2"}, 1_000
+    assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2" <> _}, 1_000
 
     tick!(worker)
     assert_receive {:cavebot_log, :debug, "caçada: segurando right+down → wp 2/2"}, 1_000
@@ -1436,7 +1470,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       tick!(worker)
 
-      assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2"}, 1_000
+      assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2" <> _}, 1_000
       refute_receive {:cavebot_log, :macro, "caçada: 🪜" <> _}, 200
     end
   end

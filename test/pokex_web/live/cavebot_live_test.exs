@@ -737,7 +737,24 @@ defmodule PokexWeb.CavebotLiveTest do
     html = render(view)
     assert html =~ ~s(id="cavebot-log")
     assert html =~ "waypoint 2/4 alcançado"
-    assert html =~ "passo 5,0"
+
+    # step-by-step chatter is diagnosis, and it drowns the feed he reads at a
+    # glance: it waits behind the debug switch, exactly like the panel's
+    refute html =~ "passo 5,0"
+    assert view |> element("#cavebot-log-debug") |> render_click() =~ "passo 5,0"
+  end
+
+  # A revive that failed belongs where he is watching the hunt, not only in the
+  # panel he does not have open.
+  test "the support's own lines land in the hunt's feed too", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    send(view.pid, {:game_log, :macro, "🚑 stun do resgate: 1"})
+    send(view.pid, {:rule_alarm, "💀 o revive do caído NÃO saiu"})
+
+    html = render(view)
+    assert html =~ "stun do resgate"
+    assert html =~ "revive do caído"
   end
 
   test "the rehearsal names WHICH link broke, not just 'não andou'", %{conn: conn} do

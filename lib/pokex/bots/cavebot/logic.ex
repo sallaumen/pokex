@@ -598,7 +598,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
       # tap that takes the step only works from the exact tile, and one tile off
       # presses an arrow into whatever is beside the staircase.
       arrived_here?(logic, dx, dy, z, wp, tol) ->
-        next = rem(logic.wp_index + 1, length(logic.route.waypoints))
+        next =
+          chain_past_plain(logic, pos, rem(logic.wp_index + 1, length(logic.route.waypoints)))
+
         logic = note_progress(logic, pos, now)
 
         {%{arrived(logic, wp, now) | wp_index: next, skips: 0, advance: :arrived},
@@ -720,6 +722,41 @@ defmodule Pokex.Bots.Cavebot.Logic do
     abs(dx) <= reach and abs(dy) <= reach and wp.z == z
   end
 
+  # Corners the character is ALREADY standing on, taken in one tick instead of
+  # one each.
+  #
+  # His real route (2026-08-15) has 16 pairs one tile apart, and the tolerance
+  # is one tile: arriving at 60 meant 61, 62 and 63 were also "arrived", so
+  # they ticked off in consecutive ticks without a single step — the journal
+  # shows three corners in the same second, which is exactly what he saw as
+  # "ele já sai usando todas as esquinas antes da hora".
+  #
+  # Only PLAIN corners are chained: a mark (`:lure_start`/`:lure_end`) or a
+  # stop carries side effects — the huddle clock, the sweep, the revive — and
+  # skipping those would trade a cosmetic problem for a real one. The chain
+  # stops at the first corner that is either marked or genuinely away from
+  # here, which is the first one that needs walking.
+  defp chain_past_plain(logic, pos, index), do: chain_past_plain(logic, pos, index, 0)
+
+  defp chain_past_plain(logic, _pos, index, hops)
+       when hops >= length(logic.route.waypoints),
+       do: index
+
+  defp chain_past_plain(logic, {x, y, z} = pos, index, hops) do
+    tol = logic.config.arrival_tolerance
+    wp = Enum.at(logic.route.waypoints, index)
+
+    if plain?(wp) and wp.z == z and abs(wp.x - x) <= tol and abs(wp.y - y) <= tol do
+      next = rem(index + 1, length(logic.route.waypoints))
+      chain_past_plain(logic, pos, next, hops + 1)
+    else
+      index
+    end
+  end
+
+  defp plain?(%{action: :walk} = wp), do: Map.get(wp, :stops, []) == [] and wp[:park_point] == nil
+  defp plain?(_marked), do: false
+
   # A hunt does not begin at waypoint 1: it begins at the CLOSEST corner of the
   # route. Restarting mid-route used to send the character back to the first
   # waypoint — across the map, through walls it cannot path around with arrow
@@ -738,7 +775,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       |> Enum.min_by(fn {wp, _index} -> abs(wp.x - x) + abs(wp.y - y) end, fn -> nil end)
 
     case nearest do
-      {_wp, index} -> %{logic | wp_index: index, homed?: true}
+      {_wp, index} -> %{logic | wp_index: index, homed?: true, advance: :homed}
       nil -> %{logic | homed?: true}
     end
   end

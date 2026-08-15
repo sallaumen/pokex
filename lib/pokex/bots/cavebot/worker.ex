@@ -1234,6 +1234,17 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # a human recognizes in the route list.
   defp note_arrival(%{logic: %Logic{wp_index: same}} = state, same, _now), do: state
 
+  # ENTERING the route is not walking it. `home_in/2` jumps the index to the
+  # nearest corner on the first sighting, and the old reading — "the index
+  # moved, so a corner was reached" — logged that jump as an arrival and
+  # counted it: his 2026-08-15 journal opens with "waypoint 1/70" and
+  # "waypoint 58/70" in the same second, neither of them walked.
+  defp note_arrival(%{logic: %Logic{advance: :homed} = logic} = state, _before, now) do
+    text = "🏁 entrei na rota pelo canto #{logic.wp_index + 1}/#{wp_total(state)}"
+    log(:macro, text)
+    %{state | last_action: %{text: text, at: now}, block_retries: 0}
+  end
+
   # Reaching a corner is the proof the hunt is HEALTHY, so it hands every
   # comeback back: a ten-hour night with three unrelated hiccups must not run
   # out of budget over hiccups that were hours apart.

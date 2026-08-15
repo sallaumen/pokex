@@ -27,16 +27,21 @@ defmodule PokexWeb.CavebotComponents do
   """
   def world_tile(assigns) do
     ~H"""
-    <div id={@id} class="rounded-lg border border-pk-line bg-pk-sunken px-2 py-1.5">
+    <div id={@id} class="min-w-0 rounded-lg border border-pk-line bg-pk-sunken px-2 py-1">
+      <%!-- label and value share a LINE, and the note truncates: three stacked
+           lines per tile cost a tenth of the fold for six short numbers, and
+           the long notes wrapped to a fourth (2026-08-15). --%>
       <p class="flex items-center gap-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-        <.icon name={@icon} class="size-3" />{@label}
+        <.icon name={@icon} class="size-3 shrink-0" />{@label}
+        <span class={["pk-num ml-auto font-bold normal-case", tone_text(@tone)]}>{@value}</span>
       </p>
-      <%!-- the VALUE dropped a step: six tiles at display size ate a third of
-           a laptop screen for six short numbers (2026-08-14). --%>
-      <p class={["pk-num font-mono text-pk-body font-bold leading-tight", tone_text(@tone)]}>
-        {@value}
+      <p
+        :if={@note}
+        title={@note}
+        class="truncate font-mono text-pk-meta leading-tight text-pk-text-3"
+      >
+        {@note}
       </p>
-      <p :if={@note} class="font-mono text-pk-meta leading-tight text-pk-text-3">{@note}</p>
     </div>
     """
   end
@@ -65,7 +70,7 @@ defmodule PokexWeb.CavebotComponents do
       phx-value-key={@key}
       aria-pressed={to_string(@armed?)}
       class={[
-        "flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-3 font-mono",
+        "flex h-7 cursor-pointer items-center gap-1 rounded border px-2 font-mono",
         "text-pk-meta font-semibold transition",
         if(@armed?,
           do: "border-pk-ok/60 bg-pk-ok-dim text-pk-ok hover:border-pk-ok",
@@ -73,8 +78,7 @@ defmodule PokexWeb.CavebotComponents do
         )
       ]}
     >
-      <.icon name={@icon} class="size-4" />
-      {if @armed?, do: @on, else: @off}
+      <.icon name={@icon} class="size-3.5" />{if @armed?, do: @on, else: @off}
     </button>
     """
   end

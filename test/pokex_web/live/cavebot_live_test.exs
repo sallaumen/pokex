@@ -1585,6 +1585,45 @@ defmodule PokexWeb.CavebotLiveTest do
       refute view |> element("#waypoint-1") |> render() =~ "▶"
     end
 
+    # The morning question is "o que ocorreu", and corners alone do not answer
+    # it. Incidents only take space when they happened.
+    test "the incidents show up beside the progress, and stay quiet at zero", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(
+        view.pid,
+        {:cavebot,
+         %{
+           state: :walking,
+           route: "cavena",
+           wp_index: 1,
+           wp_total: 3,
+           hold_reason: nil,
+           counters: %{waypoints: 40, steps: 900, aborts: 0, comebacks: 0, blocks: 0}
+         }}
+      )
+
+      refute has_element?(view, "#cavebot-tally")
+
+      send(
+        view.pid,
+        {:cavebot,
+         %{
+           state: :walking,
+           route: "cavena",
+           wp_index: 1,
+           wp_total: 3,
+           hold_reason: nil,
+           counters: %{waypoints: 40, steps: 900, aborts: 2, comebacks: 1, blocks: 0}
+         }}
+      )
+
+      tally = view |> element("#cavebot-tally") |> render()
+      assert tally =~ "2 mobada(s) largada(s)"
+      assert tally =~ "1 volta(s)"
+      refute tally =~ "parada(s)"
+    end
+
     test "a stopped hunt marks nothing", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 

@@ -1551,6 +1551,23 @@ defmodule PokexWeb.CavebotLive do
   # Read through Access, never by dot: this page also renders PARTIAL snapshots
   # (a fleet fallback, an older broadcast, a test), and a missing key must not
   # take the whole page down over a progress counter.
+  # Corners walked and, when they happened at all, the incidents: a night with
+  # zero aborts and zero comebacks says so by staying short.
+  defp hunt_tally(%{counters: %{} = c}) do
+    [
+      {Map.get(c, :aborts, 0), "mobada(s) largada(s)"},
+      {Map.get(c, :comebacks, 0), "volta(s)"},
+      {Map.get(c, :blocks, 0), "parada(s)"}
+    ]
+    |> Enum.filter(fn {n, _} -> n > 0 end)
+    |> case do
+      [] -> nil
+      some -> Enum.map_join(some, " · ", fn {n, label} -> "#{n} #{label}" end)
+    end
+  end
+
+  defp hunt_tally(_no_counters), do: nil
+
   defp hunt_progress(%{state: state} = hunt) when state not in [:idle, nil] do
     with index when is_integer(index) <- hunt[:wp_index],
          total when is_integer(total) and total > 0 <- hunt[:wp_total] do
@@ -1639,6 +1656,12 @@ defmodule PokexWeb.CavebotLive do
           <p class="font-mono text-pk-meta text-pk-text-3">
             <span :if={hunt_progress(@hunt)} class="font-bold text-pk-ok">
               {hunt_progress(@hunt)} ·
+            </span>
+            <%!-- the night in five numbers, where he already looks for the
+                 route's size — incidents included, because "o que ocorreu"
+                 needs them (2026-08-15) --%>
+            <span :if={hunt_tally(@hunt)} id="cavebot-tally" class="text-pk-text-2">
+              {hunt_tally(@hunt)} ·
             </span>
             {length(@routes)} rota(s) · {(@active_route && length(@active_route.waypoints)) || 0} waypoints · {route_tiles(
               @active_route

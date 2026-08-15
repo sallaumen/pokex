@@ -582,7 +582,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert :ok = Worker.run(worker)
 
     assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_000
-    assert_receive {:rule_alarm, msg}, 1_000
+    assert_receive {:rule_alarm, :hp, msg}, 1_000
     assert msg =~ "sumiu"
     assert msg =~ "revivendo direto"
   end
@@ -679,6 +679,26 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     send(blocking, :release)
   end
 
+  # The 2-tuple form lands in a pseudo-category the panel cannot mute (:geral):
+  # these are HP alarms, and today they multiplied (stun that missed, revive
+  # refused, fallen revive refused) — an unmutable siren at 3am is a siren he
+  # will turn off at the master switch, losing the others with it.
+  @tag :tmp_dir
+  test "the support's alarms carry the :hp sector, so the mute can reach them", %{
+    tmp: tmp
+  } do
+    low = hp_png(tmp, "low_sector.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    {:ok, refusing} = Pokex.Bots.PlayerSupport.WorkerTest.RefusingBody.start_link(self())
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_worker(refusing)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:rule_alarm, :hp, msg}, 1_500
+    assert msg =~ "revive"
+  end
+
   @tag :tmp_dir
   test "a refused revive is NAMED, and the cooldown still holds", %{tmp: tmp} do
     low = hp_png(tmp, "low.png", 6)
@@ -691,7 +711,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert :ok = Worker.run(worker)
 
     assert_receive {:performed, :critical, _}, 1_000
-    assert_receive {:rule_alarm, msg}, 1_000
+    assert_receive {:rule_alarm, :hp, msg}, 1_000
     assert msg =~ "revive"
     assert msg =~ "NÃO saiu"
 

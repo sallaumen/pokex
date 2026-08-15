@@ -210,7 +210,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
           Phoenix.PubSub.broadcast(
             Pokex.PubSub,
             @topic,
-            {:rule_alarm, "🚑 o revive NÃO saiu (#{refusal_text(reason)}) — confere o pokémon"}
+            {:rule_alarm, :hp,
+             "🚑 o revive NÃO saiu (#{refusal_text(reason)}) — confere o pokémon"}
           )
 
           %{state | last_action: %{text: "revive recusado", at: now()}}
@@ -232,7 +233,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       @topic,
-      {:rule_alarm,
+      {:rule_alarm, :hp,
        "💀 o revive do caído NÃO saiu (#{refusal_text(reason)}) — sem pokémon em campo"}
     )
 
@@ -792,7 +793,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   defp drain_notes(notes) do
     Enum.each(notes, fn
-      {:alarm, text} -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, text})
+      {:alarm, text} -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :hp, text})
       {:log, text} -> broadcast_log(:macro, text)
     end)
   end

@@ -298,7 +298,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                luring?: false,
                comeback?: false,
                last_action: nil,
-               counters: %{waypoints: 0, steps: 0}
+               counters: %{waypoints: 0, steps: 0, aborts: 0, comebacks: 0, blocks: 0}
              }
 
     minimap!({10, 20, 7})
@@ -897,7 +897,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert status.pos == {10, 20, 7}
     assert status.pos_age_ms >= 0
     assert status.distance_tiles == %{dx: 90, dy: 80}
-    assert status.counters == %{waypoints: 0, steps: 1}
+    assert status.counters == %{waypoints: 0, steps: 1, aborts: 0, comebacks: 0, blocks: 0}
     assert status.last_action.text == "segurando right+down"
 
     WorldState.forget(:minimap)
@@ -1002,7 +1002,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              luring?: false,
              comeback?: false,
              last_action: nil,
-             counters: %{waypoints: 0, steps: 0}
+             counters: %{waypoints: 0, steps: 0, aborts: 0, comebacks: 0, blocks: 0}
            }
   end
 

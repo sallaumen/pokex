@@ -914,7 +914,30 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp rescue_stun_steps do
     case Settings.get(:rescue_mode) do
       "combo" -> compile_rescue_combo(Settings.get(:rescue_combo))
-      _direto -> {[], []}
+      _direto -> control_stun()
+    end
+  end
+
+  # "Ele não está usando a skill 1, que seria a skill guardada para reviver, e
+  # a skill de stun (…) eu morri já por culpa disso!" (Lucas, 2026-08-14).
+  #
+  # He was right, and the cause was NOT the timing he suspected: in "direct"
+  # mode this returned nothing at all, so no stun was ever attempted — and with
+  # no stun there is no settle either, which is exactly why the recall looked
+  # instant. Meanwhile combat RESERVES `loadout.crowd` from every ordinary
+  # fight precisely "pro revive" (`Strategy.reserved/1`, and /time labels the
+  # key that way). A key reserved by everyone and pressed by nobody is the bug.
+  #
+  # So the on-field pokémon's control keys ARE the stun whenever they exist;
+  # "combo" mode only buys a scripted sequence on top of that.
+  defp control_stun do
+    case ready_control_keys() do
+      [] ->
+        {[], [log: "🚑 sem controle pronto no pokémon — revivendo direto"]}
+
+      keys ->
+        {elem(Logic.stun_prefix(Enum.map(keys, &{:skill, &1}), nil), 0),
+         [log: "🚑 stun do resgate: #{Enum.join(keys, ", ")} — o controle guardado no /time"]}
     end
   end
 

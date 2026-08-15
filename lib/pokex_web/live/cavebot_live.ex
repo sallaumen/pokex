@@ -1978,13 +1978,13 @@ defmodule PokexWeb.CavebotLive do
              a grid child shrink below its content and scroll at all. --%>
         <div
           id="cavebot-workbench"
-          class="grid gap-3 lg:min-h-[20rem] lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]"
+          class="grid gap-3 lg:min-h-[20rem] lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:grid-rows-[minmax(0,1fr)]"
         >
           <%!-- LEFT: the drawing, what is selected, and the recorder that feeds
                them. The map and the waypoint's controls are two ends of one
                act, and putting a 45-row list between them made editing a
                scrolling exercise (2026-08-11). --%>
-          <div class="space-y-3 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+          <div class="relative space-y-3 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
             <section class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -2001,7 +2001,7 @@ defmodule PokexWeb.CavebotLive do
               <%!-- The drawing is a SQUARE sized by its width, so capping the
                    width in viewport heights is what keeps it from growing
                    taller than the screen on a wide monitor. --%>
-              <div class="mt-2 mx-auto w-full max-w-[min(100%,42vh)]">
+              <div class="mt-2 mx-auto w-full max-w-[min(100%,52vh)]">
                 <.route_map
                   floor={map_floor(@active_route, @pos)}
                   waypoints={(@active_route && @active_route.waypoints) || []}
@@ -2352,7 +2352,7 @@ defmodule PokexWeb.CavebotLive do
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 O que ela acabou de fazer
               </h2>
-              <ol class="mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1">
+              <ol class="relative mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1">
                 <li
                   :for={line <- @log}
                   class="flex gap-2 font-mono text-pk-meta text-pk-text-2"
@@ -2365,24 +2365,26 @@ defmodule PokexWeb.CavebotLive do
               </ol>
             </section>
 
-            <section
+            <details
               :if={@active_route}
               id="route-photos"
-              class="rounded-lg border border-pk-line bg-pk-surface p-3"
+              class="rounded-lg border border-pk-line bg-pk-surface px-3 py-2"
             >
-              <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-                Como é o lugar
-              </h2>
+              <%!-- Reference material, not hunt material: it earns a click, not
+                   256px of the screen he watches the route on (2026-08-15). --%>
+              <summary class="cursor-pointer list-none font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3 hover:text-pk-text [&::-webkit-details-marker]:hidden">
+                Como é o lugar ▸
+              </summary>
               <div class="mt-3 flex flex-wrap gap-3">
                 <.route_photo kind={:start} url={Photos.url(@active_route.name, :start)} />
                 <.route_photo kind={:finish} url={Photos.url(@active_route.name, :finish)} />
               </div>
-            </section>
+            </details>
           </div>
 
           <%!-- RIGHT: the routes and the waypoint editor, scrolling inside
                its own column so the list never pushes the page down --%>
-          <div class="space-y-3 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+          <div class="relative space-y-3 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
             <section id="cavebot-routes" class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 Rotas
@@ -2556,7 +2558,7 @@ defmodule PokexWeb.CavebotLive do
                    editor and the list stay on ONE screen. --%>
               <ol
                 :if={@active_route.waypoints != []}
-                class="mt-2 max-h-[46vh] space-y-1 overflow-y-auto pr-1"
+                class="relative mt-2 max-h-[46vh] space-y-1 overflow-y-auto pr-1"
               >
                 <li
                   :for={{wp, index} <- Enum.with_index(@active_route.waypoints)}

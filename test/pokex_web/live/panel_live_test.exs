@@ -378,6 +378,25 @@ defmodule PokexWeb.PanelLiveTest do
     refute has_element?(ok_view, "#rescue-above-potion")
   end
 
+  # Os dois números da MORTE moravam só no arquivo de settings — inúteis
+  # justamente na noite em que ele está calibrando o que é morte e o que é
+  # janela coberta (2026-08-14).
+  test "o ⚙️ salva quando a barra que some vira morte, e o intervalo do revive", %{conn: conn} do
+    Pokex.SettingsStash.stash_keys!([
+      :pokemon_hp_fainted_below_pct,
+      :fainted_revive_cooldown_ms
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/config")
+
+    view
+    |> form("#fainted-cfg-form", %{"fainted_below_pct" => "25", "fainted_cooldown_s" => "30"})
+    |> render_change()
+
+    assert Pokex.Settings.get(:pokemon_hp_fainted_below_pct) == 25
+    assert Pokex.Settings.get(:fainted_revive_cooldown_ms) == 30_000
+  end
+
   # "Essas partes da proteção do Pokémon, eu não consigo mais desativar
   # individualmente?" (2026-08-06). Os dois interruptores sempre existiram — na
   # faixa do dashboard. Lendo "revive < 65%" no ⚙️ sem um liga/desliga do lado,

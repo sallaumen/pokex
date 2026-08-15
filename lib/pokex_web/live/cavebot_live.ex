@@ -799,6 +799,28 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
+  def handle_event("comeback_cfg", %{"retries" => retries, "wait_s" => wait_s}, socket) do
+    with {:ok, retries} <- PanelForms.parse_int(retries, 0..50),
+         {:ok, seconds} <- PanelForms.parse_int(wait_s, 1..600) do
+      Settings.put(:cavebot_block_retries, retries)
+      Settings.put(:cavebot_block_retry_ms, seconds * 1000)
+
+      {:noreply,
+       assign(socket,
+         safety: safety_snapshot(),
+         notice: comeback_notice(retries, seconds),
+         notice_kind: :ok
+       )}
+    else
+      :error ->
+        {:noreply,
+         assign(socket,
+           notice: "tentativas de 0 a 50, espera de 1 a 600 segundos",
+           notice_kind: :warn
+         )}
+    end
+  end
+
   def handle_event("hp_guard", %{"abort" => abort, "resume" => resume}, socket) do
     with {:ok, abort} <- PanelForms.parse_int(abort, 0..100),
          {:ok, resume} <- PanelForms.parse_int(resume, 1..100) do
@@ -1524,7 +1546,9 @@ defmodule PokexWeb.CavebotLive do
       heal?: Settings.get(:heal_skill_enabled),
       potion?: Settings.get(:potion_enabled),
       abort_pct: Settings.get(:cavebot_hp_abort_pct),
-      resume_pct: Settings.get(:cavebot_hp_resume_pct)
+      resume_pct: Settings.get(:cavebot_hp_resume_pct),
+      block_retries: Settings.get(:cavebot_block_retries),
+      block_retry_ms: Settings.get(:cavebot_block_retry_ms)
     }
   end
 
@@ -1547,6 +1571,12 @@ defmodule PokexWeb.CavebotLive do
 
   defp hp_guard_notice(abort, resume),
     do: "abandona a mobada abaixo de #{abort}% e volta em #{resume}% — vale da próxima caçada"
+
+  defp comeback_notice(0, _seconds),
+    do: "volta automática desligada — um tropeço local encerra a caçada"
+
+  defp comeback_notice(retries, seconds),
+    do: "tropeçou: espera #{seconds}s e tenta voltar, até #{retries}x"
 
   # Same semantics as the panel's arm_support/0: turning a net ON re-runs the
   # idempotent monitor, the natural re-enable after a panic halted it. Gated by
@@ -1876,6 +1906,58 @@ defmodule PokexWeb.CavebotLive do
           <p class="mt-2 text-pk-meta text-pk-text-3">
             Abaixo do limite a caçada solta o combo no que já juntou, desiste do mob e só volta
             a andar com o pokémon recuperado. 0 desliga a guarda. Vale a partir da próxima caçada.
+          </p>
+
+          <%!-- The other half of an unattended night: a local trip (wall,
+                staircase, a fight that will not end) used to END it. These two
+                are what bound the comeback, and they were reachable only by
+                editing a file — useless on the night he is tuning them. --%>
+          <form
+            id="comeback-form"
+            phx-submit="comeback_cfg"
+            class="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2 border-t border-pk-line pt-3"
+          >
+            <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
+              tropeçou: tenta de novo
+              <span class="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  name="retries"
+                  value={@safety.block_retries}
+                  min="0"
+                  max="50"
+                  inputmode="numeric"
+                  aria-label="Quantas vezes a caçada tenta voltar sozinha"
+                  class="pk-num h-9 w-20 rounded border border-pk-line-strong bg-pk-sunken px-2 text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                /> vez(es)
+              </span>
+            </label>
+            <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
+              esperando
+              <span class="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  name="wait_s"
+                  value={div(@safety.block_retry_ms, 1000)}
+                  min="1"
+                  max="600"
+                  inputmode="numeric"
+                  aria-label="Quantos segundos ela espera antes de tentar voltar"
+                  class="pk-num h-9 w-20 rounded border border-pk-line-strong bg-pk-sunken px-2 text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                /> s
+              </span>
+            </label>
+            <button
+              aria-label="Salvar as tentativas de volta da caçada"
+              class="h-9 cursor-pointer rounded-lg border border-pk-line-strong px-3 text-pk-body font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+            >
+              Salvar
+            </button>
+          </form>
+
+          <p class="mt-2 text-pk-meta text-pk-text-3">
+            Vale só pra tropeço local — mudar de andar ou o combate recusar continua parando de
+            vez. Chegar num waypoint devolve as tentativas. 0 desliga a volta automática.
           </p>
         </section>
 

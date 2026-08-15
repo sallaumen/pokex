@@ -1608,6 +1608,34 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#cavebot-notice") |> render() =~ "55%"
     end
 
+    test "saves how many times the hunt comes back, and how long it waits", %{conn: conn} do
+      Pokex.SettingsStash.stash_keys!([:cavebot_block_retries, :cavebot_block_retry_ms])
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view
+      |> form("#comeback-form", %{"retries" => "5", "wait_s" => "45"})
+      |> render_submit()
+
+      assert Pokex.Settings.get(:cavebot_block_retries) == 5
+      assert Pokex.Settings.get(:cavebot_block_retry_ms) == 45_000
+      assert view |> element("#cavebot-notice") |> render() =~ "45s"
+    end
+
+    test "a comeback wait outside the range changes nothing", %{conn: conn} do
+      Pokex.SettingsStash.stash!(cavebot_block_retries: 3, cavebot_block_retry_ms: 30_000)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view
+      |> form("#comeback-form", %{"retries" => "5", "wait_s" => "0"})
+      |> render_submit()
+
+      assert Pokex.Settings.get(:cavebot_block_retries) == 3
+      assert Pokex.Settings.get(:cavebot_block_retry_ms) == 30_000
+      assert view |> element("#cavebot-notice") |> render() =~ "1 a 600"
+    end
+
     test "a percentage outside the range changes nothing", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 

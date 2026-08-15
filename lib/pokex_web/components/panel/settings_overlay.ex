@@ -19,7 +19,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
 
   attr :rescue_cfg, :map,
     required: true,
-    doc: "pct, cooldown_s, mode, combo, stun_settle_ms, enabled"
+    doc: "pct, cooldown_s, mode, combo, stun_settle_ms, fainted_*, enabled"
 
   attr :potion_cfg, :map, required: true, doc: "pct, cooldown_s, enabled"
 
@@ -214,6 +214,41 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   class="h-6 w-16 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span :if={@rescue_cfg.mode == "combo"}>ms</span>
+              </form>
+
+              <%!-- MORREU: a janela do pokémon muda de forma e a barra some do
+                    lugar calibrado — igualzinho a uma janela coberta. O que
+                    separa os dois é de ONDE ela sumiu. --%>
+              <form
+                id="fainted-cfg-form"
+                phx-change="save_fainted_cfg"
+                class="flex flex-wrap items-center gap-1"
+              >
+                <label for="fainted-below-pct">caiu se sumir abaixo de</label>
+                <input
+                  id="fainted-below-pct"
+                  type="number"
+                  name="fainted_below_pct"
+                  aria-label="Abaixo desta vida, a barra sumir é morte e não janela coberta"
+                  min="0"
+                  max="100"
+                  value={@rescue_cfg.fainted_below_pct}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span>% · revive do caído a cada</span>
+                <input
+                  id="fainted-cooldown-s"
+                  type="number"
+                  name="fainted_cooldown_s"
+                  aria-label="Intervalo mínimo entre revives de um pokémon caído, em segundos"
+                  min="0"
+                  max="600"
+                  value={@rescue_cfg.fainted_cooldown_s}
+                  phx-debounce="500"
+                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
+                <span>s</span>
               </form>
 
               <div

@@ -532,10 +532,19 @@ defmodule Pokex.Bots.Cavebot.Logic do
       engaged?(world) -> enter_fight(logic, now)
       # Walking on with the pokémon this hurt walks it into the NEXT pile:
       # stand still, let the support heal or revive, resume at hp_resume_pct.
-      logic.recovering? -> {logic, :none}
+      # Standing still is the ORDER here, so the walk's patience is held with
+      # it — otherwise the wait itself (every revive outlasts walk_timeout_ms)
+      # made the FIRST step after recovering read as "não saiu do lugar", and
+      # the hunt came back from a revive already declared stuck.
+      logic.recovering? -> {hold_patience(logic, now), :none}
       true -> follow_route(logic, world, now)
     end
   end
+
+  # A deliberate stop does not spend the walk's patience — the same shape as
+  # the Worker's frozen clocks under a closed input gate.
+  defp hold_patience(logic, now),
+    do: %{logic | since: Map.put(logic.since, :walk_progress, now)}
 
   defp enter_fight(logic, now) do
     since = logic.since |> Map.delete(:clear) |> Map.put(:fight, now)

@@ -1532,6 +1532,69 @@ defmodule PokexWeb.CavebotLiveTest do
     end
   end
 
+  # "não consigo ver direito em que momento ele está na rota" (Lucas,
+  # 2026-08-14): the page marked the corner being EDITED and never the one
+  # being WALKED TO, so a running hunt was invisible on its own map.
+  describe "where the hunt is right now" do
+    setup do
+      {:ok, route} = Route.append(Route.new("cavena"), {1, 1, 7})
+      {:ok, route} = Route.append(route, {8, 1, 7})
+      {:ok, route} = Route.append(route, {8, 8, 7})
+      :ok = Store.add(route)
+      :ok
+    end
+
+    defp hunting!(view, index, route \\ "cavena") do
+      send(
+        view.pid,
+        {:cavebot,
+         %{state: :walking, route: route, wp_index: index, wp_total: 3, hold_reason: nil}}
+      )
+
+      render(view)
+    end
+
+    test "the corner it walks to is marked on the map and on the list", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      hunting!(view, 1)
+
+      assert has_element?(view, "#map-heading-1")
+      refute has_element?(view, "#map-heading-0")
+      assert view |> element("#waypoint-1") |> render() =~ "▶"
+    end
+
+    test "the header counts the progress while it runs", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/cavebot")
+      refute html =~ "waypoint 2/3"
+
+      hunting!(view, 1)
+      assert render(view) =~ "waypoint 2/3"
+    end
+
+    # He edits one route while another is armed: a mark on the list he happens
+    # to be looking at would be a lie.
+    test "another route's hunt marks nothing here", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      hunting!(view, 1, "outra")
+
+      refute has_element?(view, "#map-heading-1")
+      refute view |> element("#waypoint-1") |> render() =~ "▶"
+    end
+
+    test "a stopped hunt marks nothing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(
+        view.pid,
+        {:cavebot, %{state: :idle, route: "cavena", wp_index: 1, wp_total: 3, hold_reason: nil}}
+      )
+
+      render(view)
+
+      refute has_element?(view, "#map-heading-1")
+    end
+  end
+
   describe "the map marks" do
     test "a kill spot is drawn solid, not like a plain mark", %{conn: conn} do
       {:ok, route} = Route.append(Route.new("cavena"), {1, 1, 7})

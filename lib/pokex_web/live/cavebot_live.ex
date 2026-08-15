@@ -1540,6 +1540,28 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
+  # WHERE the running hunt is on this route — `nil` when it is stopped, or when
+  # the route on screen is not the one being walked (he edits one route while
+  # another is armed, and a green mark on the wrong list is worse than none).
+  defp heading_to(%{state: state}, _route) when state in [:idle, nil], do: nil
+
+  defp heading_to(%{route: name, wp_index: index}, %Route{name: name}), do: index
+  defp heading_to(_no_hunt_or_other_route, _route), do: nil
+
+  # Read through Access, never by dot: this page also renders PARTIAL snapshots
+  # (a fleet fallback, an older broadcast, a test), and a missing key must not
+  # take the whole page down over a progress counter.
+  defp hunt_progress(%{state: state} = hunt) when state not in [:idle, nil] do
+    with index when is_integer(index) <- hunt[:wp_index],
+         total when is_integer(total) and total > 0 <- hunt[:wp_total] do
+      "waypoint #{index + 1}/#{total}"
+    else
+      _incomplete -> nil
+    end
+  end
+
+  defp hunt_progress(_stopped_or_absent), do: nil
+
   defp safety_snapshot do
     %{
       rescue?: Settings.get(:rescue_enabled),
@@ -1604,15 +1626,20 @@ defmodule PokexWeb.CavebotLive do
       max_width="max-w-[560px] xl:max-w-[1600px]"
       {Layouts.header(assigns)}
     >
-      <div class="space-y-4">
+      <div class="space-y-3">
         <header class="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h1 class="text-pk-title font-bold text-pk-text">Central da caçada</h1>
-            <p class="mt-0.5 text-pk-body text-pk-text-2">
-              Grave a rota andando, veja o mundo como o bot vê, e conserte os cantos aqui mesmo.
-            </p>
+            <%!-- The subtitle explained the page to someone reading it for the
+                 first time, and cost a line of a laptop screen on every one of
+                 the thousand times after that (2026-08-14). --%>
+            <h1 class="text-pk-body font-bold uppercase tracking-[0.14em] text-pk-text">
+              Central da caçada
+            </h1>
           </div>
           <p class="font-mono text-pk-meta text-pk-text-3">
+            <span :if={hunt_progress(@hunt)} class="font-bold text-pk-ok">
+              {hunt_progress(@hunt)} ·
+            </span>
             {length(@routes)} rota(s) · {(@active_route && length(@active_route.waypoints)) || 0} waypoints · {route_tiles(
               @active_route
             )} tiles
@@ -1622,7 +1649,7 @@ defmodule PokexWeb.CavebotLive do
         <section
           :if={@minimap_gap?}
           id="cavebot-minimap-gap"
-          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
         >
           <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
             <.icon name="hero-map" class="size-4" /> O minimapa não está calibrado nesta tela
@@ -1643,7 +1670,7 @@ defmodule PokexWeb.CavebotLive do
         <section
           :if={@hunt && @hunt.state == :blocked && !@hunt[:comeback?]}
           id="cavebot-blocked"
-          class="rounded-lg border border-pk-danger-line bg-pk-danger-dim p-4"
+          class="rounded-lg border border-pk-danger-line bg-pk-danger-dim p-3"
         >
           <p class="flex items-center gap-2 text-pk-body font-bold text-pk-danger">
             <.icon name="hero-hand-raised" class="size-4" /> A caçada parou e não volta sozinha
@@ -1657,7 +1684,7 @@ defmodule PokexWeb.CavebotLive do
         <section
           :if={@hunt && @hunt.state == :blocked && @hunt[:comeback?]}
           id="cavebot-comeback"
-          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
         >
           <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
             <.icon name="hero-arrow-path" class="size-4" /> A caçada tropeçou — e vai tentar de novo
@@ -1671,7 +1698,7 @@ defmodule PokexWeb.CavebotLive do
         <section
           :if={@hunt && @hunt.state != :blocked && @hunt.hold_reason}
           id="cavebot-held"
-          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
         >
           <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
             <.icon name="hero-pause-circle" class="size-4" /> A caçada está esperando
@@ -1764,7 +1791,7 @@ defmodule PokexWeb.CavebotLive do
         <%!-- THE WORLD, as the bot sees it. Everything here already existed as
               facts; what was missing was a place to read them together while
               the hunt runs. --%>
-        <section id="cavebot-world" class="grid grid-cols-2 gap-2 lg:grid-cols-6">
+        <section id="cavebot-world" class="grid grid-cols-3 gap-1.5 lg:grid-cols-6">
           <.world_tile
             id="tile-pos"
             icon="hero-map-pin"
@@ -1819,7 +1846,7 @@ defmodule PokexWeb.CavebotLive do
               the panel flips); the guard is the cavebot's own. Shown HERE
               because this is the page he checks before letting it run the
               madrugada — "não podemos morrer" (2026-08-14). --%>
-        <section id="cavebot-safety" class="rounded-lg border border-pk-line bg-pk-surface p-4">
+        <section id="cavebot-safety" class="rounded-lg border border-pk-line bg-pk-surface p-3">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
             <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
               Segurança da caçada
@@ -1833,7 +1860,7 @@ defmodule PokexWeb.CavebotLive do
             </span>
           </div>
 
-          <div class="mt-3 flex flex-wrap items-center gap-2">
+          <div class="mt-2 flex flex-wrap items-center gap-1.5">
             <.safety_toggle
               id="safety-rescue"
               key="rescue"
@@ -1863,7 +1890,7 @@ defmodule PokexWeb.CavebotLive do
           <form
             id="hp-guard-form"
             phx-submit="hp_guard"
-            class="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2"
+            class="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1.5"
           >
             <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
               abandona a mobada abaixo de
@@ -1903,9 +1930,9 @@ defmodule PokexWeb.CavebotLive do
             </button>
           </form>
 
-          <p class="mt-2 text-pk-meta text-pk-text-3">
-            Abaixo do limite a caçada solta o combo no que já juntou, desiste do mob e só volta
-            a andar com o pokémon recuperado. 0 desliga a guarda. Vale a partir da próxima caçada.
+          <p class="mt-1.5 text-pk-meta text-pk-text-3">
+            Abaixo do limite: solta o combo no que juntou, desiste do mob, só anda com ele
+            recuperado. 0 desliga. Vale da próxima caçada.
           </p>
 
           <%!-- The other half of an unattended night: a local trip (wall,
@@ -1915,7 +1942,7 @@ defmodule PokexWeb.CavebotLive do
           <form
             id="comeback-form"
             phx-submit="comeback_cfg"
-            class="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2 border-t border-pk-line pt-3"
+            class="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1.5 border-t border-pk-line pt-2"
           >
             <label class="flex flex-col gap-1 font-mono text-pk-meta text-pk-text-2">
               tropeçou: tenta de novo
@@ -1955,13 +1982,13 @@ defmodule PokexWeb.CavebotLive do
             </button>
           </form>
 
-          <p class="mt-2 text-pk-meta text-pk-text-3">
-            Vale só pra tropeço local — mudar de andar ou o combate recusar continua parando de
-            vez. Chegar num waypoint devolve as tentativas. 0 desliga a volta automática.
+          <p class="mt-1.5 text-pk-meta text-pk-text-3">
+            Só pra tropeço local (mudar de andar segue parando de vez). Chegar num waypoint
+            devolve as tentativas. 0 desliga.
           </p>
         </section>
 
-        <div class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <div class="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
           <%!-- LEFT: the drawing, what is selected, and the recorder that feeds
                them. STICKY on wide screens: the map and the waypoint's controls
                are two ends of one act, and putting a 45-row list between them
@@ -1970,8 +1997,8 @@ defmodule PokexWeb.CavebotLive do
           <%!-- …and the whole column is capped at the viewport: a sticky block
                TALLER than the screen pins its top and hides its bottom, which
                would put the workbench somewhere no scroll can reach. --%>
-          <div class="space-y-4 lg:sticky lg:top-14 lg:max-h-[calc(100dvh-4rem)] lg:overflow-y-auto">
-            <section class="rounded-lg border border-pk-line bg-pk-surface p-4">
+          <div class="space-y-3 lg:sticky lg:top-14 lg:max-h-[calc(100dvh-4rem)] lg:overflow-y-auto">
+            <section class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                   {if @active_route, do: "Mapa de #{@active_route.name}", else: "Mapa"}
@@ -1987,17 +2014,18 @@ defmodule PokexWeb.CavebotLive do
               <%!-- The drawing is a SQUARE sized by its width, so capping the
                    width in viewport heights is what keeps it from growing
                    taller than the screen on a wide monitor. --%>
-              <div class="mt-3 mx-auto w-full max-w-[min(100%,60vh)]">
+              <div class="mt-2 mx-auto w-full max-w-[min(100%,42vh)]">
                 <.route_map
                   floor={map_floor(@active_route, @pos)}
                   waypoints={(@active_route && @active_route.waypoints) || []}
                   pos={@pos}
                   selected={@selected}
+                  heading_to={heading_to(@hunt, @active_route)}
                   recording?={@recording?}
                 />
               </div>
 
-              <div class="mt-3 flex flex-wrap items-center gap-2">
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
                 <button
                   id="toggle-recording"
                   phx-click="toggle_recording"
@@ -2105,7 +2133,7 @@ defmodule PokexWeb.CavebotLive do
             <section
               :for={{wp, index} <- selected_pair(@active_route, @selected)}
               id="waypoint-detail"
-              class="rounded-lg border border-pk-warn-line bg-pk-surface p-4"
+              class="rounded-lg border border-pk-warn-line bg-pk-surface p-3"
             >
               <div class="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-warn">
@@ -2332,7 +2360,7 @@ defmodule PokexWeb.CavebotLive do
             <section
               :if={@log != []}
               id="cavebot-log"
-              class="rounded-lg border border-pk-line bg-pk-surface p-4"
+              class="rounded-lg border border-pk-line bg-pk-surface p-3"
             >
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 O que ela acabou de fazer
@@ -2353,7 +2381,7 @@ defmodule PokexWeb.CavebotLive do
             <section
               :if={@active_route}
               id="route-photos"
-              class="rounded-lg border border-pk-line bg-pk-surface p-4"
+              class="rounded-lg border border-pk-line bg-pk-surface p-3"
             >
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 Como é o lugar
@@ -2366,8 +2394,8 @@ defmodule PokexWeb.CavebotLive do
           </div>
 
           <%!-- RIGHT: the routes and the waypoint editor --%>
-          <div class="space-y-4">
-            <section id="cavebot-routes" class="rounded-lg border border-pk-line bg-pk-surface p-4">
+          <div class="space-y-3">
+            <section id="cavebot-routes" class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 Rotas
               </h2>
@@ -2376,7 +2404,7 @@ defmodule PokexWeb.CavebotLive do
                 :if={@routes != []}
                 id="route-select-form"
                 phx-change="select_route"
-                class="mt-3 flex flex-wrap items-center gap-2"
+                class="mt-2 flex flex-wrap items-center gap-1.5"
               >
                 <label for="route-select" class="font-mono text-pk-meta text-pk-text-2">
                   rota ativa
@@ -2422,7 +2450,7 @@ defmodule PokexWeb.CavebotLive do
               <form
                 id="new-route-form"
                 phx-submit="create_route"
-                class="mt-3 flex flex-wrap items-center gap-2"
+                class="mt-2 flex flex-wrap items-center gap-1.5"
               >
                 <input
                   name="name"
@@ -2450,7 +2478,7 @@ defmodule PokexWeb.CavebotLive do
             <section
               :if={@active_route}
               id="cavebot-waypoints"
-              class="rounded-lg border border-pk-line bg-pk-surface p-4"
+              class="rounded-lg border border-pk-line bg-pk-surface p-3"
             >
               <div class="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -2534,16 +2562,24 @@ defmodule PokexWeb.CavebotLive do
                 {lure_warning(@active_route)}
               </p>
 
-              <ol :if={@active_route.waypoints != []} class="mt-3 space-y-1.5">
+              <%!-- A 45-corner route made the page 45 rows tall on a laptop —
+                   "as coisas da rota ainda estão muito grandes" (2026-08-14).
+                   The list scrolls inside its own box now, so the map, the
+                   editor and the list stay on ONE screen. --%>
+              <ol
+                :if={@active_route.waypoints != []}
+                class="mt-2 max-h-[42vh] space-y-1 overflow-y-auto pr-1"
+              >
                 <li
                   :for={{wp, index} <- Enum.with_index(@active_route.waypoints)}
                   id={"waypoint-#{index}"}
                   class={[
-                    "rounded-lg border px-3 py-2 transition",
-                    if(@selected == index,
-                      do: "border-pk-warn bg-pk-warn-dim",
-                      else: "border-pk-line bg-pk-sunken hover:border-pk-line-strong"
-                    )
+                    "rounded-lg border px-2.5 py-1.5 transition",
+                    cond do
+                      @selected == index -> "border-pk-warn bg-pk-warn-dim"
+                      heading_to(@hunt, @active_route) == index -> "border-pk-ok bg-pk-ok-dim"
+                      true -> "border-pk-line bg-pk-sunken hover:border-pk-line-strong"
+                    end
                   ]}
                 >
                   <div
@@ -2551,6 +2587,15 @@ defmodule PokexWeb.CavebotLive do
                     phx-click="select_waypoint"
                     phx-value-index={index}
                   >
+                    <%!-- the hunt's place on the list, as a glyph and not only
+                         a colour: the selection is already a colour --%>
+                    <span
+                      :if={heading_to(@hunt, @active_route) == index}
+                      class="font-mono text-pk-meta text-pk-ok"
+                      title="a caçada está indo pra cá"
+                    >
+                      ▶
+                    </span>
                     <span class="pk-num w-5 font-mono text-pk-meta text-pk-text-3">{index + 1}</span>
                     <span class="pk-num flex-1 font-mono text-pk-body text-pk-text">
                       {wp.x}, {wp.y}

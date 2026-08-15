@@ -177,6 +177,8 @@ defmodule PokexWeb.PanelLive do
        rescue_mode: Settings.get(:rescue_mode),
        rescue_combo: Settings.get(:rescue_combo),
        stun_settle_ms: Settings.get(:rescue_stun_settle_ms),
+       fainted_below_pct: Settings.get(:pokemon_hp_fainted_below_pct),
+       fainted_cooldown_s: div(Settings.get(:fainted_revive_cooldown_ms), 1000),
        potion_enabled: Settings.get(:potion_enabled),
        reposition_enabled: Settings.get(:reposition_enabled),
        support_waits_capture: Settings.get(:support_waits_capture),
@@ -299,6 +301,8 @@ defmodule PokexWeb.PanelLive do
       rescue_mode: Settings.get(:rescue_mode),
       rescue_combo: Settings.get(:rescue_combo),
       stun_settle_ms: Settings.get(:rescue_stun_settle_ms),
+      fainted_below_pct: Settings.get(:pokemon_hp_fainted_below_pct),
+      fainted_cooldown_s: div(Settings.get(:fainted_revive_cooldown_ms), 1000),
       potion_enabled: Settings.get(:potion_enabled),
       potion_pct: Settings.get(:pokemon_hp_potion_pct),
       reposition_enabled: Settings.get(:reposition_enabled),
@@ -1173,6 +1177,28 @@ defmodule PokexWeb.PanelLive do
       socket
       |> assign(rescue_mode: mode, rescue_combo: combo)
       |> save_int(params["stun_settle_ms"], 0..10_000, :rescue_stun_settle_ms, :stun_settle_ms)
+
+    {:noreply, socket}
+  end
+
+  # DEATH: from how low the bar was when it vanished, and how often a fallen
+  # pokémon may be brought back. Same shape as the form above — every field on
+  # every change, each validated on its own range.
+  def handle_event("save_fainted_cfg", params, socket) do
+    socket =
+      socket
+      |> save_int(
+        params["fainted_below_pct"],
+        0..100,
+        :pokemon_hp_fainted_below_pct,
+        :fainted_below_pct
+      )
+      |> save_seconds(
+        params["fainted_cooldown_s"],
+        0..600,
+        :fainted_revive_cooldown_ms,
+        :fainted_cooldown_s
+      )
 
     {:noreply, socket}
   end
@@ -3625,6 +3651,8 @@ defmodule PokexWeb.PanelLive do
             mode: @rescue_mode,
             combo: @rescue_combo,
             stun_settle_ms: @stun_settle_ms,
+            fainted_below_pct: @fainted_below_pct,
+            fainted_cooldown_s: @fainted_cooldown_s,
             enabled: @rescue_enabled
           }
         }

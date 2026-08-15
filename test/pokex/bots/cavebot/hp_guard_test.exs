@@ -47,6 +47,28 @@ defmodule Pokex.Bots.Cavebot.HpGuardTest do
     assert match?({:walk, _, _}, action)
   end
 
+  # Standing still is the ORDER here, so it must not read as "não saiu do
+  # lugar". The patience clock kept running under the hold, and since every
+  # revive takes longer than walk_timeout_ms, the first step after recovering
+  # was born already declared stuck — the same trap the closed input gate
+  # taught this machine (worker.ex freezes the clocks there too).
+  test "a long hold does not come back as :stuck" do
+    l = %{Logic.new(plain_route(), @cfg) | combat_running?: true, homed?: true}
+
+    {l, {:walk, _, _}} = Logic.step(l, world({5, 10, 7}, 100), 0)
+    {l, {:walk, _, _}} = Logic.step(l, world({5, 10, 7}, 30), 200)
+    {l, :none} = Logic.step(l, world({5, 10, 7}, 30), 400)
+    assert Logic.recovery(l)
+
+    # a revive takes seconds; the walk timeout is 3s
+    {l, :none} = Logic.step(l, world({5, 10, 7}, 30), 30_000)
+    {l, :none} = Logic.step(l, world({5, 10, 7}, 100), 30_200)
+    {l, action} = Logic.step(l, world({5, 10, 7}, 100), 30_400)
+
+    assert l.state == :walking
+    assert match?({:walk, _, _}, action)
+  end
+
   test "two low readings abort the gather into the fight" do
     {l, _} = Logic.step(luring(), world({12, 10, 7}, 55, 3), 0)
     {l, :none} = Logic.step(l, world({12, 10, 7}, 55, 3), 200)

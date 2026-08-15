@@ -45,10 +45,39 @@ const ImgClick = {
   },
 }
 
+// A 70-corner route shows 7 rows: the "he is here" mark is off-screen almost
+// always, which made it decoration. The list follows the hunt — and steps back
+// the moment the human scrolls it himself, because reading corner 40 while the
+// bot walks corner 3 is a legitimate thing to be doing.
+const FollowHunt = {
+  mounted() {
+    this.pausedUntil = 0
+    this.programmatic = false
+    this.el.addEventListener("scroll", () => {
+      if (!this.programmatic) { this.pausedUntil = Date.now() + 15000 }
+    })
+    this.follow()
+  },
+  updated() { this.follow() },
+  follow() {
+    if (Date.now() < this.pausedUntil) return
+    const at = this.el.dataset.headingTo
+    if (!at) return
+    const row = this.el.querySelector(`#waypoint-${at}`)
+    if (!row) return
+    const box = this.el.getBoundingClientRect()
+    const r = row.getBoundingClientRect()
+    if (r.top >= box.top && r.bottom <= box.bottom) return
+    this.programmatic = true
+    row.scrollIntoView({block: "center", behavior: "smooth"})
+    setTimeout(() => { this.programmatic = false }, 600)
+  },
+}
+
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, ImgClick, FishingLab, ComboDrag},
+  hooks: {...colocatedHooks, ImgClick, FishingLab, ComboDrag, FollowHunt},
   dom: {
     // <details> open state lives only in the browser; without this, every LiveView
     // patch (e.g. each HP-monitor broadcast) re-renders the server HTML and stomps

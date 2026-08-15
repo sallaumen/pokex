@@ -1585,6 +1585,17 @@ defmodule PokexWeb.CavebotLiveTest do
       refute view |> element("#waypoint-1") |> render() =~ "▶"
     end
 
+    # The mark only helps if it is ON SCREEN: 7 rows of 70 are visible, so the
+    # list carries the target for the client hook that follows it.
+    test "the list publishes the target for the follow hook", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      hunting!(view, 2)
+
+      list = view |> element("#waypoint-list") |> render()
+      assert list =~ ~s(phx-hook="FollowHunt")
+      assert list =~ ~s(data-heading-to="2")
+    end
+
     test "a stopped hunt marks nothing", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 

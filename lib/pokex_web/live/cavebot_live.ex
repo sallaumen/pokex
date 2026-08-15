@@ -2558,6 +2558,9 @@ defmodule PokexWeb.CavebotLive do
                    editor and the list stay on ONE screen. --%>
               <ol
                 :if={@active_route.waypoints != []}
+                id="waypoint-list"
+                phx-hook="FollowHunt"
+                data-heading-to={heading_to(@hunt, @active_route)}
                 class="relative mt-2 max-h-[46vh] space-y-1 overflow-y-auto pr-1"
               >
                 <li

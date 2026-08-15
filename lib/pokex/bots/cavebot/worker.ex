@@ -1234,7 +1234,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # comeback back: a ten-hour night with three unrelated hiccups must not run
   # out of budget over hiccups that were hours apart.
   defp note_arrival(state, wp_before, now) do
-    text = "waypoint #{wp_before + 1}/#{wp_total(state)}"
+    # WHY it moved on, and from WHERE. "ele já sai usando todas as esquinas
+    # antes da hora" (Lucas, 2026-08-15) is a claim about the SEQUENCE of
+    # corners, and the old line ("waypoint 12/45") could not tell an arrival
+    # from a corner the hunt gave up on — nor say whether the character was
+    # actually standing there. Both go in at :macro on purpose: :debug never
+    # reaches the journal, and the journal is where a night gets read.
+    text =
+      "waypoint #{wp_before + 1}/#{wp_total(state)}#{advance_mark(state.logic)}#{where(state.pos)}"
+
     log(:macro, text)
 
     %{
@@ -1244,6 +1252,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
         block_retries: 0
     }
   end
+
+  defp advance_mark(%Logic{advance: :skipped}), do: " ⏭ pulei (não cheguei)"
+  defp advance_mark(_arrived_or_unknown), do: ""
+
+  defp where({x, y, z}), do: " · #{x},#{y} andar #{z}"
+  defp where(_blind), do: " · sem coordenada"
 
   # The staircase that WORKED. A leg taken by tap never enters `:stairs`, so
   # the success this whole mechanism exists to create was silent while the

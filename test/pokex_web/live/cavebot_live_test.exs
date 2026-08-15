@@ -737,7 +737,24 @@ defmodule PokexWeb.CavebotLiveTest do
     html = render(view)
     assert html =~ ~s(id="cavebot-log")
     assert html =~ "waypoint 2/4 alcançado"
-    assert html =~ "passo 5,0"
+
+    # step-by-step chatter is diagnosis, and it drowns the feed he reads at a
+    # glance: it waits behind the debug switch, exactly like the panel's
+    refute html =~ "passo 5,0"
+    assert view |> element("#cavebot-log-debug") |> render_click() =~ "passo 5,0"
+  end
+
+  # A revive that failed belongs where he is watching the hunt, not only in the
+  # panel he does not have open.
+  test "the support's own lines land in the hunt's feed too", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    send(view.pid, {:game_log, :macro, "🚑 stun do resgate: 1"})
+    send(view.pid, {:rule_alarm, "💀 o revive do caído NÃO saiu"})
+
+    html = render(view)
+    assert html =~ "stun do resgate"
+    assert html =~ "revive do caído"
   end
 
   test "the rehearsal names WHICH link broke, not just 'não andou'", %{conn: conn} do
@@ -1594,6 +1611,45 @@ defmodule PokexWeb.CavebotLiveTest do
       list = view |> element("#waypoint-list") |> render()
       assert list =~ ~s(phx-hook="FollowHunt")
       assert list =~ ~s(data-heading-to="2")
+    end
+
+    # The morning question is "o que ocorreu", and corners alone do not answer
+    # it. Incidents only take space when they happened.
+    test "the incidents show up beside the progress, and stay quiet at zero", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(
+        view.pid,
+        {:cavebot,
+         %{
+           state: :walking,
+           route: "cavena",
+           wp_index: 1,
+           wp_total: 3,
+           hold_reason: nil,
+           counters: %{waypoints: 40, steps: 900, aborts: 0, comebacks: 0, blocks: 0}
+         }}
+      )
+
+      refute has_element?(view, "#cavebot-tally")
+
+      send(
+        view.pid,
+        {:cavebot,
+         %{
+           state: :walking,
+           route: "cavena",
+           wp_index: 1,
+           wp_total: 3,
+           hold_reason: nil,
+           counters: %{waypoints: 40, steps: 900, aborts: 2, comebacks: 1, blocks: 0}
+         }}
+      )
+
+      tally = view |> element("#cavebot-tally") |> render()
+      assert tally =~ "2 mobada(s) largada(s)"
+      assert tally =~ "1 volta(s)"
+      refute tally =~ "parada(s)"
     end
 
     test "a stopped hunt marks nothing", %{conn: conn} do

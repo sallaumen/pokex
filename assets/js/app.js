@@ -74,10 +74,35 @@ const FollowHunt = {
   },
 }
 
+// The hunt feed he pastes into a report. Server-side clipboards do not exist,
+// so the LiveView pushes the text and the browser writes it.
+const CopyToClipboard = {
+  mounted() {
+    this.handleEvent("copy-to-clipboard", ({text}) => {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
+      } else {
+        fallbackCopy(text)
+      }
+    })
+  },
+}
+
+function fallbackCopy(text) {
+  const area = document.createElement("textarea")
+  area.value = text
+  area.setAttribute("readonly", "")
+  area.style.position = "fixed"
+  area.style.opacity = "0"
+  document.body.appendChild(area)
+  area.select()
+  try { document.execCommand("copy") } finally { document.body.removeChild(area) }
+}
+
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, ImgClick, FishingLab, ComboDrag, FollowHunt},
+  hooks: {...colocatedHooks, ImgClick, FishingLab, ComboDrag, FollowHunt, CopyToClipboard},
   dom: {
     // <details> open state lives only in the browser; without this, every LiveView
     // patch (e.g. each HP-monitor broadcast) re-renders the server HTML and stomps

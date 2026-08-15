@@ -47,6 +47,9 @@ defmodule PokexWeb.CavebotLive do
       # vejo na prática se realmente isso tá impactando" (Lucas, 2026-08-12).
       # Heard, never asked, for the same reason as the hunt above.
       Phoenix.PubSub.subscribe(Pokex.PubSub, Combat.Worker.topic())
+      # the support speaks on "game": revives, deaths and refusals belong in the
+      # hunt's own feed, not only in the panel's
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.PlayerSupport.Worker.topic())
       # the minimap feed only captures while someone is attached — the
       # recording page IS that someone, exactly while it is open.
       #
@@ -87,7 +90,8 @@ defmodule PokexWeb.CavebotLive do
        selected: nil,
        photo_busy?: false,
        # the hunt's own narration: what it just did, in its own words
-       log: [],
+       log: seed_log(),
+       show_debug: false,
        walk_test: nil,
        walk_ref: nil,
        # Recording reads the CLOCK: where he has been standing and since when.
@@ -168,10 +172,15 @@ defmodule PokexWeb.CavebotLive do
 
   # The hunt narrates its edges (waypoint reached, block, a hold appearing) —
   # the tail of that is what turns "parou" into "parou POR QUÊ".
-  def handle_info({:cavebot_log, level, text}, socket) do
-    line = %{level: level, text: text, at: Time.utc_now()}
-    {:noreply, assign(socket, log: Enum.take([line | socket.assigns.log], @log_lines))}
-  end
+  def handle_info({:cavebot_log, level, text}, socket),
+    do: {:noreply, log_line(socket, level, text)}
+
+  def handle_info({:game_log, level, text}, socket), do: {:noreply, log_line(socket, level, text)}
+
+  def handle_info({:rule_alarm, text}, socket), do: {:noreply, log_line(socket, :alarm, text)}
+
+  def handle_info({:rule_alarm, _category, text}, socket),
+    do: {:noreply, log_line(socket, :alarm, text)}
 
   # The marker he asked for: "eu geralmente clico com o botão do meio do mouse
   # em um ponto da minha tela" (2026-08-11). Better than the clock in both
@@ -780,6 +789,20 @@ defmodule PokexWeb.CavebotLive do
   # flips — Settings is the one truth — and arming re-runs the idempotent
   # support monitor exactly like the panel does, so a net turned on here is a
   # net that is actually watching.
+  def handle_event("toggle_debug", _params, socket),
+    do: {:noreply, assign(socket, show_debug: not socket.assigns.show_debug)}
+
+  # Copied through the CLIENT, because the log he needs to paste is the log he
+  # is LOOKING at — and a server-side clipboard does not exist.
+  def handle_event("copy_log", _params, socket) do
+    {:noreply,
+     socket
+     |> push_event("copy-to-clipboard", %{
+       text: log_as_text(socket.assigns.log, socket.assigns.show_debug)
+     })
+     |> assign(notice: "feed copiado — pode colar no relato", notice_kind: :ok)}
+  end
+
   def handle_event("toggle_safety", %{"key" => key}, socket) do
     case safety_key(key) do
       nil ->
@@ -1551,6 +1574,23 @@ defmodule PokexWeb.CavebotLive do
   # Read through Access, never by dot: this page also renders PARTIAL snapshots
   # (a fleet fallback, an older broadcast, a test), and a missing key must not
   # take the whole page down over a progress counter.
+  # Corners walked and, when they happened at all, the incidents: a night with
+  # zero aborts and zero comebacks says so by staying short.
+  defp hunt_tally(%{counters: %{} = c}) do
+    [
+      {Map.get(c, :aborts, 0), "mobada(s) largada(s)"},
+      {Map.get(c, :comebacks, 0), "volta(s)"},
+      {Map.get(c, :blocks, 0), "parada(s)"}
+    ]
+    |> Enum.filter(fn {n, _} -> n > 0 end)
+    |> case do
+      [] -> nil
+      some -> Enum.map_join(some, " · ", fn {n, label} -> "#{n} #{label}" end)
+    end
+  end
+
+  defp hunt_tally(_no_counters), do: nil
+
   defp hunt_progress(%{state: state} = hunt) when state not in [:idle, nil] do
     with index when is_integer(index) <- hunt[:wp_index],
          total when is_integer(total) and total > 0 <- hunt[:wp_total] do
@@ -1561,6 +1601,36 @@ defmodule PokexWeb.CavebotLive do
   end
 
   defp hunt_progress(_stopped_or_absent), do: nil
+
+  # The feed starts with what the JOURNAL already knows: closing the tab (or a
+  # crash, or a reload at 4am) no longer erases the night. Only the sources the
+  # hunt cares about, newest first, in this page's own shape.
+  defp seed_log do
+    [sources: ~w(cavebot game combat), limit: @log_lines, min_severity: :macro]
+    |> Pokex.Journal.recent()
+    |> Enum.map(&%{level: &1.severity, text: &1.text, at: DateTime.to_time(&1.at)})
+  catch
+    :exit, _journal_down -> []
+  end
+
+  defp log_line(socket, level, text) do
+    line = %{level: level, text: text, at: Time.utc_now()}
+    assign(socket, log: Enum.take([line | socket.assigns.log], @log_lines))
+  end
+
+  defp visible_log(log, true), do: log
+  defp visible_log(log, _hide), do: Enum.reject(log, &(&1.level == :debug))
+
+  defp log_tone(%{level: :alarm}), do: "text-pk-warn"
+  defp log_tone(%{level: :macro}), do: "text-pk-text"
+  defp log_tone(_debug), do: "text-pk-text-3"
+
+  defp log_as_text(log, show_debug) do
+    log
+    |> visible_log(show_debug)
+    |> Enum.reverse()
+    |> Enum.map_join("\n", &"#{Calendar.strftime(&1.at, "%H:%M:%S")} #{&1.text}")
+  end
 
   defp safety_snapshot do
     %{
@@ -1639,6 +1709,12 @@ defmodule PokexWeb.CavebotLive do
           <p class="font-mono text-pk-meta text-pk-text-3">
             <span :if={hunt_progress(@hunt)} class="font-bold text-pk-ok">
               {hunt_progress(@hunt)} ·
+            </span>
+            <%!-- the night in five numbers, where he already looks for the
+                 route's size — incidents included, because "o que ocorreu"
+                 needs them (2026-08-15) --%>
+            <span :if={hunt_tally(@hunt)} id="cavebot-tally" class="text-pk-text-2">
+              {hunt_tally(@hunt)} ·
             </span>
             {length(@routes)} rota(s) · {(@active_route && length(@active_route.waypoints)) || 0} waypoints · {route_tiles(
               @active_route
@@ -2344,23 +2420,66 @@ defmodule PokexWeb.CavebotLive do
               </form>
             </section>
 
+            <%!-- The feed used to live in this tab's assigns: a reload erased
+                 the night, and overnight is exactly when things go wrong. It
+                 is seeded from the Journal now (which persists :macro and
+                 :alarm to ~/.pokex/journal), and the debug switch is the one
+                 the panel already has — "logs mais claros (…) talvez com botão
+                 de debug também que nem tem no painel" (Lucas, 2026-08-15). --%>
             <section
-              :if={@log != []}
               id="cavebot-log"
+              phx-hook="CopyToClipboard"
               class="rounded-lg border border-pk-line bg-pk-surface p-3"
             >
-              <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-                O que ela acabou de fazer
-              </h2>
-              <ol class="relative mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+                  O que ela fez
+                </h2>
+                <div class="flex items-center gap-2 font-mono text-pk-meta text-pk-text-3">
+                  <label
+                    class="flex cursor-pointer items-center gap-1"
+                    title="Mostra também as linhas de diagnóstico"
+                  >
+                    <input
+                      id="cavebot-log-debug"
+                      type="checkbox"
+                      checked={@show_debug}
+                      phx-click="toggle_debug"
+                      aria-label="Mostrar linhas de debug no feed da caçada"
+                      class="toggle toggle-xs toggle-success"
+                    /> debug
+                  </label>
+                  <button
+                    id="cavebot-log-copy"
+                    type="button"
+                    phx-click="copy_log"
+                    title="Copia o feed inteiro pra colar num relato"
+                    class="cursor-pointer rounded border border-pk-line-strong px-1.5 font-semibold transition hover:border-pk-ok/60 hover:text-pk-text"
+                  >
+                    copiar
+                  </button>
+                </div>
+              </div>
+
+              <p :if={visible_log(@log, @show_debug) == []} class="mt-2 text-pk-meta text-pk-text-3">
+                nada ainda — as linhas aparecem assim que a caçada (ou o suporte) falar
+              </p>
+
+              <ol
+                id="cavebot-log-lines"
+                class="relative mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1"
+              >
                 <li
-                  :for={line <- @log}
-                  class="flex gap-2 font-mono text-pk-meta text-pk-text-2"
+                  :for={line <- visible_log(@log, @show_debug)}
+                  class={[
+                    "flex gap-2 font-mono text-pk-meta",
+                    log_tone(line)
+                  ]}
                 >
                   <span class="pk-num shrink-0 text-pk-text-3">
                     {Calendar.strftime(line.at, "%H:%M:%S")}
                   </span>
-                  <span class={line.level == :macro && "text-pk-text"}>{line.text}</span>
+                  <span>{line.text}</span>
                 </li>
               </ol>
             </section>

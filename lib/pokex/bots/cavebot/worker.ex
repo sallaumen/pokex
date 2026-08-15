@@ -73,6 +73,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # fighting with nobody to fight — see `translate/2`.
   @dangerous_blocks [:floor_changed, :combat_preflight_failed]
 
+  # The night's tally: corners and steps are progress, the other three are the
+  # INCIDENTS — "o que ocorreu" is unanswerable in the morning without them.
+  @zero_counters %{waypoints: 0, steps: 0, aborts: 0, comebacks: 0, blocks: 0}
+
   @config_keys %{
     arrival_tolerance: :cavebot_arrival_tolerance_tiles,
     blind_kick_ms: :cavebot_blind_kick_ms,
@@ -129,7 +133,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       # comebacks already spent on local blocks tonight; reaching a waypoint
       # gives them all back (see note_arrival/3)
       block_retries: 0,
-      counters: %{waypoints: 0, steps: 0},
+      counters: @zero_counters,
       last_action: nil,
       hold_note: nil,
       logged_holds: []
@@ -688,7 +692,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp resume_hunt(state, route) do
     log(:macro, "🔁 retomando a caçada: reentro pela rota \"#{route.name}\"")
     WorldState.put(:dungeon, %{id: route.dungeon}, now())
-    counters = state.counters
+    counters = bump(state.counters, :comebacks)
 
     state =
       %{cancel_timer(state) | logic: Logic.new(route, config())}
@@ -707,7 +711,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # Worker (combat refused to start) — either way the reported state must be
   # :blocked while it lasts.
   defp stop_hunt(state, reason) do
-    state = state |> release_walk() |> free_fire()
+    state = %{release_walk(state) | counters: bump(state.counters, :blocks)} |> free_fire()
     broadcast({:cavebot_alarm, reason})
     log(:macro, block_text(reason))
 
@@ -1093,7 +1097,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     luring?: false,
     comeback?: false,
     last_action: nil,
-    counters: %{waypoints: 0, steps: 0}
+    counters: @zero_counters
   }
 
   @doc """
@@ -1234,7 +1238,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # comeback back: a ten-hour night with three unrelated hiccups must not run
   # out of budget over hiccups that were hours apart.
   defp note_arrival(state, wp_before, now) do
-    text = "waypoint #{wp_before + 1}/#{wp_total(state)}"
+    # WHY it moved on, and from WHERE. "ele já sai usando todas as esquinas
+    # antes da hora" (Lucas, 2026-08-15) is a claim about the SEQUENCE of
+    # corners, and the old line ("waypoint 12/45") could not tell an arrival
+    # from a corner the hunt gave up on — nor say whether the character was
+    # actually standing there. Both go in at :macro on purpose: :debug never
+    # reaches the journal, and the journal is where a night gets read.
+    text =
+      "waypoint #{wp_before + 1}/#{wp_total(state)}#{advance_mark(state.logic)}#{where(state.pos)}"
+
     log(:macro, text)
 
     %{
@@ -1244,6 +1256,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
         block_retries: 0
     }
   end
+
+  defp advance_mark(%Logic{advance: :skipped}), do: " ⏭ pulei (não cheguei)"
+  defp advance_mark(_arrived_or_unknown), do: ""
+
+  defp where({x, y, z}), do: " · #{x},#{y} andar #{z}"
+  defp where(_blind), do: " · sem coordenada"
 
   # The staircase that WORKED. A leg taken by tap never enters `:stairs`, so
   # the success this whole mechanism exists to create was silent while the
@@ -1293,7 +1311,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # in between is the hold reason's job, not the feed's.
   defp note_recovery(%{logic: %Logic{recovering?: true} = logic} = state, false, now) do
     log(:macro, "🩸 vida em #{logic.last_hp}% — modo sobrevivência: mato o que veio e espero")
-    %{state | last_action: %{text: "vida baixa — segurei a rota", at: now}}
+
+    %{
+      state
+      | last_action: %{text: "vida baixa — segurei a rota", at: now},
+        counters: bump(state.counters, :aborts)
+    }
   end
 
   defp note_recovery(%{logic: %Logic{recovering?: false, last_hp: hp}} = state, true, now)
@@ -1410,7 +1433,24 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # is the summary that matters after halt. Reason, last action and position
   # belong to the tick — and a tick that no longer exists must not keep
   # explaining the screen.
-  defp end_session(state), do: %{reset_session(state) | counters: state.counters}
+  # The line he reads in the morning. Counters alone need arithmetic; this is
+  # the night in one sentence, and it goes through the journal like everything
+  # else that matters.
+  defp end_session(state) do
+    log(:macro, "📋 a caçada deu: " <> tally(state.counters))
+    %{reset_session(state) | counters: state.counters}
+  end
+
+  defp tally(counters) do
+    [
+      {:waypoints, "waypoint(s)"},
+      {:steps, "passo(s)"},
+      {:aborts, "mobada(s) abandonada(s) por vida"},
+      {:comebacks, "volta(s) depois de tropeço"},
+      {:blocks, "parada(s) com motivo"}
+    ]
+    |> Enum.map_join(", ", fn {key, label} -> "#{Map.get(counters, key, 0)} #{label}" end)
+  end
 
   # A new hunt inherits nothing: counters, last action, reasons and the known
   # position all belong to their own session.
@@ -1421,7 +1461,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         pos: nil,
         pos_at: nil,
         pos_age: nil,
-        counters: %{waypoints: 0, steps: 0},
+        counters: @zero_counters,
         last_action: nil,
         hold_note: nil,
         logged_holds: []

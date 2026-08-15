@@ -27,12 +27,16 @@ defmodule PokexWeb.CavebotComponents do
   """
   def world_tile(assigns) do
     ~H"""
-    <div id={@id} class="rounded-lg border border-pk-line bg-pk-sunken px-3 py-2">
-      <p class="flex items-center gap-1.5 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-        <.icon name={@icon} class="size-3.5" />{@label}
+    <div id={@id} class="rounded-lg border border-pk-line bg-pk-sunken px-2 py-1.5">
+      <p class="flex items-center gap-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+        <.icon name={@icon} class="size-3" />{@label}
       </p>
-      <p class={["pk-num mt-1 font-mono text-pk-title font-bold", tone_text(@tone)]}>{@value}</p>
-      <p :if={@note} class="mt-0.5 font-mono text-pk-meta text-pk-text-3">{@note}</p>
+      <%!-- the VALUE dropped a step: six tiles at display size ate a third of
+           a laptop screen for six short numbers (2026-08-14). --%>
+      <p class={["pk-num font-mono text-pk-body font-bold leading-tight", tone_text(@tone)]}>
+        {@value}
+      </p>
+      <p :if={@note} class="font-mono text-pk-meta leading-tight text-pk-text-3">{@note}</p>
     </div>
     """
   end
@@ -80,6 +84,7 @@ defmodule PokexWeb.CavebotComponents do
   attr :selected, :any, default: nil
   attr :recording?, :boolean, default: false
   attr :floor, :any, default: nil
+  attr :heading_to, :any, default: nil, doc: "the corner the RUNNING hunt is walking to"
 
   @doc """
   The route, drawn in the game's own coordinate space (x east, y south) with
@@ -179,6 +184,23 @@ defmodule PokexWeb.CavebotComponents do
           :for={{wp, index} <- Enum.with_index(@waypoints)}
           opacity={if on_floor?(wp, @floor), do: "1", else: "0.3"}
         >
+          <%!-- WHERE THE HUNT IS. "não consigo ver direito em que momento ele
+               está na rota" (Lucas, 2026-08-14): the drawing marked the corner
+               being EDITED and never the one being walked to, so the running
+               bot was invisible on its own map. A pulsing ring, because a
+               colour alone would collide with the selection. --%>
+          <circle
+            :if={@heading_to == index}
+            id={"map-heading-#{index}"}
+            cx={wp.x}
+            cy={wp.y}
+            r={@view.unit * 2.4}
+            fill="none"
+            stroke="var(--color-pk-ok)"
+            stroke-width="2"
+            vector-effect="non-scaling-stroke"
+            class="pointer-events-none motion-safe:animate-pulse"
+          />
           <circle
             id={"map-waypoint-#{index}"}
             cx={wp.x}

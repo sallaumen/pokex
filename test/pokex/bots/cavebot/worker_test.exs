@@ -208,6 +208,25 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   # claim about the SEQUENCE of corners, and the old line could not tell an
   # arrival from a corner the hunt gave up on — nor say where the character
   # actually was. Both are :macro because :debug never reaches the journal.
+  # "waypoint 1/70" and "waypoint 58/70" in the same second, neither walked:
+  # entering the route is a JUMP to the nearest corner, and reading it as an
+  # arrival inflated both the log and the night's tally.
+  test "entering the route is announced as an entrance, not as a corner reached", %{
+    worker: worker
+  } do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    two_waypoint_route!()
+    :ok = Worker.run(worker)
+
+    # far from the first corner, near the second: the hunt enters at the second
+    minimap!({200, 200, 7})
+    tick!(worker)
+
+    entered = await_log("entrei na rota")
+    assert entered =~ "canto 2/2"
+    assert Worker.status(worker).counters.waypoints == 0
+  end
+
   @tag :capture_log
   test "a corner reached says WHERE, and a corner skipped says it was skipped", %{
     worker: worker

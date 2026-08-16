@@ -1590,4 +1590,64 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.wp_index == 0
     end
   end
+
+  # His real route (2026-08-15, "Meganium and Venoss"): corners 60..63 sit ONE
+  # tile apart and the tolerance is one tile, so a corner beside the character
+  # counts as "arrived" without a single step — and the journal shows three of
+  # them in the same second, which is what he saw as "ele já sai usando todas
+  # as esquinas antes da hora". Those are taken in ONE tick now, and the ones
+  # that need walking still cost a walk.
+  describe "corners the character is already standing on" do
+    defp tight_route do
+      [{2305, 30014, 5}, {2304, 30014, 5}, {2303, 30014, 5}, {2303, 30015, 5}, {2307, 30016, 5}]
+      |> Enum.reduce(Route.new("meganium"), fn {x, y, z}, route ->
+        {:ok, r} = Route.append(route, {x, y, z})
+        r
+      end)
+    end
+
+    defp walking_at(route, index) do
+      %{Logic.new(route, @cfg) | combat_running?: true, homed?: true, wp_index: index}
+    end
+
+    defp world_at(pos), do: %{pos: pos, enemies: 0, combat_state: :hunting}
+
+    test "a plain corner already within tolerance is swallowed by the same tick" do
+      logic = walking_at(tight_route(), 0)
+
+      {logic, _action} = Logic.step(logic, world_at({2305, 30014, 5}), 0)
+
+      # corner 2 is one tile away (already "arrived"); corner 3 is two, so it
+      # is where the walking actually resumes
+      assert logic.wp_index == 2
+    end
+
+    test "a MARKED corner is never swallowed — its huddle and stops need the tick" do
+      route = Route.set_action(tight_route(), 1, :lure_end)
+      logic = walking_at(route, 0)
+
+      {logic, _action} = Logic.step(logic, world_at({2305, 30014, 5}), 0)
+
+      assert logic.wp_index == 1
+    end
+
+    test "a corner carrying a stop is never swallowed either" do
+      route = Route.set_stop(tight_route(), 1, :sweep, true)
+      logic = walking_at(route, 0)
+
+      {logic, _action} = Logic.step(logic, world_at({2305, 30014, 5}), 0)
+
+      assert logic.wp_index == 1
+    end
+
+    test "a corner that needs walking still costs a walk" do
+      logic = walking_at(tight_route(), 3)
+
+      {logic, _arrival} = Logic.step(logic, world_at({2303, 30015, 5}), 0)
+      assert logic.wp_index == 4
+
+      {_logic, action} = Logic.step(logic, world_at({2303, 30015, 5}), 200)
+      assert match?({:walk, _, _}, action)
+    end
+  end
 end

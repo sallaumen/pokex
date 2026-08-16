@@ -1666,6 +1666,44 @@ defmodule PokexWeb.CavebotLiveTest do
     end
   end
 
+  # The two defects his real route carries (2026-08-15), told with the corner
+  # numbers he can act on — and silent on a route that has neither.
+  describe "the route doctor" do
+    test "names the corners the hunt cannot walk between", %{conn: conn} do
+      {:ok, route} = Route.append(Route.new("cavena"), {2305, 30014, 5})
+      {:ok, route} = Route.append(route, {2304, 30014, 5})
+      {:ok, route} = Route.append(route, {2290, 30014, 5})
+      :ok = Store.add(route)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      doctor = view |> element("#route-doctor") |> render()
+      assert doctor =~ "1 canto(s) em cima do anterior"
+      assert doctor =~ "sem andar"
+    end
+
+    test "names a staircase that goes up and comes straight back", %{conn: conn} do
+      {:ok, route} = Route.append(Route.new("cavena"), {2310, 30021, 5})
+      {:ok, route} = Route.append(route, {2310, 30023, 6})
+      {:ok, route} = Route.append(route, {2310, 30021, 5})
+      :ok = Store.add(route)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#route-doctor") |> render() =~ "escada de ida e volta"
+    end
+
+    test "a healthy route says nothing at all", %{conn: conn} do
+      {:ok, route} = Route.append(Route.new("cavena"), {2300, 30014, 5})
+      {:ok, route} = Route.append(route, {2310, 30014, 5})
+      :ok = Store.add(route)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      refute has_element?(view, "#route-doctor")
+    end
+  end
+
   describe "the map marks" do
     test "a kill spot is drawn solid, not like a plain mark", %{conn: conn} do
       {:ok, route} = Route.append(Route.new("cavena"), {1, 1, 7})

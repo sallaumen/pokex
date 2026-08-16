@@ -524,6 +524,61 @@ defmodule Pokex.Bots.Cavebot.Route do
   end
 
   @doc """
+  Pairs of corners the hunt can never WALK between: same floor, and closer to
+  each other than the arrival tolerance, so reaching the first already counts
+  as reaching the second.
+
+  His own route (2026-08-15) carried sixteen of them in seventy corners, and
+  the journal shows the result — three corners ticked off in the same second,
+  which is what he read as "usando todas as esquinas antes da hora".
+
+  Reported, never removed: `tidy/1` moves marks, never the road (that is the
+  promise its own tests make), and which of the two corners deserves to stay
+  is a decision about the walk.
+  """
+  @spec unwalkable_pairs(t, non_neg_integer) :: [non_neg_integer]
+  def unwalkable_pairs(%__MODULE__{waypoints: waypoints}, tolerance) do
+    waypoints
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.with_index()
+    |> Enum.filter(fn {[a, b], _index} ->
+      a.z == b.z and abs(a.x - b.x) <= tolerance and abs(a.y - b.y) <= tolerance
+    end)
+    |> Enum.map(&elem(&1, 1))
+  end
+
+  @doc """
+  Corners that send the character UP a staircase and straight back DOWN onto
+  the tile he left — a round trip that walks two floors to arrive where it
+  started.
+
+  Found in his own route (2026-08-15): 66 at `2310,30021` on floor 5, 67 at
+  `2310,30023` on floor 6, 68 back at `2310,30021` on floor 5. That is the
+  "ficou subindo e descendo na escada" he reported, and it was never a bug in
+  the walking — it is written in the marks.
+
+  Returned, never fixed: a room upstairs he farms and comes back from is the
+  same shape, and only he knows which one this is.
+  """
+  @spec stair_round_trips(t) :: [non_neg_integer]
+  def stair_round_trips(%__MODULE__{waypoints: waypoints}) do
+    waypoints
+    |> Enum.with_index()
+    |> Enum.filter(fn {_wp, index} -> round_trip_at?(waypoints, index) end)
+    |> Enum.map(&elem(&1, 1))
+  end
+
+  defp round_trip_at?(waypoints, index) do
+    with %{} = here <- Enum.at(waypoints, index),
+         %{} = up <- Enum.at(waypoints, index + 1),
+         %{} = back <- Enum.at(waypoints, index + 2) do
+      up.z != here.z and back.z == here.z and back.x == here.x and back.y == here.y
+    else
+      _end_of_route -> false
+    end
+  end
+
+  @doc """
   Empties the route, floor included: the next recording starts on whatever
   floor the character is actually standing on.
   """

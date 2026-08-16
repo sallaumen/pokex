@@ -1540,6 +1540,41 @@ defmodule PokexWeb.CavebotLive do
 
   defp lure_warning(_no_route), do: nil
 
+  # The two defects his real route carries, in his words and with the corner
+  # numbers he can act on. Diagnosis only: deleting a corner is his call.
+  defp route_doctor(%Route{} = route) do
+    tol = Settings.get(:cavebot_arrival_tolerance_tiles)
+
+    [
+      case Route.unwalkable_pairs(route, tol) do
+        [] ->
+          nil
+
+        pairs ->
+          "#{length(pairs)} canto(s) em cima do anterior (a #{tol} tile ou menos): " <>
+            "o bot chega neles sem andar — #{corner_list(pairs)}"
+      end,
+      case Route.stair_round_trips(route) do
+        [] -> nil
+        trips -> "escada de ida e volta em #{corner_list(trips)}: sobe e desce no mesmo tile"
+      end
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      findings -> Enum.join(findings, " · ")
+    end
+  end
+
+  defp route_doctor(_no_route), do: nil
+
+  # 1-based, and never a wall of numbers: the first few plus a count.
+  defp corner_list(indexes) do
+    shown = indexes |> Enum.take(6) |> Enum.map_join(", ", &"#{&1 + 1}")
+
+    if length(indexes) > 6, do: shown <> "…", else: shown
+  end
+
   defp default_active(routes), do: Enum.find(routes, & &1.enabled?)
 
   # The coordinate and the read health come from `PositionReadout`: the SAME
@@ -2669,6 +2704,20 @@ defmodule PokexWeb.CavebotLive do
               >
                 <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
                 {lure_warning(@active_route)}
+              </p>
+
+              <%!-- What the ROUTE asks that the walking cannot deliver. Found
+                   in his own journal (2026-08-15) and reported, never fixed on
+                   his behalf: which of two corners deserves to stay is a
+                   decision about the road, and "otimizar rota" promises it
+                   never touches the road. --%>
+              <p
+                :if={route_doctor(@active_route)}
+                id="route-doctor"
+                class="mt-2 flex items-start gap-1.5 rounded-lg border border-pk-info-line bg-pk-info-dim px-3 py-2 text-pk-meta text-pk-text-2"
+              >
+                <.icon name="hero-wrench-screwdriver" class="mt-0.5 size-3.5 shrink-0" />
+                {route_doctor(@active_route)}
               </p>
 
               <%!-- A 45-corner route made the page 45 rows tall on a laptop —

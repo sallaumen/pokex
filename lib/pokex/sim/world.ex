@@ -53,6 +53,8 @@ defmodule Pokex.Sim.World do
   @directions %{"right" => {1, 0}, "left" => {-1, 0}, "down" => {0, 1}, "up" => {0, -1}}
 
   defstruct route: nil,
+            stairs: [],
+            unsimulated_stairs: [],
             pos: nil,
             held: [],
             walk_debt_ms: 0,
@@ -77,8 +79,12 @@ defmodule Pokex.Sim.World do
     knobs = Map.merge(@default_knobs, Keyword.get(opts, :knobs, %{}))
     start = List.first(route.waypoints)
 
+    {stairs, refused} = stairs_of(route)
+
     %__MODULE__{
       route: route,
+      stairs: stairs,
+      unsimulated_stairs: refused,
       pos: {start.x, start.y, start.z},
       rand: :rand.seed_s(:exsss, {seed, seed, seed}),
       knobs: knobs
@@ -114,16 +120,15 @@ defmodule Pokex.Sim.World do
     per_tile = world.knobs.ms_per_tile
     tiles = div(owed, per_tile)
 
-    %{
-      world
-      | pos: advance(world.pos, world.held, tiles),
-        walk_debt_ms: rem(owed, per_tile)
-    }
+    %{world | pos: advance(world, tiles), walk_debt_ms: rem(owed, per_tile)}
   end
 
-  defp advance({x, y, z}, held, tiles) do
-    {dx, dy} = heading(held)
-    {x + dx * tiles, y + dy * tiles, z}
+  defp advance(world, tiles) do
+    heading = heading(world.held)
+
+    Enum.reduce(1..tiles//1, world.pos, fn _tile, pos ->
+      one_tile(pos, heading, world.stairs)
+    end)
   end
 
   defp heading(held) do
@@ -132,4 +137,59 @@ defmodule Pokex.Sim.World do
       {ax + kx, ay + ky}
     end)
   end
+
+  # Landing on the step WITH the stair's own heading spends one key on two tiles
+  # and changes floor. Any other heading crosses the same ground normally — the
+  # tile is only a staircase from the direction it was recorded from.
+  defp one_tile({x, y, z}, {dx, dy}, stairs) do
+    next = {x + dx, y + dy, z}
+
+    case Enum.find(stairs, &(&1.at == next and &1.dir == {dx, dy})) do
+      nil -> next
+      stair -> {x + dx * 2, y + dy * 2, stair.to_z}
+    end
+  end
+
+  # A staircase is ONE key that walks TWO tiles and changes floor. He marks the
+  # corner right before and right after, so the step is the MIDPOINT of the pair
+  # — and only a clean pair (±2 on one axis, 0 on the other) still carries it. A
+  # dirty pair lost the real position at recording time, and offering a
+  # correction for one is exactly what must never happen here.
+  #
+  # But refusing SILENTLY is its own lie: measured against his real routes,
+  # `Meganium and Venoss` and `Meganium 1` are 2/2 clean, `Xatu easy` is 4 of 8,
+  # and `Azumaril easy` has ZERO — simulating that one, the character would cross
+  # the stair tile and stay on the floor, looking like a bug in the bot. So every
+  # refusal is reported, and the screen says which routes cannot fully be walked.
+  defp stairs_of(%Route{waypoints: waypoints}) do
+    waypoints
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.reduce({[], []}, fn [a, b], {stairs, refused} ->
+      case stair_between(a, b) do
+        :same_floor -> {stairs, refused}
+        {:ok, stair} -> {stairs ++ [stair], refused}
+        :dirty -> {stairs, refused ++ [%{from: point(a), to: point(b)}]}
+      end
+    end)
+  end
+
+  defp stair_between(%{z: z}, %{z: z}), do: :same_floor
+
+  defp stair_between(a, b) do
+    dx = b.x - a.x
+    dy = b.y - a.y
+
+    if {abs(dx), abs(dy)} in [{2, 0}, {0, 2}] do
+      {:ok,
+       %{at: {a.x + div(dx, 2), a.y + div(dy, 2), a.z}, dir: {sign(dx), sign(dy)}, to_z: b.z}}
+    else
+      :dirty
+    end
+  end
+
+  defp point(%{x: x, y: y, z: z}), do: {x, y, z}
+
+  defp sign(0), do: 0
+  defp sign(n) when n > 0, do: 1
+  defp sign(_negative), do: -1
 end

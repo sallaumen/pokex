@@ -9,7 +9,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   part of Start/Stop and the PANIC CORNER halts it (Lucas: a stray reading must be killable by
   mouse-to-corner like everything else; re-arm via Iniciar bot or by touching a support toggle).
   It reloads the calibration each tick, so a fresh HP calibration takes effect without a restart.
-  The pure `PlayerSupport.Logic` owns the "below-threshold AND off-cooldown AND enabled" decision.
+  WHEN to revive is the `Engine`'s call (`orders.revive`, gated only by the `rescue_enabled`
+  toggle); the pure `PlayerSupport.Logic` still owns HOW — the atomic combo, the heal/potion
+  ladder above it, and the fallen/death detection, none of which the engine touches.
   """
   use GenServer
 
@@ -45,6 +47,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       hp_pct: nil,
       prev_hp_pct: nil,
       last_rescue_at: nil,
+      # true from the moment a combo is dispatched until {:rescue_done, _, _}
+      # reports back — see act/2's re-entry guard.
+      rescuing?: false,
       # DEATH is read from the bar's trajectory (Logic.fainted?/1): how many
       # reads in a row failed to find a bar, the last HP actually SEEN before
       # they did, and whether the fallen combo already went out for it.
@@ -217,6 +222,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
           %{state | last_action: %{text: "revive recusado", at: now()}}
       end
 
+    state = %{state | rescuing?: false}
     broadcast(state)
     {:noreply, state}
   end
@@ -370,9 +376,17 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # defocused game must stop revive AND potion, not just have the Rig silently swallow them.
   defp act(state, calib) do
     if InputGate.allowed?() do
-      case revive_decision(state) do
-        :rescue -> fire_combo(%{state | gate: nil}, calib)
-        :hold -> %{state | gate: nil} |> maybe_heal_skill() |> maybe_potion(calib)
+      # rescuing? guards re-entry while the LAST combo is still in flight — the
+      # engine's own orders naturally drop revive: :now once it enters
+      # :recovering, but that transition costs one of ITS ticks, which can be
+      # slower than this worker's, so a fresh fact can still read :now for one
+      # tick after a combo has already been dispatched (measured 2026-08-17
+      # writing this PR's tests: without this, the escalation/stun tests fired
+      # the combo twice, mid-sequence).
+      if not state.rescuing? and revive_decision(state) == :rescue do
+        fire_combo(%{state | gate: nil}, calib)
+      else
+        %{state | gate: nil} |> maybe_heal_skill() |> maybe_potion(calib)
       end
     else
       # Everything this worker exists for is blocked here, and until now the ONLY
@@ -738,43 +752,42 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state
   end
 
-  defp decision_input(state) do
-    %{
-      hp_pct: state.hp_pct,
-      prev_hp_pct: state.prev_hp_pct,
-      threshold_pct: Settings.get(:pokemon_hp_rescue_pct),
-      enabled?: Settings.get(:rescue_enabled),
-      cooldown_ms: Settings.get(:rescue_cooldown_ms),
-      last_rescue_at: state.last_rescue_at,
-      now: now()
-    }
-  end
-
-  # THE ENGINE OUTRANKS THE OLD LADDER when it is speaking — the whole point of
-  # R3: a health percentage alone cannot tell a live pile with every cooldown up
-  # from a cleared one with nothing left, and the ladder only ever asked the
-  # first question. "quem manda ser tomada uma poção ou reviver um pokémon não
-  # deveria ser só um observador da vida, puramente" (Lucas, 2026-08-17).
+  # THE ENGINE IS THE ONLY VOICE on WHEN it is tactically worth reviving — the
+  # whole point of R3: a health percentage alone cannot tell a live pile with
+  # every cooldown up from a cleared one with nothing left, and the old ladder
+  # only ever asked the first question. "quem manda ser tomada uma poção ou
+  # reviver um pokémon não deveria ser só um observador da vida, puramente"
+  # (Lucas, 2026-08-17).
   #
   # `rescue_enabled` is checked FIRST and outside the engine's reach on
   # purpose: it is his own hand on the switch, and no amount of "the engine
-  # says now" may override a toggle he turned off. Then the engine's fresh
-  # answer, obeyed literally in both directions — `:hold` here means the round
-  # is still being closed, and the OLD threshold must not fire underneath it.
-  # Stale or missing orders (no hunt running, the engine is down) fall back to
-  # `Logic.decide/1` exactly as this worked before any of this existed — the
-  # same two-fallback shape Combat and Cavebot already obey the engine with.
+  # says now" may override a toggle he turned off. Past that, the engine's
+  # answer is obeyed literally in both directions, and a stale/missing fact
+  # holds rather than guessing — including while fishing, where `hunt: nil`
+  # still bands on HP and answers `:now` on yellow/red (see
+  # `Engine.Logic`'s "No hunt does not mean no pokémon"), so there is no
+  # health band left that only the old ladder could see.
+  #
+  # `rescue_cooldown_ms` still floors the PACE, independent of the tactics:
+  # his own dial, still visible and editable in the panel, and a second net
+  # under the engine's own — a real cooldown even if the engine's judgment on
+  # WHEN it is worth reviving ever misfires into asking twice too close
+  # together.
   defp revive_decision(state) do
     if Settings.get(:rescue_enabled) do
       case engine_revive() do
-        :now -> :rescue
-        :hold -> :hold
-        nil -> Logic.decide(decision_input(state))
+        :now -> if cooldown_elapsed?(state), do: :rescue, else: :hold
+        _hold_or_stale -> :hold
       end
     else
       :hold
     end
   end
+
+  defp cooldown_elapsed?(%{last_rescue_at: nil}), do: true
+
+  defp cooldown_elapsed?(%{last_rescue_at: last}),
+    do: now() - last >= Settings.get(:rescue_cooldown_ms)
 
   defp engine_revive do
     case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now()) do
@@ -800,6 +813,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state = %{
       state
       | last_rescue_at: at,
+        rescuing?: true,
         counters: bump(state.counters, :rescues),
         last_action: %{text: "combo de sobrevivência", at: at}
     }

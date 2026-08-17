@@ -58,11 +58,13 @@ defmodule Pokex.Bots.PlayerSupport.HealSkillTest do
     end
   end
 
-  # The three rungs are separate decisions on the same bar, and their order is
-  # the whole design: free and always available first, the expensive last.
+  # The two rungs are separate decisions on the same bar, and their order is
+  # the whole design: free and always available first, the costlier second.
+  # The revive used to be a third rung here — it is the engine's call now
+  # (Engine.Logic, orders.revive), not a threshold this module still holds.
   describe "the ladder" do
-    test "at 65% only the skill wants to go; at 55% the potion joins; at 45% the revive" do
-      # his real thresholds: heal 70, potion 60, rescue 50
+    test "at 65% only the skill wants to go; at 55% the potion joins too" do
+      # his real thresholds: heal 70, potion 60
       at = fn hp ->
         {
           Logic.heal_wanted?(input(%{hp_pct: hp, prev_hp_pct: hp, threshold_pct: 70})),
@@ -74,23 +76,13 @@ defmodule Pokex.Bots.PlayerSupport.HealSkillTest do
             cooldown_ms: 0,
             last_potion_at: nil,
             now: 0
-          }),
-          Logic.decide(%{
-            hp_pct: hp,
-            prev_hp_pct: hp,
-            threshold_pct: 50,
-            enabled?: true,
-            cooldown_ms: 0,
-            last_rescue_at: nil,
-            now: 0
           })
         }
       end
 
-      assert at.(65) == {true, false, :hold}
-      assert at.(55) == {true, true, :hold}
-      assert at.(45) == {true, true, :rescue}
-      assert at.(80) == {false, false, :hold}
+      assert at.(65) == {true, false}
+      assert at.(55) == {true, true}
+      assert at.(80) == {false, false}
     end
   end
 end

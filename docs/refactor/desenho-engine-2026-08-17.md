@@ -293,19 +293,24 @@ Um escritor (`Pokex.Engine.Events`), append-only, mesma disciplina do journal: g
 
 ## 13. Refactors: o que sai, o que encolhe
 
-Só depois das PRs 3–5 no ar e medidas. Nada disso sai antes de o substituto estar provado.
+Esta tabela foi escrita antes das PRs 3–9 mudarem o chão que ela descrevia. Ao
+finalmente executar a limpeza (17/08, depois de fechar o buraco da pesca —
+seção 15), reli cada linha contra o código real antes de apagar qualquer
+coisa, e a maior parte não era mais o que parecia:
 
-| some | linhas hoje | vira |
-|---|---|---|
-| fato `:posture` + `publish_posture/2` | `cavebot/worker.ex:375` | `orders.fire` + `orders.opening` |
-| `Cavebot.Logic.gathering?/2` e o relógio `gather_wait` | `logic.ex:313` | estado `:sizing` (contagem, R1) |
-| `recovering?` / `recovering_after/2` / `destination_combo/1` / `hold_patience/2` | `logic.ex` | faixas + `:closing` |
-| `Cavebot.Logic.hold_fire?/2` | `logic.ex:287` | `orders.fire` |
-| `PlayerSupport.Logic.decide/1` | `player_support/logic.ex:25` | `orders.revive` |
-| `run_stop(:cooldown_revive)` incondicional | `logic.ex:1122` | dica avaliada pela engine |
-| campo `posture` no `Combat.Logic` | `combat/logic.ex:75` | `orders.fire` |
+| some (como escrito originalmente) | o que achei ao reler |
+|---|---|
+| fato `:posture` + `publish_posture/2` | **NÃO sai.** `Timers.Worker.mobbing?/1` (`timers/worker.ex:163`) lê esse fato pra saber que está numa mobada e agendar a aura/berry — um consumidor sem nenhuma relação com a decisão de fogo do Combat. Apagar o fato quebraria essa feature por nenhum ganho (o código equivalente ainda teria que existir em outro lugar). |
+| `Cavebot.Logic.gathering?/2` | Fica — ainda alimenta o campo `:hunt.gathering?` (hoje não lido pela engine, mas publicado por bom motivo: uso futuro/depuração). |
+| `recovering?` / `recovering_after/2` / `destination_combo/1` / `hold_patience/2` | **NÃO é a camada antiga.** É a guarda de segurança de HP (features #1–#3/#5 desta sessão), um recurso independente que a engine não substitui — e `recovery/1` alimenta o `hold_reason` visível no `cavebot_live.ex`. Confundir isso com o fallback foi um erro de leitura no desenho original. |
+| `Cavebot.Logic.hold_fire?/2` | Fica — é a única fonte do campo `posture:` do fato acima, que precisa continuar existindo. |
+| `PlayerSupport.Logic.decide/1` | **Saiu de verdade.** Único call site (`player_support/worker.ex`), testes isolados num describe block próprio. A pré-condição (buraco da pesca fechado, #311) tornou isso seguro. |
+| `run_stop(:cooldown_revive)` incondicional | Já não existia mais — a versão condicional a `world.reset_worth?` já tinha sido mergeada (#307/#311). Nada a fazer. |
+| campo `posture` no `Combat.Logic` | Fica — `do_step/3` obedece esse campo independente de quem o alimentou, e `hold_reason/2` o usa pra narrar no painel. |
 
-Efeito esperado: `cavebot/logic.ex` (1223) e `player_support/worker.ex` (1139) encolhem de verdade, e a lógica tática deixa de estar espalhada em três lugares.
+**O que realmente saiu:** só `PlayerSupport.Logic.decide/1` e sua única chamada. Junto, achei e fechei um buraco real que a limpeza teria exposto: sem o antigo `Logic.decide/1` como rede, nada impedia o worker de disparar o combo de novo enquanto o ANTERIOR ainda estava em voo (a engine pode levar mais de um tick seu pra sair de `revive: :now`, e o tick do PlayerSupport pode ser mais rápido que o dela) — corrigido com uma trava explícita (`rescuing?`) independente da engine. O piso `rescue_cooldown_ms` (o dial dele, visível e editável no painel) também ficou — não é mais quem decide QUANDO vale reviver (isso é da engine agora), mas continua sendo o piso de RITMO, uma segunda rede embaixo do julgamento tático dela.
+
+Efeito real, bem menor que o previsto: `player_support/worker.ex` perde uma função e uma ramificação; `cavebot/logic.ex` e `combat/logic.ex` não encolhem nesta PR — o que pareciam camadas mortas eram, na maior parte, features vivas com nomes parecidos.
 
 **Um emaranhado de nome que vale desfazer no caminho:** existem dois conceitos chamados "combo" — `Pokex.Combos` (disparado por inimigo, com Runner próprio) e a rajada de abertura do Combat. São coisas sem relação. A engine só fala com a segunda; a primeira ganha nome próprio na PR 6 ou fica documentada como intocada.
 
@@ -355,7 +360,7 @@ Então o desenho mudou: a engine decide só o QUANDO (`revive: :now`), nunca o C
 
 Corrigido em `Logic.decide/4`: `hunt: nil` agora ainda calcula a faixa (a mesma leitura de HP, caçando ou não) e responde `revive: :now` no amarelo/vermelho — sem rodada pra fechar, sem cooldown que valha esperar, não tem o que a régua de fechar/emergência ainda compraria. Isso fecha o buraco e é a pré-condição real da PR 7: agora a engine, sozinha, cobre os dois modos, e apagar a escada velha não deixa a pesca sem proteção — ela passa a ser protegida pelo mesmo caminho que já protege a caçada.
 
-**PR 7 — Limpeza.** A tabela da seção 13, a tela de sombra sai, e o `cavebot_live.ex` fecha o ciclo menor do que começou. Passa a rodar com a pré-condição acima resolvida — decisão dele: "bora confiar na engine, se quebrar algo muito feio eu reverto depois."
+**PR 7 — Limpeza.** ✅ Rodou com a pré-condição acima resolvida — decisão dele: "bora confiar na engine, se quebrar algo muito feio eu reverto depois." **Menor do que a tabela original previa** (seção 13 reescrita com o que achei ao reler cada linha contra o código real): a maior parte não era mais camada de fallback — era feature viva com nome parecido (`:posture` alimenta o relógio de aura do `Timers.Worker`; `recovering?` é a guarda de HP, não o fallback da engine). O que saiu de verdade foi só `PlayerSupport.Logic.decide/1`. No caminho, achei e fechei um buraco real que a própria limpeza teria exposto: sem a antiga função como rede, nada impedia o worker de disparar o combo de resgate DUAS vezes — uma vez, e de novo no tick seguinte, antes de a engine terminar de transicionar pra `:recovering` — corrigido com uma trava (`rescuing?`) que não depende da engine para nada. `rescue_cooldown_ms` (o dial dele no painel) ficou como piso de ritmo, agora independente da decisão tática.
 
 ---
 

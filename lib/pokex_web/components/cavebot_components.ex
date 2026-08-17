@@ -408,4 +408,130 @@ defmodule PokexWeb.CavebotComponents do
     </figure>
     """
   end
+
+  attr :route, :any, required: true
+  attr :tolerance, :integer, required: true
+
+  @doc """
+  What the ROUTE asks that the walking cannot deliver.
+
+  Found in his own journal (2026-08-15) and REPORTED, never fixed on his behalf:
+  which of two corners deserves to stay is a decision about the road, and
+  "otimizar rota" promises it never touches the road.
+
+  Renders nothing when the route is healthy — a permanent empty box teaches the
+  eye to skip the very place the warning will appear.
+  """
+  def route_doctor(assigns) do
+    assigns = assign(assigns, :findings, doctor_findings(assigns.route, assigns.tolerance))
+
+    ~H"""
+    <p
+      :if={@findings}
+      id="route-doctor"
+      class="mt-2 flex items-start gap-1.5 rounded-lg border border-pk-info-line bg-pk-info-dim px-3 py-2 text-pk-meta text-pk-text-2"
+    >
+      <.icon name="hero-wrench-screwdriver" class="mt-0.5 size-3.5 shrink-0" />
+      {@findings}
+    </p>
+    """
+  end
+
+  defp doctor_findings(%Route{} = route, tolerance) do
+    [
+      case Route.unwalkable_pairs(route, tolerance) do
+        [] ->
+          nil
+
+        pairs ->
+          "#{length(pairs)} canto(s) em cima do anterior (a #{tolerance} tile ou menos): " <>
+            "o bot chega neles sem andar — #{corner_list(pairs)}"
+      end,
+      case Route.stair_round_trips(route) do
+        [] -> nil
+        trips -> "escada de ida e volta em #{corner_list(trips)}: sobe e desce no mesmo tile"
+      end
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      findings -> Enum.join(findings, " · ")
+    end
+  end
+
+  defp doctor_findings(_no_route, _tolerance), do: nil
+
+  # 1-based, and never a wall of numbers: the first few plus a count.
+  defp corner_list(indexes) do
+    shown = indexes |> Enum.take(6) |> Enum.map_join(", ", &"#{&1 + 1}")
+
+    if length(indexes) > 6, do: shown <> "…", else: shown
+  end
+
+  attr :situation, :any, default: nil
+  attr :orders, :any, default: nil
+
+  @doc """
+  What the engine is thinking, in one strip.
+
+  Its reasoning is the one thing on this page with no other way to be seen: the
+  hunt's state shows in the tiles and the fight narrates itself, but how many it
+  counted, whether they stopped arriving, which band the health is in, and what
+  it would do about all three only ever existed inside a process.
+
+  While nobody obeys it, this is a SHADOW: it says what WOULD happen, and the
+  feed below carries the same sentence beside what actually did.
+  """
+  def engine_brain(assigns) do
+    ~H"""
+    <section
+      :if={@situation}
+      id="engine-brain"
+      class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
+    >
+      <h2 class={[
+        "flex shrink-0 items-center gap-1 font-mono text-pk-meta font-bold uppercase tracking-[0.12em]",
+        band_text(@orders)
+      ]}>
+        🧠 {band_label(@orders)}
+      </h2>
+
+      <p class="min-w-0 flex-1 truncate text-pk-body text-pk-text-2" title={why(@orders)}>
+        {why(@orders)}
+      </p>
+
+      <p class="flex shrink-0 items-center gap-2 font-mono text-pk-meta text-pk-text-3">
+        <span class="pk-num text-pk-text-2">{count_label(@situation)}</span>
+        <span aria-hidden="true">·</span>
+        <span>{settle_label(@situation)}</span>
+        <span :if={@situation.asleep?} aria-hidden="true">·</span>
+        <span :if={@situation.asleep?} class="text-pk-info">dormindo</span>
+      </p>
+    </section>
+    """
+  end
+
+  # The band is health, and health is the one thing here that must never be
+  # colour alone: the word rides beside the colour, always.
+  defp band_label(%{band: :red}), do: "vermelho"
+  defp band_label(%{band: :yellow}), do: "amarelo"
+  defp band_label(%{band: :green}), do: "verde"
+  defp band_label(_no_orders), do: "pensando"
+
+  defp band_text(%{band: :red}), do: "text-pk-danger"
+  defp band_text(%{band: :yellow}), do: "text-pk-warn"
+  defp band_text(_green_or_none), do: "text-pk-text-3"
+
+  defp why(%{why: why}), do: why
+  defp why(_no_orders), do: "sem ordem — a engine ainda não decidiu nada"
+
+  # Zero and "I cannot see" are opposite facts wearing the same number.
+  defp count_label(%{enemies: nil}), do: "não vejo a lista"
+  defp count_label(%{enemies: 1}), do: "1 inimigo"
+  defp count_label(%{enemies: n}), do: "#{n} inimigos"
+
+  defp settle_label(%{enemies: nil}), do: "sem contagem"
+  defp settle_label(%{growing?: true}), do: "ainda chegando"
+
+  defp settle_label(%{stable_for_ms: ms}), do: "parados há #{Float.round(ms / 1000, 1)}s"
 end

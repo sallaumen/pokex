@@ -405,6 +405,7 @@ defmodule Pokex.Sim.FenceTest do
     assert Application.get_env(:pokex, :rig) == ctx.original
   end
 
+  @tag :capture_log
   test "a fence killed while armed leaves the next one to stop the fleet first", ctx do
     {:ok, fence} =
       Fence.start_link(name: nil, status: fn -> status_of([]) end, stop_all: ctx.stop_all)
@@ -418,14 +419,23 @@ defmodule Pokex.Sim.FenceTest do
     assert_receive {:DOWN, ^ref, :process, ^fence, :killed}
     assert Fence.armed?()
 
-    assert is_pid(start_fence(ctx, id: :revived))
+    revived = start_fence(ctx, id: :revived)
 
     assert_receive {:stopped, _reason, Pokex.Rig.Sim}
+
+    :sys.get_state(revived)
+
     refute Fence.armed?()
     assert Application.get_env(:pokex, :rig) == ctx.original
   end
 end
 ```
+
+**Duas armadilhas que este teste tem, e ambas já foram pagas uma vez:**
+
+1. **`assert_receive {:stopped, …}` casa com o COMEÇO do restore, não com o fim.** `stop_all` é a primeira coisa que `restore/3` faz; apagar a flag é a última. Conferir `armed?/0` logo depois do `assert_receive` lê o meio da operação e reprova um código correto. O `:sys.get_state(revived)` resolve de forma determinística: a chamada fica atrás do `handle_continue` na fila do processo. Nunca `Process.sleep`.
+
+2. **A recuperação loga de propósito**, então o teste leva `@tag :capture_log` — a suíte deste projeto trata log escapado como achado, não como ruído.
 
 - [ ] **Step 2: Run it to make sure it fails**
 

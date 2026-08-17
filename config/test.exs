@@ -87,6 +87,10 @@ config :pokex, :stock_alerts_active, false
 config :pokex, :combos_active, false
 # the cavebot's tick walks the map through the Body — tests drive :tick by hand
 config :pokex, :cavebot_active, false
+# The engine touches no hands, but its tick WRITES the shared :situation fact into
+# the one table every test reads — an app-global one ticking in the background would
+# plant facts under other tests. Engine tests opt in with `active: true`.
+config :pokex, :engine_active, false
 # The app-wide Guardian must NOT act on session rules (stop conditions / anti-stagnation)
 # during tests: a test planting a global :session fact + limits would wake its REAL
 # stop_all, racing the test's own scoped Guardian (measured flaky). Guardian tests opt

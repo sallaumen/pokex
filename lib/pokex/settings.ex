@@ -979,7 +979,18 @@ defmodule Pokex.Settings do
     cavebot_hp_abort_pct: 60,
     # …and the route only resumes here: the gap between the two is what stops
     # a heal to 70% from walking straight into the next pile at 55%.
-    cavebot_hp_resume_pct: 85
+    cavebot_hp_resume_pct: 85,
+    # --- Engine ---------------------------------------------------------------------------------
+    # HIS RULER (2026-08-17): "se tem 1 ou 2 monstros, eu às vezes até ignoro
+    # aquele mob e sigo a minha vida (…) eu realmente mato quando tem uns
+    # três". Read by the shared picture today; obeyed by the fight once the
+    # engine's orders are wired.
+    engine_engage_from: 3,
+    # How long a confirmed control skill counts the screen as asleep. TIME
+    # ALONE, never contradicted by "I am still taking damage": a stun that
+    # caught most of the screen is exactly the window the revive needs, and a
+    # straggler still awake is the common case, not the exception.
+    engine_stun_sleep_ms: 2_000
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)
@@ -1186,6 +1197,10 @@ defmodule Pokex.Settings do
     cavebot_stop_wait_ms: 0..600_000,
     cavebot_hp_abort_pct: 0..100,
     cavebot_hp_resume_pct: 1..100,
+    # 1 means "fight anything", which is a legal (if greedy) choice; the ceiling
+    # is the battle panel's own row count — a ruler above it never engages.
+    engine_engage_from: 1..12,
+    engine_stun_sleep_ms: 100..60_000,
     posture_max_age_ms: 500..60_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,

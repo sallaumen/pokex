@@ -50,6 +50,9 @@ defmodule PokexWeb.CavebotLive do
       # the support speaks on "game": revives, deaths and refusals belong in the
       # hunt's own feed, not only in the panel's
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.PlayerSupport.Worker.topic())
+      # the engine counts what is on the screen — the number the ruler of three
+      # will be measured against, and which nothing recorded until now
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Engine.Worker.topic())
       # the minimap feed only captures while someone is attached — the
       # recording page IS that someone, exactly while it is open.
       #
@@ -176,6 +179,9 @@ defmodule PokexWeb.CavebotLive do
     do: {:noreply, log_line(socket, level, text)}
 
   def handle_info({:game_log, level, text}, socket), do: {:noreply, log_line(socket, level, text)}
+
+  def handle_info({:engine_log, level, text}, socket),
+    do: {:noreply, log_line(socket, level, text)}
 
   def handle_info({:rule_alarm, text}, socket), do: {:noreply, log_line(socket, :alarm, text)}
 
@@ -1641,7 +1647,7 @@ defmodule PokexWeb.CavebotLive do
   # crash, or a reload at 4am) no longer erases the night. Only the sources the
   # hunt cares about, newest first, in this page's own shape.
   defp seed_log do
-    [sources: ~w(cavebot game combat), limit: @log_lines, min_severity: :macro]
+    [sources: ~w(cavebot game combat engine), limit: @log_lines, min_severity: :macro]
     |> Pokex.Journal.recent()
     |> Enum.map(&%{level: &1.severity, text: &1.text, at: DateTime.to_time(&1.at)})
   catch

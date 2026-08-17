@@ -286,9 +286,19 @@ defmodule Pokex.Sim.World do
     }
   end
 
-  def observe(%{knobs: %{readable?: false}}, :pokemon), do: %{hp_pct: nil, readable?: false}
-  def observe(%{own: %{out?: false}}, :pokemon), do: %{hp_pct: nil, readable?: true}
-  def observe(world, :pokemon), do: %{hp_pct: world.own.hp_pct, readable?: true}
+  def observe(%{knobs: %{readable?: false}}, :pokemon),
+    do: %{hp_pct: nil, readable?: false, fainted?: false}
+
+  # A fallen pokemon does not read as "health nil on a readable bar": the bar is
+  # GONE, because the window changes shape when it goes down. That is how
+  # PlayerSupport tells a death from a live reading (`player_support/worker.ex:308`
+  # publishes exactly this), and a simulator answering `readable?: true` here
+  # would leave the death scenario untestable while looking correct.
+  def observe(%{own: %{out?: false}}, :pokemon),
+    do: %{hp_pct: nil, readable?: false, fainted?: true}
+
+  def observe(world, :pokemon),
+    do: %{hp_pct: world.own.hp_pct, readable?: true, fainted?: false}
 
   def observe(world, :skill_bar), do: %{ready_keys: ready_keys(world)}
 

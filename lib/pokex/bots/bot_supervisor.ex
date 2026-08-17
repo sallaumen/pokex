@@ -309,15 +309,25 @@ defmodule Pokex.Bots.BotSupervisor do
     )
   end
 
+  # The ONE entry point production uses: the Iniciar button, Focus re-arming when
+  # the game window comes back to front, and the Guardian's restart Task. Focus is
+  # why the simulator guard lives here — armed, bringing the game forward would
+  # otherwise start the real fleet with nobody asking. The named arities stay open:
+  # tests use them with isolated supervisors, and the simulator uses them to raise
+  # its own fleet AFTER the fence is up.
   def start_all do
-    start_all(
-      Fishing.Worker,
-      Combat.Worker,
-      Catcher.Worker,
-      MiniGame.Worker,
-      PlayerSupport.Worker,
-      Cavebot.Worker
-    )
+    if Pokex.Sim.Fence.armed?() do
+      {:error, ["o simulador está armado — desarme antes de iniciar o bot de verdade"]}
+    else
+      start_all(
+        Fishing.Worker,
+        Combat.Worker,
+        Catcher.Worker,
+        MiniGame.Worker,
+        PlayerSupport.Worker,
+        Cavebot.Worker
+      )
+    end
   end
 
   @doc """

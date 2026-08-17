@@ -344,7 +344,7 @@ A faixa `#engine-brain` em componente próprio (faixa da vida por palavra e cor,
 
 O `stun` foi tirado desta PR de propósito: Combat apertando a tecla reservada e o Suporte revivendo por conta própria são duas metades do mesmo mecanismo, e subir só uma repete o erro que já matou o pokémon dele uma vez.
 
-**PR 6 — Suporte obedece.** ✅ (#3xx, "…")
+**PR 6 — Suporte obedece.** ✅ (#309, "o suporte fecha a rodada, e o segundo apertador desaparece")
 `revive` — não `potion`, que nenhuma regra da Logic decide ainda e ficou de fora por não ter o que obedecer.
 
 **Correção de desenho, achada ao ler `PlayerSupport.Worker` de perto pela primeira vez nesta etapa:** o plano original (PRs 2–5) tinha o Combat apertando um stun PRÓPRIO no meio da rodada amarela, cedo, para o revive no fim reaproveitar o sono. Mas `PlayerSupport` já tem, desde as PRs #285/#289, um combo ATÔMICO e testado em campo — aperta a tecla reservada, CONFIRMA pelo recibo, espera o resto do sono, só então recolhe — tudo dentro de um `Body.perform` só (`PlayerSupport.Logic.combo/1`). Dois apertadores da MESMA tecla reservada, um cedo (Combat) e um tarde (Suporte), é exatamente o tipo de coincidência de tempo que já causou o erro que R4 existe para evitar.

@@ -31,7 +31,7 @@ defmodule Pokex.Journal do
 
   alias Pokex.Bots.Session
 
-  @topics ~w(fishing combat catcher mini_game game body cavebot logout)
+  @topics ~w(fishing combat catcher mini_game game body cavebot logout engine)
   @journal_topic "journal"
   @max_events 500
   @keep_days 14
@@ -97,7 +97,8 @@ defmodule Pokex.Journal do
              :mini_game_log,
              :game_log,
              :body_log,
-             :cavebot_log
+             :cavebot_log,
+             :engine_log
            ],
       do: {:noreply, record(state, source_of(log), level, text)}
 
@@ -173,6 +174,7 @@ defmodule Pokex.Journal do
   defp source_of(:game_log), do: :suporte
   defp source_of(:body_log), do: :body
   defp source_of(:cavebot_log), do: :cavebot
+  defp source_of(:engine_log), do: :engine
 
   defp normalize_severity(level) when level in [:debug, :macro, :alarm], do: level
   defp normalize_severity(_outro), do: :macro

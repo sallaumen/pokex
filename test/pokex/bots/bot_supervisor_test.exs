@@ -124,6 +124,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     player_support = :"#{tag}_player_support"
     cavebot = :"#{tag}_cavebot"
     timers = :"#{tag}_timers"
+    engine = :"#{tag}_engine"
 
     start_supervised!(
       {BotSupervisor,
@@ -136,7 +137,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
        mini_game: mini_game,
        player_support: player_support,
        cavebot: cavebot,
-       timers: timers}
+       timers: timers,
+       engine: engine}
     )
 
     %{
@@ -146,7 +148,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
       mini_game: mini_game,
       player_support: player_support,
       cavebot: cavebot,
-      timers: timers
+      timers: timers,
+      engine: engine
     }
   end
 

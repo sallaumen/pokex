@@ -24,6 +24,7 @@ defmodule Pokex.Bots.BotSupervisor do
   alias Pokex.Bots.Catcher
   alias Pokex.Bots.Cavebot
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.Engine
   alias Pokex.Bots.Fishing
   alias Pokex.Bots.Guardian
   alias Pokex.Bots.InputGate
@@ -43,6 +44,7 @@ defmodule Pokex.Bots.BotSupervisor do
     player_support = Keyword.get(opts, :player_support, PlayerSupport.Worker)
     cavebot = Keyword.get(opts, :cavebot, Cavebot.Worker)
     timers = Keyword.get(opts, :timers, Timers.Worker)
+    engine = Keyword.get(opts, :engine, Engine.Worker)
 
     state = %{
       body: body,
@@ -53,7 +55,8 @@ defmodule Pokex.Bots.BotSupervisor do
       mini_game: mini_game,
       player_support: player_support,
       cavebot: cavebot,
-      timers: timers
+      timers: timers,
+      engine: engine
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -72,7 +75,8 @@ defmodule Pokex.Bots.BotSupervisor do
         mini_game: mini_game,
         player_support: player_support,
         cavebot: cavebot,
-        timers: timers
+        timers: timers,
+        engine: engine
       }) do
     # The panic corner halts EVERY automated worker — including the mini-game watcher (its
     # halt clears the :mini_game fact, so nobody stays self-held) and the PlayerSupport
@@ -88,7 +92,8 @@ defmodule Pokex.Bots.BotSupervisor do
         mini_game,
         player_support,
         cavebot,
-        timers
+        timers,
+        engine
       )
     end
 
@@ -110,7 +115,11 @@ defmodule Pokex.Bots.BotSupervisor do
       Supervisor.child_spec({Cavebot.Worker, name: cavebot, body: body, combat: combat},
         id: cavebot
       ),
-      Supervisor.child_spec({Timers.Worker, name: timers, body: body}, id: timers)
+      Supervisor.child_spec({Timers.Worker, name: timers, body: body}, id: timers),
+      # The engine has no body and no hands: it reads facts and publishes the
+      # shared picture. Last in the list because nothing here depends on it —
+      # and, by design, nothing ever will in a blocking way.
+      Supervisor.child_spec({Engine.Worker, name: engine}, id: engine)
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
@@ -201,6 +210,7 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server(),
           GenServer.server(),
+          GenServer.server(),
           GenServer.server()
         ) :: :ok | {:error, [String.t()]}
   def start_all(
@@ -212,7 +222,8 @@ defmodule Pokex.Bots.BotSupervisor do
         cavebot \\ Cavebot.Worker,
         # Named like every other worker rather than reached for by module: an
         # isolated supervisor in a test must never arm the app-global one.
-        timers \\ Timers.Worker
+        timers \\ Timers.Worker,
+        engine \\ Engine.Worker
       ) do
     # Every order bumps the GENERATION — even a start that will fail preflight
     # below: the intent was expressed, so any resume pending from before it
@@ -232,6 +243,13 @@ defmodule Pokex.Bots.BotSupervisor do
     # Rig for the rest of the suite.
     if Application.get_env(:pokex, :player_support_auto_monitor, true),
       do: :ok = PlayerSupport.Worker.run(player_support)
+
+    # The engine watches for the same reason and with the same shape: infallible
+    # (no preflight, no hands), so it cannot poison the chain below. It reads
+    # facts and publishes the picture; a suite that starts a fleet must not leave
+    # it holding the app-global feeds, hence the same env gate.
+    if Application.get_env(:pokex, :engine_active, true),
+      do: :ok = Engine.Worker.run(engine)
 
     # The MODE decides which workers this is: standing on a spot runs the rod and
     # the mini-game watcher; walking runs neither. Reading it here rather than at
@@ -391,10 +409,11 @@ defmodule Pokex.Bots.BotSupervisor do
          mini_game,
          player_support,
          cavebot,
-         timers
+         timers,
+         engine \\ Engine.Worker
        ) do
     safe_order(:stop, reason)
-    halt_fleet(fishing, combat, catcher, mini_game, player_support, cavebot, timers)
+    halt_fleet(fishing, combat, catcher, mini_game, player_support, cavebot, timers, engine)
   end
 
   @doc """
@@ -421,7 +440,16 @@ defmodule Pokex.Bots.BotSupervisor do
     generation
   end
 
-  defp halt_fleet(fishing, combat, catcher, mini_game, player_support, cavebot, timers) do
+  defp halt_fleet(
+         fishing,
+         combat,
+         catcher,
+         mini_game,
+         player_support,
+         cavebot,
+         timers,
+         engine \\ Engine.Worker
+       ) do
     # The cavebot goes down FIRST: it drives Combat.run itself, so halting it
     # after Combat would leave a tick free to re-arm the fight in between.
     # The self() guard is for its {:block, _} brake, which calls the global
@@ -433,6 +461,9 @@ defmodule Pokex.Bots.BotSupervisor do
     # A stop that leaves the clocks running would keep pressing keys after the
     # panic corner, the Stop button and the logout — the one thing a stop means.
     safe_halt(timers)
+    # The engine presses nothing, but it holds the :battle and :skill_bar feeds
+    # open — and a stop that leaves captures running is not a stop.
+    safe_halt(engine)
     # nothing is running an old calibration anymore — the banner has no meaning
     WorldState.forget(:calibration)
     # the hunt session ended with the workers

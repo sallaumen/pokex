@@ -225,4 +225,93 @@ defmodule Pokex.Sim.RunnerTest do
     assert Runner.world(server).own.hp_pct <= hp
     assert Runner.world(server).own.hp_pct == 25 or Runner.world(server).own.hp_pct < 25
   end
+
+  defp orders(overrides) do
+    Map.merge(
+      %{
+        phase: :engaged,
+        band: :green,
+        route: :go,
+        fire: :hold,
+        opening: [],
+        revive: :hold,
+        potion: :hold,
+        why: "teste"
+      },
+      overrides
+    )
+  end
+
+  test "hands off, an order changes nothing", %{server: server, advance: advance} do
+    Runner.play(server)
+    WorldState.put(:orders, orders(%{fire: :free, opening: ["3"]}), now())
+    before = Runner.world(server).mobs
+
+    advance.(200)
+    Runner.tick_now(server)
+
+    assert Enum.map(Runner.world(server).mobs, & &1.hp_pct) == Enum.map(before, & &1.hp_pct)
+  end
+
+  test "handed over, a free-fire order spends the keys it names", %{
+    server: server,
+    advance: advance
+  } do
+    Runner.auto(server, true)
+    Runner.play(server)
+    WorldState.put(:orders, orders(%{fire: :free, opening: ["3"]}), now())
+
+    advance.(200)
+    Runner.tick_now(server)
+
+    refute "3" in Pokex.Sim.World.observe(Runner.world(server), :skill_bar).ready_keys
+  end
+
+  test "handed over, a revive order heals and clears every cooldown", %{
+    server: server,
+    advance: advance
+  } do
+    Runner.auto(server, true)
+    Runner.play(server)
+    hurt = %{Runner.world(server) | own: %{Runner.world(server).own | hp_pct: 20}}
+    :sys.replace_state(server, &Map.put(&1, :world, hurt))
+
+    WorldState.put(:orders, orders(%{revive: :now}), now())
+    advance.(200)
+    Runner.tick_now(server)
+
+    world = Runner.world(server)
+    assert world.own.hp_pct == 100
+    assert world.own.alive?
+  end
+
+  test "handed over, a hold-route order lets go of the arrows", %{
+    server: server,
+    advance: advance
+  } do
+    Runner.auto(server, true)
+    Runner.play(server)
+    send(server, {:sim_rig, {:key_down, "right"}})
+    WorldState.put(:orders, orders(%{route: :hold}), now())
+
+    advance.(200)
+    Runner.tick_now(server)
+
+    assert Runner.world(server).held == []
+  end
+
+  test "handed over with no order on the board, nothing is obeyed", %{
+    server: server,
+    advance: advance
+  } do
+    WorldState.forget(:orders)
+    Runner.auto(server, true)
+    Runner.play(server)
+    before = Runner.world(server).pos
+
+    advance.(200)
+    Runner.tick_now(server)
+
+    assert Runner.world(server).pos == before
+  end
 end

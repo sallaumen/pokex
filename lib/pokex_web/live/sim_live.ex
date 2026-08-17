@@ -59,7 +59,8 @@ defmodule PokexWeb.SimLive do
        scenario: Runner.scenario(),
        bench: nil,
        calib: Calibrate.report(Date.utc_today()),
-       measuring?: Pokex.Settings.get(:cavebot_measure_walk)
+       measuring?: Pokex.Settings.get(:cavebot_measure_walk),
+       auto?: Runner.auto?()
      )}
   end
 
@@ -83,7 +84,15 @@ defmodule PokexWeb.SimLive do
     {:noreply, assign(socket, armed?: false, playing?: false, picture: nil, orders: nil)}
   end
 
+  def handle_event("toggle-auto", _params, socket) do
+    on? = not socket.assigns.auto?
+    if on?, do: wake_engine()
+    Runner.auto(on?)
+    {:noreply, assign(socket, auto?: on?)}
+  end
+
   def handle_event("play", _params, socket) do
+    wake_engine()
     Runner.play()
     {:noreply, assign(socket, playing?: true)}
   end
@@ -158,6 +167,16 @@ defmodule PokexWeb.SimLive do
         Runner.load(route, knobs: %{})
         assign(socket, world: Runner.world(), floor: nil)
     end
+  end
+
+  # The engine is what publishes `:orders`, and without orders the auto-play has
+  # nothing to obey and the screen shows a brain that says nothing. It stops on
+  # every code reload in dev, so asking it to run is cheap and idempotent — and
+  # far better than a screen that looks broken for a reason nobody can see.
+  defp wake_engine do
+    Engine.Worker.run()
+  catch
+    :exit, _not_up -> :ok
   end
 
   defp load_scenario(socket, id) do
@@ -256,6 +275,64 @@ defmodule PokexWeb.SimLive do
   defp perceived_rows(nil), do: :unread
   defp perceived_rows(%{enemies: nil}), do: :unread
   defp perceived_rows(%{enemies_detail: detail}), do: detail
+
+  # The screen has to answer "what is happening RIGHT NOW" before it answers
+  # anything else. A dead pokémon in a paused world used to look exactly like a
+  # world that had not started, and the only difference on screen was the shade
+  # of one circle — which is not a difference anybody can read.
+  defp status(assigns) do
+    cond do
+      not assigns.armed? ->
+        %{
+          tone: :idle,
+          title: "Simulação desarmada",
+          hint: "Clique em “Armar simulação” para acordar o mundo e o cérebro."
+        }
+
+      is_nil(assigns.world) ->
+        %{
+          tone: :idle,
+          title: "Nenhum mundo carregado",
+          hint: "Escolha uma rota ou um cenário e clique em “Recomeçar”."
+        }
+
+      not assigns.world.own.alive? ->
+        %{
+          tone: :bad,
+          title: "Seu pokémon caiu",
+          hint:
+            "Os monstros bateram até zerar a vida. Clique em “Recomeçar” para levantar tudo " <>
+              "de novo — ou aperte 1–9 mais cedo da próxima vez."
+        }
+
+      not assigns.playing? ->
+        %{
+          tone: :paused,
+          title: "Pausado",
+          hint:
+            "Clique em “Rodar”. Depois: “Deixar o cérebro jogar” para assistir a engine caçar, " <>
+              "ou jogue você mesmo com as setas e as teclas 1–9."
+        }
+
+      true ->
+        %{
+          tone: :good,
+          title:
+            if(assigns.auto?, do: "Rodando — o cérebro está jogando", else: "Rodando — você joga"),
+          hint:
+            "#{length(assigns.mobs)} monstro(s) no chão · sua vida #{assigns.world.own.hp_pct}% · " <>
+              if(assigns.auto?,
+                do: "ele anda a rota, atira e revive sozinho; o card ao lado diz por quê",
+                else: "setas andam, 1–9 disparam — ou clique em “Deixar o cérebro jogar”"
+              )
+        }
+    end
+  end
+
+  defp tone_class(:good), do: "border-emerald-800/70 bg-emerald-950/30 text-emerald-100"
+  defp tone_class(:paused), do: "border-sky-900/70 bg-sky-950/30 text-sky-100"
+  defp tone_class(:bad), do: "border-rose-900/70 bg-rose-950/40 text-rose-100"
+  defp tone_class(:idle), do: "border-zinc-800 bg-zinc-900/60 text-zinc-300"
 
   defp measured_text(nil), do: "a noite não mediu"
 
@@ -362,6 +439,19 @@ defmodule PokexWeb.SimLive do
           </button>
 
           <button
+            :if={@armed?}
+            phx-click="toggle-auto"
+            class={
+              "rounded-lg px-3 py-1.5 text-sm font-medium text-white " <>
+                if(@auto?,
+                  do: "bg-amber-600 hover:bg-amber-500",
+                  else: "bg-indigo-600 hover:bg-indigo-500")
+            }
+          >
+            {if @auto?, do: "Você joga", else: "Deixar o cérebro jogar"}
+          </button>
+
+          <button
             :if={@scenario}
             phx-click="bench"
             class="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-500"
@@ -410,6 +500,11 @@ defmodule PokexWeb.SimLive do
           que não atravessar.
         </p>
 
+        <div class={"rounded-xl border px-4 py-3 #{tone_class(status(assigns).tone)}"}>
+          <p class="text-base font-semibold">{status(assigns).title}</p>
+          <p class="mt-0.5 text-sm opacity-90">{status(assigns).hint}</p>
+        </div>
+
         <div class="grid gap-4 lg:grid-cols-[2fr_1fr]">
           <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
             <div class="mb-2 flex items-baseline justify-between">
@@ -423,41 +518,72 @@ defmodule PokexWeb.SimLive do
                 points={Enum.map_join(@points, " ", fn {x, y, _n} -> "#{x},#{y}" end)}
                 fill="none"
                 stroke="rgb(63 63 70)"
-                stroke-width="0.6"
+                stroke-width="0.25"
               />
               <circle
                 :for={{x, y, nest} <- @points}
                 cx={x}
                 cy={y}
-                r={if nest, do: 1.6, else: 0.8}
+                r={if nest, do: 0.55, else: 0.28}
                 fill={if nest, do: "rgb(251 146 60)", else: "rgb(82 82 91)"}
               />
               <%= if @world do %>
-                <circle
-                  cx={elem(@world.pos, 0)}
-                  cy={elem(@world.pos, 1)}
-                  r={@world.knobs.battle_radius}
+                <rect
+                  x={elem(@world.pos, 0) - @world.knobs.battle_radius - 0.5}
+                  y={elem(@world.pos, 1) - @world.knobs.battle_radius - 0.5}
+                  width={@world.knobs.battle_radius * 2 + 1}
+                  height={@world.knobs.battle_radius * 2 + 1}
                   fill="rgb(56 189 248 / 0.07)"
                   stroke="rgb(56 189 248 / 0.35)"
                   stroke-width="0.3"
                 />
-                <circle
+                <rect
                   :for={mob <- @mobs}
-                  cx={elem(mob.pos, 0)}
-                  cy={elem(mob.pos, 1)}
-                  r="1.8"
+                  x={elem(mob.pos, 0) - 0.5}
+                  y={elem(mob.pos, 1) - 0.5}
+                  width="1"
+                  height="1"
                   fill={mob_fill(mob.hp_pct)}
+                  stroke="rgb(24 24 27)"
+                  stroke-width="0.08"
                 />
-                <circle
-                  cx={elem(@world.pos, 0)}
-                  cy={elem(@world.pos, 1)}
-                  r="2.4"
+                <rect
+                  x={elem(@world.pos, 0) - 0.5}
+                  y={elem(@world.pos, 1) - 0.5}
+                  width="1"
+                  height="1"
                   fill={if @world.own.out?, do: "rgb(52 211 153)", else: "rgb(113 113 122)"}
                   stroke="white"
-                  stroke-width="0.5"
+                  stroke-width="0.18"
                 />
               <% end %>
             </svg>
+
+            <ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
+              <li class="flex items-center gap-1.5">
+                <span class="inline-block h-3 w-3 bg-emerald-400 ring-1 ring-white"></span>
+                você (cinza = caiu)
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span class="inline-block h-3 w-3 bg-rose-500"></span> monstro
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span class="inline-block h-3 w-3 rounded-full bg-orange-400"></span>
+                esquina onde nascem
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span class="inline-block h-3 w-3 rounded-full bg-zinc-600"></span> esquina comum
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span class="inline-block h-3 w-3 border border-sky-500/60"></span>
+                até onde o bot enxerga
+              </li>
+            </ul>
+            <p class="mt-1 text-[11px] leading-snug text-zinc-500">
+              Cada bicho é um quadrado de UM tile, com o pé no centro exato — é assim que a engine
+              do jogo trata criatura. E o alcance é quadrado, não redondo: a distância aqui é
+              Chebyshev (a grade tem diagonal), então 3 tiles na diagonal são 3, não 4,24.
+            </p>
           </div>
 
           <div class="space-y-4">
@@ -481,6 +607,9 @@ defmodule PokexWeb.SimLive do
               <% end %>
               <p class="mt-3 border-t border-zinc-800 pt-2 text-xs text-zinc-500">
                 caçada: {(@hunt_fact && @hunt_fact.state) || "sem fato :hunt"}
+                <span class="ml-2">
+                  cérebro: {if @orders, do: "decidindo", else: "calado"}
+                </span>
               </p>
             </div>
 

@@ -200,4 +200,117 @@ defmodule Pokex.Sim.WorldTest do
 
     assert world.pos == {100, 203, 5}
   end
+
+  defp nest_route do
+    [{100, 200, 5}, {110, 200, 5}]
+    |> route()
+    |> Map.update!(:waypoints, fn wps ->
+      List.update_at(wps, 1, &Map.put(&1, :gather_ms, 2_000))
+    end)
+  end
+
+  defp lone_mob(extra \\ %{}) do
+    World.new(nest_route(),
+      knobs:
+        Map.merge(
+          %{nest_size: 1, nest_radius: 0, aggro_tiles: 99, mob_ms_per_tile: 100, leash_tiles: 99},
+          extra
+        )
+    )
+  end
+
+  defp distance({x1, y1, _z1}, {x2, y2, _z2}), do: max(abs(x1 - x2), abs(y1 - y2))
+
+  test "spawns mobs only around waypoints his hand marked" do
+    world = World.new(nest_route(), knobs: %{nest_size: 3, nest_radius: 2})
+
+    assert length(world.mobs) == 3
+
+    for mob <- world.mobs do
+      {x, y, z} = mob.pos
+      assert abs(x - 110) <= 2
+      assert abs(y - 200) <= 2
+      assert z == 5
+    end
+  end
+
+  test "spawns nothing on a route with no gather or fight marks" do
+    assert World.new(straight()).mobs == []
+  end
+
+  test "a fight mark is a nest too" do
+    nest =
+      [{100, 200, 5}, {110, 200, 5}]
+      |> route()
+      |> Map.update!(:waypoints, fn wps ->
+        List.update_at(wps, 1, &Map.put(&1, :fight_ms, 5_000))
+      end)
+
+    assert length(World.new(nest, knobs: %{nest_size: 2}).mobs) == 2
+  end
+
+  test "the same seed produces the same world" do
+    a = World.new(nest_route(), seed: 7, knobs: %{nest_size: 4, nest_radius: 3})
+    b = World.new(nest_route(), seed: 7, knobs: %{nest_size: 4, nest_radius: 3})
+
+    assert Enum.map(a.mobs, & &1.pos) == Enum.map(b.mobs, & &1.pos)
+  end
+
+  test "different seeds produce different worlds" do
+    a = World.new(nest_route(), seed: 7, knobs: %{nest_size: 4, nest_radius: 3})
+    b = World.new(nest_route(), seed: 99, knobs: %{nest_size: 4, nest_radius: 3})
+
+    refute Enum.map(a.mobs, & &1.pos) == Enum.map(b.mobs, & &1.pos)
+  end
+
+  test "a mob within aggro range walks toward the character" do
+    world = lone_mob()
+    [before] = world.mobs
+    [after_step] = World.step(world, 100).mobs
+
+    assert distance(after_step.pos, world.pos) < distance(before.pos, world.pos)
+  end
+
+  test "a mob outside aggro range stays where it spawned" do
+    world = lone_mob(%{aggro_tiles: 2})
+    [before] = world.mobs
+    [after_step] = World.step(world, 500).mobs
+
+    assert after_step.pos == before.pos
+  end
+
+  test "a mob stops next to the character instead of standing on it" do
+    world = lone_mob()
+    arrived = Enum.reduce(1..40, world, fn _tick, w -> World.step(w, 100) end)
+    [mob] = arrived.mobs
+
+    assert distance(mob.pos, arrived.pos) == 1
+  end
+
+  test "a mob dragged past its leash vanishes" do
+    world = lone_mob(%{leash_tiles: 3})
+    assert length(world.mobs) == 1
+
+    dragged = Enum.reduce(1..40, world, fn _tick, w -> World.step(w, 100) end)
+
+    assert dragged.mobs == []
+  end
+
+  test "a mob still inside its leash is still there" do
+    world = lone_mob(%{leash_tiles: 30})
+
+    kept = Enum.reduce(1..40, world, fn _tick, w -> World.step(w, 100) end)
+
+    assert length(kept.mobs) == 1
+  end
+
+  test "a mob on another floor is not walked at all" do
+    world = lone_mob()
+    [mob] = world.mobs
+    upstairs = %{world | mobs: [%{mob | pos: {110, 200, 6}}]}
+
+    [after_step] = World.step(upstairs, 500).mobs
+
+    assert after_step.pos == {110, 200, 6}
+  end
 end

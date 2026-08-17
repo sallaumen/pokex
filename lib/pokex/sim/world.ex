@@ -47,7 +47,20 @@ defmodule Pokex.Sim.World do
     # invented — nobody has ever measured tiles/s in this game. `cavebot_measure_walk`
     # exists in /config for exactly this and has never been run, so every conclusion
     # about ROUTE TIMING drawn from this simulator is worth what this guess is worth.
-    ms_per_tile: 320
+    ms_per_tile: 320,
+    # invented — how many per nest and how far they wander. The PLACE is not
+    # invented: nests sit on the corners his own hand marked with gather_ms or
+    # fight_ms, which is the only trustworthy spatial data that exists.
+    nest_size: 4,
+    nest_radius: 3,
+    aggro_tiles: 8,
+    # invented — the same unmeasured tiles/s hole as the character's step
+    mob_ms_per_tile: 420,
+    # invented number, HIS rule (R2): "fazer eles andarem muito longe de onde eles
+    # nasceram faz eles sumirem". The ceiling exists here as physics, not policy.
+    leash_tiles: 12,
+    # invented — the route does not record what lives in it
+    mob_name: "Venonat"
   }
 
   @directions %{"right" => {1, 0}, "left" => {-1, 0}, "down" => {0, 1}, "up" => {0, -1}}
@@ -62,6 +75,7 @@ defmodule Pokex.Sim.World do
             own: nil,
             keys: %{},
             clock: 0,
+            next_id: 1,
             rand: nil,
             knobs: %{}
 
@@ -81,7 +95,7 @@ defmodule Pokex.Sim.World do
 
     {stairs, refused} = stairs_of(route)
 
-    %__MODULE__{
+    world = %__MODULE__{
       route: route,
       stairs: stairs,
       unsimulated_stairs: refused,
@@ -89,6 +103,45 @@ defmodule Pokex.Sim.World do
       rand: :rand.seed_s(:exsss, {seed, seed, seed}),
       knobs: knobs
     }
+
+    spawn_nests(world)
+  end
+
+  # Nests sit where HIS HAND stopped: a corner carrying `gather_ms` (he waited
+  # for a pile) or `fight_ms` (he killed something). The recorded route already
+  # IS the map of where the monsters are, and inventing spawn points would throw
+  # away the only trustworthy spatial data in the whole simulator.
+  defp spawn_nests(world) do
+    world.route.waypoints
+    |> Enum.filter(&(&1[:gather_ms] || &1[:fight_ms]))
+    |> Enum.reduce(world, &spawn_nest(&2, &1))
+  end
+
+  defp spawn_nest(world, waypoint) do
+    Enum.reduce(1..world.knobs.nest_size//1, world, fn _mob, acc ->
+      {pos, rand} = scatter({waypoint.x, waypoint.y, waypoint.z}, acc.knobs.nest_radius, acc.rand)
+
+      mob = %{
+        id: acc.next_id,
+        name: acc.knobs.mob_name,
+        pos: pos,
+        hp_pct: 100,
+        spawn: pos,
+        walk_debt_ms: 0
+      }
+
+      %{acc | mobs: acc.mobs ++ [mob], rand: rand, next_id: acc.next_id + 1}
+    end)
+  end
+
+  # Every draw threads the state: the struct owns the luck, so the same seed
+  # replays the same hunt and a test never depends on the global generator.
+  defp scatter({x, y, z}, 0, rand), do: {{x, y, z}, rand}
+
+  defp scatter({x, y, z}, radius, rand) do
+    {dx, rand} = :rand.uniform_s(radius * 2 + 1, rand)
+    {dy, rand} = :rand.uniform_s(radius * 2 + 1, rand)
+    {{x + dx - radius - 1, y + dy - radius - 1, z}, rand}
   end
 
   @doc "Advances the world by `dt_ms`."
@@ -96,6 +149,7 @@ defmodule Pokex.Sim.World do
   def step(world, dt_ms) do
     world
     |> walk(dt_ms)
+    |> move_mobs(dt_ms)
     |> Map.update!(:clock, &(&1 + dt_ms))
   end
 
@@ -192,4 +246,50 @@ defmodule Pokex.Sim.World do
   defp sign(0), do: 0
   defp sign(n) when n > 0, do: 1
   defp sign(_negative), do: -1
+
+  defp move_mobs(world, dt_ms) do
+    mobs =
+      world.mobs
+      |> Enum.map(&walk_mob(&1, world, dt_ms))
+      |> Enum.reject(&leashed?(&1, world.knobs.leash_tiles))
+
+    %{world | mobs: mobs}
+  end
+
+  # R2 as physics, not policy: dragged far enough from where it spawned, the mob
+  # does not stop and does not turn back — it is GONE. That is what puts a
+  # ceiling on greed, and the engine gets to discover it instead of being told.
+  defp leashed?(mob, leash_tiles), do: distance(mob.pos, mob.spawn) > leash_tiles
+
+  defp walk_mob(%{pos: {_x, _y, mz}} = mob, %{pos: {_px, _py, pz}}, _dt_ms) when mz != pz,
+    do: mob
+
+  defp walk_mob(mob, world, dt_ms) do
+    if distance(mob.pos, world.pos) > world.knobs.aggro_tiles do
+      mob
+    else
+      owed = mob.walk_debt_ms + dt_ms
+      per_tile = world.knobs.mob_ms_per_tile
+      tiles = div(owed, per_tile)
+
+      %{mob | pos: chase(mob.pos, world.pos, tiles), walk_debt_ms: rem(owed, per_tile)}
+    end
+  end
+
+  # Stops ADJACENT, never on top: a mob standing on the character would read as
+  # distance zero and quietly break every "is it next to me" question later.
+  defp chase(pos, target, tiles) do
+    Enum.reduce(1..tiles//1, pos, fn _tile, {x, y, z} = current ->
+      if distance(current, target) <= 1 do
+        current
+      else
+        {tx, ty, _tz} = target
+        {x + sign(tx - x), y + sign(ty - y), z}
+      end
+    end)
+  end
+
+  # Chebyshev: the game is a grid WITH diagonals, so {0,0} to {3,3} is three
+  # tiles, not 4.24. Euclidean distance here would make every radius wrong.
+  defp distance({x1, y1, _z1}, {x2, y2, _z2}), do: max(abs(x1 - x2), abs(y1 - y2))
 end

@@ -540,6 +540,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
       # made the FIRST step after recovering read as "não saiu do lugar", and
       # the hunt came back from a revive already declared stuck.
       logic.recovering? -> {hold_patience(logic, now), :none}
+      # The ENGINE asking the road to wait. Same shape and the same reason as
+      # the line above — it is the one deciding to close a round instead of
+      # dragging the pile further ("se você for muito ganancioso (…) faz eles
+      # sumirem"). A hold nobody is refreshing ages out of the fact and the
+      # route walks again on its own.
+      Map.get(world, :route_hold?, false) -> {hold_patience(logic, now), :none}
       true -> follow_route(logic, world, now)
     end
   end
@@ -1133,7 +1139,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       capturing?(world, now, logic.config.capture_wait_ms) -> {logic, :none}
       sweeping?(logic, world, now) -> {logic, :none}
       standing_by?(logic, now) -> {logic, :none}
-      next_stop(logic) -> run_stop(logic, next_stop(logic), now)
+      next_stop(logic) -> run_stop(logic, next_stop(logic), world, now)
       # The stops above still ran — a :cooldown_revive IS the recovery — but
       # the route does not resume until the pokémon is back on its feet: the
       # next leg is the next pile ("continua depois que ele tiver revivido").
@@ -1156,17 +1162,32 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   # The sweep is centred where the corpses ARE: after a gathered fight they lie
   # around the tile the pokémon was parked on, several tiles from him.
-  defp run_stop(logic, :sweep, now) do
+  defp run_stop(logic, :sweep, _world, now) do
     {mark_done(logic, :sweep, :sweep, now), {:sweep, park_spot(logic)}}
   end
 
   # Reviving resets every cooldown: the fastest way back to a full bar is to
   # recall the pokémon and bring it back, not to stand still waiting.
-  defp run_stop(logic, :cooldown_revive, now) do
-    {mark_done(logic, :cooldown_revive, nil, now), :cooldown_revive}
+  #
+  # But the MARK is a hint, not an order. He recorded it in a moment where it
+  # made sense — hurt, and with the bar spent — and the bot repeated it every
+  # lap regardless: "às vezes você reseta os cooldowns quando não precisa, que o
+  # meu pokémon tá cheio de vida lá e cheio de cooldown também. Você reseta só
+  # porque é um local da rota que parece que faz sentido" (2026-08-17). So the
+  # corner still ASKS, and the engine's reading of the moment answers.
+  #
+  # It is marked done either way: a reset refused is a decision that was made,
+  # and re-asking it every tick at the same corner is the loop this replaces.
+  defp run_stop(logic, :cooldown_revive, world, now) do
+    done = mark_done(logic, :cooldown_revive, nil, now)
+
+    case Map.get(world, :reset_worth?, :unknown) do
+      false -> {done, {:skip_reset, Map.get(world, :reset_note)}}
+      _worth_it_or_unknown -> {done, :cooldown_revive}
+    end
   end
 
-  defp run_stop(logic, :wait, now) do
+  defp run_stop(logic, :wait, _world, now) do
     {mark_done(logic, :wait, :stop_wait, now), :none}
   end
 

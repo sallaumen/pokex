@@ -313,4 +313,260 @@ defmodule Pokex.Sim.WorldTest do
 
     assert after_step.pos == {110, 200, 6}
   end
+
+  defp loadout do
+    %Pokex.Bots.Combat.Loadout{
+      name: "Vileplume",
+      aoe: ["3", "4"],
+      single: ["6"],
+      buffs: ["2"],
+      heal: [],
+      crowd: ["1"]
+    }
+  end
+
+  defp armed(knobs \\ %{}) do
+    World.new(nest_route(),
+      loadout: loadout(),
+      knobs: Map.merge(%{nest_size: 3, nest_radius: 1, battle_radius: 99}, knobs)
+    )
+  end
+
+  test "every skill starts ready" do
+    assert World.observe(armed(), :skill_bar) == %{ready_keys: ["1", "2", "3", "4", "6"]}
+  end
+
+  test "pressing a skill puts that key on cooldown and leaves the rest ready" do
+    world = World.press(armed(), {:press, "3"})
+    ready = World.observe(world, :skill_bar).ready_keys
+
+    refute "3" in ready
+    assert "4" in ready
+  end
+
+  test "a skill comes back after its cooldown" do
+    world =
+      armed(%{skill_cooldown_ms: 1_000})
+      |> World.press({:press, "3"})
+      |> World.step(1_000)
+
+    assert "3" in World.observe(world, :skill_bar).ready_keys
+  end
+
+  test "a key still on cooldown fires nothing" do
+    world = armed(%{skill_cooldown_ms: 9_999, aoe_damage: 10})
+
+    once = World.press(world, {:press, "3"})
+    twice = World.press(once, {:press, "3"})
+
+    assert Enum.map(once.mobs, & &1.hp_pct) == Enum.map(twice.mobs, & &1.hp_pct)
+  end
+
+  test "an area skill damages every mob in range" do
+    hit = World.press(armed(%{aoe_radius: 99}), {:press, "3"})
+
+    assert Enum.all?(hit.mobs, &(&1.hp_pct < 100))
+  end
+
+  test "an area skill spares mobs outside its radius" do
+    hit = World.press(armed(%{aoe_radius: 0}), {:press, "3"})
+
+    assert Enum.all?(hit.mobs, &(&1.hp_pct == 100))
+  end
+
+  test "an area skill kills the mobs it finishes" do
+    assert World.press(armed(%{aoe_radius: 99, aoe_damage: 100}), {:press, "3"}).mobs == []
+  end
+
+  test "press_many fires each key it names" do
+    world = World.press(armed(), {:press_many, ["3", "4"], []})
+    ready = World.observe(world, :skill_bar).ready_keys
+
+    refute "3" in ready
+    refute "4" in ready
+  end
+
+  test "battle rows are the mobs inside the battle radius" do
+    battle = World.observe(armed(%{battle_radius: 99}), :battle)
+
+    assert battle.enemies == [0, 1, 2]
+    assert length(battle.enemies_detail) == 3
+  end
+
+  test "a mob outside the battle radius is not on the list" do
+    assert World.observe(armed(%{battle_radius: 0}), :battle).enemies == []
+  end
+
+  test "battle detail reports health as a fraction, like the real reader" do
+    world = armed(%{battle_radius: 99, aoe_radius: 99, aoe_damage: 50})
+    [row | _rest] = World.observe(World.press(world, {:press, "3"}), :battle).enemies_detail
+
+    assert row.hp_pct == 0.5
+    assert row.shiny? == false
+  end
+
+  test "own_row? puts his pokemon on the list under its own name" do
+    battle = World.observe(armed(%{own_row?: true}), :battle)
+
+    assert length(battle.enemies) == 4
+    assert Enum.any?(battle.enemies_detail, &(&1.name == "Vileplume"))
+  end
+
+  test "own_row? off leaves only enemies on the list" do
+    battle = World.observe(armed(%{own_row?: false}), :battle)
+
+    assert length(battle.enemies) == 3
+    refute Enum.any?(battle.enemies_detail, &(&1.name == "Vileplume"))
+  end
+
+  test "the minimap fact carries the position" do
+    world = armed()
+
+    assert World.observe(world, :minimap) == %{pos: world.pos}
+  end
+
+  test "the pokemon fact carries readable health" do
+    assert World.observe(armed(), :pokemon) == %{hp_pct: 100, readable?: true}
+  end
+
+  test "the mini game fact is published as not playing" do
+    assert World.observe(armed(), :mini_game) == %{playing?: false, confidence: 0.0}
+  end
+
+  test "an unreadable screen answers nil enemies rather than zero" do
+    world = armed(%{readable?: false})
+    battle = World.observe(world, :battle)
+
+    assert battle.enemies == nil
+    assert battle.enemies_detail == []
+    assert World.observe(world, :pokemon) == %{hp_pct: nil, readable?: false}
+  end
+
+  test "an adjacent mob bites the pokemon" do
+    world =
+      armed(%{
+        nest_size: 1,
+        nest_radius: 0,
+        aggro_tiles: 99,
+        mob_ms_per_tile: 50,
+        leash_tiles: 99,
+        bite_dmg: 5,
+        bite_every_ms: 100
+      })
+
+    bitten = Enum.reduce(1..20, world, fn _tick, w -> World.step(w, 50) end)
+
+    assert bitten.own.hp_pct < 100
+  end
+
+  test "a mob too far away does not bite" do
+    world =
+      armed(%{nest_size: 1, nest_radius: 0, aggro_tiles: 0, bite_dmg: 5, bite_every_ms: 100})
+
+    assert Enum.reduce(1..20, world, fn _t, w -> World.step(w, 50) end).own.hp_pct == 100
+  end
+
+  test "the pokemon falls when its health runs out" do
+    world =
+      armed(%{
+        nest_size: 1,
+        nest_radius: 0,
+        aggro_tiles: 99,
+        mob_ms_per_tile: 50,
+        leash_tiles: 99,
+        bite_dmg: 20,
+        bite_every_ms: 100
+      })
+
+    fallen = Enum.reduce(1..60, world, fn _tick, w -> World.step(w, 50) end)
+
+    refute fallen.own.alive?
+    refute fallen.own.out?
+    assert World.observe(fallen, :pokemon) == %{hp_pct: nil, readable?: true}
+  end
+
+  test "the battle fact it publishes is one the real Situation can count" do
+    world = armed(%{battle_radius: 99})
+
+    picture =
+      Pokex.Bots.Engine.Situation.build(
+        %{
+          battle: World.observe(world, :battle),
+          own_hp: World.observe(world, :pokemon).hp_pct,
+          own_out?: true,
+          own_name: "Vileplume",
+          ready_keys: World.observe(world, :skill_bar).ready_keys,
+          damage_keys: ["3", "4", "6"]
+        },
+        %{engage_from: 3},
+        1_000
+      )
+
+    assert picture.enemies == 3
+    assert picture.worth_fighting?
+    refute picture.blind?
+    assert picture.own_row_seen? == false
+  end
+
+  test "own_row? on is discounted by the real Situation instead of inflating the count" do
+    world = armed(%{battle_radius: 99, own_row?: true})
+
+    picture =
+      Pokex.Bots.Engine.Situation.build(
+        %{
+          battle: World.observe(world, :battle),
+          own_hp: 100,
+          own_out?: true,
+          own_name: "Vileplume",
+          ready_keys: [],
+          damage_keys: []
+        },
+        %{engage_from: 3},
+        1_000
+      )
+
+    assert picture.rows == 4
+    assert picture.enemies == 3
+    assert picture.own_row_seen?
+  end
+
+  test "an unreadable screen makes the real Situation say blind, not empty" do
+    world = armed(%{readable?: false})
+
+    picture =
+      Pokex.Bots.Engine.Situation.build(
+        %{
+          battle: nil,
+          own_hp: nil,
+          own_out?: true,
+          own_name: "Vileplume",
+          ready_keys: nil,
+          damage_keys: []
+        },
+        %{engage_from: 3},
+        1_000
+      )
+
+    assert World.observe(world, :battle).enemies == nil
+    assert picture.enemies == nil
+    assert picture.blind?
+    refute picture.worth_fighting?
+  end
+
+  test "a fallen pokemon stops being bitten" do
+    world =
+      armed(%{
+        nest_size: 1,
+        nest_radius: 0,
+        aggro_tiles: 99,
+        mob_ms_per_tile: 50,
+        leash_tiles: 99,
+        bite_dmg: 20,
+        bite_every_ms: 100
+      })
+
+    fallen = Enum.reduce(1..60, world, fn _tick, w -> World.step(w, 50) end)
+
+    assert fallen.own.hp_pct == 0
+  end
 end

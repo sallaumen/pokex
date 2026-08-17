@@ -39,6 +39,7 @@ defmodule Pokex.Sim.Fence do
   require Logger
 
   alias Pokex.Bots.BotSupervisor
+  alias Pokex.Bots.InputGate
 
   @pt {__MODULE__, :arm_state}
   @arm_timeout_ms 15_000
@@ -126,14 +127,31 @@ defmodule Pokex.Sim.Fence do
   defp do_arm(state) do
     case running(state) do
       [] ->
-        saved = Map.new(@swaps, fn {key, _to} -> {key, Application.get_env(:pokex, key)} end)
-        :persistent_term.put(@pt, saved)
+        env = Map.new(@swaps, fn {key, _to} -> {key, Application.get_env(:pokex, key)} end)
+        gate = Map.take(InputGate.state(), [:corner_ok, :focus_ok])
+        :persistent_term.put(@pt, %{env: env, gate: gate})
+
         Enum.each(@swaps, fn {key, to} -> Application.put_env(:pokex, key, to) end)
+        open_gate()
         :ok
 
       names ->
         {:error, names}
     end
+  end
+
+  # `Body.hold/1` refuses unless `InputGate.allowed?()`, which is
+  # `corner_ok and focus_ok` and FAILS CLOSED — a missing key reads as false. Both
+  # flags are written only by `Focus` and `Guardian`, the two this fence just
+  # halted, so with the game window not in front the character would never take a
+  # step and nothing would say why. The simulator would be born dead, and mute.
+  #
+  # Opened only AFTER the fake hands are installed: a gate opened first would be a
+  # window in which the real rig still answers. The panic latch is untouched —
+  # that brake is his, not mine.
+  defp open_gate do
+    InputGate.set_corner_ok(true)
+    InputGate.set_focus_ok(true)
   end
 
   defp running(state) do
@@ -148,9 +166,20 @@ defmodule Pokex.Sim.Fence do
   # make impossible. The flag falls LAST, so it guards through the whole restore.
   defp restore(state, saved, reason) do
     state.stop_all.(reason)
-    Enum.each(saved, &put_env/1)
+    close_gate(saved[:gate])
+    Enum.each(saved[:env] || %{}, &put_env/1)
     :persistent_term.erase(@pt)
     :ok
+  end
+
+  # Mirror of `open_gate/0`: the gate goes back to what it was BEFORE the real
+  # hands return, so there is never a moment where the real rig answers through
+  # a door this fence propped open.
+  defp close_gate(nil), do: :ok
+
+  defp close_gate(gate) do
+    InputGate.set_corner_ok(Map.get(gate, :corner_ok, false))
+    InputGate.set_focus_ok(Map.get(gate, :focus_ok, false))
   end
 
   defp put_env({key, nil}), do: Application.delete_env(:pokex, key)

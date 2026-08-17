@@ -7,11 +7,14 @@ defmodule Pokex.Sim.FenceTest do
 
   setup do
     saved = Map.new(@env_keys, fn key -> {key, Application.get_env(:pokex, key)} end)
+    gate = Pokex.Bots.InputGate.state()
     test = self()
 
     on_exit(fn ->
       :persistent_term.erase({Fence, :arm_state})
       Enum.each(saved, &put_env/1)
+      Pokex.Bots.InputGate.set_corner_ok(gate.corner_ok)
+      Pokex.Bots.InputGate.set_focus_ok(gate.focus_ok)
     end)
 
     stop_all = fn reason ->
@@ -125,6 +128,36 @@ defmodule Pokex.Sim.FenceTest do
     assert Fence.disarm(fence) == :ok
     refute_receive {:stopped, _reason, _rig}
     assert Application.get_env(:pokex, :rig) == ctx.original
+  end
+
+  test "arming opens the actuation gate so the body can walk", ctx do
+    fence = start_fence(ctx)
+    Pokex.Bots.InputGate.set_focus_ok(false)
+
+    assert Fence.arm(fence) == :ok
+
+    assert Pokex.Bots.InputGate.allowed?()
+  end
+
+  test "disarming gives the gate back the way it was", ctx do
+    fence = start_fence(ctx)
+    Pokex.Bots.InputGate.set_focus_ok(false)
+    Pokex.Bots.InputGate.set_corner_ok(true)
+
+    assert Fence.arm(fence) == :ok
+    assert Fence.disarm(fence) == :ok
+
+    refute Pokex.Bots.InputGate.state().focus_ok
+    assert Pokex.Bots.InputGate.state().corner_ok
+  end
+
+  test "arming never touches the panic latch", ctx do
+    fence = start_fence(ctx)
+    latched = Pokex.Bots.InputGate.panic_latched?()
+
+    assert Fence.arm(fence) == :ok
+
+    assert Pokex.Bots.InputGate.panic_latched?() == latched
   end
 
   @tag :capture_log

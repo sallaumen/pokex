@@ -351,7 +351,15 @@ O `stun` foi tirado desta PR de propósito: Combat apertando a tecla reservada e
 
 Então o desenho mudou: a engine decide só o QUANDO (`revive: :now`), nunca o COMO — o combo velho de `PlayerSupport` continua sendo o único a apertar a tecla reservada, sem mudança nenhuma nele. `orders.stun`, o fato `:stun`, `asleep?`/`asleep_until` em `Situation`, e todo o encanamento de `reserved` no `Combat.Worker` — nada disso chegou a ser usado de verdade (o `Combat` nunca aperta a tecla reservada em rotina nenhuma) e foi removido na mesma PR que ligou o Suporte.
 
-**PR 7 — Limpeza.** A tabela da seção 13, a tela de sombra sai, e o `cavebot_live.ex` fecha o ciclo menor do que começou.
+**PR 7 — Limpeza. ADIADA (2026-08-17), com uma condição escrita.**
+
+Fui abrir esta PR — remover `:posture`, `Cavebot.Logic.gathering?/recovering?`, `PlayerSupport.Logic.decide/1` como a tabela da seção 13 manda — e travei antes do primeiro commit. Essas funções não são código morto: são o **piso de segurança** da Tabela de Degradação (seção 8), a linha que autoriza o caminho 2 inteiro — **"engine morta = o bot de hoje"**.
+
+Hoje `Combat.Worker.posture/0` tem DUAS camadas de queda: engine → fato `:posture` (a lógica antiga, ainda esperta) → só se isso também sumir, fogo livre cego. A tabela da seção 13, seguida ao pé da letra, apaga a camada do meio — vira engine viva ou bot cego, sem meio-termo. A mesma coisa vale para `PlayerSupport.Logic.decide/1`: é o piso que a Tabela de Degradação promete ("escada de HP de hoje") quando `orders.revive` está velho ou ausente.
+
+Apagar esse piso justo agora seria trocar velocidade por risco na pior hora: `orders.revive` foi mergeado nesta mesma sessão (#309) e **ainda não tem uma noite de campo validando** que a engine decide bem sozinha, e o bug das skills que não saem (17/08) continua aberto — o sistema já não está 100% confiável, e não é quando se tira a rede debaixo dele.
+
+**A condição pra reabrir:** algumas noites reais (a começar por uma inteira, sem parada manual) confirmando que a engine decide bem sozinha em `fire`/`route`/`revive` — e só então a tabela da seção 13 sai como estava planejada. Até lá, a tela de sombra e o `cavebot_live.ex` continuam como estão; não há razão de segurança pra tocar neles antes.
 
 ---
 

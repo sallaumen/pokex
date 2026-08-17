@@ -60,7 +60,25 @@ defmodule Pokex.Sim.World do
     # nasceram faz eles sumirem". The ceiling exists here as physics, not policy.
     leash_tiles: 12,
     # invented — the route does not record what lives in it
-    mob_name: "Venonat"
+    mob_name: "Venonat",
+    # inherited — the real cooldowns live in team.json; this is the fallback for a
+    # loadout that does not name one
+    skill_cooldown_ms: 8_000,
+    # invented — sliders on the screen
+    aoe_damage: 34,
+    aoe_radius: 4,
+    single_damage: 22,
+    battle_radius: 7,
+    bite_dmg: 4,
+    bite_every_ms: 900,
+    # HIS open measurement, not a knob I get to settle: interpret.ex:44 records a
+    # live reading saying his pokemon does NOT take a row; he says it always does.
+    # The difference is 1, and 1 is the distance between attacking a pile and
+    # walking away from it — so the world can do both and the screen compares.
+    own_row?: false,
+    # the world can go blind on purpose; INJECTING blindness is phase 2, being
+    # ABLE to is phase 1, because nil and [] are opposite facts
+    readable?: true
   }
 
   @directions %{"right" => {1, 0}, "left" => {-1, 0}, "down" => {0, 1}, "up" => {0, -1}}
@@ -95,16 +113,37 @@ defmodule Pokex.Sim.World do
 
     {stairs, refused} = stairs_of(route)
 
+    loadout = Keyword.get(opts, :loadout)
+
     world = %__MODULE__{
       route: route,
       stairs: stairs,
       unsimulated_stairs: refused,
       pos: {start.x, start.y, start.z},
+      own: %{name: loadout && loadout.name, hp_pct: 100, out?: true, alive?: true},
+      keys: keys_of(loadout),
       rand: :rand.seed_s(:exsss, {seed, seed, seed}),
       knobs: knobs
     }
 
     spawn_nests(world)
+  end
+
+  # What each key DOES comes from his real team.json, through the same Loadout
+  # the Combat worker reads. Only the damage numbers are mine.
+  defp keys_of(nil), do: %{}
+
+  defp keys_of(loadout) do
+    for {kind, keys} <- [
+          aoe: loadout.aoe,
+          single: loadout.single,
+          buffs: loadout.buffs,
+          heal: loadout.heal,
+          crowd: loadout.crowd
+        ],
+        key <- keys,
+        into: %{},
+        do: {key, %{kind: kind, ready_at: 0}}
   end
 
   # Nests sit where HIS HAND stopped: a corner carrying `gather_ms` (he waited
@@ -127,7 +166,8 @@ defmodule Pokex.Sim.World do
         pos: pos,
         hp_pct: 100,
         spawn: pos,
-        walk_debt_ms: 0
+        walk_debt_ms: 0,
+        bite_debt_ms: 0
       }
 
       %{acc | mobs: acc.mobs ++ [mob], rand: rand, next_id: acc.next_id + 1}
@@ -150,6 +190,7 @@ defmodule Pokex.Sim.World do
     world
     |> walk(dt_ms)
     |> move_mobs(dt_ms)
+    |> bite(dt_ms)
     |> Map.update!(:clock, &(&1 + dt_ms))
   end
 
@@ -165,7 +206,130 @@ defmodule Pokex.Sim.World do
 
   def press(world, {:key_up, key}), do: %{world | held: world.held -- [key]}
 
-  def press(world, _not_a_direction), do: world
+  def press(world, {:press, key}), do: fire(world, key)
+  def press(world, {:tap, key}), do: fire(world, key)
+
+  def press(world, {:press_many, keys, _opts}),
+    do: Enum.reduce(keys, world, &fire(&2, &1))
+
+  def press(world, _nothing_the_world_models), do: world
+
+  # A key on cooldown fires NOTHING — that is the closed loop the whole
+  # simulator is worth: the press changes the bar, the bar is what the Combat
+  # worker's SkillReceipt confirms against, and a receipt that never arrives is
+  # exactly the bug open in the real game today.
+  defp fire(world, key) do
+    case world.keys[key] do
+      nil -> world
+      %{ready_at: at} when at > world.clock -> world
+      skill -> world |> damage(skill.kind) |> spend(key)
+    end
+  end
+
+  defp spend(world, key) do
+    ready_at = world.clock + world.knobs.skill_cooldown_ms
+    %{world | keys: put_in(world.keys, [key, :ready_at], ready_at)}
+  end
+
+  defp damage(world, :aoe), do: hit(world, world.knobs.aoe_radius, world.knobs.aoe_damage)
+  defp damage(world, :single), do: hit(world, 1, world.knobs.single_damage)
+  defp damage(world, _no_damage), do: world
+
+  defp hit(world, radius, amount) do
+    mobs =
+      world.mobs
+      |> Enum.map(fn mob ->
+        if in_reach?(mob, world.pos, radius),
+          do: %{mob | hp_pct: mob.hp_pct - amount},
+          else: mob
+      end)
+      |> Enum.reject(&(&1.hp_pct <= 0))
+
+    %{world | mobs: mobs}
+  end
+
+  defp in_reach?(%{pos: {_x, _y, mz}}, {_px, _py, pz}, _radius) when mz != pz, do: false
+  defp in_reach?(mob, pos, radius), do: distance(mob.pos, pos) <= radius
+
+  @doc """
+  What a feed would have read, in the shape the real interpreter produces.
+
+  The shapes are checked against `perception/interpret.ex:78-90` and `:129`, and
+  they are a CONTRACT: if the game ever changes shape the simulator has to break
+  along with it, rather than keep answering confidently in a format nobody reads
+  any more.
+
+  Two subtleties carry most of the bugs:
+
+    * `enemies` is a list of ROW INDICES, not creatures — `Situation.read_battle`
+      counts it with `length/1`. Publishing names there would work by accident
+      and lie on the first change.
+    * `nil` is a legal answer. An unreadable screen is not an empty one:
+      `enemies: nil` and `enemies: []` are opposite facts, and the consumer's
+      fail-open rule is what tells them apart.
+  """
+  @spec observe(t, atom) :: map
+  def observe(%{knobs: %{readable?: false}}, :battle), do: blind_battle()
+
+  def observe(world, :battle) do
+    rows = own_row(world) ++ visible(world)
+
+    %{
+      enemies: Enum.to_list(0..(length(rows) - 1)//1),
+      enemies_detail: Enum.with_index(rows, fn row, index -> Map.put(row, :row, index) end),
+      red: nil,
+      hp: [],
+      locked?: false,
+      locked_row: nil,
+      shiny_rows: [],
+      shiny_star_run: 0
+    }
+  end
+
+  def observe(%{knobs: %{readable?: false}}, :pokemon), do: %{hp_pct: nil, readable?: false}
+  def observe(%{own: %{out?: false}}, :pokemon), do: %{hp_pct: nil, readable?: true}
+  def observe(world, :pokemon), do: %{hp_pct: world.own.hp_pct, readable?: true}
+
+  def observe(world, :skill_bar), do: %{ready_keys: ready_keys(world)}
+
+  def observe(world, :minimap), do: %{pos: world.pos}
+
+  def observe(_world, :mini_game), do: %{playing?: false, confidence: 0.0}
+
+  defp blind_battle do
+    %{
+      enemies: nil,
+      enemies_detail: [],
+      red: nil,
+      hp: [],
+      locked?: false,
+      locked_row: nil,
+      shiny_rows: [],
+      shiny_star_run: 0
+    }
+  end
+
+  # He says his pokemon is always the first row; interpret.ex:44 recorded a
+  # reading saying it is not there at all. The world does not settle that — it
+  # makes it a switch, so the same hunt can be run both ways and the difference
+  # measured instead of argued.
+  defp own_row(%{knobs: %{own_row?: true}, own: %{out?: true} = own}),
+    do: [%{name: own.name, hp_pct: own.hp_pct / 100, shiny?: false}]
+
+  defp own_row(_off_or_down), do: []
+
+  defp visible(world) do
+    world.mobs
+    |> Enum.filter(&in_reach?(&1, world.pos, world.knobs.battle_radius))
+    |> Enum.map(&%{name: &1.name, hp_pct: &1.hp_pct / 100, shiny?: false})
+  end
+
+  defp ready_keys(world) do
+    world.keys
+    |> Enum.filter(fn {_key, skill} -> skill.ready_at <= world.clock end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort()
+  end
 
   defp walk(%{held: []} = world, _dt_ms), do: world
 
@@ -292,4 +456,31 @@ defmodule Pokex.Sim.World do
   # Chebyshev: the game is a grid WITH diagonals, so {0,0} to {3,3} is three
   # tiles, not 4.24. Euclidean distance here would make every radius wrong.
   defp distance({x1, y1, _z1}, {x2, y2, _z2}), do: max(abs(x1 - x2), abs(y1 - y2))
+
+  # A pokemon already down is not bitten again: the window changes shape when it
+  # falls, and health that kept dropping past zero would be a number nobody could
+  # read on any screen.
+  defp bite(%{own: %{out?: false}} = world, _dt_ms), do: world
+
+  defp bite(world, dt_ms) do
+    {mobs, bites} =
+      Enum.map_reduce(world.mobs, 0, fn mob, taken ->
+        if in_reach?(mob, world.pos, 1) do
+          owed = mob.bite_debt_ms + dt_ms
+          per_bite = world.knobs.bite_every_ms
+          {%{mob | bite_debt_ms: rem(owed, per_bite)}, taken + div(owed, per_bite)}
+        else
+          {%{mob | bite_debt_ms: 0}, taken}
+        end
+      end)
+
+    %{world | mobs: mobs, own: hurt(world.own, bites * world.knobs.bite_dmg)}
+  end
+
+  defp hurt(own, 0), do: own
+
+  defp hurt(own, amount) do
+    hp = max(own.hp_pct - amount, 0)
+    %{own | hp_pct: hp, alive?: hp > 0, out?: hp > 0}
+  end
 end

@@ -75,7 +75,8 @@ A ordem é copiada do caminho de pânico do AGENTS.md — *"o latch é erguido A
 2. `Application.put_env(:pokex, :perception_feeds_active, false)`.
 3. `Application.put_env(:pokex, :journal_persist, false)` — uma simulação não suja o journal que ele lê de manhã. O anel em memória continua, então o feed ao vivo funciona igual.
 4. Halta `Guardian` e o vigia de foco: são sensores apontados para uma tela que não é a simulação.
-5. **E só então** sobe o `Sim.Runner` e a frota.
+5. **E abre a porta de atuação.** `Body.hold/1` (`body.ex:228`) consulta `InputGate.allowed?()`, que é `corner_ok and focus_ok` e **falha fechado** — `InputGate.flag/1` devolve `false` para chave ausente (`input_gate.ex:110`). Essas duas flags só são escritas pelo `Focus` (`focus.ex:86,106,132,145,250`) e pelo `Guardian` (`guardian.ex:164`), que acabaram de ser haltados no passo anterior. Com ele olhando o navegador, `focus_ok` está `false`, o `Body` recusa com `:input_gate_closed`, e **o personagem nunca sai do lugar** — o simulador nasceria morto, e mudo. Então armar força as duas para `true`, **depois** das mãos falsas e nunca antes, e desarmar restaura o que havia. Seguro por construção: porta aberta com o rig falso instalado entrega as teclas ao simulador, não ao jogo. *(Descoberto ao desenhar a PR 2; implementado na PR 3.)*
+6. **E só então** sobe o `Sim.Runner` e a frota.
 
 ### Desarmar
 

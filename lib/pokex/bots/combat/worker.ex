@@ -86,10 +86,6 @@ defmodule Pokex.Bots.Combat.Worker do
        # the ONE in-flight key burst (nil when none): a new burst is SKIPPED while the previous
        # is still landing, instead of piling concurrent osascripts onto System Events
        burst_pid: nil,
-       # when the engine's stun was last honoured: its order keeps saying `:now`
-       # for as long as it is in that step, and the reserved key must be pressed
-       # ONCE per window, not once per frame
-       stun_asked_at: nil,
        # last dispatched burst as %{text, at} (monotonic ms; nil until the first) — panel-facing
        last_action: nil,
        # false only while a RETRY is being dispatched: its own miss must not
@@ -257,7 +253,7 @@ defmodule Pokex.Bots.Combat.Worker do
 
   defp step(state, obs) do
     {posture, combo, orders} = posture()
-    state = state |> obey_stun() |> open_with_combo(state.logic.posture, posture, combo, orders)
+    state = open_with_combo(state, state.logic.posture, posture, combo, orders)
 
     logic =
       state.logic
@@ -365,42 +361,6 @@ defmodule Pokex.Bots.Combat.Worker do
   # not silently erase the combo he recorded at this kill spot.
   defp opening_or([], recorded), do: recorded
   defp opening_or(opening, _recorded), do: opening
-
-  # THE ONE CONTROL SKILL AN ORDINARY FIGHT MAY PRESS — and only because the
-  # engine asked, at the moment it asked. `Strategy.reserved/1` exists to keep
-  # the stun out of every rotation precisely so it is still up when the revive
-  # needs it; this is that revive asking for it.
-  #
-  # The receipt is the whole point: the sleep is assumed on a CLOCK, and a clock
-  # that starts on a key that never fired is a lie the engine would then build
-  # a revive on. So the fact is published only once the skill bar proves the
-  # cooldown started.
-  defp obey_stun(state) do
-    with {:ok, %{stun: :now}} <-
-           WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now()),
-         [key | _] <- Strategy.reserved(state.loadout),
-         false <- stun_pending?(state) do
-      Phoenix.PubSub.broadcast(
-        Pokex.PubSub,
-        @topic,
-        {:combat_log, :macro, "combate: 😴 stun a pedido da engine: #{key}"}
-      )
-
-      state
-      |> Map.put(:stun_asked_at, now())
-      |> dispatch([{:press, key}])
-    else
-      _no_stun_wanted -> state
-    end
-  end
-
-  # One press per request, not one per frame: the orders keep saying `:now` for
-  # as long as the engine is in that step, and a stun mashed every 120ms would
-  # spend the whole bar on the one skill the revive depends on.
-  defp stun_pending?(%{stun_asked_at: at}) when is_integer(at),
-    do: now() - at < Settings.get(:engine_stun_sleep_ms)
-
-  defp stun_pending?(_never_asked), do: false
 
   defp combo_of(fact), do: Map.get(fact, :combo) || []
 

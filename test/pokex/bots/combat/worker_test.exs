@@ -526,36 +526,23 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       assert eventually(fn -> Settings.get(:tab_key) in presses() end)
     end
 
-    # `Strategy.reserved/1` keeps the control skill out of every rotation
-    # exactly so it is still up when the revive needs it. This is that revive
-    # asking — the one authorised exception, and only at the moment it asks.
+    # The stun stays RESERVED for now. Combat obeying `stun: :now` and the
+    # support obeying `revive: :now` are two halves of one mechanism, and
+    # shipping the first alone is the failure that already killed him once: the
+    # engine spends the control key, the support's own revive arrives seconds
+    # later on its HP ladder, finds it cooling, and recalls the pokémon into a
+    # crowd that is wide awake. They land together or not at all.
     @tag :tmp_dir
-    test "presses the reserved control skill when the engine asks for the stun", %{worker: worker} do
+    test "an ordinary fight still never spends the control skill", %{worker: worker} do
       with_vespiquen(worker)
 
-      orders!(%{fire: :hold, stun: :now})
+      orders!(%{fire: :free, stun: :now})
       world!(worker, battle_obs(enemies: [0, 1, 2]))
 
-      assert eventually(fn -> "1" in presses() end)
-    end
-
-    # The order keeps saying `:now` for as long as the engine is in that step,
-    # and a stun mashed every frame would spend the whole window on the one
-    # skill the revive depends on.
-    @tag :tmp_dir
-    test "asks for the stun once per window, not once per frame", %{worker: worker} do
-      with_vespiquen(worker)
-
-      orders!(%{fire: :hold, stun: :now})
-      world!(worker, battle_obs(enemies: [0, 1, 2]))
-      assert eventually(fn -> "1" in presses() end)
-
-      once = Enum.count(presses(), &(&1 == "1"))
-      world!(worker, battle_obs(enemies: [0, 1, 2]))
-      world!(worker, battle_obs(enemies: [0, 1, 2]))
-      Process.sleep(150)
-
-      assert Enum.count(presses(), &(&1 == "1")) == once
+      # Tab proves combat is awake and acting on the freed fire…
+      assert eventually(fn -> Settings.get(:tab_key) in presses() end)
+      # …and the control key stayed in its holster anyway.
+      refute "1" in presses()
     end
   end
 

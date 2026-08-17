@@ -37,6 +37,7 @@ defmodule Pokex.Sim.Runner do
 
   require Logger
 
+  alias Pokex.Bots.Cavebot.Route
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
   alias Pokex.Sim.World
@@ -76,9 +77,22 @@ defmodule Pokex.Sim.Runner do
     end
   end
 
-  @doc "Replaces the world with a fresh one on `route`."
-  @spec load(GenServer.server(), Pokex.Bots.Cavebot.Route.t(), keyword) :: :ok
-  def load(server \\ __MODULE__, route, opts \\ []),
+  @doc """
+  Replaces the world with a fresh one on `route`.
+
+  Two arities and no default on the server, deliberately. Written as
+  `load(server \\\\ __MODULE__, route, opts \\\\ [])` it compiles, and then a
+  two-argument call binds the ROUTE to `server` — which reaches
+  `GenServer.whereis/1` as a struct and takes the caller down. Defaults on both
+  sides of a required argument are a trap, not a convenience; this one cost a
+  crashed LiveView on the first click.
+  """
+  @spec load(Route.t(), keyword) :: :ok
+  def load(route, opts) when is_struct(route, Route),
+    do: GenServer.call(__MODULE__, {:load, route, opts})
+
+  @spec load(GenServer.server(), Route.t(), keyword) :: :ok
+  def load(server, route, opts) when is_struct(route, Route),
     do: GenServer.call(server, {:load, route, opts})
 
   @spec play(GenServer.server()) :: :ok
@@ -177,7 +191,36 @@ defmodule Pokex.Sim.Runner do
         end
       end)
 
+    publish_hunt(state.world, now)
     %{state | published: published}
+  end
+
+  # The engine answers "sem caçada rodando" to a missing `:hunt` and decides
+  # nothing — correct in the real game (no cavebot, nothing to decide about) and
+  # useless here, where the simulation IS the hunt. So the runner publishes the
+  # fact the cavebot publishes (`cavebot/worker.ex:414`), in its shape: standing
+  # on a nest is `:fighting`, which is what makes the ruler run; walking between
+  # them is `:walking`.
+  #
+  # It says `luring?: false` on purpose. The gathering leg is a cavebot decision
+  # about a recorded route, and claiming it here would put words in its mouth.
+  defp publish_hunt(world, now) do
+    WorldState.put(
+      :hunt,
+      %{
+        state: if(on_nest?(world), do: :fighting, else: :walking),
+        luring?: false,
+        gathering?: false,
+        wp_index: 0,
+        waypoints: length(world.route.waypoints),
+        recovering?: false
+      },
+      now
+    )
+  end
+
+  defp on_nest?(world) do
+    Enum.any?(world.mobs, fn mob -> World.reachable?(mob, world) end)
   end
 
   defp due?(published, key, now, every_ms) do

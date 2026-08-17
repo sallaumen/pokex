@@ -328,6 +328,16 @@ defmodule Pokex.Sim.World do
 
   defp own_row(_off_or_down), do: []
 
+  @doc """
+  Is this mob inside the battle list's radius, on the same floor?
+
+  Public because the runner needs the same answer to say whether the character
+  is standing in a fight, and two implementations of "is it on screen" is
+  exactly the split this project has been closing.
+  """
+  @spec reachable?(map, t) :: boolean
+  def reachable?(mob, world), do: in_reach?(mob, world.pos, world.knobs.battle_radius)
+
   defp visible(world) do
     world.mobs
     |> Enum.filter(&in_reach?(&1, world.pos, world.knobs.battle_radius))

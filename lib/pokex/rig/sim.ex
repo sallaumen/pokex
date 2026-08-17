@@ -25,7 +25,6 @@ defmodule Pokex.Rig.Sim do
   """
   @behaviour Pokex.Rig
 
-  @runner Pokex.Sim.Runner
   @cursor {640, 480}
 
   @impl true
@@ -76,8 +75,14 @@ defmodule Pokex.Rig.Sim do
   @impl true
   def key_watch(_codes), do: {:ok, []}
 
+  # Nameable like every other collaborator in this project (`BotSupervisor` takes
+  # each worker's name by option): the default IS the wiring, and a test that
+  # needs to stand in for the runner sets its own name rather than fighting the
+  # app-global one for the registration.
+  defp runner, do: Application.get_env(:pokex, :sim_runner, Pokex.Sim.Runner)
+
   defp report(action) do
-    case Process.whereis(@runner) do
+    case Process.whereis(runner()) do
       nil -> :ok
       pid -> send(pid, {:sim_rig, action})
     end

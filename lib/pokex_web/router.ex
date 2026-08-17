@@ -34,6 +34,7 @@ defmodule PokexWeb.Router do
       live "/fishing-lab", FishingLabLive
       live "/world", WorldLive
       live "/cavebot", CavebotLive
+      live "/sim", SimLive
       live "/pokedex", PokedexLive
       live "/time", TeamLive
       live "/timers", TimersLive

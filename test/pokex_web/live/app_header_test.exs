@@ -23,7 +23,7 @@ defmodule PokexWeb.AppHeaderTest do
   @nav_ids ~w(
     app-nav-panel app-nav-config app-nav-calibration app-nav-diagnostics
     app-nav-fishing-lab app-nav-mini-game app-nav-world app-nav-cavebot
-    app-nav-timers app-nav-pokedex app-nav-team
+    app-nav-timers app-nav-pokedex app-nav-team app-nav-sim
   )
 
   test "every page mounts the same header", %{conn: conn} do

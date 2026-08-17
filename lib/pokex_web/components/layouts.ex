@@ -55,7 +55,8 @@ defmodule PokexWeb.Layouts do
        {:calibration, "Calibração", "hero-viewfinder-circle"},
        {:diagnostics, "Diagnóstico", "hero-beaker"},
        {:fishing_lab, "Laboratório", "hero-sparkles"},
-       {:mini_game, "Mini-game", "hero-puzzle-piece"}
+       {:mini_game, "Mini-game", "hero-puzzle-piece"},
+       {:sim, "Simulador", "hero-play-circle"}
      ]}
   ]
 
@@ -572,6 +573,7 @@ defmodule PokexWeb.Layouts do
   defp nav_path(:mini_game), do: ~p"/mini-game"
   defp nav_path(:world), do: ~p"/world"
   defp nav_path(:cavebot), do: ~p"/cavebot"
+  defp nav_path(:sim), do: ~p"/sim"
   defp nav_path(:timers), do: ~p"/timers"
   defp nav_path(:pokedex), do: ~p"/pokedex"
   defp nav_path(:team), do: ~p"/time"

@@ -43,6 +43,9 @@ defmodule Pokex.Application do
       # History that survives page reloads: subscribes to worker topics, keeps the
       # ring buffer outside LiveView. Passive — never captures or actuates.
       Pokex.Journal,
+      # The same nights, typed: what the journal keeps as prose for him, this
+      # keeps as numbers for the engine to be calibrated against later.
+      Pokex.Engine.Events,
       Pokex.Combos.Runner,
       # Pauses everything when the game window loses focus (and resumes on refocus). After the
       # BotSupervisor so it can halt/resume those workers.

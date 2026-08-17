@@ -476,6 +476,89 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     end
   end
 
+  # The engine decides the same question the posture does, but with more than
+  # the leg of the route: the count on screen, whether the pile stopped
+  # arriving, and the health band. So it OUTRANKS the posture — while it is
+  # fresh, and only while it is fresh.
+  describe "obeying the engine" do
+    # His real Vespiquen: 1 is the control skill the revive borrows, which is
+    # exactly the key an ordinary rotation must never spend.
+    defp with_vespiquen(worker) do
+      Pokex.Pokedex.Team.add("Vespiquen")
+      Pokex.Pokedex.Team.set_skills("Vespiquen", %{"1" => :crowd, "3" => :aoe, "6" => :single})
+      Pokex.Pokedex.Team.set_active("Vespiquen")
+      send(worker, {:team_changed})
+    end
+
+    defp orders!(orders) do
+      WorldState.put(
+        :orders,
+        Map.merge(%{fire: :free, opening: [], stun: :hold}, orders),
+        System.monotonic_time(:millisecond)
+      )
+    end
+
+    @tag :tmp_dir
+    test "the engine's hold beats a posture that says fight", %{worker: worker} do
+      WorldState.put(:posture, %{posture: :free_fight}, System.monotonic_time(:millisecond))
+      orders!(%{fire: :hold})
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+      refute eventually(fn -> Settings.get(:tab_key) in presses() end, 300)
+    end
+
+    # THE FLOOR OF THE WHOLE DESIGN. Orders carry an age; an engine that dies
+    # stops refreshing them, and every worker keeps working without it. This is
+    # what makes one central brain safe in a hunt that runs eight hours alone.
+    @tag :tmp_dir
+    test "orders nobody is refreshing go stale and the posture decides again", %{worker: worker} do
+      SettingsStash.stash!(engine_orders_max_age_ms: 300)
+
+      WorldState.put(
+        :orders,
+        %{fire: :hold, opening: [], stun: :hold},
+        System.monotonic_time(:millisecond) - 5_000
+      )
+
+      WorldState.put(:posture, %{posture: :free_fight}, System.monotonic_time(:millisecond))
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+      assert eventually(fn -> Settings.get(:tab_key) in presses() end)
+    end
+
+    # `Strategy.reserved/1` keeps the control skill out of every rotation
+    # exactly so it is still up when the revive needs it. This is that revive
+    # asking — the one authorised exception, and only at the moment it asks.
+    @tag :tmp_dir
+    test "presses the reserved control skill when the engine asks for the stun", %{worker: worker} do
+      with_vespiquen(worker)
+
+      orders!(%{fire: :hold, stun: :now})
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+      assert eventually(fn -> "1" in presses() end)
+    end
+
+    # The order keeps saying `:now` for as long as the engine is in that step,
+    # and a stun mashed every frame would spend the whole window on the one
+    # skill the revive depends on.
+    @tag :tmp_dir
+    test "asks for the stun once per window, not once per frame", %{worker: worker} do
+      with_vespiquen(worker)
+
+      orders!(%{fire: :hold, stun: :now})
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+      assert eventually(fn -> "1" in presses() end)
+
+      once = Enum.count(presses(), &(&1 == "1"))
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+      Process.sleep(150)
+
+      assert Enum.count(presses(), &(&1 == "1")) == once
+    end
+  end
+
   # The hunt asks for quiet by publishing the `:posture` fact; this worker
   # obeys a READING with an age, never a command it has to remember.
   describe "holding fire while the hunt gathers mobs" do

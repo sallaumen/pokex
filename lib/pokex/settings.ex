@@ -1016,7 +1016,15 @@ defmodule Pokex.Settings do
     engine_revive_lead_ms: 600,
     # How old the hunt's own fact may be before the engine treats it as "no hunt
     # running". Generous against the cavebot's 200ms tick.
-    engine_hunt_max_age_ms: 2_000
+    engine_hunt_max_age_ms: 2_000,
+    # How old the engine's ORDERS may be before a worker stops obeying them and
+    # falls back to what it does on its own. THIS is the number that makes a
+    # central brain safe in an eight-hour hunt: an engine that dies stops
+    # refreshing, the fact ages out, and the fleet keeps working without it.
+    engine_orders_max_age_ms: 1_500,
+    # How old the stun's receipt may be before "the screen is asleep" stops
+    # being a claim anyone should act on.
+    engine_stun_max_age_ms: 10_000
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)
@@ -1236,6 +1244,8 @@ defmodule Pokex.Settings do
     engine_closing_timeout_ms: 100..600_000,
     engine_revive_lead_ms: 0..60_000,
     engine_hunt_max_age_ms: 200..60_000,
+    engine_orders_max_age_ms: 200..60_000,
+    engine_stun_max_age_ms: 200..600_000,
     posture_max_age_ms: 500..60_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,

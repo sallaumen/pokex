@@ -86,6 +86,10 @@ defmodule Pokex.Bots.Combat.Worker do
        # the ONE in-flight key burst (nil when none): a new burst is SKIPPED while the previous
        # is still landing, instead of piling concurrent osascripts onto System Events
        burst_pid: nil,
+       # when the engine's stun was last honoured: its order keeps saying `:now`
+       # for as long as it is in that step, and the reserved key must be pressed
+       # ONCE per window, not once per frame
+       stun_asked_at: nil,
        # last dispatched burst as %{text, at} (monotonic ms; nil until the first) — panel-facing
        last_action: nil,
        # false only while a RETRY is being dispatched: its own miss must not
@@ -253,7 +257,7 @@ defmodule Pokex.Bots.Combat.Worker do
 
   defp step(state, obs) do
     {posture, combo, orders} = posture()
-    state = open_with_combo(state, state.logic.posture, posture, combo, orders)
+    state = state |> obey_stun() |> open_with_combo(state.logic.posture, posture, combo, orders)
 
     logic =
       state.logic
@@ -322,13 +326,81 @@ defmodule Pokex.Bots.Combat.Worker do
   # unreadable all mean `:free_fight`: the posture may only ever stop combat
   # while something is actively saying so, so a dead or stopped cavebot can
   # never leave the bot standing pacifist in the middle of a crowd.
+  #
+  # THE ENGINE OUTRANKS THE POSTURE when it is speaking. Its answer is the same
+  # question decided with more than the leg of the route — the count on screen,
+  # whether the pile stopped arriving, and the health band. But only while it is
+  # FRESH: the moment its fact ages out, this falls back to the posture, which
+  # falls back to free fire. Two fallbacks deep, and the floor is today's bot.
+  #
+  # The route's ordered categories keep riding the posture either way: the
+  # engine decides WHETHER to open and WITH WHAT, never what he wrote on a
+  # corner.
   defp posture do
+    fact = posture_fact()
+
+    case engine_fire() do
+      nil -> fact
+      {fire, opening} -> {fire, opening_or(opening, elem(fact, 1)), elem(fact, 2)}
+    end
+  end
+
+  defp posture_fact do
     case WorldState.get(:posture, Settings.get(:posture_max_age_ms), now()) do
       {:ok, %{posture: :hold_fire} = fact} -> {:hold_fire, combo_of(fact), orders_of(fact)}
       {:ok, fact} -> {:free_fight, combo_of(fact), orders_of(fact)}
       _stale_or_missing -> {:free_fight, [], []}
     end
   end
+
+  defp engine_fire do
+    case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now()) do
+      {:ok, %{fire: :hold} = orders} -> {:hold_fire, Map.get(orders, :opening) || []}
+      {:ok, %{fire: :free} = orders} -> {:free_fight, Map.get(orders, :opening) || []}
+      _stale_or_missing -> nil
+    end
+  end
+
+  # An engine with no keys to name (no pokémon chosen, or one unclassified) must
+  # not silently erase the combo he recorded at this kill spot.
+  defp opening_or([], recorded), do: recorded
+  defp opening_or(opening, _recorded), do: opening
+
+  # THE ONE CONTROL SKILL AN ORDINARY FIGHT MAY PRESS — and only because the
+  # engine asked, at the moment it asked. `Strategy.reserved/1` exists to keep
+  # the stun out of every rotation precisely so it is still up when the revive
+  # needs it; this is that revive asking for it.
+  #
+  # The receipt is the whole point: the sleep is assumed on a CLOCK, and a clock
+  # that starts on a key that never fired is a lie the engine would then build
+  # a revive on. So the fact is published only once the skill bar proves the
+  # cooldown started.
+  defp obey_stun(state) do
+    with {:ok, %{stun: :now}} <-
+           WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now()),
+         [key | _] <- Strategy.reserved(state.loadout),
+         false <- stun_pending?(state) do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:combat_log, :macro, "combate: 😴 stun a pedido da engine: #{key}"}
+      )
+
+      state
+      |> Map.put(:stun_asked_at, now())
+      |> dispatch([{:press, key}])
+    else
+      _no_stun_wanted -> state
+    end
+  end
+
+  # One press per request, not one per frame: the orders keep saying `:now` for
+  # as long as the engine is in that step, and a stun mashed every 120ms would
+  # spend the whole bar on the one skill the revive depends on.
+  defp stun_pending?(%{stun_asked_at: at}) when is_integer(at),
+    do: now() - at < Settings.get(:engine_stun_sleep_ms)
+
+  defp stun_pending?(_never_asked), do: false
 
   defp combo_of(fact), do: Map.get(fact, :combo) || []
 
@@ -439,17 +511,20 @@ defmodule Pokex.Bots.Combat.Worker do
       true ->
         parent = self()
         confirm? = Settings.get(:combat_confirm_skills) and state.retry_ok?
+        # read HERE, in the worker, so the receipt process never has to call back
+        # into a GenServer that may be parked inside a capture
+        reserved = Strategy.reserved(state.loadout)
 
         {%{
            state
-           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?) end),
+           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?, reserved) end),
              last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
              retry_ok?: true
          }, :sent}
     end
   end
 
-  defp tap_keys(keys, parent, confirm?) do
+  defp tap_keys(keys, parent, confirm?, reserved) do
     before = if confirm?, do: Perception.ready_skills()
     at = now()
 
@@ -462,7 +537,7 @@ defmodule Pokex.Bots.Combat.Worker do
     with :ok <- Perception.mini_game_gate(),
          :ok <- Pokex.Rig.impl().press_many(keys, opts),
          :ok <- Perception.mini_game_gate() do
-      ask_for_receipt(keys, before, at, parent)
+      ask_for_receipt(keys, before, at, parent, reserved)
     else
       {:blocked, :mini_game_active} -> :ok
       {:error, reason} -> send(parent, {:key_burst_failed, reason})
@@ -474,10 +549,10 @@ defmodule Pokex.Bots.Combat.Worker do
   # The receipt is read in its OWN process: this one has to die now so the next
   # decision is not skipped as "a burst still in flight" — confirming must cost
   # accuracy, never damage.
-  defp ask_for_receipt(_keys, nil, _at, _parent), do: :ok
+  defp ask_for_receipt(_keys, nil, _at, _parent, _reserved), do: :ok
 
-  defp ask_for_receipt(keys, before, at, parent) do
-    spawn(fn -> confirm_burst(keys, before, at, parent) end)
+  defp ask_for_receipt(keys, before, at, parent, reserved) do
+    spawn(fn -> confirm_burst(keys, before, at, parent, reserved) end)
     :ok
   end
 
@@ -488,16 +563,36 @@ defmodule Pokex.Bots.Combat.Worker do
   # "A gente tem que sempre estar garantindo que a skill que a gente validou
   # foi usada mesmo" (Lucas, 2026-08-11): hunting is not fishing, and a skill
   # that silently never left is damage he is not doing while a pile eats him.
-  defp confirm_burst(keys, before, at, parent) do
+  defp confirm_burst(keys, before, at, parent, reserved) do
     skills = keys -- [Settings.get(:tab_key)]
     later = Perception.ready_skills_after(at, Settings.get(:combat_confirm_ms))
 
-    case skills |> then(&SkillReceipt.check(before, later, &1)) |> SkillReceipt.verdict() do
+    checks = SkillReceipt.check(before, later, skills)
+    publish_stun(checks, at, reserved)
+
+    case SkillReceipt.verdict(checks) do
       {:missed, missed} -> send(parent, {:skills_missed, missed})
       _confirmed_or_unknown -> :ok
     end
   catch
     kind, reason -> Logger.debug("combat receipt crashed: #{inspect({kind, reason})}")
+  end
+
+  # THE STUN CLOCK STARTS ON PROOF, never on intent.
+  #
+  # The engine assumes the screen sleeps for a fixed time after a control skill
+  # — deliberately, because a partial stun is the common case and the window it
+  # opens is the best one the revive will get. That assumption is only honest if
+  # the key actually FIRED, and the cooldown is what proves it. A clock started
+  # on a key the game never received would have the engine building a revive on
+  # a screen that is wide awake.
+  defp publish_stun(checks, at, reserved) do
+    fired = Map.get(checks, :fired, [])
+
+    if Enum.any?(reserved, &(&1 in fired)),
+      do: WorldState.put(:stun, %{at: at, confirmed?: true}, at)
+
+    :ok
   end
 
   # The freshest battle picture, or nil (stale/missing → Logic acts time-only, fail-safe).

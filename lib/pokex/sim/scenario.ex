@@ -64,7 +64,18 @@ defmodule Pokex.Sim.Scenario do
         why:
           "Cinco chegam e param de chegar. É a janela que o desenho chama de sizing → " <>
             "engaged: veja quanto tempo ele espera antes de abrir.",
-        knobs: %{nest_size: 5, nest_radius: 2, aggro_tiles: 14}
+        knobs: %{nest_size: 5, nest_radius: 0, aggro_tiles: 20}
+      },
+      %__MODULE__{
+        id: "pilha-que-pinga",
+        group: :ruler,
+        name: "Pilha que pinga (ela PULA)",
+        why:
+          "Cinco monstros espalhados, chegando um de cada vez. A contagem nunca fica " <>
+            "pile_settle_ms parada, o teto de size_ceiling_ms estoura, e o cérebro PULA " <>
+            "uma pilha de cinco que valia. Não é bug do simulador: é o que os dois " <>
+            "números fazem juntos quando a pilha pinga em vez de chegar.",
+        knobs: %{nest_size: 5, nest_radius: 4, aggro_tiles: 16, mob_ms_per_tile: 700}
       },
       %__MODULE__{
         id: "ganancia",

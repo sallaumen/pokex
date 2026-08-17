@@ -94,6 +94,7 @@ defmodule Pokex.Sim.World do
             keys: %{},
             clock: 0,
             failures: MapSet.new(),
+            stats: %{killed: 0, vanished: 0},
             next_id: 1,
             rand: nil,
             knobs: %{}
@@ -279,16 +280,16 @@ defmodule Pokex.Sim.World do
   defp damage(world, _no_damage), do: world
 
   defp hit(world, radius, amount) do
-    mobs =
+    {alive, dead} =
       world.mobs
       |> Enum.map(fn mob ->
         if in_reach?(mob, world.pos, radius),
           do: %{mob | hp_pct: mob.hp_pct - amount},
           else: mob
       end)
-      |> Enum.reject(&(&1.hp_pct <= 0))
+      |> Enum.split_with(&(&1.hp_pct > 0))
 
-    %{world | mobs: mobs}
+    %{world | mobs: alive, stats: bump(world.stats, :killed, length(dead))}
   end
 
   defp in_reach?(%{pos: {_x, _y, mz}}, {_px, _py, pz}, _radius) when mz != pz, do: false
@@ -489,13 +490,20 @@ defmodule Pokex.Sim.World do
   defp sign(_negative), do: -1
 
   defp move_mobs(world, dt_ms) do
-    mobs =
+    {kept, gone} =
       world.mobs
       |> Enum.map(&walk_mob(&1, world, dt_ms))
-      |> Enum.reject(&leashed?(&1, world.knobs.leash_tiles))
+      |> Enum.split_with(&(not leashed?(&1, world.knobs.leash_tiles)))
 
-    %{world | mobs: mobs}
+    %{world | mobs: kept, stats: bump(world.stats, :vanished, length(gone))}
   end
+
+  # Vanished and killed are NOT the same outcome and must never be counted
+  # together: one is R2 (greed dragged them too far from where they spawned) and
+  # the other is the fight working. A report that adds them up would read a
+  # ruined mob as a successful one.
+  defp bump(stats, _key, 0), do: stats
+  defp bump(stats, key, n), do: Map.update!(stats, key, &(&1 + n))
 
   # R2 as physics, not policy: dragged far enough from where it spawned, the mob
   # does not stop and does not turn back — it is GONE. That is what puts a

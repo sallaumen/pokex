@@ -32,6 +32,10 @@ defmodule Pokex.Application do
       # before BotSupervisor since every order goes through it.
       Pokex.Bots.Session,
       Pokex.Bots.BotSupervisor,
+      # AFTER the fleet on purpose: recovering from a fence that died armed halts
+      # the workers by name, so they have to exist. They come up idle, so there is
+      # no window to race — nothing walks until start_all/0, which this guards.
+      Pokex.Sim.Fence,
       # The anti-shiny watchdog (always-on like Guardian; manages its own
       # arena-feed attachment from the shiny_guard_enabled setting).
       Pokex.Bots.ShinyGuard,

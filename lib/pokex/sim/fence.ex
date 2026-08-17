@@ -90,7 +90,9 @@ defmodule Pokex.Sim.Fence do
         {:noreply, state}
 
       saved ->
-        Logger.warning("cerca do simulador reiniciou armada — parando a frota e devolvendo as mãos")
+        Logger.warning(
+          "cerca do simulador reiniciou armada — parando a frota e devolvendo as mãos"
+        )
 
         restore(state, saved, "a cerca do simulador reiniciou")
         {:noreply, state}

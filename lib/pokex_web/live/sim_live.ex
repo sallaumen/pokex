@@ -22,6 +22,7 @@ defmodule PokexWeb.SimLive do
   alias Pokex.Sim.Fence
   alias Pokex.Sim.Runner
   alias Pokex.Sim.Bench
+  alias Pokex.Sim.Calibrate
   alias Pokex.Sim.Scenario
 
   @directions %{
@@ -56,7 +57,9 @@ defmodule PokexWeb.SimLive do
        floor: nil,
        scenarios: Scenario.all(),
        scenario: Runner.scenario(),
-       bench: nil
+       bench: nil,
+       calib: Calibrate.report(Date.utc_today()),
+       measuring?: Pokex.Settings.get(:cavebot_measure_walk)
      )}
   end
 
@@ -253,6 +256,12 @@ defmodule PokexWeb.SimLive do
   defp perceived_rows(nil), do: :unread
   defp perceived_rows(%{enemies: nil}), do: :unread
   defp perceived_rows(%{enemies_detail: detail}), do: detail
+
+  defp measured_text(nil), do: "a noite não mediu"
+
+  defp measured_text(%{n: n, median: median, min: min, max: max}) do
+    "mediana #{round(median)} · de #{round(min)} a #{round(max)} · #{n} amostras"
+  end
 
   defp revive_text(nil), do: "não"
   defp revive_text(at), do: "#{at}ms"
@@ -485,6 +494,49 @@ defmodule PokexWeb.SimLive do
                 </span>
               </p>
             </div>
+          </div>
+        </div>
+
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+            <h2 class="mb-2 text-sm font-semibold text-zinc-200">
+              Antes da caçada <span class="font-normal text-zinc-500">— o que grava dado</span>
+            </h2>
+            <ul class="space-y-1 text-sm">
+              <li class={if @measuring?, do: "text-emerald-300", else: "text-amber-300"}>
+                <span class="font-medium">medir caminhada:</span>
+                {if @measuring?,
+                  do: "ligado — a noite vai medir tiles/s",
+                  else:
+                    "DESLIGADO — sem ele ninguém mede tiles/s. Ligue cavebot_measure_walk em /config"}
+              </li>
+              <li class="text-zinc-400">
+                O cérebro grava sozinho: cada mudança de decisão vira uma linha tipada em
+                ~/.pokex/events/. É de lá que sai o tamanho real das pilhas.
+              </li>
+            </ul>
+          </div>
+
+          <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+            <h2 class="mb-2 text-sm font-semibold text-zinc-200">
+              O que a noite disse <span class="font-normal text-zinc-500">— hoje</span>
+            </h2>
+            <dl class="space-y-1 text-sm text-zinc-300">
+              <div>
+                ms por tile: <span class="text-zinc-100">{measured_text(@calib.walk)}</span>
+              </div>
+              <div>
+                pilha ao abrir:
+                <span class="text-zinc-100">{measured_text(@calib.pile && @calib.pile.engaged)}</span>
+              </div>
+              <div>
+                parou de chegar em:
+                <span class="text-zinc-100">{measured_text(@calib.pile && @calib.pile.settled_ms)}</span>
+              </div>
+              <div :if={@calib.pile} class="text-zinc-500">
+                {@calib.pile.decisions} decisões · {@calib.pile.engagements} aberturas · {@calib.pile.skipped} pilhas puladas
+              </div>
+            </dl>
           </div>
         </div>
 

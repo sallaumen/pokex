@@ -134,4 +134,70 @@ defmodule Pokex.Sim.WorldTest do
 
     assert world.pos == {101, 200, 5}
   end
+
+  defp stairway, do: route([{100, 200, 5}, {102, 200, 6}])
+
+  test "derives a stair from a clean pair of waypoints across floors" do
+    world = World.new(stairway())
+
+    assert [%{at: {101, 200, 5}, dir: {1, 0}, to_z: 6}] = world.stairs
+  end
+
+  test "derives a stair on the vertical axis too" do
+    world = World.new(route([{100, 200, 5}, {100, 202, 6}]))
+
+    assert [%{at: {100, 201, 5}, dir: {0, 1}, to_z: 6}] = world.stairs
+  end
+
+  test "ignores a dirty cross-floor pair instead of guessing the step" do
+    world = World.new(route([{100, 200, 5}, {107, 203, 6}]))
+
+    assert world.stairs == []
+  end
+
+  test "reports the cross-floor pairs it refused to turn into stairs" do
+    world = World.new(route([{100, 200, 5}, {107, 203, 6}]))
+
+    assert [%{from: {100, 200, 5}, to: {107, 203, 6}}] = world.unsimulated_stairs
+  end
+
+  test "a clean pair leaves nothing to report" do
+    assert World.new(stairway()).unsimulated_stairs == []
+  end
+
+  test "a pair on the same floor is not a stair" do
+    world = World.new(route([{100, 200, 5}, {102, 200, 5}]))
+
+    assert world.stairs == []
+  end
+
+  test "stepping onto the stair walks two tiles and changes floor" do
+    world =
+      stairway()
+      |> World.new(knobs: %{ms_per_tile: 100})
+      |> World.press({:key_down, "right"})
+      |> World.step(100)
+
+    assert world.pos == {102, 200, 6}
+  end
+
+  test "a stair crossed the other way returns to the floor below" do
+    world =
+      route([{102, 200, 6}, {100, 200, 5}])
+      |> World.new(knobs: %{ms_per_tile: 100})
+      |> World.press({:key_down, "left"})
+      |> World.step(100)
+
+    assert world.pos == {100, 200, 5}
+  end
+
+  test "walking past a stair tile in another direction does not change floor" do
+    world =
+      stairway()
+      |> World.new(knobs: %{ms_per_tile: 100})
+      |> World.press({:key_down, "down"})
+      |> World.step(300)
+
+    assert world.pos == {100, 203, 5}
+  end
 end

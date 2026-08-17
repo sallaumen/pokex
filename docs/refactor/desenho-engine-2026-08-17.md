@@ -336,8 +336,8 @@ Uma limitação observável por PR, `mix precommit` zerado, strings pt-BR, `cave
 
 A sombra saiu no feed em vez de numa tela nova de propósito: a comparação "a engine mandaria × o bot fez" só vale se as duas colunas estiverem no mesmo texto, na mesma ordem cronológica — e é onde ele já lê. O card visual e o `Engine.Events` foram adiados pra PR 3, com o `cavebot_live.ex` intocado aqui (segue em **3002**).
 
-**PR 3 — O quadro na tela, e o `cavebot_live` encolhendo.**
-Card da situação + ordens em componente próprio, `Pokex.Engine.Events` (o JSONL estruturado), e a extração que paga a regra do "só encolher": o arquivo tem que sair abaixo de **2996**.
+**PR 3 — O quadro na tela, e o `cavebot_live` encolhendo.** ✅
+A faixa `#engine-brain` em componente próprio (faixa da vida por palavra e cor, contagem, "parados há Ns", e a frase `why`), e a extração que paga a regra do "só encolher": o médico de rota saiu do LiveView pro `CavebotComponents`, e o arquivo fechou em **2982** (era 3002). `Pokex.Engine.Events` ficou pra PR seguinte — a faixa é o que ele precisa DURANTE o teste; o log estruturado é o que eu preciso DEPOIS.
 
 **PR 4 — Combat obedece.** `fire`, `opening`, `stun`. A régua de 3 entra em vigor. `:posture` vira compatibilidade. O fato `:stun` nasce aqui.
 

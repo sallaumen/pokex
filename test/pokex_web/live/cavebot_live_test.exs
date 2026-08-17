@@ -1704,6 +1704,68 @@ defmodule PokexWeb.CavebotLiveTest do
     end
   end
 
+  # The engine's reasoning had no way to be seen: the tiles show facts, the
+  # fight narrates itself, but how many it counted and what it would DO about
+  # them only ever existed inside a process.
+  describe "what the engine is thinking" do
+    defp thinking(situation, orders) do
+      at = System.monotonic_time(:millisecond)
+      WorldState.put(:situation, situation, at)
+      WorldState.put(:orders, orders, at)
+    end
+
+    defp picture(overrides \\ %{}) do
+      Map.merge(
+        %{enemies: 4, growing?: false, stable_for_ms: 1_800, asleep?: false},
+        overrides
+      )
+    end
+
+    test "shows the count, the settling and the reason", %{conn: conn} do
+      thinking(picture(), %{
+        band: :green,
+        why: "4 inimigos e pararam de chegar: estourando a área"
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      brain = view |> element("#engine-brain") |> render()
+      assert brain =~ "4 inimigos"
+      assert brain =~ "parados há 1.8s"
+      assert brain =~ "estourando a área"
+      assert brain =~ "verde"
+    end
+
+    # The band is health, and health may never be colour alone.
+    test "names the band in words, not only in colour", %{conn: conn} do
+      thinking(picture(), %{band: :yellow, why: "amarelo (47%): stun antes de gastar tudo"})
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#engine-brain") |> render() =~ "amarelo"
+    end
+
+    # Zero and "I cannot see" are opposite facts wearing the same number.
+    test "an unreadable list says so instead of showing a zero", %{conn: conn} do
+      thinking(
+        picture(%{enemies: nil}),
+        %{band: :green, why: "não estou vendo a lista de batalha — não mando nada"}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      brain = view |> element("#engine-brain") |> render()
+      assert brain =~ "não vejo a lista"
+      refute brain =~ "0 inimigos"
+    end
+
+    test "stays off the screen entirely while the engine has said nothing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      refute has_element?(view, "#engine-brain")
+    end
+  end
+
   describe "the map marks" do
     test "a kill spot is drawn solid, not like a plain mark", %{conn: conn} do
       {:ok, route} = Route.append(Route.new("cavena"), {1, 1, 7})

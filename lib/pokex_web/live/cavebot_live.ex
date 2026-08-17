@@ -77,6 +77,10 @@ defmodule PokexWeb.CavebotLive do
        # what the RUNNING fight holds; nil until it says so, and then the page
        # falls back to the configuration and labels it as such
        combat: nil,
+       # what the ENGINE sees and what it would order. Seeded from the facts so
+       # a page opened mid-hunt is not blank until the next tick.
+       situation: engine_fact(:situation),
+       orders: engine_fact(:orders),
        minimap_gap?: minimap_gap?(),
        recording?: false,
        # Read health: read_coord is all-or-nothing (requires 1.0 confidence),
@@ -161,6 +165,9 @@ defmodule PokexWeb.CavebotLive do
   def handle_info({:cavebot, snapshot}, socket), do: {:noreply, assign(socket, hunt: snapshot)}
 
   def handle_info({:combat, snapshot}, socket), do: {:noreply, assign(socket, combat: snapshot)}
+
+  def handle_info({:engine, situation, orders}, socket),
+    do: {:noreply, assign(socket, situation: situation, orders: orders)}
 
   # the fight's log lines ride the same topic and are not this page's business
   def handle_info({:combat_log, _level, _text}, socket), do: {:noreply, socket}
@@ -1546,39 +1553,14 @@ defmodule PokexWeb.CavebotLive do
 
   defp lure_warning(_no_route), do: nil
 
-  # The two defects his real route carries, in his words and with the corner
-  # numbers he can act on. Diagnosis only: deleting a corner is his call.
-  defp route_doctor(%Route{} = route) do
-    tol = Settings.get(:cavebot_arrival_tolerance_tiles)
-
-    [
-      case Route.unwalkable_pairs(route, tol) do
-        [] ->
-          nil
-
-        pairs ->
-          "#{length(pairs)} canto(s) em cima do anterior (a #{tol} tile ou menos): " <>
-            "o bot chega neles sem andar — #{corner_list(pairs)}"
-      end,
-      case Route.stair_round_trips(route) do
-        [] -> nil
-        trips -> "escada de ida e volta em #{corner_list(trips)}: sobe e desce no mesmo tile"
-      end
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> case do
-      [] -> nil
-      findings -> Enum.join(findings, " · ")
+  # The engine's facts, straight off the blackboard. Stale reads as absent: a
+  # page that shows a decision nobody is making any more is worse than one that
+  # shows none.
+  defp engine_fact(key) do
+    case Pokex.Perception.WorldState.get(key, 3_000, System.monotonic_time(:millisecond)) do
+      {:ok, obs} -> obs
+      _stale_or_missing -> nil
     end
-  end
-
-  defp route_doctor(_no_route), do: nil
-
-  # 1-based, and never a wall of numbers: the first few plus a count.
-  defp corner_list(indexes) do
-    shown = indexes |> Enum.take(6) |> Enum.map_join(", ", &"#{&1 + 1}")
-
-    if length(indexes) > 6, do: shown <> "…", else: shown
   end
 
   defp default_active(routes), do: Enum.find(routes, & &1.enabled?)
@@ -1957,6 +1939,13 @@ defmodule PokexWeb.CavebotLive do
             tone={hp_tone(@world)}
           />
         </section>
+
+        <%!-- …and what the engine MAKES of all that. The tiles above are facts;
+              this line is the reading of them, which until now only existed
+              inside a process. It says what WOULD happen — nobody obeys it
+              yet — and the feed below carries the same sentence beside what
+              the bot actually did. --%>
+        <.engine_brain situation={@situation} orders={@orders} />
 
         <%!-- The pre-sleep checklist: whether TONIGHT's hunt survives without
               him. The three switches are the support worker's (same settings
@@ -2712,19 +2701,10 @@ defmodule PokexWeb.CavebotLive do
                 {lure_warning(@active_route)}
               </p>
 
-              <%!-- What the ROUTE asks that the walking cannot deliver. Found
-                   in his own journal (2026-08-15) and reported, never fixed on
-                   his behalf: which of two corners deserves to stay is a
-                   decision about the road, and "otimizar rota" promises it
-                   never touches the road. --%>
-              <p
-                :if={route_doctor(@active_route)}
-                id="route-doctor"
-                class="mt-2 flex items-start gap-1.5 rounded-lg border border-pk-info-line bg-pk-info-dim px-3 py-2 text-pk-meta text-pk-text-2"
-              >
-                <.icon name="hero-wrench-screwdriver" class="mt-0.5 size-3.5 shrink-0" />
-                {route_doctor(@active_route)}
-              </p>
+              <.route_doctor
+                route={@active_route}
+                tolerance={Settings.get(:cavebot_arrival_tolerance_tiles)}
+              />
 
               <%!-- A 45-corner route made the page 45 rows tall on a laptop —
                    "as coisas da rota ainda estão muito grandes" (2026-08-14).

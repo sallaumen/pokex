@@ -4,7 +4,10 @@ defmodule Pokex.Rig.SimTest do
   alias Pokex.Rig.Sim
 
   setup do
-    Process.register(self(), Pokex.Sim.Runner)
+    name = :"sim_rig_test_#{System.unique_integer([:positive])}"
+    Process.register(self(), name)
+    Application.put_env(:pokex, :sim_runner, name)
+    on_exit(fn -> Application.delete_env(:pokex, :sim_runner) end)
     :ok
   end
 
@@ -41,7 +44,7 @@ defmodule Pokex.Rig.SimTest do
   end
 
   test "answers every callback when no runner is registered" do
-    Process.unregister(Pokex.Sim.Runner)
+    Application.put_env(:pokex, :sim_runner, :sim_rig_nobody_home)
 
     assert Sim.press("3") == :ok
     assert Sim.click(:left, {5, 5}) == :ok

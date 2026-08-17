@@ -36,6 +36,9 @@ defmodule Pokex.Application do
       # the workers by name, so they have to exist. They come up idle, so there is
       # no window to race — nothing walks until start_all/0, which this guards.
       Pokex.Sim.Fence,
+      # Idle until a screen loads a route into it. Registered under its own name
+      # because that name is the wiring: Pokex.Rig.Sim reports every key to it.
+      Pokex.Sim.Runner,
       # The anti-shiny watchdog (always-on like Guardian; manages its own
       # arena-feed attachment from the shiny_guard_enabled setting).
       Pokex.Bots.ShinyGuard,

@@ -21,6 +21,7 @@ defmodule PokexWeb.SimLive do
   alias Pokex.Perception.WorldState
   alias Pokex.Sim.Fence
   alias Pokex.Sim.Runner
+  alias Pokex.Sim.Bench
   alias Pokex.Sim.Scenario
 
   @directions %{
@@ -54,7 +55,8 @@ defmodule PokexWeb.SimLive do
        refusal: nil,
        floor: nil,
        scenarios: Scenario.all(),
-       scenario: Runner.scenario()
+       scenario: Runner.scenario(),
+       bench: nil
      )}
   end
 
@@ -103,7 +105,20 @@ defmodule PokexWeb.SimLive do
   end
 
   def handle_event("pick-scenario", %{"scenario" => id}, socket),
-    do: {:noreply, load_scenario(socket, id)}
+    do: {:noreply, assign(load_scenario(socket, id), bench: nil)}
+
+  # Runs the scenario through the PURE engine core — no process, no clock, one
+  # minute of hunting in a few milliseconds — and answers with a verdict instead
+  # of an impression.
+  def handle_event("bench", _params, socket) do
+    case socket.assigns.scenario do
+      nil ->
+        {:noreply, socket}
+
+      scenario ->
+        {:noreply, assign(socket, bench: Bench.run(scenario, routes: socket.assigns.routes))}
+    end
+  end
 
   # The hands, from HIS keyboard instead of from the bot's. The world cannot
   # tell the difference, which is the whole point: the same press that the
@@ -239,6 +254,9 @@ defmodule PokexWeb.SimLive do
   defp perceived_rows(%{enemies: nil}), do: :unread
   defp perceived_rows(%{enemies_detail: detail}), do: detail
 
+  defp revive_text(nil), do: "não"
+  defp revive_text(at), do: "#{at}ms"
+
   defp band_class(:green), do: "text-emerald-300"
   defp band_class(:yellow), do: "text-amber-300"
   defp band_class(:red), do: "text-rose-300"
@@ -332,6 +350,14 @@ defmodule PokexWeb.SimLive do
             class="rounded-lg bg-zinc-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-600"
           >
             <.icon name="hero-pause" class="mr-1 h-4 w-4" /> Pausar
+          </button>
+
+          <button
+            :if={@scenario}
+            phx-click="bench"
+            class="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-500"
+          >
+            <.icon name="hero-forward" class="mr-1 h-4 w-4" /> Rodar rápido (1 min)
           </button>
 
           <button
@@ -460,6 +486,30 @@ defmodule PokexWeb.SimLive do
               </p>
             </div>
           </div>
+        </div>
+
+        <div :if={@bench} class="rounded-xl border border-violet-900/60 bg-violet-950/20 p-3">
+          <h2 class="mb-2 text-sm font-semibold text-violet-100">
+            Veredito
+            <span class="font-normal text-violet-300/70">— um minuto simulado, sem processo</span>
+          </h2>
+          <dl class="mb-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-violet-100">
+            <div>mortos: <span class="font-semibold">{@bench.outcome.killed}</span></div>
+            <div>sumidos no leash: <span class="font-semibold">{@bench.outcome.vanished}</span></div>
+            <div>de pé: <span class="font-semibold">{@bench.outcome.left_alive}</span></div>
+            <div>vida no fim: <span class="font-semibold">{@bench.outcome.hp_at_end}%</span></div>
+            <div>
+              revive: <span class="font-semibold">{revive_text(@bench.outcome.revived_at)}</span>
+            </div>
+            <div>caiu: <span class="font-semibold">{revive_text(@bench.outcome.died_at)}</span></div>
+          </dl>
+          <ol class="max-h-56 space-y-1 overflow-y-auto text-xs">
+            <li :for={line <- @bench.timeline} class="flex gap-2 text-zinc-300">
+              <span class="w-14 shrink-0 tabular-nums text-zinc-500">{line.at}ms</span>
+              <span class={"w-24 shrink-0 font-medium #{band_class(line.band)}"}>{line.phase}</span>
+              <span class="text-zinc-400">{line.why}</span>
+            </li>
+          </ol>
         </div>
 
         <div class="grid gap-4 md:grid-cols-2">

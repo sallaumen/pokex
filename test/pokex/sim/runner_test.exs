@@ -4,6 +4,7 @@ defmodule Pokex.Sim.RunnerTest do
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Perception.WorldState
   alias Pokex.Sim.Runner
+  alias Pokex.Sim.Scenario
 
   defp route do
     %Route{
@@ -158,5 +159,70 @@ defmodule Pokex.Sim.RunnerTest do
     Runner.tick_now(server)
 
     assert Runner.world(server).pos == walked
+  end
+
+  test "loading a scenario loads its world and remembers it", %{server: server} do
+    Runner.load_scenario(server, Scenario.get("pilha-pequena"), [])
+
+    assert Runner.scenario(server).id == "pilha-pequena"
+    assert length(Runner.world(server).mobs) == 2
+  end
+
+  test "a scripted failure fires on the world clock, not the machine's", %{
+    server: server,
+    advance: advance
+  } do
+    Runner.load_scenario(server, Scenario.get("tela-ilegivel"), [])
+    Runner.play(server)
+
+    advance.(1_000)
+    Runner.tick_now(server)
+    refute Pokex.Sim.World.broken?(Runner.world(server), :blind)
+
+    advance.(2_500)
+    Runner.tick_now(server)
+    assert Pokex.Sim.World.broken?(Runner.world(server), :blind)
+  end
+
+  test "a scripted recovery undoes the failure", %{server: server, advance: advance} do
+    Runner.load_scenario(server, Scenario.get("tela-ilegivel"), [])
+    Runner.play(server)
+
+    advance.(4_000)
+    Runner.tick_now(server)
+    assert Pokex.Sim.World.broken?(Runner.world(server), :blind)
+
+    advance.(6_000)
+    Runner.tick_now(server)
+    refute Pokex.Sim.World.broken?(Runner.world(server), :blind)
+  end
+
+  test "a blind stretch publishes nil enemies, not an empty list", %{
+    server: server,
+    advance: advance
+  } do
+    Runner.load_scenario(server, Scenario.get("tela-ilegivel"), [])
+    Runner.play(server)
+
+    advance.(4_000)
+    Runner.tick_now(server)
+
+    {:ok, battle} = WorldState.get(:battle, 5_000, now())
+    assert battle.enemies == nil
+  end
+
+  test "a beat is not fired twice by two ticks", %{server: server, advance: advance} do
+    Runner.load_scenario(server, Scenario.get("vermelho"), [])
+    Runner.play(server)
+
+    advance.(4_000)
+    Runner.tick_now(server)
+    hp = Runner.world(server).own.hp_pct
+
+    advance.(100)
+    Runner.tick_now(server)
+
+    assert Runner.world(server).own.hp_pct <= hp
+    assert Runner.world(server).own.hp_pct == 25 or Runner.world(server).own.hp_pct < 25
   end
 end

@@ -40,6 +40,7 @@ defmodule Pokex.Sim.Runner do
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
+  alias Pokex.Sim.Scenario
   alias Pokex.Sim.World
 
   @topic "sim"
@@ -68,6 +69,7 @@ defmodule Pokex.Sim.Runner do
       route: Keyword.get(opts, :route),
       seed: Keyword.get(opts, :seed, 42),
       knobs: Keyword.get(opts, :knobs, %{}),
+      scenario: nil,
       loadout: Keyword.get(opts, :loadout)
     }
 
@@ -94,6 +96,22 @@ defmodule Pokex.Sim.Runner do
   @spec load(GenServer.server(), Route.t(), keyword) :: :ok
   def load(server, route, opts) when is_struct(route, Route),
     do: GenServer.call(server, {:load, route, opts})
+
+  @doc """
+  Loads a scenario: its world, and its script.
+
+  The script is fired against the WORLD's clock, not the machine's, so the same
+  scenario plays the same way on a loaded laptop and on a quiet one.
+  """
+  @spec load_scenario(Scenario.t(), [Route.t()]) :: :ok
+  def load_scenario(scenario, routes), do: load_scenario(__MODULE__, scenario, routes)
+
+  @spec load_scenario(GenServer.server(), Scenario.t(), [Route.t()]) :: :ok
+  def load_scenario(server, scenario, routes),
+    do: GenServer.call(server, {:load_scenario, scenario, routes})
+
+  @spec scenario(GenServer.server()) :: Scenario.t() | nil
+  def scenario(server \\ __MODULE__), do: GenServer.call(server, :scenario)
 
   @spec play(GenServer.server()) :: :ok
   def play(server \\ __MODULE__), do: GenServer.call(server, :play)
@@ -126,6 +144,18 @@ defmodule Pokex.Sim.Runner do
   def handle_call({:load, route, opts}, _from, state) do
     {:reply, :ok, load_world(state, route, opts)}
   end
+
+  def handle_call({:load_scenario, scenario, routes}, _from, state) do
+    route = Scenario.route(scenario, routes)
+
+    state =
+      %{state | scenario: scenario}
+      |> load_world(route, seed: scenario.seed, knobs: scenario.knobs)
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:scenario, _from, state), do: {:reply, state.scenario, state}
 
   def handle_call(:play, _from, state) do
     {:reply, :ok, schedule(%{state | playing?: true, last_at: state.clock.()})}
@@ -173,11 +203,26 @@ defmodule Pokex.Sim.Runner do
   defp advance(state) do
     now = state.clock.()
     elapsed = max(now - (state.last_at || now), 0)
-    world = World.step(state.world, elapsed)
+    was = state.world.clock
+    world = state.world |> World.step(elapsed) |> apply_script(state.scenario, was)
 
     state = publish(%{state | world: world, last_at: now}, now)
     Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:sim, world})
     state
+  end
+
+  # Fired against the world's clock so a scenario is reproducible: a script on
+  # the machine's clock would drift with the load, and "it did not revive" would
+  # sometimes mean "the laptop was busy".
+  defp apply_script(world, nil, _was), do: world
+
+  defp apply_script(world, scenario, was) do
+    scenario
+    |> Scenario.due(was, world.clock)
+    |> Enum.reduce(world, fn
+      {:fail, failure}, acc -> World.fail(acc, failure)
+      {:recover, failure}, acc -> World.recover(acc, failure)
+    end)
   end
 
   defp publish(state, now) do

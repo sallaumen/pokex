@@ -68,6 +68,7 @@ defmodule PokexWeb.CalibrationLive do
        skillbar_msg: nil,
        zoom_at: nil,
        coord_search: nil,
+       coord_teach_msg: nil,
        skill_count: skill_count,
        skill_count_form: skill_count_form(skill_count),
        row_height: Settings.get(:battle_row_height),
@@ -154,6 +155,25 @@ defmodule PokexWeb.CalibrationLive do
   # so for the first time the numbers are actually IN the picture being marked.
   def handle_event("coord_manual", _params, socket),
     do: {:noreply, assign(socket, step: :minimap_coord_a, coord_search: nil)}
+
+  # The wizard is the only place where the label is ON SCREEN and already
+  # segmented, so it is the only place these glyphs can be taught: the teach
+  # page photographs on demand, and the client draws the coordinate only while
+  # the position CHANGES — standing there, it has nothing to offer.
+  #
+  # One typed number names every character at once, including the ones
+  # `nearest` merely GUESSED right. That is the point: on the 2026-08-17 render
+  # not a single glyph was an atlas hit, and a coordinate read by luck is the
+  # failure #255 was about.
+  def handle_event("coord_teach_line", %{"coord" => typed}, socket) do
+    case socket.assigns.coord_search do
+      {:unread, band, ink, _text, glyphs} ->
+        {:noreply, teach_coord_line(socket, typed, band, ink, glyphs)}
+
+      _not_unread ->
+        {:noreply, socket}
+    end
+  end
 
   def handle_event("save_found_band", _params, socket) do
     case socket.assigns.coord_search do
@@ -1036,6 +1056,19 @@ defmodule PokexWeb.CalibrationLive do
     {:halt, assign(socket, screen: shot, scale: shot.scale, coord_search: :hovered)}
   end
 
+  # A band proven by shape ends the walking too: no further beat can teach the
+  # atlas a glyph, and the answer it needs is the one only Lucas has — the
+  # number on his own screen.
+  defp fold({:unread, shot, band, ink, text, glyphs}, socket) do
+    {:halt,
+     assign(socket,
+       screen: shot,
+       scale: shot.scale,
+       coord_search: {:unread, band, ink, text, glyphs},
+       coord_teach_msg: nil
+     )}
+  end
+
   defp fold({:shot, nil}, socket), do: {:cont, socket}
   defp fold({:shot, shot}, socket), do: {:cont, assign(socket, screen: shot, scale: shot.scale)}
 
@@ -1087,6 +1120,10 @@ defmodule PokexWeb.CalibrationLive do
     result
   end
 
+  # `:unread` halts like a hit, not like a miss: it only ever means a glyph the
+  # atlas does not know, and no amount of further walking teaches one. Walking
+  # on would cost four more photos to fail the same way and then LOSE the band,
+  # since the last beat wins the accumulator.
   defp beat({key, index}, _acc, draft) do
     Body.perform([{:tap, key}])
     Process.sleep(@walk_settle_ms)
@@ -1094,6 +1131,7 @@ defmodule PokexWeb.CalibrationLive do
     case shot_and_search(draft, :walk) do
       {:found, _shot, _band, _pos, _ink, _mode} = hit -> {:halt, {hit, index}}
       {:hovered, _shot} = hovered -> {:halt, {hovered, index}}
+      {:unread, _s, _b, _i, _t, _g} = unread -> {:halt, {unread, index}}
       other -> {:cont, {other, index}}
     end
   end
@@ -1109,11 +1147,64 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   defp verdict({:ok, band, pos, ink}, shot, mode), do: {:found, shot, band, pos, ink, mode}
+
+  defp verdict({:unread, band, ink, text, glyphs}, shot, _mode),
+    do: {:unread, shot, band, ink, text, glyphs}
+
   defp verdict(:hovered, shot, _mode), do: {:hovered, shot}
   defp verdict(:error, shot, _mode), do: {:shot, shot}
 
   defp found_band({:found, band, _pos, _ink}), do: band
   defp found_pos_text({:found, _band, {x, y, z}, _ink}), do: "(#{x}, #{y}, #{z})"
+
+  defp unread_band({:unread, band, _ink, _text, _glyphs}), do: band
+  defp unread_text({:unread, _band, _ink, text, _glyphs}), do: text
+
+  # Spaces are not glyphs — `read_line` invents them from the gaps — so the
+  # number is zipped onto the characters with its spacing stripped, and Lucas
+  # can type "(2310, 30804, 6)" or "(2310,30804,6)" and mean the same thing.
+  defp teach_coord_line(socket, typed, band, ink, glyphs) do
+    chars = typed |> String.replace(~r/\s/, "") |> String.graphemes()
+
+    if length(chars) == length(glyphs) do
+      glyphs
+      |> Enum.zip(chars)
+      |> Enum.each(&teach_glyph/1)
+
+      Vision.Glyphs.clear()
+      confirm_taught_band(socket, band, ink)
+    else
+      assign(socket,
+        coord_teach_msg:
+          "esse número tem #{length(chars)} caracteres e eu vejo #{length(glyphs)} " <>
+            "na faixa — digite exatamente o que está no minimapa, parênteses e vírgulas inclusive"
+      )
+    end
+  end
+
+  defp teach_glyph({glyph, char}),
+    do: Vision.Glyphs.teach(Vision.Glyphs.signature(glyph.bitmap), char)
+
+  # Taught is not read: the band must prove itself again on the same photo
+  # before the wizard offers to save it, or a typo would be calibrated in.
+  defp confirm_taught_band(socket, band, ink) do
+    scale = socket.assigns.scale || 1.0
+
+    with %{path: path} <- socket.assigns.screen,
+         {:ok, frame} <- Vision.Frame.from_png_file(path),
+         {_x, _y, _z} = pos <- Vision.Glyphs.read_coord(frame, scale_rect(band, scale), ink: ink) do
+      assign(socket, coord_search: {:found, band, pos, ink}, coord_teach_msg: nil)
+    else
+      _still_unread ->
+        assign(socket,
+          coord_teach_msg:
+            "aprendi, mas a faixa ainda não lê inteira — confira o número e tente de novo"
+        )
+    end
+  end
+
+  defp scale_rect({x, y, w, h}, scale),
+    do: {round(x * scale), round(y * scale), round(w * scale), round(h * scale)}
 
   defp not_found?(:not_found), do: true
   defp not_found?({:failed, _reason}), do: true
@@ -2425,6 +2516,41 @@ defmodule PokexWeb.CalibrationLive do
                   Marcar na mão
                 </button>
               </div>
+            </div>
+
+            <%!-- The band is PROVEN and the number is not readable yet. Both
+                  facts on screen at once, because the fix needs both: the crop
+                  shows what the camera saw, the line shows where the reading
+                  broke, and the answer is a number only he can read off his
+                  own minimap. --%>
+            <div :if={match?({:unread, _, _, _, _}, @coord_search)} class="space-y-2">
+              <p id="coord-band-unread" class="text-pk-body font-semibold text-pk-warn">
+                Achei a faixa da coordenada, mas tem caractere que eu nunca vi: li <b class="font-mono">{unread_text(@coord_search)}</b>. Escreva o número que está
+                no seu minimapa — cada <b>?</b> é uma letra que eu aprendo agora, e depois disso
+                eu leio essa faixa sem chutar.
+              </p>
+              <div
+                class="rounded border border-pk-warn-line bg-pk-sunken"
+                style={crop_style(unread_band(@coord_search), @screen)}
+              />
+              <form id="coord-teach-form" phx-submit="coord_teach_line" class="flex flex-wrap gap-2">
+                <input
+                  name="coord"
+                  value={unread_text(@coord_search)}
+                  autocomplete="off"
+                  class="input input-bordered input-sm w-56 font-mono"
+                />
+                <button class="btn btn-primary btn-sm">Aprender e ler</button>
+                <button class="btn btn-ghost btn-sm" type="button" phx-click="coord_search_again">
+                  Buscar de novo
+                </button>
+                <button class="btn btn-ghost btn-sm" type="button" phx-click="coord_manual">
+                  Marcar na mão
+                </button>
+              </form>
+              <p :if={@coord_teach_msg} id="coord-teach-msg" class="text-pk-meta text-pk-warn">
+                {@coord_teach_msg}
+              </p>
             </div>
 
             <div :if={@coord_search == :hovered} class="space-y-2">

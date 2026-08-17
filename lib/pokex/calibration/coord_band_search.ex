@@ -29,6 +29,23 @@ defmodule Pokex.Calibration.CoordBandSearch do
   day-to-day reading looks. Such a photo answers `:hovered`: refusing it is
   what keeps the exception state out of the saved calibration.
 
+  ## The door out of the closed loop (2026-08-17)
+
+  A band used to be confirmed by a WHOLE `read_coord`, and that made one
+  unknown character fatal. Measured on the region Lucas came to hunt: every Y
+  there is 308xx, and the `8` of that render lands 19 pixels from the atlas's
+  against an 18-pixel ceiling. The sweep found the right rectangle, segmented
+  all 14 glyphs and read 13 — `"(2310, 30?04, 6)"` — then threw the rectangle
+  away. Calibration was impossible on the one screen that needed teaching, and
+  the teach page needs a calibrated band: a loop with no door.
+
+  The digits are not what proves the rectangle. Two parentheses, two commas and
+  the digit runs between them are a shape the map does not counterfeit, so a
+  line with that shape answers `:unread` — carrying the band, the partial text
+  and the glyphs, which is everything the wizard needs to ask "what number is
+  on your screen?" and teach the whole render from the answer. A line that
+  reads WHOLE still wins wherever the sweep finds one.
+
   Everything in POINTS in and out (the unit the calibration file speaks);
   pixels are internal, via `scale`.
   """
@@ -46,17 +63,26 @@ defmodule Pokex.Calibration.CoordBandSearch do
   # The colon with a digit beside it: a coordinate never carries one, and the
   # clock's own digits do not always resolve over the map behind them.
   @clock ~r/\d:|:\d/
+  # The coordinate's shape with its digits allowed to be unread. `?` is what
+  # `read_line` renders an unknown glyph as, and it is literal inside the class.
+  @shape ~r/^\(([\d?]+),\s?([\d?]+),\s?([\d?]+)\)$/
 
-  @type found :: {:ok, {integer, integer, integer, integer}, {integer, integer, integer}, integer}
+  @type band :: {integer, integer, integer, integer}
+  @type found :: {:ok, band, {integer, integer, integer}, integer}
+  @type unread :: {:unread, band, integer, String.t(), [map]}
 
   @doc """
   `{:ok, band, {x, y, z}, ink}` — the band (points) and the ink floor that
-  already read the position on `frame` — `:hovered` when the picture shows the
-  minimap's hover state (mouse over the widget, wrong state to calibrate), or
-  `:error` when nothing readable was found.
+  already read the position on `frame`.
+
+  `{:unread, band, ink, text, glyphs}` when a band carries the coordinate's
+  SHAPE but not every glyph resolved: the band is proven, `text` is the partial
+  line (`"(2310, 30?04, 6)"`) and `glyphs` are its characters left to right, so
+  the caller can name them. `:hovered` when the picture shows the minimap's
+  hover state (mouse over the widget, wrong state to calibrate), and `:error`
+  when nothing coordinate-shaped was found at all.
   """
-  @spec search(Frame.t(), {integer, integer, integer, integer}, number, keyword) ::
-          found | :hovered | :error
+  @spec search(Frame.t(), band, number, keyword) :: found | unread | :hovered | :error
   def search(%Frame{} = frame, {_mx, _my, _mw, _mh} = map, scale, opts \\ []) do
     if hovered?(frame, map, scale, opts) do
       :hovered
@@ -74,16 +100,31 @@ defmodule Pokex.Calibration.CoordBandSearch do
     end)
   end
 
+  # One pass, and a whole reading wins from ANYWHERE in it: the shape-only band
+  # is merely remembered — the first one, the shallowest — while the sweep keeps
+  # looking for a band that reads. Two passes would double the cost of the very
+  # case that already scans every candidate.
   defp sweep(frame, {mx, my, mw, mh}, scale, opts) do
-    Enum.find_value(candidates(mh, opts), fn {offset, height, ink} ->
+    mh
+    |> candidates(opts)
+    |> Enum.reduce_while(nil, fn {offset, height, ink}, unread ->
       band = scale_rect({mx, my + offset, mw, height}, scale)
 
       case probe(frame, band, round(scale * @margin), ink) do
-        {:ok, tight, pos} -> {:ok, to_points(tight, scale), pos, ink}
-        :error -> nil
+        {:read, tight, pos} ->
+          {:halt, {:ok, to_points(tight, scale), pos, ink}}
+
+        {:shape, tight, text, glyphs} ->
+          {:cont, unread || unread(tight, scale, ink, text, glyphs)}
+
+        :error ->
+          {:cont, unread}
       end
     end) || :error
   end
+
+  defp unread(tight, scale, ink, text, glyphs),
+    do: {:unread, to_points(tight, scale), ink, text, glyphs}
 
   # Shallow first: with no mouse on the widget the label rides at its top.
   defp candidates(map_height, opts) do
@@ -112,9 +153,10 @@ defmodule Pokex.Calibration.CoordBandSearch do
          {:ok, close} <- bracket(glyphs, atlas, ")"),
          true <- close.x1 > open.x0 do
       tight = {max(open.x0 - margin, 0), y, close.x1 - open.x0 + 2 * margin + 1, h}
-      slacked = put_elem(tight, 2, elem(tight, 2) + 2 * h)
+      rects = [put_elem(tight, 2, elem(tight, 2) + 2 * h), tight]
 
-      Enum.find_value([slacked, tight], &read_band(frame, &1, ink)) || :error
+      Enum.find_value(rects, &read_band(frame, &1, ink)) ||
+        Enum.find_value(rects, &shape_band(frame, &1, ink)) || :error
     else
       _no_brackets -> :error
     end
@@ -122,9 +164,20 @@ defmodule Pokex.Calibration.CoordBandSearch do
 
   defp read_band(frame, rect, ink) do
     case Glyphs.read_coord(frame, rect, ink: ink) do
-      {_x, _y, _z} = pos -> {:ok, rect, pos}
+      {_x, _y, _z} = pos -> {:read, rect, pos}
       nil -> nil
     end
+  end
+
+  # Both rectangles are asked to READ before either is asked for its shape, so a
+  # slack whose map junk only ruins the last character can never beat the tight
+  # rectangle that reads the whole line.
+  defp shape_band(frame, rect, ink) do
+    text = Glyphs.read_line(frame, rect, ink: ink).text
+
+    if Regex.match?(@shape, text),
+      do: {:shape, rect, text, Glyphs.segment(frame, rect, ink: ink)},
+      else: nil
   end
 
   defp bracket(glyphs, atlas, char) do

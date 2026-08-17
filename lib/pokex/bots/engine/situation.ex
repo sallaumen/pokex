@@ -48,17 +48,15 @@ defmodule Pokex.Bots.Engine.Situation do
   `inputs` carries `:battle` (the fact's observation, or `nil` when missing or
   stale), `:own_hp`, `:own_out?`, `:own_name` (the pokémon on the field),
   `:ready_keys` (or `nil` when the bar could not be read), `:damage_keys` (this
-  pokémon's area + single keys), `:stun_at` (when a control skill last fired
-  with a receipt) and `:prev` — the previous picture, which is what makes "is
-  the pile still growing?" answerable.
+  pokémon's area + single keys), and `:prev` — the previous picture, which is
+  what makes "is the pile still growing?" answerable.
 
-  `config` carries `:engage_from` and `:stun_sleep_ms`.
+  `config` carries `:engage_from`.
   """
   @spec build(map, map, integer) :: map
   def build(inputs, config, now) do
     battle = read_battle(Map.get(inputs, :battle), Map.get(inputs, :own_name))
     {growing?, stable_since} = settle(battle.enemies, Map.get(inputs, :prev), now)
-    asleep_until = sleep_until(Map.get(inputs, :stun_at), config)
 
     %{
       rows: battle.rows,
@@ -73,8 +71,6 @@ defmodule Pokex.Bots.Engine.Situation do
       own_out?: Map.get(inputs, :own_out?, false),
       ready_keys: Map.get(inputs, :ready_keys),
       spent?: spent?(Map.get(inputs, :damage_keys, []), Map.get(inputs, :ready_keys)),
-      asleep_until: asleep_until,
-      asleep?: asleep_until != nil and now < asleep_until,
       blind?: Map.get(inputs, :battle) == nil,
       at: now
     }
@@ -150,11 +146,4 @@ defmodule Pokex.Bots.Engine.Situation do
   defp spent?(damage, ready) do
     Enum.count(damage, &(&1 in ready)) <= div(length(damage), 2)
   end
-
-  # R4: the stun is a clock and nothing contradicts it. The receipt proves the
-  # key fired; the sleep landing is assumed, deliberately — "mesmo não tendo
-  # pego, se estamos com pouca vida e a maior parte da tela stunada, essa é a
-  # melhor hora pra usar o revive" (2026-08-17).
-  defp sleep_until(nil, _config), do: nil
-  defp sleep_until(at, config), do: at + Map.fetch!(config, :stun_sleep_ms)
 end

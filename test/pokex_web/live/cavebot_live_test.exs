@@ -1715,10 +1715,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     defp picture(overrides \\ %{}) do
-      Map.merge(
-        %{enemies: 4, growing?: false, stable_for_ms: 1_800, asleep?: false},
-        overrides
-      )
+      Map.merge(%{enemies: 4, growing?: false, stable_for_ms: 1_800}, overrides)
     end
 
     test "shows the count, the settling and the reason", %{conn: conn} do

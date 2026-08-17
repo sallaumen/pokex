@@ -471,20 +471,17 @@ defmodule Pokex.Bots.Combat.Worker do
       true ->
         parent = self()
         confirm? = Settings.get(:combat_confirm_skills) and state.retry_ok?
-        # read HERE, in the worker, so the receipt process never has to call back
-        # into a GenServer that may be parked inside a capture
-        reserved = Strategy.reserved(state.loadout)
 
         {%{
            state
-           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?, reserved) end),
+           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?) end),
              last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
              retry_ok?: true
          }, :sent}
     end
   end
 
-  defp tap_keys(keys, parent, confirm?, reserved) do
+  defp tap_keys(keys, parent, confirm?) do
     before = if confirm?, do: Perception.ready_skills()
     at = now()
 
@@ -497,7 +494,7 @@ defmodule Pokex.Bots.Combat.Worker do
     with :ok <- Perception.mini_game_gate(),
          :ok <- Pokex.Rig.impl().press_many(keys, opts),
          :ok <- Perception.mini_game_gate() do
-      ask_for_receipt(keys, before, at, parent, reserved)
+      ask_for_receipt(keys, before, at, parent)
     else
       {:blocked, :mini_game_active} -> :ok
       {:error, reason} -> send(parent, {:key_burst_failed, reason})
@@ -509,10 +506,10 @@ defmodule Pokex.Bots.Combat.Worker do
   # The receipt is read in its OWN process: this one has to die now so the next
   # decision is not skipped as "a burst still in flight" — confirming must cost
   # accuracy, never damage.
-  defp ask_for_receipt(_keys, nil, _at, _parent, _reserved), do: :ok
+  defp ask_for_receipt(_keys, nil, _at, _parent), do: :ok
 
-  defp ask_for_receipt(keys, before, at, parent, reserved) do
-    spawn(fn -> confirm_burst(keys, before, at, parent, reserved) end)
+  defp ask_for_receipt(keys, before, at, parent) do
+    spawn(fn -> confirm_burst(keys, before, at, parent) end)
     :ok
   end
 
@@ -523,36 +520,16 @@ defmodule Pokex.Bots.Combat.Worker do
   # "A gente tem que sempre estar garantindo que a skill que a gente validou
   # foi usada mesmo" (Lucas, 2026-08-11): hunting is not fishing, and a skill
   # that silently never left is damage he is not doing while a pile eats him.
-  defp confirm_burst(keys, before, at, parent, reserved) do
+  defp confirm_burst(keys, before, at, parent) do
     skills = keys -- [Settings.get(:tab_key)]
     later = Perception.ready_skills_after(at, Settings.get(:combat_confirm_ms))
 
-    checks = SkillReceipt.check(before, later, skills)
-    publish_stun(checks, at, reserved)
-
-    case SkillReceipt.verdict(checks) do
+    case skills |> then(&SkillReceipt.check(before, later, &1)) |> SkillReceipt.verdict() do
       {:missed, missed} -> send(parent, {:skills_missed, missed})
       _confirmed_or_unknown -> :ok
     end
   catch
     kind, reason -> Logger.debug("combat receipt crashed: #{inspect({kind, reason})}")
-  end
-
-  # THE STUN CLOCK STARTS ON PROOF, never on intent.
-  #
-  # The engine assumes the screen sleeps for a fixed time after a control skill
-  # — deliberately, because a partial stun is the common case and the window it
-  # opens is the best one the revive will get. That assumption is only honest if
-  # the key actually FIRED, and the cooldown is what proves it. A clock started
-  # on a key the game never received would have the engine building a revive on
-  # a screen that is wide awake.
-  defp publish_stun(checks, at, reserved) do
-    fired = Map.get(checks, :fired, [])
-
-    if Enum.any?(reserved, &(&1 in fired)),
-      do: WorldState.put(:stun, %{at: at, confirmed?: true}, at)
-
-    :ok
   end
 
   # The freshest battle picture, or nil (stale/missing → Logic acts time-only, fail-safe).

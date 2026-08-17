@@ -504,8 +504,6 @@ defmodule PokexWeb.CavebotComponents do
         <span class="pk-num text-pk-text-2">{count_label(@situation)}</span>
         <span aria-hidden="true">·</span>
         <span>{settle_label(@situation)}</span>
-        <span :if={@situation.asleep?} aria-hidden="true">·</span>
-        <span :if={@situation.asleep?} class="text-pk-info">dormindo</span>
       </p>
     </section>
     """

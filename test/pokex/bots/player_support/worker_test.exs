@@ -737,6 +737,85 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     if text =~ matching, do: text, else: await_log(matching)
   end
 
+  # THE ENGINE OUTRANKS THE OLD LADDER when it is speaking (2026-08-17): "quem
+  # manda ser tomada uma poção ou reviver um pokémon não deveria ser só um
+  # observador da vida, puramente, porque não é puro assim". A health
+  # percentage alone cannot tell a live pile with every cooldown up from a
+  # cleared one with nothing left; the ladder only ever asked the first
+  # question. Fresh orders decide WHEN in both directions; stale or missing
+  # ones fall back to the threshold-only ladder unchanged — the same
+  # two-fallback shape Combat and Cavebot already obey the engine with.
+  describe "obeying the engine" do
+    defp orders!(revive) do
+      WorldState.put(:orders, %{revive: revive}, System.monotonic_time(:millisecond))
+    end
+
+    @tag :tmp_dir
+    test "revives on the engine's word even above the old threshold", %{tmp: tmp, body: body} do
+      # 70% — well above the default 50% rescue threshold, which alone would hold
+      high = hp_png(tmp, "engine_now.png", 14)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, high}]})
+      orders!(:now)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :critical, _}, 1_500
+      assert Worker.status(worker).counters.rescues >= 1
+    end
+
+    # R3 in the field: the pile is not down yet, so the revive stays in its
+    # holster even though the old ladder — reading nothing but the bar — would
+    # already have fired.
+    @tag :tmp_dir
+    test "holds below the old threshold while the engine is still closing the round", %{
+      tmp: tmp,
+      body: body
+    } do
+      low = hp_png(tmp, "engine_hold.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:hold)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, :critical, _}, 400
+      assert Worker.status(worker).counters.rescues == 0
+    end
+
+    @tag :tmp_dir
+    test "his own toggle outranks the engine saying now", %{tmp: tmp, body: body} do
+      Settings.put(:rescue_enabled, false)
+      low = hp_png(tmp, "engine_disabled.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, :critical, _}, 400
+    end
+
+    # Missing/aged orders (no hunt running, the engine down) must never leave
+    # the pokémon LESS protected than before the engine existed.
+    @tag :tmp_dir
+    test "a stale engine falls back to the old ladder exactly", %{tmp: tmp, body: body} do
+      low = hp_png(tmp, "engine_stale.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      # a real order, aged well past the fresh window — as good as no engine at all
+      WorldState.put(:orders, %{revive: :hold}, System.monotonic_time(:millisecond) - 60_000)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :critical, _}, 1_500
+    end
+  end
+
   # "se não tem mais outras skills pra usar, pra tentar dar aquele último dano,
   # daí recolhe" (Lucas, 2026-08-14). A bar still showing the key as READY
   # after the press is the receipt saying it never fired.

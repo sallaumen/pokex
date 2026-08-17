@@ -339,11 +339,17 @@ A sombra saiu no feed em vez de numa tela nova de propósito: a comparação "a 
 **PR 3 — O quadro na tela, e o `cavebot_live` encolhendo.** ✅
 A faixa `#engine-brain` em componente próprio (faixa da vida por palavra e cor, contagem, "parados há Ns", e a frase `why`), e a extração que paga a regra do "só encolher": o médico de rota saiu do LiveView pro `CavebotComponents`, e o arquivo fechou em **2982** (era 3002). `Pokex.Engine.Events` ficou pra PR seguinte — a faixa é o que ele precisa DURANTE o teste; o log estruturado é o que eu preciso DEPOIS.
 
-**PR 4 — Combat obedece.** `fire`, `opening`, `stun`. A régua de 3 entra em vigor. `:posture` vira compatibilidade. O fato `:stun` nasce aqui.
+**PR 4/5 — Combat e Cavebot obedecem.** ✅ (#307, "o combate obedece, e a noite vira número")
+`fire`/`opening` no Combat (a régua de 3 entra em vigor; `:posture` vira compatibilidade) e `route: :go | :hold` + a marca `cooldown_revive` virando dica no Cavebot, no mesmo PR. `Pokex.Engine.Events` (o JSONL estruturado) nasceu aqui também.
 
-**PR 5 — Cavebot obedece.** `route: :go | :hold`, o `:sizing` que ignora pilha pequena, e a marca `cooldown_revive` virando dica.
+O `stun` foi tirado desta PR de propósito: Combat apertando a tecla reservada e o Suporte revivendo por conta própria são duas metades do mesmo mecanismo, e subir só uma repete o erro que já matou o pokémon dele uma vez.
 
-**PR 6 — Suporte obedece.** `revive` e `potion`; a rodada amarela fecha ponta a ponta.
+**PR 6 — Suporte obedece.** ✅ (#309, "o suporte fecha a rodada, e o segundo apertador desaparece")
+`revive` — não `potion`, que nenhuma regra da Logic decide ainda e ficou de fora por não ter o que obedecer.
+
+**Correção de desenho, achada ao ler `PlayerSupport.Worker` de perto pela primeira vez nesta etapa:** o plano original (PRs 2–5) tinha o Combat apertando um stun PRÓPRIO no meio da rodada amarela, cedo, para o revive no fim reaproveitar o sono. Mas `PlayerSupport` já tem, desde as PRs #285/#289, um combo ATÔMICO e testado em campo — aperta a tecla reservada, CONFIRMA pelo recibo, espera o resto do sono, só então recolhe — tudo dentro de um `Body.perform` só (`PlayerSupport.Logic.combo/1`). Dois apertadores da MESMA tecla reservada, um cedo (Combat) e um tarde (Suporte), é exatamente o tipo de coincidência de tempo que já causou o erro que R4 existe para evitar.
+
+Então o desenho mudou: a engine decide só o QUANDO (`revive: :now`), nunca o COMO — o combo velho de `PlayerSupport` continua sendo o único a apertar a tecla reservada, sem mudança nenhuma nele. `orders.stun`, o fato `:stun`, `asleep?`/`asleep_until` em `Situation`, e todo o encanamento de `reserved` no `Combat.Worker` — nada disso chegou a ser usado de verdade (o `Combat` nunca aperta a tecla reservada em rotina nenhuma) e foi removido na mesma PR que ligou o Suporte.
 
 **PR 7 — Limpeza.** A tabela da seção 13, a tela de sombra sai, e o `cavebot_live.ex` fecha o ciclo menor do que começou.
 

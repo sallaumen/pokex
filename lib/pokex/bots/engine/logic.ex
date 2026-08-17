@@ -26,12 +26,31 @@ defmodule Pokex.Bots.Engine.Logic do
     * **R4 — the stun is a clock nothing contradicts.** A partial stun is the
       common case, not the exception, and the window it opens is the best one
       available: "essa é a melhor janela antes de eu não ter mais opções e
-      deixar meu pokémon morrer."
+      deixar meu pokémon morrer." Untouched here on purpose — see the note
+      below on `revive`.
 
   And the three bands he drew over them: green above `band_yellow_pct` hunts
-  normally; yellow CLOSES THE ROUND (stop gathering, let the pile arrive, stun,
-  spend everything, then revive even above the red line, so the next leg starts
+  normally; yellow CLOSES THE ROUND (stop gathering, let the pile arrive, spend
+  everything on it, then revive even above the red line, so the next leg starts
   full); red revives immediately, mid-fight.
+
+  ## `revive` is the whole sequence, not half of one
+
+  `PlayerSupport`'s rescue combo already presses this pokémon's reserved
+  control key, CONFIRMS it against the skill bar, waits out what is left of the
+  sleep, and only then recalls — atomically, as one `Body.perform`
+  (`PlayerSupport.Logic.combo/1`). That is R4, already field-tested (PRs #285,
+  #289) and already fails toward saving when the stun does not land. `revive:
+  :now` triggers exactly that, unchanged — this module decides WHEN, not how.
+
+  An earlier draft had this module ALSO order a stun mid-round, ahead of the
+  fight that spends the cooldowns, so the revive at the end would recall into a
+  pile already asleep. Dropped: `Strategy.reserved/1` keeps the control key out
+  of every ordinary rotation for the ONE moment `PlayerSupport` needs it, and a
+  second presser racing it — on a key with one copy — is a bug waiting for a
+  timing coincidence, not a feature. `fire: :free` here means "spend what is
+  NOT reserved"; the reserved key stays for the combo that already knows how to
+  use it.
 
   ## What it deliberately does not decide
 
@@ -43,9 +62,6 @@ defmodule Pokex.Bots.Engine.Logic do
   defstruct state: :idle,
             # when each phase started, so a wait can have a ceiling
             since: %{},
-            # within the CURRENT round: a stun is one press, not a rotation, and
-            # a revive is a resource, not a reflex
-            stun_sent?: false,
             why: nil
 
   @type t :: %__MODULE__{}
@@ -56,7 +72,6 @@ defmodule Pokex.Bots.Engine.Logic do
           route: :go | :hold,
           fire: :hold | :free,
           opening: [String.t()],
-          stun: :hold | :now,
           revive: :hold | :now,
           potion: :hold | :now,
           why: String.t()
@@ -69,8 +84,9 @@ defmodule Pokex.Bots.Engine.Logic do
   One tick of the decision.
 
   `world` carries `:situation` (the shared picture), `:hunt` (where the route
-  is, or `nil` when no hunt is running) and `:hands` (`%{opening: keys, crowd:
-  keys}` for the pokémon on the field).
+  is, or `nil` when no hunt is running) and `:hands` (`%{opening: keys}` — the
+  non-reserved keys this pokémon fights with; the reserved control key never
+  appears here, see the moduledoc).
   """
   @spec step(t, map, map, integer) :: {t, orders}
   def step(logic, world, config, now) do
@@ -131,8 +147,11 @@ defmodule Pokex.Bots.Engine.Logic do
      )}
   end
 
-  # YELLOW — "fecha a rodada". The one sequence that crosses all three workers,
-  # and the reason a central engine exists at all.
+  # YELLOW — "fecha a rodada". The one sequence that crosses two workers, and
+  # the reason a central engine exists at all: the road holds (R2) while the
+  # fight spends what it has (R3) on whatever the pile still owes, and the
+  # revive — the ALREADY atomic stun+recall combo, see the moduledoc — fires
+  # once that stops being worth waiting for.
   defp closing(logic, world, config, now) do
     logic = enter(logic, :closing, now)
     s = world.situation
@@ -149,18 +168,9 @@ defmodule Pokex.Bots.Engine.Logic do
            why: "amarelo (#{hp}%): parei de mobar, esperando a pilha fechar"
          )}
 
-      # The stun buys the window the revive needs. One press, never a rotation.
-      not logic.stun_sent? and world.hands.crowd != [] ->
-        {%{logic | stun_sent?: true},
-         orders(:closing, :yellow,
-           route: :hold,
-           fire: :hold,
-           stun: :now,
-           why: "amarelo (#{hp}%): stun antes de gastar tudo"
-         )}
-
-      # R4: the window closes. Spending it late is spending it never — and the
-      # alternative is the revive combo with no pokémon on the field.
+      # The pile is down, or the round has simply run long enough — waiting
+      # longer buys nothing either way, and the alternative is the revive
+      # combo firing with no pokémon left on the field.
       revive_now?(logic, s, config, now) ->
         {to_recovering(logic, now),
          orders(:closing, :yellow,
@@ -168,7 +178,7 @@ defmodule Pokex.Bots.Engine.Logic do
            fire: :free,
            opening: opening(world),
            revive: :now,
-           why: revive_why(s, hp, config, now)
+           why: revive_why(s, hp)
          )}
 
       true ->
@@ -182,26 +192,15 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
-  # R3 in one predicate: the revive is spent when the round is actually over —
-  # the pile is down, or the sleep that made this safe is about to end, or the
-  # whole closing has run past its ceiling and waiting longer buys nothing.
-  defp revive_now?(logic, s, config, now) do
-    s.enemies == 0 or window_closing?(s, config, now) or
-      not within?(logic, :closing, config.closing_timeout_ms, now)
-  end
+  defp revive_now?(logic, s, config, now),
+    do: s.enemies == 0 or not within?(logic, :closing, config.closing_timeout_ms, now)
 
-  defp window_closing?(%{asleep?: true, asleep_until: until}, config, now)
-       when is_integer(until),
-       do: until - now <= config.revive_lead_ms
-
-  defp window_closing?(_awake, _config, _now), do: false
-
-  defp revive_why(%{enemies: 0}, hp, _config, _now),
+  defp revive_why(%{enemies: 0}, hp),
     do:
       "amarelo (#{hp}%): pilha limpa e cooldowns gastos — revive agora, o próximo mob começa cheio"
 
-  defp revive_why(_still_up, hp, _config, _now),
-    do: "amarelo (#{hp}%): o stun está acabando — revive agora, é a melhor janela que vai ter"
+  defp revive_why(_still_up, hp),
+    do: "amarelo (#{hp}%): a rodada já durou o que podia durar — revive agora"
 
   defp recovering(logic, world, config, now) do
     hp = world.situation.own_hp
@@ -332,19 +331,13 @@ defmodule Pokex.Bots.Engine.Logic do
   defp to_recovering(logic, now),
     do: %{logic | state: :recovering, since: Map.put(logic.since, :recovering, now)}
 
-  # A new round starts with a full hand: the stun is available again, and the
-  # clocks of the round that ended must not bound the one starting.
-  defp reset(logic), do: %{logic | since: %{}, stun_sent?: false}
+  # A new round's clocks must not be bound by the one that just ended.
+  defp reset(logic), do: %{logic | since: %{}}
 
   defp reset_fight(%{state: state} = logic, state, _now), do: logic
 
   defp reset_fight(logic, state, _now),
-    do: %{
-      logic
-      | state: state,
-        since: Map.drop(logic.since, [:sizing, :closing]),
-        stun_sent?: false
-    }
+    do: %{logic | state: state, since: Map.drop(logic.since, [:sizing, :closing])}
 
   defp orders(phase, band, opts) do
     %{
@@ -353,7 +346,6 @@ defmodule Pokex.Bots.Engine.Logic do
       route: Keyword.get(opts, :route, :go),
       fire: Keyword.get(opts, :fire, :hold),
       opening: Keyword.get(opts, :opening, []),
-      stun: Keyword.get(opts, :stun, :hold),
       revive: Keyword.get(opts, :revive, :hold),
       potion: Keyword.get(opts, :potion, :hold),
       why: Keyword.fetch!(opts, :why)

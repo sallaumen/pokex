@@ -370,7 +370,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # defocused game must stop revive AND potion, not just have the Rig silently swallow them.
   defp act(state, calib) do
     if InputGate.allowed?() do
-      case Logic.decide(decision_input(state)) do
+      case revive_decision(state) do
         :rescue -> fire_combo(%{state | gate: nil}, calib)
         :hold -> %{state | gate: nil} |> maybe_heal_skill() |> maybe_potion(calib)
       end
@@ -748,6 +748,39 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       last_rescue_at: state.last_rescue_at,
       now: now()
     }
+  end
+
+  # THE ENGINE OUTRANKS THE OLD LADDER when it is speaking — the whole point of
+  # R3: a health percentage alone cannot tell a live pile with every cooldown up
+  # from a cleared one with nothing left, and the ladder only ever asked the
+  # first question. "quem manda ser tomada uma poção ou reviver um pokémon não
+  # deveria ser só um observador da vida, puramente" (Lucas, 2026-08-17).
+  #
+  # `rescue_enabled` is checked FIRST and outside the engine's reach on
+  # purpose: it is his own hand on the switch, and no amount of "the engine
+  # says now" may override a toggle he turned off. Then the engine's fresh
+  # answer, obeyed literally in both directions — `:hold` here means the round
+  # is still being closed, and the OLD threshold must not fire underneath it.
+  # Stale or missing orders (no hunt running, the engine is down) fall back to
+  # `Logic.decide/1` exactly as this worked before any of this existed — the
+  # same two-fallback shape Combat and Cavebot already obey the engine with.
+  defp revive_decision(state) do
+    if Settings.get(:rescue_enabled) do
+      case engine_revive() do
+        :now -> :rescue
+        :hold -> :hold
+        nil -> Logic.decide(decision_input(state))
+      end
+    else
+      :hold
+    end
+  end
+
+  defp engine_revive do
+    case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now()) do
+      {:ok, %{revive: revive}} -> revive
+      _stale_or_missing -> nil
+    end
   end
 
   # Mark the attempt time BEFORE dispatching, so the cooldown holds even if the combo errors —

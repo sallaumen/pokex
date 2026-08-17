@@ -351,7 +351,11 @@ O `stun` foi tirado desta PR de propósito: Combat apertando a tecla reservada e
 
 Então o desenho mudou: a engine decide só o QUANDO (`revive: :now`), nunca o COMO — o combo velho de `PlayerSupport` continua sendo o único a apertar a tecla reservada, sem mudança nenhuma nele. `orders.stun`, o fato `:stun`, `asleep?`/`asleep_until` em `Situation`, e todo o encanamento de `reserved` no `Combat.Worker` — nada disso chegou a ser usado de verdade (o `Combat` nunca aperta a tecla reservada em rotina nenhuma) e foi removido na mesma PR que ligou o Suporte.
 
-**PR 7 — Limpeza.** A tabela da seção 13, a tela de sombra sai, e o `cavebot_live.ex` fecha o ciclo menor do que começou.
+**PR "protege fora da caçada" — antes da 7, achada ao revisitar a PR 7.** Quando a PR 7 foi cogitada a primeira vez, a decisão foi adiar (documentado numa PR só de docs, #310): apagar `PlayerSupport.Logic.decide/1` — a escada de HP antiga — deixaria a pesca sem rede, porque o `Engine.Worker` roda em TODO modo (`engine_active` não é preso a modo nenhum) e `hunt: nil` respondia `revive: :hold` num fato FRESCO, o que já bastava pra a escada nunca ser consultada (ela só entra quando o fato está ausente ou velho, nunca quando ele existe e diz "segura"). Ou seja: mesmo sem tirar nada ainda, a proteção da pesca já estava furada — o furo só não doía porque `decide/1` ainda existia como código morto que ninguém alcançava.
+
+Corrigido em `Logic.decide/4`: `hunt: nil` agora ainda calcula a faixa (a mesma leitura de HP, caçando ou não) e responde `revive: :now` no amarelo/vermelho — sem rodada pra fechar, sem cooldown que valha esperar, não tem o que a régua de fechar/emergência ainda compraria. Isso fecha o buraco e é a pré-condição real da PR 7: agora a engine, sozinha, cobre os dois modos, e apagar a escada velha não deixa a pesca sem proteção — ela passa a ser protegida pelo mesmo caminho que já protege a caçada.
+
+**PR 7 — Limpeza.** A tabela da seção 13, a tela de sombra sai, e o `cavebot_live.ex` fecha o ciclo menor do que começou. Passa a rodar com a pré-condição acima resolvida — decisão dele: "bora confiar na engine, se quebrar algo muito feio eu reverto depois."
 
 ---
 

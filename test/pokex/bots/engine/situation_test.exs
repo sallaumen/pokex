@@ -11,7 +11,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
 
   alias Pokex.Bots.Engine.Situation
 
-  @config %{engage_from: 3, stun_sleep_ms: 2_000}
+  @config %{engage_from: 3}
 
   # His battle panel as the located layout reads it: one row per creature, with
   # the name read by glyphs against the Pokédex.
@@ -51,7 +51,6 @@ defmodule Pokex.Bots.Engine.SituationTest do
         own_name: "Vespiquen",
         ready_keys: ~w(3 4 5 6 7 8 9),
         damage_keys: ~w(3 4 5 6 7 8 9),
-        stun_at: nil,
         prev: nil
       },
       overrides
@@ -187,32 +186,6 @@ defmodule Pokex.Bots.Engine.SituationTest do
 
       assert picture.growing? == false
       assert picture.stable_for_ms == 0
-    end
-  end
-
-  describe "the stun clock (R4: time alone, never contradicted)" do
-    test "a stun pressed just now leaves the screen asleep" do
-      picture =
-        inputs(%{stun_at: 1_000})
-        |> Situation.build(@config, 1_500)
-
-      assert picture.asleep? == true
-      assert picture.asleep_until == 3_000
-    end
-
-    test "the sleep expires on the clock" do
-      picture =
-        inputs(%{stun_at: 1_000})
-        |> Situation.build(@config, 3_001)
-
-      assert picture.asleep? == false
-    end
-
-    test "no stun pressed means no sleep" do
-      picture = Situation.build(inputs(), @config, 1_000)
-
-      assert picture.asleep? == false
-      assert picture.asleep_until == nil
     end
   end
 

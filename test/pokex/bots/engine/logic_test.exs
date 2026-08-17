@@ -19,8 +19,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     band_red_pct: 30,
     resume_pct: 80,
     recover_timeout_ms: 30_000,
-    closing_timeout_ms: 8_000,
-    revive_lead_ms: 600
+    closing_timeout_ms: 8_000
   }
 
   defp situation(overrides \\ %{}) do
@@ -32,8 +31,6 @@ defmodule Pokex.Bots.Engine.LogicTest do
         stable_for_ms: 2_000,
         own_hp: 90,
         own_out?: true,
-        asleep?: false,
-        asleep_until: nil,
         spent?: false,
         blind?: false
       },
@@ -50,11 +47,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
   defp world(overrides \\ %{}) do
     Map.merge(
-      %{
-        situation: situation(),
-        hunt: hunt(),
-        hands: %{opening: ~w(3 4 5 6 7 8 9), crowd: ~w(1)}
-      },
+      %{situation: situation(), hunt: hunt(), hands: %{opening: ~w(3 4 5 6 7 8 9)}},
       overrides
     )
   end
@@ -167,28 +160,15 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {_logic, orders} = step(yellow(%{growing?: true, stable_for_ms: 0}), 1_000)
 
       assert orders.fire == :hold
-      assert orders.stun == :hold
       assert orders.why =~ "esperando"
     end
 
-    test "stuns once the pile has closed in" do
+    # R3's spending half: PlayerSupport's OWN rescue combo already presses the
+    # reserved control key, confirms it and settles before it recalls — see
+    # Logic's moduledoc. This module only says WHEN that combo should fire, so
+    # once the pile has settled the fight spends what it can right away.
+    test "spends the cooldowns once the pile has settled" do
       {logic, orders} = step(yellow(), 1_000)
-
-      assert orders.stun == :now
-      assert logic.stun_sent? == true
-      assert orders.why =~ "stun"
-    end
-
-    test "never stuns twice in the same round" do
-      {logic, _} = step(yellow(), 1_000)
-      {_logic, orders} = step(logic, yellow(%{asleep?: true}), 1_200)
-
-      assert orders.stun == :hold
-    end
-
-    test "spends the cooldowns on what is asleep" do
-      {logic, _} = step(yellow(), 1_000)
-      {logic, orders} = step(logic, yellow(%{asleep?: true}), 1_200)
 
       assert logic.state == :closing
       assert orders.fire == :free
@@ -207,15 +187,13 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "revive"
     end
 
-    # R4, his correction: "essa é a melhor janela antes de eu não ter mais
-    # opções". A window that is closing is spent, not saved.
-    test "revives before the sleep runs out even with enemies still up" do
+    # A pile that never dies (a stalemate) must not hold the round forever —
+    # the same ceiling that ends the wait for it to arrive also ends the wait
+    # for it to die.
+    test "gives up on a pile that will not die and revives anyway" do
       {logic, _} = step(yellow(), 1_000)
-
-      closing_window =
-        yellow(%{enemies: 3, asleep?: true, asleep_until: 2_000})
-
-      {logic, orders} = step(logic, closing_window, 1_500)
+      still_up = yellow(%{enemies: 3})
+      {logic, orders} = step(logic, still_up, 1_000 + 8_000 + 1)
 
       assert orders.revive == :now
       assert logic.state == :recovering

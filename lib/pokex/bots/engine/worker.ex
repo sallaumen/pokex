@@ -176,13 +176,12 @@ defmodule Pokex.Bots.Engine.Worker do
     end
   end
 
-  # What this pokémon's keys DO, resolved once here so the orders carry keys and
-  # no consumer has to ask who is on the field. `crowd` is the reserved control
-  # skill — the stun the revive borrows, which an ordinary fight never spends.
-  defp hands(nil), do: %{opening: [], crowd: []}
-
-  defp hands(loadout),
-    do: %{opening: Strategy.opening(loadout), crowd: Strategy.reserved(loadout)}
+  # What this pokémon fights WITH, resolved once here so the orders carry keys
+  # and no consumer has to ask who is on the field. The reserved control key
+  # (`Strategy.reserved/1`) is deliberately absent — it belongs to
+  # `PlayerSupport`'s rescue combo alone, see `Logic`'s moduledoc.
+  defp hands(nil), do: %{opening: []}
+  defp hands(loadout), do: %{opening: Strategy.opening(loadout)}
 
   defp inputs(state, now) do
     %{
@@ -192,27 +191,12 @@ defmodule Pokex.Bots.Engine.Worker do
       own_name: state.loadout && state.loadout.name,
       ready_keys: Perception.ready_skills(now),
       damage_keys: damage_keys(state.loadout),
-      stun_at: stun_at(now),
       prev: state.picture
     }
   end
 
-  # When a control skill last PROVED it fired. Combat publishes this only after
-  # the skill bar shows the cooldown started — the sleep is assumed on a clock,
-  # and a clock started on a key the game never received would be a lie the
-  # revive then gets built on.
-  defp stun_at(now) do
-    case WorldState.get(:stun, Settings.get(:engine_stun_max_age_ms), now) do
-      {:ok, %{at: at, confirmed?: true}} -> at
-      _stale_or_missing -> nil
-    end
-  end
-
   defp config do
-    %{
-      engage_from: Settings.get(:engine_engage_from),
-      stun_sleep_ms: Settings.get(:engine_stun_sleep_ms)
-    }
+    %{engage_from: Settings.get(:engine_engage_from)}
   end
 
   defp decision_config do
@@ -224,8 +208,7 @@ defmodule Pokex.Bots.Engine.Worker do
       band_red_pct: Settings.get(:engine_band_red_pct),
       resume_pct: Settings.get(:engine_resume_pct),
       recover_timeout_ms: Settings.get(:engine_recover_timeout_ms),
-      closing_timeout_ms: Settings.get(:engine_closing_timeout_ms),
-      revive_lead_ms: Settings.get(:engine_revive_lead_ms)
+      closing_timeout_ms: Settings.get(:engine_closing_timeout_ms)
     }
   end
 
@@ -296,14 +279,12 @@ defmodule Pokex.Bots.Engine.Worker do
       band: orders.band,
       route: orders.route,
       fire: orders.fire,
-      stun: orders.stun,
       revive: orders.revive,
       enemies: picture.enemies,
       rows: picture.rows,
       stable_ms: picture.stable_for_ms,
       growing: picture.growing?,
       hp: picture.own_hp,
-      asleep: picture.asleep?,
       why: orders.why
     })
   end
@@ -313,7 +294,6 @@ defmodule Pokex.Bots.Engine.Worker do
   # Ordered by weight, not by field: a tick that would revive AND hold the route
   # is a revive — naming the hold there would bury the expensive half.
   defp shadow_hint(%{revive: :now}), do: " [reviveria agora]"
-  defp shadow_hint(%{stun: :now}), do: " [soltaria o stun]"
   defp shadow_hint(%{fire: :free}), do: " [liberaria o fogo]"
   defp shadow_hint(%{route: :hold}), do: " [seguraria a rota]"
   defp shadow_hint(_watching), do: ""

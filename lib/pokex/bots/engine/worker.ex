@@ -38,6 +38,8 @@ defmodule Pokex.Bots.Engine.Worker do
   use GenServer
 
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.Combat.Strategy
+  alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
@@ -54,6 +56,8 @@ defmodule Pokex.Bots.Engine.Worker do
       running?: false,
       timer: nil,
       picture: nil,
+      logic: Logic.new(),
+      orders: nil,
       # the pokémon on the field: its name is how the own row is told from an
       # enemy, its keys are what "cooldowns spent" means. Read on run and
       # refreshed on the event — never per tick, the team file is a disk read.
@@ -89,6 +93,8 @@ defmodule Pokex.Bots.Engine.Worker do
       state
       | running?: true,
         picture: nil,
+        orders: nil,
+        logic: Logic.new(),
         loadout: Combat.Loadout.current()
     }
 
@@ -99,12 +105,18 @@ defmodule Pokex.Bots.Engine.Worker do
   def handle_call(:halt, _from, state) do
     detach()
     WorldState.forget(:situation)
-    {:reply, :ok, %{cancel_timer(state) | running?: false, picture: nil}}
+    WorldState.forget(:orders)
+    {:reply, :ok, %{cancel_timer(state) | running?: false, picture: nil, orders: nil}}
   end
 
   def handle_call(:status, _from, state) do
-    {:reply, %{state: if(state.running?, do: :watching, else: :idle), picture: state.picture},
-     state}
+    snapshot = %{
+      state: if(state.running?, do: :watching, else: :idle),
+      picture: state.picture,
+      orders: state.orders
+    }
+
+    {:reply, snapshot, state}
   end
 
   @impl true
@@ -132,11 +144,44 @@ defmodule Pokex.Bots.Engine.Worker do
 
     WorldState.put(:situation, picture, now)
 
+    {logic, orders} =
+      Logic.step(
+        state.logic,
+        %{situation: picture, hunt: hunt(now), hands: hands(state.loadout)},
+        decision_config(),
+        now
+      )
+
+    # ORDERS TRAVEL AS A FACT, never as a message — the whole reason a central
+    # engine is allowed to exist here. Facts carry their age, so an engine that
+    # dies simply stops refreshing this one and every worker falls back to what
+    # it does today. Nobody obeys it yet: this step exists to be COMPARED
+    # against what the bot actually did, for a night, before anything changes.
+    WorldState.put(:orders, orders, now)
+
     state
     |> narrate(picture)
-    |> Map.put(:picture, picture)
-    |> tap(&broadcast({:engine, &1.picture}))
+    |> narrate_orders(orders)
+    |> Map.merge(%{picture: picture, orders: orders, logic: logic})
+    |> tap(&broadcast({:engine, &1.picture, &1.orders}))
   end
+
+  # Where the hunt is. Absent (no cavebot running, or a stale fact) is a legal
+  # answer and means "nothing to decide about" — never a guess.
+  defp hunt(now) do
+    case WorldState.get(:hunt, Settings.get(:engine_hunt_max_age_ms), now) do
+      {:ok, obs} -> obs
+      _stale_or_missing -> nil
+    end
+  end
+
+  # What this pokémon's keys DO, resolved once here so the orders carry keys and
+  # no consumer has to ask who is on the field. `crowd` is the reserved control
+  # skill — the stun the revive borrows, which an ordinary fight never spends.
+  defp hands(nil), do: %{opening: [], crowd: []}
+
+  defp hands(loadout),
+    do: %{opening: Strategy.opening(loadout), crowd: Strategy.reserved(loadout)}
 
   defp inputs(state, now) do
     %{
@@ -155,6 +200,20 @@ defmodule Pokex.Bots.Engine.Worker do
     %{
       engage_from: Settings.get(:engine_engage_from),
       stun_sleep_ms: Settings.get(:engine_stun_sleep_ms)
+    }
+  end
+
+  defp decision_config do
+    %{
+      engage_from: Settings.get(:engine_engage_from),
+      pile_settle_ms: Settings.get(:engine_pile_settle_ms),
+      size_ceiling_ms: Settings.get(:engine_size_ceiling_ms),
+      band_yellow_pct: Settings.get(:engine_band_yellow_pct),
+      band_red_pct: Settings.get(:engine_band_red_pct),
+      resume_pct: Settings.get(:engine_resume_pct),
+      recover_timeout_ms: Settings.get(:engine_recover_timeout_ms),
+      closing_timeout_ms: Settings.get(:engine_closing_timeout_ms),
+      revive_lead_ms: Settings.get(:engine_revive_lead_ms)
     }
   end
 
@@ -200,6 +259,28 @@ defmodule Pokex.Bots.Engine.Worker do
     log(:macro, "#{picture.enemies} #{plural(picture.enemies)}#{named_as(picture)}")
     state
   end
+
+  # THE SHADOW. One line per DECISION CHANGE, in the same feed as what the bot
+  # actually did — so a night can be read as two columns without a second
+  # screen: "🧠 quem mandaria" beside the hunt's own lines. The `why` is the
+  # whole point; the phase is there so a change of mind is visible even when the
+  # sentence reads similar.
+  defp narrate_orders(%{orders: %{why: same}} = state, %{why: same}), do: state
+
+  defp narrate_orders(state, orders) do
+    log(:macro, "🧠 #{orders.why}#{shadow_hint(orders)}")
+    state
+  end
+
+  # What it WOULD have changed, named only when it differs from just watching —
+  # this is what makes the comparison against the bot's real behaviour concrete.
+  # Ordered by weight, not by field: a tick that would revive AND hold the route
+  # is a revive — naming the hold there would bury the expensive half.
+  defp shadow_hint(%{revive: :now}), do: " [reviveria agora]"
+  defp shadow_hint(%{stun: :now}), do: " [soltaria o stun]"
+  defp shadow_hint(%{fire: :free}), do: " [liberaria o fogo]"
+  defp shadow_hint(%{route: :hold}), do: " [seguraria a rota]"
+  defp shadow_hint(_watching), do: ""
 
   defp plural(1), do: "inimigo na tela"
   defp plural(_n), do: "inimigos na tela"

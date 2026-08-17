@@ -331,18 +331,21 @@ Uma limitação observável por PR, `mix precommit` zerado, strings pt-BR, `cave
 - **A contagem que vai decidir tudo não é escrita em lugar nenhum hoje.**
 - **A discordância sobre a própria linha:** o código afirma, em comentário de medição, que o pokémon dele **não** aparece na lista (`interpret.ex:44`); ele diz que é sempre a primeira linha. A captura de 11/08 22:14 mostra uma linha só, "Vileplume", com pokébola à direita, numa época em que o Shiny Vileplume estava no time — sugere que ele tem razão, mas captura estática não separa "meu pokémon" de "capturável marcado por quest". **Isso muda a régua em 1, que é a diferença entre atacar e ignorar.** Registrar o nome de cada linha resolve com dado dele, numa volta de caçada.
 
-**PR 2 — A engine que só narra.**
-`Engine.Logic` publicando `:orders` + `Pokex.Engine.Events` (o JSONL estruturado, que só tem o que registrar quando existem decisões) + o card do quadro na Central. **Nenhum worker obedece.** Tela de sombra: "a engine mandaria" × "o bot fez". Uma noite contra a caçada real antes de trocar o cérebro.
+**PR 2 — A engine que só narra.** ✅
+`Engine.Logic` (a árvore inteira dele, pura) + o fato `:hunt` que o Cavebot passa a publicar (onde a rota está, para a engine raciocinar sobre a perna e não só sobre a tela) + `Engine.Worker` publicando `:orders` + a **sombra no feed**: uma linha 🧠 por mudança de decisão, no mesmo lugar onde as linhas da caçada já caem. **Nenhum worker obedece.**
 
-O card é a primeira coisa a tocar o `cavebot_live.ex` de verdade, e é onde a regra do "só encolher" passa a valer: a PR 1 o deixou em **3002** linhas (as 6 do fio da fonte `engine`), e a PR 2 tem que sair dele abaixo de 2996.
+A sombra saiu no feed em vez de numa tela nova de propósito: a comparação "a engine mandaria × o bot fez" só vale se as duas colunas estiverem no mesmo texto, na mesma ordem cronológica — e é onde ele já lê. O card visual e o `Engine.Events` foram adiados pra PR 3, com o `cavebot_live.ex` intocado aqui (segue em **3002**).
 
-**PR 3 — Combat obedece.** `fire`, `opening`, `stun`. A régua de 3 entra em vigor. `:posture` vira compatibilidade. O fato `:stun` nasce aqui.
+**PR 3 — O quadro na tela, e o `cavebot_live` encolhendo.**
+Card da situação + ordens em componente próprio, `Pokex.Engine.Events` (o JSONL estruturado), e a extração que paga a regra do "só encolher": o arquivo tem que sair abaixo de **2996**.
 
-**PR 4 — Cavebot obedece.** `route: :go | :hold`, o `:sizing` que ignora pilha pequena, e a marca `cooldown_revive` virando dica.
+**PR 4 — Combat obedece.** `fire`, `opening`, `stun`. A régua de 3 entra em vigor. `:posture` vira compatibilidade. O fato `:stun` nasce aqui.
 
-**PR 5 — Suporte obedece.** `revive` e `potion`; a rodada amarela fecha ponta a ponta.
+**PR 5 — Cavebot obedece.** `route: :go | :hold`, o `:sizing` que ignora pilha pequena, e a marca `cooldown_revive` virando dica.
 
-**PR 6 — Limpeza.** A tabela da seção 13, a tela de sombra sai, e o `cavebot_live.ex` fecha o ciclo menor do que começou.
+**PR 6 — Suporte obedece.** `revive` e `potion`; a rodada amarela fecha ponta a ponta.
+
+**PR 7 — Limpeza.** A tabela da seção 13, a tela de sombra sai, e o `cavebot_live.ex` fecha o ciclo menor do que começou.
 
 ---
 

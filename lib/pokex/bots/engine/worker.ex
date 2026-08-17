@@ -41,6 +41,7 @@ defmodule Pokex.Bots.Engine.Worker do
   alias Pokex.Bots.Combat.Strategy
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
+  alias Pokex.Engine.Events
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
@@ -191,9 +192,20 @@ defmodule Pokex.Bots.Engine.Worker do
       own_name: state.loadout && state.loadout.name,
       ready_keys: Perception.ready_skills(now),
       damage_keys: damage_keys(state.loadout),
-      stun_at: nil,
+      stun_at: stun_at(now),
       prev: state.picture
     }
+  end
+
+  # When a control skill last PROVED it fired. Combat publishes this only after
+  # the skill bar shows the cooldown started — the sleep is assumed on a clock,
+  # and a clock started on a key the game never received would be a lie the
+  # revive then gets built on.
+  defp stun_at(now) do
+    case WorldState.get(:stun, Settings.get(:engine_stun_max_age_ms), now) do
+      {:ok, %{at: at, confirmed?: true}} -> at
+      _stale_or_missing -> nil
+    end
   end
 
   defp config do
@@ -269,7 +281,31 @@ defmodule Pokex.Bots.Engine.Worker do
 
   defp narrate_orders(state, orders) do
     log(:macro, "🧠 #{orders.why}#{shadow_hint(orders)}")
+    file(state, orders)
     state
+  end
+
+  # …and the same moment a second time, TYPED. The sentence above is what he
+  # reads in the morning; this is what tells us later whether three was the
+  # right ruler — a question no amount of prose can answer.
+  defp file(%{picture: nil}, _orders), do: :ok
+
+  defp file(%{picture: picture}, orders) do
+    Events.record(:decision, %{
+      phase: orders.phase,
+      band: orders.band,
+      route: orders.route,
+      fire: orders.fire,
+      stun: orders.stun,
+      revive: orders.revive,
+      enemies: picture.enemies,
+      rows: picture.rows,
+      stable_ms: picture.stable_for_ms,
+      growing: picture.growing?,
+      hp: picture.own_hp,
+      asleep: picture.asleep?,
+      why: orders.why
+    })
   end
 
   # What it WOULD have changed, named only when it differs from just watching —

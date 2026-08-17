@@ -462,8 +462,50 @@ defmodule Pokex.Bots.Cavebot.Worker do
       fainted?: own_fainted?(now)
     }
 
+    world = Map.merge(world, engine_asks(now))
+
     if pos, do: {world, %{state | pos: pos, pos_at: now}}, else: {world, state}
   end
+
+  # What the ENGINE asks of the road, read as a fact with an age like everything
+  # else here. Missing or stale means it asks nothing: the route walks, and the
+  # route's own `cooldown_revive` mark runs exactly as it always did. An engine
+  # that dies can slow this hunt down by not more than one tick.
+  defp engine_asks(now) do
+    with {:ok, orders} <- WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now),
+         {:ok, picture} <-
+           WorldState.get(:situation, Settings.get(:engine_orders_max_age_ms), now) do
+      %{
+        route_hold?: Map.get(orders, :route) == :hold,
+        reset_worth?: reset_worth?(picture),
+        reset_note: reset_note(picture)
+      }
+    else
+      _no_engine -> %{}
+    end
+  end
+
+  # A revive does two jobs — it heals AND it clears every cooldown — so it is
+  # worth spending when either one is actually needed. Full bar and full health
+  # is the case he named: "você reseta só porque é um local da rota que parece
+  # que faz sentido" (2026-08-17).
+  #
+  # Unknown is never a refusal: a reading we could not take must not be the
+  # reason a corner he marked stops working.
+  defp reset_worth?(%{own_hp: hp, spent?: spent?}) do
+    cond do
+      is_integer(hp) and hp < Settings.get(:engine_band_yellow_pct) -> true
+      spent? == true -> true
+      is_integer(hp) and spent? == false -> false
+      true -> :unknown
+    end
+  end
+
+  defp reset_note(%{own_hp: hp, spent?: false}) when is_integer(hp),
+    do: "vida #{hp}%, cooldowns prontos"
+
+  defp reset_note(%{own_hp: hp}) when is_integer(hp), do: "vida #{hp}%"
+  defp reset_note(_no_reading), do: nil
 
   # The :pokemon fact PlayerSupport already publishes 8x a second — read, never
   # asked. Absent, stale and unreadable all come out nil: without a running
@@ -613,6 +655,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
         fire_revive(state.body, actions)
         state
     end
+  end
+
+  # The corner asked for a reset and the moment answered no. Said out loud with
+  # the reading that decided it: a stop that silently did not happen is
+  # indistinguishable from a broken one, and this one is a NEW refusal — he has
+  # to be able to disagree with it.
+  def translate(state, {:skip_reset, note}) do
+    log(:macro, "⚡ pulei o reset#{if note, do: ": " <> note, else: ""}")
+    state
   end
 
   # Starting combat CAN fail preflight (no calibration, e.g.). On failure we

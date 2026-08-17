@@ -70,6 +70,8 @@ defmodule Pokex.Sim.Runner do
       seed: Keyword.get(opts, :seed, 42),
       knobs: Keyword.get(opts, :knobs, %{}),
       scenario: nil,
+      auto?: false,
+      leg: 0,
       loadout: Keyword.get(opts, :loadout)
     }
 
@@ -112,6 +114,24 @@ defmodule Pokex.Sim.Runner do
 
   @spec scenario(GenServer.server()) :: Scenario.t() | nil
   def scenario(server \\ __MODULE__), do: GenServer.call(server, :scenario)
+
+  @doc """
+  Hands the character over to the engine, or takes it back.
+
+  Without this the live simulator shows a brain that decides and a body that
+  does nothing: the fleet is not running here, so `:orders` are published and
+  nobody obeys them, and the character stands still until the monsters kill it.
+  Which looks exactly like a broken simulator.
+
+  With it on, the runner obeys the three orders the fleet obeys — walk, fire,
+  revive — reading them from the same `:orders` fact the real workers read. It
+  is not a second brain: it is the missing hands.
+  """
+  @spec auto(GenServer.server(), boolean) :: :ok
+  def auto(server \\ __MODULE__, on?), do: GenServer.call(server, {:auto, on?})
+
+  @spec auto?(GenServer.server()) :: boolean
+  def auto?(server \\ __MODULE__), do: GenServer.call(server, :auto?)
 
   @spec play(GenServer.server()) :: :ok
   def play(server \\ __MODULE__), do: GenServer.call(server, :play)
@@ -165,6 +185,8 @@ defmodule Pokex.Sim.Runner do
     {:reply, :ok, cancel(%{state | playing?: false})}
   end
 
+  def handle_call({:auto, on?}, _from, state), do: {:reply, :ok, %{state | auto?: on?}}
+  def handle_call(:auto?, _from, state), do: {:reply, state.auto?, state}
   def handle_call(:playing?, _from, state), do: {:reply, state.playing?, state}
   def handle_call(:world, _from, state), do: {:reply, state.world, state}
   def handle_call(:tick_now, _from, state), do: {:reply, :ok, advance(state)}
@@ -194,7 +216,7 @@ defmodule Pokex.Sim.Runner do
         loadout: Keyword.get(opts, :loadout, state.loadout)
       )
 
-    %{state | world: world, published: %{}, last_at: state.clock.(), route: route}
+    %{state | world: world, published: %{}, last_at: state.clock.(), route: route, leg: 0}
   end
 
   defp advance(%{world: nil} = state), do: state
@@ -207,9 +229,75 @@ defmodule Pokex.Sim.Runner do
     world = state.world |> World.step(elapsed) |> apply_script(state.scenario, was)
 
     state = publish(%{state | world: world, last_at: now}, now)
-    Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:sim, world})
+    state = obey(state, now)
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:sim, state.world})
     state
   end
+
+  # The hands the live simulator was missing. Reads the SAME `:orders` fact the
+  # Cavebot, the Combat and the PlayerSupport read, and does what each of them
+  # would have done with it — so what is on screen is the engine playing, not a
+  # second implementation of its rules.
+  defp obey(%{auto?: false} = state, _now), do: state
+
+  defp obey(state, now) do
+    case WorldState.get(:orders, 2_000, now) do
+      {:ok, orders} ->
+        world = state.world |> walk_to_leg(orders, state.leg) |> fire(orders) |> revive(orders)
+        %{state | world: world, leg: next_leg(world, state.leg)}
+
+      _stale_or_missing ->
+        state
+    end
+  end
+
+  defp walk_to_leg(world, %{route: :hold}, _leg), do: release(world)
+
+  defp walk_to_leg(world, _going, leg) do
+    target = Enum.at(world.route.waypoints, leg)
+    {x, y, _z} = world.pos
+
+    wanted =
+      Enum.reject(
+        [axis(target.x - x, "right", "left"), axis(target.y - y, "down", "up")],
+        &is_nil/1
+      )
+
+    Enum.reduce(wanted, release(world), &World.press(&2, {:key_down, &1}))
+  end
+
+  defp release(world), do: Enum.reduce(world.held, world, &World.press(&2, {:key_up, &1}))
+
+  defp axis(0, _positive, _negative), do: nil
+  defp axis(delta, positive, _negative) when delta > 0, do: positive
+  defp axis(_delta, _positive, negative), do: negative
+
+  defp next_leg(world, leg) do
+    target = Enum.at(world.route.waypoints, leg)
+    {x, y, _z} = world.pos
+
+    if max(abs(target.x - x), abs(target.y - y)) <= 1,
+      do: rem(leg + 1, length(world.route.waypoints)),
+      else: leg
+  end
+
+  defp fire(world, %{fire: :free, opening: keys}) when keys != [],
+    do: Enum.reduce(keys, world, &World.press(&2, {:press, &1}))
+
+  defp fire(world, _holding), do: world
+
+  # The revive is R3 in one key: it heals AND zeroes every cooldown. Modelling
+  # only the healing would make the engine look wrong about when to spend it.
+  defp revive(world, %{revive: :now}) do
+    %{
+      world
+      | own: %{world.own | hp_pct: 100, out?: true, alive?: true},
+        keys: Map.new(world.keys, fn {key, skill} -> {key, %{skill | ready_at: 0}} end)
+    }
+  end
+
+  defp revive(world, _holding), do: world
 
   # Fired against the world's clock so a scenario is reproducible: a script on
   # the machine's clock would drift with the load, and "it did not revive" would

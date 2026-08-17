@@ -2,56 +2,6 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
   use ExUnit.Case, async: true
   alias Pokex.Bots.PlayerSupport.Logic
 
-  # prev_hp_pct defaults to 0 (previous read agreed it's low) so the threshold/cooldown tests
-  # exercise their own rule; the consecutive-reads guard has its own dedicated tests.
-  defp input(overrides) do
-    %{
-      hp_pct: 100,
-      prev_hp_pct: 0,
-      threshold_pct: 50,
-      enabled?: true,
-      cooldown_ms: 60_000,
-      last_rescue_at: nil,
-      now: 10_000
-    }
-    |> Map.merge(Map.new(overrides))
-  end
-
-  describe "decide/1" do
-    test "holds while HP is at or above the rescue threshold" do
-      assert Logic.decide(input(hp_pct: 100)) == :hold
-      assert Logic.decide(input(hp_pct: 50)) == :hold
-    end
-
-    test "rescues the first time HP drops below the threshold" do
-      assert Logic.decide(input(hp_pct: 49)) == :rescue
-      assert Logic.decide(input(hp_pct: 10)) == :rescue
-    end
-
-    test "an unknown HP reading never rescues (fail-safe: don't burn a revive on nil)" do
-      assert Logic.decide(input(hp_pct: nil)) == :hold
-    end
-
-    test "the toggle disables the rescue entirely" do
-      assert Logic.decide(input(hp_pct: 5, enabled?: false)) == :hold
-    end
-
-    test "the protection cooldown blocks a second combo within the window" do
-      assert Logic.decide(input(hp_pct: 5, last_rescue_at: 10_000, now: 40_000)) == :hold
-    end
-
-    test "the combo fires again once the cooldown has fully elapsed" do
-      assert Logic.decide(input(hp_pct: 5, last_rescue_at: 10_000, now: 70_000)) == :rescue
-      assert Logic.decide(input(hp_pct: 5, last_rescue_at: 10_000, now: 200_000)) == :rescue
-    end
-
-    test "one garbage frame never burns a revive: the PREVIOUS read must agree it's low" do
-      assert Logic.decide(input(hp_pct: 5, prev_hp_pct: nil)) == :hold
-      assert Logic.decide(input(hp_pct: 5, prev_hp_pct: 90)) == :hold
-      assert Logic.decide(input(hp_pct: 5, prev_hp_pct: 40)) == :rescue
-    end
-  end
-
   describe "potion_wanted?/1" do
     defp potion_input(overrides) do
       %{

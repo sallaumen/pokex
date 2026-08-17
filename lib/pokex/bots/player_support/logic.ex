@@ -1,39 +1,14 @@
 defmodule Pokex.Bots.PlayerSupport.Logic do
   @moduledoc """
   Pure decision core for the survival combo. No I/O, no time of its own — the caller supplies the
-  HP reading and the monotonic `now`, so the whole rule is a total function that is trivial to test.
+  HP reading and the monotonic `now`, so every rule here is a total function that is trivial to
+  test.
 
-  `decide/1` answers `:rescue | :hold` for the main Pokémon. `combo/1` builds the atomic Body
-  sequence that recalls the Pokémon, max-revives it on its portrait, and puts it back out.
+  WHEN to revive the main Pokémon is `Engine.Logic`'s call, not this module's — see
+  `PlayerSupport.Worker.revive_decision/0`. `combo/1` builds the atomic Body sequence the engine's
+  `revive: :now` triggers: recalls the Pokémon, max-revives it on its portrait, and puts it back
+  out.
   """
-
-  @type decision :: :rescue | :hold
-
-  @doc """
-  `:rescue` when the main Pokémon needs the survival combo NOW, else `:hold`. Fail-safe: a disabled
-  toggle, an unknown (nil) HP reading, or HP at/above the threshold all hold, and once a combo has
-  fired no second one is allowed until `cooldown_ms` has fully elapsed (revives are expensive).
-
-  TWO consecutive reads must agree it's low (`prev_hp_pct` below the threshold too): a single
-  garbage frame — a screenshot of the wrong screen at boot, a mid-scroll tear — must never burn a
-  revive. Costs one tick (~120ms) of rescue delay, which the combo's own ~600ms dwarfs.
-
-  Expects a map with `:hp_pct` and `:prev_hp_pct` (0..100 or nil), `:threshold_pct`, `:enabled?`,
-  `:cooldown_ms`, `:last_rescue_at` (monotonic ms or nil) and `:now` (monotonic ms).
-  """
-  @spec decide(map) :: decision
-  def decide(%{enabled?: false}), do: :hold
-  def decide(%{hp_pct: nil}), do: :hold
-  def decide(%{hp_pct: hp, threshold_pct: threshold}) when hp >= threshold, do: :hold
-
-  def decide(%{prev_hp_pct: prev, threshold_pct: threshold})
-      when is_nil(prev) or prev >= threshold,
-      do: :hold
-
-  def decide(%{last_rescue_at: nil}), do: :rescue
-
-  def decide(%{now: now, last_rescue_at: last, cooldown_ms: cooldown}),
-    do: if(now - last >= cooldown, do: :rescue, else: :hold)
 
   @doc """
   True when the main Pokémon wants a potion — everything EXCEPT the combat gate: enabled, HP known

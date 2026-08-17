@@ -308,6 +308,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   } do
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
     Settings.put(:rescue_cooldown_ms, 1)
 
     worker = start_worker(body)
@@ -321,6 +322,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     refute_receive {:performed, _priority, _actions}, 300
     assert Worker.status(worker).counters.reads == reads_at_halt
 
+    # re-published: the halt/re-arm round trip can outlast the fact's fresh window
+    orders!(:now)
     assert :ok = Worker.run(worker)
     assert Worker.status(worker).state == :monitoring
     assert_receive {:performed, :critical, _}, 1_000
@@ -349,6 +352,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   } do
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -377,6 +381,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     low = hp_png(tmp, "low_reserved.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_worker(body)
@@ -398,6 +403,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     low = hp_png(tmp, "low_no_control.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_worker(body)
@@ -430,6 +436,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -473,6 +480,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -493,6 +501,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -523,6 +532,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -552,6 +562,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     worker = start_worker(body)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
@@ -577,6 +588,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -616,6 +628,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     low = hp_png(tmp, "low_crowd.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
@@ -649,6 +662,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   test "the cooldown blocks a second combo within the window", %{tmp: tmp, body: body} do
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
     Settings.put(:rescue_cooldown_ms, 60_000)
 
     worker = start_worker(body)
@@ -666,6 +680,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   test "the rescue never parks the worker: status and halt answer mid-combo", %{tmp: tmp} do
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
     {:ok, blocking} = Pokex.Bots.PlayerSupport.WorkerTest.BlockingBody.start_link(self())
 
     worker = start_worker(blocking)
@@ -689,6 +704,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   } do
     low = hp_png(tmp, "low_sector.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
     {:ok, refusing} = Pokex.Bots.PlayerSupport.WorkerTest.RefusingBody.start_link(self())
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
@@ -703,6 +719,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   test "a refused revive is NAMED, and the cooldown still holds", %{tmp: tmp} do
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
     {:ok, refusing} = Pokex.Bots.PlayerSupport.WorkerTest.RefusingBody.start_link(self())
     Settings.put(:rescue_cooldown_ms, 60_000)
 
@@ -723,6 +740,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   test "a delivered revive is confirmed in the feed", %{tmp: tmp, body: body} do
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     worker = start_worker(body)
@@ -737,14 +755,14 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     if text =~ matching, do: text, else: await_log(matching)
   end
 
-  # THE ENGINE OUTRANKS THE OLD LADDER when it is speaking (2026-08-17): "quem
-  # manda ser tomada uma poção ou reviver um pokémon não deveria ser só um
+  # THE ENGINE IS THE ONLY VOICE on when to revive (2026-08-17): "quem manda
+  # ser tomada uma poção ou reviver um pokémon não deveria ser só um
   # observador da vida, puramente, porque não é puro assim". A health
   # percentage alone cannot tell a live pile with every cooldown up from a
-  # cleared one with nothing left; the ladder only ever asked the first
+  # cleared one with nothing left; the old ladder only ever asked the first
   # question. Fresh orders decide WHEN in both directions; stale or missing
-  # ones fall back to the threshold-only ladder unchanged — the same
-  # two-fallback shape Combat and Cavebot already obey the engine with.
+  # ones simply hold (PR 7 retired the threshold-only ladder underneath —
+  # there is nothing left to fall back to, by design).
   describe "obeying the engine" do
     defp orders!(revive) do
       WorldState.put(:orders, %{revive: revive}, System.monotonic_time(:millisecond))
@@ -799,10 +817,18 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       refute_receive {:performed, :critical, _}, 400
     end
 
-    # Missing/aged orders (no hunt running, the engine down) must never leave
-    # the pokémon LESS protected than before the engine existed.
+    # There is no older ladder underneath this one anymore (PR 7): a stale or
+    # missing :orders fact holds rather than guessing off HP alone, the same
+    # fail-open rule as every other missing fact in this codebase. A brief gap
+    # here is bounded by OTP restarting Engine.Worker (a supervised, permanent
+    # child of BotSupervisor) within milliseconds of any crash; a failure bad
+    # enough to keep it down is bad enough to have already taken Combat and
+    # Cavebot down with it.
     @tag :tmp_dir
-    test "a stale engine falls back to the old ladder exactly", %{tmp: tmp, body: body} do
+    test "a stale engine holds — there is no older ladder underneath it anymore", %{
+      tmp: tmp,
+      body: body
+    } do
       low = hp_png(tmp, "engine_stale.png", 6)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
       # a real order, aged well past the fresh window — as good as no engine at all
@@ -812,7 +838,21 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
 
-      assert_receive {:performed, :critical, _}, 1_500
+      refute_receive {:performed, :critical, _}, 400
+      assert Worker.status(worker).counters.rescues == 0
+    end
+
+    @tag :tmp_dir
+    test "no engine fact at all holds too", %{tmp: tmp, body: body} do
+      low = hp_png(tmp, "engine_missing.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, :critical, _}, 400
+      assert Worker.status(worker).counters.rescues == 0
     end
   end
 
@@ -867,6 +907,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
       low = hp_png(tmp, "low_last_card.png", 6)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
 
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
@@ -891,6 +932,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
       low = hp_png(tmp, "low_empty_hand.png", 6)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
 
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       worker = start_worker(body)

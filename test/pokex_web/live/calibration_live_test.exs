@@ -7,6 +7,7 @@ defmodule PokexWeb.CalibrationLiveTest do
   alias Pokex.Calibration
   alias Pokex.Rig.Fake
   alias Pokex.Settings
+  alias Pokex.SettingsStash
 
   setup do
     count = Settings.get(:skill_bar_count)
@@ -1698,6 +1699,13 @@ defmodule PokexWeb.CalibrationLiveTest do
     } do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Pokex.TestHome.restore() end)
+      # "Salvar assim" below persists the ink floor that read the band to the
+      # SHARED default Settings server — outside this test's own home, and
+      # outliving it. A later test reading the compiled default (a hover photo
+      # has no coordinate to read at all, so it can only be told apart from a
+      # walking one by trying every floor) inherited whichever floor THIS run
+      # happened to save, deciding by run order alone (measured 2026-08-17).
+      SettingsStash.stash_keys!([:minimap_coord_ink])
 
       Calibration.save(%Calibration{
         scale: 1.0,
@@ -1876,6 +1884,10 @@ defmodule PokexWeb.CalibrationLiveTest do
         Pokex.TestHome.restore()
         Pokex.Vision.Glyphs.clear()
       end)
+
+      # Same leak as the test above: "Salvar assim" persists the winning ink
+      # floor to the SHARED default Settings server.
+      SettingsStash.stash_keys!([:minimap_coord_ink])
 
       Calibration.save(%Calibration{scale: 1.0, screen_w: 262, screen_h: 50})
 

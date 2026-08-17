@@ -1,13 +1,26 @@
 import Config
 
 config :pokex, rig: Pokex.Rig.Fake
+
+# `Pokex.Settings` boots as part of the supervision tree — before this file's
+# later lines, before test_helper.exs, before any test's own :home_dir
+# override — and reads its WHOLE state from disk exactly once at `init/1`,
+# caching it in the named GenServer for the entire `mix test` invocation. A
+# fixed repo-relative path there means a value ANY test ever persisted stays
+# read by every future run FOREVER, with no test-level hook early enough to
+# stop it — measured 2026-08-17: `minimap_coord_ink` left at 170 by some past
+# run silently disabled the ink floor (120) a hover-clock fixture needed,
+# breaking a calibration test that passes on any fresh checkout of the exact
+# same code. A per-boot directory is the fix: nothing to inherit, ever.
+test_home = Path.join(System.tmp_dir!(), "pokex-test-home-#{System.os_time(:microsecond)}")
+
 # Inside the home, as in production: Settings keeps the character layer at
 # `<dir of settings.json>/chars/<slug>/settings.json`, and a settings_path
 # outside the home made the tests' characters land in a different directory
 # from the one `Pokex.Characters` reads.
-config :pokex, settings_path: "tmp/test-home/settings.json"
+config :pokex, settings_path: Path.join(test_home, "settings.json")
 config :pokex, sensors: Pokex.Bots.Fisher.Sensors.Fake
-config :pokex, home_dir: "tmp/test-home"
+config :pokex, home_dir: test_home
 # ...and falling back to the real ~/.pokex is never right here: a test that
 # erases :home_dir must blow up naming itself, not read Lucas's live home.
 config :pokex, home_dir_required: true

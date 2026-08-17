@@ -354,6 +354,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
       # takes for free fire — and it opened up on the crowd the hunt was about
       # to gather.
       |> publish_posture(now)
+      |> publish_hunt(now)
       |> translate(action)
       |> note_arrival(wp_before, now)
       |> note_stair_taken(wp_before, state_before, taps_before, now)
@@ -396,6 +397,33 @@ defmodule Pokex.Bots.Cavebot.Worker do
     else
       state
     end
+  end
+
+  # WHERE the hunt is, as a fact, for whoever needs to reason about the leg
+  # rather than about the screen. The posture above says what Combat must DO;
+  # this says what the hunt IS — which leg it walks, whether that leg is a
+  # gathering, and whether the clock still considers the pile to be arriving.
+  #
+  # Published beside the posture and never instead of it: the posture is a
+  # command with a heartbeat, this is a description. A consumer that misses it
+  # loses context, never safety.
+  defp publish_hunt(state, now) do
+    logic = state.logic
+
+    WorldState.put(
+      :hunt,
+      %{
+        state: logic.state,
+        luring?: Logic.luring?(logic),
+        gathering?: Logic.gathering?(logic, now),
+        wp_index: logic.wp_index,
+        waypoints: length(logic.route.waypoints),
+        recovering?: logic.recovering?
+      },
+      now
+    )
+
+    state
   end
 
   defp posture_text(:hold_fire),

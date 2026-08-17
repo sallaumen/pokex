@@ -990,7 +990,33 @@ defmodule Pokex.Settings do
     # ALONE, never contradicted by "I am still taking damage": a stun that
     # caught most of the screen is exactly the window the revive needs, and a
     # straggler still awake is the common case, not the exception.
-    engine_stun_sleep_ms: 2_000
+    engine_stun_sleep_ms: 2_000,
+    # "Pararam de chegar" needs a floor: how long the count must hold still
+    # before the pile counts as closed. A MEASUREMENT, not a preference — his
+    # own recording shows 1264, 2543, 3248 and 4806ms of real gathering.
+    engine_pile_settle_ms: 1_500,
+    # …and a ceiling, because R2 says greed makes the pile VANISH: past this,
+    # the hunt decides with whatever showed up instead of waiting more. 4s is
+    # his longest recorded gather (4806) rounded down.
+    engine_size_ceiling_ms: 4_000,
+    # THE BANDS (2026-08-17). Yellow is where the round starts being CLOSED —
+    # stop gathering, let the pile arrive, stun, spend everything, then revive
+    # so the next leg starts full. Red is where nothing is worth waiting for.
+    # Both inherit the numbers he had already chosen for the old thresholds.
+    engine_band_yellow_pct: 60,
+    engine_band_red_pct: 30,
+    # …and the route only walks again above this.
+    engine_resume_pct: 80,
+    # A revive that never lands must not end the night standing still.
+    engine_recover_timeout_ms: 30_000,
+    # Nor may closing a round wait forever for a pile that stopped coming.
+    engine_closing_timeout_ms: 8_000,
+    # How much of the stun's sleep the revive needs left to be worth firing —
+    # R4: "essa é a melhor janela antes de eu não ter mais opções".
+    engine_revive_lead_ms: 600,
+    # How old the hunt's own fact may be before the engine treats it as "no hunt
+    # running". Generous against the cavebot's 200ms tick.
+    engine_hunt_max_age_ms: 2_000
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)
@@ -1201,6 +1227,15 @@ defmodule Pokex.Settings do
     # is the battle panel's own row count — a ruler above it never engages.
     engine_engage_from: 1..12,
     engine_stun_sleep_ms: 100..60_000,
+    engine_pile_settle_ms: 0..60_000,
+    engine_size_ceiling_ms: 100..600_000,
+    engine_band_yellow_pct: 0..100,
+    engine_band_red_pct: 0..100,
+    engine_resume_pct: 1..100,
+    engine_recover_timeout_ms: 1_000..600_000,
+    engine_closing_timeout_ms: 100..600_000,
+    engine_revive_lead_ms: 0..60_000,
+    engine_hunt_max_age_ms: 200..60_000,
     posture_max_age_ms: 500..60_000,
     command_corner_dwell_ms: 0..600_000,
     logout_confirm_delay_ms: 0..600_000,

@@ -46,6 +46,13 @@ defmodule Pokex.Bots.Engine.WorkerTest do
   # :tick already in the mailbox has been handled.
   defp settle(worker), do: Worker.status(worker)
 
+  # The shadow line — what the engine WOULD have ordered — rides every tick that
+  # changes the decision. These tests are about the picture, so they consume it
+  # and let `shadow_test.exs` be the one that reads it.
+  defp assert_shadow do
+    assert_receive {:engine_log, :macro, "quadro: 🧠" <> _}
+  end
+
   defp now, do: System.monotonic_time(:millisecond)
 
   describe "the shared picture" do
@@ -90,6 +97,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert text =~ "Venonat, Paras, Venomoth"
       # the own-row measurement rides the same first tick — see its own test
       assert_receive {:engine_log, :macro, _measurement}
+      assert_shadow()
 
       send(worker, :tick)
       send(worker, :tick)
@@ -104,6 +112,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       settle(worker)
       assert_receive {:engine_log, :macro, _first}
       assert_receive {:engine_log, :macro, _measurement}
+      assert_shadow()
 
       see(~w(Venonat Paras Venomoth Oddish))
       send(worker, :tick)
@@ -119,6 +128,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       settle(worker)
       assert_receive {:engine_log, :macro, _count}
       assert_receive {:engine_log, :macro, _measurement}
+      assert_shadow()
 
       WorldState.forget(:battle)
       send(worker, :tick)
@@ -155,6 +165,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
 
       assert_receive {:engine_log, :macro, text}
       assert text =~ "sem nomes"
+      assert_shadow()
       refute_receive {:engine_log, :macro, _}, 20
     end
   end

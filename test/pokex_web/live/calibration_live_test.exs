@@ -1861,6 +1861,74 @@ defmodule PokexWeb.CalibrationLiveTest do
     end
 
     @tag :tmp_dir
+    # 2026-08-17: the band was right and ONE character was unknown — the 8 of a
+    # region where every Y is 308xx — so the wizard threw the band away, and the
+    # only page that teaches glyphs needs a saved band to work. The loop is
+    # opened here: the proven band comes back with its partial line, and the
+    # number Lucas types off his own minimap names every character at once.
+    test "an unknown character asks for the number instead of losing the band", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+
+      on_exit(fn ->
+        Pokex.TestHome.restore()
+        Pokex.Vision.Glyphs.clear()
+      end)
+
+      Calibration.save(%Calibration{scale: 1.0, screen_w: 262, screen_h: 50})
+
+      probe =
+        Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+
+      {:ok, _} =
+        Fake.start_link(%{
+          capture: [{:ok, probe}],
+          capture_screen: [{:ok, "test/fixtures/screen/minimap_coord_unknown_digit.png"}]
+        })
+
+      {:ok, view, _} = live(conn, ~p"/calibration")
+      view |> element("button", "Posição & minimapa") |> render_click()
+
+      click = fn x, y ->
+        params = %{"x" => x, "y" => y, "cw" => 262.0, "ch" => 50.0, "nw" => 262.0, "nh" => 50.0}
+        render_hook(view, "img_click", params)
+        render_hook(view, "img_click", params)
+      end
+
+      click.(0.0, 0.0)
+      click.(262.0, 50.0)
+      click.(131.0, 25.0)
+
+      html = render(view)
+      assert html =~ ~s(id="coord-band-unread")
+      assert html =~ "(2310, 30?04, 6)"
+
+      html =
+        view
+        |> form("#coord-teach-form", %{"coord" => "(2310, 3080, 6)"})
+        |> render_submit()
+
+      assert html =~ ~s(id="coord-teach-msg")
+      assert html =~ ~s(id="coord-band-unread")
+
+      html =
+        view
+        |> form("#coord-teach-form", %{"coord" => "(2310, 30804, 6)"})
+        |> render_submit()
+
+      assert html =~ ~s(id="coord-band-found")
+      assert html =~ "li: (2310, 30804, 6)"
+
+      html = view |> element("button", "Salvar assim") |> render_click()
+      assert html =~ "salvos"
+
+      assert {:ok, calib} = Calibration.load()
+      assert calib.minimap_coord_region != nil
+    end
+
+    @tag :tmp_dir
     # the hand still rules: "Marcar na mão" falls back to the 2-click band —
     # and the screenshot being marked is by then the HOVER shot, the first
     # picture that actually CONTAINS the numbers

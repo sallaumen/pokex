@@ -7,11 +7,13 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
   search inverts the burden: given the map rectangle he CAN see, scan candidate
   bands for a readable "(x, y, z)" and let the living proof pick the band.
   """
-  use ExUnit.Case, async: true
+  # Not async: teaching a glyph moves the home AND drops the cached atlas, both
+  # global — a test reading glyphs beside it would see this file's atlas.
+  use ExUnit.Case, async: false
 
   alias Pokex.Calibration.CoordBandSearch
   alias Pokex.{Layout, ScreenFixtures}
-  alias Pokex.Vision.Frame
+  alias Pokex.Vision.{Frame, Glyphs}
 
   @coords %{
     "ultrawide_3440x1440_full" => {337, 46_107, 4},
@@ -85,6 +87,69 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
              CoordBandSearch.search(frame, {0, 0, 259, 50}, 1.0, ink: 120)
 
     assert ink > 120
+  end
+
+  # 2026-08-17, the region Lucas came here to hunt: every Y is 308xx, so every
+  # coordinate on this map carries an 8 — and the 8 of THIS render lands 19
+  # pixels from the atlas's, one over the 18-pixel ceiling. The sweep found the
+  # right band, segmented all 14 glyphs and read 13 of them, then threw the band
+  # away because `read_coord` demands a perfect line. Calibration became
+  # impossible on the one screen that needed teaching, and teaching needs a
+  # calibrated band: a closed loop with no door.
+  describe "a band whose shape is proven but whose glyphs are not all known" do
+    setup do
+      {:ok, frame} = Frame.from_png_file("test/fixtures/screen/minimap_coord_unknown_digit.png")
+      %{frame: frame, map: {0, 0, 262, 50}}
+    end
+
+    test "answers :unread with the band, the partial line and the glyphs", ctx do
+      assert {:unread, band, ink, text, glyphs} =
+               CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 170)
+
+      assert text == "(2310, 30?04, 6)"
+      assert length(glyphs) == 14
+      assert ink == 170
+
+      {bx, by, bw, bh} = band
+      assert by >= 0 and by + bh <= 50
+      assert bx >= 0 and bw >= 100
+    end
+
+    test "reads whole once the single unknown glyph is named", ctx do
+      {:unread, _band, ink, _text, glyphs} =
+        CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 170)
+
+      teach_line(glyphs, "(2310,30804,6)")
+
+      assert {:ok, _band, {2310, 30_804, 6}, ^ink} =
+               CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 170)
+    end
+  end
+
+  test "a line that reads whole wins over one that only has the shape" do
+    frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
+    {:ok, fix} = Layout.locate(frame)
+
+    assert {:ok, _band, {337, 46_107, 4}, _ink} =
+             CoordBandSearch.search(frame, Layout.region(:minimap, fix), 1.0, ink: 120)
+  end
+
+  defp teach_line(glyphs, line) do
+    home = Path.join(System.tmp_dir!(), "pokex_teach_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(home)
+    Application.put_env(:pokex, :home_dir, home)
+
+    on_exit(fn ->
+      Pokex.TestHome.restore()
+      Glyphs.clear()
+      File.rm_rf!(home)
+    end)
+
+    glyphs
+    |> Enum.zip(String.graphemes(line))
+    |> Enum.each(&Glyphs.teach(Glyphs.signature(elem(&1, 0).bitmap), elem(&1, 1)))
+
+    Glyphs.clear()
   end
 
   test "a map with no coordinate text anywhere answers :error" do

@@ -279,12 +279,48 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.revive == :hold
     end
 
-    test "no hunt at all is not a decision to make" do
+    test "no hunt at all, full health, is not a decision to make" do
       {_logic, orders} = step(world(%{hunt: nil}), 1_000)
 
       assert orders.route == :go
       assert orders.fire == :hold
+      assert orders.revive == :hold
       assert orders.why =~ "sem caçada"
+    end
+  end
+
+  describe "no hunt does not mean no pokémon (fishing mode)" do
+    # This worker ticks whether or not Cavebot is running — while fishing, a
+    # fresh :orders fact saying revive: :hold would silently outrank
+    # PlayerSupport's own HP ladder, the one thing that has always protected
+    # fishing. See the moduledoc.
+    test "yellow with no hunt still revives now" do
+      hurting = world(%{hunt: nil, situation: situation(%{own_hp: 55})})
+
+      {logic, orders} = step(hurting, 1_000)
+
+      assert logic.state == :guarding
+      assert orders.revive == :now
+      assert orders.why =~ "55%"
+    end
+
+    test "red with no hunt still revives now" do
+      hurting = world(%{hunt: nil, situation: situation(%{own_hp: 20})})
+
+      {logic, orders} = step(hurting, 1_000)
+
+      assert logic.state == :guarding
+      assert orders.revive == :now
+      assert orders.band == :red
+    end
+
+    test "an unreadable HP with no hunt still holds, not guesses" do
+      unknown = world(%{hunt: nil, situation: situation(%{own_hp: nil})})
+
+      {_logic, orders} = step(unknown, 1_000)
+
+      assert orders.revive == :hold
+      assert orders.band == :green
     end
   end
 end

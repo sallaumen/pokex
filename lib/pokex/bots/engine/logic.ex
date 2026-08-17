@@ -57,6 +57,21 @@ defmodule Pokex.Bots.Engine.Logic do
   Not seeing is not a decision. When the picture says it cannot read the screen,
   the orders say hold — and every consumer's rule for a missing order is what it
   does today. An engine that guesses is worse than one that is quiet.
+
+  ## No hunt does not mean no pokémon
+
+  `hunt: nil` used to mean "answer green and say nothing else" — right while
+  Cavebot is simply between routes, wrong while Lucas is fishing: this worker
+  still ticks in that mode (`engine_active` is not mode-gated), so it still
+  PUBLISHES a fresh `:orders` fact every tick. `PlayerSupport`'s own HP ladder
+  (`Logic.decide/1`) is only ever consulted when the engine's fact is missing
+  or stale — a fresh fact saying `revive: :hold` is not "the engine has
+  nothing to say", it is "the engine says hold", and it would silently
+  outrank a ladder that has protected fishing for as long as the bot has
+  existed. So `hunt: nil` still bands on HP (the one reading that means the
+  same thing whether or not a hunt is running) and answers `revive: :now`
+  on yellow or red — no pile to close, no cooldowns worth spending first, so
+  there is nothing to wait for that closing/emergency's split still buys.
   """
 
   defstruct state: :idle,
@@ -94,10 +109,24 @@ defmodule Pokex.Bots.Engine.Logic do
     {%{logic | why: orders.why}, orders}
   end
 
-  # Nothing to decide about: no hunt is running. The route order still reads
-  # `:go` because a stopped engine must never be the reason a hunt stands still.
-  defp decide(logic, %{hunt: nil}, _config, _now) do
-    {%{logic | state: :idle}, orders(:idle, :green, why: "sem caçada rodando")}
+  # No hunt to run — but HP still means what it always means. See the
+  # moduledoc's "No hunt does not mean no pokémon".
+  defp decide(logic, %{hunt: nil} = world, config, _now) do
+    band = band(world.situation, config)
+
+    case band do
+      :green ->
+        {%{logic | state: :idle}, orders(:idle, :green, why: "sem caçada rodando")}
+
+      _yellow_or_red ->
+        hp = world.situation.own_hp
+
+        {%{logic | state: :guarding},
+         orders(:guarding, band,
+           revive: :now,
+           why: "sem caçada, só protegendo: #{hp}% de vida — revive agora"
+         )}
+    end
   end
 
   defp decide(%{state: :recovering} = logic, world, config, now),

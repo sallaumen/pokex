@@ -93,6 +93,7 @@ defmodule Pokex.Sim.World do
             own: nil,
             keys: %{},
             clock: 0,
+            failures: MapSet.new(),
             next_id: 1,
             rand: nil,
             knobs: %{}
@@ -187,6 +188,10 @@ defmodule Pokex.Sim.World do
   @doc "Advances the world by `dt_ms`."
   @spec step(t, non_neg_integer) :: t
   def step(world, dt_ms) do
+    if broken?(world, :mini_game), do: world, else: run(world, dt_ms)
+  end
+
+  defp run(world, dt_ms) do
     world
     |> walk(dt_ms)
     |> move_mobs(dt_ms)
@@ -214,6 +219,37 @@ defmodule Pokex.Sim.World do
 
   def press(world, _nothing_the_world_models), do: world
 
+  @doc """
+  Breaks something on purpose, the way the game breaks it.
+
+  These are the four failures he named, and each is modelled where it actually
+  bites rather than as a flag the screen merely displays:
+
+    * `:blind` — the screen cannot be read. `enemies` goes `nil`, NEVER `[]`:
+      an empty list is "nothing is there" and a `nil` is "I cannot see", and the
+      whole point of the distinction is that they have opposite right answers.
+    * `{:dead_key, key}` — the key leaves the hand, the bar changes, the receipt
+      confirms, and NOTHING HAPPENS IN THE GAME. This is the bug open in his
+      journal on 2026-08-17 (6 openings, 6 `🔁 não saiu`, zero `alvo morto`),
+      modelled so the pattern can be compared instead of guessed at.
+    * `:mini_game` — the capsule is on screen. Every fact freezes, because the
+      real feeds skip their captures while it is up: a stale fact during the
+      mini-game is not a signal of anything.
+    * `{:hp, pct}` — puts the health where the scenario needs it, so a band can
+      be reached without waiting to be bitten there.
+  """
+  @spec fail(t, term) :: t
+  def fail(world, {:hp, pct}),
+    do: %{world | own: hurt(world.own, world.own.hp_pct - pct)}
+
+  def fail(world, failure), do: %{world | failures: MapSet.put(world.failures, failure)}
+
+  @spec recover(t, term) :: t
+  def recover(world, failure), do: %{world | failures: MapSet.delete(world.failures, failure)}
+
+  @spec broken?(t, term) :: boolean
+  def broken?(world, failure), do: MapSet.member?(world.failures, failure)
+
   # A key on cooldown fires NOTHING — that is the closed loop the whole
   # simulator is worth: the press changes the bar, the bar is what the Combat
   # worker's SkillReceipt confirms against, and a receipt that never arrives is
@@ -222,8 +258,15 @@ defmodule Pokex.Sim.World do
     case world.keys[key] do
       nil -> world
       %{ready_at: at} when at > world.clock -> world
-      skill -> world |> damage(skill.kind) |> spend(key)
+      skill -> world |> maybe_damage(key, skill.kind) |> spend(key)
     end
+  end
+
+  # The receipt loop still closes — the bar changes and the confirm succeeds —
+  # and the monster does not bleed. That is exactly the shape of the failure he
+  # is living with, and it is invisible to every log he has.
+  defp maybe_damage(world, key, kind) do
+    if broken?(world, {:dead_key, key}), do: world, else: damage(world, kind)
   end
 
   defp spend(world, key) do
@@ -269,9 +312,43 @@ defmodule Pokex.Sim.World do
       fail-open rule is what tells them apart.
   """
   @spec observe(t, atom) :: map
-  def observe(%{knobs: %{readable?: false}}, :battle), do: blind_battle()
-
   def observe(world, :battle) do
+    if unreadable?(world), do: blind_battle(), else: readable_battle(world)
+  end
+
+  def observe(world, :pokemon) do
+    cond do
+      unreadable?(world) -> %{hp_pct: nil, readable?: false, fainted?: false}
+      # A fallen pokemon does not read as "health nil on a readable bar": the bar
+      # is GONE, because the window changes shape when it goes down. That is how
+      # PlayerSupport tells a death from a live reading
+      # (`player_support/worker.ex:308` publishes exactly this), and answering
+      # `readable?: true` would leave the death scenario untestable while looking
+      # correct.
+      not world.own.out? -> %{hp_pct: nil, readable?: false, fainted?: true}
+      true -> %{hp_pct: world.own.hp_pct, readable?: true, fainted?: false}
+    end
+  end
+
+  def observe(world, :skill_bar), do: %{ready_keys: ready_keys(world)}
+
+  def observe(world, :minimap), do: %{pos: world.pos}
+
+  def observe(world, :mini_game) do
+    if broken?(world, :mini_game),
+      do: %{playing?: true, confidence: 1.0},
+      else: %{playing?: false, confidence: 0.0}
+  end
+
+  # Three ways to not be reading the screen, and they are the same fact to every
+  # consumer: the knob (a world built blind), the injection (a scenario turning
+  # the lights off mid-run), and the mini-game (the feeds skip their captures
+  # while the capsule is up, so every fact is frozen, not empty).
+  defp unreadable?(world) do
+    world.knobs.readable? == false or broken?(world, :blind) or broken?(world, :mini_game)
+  end
+
+  defp readable_battle(world) do
     rows = own_row(world) ++ visible(world)
 
     %{
@@ -285,26 +362,6 @@ defmodule Pokex.Sim.World do
       shiny_star_run: 0
     }
   end
-
-  def observe(%{knobs: %{readable?: false}}, :pokemon),
-    do: %{hp_pct: nil, readable?: false, fainted?: false}
-
-  # A fallen pokemon does not read as "health nil on a readable bar": the bar is
-  # GONE, because the window changes shape when it goes down. That is how
-  # PlayerSupport tells a death from a live reading (`player_support/worker.ex:308`
-  # publishes exactly this), and a simulator answering `readable?: true` here
-  # would leave the death scenario untestable while looking correct.
-  def observe(%{own: %{out?: false}}, :pokemon),
-    do: %{hp_pct: nil, readable?: false, fainted?: true}
-
-  def observe(world, :pokemon),
-    do: %{hp_pct: world.own.hp_pct, readable?: true, fainted?: false}
-
-  def observe(world, :skill_bar), do: %{ready_keys: ready_keys(world)}
-
-  def observe(world, :minimap), do: %{pos: world.pos}
-
-  def observe(_world, :mini_game), do: %{playing?: false, confidence: 0.0}
 
   defp blind_battle do
     %{

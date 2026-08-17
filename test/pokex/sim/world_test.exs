@@ -426,7 +426,15 @@ defmodule Pokex.Sim.WorldTest do
   end
 
   test "the pokemon fact carries readable health" do
-    assert World.observe(armed(), :pokemon) == %{hp_pct: 100, readable?: true}
+    assert World.observe(armed(), :pokemon) == %{hp_pct: 100, readable?: true, fainted?: false}
+  end
+
+  test "the pokemon fact carries every key the real publisher writes" do
+    real_keys = [:fainted?, :hp_pct, :readable?]
+
+    for world <- [armed(), armed(%{readable?: false})] do
+      assert world |> World.observe(:pokemon) |> Map.keys() |> Enum.sort() == real_keys
+    end
   end
 
   test "the mini game fact is published as not playing" do
@@ -439,7 +447,7 @@ defmodule Pokex.Sim.WorldTest do
 
     assert battle.enemies == nil
     assert battle.enemies_detail == []
-    assert World.observe(world, :pokemon) == %{hp_pct: nil, readable?: false}
+    assert World.observe(world, :pokemon) == %{hp_pct: nil, readable?: false, fainted?: false}
   end
 
   test "an adjacent mob bites the pokemon" do
@@ -482,7 +490,7 @@ defmodule Pokex.Sim.WorldTest do
 
     refute fallen.own.alive?
     refute fallen.own.out?
-    assert World.observe(fallen, :pokemon) == %{hp_pct: nil, readable?: true}
+    assert World.observe(fallen, :pokemon) == %{hp_pct: nil, readable?: false, fainted?: true}
   end
 
   test "the battle fact it publishes is one the real Situation can count" do

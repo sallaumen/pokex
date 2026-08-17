@@ -21,6 +21,7 @@ defmodule PokexWeb.SimLive do
   alias Pokex.Perception.WorldState
   alias Pokex.Sim.Fence
   alias Pokex.Sim.Runner
+  alias Pokex.Sim.Scenario
 
   @directions %{
     "ArrowRight" => "right",
@@ -51,7 +52,9 @@ defmodule PokexWeb.SimLive do
        picture: nil,
        orders: nil,
        refusal: nil,
-       floor: nil
+       floor: nil,
+       scenarios: Scenario.all(),
+       scenario: Runner.scenario()
      )}
   end
 
@@ -89,7 +92,18 @@ defmodule PokexWeb.SimLive do
     {:noreply, socket |> assign(route_name: name) |> load_route()}
   end
 
-  def handle_event("reload", _params, socket), do: {:noreply, load_route(socket)}
+  def handle_event("reload", _params, socket) do
+    if socket.assigns.scenario,
+      do: {:noreply, load_scenario(socket, socket.assigns.scenario.id)},
+      else: {:noreply, load_route(socket)}
+  end
+
+  def handle_event("pick-scenario", %{"scenario" => ""}, socket) do
+    {:noreply, socket |> assign(scenario: nil) |> load_route()}
+  end
+
+  def handle_event("pick-scenario", %{"scenario" => id}, socket),
+    do: {:noreply, load_scenario(socket, id)}
 
   # The hands, from HIS keyboard instead of from the bot's. The world cannot
   # tell the difference, which is the whole point: the same press that the
@@ -127,6 +141,26 @@ defmodule PokexWeb.SimLive do
         assign(socket, world: Runner.world(), floor: nil)
     end
   end
+
+  defp load_scenario(socket, id) do
+    case Scenario.get(id) do
+      nil ->
+        socket
+
+      scenario ->
+        Runner.load_scenario(scenario, socket.assigns.routes)
+        assign(socket, scenario: scenario, world: Runner.world(), floor: nil)
+    end
+  end
+
+  defp failures(nil), do: []
+  defp failures(world), do: Enum.map(world.failures, &failure_label/1)
+
+  defp failure_label(:blind), do: "tela ilegível"
+  defp failure_label(:mini_game), do: "mini-game na tela"
+  defp failure_label({:dead_key, key}), do: "tecla #{key} não sai"
+  defp failure_label({:hp, pct}), do: "vida forçada em #{pct}%"
+  defp failure_label(other), do: to_string(other)
 
   defp send_key(%{assigns: %{armed?: false}}, _key, _direction), do: :ok
 
@@ -247,6 +281,27 @@ defmodule PokexWeb.SimLive do
             </select>
           </form>
 
+          <form phx-change="pick-scenario" class="flex items-center gap-2">
+            <select
+              name="scenario"
+              class="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-100"
+            >
+              <option value="">— cenário livre —</option>
+              <optgroup
+                :for={{group, items} <- Enum.group_by(@scenarios, & &1.group)}
+                label={Scenario.group_label(group)}
+              >
+                <option
+                  :for={item <- items}
+                  value={item.id}
+                  selected={@scenario && @scenario.id == item.id}
+                >
+                  {item.name}
+                </option>
+              </optgroup>
+            </select>
+          </form>
+
           <button
             :if={!@armed?}
             phx-click="arm"
@@ -293,6 +348,22 @@ defmodule PokexWeb.SimLive do
 
         <p :if={@refusal} class="rounded-lg bg-amber-950/60 px-3 py-2 text-sm text-amber-200">
           {@refusal}
+        </p>
+
+        <div
+          :if={@scenario}
+          class="rounded-xl border border-sky-900/60 bg-sky-950/30 px-3 py-2 text-sm text-sky-100"
+        >
+          <span class="font-semibold">{@scenario.name}</span>
+          <span class="text-sky-300/70">· {Scenario.group_label(@scenario.group)}</span>
+          <p class="mt-1 text-sky-200/90">{@scenario.why}</p>
+        </div>
+
+        <p
+          :if={failures(@world) != []}
+          class="rounded-lg bg-rose-950/60 px-3 py-2 text-sm font-medium text-rose-200"
+        >
+          quebrado de propósito agora: {Enum.join(failures(@world), " · ")}
         </p>
 
         <p

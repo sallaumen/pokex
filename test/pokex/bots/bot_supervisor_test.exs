@@ -530,6 +530,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # Task. Focus is why the guard lives there: with the simulator armed, bringing the
   # game forward would otherwise start the real fleet with nobody asking.
   @tag :tmp_dir
+  @tag :capture_log
   test "start_all/0 refuses while the simulator is armed" do
     on_exit(fn -> :persistent_term.erase({Pokex.Sim.Fence, :arm_state}) end)
     :persistent_term.put({Pokex.Sim.Fence, :arm_state}, %{rig: Pokex.Rig.Fake})
@@ -542,6 +543,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # that is legitimate: what this proves is that the refusal stopped being the
   # simulator's. Asserting :ok here would depend on the machine's calibration.
   @tag :tmp_dir
+  @tag :capture_log
   test "start_all/0 stops refusing once the simulator is disarmed" do
     on_exit(fn ->
       :persistent_term.erase({Pokex.Sim.Fence, :arm_state})

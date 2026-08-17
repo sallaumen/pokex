@@ -26,6 +26,39 @@ defmodule PokexWeb.DiagnosticsLiveTest do
     assert calls == [{:press, "shift+v"}]
   end
 
+  # A 2s delay with no visible feedback used to be indistinguishable from a
+  # dead button — this is what tells the eye "the machine is waiting", not
+  # just the console line far below.
+  test "the Teclas buttons disable while a press is in flight, and re-enable after", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+    view |> element("button[phx-value-combo='shift+v']") |> render_click()
+    html = render(view)
+    assert html =~ "loading-spinner"
+    assert view |> element("button[phx-value-combo='1']") |> render() =~ ~s(disabled="")
+
+    send(view.pid, {:delayed_press, "shift+v"})
+    html = render(view)
+    refute html =~ "loading-spinner"
+    refute view |> element("button[phx-value-combo='1']") |> render() =~ ~s(disabled="")
+  end
+
+  # The three unrelated result groups (glyphs, tools, vision) must not bleed
+  # into each other — the whole reason each one got its own readout line.
+  test "a tools action does not touch the glyph or vision result lines", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+    view
+    |> form("#click-form", %{"x" => "812", "y" => "402", "button" => "left"})
+    |> render_submit()
+
+    html = render(view)
+    assert html =~ "click left"
+    assert html =~ "resultado aparece aqui…"
+  end
+
   # The measurement itself, end to end: the two rounds are drained APART (the
   # plain key rides the native path alone, then rides osascript alongside the
   # shifted ones), so a silent shift cannot hide behind a working "1".
@@ -151,6 +184,16 @@ defmodule PokexWeb.DiagnosticsLiveTest do
 
     assert html =~ "inválid"
     refute Enum.any?(Fake.calls(), &match?({:click, _, _}, &1))
+  end
+
+  # The status strip is the whole point of the reorganization: know at a
+  # glance whether this reading means anything, before firing a single test.
+  test "the status strip names an uncalibrated install and offers the way out", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+    html = render(view)
+    assert html =~ "Não calibrado"
+    assert view |> element("#status-calibrate-link") |> render() =~ ~p"/calibration"
   end
 
   describe "vision panels (calibrated)" do

@@ -561,6 +561,73 @@ defmodule Pokex.Sim.WorldTest do
     refute picture.worth_fighting?
   end
 
+  test "going blind answers nil enemies, never an empty list" do
+    world = World.fail(armed(), :blind)
+
+    assert World.observe(world, :battle).enemies == nil
+    assert World.observe(world, :pokemon) == %{hp_pct: nil, readable?: false, fainted?: false}
+  end
+
+  test "recovering from blindness reads the screen again" do
+    world = armed() |> World.fail(:blind) |> World.recover(:blind)
+
+    assert World.observe(world, :battle).enemies == [0, 1, 2]
+  end
+
+  test "a dead key spends its cooldown without hurting anything" do
+    world = armed(%{aoe_radius: 99, aoe_damage: 50}) |> World.fail({:dead_key, "3"})
+
+    fired = World.press(world, {:press, "3"})
+
+    refute "3" in World.observe(fired, :skill_bar).ready_keys
+    assert Enum.all?(fired.mobs, &(&1.hp_pct == 100))
+  end
+
+  test "a dead key leaves the other keys working" do
+    world = armed(%{aoe_radius: 99, aoe_damage: 50}) |> World.fail({:dead_key, "3"})
+
+    fired = World.press(world, {:press, "4"})
+
+    assert Enum.all?(fired.mobs, &(&1.hp_pct < 100))
+  end
+
+  test "the mini game freezes every fact rather than reporting an empty screen" do
+    world = World.fail(armed(), :mini_game)
+
+    assert World.observe(world, :battle).enemies == nil
+    assert World.observe(world, :mini_game) == %{playing?: true, confidence: 1.0}
+  end
+
+  test "the mini game stops the world from moving" do
+    world = lone_mob() |> World.fail(:mini_game)
+    [before] = world.mobs
+
+    [after_step] = World.step(world, 5_000).mobs
+
+    assert after_step.pos == before.pos
+  end
+
+  test "forcing health puts the band where the scenario needs it" do
+    world = World.fail(armed(), {:hp, 25})
+
+    assert world.own.hp_pct == 25
+    assert World.observe(world, :pokemon).hp_pct == 25
+  end
+
+  test "forcing health to zero drops the pokemon" do
+    world = World.fail(armed(), {:hp, 0})
+
+    refute world.own.alive?
+    assert World.observe(world, :pokemon).fainted?
+  end
+
+  test "the world says out loud what is broken" do
+    world = armed() |> World.fail(:blind) |> World.fail({:dead_key, "3"})
+
+    assert :blind in world.failures
+    assert {:dead_key, "3"} in world.failures
+  end
+
   test "a fallen pokemon stops being bitten" do
     world =
       armed(%{

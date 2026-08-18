@@ -432,6 +432,23 @@ defmodule Pokex.Sim.World do
 
   defp damage(world, _key, _no_damage), do: world
 
+  @doc """
+  What a key would do right now, as `{min, max}`.
+
+  Public so the calibration screen can SHOW the effective band beside every
+  key instead of computing its own. Two implementations of "how much does this
+  hurt" is the exact split that made the bench and the live world disagree
+  about which pokemon was fighting.
+  """
+  @spec damage_band(t, String.t()) :: {integer, integer} | :no_damage
+  def damage_band(world, key) do
+    case world.keys[key] do
+      %{kind: :aoe} -> band(world, key, world.knobs.aoe_damage_pct)
+      %{kind: :single} -> band(world, key, world.knobs.single_damage_pct)
+      _nothing_that_hurts -> :no_damage
+    end
+  end
+
   # Three sources, most specific first: the range he tuned for THIS key, the
   # share implied by the combo he declared, or the invented percentage. The
   # screen says which one every key is running on, so a number he never chose

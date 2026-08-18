@@ -24,6 +24,7 @@ defmodule PokexWeb.SimLive do
   alias Pokex.Sim.Bench
   alias Pokex.Sim.Calibrate
   alias Pokex.Sim.Scenario
+  alias Pokex.Sim.Setup
   alias Pokex.Sim.World
 
   @directions %{
@@ -45,6 +46,7 @@ defmodule PokexWeb.SimLive do
     end
 
     routes = Enum.filter(Store.all(), &(&1.waypoints != []))
+    saved = Setup.read()
 
     {:ok,
      socket
@@ -63,7 +65,9 @@ defmodule PokexWeb.SimLive do
        scenarios: Scenario.all(),
        scenario: Runner.scenario(),
        bench: nil,
-       kill_combo: [],
+       setup: saved,
+       kill_combo: Map.get(saved, :kill_combo, []),
+       setup_open?: false,
        close_up?: false,
        calib: Calibrate.report(Date.utc_today()),
        measuring?: Pokex.Settings.get(:cavebot_measure_walk),
@@ -122,11 +126,26 @@ defmodule PokexWeb.SimLive do
         do: socket.assigns.kill_combo -- [key],
         else: Enum.sort(socket.assigns.kill_combo ++ [key])
 
-    socket = assign(socket, kill_combo: combo, bench: nil)
+    socket |> assign(kill_combo: combo, bench: nil) |> reload_world()
+  end
 
-    if socket.assigns.scenario,
-      do: {:noreply, load_scenario(socket, socket.assigns.scenario.id)},
-      else: {:noreply, load_route(socket)}
+  def handle_event("toggle-setup", _params, socket),
+    do: {:noreply, assign(socket, setup_open?: not socket.assigns.setup_open?)}
+
+  # Saved to disk, not just to the socket: "calibrar" only means anything if he
+  # does it once. A number he has to retype after every restart is a number he
+  # will stop trusting and then stop setting.
+  def handle_event("save-setup", params, socket) do
+    knobs = Map.put(parse_setup(params), :kill_combo, socket.assigns.kill_combo)
+    Setup.write(knobs)
+
+    socket |> assign(setup: knobs, bench: nil) |> reload_world()
+  end
+
+  def handle_event("reset-setup", _params, socket) do
+    Setup.clear()
+
+    socket |> assign(setup: %{}, kill_combo: [], bench: nil) |> reload_world()
   end
 
   def handle_event("toggle-close-up", _params, socket),
@@ -179,6 +198,15 @@ defmodule PokexWeb.SimLive do
 
   def handle_info(_ignored, socket), do: {:noreply, socket}
 
+  # Lives out here, not between the handle_event clauses that call it: a defp
+  # in the middle of a clause group is the warning this project treats as an
+  # error, and it only shows up under --warnings-as-errors.
+  defp reload_world(socket) do
+    if socket.assigns.scenario,
+      do: {:noreply, load_scenario(socket, socket.assigns.scenario.id)},
+      else: {:noreply, load_route(socket)}
+  end
+
   defp pick_default([]), do: nil
   defp pick_default(routes), do: (Enum.find(routes, &(&1.name =~ "Meganium")) || hd(routes)).name
 
@@ -218,8 +246,11 @@ defmodule PokexWeb.SimLive do
 
   # His combo rides over whatever the route or the scenario asked for: it
   # describes his POKEMON, not the experiment.
-  defp extra_knobs(%{assigns: %{kill_combo: []}}), do: %{}
-  defp extra_knobs(socket), do: %{kill_combo: socket.assigns.kill_combo}
+  defp extra_knobs(socket) do
+    socket.assigns.setup
+    |> Map.drop([:kill_combo])
+    |> Map.put(:kill_combo, socket.assigns.kill_combo)
+  end
 
   defp kind_label(:aoe), do: "área"
   defp kind_label(:single), do: "alvo"
@@ -227,6 +258,90 @@ defmodule PokexWeb.SimLive do
   defp kind_label(:heal), do: "cura"
   defp kind_label(:crowd), do: "controle"
   defp kind_label(other), do: to_string(other)
+
+  # Grouped the way he listed them, not the way the struct happens to order
+  # them: the monster, the damage, the speeds, the window, the world.
+  @setup_groups [
+    {"O monstro",
+     [
+       {:mob_hp, "vida"},
+       {:aggro_tiles, "enxerga a (tiles)"},
+       {:leash_tiles, "leash (tiles)"},
+       {:mob_ms_per_tile, "ms por tile"},
+       {:bite_dmg, "mordida"},
+       {:bite_every_ms, "morde a cada (ms)"}
+     ]},
+    {"O dano",
+     [
+       {:damage_spread_pct, "variação ±%"},
+       {:aoe_damage_pct, "área: % da vida"},
+       {:single_damage_pct, "alvo: % da vida"},
+       {:aoe_radius, "raio da área"}
+     ]},
+    {"As velocidades — ms por tile, menor é mais rápido",
+     [
+       {:ms_per_tile, "você"},
+       {:pet_ms_per_tile, "seu pokémon"},
+       {:pet_follow_tiles, "ele fica atrás (tiles)"}
+     ]},
+    {"A tela do jogo — o que a engine pode saber",
+     [{:screen_w, "largura"}, {:screen_h, "altura"}]},
+    {"O mundo", [{:stray_chance_pct, "perdido por esquina %"}]}
+  ]
+
+  defp setup_groups, do: @setup_groups
+
+  # The EFFECTIVE value, never a blank box: he must never have to wonder which
+  # number is actually running.
+  defp knob_value(assigns, key) do
+    Map.get(assigns.setup, key) || (assigns.world && Map.get(assigns.world.knobs, key))
+  end
+
+  defp band_label(nil, _key), do: "—"
+
+  defp band_label(world, key) do
+    case World.damage_band(world, key) do
+      :no_damage -> "não machuca"
+      {lo, hi} when lo == hi -> "#{lo}"
+      {lo, hi} -> "#{lo}–#{hi}"
+    end
+  end
+
+  defp tuned(setup, key) do
+    case Map.get(setup, :skill_damage, %{})[key] do
+      {lo, hi} -> {lo, hi}
+      _untuned -> {nil, nil}
+    end
+  end
+
+  # A blank box means "use the default", NOT zero: zero milliseconds per tile
+  # is a character that teleports, and that is never what an empty field means.
+  defp parse_setup(params) do
+    numbers =
+      for key <- Setup.tunable(),
+          {:ok, n} <- [as_int(params[Atom.to_string(key)])],
+          into: %{},
+          do: {key, n}
+
+    Map.put(numbers, :skill_damage, parse_damage(params))
+  end
+
+  defp parse_damage(params) do
+    for key <- ~w(1 2 3 4 5 6 7 8 9),
+        {:ok, lo} <- [as_int(params["dmg_min_" <> key])],
+        {:ok, hi} <- [as_int(params["dmg_max_" <> key])],
+        into: %{},
+        do: {key, {min(lo, hi), max(lo, hi)}}
+  end
+
+  defp as_int(text) when is_binary(text) do
+    case Integer.parse(String.trim(text)) do
+      {n, _rest} when n >= 0 -> {:ok, n}
+      _not_a_number -> :blank
+    end
+  end
+
+  defp as_int(_absent), do: :blank
 
   defp failures(nil), do: []
   defp failures(world), do: Enum.map(world.failures, &failure_label/1)
@@ -426,7 +541,7 @@ defmodule PokexWeb.SimLive do
         class="space-y-4"
       >
         <div class="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-          <form phx-change="pick-route" class="flex items-center gap-2">
+          <form id="sim-rota" phx-change="pick-route" class="flex items-center gap-2">
             <select
               name="route"
               class="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-100"
@@ -437,7 +552,7 @@ defmodule PokexWeb.SimLive do
             </select>
           </form>
 
-          <form phx-change="pick-scenario" class="flex items-center gap-2">
+          <form id="sim-cenario" phx-change="pick-scenario" class="flex items-center gap-2">
             <select
               name="scenario"
               class="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-100"
@@ -553,12 +668,100 @@ defmodule PokexWeb.SimLive do
             </div>
 
             <span :if={@kill_combo == []} class="ml-auto text-xs text-amber-300">
-              nenhuma marcada — o dano é o número que eu chutei ({@world.knobs.aoe_damage}% por área)
+              nenhuma marcada — a área usa o meu chute: {@world.knobs.aoe_damage_pct}% da vida do bicho
             </span>
             <span :if={@kill_combo != []} class="ml-auto text-xs text-emerald-300">
               {length(@kill_combo)} teclas · {div(100 + length(@kill_combo) - 1, length(@kill_combo))}% por golpe
             </span>
           </div>
+        </div>
+
+        <div
+          :if={@world}
+          class="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+        >
+          <div class="flex items-center gap-3">
+            <button
+              phx-click="toggle-setup"
+              class="text-sm font-medium text-zinc-200 hover:text-white"
+            >
+              {if @setup_open?, do: "▾", else: "▸"} Mesa de calibragem
+            </button>
+            <span class="text-xs text-zinc-500">
+              os números que eu chutei — troque pelos do seu jogo
+            </span>
+            <span :if={@setup != %{}} class="text-xs text-emerald-300">
+              salva em ~/.pokex/sim_setup.json
+            </span>
+          </div>
+
+          <form :if={@setup_open?} id="sim-mesa" phx-submit="save-setup" class="mt-3 space-y-3">
+            <div :for={{titulo, campos} <- setup_groups()}>
+              <p class="mb-1 text-xs font-medium text-zinc-400">{titulo}</p>
+              <div class="flex flex-wrap gap-2">
+                <label :for={{chave, rotulo} <- campos} class="text-[11px] text-zinc-500">
+                  {rotulo}
+                  <input
+                    type="number"
+                    min="0"
+                    name={chave}
+                    value={knob_value(assigns, chave)}
+                    class="ml-1 w-20 rounded border border-zinc-700 bg-zinc-950 px-1.5 py-0.5 text-xs text-zinc-200"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <p class="mb-1 text-xs font-medium text-zinc-400">
+                Dano por skill — em branco usa o combo ou o meu chute
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <div
+                  :for={chave <- Enum.sort(Map.keys(@world.keys))}
+                  class="rounded border border-zinc-800 px-1.5 py-1 text-[11px] text-zinc-500"
+                >
+                  <span class="font-medium text-zinc-300">{chave}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    name={"dmg_min_" <> chave}
+                    value={elem(tuned(@setup, chave), 0)}
+                    placeholder="min"
+                    class="ml-1 w-14 rounded border border-zinc-700 bg-zinc-950 px-1 py-0.5 text-xs text-zinc-200"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    name={"dmg_max_" <> chave}
+                    value={elem(tuned(@setup, chave), 1)}
+                    placeholder="max"
+                    class="ml-1 w-14 rounded border border-zinc-700 bg-zinc-950 px-1 py-0.5 text-xs text-zinc-200"
+                  />
+                  <span class="ml-1 text-zinc-600">agora: {band_label(@world, chave)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button
+                type="submit"
+                class="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500"
+              >
+                Salvar e recomeçar
+              </button>
+              <button
+                type="button"
+                phx-click="reset-setup"
+                class="rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+              >
+                Voltar aos meus chutes
+              </button>
+              <span class="text-[11px] text-zinc-600">
+                a vida do monstro e o dano estão na MESMA unidade
+              </span>
+            </div>
+          </form>
         </div>
 
         <p :if={@refusal} class="rounded-lg bg-amber-950/60 px-3 py-2 text-sm text-amber-200">

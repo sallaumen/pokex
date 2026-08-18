@@ -178,7 +178,17 @@ defmodule PokexWeb.TeamLive do
   defp bar_text(%{count: count}) when is_integer(count),
     do: "🎛 barra própria · #{count} skills — recalibrar"
 
-  defp bar_text(_none), do: "🎛 sem barra própria (usa a da calibração) — calibrar a dele"
+  defp bar_text(_none), do: "🎛 sem barra própria — calibrar"
+
+  # The long half lives in the tooltip: the row is already dense, and 380px of
+  # explanation next to five other scraps is how the link disappeared the first
+  # time. The control says what it does; hovering says what happens if you don't.
+  defp bar_title(%{count: count}) when is_integer(count),
+    do: "A barra de #{count} skills deste pokémon — recalibrar sobrescreve só a dele"
+
+  defp bar_title(_none),
+    do:
+      "Este pokémon ainda usa a barra da calibração de tela. Calibrar guarda uma só dele, e ela volta sozinha quando você trocar."
 
   defp keys_text([]), do: "nenhuma"
   defp keys_text(keys), do: Enum.join(keys, " ")
@@ -721,12 +731,20 @@ defmodule PokexWeb.TeamLive do
 
         <%!-- The bar is HIS, not the screen's: different pokémon carry different
               numbers of moves, and the READY references are the skill icons. --%>
+        <%!-- A control, not a caption. It was 9px tall in a 14px row, aligned
+              right among five other scraps of text — he read the whole page
+              twice looking for exactly this and never saw it. Same row, same
+              place; a border, a real target and enough contrast to be an offer. --%>
         <.link
           navigate={~p"/calibration?#{[bar: @row.name]}"}
           class={[
-            "ml-auto",
-            if(@row.bar, do: "text-[#69737b] hover:underline", else: "text-[#f2c45b] hover:underline")
+            "ml-auto shrink-0 rounded border px-2 py-1 font-mono text-[10px] transition",
+            if(@row.bar,
+              do: "border-[#293238] text-[#89939a] hover:border-[#4a565e] hover:text-white",
+              else: "border-[#5a4a1e] text-[#f2c45b] hover:border-[#f2c45b] hover:bg-[#241d0c]"
+            )
           ]}
+          title={bar_title(@row.bar)}
         >
           {bar_text(@row.bar)}
         </.link>

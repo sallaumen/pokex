@@ -84,6 +84,7 @@ defmodule PokexWeb.CalibrationLive do
        corpse_msg: nil,
        corpse_list: CorpseLibrary.list(),
        bar_target: bar_target,
+       team_names: team_names(),
        pokemon_shot: nil,
        pokemon_crop: nil,
        pokemon_msg: nil,
@@ -1843,6 +1844,8 @@ defmodule PokexWeb.CalibrationLive do
 
   defp bar_target(_absent), do: nil
 
+  defp team_names, do: Enum.map(Pokex.Pokedex.Team.members(), & &1.name)
+
   defp configured_skill_count do
     case Calibration.load() do
       {:ok, %Calibration{skill_bar_count: count}} when count in 1..10 -> count
@@ -1914,6 +1917,43 @@ defmodule PokexWeb.CalibrationLive do
         >
           {@error}
         </p>
+        <%!-- Whose bar this is. The page has accepted `?bar=<name>` and saved to
+              that pokémon since the feature landed, and said NOTHING about it —
+              so a calibration aimed at one creature looked exactly like the
+              shared one, and there was no way to tell which you were doing. --%>
+        <div
+          :if={@bar_target}
+          class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-pk-accent-line bg-pk-accent-dim px-3 py-2"
+        >
+          <p class="text-pk-body text-pk-text">
+            🎛 Você está calibrando a barra de <strong>{@bar_target}</strong>. O que salvar aqui
+            fica <strong>só dele</strong> — a barra da tela e a dos outros pokémon não mudam.
+          </p>
+          <.link
+            navigate={~p"/calibration"}
+            class="ml-auto text-pk-body text-pk-text-2 hover:underline"
+          >
+            calibrar a barra da tela
+          </.link>
+        </div>
+
+        <div
+          :if={is_nil(@bar_target) and @team_names != []}
+          class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-pk-line bg-pk-surface-2 px-3 py-2"
+        >
+          <span class="text-pk-body text-pk-text-2">
+            🎛 Calibrar a barra de um pokémon do time (fica guardada só dele, e volta sozinha
+            quando você trocar):
+          </span>
+          <.link
+            :for={name <- @team_names}
+            navigate={~p"/calibration?#{[bar: name]}"}
+            class="rounded border border-pk-line px-2 py-0.5 text-pk-body text-pk-text hover:bg-pk-surface-3"
+          >
+            {name}
+          </.link>
+        </div>
+
         <p
           :if={@skillbar_msg}
           class="rounded-lg border border-pk-ok-line bg-pk-ok-dim px-3 py-2 text-pk-body text-pk-ok"

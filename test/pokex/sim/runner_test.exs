@@ -31,6 +31,13 @@ defmodule Pokex.Sim.RunnerTest do
     }
   end
 
+  # This is the bug that hid behind everything else for a whole phase. The
+  # Runner was handed `loadout: nil`, so `World.keys` came out EMPTY, and
+  # `World.fire/2` looks a key up, finds nothing and returns the world
+  # UNCHANGED — no crash, no log, no receipt. In the tab he actually plays,
+  # pressing 1-9 did nothing, the engine's own fire order did nothing, and a
+  # hunt where the monsters always won looked like a finding about the engine.
+  # It was invisible because the bench had its own loadout and killed fine.
   setup do
     for key <- [:battle, :pokemon, :skill_bar, :minimap, :mini_game], do: WorldState.forget(key)
 
@@ -48,6 +55,15 @@ defmodule Pokex.Sim.RunnerTest do
       )
 
     %{server: server, advance: fn ms -> :counters.add(counter, 1, ms) end}
+  end
+
+  test "the world the Runner builds has real keys, or nothing can ever be killed", %{
+    server: server
+  } do
+    keys = Runner.world(server).keys
+
+    refute keys == %{}, "a world with no keys cannot kill anything, silently"
+    assert Enum.all?(Map.values(keys), &Map.has_key?(&1, :kind))
   end
 
   defp now, do: System.monotonic_time(:millisecond)

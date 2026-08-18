@@ -32,6 +32,10 @@ defmodule PokexWeb.SimLive do
     "ArrowDown" => "down"
   }
 
+  # Tibia shows 15x11 tiles around the character. A little wider than that keeps
+  # what is about to walk in on screen too.
+  @close_up_tiles 11
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -58,6 +62,8 @@ defmodule PokexWeb.SimLive do
        scenarios: Scenario.all(),
        scenario: Runner.scenario(),
        bench: nil,
+       kill_combo: [],
+       close_up?: false,
        calib: Calibrate.report(Date.utc_today()),
        measuring?: Pokex.Settings.get(:cavebot_measure_walk),
        auto?: Runner.auto?()
@@ -105,6 +111,25 @@ defmodule PokexWeb.SimLive do
   def handle_event("pick-route", %{"route" => name}, socket) do
     {:noreply, socket |> assign(route_name: name) |> load_route()}
   end
+
+  # The one damage fact he actually holds. Every toggle rebuilds the world,
+  # because a combo declared halfway through a fight would be measuring two
+  # different worlds and calling it one.
+  def handle_event("toggle-kill-key", %{"key" => key}, socket) do
+    combo =
+      if key in socket.assigns.kill_combo,
+        do: socket.assigns.kill_combo -- [key],
+        else: Enum.sort(socket.assigns.kill_combo ++ [key])
+
+    socket = assign(socket, kill_combo: combo, bench: nil)
+
+    if socket.assigns.scenario,
+      do: {:noreply, load_scenario(socket, socket.assigns.scenario.id)},
+      else: {:noreply, load_route(socket)}
+  end
+
+  def handle_event("toggle-close-up", _params, socket),
+    do: {:noreply, assign(socket, close_up?: not socket.assigns.close_up?)}
 
   def handle_event("reload", _params, socket) do
     if socket.assigns.scenario,
@@ -164,7 +189,7 @@ defmodule PokexWeb.SimLive do
         socket
 
       route ->
-        Runner.load(route, knobs: %{})
+        Runner.load(route, knobs: extra_knobs(socket))
         assign(socket, world: Runner.world(), floor: nil)
     end
   end
@@ -185,10 +210,22 @@ defmodule PokexWeb.SimLive do
         socket
 
       scenario ->
-        Runner.load_scenario(scenario, socket.assigns.routes)
+        Runner.load_scenario(Runner, scenario, socket.assigns.routes, extra_knobs(socket))
         assign(socket, scenario: scenario, world: Runner.world(), floor: nil)
     end
   end
+
+  # His combo rides over whatever the route or the scenario asked for: it
+  # describes his POKEMON, not the experiment.
+  defp extra_knobs(%{assigns: %{kill_combo: []}}), do: %{}
+  defp extra_knobs(socket), do: %{kill_combo: socket.assigns.kill_combo}
+
+  defp kind_label(:aoe), do: "área"
+  defp kind_label(:single), do: "alvo"
+  defp kind_label(:buffs), do: "buff"
+  defp kind_label(:heal), do: "cura"
+  defp kind_label(:crowd), do: "controle"
+  defp kind_label(other), do: to_string(other)
 
   defp failures(nil), do: []
   defp failures(world), do: Enum.map(world.failures, &failure_label/1)
@@ -244,6 +281,20 @@ defmodule PokexWeb.SimLive do
   end
 
   defp nest?(waypoint), do: waypoint[:gather_ms] != nil or waypoint[:fight_ms] != nil
+
+  # The whole route at 6px a tile answers "where am I on the lap". It cannot
+  # answer "have they closed around the pokemon yet", which is the question he
+  # actually asked for — that one is local, and at this zoom a monster is four
+  # pixels. The close-up recentres on the character with a fixed span, so a
+  # creature becomes a square you can count instead of a speck.
+  defp view_of(%{close_up?: true, world: %{} = world}, _points) do
+    {x, y, _z} = world.pos
+    span = @close_up_tiles
+
+    {x - span, y - div(span * 3, 4), span * 2, div(span * 3, 2)}
+  end
+
+  defp view_of(assigns, points), do: bounds(points ++ character_point(assigns.world))
 
   defp bounds(points) do
     xs = Enum.map(points, &elem(&1, 0))
@@ -357,7 +408,7 @@ defmodule PokexWeb.SimLive do
       assign(assigns,
         z: z,
         points: points,
-        view_box: bounds(points ++ character_point(assigns.world)),
+        view_box: view_of(assigns, points),
         mobs: visible_mobs(assigns.world, z),
         truth: truth_rows(assigns.world),
         perceived: perceived_rows(fact(:battle)),
@@ -471,6 +522,44 @@ defmodule PokexWeb.SimLive do
           </span>
         </div>
 
+        <div
+          :if={@world && @world.keys != %{}}
+          class="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+        >
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span class="text-sm font-medium text-zinc-200">O combo que mata</span>
+            <span class="text-xs text-zinc-500">
+              marque as teclas que, juntas, derrubam um monstro
+            </span>
+
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                :for={key <- Enum.sort(Map.keys(@world.keys))}
+                phx-click="toggle-kill-key"
+                phx-value-key={key}
+                class={
+                  "rounded-md border px-2 py-1 text-xs font-medium " <>
+                    if(key in @kill_combo,
+                      do: "border-emerald-500 bg-emerald-600/25 text-emerald-200",
+                      else: "border-zinc-700 text-zinc-400 hover:bg-zinc-800")
+                }
+              >
+                {key}
+                <span class="ml-1 text-[10px] font-normal opacity-70">
+                  {kind_label(@world.keys[key].kind)}
+                </span>
+              </button>
+            </div>
+
+            <span :if={@kill_combo == []} class="ml-auto text-xs text-amber-300">
+              nenhuma marcada — o dano é o número que eu chutei ({@world.knobs.aoe_damage}% por área)
+            </span>
+            <span :if={@kill_combo != []} class="ml-auto text-xs text-emerald-300">
+              {length(@kill_combo)} teclas · {div(100 + length(@kill_combo) - 1, length(@kill_combo))}% por golpe
+            </span>
+          </div>
+        </div>
+
         <p :if={@refusal} class="rounded-lg bg-amber-950/60 px-3 py-2 text-sm text-amber-200">
           {@refusal}
         </p>
@@ -509,9 +598,24 @@ defmodule PokexWeb.SimLive do
           <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
             <div class="mb-2 flex items-baseline justify-between">
               <h2 class="text-sm font-semibold text-zinc-200">O mundo</h2>
-              <span class="text-xs text-zinc-500">
-                andar {@z || "?"} · {length(@mobs)} no chão · relógio {(@world && @world.clock) || 0}ms
-              </span>
+              <div class="flex items-baseline gap-3">
+                <span class="text-xs text-zinc-500">
+                  andar {@z || "?"} · {length(@mobs)} no chão · relógio {(@world && @world.clock) ||
+                    0}ms
+                </span>
+                <button
+                  :if={@world}
+                  phx-click="toggle-close-up"
+                  class={
+                    "rounded-md border px-2 py-0.5 text-[11px] font-medium " <>
+                      if(@close_up?,
+                        do: "border-sky-500 bg-sky-600/25 text-sky-200",
+                        else: "border-zinc-700 text-zinc-400 hover:bg-zinc-800")
+                  }
+                >
+                  {if @close_up?, do: "🔍 perto", else: "🔍 aproximar"}
+                </button>
+              </div>
             </div>
             <svg viewBox={view_box(@view_box)} class="h-[26rem] w-full">
               <polyline
@@ -547,12 +651,44 @@ defmodule PokexWeb.SimLive do
                   stroke="rgb(24 24 27)"
                   stroke-width="0.08"
                 />
+                <line
+                  :if={@world.own.out?}
+                  x1={elem(@world.pos, 0)}
+                  y1={elem(@world.pos, 1)}
+                  x2={elem(@world.own.pos, 0)}
+                  y2={elem(@world.own.pos, 1)}
+                  stroke="rgb(52 211 153)"
+                  stroke-width="0.12"
+                  stroke-dasharray="0.4 0.3"
+                  opacity="0.55"
+                />
+                <rect
+                  :if={@world.own.out?}
+                  x={elem(@world.own.pos, 0) - @world.knobs.aoe_radius - 0.5}
+                  y={elem(@world.own.pos, 1) - @world.knobs.aoe_radius - 0.5}
+                  width={@world.knobs.aoe_radius * 2 + 1}
+                  height={@world.knobs.aoe_radius * 2 + 1}
+                  fill="none"
+                  stroke="rgb(52 211 153)"
+                  stroke-width="0.1"
+                  stroke-dasharray="0.5 0.4"
+                  opacity="0.6"
+                />
+                <rect
+                  x={elem(@world.own.pos, 0) - 0.5}
+                  y={elem(@world.own.pos, 1) - 0.5}
+                  width="1"
+                  height="1"
+                  fill={if @world.own.out?, do: "rgb(52 211 153)", else: "rgb(113 113 122)"}
+                  stroke="rgb(24 24 27)"
+                  stroke-width="0.12"
+                />
                 <rect
                   x={elem(@world.pos, 0) - 0.5}
                   y={elem(@world.pos, 1) - 0.5}
                   width="1"
                   height="1"
-                  fill={if @world.own.out?, do: "rgb(52 211 153)", else: "rgb(113 113 122)"}
+                  fill="rgb(56 189 248)"
                   stroke="white"
                   stroke-width="0.18"
                 />
@@ -561,8 +697,14 @@ defmodule PokexWeb.SimLive do
 
             <ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
               <li class="flex items-center gap-1.5">
-                <span class="inline-block h-3 w-3 bg-emerald-400 ring-1 ring-white"></span>
-                você (cinza = caiu)
+                <span class="inline-block h-3 w-3 bg-sky-400 ring-1 ring-white"></span> você
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span class="inline-block h-3 w-3 bg-emerald-400"></span> seu pokémon (cinza = caiu)
+              </li>
+              <li class="flex items-center gap-1.5">
+                <span class="inline-block h-3 w-3 border border-dashed border-emerald-400"></span>
+                alcance da área — sai DELE
               </li>
               <li class="flex items-center gap-1.5">
                 <span class="inline-block h-3 w-3 bg-rose-500"></span> monstro
@@ -616,11 +758,26 @@ defmodule PokexWeb.SimLive do
             <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
               <h2 class="mb-1 text-sm font-semibold text-zinc-200">Vida</h2>
               <p class="text-sm text-zinc-300">
-                mundo: {(@world && @world.own.hp_pct) || "—"}% <span class="text-zinc-600">·</span>
+                <span class="text-emerald-300">pokémon</span>
+                {(@world && @world.own.hp_pct) || "—"}% <span class="text-zinc-600">·</span>
                 lido: {(@pokemon_fact && (@pokemon_fact.hp_pct || "não leu")) || "—"}
                 <span :if={@pokemon_fact && @pokemon_fact.fainted?} class="text-rose-300">
                   · caiu
                 </span>
+              </p>
+              <p class="mt-1 text-sm text-zinc-300">
+                <span class="text-sky-300">você</span>
+                {(@world && @world.player.hp_pct) || "—"}%
+                <span :if={@world && @world.own.out?} class="ml-1 text-xs text-zinc-500">
+                  — intocável enquanto ele está em campo
+                </span>
+                <span :if={@world && not @world.own.out?} class="ml-1 text-xs text-rose-300">
+                  — ele caiu, agora é você que apanha
+                </span>
+              </p>
+              <p class="mt-2 border-t border-zinc-800 pt-2 text-xs text-zinc-500">
+                a engine não tem fato de vida do personagem: o mundo sabe que você
+                está morrendo e o bot não enxerga.
               </p>
             </div>
           </div>

@@ -302,23 +302,5 @@ defmodule Pokex.Sim.Bench do
   defp ended(%{world: %{mobs: []}}), do: :clean
   defp ended(_still_going), do: :timeout
 
-  # The pokémon on the field decides what the keys do. Falls back to a plain
-  # loadout when the team file is not readable, so a bench run never depends on
-  # which pokémon happens to be out.
-  defp loadout do
-    Pokex.Bots.Combat.Loadout.current() || fallback_loadout()
-  catch
-    _kind, _reason -> fallback_loadout()
-  end
-
-  defp fallback_loadout do
-    %Pokex.Bots.Combat.Loadout{
-      name: "Simulado",
-      aoe: ["3", "4", "5"],
-      single: ["6"],
-      buffs: ["2"],
-      heal: [],
-      crowd: ["1"]
-    }
-  end
+  defp loadout, do: Pokex.Sim.Loadout.current()
 end

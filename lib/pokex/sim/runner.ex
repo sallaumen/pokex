@@ -40,6 +40,7 @@ defmodule Pokex.Sim.Runner do
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
+  alias Pokex.Sim.Loadout
   alias Pokex.Sim.Scenario
   alias Pokex.Sim.World
 
@@ -109,8 +110,20 @@ defmodule Pokex.Sim.Runner do
   def load_scenario(scenario, routes), do: load_scenario(__MODULE__, scenario, routes)
 
   @spec load_scenario(GenServer.server(), Scenario.t(), [Route.t()]) :: :ok
-  def load_scenario(server, scenario, routes),
-    do: GenServer.call(server, {:load_scenario, scenario, routes})
+  def load_scenario(server, scenario, routes), do: load_scenario(server, scenario, routes, %{})
+
+  @doc """
+  The same load with knobs merged OVER the scenario's own — for the kill combo
+  he picks on the screen, which belongs to his pokemon rather than to any one
+  scenario.
+
+  Deliberately a fourth explicit argument and not a default: a default on both
+  sides of a required argument is what bound a `%Route{}` as the GenServer here
+  once already, and it compiled cleanly before doing it.
+  """
+  @spec load_scenario(GenServer.server(), Scenario.t(), [Route.t()], map) :: :ok
+  def load_scenario(server, scenario, routes, extra),
+    do: GenServer.call(server, {:load_scenario, scenario, routes, extra})
 
   @spec scenario(GenServer.server()) :: Scenario.t() | nil
   def scenario(server \\ __MODULE__), do: GenServer.call(server, :scenario)
@@ -165,12 +178,12 @@ defmodule Pokex.Sim.Runner do
     {:reply, :ok, load_world(state, route, opts)}
   end
 
-  def handle_call({:load_scenario, scenario, routes}, _from, state) do
+  def handle_call({:load_scenario, scenario, routes, extra}, _from, state) do
     route = Scenario.route(scenario, routes)
 
     state =
       %{state | scenario: scenario}
-      |> load_world(route, seed: scenario.seed, knobs: scenario.knobs)
+      |> load_world(route, seed: scenario.seed, knobs: Map.merge(scenario.knobs, extra))
 
     {:reply, :ok, state}
   end
@@ -208,12 +221,16 @@ defmodule Pokex.Sim.Runner do
 
   defp load_world(state, nil, _opts), do: %{state | world: nil}
 
+  # Read HERE and not at start_link: the bar belongs to whichever pokemon is on
+  # his field, and reading it once at boot froze it — swap pokemon and the
+  # simulator kept fighting with the old one's keys until the app restarted.
+  # `Bench` re-reads per run; this is the same rule for the live world.
   defp load_world(state, route, opts) do
     world =
       World.new(route,
         seed: Keyword.get(opts, :seed, state.seed),
         knobs: Keyword.get(opts, :knobs, state.knobs),
-        loadout: Keyword.get(opts, :loadout, state.loadout)
+        loadout: Keyword.get(opts, :loadout) || state.loadout || Loadout.current()
       )
 
     %{state | world: world, published: %{}, last_at: state.clock.(), route: route, leg: 0}

@@ -61,21 +61,25 @@ defmodule Pokex.Sim.BenchTest do
     assert result.outcome.killed + result.outcome.vanished + result.outcome.left_alive == 6
   end
 
-  # This test used to assert `killed == 0`, and that assertion was recording a
-  # BUG rather than a behaviour. Under the old movement a monster walking a
-  # straight line into the character's square had no way around it, parked
-  # there, and was eventually dragged past its leash — so a dripping pile
-  # "proved" the engine threw five monsters away. With tile exclusivity and a
-  # sidestep, the same run skips the pile while it is still small and picks it
-  # up whole on the next lap. The finding was mine and it was wrong; this is
-  # what the scenario actually shows.
-  test "a dripping pile is skipped while small and collected whole on the way back" do
+  # This assertion has now flipped TWICE, and the history is the lesson.
+  #
+  #   1. Originally `killed == 0`: the engine skipped a pile worth fighting and
+  #      lost all five to the leash. Reported to him as a real finding.
+  #   2. Then the movement fix (tile exclusivity + sidestep) made it `killed: 5,
+  #      vanished: 0`, and I told him finding #1 had been an artifact.
+  #   3. Then the screen fix — 15x11 instead of a 15x15 Chebyshev square —
+  #      put it back to `killed: 0, vanished: 5`.
+  #
+  # Step 2 was the artifact. The engine only "collected them on the way back"
+  # because it could see two extra tiles above and below what the game shows.
+  # The finding is real, and the moral is that a conclusion drawn from a model
+  # is worth exactly what the model's fidelity is worth.
+  test "a dripping pile is skipped, and the leash takes what was left behind" do
     result = run("pilha-que-pinga", duration_ms: 30_000)
 
     assert :skipping in result.outcome.phases
-    assert :engaged in result.outcome.phases
-    assert result.outcome.killed > 0
-    assert result.outcome.vanished == 0
+    assert result.outcome.killed == 0
+    assert result.outcome.vanished > 0, "the pile has to be LOST, not merely skipped"
   end
 
   test "red health revives immediately instead of finishing the round" do

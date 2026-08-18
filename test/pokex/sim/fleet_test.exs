@@ -54,7 +54,7 @@ defmodule Pokex.Sim.FleetTest do
          tick_ms: 10,
          clock: fn -> :counters.get(counter, 1) end,
          route: route(),
-         knobs: %{nest_size: 5, nest_radius: 1, battle_radius: 99, ms_per_tile: 100}}
+         knobs: %{nest_size: 5, nest_radius: 1, screen_w: 199, screen_h: 199, ms_per_tile: 100}}
       )
 
     Runner.play(runner)
@@ -104,7 +104,10 @@ defmodule Pokex.Sim.FleetTest do
   @tag :tmp_dir
   @tag :capture_log
   test "a pile the ruler rejects reads as not worth fighting", %{runner: runner} do
-    Runner.load(runner, route(), knobs: %{nest_size: 1, nest_radius: 0, battle_radius: 99})
+    Runner.load(runner, route(),
+      knobs: %{nest_size: 1, nest_radius: 0, screen_w: 199, screen_h: 199}
+    )
+
     Runner.tick_now(runner)
 
     picture = wait_for_worth(false)

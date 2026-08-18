@@ -90,17 +90,36 @@ defmodule Pokex.Sim.World do
     # inherited — the real cooldowns live in team.json; this is the fallback for a
     # loadout that does not name one
     skill_cooldown_ms: 8_000,
-    # measured BY HIM — the one damage fact he actually holds: which keys, put
-    # together, kill one monster ("com a Vespiquen, 3, 4 e 5 garantem"). The
-    # damage per press is DERIVED from that, so the number stops being my
-    # slider and starts being his sentence.
+    # His to calibrate: how much health a monster of this hunt carries. Damage
+    # is in the SAME unit, so both numbers move together and neither is a
+    # percentage of something invisible.
+    mob_hp: 100,
+    # measured BY HIM — which keys, put together, kill one monster ("com a
+    # Vespiquen, 3, 4 e 5 garantem"). A shortcut that DERIVES a damage for
+    # every key in it, so he can start from the fact he holds.
     kill_combo: [],
-    # invented — the fallback for a key he has not named, and for a world with
-    # no combo declared at all
-    aoe_damage: 34,
+    # ...and his override on top, per key: `%{"3" => {28, 41}}`. Whatever is
+    # here wins over the combo, because a real bar does not have nine identical
+    # skills.
+    skill_damage: %{},
+    # NOTHING lands as a fixed number. Every press draws inside a band, because
+    # a fixed number made "three skills kill" a law of physics — and the game
+    # leaves survivors on a sliver. Deciding what to do about THAT survivor is
+    # exactly the behaviour he wants to be able to watch and judge.
+    damage_spread_pct: 15,
+    # invented — the fallback for a key he has neither named nor tuned, as a
+    # percentage of whatever `mob_hp` he set
+    aoe_damage_pct: 34,
     aoe_radius: 4,
-    single_damage: 22,
-    battle_radius: 7,
+    single_damage_pct: 22,
+    # The game window is a RECTANGLE: 15 tiles across, 11 down. A Chebyshev
+    # radius of 7 made it a 15x15 SQUARE, so the engine was handed creatures
+    # sitting six and seven tiles above and below him. Measured on his real
+    # Meganium route: 32 of 346 sightings — 9.2% — were things no screen ever
+    # showed. A bot deciding on information the game does not give is a bot
+    # whose good decisions cannot be trusted either.
+    screen_w: 15,
+    screen_h: 11,
     bite_dmg: 4,
     bite_every_ms: 900,
     # HIS open measurement, not a knob I get to settle: interpret.ex:44 records a
@@ -242,7 +261,8 @@ defmodule Pokex.Sim.World do
         id: acc.next_id,
         name: acc.knobs.mob_name,
         pos: pos,
-        hp_pct: 100,
+        hp: acc.knobs.mob_hp,
+        max_hp: acc.knobs.mob_hp,
         spawn: pos,
         walk_debt_ms: 0,
         bite_debt_ms: 0
@@ -405,41 +425,80 @@ defmodule Pokex.Sim.World do
   end
 
   defp damage(world, key, :aoe),
-    do: hit(world, world.knobs.aoe_radius, share_of(world, key, world.knobs.aoe_damage))
+    do: hit(world, world.knobs.aoe_radius, band(world, key, world.knobs.aoe_damage_pct))
 
   defp damage(world, key, :single),
-    do: hit(world, 1, share_of(world, key, world.knobs.single_damage))
+    do: hit(world, 1, band(world, key, world.knobs.single_damage_pct))
 
   defp damage(world, _key, _no_damage), do: world
 
-  # He names the keys that kill; each one carries its share of a whole monster.
-  # The division ROUNDS UP on purpose: three keys at 100/3 is 33.333 each, and
-  # three presses would leave the monster alive at a ten-billionth of a hit
-  # point. This file has already lost tiles to that exact float — it will not
-  # lose kills to it as well.
-  defp share_of(world, key, fallback) do
-    case world.knobs.kill_combo do
-      [] -> fallback
-      combo -> if key in combo, do: div(100 + length(combo) - 1, length(combo)), else: fallback
+  # Three sources, most specific first: the range he tuned for THIS key, the
+  # share implied by the combo he declared, or the invented percentage. The
+  # screen says which one every key is running on, so a number he never chose
+  # is never mistaken for one he did.
+  defp band(world, key, fallback_pct) do
+    case world.knobs.skill_damage[key] do
+      {lo, hi} -> {lo, hi}
+      _not_tuned -> spread(world, nominal(world, key, fallback_pct))
     end
+  end
+
+  defp nominal(%{knobs: %{kill_combo: []}} = world, _key, fallback_pct),
+    do: div(world.knobs.mob_hp * fallback_pct, 100)
+
+  defp nominal(world, key, fallback_pct) do
+    combo = world.knobs.kill_combo
+
+    if key in combo,
+      do: ceil_div(world.knobs.mob_hp, length(combo)),
+      else: div(world.knobs.mob_hp * fallback_pct, 100)
+  end
+
+  # The share rounds UP: three keys at a third of 100 is 33.333 each, and three
+  # presses of a rounded-DOWN 33 leave the monster alive on 1hp. That reads as
+  # the combo failing when it is really the arithmetic.
+  defp ceil_div(total, parts), do: div(total + parts - 1, parts)
+
+  # A band around the nominal, never a point. `spread_pct: 0` gives back the
+  # fixed number for anyone who wants the old certainty.
+  defp spread(world, nominal) do
+    margin = div(nominal * world.knobs.damage_spread_pct, 100)
+    {max(nominal - margin, 1), nominal + margin}
   end
 
   # The area comes out of the POKEMON, not out of him: keys 1-9 are its bar,
   # which is the entire point of calibrating a bar per pokemon. Combined with it
   # trailing two tiles behind, this alone moves where a pile has to be standing
   # for an area skill to be worth pressing.
-  defp hit(world, radius, amount) do
-    {alive, dead} =
-      world.mobs
-      |> Enum.map(fn mob ->
-        if in_reach?(mob, world.own.pos, radius),
-          do: %{mob | hp_pct: mob.hp_pct - amount},
-          else: mob
+  defp hit(world, radius, {lo, hi}) do
+    {mobs, rand} =
+      Enum.map_reduce(world.mobs, world.rand, fn mob, r ->
+        if in_reach?(mob, world.own.pos, radius) do
+          {roll, r} = draw(lo, hi, r)
+          {%{mob | hp: mob.hp - roll}, r}
+        else
+          {mob, r}
+        end
       end)
-      |> Enum.split_with(&(&1.hp_pct > 0))
 
-    %{world | mobs: alive, stats: bump(world.stats, :killed, length(dead))}
+    {alive, dead} = Enum.split_with(mobs, &(&1.hp > 0))
+
+    %{world | mobs: alive, rand: rand, stats: bump(world.stats, :killed, length(dead))}
   end
+
+  # Every target rolls its OWN number, the way the game does. That is the whole
+  # point of the band: one volley kills four and leaves the fifth on a sliver,
+  # and what the engine does about that fifth is the behaviour under test.
+  defp draw(lo, hi, rand) when hi > lo do
+    {n, rand} = :rand.uniform_s(hi - lo + 1, rand)
+    {lo + n - 1, rand}
+  end
+
+  defp draw(lo, _hi, rand), do: {lo, rand}
+
+  @doc "A monster's health as a percentage, for a screen or a log to show."
+  @spec hp_pct(map) :: integer
+  def hp_pct(%{hp: hp, max_hp: max}), do: round(100 * hp / max)
 
   defp in_reach?(%{pos: {_x, _y, mz}}, {_px, _py, pz}, _radius) when mz != pz, do: false
   defp in_reach?(mob, pos, radius), do: distance(mob.pos, pos) <= radius
@@ -543,12 +602,20 @@ defmodule Pokex.Sim.World do
   exactly the split this project has been closing.
   """
   @spec reachable?(map, t) :: boolean
-  def reachable?(mob, world), do: in_reach?(mob, world.pos, world.knobs.battle_radius)
+  def reachable?(mob, world), do: on_screen?(mob, world.pos, world.knobs)
+
+  # The ONLY door through which a creature reaches the engine, and it is a
+  # rectangle because the game window is one. Everything the bot decides has to
+  # come through here.
+  defp on_screen?(%{pos: {_x, _y, mz}}, {_px, _py, pz}, _knobs) when mz != pz, do: false
+
+  defp on_screen?(%{pos: {mx, my, _mz}}, {px, py, _pz}, knobs),
+    do: abs(mx - px) <= div(knobs.screen_w, 2) and abs(my - py) <= div(knobs.screen_h, 2)
 
   defp visible(world) do
     world.mobs
-    |> Enum.filter(&in_reach?(&1, world.pos, world.knobs.battle_radius))
-    |> Enum.map(&%{name: &1.name, hp_pct: &1.hp_pct / 100, shiny?: false})
+    |> Enum.filter(&on_screen?(&1, world.pos, world.knobs))
+    |> Enum.map(&%{name: &1.name, hp_pct: &1.hp / &1.max_hp, shiny?: false})
   end
 
   defp ready_keys(world) do

@@ -266,7 +266,7 @@ defmodule Pokex.Sim.RunnerTest do
     advance.(200)
     Runner.tick_now(server)
 
-    assert Enum.map(Runner.world(server).mobs, & &1.hp_pct) == Enum.map(before, & &1.hp_pct)
+    assert Enum.map(Runner.world(server).mobs, & &1.hp) == Enum.map(before, & &1.hp)
   end
 
   test "handed over, a free-fire order spends the keys it names", %{

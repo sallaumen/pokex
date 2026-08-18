@@ -328,7 +328,7 @@ defmodule Pokex.Sim.WorldTest do
   defp armed(knobs \\ %{}) do
     World.new(nest_route(),
       loadout: loadout(),
-      knobs: Map.merge(%{nest_size: 3, nest_radius: 1, battle_radius: 99}, knobs)
+      knobs: Map.merge(%{nest_size: 3, nest_radius: 1, screen_w: 199, screen_h: 199}, knobs)
     )
   end
 
@@ -354,28 +354,31 @@ defmodule Pokex.Sim.WorldTest do
   end
 
   test "a key still on cooldown fires nothing" do
-    world = armed(%{skill_cooldown_ms: 9_999, aoe_damage: 10})
+    world = armed(%{skill_cooldown_ms: 9_999, aoe_damage_pct: 10, damage_spread_pct: 0})
 
     once = World.press(world, {:press, "3"})
     twice = World.press(once, {:press, "3"})
 
-    assert Enum.map(once.mobs, & &1.hp_pct) == Enum.map(twice.mobs, & &1.hp_pct)
+    assert Enum.map(once.mobs, & &1.hp) == Enum.map(twice.mobs, & &1.hp)
   end
 
   test "an area skill damages every mob in range" do
     hit = World.press(armed(%{aoe_radius: 99}), {:press, "3"})
 
-    assert Enum.all?(hit.mobs, &(&1.hp_pct < 100))
+    assert Enum.all?(hit.mobs, &(&1.hp < 100))
   end
 
   test "an area skill spares mobs outside its radius" do
     hit = World.press(armed(%{aoe_radius: 0}), {:press, "3"})
 
-    assert Enum.all?(hit.mobs, &(&1.hp_pct == 100))
+    assert Enum.all?(hit.mobs, &(&1.hp == 100))
   end
 
   test "an area skill kills the mobs it finishes" do
-    assert World.press(armed(%{aoe_radius: 99, aoe_damage: 100}), {:press, "3"}).mobs == []
+    assert World.press(
+             armed(%{aoe_radius: 99, aoe_damage_pct: 100, damage_spread_pct: 0}),
+             {:press, "3"}
+           ).mobs == []
   end
 
   test "press_many fires each key it names" do
@@ -387,18 +390,26 @@ defmodule Pokex.Sim.WorldTest do
   end
 
   test "battle rows are the mobs inside the battle radius" do
-    battle = World.observe(armed(%{battle_radius: 99}), :battle)
+    battle = World.observe(armed(%{screen_w: 199, screen_h: 199}), :battle)
 
     assert battle.enemies == [0, 1, 2]
     assert length(battle.enemies_detail) == 3
   end
 
   test "a mob outside the battle radius is not on the list" do
-    assert World.observe(armed(%{battle_radius: 0}), :battle).enemies == []
+    assert World.observe(armed(%{screen_w: 1, screen_h: 1}), :battle).enemies == []
   end
 
   test "battle detail reports health as a fraction, like the real reader" do
-    world = armed(%{battle_radius: 99, aoe_radius: 99, aoe_damage: 50})
+    world =
+      armed(%{
+        screen_w: 199,
+        screen_h: 199,
+        aoe_radius: 99,
+        aoe_damage_pct: 50,
+        damage_spread_pct: 0
+      })
+
     [row | _rest] = World.observe(World.press(world, {:press, "3"}), :battle).enemies_detail
 
     assert row.hp_pct == 0.5
@@ -494,7 +505,7 @@ defmodule Pokex.Sim.WorldTest do
   end
 
   test "the battle fact it publishes is one the real Situation can count" do
-    world = armed(%{battle_radius: 99})
+    world = armed(%{screen_w: 199, screen_h: 199})
 
     picture =
       Pokex.Bots.Engine.Situation.build(
@@ -517,7 +528,7 @@ defmodule Pokex.Sim.WorldTest do
   end
 
   test "own_row? on is discounted by the real Situation instead of inflating the count" do
-    world = armed(%{battle_radius: 99, own_row?: true})
+    world = armed(%{screen_w: 199, screen_h: 199, own_row?: true})
 
     picture =
       Pokex.Bots.Engine.Situation.build(
@@ -575,20 +586,24 @@ defmodule Pokex.Sim.WorldTest do
   end
 
   test "a dead key spends its cooldown without hurting anything" do
-    world = armed(%{aoe_radius: 99, aoe_damage: 50}) |> World.fail({:dead_key, "3"})
+    world =
+      armed(%{aoe_radius: 99, aoe_damage_pct: 50, damage_spread_pct: 0})
+      |> World.fail({:dead_key, "3"})
 
     fired = World.press(world, {:press, "3"})
 
     refute "3" in World.observe(fired, :skill_bar).ready_keys
-    assert Enum.all?(fired.mobs, &(&1.hp_pct == 100))
+    assert Enum.all?(fired.mobs, &(&1.hp == 100))
   end
 
   test "a dead key leaves the other keys working" do
-    world = armed(%{aoe_radius: 99, aoe_damage: 50}) |> World.fail({:dead_key, "3"})
+    world =
+      armed(%{aoe_radius: 99, aoe_damage_pct: 50, damage_spread_pct: 0})
+      |> World.fail({:dead_key, "3"})
 
     fired = World.press(world, {:press, "4"})
 
-    assert Enum.all?(fired.mobs, &(&1.hp_pct < 100))
+    assert Enum.all?(fired.mobs, &(&1.hp < 100))
   end
 
   test "the mini game freezes every fact rather than reporting an empty screen" do
@@ -706,13 +721,13 @@ defmodule Pokex.Sim.WorldTest do
       # float and will not lose kills to it.
       assert World.press(combo_world(["3", "4", "6"]), {:press, "3"}).mobs
              |> hd()
-             |> Map.fetch!(:hp_pct) == 66
+             |> Map.fetch!(:hp) == 66
     end
 
     test "a key outside the combo falls back to the number I invented" do
-      world = combo_world(["3"], %{aoe_damage: 10})
+      world = combo_world(["3"], %{aoe_damage_pct: 10, damage_spread_pct: 0})
 
-      assert World.press(world, {:press, "4"}).mobs |> hd() |> Map.fetch!(:hp_pct) == 90
+      assert World.press(world, {:press, "4"}).mobs |> hd() |> Map.fetch!(:hp) == 90
       assert World.press(world, {:press, "3"}).mobs == []
     end
   end
@@ -834,10 +849,13 @@ defmodule Pokex.Sim.WorldTest do
   end
 
   defp combo_world(combo, extra \\ %{}) do
+    {seed, extra} = Map.pop(extra, :seed, 42)
+
     knobs =
       Map.merge(
         %{
           kill_combo: combo,
+          damage_spread_pct: 0,
           nest_size: 1,
           nest_radius: 0,
           aggro_tiles: 0,
@@ -847,7 +865,7 @@ defmodule Pokex.Sim.WorldTest do
         extra
       )
 
-    world = World.new(nest_route(), loadout: loadout(), knobs: knobs)
+    world = World.new(nest_route(), loadout: loadout(), knobs: knobs, seed: seed)
     {x, y, z} = world.own.pos
 
     %{world | mobs: [%{hd(world.mobs) | pos: {x, y + 1, z}}]}
@@ -871,4 +889,117 @@ defmodule Pokex.Sim.WorldTest do
   end
 
   defp shifted({x, y, z}, by), do: {x + by, y, z}
+
+  describe "the engine only ever sees the screen" do
+    test "the window is a RECTANGLE: seven tiles across, five up" do
+      # Measured on his real Meganium route before this fix: a Chebyshev radius
+      # of 7 handed the engine 32 of 346 sightings that no screen ever showed —
+      # 9.2%. He asked for exactly this guarantee, and it was not being kept.
+      # NOT `armed/1`: that helper opens the window to 199x199 so other tests
+      # can see everything. This one has to run on the real default.
+      world = World.new(nest_route(), knobs: %{nest_size: 0, stray_chance_pct: 0})
+      assert {world.knobs.screen_w, world.knobs.screen_h} == {15, 11}
+      {x, y, z} = world.pos
+
+      at = fn dx, dy ->
+        seen = %{world | mobs: [mob_at({x + dx, y + dy, z})]}
+        World.observe(seen, :battle).enemies != []
+      end
+
+      assert at.(7, 0), "seven across is the last column the game draws"
+      refute at.(8, 0), "eight across is off the side of the window"
+      assert at.(0, 5), "five up is the last row the game draws"
+      refute at.(0, 6), "six up is off the top — this is what used to leak"
+      refute at.(0, 7), "and seven up was leaking too"
+    end
+
+    test "another floor is never on screen, however close" do
+      world = World.new(nest_route(), knobs: %{nest_size: 0, stray_chance_pct: 0})
+      {x, y, z} = world.pos
+      upstairs = %{world | mobs: [mob_at({x, y, z + 1})]}
+
+      assert World.observe(upstairs, :battle).enemies == []
+    end
+
+    test "the window is his to set, because I did not measure it" do
+      world =
+        World.new(nest_route(),
+          knobs: %{nest_size: 0, stray_chance_pct: 0, screen_w: 3, screen_h: 3}
+        )
+
+      {x, y, z} = world.pos
+
+      assert World.observe(%{world | mobs: [mob_at({x + 1, y, z})]}, :battle).enemies != []
+      assert World.observe(%{world | mobs: [mob_at({x + 2, y, z})]}, :battle).enemies == []
+    end
+  end
+
+  describe "damage is a band, not a number" do
+    test "the enemy's health is his to calibrate" do
+      assert hd(World.new(nest_route(), knobs: %{nest_size: 1, mob_hp: 480}).mobs).max_hp == 480
+    end
+
+    test "the same key does not land the same number twice" do
+      rolls =
+        for seed <- 1..30 do
+          w = combo_world([], %{aoe_damage_pct: 50, damage_spread_pct: 40, seed: seed})
+          World.press(w, {:press, "3"}).mobs |> hd() |> Map.fetch!(:hp)
+        end
+
+      assert length(Enum.uniq(rolls)) > 1, "a fixed number is exactly what he asked me to remove"
+      assert Enum.min(rolls) >= 100 - 70 and Enum.max(rolls) <= 100 - 30
+    end
+
+    test "a spread of zero gives back the old certainty, for anyone who wants it" do
+      rolls =
+        for seed <- 1..10 do
+          w = combo_world([], %{aoe_damage_pct: 50, damage_spread_pct: 0, seed: seed})
+          World.press(w, {:press, "3"}).mobs |> hd() |> Map.fetch!(:hp)
+        end
+
+      assert Enum.uniq(rolls) == [50]
+    end
+
+    test "his own range for a key beats both the combo and my invented number" do
+      world = combo_world(["3"], %{skill_damage: %{"3" => {7, 7}}})
+
+      assert World.press(world, {:press, "3"}).mobs |> hd() |> Map.fetch!(:hp) == 93
+    end
+
+    test "a volley kills some and leaves a survivor on a sliver" do
+      # THE situation he wants to watch the engine handle: the area skill does
+      # not finish everyone, and someone has to go and finish the last one.
+      world =
+        World.new(nest_route(),
+          loadout: loadout(),
+          knobs: %{
+            nest_size: 8,
+            nest_radius: 2,
+            aoe_radius: 99,
+            aoe_damage_pct: 100,
+            damage_spread_pct: 30,
+            stray_chance_pct: 0
+          }
+        )
+
+      after_volley = World.press(world, {:press, "3"})
+
+      assert after_volley.stats.killed > 0, "a full-strength volley has to kill somebody"
+      assert after_volley.mobs != [], "and its lower rolls have to leave somebody standing"
+      assert Enum.all?(after_volley.mobs, &(&1.hp < &1.max_hp))
+    end
+  end
+
+  defp mob_at(pos) do
+    %{
+      id: 99,
+      name: "Venonat",
+      pos: pos,
+      hp: 100,
+      max_hp: 100,
+      spawn: pos,
+      walk_debt_ms: 0,
+      bite_debt_ms: 0
+    }
+  end
 end

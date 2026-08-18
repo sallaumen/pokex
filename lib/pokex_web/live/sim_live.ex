@@ -24,6 +24,7 @@ defmodule PokexWeb.SimLive do
   alias Pokex.Sim.Bench
   alias Pokex.Sim.Calibrate
   alias Pokex.Sim.Scenario
+  alias Pokex.Sim.World
 
   @directions %{
     "ArrowRight" => "right",
@@ -313,7 +314,7 @@ defmodule PokexWeb.SimLive do
 
   defp truth_rows(world) do
     Enum.map(world.mobs, fn mob ->
-      %{name: mob.name, hp_pct: mob.hp_pct, pos: mob.pos, leash: leash_left(mob, world)}
+      %{name: mob.name, hp_pct: World.hp_pct(mob), pos: mob.pos, leash: leash_left(mob, world)}
     end)
   end
 
@@ -633,10 +634,10 @@ defmodule PokexWeb.SimLive do
               />
               <%= if @world do %>
                 <rect
-                  x={elem(@world.pos, 0) - @world.knobs.battle_radius - 0.5}
-                  y={elem(@world.pos, 1) - @world.knobs.battle_radius - 0.5}
-                  width={@world.knobs.battle_radius * 2 + 1}
-                  height={@world.knobs.battle_radius * 2 + 1}
+                  x={elem(@world.pos, 0) - div(@world.knobs.screen_w, 2) - 0.5}
+                  y={elem(@world.pos, 1) - div(@world.knobs.screen_h, 2) - 0.5}
+                  width={@world.knobs.screen_w}
+                  height={@world.knobs.screen_h}
                   fill="rgb(56 189 248 / 0.07)"
                   stroke="rgb(56 189 248 / 0.35)"
                   stroke-width="0.3"
@@ -647,7 +648,7 @@ defmodule PokexWeb.SimLive do
                   y={elem(mob.pos, 1) - 0.5}
                   width="1"
                   height="1"
-                  fill={mob_fill(mob.hp_pct)}
+                  fill={mob_fill(World.hp_pct(mob))}
                   stroke="rgb(24 24 27)"
                   stroke-width="0.08"
                 />
@@ -718,7 +719,7 @@ defmodule PokexWeb.SimLive do
               </li>
               <li class="flex items-center gap-1.5">
                 <span class="inline-block h-3 w-3 border border-sky-500/60"></span>
-                até onde o bot enxerga
+                a tela do jogo — o bot só sabe o que cabe aqui
               </li>
             </ul>
             <p class="mt-1 text-[11px] leading-snug text-zinc-500">

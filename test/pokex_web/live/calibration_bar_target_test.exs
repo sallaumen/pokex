@@ -24,15 +24,46 @@ defmodule PokexWeb.CalibrationBarTargetTest do
   test "says whose bar is being calibrated", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/calibration?#{[bar: "Vespiquen"]}")
 
-    assert html =~ "calibrando a barra de"
+    assert html =~ "Calibrando a barra de"
     assert html =~ "Vespiquen"
+  end
+
+  # The count field used to start at the SCREEN's number: Vespiquen carries 8
+  # and the screen said 9, so capturing without noticing rewrote her bar with a
+  # slot she does not have — silently, and with the wrong number sitting in the
+  # field looking like hers.
+  @tag :tmp_dir
+  test "the skill count starts at the aimed pokemon's own, not the screen's", %{conn: conn} do
+    Team.set_bar("Vespiquen", %{region: {1, 2, 300, 40}, count: 8, refs: nil})
+
+    {:ok, _view, html} = live(conn, ~p"/calibration?#{[bar: "Vespiquen"]}")
+
+    assert html =~ "8 skills"
+  end
+
+  @tag :tmp_dir
+  test "the banner carries the two-click action, so it does not have to be hunted for", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/calibration?#{[bar: "Vespiquen"]}")
+
+    assert has_element?(view, ~s{button[phx-click="calibrate_skillbar"]}, "Marcar a barra dele")
+  end
+
+  @tag :tmp_dir
+  test "the picker marks who already carries a bar of their own", %{conn: conn} do
+    Team.set_bar("Vespiquen", %{region: {1, 2, 300, 40}, count: 8, refs: nil})
+
+    {:ok, _view, html} = live(conn, ~p"/calibration")
+
+    assert html =~ "✓ 8"
   end
 
   @tag :tmp_dir
   test "offers a way back to the screen's own bar", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/calibration?#{[bar: "Vespiquen"]}")
 
-    assert has_element?(view, ~s{a[href="/calibration"]}, "calibrar a barra da tela")
+    assert has_element?(view, ~s{a[href="/calibration"]}, "calibrar a da tela")
   end
 
   @tag :tmp_dir
@@ -47,7 +78,7 @@ defmodule PokexWeb.CalibrationBarTargetTest do
   test "does not announce a target when calibrating the screen's bar", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/calibration")
 
-    refute html =~ "calibrando a barra de"
+    refute html =~ "Calibrando a barra de"
   end
 
   # A name typed into the URL that is not on the team would write a bar nothing
@@ -56,6 +87,6 @@ defmodule PokexWeb.CalibrationBarTargetTest do
   test "ignores a pokemon that is not on the team", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/calibration?#{[bar: "Mewtwo"]}")
 
-    refute html =~ "calibrando a barra de"
+    refute html =~ "Calibrando a barra de"
   end
 end

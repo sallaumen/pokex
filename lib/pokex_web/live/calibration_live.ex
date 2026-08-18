@@ -39,12 +39,16 @@ defmodule PokexWeb.CalibrationLive do
 
   @impl true
   def mount(params, _session, socket) do
-    skill_count = configured_skill_count()
-
     # `?bar=<pokémon>` turns the standalone skill-bar fix into that POKÉMON's
     # bar instead of the screen's: the /time page links here per pokémon, and
     # this page keeps the two clicks it already knew how to take.
     bar_target = bar_target(params["bar"])
+
+    # Aimed at a pokémon, the count starts at ITS bar's — not the screen's.
+    # Vespiquen carries 8 and the screen says 9: capturing without noticing
+    # would have rewritten her bar with a slot she does not have, silently, and
+    # the number sitting in the field would have looked like her own.
+    skill_count = configured_skill_count(bar_target)
 
     # The per-corpse counter (R4) updates on its own: the Catcher publishes the
     # session count on every sweep that finds something new.
@@ -1844,7 +1848,22 @@ defmodule PokexWeb.CalibrationLive do
 
   defp bar_target(_absent), do: nil
 
-  defp team_names, do: Enum.map(Pokex.Pokedex.Team.members(), & &1.name)
+  # Name and, when it has one, the size of its own bar: "Vespiquen ✓ 8" says in
+  # three characters what a second page would have to be opened to learn.
+  defp team_names do
+    Enum.map(Pokex.Pokedex.Team.members(), fn member ->
+      {member.name, get_in(member, [Access.key(:bar), Access.key(:count)])}
+    end)
+  end
+
+  defp configured_skill_count(nil), do: configured_skill_count()
+
+  defp configured_skill_count(name) do
+    case Pokex.Pokedex.Team.bar(name) do
+      %{count: count} when count in 1..10 -> count
+      _no_bar_of_its_own -> configured_skill_count()
+    end
+  end
 
   defp configured_skill_count do
     case Calibration.load() do
@@ -1925,15 +1944,25 @@ defmodule PokexWeb.CalibrationLive do
           :if={@bar_target}
           class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-pk-accent-line bg-pk-accent-dim px-3 py-2"
         >
-          <p class="text-pk-body text-pk-text">
-            🎛 Você está calibrando a barra de <strong>{@bar_target}</strong>. O que salvar aqui
-            fica <strong>só dele</strong> — a barra da tela e a dos outros pokémon não mudam.
+          <p class="min-w-0 flex-1 text-pk-body text-pk-text">
+            🎛 Calibrando a barra de <strong>{@bar_target}</strong> — {@skill_count} skills. O que
+            salvar aqui fica <strong>só dele</strong>; a barra da tela e a dos outros não mudam.
           </p>
+          <%!-- The action lives IN the banner. Reading who you are aiming at and
+                then having to hunt for the button is the same gap that hid this
+                whole feature: the big green button below starts the ten-step
+                calibration, and for one pokémon's bar this is the two-click one. --%>
+          <button
+            phx-click="calibrate_skillbar"
+            class="shrink-0 cursor-pointer rounded-lg border border-pk-accent-line bg-pk-accent-dim px-3 py-1.5 text-pk-body font-semibold text-pk-text hover:brightness-125"
+          >
+            Marcar a barra dele (2 cliques)
+          </button>
           <.link
             navigate={~p"/calibration"}
-            class="ml-auto text-pk-body text-pk-text-2 hover:underline"
+            class="shrink-0 text-pk-body text-pk-text-2 hover:underline"
           >
-            calibrar a barra da tela
+            calibrar a da tela
           </.link>
         </div>
 
@@ -1946,11 +1975,11 @@ defmodule PokexWeb.CalibrationLive do
             quando você trocar):
           </span>
           <.link
-            :for={name <- @team_names}
+            :for={{name, count} <- @team_names}
             navigate={~p"/calibration?#{[bar: name]}"}
             class="rounded border border-pk-line px-2 py-0.5 text-pk-body text-pk-text hover:bg-pk-surface-3"
           >
-            {name}
+            {name}<span :if={count} class="ml-1 text-pk-text-2">✓ {count}</span>
           </.link>
         </div>
 

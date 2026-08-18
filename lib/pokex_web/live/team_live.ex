@@ -170,9 +170,15 @@ defmodule PokexWeb.TeamLive do
     )
   end
 
-  # A bar of his own, or the shared calibration standing in for it.
-  defp bar_text(%{count: count}) when is_integer(count), do: "🎛 barra própria · #{count} skills"
-  defp bar_text(_none), do: "🎛 sem barra própria — usa a da calibração"
+  # A bar of his own, or the shared calibration standing in for it — said as an
+  # ACTION, because this text is a link and always was. Written as a status
+  # ("sem barra própria — usa a da calibração") it read as information, and he
+  # hunted for the feature on two pages without recognising that he was looking
+  # straight at the way in.
+  defp bar_text(%{count: count}) when is_integer(count),
+    do: "🎛 barra própria · #{count} skills — recalibrar"
+
+  defp bar_text(_none), do: "🎛 sem barra própria (usa a da calibração) — calibrar a dele"
 
   defp keys_text([]), do: "nenhuma"
   defp keys_text(keys), do: Enum.join(keys, " ")

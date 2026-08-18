@@ -93,6 +93,38 @@ defmodule Pokex.Bots.ActiveBarTest do
       assert %{region: {1, 2, 400, 44}, count: 4, name: "Gardevoir"} = ActiveBar.current(calib)
     end
 
+    # The promise in his own words: "eu calibro uma vez a Vespiquen e uma vez a
+    # Vileplume, e nunca mais vou precisar calibrar ela, só trocando" — with
+    # Gardevoir standing in, because Team.add refuses a name the Pokédex does
+    # not carry. Calibrating
+    # the second one must not disturb the first, and swapping back must return it
+    # whole — region, count and the READY references, which ARE the skill icons.
+    test "two calibrated pokémon keep their own bars across every swap", %{calib: calib} do
+      {:ok, _} = Team.add("Gardevoir")
+      Team.set_bar("Gardevoir", %{region: {7, 8, 500, 60}, count: 6, refs: [{1, 2, 3}]})
+
+      Team.set_active("Gardevoir")
+
+      assert %{region: {7, 8, 500, 60}, count: 6, refs: [{1, 2, 3}], name: "Gardevoir"} =
+               ActiveBar.current(calib)
+
+      Team.set_active("Vespiquen")
+
+      assert %{region: {5, 5, 900, 50}, count: 9, refs: [{9, 9, 9}], name: "Vespiquen"} =
+               ActiveBar.current(calib)
+
+      Team.set_active("Gardevoir")
+      assert %{region: {7, 8, 500, 60}, count: 6, name: "Gardevoir"} = ActiveBar.current(calib)
+    end
+
+    test "calibrating one pokémon never touches another's bar", %{calib: _calib} do
+      {:ok, _} = Team.add("Gardevoir")
+      Team.set_bar("Gardevoir", %{region: {7, 8, 500, 60}, count: 6, refs: [{1, 2, 3}]})
+
+      assert Team.bar("Vespiquen").count == 9
+      assert Team.bar("Vespiquen").region == {5, 5, 900, 50}
+    end
+
     test "clearing a pokémon's bar drops it back to the calibration", %{calib: calib} do
       Team.set_bar("Vespiquen", nil)
 

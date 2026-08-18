@@ -17,6 +17,7 @@ defmodule Pokex.Bots.Combat.Worker do
   alias Pokex.Bots.Combat.{Loadout, Logic, Strategy}
   alias Pokex.Bots.Perf
   alias Pokex.Bots.SkillReceipt
+  alias Pokex.Bots.SkillSuspect
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.Pokedex.Team
@@ -90,7 +91,11 @@ defmodule Pokex.Bots.Combat.Worker do
        last_action: nil,
        # false only while a RETRY is being dispatched: its own miss must not
        # start another one
-       retry_ok?: true
+       retry_ok?: true,
+       # who keeps missing while never being seen on cooldown (SkillSuspect),
+       # and who has already been named for it
+       suspects: SkillSuspect.new(),
+       accused: []
      }}
   end
 
@@ -182,12 +187,18 @@ defmodule Pokex.Bots.Combat.Worker do
   # A skill that did not go off is STILL READY, so pressing it again is exactly
   # right — once. The retry itself is never confirmed (retry_ok?: false), or a
   # bar that cannot be read would keep the two of them pressing forever.
+  def handle_info({:skill_bar_seen, ready, watched}, state) do
+    {:noreply, %{state | suspects: SkillSuspect.observe(state.suspects, ready, watched)}}
+  end
+
   def handle_info({:skills_missed, keys}, %{logic: %Logic{}} = state) do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       @topic,
       {:combat_log, :macro, "combate: 🔁 #{Enum.join(keys, ", ")} não saiu — apertando de novo"}
     )
+
+    state = %{state | suspects: SkillSuspect.missed(state.suspects, keys)} |> accuse()
 
     {:noreply, dispatch(%{state | retry_ok?: false}, Enum.map(keys, &{:press, &1}))}
   end
@@ -524,12 +535,35 @@ defmodule Pokex.Bots.Combat.Worker do
     skills = keys -- [Settings.get(:tab_key)]
     later = Perception.ready_skills_after(at, Settings.get(:combat_confirm_ms))
 
+    # Separate message, on purpose: the detector must never be able to change
+    # whether a missed key gets pressed again. Diagnosis is a bonus; the retry
+    # is the service.
+    send(parent, {:skill_bar_seen, later, skills})
+
     case skills |> then(&SkillReceipt.check(before, later, &1)) |> SkillReceipt.verdict() do
       {:missed, missed} -> send(parent, {:skills_missed, missed})
       _confirmed_or_unknown -> :ok
     end
   catch
     kind, reason -> Logger.debug("combat receipt crashed: #{inspect({kind, reason})}")
+  end
+
+  # Said ONCE per key: a slot whose reference is inverted misses forever, and a
+  # line repeated on every miss would bury itself.
+  defp accuse(state) do
+    state.suspects
+    |> SkillSuspect.suspects()
+    |> Enum.reject(&(&1 in state.accused))
+    |> Enum.reduce(state, fn key, acc ->
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:combat_log, :macro,
+         "combate: ⚠️ " <> SkillSuspect.explain(key, acc.suspects[key].missed)}
+      )
+
+      %{acc | accused: [key | acc.accused]}
+    end)
   end
 
   # The freshest battle picture, or nil (stale/missing → Logic acts time-only, fail-safe).

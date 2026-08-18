@@ -81,6 +81,44 @@ defmodule PokexWeb.CalibrationBarTargetTest do
     refute html =~ "Calibrando a barra de"
   end
 
+  # This is the bug he reported: he could only calibrate Vespiquen at her real
+  # 8, and every OTHER pokémon offered 9 — Shiny Vileplume's leftover count
+  # from before per-pokémon bars existed, sitting in the legacy global file and
+  # looking exactly as confident as a real answer.
+  @tag :tmp_dir
+  test "warns when the count is borrowed from another calibration, not this pokemon's own", %{
+    conn: conn
+  } do
+    {:ok, _view, html} = live(conn, ~p"/calibration?#{[bar: "Gardevoir"]}")
+
+    assert html =~ "sobra de outra calibração"
+  end
+
+  @tag :tmp_dir
+  test "says nothing once the pokemon has calibrated its own bar", %{conn: conn} do
+    Team.set_bar("Gardevoir", %{region: {1, 2, 300, 40}, count: 8, refs: nil})
+
+    {:ok, _view, html} = live(conn, ~p"/calibration?#{[bar: "Gardevoir"]}")
+
+    refute html =~ "sobra de outra calibração"
+  end
+
+  # Typing the real number in IS the fix: the warning must clear the moment he
+  # does, in the same session, without requiring a page reload to notice it
+  # took.
+  @tag :tmp_dir
+  test "typing the real count clears the warning without a reload", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/calibration?#{[bar: "Gardevoir"]}")
+    assert html =~ "sobra de outra calibração"
+
+    html =
+      view
+      |> form("#skill-count-form", skill_bar: %{count: "8"})
+      |> render_change()
+
+    refute html =~ "sobra de outra calibração"
+  end
+
   # A name typed into the URL that is not on the team would write a bar nothing
   # will ever read.
   @tag :tmp_dir

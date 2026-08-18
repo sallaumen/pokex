@@ -48,7 +48,13 @@ defmodule PokexWeb.CalibrationLive do
     # Vespiquen carries 8 and the screen says 9: capturing without noticing
     # would have rewritten her bar with a slot she does not have, silently, and
     # the number sitting in the field would have looked like her own.
-    skill_count = configured_skill_count(bar_target)
+    #
+    # `own?` is false whenever this pokémon has never been calibrated on its
+    # own: the number then comes from a GLOBAL leftover (whichever bar was
+    # captured last, back when there was only one shared bar) and has nothing
+    # to do with this creature. It happens to look plausible, which is exactly
+    # why every pokémon without a bar of its own quietly inherited nine.
+    {skill_count, skill_count_own?} = configured_skill_count(bar_target)
 
     # The per-corpse counter (R4) updates on its own: the Catcher publishes the
     # session count on every sweep that finds something new.
@@ -74,6 +80,7 @@ defmodule PokexWeb.CalibrationLive do
        coord_search: nil,
        coord_teach_msg: nil,
        skill_count: skill_count,
+       skill_count_own?: skill_count_own?,
        skill_count_form: skill_count_form(skill_count),
        row_height: Settings.get(:battle_row_height),
        max_rows: Settings.get(:battle_max_rows),
@@ -504,6 +511,9 @@ defmodule PokexWeb.CalibrationLive do
     {:noreply,
      assign(socket,
        skill_count: count,
+       # He just told us the number himself — it stops being a borrowed guess
+       # the moment he types it, even if it happens to match the old one.
+       skill_count_own?: true,
        skill_count_form: skill_count_form(count),
        draft: Map.put(socket.assigns.draft, :skill_bar_count, count)
      )}
@@ -1856,12 +1866,12 @@ defmodule PokexWeb.CalibrationLive do
     end)
   end
 
-  defp configured_skill_count(nil), do: configured_skill_count()
+  defp configured_skill_count(nil), do: {configured_skill_count(), true}
 
   defp configured_skill_count(name) do
     case Pokex.Pokedex.Team.bar(name) do
-      %{count: count} when count in 1..10 -> count
-      _no_bar_of_its_own -> configured_skill_count()
+      %{count: count} when count in 1..10 -> {count, true}
+      _no_bar_of_its_own -> {configured_skill_count(), false}
     end
   end
 
@@ -1945,8 +1955,12 @@ defmodule PokexWeb.CalibrationLive do
           class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-pk-accent-line bg-pk-accent-dim px-3 py-2"
         >
           <p class="min-w-0 flex-1 text-pk-body text-pk-text">
-            🎛 Calibrando a barra de <strong>{@bar_target}</strong> — {@skill_count} skills. O que
+            🎛 Calibrando a barra de <strong>{@bar_target}</strong>
+            — {@skill_count} skills. O que
             salvar aqui fica <strong>só dele</strong>; a barra da tela e a dos outros não mudam.
+            <span :if={not @skill_count_own?} class="block font-semibold text-pk-warn">
+              esse número é sobra de outra calibração, não é de {@bar_target} — confira antes de capturar
+            </span>
           </p>
           <%!-- The action lives IN the banner. Reading who you are aiming at and
                 then having to hunt for the button is the same gap that hid this
@@ -2043,6 +2057,9 @@ defmodule PokexWeb.CalibrationLive do
                     max="10"
                     label="Quantidade de skills"
                   />
+                  <p :if={@bar_target && not @skill_count_own?} class="mt-1 text-pk-meta text-pk-warn">
+                    sobra de outra calibração — confira antes de capturar
+                  </p>
                 </.form>
                 <button class="btn btn-primary" phx-click="capture_screen">
                   <.icon name="hero-camera" class="size-4" /> Capturar tela e começar

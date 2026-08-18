@@ -36,10 +36,26 @@ defmodule Pokex.Bots.Engine.Situation do
   `own_row_seen?` is `nil` — because a guessed subtraction here is exactly the
   difference between attacking a pile and walking away from it.
 
-  Whether his pokémon appears in that list at all is, as of this writing, an
-  open measurement: `interpret.ex:44` records a live reading saying it does NOT
-  appear; he says it is always the first row. `own_row_seen?` is what settles it
-  with field data instead of with either of our memories.
+  ## The measurement is closed, and he was right
+
+  Whether his pokémon takes a row was an open question — `interpret.ex:44` had a
+  reading saying it does not appear; he said it is always the first row. His
+  hunt of 2026-08-18 settled it: row 0 was his pokémon in **134 of 140**
+  readings, and `own_row_seen?` came back `false` in **all 134** filed
+  decisions. It appears, and the by-name discount never fired.
+
+  The reason is the trap: his Vespiquen's name reads as `nil` (the glyphs for it
+  were never taught), and a name that cannot be read can never match. So every
+  count that night was inflated by exactly one — which opened the area on 12
+  piles of two, and walked away from 6 monsters that were still alive.
+
+  So the name is no longer the only way to find his row. When his pokémon is on
+  the field and NO row matched by name, the first unreadable row is his. That is
+  narrower than subtracting one in the dark: it keeps the named list and the
+  count consistent, it does nothing when every row is legible, and it does
+  nothing when his pokémon is not out. `own_row_seen?` answers `:unnamed` there,
+  so the screen can say which of the two ways found it — a discount made on a
+  guess must never look like one made on a name.
   """
 
   @doc """
@@ -55,7 +71,13 @@ defmodule Pokex.Bots.Engine.Situation do
   """
   @spec build(map, map, integer) :: map
   def build(inputs, config, now) do
-    battle = read_battle(Map.get(inputs, :battle), Map.get(inputs, :own_name))
+    battle =
+      read_battle(
+        Map.get(inputs, :battle),
+        Map.get(inputs, :own_name),
+        Map.get(inputs, :own_out?, false)
+      )
+
     {growing?, stable_since} = settle(battle.enemies, Map.get(inputs, :prev), now)
 
     %{
@@ -77,10 +99,10 @@ defmodule Pokex.Bots.Engine.Situation do
   end
 
   # No reading at all: everything about the screen is unknown. Not zero.
-  defp read_battle(nil, _own_name),
+  defp read_battle(nil, _own_name, _own_out?),
     do: %{rows: nil, enemies: nil, named: [], own_row_seen?: nil}
 
-  defp read_battle(battle, own_name) do
+  defp read_battle(battle, own_name, own_out?) do
     rows = length(Map.get(battle, :enemies, []))
     detail = Map.get(battle, :enemies_detail, [])
 
@@ -95,9 +117,35 @@ defmodule Pokex.Bots.Engine.Situation do
 
       true ->
         {mine, theirs} = Enum.split_with(detail, &mine?(&1, own_name))
-        %{rows: rows, enemies: length(theirs), named: theirs, own_row_seen?: mine != []}
+        by_name_or_by_absence(rows, mine, theirs, own_out?)
     end
   end
+
+  # Found by name: the precise way, and the only one that works when his pokémon
+  # is not the first row.
+  defp by_name_or_by_absence(rows, mine, theirs, _own_out?) when mine != [],
+    do: %{rows: rows, enemies: length(theirs), named: theirs, own_row_seen?: true}
+
+  # Nothing matched by name, but his pokémon IS on the field — so one of these
+  # rows is his and the reader could not spell it. The first unreadable one is
+  # the candidate, and if every row is legible nothing is taken away: a legible
+  # list that does not contain him means he really is not in it.
+  defp by_name_or_by_absence(rows, _none, theirs, true) do
+    case Enum.split_with(theirs, &(&1.name == nil)) do
+      {[], _all_legible} ->
+        %{rows: rows, enemies: rows, named: theirs, own_row_seen?: false}
+
+      {[_first_unreadable | rest_unreadable], legible} ->
+        others = legible ++ rest_unreadable
+        %{rows: rows, enemies: length(others), named: others, own_row_seen?: :unnamed}
+    end
+  end
+
+  # He is not on the field, so no row is his — an unreadable row here is a
+  # monster whose name the glyphs do not know yet, and taking it off the count
+  # would be walking away from something real.
+  defp by_name_or_by_absence(rows, _none, theirs, _not_out),
+    do: %{rows: rows, enemies: rows, named: theirs, own_row_seen?: false}
 
   defp mine?(_row, nil), do: false
 

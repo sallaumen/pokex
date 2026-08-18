@@ -320,6 +320,19 @@ defmodule Pokex.Bots.Engine.Worker do
 
   defp narrate_own_row(state, %{own_row_seen?: nil}), do: state
 
+  # A discount made on an ABSENCE must never read like one made on a name: on
+  # 2026-08-18 the by-name discount silently never fired for a whole hunt, and
+  # nothing on any screen said so. This line is what would have said it.
+  defp narrate_own_row(state, %{own_row_seen?: :unnamed}) do
+    log(
+      :macro,
+      "#{own_label(state)} está na lista mas o nome saiu ilegível — descontei a primeira " <>
+        "linha sem nome. Ensine os glifos dele na calibração pra voltar a descontar pelo nome."
+    )
+
+    state
+  end
+
   defp narrate_own_row(state, %{own_row_seen?: seen?} = picture) do
     who = own_label(state)
 

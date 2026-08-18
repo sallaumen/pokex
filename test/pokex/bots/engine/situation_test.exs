@@ -220,4 +220,65 @@ defmodule Pokex.Bots.Engine.SituationTest do
       assert picture.spent? == nil
     end
   end
+
+  defp picture_of(names, opts \\ []) do
+    Situation.build(
+      %{
+        battle: battle(names),
+        own_name: Keyword.get(opts, :own_name, "Vespiquen"),
+        own_out?: Keyword.get(opts, :own_out?, true),
+        ready_keys: [],
+        damage_keys: []
+      },
+      @config,
+      1_000
+    )
+  end
+
+  describe "the own row when its name cannot be read" do
+    test "discounts the first unreadable row when the pokemon is on the field" do
+      picture = picture_of([nil, "Meganium", "Meganium"])
+
+      assert picture.rows == 3
+      assert picture.enemies == 2
+      assert picture.own_row_seen? == :unnamed
+    end
+
+    test "keeps the named list consistent with the discounted count" do
+      picture = picture_of([nil, "Meganium", "Meganium"])
+
+      assert length(picture.named) == picture.enemies
+      refute Enum.any?(picture.named, &(&1.name == nil))
+    end
+
+    test "discounts only one unreadable row, not every one of them" do
+      assert picture_of([nil, nil, "Meganium"]).enemies == 2
+    end
+
+    test "prefers the name when a row does match it" do
+      picture = picture_of(["Vespiquen", "Meganium", nil])
+
+      assert picture.enemies == 2
+      assert picture.own_row_seen? == true
+    end
+
+    test "takes nothing away when every row is legible and none is his" do
+      picture = picture_of(["Meganium", "Meganium", "Tangela"])
+
+      assert picture.enemies == 3
+      assert picture.own_row_seen? == false
+    end
+
+    test "takes nothing away when his pokemon is not on the field" do
+      picture = picture_of([nil, "Meganium", "Meganium"], own_out?: false)
+
+      assert picture.enemies == 3
+      assert picture.own_row_seen? == false
+    end
+
+    # The exact reading his hunt filed 12 times while opening the area on it.
+    test "his hunt of 2026-08-18 would have read two, not three" do
+      refute picture_of([nil, "Meganium", "Meganium"]).worth_fighting?
+    end
+  end
 end

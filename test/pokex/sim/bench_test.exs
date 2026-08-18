@@ -61,11 +61,21 @@ defmodule Pokex.Sim.BenchTest do
     assert result.outcome.killed + result.outcome.vanished + result.outcome.left_alive == 6
   end
 
-  test "a pile that drips in is skipped even though it was worth fighting" do
+  # This test used to assert `killed == 0`, and that assertion was recording a
+  # BUG rather than a behaviour. Under the old movement a monster walking a
+  # straight line into the character's square had no way around it, parked
+  # there, and was eventually dragged past its leash — so a dripping pile
+  # "proved" the engine threw five monsters away. With tile exclusivity and a
+  # sidestep, the same run skips the pile while it is still small and picks it
+  # up whole on the next lap. The finding was mine and it was wrong; this is
+  # what the scenario actually shows.
+  test "a dripping pile is skipped while small and collected whole on the way back" do
     result = run("pilha-que-pinga", duration_ms: 30_000)
 
     assert :skipping in result.outcome.phases
-    assert result.outcome.killed == 0
+    assert :engaged in result.outcome.phases
+    assert result.outcome.killed > 0
+    assert result.outcome.vanished == 0
   end
 
   test "red health revives immediately instead of finishing the round" do

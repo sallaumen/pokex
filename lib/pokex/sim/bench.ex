@@ -238,13 +238,7 @@ defmodule Pokex.Sim.Bench do
 
   defp fire(world, _holding), do: world
 
-  defp revive(world, %{revive: :now}) do
-    %{
-      world
-      | own: %{world.own | hp_pct: 100, out?: true, alive?: true},
-        keys: Map.new(world.keys, fn {key, skill} -> {key, %{skill | ready_at: 0}} end)
-    }
-  end
+  defp revive(world, %{revive: :now}), do: World.revive(world)
 
   defp revive(world, _holding), do: world
 

@@ -644,4 +644,231 @@ defmodule Pokex.Sim.WorldTest do
 
     assert fallen.own.hp_pct == 0
   end
+
+  # ---------------------------------------------------------------------------
+  # What he corrected on 18/08, after playing it: the world was tidier than the
+  # game. Nests were always four, the pokemon had no position at all, and the
+  # damage per key was a number nobody had ever measured.
+  # ---------------------------------------------------------------------------
+
+  describe "how many monsters a corner holds" do
+    test "a pinned nest_size still means exactly that many, so a scenario stays controlled" do
+      assert length(World.new(nest_route(), knobs: %{nest_size: 2}).mobs) == 2
+      assert length(World.new(nest_route(), knobs: %{nest_size: 5}).mobs) == 5
+    end
+
+    test "without a pin, marked corners draw from the distribution instead of one number" do
+      sizes =
+        for seed <- 1..40 do
+          length(World.new(nest_route(), seed: seed, knobs: %{stray_chance_pct: 0}).mobs)
+        end
+
+      assert Enum.uniq(sizes) |> length() > 1, "every seed gave #{inspect(Enum.uniq(sizes))}"
+      assert Enum.min(sizes) >= 1 and Enum.max(sizes) <= 4
+    end
+
+    test "a corner his hand did not mark can still hold a stray" do
+      plain = route([{100, 200, 5}, {110, 200, 5}])
+
+      counts =
+        for seed <- 1..40,
+            do: length(World.new(plain, seed: seed, knobs: %{stray_chance_pct: 100}).mobs)
+
+      assert Enum.min(counts) > 0, "a road of 100% strays produced an empty world"
+      assert length(World.new(plain, knobs: %{stray_chance_pct: 0}).mobs) == 0
+    end
+
+    test "nobody is born on a tile somebody already occupies" do
+      world = World.new(nest_route(), knobs: %{nest_size: 8, nest_radius: 0})
+      spots = Enum.map(world.mobs, & &1.pos)
+
+      assert length(spots) == 8
+      assert length(Enum.uniq(spots)) == 8
+      refute world.pos in spots
+      refute world.own.pos in spots
+    end
+  end
+
+  describe "the kill combo he declares" do
+    test "the keys he names as the combo kill in exactly that many presses" do
+      world = combo_world(["3", "4", "6"])
+
+      two = world |> World.press({:press, "3"}) |> World.press({:press, "4"})
+      assert length(two.mobs) == 1, "two thirds of a combo should not be enough"
+
+      assert World.press(two, {:press, "6"}).mobs == []
+    end
+
+    test "the share rounds UP, which is the whole reason three presses land" do
+      # 100/3 is 33.333: three presses of a rounded-DOWN 33 leave the monster at
+      # 1hp, and three presses of the float leave it at a ten-billionth. Both
+      # look like the combo failing. This file has already lost tiles to that
+      # float and will not lose kills to it.
+      assert World.press(combo_world(["3", "4", "6"]), {:press, "3"}).mobs
+             |> hd()
+             |> Map.fetch!(:hp_pct) == 66
+    end
+
+    test "a key outside the combo falls back to the number I invented" do
+      world = combo_world(["3"], %{aoe_damage: 10})
+
+      assert World.press(world, {:press, "4"}).mobs |> hd() |> Map.fetch!(:hp_pct) == 90
+      assert World.press(world, {:press, "3"}).mobs == []
+    end
+  end
+
+  describe "the pokemon is a body of its own" do
+    test "it starts beside him and not on top of him" do
+      world = armed()
+
+      refute world.own.pos == world.pos
+      assert distance(world.own.pos, world.pos) == 1
+    end
+
+    test "a long walk stretches the gap, and leaving the screen snaps it back" do
+      world = armed(%{nest_size: 0, stray_chance_pct: 0})
+      held = World.press(world, {:key_down, "right"})
+
+      gaps =
+        Enum.map_reduce(1..600, held, fn _tick, w ->
+          stepped = World.step(w, 50)
+          {distance(stepped.own.pos, stepped.pos), stepped}
+        end)
+        |> elem(0)
+
+      assert Enum.max(gaps) > world.knobs.pet_follow_tiles,
+             "a slower pokemon must fall behind on a long march"
+
+      assert Enum.max(gaps) <= world.knobs.screen_tiles,
+             "it must never be left further away than his screen reaches"
+    end
+
+    test "a staircase leaves it a floor behind, and the snap brings it up" do
+      world =
+        World.new(stairway(), loadout: loadout(), knobs: %{nest_size: 0, stray_chance_pct: 0})
+
+      walking = World.press(world, {:key_down, "right"})
+      climbed = Enum.reduce(1..40, walking, fn _tick, w -> World.step(w, 50) end)
+
+      assert elem(climbed.pos, 2) == 6
+      assert elem(climbed.own.pos, 2) == 6, "the pokemon cannot be left on the old floor"
+    end
+
+    test "the revive brings it back at HIS side, not where it fell" do
+      world = armed(%{nest_size: 0, stray_chance_pct: 0})
+
+      fallen = %{
+        world
+        | own: %{world.own | hp_pct: 0, out?: false, alive?: false, pos: {1, 1, 5}}
+      }
+
+      back = World.revive(fallen)
+
+      assert back.own.out?
+      assert back.own.hp_pct == 100
+      assert distance(back.own.pos, back.pos) == 1
+    end
+  end
+
+  describe "who takes the hit" do
+    test "the area is measured from the pokemon, not from him" do
+      # One mob far from the pokemon but inside a radius drawn around HIM: it
+      # must survive, because the bar belongs to the pokemon and so does the blast.
+      world = combo_world(["3"], %{aoe_radius: 2})
+      world = %{world | mobs: [%{hd(world.mobs) | pos: shifted(world.pos, 2)}]}
+
+      assert World.press(world, {:press, "3"}).mobs != [],
+             "a mob two tiles from HIM but four from the pokemon must not be hit"
+    end
+
+    test "he cannot be touched while the pokemon is on the field" do
+      world = biting_world()
+      chewed = Enum.reduce(1..40, world, fn _tick, w -> World.step(w, 50) end)
+
+      assert chewed.own.hp_pct < 100, "the pokemon should be the one taking it"
+      assert chewed.player.hp_pct == 100, "he is invulnerable while it is out"
+      assert chewed.player.alive?
+    end
+
+    test "once the pokemon falls, the bites land on him instead" do
+      world = biting_world()
+      long = Enum.reduce(1..400, world, fn _tick, w -> World.step(w, 50) end)
+
+      refute long.own.out?
+      assert long.player.hp_pct < 100, "a slow revive has to cost him something"
+    end
+
+    test "a fallen pokemon casts nothing" do
+      world = combo_world(["3"])
+      fallen = %{world | own: %{world.own | hp_pct: 0, out?: false, alive?: false}}
+
+      assert World.press(fallen, {:press, "3"}).mobs == fallen.mobs
+    end
+  end
+
+  describe "tiles are exclusive" do
+    test "a monster walks AROUND him instead of parking behind him" do
+      # Straight down the y line, his square sits between the mob and the
+      # pokemon. Before the sidestep the mob stopped there and never bit again.
+      world = biting_world()
+      chased = Enum.reduce(1..80, world, fn _tick, w -> World.step(w, 50) end)
+
+      assert distance(hd(chased.mobs).pos, chased.own.pos) <= 1
+    end
+
+    test "no two creatures share a square after a chase" do
+      # `bite_dmg: 0` on purpose: this test is about MOVEMENT, and a pokemon
+      # that falls mid-chase stops occupying its square (it is back in the ball,
+      # and mobs walking over the spot where it fell is correct). Letting it die
+      # here would turn a movement invariant into a health one.
+      world =
+        armed(%{nest_size: 6, nest_radius: 1, aggro_tiles: 99, mob_ms_per_tile: 50, bite_dmg: 0})
+
+      settled = Enum.reduce(1..200, world, fn _tick, w -> World.step(w, 50) end)
+      spots = Enum.map(settled.mobs, & &1.pos)
+
+      assert length(Enum.uniq(spots)) == length(spots)
+      refute settled.pos in spots
+      refute settled.own.pos in spots
+    end
+  end
+
+  defp combo_world(combo, extra \\ %{}) do
+    knobs =
+      Map.merge(
+        %{
+          kill_combo: combo,
+          nest_size: 1,
+          nest_radius: 0,
+          aggro_tiles: 0,
+          aoe_radius: 4,
+          stray_chance_pct: 0
+        },
+        extra
+      )
+
+    world = World.new(nest_route(), loadout: loadout(), knobs: knobs)
+    {x, y, z} = world.own.pos
+
+    %{world | mobs: [%{hd(world.mobs) | pos: {x, y + 1, z}}]}
+  end
+
+  defp biting_world do
+    World.new(nest_route(),
+      loadout: loadout(),
+      knobs: %{
+        nest_size: 1,
+        nest_radius: 0,
+        aggro_tiles: 99,
+        mob_ms_per_tile: 50,
+        leash_tiles: 99,
+        bite_dmg: 2,
+        bite_every_ms: 100,
+        player_bite_dmg: 5,
+        stray_chance_pct: 0
+      }
+    )
+  end
+
+  defp shifted({x, y, z}, by), do: {x + by, y, z}
 end

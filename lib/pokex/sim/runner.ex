@@ -289,13 +289,7 @@ defmodule Pokex.Sim.Runner do
 
   # The revive is R3 in one key: it heals AND zeroes every cooldown. Modelling
   # only the healing would make the engine look wrong about when to spend it.
-  defp revive(world, %{revive: :now}) do
-    %{
-      world
-      | own: %{world.own | hp_pct: 100, out?: true, alive?: true},
-        keys: Map.new(world.keys, fn {key, skill} -> {key, %{skill | ready_at: 0}} end)
-    }
-  end
+  defp revive(world, %{revive: :now}), do: World.revive(world)
 
   defp revive(world, _holding), do: world
 

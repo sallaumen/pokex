@@ -78,6 +78,57 @@ defmodule Pokex.Vision.GlyphsRealMinimapTest do
     assert length(Glyphs.uncertain_in(frame, @band, ink: @ink)) == before - 1
   end
 
+  # 2026-08-17, hunting beside a town: the label's tail fell over the minimap's
+  # own sprites. A white icon that never TOUCHES the digit shared the "1"'s
+  # columns, and the projection is onto columns — so the two welded into one
+  # 17-row glyph where every digit on that line is 15, landing in a shape
+  # bucket with nothing to compare against. The digit is whole in the picture;
+  # only the intruder has to go.
+  describe "a minimap sprite sharing a digit's columns" do
+    setup do
+      {:ok, frame} =
+        Frame.from_png_file("test/fixtures/screen/minimap_coord_sprite_overlap.png")
+
+      %{sprite: frame}
+    end
+
+    @tag :tmp_dir
+    test "is cut at the line's own band, and the digit reads", ctx do
+      Application.put_env(:pokex, :home_dir, ctx.tmp_dir)
+
+      on_exit(fn ->
+        Pokex.TestHome.restore()
+        Glyphs.clear()
+      end)
+
+      Glyphs.clear()
+
+      welded = ctx.sprite |> Glyphs.segment(@band, ink: @ink) |> Enum.at(10)
+      assert length(welded.bitmap) == 17, "o sprite deveria estar grudado no dígito"
+
+      teach_all_but_the_welded(ctx.sprite)
+
+      assert Glyphs.read_coord(ctx.sprite, @band, ink: @ink) == {2296, 30_841, 6}
+    end
+  end
+
+  # Everything this line says except the welded glyph, so the test measures ONE
+  # thing: the `8` of this render is an older, separate gap (19 pixels from the
+  # atlas's against an 18-pixel ceiling), and it would fail for its own reason.
+  defp teach_all_but_the_welded(frame) do
+    truth = ~w[( 2 2 9 6 , 3 0 8 4 1 , 6 )]
+
+    frame
+    |> Glyphs.segment(@band, ink: @ink)
+    |> Enum.zip(truth)
+    |> Enum.reject(fn {glyph, _char} -> length(glyph.bitmap) == 17 end)
+    |> Enum.each(fn {glyph, char} -> Glyphs.teach(signature_of(glyph), char) end)
+
+    Glyphs.clear()
+  end
+
+  defp signature_of(glyph), do: Glyphs.signature(glyph.bitmap)
+
   test "reading it does not crash on a real capture", %{frame: frame} do
     assert frame.width == 262
     assert frame.height == 228

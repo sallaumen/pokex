@@ -338,8 +338,10 @@ defmodule Pokex.Vision.Glyphs do
     filled = Map.new(columns, fn {cx, rows} -> {cx, MapSet.new(rows)} end)
 
     bitmap = for row <- 0..(height - 1)//1, do: bitmap_row(columns, filled, row)
+    tight = trim_rows(bitmap)
+    y0 = Enum.count(Enum.take_while(bitmap, &(Enum.sum(&1) == 0)))
 
-    %{x0: x0, x1: x1, bitmap: trim_rows(bitmap)}
+    %{x0: x0, x1: x1, y0: y0, y1: y0 + length(tight) - 1, bitmap: tight}
   end
 
   defp bitmap_row(columns, filled, row) do
@@ -434,24 +436,28 @@ defmodule Pokex.Vision.Glyphs do
   """
   def uncertain_in(%Frame{} = frame, region, opts \\ []) do
     atlas = atlas()
+    glyphs = segment(frame, region, opts)
+    band = line_band(glyphs)
 
-    frame
-    |> segment(region, opts)
-    |> Enum.map(fn glyph ->
-      %{
-        bitmap: glyph.bitmap,
-        signature: signature(glyph.bitmap),
-        # split_fused is part of the answer, not an afterthought: a pair welded
-        # by the background reads perfectly once cut, and calling it illegible
-        # is what broke the fused-pair tests the moment this was rewritten.
-        guess:
-          Map.get(atlas, signature(glyph.bitmap)) || lookup(glyph.bitmap, atlas) ||
-            split_fused(glyph.bitmap),
-        exact?: Map.has_key?(atlas, signature(glyph.bitmap))
-      }
-    end)
+    glyphs
+    |> Enum.map(&describe_glyph(&1, atlas, band))
     |> Enum.reject(& &1.exact?)
     |> Enum.uniq_by(& &1.signature)
+  end
+
+  # `guess_glyph` is part of the answer, not an afterthought: a pair welded by
+  # the background, or a digit welded to a sprite, reads perfectly once cut, and
+  # calling either illegible is what broke the fused-pair tests the moment this
+  # was rewritten.
+  defp describe_glyph(glyph, atlas, band) do
+    signature = signature(glyph.bitmap)
+
+    %{
+      bitmap: glyph.bitmap,
+      signature: signature,
+      guess: Map.get(atlas, signature) || guess_glyph(glyph, atlas, band),
+      exact?: Map.has_key?(atlas, signature)
+    }
   end
 
   @doc """
@@ -643,12 +649,13 @@ defmodule Pokex.Vision.Glyphs do
     glyphs = segment(frame, region, opts)
     atlas = atlas()
     gap = space_gap(glyphs)
+    band = line_band(glyphs)
 
     {chars, known, guessed} =
       glyphs
       |> Enum.chunk_every(2, 1, [nil])
       |> Enum.reduce({[], 0, 0}, fn [g, next], {acc, known, guessed} ->
-        {char, hit, guess} = read_glyph(g, atlas)
+        {char, hit, guess} = read_glyph(g, atlas, band)
         {[maybe_space(g, next, gap), char | acc], known + hit, guessed + guess}
       end)
 
@@ -666,16 +673,64 @@ defmodule Pokex.Vision.Glyphs do
   # {character, counts-as-read, counts-as-guessed}. An atlas signature hit is
   # knowledge; anything `nearest/1` or the fused split produced is a guess that
   # happened to land — see `uncertain_in/3` for why that distinction matters.
-  defp read_glyph(glyph, atlas) do
+  defp read_glyph(glyph, atlas, band) do
     case Map.get(atlas, signature(glyph.bitmap)) do
       nil ->
-        case lookup(glyph.bitmap, atlas) || split_fused(glyph.bitmap) do
+        case guess_glyph(glyph, atlas, band) do
           nil -> {"?", 0, 0}
           char -> {char, 1, 1}
         end
 
       char ->
         {char, 1, 0}
+    end
+  end
+
+  defp guess_glyph(glyph, atlas, band) do
+    lookup(glyph.bitmap, atlas) || split_fused(glyph.bitmap) || unwelded(glyph, atlas, band)
+  end
+
+  # The rows this line's characters agree on, measured from the glyphs
+  # themselves: the rows at least half the busiest row carries, and never fewer
+  # than two glyphs — so a region holding a single glyph yields NO band and
+  # nothing inside it is ever reshaped.
+  defp line_band(glyphs) do
+    coverage =
+      for glyph <- glyphs, row <- glyph.y0..glyph.y1//1, reduce: %{} do
+        acc -> Map.update(acc, row, 1, &(&1 + 1))
+      end
+
+    busiest = coverage |> Map.values() |> Enum.max(&>=/2, fn -> 0 end)
+
+    case for {row, n} <- coverage, n >= max(2, div(busiest + 1, 2)), do: row do
+      [] -> nil
+      rows -> {Enum.min(rows), Enum.max(rows)}
+    end
+  end
+
+  # A glyph that resolves to NOTHING and pokes outside its line's band is asked
+  # again without the rows that are not the line's. Measured 2026-08-17 while he
+  # hunted beside a town: a minimap sprite shared the "1"'s columns — never
+  # touching it, but the projection is onto COLUMNS — and the pair came out as
+  # one 17-row glyph where every digit on that line is 15, landing in a shape
+  # bucket with no candidate to score at all. Cut at the band, the same pixels
+  # answer "1" at a distance of 1, with the runner-up at 12.
+  #
+  # Only a glyph that ALREADY failed takes this road. That is what keeps it from
+  # reshaping anything real: the parentheses overhang the digits by ~2 rows per
+  # side and the dot of an "i" sits fully outside, and all of them resolve — a
+  # resolved glyph is never retried.
+  defp unwelded(_glyph, _atlas, nil), do: nil
+
+  defp unwelded(glyph, atlas, {top, bottom}) do
+    above = max(top - glyph.y0, 0)
+    below = max(glyph.y1 - bottom, 0)
+
+    if above + below > 0 do
+      case glyph.bitmap |> Enum.drop(above) |> Enum.drop(-below) |> tighten() do
+        [] -> nil
+        cut -> Map.get(atlas, signature(cut)) || lookup(cut, atlas)
+      end
     end
   end
 

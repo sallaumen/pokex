@@ -33,13 +33,11 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     Application.put_env(:pokex, :home_dir, tmp)
     mode = Settings.get(:player_mode)
-    loot_enabled = Settings.get(:loot_enabled)
     capture_enabled = Settings.get(:capture_enabled)
 
     on_exit(fn ->
       Pokex.TestHome.restore()
       Settings.put(:player_mode, mode)
-      Settings.put(:loot_enabled, loot_enabled)
       Settings.put(:capture_enabled, capture_enabled)
       :ets.delete(:pokex_world, :corpses)
     end)
@@ -264,8 +262,8 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  # Space is the mini-game's control key — a loot press mid-game would sabotage the player.
-  test "the mini-game fact freezes loots and throws; the next event after it clears acts", %{
+  # A throw mid mini-game would move the cursor off the capsule the player is driving.
+  test "the mini-game fact freezes throws; the next event after it clears acts", %{
     worker: worker
   } do
     WorldState.put(
@@ -316,35 +314,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "a kill triggers the Space loot presses before any ball", %{worker: worker} do
-    obs = corpses_obs([{130, 224}])
-    WorldState.put(:corpses, obs, obs.captured_at)
-
-    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
-
-    assert_receive {:performed, :high, loot_actions}, 1_000
-    assert loot_actions == [{:press, "space"}, {:wait, 250}, {:press, "space"}]
-
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
-    assert Worker.status(worker).counters.loots == 1
-    assert %{text: "bola arremessada" <> _, at: _} = Worker.status(worker).last_action
-  end
-
-  @tag :tmp_dir
-  test "loot_enabled false: kills loot nothing (balls unaffected)", %{worker: worker} do
-    Settings.put(:loot_enabled, false)
-
-    obs = corpses_obs([{130, 224}])
-    WorldState.put(:corpses, obs, obs.captured_at)
-    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
-
-    assert_receive {:performed, :high, actions}, 1_000
-    assert [{:move, {130, 224}} | _] = actions
-    assert Worker.status(worker).counters.loots == 0
-  end
-
-  @tag :tmp_dir
-  test "capture_enabled false: loot still fires, balls never, feed never attaches",
+  test "capture_enabled false: balls never, feed never attaches",
        %{worker: worker} do
     Settings.put(:capture_enabled, false)
     :ok = Worker.mode_changed(worker)
@@ -353,7 +323,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     WorldState.put(:corpses, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
-    assert_receive {:performed, :high, [{:press, "space"} | _]}, 1_000
     refute_receive {:performed, _, [{:move, _} | _]}, 400
 
     world!(worker, corpses_obs([{140, 230}]))
@@ -398,7 +367,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  # The first post-kill frame is usually dirty (death animation, loot, own pokemon on top)
+  # The first post-kill frame is usually dirty (death animation, own pokemon on top)
   # while the corpse lasts minutes — the worker re-scans on its own with no new event.
   test "a kill with no target re-triggers the scan — the corpse gets more chances", %{
     worker: _worker
@@ -451,7 +420,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  # Field 2026-07-30: the bot ran and looted while capture was silently off — the only
+  # Field 2026-07-30: the bot ran while capture was silently off — the only
   # clue was a subtle pill that read as normal state.
   test "capture disabled says so by name — in the hold reason and in a start alarm",
        %{worker: worker} do
@@ -475,7 +444,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   # happens to be standing at that instant — so walking must not cost him the
   # drops. Only the BALL needs the standing-still ground baseline.
   @tag :tmp_dir
-  test "movimento: a kill loots but never throws a ball", %{worker: worker} do
+  test "movimento: a kill never throws a ball", %{worker: worker} do
     Settings.put(:player_mode, "moving")
     :ok = Worker.mode_changed(worker)
 
@@ -483,25 +452,11 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     WorldState.put(:corpses, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
-    assert_receive {:performed, :high, [{:press, "space"}, {:wait, 250}, {:press, "space"}]},
-                   1_000
-
-    assert Worker.status(worker).counters.loots == 1
     refute_receive {:performed, _p, [{:move, _} | _]}, 300
   end
 
   @tag :tmp_dir
-  test "movimento with loot disabled: a kill does nothing", %{worker: worker} do
-    Settings.put(:player_mode, "moving")
-    Settings.put(:loot_enabled, false)
-    :ok = Worker.mode_changed(worker)
-
-    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
-    refute_receive {:performed, _p, _a}, 300
-  end
-
-  @tag :tmp_dir
-  test "producer order (kill first, snapshot second) makes loot precede the ball", %{
+  test "producer order (kill first, snapshot second) still throws the ball", %{
     worker: worker
   } do
     send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
@@ -517,7 +472,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}}
     )
 
-    assert_receive {:performed, :high, [{:press, "space"} | _]}, 1_000
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
   end
 

@@ -152,7 +152,6 @@ defmodule PokexWeb.PanelLive do
        escape_walk_wait_ms: Settings.get(:escape_walk_wait_ms),
        player_mode: Settings.get(:player_mode),
        skill_order: Enum.join(Settings.get(:skill_keys), " "),
-       loot_enabled: Settings.get(:loot_enabled),
        capture_enabled: Settings.get(:capture_enabled),
        panicked?: false,
        logs: journal_seed(),
@@ -292,7 +291,6 @@ defmodule PokexWeb.PanelLive do
     assign(socket,
       skill_order: Enum.join(Settings.get(:skill_keys), " "),
       hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
-      loot_enabled: Settings.get(:loot_enabled),
       capture_enabled: Settings.get(:capture_enabled),
       require_cooldowns: Settings.get(:require_cooldowns),
       require_pokemon_hp: Settings.get(:require_pokemon_hp),
@@ -1016,12 +1014,6 @@ defmodule PokexWeb.PanelLive do
     :ok = Pokex.Modes.apply!(socket.assigns.player_mode)
     catcher_poke(&Catcher.Worker.mode_changed/0)
     {:noreply, refresh_setting_assigns(socket)}
-  end
-
-  def handle_event("toggle_loot_enabled", _params, socket) do
-    value = not Settings.get(:loot_enabled)
-    Settings.put(:loot_enabled, value)
-    {:noreply, assign(socket, loot_enabled: value)}
   end
 
   # capture and reposition are the two keys the MODE has an opinion about, so
@@ -1871,7 +1863,6 @@ defmodule PokexWeb.PanelLive do
   defp catcher_label(:idle), do: "parado"
   defp catcher_label(:armed), do: "capturando"
   defp catcher_label(:manual), do: "manual"
-  defp catcher_label(:looting), do: "só saque"
   defp catcher_label(other), do: state_word(other)
 
   # 🚑 Suporte (PlayerSupport): revive + poção. Halts on panic/Stop like every worker.
@@ -2335,7 +2326,6 @@ defmodule PokexWeb.PanelLive do
          fishing,
          combat,
          player_mode,
-         loot_enabled,
          capture_enabled,
          rescue_enabled,
          potion_enabled,
@@ -2344,7 +2334,6 @@ defmodule PokexWeb.PanelLive do
     [
       active?(fishing.state),
       active?(combat.state),
-      loot_enabled and player_mode == "still",
       capture_enabled and player_mode == "still",
       rescue_enabled,
       potion_enabled,
@@ -2392,7 +2381,6 @@ defmodule PokexWeb.PanelLive do
   defp rescue_count(game), do: get_in(game, [:counters, :rescues]) || 0
   defp potion_count(game), do: get_in(game, [:counters, :potions]) || 0
   defp catcher_captures(catcher), do: get_in(catcher, [:counters, :captures]) || 0
-  defp catcher_loots(catcher), do: get_in(catcher, [:counters, :loots]) || 0
 
   # The scoreboard that turns "I think it's not working" into a number: how
   # many sweeps the session ran and how many found a target. Measured
@@ -3005,7 +2993,7 @@ defmodule PokexWeb.PanelLive do
                 active?={active?(@catcher.state)}
                 label={catcher_label(@catcher.state)}
                 counters={
-                  "#{catcher_captures(@catcher)} bola · #{catcher_loots(@catcher)} saque · #{catcher_scan_counters(@catcher)}"
+                  "#{catcher_captures(@catcher)} bola · #{catcher_scan_counters(@catcher)}"
                 }
                 snapshot={@catcher}
                 now_ms={@now_ms}
@@ -3246,12 +3234,11 @@ defmodule PokexWeb.PanelLive do
                     @fishing,
                     @combat,
                     @player_mode,
-                    @loot_enabled,
                     @capture_enabled,
                     @rescue_enabled,
                     @potion_enabled,
                     @sweep_enabled
-                  )}/7 on
+                  )}/6 on
                 </span>
               </div>
               <div class="grid grid-cols-3 gap-1.5">
@@ -3273,12 +3260,6 @@ defmodule PokexWeb.PanelLive do
                   active={@capture_enabled}
                   override={:capture_enabled in @mode_overrides}
                   event="toggle_capture_enabled"
-                />
-                <.quick_toggle
-                  id="quick-loot"
-                  label="Loot"
-                  active={@loot_enabled}
-                  event="toggle_loot_enabled"
                 />
                 <.quick_toggle
                   id="quick-sweep"

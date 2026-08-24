@@ -5,9 +5,8 @@ defmodule Pokex.Bots.Catcher.Worker do
   mode LIVE — `parado` attaches the feed and acts; `movimento` detaches and idles (Lucas
   captures manually while moving). Combat's kill broadcast is only an accelerator: it forces
   an immediate world re-read; detection never depends on it. A confirmed kill also triggers a
-  Space loot (gated by `loot_enabled`) before any ball of that cycle — the corpse consumed by
-  a ball takes its loot with it. `capture_enabled` independently gates the entire ball
-  pipeline (and the feed attach) so loot-only operation never throws.
+  `capture_enabled` gates the entire ball pipeline (and the feed attach), so a hunt that
+  only kills never throws.
 
   Combat-engagement gate: PokeTibia combat is tile-locked — a FIGHTING sprite stands still,
   indistinguishable from a corpse to the stationary-blob detector — so this worker also
@@ -74,7 +73,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
-  @doc "The panel pokes this after flipping player_mode / the loot & capture toggles — attach/detach applies live."
+  @doc "The panel pokes this after flipping player_mode / the capture toggle — attach/detach applies live."
   def mode_changed(server \\ __MODULE__), do: GenServer.call(server, :mode_changed)
 
   @doc "Force a fresh ground warmup (detach + attach): use after moving to a new spot."
@@ -118,7 +117,6 @@ defmodule Pokex.Bots.Catcher.Worker do
        combat_engaged?: false,
        feed_ref: nil,
        reattach_attempts: 0,
-       loots: 0,
        # has the closed gate been announced this round? (edge-triggered log)
        held?: false,
        # rescans scheduled after a kill that found nothing: the corpse stays on
@@ -159,7 +157,6 @@ defmodule Pokex.Bots.Catcher.Worker do
     state = %{
       state
       | logic: logic,
-        loots: 0,
         scans: 0,
         with_target: 0,
         blind: 0,
@@ -239,17 +236,14 @@ defmodule Pokex.Bots.Catcher.Worker do
   def handle_info(:wake, state), do: {:noreply, state}
 
   # kill = accelerator (both shapes: Task 5 drops the payload; tolerate the old one meanwhile).
-  # loot_kill runs BEFORE advance: the Space presses must land ahead of any ball this cycle.
   # Vision is ANCHORED HERE: the kill says a corpse just fell on an adjacent
   # tile — SpotScan asks the library which one (see Catcher.SpotScan).
   def handle_info({:kill}, %{logic: %Logic{state: :armed}} = state) do
-    state = loot_kill(%{state | repiques: @repiques})
-    {:noreply, advance(state, scan_obs(state))}
+    {:noreply, advance(%{state | repiques: @repiques}, scan_obs(state))}
   end
 
   def handle_info({:kill, _corpse}, %{logic: %Logic{state: :armed}} = state) do
-    state = loot_kill(%{state | repiques: @repiques})
-    {:noreply, advance(state, scan_obs(state))}
+    {:noreply, advance(%{state | repiques: @repiques}, scan_obs(state))}
   end
 
   # Combat-engagement gate: track the live fight so a stationary enemy sprite never gets
@@ -599,7 +593,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # no confirms until combat disengages (see the {:combat,...} handler above).
   defp do_advance(%{combat_engaged?: true} = state, _obs), do: state
 
-  # Capture disabled (loot-only operation): the ball pipeline never steps — no admissions,
+  # Capture disabled: the ball pipeline never steps — no admissions,
   # no throws, no confirms. The feed is also detached (see should_be_attached?/1); this
   # gate only catches stragglers (a late event right after the toggle flip).
   defp do_advance(state, obs) do
@@ -728,51 +722,6 @@ defmodule Pokex.Bots.Catcher.Worker do
        do: broadcast(%{state | logic: logic})
 
     %{state | logic: logic}
-  end
-
-  # A confirmed kill just dropped a corpse on the ADJACENT melee tile — Space reaches it from
-  # standing position. Runs BEFORE the advance so the presses hit the Body ahead of any ball
-  # of this cycle (the ball additionally waits on detector confirmation, ≥800ms later — and
-  # the ball consumes the corpse WITH its loot, so the order is load-bearing).
-  defp loot_kill(state) do
-    # Looting works in BOTH modes: Space reaches the corpse on the tile where the
-    # kill just happened, wherever he is standing at that instant. Only the BALL
-    # needs him still — it is aimed from a ground baseline learned while standing
-    # — and that is gated separately in advance/2. The mode check that used to
-    # sit here was inherited from the capture design and silently cost him every
-    # drop while walking.
-    #
-    # Space is the MINI-GAME's control key: looting mid-game would drive the
-    # capsule (the Body gate also blocks it — this keeps the log honest too).
-    if not Perception.mini_game_playing?() and Settings.get(:loot_enabled) do
-      presses = max(Settings.get(:loot_presses), 1)
-      gap = Settings.get(:loot_press_gap_ms)
-
-      actions =
-        [{:press, "space"}]
-        |> List.duplicate(presses)
-        |> Enum.intersperse([{:wait, gap}])
-        |> List.flatten()
-
-      Body.perform(actions, :high, state.body)
-
-      Phoenix.PubSub.broadcast(
-        Pokex.PubSub,
-        @topic,
-        {:catcher_log, :macro, "captura: 🧰 saqueando (espaço ×#{presses})"}
-      )
-
-      state = %{
-        state
-        | loots: state.loots + 1,
-          last_action: %{text: "saque (espaço ×#{presses})", at: now()}
-      }
-
-      broadcast(state)
-      state
-    else
-      state
-    end
   end
 
   # The kill-anchored observation. Gates BEFORE the capture: scanning with a
@@ -1000,7 +949,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp mode_state(_logic, "moving"), do: :manual
 
   defp mode_state(%Logic{state: :armed}, _mode) do
-    if Settings.get(:capture_enabled), do: :armed, else: :looting
+    if Settings.get(:capture_enabled), do: :armed, else: :idle
   end
 
   defp mode_state(%Logic{state: s}, _mode), do: s
@@ -1013,7 +962,6 @@ defmodule Pokex.Bots.Catcher.Worker do
       mode: mode,
       counters:
         ((state.logic && state.logic.counters) || %Logic{}.counters)
-        |> Map.put(:loots, state.loots)
         |> Map.put(:scans, state.scans)
         |> Map.put(:with_target, state.with_target)
         |> Map.put(:blind, state.blind),

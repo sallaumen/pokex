@@ -605,7 +605,10 @@ defmodule Pokex.Settings do
     # (cliclick has no middle button).
     reposition_enabled: false,
     reposition_battle_clear_ms: 2_000,
-    # Post-fight ORDER policy (loot → ball → support): with this on, a due
+    # A pokébola só é arremessada com isto ligado — a captura é o único uso de item que
+    # sobrou no jogo novo (F1/F2), já que ele recolhe o loot sozinho.
+    capture_enabled: true,
+    # Post-fight ORDER policy (ball → support): with this on, a due
     # potion/reposition ALSO waits for the catcher to resolve its pending
     # corpses (queued + ball in flight) before acting. The cap below bails the
     # wait so a stuck detector can never starve the heal — fail-open, loudly.
@@ -793,19 +796,9 @@ defmodule Pokex.Settings do
     # only counts observations captured at least corpse_confirm_after_ms after the throw (the
     # ball needs flight time — an instant re-read would read the pre-hit frame).
     # The GLOBAL player mode: "still" (standing still — automations that need the fixed
-    # viewport may act) or "moving" (Lucas is walking around — loot and capture are his).
+    # viewport may act) or "moving" (Lucas is walking around — capture is his).
     player_mode: "still",
     # Independent switches, both only meaningful while parado:
-    # loot: Space pressed after each confirmed kill — the fished pokémon fights and dies on
-    # the ADJACENT melee tile, so Space reaches its corpse from standing position. Fires
-    # BEFORE any Pokéball by construction (balls wait on detector confirmation), which
-    # matters: the ball consumes the corpse INCLUDING its loot.
-    loot_enabled: true,
-    capture_enabled: true,
-    # Space presses per kill and the gap between them (rapid back-to-back inputs bug the
-    # game — the old walk-loot documented the same).
-    loot_presses: 2,
-    loot_press_gap_ms: 250,
     corpse_match_tolerance_px: 32,
     corpse_max_balls: 2,
     corpse_ignore_ttl_ms: 45_000,
@@ -1056,7 +1049,6 @@ defmodule Pokex.Settings do
     :pokemon_hp_fishing_pct,
     :rod_key,
     # balls / post-fight
-    :loot_enabled,
     :corpse_max_balls,
     # support
     :rescue_enabled,

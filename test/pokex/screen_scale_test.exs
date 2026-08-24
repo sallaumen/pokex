@@ -5,6 +5,11 @@ defmodule Pokex.ScreenScaleTest do
   Every pixel-denominated seed was measured once, on the 3440×1440 ultrawide,
   and none of them survived the move to the MacBook — that is what
   "nada funciona em 1 monitor só" was made of (Lucas, 2026-08-06).
+
+  What it must NOT do is confuse a different CLIENT with a different screen:
+  the new client's slots are ~35pt where the old one's were ~48, so the same
+  monitor measured 1.9× itself and 21 settings were rescaled by it
+  (2026-08-24). The reference is the client he plays.
   """
   use ExUnit.Case, async: true
 
@@ -13,16 +18,18 @@ defmodule Pokex.ScreenScaleTest do
   defp calib(width, count),
     do: %Calibration{skill_bar_region: {10, 20, width, 34}, skill_bar_count: count}
 
+  defp on_reference_screen(width, count),
+    do: %{calib(width, count) | screen_w: 3440, screen_h: 1440}
+
   describe "measure/1" do
     test "the ruler is the GAME, never the display" do
-      # his 2026-07-31 ultrawide profile: 430 points over NINE slots (the file is
-      # named "8skill" but carries skill_bar_count 9) = the reference itself
-      assert {:ok, ratio} = ScreenScale.measure(calib(430, 9))
+      # the client he plays, measured on his own bar: 282 points over 8 slots
+      assert {:ok, ratio} = ScreenScale.measure(calib(282, 8))
       assert ScreenScale.matches_reference?(ratio)
 
-      # the MacBook: 325 points over 9 slots = 36.1 per slot
-      assert {:ok, small} = ScreenScale.measure(calib(325, 9))
-      assert_in_delta small, 0.756, 0.005
+      # a smaller screen draws a smaller slot: 213 over 8 = 26.6 per slot
+      assert {:ok, small} = ScreenScale.measure(calib(213, 8))
+      assert_in_delta small, 0.755, 0.005
 
       # the DISPLAY ratio between those two screens is 1512/3440 = 0.44 — half
       # of what the game actually did. Deriving from the display would be wrong
@@ -30,21 +37,40 @@ defmodule Pokex.ScreenScaleTest do
       refute_in_delta small, 1512 / 3440, 0.1
     end
 
-    # The mistake this constant was born with: the reference was read off the
-    # profile's FILE NAME ("8skill" → 430/8) instead of its data (430/9), making
-    # the reference slot 12% too wide. Every profile he had ever saved on the
-    # ultrawide then measured ~0.87 — the reference screen being told to shrink
-    # the very seeds it had provided.
-    test "every profile saved on the ultrawide measures AS the reference screen" do
-      # (skill_bar width, slots) from his saved 3440×1440 profiles. Left out:
-      # 2-moni-8skill-esq (339/8 = 42.4), where the marked rectangle plainly
-      # missed a slot edge — the HUD does not change size between profiles.
-      for {width, count} <- [{430, 9}, {423, 9}, {383, 8}, {291, 6}, {236, 5}, {196, 4}] do
+    # The bar is calibrated PER POKÉMON, so the same screen carries as many
+    # rectangles as he has creatures — and every one of them has to measure the
+    # same screen. These are his, on the client he plays: Bulbasaur's eight,
+    # Pidgeotto's six, and the four-slot bar the first calibration marked.
+    test "every bar he has marked on this client measures AS the reference screen" do
+      for {width, count} <- [{282, 8}, {209, 6}, {138, 4}] do
         assert {:ok, ratio} = ScreenScale.measure(calib(width, count))
 
         assert ScreenScale.matches_reference?(ratio),
                "#{width}pt / #{count} slots measured #{Float.round(ratio, 3)}"
       end
+    end
+
+    # What actually happened: the region was re-marked over EIGHT slots while
+    # `skill_bar_count` stayed at four, so each slot read double and the ruler
+    # announced that his 3440×1440 measured 1.9× the very screen the seeds came
+    # from. Rescaling 21 settings by that broke the battle list and the hunt.
+    test "a screen cannot measure the double of itself — that is a broken bar, not a screen" do
+      assert ScreenScale.measure(on_reference_screen(362, 4)) == :inconsistent
+    end
+
+    test "on the reference screen a bar that agrees still measures" do
+      assert {:ok, ratio} = ScreenScale.measure(on_reference_screen(282, 8))
+      assert ScreenScale.matches_reference?(ratio)
+    end
+
+    # The guard is about the SCREEN in the picture, not about the numbers: a
+    # genuinely different monitor keeps being rescaled, which is the whole
+    # reason this module exists.
+    test "another screen with another slot size is still a ratio, never a complaint" do
+      assert {:ok, ratio} =
+               ScreenScale.measure(%{calib(213, 8) | screen_w: 1512, screen_h: 982})
+
+      assert_in_delta ratio, 0.755, 0.005
     end
 
     test "without a calibrated skill bar there is no ruler, and it says so" do

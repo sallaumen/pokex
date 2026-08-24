@@ -43,14 +43,20 @@ defmodule Pokex.ScreenScale do
 
   alias Pokex.{Calibration, Settings}
 
-  # One skill slot on the screen every seed was measured on: the 2026-07-31
-  # ultrawide profile, skill_bar_region 430 points wide over **9** slots (the
-  # file is named "8skill" but carries skill_bar_count 9 and nine
-  # skill_slot_refs). 53.75 = 430/8 read the NAME instead of the data and made
-  # the reference slot 12% too wide, so the reference screen itself measured
-  # 0.87 and every seed was offered back 12% (24% for the area family) smaller
-  # than it was measured. That is the shrink that reached his settings.
-  @reference_slot_pt 430 / 9
+  # One skill slot on the screen the seeds belong to. It was the OLD client's
+  # (430pt over 9 slots ≈ 47.8) until 2026-08-24, when the ruler met the new
+  # one: its slots are 282pt over 8 ≈ 35.25, so the very same monitor measured
+  # 1.9× the reference and the ruler offered to rescale 21 settings by it. He
+  # accepted, and `tile_px` went 131 → 255 while `battle_row_height` went 52 →
+  # 101 — the battle list stopped reading and the hunt stopped fighting.
+  #
+  # The ruler exists for a different MONITOR, and a different client is not
+  # that. So the reference is the client he plays, measured on his own bar.
+  @reference_slot_pt 282 / 8
+
+  # The screen those seeds were measured on, in points. A ruler that disagrees
+  # with itself ON THIS VERY SCREEN is not measuring a screen — see `measure/1`.
+  @reference_screen {3440, 1440}
 
   # How far the ruler may sit from the reference and still BE the reference. The
   # game window is resizable, so the SAME ultrawide measures 47.0-49.0 pt/slot
@@ -92,12 +98,24 @@ defmodule Pokex.ScreenScale do
   This screen's game scale against the reference — `{:ok, ratio}`, or
   `:unknown` when the skill bar is not calibrated (the only ruler there is).
   """
-  @spec measure(Calibration.t()) :: {:ok, float} | :unknown
-  def measure(%Calibration{skill_bar_region: {_x, _y, w, _h}, skill_bar_count: count})
-      when is_integer(w) and w > 0 and is_integer(count) and count > 0,
-      do: {:ok, w / count / @reference_slot_pt}
+  @spec measure(Calibration.t()) :: {:ok, float} | :unknown | :inconsistent
+  def measure(%Calibration{skill_bar_region: {_x, _y, w, _h}, skill_bar_count: count} = calib)
+      when is_integer(w) and w > 0 and is_integer(count) and count > 0 do
+    ratio = w / count / @reference_slot_pt
+
+    # A screen cannot be 1.9× ITSELF. When the picture measures the reference
+    # screen and the bar says otherwise, the bar is what is wrong — a region
+    # re-marked over 8 slots while `skill_bar_count` stayed at 4 is exactly the
+    # shape of it (his install, 2026-08-24), and it doubles every slot. Saying
+    # so beats rescaling 21 settings by a number nothing on screen supports.
+    if reference_screen?(calib) and not matches_reference?(ratio),
+      do: :inconsistent,
+      else: {:ok, ratio}
+  end
 
   def measure(_uncalibrated), do: :unknown
+
+  defp reference_screen?(%Calibration{screen_w: w, screen_h: h}), do: {w, h} == @reference_screen
 
   @doc """
   What each screen-dependent setting should become at `ratio`, as

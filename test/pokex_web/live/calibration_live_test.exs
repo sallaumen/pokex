@@ -590,9 +590,9 @@ defmodule PokexWeb.CalibrationLiveTest do
       scale: 1.0,
       screen_w: 100,
       screen_h: 75,
-      # 325 points over 9 slots = 36.1 per slot against the reference's 47.8
-      skill_bar_region: {10, 60, 325, 10},
-      skill_bar_count: 9,
+      # 213 points over 8 slots = 26.6 per slot against the reference's 35.25
+      skill_bar_region: {10, 60, 213, 10},
+      skill_bar_count: 8,
       neutral_point: {52, 36}
     })
 
@@ -655,9 +655,9 @@ defmodule PokexWeb.CalibrationLiveTest do
       scale: 1.0,
       screen_w: 100,
       screen_h: 75,
-      # his ultrawide profile: 430 points over 9 slots = the reference itself
-      skill_bar_region: {10, 60, 430, 10},
-      skill_bar_count: 9,
+      # the bar of the client he plays: 282 points over 8 slots = the reference
+      skill_bar_region: {10, 60, 282, 10},
+      skill_bar_count: 8,
       neutral_point: {52, 36}
     })
 

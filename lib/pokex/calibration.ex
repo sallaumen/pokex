@@ -609,10 +609,17 @@ defmodule Pokex.Calibration do
   def pokemon_photo_point(%__MODULE__{pokemon_photo_point: point}) when is_tuple(point), do: point
   def pokemon_photo_point(_calib), do: @default_pokemon_photo_point
 
-  def battle_first_row(%__MODULE__{battle_region: {x, y, w, _h}}),
-    do: {x + div(w, 3), y + @first_row_y_offset}
+  def battle_first_row(calib, first_row_y \\ @first_row_y_offset)
 
-  @doc "Frame-px offset from the battle region's top to the first row — the band origin for per-row lock reads."
+  def battle_first_row(%__MODULE__{battle_region: {x, y, w, _h}}, first_row_y),
+    do: {x + div(w, 3), y + first_row_y}
+
+  @doc """
+  Points from the battle region's top to the CENTER of row 0 — where a click
+  lands and where the lock band is centered. The default is the old client's;
+  the number in force is `battle_first_row_y`, and both readers take it so the
+  click and the band can never disagree about where a row is.
+  """
   def first_row_offset, do: @first_row_y_offset
 
   @doc """

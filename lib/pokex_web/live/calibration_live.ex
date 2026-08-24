@@ -1330,6 +1330,15 @@ defmodule PokexWeb.CalibrationLive do
       {:ok, ratio} ->
         assign(socket, scale_ratio: ratio, scale_proposals: proposals_for(ratio))
 
+      :inconsistent ->
+        assign(socket,
+          scale_ratio: nil,
+          scale_proposals: nil,
+          scale_msg:
+            "a barra de skills não bate com esta tela — confira a região e a contagem de slots " <>
+              "antes de mexer nos números (uma tela não mede o dobro de si mesma)"
+        )
+
       :unknown ->
         assign(socket,
           scale_ratio: nil,

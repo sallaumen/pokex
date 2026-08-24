@@ -280,14 +280,14 @@ defmodule Pokex.Settings do
     # row-N clicks landed BETWEEN real rows / on row N-1 — the bot clicked, missed
     # the creature, and "kept searching". Drives BOTH the row click points and the
     # per-row lock read bands, so they now line up with the real rows.
-    battle_row_height: 52,
+    battle_row_height: 30,
     # Where row 0's band is CENTERED inside the battle region, in points. It was
     # a constant (18) measured on the old client; the new one stacks icon, name
     # and bar so the row's middle sits at 31 with a pitch of 30 (measured on his
     # own list, 2026-08-24: bars at 41, 71, 101, 131, 161). A band centered on
     # the wrong number straddles two rows, which costs BOTH the row a creature
     # is bucketed into and the red the lock sensor is looking for.
-    battle_first_row_y: 18,
+    battle_first_row_y: 31,
     battle_max_rows: 6,
     # Min bright-red (r>=200,g<=60,b<=60) px on a scanline of the rightmost strip for it to count
     # as the OWN-pokemon pokeball (so that row is EXCLUDED from attack candidates). MEASURED on
@@ -314,7 +314,7 @@ defmodule Pokex.Settings do
     # /diagnostics still shows the per-row red target-ring read for manual inspection; this
     # is the threshold it uses (a real ring is 600-900 red px, the unlocked baseline ~40-150).
     # Combat itself no longer reads the ring — it targets by HP bar + pokeball (enemy_rows).
-    target_locked_min_pixels: 350,
+    target_locked_min_pixels: 120,
     # Consecutive ticks the enemy must be GONE from the Battle list before the fight is
     # declared over — filters a 1-frame HP-bar blink on a hit/death animation.
     target_lost_streak: 2,

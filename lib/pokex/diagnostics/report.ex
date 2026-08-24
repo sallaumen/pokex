@@ -195,7 +195,7 @@ defmodule Pokex.Diagnostics.Report do
   # numbers for something nobody is looking at. `pokemon` says whose bar this is
   # (nil = the shared calibration standing in).
   defp skill_bar_report(rig, calib, settings) do
-    case ActiveBar.current(calib) do
+    case ActiveBar.current() do
       %{region: {_x, _y, _w, _h} = region, name: name} ->
         skill_bar_report(rig, calib, settings, region, name)
 
@@ -204,11 +204,11 @@ defmodule Pokex.Diagnostics.Report do
     end
   end
 
-  defp skill_bar_report(rig, calib, settings, region, name) do
+  defp skill_bar_report(rig, _calib, settings, region, name) do
     case capture_frame(rig, region, "diag_skill_bar.png") do
       {:ok, frame, image} ->
         if SkillBar.valid_frame?(frame) do
-          slots = SkillBar.slots_from_frame(frame, calib, settings)
+          slots = SkillBar.slots_from_frame(frame, settings)
 
           %{
             calibrated?: true,

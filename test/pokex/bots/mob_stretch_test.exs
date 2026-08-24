@@ -54,6 +54,8 @@ defmodule Pokex.Bots.MobStretchTest do
       Enum.each([:minimap, :battle, :posture, :dungeon], &WorldState.forget/1)
     end)
 
+    Pokex.TeamFixtures.ready!()
+
     Calibration.save(%Calibration{
       scale: 1.0,
       screen_w: 1000,
@@ -186,8 +188,12 @@ defmodule Pokex.Bots.MobStretchTest do
              free_fire?()
            end)
 
+    # The freed fight OPENS on the gathered pile first (the pokémon on the field
+    # is classified, which is the only way a bot starts now), so the Tab comes
+    # on a later observation — feed one more, as a hunt does every ~120ms.
     enemies!(combat, 3)
-    assert eventually(&pressed_tab?/0)
+    enemies!(combat, 3)
+    assert eventually(&pressed_tab?/0, 3_000)
   end
 
   test "a hunt that DIES mid stretch does not leave combat pacifist", %{

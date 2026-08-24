@@ -1,25 +1,16 @@
 defmodule Pokex.Bots.SkillBarTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.SkillBar
-  alias Pokex.Calibration
   alias Pokex.Pokedex.Team
   alias Pokex.Rig.Fake
   alias Pokex.Vision.Frame
 
   @settings %{skill_bar_count: 7, skill_ready_min_saturation: 40, skill_ready_min_vivid_pct: 7}
 
-  defp calib(region, count \\ nil) do
-    %Calibration{
-      scale: 1.0,
-      screen_w: 100,
-      screen_h: 100,
-      water_point: {0, 0},
-      glow_region: {0, 0, 1, 1},
-      battle_region: {0, 0, 1, 1},
-      neutral_point: {0, 0},
-      skill_bar_region: region,
-      skill_bar_count: count
-    }
+  defp on_field(region, count) do
+    {:ok, _} = Pokex.Pokedex.Team.add("Bulbasaur")
+    Pokex.Pokedex.Team.set_bar("Bulbasaur", %{region: region, count: count, refs: nil})
+    Pokex.Pokedex.Team.set_active("Bulbasaur")
   end
 
   setup %{tmp_dir: tmp} do
@@ -32,7 +23,8 @@ defmodule Pokex.Bots.SkillBarTest do
 
   @tag :tmp_dir
   test "reads per-slot states and derives readiness" do
-    slots = SkillBar.read(calib({0, 0, 14, 1}), @settings)
+    on_field({0, 0, 14, 1}, 7)
+    slots = SkillBar.read(@settings)
 
     assert SkillBar.states(slots) ==
              [:ready, :ready, :ready, :ready, :ready, :ready, :cooldown]
@@ -45,7 +37,8 @@ defmodule Pokex.Bots.SkillBarTest do
 
   @tag :tmp_dir
   test "an untrackable hook key (non-digit / out of range) can't softlock — fails open" do
-    slots = SkillBar.read(calib({0, 0, 14, 1}), @settings)
+    on_field({0, 0, 14, 1}, 7)
+    slots = SkillBar.read(@settings)
 
     # "9" is past the 7 slots and "e" isn't a digit → untrackable → ignored, NOT held
     assert SkillBar.all_ready?(slots, ["4", "5", "9"]) == true
@@ -55,8 +48,10 @@ defmodule Pokex.Bots.SkillBarTest do
   end
 
   @tag :tmp_dir
-  test "no skill_bar_region → nil read; fishing fails OPEN, combat falls back to blind" do
-    assert SkillBar.read(calib(nil), @settings) == nil
+  test "no bar on the field → nil read; fishing fails OPEN, combat falls back to blind" do
+    Pokex.Pokedex.Team.set_active(nil)
+
+    assert SkillBar.read(@settings) == nil
     assert SkillBar.states(nil) == nil
     # fail-open so require_cooldowns never softlocks fishing
     assert SkillBar.all_ready?(nil, ["4", "5"]) == true
@@ -66,7 +61,8 @@ defmodule Pokex.Bots.SkillBarTest do
 
   @tag :tmp_dir
   test "any_ready?: the loosened gate pulls when AT LEAST ONE hook-skill is ready" do
-    slots = SkillBar.read(calib({0, 0, 14, 1}), @settings)
+    on_field({0, 0, 14, 1}, 7)
+    slots = SkillBar.read(@settings)
 
     # slots 1-6 ready, 7 on cooldown
     assert SkillBar.any_ready?(slots, ["4", "5", "6"]) == true
@@ -78,7 +74,8 @@ defmodule Pokex.Bots.SkillBarTest do
 
   @tag :tmp_dir
   test "any_ready? fails OPEN too — an unreadable/untrackable bar never softlocks the hold" do
-    slots = SkillBar.read(calib({0, 0, 14, 1}), @settings)
+    on_field({0, 0, 14, 1}, 7)
+    slots = SkillBar.read(@settings)
 
     # no reading at all → don't hold
     assert SkillBar.any_ready?(nil, ["4", "5"]) == true
@@ -97,7 +94,8 @@ defmodule Pokex.Bots.SkillBarTest do
       end)
 
     frame = %Frame{width: div(byte_size(row), 4), height: 4, rgba: :binary.copy(row, 4)}
-    slots = SkillBar.slots_from_frame(frame, calib({0, 0, frame.width, 4}, 6), @settings)
+    on_field({0, 0, frame.width, 4}, 6)
+    slots = SkillBar.slots_from_frame(frame, @settings)
 
     assert length(slots) == 6
     assert SkillBar.ready_keys(slots) == ["1", "2", "3", "4", "5", "6"]
@@ -175,8 +173,8 @@ defmodule Pokex.Bots.SkillBarTest do
       Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 2, refs: nil})
       Team.set_active("Vespiquen")
 
-      # the calibration says 6 and the settings say 7; the pokémon says 2
-      slots = SkillBar.read(calib({0, 0, 14, 1}, 6), @settings)
+      # the settings say 7 slots; the pokémon on the field says 2
+      slots = SkillBar.read(@settings)
 
       assert length(slots) == 2
     end
@@ -194,19 +192,20 @@ defmodule Pokex.Bots.SkillBarTest do
 
       Team.set_active("Vespiquen")
 
-      slots =
-        SkillBar.read(calib({0, 0, 14, 1}, 6), Map.put(@settings, :skill_ref_max_distance, 25))
+      slots = SkillBar.read(Map.put(@settings, :skill_ref_max_distance, 25))
 
       assert SkillBar.states(slots) == [:ready, :cooldown]
     end
 
+    # There is no shared bar to fall back to: a rectangle nobody on the field
+    # owns is what let the screen ruler rescale 21 settings by a doubled slot
+    # (2026-08-24). Nothing to read is the honest answer.
     @tag :tmp_dir
-    test "nobody on the field falls back to the screen calibration" do
+    test "nobody on the field means nothing to read" do
       Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 2, refs: nil})
+      Team.set_active(nil)
 
-      slots = SkillBar.read(calib({0, 0, 14, 1}, 6), @settings)
-
-      assert length(slots) == 6
+      assert SkillBar.read(@settings) == nil
     end
   end
 end

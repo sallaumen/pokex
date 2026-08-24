@@ -169,7 +169,7 @@ defmodule Pokex.Perception do
         key: :skill_bar,
         # the pokémon on the field decides WHERE its bar is; the calibration is
         # the fallback for the ones he has not calibrated yet
-        region: fn calib -> Pokex.Bots.ActiveBar.region(calib) end,
+        region: fn _calib -> Pokex.Bots.ActiveBar.region() end,
         interval_setting: :feed_skill_bar_ms,
         filename: "feed_skill_bar.raw",
         interpret: &Interpret.skills/3

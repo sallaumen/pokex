@@ -44,19 +44,18 @@ defmodule Pokex.Bots.ActiveBarTest do
   end
 
   describe "with nobody calibrated" do
-    # The whole point of the fallback: this arrives without a flag day.
-    test "it answers the screen calibration, exactly as before", %{calib: calib} do
-      bar = ActiveBar.current(calib)
+    # There is no shared bar to fall back to since 2026-08-24: a rectangle
+    # nobody on the field owns is what let the screen ruler measure a doubled
+    # slot and rescale 21 settings by it. Nothing to read is the honest answer,
+    # and `Pokex.Preflight` is what keeps a bot from starting into it.
+    test "there is no bar to read, and the screen calibration is not one" do
+      bar = ActiveBar.current()
 
-      assert bar.region == {10, 20, 300, 40}
-      assert bar.count == 6
-      assert bar.refs == [[1, 2, 3]]
+      assert bar.region == nil
+      assert bar.count == nil
+      assert bar.refs == nil
       assert bar.name == nil
       refute ActiveBar.own?()
-    end
-
-    test "no calibration at all is not a crash" do
-      assert %{region: nil, count: nil, name: nil} = ActiveBar.current(nil)
     end
   end
 
@@ -68,8 +67,8 @@ defmodule Pokex.Bots.ActiveBarTest do
       :ok
     end
 
-    test "its bar wins, and says whose it is", %{calib: calib} do
-      bar = ActiveBar.current(calib)
+    test "its bar wins, and says whose it is" do
+      bar = ActiveBar.current()
 
       assert bar.region == {5, 5, 900, 50}
       assert bar.count == 9
@@ -82,15 +81,15 @@ defmodule Pokex.Bots.ActiveBarTest do
 
     # Choosing someone else must move the bar with it — that is the swap this
     # exists for.
-    test "choosing another pokémon falls back until THAT one is calibrated", %{calib: calib} do
+    test "choosing another pokémon reads NOTHING until THAT one is calibrated" do
       {:ok, _} = Team.add("Gardevoir")
       Team.set_active("Gardevoir")
 
-      assert %{region: {10, 20, 300, 40}, count: 6, name: nil} = ActiveBar.current(calib)
+      assert %{region: nil, count: nil, name: nil} = ActiveBar.current()
 
       Team.set_bar("Gardevoir", %{region: {1, 2, 400, 44}, count: 4, refs: nil})
 
-      assert %{region: {1, 2, 400, 44}, count: 4, name: "Gardevoir"} = ActiveBar.current(calib)
+      assert %{region: {1, 2, 400, 44}, count: 4, name: "Gardevoir"} = ActiveBar.current()
     end
 
     # The promise in his own words: "eu calibro uma vez a Vespiquen e uma vez a
@@ -99,25 +98,25 @@ defmodule Pokex.Bots.ActiveBarTest do
     # not carry. Calibrating
     # the second one must not disturb the first, and swapping back must return it
     # whole — region, count and the READY references, which ARE the skill icons.
-    test "two calibrated pokémon keep their own bars across every swap", %{calib: calib} do
+    test "two calibrated pokémon keep their own bars across every swap" do
       {:ok, _} = Team.add("Gardevoir")
       Team.set_bar("Gardevoir", %{region: {7, 8, 500, 60}, count: 6, refs: [{1, 2, 3}]})
 
       Team.set_active("Gardevoir")
 
       assert %{region: {7, 8, 500, 60}, count: 6, refs: [{1, 2, 3}], name: "Gardevoir"} =
-               ActiveBar.current(calib)
+               ActiveBar.current()
 
       Team.set_active("Vespiquen")
 
       assert %{region: {5, 5, 900, 50}, count: 9, refs: [{9, 9, 9}], name: "Vespiquen"} =
-               ActiveBar.current(calib)
+               ActiveBar.current()
 
       Team.set_active("Gardevoir")
-      assert %{region: {7, 8, 500, 60}, count: 6, name: "Gardevoir"} = ActiveBar.current(calib)
+      assert %{region: {7, 8, 500, 60}, count: 6, name: "Gardevoir"} = ActiveBar.current()
     end
 
-    test "calibrating one pokémon never touches another's bar", %{calib: _calib} do
+    test "calibrating one pokémon never touches another's bar" do
       {:ok, _} = Team.add("Gardevoir")
       Team.set_bar("Gardevoir", %{region: {7, 8, 500, 60}, count: 6, refs: [{1, 2, 3}]})
 
@@ -125,10 +124,10 @@ defmodule Pokex.Bots.ActiveBarTest do
       assert Team.bar("Vespiquen").region == {5, 5, 900, 50}
     end
 
-    test "clearing a pokémon's bar drops it back to the calibration", %{calib: calib} do
+    test "clearing a pokémon's bar leaves nothing to read" do
       Team.set_bar("Vespiquen", nil)
 
-      assert %{region: {10, 20, 300, 40}, name: nil} = ActiveBar.current(calib)
+      assert %{region: nil, count: nil, name: nil} = ActiveBar.current()
     end
   end
 

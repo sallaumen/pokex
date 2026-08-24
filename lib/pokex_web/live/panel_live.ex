@@ -1742,8 +1742,8 @@ defmodule PokexWeb.PanelLive do
   # The bar of whoever is on the field — photographing the shared calibration
   # while the bot reads the pokémon's own bar would answer a question he did
   # not ask.
-  defp region_spec("skills", calib) do
-    case Pokex.Bots.ActiveBar.current(calib) do
+  defp region_spec("skills", _calib) do
+    case Pokex.Bots.ActiveBar.current() do
       %{region: {_x, _y, _w, _h} = region, name: nil} ->
         {region, "barra de skills", "shot_skills.png"}
 
@@ -1810,10 +1810,7 @@ defmodule PokexWeb.PanelLive do
   # A one-shot read of the per-slot skill states (:ready | :cooldown), or nil when the bar
   # isn't calibrated / the capture fails. This is exactly the read SkillBar does for the gate.
   defp read_cooldown_states do
-    case Calibration.load() do
-      {:ok, calib} -> SkillBar.states(SkillBar.read(calib, Settings.all()))
-      _ -> nil
-    end
+    SkillBar.states(SkillBar.read(Settings.all()))
   end
 
   defp counters, do: @counters

@@ -1440,9 +1440,12 @@ defmodule PokexWeb.PanelLiveTest do
       water_point: {50, 30},
       glow_region: {18, -2, 64, 64},
       battle_region: {70, 10, 20, 30},
-      neutral_point: {52, 36},
-      skill_bar_region: {0, 0, 14, 1}
+      neutral_point: {52, 36}
     })
+
+    # the bar belongs to the pokémon on the field — there is no shared one
+    Pokex.TeamFixtures.ready!("Bulbasaur", count: 7)
+    Pokex.Pokedex.Team.set_bar("Bulbasaur", %{region: {0, 0, 14, 1}, count: 7, refs: nil})
 
     {:ok, view, _} = live(conn, ~p"/")
     assert render(view) =~ "Clique em Ler"

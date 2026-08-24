@@ -91,6 +91,8 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
 
     Enum.each(@fast, fn {k, v} -> Settings.put(k, v) end)
 
+    Pokex.TeamFixtures.ready!()
+
     Calibration.save(%Calibration{
       scale: 2.0,
       screen_w: 1000,

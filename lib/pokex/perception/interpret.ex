@@ -98,9 +98,9 @@ defmodule Pokex.Perception.Interpret do
   (window moved/covered) — UNKNOWN, never a guess, so consumers fail open (combat: blind
   rotation; fishing: the hold's own ceiling).
   """
-  def skills(frame, calib, settings) do
+  def skills(frame, _calib, settings) do
     if SkillBar.valid_frame?(frame) do
-      slots = SkillBar.slots_from_frame(frame, calib, settings)
+      slots = SkillBar.slots_from_frame(frame, settings)
       %{states: SkillBar.states(slots), ready_keys: SkillBar.ready_keys(slots)}
     else
       %{states: nil, ready_keys: nil}

@@ -58,8 +58,17 @@ defmodule Pokex.Diagnostics.ReportTest do
     %{exports: Path.join(tmp, "exports")}
   end
 
+  # Own home, on purpose: this asserts what the dump looks like with NOBODY on
+  # the field, and the home is a global app env — a team written by another
+  # file was enough to put a Bulbasaur bar in this report (CI, 2026-08-24).
   @tag :tmp_dir
-  test "captures every region with its Vision metrics and a matrix", %{exports: exports} do
+  test "captures every region with its Vision metrics and a matrix", %{
+    exports: exports,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
     assert {:ok, report, path} =
              Report.capture(
                rig: Fake,
@@ -179,7 +188,7 @@ defmodule Pokex.Diagnostics.ReportTest do
     # one button that dumps what the bot sees died exactly when there was
     # something to see.
     @tag :tmp_dir
-    test "the dump survives a calibrated bar with nobody on the field", %{
+    test "the dump survives with nobody on the field — it just has no bar to show", %{
       calib: calib,
       exports: exports
     } do
@@ -187,8 +196,22 @@ defmodule Pokex.Diagnostics.ReportTest do
 
       {report, path} = capture!(calib, exports)
 
+      assert report.regions.skill_bar == %{calibrated?: false}
+      assert path |> File.read!() |> JSON.decode!()
+    end
+
+    @tag :tmp_dir
+    test "with the pokémon on the field it photographs ITS bar", %{
+      calib: calib,
+      exports: exports
+    } do
+      Pokex.TeamFixtures.ready!("Vespiquen", count: 7)
+      Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 7, refs: nil})
+
+      {report, path} = capture!(calib, exports)
+
       assert report.regions.skill_bar.region == [0, 0, 14, 1]
-      assert report.regions.skill_bar.pokemon == nil
+      assert report.regions.skill_bar.pokemon == "Vespiquen"
       assert [signature | _] = Enum.map(report.regions.skill_bar.slots, & &1.signature)
       assert is_list(signature)
       assert path |> File.read!() |> JSON.decode!()

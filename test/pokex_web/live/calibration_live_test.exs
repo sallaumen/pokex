@@ -611,15 +611,15 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     html = view |> element("#tool-ruler") |> render_click()
     assert html =~ "tile_px"
-    # a length scales with the ruler (131 × 0.756); a pixel count with its
-    # square (1100 × 0.756²) — well under the value a linear scaling would give,
+    # a length scales with the ruler (151 × 0.755); a pixel count with its
+    # square (1100 × 0.755²) — well under the value a linear scaling would give,
     # which is the difference between a bite registering and never registering
-    assert html =~ "→ 99"
+    assert html =~ "→ 114"
     assert html =~ "→ 628"
 
     view |> element("#apply-screen-scale") |> render_click()
 
-    assert Settings.get(:tile_px) == 99
+    assert Settings.get(:tile_px) == 114
     assert Settings.get(:glow_threshold) == 628
     assert render(view) =~ "ajuste(s) aplicado(s)"
     # nothing left to fix, so the alert is gone instead of merely emptied
@@ -675,12 +675,12 @@ defmodule PokexWeb.CalibrationLiveTest do
     html = view |> element("#tool-ruler") |> render_click()
     # the SEEDS themselves, not seed × 0.98
     assert html =~ "→ 1100"
-    assert html =~ "→ 131"
+    assert html =~ "→ 151"
 
     view |> element("#apply-screen-scale") |> render_click()
 
     assert Settings.get(:glow_threshold) == 1100
-    assert Settings.get(:tile_px) == 131
+    assert Settings.get(:tile_px) == 151
   end
 
   @tag :tmp_dir

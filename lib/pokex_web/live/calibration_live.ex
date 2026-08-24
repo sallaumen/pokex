@@ -295,7 +295,7 @@ defmodule PokexWeb.CalibrationLive do
   def handle_event("review", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
          {:ok, screen} <- grab_screen() do
-      review = Map.put(screen, :calib, calib)
+      review = screen |> Map.put(:calib, calib) |> with_decoded_frame()
 
       {:noreply,
        socket
@@ -951,12 +951,40 @@ defmodule PokexWeb.CalibrationLive do
 
   defp maybe_reprobe_coord(socket, _key, _review), do: socket
 
+  # The picture is decoded ONCE, when the review opens, and every probe reads
+  # THAT. It used to be decoded per probe, and one screenshot of his screen
+  # costs 15-21s to decode in pure Elixir (measured 2026-08-24, 3440x1440): a
+  # single arrow click on the coordinate band paid the whole thing, which is
+  # what made fine-tuning unusable ("é MUUUUITO lento, cada vez que eu clico em
+  # cada botão"). Opening still pays it once — the coord probe already did.
+  defp with_decoded_frame(%{path: path, calib: calib} = review) do
+    # Only when something is going to READ it: with a minimap marked, the coord
+    # probe decodes at open anyway, so this costs nothing and pays for every
+    # click after. With nothing to probe, the review stays as cheap as it was.
+    if Calibration.minimap_region(calib) do
+      case Frame.from_png_file(path) do
+        {:ok, frame} -> Map.put(review, :frame, frame)
+        _undecodable -> review
+      end
+    else
+      review
+    end
+  end
+
+  defp with_decoded_frame(review), do: review
+
+  # Falls back to the file for a review built before this cache existed (and
+  # for the quick-fix flows, which carry a screen without one).
+  defp review_frame(%{frame: %Frame{} = frame}), do: {:ok, frame}
+  defp review_frame(%{path: path}), do: Frame.from_png_file(path)
+  defp review_frame(_no_picture), do: :error
+
   # The LIVE proof the coordinate strip is marked right: read it from the very
   # screenshot the review is showing, through the SAME interpreter the cavebot
   # uses. {:ok, "x, y, z"} paints the badge green; :error says "ajusta a faixa".
-  defp coord_probe(%{calib: calib, path: path, scale: scale}) do
+  defp coord_probe(%{calib: calib, scale: scale} = review) do
     with {mx, my, mw, mh} <- Calibration.minimap_region(calib),
-         {:ok, full} <- Frame.from_png_file(path),
+         {:ok, full} <- review_frame(review),
          %Frame{} = mini <-
            Frame.crop(
              full,
@@ -1232,8 +1260,8 @@ defmodule PokexWeb.CalibrationLive do
   # like a countdown anyway (nil ref → threshold fallback), so one charging skill at
   # calibration time can't poison its own slot into reading inverted forever. nil (refs are
   # optional) when the crop fails — the reader then falls back to the threshold rules.
-  defp skill_slot_refs(%{path: path, scale: scale}, {x, y, w, h}, count) do
-    with {:ok, frame} <- Frame.from_png_file(path),
+  defp skill_slot_refs(%{scale: scale} = review, {x, y, w, h}, count) do
+    with {:ok, frame} <- review_frame(review),
          crop = {round(x * scale), round(y * scale), round(w * scale), round(h * scale)},
          %Frame{} = bar <- Frame.crop(frame, crop) do
       bar |> Vision.skill_slots(count: count) |> SkillBar.slot_refs(Settings.all())
@@ -1249,12 +1277,12 @@ defmodule PokexWeb.CalibrationLive do
   # The HP bars ARE the rows: the distance between two of them is the row
   # height. Read from the SAME picture the review is showing, in the battle
   # BODY (the pokeball strip is cropped off, exactly like the lock sensor).
-  defp measure_battle_rows(%{path: path, scale: scale, calib: %{battle_region: region}})
+  defp measure_battle_rows(%{scale: scale, calib: %{battle_region: region}} = review)
        when is_tuple(region) do
     {x, y, w, h} = Calibration.battle_body(region)
     crop = {round(x * scale), round(y * scale), round(w * scale), round(h * scale)}
 
-    with {:ok, frame} <- Frame.from_png_file(path),
+    with {:ok, frame} <- review_frame(review),
          %Frame{} = body <- Frame.crop(frame, crop),
          [_first, _second | _rest] = centers <- Vision.hp_bar_rows(body) do
       {:ok, round(median_gap(centers) / scale), length(centers)}

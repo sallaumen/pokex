@@ -757,17 +757,24 @@ defmodule Pokex.Vision.Glyphs do
     end
   end
 
-  @doc ~S'The minimap coordinate: "(337, 46107, 4)" -> {337, 46107, 4}, or nil.'
+  @doc ~S'The minimap coordinate: "(337, 46107, 4)" or "2944, 2211, 7" -> tuple, or nil.'
   def read_coord(%Frame{} = frame, region, opts \\ []) do
     case read_line(frame, region, opts) do
-      %{text: text, confidence: 1.0} ->
-        case Regex.run(~r/^\((\d+),\s?(\d+),\s?(\d+)\)$/, text) do
-          [_all, x, y, z] -> {String.to_integer(x), String.to_integer(y), String.to_integer(z)}
-          nil -> nil
-        end
+      %{text: text, confidence: 1.0} -> parse_coord(text)
+      _uncertain -> nil
+    end
+  end
 
-      _uncertain ->
-        nil
+  # Wrapped and bare are separate shapes so a stray half-parenthesis — a
+  # misread, not a style — never parses.
+  @coord_wrapped ~r/^\((\d+),\s?(\d+),\s?(\d+)\)$/
+  @coord_bare ~r/^(\d+),\s?(\d+),\s?(\d+)$/
+
+  @doc ~S'A read line as a position: "(x, y, z)" and "x, y, z" both count, else nil.'
+  def parse_coord(text) do
+    case Regex.run(@coord_wrapped, text) || Regex.run(@coord_bare, text) do
+      [_all, x, y, z] -> {String.to_integer(x), String.to_integer(y), String.to_integer(z)}
+      nil -> nil
     end
   end
 

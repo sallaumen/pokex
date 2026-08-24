@@ -12,15 +12,20 @@ defmodule Pokex.Bots.ActiveBar do
   The number of slots is the visible half of the same problem: his pokémon do
   not all carry nine moves.
 
-  ## The calibration is the fallback, not the rival
+  ## There is no shared bar anymore
 
-  A pokémon he has not calibrated answers with the screen calibration, exactly
-  as before this module existed. That is what lets this arrive without a flag
-  day: nothing breaks for the ones he has not got to yet, and each one he does
-  calibrate simply starts being read with its own bar.
+  There used to be one: a pokémon without its own bar fell back to the screen
+  calibration's. The fallback is what made 2026-08-24 possible — the shared
+  rectangle was re-marked over eight slots while its count stayed at four, and
+  since nothing on the field owned it, nothing contradicted it: the screen
+  ruler read the doubled slot as a screen 1.9× the reference and rescaled 21
+  settings by it. "Só deveria aceitar barra skill calibrada por pokemon, nada
+  de barra global mais" (Lucas, 2026-08-24).
+
+  So the answer is the active pokémon's bar or NOTHING, and `Pokex.Preflight`
+  refuses to start a bot that would read a bar nobody owns.
   """
 
-  alias Pokex.Calibration
   alias Pokex.Pokedex.Team
 
   @type bar :: %{
@@ -31,24 +36,23 @@ defmodule Pokex.Bots.ActiveBar do
         }
 
   @doc """
-  The bar to read right now: the active pokémon's when it has one, the screen
-  calibration's otherwise.
+  The bar to read right now: the active pokémon's, or an empty one when the
+  pokémon on the field has none of its own.
 
-  `name` says whose it is — `nil` meaning "the calibration's", which is what a
-  page needs to tell him whether he is looking at this pokémon's bar or at the
-  old shared one.
+  `name` says whose it is, and `nil` there means there is no bar to read — not
+  "somebody else's".
   """
-  @spec current(Calibration.t() | nil) :: bar
-  def current(calib) do
+  @spec current() :: bar
+  def current do
     case active_bar() do
-      nil -> from_calibration(calib)
+      nil -> %{region: nil, count: nil, refs: nil, name: nil}
       {name, bar} -> %{region: bar[:region], count: bar[:count], refs: bar[:refs], name: name}
     end
   end
 
   @doc "Just the region, for callers that only need to know where to capture."
-  @spec region(Calibration.t() | nil) :: tuple | nil
-  def region(calib), do: current(calib).region
+  @spec region() :: tuple | nil
+  def region, do: current().region
 
   @doc "Whether the pokémon on the field has a bar of its own."
   @spec own?() :: boolean
@@ -58,15 +62,4 @@ defmodule Pokex.Bots.ActiveBar do
   # feed tick, so `active/0` followed by `bar/1` — four reads for one answer —
   # is not a spelling detail down here.
   defp active_bar, do: Team.active_bar()
-
-  defp from_calibration(%Calibration{} = calib),
-    do: %{
-      region: calib.skill_bar_region,
-      count: calib.skill_bar_count,
-      refs: calib.skill_slot_refs,
-      name: nil
-    }
-
-  defp from_calibration(_no_calibration),
-    do: %{region: nil, count: nil, refs: nil, name: nil}
 end

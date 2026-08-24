@@ -18,20 +18,20 @@ defmodule Pokex.Bots.SkillBar do
   alias Pokex.Bots.ActiveBar
   alias Pokex.Vision
 
-  @doc "Per-slot `%{brightness, saturation, state}` list, or `nil` (not calibrated / capture failed)."
-  def read(calib, settings) do
-    with %{region: region} when is_tuple(region) <- ActiveBar.current(calib),
+  @doc "Per-slot `%{brightness, saturation, state}` list, or `nil` (the pokémon on the field has no bar / capture failed)."
+  def read(settings) do
+    with %{region: region} when is_tuple(region) <- ActiveBar.current(),
          {:ok, frame} <- Capture.frame(region, "skillbar.raw"),
          true <- Vision.skill_bar_frame?(frame) do
-      slots_from_frame(frame, calib, settings)
+      slots_from_frame(frame, settings)
     else
       _ -> nil
     end
   end
 
   @doc "Reads slot states from an already captured frame using the same rules as `read/2`."
-  def slots_from_frame(frame, calib, settings) do
-    bar = ActiveBar.current(calib)
+  def slots_from_frame(frame, settings) do
+    bar = ActiveBar.current()
 
     Vision.skill_slots(frame,
       count: calibrated_count(bar, settings),

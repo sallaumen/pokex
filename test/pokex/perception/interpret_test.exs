@@ -51,9 +51,9 @@ defmodule Pokex.Perception.InterpretTest do
       # skill_bar_frame? wants)
       rgba = :binary.copy(<<200, 200, 0, 255>>, 50) <> :binary.copy(<<20, 20, 20, 255>>, 50)
       frame = %Frame{width: 100, height: 1, rgba: rgba}
-      calib = %{calib() | skill_bar_region: {0, 0, 100, 1}, skill_bar_count: 2}
+      Pokex.TeamFixtures.ready!("Bulbasaur", count: 2)
 
-      assert Interpret.skills(frame, calib, settings()) ==
+      assert Interpret.skills(frame, calib(), settings()) ==
                %{states: [:ready, :cooldown], ready_keys: ["1"]}
     end
 

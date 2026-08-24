@@ -103,10 +103,10 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
   # hook_hold_max_ms bail is what prevents a softlock. Fishing only asks for this key
   # when the gate is on (see Fishing.Logic.needs/1), so with the gate off there's no
   # extra capture at all.
-  defp fetch(:cooldowns_ready?, calib, settings) do
+  defp fetch(:cooldowns_ready?, _calib, settings) do
     keys = Settings.value(settings, :hook_skill_keys)
 
-    case SkillBar.read(calib, settings) do
+    case SkillBar.read(settings) do
       nil -> {:ok, nil}
       slots -> {:ok, SkillBar.any_ready?(slots, keys)}
     end
@@ -114,8 +114,8 @@ defmodule Pokex.Bots.Fisher.Sensors.Real do
 
   # The ready hotbar keys for combat to fire (highest-priority ready first). nil when
   # there's no skill-bar reading → combat falls back to blind rotation.
-  defp fetch(:ready_skills, calib, settings) do
-    {:ok, SkillBar.ready_keys(SkillBar.read(calib, settings))}
+  defp fetch(:ready_skills, _calib, settings) do
+    {:ok, SkillBar.ready_keys(SkillBar.read(settings))}
   end
 
   defp battle_view(calib, settings) do

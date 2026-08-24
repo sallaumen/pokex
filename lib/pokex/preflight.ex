@@ -3,6 +3,7 @@ defmodule Pokex.Preflight do
 
   alias Pokex.Bots.Capture
   alias Pokex.Calibration
+  alias Pokex.Pokedex.Team
   alias Pokex.Rig.Mac
 
   def run(rig \\ Pokex.Rig.impl()) do
@@ -10,6 +11,7 @@ defmodule Pokex.Preflight do
       []
       |> check_cliclick(rig)
       |> check_calibration()
+      |> check_active_pokemon()
       |> check_screen(rig)
 
     case errors do
@@ -31,6 +33,63 @@ defmodule Pokex.Preflight do
       do: errors,
       else: ["calibração não encontrada — rode o wizard em /calibration" | errors]
   end
+
+  # The pokémon on the field owns its bar and its jobs, and nothing else does:
+  # the shared bar is gone (see `Pokex.Bots.ActiveBar`). Starting without them
+  # is starting blind — the cooldown reader would score against another
+  # creature's icons, and the fight would rotate keys nobody classified.
+  # "Temos que até bloquear de funcionar se não tiver corretamente configurado
+  # para o pokémon ativo" (Lucas, 2026-08-24).
+  defp check_active_pokemon(errors) do
+    case Team.active() do
+      nil ->
+        ["nenhum pokémon escolhido — diga quem está em campo no /time" | errors]
+
+      name ->
+        errors
+        |> check_bar(name)
+        |> check_skills(name)
+    end
+  end
+
+  defp check_bar(errors, name) do
+    case Team.active_bar() do
+      nil ->
+        ["#{name} está sem barra de skills calibrada — calibre a dele em /calibration" | errors]
+
+      _has_one ->
+        errors
+    end
+  end
+
+  # Every slot, not just some: a key without a job is a key the fight cannot
+  # choose — nem área, nem controle, nem alvo único.
+  defp check_skills(errors, name) do
+    skills = Team.skills(name)
+    slots = bar_slots()
+    missing = Enum.reject(1..max(slots, 1)//1, &Map.has_key?(skills, to_string(&1)))
+
+    cond do
+      slots == 0 ->
+        errors
+
+      missing == [] ->
+        errors
+
+      true ->
+        ["#{name}: falta dizer o que faz #{slot_list(missing)} no /time" | errors]
+    end
+  end
+
+  defp bar_slots do
+    case Team.active_bar() do
+      {_name, %{count: count}} when is_integer(count) and count > 0 -> count
+      _no_bar -> 0
+    end
+  end
+
+  defp slot_list([one]), do: "a tecla #{one}"
+  defp slot_list(many), do: "as teclas #{Enum.join(many, ", ")}"
 
   defp check_screen(errors, Mac) do
     case Calibration.load() do

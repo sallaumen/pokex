@@ -34,6 +34,8 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       :ets.delete(:pokex_world, :posture)
     end)
 
+    Pokex.TeamFixtures.ready!()
+
     Calibration.save(%Calibration{
       scale: 1.0,
       screen_w: 1000,
@@ -565,7 +567,19 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       posture!(:free_fight)
       world!(worker, battle_obs(enemies: [0, 1, 2]))
 
-      assert eventually(fn -> Settings.get(:tab_key) in presses() end)
+      # 3s, not 1: with the pokémon on the field CLASSIFIED (the only way a bot
+      # starts since 2026-08-24), the freed fight opens with a burst, and a Tab
+      # dispatched while that burst is still running is skipped on purpose —
+      # the next decision fires a fresher one.
+      # The freed fight OPENS on the pile it gathered — with the pokémon on the
+      # field classified (the only way a bot starts since 2026-08-24) that
+      # opening is a real burst, and it consumes this observation. The Tab
+      # comes on the next one, which in a hunt arrives every ~120ms.
+      assert eventually(fn -> Enum.any?(~w(1 2 3 4), &(&1 in presses())) end)
+
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+      assert eventually(fn -> Settings.get(:tab_key) in presses() end, 3_000)
       assert Worker.status(worker).hold_reason == nil
     end
 

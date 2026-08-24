@@ -135,92 +135,29 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
     do: now - last >= cooldown
 
   @doc """
-  The FALLEN combo: he is already inside the ball, so there is nothing to
-  recall — cursor onto the portrait, max revive, and out he comes alive.
+  The revive, as a Body action list: an optional STUN PREFIX (`stun_steps`,
+  already-compiled `{:press, _}`/`{:wait, _}` actions — see `stun_prefix/2`),
+  the lead wait its sleep still needs to LAND (`settle_ms`), and the key.
 
-  "Você apertar Shift+Q com o mouse em cima do pokémon é instantâneo, e aí
-  depois você apertar Q, ele já sai da pokébola viva (…) esse combo é bem
-  feitinho" (Lucas, 2026-08-14).
+  One press is the whole revive in this client (Lucas, 2026-08-24: "é só
+  apertar o botão F4" — it recalls, revives and puts the pokémon back on the
+  field by itself). The client before it needed a choreography: recall, cursor
+  onto the portrait, max-revive, release, cursor home — five steps nothing
+  could interrupt, which is why they rode inside ONE `Body.perform`.
 
-  Deliberately shorter than `combo/1`: that one opens by recalling a pokémon
-  who is still out and still tanking, and pays a settle so the pile is asleep
-  before the field empties. Here the field is ALREADY empty and the character
-  is the one being hit — every millisecond is exposure, so there is no stun and
-  no settle, only the two presses that end it.
+  The prefix still rides inside that same perform, for the reason it was born:
+  nothing may wedge itself between the pile falling asleep and the pokémon
+  leaving the field (2026-07-30, and 2026-08-14 when a rescue exposed the
+  character himself). The exposure survived the client change — the pokémon is
+  still away for a moment (Lucas, 2026-08-24) — so the prefix stays available,
+  off by default, for the hunt that turns out to need it.
   """
-  @spec fallen_combo(map) :: [tuple]
-  def fallen_combo(%{
-        rescue_key: rescue_key,
-        max_revive_key: max_revive_key,
-        photo_point: photo_point,
-        neutral_point: neutral_point,
-        step_ms: step_ms
-      }) do
-    [
-      {:move, photo_point},
-      {:wait, step_ms},
-      {:press, max_revive_key},
-      {:wait, step_ms},
-      {:press, rescue_key},
-      {:wait, step_ms},
-      {:move, neutral_point}
-    ]
-  end
-
-  @doc """
-  The single-key revive: the client Lucas plays since 2026-08-21 binds the
-  whole revive to ONE hotkey ("é só apertar o botão F4", 2026-08-24) — no
-  recall, no portrait, no cursor, so both the low-HP rescue and the fallen
-  revive collapse to this press. The stun prefix and the settle stay out on
-  purpose: they choreograph emptying a field mid-mob, and this client's revive
-  does not empty the field.
-  """
-  @spec single_key_combo(map) :: [tuple]
-  def single_key_combo(%{rescue_key: rescue_key}), do: [{:press, rescue_key}]
-
-  @doc """
-  The atomic combo, as a Body action list: an optional STUN PREFIX (`stun_steps`, already-compiled
-  `{:press, _}`/`{:wait, _}` actions — see `stun_prefix/2`), then recall (`rescue_key`), move onto
-  the portrait, max-revive (`max_revive_key`), release (`rescue_key`), recentre the cursor.
-  `step_ms` waits sit between the presses so the game registers each — the whole list runs as ONE
-  Body perform so nothing (not even a fishing/loot click — combat is keyboard-only via Tab
-  targeting and never touches the Body) can move the cursor off the portrait mid-combo. The stun
-  prefix rides INSIDE that same perform: hunting strong mobs, the area stuns buy the revive its
-  time — nothing may wedge itself between the stun and the recall (2026-07-30).
-
-  `settle_ms` (optional) is how long the game's sleep still needs to LAND before the field may be
-  emptied — a lead wait the caller computes from when the stun was actually pressed. It rides
-  inside this same perform on purpose: the whole point is that nothing separates the pile falling
-  asleep from the pokémon leaving (2026-08-14, a rescue that exposed the character himself).
-  """
-  @spec combo(map) :: [tuple]
-  def combo(
-        %{
-          rescue_key: rescue_key,
-          max_revive_key: max_revive_key,
-          photo_point: photo_point,
-          neutral_point: neutral_point,
-          step_ms: step_ms
-        } = config
-      ) do
+  @spec revive(map) :: [tuple]
+  def revive(%{rescue_key: rescue_key} = config) do
     stun = Map.get(config, :stun_steps, [])
-    glue = if stun == [], do: [], else: [{:wait, step_ms}]
-    settle = settle_wait(Map.get(config, :settle_ms, 0))
+    glue = if stun == [], do: [], else: [{:wait, Map.get(config, :step_ms, 40)}]
 
-    stun ++
-      glue ++
-      settle ++
-      [
-        {:press, rescue_key},
-        {:wait, step_ms},
-        {:move, photo_point},
-        {:wait, step_ms},
-        {:press, max_revive_key},
-        {:wait, step_ms},
-        {:press, rescue_key},
-        {:wait, step_ms},
-        {:move, neutral_point}
-      ]
+    stun ++ glue ++ settle_wait(Map.get(config, :settle_ms, 0)) ++ [{:press, rescue_key}]
   end
 
   defp settle_wait(ms) when is_integer(ms) and ms > 0, do: [{:wait, ms}]

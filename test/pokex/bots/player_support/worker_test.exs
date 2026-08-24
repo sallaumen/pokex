@@ -58,7 +58,6 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   alias Pokex.Bots.PlayerSupport.Worker
   alias Pokex.Bots.PlayerSupport.WorkerTest.FakeBody
   alias Pokex.Calibration
-  alias Pokex.Combos.Store
   alias Pokex.Perception.WorldState
   alias Pokex.Rig.Fake
   alias Pokex.Settings
@@ -86,8 +85,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     SettingsStash.stash_keys!([
       :rescue_cooldown_ms,
-      :rescue_mode,
-      :rescue_combo,
+      :rescue_stun_first,
       :pokemon_hp_rescue_pct,
       :potion_enabled,
       :potion_cooldown_ms,
@@ -346,7 +344,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "fires the survival combo at :critical when HP is below the threshold", %{
+  test "fires the revive at :critical when HP is below the threshold", %{
     tmp: tmp,
     body: body
   } do
@@ -358,10 +356,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert :ok = Worker.run(worker)
 
     assert_receive {:performed, :critical, actions}, 1_000
-    assert [{:press, "q"} | _] = actions
-    assert {:move, {40, 620}} in actions
-    assert {:press, "shift+q"} in actions
-    assert {:move, {500, 500}} in actions
+    assert actions == [{:press, "q"}]
 
     assert Worker.status(worker).counters.rescues >= 1
   end
@@ -371,12 +366,11 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # Combat RESERVES the control keys for this exact moment, and plain "direto"
   # never pressed them: reserved by everyone, pressed by nobody.
   @tag :tmp_dir
-  test "the reserved control key IS the stun, with no combo configured", %{
+  test "the reserved control key IS the stun", %{
     tmp: tmp,
     body: body
   } do
-    SettingsStash.stash_keys!([:rescue_mode])
-    Settings.put(:rescue_mode, "direct")
+    Settings.put(:rescue_stun_first, true)
     classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
 
     low = hp_png(tmp, "low_reserved.png", 6)
@@ -390,15 +384,14 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # the stun goes out FIRST and alone — the recall waits for its receipt
     assert_receive {:performed, :critical, [{:press, "1"}]}, 1_500
     assert_receive {:performed, :critical, revive}, 1_500
-    assert {:press, "shift+q"} in revive
+    assert revive == [{:press, "q"}]
 
     assert await_log("stun do resgate") =~ "guardado no /time"
   end
 
   @tag :tmp_dir
   test "with no control classified it revives direct, and says why", %{tmp: tmp, body: body} do
-    SettingsStash.stash_keys!([:rescue_mode])
-    Settings.put(:rescue_mode, "direct")
+    Settings.put(:rescue_stun_first, true)
     classify!("Magikarp", %{"3" => :aoe})
 
     low = hp_png(tmp, "low_no_control.png", 6)
@@ -414,12 +407,11 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   end
 
   @tag :tmp_dir
-  # "é só apertar o botão F4" (Lucas, 2026-08-24): the client he plays now does
-  # the whole revive on one hotkey. A reserved control key EXISTS in this test
-  # on purpose — single-key mode must not stun even when it could.
-  test "single-key mode: the rescue is one press and nothing more", %{tmp: tmp, body: body} do
-    SettingsStash.stash_keys!([:rescue_mode, :rescue_key])
-    Settings.put(:rescue_mode, "single_key")
+  # "é só apertar o botão F4" (Lucas, 2026-08-24): one hotkey is the whole
+  # revive. A reserved control key EXISTS in this test on purpose — with the
+  # prefix off, not even a ready control key may delay the revive.
+  test "the revive is one press and nothing more", %{tmp: tmp, body: body} do
+    SettingsStash.stash_keys!([:rescue_key])
     Settings.put(:rescue_key, "f4")
     classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
 
@@ -433,7 +425,6 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     assert_receive {:performed, :critical, [{:press, "f4"}]}, 1_500
     refute_receive {:performed, :critical, _anything_else}, 500
-    assert await_log("revive de uma tecla")
   end
 
   @tag :tmp_dir
@@ -441,21 +432,12 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # redor, colocar eles para dormir, e aí, sim, eu tiro meu Pokémon de campo"
   # (Lucas, 2026-08-11). The stun is its OWN sequence now, so its receipt can
   # be read before the recall strips the field.
-  test "combo mode: the stun goes out FIRST, alone, and the recall follows", %{
+  test "stun first: the control keys go out ALONE, and the revive follows", %{
     tmp: tmp,
     body: body
   } do
-    Store.put([
-      %Pokex.Combos.Combo{
-        name: "stun-do-resgate",
-        trigger: nil,
-        steps: [{:skill, "1"}, {:wait, 5}, {:skill, "2"}],
-        enabled?: true
-      }
-    ])
-
-    Settings.put(:rescue_mode, "combo")
-    Settings.put(:rescue_combo, "stun-do-resgate")
+    Settings.put(:rescue_stun_first, true)
+    classify!("Gardevoir", %{"1" => :crowd, "2" => :crowd})
 
     low = hp_png(tmp, "low.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
@@ -467,13 +449,11 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # first sequence: the crowd control, and nothing else — no recall rides
     # along, because it must not happen until this one is confirmed
     assert_receive {:performed, :critical, stun}, 1_000
-    assert stun == [{:press, "1"}, {:wait, 5}, {:press, "2"}]
+    assert stun == [{:press, "1"}, {:press, "2"}]
 
     # second: the revive itself
     assert_receive {:performed, :critical, revive}, 1_000
-    assert [{:press, "q"} | _] = revive
-    assert {:press, "shift+q"} in revive
-    assert {:move, {40, 620}} in revive
+    assert revive == [{:press, "q"}]
   end
 
   # 2026-08-14, live: the recall followed the confirmation by ~100ms and the
@@ -487,17 +467,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     tmp: tmp,
     body: body
   } do
-    Store.put([
-      %Pokex.Combos.Combo{
-        name: "stun-do-resgate",
-        trigger: nil,
-        steps: [{:skill, "1"}],
-        enabled?: true
-      }
-    ])
-
-    Settings.put(:rescue_mode, "combo")
-    Settings.put(:rescue_combo, "stun-do-resgate")
+    Settings.put(:rescue_stun_first, true)
+    classify!("Gardevoir", %{"1" => :crowd})
     Settings.put(:rescue_confirm_ms, 0)
     Settings.put(:rescue_stun_settle_ms, 500)
 
@@ -538,17 +509,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     tmp: tmp,
     body: body
   } do
-    Store.put([
-      %Pokex.Combos.Combo{
-        name: "stun-do-resgate",
-        trigger: nil,
-        steps: [{:skill, "1"}],
-        enabled?: true
-      }
-    ])
-
-    Settings.put(:rescue_mode, "combo")
-    Settings.put(:rescue_combo, "stun-do-resgate")
+    Settings.put(:rescue_stun_first, true)
+    classify!("Gardevoir", %{"1" => :crowd})
     # the confirmation alone outlasts the settle: nothing is left to wait for
     Settings.put(:rescue_confirm_ms, 300)
     Settings.put(:rescue_stun_settle_ms, 100)
@@ -570,17 +532,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     tmp: tmp,
     body: body
   } do
-    Store.put([
-      %Pokex.Combos.Combo{
-        name: "stun-do-resgate",
-        trigger: nil,
-        steps: [{:skill, "1"}],
-        enabled?: true
-      }
-    ])
-
-    Settings.put(:rescue_mode, "combo")
-    Settings.put(:rescue_combo, "stun-do-resgate")
+    Settings.put(:rescue_stun_first, true)
+    classify!("Gardevoir", %{"1" => :crowd})
     Settings.put(:rescue_confirm_ms, 0)
 
     low = hp_png(tmp, "low.png", 6)
@@ -598,71 +551,6 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # the doubt is SAID, never assumed away (after the dispatch line: the
     # receipt is read by the rescue task, so its note arrives with the report)
     assert await_log("não consegui confirmar o stun") =~ "revivendo assim mesmo"
-  end
-
-  @tag :tmp_dir
-  test "a dangling combo name still revives DIRECTLY, with an alarm saying why", %{
-    tmp: tmp,
-    body: body
-  } do
-    Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
-    Settings.put(:rescue_mode, "combo")
-    Settings.put(:rescue_combo, "sumiu")
-
-    low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
-    orders!(:now)
-
-    worker = start_worker(body)
-    assert :ok = Worker.run(worker)
-
-    assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_000
-    assert_receive {:rule_alarm, :hp, msg}, 1_000
-    assert msg =~ "sumiu"
-    assert msg =~ "revivendo direto"
-  end
-
-  # The `:crowd` job on /time IS "reservada pro stun antes do revive", and it is
-  # per pokémon — the answer a globally named combo cannot give after a swap. It
-  # never overrides his combo: this only fills the case that used to revive with
-  # no stun at all.
-  @tag :tmp_dir
-  test "a dangling combo falls back to the CONTROL keys of the pokémon on the field", %{
-    tmp: tmp,
-    body: body
-  } do
-    Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
-    Settings.put(:rescue_mode, "combo")
-    Settings.put(:rescue_combo, "sumiu")
-
-    File.write!(
-      Path.join(Pokex.Home.dir(), "pokedex.json"),
-      JSON.encode!(%{
-        "species" => [%{"name" => "Gardevoir", "number" => 282, "elements" => ["Psychic"]}]
-      })
-    )
-
-    Application.put_env(:pokex, :pokedex_path, Path.join(Pokex.Home.dir(), "pokedex.json"))
-    on_exit(fn -> Application.delete_env(:pokex, :pokedex_path) end)
-
-    {:ok, _} = Pokex.Pokedex.Team.add("Gardevoir")
-    Pokex.Pokedex.Team.set_skills("Gardevoir", %{"2" => :crowd, "3" => :aoe})
-    Pokex.Pokedex.Team.set_active("Gardevoir")
-
-    low = hp_png(tmp, "low_crowd.png", 6)
-    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
-    orders!(:now)
-
-    worker = start_worker(body)
-    assert :ok = Worker.run(worker)
-
-    # the stun goes out FIRST and ALONE — the recall waits for it to be confirmed
-    assert_receive {:performed, :critical, [{:press, "2"}]}, 1_000
-    assert_receive {:performed, :critical, revive}, 1_500
-    assert {:press, "shift+q"} in revive
-
-    assert_receive {:game_log, _level, text}, 1_000
-    assert text =~ "controle do pokémon em campo"
   end
 
   @tag :tmp_dir
@@ -885,7 +773,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   describe "a stun that never went out" do
     setup do
       SettingsStash.stash!(rescue_enabled: true, rescue_confirm_ms: 120)
-      SettingsStash.stash_keys!([:rescue_stun_settle_ms, :rescue_mode, :rescue_combo])
+      SettingsStash.stash_keys!([:rescue_stun_settle_ms, :rescue_stun_first])
       Settings.put(:rescue_stun_settle_ms, 0)
       :ok
     end
@@ -905,18 +793,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       Process.sleep(30)
     end
 
-    defp stun_combo!(steps) do
-      Store.put([
-        %Pokex.Combos.Combo{
-          name: "stun-do-resgate",
-          trigger: nil,
-          steps: steps,
-          enabled?: true
-        }
-      ])
-
-      Settings.put(:rescue_mode, "combo")
-      Settings.put(:rescue_combo, "stun-do-resgate")
+    defp stun_first! do
+      Settings.put(:rescue_stun_first, true)
     end
 
     @tag :tmp_dir
@@ -925,7 +803,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       body: body
     } do
       classify!("Gardevoir", %{"1" => :crowd, "2" => :crowd, "3" => :aoe})
-      stun_combo!([{:skill, "1"}])
+      stun_first!()
       bar_stuck_ready(["1", "2", "3"])
 
       low = hp_png(tmp, "low_last_card.png", 6)
@@ -935,22 +813,22 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
 
-      # the stun that refused…
-      assert_receive {:performed, :critical, [{:press, "1"}]}, 2_000
+      # the stun that refused — both control keys, the ones /time reserves…
+      assert_receive {:performed, :critical, [{:press, "1"}, {:press, "2"}]}, 2_000
 
-      # …then the rest of the hand, control before area, never "1" again
+      # …then the rest of the hand, never a key already spent
       assert_receive {:performed, :critical, last_card}, 2_000
-      assert last_card == [{:press, "2"}, {:press, "3"}]
+      assert last_card == [{:press, "3"}]
 
       # and only THEN does the field empty
       assert_receive {:performed, :critical, revive}, 2_000
-      assert {:press, "shift+q"} in revive
+      assert List.last(revive) == {:press, "q"}
     end
 
     @tag :tmp_dir
     test "with nothing left in hand it recalls at once, and says so", %{tmp: tmp, body: body} do
       classify!("Abra", %{"1" => :crowd})
-      stun_combo!([{:skill, "1"}])
+      stun_first!()
       bar_stuck_ready(["1"])
 
       low = hp_png(tmp, "low_empty_hand.png", 6)
@@ -963,7 +841,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
       assert_receive {:performed, :critical, [{:press, "1"}]}, 2_000
       assert_receive {:performed, :critical, revive}, 2_000
-      assert {:press, "shift+q"} in revive
+      assert List.last(revive) == {:press, "q"}
 
       assert await_log("não sobrou skill") =~ "recolhendo agora"
     end
@@ -1013,27 +891,11 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "the fallen combo opens on the PORTRAIT, never with a recall", %{tmp: tmp, body: body} do
-      dying_then_gone(tmp)
-
-      worker = start_worker(body)
-      assert :ok = Worker.run(worker)
-
-      combo = await_fallen_combo()
-
-      assert [{:move, {40, 620}} | _] = combo
-      assert {:press, "shift+q"} in combo
-      assert {:press, "q"} in combo
-      assert List.last(combo) == {:move, {500, 500}}
-    end
-
-    @tag :tmp_dir
     test "single-key mode: the fallen revive is the same one press, no cursor", %{
       tmp: tmp,
       body: body
     } do
-      SettingsStash.stash_keys!([:rescue_mode, :rescue_key])
-      Settings.put(:rescue_mode, "single_key")
+      SettingsStash.stash_keys!([:rescue_key])
       Settings.put(:rescue_key, "f4")
       dying_then_gone(tmp)
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
@@ -1068,19 +930,16 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     @tag :tmp_dir
     test "one death costs exactly one revive", %{tmp: tmp, body: body} do
       dying_then_gone(tmp)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
 
-      _fallen = await_fallen_combo()
-      refute_receive {:performed, :critical, [{:move, _} | _]}, 500
-    end
+      assert await_log("caiu") =~ "revive na hora"
+      spent = Worker.status(worker).counters.rescues
 
-    # The low-HP rescue may fire first (it can still see him); the fallen combo
-    # is the one that opens with the cursor move.
-    defp await_fallen_combo do
-      assert_receive {:performed, :critical, actions}, 2_000
-      if match?([{:move, _} | _], actions), do: actions, else: await_fallen_combo()
+      Process.sleep(300)
+      assert Worker.status(worker).counters.rescues == spent
     end
   end
 

@@ -638,23 +638,15 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  # "Cooldown Ressurect" (Lucas, 2026-08-10): recall, max-revive on the
-  # portrait, release. Reviving resets every skill cooldown, so the next fight
-  # starts with a full bar instead of a wait. The sequence is PlayerSupport's,
-  # calibrated and proven there — this only borrows it, at :high so it lands
+  # "Cooldown Ressurect" (Lucas, 2026-08-10): reviving resets every skill
+  # cooldown, so the next fight starts with a full bar instead of a wait — and
+  # it still does in this client (confirmed 2026-08-24). The sequence is
+  # PlayerSupport's, proven there; this only borrows it, at :high so it lands
   # ahead of ordinary walking.
   def translate(state, :cooldown_revive) do
     state = release_walk(state)
-
-    case revive_combo() do
-      nil ->
-        log(:macro, "⚡ não resetei o cooldown: falta calibrar a foto do pokémon")
-        state
-
-      actions ->
-        fire_revive(state.body, actions)
-        state
-    end
+    fire_revive(state.body, revive_combo())
+    state
   end
 
   # The corner asked for a reset and the moment answered no. Said out loud with
@@ -923,23 +915,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp sweep_text({x, y}), do: "🧹 varrendo onde o pokémon estava (#{x}, #{y})"
   defp sweep_text(_character), do: "🧹 varrendo os corpos antes de seguir"
 
-  # nil when the portrait or the neutral point was never marked: a missing
-  # calibration must cost the hunt a log line, never a stuck stop.
-  defp revive_combo do
-    with {:ok, calib} <- Calibration.load(),
-         photo when is_tuple(photo) <- Calibration.pokemon_photo_point(calib),
-         neutral when is_tuple(neutral) <- calib.neutral_point || calib.player_point do
-      PlayerSupport.Logic.combo(%{
-        rescue_key: Settings.get(:rescue_key),
-        max_revive_key: Settings.get(:max_revive_key),
-        photo_point: photo,
-        neutral_point: neutral,
-        step_ms: Settings.get(:rescue_step_ms)
-      })
-    else
-      _uncalibrated -> nil
-    end
-  end
+  # One key, and no calibration to be missing: the choreography this borrowed
+  # used to need the portrait marked, and a hunt could reach the corner only to
+  # log that it could not revive.
+  defp revive_combo,
+    do: PlayerSupport.Logic.revive(%{rescue_key: Settings.get(:rescue_key)})
 
   defp note_capture(state, pending) do
     if pending == state.capture_pending,

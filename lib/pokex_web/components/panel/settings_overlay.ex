@@ -165,59 +165,38 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                 phx-change="save_rescue_combo_cfg"
                 class="flex items-center gap-1"
               >
-                <label for="rescue-mode">revive</label>
-                <select
-                  id="rescue-mode"
-                  name="rescue_mode"
-                  aria-label="Modo do auto-revive"
-                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                >
-                  <option value="direct" selected={@rescue_cfg.mode == "direct"}>direto</option>
-                  <option value="combo" selected={@rescue_cfg.mode == "combo"}>com combo</option>
-                  <option value="single_key" selected={@rescue_cfg.mode == "single_key"}>
-                    uma tecla
-                  </option>
-                </select>
+                <label for="rescue-key">revive na tecla</label>
                 <input
-                  :if={@rescue_cfg.mode == "single_key"}
                   id="rescue-key"
                   name="rescue_key"
                   type="text"
                   value={@rescue_cfg.key}
                   aria-label="Tecla do revive"
+                  phx-debounce="500"
                   class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
-                <select
-                  :if={@rescue_cfg.mode == "combo"}
-                  id="rescue-combo"
-                  name="rescue_combo"
-                  aria-label="Combo de stun do resgate"
-                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                >
-                  <option value="" selected={@rescue_cfg.combo == ""}>escolha o combo…</option>
-                  <option
-                    :for={combo <- @combos}
-                    value={combo.name}
-                    selected={@rescue_cfg.combo == combo.name}
-                    disabled={not Pokex.Combos.rescue_eligible?(combo)}
-                  >
-                    {combo.name}{if not Pokex.Combos.rescue_eligible?(combo),
-                      do: " (tem troca de time)"}
-                  </option>
-                </select>
 
                 <%!-- O recibo prova que a TECLA saiu, nunca que o bicho dormiu:
                       em campo o revive vinha 100ms depois e a selva atacou o
                       personagem (2026-08-14). --%>
-                <label :if={@rescue_cfg.mode == "combo"} for="stun-settle-ms" class="ml-1">
+                <label for="rescue-stun-first" class="ml-2">dormir a pilha antes</label>
+                <input
+                  id="rescue-stun-first"
+                  type="checkbox"
+                  name="rescue_stun_first"
+                  aria-label="Usar as skills de controle do pokémon antes de reviver"
+                  checked={@rescue_cfg.stun_first}
+                  class="checkbox checkbox-xs"
+                />
+                <label :if={@rescue_cfg.stun_first} for="stun-settle-ms" class="ml-1">
                   dorme em
                 </label>
                 <input
-                  :if={@rescue_cfg.mode == "combo"}
+                  :if={@rescue_cfg.stun_first}
                   id="stun-settle-ms"
                   type="number"
                   name="stun_settle_ms"
-                  aria-label="Tempo que o stun leva pra pegar antes de recolher o pokémon"
+                  aria-label="Tempo que o stun leva pra pegar antes de reviver"
                   min="0"
                   max="10000"
                   step="100"
@@ -225,7 +204,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   phx-debounce="500"
                   class="h-6 w-16 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
                 />
-                <span :if={@rescue_cfg.mode == "combo"}>ms</span>
+                <span :if={@rescue_cfg.stun_first}>ms</span>
               </form>
 
               <%!-- MORREU: a janela do pokémon muda de forma e a barra some do
@@ -262,43 +241,6 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                 />
                 <span>s</span>
               </form>
-
-              <div
-                :if={
-                  @rescue_cfg.mode == "combo" and not rescue_combo_ready?(@combos, @rescue_cfg.combo)
-                }
-                data-testid="rescue-combo-missing"
-                class="space-y-1 rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1.5 text-pk-warn"
-              >
-                <p>⚠️ modo com combo, mas nenhum combo válido escolhido — o revive vai direto.</p>
-                <button
-                  id="create-rescue-combo"
-                  type="button"
-                  phx-click="create_rescue_combo"
-                  class="btn h-7 w-full border border-pk-ok-line bg-transparent text-pk-meta font-semibold text-pk-ok hover:bg-pk-ok-dim"
-                >
-                  criar o combo "resgate" (skill 1 → 2) e usar
-                </button>
-              </div>
-              <p
-                :if={@rescue_cfg.mode == "combo" and rescue_combo_preview(@combos, @rescue_cfg.combo)}
-                data-testid="rescue-combo-preview"
-                class="text-pk-text-3"
-              >
-                {rescue_combo_preview(@combos, @rescue_cfg.combo)}
-              </p>
-              <p
-                :if={
-                  @rescue_cfg.mode == "combo" and
-                    rescue_combo_conflicts(@combos, @rescue_cfg.combo) != []
-                }
-                data-testid="rescue-combo-conflict"
-                class="rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1 text-pk-warn"
-              >
-                ⚠️ {Enum.join(rescue_combo_conflicts(@combos, @rescue_cfg.combo), ", ")} também na
-                rotação do combate — pode estar em cooldown na hora do resgate. Reserve tirando
-                de "skills" em Avançado.
-              </p>
             </div>
 
             <form
@@ -1035,62 +977,6 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   defp sweep_side_label("right"), do: "só daqui pra direita"
   defp sweep_side_label("left"), do: "só daqui pra esquerda"
   defp sweep_side_label(_square), do: "quadrado completo"
-
-  # --- what the rescue combo means on screen (moved over with the panel) ------
-
-  defp rescue_combo_ready?(combos, name) do
-    case Enum.find(combos, &(&1.name == name)) do
-      nil -> false
-      combo -> combo.enabled? and Pokex.Combos.rescue_eligible?(combo)
-    end
-  end
-
-  defp rescue_combo_preview(combos, name) do
-    case Enum.find(combos, &(&1.name == name)) do
-      nil ->
-        nil
-
-      combo ->
-        if Pokex.Combos.rescue_eligible?(combo), do: rescue_preview(combo)
-    end
-  end
-
-  defp rescue_preview(combo) do
-    stun = Enum.map(combo.steps, &preview_step/1)
-
-    tail = [
-      Pokex.Settings.get(:rescue_key),
-      "retrato",
-      Pokex.Settings.get(:max_revive_key),
-      Pokex.Settings.get(:rescue_key)
-    ]
-
-    Enum.join(stun ++ tail, " → ")
-  end
-
-  defp preview_step({:skill, key}), do: key
-  defp preview_step({:wait, ms}) when is_integer(ms), do: "#{ms}ms"
-  defp preview_step({:wait, setting}), do: "#{preview_wait_ms(setting)}ms"
-
-  defp preview_wait_ms(setting) do
-    case Pokex.Settings.get(setting) do
-      ms when is_integer(ms) -> ms
-      _estranho -> Pokex.Settings.get(:rescue_step_ms)
-    end
-  rescue
-    _no_seed -> Pokex.Settings.get(:rescue_step_ms)
-  end
-
-  defp rescue_combo_conflicts(combos, name) do
-    case Enum.find(combos, &(&1.name == name)) do
-      nil ->
-        []
-
-      combo ->
-        combat_keys = Pokex.Settings.get(:skill_keys)
-        for {:skill, key} <- combo.steps, key in combat_keys, uniq: true, do: "skill #{key}"
-    end
-  end
 
   defp rule_kind(%{"trigger" => %{"kind" => kind}}) when is_binary(kind), do: kind
   defp rule_kind(_rule), do: "species"

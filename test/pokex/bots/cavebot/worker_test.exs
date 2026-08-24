@@ -1154,10 +1154,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       Enum.each(1..6, fn _ -> tick!(worker) end)
 
       assert_receive {:performed, :high, actions}, 1_000
-      # Q → portrait → shift+Q → Q: the sequence PlayerSupport already proved
-      assert Enum.any?(actions, &match?({:press, "q"}, &1))
-      assert Enum.any?(actions, &match?({:move, {120, 90}}, &1))
-      assert Enum.any?(actions, &match?({:press, "shift+q"}, &1))
+      # one key, the same PlayerSupport presses — no portrait to be missing
+      assert actions == [{:press, "q"}]
 
       # and the tick did NOT wait on it: the Body's call has an :infinity
       # timeout and may be seconds deep in a capture — a blocked tick would

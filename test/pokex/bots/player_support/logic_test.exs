@@ -40,66 +40,47 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
     end
   end
 
-  describe "combo/1" do
-    test "builds the recall → max-revive-on-photo → release → recentre sequence" do
-      config = %{
-        rescue_key: "q",
-        max_revive_key: "shift+q",
-        photo_point: {70, 934},
-        neutral_point: {1457, 666},
-        step_ms: 40
-      }
-
-      assert Logic.combo(config) == [
-               {:press, "q"},
-               {:wait, 40},
-               {:move, {70, 934}},
-               {:wait, 40},
-               {:press, "shift+q"},
-               {:wait, 40},
-               {:press, "q"},
-               {:wait, 40},
-               {:move, {1457, 666}}
-             ]
+  describe "revive/1" do
+    test "one press is the whole revive" do
+      assert Logic.revive(%{rescue_key: "f4", step_ms: 40}) == [{:press, "f4"}]
     end
 
-    test "with stun_steps: the stun comes before the recall, in the same atomic list" do
+    test "with stun_steps: the stun comes first, in the same atomic list" do
       config = %{
-        rescue_key: "q",
-        max_revive_key: "shift+q",
-        photo_point: {70, 934},
-        neutral_point: {1457, 666},
+        rescue_key: "f4",
         step_ms: 40,
         stun_steps: [{:press, "1"}, {:wait, 500}, {:press, "2"}]
       }
 
-      assert Logic.combo(config) == [
+      assert Logic.revive(config) == [
                {:press, "1"},
                {:wait, 500},
                {:press, "2"},
                {:wait, 40},
-               {:press, "q"},
-               {:wait, 40},
-               {:move, {70, 934}},
-               {:wait, 40},
-               {:press, "shift+q"},
-               {:wait, 40},
-               {:press, "q"},
-               {:wait, 40},
-               {:move, {1457, 666}}
+               {:press, "f4"}
              ]
     end
 
-    test "empty stun_steps adds no glue — sequence identical to the direct mode" do
+    test "the settle rides between the stun and the key, never after it" do
       config = %{
-        rescue_key: "q",
-        max_revive_key: "shift+q",
-        photo_point: {70, 934},
-        neutral_point: {1457, 666},
-        step_ms: 40
+        rescue_key: "f4",
+        step_ms: 40,
+        settle_ms: 800,
+        stun_steps: [{:press, "1"}]
       }
 
-      assert Logic.combo(Map.put(config, :stun_steps, [])) == Logic.combo(config)
+      assert Logic.revive(config) == [
+               {:press, "1"},
+               {:wait, 40},
+               {:wait, 800},
+               {:press, "f4"}
+             ]
+    end
+
+    test "empty stun_steps adds no glue and no settle to wait for" do
+      config = %{rescue_key: "f4", step_ms: 40, stun_steps: [], settle_ms: 0}
+
+      assert Logic.revive(config) == [{:press, "f4"}]
     end
   end
 
@@ -211,50 +192,6 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
       refute Logic.fainted?(faint(enabled?: false))
       refute Logic.fainted?(faint(last_faint_at: 0, now: 14_999))
       assert Logic.fainted?(faint(last_faint_at: 0, now: 15_000))
-    end
-  end
-
-  describe "the fallen combo" do
-    defp fallen_config do
-      %{
-        rescue_key: "q",
-        max_revive_key: "shift+q",
-        photo_point: {40, 620},
-        neutral_point: {500, 500},
-        step_ms: 40
-      }
-    end
-
-    # He is already inside the ball: opening with a recall would be pressing Q
-    # at nothing, and the first press has to be the revive itself.
-    test "it starts on the portrait and revives — never a recall" do
-      assert [{:move, {40, 620}} | rest] = Logic.fallen_combo(fallen_config())
-      assert [{:wait, 40}, {:press, "shift+q"} | _] = rest
-    end
-
-    test "the release comes after the revive, and the cursor goes home" do
-      combo = Logic.fallen_combo(fallen_config())
-
-      revive = Enum.find_index(combo, &(&1 == {:press, "shift+q"}))
-      release = Enum.find_index(combo, &(&1 == {:press, "q"}))
-
-      assert revive < release
-      assert List.last(combo) == {:move, {500, 500}}
-    end
-
-    # The low-HP combo pays a stun and a settle because a pokémon is still out
-    # there tanking. Here nobody is: the shortest path IS the safety.
-    test "it is shorter than the low-HP combo — no stun, no settle" do
-      fallen = Logic.fallen_combo(fallen_config())
-
-      refute Enum.any?(fallen, &match?({:wait, ms} when ms > 40, &1))
-      assert length(fallen) < length(Logic.combo(fallen_config()))
-    end
-  end
-
-  describe "the single-key revive" do
-    test "it presses the rescue key and touches nothing else" do
-      assert Logic.single_key_combo(fallen_config()) == [{:press, "q"}]
     end
   end
 end

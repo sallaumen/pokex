@@ -25,7 +25,6 @@ defmodule PokexWeb.Panel.CombosCard do
   attr :team, :list, default: []
   attr :draft, :map, required: true
   attr :edit, :map, default: nil
-  attr :rescue_combo, :string, default: ""
 
   def combos_card(assigns) do
     ~H"""
@@ -71,17 +70,6 @@ defmodule PokexWeb.Panel.CombosCard do
             ]}>
               {combo.name}
             </p>
-            <%!-- Which combo hangs off the revive: the Support card picks it,
-                  but THIS is where the sequence is inspected — the badge keeps
-                  him from editing the wrong combo. --%>
-            <span
-              :if={combo.name == @rescue_combo}
-              data-testid="combo-rescue-badge"
-              class="shrink-0 rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 py-0.5 font-mono text-pk-meta text-pk-ok"
-              title="Este combo é o stun que roda antes do revive automático"
-            >
-              🚑 no revive
-            </span>
             <span class="shrink-0 font-mono text-pk-meta text-pk-text-2">
               {trigger_text(combo.trigger)}
             </span>

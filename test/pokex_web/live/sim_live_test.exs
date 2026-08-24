@@ -58,6 +58,24 @@ defmodule PokexWeb.SimLiveTest do
     assert html =~ "Simulação desarmada"
   end
 
+  # A battle fact left on the shared blackboard by ANOTHER producer carries no
+  # `enemies_detail` — and took this page down with a FunctionClauseError while
+  # rendering (CI, 2026-08-24). The blackboard is shared; the page reads it.
+  test "a battle fact with no detail renders instead of crashing", %{conn: conn} do
+    Pokex.Perception.WorldState.put(
+      :battle,
+      %{enemies: [0, 1], red: [], locked?: false, locked_row: nil},
+      System.monotonic_time(:millisecond)
+    )
+
+    on_exit(fn -> Pokex.Perception.WorldState.forget(:battle) end)
+
+    {:ok, _live, html} = live(conn, ~p"/sim")
+
+    assert html =~ "linha 0"
+    assert html =~ "linha 1"
+  end
+
   test "armed, every panel renders — the map, the combo and the calibration table", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/sim")
 

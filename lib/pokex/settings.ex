@@ -991,6 +991,15 @@ defmodule Pokex.Settings do
     # três". Read by the shared picture today; obeyed by the fight once the
     # engine's orders are wired.
     engine_engage_from: 3,
+    # Whether the hunt GATHERS a pile before hitting it. Gathering is what makes
+    # the sizing wait worth paying: drag the mob together, then open with area.
+    # Hunting weak creatures that wander in one at a time — and never mob back —
+    # the wait is pure loss: the pile never stops growing, the ceiling runs out,
+    # and the fight is skipped ("caçar em pokémons mais fracos que não mobam",
+    # Lucas 2026-08-24, watching Rattata be walked past). With this off, worth
+    # fighting means fight NOW, and a stretch recorded for mobbing is walked
+    # with the fire free instead of held.
+    engine_gather_piles: true,
     # "Pararam de chegar" needs a floor: how long the count must hold still
     # before the pile counts as closed. A MEASUREMENT, not a preference — his
     # own recording shows 1264, 2543, 3248 and 4806ms of real gathering.

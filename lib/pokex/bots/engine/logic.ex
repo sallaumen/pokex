@@ -261,11 +261,21 @@ defmodule Pokex.Bots.Engine.Logic do
     do: sizing(logic, world, config, now)
 
   defp normal(logic, %{hunt: %{state: :walking, luring?: true}} = world, config, now) do
-    {reset_fight(logic, :gathering, now),
-     orders(:gathering, band(world.situation, config),
-       route: :go,
-       why: "mobando: puxando a pilha, sem atacar"
-     )}
+    if gathering?(config) do
+      {reset_fight(logic, :gathering, now),
+       orders(:gathering, band(world.situation, config),
+         route: :go,
+         why: "mobando: puxando a pilha, sem atacar"
+       )}
+    else
+      {reset_fight(logic, :travelling, now),
+       orders(:travelling, band(world.situation, config),
+         route: :go,
+         fire: :free,
+         opening: opening(world),
+         why: "trecho de mobada, mas sem juntar pilha: batendo enquanto ando"
+       )}
+    end
   end
 
   defp normal(logic, world, config, now) do
@@ -308,6 +318,15 @@ defmodule Pokex.Bots.Engine.Logic do
     band = band(s, config)
 
     cond do
+      s.worth_fighting? and not gathering?(config) ->
+        {%{logic | state: :engaged},
+         orders(:engaged, band,
+           route: :hold,
+           fire: :free,
+           opening: opening(world),
+           why: "#{count(s)}: caindo em cima, sem esperar juntar"
+         )}
+
       s.worth_fighting? and settled?(s, config) ->
         {%{logic | state: :engaged},
          orders(:engaged, band,
@@ -333,6 +352,13 @@ defmodule Pokex.Bots.Engine.Logic do
          )}
     end
   end
+
+  # Gathering is what makes waiting worth it. Hunting creatures that arrive ONE
+  # BY ONE — and that a pile never forms around — the wait is pure loss: the
+  # pile never stops growing, `size_ceiling_ms` runs out, and a fight that was
+  # always worth taking is skipped ("só 3 inimigos: não vale a área", measured
+  # on his hunt 2026-08-24, right after two clean kills).
+  defp gathering?(config), do: Map.get(config, :gather_piles, true)
 
   # "Pararam de chegar", with a floor on how long they have to have stopped.
   defp settled?(%{growing?: true}, _config), do: false

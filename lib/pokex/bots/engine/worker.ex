@@ -202,6 +202,7 @@ defmodule Pokex.Bots.Engine.Worker do
   defp decision_config do
     %{
       engage_from: Settings.get(:engine_engage_from),
+      gather_piles: Settings.get(:engine_gather_piles),
       pile_settle_ms: Settings.get(:engine_pile_settle_ms),
       size_ceiling_ms: Settings.get(:engine_size_ceiling_ms),
       band_yellow_pct: Settings.get(:engine_band_yellow_pct),

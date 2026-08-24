@@ -1144,7 +1144,7 @@ defmodule Pokex.Settings do
     shiny_action: ~w(alarm escape),
     escape_direction: ~w(up down left right),
     hunt_style: ~w(steady mobbed),
-    rescue_mode: ~w(direct combo),
+    rescue_mode: ~w(direct combo single_key),
     player_mode: ~w(still moving hunt),
     sweep_side: ~w(square right left)
   }

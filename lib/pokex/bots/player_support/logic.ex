@@ -168,6 +168,17 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   end
 
   @doc """
+  The single-key revive: the client Lucas plays since 2026-08-21 binds the
+  whole revive to ONE hotkey ("é só apertar o botão F4", 2026-08-24) — no
+  recall, no portrait, no cursor, so both the low-HP rescue and the fallen
+  revive collapse to this press. The stun prefix and the settle stay out on
+  purpose: they choreograph emptying a field mid-mob, and this client's revive
+  does not empty the field.
+  """
+  @spec single_key_combo(map) :: [tuple]
+  def single_key_combo(%{rescue_key: rescue_key}), do: [{:press, rescue_key}]
+
+  @doc """
   The atomic combo, as a Body action list: an optional STUN PREFIX (`stun_steps`, already-compiled
   `{:press, _}`/`{:wait, _}` actions — see `stun_prefix/2`), then recall (`rescue_key`), move onto
   the portrait, max-revive (`max_revive_key`), release (`rescue_key`), recentre the cursor.

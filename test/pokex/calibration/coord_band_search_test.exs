@@ -195,6 +195,20 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
       refute CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 120) == :hovered
     end
 
+    # 2026-08-24, live: the setting still carried the 170 the OLD client's bright
+    # terrain needed, and at that floor this chip's two-pixel commas are not
+    # there — no commas, no shape, and the assistant answered "não achei" on a
+    # label anyone could read. The sweep has to be able to leave the floor it
+    # was handed, and to report the one that worked so it gets saved.
+    test "recovers from an ink floor inherited from another render", ctx do
+      teach_chip(ctx.frame, "3015,2213,7")
+
+      assert Glyphs.read_coord(ctx.frame, {14, 24, 108, 22}, ink: 170) == nil
+
+      assert {:ok, _band, {3015, 2213, 7}, 120} =
+               CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 170)
+    end
+
     # The door out of the closed loop, on a render where only the punctuation is
     # known: two commas with digit runs between them prove the rectangle, and
     # the digits get named from the answer to "what number is on your screen?".

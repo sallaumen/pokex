@@ -14,13 +14,11 @@ defmodule Pokex.Settings.LegacyTest do
       assert Legacy.value(:stop_after_action, "parar") == "stop"
       assert Legacy.value(:stop_after_action, "deslogar") == "logout"
       assert Legacy.value(:stagnation_action, "deslogar") == "logout"
-      assert Legacy.value(:rescue_mode, "direto") == "direct"
     end
 
     test "a canonical value passes through untouched" do
       assert Legacy.value(:player_mode, "still") == "still"
       assert Legacy.value(:shiny_action, "alarm") == "alarm"
-      assert Legacy.value(:rescue_mode, "combo") == "combo"
     end
 
     test "a key with no legacy spelling is returned as it came" do

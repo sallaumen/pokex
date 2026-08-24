@@ -287,26 +287,16 @@ defmodule PokexWeb.PanelLiveTest do
       refute Pokex.Settings.get(:rescue_enabled) == antes.rescue
     end
 
-    # In single-key mode the form sends only the mode and the key — no combo
-    # select, no settle field — so this render is the one place the key input
-    # and its save path are exercised.
-    test "single-key revive shows its key on this screen, and saves it", %{conn: conn} do
-      antes = %{mode: Pokex.Settings.get(:rescue_mode), key: Pokex.Settings.get(:rescue_key)}
+    test "the revive key shows on this screen, and saves normalised", %{conn: conn} do
+      antes = Pokex.Settings.get(:rescue_key)
+      on_exit(fn -> Pokex.Settings.put(:rescue_key, antes) end)
 
-      on_exit(fn ->
-        Pokex.Settings.put(:rescue_mode, antes.mode)
-        Pokex.Settings.put(:rescue_key, antes.key)
-      end)
-
-      Pokex.Settings.put(:rescue_mode, "single_key")
       Pokex.Settings.put(:rescue_key, "f4")
 
       {:ok, view, _html} = live(conn, ~p"/config")
       assert has_element?(view, "#rescue-key[value=f4]")
 
-      view
-      |> element("#rescue-combo-form")
-      |> render_change(%{"rescue_mode" => "single_key", "rescue_key" => "F5 "})
+      view |> element("#rescue-combo-form") |> render_change(%{"rescue_key" => "F5 "})
 
       assert Pokex.Settings.get(:rescue_key) == "f5"
       assert has_element?(view, "#rescue-key[value=f5]")
@@ -2211,88 +2201,39 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
-  describe "auto-revive with a stun combo" do
+  # O revive virou uma tecla (2026-08-24): sumiram o seletor de modo, a escolha
+  # do combo e o preview da coreografia. O que sobrou na tela é a tecla e o
+  # interruptor do stun — e o campo do settle, que só aparece com ele ligado.
+  describe "auto-revive" do
     setup do
-      tmp =
-        Path.join(System.tmp_dir!(), "pokex-panel-resgate-#{System.unique_integer([:positive])}")
-
-      File.mkdir_p!(tmp)
-      Application.put_env(:pokex, :home_dir, tmp)
-      Pokex.SettingsStash.stash_keys!([:rescue_mode, :rescue_combo])
-
-      on_exit(fn ->
-        Pokex.TestHome.restore()
-        File.rm_rf!(tmp)
-        Enum.each([:team, :layout], &WorldState.forget/1)
-      end)
-
-      Store.put([
-        %Pokex.Combos.Combo{
-          name: "stun-area",
-          trigger: nil,
-          steps: [{:skill, "1"}, {:wait, 500}, {:skill, "2"}],
-          enabled?: true
-        },
-        %Pokex.Combos.Combo{
-          name: "com-troca",
-          trigger: nil,
-          steps: [{:swap_member, "Jigglypuff"}, {:skill, "4"}],
-          enabled?: true
-        }
-      ])
-
+      Pokex.SettingsStash.stash_keys!([:rescue_key, :rescue_stun_first])
       :ok
     end
 
-    test "combo mode: dropdown, sequence preview and the conflict warning", %{conn: conn} do
-      Pokex.Settings.put(:rescue_mode, "combo")
-      Pokex.Settings.put(:rescue_combo, "stun-area")
+    test "the key and the stun switch are the whole form", %{conn: conn} do
+      Pokex.Settings.put(:rescue_key, "f4")
+      Pokex.Settings.put(:rescue_stun_first, false)
 
       {:ok, view, _html} = live(conn, ~p"/config")
 
-      assert has_element?(view, "#rescue-mode")
-      assert has_element?(view, "#rescue-combo")
-
-      assert has_element?(view, ~s([data-testid="rescue-combo-preview"]))
-      assert render(view) =~ "1 → 500ms → 2"
-
-      assert has_element?(view, ~s([data-testid="rescue-combo-conflict"]))
-
-      assert has_element?(view, ~s(#rescue-combo option[disabled]))
-    end
-
-    test "in direct mode the dropdown and the preview do not even exist", %{conn: conn} do
-      Pokex.Settings.put(:rescue_mode, "direct")
-
-      {:ok, view, _html} = live(conn, ~p"/config")
-
-      assert has_element?(view, "#rescue-mode")
+      assert has_element?(view, "#rescue-key[value=f4]")
+      assert has_element?(view, "#rescue-stun-first")
+      refute has_element?(view, "#rescue-mode")
       refute has_element?(view, "#rescue-combo")
-      refute has_element?(view, ~s([data-testid="rescue-combo-preview"]))
+      refute has_element?(view, "#stun-settle-ms")
     end
 
-    # real field state: mode "combo" with an empty rescue_combo — the skills
-    # looked reserved but the revive went direct
-    test "combo mode without a valid combo warns — and the button configures everything in one click",
-         %{conn: conn} do
-      Pokex.Settings.put(:rescue_mode, "combo")
-      Pokex.Settings.put(:rescue_combo, "")
+    test "turning the stun on saves it and reveals the settle it costs", %{conn: conn} do
+      Pokex.Settings.put(:rescue_stun_first, false)
 
       {:ok, view, _html} = live(conn, ~p"/config")
 
-      assert has_element?(view, ~s([data-testid="rescue-combo-missing"]))
+      view
+      |> element("#rescue-combo-form")
+      |> render_change(%{"rescue_key" => "f4", "rescue_stun_first" => "on"})
 
-      view |> element("#create-rescue-combo") |> render_click()
-
-      assert %Pokex.Combos.Combo{steps: steps, trigger: {:rescue_only}} =
-               Enum.find(Store.all(), &(&1.name == "resgate"))
-
-      assert [{:skill, "1"}, {:wait, _}, {:skill, "2"}] = steps
-
-      assert Pokex.Settings.get(:rescue_combo) == "resgate"
-      assert Pokex.Settings.get(:rescue_mode) == "combo"
-      refute has_element?(view, ~s([data-testid="rescue-combo-missing"]))
-      assert has_element?(view, ~s([data-testid="combo-rescue-badge"]))
+      assert Pokex.Settings.get(:rescue_stun_first)
+      assert has_element?(view, "#stun-settle-ms")
     end
   end
 

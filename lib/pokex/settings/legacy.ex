@@ -19,7 +19,6 @@ defmodule Pokex.Settings.Legacy do
     shiny_action: %{"alarme" => "alarm", "fugir" => "escape"},
     stop_after_action: %{"parar" => "stop", "deslogar" => "logout"},
     stagnation_action: %{"alarme" => "alarm", "parar" => "stop", "deslogar" => "logout"},
-    rescue_mode: %{"direto" => "direct"},
     hunt_style: %{"constante" => "steady", "mobada" => "mobbed"},
     mini_game_mode: %{"automatico" => "auto", "diagnostico" => "diagnostic"},
     alarm_muted_categories: %{

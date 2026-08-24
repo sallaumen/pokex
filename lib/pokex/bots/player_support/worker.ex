@@ -24,7 +24,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
   alias Pokex.Calibration
-  alias Pokex.Combos.Store
   alias Pokex.Perception.Interpret
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
@@ -303,7 +302,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                     unreadable_streak: state.unreadable_streak + 1,
                     error: "barra de vida não reconhecida (janela do Pokémon minimizada?)"
                 }
-                |> maybe_revive_fallen(calib)
+                |> maybe_revive_fallen()
 
               publish_pokemon_fact(%{
                 hp_pct: nil,
@@ -384,7 +383,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # writing this PR's tests: without this, the escalation/stun tests fired
       # the combo twice, mid-sequence).
       if not state.rescuing? and revive_decision(state) == :rescue do
-        fire_combo(%{state | gate: nil}, calib)
+        fire_rescue(%{state | gate: nil})
       else
         %{state | gate: nil} |> maybe_heal_skill() |> maybe_potion(calib)
       end
@@ -405,10 +404,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # `last_seen_hp: nil` afterwards is the anti-loop: the next revive costs a
   # fresh sighting of a LIVE bar, so a pokémon simply stored in its ball can
   # never drain the stock.
-  defp maybe_revive_fallen(state, calib) do
+  defp maybe_revive_fallen(state) do
     if InputGate.allowed?() and Logic.fainted?(faint_input(state)) do
       at = now()
-      dispatch_fallen(state.body, calib)
+      dispatch_fallen(state.body)
 
       broadcast_log(:macro, "💀 o pokémon caiu — revive na hora (#{state.last_seen_hp}% e sumiu)")
 
@@ -426,15 +425,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  defp dispatch_fallen(body, calib) do
+  defp dispatch_fallen(body) do
     worker = self()
-    config = combo_config(calib)
-
-    actions =
-      case Settings.get(:rescue_mode) do
-        "single_key" -> Logic.single_key_combo(config)
-        _cursor_combo -> Logic.fallen_combo(config)
-      end
+    actions = Logic.revive(revive_config())
 
     spawn(fn ->
       send(worker, {:fallen_done, Body.perform(actions, :critical, body)})
@@ -811,55 +804,31 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # 1s — a panic mid-rescue timed out halting the one worker guarding the
   # player. The task reports back as {:rescue_done, notes, outcome}, where a
   # refused revive finally gets NAMED instead of burning the cooldown mutely.
-  defp fire_combo(state, calib) do
+  defp fire_rescue(state) do
     at = now()
-
-    text =
-      case Settings.get(:rescue_mode) do
-        "single_key" ->
-          dispatch_single_key(state.body, calib)
-          "revive de uma tecla"
-
-        _stun_first ->
-          {stun_steps, notes} = rescue_stun_steps()
-          dispatch_rescue(state.body, calib, stun_steps)
-          drain_notes(notes)
-          "combo de sobrevivência"
-      end
-
-    broadcast_log(:macro, "🚑 #{text} — Pokémon com #{state.hp_pct}% de vida")
+    {stun_steps, notes} = rescue_stun_steps()
+    dispatch_rescue(state.body, stun_steps)
+    drain_notes(notes)
+    broadcast_log(:macro, "🚑 revive — Pokémon com #{state.hp_pct}% de vida")
 
     %{
       state
       | last_rescue_at: at,
         rescuing?: true,
         counters: bump(state.counters, :rescues),
-        last_action: %{text: text, at: at}
+        last_action: %{text: "revive", at: at}
     }
-  end
-
-  # The whole revive is ONE hotkey in this client — the rescuing? latch, the
-  # cooldown stamp and the spawned hands stay exactly as in the other modes:
-  # none of that safety was ever about the choreography.
-  defp dispatch_single_key(body, calib) do
-    worker = self()
-    actions = Logic.single_key_combo(combo_config(calib))
-
-    spawn(fn ->
-      send(worker, {:rescue_done, [], Body.perform(actions, :critical, body)})
-    end)
   end
 
   # Unlinked on purpose: a Body crash mid-rescue must not take the monitor
   # down with it — the next tick still reads the bar, and the cooldown
   # already stamped keeps the loop from re-firing.
-  defp dispatch_rescue(body, calib, stun_steps) do
+  defp dispatch_rescue(body, stun_steps) do
     worker = self()
-    config = combo_config(calib)
 
     spawn(fn ->
       {notes, settle_ms} = crowd_control(body, stun_steps)
-      actions = Logic.combo(Map.put(config, :settle_ms, settle_ms))
+      actions = Logic.revive(Map.put(revive_config(), :settle_ms, settle_ms))
       outcome = Body.perform(actions, :critical, body)
       send(worker, {:rescue_done, notes, outcome})
     end)
@@ -981,30 +950,22 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp settle_text(0), do: ""
   defp settle_text(ms), do: ", esperando #{ms}ms o bolo dormir"
 
-  # The rescue's STUN prefix (2026-07-30): in "combo" mode the chosen combo's
-  # steps become presses/waits BEFORE the recall — skills on cooldown are
-  # skipped against a FRESH bar reading (no reading = all in blind). Every
-  # failure falls toward SAVING: missing/disabled/ineligible combo = empty
-  # prefix + alarm, the revive happens anyway.
-  defp rescue_stun_steps do
-    case Settings.get(:rescue_mode) do
-      "combo" -> compile_rescue_combo(Settings.get(:rescue_combo))
-      _direto -> control_stun()
-    end
-  end
-
+  # The STUN prefix: the on-field pokémon's own control keys, pressed and
+  # CONFIRMED before it leaves. Off by default — this client's revive is one
+  # key and the field empties for a moment only (Lucas, 2026-08-24), so the
+  # prefix costs a confirmation wait that the pokémon may not have to spare.
+  # Turn it on and the hunt pays that wait to have the pile asleep first.
+  #
   # "Ele não está usando a skill 1, que seria a skill guardada para reviver, e
   # a skill de stun (…) eu morri já por culpa disso!" (Lucas, 2026-08-14).
-  #
-  # He was right, and the cause was NOT the timing he suspected: in "direct"
-  # mode this returned nothing at all, so no stun was ever attempted — and with
-  # no stun there is no settle either, which is exactly why the recall looked
-  # instant. Meanwhile combat RESERVES `loadout.crowd` from every ordinary
-  # fight precisely "pro revive" (`Strategy.reserved/1`, and /time labels the
-  # key that way). A key reserved by everyone and pressed by nobody is the bug.
-  #
-  # So the on-field pokémon's control keys ARE the stun whenever they exist;
-  # "combo" mode only buys a scripted sequence on top of that.
+  # Combat RESERVES `loadout.crowd` from every ordinary fight for exactly this
+  # moment (`Strategy.reserved/1`, and /time labels the key that way) — a key
+  # reserved by everyone and pressed by nobody was the bug. Every failure still
+  # falls toward SAVING: no control ready, no prefix, and the revive happens.
+  defp rescue_stun_steps do
+    if Settings.get(:rescue_stun_first), do: control_stun(), else: {[], []}
+  end
+
   defp control_stun do
     case ready_control_keys() do
       [] ->
@@ -1016,54 +977,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  defp compile_rescue_combo(name) do
-    combo = Enum.find(Store.all(), &(&1.name == name))
-
-    cond do
-      combo == nil ->
-        fall_back_to_control("combo de resgate \"#{name}\" não existe")
-
-      not combo.enabled? ->
-        fall_back_to_control("combo de resgate \"#{name}\" está desligado")
-
-      not Pokex.Combos.rescue_eligible?(combo) ->
-        fall_back_to_control("combo de resgate \"#{name}\" tem troca de time")
-
-      true ->
-        {actions, skipped} =
-          combo.steps
-          |> resolve_waits()
-          |> Logic.stun_prefix(Pokex.Perception.ready_skills())
-
-        notes =
-          if skipped == [],
-            do: [],
-            else: [log: "🚑 stun do resgate: pulei #{Enum.join(skipped, ", ")} (cooldown)"]
-
-        {actions, notes}
-    end
-  end
-
-  # The configured combo cannot run. Before giving up on the stun entirely, ask
-  # the pokémon on the field: the `:crowd` job on `/time` IS "reservada pro stun
-  # antes do revive", classified per pokémon — which is the answer a globally
-  # named combo cannot give after a swap.
-  #
-  # It never OVERRIDES his combo: this is only reached where the code used to
-  # revive with no stun at all. Still fails toward SAVING — no control keys, no
-  # prefix, and the revive happens either way. Like any stun prefix it goes out
-  # alone and is CONFIRMED against the bar before the pokémon leaves the field.
-  defp fall_back_to_control(why) do
-    case ready_control_keys() do
-      [] ->
-        {[], [alarm: "🚑 #{why} — revivendo direto"]}
-
-      keys ->
-        {Logic.stun_prefix(Enum.map(keys, &{:skill, &1}), nil) |> elem(0),
-         [log: "🚑 #{why} — usando o controle do pokémon em campo (#{Enum.join(keys, ", ")})"]}
-    end
-  end
-
   defp ready_control_keys do
     case Loadout.current() do
       nil -> []
@@ -1071,37 +984,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # Symbolic waits ({:wait, :setting}) become ms before the pure compile. A
-  # setting that no longer exists falls back to rescue_step_ms — an old combo
-  # must never take a rescue down over a wait.
-  defp resolve_waits(steps) do
-    Enum.map(steps, fn
-      {:wait, setting} when is_atom(setting) ->
-        {:wait, safe_wait_ms(setting)}
-
-      other ->
-        other
-    end)
-  end
-
-  defp safe_wait_ms(setting) do
-    case Settings.get(setting) do
-      ms when is_integer(ms) and ms >= 0 -> ms
-      _estranho -> Settings.get(:rescue_step_ms)
-    end
-  rescue
-    _no_seed -> Settings.get(:rescue_step_ms)
-  end
-
-  defp combo_config(calib) do
-    %{
-      rescue_key: Settings.get(:rescue_key),
-      max_revive_key: Settings.get(:max_revive_key),
-      photo_point: Calibration.pokemon_photo_point(calib),
-      neutral_point: calib.neutral_point,
-      step_ms: Settings.get(:rescue_step_ms)
-    }
-  end
+  defp revive_config,
+    do: %{rescue_key: Settings.get(:rescue_key), step_ms: Settings.get(:rescue_step_ms)}
 
   # A failed read also resets the consecutive-low guard: after a gap we demand two FRESH
   # agreeing reads before acting again (garbage often comes in bursts around failures).

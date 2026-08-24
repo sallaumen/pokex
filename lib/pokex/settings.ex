@@ -500,17 +500,16 @@ defmodule Pokex.Settings do
     hook_delay_min_ms: 250,
     hook_delay_max_ms: 550,
     # --- PlayerSupport: keep the main Pokémon alive ------------------------------------------
-    # When its HP bar drops below pokemon_hp_rescue_pct, run the survival combo at :critical:
-    # recall (rescue_key) → max-revive on the portrait (max_revive_key) → release (rescue_key).
+    # When its HP bar drops below pokemon_hp_rescue_pct, press rescue_key at :critical — one key
+    # is the whole revive in this client (it recalls, revives and returns the pokémon by itself).
     # Toggle + a cooldown so a detection glitch can't burn the (expensive) revives. Ships OFF: the
     # HP region starts from a measured ESTIMATE, so verify the panel HP bar tracks your real HP
     # before enabling — a miscalibrated region reading a false "low" would waste a revive.
     rescue_enabled: false,
     rescue_key: "q",
-    max_revive_key: "shift+q",
     pokemon_hp_rescue_pct: 50,
     rescue_cooldown_ms: 60_000,
-    # ms between the presses/moves of the combo so the game registers each.
+    # ms between the stun prefix and the revive so the game registers each.
     rescue_step_ms: 40,
     # How long to wait for a skill-bar reading NEWER than the crowd-control
     # press, before giving up on confirming it. The receipt is the cooldown:
@@ -536,15 +535,14 @@ defmodule Pokex.Settings do
     # impede o loop é outra: exigir ver o pokémon VIVO de novo antes de gastar
     # o próximo revive.
     fainted_revive_cooldown_ms: 15_000,
-    # Auto-revive with a STUN combo (2026-07-30): hunting strong mobs, the
-    # area-stun skills are reserved for the rescue moment — the chosen combo
-    # (skill/wait steps only; see Combos.rescue_eligible?) becomes the PREFIX
-    # of the same atomic revive sequence. "direct" = the usual sequence;
-    # "combo" = prefix + revive. A skill on cooldown at that moment is SKIPPED
-    # (bar read; without a read, press blind). Combo missing/ineligible at
-    # that moment → direct revive + alarm (fail in the direction of SAVING).
-    rescue_mode: "direct",
-    rescue_combo: "",
+    # Stun BEFORE reviving (2026-07-30): hunting strong mobs, the pokémon's own
+    # area-control keys are reserved for this moment and become the PREFIX of
+    # the same atomic sequence, so the pile is asleep while the field is empty.
+    # OFF by default: this client's revive is a single key and empties the field
+    # only for a moment, so the confirmation wait the prefix costs is a wait the
+    # pokémon may not have to spare. A key on cooldown is SKIPPED, and with no
+    # control ready there is simply no prefix — always failing toward SAVING.
+    rescue_stun_first: false,
     # The main Pokémon's own HEALING SKILL — the rung above the potion. A skill is
     # an instant press, not a channel, so unlike the potion it works MID-FIGHT,
     # which is the case that actually kills a pokémon. Higher than the potion
@@ -1047,7 +1045,6 @@ defmodule Pokex.Settings do
     # support
     :rescue_enabled,
     :rescue_key,
-    :max_revive_key,
     :pokemon_hp_rescue_pct,
     :potion_enabled,
     :potion_key,
@@ -1144,7 +1141,6 @@ defmodule Pokex.Settings do
     shiny_action: ~w(alarm escape),
     escape_direction: ~w(up down left right),
     hunt_style: ~w(steady mobbed),
-    rescue_mode: ~w(direct combo single_key),
     player_mode: ~w(still moving hunt),
     sweep_side: ~w(square right left)
   }

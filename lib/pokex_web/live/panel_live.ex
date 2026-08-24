@@ -174,9 +174,9 @@ defmodule PokexWeb.PanelLive do
        rescue_enabled: Settings.get(:rescue_enabled),
        rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
        rescue_cooldown_s: div(Settings.get(:rescue_cooldown_ms), 1000),
-       rescue_mode: Settings.get(:rescue_mode),
        rescue_key: Settings.get(:rescue_key),
-       rescue_combo: Settings.get(:rescue_combo),
+       rescue_stun_first: Settings.get(:rescue_stun_first),
+       rescue_stun_first: Settings.get(:rescue_stun_first),
        stun_settle_ms: Settings.get(:rescue_stun_settle_ms),
        fainted_below_pct: Settings.get(:pokemon_hp_fainted_below_pct),
        fainted_cooldown_s: div(Settings.get(:fainted_revive_cooldown_ms), 1000),
@@ -299,9 +299,8 @@ defmodule PokexWeb.PanelLive do
       fishing_hp_pct: Settings.get(:pokemon_hp_fishing_pct),
       rescue_enabled: Settings.get(:rescue_enabled),
       rescue_pct: Settings.get(:pokemon_hp_rescue_pct),
-      rescue_mode: Settings.get(:rescue_mode),
       rescue_key: Settings.get(:rescue_key),
-      rescue_combo: Settings.get(:rescue_combo),
+      rescue_stun_first: Settings.get(:rescue_stun_first),
       stun_settle_ms: Settings.get(:rescue_stun_settle_ms),
       fainted_below_pct: Settings.get(:pokemon_hp_fainted_below_pct),
       fainted_cooldown_s: div(Settings.get(:fainted_revive_cooldown_ms), 1000),
@@ -1013,23 +1012,6 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  # The rescue combo in ONE click (painful to build by hand): creates the
-  # stun sequence with the rescue-only trigger and hangs it on the revive.
-  # Idempotent — clicking again just re-selects.
-  def handle_event("create_rescue_combo", _params, socket) do
-    combo = Store.rescue_seed()
-    :ok = Store.add(combo)
-    Settings.put(:rescue_mode, "combo")
-    Settings.put(:rescue_combo, combo.name)
-
-    {:noreply,
-     assign(socket,
-       combos: Store.all(),
-       rescue_mode: "combo",
-       rescue_combo: combo.name
-     )}
-  end
-
   def handle_event("restore_mode_defaults", _params, socket) do
     :ok = Pokex.Modes.apply!(socket.assigns.player_mode)
     catcher_poke(&Catcher.Worker.mode_changed/0)
@@ -1169,17 +1151,15 @@ defmodule PokexWeb.PanelLive do
   # game's sleep needs to LAND before the field may be emptied — one form, every
   # field sent on each change.
   def handle_event("save_rescue_combo_cfg", params, socket) do
-    mode = params["rescue_mode"] || "direct"
-    combo = params["rescue_combo"] || ""
     key = params["rescue_key"] |> to_string() |> String.trim() |> String.downcase()
+    stun_first = params["rescue_stun_first"] == "on"
 
-    Settings.put(:rescue_mode, mode)
-    Settings.put(:rescue_combo, combo)
     if key != "", do: Settings.put(:rescue_key, key)
+    Settings.put(:rescue_stun_first, stun_first)
 
     socket =
       socket
-      |> assign(rescue_mode: mode, rescue_combo: combo, rescue_key: Settings.get(:rescue_key))
+      |> assign(rescue_key: Settings.get(:rescue_key), rescue_stun_first: stun_first)
       |> save_int(params["stun_settle_ms"], 0..10_000, :rescue_stun_settle_ms, :stun_settle_ms)
 
     {:noreply, socket}
@@ -2450,7 +2430,6 @@ defmodule PokexWeb.PanelLive do
         team={team_names(@world)}
         draft={@combo_draft}
         edit={@combo_edit}
-        rescue_combo={@rescue_combo}
       />
 
       <section id="presets-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
@@ -3652,9 +3631,8 @@ defmodule PokexWeb.PanelLive do
           %{
             pct: @rescue_pct,
             cooldown_s: @rescue_cooldown_s,
-            mode: @rescue_mode,
             key: @rescue_key,
-            combo: @rescue_combo,
+            stun_first: @rescue_stun_first,
             stun_settle_ms: @stun_settle_ms,
             fainted_below_pct: @fainted_below_pct,
             fainted_cooldown_s: @fainted_cooldown_s,

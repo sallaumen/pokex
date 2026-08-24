@@ -7,7 +7,6 @@ defmodule Pokex.Bots.SkillBarTest do
 
   @settings %{skill_bar_count: 7, skill_ready_min_saturation: 40, skill_ready_min_vivid_pct: 7}
 
-
   defp on_field(region, count) do
     {:ok, _} = Pokex.Pokedex.Team.add("Bulbasaur")
     Pokex.Pokedex.Team.set_bar("Bulbasaur", %{region: region, count: count, refs: nil})

@@ -1910,7 +1910,14 @@ defmodule PokexWeb.CalibrationLive do
   # Preview bands over the draft battle_region as the user marks it, so drift is
   # visible before saving. Empty until the battle corners are placed.
   defp draft_bands(%{battle_region: region}, scale, row_height, rows),
-    do: Calibration.battle_row_bands(region, scale, row_height, rows)
+    do:
+      Calibration.battle_row_bands(
+        region,
+        scale,
+        row_height,
+        rows,
+        Settings.get(:battle_first_row_y)
+      )
 
   defp draft_bands(_draft, _scale, _row_height, _rows), do: []
 

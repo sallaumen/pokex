@@ -443,6 +443,15 @@ defmodule PokexWeb.SimLive do
   defp perceived_rows(%{enemies: nil}), do: :unread
   defp perceived_rows(%{enemies_detail: detail}), do: detail
 
+  # The battle fact comes off the SHARED blackboard, and not every producer
+  # fills the detail: the real interpreter does, a hand-made observation does
+  # not. Rendering the rows it DOES carry beats taking the page down — the row
+  # numbers are the part this panel is comparing against the truth anyway.
+  defp perceived_rows(%{enemies: rows}) when is_list(rows),
+    do: Enum.map(rows, &%{row: &1, name: nil, hp_pct: nil})
+
+  defp perceived_rows(_unknown_shape), do: :unread
+
   # The screen has to answer "what is happening RIGHT NOW" before it answers
   # anything else. A dead pokémon in a paused world used to look exactly like a
   # world that had not started, and the only difference on screen was the shade

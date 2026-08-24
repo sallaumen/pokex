@@ -251,4 +251,10 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
       assert length(fallen) < length(Logic.combo(fallen_config()))
     end
   end
+
+  describe "the single-key revive" do
+    test "it presses the rescue key and touches nothing else" do
+      assert Logic.single_key_combo(fallen_config()) == [{:press, "q"}]
+    end
+  end
 end

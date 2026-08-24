@@ -174,7 +174,19 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                 >
                   <option value="direct" selected={@rescue_cfg.mode == "direct"}>direto</option>
                   <option value="combo" selected={@rescue_cfg.mode == "combo"}>com combo</option>
+                  <option value="single_key" selected={@rescue_cfg.mode == "single_key"}>
+                    uma tecla
+                  </option>
                 </select>
+                <input
+                  :if={@rescue_cfg.mode == "single_key"}
+                  id="rescue-key"
+                  name="rescue_key"
+                  type="text"
+                  value={@rescue_cfg.key}
+                  aria-label="Tecla do revive"
+                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                />
                 <select
                   :if={@rescue_cfg.mode == "combo"}
                   id="rescue-combo"

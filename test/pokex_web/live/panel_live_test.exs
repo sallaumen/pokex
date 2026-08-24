@@ -287,6 +287,31 @@ defmodule PokexWeb.PanelLiveTest do
       refute Pokex.Settings.get(:rescue_enabled) == antes.rescue
     end
 
+    # In single-key mode the form sends only the mode and the key — no combo
+    # select, no settle field — so this render is the one place the key input
+    # and its save path are exercised.
+    test "single-key revive shows its key on this screen, and saves it", %{conn: conn} do
+      antes = %{mode: Pokex.Settings.get(:rescue_mode), key: Pokex.Settings.get(:rescue_key)}
+
+      on_exit(fn ->
+        Pokex.Settings.put(:rescue_mode, antes.mode)
+        Pokex.Settings.put(:rescue_key, antes.key)
+      end)
+
+      Pokex.Settings.put(:rescue_mode, "single_key")
+      Pokex.Settings.put(:rescue_key, "f4")
+
+      {:ok, view, _html} = live(conn, ~p"/config")
+      assert has_element?(view, "#rescue-key[value=f4]")
+
+      view
+      |> element("#rescue-combo-form")
+      |> render_change(%{"rescue_mode" => "single_key", "rescue_key" => "F5 "})
+
+      assert Pokex.Settings.get(:rescue_key) == "f5"
+      assert has_element?(view, "#rescue-key[value=f5]")
+    end
+
     # A measuring switch nobody can find is a measuring switch nobody uses: the
     # only other way to flip it is editing ~/.pokex/settings.json by hand.
     test "measuring the walk is a switch on this screen, off until he flips it", %{conn: conn} do

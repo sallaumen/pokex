@@ -414,6 +414,29 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   end
 
   @tag :tmp_dir
+  # "é só apertar o botão F4" (Lucas, 2026-08-24): the client he plays now does
+  # the whole revive on one hotkey. A reserved control key EXISTS in this test
+  # on purpose — single-key mode must not stun even when it could.
+  test "single-key mode: the rescue is one press and nothing more", %{tmp: tmp, body: body} do
+    SettingsStash.stash_keys!([:rescue_mode, :rescue_key])
+    Settings.put(:rescue_mode, "single_key")
+    Settings.put(:rescue_key, "f4")
+    classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
+
+    low = hp_png(tmp, "low_single_key.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, [{:press, "f4"}]}, 1_500
+    refute_receive {:performed, :critical, _anything_else}, 500
+    assert await_log("revive de uma tecla")
+  end
+
+  @tag :tmp_dir
   # "eu uso geralmente as skills 1 e 2 para justamente silenciar os pokémons ao
   # redor, colocar eles para dormir, e aí, sim, eu tiro meu Pokémon de campo"
   # (Lucas, 2026-08-11). The stun is its OWN sequence now, so its receipt can
@@ -1002,6 +1025,25 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert {:press, "shift+q"} in combo
       assert {:press, "q"} in combo
       assert List.last(combo) == {:move, {500, 500}}
+    end
+
+    @tag :tmp_dir
+    test "single-key mode: the fallen revive is the same one press, no cursor", %{
+      tmp: tmp,
+      body: body
+    } do
+      SettingsStash.stash_keys!([:rescue_mode, :rescue_key])
+      Settings.put(:rescue_mode, "single_key")
+      Settings.put(:rescue_key, "f4")
+      dying_then_gone(tmp)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert await_log("caiu") =~ "revive na hora"
+      assert_receive {:performed, :critical, [{:press, "f4"}]}, 2_000
+      refute_receive {:performed, :critical, [{:move, _} | _]}, 500
     end
 
     @tag :tmp_dir

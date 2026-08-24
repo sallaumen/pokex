@@ -428,7 +428,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   defp dispatch_fallen(body, calib) do
     worker = self()
-    actions = Logic.fallen_combo(combo_config(calib))
+    config = combo_config(calib)
+
+    actions =
+      case Settings.get(:rescue_mode) do
+        "single_key" -> Logic.single_key_combo(config)
+        _cursor_combo -> Logic.fallen_combo(config)
+      end
 
     spawn(fn ->
       send(worker, {:fallen_done, Body.perform(actions, :critical, body)})
@@ -807,20 +813,41 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # refused revive finally gets NAMED instead of burning the cooldown mutely.
   defp fire_combo(state, calib) do
     at = now()
-    {stun_steps, notes} = rescue_stun_steps()
-    dispatch_rescue(state.body, calib, stun_steps)
 
-    state = %{
+    text =
+      case Settings.get(:rescue_mode) do
+        "single_key" ->
+          dispatch_single_key(state.body, calib)
+          "revive de uma tecla"
+
+        _stun_first ->
+          {stun_steps, notes} = rescue_stun_steps()
+          dispatch_rescue(state.body, calib, stun_steps)
+          drain_notes(notes)
+          "combo de sobrevivência"
+      end
+
+    broadcast_log(:macro, "🚑 #{text} — Pokémon com #{state.hp_pct}% de vida")
+
+    %{
       state
       | last_rescue_at: at,
         rescuing?: true,
         counters: bump(state.counters, :rescues),
-        last_action: %{text: "combo de sobrevivência", at: at}
+        last_action: %{text: text, at: at}
     }
+  end
 
-    drain_notes(notes)
-    broadcast_log(:macro, "🚑 combo de sobrevivência — Pokémon com #{state.hp_pct}% de vida")
-    state
+  # The whole revive is ONE hotkey in this client — the rescuing? latch, the
+  # cooldown stamp and the spawned hands stay exactly as in the other modes:
+  # none of that safety was ever about the choreography.
+  defp dispatch_single_key(body, calib) do
+    worker = self()
+    actions = Logic.single_key_combo(combo_config(calib))
+
+    spawn(fn ->
+      send(worker, {:rescue_done, [], Body.perform(actions, :critical, body)})
+    end)
   end
 
   # Unlinked on purpose: a Body crash mid-rescue must not take the monitor

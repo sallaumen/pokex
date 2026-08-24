@@ -37,9 +37,8 @@ defmodule Pokex.Modes do
       settings: %{capture_enabled: true, reposition_enabled: true}
     },
     "moving" => %{
-      # The catcher stays UP: its Space-loot fires on the kill edge and reaches
-      # the corpse on the adjacent tile from wherever he is standing. Only the
-      # ball, gated separately, needs him still.
+      # The catcher stays UP so a kill is still SEEN while he walks — only the
+      # ball, gated separately by capture_enabled, needs him still.
       workers: [:combat, :catcher, :player_support, :timers],
       settings: %{capture_enabled: false, reposition_enabled: false}
     },

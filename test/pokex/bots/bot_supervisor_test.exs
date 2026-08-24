@@ -309,7 +309,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
   # Caçada is the cavebot's mode: it walks the route and drives the Combat
   # itself, so start_all must NOT arm the fight directly — only the cavebot,
-  # the catcher (Space loot) and the support come up.
+  # the catcher and the support come up.
   @tag :tmp_dir
   test "start_all in caçada mode starts the cavebot without fishing or direct combat; stop_all idles it" do
     alias Pokex.Bots.Cavebot

@@ -269,19 +269,14 @@ defmodule PokexWeb.PanelLiveTest do
 
     test "the six quick toggles fire the same events as always", %{conn: conn} do
       antes = %{
-        loot: Pokex.Settings.get(:loot_enabled),
         rescue: Pokex.Settings.get(:rescue_enabled)
       }
 
       on_exit(fn ->
-        Pokex.Settings.put(:loot_enabled, antes.loot)
         Pokex.Settings.put(:rescue_enabled, antes.rescue)
       end)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view |> element("#quick-loot") |> render_click()
-      refute Pokex.Settings.get(:loot_enabled) == antes.loot
 
       view |> element("#quick-rescue") |> render_click()
       refute Pokex.Settings.get(:rescue_enabled) == antes.rescue
@@ -521,7 +516,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     snapshot = %{
       state: :watching,
-      counters: %{cycles: 3, hooked: 2, fights: 1, loots: 1, captures: 1, failures: 0},
+      counters: %{cycles: 3, hooked: 2, fights: 1, captures: 1, failures: 0},
       error: nil
     }
 
@@ -878,7 +873,7 @@ defmodule PokexWeb.PanelLiveTest do
 
     snapshot = %{
       state: :fighting,
-      counters: %{fights: 1, loots: 0, captures: 0, failures: 0},
+      counters: %{fights: 1, captures: 0, failures: 0},
       error: nil,
       locked_row: 2
     }
@@ -1028,19 +1023,11 @@ defmodule PokexWeb.PanelLiveTest do
     end
   end
 
-  test "loot and capture toggles persist independently", %{conn: conn} do
-    loot = Pokex.Settings.get(:loot_enabled)
+  test "the capture toggle persists", %{conn: conn} do
     cap = Pokex.Settings.get(:capture_enabled)
-
-    on_exit(fn ->
-      Pokex.Settings.put(:loot_enabled, loot)
-      Pokex.Settings.put(:capture_enabled, cap)
-    end)
+    on_exit(fn -> Pokex.Settings.put(:capture_enabled, cap) end)
 
     {:ok, view, _} = live(conn, ~p"/")
-
-    view |> element("#quick-loot") |> render_click()
-    refute Pokex.Settings.get(:loot_enabled) == loot
 
     view |> element("#quick-capture") |> render_click()
     refute Pokex.Settings.get(:capture_enabled) == cap

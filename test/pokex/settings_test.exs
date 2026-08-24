@@ -41,15 +41,15 @@ defmodule Pokex.SettingsTest do
   @tag :tmp_dir
   test "an override of false survives the reload", %{tmp_dir: tmp} do
     path = Path.join(tmp, "settings.json")
-    File.write!(path, ~s({"capture_enabled": false, "loot_enabled": false}))
+    File.write!(path, ~s({"capture_enabled": false, "ensure_game_focus": false}))
 
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
     refute Settings.get(:capture_enabled, server)
-    refute Settings.get(:loot_enabled, server)
+    refute Settings.get(:ensure_game_focus, server)
 
     assert path |> File.read!() |> JSON.decode!() ==
-             %{"capture_enabled" => false, "loot_enabled" => false}
+             %{"capture_enabled" => false, "ensure_game_focus" => false}
   end
 
   # Values written in Portuguese by an older build must arrive as today's

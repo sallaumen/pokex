@@ -19,7 +19,7 @@ defmodule Pokex.ModesTest do
       refute :mini_game in Modes.bundle("moving").workers
     end
 
-    test "every mode loots and keeps the pokémon alive" do
+    test "every mode watches the kills and keeps the pokémon alive" do
       for mode <- Modes.all() do
         workers = Modes.bundle(mode).workers
         assert :catcher in workers

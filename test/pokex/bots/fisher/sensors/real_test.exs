@@ -119,13 +119,13 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   @tag :tmp_dir
   test "battle_lock reads per-row red bands (points × scale)", %{tmp_dir: tmp} do
     # battle_body of the calib is {700,100,230,200}; at scale 2.0 the frame is
-    # 460×400. battle_row_height 52 → band = 104; the top is CENTERED on the click
-    # point, so top = 18*2 - 104/2 = -16, and band 1 spans frame-y [88,192). Paint
-    # the ring's red squarely inside band 1.
+    # 460×400. battle_row_height 30 → band = 60; the top is CENTERED on row 0, so
+    # top = 31*2 - 60/2 = 32, and band 2 spans frame-y [152,212). Paint the
+    # ring's red squarely inside band 2.
     body_rows =
       for y <- 0..399 do
         for x <- 0..459 do
-          if x in 0..200 and y in 100..180, do: {230, 40, 40, 255}, else: {20, 20, 20, 255}
+          if x in 0..200 and y in 158..205, do: {230, 40, 40, 255}, else: {20, 20, 20, 255}
         end
       end
 
@@ -136,10 +136,10 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
              Sensors.Real.observe([:battle_lock], calib(), Pokex.Settings.defaults())
 
     assert length(counts) == 6
-    assert Enum.at(counts, 1) > 0
+    assert Enum.at(counts, 2) > 0
     assert Enum.at(counts, 0) == 0
-    assert Enum.at(counts, 2) == 0
-    assert Enum.all?(Enum.drop(counts, 2), &(&1 == 0))
+    assert Enum.at(counts, 1) == 0
+    assert Enum.all?(Enum.drop(counts, 3), &(&1 == 0))
   end
 
   @tag :tmp_dir
@@ -158,8 +158,8 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
   # :battle is ONE full-region screenshot sliced in memory into the body (HP bars + lock ring)
   # and the rightmost pokeball strip. Geometry: calib battle_region {700,100,260,200} → frame
   # 520×400 at scale 2.0; strip_px = 30·2 = 60, so body = cols 0..459, strip = cols 460..519.
-  # Bands (battle_row_height 52): {top -16, height 104} → row0 [-16,88) row1 [88,192)
-  # row2 [192,296) row3 [296,400). HP bar = green in the body; pokeball = red in the strip; the
+  # Bands (battle_row_height 30, battle_first_row_y 31): {top 32, height 60} → row0 [32,92)
+  # row1 [92,152) row2 [152,212) row3 [212,272). HP bar = green in the body; pokeball = red in the strip; the
   # lock ring = wide red in the body. A single Fake capture returns the whole region.
   #
   # opts: :hp (green HP-bar body rows), :ball (red pokeball strip rows), :ring (wide red body rows)
@@ -200,7 +200,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     # back. Rows with an HP bar are enemies, pokeball or not; the lock ring
     # (and the game's own Tab, which cannot target your pokemon) is what
     # confirms a real target.
-    assert {:ok, %{battle: %{enemies: [0, 1, 3]}}} =
+    assert {:ok, %{battle: %{enemies: [0, 1, 5]}}} =
              observe_battle(tmp, hp: [40, 120, 340], ball: [40])
   end
 
@@ -212,19 +212,19 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
 
   @tag :tmp_dir
   test "with no pokeball, every HP-bar row is an enemy (all attackable)", %{tmp_dir: tmp} do
-    assert {:ok, %{battle: %{enemies: [1, 2]}}} = observe_battle(tmp, hp: [120, 240])
+    assert {:ok, %{battle: %{enemies: [1, 3]}}} = observe_battle(tmp, hp: [120, 240])
   end
 
   @tag :tmp_dir
   test "battle also returns the per-row lock ring (red) for confirmation", %{tmp_dir: tmp} do
-    # a confirmed target at row 2: HP bar + a wide red ring → enemies [2] and red[2] over 350.
+    # a confirmed target at row 3: HP bar + a wide red ring → enemies [3] and red[3] over 350.
     {:ok, %{battle: %{enemies: enemies, red: red}}} =
-      observe_battle(tmp, hp: [240], ring: 200..280)
+      observe_battle(tmp, hp: [240], ring: 215..265)
 
-    assert enemies == [2]
-    assert Enum.at(red, 2) > 350
+    assert enemies == [3]
+    assert Enum.at(red, 3) > 350
     assert Enum.at(red, 0) == 0
-    assert Enum.at(red, 1) == 0
+    assert Enum.at(red, 2) == 0
   end
 
   @tag :tmp_dir

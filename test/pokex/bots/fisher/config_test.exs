@@ -18,7 +18,7 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
 
     assert config.water_point == {800, 400}
     assert config.neutral_point == {860, 470}
-    assert config.battle_first_row == {1466, 138}
+    assert config.battle_first_row == {1466, 151}
     assert config.player_point == {500, 350}
     assert config.rod_key == "shift+v"
     assert config.skill_keys == ["1", "2", "3"]
@@ -31,15 +31,15 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.tile_px == Pokex.Settings.defaults()[:tile_px]
     refute Map.has_key?(config, :fallback_points)
 
-    # rows spaced by battle_row_height (52 pts, the measured real row spacing):
-    # first row at y=138 (120 + first_row_offset 18), then +52 each.
+    # rows spaced by battle_row_height (30 pts, measured on the client he plays):
+    # first row at y=151 (120 + battle_first_row_y 31), then +30 each.
     assert config.battle_rows == [
-             {1466, 138},
-             {1466, 190},
-             {1466, 242},
-             {1466, 294},
-             {1466, 346},
-             {1466, 398}
+             {1466, 151},
+             {1466, 181},
+             {1466, 211},
+             {1466, 241},
+             {1466, 271},
+             {1466, 301}
            ]
   end
 

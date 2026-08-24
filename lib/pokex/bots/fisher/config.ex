@@ -37,7 +37,8 @@ defmodule Pokex.Bots.Fisher.Config do
   ]
 
   def build(%Calibration{} = calib, settings) do
-    {fx, fy} = Calibration.battle_first_row(calib)
+    first_row_y = Settings.value(settings, :battle_first_row_y)
+    {fx, fy} = Calibration.battle_first_row(calib, first_row_y)
     row_h = Settings.value(settings, :battle_row_height)
     max_rows = Settings.value(settings, :battle_max_rows)
 
@@ -47,7 +48,7 @@ defmodule Pokex.Bots.Fisher.Config do
       water_point: calib.water_point,
       neutral_point: calib.neutral_point,
       player_point: Calibration.player_point(calib),
-      battle_first_row: Calibration.battle_first_row(calib),
+      battle_first_row: Calibration.battle_first_row(calib, first_row_y),
       battle_rows: for(i <- 0..(max_rows - 1), do: {fx, fy + i * row_h})
     })
   end

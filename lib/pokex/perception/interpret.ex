@@ -30,7 +30,8 @@ defmodule Pokex.Perception.Interpret do
           {t, b} =
             Calibration.row_band_geometry(
               frame.scale,
-              Settings.value(settings, :battle_row_height)
+              Settings.value(settings, :battle_row_height),
+              Settings.value(settings, :battle_first_row_y)
             )
 
           {t, b, Settings.value(settings, :battle_max_rows)}

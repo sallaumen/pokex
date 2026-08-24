@@ -293,7 +293,7 @@ defmodule Pokex.CalibrationTest do
 
     # a raw battle_region + scale gives the same geometry (for previewing a draft
     # mid-calibration, before a %Calibration{} exists)
-    assert Calibration.battle_row_bands({1380, 120, 260, 220}, 2.0, 30, 3) == bands
+    assert Calibration.battle_row_bands({1380, 120, 260, 220}, 2.0, 30, 3, 18) == bands
   end
 
   # The feed used to capture minimap_region alone, and a hand-marked coord band

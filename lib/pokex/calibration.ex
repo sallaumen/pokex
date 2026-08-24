@@ -625,9 +625,9 @@ defmodule Pokex.Calibration do
   read, AND the visual preview — so the red boxes drawn over the screenshot land
   exactly where the bot samples.
   """
-  def row_band_geometry(scale, row_height) do
+  def row_band_geometry(scale, row_height, first_row_y \\ @first_row_y_offset) do
     band = max(round(row_height * scale), 1)
-    top = round(@first_row_y_offset * scale) - div(band, 2)
+    top = round(first_row_y * scale) - div(band, 2)
     {top, band}
   end
 
@@ -639,12 +639,14 @@ defmodule Pokex.Calibration do
   the calibration is off. Accepts a saved `%Calibration{}` or a raw
   `battle_region` tuple + scale (to preview a draft mid-calibration).
   """
-  def battle_row_bands(%__MODULE__{scale: scale, battle_region: region}, row_height, rows),
-    do: battle_row_bands(region, scale, row_height, rows)
+  def battle_row_bands(calib, row_height, rows, first_row_y \\ @first_row_y_offset)
 
-  def battle_row_bands(region, scale, row_height, rows) when is_tuple(region) do
+  def battle_row_bands(%__MODULE__{scale: scale, battle_region: region}, row_height, rows, first),
+    do: battle_row_bands(region, scale, row_height, rows, first)
+
+  def battle_row_bands(region, scale, row_height, rows, first_row_y) when is_tuple(region) do
     {bx, by, bw, _bh} = battle_body(region)
-    {top, band} = row_band_geometry(scale, row_height)
+    {top, band} = row_band_geometry(scale, row_height, first_row_y)
 
     for i <- 0..(rows - 1)//1 do
       {bx, by + (top + i * band) / scale, bw, band / scale}
@@ -654,7 +656,7 @@ defmodule Pokex.Calibration do
   # No battle window marked yet: no bands to draw. Without this the review
   # preview CRASHED on a half-calibrated file — the page you open precisely to
   # find out what is missing.
-  def battle_row_bands(_unmarked, _scale, _row_height, _rows), do: []
+  def battle_row_bands(_unmarked, _scale, _row_height, _rows, _first), do: []
 
   @doc "Screen point to click a battle-list row `row_y` pixels down the strip."
   def battle_row_point(%__MODULE__{battle_region: {x, y, w, _h}, scale: scale}, row_y),

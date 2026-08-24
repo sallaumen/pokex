@@ -675,9 +675,19 @@ defmodule Pokex.Vision do
       else: bar_run_scan(rest, index + 1, width, min_run, run)
   end
 
+  # Three bar colours, all measured on real captures: GREEN while healthy, RED
+  # at low HP in the old client, and the AMBER the new one paints for a damaged
+  # bar — (124, 130, 24) on 2026-08-24, where red and green sit within 6 of each
+  # other and neither dominates. Without the amber clause a creature vanished
+  # from the battle read the moment it took a hit, which is the worst possible
+  # blindness: it is exactly the creature the bot is fighting. Blue stays out
+  # (the spent part of the bar is (39, 59, 79)), and so does everything the
+  # contiguity rule already rejects — red name text and the lock ring are
+  # sparse, never a solid run.
   defp hp_bar_px?(r, g, b) do
     (g >= 120 and g >= r + 40 and g >= b + 40) or
-      (r >= 120 and r >= g + 40 and r >= b + 40)
+      (r >= 120 and r >= g + 40 and r >= b + 40) or
+      (r >= 100 and g >= 100 and b <= 90)
   end
 
   @doc """

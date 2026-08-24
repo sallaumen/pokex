@@ -281,6 +281,13 @@ defmodule Pokex.Settings do
     # the creature, and "kept searching". Drives BOTH the row click points and the
     # per-row lock read bands, so they now line up with the real rows.
     battle_row_height: 52,
+    # Where row 0's band is CENTERED inside the battle region, in points. It was
+    # a constant (18) measured on the old client; the new one stacks icon, name
+    # and bar so the row's middle sits at 31 with a pitch of 30 (measured on his
+    # own list, 2026-08-24: bars at 41, 71, 101, 131, 161). A band centered on
+    # the wrong number straddles two rows, which costs BOTH the row a creature
+    # is bucketed into and the red the lock sensor is looking for.
+    battle_first_row_y: 18,
     battle_max_rows: 6,
     # Min bright-red (r>=200,g<=60,b<=60) px on a scanline of the rightmost strip for it to count
     # as the OWN-pokemon pokeball (so that row is EXCLUDED from attack candidates). MEASURED on

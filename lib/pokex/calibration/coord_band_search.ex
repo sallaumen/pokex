@@ -70,7 +70,14 @@ defmodule Pokex.Calibration.CoordBandSearch do
   # Measured on the real failures: 120 is the floor the atlas was taught at and
   # it wins over dark map; 170 is where bright terrain stops welding to the
   # strokes; 200 survives near-white ground.
-  @ink_floors [170, 200]
+  #
+  # 120 is in the list even though it is also the default setting, because the
+  # SETTING is what goes stale: on 2026-08-24 a 170 saved for the old client's
+  # bright terrain met the new client's chip, whose commas are two pixels wide
+  # and vanish at that floor — no commas, no shape, and the search reported
+  # "não achei" on a label a human could read. A floor the sweep cannot try is
+  # a floor it cannot recover from, and the one that reads is what gets saved.
+  @ink_floors [120, 170, 200]
   @heights [20, 26]
   @step 4
   @above 24

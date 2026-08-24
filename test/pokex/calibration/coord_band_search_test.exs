@@ -152,6 +152,86 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     Glyphs.clear()
   end
 
+  # His real widget on 2026-08-24, in the client he moved to: the position is
+  # printed BARE ("3015, 2213, 7"), with no parentheses for the old anchoring to
+  # hold on to, and a clock chip sits permanently 50pt to its right — on the
+  # SAME row, which in the old client only ever happened under a hovering mouse.
+  describe "the bare chip, with a clock beside it" do
+    # Not even the punctuation of this render is in the shipped atlas, and the
+    # shape needs its commas read: this is the same bootstrap the wrapped path
+    # has always had, one render deeper.
+    @chip {14, 24, 70, 22}
+
+    setup do
+      {:ok, frame} = Frame.from_png_file("test/fixtures/screen/minimap_widget_bare_chip.png")
+      %{frame: frame, map: {0, 0, 195, 248}}
+    end
+
+    test "proximity finds the label with no brackets to anchor on", ctx do
+      teach_chip(ctx.frame, "3015,2213,7")
+
+      assert {:ok, band, {3015, 2213, 7}, ink} =
+               CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 120)
+
+      assert Glyphs.read_coord(ctx.frame, band, ink: ink) == {3015, 2213, 7}
+    end
+
+    # The saved band keeps a right slack so a longer coordinate still fits it
+    # tomorrow — but the slack stops short of the clock, whose leftmost glyph
+    # stands at x=130 in this fixture.
+    test "the band grows toward the clock and stops before it", ctx do
+      teach_chip(ctx.frame, "3015,2213,7")
+
+      assert {:ok, {bx, _by, bw, _bh} = band, _pos, _ink} =
+               CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 120)
+
+      assert bx + bw < 130, "a faixa alcançou o relógio: #{inspect(band)}"
+      assert bw > 80, "a faixa não deixou folga para uma coordenada maior: #{inspect(band)}"
+    end
+
+    test "a clock on the label's own row is furniture, not the hover state", ctx do
+      teach_chip(ctx.frame, "3015,2213,7")
+
+      refute CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 120) == :hovered
+    end
+
+    # The door out of the closed loop, on a render where only the punctuation is
+    # known: two commas with digit runs between them prove the rectangle, and
+    # the digits get named from the answer to "what number is on your screen?".
+    test "with only its commas named the shape still answers :unread", ctx do
+      teach_chip(ctx.frame, "3015,2213,7", only: [4, 9])
+
+      assert {:unread, _band, _ink, text, glyphs} =
+               CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 120)
+
+      assert text == "????, ????, ?"
+      assert length(glyphs) == 11
+    end
+
+    defp teach_chip(frame, line, opts \\ []) do
+      only = Keyword.get(opts, :only)
+      keep = fn index -> only == nil or index in only end
+
+      glyphs =
+        frame
+        |> Glyphs.segment(@chip, ink: 120)
+        |> Enum.sort_by(& &1.x0)
+        |> Enum.with_index()
+        |> Enum.filter(fn {_glyph, index} -> keep.(index) end)
+        |> Enum.map(&elem(&1, 0))
+
+      chars =
+        line
+        |> String.graphemes()
+        |> Enum.with_index()
+        |> Enum.filter(fn {_char, index} -> keep.(index) end)
+        |> Enum.map(&elem(&1, 0))
+        |> Enum.join()
+
+      teach_line(glyphs, chars)
+    end
+  end
+
   test "a map with no coordinate text anywhere answers :error" do
     frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
     # a textless patch of the same capture posing as the map rectangle

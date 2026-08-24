@@ -1982,4 +1982,27 @@ defmodule PokexWeb.CavebotLiveTest do
     refute html =~ "não está limpa"
     refute has_element?(view, "[id^='waypoint-stair-']")
   end
+
+  describe "o interruptor de juntar pilha" do
+    setup do
+      antes = Pokex.Settings.get(:engine_gather_piles)
+      on_exit(fn -> Pokex.Settings.put(:engine_gather_piles, antes) end)
+      :ok
+    end
+
+    test "aparece no card do cérebro e inverte o ajuste", %{conn: conn} do
+      Pokex.Settings.put(:engine_gather_piles, true)
+      at = System.monotonic_time(:millisecond)
+      WorldState.put(:situation, %{enemies: 2, growing?: true, stable_for_ms: 0}, at)
+      WorldState.put(:orders, %{band: :green, why: "contando quem chega"}, at)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      assert has_element?(view, "#toggle-gather-piles")
+
+      view |> element("#toggle-gather-piles") |> render_click()
+
+      refute Pokex.Settings.get(:engine_gather_piles)
+      assert render(view) =~ "sem juntar pilha"
+    end
+  end
 end

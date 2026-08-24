@@ -482,6 +482,8 @@ defmodule PokexWeb.CavebotComponents do
   While nobody obeys it, this is a SHADOW: it says what WOULD happen, and the
   feed below carries the same sentence beside what actually did.
   """
+  attr :gather_piles, :boolean, default: true
+
   def engine_brain(assigns) do
     ~H"""
     <section
@@ -505,6 +507,24 @@ defmodule PokexWeb.CavebotComponents do
         <span aria-hidden="true">·</span>
         <span>{settle_label(@situation)}</span>
       </p>
+
+      <%!-- Juntar pilha vale contra bicho que moba; contra o que aparece de um
+            em um, a espera só perde luta. --%>
+      <button
+        id="toggle-gather-piles"
+        type="button"
+        phx-click="toggle_gather_piles"
+        aria-pressed={to_string(@gather_piles)}
+        class={[
+          "shrink-0 rounded border px-2 py-0.5 font-mono text-pk-meta",
+          if(@gather_piles,
+            do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+            else: "border-pk-line-strong text-pk-text-3"
+          )
+        ]}
+      >
+        {if @gather_piles, do: "juntando pilha", else: "sem juntar pilha"}
+      </button>
     </section>
     """
   end

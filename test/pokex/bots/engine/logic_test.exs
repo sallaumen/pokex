@@ -323,4 +323,64 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.band == :green
     end
   end
+
+  # "caçar em pokémons mais fracos que não mobam. Eles nem atacam sozinho"
+  # (Lucas, 2026-08-24). Gathering is what makes the sizing wait worth paying;
+  # against creatures that wander in one at a time it only loses fights — his
+  # own hunt skipped a pile of three, twice, right after two clean kills.
+  describe "hunting without gathering a pile" do
+    @solo Map.merge(@config, %{gather_piles: false, engage_from: 1})
+
+    defp solo_step(logic \\ Logic.new(), world, now),
+      do: Logic.step(logic, world, @solo, now)
+
+    test "one creature is engaged at once, with no wait for a pile to settle" do
+      world =
+        world(%{
+          situation: situation(%{enemies: 1, growing?: true, stable_for_ms: 0}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {_logic, orders} = solo_step(world, 1_000)
+
+      assert orders.phase == :engaged
+      assert orders.fire == :free
+      assert orders.route == :hold
+      assert orders.why =~ "sem esperar juntar"
+    end
+
+    test "the same picture with gathering ON waits instead" do
+      world =
+        world(%{
+          situation: situation(%{enemies: 1, growing?: true, stable_for_ms: 0}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {_logic, orders} = step(world, 1_000)
+
+      refute orders.fire == :free
+    end
+
+    test "a stretch recorded for mobbing is walked with the fire free" do
+      world = world(%{hunt: hunt(%{state: :walking, luring?: true})})
+
+      {_logic, orders} = solo_step(world, 1_000)
+
+      assert orders.route == :go
+      assert orders.fire == :free
+      assert orders.why =~ "sem juntar pilha"
+    end
+
+    test "the ruler still rules: below it, nothing is engaged" do
+      world =
+        world(%{
+          situation: situation(%{enemies: 1, worth_fighting?: false, growing?: true}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {_logic, orders} = solo_step(world, 1_000)
+
+      refute orders.phase == :engaged
+    end
+  end
 end

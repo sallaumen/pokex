@@ -81,6 +81,7 @@ defmodule PokexWeb.CavebotLive do
        # a page opened mid-hunt is not blank until the next tick.
        situation: engine_fact(:situation),
        orders: engine_fact(:orders),
+       gather_piles: Settings.get(:engine_gather_piles),
        minimap_gap?: minimap_gap?(),
        recording?: false,
        # Read health: read_coord is all-or-nothing (requires 1.0 confidence),
@@ -814,6 +815,20 @@ defmodule PokexWeb.CavebotLive do
        text: log_as_text(socket.assigns.log, socket.assigns.show_debug)
      })
      |> assign(notice: "feed copiado — pode colar no relato", notice_kind: :ok)}
+  end
+
+  # Mobar é escolha, não natureza da caçada: contra bicho fraco que aparece de
+  # um em um, esperar a pilha juntar só perde luta.
+  def handle_event("toggle_gather_piles", _params, socket) do
+    value = not Settings.get(:engine_gather_piles)
+    Settings.put(:engine_gather_piles, value)
+
+    {:noreply,
+     assign(socket,
+       gather_piles: value,
+       notice: gather_notice(value),
+       notice_kind: if(value, do: :ok, else: :warn)
+     )}
   end
 
   def handle_event("toggle_safety", %{"key" => key}, socket) do
@@ -1668,6 +1683,12 @@ defmodule PokexWeb.CavebotLive do
   end
 
   # The whitelist IS the parser: client strings never become atoms.
+  defp gather_notice(true), do: "juntando pilha antes de bater"
+
+  defp gather_notice(false),
+    do:
+      "sem juntar pilha: bate assim que #{Settings.get(:engine_engage_from)} inimigo(s) aparecer(em)"
+
   defp safety_key("rescue"), do: :rescue_enabled
   defp safety_key("heal"), do: :heal_skill_enabled
   defp safety_key("potion"), do: :potion_enabled
@@ -1945,7 +1966,7 @@ defmodule PokexWeb.CavebotLive do
               inside a process. It says what WOULD happen — nobody obeys it
               yet — and the feed below carries the same sentence beside what
               the bot actually did. --%>
-        <.engine_brain situation={@situation} orders={@orders} />
+        <.engine_brain situation={@situation} orders={@orders} gather_piles={@gather_piles} />
 
         <%!-- The pre-sleep checklist: whether TONIGHT's hunt survives without
               him. The three switches are the support worker's (same settings

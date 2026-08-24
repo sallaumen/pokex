@@ -206,18 +206,7 @@ defmodule Pokex.Bots.Focus do
   Env-gated off in tests (`:front_game_cmd`) so suites never shell out.
   """
   def front_game do
-    if Application.get_env(:pokex, :front_game_cmd, true) do
-      app = Settings.get(:game_app_name)
-
-      System.cmd(
-        "osascript",
-        [
-          "-e",
-          ~s(tell application "System Events" to set frontmost of application process "#{app}" to true)
-        ],
-        stderr_to_stdout: true
-      )
-    end
+    if Application.get_env(:pokex, :front_game_cmd, true), do: Pokex.GameFocus.front_game()
 
     :ok
   rescue

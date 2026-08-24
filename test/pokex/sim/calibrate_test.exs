@@ -7,7 +7,7 @@ defmodule Pokex.Sim.CalibrateTest do
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     File.mkdir_p!(Path.join(tmp, "journal"))
     File.mkdir_p!(Path.join(tmp, "events"))

@@ -13,7 +13,7 @@ defmodule PokexWeb.CalibrationBarTargetTest do
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    on_exit(fn -> Application.delete_env(:pokex, :home_dir) end)
+    on_exit(fn -> Pokex.TestHome.restore() end)
 
     Team.add("Vespiquen")
     Team.add("Gardevoir")

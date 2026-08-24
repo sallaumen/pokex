@@ -58,8 +58,17 @@ defmodule Pokex.Diagnostics.ReportTest do
     %{exports: Path.join(tmp, "exports")}
   end
 
+  # Own home, on purpose: this asserts what the dump looks like with NOBODY on
+  # the field, and the home is a global app env — a team written by another
+  # file was enough to put a Bulbasaur bar in this report (CI, 2026-08-24).
   @tag :tmp_dir
-  test "captures every region with its Vision metrics and a matrix", %{exports: exports} do
+  test "captures every region with its Vision metrics and a matrix", %{
+    exports: exports,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
     assert {:ok, report, path} =
              Report.capture(
                rig: Fake,

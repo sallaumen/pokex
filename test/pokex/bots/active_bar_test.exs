@@ -67,7 +67,7 @@ defmodule Pokex.Bots.ActiveBarTest do
       :ok
     end
 
-    test "its bar wins, and says whose it is", %{calib: calib} do
+    test "its bar wins, and says whose it is" do
       bar = ActiveBar.current()
 
       assert bar.region == {5, 5, 900, 50}
@@ -98,7 +98,7 @@ defmodule Pokex.Bots.ActiveBarTest do
     # not carry. Calibrating
     # the second one must not disturb the first, and swapping back must return it
     # whole — region, count and the READY references, which ARE the skill icons.
-    test "two calibrated pokémon keep their own bars across every swap", %{calib: calib} do
+    test "two calibrated pokémon keep their own bars across every swap" do
       {:ok, _} = Team.add("Gardevoir")
       Team.set_bar("Gardevoir", %{region: {7, 8, 500, 60}, count: 6, refs: [{1, 2, 3}]})
 
@@ -116,7 +116,7 @@ defmodule Pokex.Bots.ActiveBarTest do
       assert %{region: {7, 8, 500, 60}, count: 6, name: "Gardevoir"} = ActiveBar.current()
     end
 
-    test "calibrating one pokémon never touches another's bar", %{calib: _calib} do
+    test "calibrating one pokémon never touches another's bar" do
       {:ok, _} = Team.add("Gardevoir")
       Team.set_bar("Gardevoir", %{region: {7, 8, 500, 60}, count: 6, refs: [{1, 2, 3}]})
 

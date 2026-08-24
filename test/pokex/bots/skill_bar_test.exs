@@ -1,26 +1,12 @@
 defmodule Pokex.Bots.SkillBarTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.SkillBar
-  alias Pokex.Calibration
   alias Pokex.Pokedex.Team
   alias Pokex.Rig.Fake
   alias Pokex.Vision.Frame
 
   @settings %{skill_bar_count: 7, skill_ready_min_saturation: 40, skill_ready_min_vivid_pct: 7}
 
-  defp calib(region, count \\ nil) do
-    %Calibration{
-      scale: 1.0,
-      screen_w: 100,
-      screen_h: 100,
-      water_point: {0, 0},
-      glow_region: {0, 0, 1, 1},
-      battle_region: {0, 0, 1, 1},
-      neutral_point: {0, 0},
-      skill_bar_region: region,
-      skill_bar_count: count
-    }
-  end
 
   defp on_field(region, count) do
     {:ok, _} = Pokex.Pokedex.Team.add("Bulbasaur")
@@ -164,12 +150,6 @@ defmodule Pokex.Bots.SkillBarTest do
   # the same as proving it reaches the READING — this is where the feature
   # either affects the fight or does not.
   describe "the pokémon on the field owns the reading" do
-    defp on_field(region, count) do
-      {:ok, _} = Pokex.Pokedex.Team.add("Bulbasaur")
-      Pokex.Pokedex.Team.set_bar("Bulbasaur", %{region: region, count: count, refs: nil})
-      Pokex.Pokedex.Team.set_active("Bulbasaur")
-    end
-
     setup %{tmp_dir: tmp} do
       dataset = %{
         "species" => [%{"name" => "Vespiquen", "number" => 416, "elements" => ["Bug"]}],

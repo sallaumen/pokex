@@ -13,6 +13,10 @@ defmodule PokexWeb.CalibrationSteps do
   """
 
   @instructions %{
+    confirm_saved:
+      "Esta tela já está calibrada. As marcas desenhadas na foto são as que estão " <>
+        "salvas — confira se ainda estão no lugar e confirme. Nada é re-marcado: os " <>
+        "pontos ficam exatamente como estão.",
     water: "Clique no PONTO DA ÁGUA onde o bot deve arremessar (só pesca).",
     battle_a: "Clique no canto SUPERIOR-ESQUERDO da área de criaturas da janela Battle.",
     battle_b:
@@ -70,7 +74,7 @@ defmodule PokexWeb.CalibrationSteps do
   except exactly these and still fail loudly on a genuinely forgotten
   `marking?/1` entry (the 2026-07-20 black-page bug).
   """
-  def screenless, do: [:minimap_coord_search]
+  def screenless, do: [:minimap_coord_search, :confirm_saved]
 
   @doc "What the wizard asks at `step` (nil for a step with no copy)."
   def instruction(step), do: @instructions[step]

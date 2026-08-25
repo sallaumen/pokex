@@ -23,6 +23,125 @@ defmodule PokexWeb.CalibrationLiveTest do
 
   defp rows(w, h, color), do: List.duplicate(List.duplicate(color, w), h)
 
+  # Every mark the numbered run asks for, plus the ones it never asks about —
+  # the shape of a screen that is already calibrated. 100x75 points is the
+  # 200x150 fixture at scale 2.0, so the shot and the marks agree on the screen.
+  defp complete_calibration do
+    %Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      neutral_point: {52, 36},
+      player_point: {40, 32},
+      skill_bar_region: {10, 60, 48, 10},
+      skill_bar_count: 8,
+      skill_slot_refs: List.duplicate({7, 7, 7}, 8),
+      pokemon_hp_region: {30, 40, 60, 20},
+      pokemon_photo_point: {40, 50},
+      minimap_region: {80, 0, 20, 20},
+      minimap_player_point: {90, 10},
+      escape_point: {12, 40}
+    }
+  end
+
+  # "Quero que ele já sempre sugira a calibração que ele já tem salvo pra usar,
+  # mostrando na tela e só me pedindo pra confirmar" (Lucas, 2026-08-25). A
+  # monitor already calibrated is not a monitor to re-click nine times.
+  @tag :tmp_dir
+  test "a calibrated screen opens on its own marks and confirms without a click", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    # the probe is what makes the shot measure 100x75 POINTS at scale 2.0
+    {:ok, _} =
+      Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}, {:ok, screen}]})
+
+    saved = complete_calibration()
+    Calibration.save(saved)
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    html = view |> element("button", "Capturar tela") |> render_click()
+
+    # no numbered run at all — the question is "está tudo no lugar?"
+    assert html =~ "confirm-saved"
+    assert html =~ "Esta tela já está calibrada"
+    refute html =~ "Passo 1/9"
+
+    # and the marks are DRAWN over the fresh photo, which is what he confirms
+    assert html =~ "mark-overlays"
+    for label <- ["skills", "vida", "minimapa", "brilho"], do: assert(html =~ label)
+
+    view |> element("#confirm-saved-use") |> render_click()
+
+    assert {:ok, kept} = Calibration.load()
+
+    for field <- [
+          :battle_region,
+          :neutral_point,
+          :player_point,
+          :skill_bar_region,
+          :pokemon_hp_region,
+          :pokemon_photo_point,
+          :minimap_region,
+          :minimap_player_point,
+          :escape_point,
+          :water_point
+        ] do
+      assert Map.fetch!(kept, field) == Map.fetch!(saved, field),
+             "#{field} se moveu numa confirmação"
+    end
+
+    # the READY colours are kept, not re-read from a screenshot nobody promised
+    # was taken with every skill off cooldown
+    assert kept.skill_slot_refs == saved.skill_slot_refs
+  end
+
+  @tag :tmp_dir
+  test "conferir marca por marca mantém o que não foi re-clicado", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    # the probe is what makes the shot measure 100x75 POINTS at scale 2.0
+    {:ok, _} =
+      Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}, {:ok, screen}]})
+
+    saved = complete_calibration()
+    Calibration.save(saved)
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("button", "Capturar tela") |> render_click()
+
+    html = view |> element("#confirm-saved-walk") |> render_click()
+    assert html =~ "Passo 1/9"
+    # the saved mark is on the button, so keeping is a decision he can see
+    assert html =~ "Manter"
+
+    # keep every mark: nine steps, no click on the picture
+    for _mark <- 1..6, do: view |> element("#keep-step") |> render_click()
+
+    assert {:ok, kept} = Calibration.load()
+    assert kept.battle_region == saved.battle_region
+    assert kept.skill_bar_region == saved.skill_bar_region
+    assert kept.pokemon_photo_point == saved.pokemon_photo_point
+    assert kept.skill_slot_refs == saved.skill_slot_refs
+  end
+
   @tag :tmp_dir
   # click-to-zoom: every point takes a rough click (magnifies) then a precise click (records)
   test "full wizard produces a saved calibration", %{conn: conn, tmp_dir: tmp} do

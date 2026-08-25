@@ -23,6 +23,7 @@ defmodule PokexWeb.SimLive do
   alias Pokex.Sim.Runner
   alias Pokex.Sim.Bench
   alias Pokex.Sim.Score
+  alias Pokex.Engine.Tally
   alias Pokex.Sim.Calibrate
   alias Pokex.Sim.Scenario
   alias Pokex.Sim.Setup
@@ -74,6 +75,7 @@ defmodule PokexWeb.SimLive do
        setup_open?: false,
        close_up?: false,
        calib: Calibrate.report(Date.utc_today()),
+       noite: Tally.of_day(Date.utc_today()),
        measuring?: Pokex.Settings.get(:cavebot_measure_walk),
        auto?: Runner.auto?()
      )}
@@ -578,6 +580,43 @@ defmodule PokexWeb.SimLive do
   # is the price of every second down, in one figure. Silent when he paid none.
   defp his_bill(%{player_hp: 100}), do: ""
   defp his_bill(%{player_hp: hp}), do: " · você caiu a #{hp}%"
+
+  # Cinco mostradores, na ordem em que ele os lê: o que rendeu, o que custou, e
+  # os dois números que dizem por quê.
+  defp noite_readouts(noite) do
+    [
+      %{
+        label: "mortos/min",
+        value: noite.kills_per_min,
+        tone: "text-pk-text",
+        note: "#{noite.kills} no total"
+      },
+      %{
+        label: "revives/min",
+        value: noite.revives_per_min,
+        tone: "text-pk-text",
+        note: "#{noite.revives} prensas"
+      },
+      %{
+        label: "no chão",
+        value: "#{noite.down_pct}%",
+        tone: if(noite.down_pct > 10, do: "text-pk-danger", else: "text-pk-text"),
+        note: "sem pokémon em campo"
+      },
+      %{
+        label: "sem cooldown",
+        value: "#{noite.stalled_pct}%",
+        tone: "text-pk-text",
+        note: "com bicho na tela"
+      },
+      %{
+        label: "leituras",
+        value: map_size(noite.piles),
+        tone: "text-pk-text-2",
+        note: "tamanhos de pilha distintos"
+      }
+    ]
+  end
 
   defp ms_text(nil), do: "—"
   defp ms_text(ms), do: "#{Float.round(ms / 1000, 1)}s"
@@ -1479,6 +1518,71 @@ defmodule PokexWeb.SimLive do
               sabia dizer um número absoluto, porque o dano por baixo dele era
               chutado. Estas quatro leituras saem da mesma noite que ele caça,
               e o botão as gasta. --%>
+        <%!-- O PLACAR DA NOITE: as mesmas perguntas do placar simulado, feitas
+              ao rastro que o bot deixou. O que se compara entre os dois não são
+              as taxas — as de lá saem de um mundo inventado — é a FORMA: se a
+              caçada real gasta o minuto onde a simulada gasta, o simulador está
+              dizendo a verdade sobre a caçada. --%>
+        <section
+          :if={@noite}
+          id="placar-da-noite"
+          class="space-y-2 rounded-lg border border-pk-line bg-pk-surface p-3"
+        >
+          <header class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h2 class="text-pk-title font-bold text-pk-text">O placar da noite</h2>
+            <p class="pk-num font-mono text-pk-meta text-pk-text-3">
+              {@noite.minutes} min de rastro
+            </p>
+          </header>
+
+          <dl class="grid grid-cols-2 gap-px overflow-hidden rounded border border-pk-line bg-pk-line sm:grid-cols-3 lg:grid-cols-5">
+            <div :for={cell <- noite_readouts(@noite)} class="bg-pk-sunken px-3 py-2">
+              <dt class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+                {cell.label}
+              </dt>
+              <dd class={["pk-num mt-1 font-mono text-pk-title font-bold", cell.tone]}>
+                {cell.value}
+              </dd>
+              <dd class="text-pk-meta text-pk-text-2">{cell.note}</dd>
+            </div>
+          </dl>
+
+          <div
+            :if={@noite.by_phase != []}
+            class="space-y-1 rounded border border-pk-line bg-pk-sunken p-2"
+          >
+            <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+              Onde foi o minuto, no jogo
+            </h3>
+            <dl class="flex flex-wrap gap-x-4 gap-y-1">
+              <div :for={slice <- @noite.by_phase} class="flex items-baseline gap-1">
+                <dt class="text-pk-body text-pk-text-2">{phase_label(slice.phase)}</dt>
+                <dd class="pk-num font-mono text-pk-body font-bold text-pk-text">{slice.pct}%</dd>
+              </div>
+            </dl>
+          </div>
+
+          <%!-- A RÉGUA DELE DISCUTIDA COM O QUE O JOGO ENTREGA, em vez de com o
+                que eu imagino: quantas vezes a lista de batalha teve 1, 2, 3… --%>
+          <div
+            :if={@noite.piles != %{}}
+            class="space-y-1 rounded border border-pk-line bg-pk-sunken p-2"
+          >
+            <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+              As pilhas que ele encontrou
+            </h3>
+            <dl class="flex flex-wrap gap-x-4 gap-y-1">
+              <div
+                :for={{quantos, vezes} <- Enum.sort(@noite.piles)}
+                class="flex items-baseline gap-1"
+              >
+                <dt class="text-pk-body text-pk-text-2">{quantos} na lista</dt>
+                <dd class="pk-num font-mono text-pk-body font-bold text-pk-text">{vezes}</dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+
         <section
           id="quatro-medicoes"
           class="space-y-2 rounded-lg border border-pk-line bg-pk-surface p-3"

@@ -1650,4 +1650,64 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert match?({:walk, _, _}, action)
     end
   end
+
+  # O CÉREBRO MANDA NA ESTRADA, inclusive no meio de uma luta. Até 26/08 este
+  # estado não andava de jeito nenhum: o combate travava um alvo, a caçada
+  # parava, e ficava parada até a tela limpar — o que apagava no jogo a metade
+  # da régua que o simulador tinha acabado de ganhar.
+  describe "a luta anda quando o cérebro manda andar" do
+    defp lutando do
+      %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
+    end
+
+    defp mundo(overrides) do
+      Map.merge(%{pos: {5, 10, 7}, enemies: 3, combat_state: :fighting}, overrides)
+    end
+
+    test "com a ordem de andar, o pé segue a rota mesmo com bicho travado" do
+      {logic, action} =
+        Logic.step(lutando(), mundo(%{engine?: true, route_hold?: false}), 100)
+
+      assert {:walk, 5, 0} = action
+      assert logic.state == :fighting, "andar juntando não é deixar a luta"
+    end
+
+    test "com a ordem de parar, ela para — que é estourar a área" do
+      {_logic, action} =
+        Logic.step(lutando(), mundo(%{engine?: true, route_hold?: true}), 100)
+
+      assert action == :none
+    end
+
+    # Sem cérebro nenhum a estrada não pode sair andando: `route_hold?` é falso
+    # tanto quando ele manda andar quanto quando ele não existe.
+    test "e sem cérebro nenhum, o comportamento é o de sempre: parar e lutar" do
+      {_logic, action} = Logic.step(lutando(), mundo(%{}), 100)
+
+      assert action == :none
+    end
+
+    # Andando, quem reclama é o guarda da ROTA: um pé que não sai do lugar é
+    # `:stuck`, e o relógio do travamento da luta — que mede uma luta parada que
+    # não termina — fica zerado até a estrada parar de novo.
+    test "andando, quem reclama de não sair do lugar é o guarda da rota" do
+      andando = mundo(%{engine?: true, route_hold?: false, enemies: 3})
+
+      {logic, _} = Logic.step(lutando(), andando, 0)
+      {logic, _} = Logic.step(logic, andando, @cfg.walk_timeout_ms + 1)
+
+      assert logic.state == :stuck
+    end
+
+    test "e parada de novo, a janela do travamento começa do zero" do
+      andando = mundo(%{engine?: true, route_hold?: false})
+      parada = mundo(%{engine?: true, route_hold?: true})
+
+      {logic, _} = Logic.step(lutando(), andando, 0)
+      {logic, _} = Logic.step(logic, parada, 10_000)
+      {logic, _} = Logic.step(logic, parada, 10_000 + @cfg.fight_timeout_ms + 1)
+
+      assert logic.state == :fight_stalled
+    end
+  end
 end

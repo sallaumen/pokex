@@ -479,6 +479,18 @@ defmodule Pokex.Bots.Engine.Logic do
   defp normal(%{logic: %{state: :gathering}} = t), do: ruler(t)
   defp normal(%{hunt: %{state: :fighting}} = t), do: ruler(t)
 
+  # O TRECHO MARCADO À MÃO, que ele quer parar de marcar — e que continua aqui
+  # por um motivo medido, não por apego.
+  #
+  # A R6 junta pilha sozinha, mas só depois de ver o PRIMEIRO bicho: é dele que
+  # a contagem de passos começa. A marca sabe de algo que a foto não tem como
+  # saber — "tem bicho adiante, comece a recolher agora" — e numa rota esparsa
+  # essa dianteira vale 6% dos monstros (8,52 → 7,98 mortos/min, medido em
+  # 26/08 tirando este ramo). No circuito denso não muda nada: lá sempre há um
+  # primeiro bicho por perto.
+  #
+  # Ou seja: parar de marcar é uma escolha legítima e custa isso. Marcar não é
+  # mais NECESSÁRIO pra caçada mobar — é uma dianteira opcional.
   defp normal(%{hunt: %{state: :walking, luring?: true}} = t) do
     if t.config.gather_piles do
       {reset_fight(t.logic, :gathering),

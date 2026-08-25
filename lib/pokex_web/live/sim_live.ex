@@ -380,6 +380,47 @@ defmodule PokexWeb.SimLive do
     end
   end
 
+  # A ordem da BARRA, não a do alfabeto: `Enum.sort` sobre strings põe o "0"
+  # antes do "1" e o "10" entre o "1" e o "2". A barra dele começa no 1.
+  defp bar_order(nil), do: []
+
+  defp bar_order(world) do
+    world.keys
+    |> Map.keys()
+    |> Enum.sort_by(fn key ->
+      case Integer.parse(key) do
+        # o zero é a última tecla da fileira, não a primeira
+        {0, ""} -> 100
+        {n, ""} -> n
+        :error -> 999
+      end
+    end)
+  end
+
+  @jobs %{aoe: "área", single: "alvo único", crowd: "controle", buffs: "buff", heal: "cura"}
+
+  defp job_label(nil, _key), do: "—"
+
+  defp job_label(world, key) do
+    case world.keys[key] do
+      %{kind: kind} -> Map.get(@jobs, kind, to_string(kind))
+      _no_key -> "—"
+    end
+  end
+
+  # Buff, cura e controle não têm dano pra calibrar, e pedir um número deles é
+  # pedir que ele invente um.
+  defp damages?(world, key), do: World.damage_band(world, key) != :no_damage
+
+  defp bar_owner(nil), do: "sem pokémon"
+
+  defp bar_owner(_world) do
+    case Pokex.Sim.Loadout.current() do
+      %{name: name} -> "a barra do #{name}"
+      _none -> "sem pokémon"
+    end
+  end
+
   defp tuned(setup, key) do
     case Map.get(setup, :skill_damage, %{})[key] do
       {lo, hi} -> {lo, hi}
@@ -698,6 +739,29 @@ defmodule PokexWeb.SimLive do
               "ou jogue você mesmo com as setas e as teclas 1–9."
         }
 
+      # ENTREGUE E MUDO. Uma simulação que roda com o cérebro no comando e não
+      # faz nada não pode parecer igual a uma que está caçando: ele rodou uma
+      # assim e teve que adivinhar ("ele não usou nenhuma skill nem andou",
+      # 25/08). Sem ordens, o cérebro não está rodando; sem teclas, não há luta
+      # possível — e as duas coisas agora estão escritas.
+      assigns.auto? and is_nil(assigns.orders) ->
+        %{
+          tone: :bad,
+          title: "Rodando — mas o cérebro não está mandando nada",
+          hint:
+            "nenhuma ordem chegou. A engine não está de pé: Desarmar e Armar de novo " <>
+              "religa ela junto com a cerca."
+        }
+
+      assigns.auto? and assigns.orders.phase == :handless ->
+        %{
+          tone: :bad,
+          title: "Rodando — mas sem teclas pra lutar",
+          hint:
+            "#{assigns.orders.why}. Escolha um pokémon no /time e classifique cada slot " <>
+              "da barra dele — sem isso a luta não tem o que apertar."
+        }
+
       true ->
         %{
           tone: :good,
@@ -706,12 +770,19 @@ defmodule PokexWeb.SimLive do
           hint:
             "#{length(assigns.mobs)} monstro(s) no chão · sua vida #{assigns.world.own.hp_pct}% · " <>
               if(assigns.auto?,
-                do: "ele anda a rota, atira e revive sozinho; o card ao lado diz por quê",
+                do: brain_hint(assigns.orders),
                 else: "setas andam, 1–9 disparam — ou clique em “Deixar o cérebro jogar”"
               )
         }
     end
   end
+
+  # O que ele está mandando AGORA, na frase dele: um cérebro que decide em
+  # silêncio é indistinguível de um cérebro parado.
+  defp brain_hint(nil), do: "ele anda a rota, atira e revive sozinho"
+
+  defp brain_hint(orders),
+    do: "🧠 #{orders.why} (rota #{orders.route}, fogo #{orders.fire})"
 
   defp tone_class(:good), do: "border-emerald-800/70 bg-emerald-950/30 text-emerald-100"
   defp tone_class(:paused), do: "border-sky-900/70 bg-sky-950/30 text-sky-100"
@@ -1002,35 +1073,59 @@ defmodule PokexWeb.SimLive do
               </div>
             </div>
 
+            <%!-- A barra DELE, na ordem dele, com o trabalho de cada tecla
+                  escrito. Antes era uma grade de "0..9 min max" sem dizer qual
+                  tecla fazia o quê — e pedia dano de uma tecla de buff. --%>
             <div>
-              <p class="mb-1 text-xs font-medium text-zinc-400">
-                Dano por skill — em branco usa o combo ou o meu chute
+              <p class="mb-1 text-pk-meta font-semibold text-pk-text-2">
+                Dano por skill — {bar_owner(@world)}
               </p>
-              <div class="flex flex-wrap gap-2">
-                <div
-                  :for={chave <- Enum.sort(Map.keys(@world.keys))}
-                  class="rounded border border-zinc-800 px-1.5 py-1 text-[11px] text-zinc-500"
-                >
-                  <span class="font-medium text-zinc-300">{chave}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    name={"dmg_min_" <> chave}
-                    value={elem(tuned(@setup, chave), 0)}
-                    placeholder="min"
-                    class="ml-1 w-14 rounded border border-zinc-700 bg-zinc-950 px-1 py-0.5 text-xs text-zinc-200"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    name={"dmg_max_" <> chave}
-                    value={elem(tuned(@setup, chave), 1)}
-                    placeholder="max"
-                    class="ml-1 w-14 rounded border border-zinc-700 bg-zinc-950 px-1 py-0.5 text-xs text-zinc-200"
-                  />
-                  <span class="ml-1 text-zinc-600">agora: {band_label(@world, chave)}</span>
-                </div>
-              </div>
+              <table class="w-full text-left text-pk-meta">
+                <thead class="text-pk-text-3">
+                  <tr>
+                    <th class="py-0.5 pr-2 font-semibold">tecla</th>
+                    <th class="py-0.5 pr-2 font-semibold">o que faz</th>
+                    <th class="py-0.5 pr-2 font-semibold">mín</th>
+                    <th class="py-0.5 pr-2 font-semibold">máx</th>
+                    <th class="py-0.5 font-semibold">agora</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={chave <- bar_order(@world)} class="border-t border-pk-line">
+                    <td class="pk-num py-0.5 pr-2 font-mono font-bold text-pk-text">{chave}</td>
+                    <td class="py-0.5 pr-2 text-pk-text-2">{job_label(@world, chave)}</td>
+                    <td class="py-0.5 pr-2">
+                      <input
+                        :if={damages?(@world, chave)}
+                        type="number"
+                        min="0"
+                        name={"dmg_min_" <> chave}
+                        value={elem(tuned(@setup, chave), 0)}
+                        placeholder="—"
+                        class="w-16 rounded border border-pk-line-strong bg-pk-bg px-1 py-0.5 text-pk-meta text-pk-text"
+                      />
+                    </td>
+                    <td class="py-0.5 pr-2">
+                      <input
+                        :if={damages?(@world, chave)}
+                        type="number"
+                        min="0"
+                        name={"dmg_max_" <> chave}
+                        value={elem(tuned(@setup, chave), 1)}
+                        placeholder="—"
+                        class="w-16 rounded border border-pk-line-strong bg-pk-bg px-1 py-0.5 text-pk-meta text-pk-text"
+                      />
+                    </td>
+                    <td class="pk-num py-0.5 font-mono text-pk-text-3">
+                      {band_label(@world, chave)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="mt-1 text-pk-meta text-pk-text-3">
+                em branco usa o combo ou o meu chute · a vida do monstro e o dano estão na MESMA
+                unidade ({@world && @world.knobs.mob_hp} de vida)
+              </p>
             </div>
 
             <div class="flex items-center gap-2">

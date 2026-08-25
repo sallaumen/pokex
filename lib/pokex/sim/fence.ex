@@ -47,7 +47,17 @@ defmodule Pokex.Sim.Fence do
   # A KEYWORD LIST, not a map: the order is the fence. The hands go first so
   # anything already in flight lands in the fake world; the eyes and the journal
   # follow. A map would iterate in whatever order the runtime likes.
-  @swaps [rig: Pokex.Rig.Sim, perception_feeds_active: false, journal_persist: false]
+  # …and a fourth: a BAR for the engine to fight with. The eyes and the hands
+  # were swapped and the loadout was not, so arming with no team configured gave
+  # the brain no keys — and a brain with no keys orders nothing, which looked
+  # exactly like a simulator that does not work. `Combat.Loadout.current/0`
+  # reads it as a last resort, after the real team.
+  @swaps [
+    rig: Pokex.Rig.Sim,
+    perception_feeds_active: false,
+    journal_persist: false,
+    simulated_loadout: Pokex.Sim.Loadout.fallback()
+  ]
 
   def start_link(opts \\ []) do
     state = %{

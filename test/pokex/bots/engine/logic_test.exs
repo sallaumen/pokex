@@ -417,6 +417,41 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
+  # Um `fire: :free` com `opening: []` é uma ordem que PARECE ação e não faz
+  # nada. Foi assim que uma simulação inteira rodou sem uma tecla sair da barra,
+  # e é a forma do "lutando como sem pokémon escolhido" do diário dele.
+  describe "sem teclas de ataque" do
+    defp sem_maos(world), do: Map.put(world, :hands, %{opening: []})
+
+    test "não narra uma luta que não pode acontecer" do
+      world = sem_maos(world(%{hunt: hunt(%{state: :fighting})}))
+
+      {_logic, orders} = step(world, 1_000)
+
+      assert orders.phase == :handless
+      assert orders.fire == :hold
+      assert orders.why =~ "sem teclas"
+    end
+
+    test "mas segue andando: falta de configuração não para a noite" do
+      world = sem_maos(world(%{hunt: hunt(%{state: :fighting})}))
+
+      {_logic, orders} = step(world, 1_000)
+
+      assert orders.route == :go
+    end
+
+    # O revive não precisa de tecla de ataque nenhuma.
+    test "e o vermelho ainda ganha: a vida manda antes das mãos" do
+      world = sem_maos(world(%{situation: situation(%{own_hp: 20})}))
+
+      {_logic, orders} = step(world, 1_000)
+
+      assert orders.phase == :emergency
+      assert orders.revive == :now
+    end
+  end
+
   describe "hunting without gathering a pile" do
     @solo Map.merge(@config, %{gather_piles: false, engage_from: 1})
 

@@ -21,6 +21,14 @@ defmodule Pokex.Bots.Engine.ShadowTest do
     # held still" true on the second reading — the rule under test is the
     # RULER, and `logic_test.exs` is where the floor itself is measured.
     Pokex.SettingsStash.stash!(engine_pile_settle_ms: 0)
+    # A brain with no configured pokémon has no hands, and since 2026-08-25 it
+    # SAYS so instead of narrating a fight it cannot have. These tests are about
+    # the ruler, so they put a creature on the field first.
+    Pokex.TeamFixtures.ready!("Bulbasaur",
+      count: 4,
+      skills: %{"1" => :aoe, "2" => :single, "3" => :single, "4" => :crowd}
+    )
+
     WorldState.clear()
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 

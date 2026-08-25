@@ -12,6 +12,7 @@ defmodule Pokex.Sim.FleetTest do
   alias Pokex.Bots.Engine
   alias Pokex.Perception.WorldState
   alias Pokex.Sim.Runner
+  alias Pokex.Sim.World
 
   @facts [:battle, :pokemon, :skill_bar, :minimap, :situation, :orders, :hunt]
 
@@ -41,6 +42,12 @@ defmodule Pokex.Sim.FleetTest do
   end
 
   setup do
+    # The fence puts a bar here while armed (`Sim.Fence`'s @swaps). These tests
+    # boot the pieces by hand, so they do the same by hand — without it the
+    # engine has no keys and every assertion would be measuring an empty room.
+    Application.put_env(:pokex, :simulated_loadout, Pokex.Sim.Loadout.fallback())
+    on_exit(fn -> Application.delete_env(:pokex, :simulated_loadout) end)
+
     for key <- @facts, do: WorldState.forget(key)
     on_exit(fn -> for key <- @facts, do: WorldState.forget(key) end)
 
@@ -123,6 +130,98 @@ defmodule Pokex.Sim.FleetTest do
 
     assert picture.enemies >= 3
     assert picture.worth_fighting?
+  end
+
+  # THE TEST THAT WAS MISSING, and he found the hole by playing: "rodei uma
+  # simulação e aparentemente ele não usou nenhuma skill nem andou" (Lucas,
+  # 2026-08-25). Every test above proves the engine THINKS. None proved that
+  # anything HAPPENS — and a simulator nobody acts in is a screen, not a
+  # simulator.
+  #
+  # Its own runner, on the REAL clock and a REAL screen (15x11), because both
+  # shortcuts the tests above take would hide the bug: a fake clock that runs
+  # ahead makes every `:orders` fact read as stale and nothing is ever obeyed,
+  # and a 199-tile screen makes the engine hold the route ten tiles from a pile
+  # its area can never reach.
+  describe "com o cérebro no comando, o mundo se mexe" do
+    setup do
+      Application.put_env(:pokex, :simulated_loadout, Pokex.Sim.Loadout.fallback())
+      on_exit(fn -> Application.delete_env(:pokex, :simulated_loadout) end)
+
+      runner =
+        start_supervised!(
+          {Runner,
+           name: nil,
+           tick_ms: 20,
+           route: route(),
+           knobs: %{
+             nest_size: 4,
+             nest_radius: 1,
+             screen_w: 15,
+             screen_h: 11,
+             ms_per_tile: 60,
+             mob_ms_per_tile: 80,
+             skill_cooldown_ms: 400
+           }},
+          id: :acting_runner
+        )
+
+      Runner.play(runner)
+      Runner.auto(runner, true)
+
+      engine = start_supervised!({Engine.Worker, name: nil, active: true}, id: :acting_engine)
+      :ok = Engine.Worker.run(engine)
+
+      %{runner: runner}
+    end
+
+    test "as teclas saem — a barra é uma consequência, não um enfeite", %{runner: runner} do
+      world = play(runner, &(World.observe(&1, :skill_bar).ready_keys != todas(&1)))
+
+      refute World.observe(world, :skill_bar).ready_keys == todas(world),
+             "nenhuma tecla entrou em cooldown: nada foi apertado"
+    end
+
+    test "e os monstros morrem", %{runner: runner} do
+      world = play(runner, &(&1.stats.killed > 0))
+
+      assert world.stats.killed > 0, "o cérebro mandou atacar e ninguém morreu"
+    end
+
+    test "o personagem anda a rota quando não há o que lutar", %{runner: runner} do
+      Runner.load(runner, route(),
+        knobs: %{nest_size: 0, stray_chance_pct: 0, ms_per_tile: 60, screen_w: 15, screen_h: 11}
+      )
+
+      inicio = Runner.world(runner).pos
+      world = play(runner, &(&1.pos != inicio))
+
+      assert world.pos != inicio, "o cérebro mandou andar e o personagem ficou parado"
+    end
+
+    test "sem entregar o comando, nada acontece — e é assim de propósito", %{runner: runner} do
+      Runner.auto(runner, false)
+      Runner.load(runner, route(), knobs: %{nest_size: 4, screen_w: 15, screen_h: 11})
+
+      inicio = Runner.world(runner)
+      world = play(runner, fn _nunca -> false end, 60)
+
+      assert world.pos == inicio.pos
+      assert world.stats.killed == 0
+    end
+  end
+
+  defp todas(world), do: world.keys |> Map.keys() |> Enum.sort()
+
+  # O runner tem relógio próprio de verdade aqui: basta deixar o tempo passar.
+  defp play(runner, until?, tries \\ 400) do
+    world = Runner.world(runner)
+
+    cond do
+      until?.(world) -> world
+      tries > 0 -> Process.sleep(10) && play(runner, until?, tries - 1)
+      true -> world
+    end
   end
 
   defp wait_for_worth(want, tries \\ 200) do

@@ -13,7 +13,7 @@ defmodule Pokex.Sim.FleetTest do
   alias Pokex.Perception.WorldState
   alias Pokex.Sim.Runner
 
-  @facts [:battle, :pokemon, :skill_bar, :minimap, :mini_game, :situation, :orders, :hunt]
+  @facts [:battle, :pokemon, :skill_bar, :minimap, :situation, :orders, :hunt]
 
   defp route do
     %Route{

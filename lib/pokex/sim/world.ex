@@ -307,9 +307,7 @@ defmodule Pokex.Sim.World do
 
   @doc "Advances the world by `dt_ms`."
   @spec step(t, non_neg_integer) :: t
-  def step(world, dt_ms) do
-    if broken?(world, :mini_game), do: world, else: run(world, dt_ms)
-  end
+  def step(world, dt_ms), do: run(world, dt_ms)
 
   defp run(world, dt_ms) do
     world
@@ -353,9 +351,6 @@ defmodule Pokex.Sim.World do
       confirms, and NOTHING HAPPENS IN THE GAME. This is the bug open in his
       journal on 2026-08-17 (6 openings, 6 `🔁 não saiu`, zero `alvo morto`),
       modelled so the pattern can be compared instead of guessed at.
-    * `:mini_game` — the capsule is on screen. Every fact freezes, because the
-      real feeds skip their captures while it is up: a stale fact during the
-      mini-game is not a signal of anything.
     * `{:hp, pct}` — puts the health where the scenario needs it, so a band can
       be reached without waiting to be bitten there.
   """
@@ -560,18 +555,13 @@ defmodule Pokex.Sim.World do
 
   def observe(world, :minimap), do: %{pos: world.pos}
 
-  def observe(world, :mini_game) do
-    if broken?(world, :mini_game),
-      do: %{playing?: true, confidence: 1.0},
-      else: %{playing?: false, confidence: 0.0}
-  end
-
-  # Three ways to not be reading the screen, and they are the same fact to every
-  # consumer: the knob (a world built blind), the injection (a scenario turning
-  # the lights off mid-run), and the mini-game (the feeds skip their captures
-  # while the capsule is up, so every fact is frozen, not empty).
+  # Two ways to not be reading the screen, and they are the same fact to every
+  # consumer: the knob (a world built blind) and the injection (a scenario
+  # turning the lights off mid-run). Frozen facts are what `:blind` models; the
+  # fishing capsule used to be the third way and is gone with it — a hunt never
+  # sees one.
   defp unreadable?(world) do
-    world.knobs.readable? == false or broken?(world, :blind) or broken?(world, :mini_game)
+    world.knobs.readable? == false or broken?(world, :blind)
   end
 
   defp readable_battle(world) do

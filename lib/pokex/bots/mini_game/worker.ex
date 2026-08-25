@@ -79,33 +79,16 @@ defmodule Pokex.Bots.MiniGame.Worker do
     :ok
   end
 
+  # The watcher is fishing gear. Outside the fishing mode there is no rod, no
+  # capsule and nothing to watch — so a `run` there is answered by staying IDLE
+  # (`:ok`, because a worker the mode does not want is not a failed start).
+  # Without this the watcher would still pay a screen capture per tick against
+  # the one serialized broker, competing with the feeds that ARE reading, over
+  # something that cannot happen ("não existe o minigame fora da pesca", Lucas,
+  # 2026-08-25).
   @impl true
   def handle_call(:run, _from, state) do
-    case Calibration.load() do
-      {:ok, calib} ->
-        # re-run mid-game (panel Start while playing) must not strand a held
-        # Space: the merge below forgets in_game?/play, so release FIRST.
-        state =
-          %{state | play: Player.release_if_holding(state.play)}
-          |> cancel_timer()
-          |> Map.merge(%{
-            calib: calib,
-            running?: true,
-            in_game?: false,
-            present_streak: 0,
-            absent_streak: 0,
-            confidence: 0.0,
-            error: nil,
-            play: Player.new()
-          })
-
-        publish_fact(state)
-        broadcast(state)
-        {:reply, :ok, reschedule(state, 0)}
-
-      {:error, reason} ->
-        {:reply, {:error, ["calibração ilegível: #{inspect(reason)}"]}, state}
-    end
+    if Pokex.Modes.watches_mini_game?(), do: do_run(state), else: {:reply, :ok, state}
   end
 
   def handle_call(:halt, _from, state) do
@@ -132,6 +115,34 @@ defmodule Pokex.Bots.MiniGame.Worker do
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
+
+  defp do_run(state) do
+    case Calibration.load() do
+      {:ok, calib} ->
+        # re-run mid-game (panel Start while playing) must not strand a held
+        # Space: the merge below forgets in_game?/play, so release FIRST.
+        state =
+          %{state | play: Player.release_if_holding(state.play)}
+          |> cancel_timer()
+          |> Map.merge(%{
+            calib: calib,
+            running?: true,
+            in_game?: false,
+            present_streak: 0,
+            absent_streak: 0,
+            confidence: 0.0,
+            error: nil,
+            play: Player.new()
+          })
+
+        publish_fact(state)
+        broadcast(state)
+        {:reply, :ok, reschedule(state, 0)}
+
+      {:error, reason} ->
+        {:reply, {:error, ["calibração ilegível: #{inspect(reason)}"]}, state}
+    end
+  end
 
   @impl true
   def handle_info(:tick, %{running?: false} = state), do: {:noreply, state}

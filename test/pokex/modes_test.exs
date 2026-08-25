@@ -19,6 +19,13 @@ defmodule Pokex.ModesTest do
       refute :mini_game in Modes.bundle("moving").workers
     end
 
+    test "only the fishing mode watches the mini game — the capsule needs a rod" do
+      assert Modes.watches_mini_game?("still")
+
+      refute Modes.watches_mini_game?("moving")
+      refute Modes.watches_mini_game?("hunt")
+    end
+
     test "every mode watches the kills and keeps the pokémon alive" do
       for mode <- Modes.all() do
         workers = Modes.bundle(mode).workers

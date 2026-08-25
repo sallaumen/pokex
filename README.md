@@ -266,16 +266,23 @@ halts immediately, including mid-pause.
 Thresholds are runtime settings, measured against the real game and documented
 inline in [`settings.ex`](lib/pokex/settings.ex).
 
-The Pokédex is populated by `mix pokedex.scrape`, which reads the game's wiki.
-That origin is the single piece of configuration naming a specific server —
-`config :pokex, :wiki_base`, overridable with `POKEX_WIKI_BASE`. Pointing it at a
-different wiki also means rewriting the parsers in
-[`pokedex/scraper.ex`](lib/pokex/pokedex/scraper.ex): the HTML shape is not
-portable.
+The Pokédex is populated by `mix pokedex.sync`, which reads the game's wiki
+through its JSON API. That origin is the single piece of configuration naming a
+specific server — `config :pokex, :wiki_base`, overridable with
+`POKEX_WIKI_BASE`. Pointing it at a different wiki also means rewriting
+[`pokedex/index.ex`](lib/pokex/pokedex/index.ex) and
+[`pokedex/page_parser.ex`](lib/pokex/pokedex/page_parser.ex): neither the API
+shape nor the page template is portable.
+
+Element effectiveness is the one thing the wiki does not publish, so
+[`pokedex/type_chart.ex`](lib/pokex/pokedex/type_chart.ex) carries the canonical
+18-type matrix and the buckets are derived at load time rather than stored. That
+is an assumption about the game, not a measurement of it — correcting a cell is
+an edit there, not a re-sync.
 
 ## Tests
 
-2033 tests across 150 files, ~37k lines. The suite runs on **Linux** in CI on
+2502 tests across 150 files, ~37k lines. The suite runs on **Linux** in CI on
 purpose: every path that genuinely touches macOS is disabled in the test
 environment, and the workflow proves that separation holds on every pull
 request.
@@ -301,7 +308,7 @@ run it anywhere, that is entirely on you.
 No game client, source, or binaries are redistributed here. The repository does
 contain screen captures of the running client used as test fixtures, and species
 data scraped from the game's public wiki. Sprite images are not committed — they
-are repopulated locally by `mix pokedex.scrape`.
+are repopulated locally by `mix pokedex.sync`.
 
 ## License
 

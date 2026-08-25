@@ -13,10 +13,10 @@ config :pokex,
   perf_log_interval_ms: 5_000,
   # Origin of the game's wiki — the ONE place the specific server is named.
   # Everything else in the codebase says "PokeTibia", the genre. `mix
-  # pokedex.scrape` reads species data from here and the panel links to it, so
-  # pointing at another server also means rewriting the parsers in
-  # `Pokex.Pokedex.Scraper`: the HTML shape is not portable. Override at runtime
-  # with POKEX_WIKI_BASE (see config/runtime.exs).
+  # pokedex.sync` reads species data from here and the panel links to it, so
+  # pointing at another server also means rewriting `Pokex.Pokedex.Index` and
+  # `Pokex.Pokedex.PageParser`: neither the API shape nor the page template is
+  # portable. Override at runtime with POKEX_WIKI_BASE (see config/runtime.exs).
   wiki_base: "https://wiki.pokealliance.com"
 
 # Configure the endpoint

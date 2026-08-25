@@ -984,11 +984,11 @@ defmodule Pokex.Settings do
     # a heal to 70% from walking straight into the next pile at 55%.
     cavebot_hp_resume_pct: 85,
     # --- Engine ---------------------------------------------------------------------------------
-    # HIS RULER (2026-08-17): "se tem 1 ou 2 monstros, eu às vezes até ignoro
-    # aquele mob e sigo a minha vida (…) eu realmente mato quando tem uns
-    # três". Read by the shared picture today; obeyed by the fight once the
-    # engine's orders are wired.
-    engine_engage_from: 3,
+    # HIS RULER. Era três (2026-08-17: "eu realmente mato quando tem uns três") e
+    # ele o corrigiu vendo a simulação rodar (2026-08-25): "a gente quer matar
+    # quando tem mais do que dois inimigos, dois ou mais". O número sozinho
+    # nunca foi a regra inteira — a outra metade é `engine_gather_tiles`.
+    engine_engage_from: 2,
     # Whether the hunt GATHERS a pile before hitting it. Gathering is what makes
     # the sizing wait worth paying: drag the mob together, then open with area.
     # Hunting weak creatures that wander in one at a time — and never mob back —
@@ -1006,6 +1006,17 @@ defmodule Pokex.Settings do
     # chão. Na régua dele (1) o placar quase empata — o que faz sentido: quem
     # luta tudo não precisa que a pilha se forme.
     engine_gather_piles: true,
+    # R6, A SEGUNDA DIMENSÃO DA RÉGUA, e a que faltava: quantos PASSOS vale a
+    # pena andar puxando uma pilha que já vale a pena, antes de abrir. Dele,
+    # 25/08: "andei dois passos e achei três inimigos, só que eu só andei dois
+    # passos. Que que custa eu andar mais 5 passos, fechar mais um, juntar mais
+    # monstros e aí matar todo mundo já ao redor". Bem abaixo do `leash_tiles`
+    # (12), porque R2 diz que arrastar longe demais faz a pilha SUMIR.
+    engine_gather_tiles: 6,
+    # …e a paciência do outro lado: andados estes passos sem ninguém novo
+    # chegando, vale mais matar o que tem do que continuar procurando. "Ou
+    # quando a gente já andou demais e não achou mais ninguém."
+    engine_patience_tiles: 10,
     # "Pararam de chegar" needs a floor: how long the count must hold still
     # before the pile counts as closed. A MEASUREMENT, not a preference — his
     # own recording shows 1264, 2543, 3248 and 4806ms of real gathering.
@@ -1106,6 +1117,15 @@ defmodule Pokex.Settings do
     # vem atrás de uma pilha abandonada morde o caminho inteiro. Ligada, só as
     # teclas de alvo único — a área é o que a régua está guardando.
     engine_skip_fire: false,
+    # R7: com TODAS as teclas de dano em cooldown e bicho em cima, ficar parado
+    # é uma troca em que só um lado bate. Andando, eles seguem sem morder, e o
+    # fogo segue livre — a primeira tecla que volta sai na hora.
+    #
+    # LIGADO porque foi medido nos dois circuitos, 5 min × 12 sementes, e ganha
+    # nos dois eixos ao mesmo tempo: no formigueiro 15,82 → 18,58 mortos/min com
+    # as quedas caindo de 1,17 pra 0,62; na caçada esparsa 7,58 → 8,92 mortos/min
+    # com ZERO quedas, e o personagem terminando com 82% em vez de 52%.
+    engine_kite_when_spent: true,
     # How often a plain VITALS reading is filed while nothing is changing. The
     # transitions that carry the four measurements are written the instant they
     # happen (see `Engine.Worker.sample_vitals/4`); this is only the heartbeat
@@ -1330,6 +1350,8 @@ defmodule Pokex.Settings do
     engine_reset_revive_min_hp: 0..100,
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
+    engine_gather_tiles: 0..60,
+    engine_patience_tiles: 1..200,
     engine_size_ceiling_ms: 100..600_000,
     engine_band_yellow_pct: 0..100,
     engine_band_red_pct: 0..100,

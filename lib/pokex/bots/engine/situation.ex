@@ -79,6 +79,10 @@ defmodule Pokex.Bots.Engine.Situation do
           growing?: boolean,
           stable_since: integer,
           stable_for_ms: non_neg_integer,
+          pos: {integer, integer, integer} | nil,
+          walked_total: non_neg_integer,
+          pile_walk_at: non_neg_integer,
+          walked: non_neg_integer,
           own_hp: 0..100 | nil,
           own_out?: boolean | :unknown,
           ready_keys: [String.t()] | nil,
@@ -93,8 +97,9 @@ defmodule Pokex.Bots.Engine.Situation do
   `inputs` carries `:battle` (the fact's observation, or `nil` when missing or
   stale), `:own_hp`, `:own_out?` (`true | false | :unknown`), `:own_name`,
   `:ready_keys` (or `nil` when the bar could not be read), `:damage_keys` (this
-  pokémon's area + single keys), and `:prev` — the previous picture, which is
-  what makes "is the pile still growing?" answerable.
+  pokémon's area + single keys), `:pos` (where he is standing, for the distance
+  half of the ruler) and `:prev` — the previous picture, which is what makes
+  "is the pile still growing?" and "how far have I walked for it?" answerable.
 
   `config` carries `:engage_from`.
   """
@@ -107,7 +112,9 @@ defmodule Pokex.Bots.Engine.Situation do
         Map.get(inputs, :own_out?, :unknown)
       )
 
-    {growing?, stable_since} = settle(battle.enemies, Map.get(inputs, :prev), now)
+    prev = Map.get(inputs, :prev)
+    {growing?, stable_since} = settle(battle.enemies, prev, now)
+    {walked_total, pile_at} = pace(battle.enemies, Map.get(inputs, :pos), prev)
 
     %{
       rows: battle.rows,
@@ -118,6 +125,10 @@ defmodule Pokex.Bots.Engine.Situation do
       growing?: growing?,
       stable_since: stable_since,
       stable_for_ms: now - stable_since,
+      pos: Map.get(inputs, :pos),
+      walked_total: walked_total,
+      pile_walk_at: pile_at,
+      walked: walked_total - pile_at,
       own_hp: Map.get(inputs, :own_hp),
       own_out?: Map.get(inputs, :own_out?, :unknown),
       ready_keys: Map.get(inputs, :ready_keys),
@@ -204,6 +215,33 @@ defmodule Pokex.Bots.Engine.Situation do
   end
 
   defp settle(_enemies, _no_history, now), do: {false, now}
+
+  # HIS RULER HAS TWO AXES, and this is the second one: "andei dois passos e
+  # achei três inimigos, só que eu só andei dois passos. Que que custa eu andar
+  # mais 5 passos, juntar mais monstros e aí matar todo mundo já ao redor"
+  # (2026-08-25). A count alone cannot tell a pile that is worth growing from
+  # one that has already been walked for.
+  #
+  # `walked_total` is a monotonic tile counter and `pile_walk_at` is where it
+  # stood when THIS pile started — so `walked` answers "how far have I walked
+  # since the first monster of this one showed up", which is the number his
+  # sentence is about. A pile ending (or the screen going unreadable) rearms it.
+  #
+  # Chebyshev, because the game's diagonal is one step.
+  defp pace(enemies, pos, prev) do
+    total = Map.get(prev || %{}, :walked_total, 0) + steps(Map.get(prev || %{}, :pos), pos)
+    was = Map.get(prev || %{}, :enemies)
+
+    if pile_started?(was, enemies),
+      do: {total, total},
+      else: {total, Map.get(prev || %{}, :pile_walk_at) || total}
+  end
+
+  defp pile_started?(was, enemies),
+    do: is_integer(enemies) and enemies > 0 and (is_nil(was) or was == 0)
+
+  defp steps({x1, y1, z}, {x2, y2, z}), do: max(abs(x2 - x1), abs(y2 - y1))
+  defp steps(_no_reading, _or_another_floor), do: 0
 
   # R1, his ruler: "se tem 1 ou 2 monstros, eu às vezes até ignoro aquele mob e
   # sigo a minha vida (…) eu realmente mato quando tem uns três". Not knowing is

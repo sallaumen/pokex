@@ -94,16 +94,20 @@ defmodule Pokex.Sim.ScoreTest do
       assert com.revives.proactive > 0
       assert com.stalled_pct < sem.stalled_pct, "o que ela ataca é o tempo sem cooldown"
 
-      # O QUE A REGRA REALMENTE FAZ, medido depois que o piso entre dois revives
-      # passou a ser o de verdade (`rescue_cooldown_ms`, um minuto, e não os 2s
-      # que este simulador inventou até 25/08): ela não COMPRA revives, ela os
-      # REALOCA. O piso decide quantos cabem na noite; a R3b decide se eles são
-      # gastos como resgate ou adiantados como reset.
-      assert com.revives.accepted <= sem.revives.accepted + 1,
-             "o piso é o teto: a regra não pode multiplicar as prensas"
-
-      assert com.revives.rescue < sem.revives.rescue,
-             "cada proativo sai de um resgate — é isso que ela custa"
+      # O QUE A REGRA CUSTA MUDOU DE NATUREZA, duas vezes, e o teste conta as
+      # duas porque a segunda só existe por causa da primeira:
+      #
+      #   1. Com o piso de verdade entre dois revives (`rescue_cooldown_ms`, e
+      #      não os 2s que este simulador inventou até 25/08), ela deixou de
+      #      COMPRAR revives e passou a REALOCÁ-LOS: cada proativo saía de um
+      #      resgate.
+      #   2. Com a R7 — andar enquanto a barra recarrega — os RESGATES somem:
+      #      o pokémon deixa de chegar no amarelo. Então não há mais o que
+      #      realocar, e cada proativo é uma prensa a mais.
+      #
+      # Ou seja: a R3b ficou mais cara exatamente porque o resto ficou melhor.
+      assert sem.revives.rescue == 0, "com a R7 no lugar, esta pilha não precisa de resgate"
+      assert com.revives.accepted > sem.revives.accepted, "então cada proativo é um revive novo"
     end
   end
 

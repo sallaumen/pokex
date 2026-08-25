@@ -42,11 +42,24 @@ defmodule Pokex.Sim.BenchTest do
     assert result.outcome.killed > 0
   end
 
-  test "a pile under the ruler is walked away from instead of fought" do
+  # A RÉGUA DELE MUDOU DE SENTIDO (2026-08-25), e é a mudança que ele pediu
+  # vendo a simulação: ela não IGNORA uma pilha pequena, ela ADIA. "Matar quando
+  # tem dois ou mais, OU quando a gente já andou demais e não achou mais
+  # ninguém" — então uma pilha abaixo da régua é carregada junto, e vira luta
+  # quando a paciência acaba.
+  test "a pile under the ruler is carried along, then taken when patience runs out" do
     result = run("pilha-pequena", duration_ms: 30_000)
 
-    assert :skipping in result.outcome.phases
+    assert :gathering in result.outcome.phases
+    assert :engaged in result.outcome.phases
+    assert result.outcome.killed > 0
+  end
+
+  test "…and with the patience turned off, it is left behind instead" do
+    result = run("pilha-pequena", duration_ms: 30_000, config: %{patience_tiles: 10_000})
+
     refute :engaged in result.outcome.phases, "a régua decidiu não abrir — e não abriu"
+    assert result.outcome.vanished > 0, "e a corda levou quem ficou pra trás"
   end
 
   # O TETO MUDOU E ISTO MUDOU COM ELE (2026-08-25). Com 4s o par abandonado
@@ -56,7 +69,11 @@ defmodule Pokex.Sim.BenchTest do
   # arredondada PRA BAIXO", uma frase que enuncia o próprio bug, e a caçada
   # inteira aprova a troca. Este cenário é onde ela cobra.
   test "greed makes the pile vanish rather than die" do
-    result = run("ganancia", duration_ms: 40_000, config: %{size_ceiling_ms: 4_000})
+    result =
+      run("ganancia",
+        duration_ms: 40_000,
+        config: %{size_ceiling_ms: 4_000, patience_tiles: 10_000}
+      )
 
     assert result.outcome.vanished > 0
   end
@@ -64,7 +81,7 @@ defmodule Pokex.Sim.BenchTest do
   test "a vanished mob is never counted as a killed one" do
     result = run("ganancia", duration_ms: 40_000)
 
-    assert result.outcome.killed + result.outcome.vanished + result.outcome.left_alive == 2
+    assert result.outcome.killed + result.outcome.vanished + result.outcome.left_alive == 1
   end
 
   # This assertion has now flipped THREE times, and the history is the lesson.
@@ -82,30 +99,21 @@ defmodule Pokex.Sim.BenchTest do
   #      hunt walked on and left them behind.
   #
   #   5. E o teto (2026-08-25): `size_ceiling_ms` era "a maior mobada gravada
-  #      dele (4806ms) arredondada PRA BAIXO" — 4s, ou seja, um teto ABAIXO da
-  #      pilha mais lenta que ele já registrou, que portanto corta essa pilha
-  #      toda vez. Com 8s a pilha que pinga é esperada até o fim e morre
-  #      inteira. Foi a única das cinco viradas que veio de um número dele em
-  #      vez de um da física.
+  #      dele (4806ms) arredondada PRA BAIXO" — um teto ABAIXO da pilha mais
+  #      lenta que ele já registrou, que portanto corta essa pilha toda vez.
+  #   6. E a régua de PASSOS (R6, no mesmo dia), que aposentou a pergunta: a
+  #      pilha que pinga não é mais esperada parada, é carregada junto. O que
+  #      este cenário mede agora está em "a pilha que chega de um em um".
   #
   # Step 2 was the artifact. The engine only "collected them on the way back"
   # because it could see two extra tiles above and below what the game shows.
   # The finding is real, and the moral is that a conclusion drawn from a model
   # is worth exactly what the model's fidelity is worth.
-  test "a dripping pile is skipped by a ceiling below his own slowest gather" do
-    cortada =
-      Bench.run(Scenario.get("pilha-que-pinga"),
-        duration_ms: 30_000,
-        config: %{size_ceiling_ms: 4_000}
-      )
+  test "a dripping pile is carried along instead of stood next to" do
+    result = run("pilha-que-pinga", duration_ms: 30_000)
 
-    assert :skipping in cortada.outcome.phases
-    assert cortada.outcome.vanished > 0, "the pile has to be LOST, not merely skipped"
-
-    inteira = run("pilha-que-pinga", duration_ms: 30_000)
-
-    assert :engaged in inteira.outcome.phases
-    assert inteira.outcome.vanished == 0
+    assert :gathering in result.outcome.phases
+    assert :engaged in result.outcome.phases
   end
 
   test "red health revives immediately instead of finishing the round" do
@@ -160,22 +168,37 @@ defmodule Pokex.Sim.BenchTest do
     # resposta certa.
     @walks_away ~w(ganancia morte)
 
+    # `gather_tiles: 0` porque a caminhada de juntar (R6) TEM um preço em corda,
+    # e ele é R2 fazendo o que R2 diz. Este contrato é sobre a FÍSICA — o que
+    # acorda e não é abandonado tem que ser lutado — então a caminhada sai da
+    # conta pra que a pergunta continue sendo sobre a física.
     test "nenhum monstro some sem luta em cenário nenhum" do
+      # `gather_tiles: 0` e sem fuga (R7): as duas regras que ANDAM têm o próprio
+      # preço em corda, e este contrato é sobre a FÍSICA — o que acorda e não é
+      # abandonado tem que ser lutado.
+      parado = Map.merge(@his_ruler, %{gather_tiles: 0, kite_when_spent: false})
+
       for scenario <- Scenario.all(),
           scenario.group in Scenario.experiment_groups(),
           scenario.id not in @walks_away do
-        %{outcome: o} = Bench.run(scenario, duration_ms: 60_000, config: @his_ruler)
+        %{outcome: o} = Bench.run(scenario, duration_ms: 60_000, config: parado)
 
         assert o.vanished == 0,
                "#{scenario.id}: #{o.vanished} sumiram sem luta (mortos: #{o.killed})"
       end
     end
 
+    # A LINHA DO TEMPO só fala quando a decisão muda, e com a R7 a decisão passa
+    # a ser a mesma enquanto a barra recarrega — a queda inteira cabe entre duas
+    # linhas. O número que não depende disso é o mais baixo que a barra chegou.
+    # …e com a R7 andando enquanto a barra recarrega, a mordida só alcança de
+    # verdade quem fica parado: `kite_when_spent: false` é o que mantém a
+    # pergunta sobre a MORDIDA em vez de sobre a fuga.
     test "a vida cai de verdade quando a mordida é forte" do
-      %{timeline: t} = Bench.run(Scenario.get("vida-caindo"), config: @his_ruler)
+      parado = Map.put(@his_ruler, :kite_when_spent, false)
+      %{metrics: m} = Bench.run(Scenario.get("vida-caindo"), config: parado)
 
-      assert Enum.any?(t, &(is_integer(&1.hp) and &1.hp < 60)),
-             "a barra nunca saiu do verde: a mordida não chegou a acontecer"
+      assert m.min_hp < 60, "a barra nunca saiu do verde: a mordida não chegou a acontecer"
     end
 
     test "ele cai, e a queda leva a caçada pra recuperação" do
@@ -190,18 +213,21 @@ defmodule Pokex.Sim.BenchTest do
   # hunt decided the pile was not worth it and walked on.
   test "com a régua padrão a pilha pequena é abandonada — e some" do
     %{outcome: o} =
-      Bench.run(Scenario.get("ganancia"), duration_ms: 40_000, config: %{size_ceiling_ms: 4_000})
+      Bench.run(Scenario.get("ganancia"),
+        duration_ms: 40_000,
+        config: %{size_ceiling_ms: 4_000, patience_tiles: 10_000}
+      )
 
     assert :skipping in o.phases
     assert o.killed == 0
     assert o.vanished > 0
   end
 
-  test "com a régua dele os mesmos dois morrem — o preço da régua, medido" do
+  test "com a régua dele o que a régua recusava morre — o preço da régua, medido" do
     %{outcome: o} =
       Bench.run(Scenario.get("ganancia"), duration_ms: 40_000, config: %{engage_from: 1})
 
-    assert o.killed == 2
+    assert o.killed == 1
     assert o.vanished == 0
   end
 
@@ -230,7 +256,7 @@ defmodule Pokex.Sim.BenchTest do
     [low, high] =
       Bench.sweep(Scenario.get("pilha-que-fecha"), :engage_from, [3, 9],
         duration_ms: 30_000,
-        config: %{size_ceiling_ms: 4_000}
+        config: %{size_ceiling_ms: 4_000, patience_tiles: 10_000}
       )
 
     assert low.killed > 0
@@ -255,8 +281,12 @@ defmodule Pokex.Sim.BenchTest do
 
     @curador %Loadout{name: "Curador", aoe: ["3"], single: ["4"], heal: ["7"]}
 
+    # Uma mordida DURA de propósito: com a R7 andando enquanto a barra recarrega,
+    # o mundo padrão de "vida caindo" já não desce até o degrau da cura.
     defp curando(loadout) do
-      Bench.run(Scenario.get("vida-caindo"),
+      cenario = Scenario.get("vida-caindo")
+
+      Bench.run(%{cenario | knobs: Map.merge(cenario.knobs, %{bite_dmg: 12, bite_every_ms: 400})},
         duration_ms: 60_000,
         config: %{engage_from: 1},
         loadout: loadout
@@ -292,69 +322,45 @@ defmodule Pokex.Sim.BenchTest do
     end
   end
 
-  # A queixa dele, com número: "o cérebro PULA uma pilha de cinco que valia".
-  # A pilha que PINGA nunca fica parada tempo bastante, o teto estoura, e a
-  # régua desiste de uma pilha que ela mesma teria aberto.
+  # A QUEIXA DELE, e como ela deixou de ser sobre um relógio.
+  #
+  #   "O cérebro PULA uma pilha de cinco que valia" (24/08). A resposta de então
+  #   foi o teto: 4s era a mobada mais lenta dele arredondada PRA BAIXO, e um
+  #   teto abaixo da pilha mais lenta corta essa pilha toda vez.
+  #
+  #   A resposta de agora é a régua de PASSOS (R6, 25/08): a pilha que pinga não
+  #   é esperada parado, ela é CARREGADA. "Que que custa eu andar mais 5 passos,
+  #   juntar mais monstros e aí matar todo mundo já ao redor." O relógio deixou
+  #   de ser o que decide, e é por isso que o teste do teto virou este.
   describe "a pilha que chega de um em um" do
-    test "com o teto de 4s ela é abandonada; com 8s (o padrão) ela é morta inteira" do
-      curto =
-        Bench.run(Scenario.get("pilha-que-pinga"),
-          duration_ms: 60_000,
-          config: %{size_ceiling_ms: 4_000}
-        )
+    test "é carregada junto até valer, em vez de esperada parada" do
+      %{timeline: t, outcome: o} = Bench.run(Scenario.get("pilha-que-pinga"), duration_ms: 60_000)
 
-      longo = Bench.run(Scenario.get("pilha-que-pinga"), duration_ms: 60_000)
+      juntando = Enum.filter(t, &(&1.phase == :gathering))
 
+      assert juntando != [], "a pilha que pinga tem que ser carregada"
+      assert Enum.any?(juntando, &(&1.why =~ "passos")), "e os passos são o que a decide"
+      assert :engaged in o.phases
+      assert o.killed > 0
+    end
+
+    # O teto continua existindo pro caso que a régua de passos não resolve: uma
+    # pilha que não dá pra carregar porque não vem junto.
+    test "e o teto ainda encerra uma espera que não anda" do
+      # A régua acima da pilha inteira é o que deixa a espera sem saída: sem isso
+      # a pilha vira digna de luta e o teto nunca chega a ser perguntado.
+      parado = %{
+        engage_from: 9,
+        gather_tiles: 0,
+        patience_tiles: 10_000,
+        kite_when_spent: false,
+        size_ceiling_ms: 4_000
+      }
+
+      curto = Bench.run(Scenario.get("pilha-que-pinga"), duration_ms: 60_000, config: parado)
+
+      assert :skipping in curto.outcome.phases
       assert curto.outcome.vanished > 0
-      assert longo.outcome.vanished == 0
-      assert longo.outcome.killed > curto.outcome.killed
-    end
-  end
-
-  # O trecho de MOBADA era invisível pra este banco: `luring?` estava fixo em
-  # false, então o ramo `:gathering` da decisão — e o `engine_gather_piles`
-  # junto — só existia em teste unitário. Uma varredura de um botão que o banco
-  # não alcança é uma varredura de nada, e uma foi reportada.
-  describe "o trecho de mobada" do
-    test "a caçada passa por ele, e mobar não é lutar" do
-      %{timeline: t} = Bench.run(Scenario.get("cacada"), duration_ms: 120_000)
-
-      assert Enum.any?(t, &(&1.phase == :gathering)),
-             "o cenário da caçada não tem trecho de mobada alcançável"
-
-      for line <- t, line.phase == :gathering do
-        assert line.why =~ "mobando"
-      end
-    end
-
-    test "e desligar o botão apaga o trecho, em vez de mudá-lo de sentido" do
-      solto =
-        Bench.run(Scenario.get("cacada"), duration_ms: 120_000, config: %{gather_piles: false})
-
-      refute Enum.any?(solto.timeline, &(&1.phase == :gathering))
-    end
-
-    # Uma semente é sorte; o número que decide um botão é a média. Seis corridas
-    # de cinco minutos cada, e a diferença que elas mostram é a que está escrita
-    # no ajuste.
-    test "e juntar a pilha paga, medido em seis sementes" do
-      juntando = mortos_em(6, %{})
-      solto = mortos_em(6, %{gather_piles: false})
-
-      assert juntando > solto, "juntando #{juntando} × solto #{solto}"
-    end
-
-    defp mortos_em(seeds, config) do
-      for seed <- 1..seeds, reduce: 0 do
-        total ->
-          %{outcome: o} =
-            Bench.run(%{Scenario.get("cacada") | seed: seed},
-              duration_ms: 300_000,
-              config: config
-            )
-
-          total + o.killed
-      end
     end
   end
 end

@@ -231,6 +231,7 @@ defmodule Pokex.Bots.Engine.Worker do
       own_hp: own_hp(now),
       own_out?: own_out?(now),
       own_name: state.loadout && state.loadout.name,
+      pos: pos(now),
       ready_keys: Perception.ready_skills(now),
       damage_keys: damage_keys(state.loadout),
       prev: state.picture
@@ -261,6 +262,16 @@ defmodule Pokex.Bots.Engine.Worker do
       {:ok, %{readable?: true}} -> true
       {:ok, %{fainted?: true}} -> false
       _unreadable_or_missing -> :unknown
+    end
+  end
+
+  # Where he is standing, for the distance half of the ruler (R6). Unknown is a
+  # legal answer and costs nothing: a picture with no position simply never
+  # accumulates steps, and the count half of the ruler still decides.
+  defp pos(now) do
+    case Perception.minimap(now) do
+      {:ok, %{pos: pos}} -> pos
+      _unknown -> nil
     end
   end
 

@@ -192,6 +192,7 @@ defmodule Pokex.Sim.Bench do
       pile_open: nil,
       by_phase: %{},
       by_band: %{},
+      violations: [],
       min_hp: nil,
       player_hp: 100
     }
@@ -210,6 +211,7 @@ defmodule Pokex.Sim.Bench do
       state.metrics
       |> tally_time(world, orders, picture)
       |> tally_risk(world, orders, picture)
+      |> tally_violations(world, orders, picture)
       |> tally_bodies(previous, world)
       |> tally_death(previous, world)
       |> tally_revive(decided_on, world, orders, picture)
@@ -259,6 +261,34 @@ defmodule Pokex.Sim.Bench do
   defp lowest(nil, hp), do: hp
   defp lowest(low, nil), do: low
   defp lowest(low, hp), do: min(low, hp)
+
+  # THE INVARIANTS — the things that must be true of EVERY tick of EVERY run,
+  # which is what "is it consistent" asks for and what a rate per minute can
+  # never answer. Each one is a bug this project has already shipped once:
+  #
+  #   * `:fire_without_body` — ordering a fight with nothing on the field. It
+  #     was 71% of a run once, narrated as "estourando a área".
+  #   * `:hold_while_down` — standing still with the pokémon in the ball, which
+  #     is the character taking the bites for it.
+  #   * `:wasted_revive` — a press with full health, nothing spent and an empty
+  #     screen: it buys nothing and costs an item.
+  #   * `:mute_order` — an order with no reason. A brain that decides in silence
+  #     is indistinguishable from a brain that is stopped.
+  defp tally_violations(metrics, _world, orders, picture) do
+    broken =
+      [
+        {:fire_without_body, orders.fire == :free and picture.own_out? == false},
+        {:hold_while_down, orders.route == :hold and picture.own_out? == false},
+        {:wasted_revive,
+         orders.revive == :now and picture.enemies == 0 and picture.own_hp == 100 and
+           picture.spent? != true},
+        {:mute_order, not (is_binary(orders.why) and orders.why != "")}
+      ]
+      |> Enum.filter(&elem(&1, 1))
+      |> Enum.map(&elem(&1, 0))
+
+    Map.update!(metrics, :violations, &(broken ++ &1))
+  end
 
   defp tally_bodies(metrics, before, world) do
     %{
@@ -328,6 +358,7 @@ defmodule Pokex.Sim.Bench do
       battle: if(battle.enemies == nil, do: nil, else: battle),
       own_hp: pokemon.hp_pct,
       own_out?: out_state(pokemon),
+      pos: World.observe(world, :minimap).pos,
       own_name: world.own.name,
       ready_keys: World.observe(world, :skill_bar).ready_keys,
       damage_keys: damage_keys(world),
@@ -437,7 +468,8 @@ defmodule Pokex.Sim.Bench do
       timeline: timeline,
       metrics: %{
         state.metrics
-        | deaths: Enum.reverse(state.metrics.deaths),
+        | violations: Enum.frequencies(state.metrics.violations),
+          deaths: Enum.reverse(state.metrics.deaths),
           revives: Enum.reverse(state.metrics.revives),
           piles: Enum.reverse(state.metrics.piles)
       },

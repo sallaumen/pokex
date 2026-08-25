@@ -104,6 +104,21 @@ defmodule Pokex.Sim.Bench do
   """
   def default_config, do: Map.new(@knobs, fn {knob, setting} -> {knob, seed(setting)} end)
 
+  # THE RIVAL BRAIN. Not a preference: the three changes that came out ahead on
+  # every axis of a 5 min x 8 seeds hunt, measured 2026-08-25 with the revive's
+  # real floors in the model.
+  #
+  #   como está hoje       5,42 mortos/min · 0,13 quedas/min · 3,68 somem/min
+  #   com estes três       7,82 mortos/min · 0,03 quedas/min · 0,25 somem/min
+  #
+  # All three are HIS to flip, and none is code: the ruler is a setting, the
+  # potion is a setting, and firing at what follows a skipped pile is a setting
+  # that exists precisely because it argues with R1 as he stated it.
+  @tuning %{engage_from: 1, skip_fire: true, potion_enabled: true}
+
+  @doc "The changes the bench found worth their price, as overrides."
+  def tuning, do: @tuning
+
   @doc "The knobs as the bot is running them right now — his overrides included."
   def config_in_force,
     do: Map.new(@knobs, fn {knob, setting} -> {knob, Settings.get(setting)} end)

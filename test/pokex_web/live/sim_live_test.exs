@@ -117,9 +117,17 @@ defmodule PokexWeb.SimLiveTest do
       assert html =~ label, "faltou o mostrador de #{label}"
     end
 
-    # a comparação existe e é nomeada
-    assert html =~ "O revive como reset de cooldown (R3b)"
-    assert html =~ "revives proativos"
+    # a comparação existe, é nomeada, e diz quais chaves mudaram
+    assert html =~ "Como está hoje → afinado"
+    assert html =~ "pilhas abandonadas"
+
+    for {key, _value} <- Pokex.Sim.Bench.tuning() do
+      assert html =~ to_string(key), "o placar não disse qual chave mudou (#{key})"
+    end
+
+    # e onde o minuto foi parar, que é a única versão do número da qual dá pra
+    # escolher um botão
+    assert html =~ "Onde foi o minuto"
 
     # uma linha por cenário
     for scenario <- Pokex.Sim.Scenario.all() do

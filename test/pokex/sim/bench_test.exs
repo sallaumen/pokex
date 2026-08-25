@@ -221,6 +221,7 @@ defmodule Pokex.Sim.BenchTest do
 
     assert result.outcome.ran_for_ms >= 60_000
   end
+
   # A escada do suporte tem três degraus e este banco só modelava o terceiro.
   # `PlayerSupport.Logic` é pura, então quem decide é ela mesma — não uma cópia.
   describe "os dois degraus baratos da escada" do
@@ -256,11 +257,12 @@ defmodule Pokex.Sim.BenchTest do
       }
 
       com = Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: drinking)
-      sem = Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: %{engage_from: 1})
+
+      sem =
+        Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: %{engage_from: 1})
 
       assert com.metrics.min_hp == sem.metrics.min_hp
       assert com.outcome.hp_at_end > sem.outcome.hp_at_end
     end
   end
-
 end

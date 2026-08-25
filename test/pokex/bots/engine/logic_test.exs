@@ -568,7 +568,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # 0,1%. O piso entre dois revives é um MINUTO: esperar por um que não pode vir
   # não cura nada.
   describe "o revive que não pode vir (R5)" do
-    defp ferido(hp), do: world(%{situation: situation(%{own_hp: hp}), hunt: hunt(%{state: :fighting})})
+    defp ferido(hp),
+      do: world(%{situation: situation(%{own_hp: hp}), hunt: hunt(%{state: :fighting})})
 
     defp ordena_e_espera(hp) do
       {logic, orders} = step(ferido(hp), 1_000)

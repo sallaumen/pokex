@@ -199,16 +199,25 @@ defmodule Pokex.Bots.Engine.Logic do
       band in [:yellow, :red] and not revive_plausible?(logic, config, now) ->
         unaided(logic, world, config, now, band)
 
-      band == :red -> emergency(logic, world, config, now)
-      band == :yellow -> closing(logic, world, config, now)
-      world.situation.blind? -> blind(logic)
+      band == :red ->
+        emergency(logic, world, config, now)
+
+      band == :yellow ->
+        closing(logic, world, config, now)
+
+      world.situation.blind? ->
+        blind(logic)
+
       # NO HANDS. `fire: :free` with an empty `opening` is an order that looks
       # like an action and does nothing — the shape of "lutando como sem pokémon
       # escolhido" in his own journal, and of a simulator that ran a whole fight
       # without a single key leaving the bar (2026-08-25). A fight with no keys
       # is not a fight; say so instead of narrating one.
-      opening(world) == [] -> handless(logic, world, config)
-      true -> normal(logic, world, config, now)
+      opening(world) == [] ->
+        handless(logic, world, config)
+
+      true ->
+        normal(logic, world, config, now)
     end
   end
 
@@ -472,7 +481,6 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp denied_for(logic, now), do: now - Map.get(logic.since, :revive_denied, now)
 
-
   # GREEN: what the route says, with the ruler applied where it stops.
   defp normal(logic, %{hunt: %{state: :fighting}} = world, config, now),
     do: sizing(logic, world, config, now)
@@ -546,7 +554,6 @@ defmodule Pokex.Bots.Engine.Logic do
        why: skip_why(config)
      )}
   end
-
 
   defp sizing(logic, world, config, now) do
     logic = enter(logic, :sizing, now)

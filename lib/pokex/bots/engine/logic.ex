@@ -487,6 +487,15 @@ defmodule Pokex.Bots.Engine.Logic do
   defp ruler(%{logic: %{state: :skipping}} = t), do: skipping(t)
   defp ruler(t), do: sizing(%{t | logic: enter(t.logic, :sizing, t.now)})
 
+  # THE ROUND IS OVER when the list is empty — 0, not `nil`. "Finishing what you
+  # started" is the rule for a list that is shrinking, not for a screen with
+  # nobody on it: holding the route there narrates a fight against nothing and
+  # keeps the hunt standing at a spot it has already cleared.
+  defp engaged(%{s: %{enemies: 0}} = t) do
+    {reset_fight(t.logic, :travelling),
+     Orders.walking(:travelling, t.band, "pilha limpa — seguindo a rota")}
+  end
+
   defp engaged(t) do
     if reset_revive?(t) do
       # R3b. Stays ENGAGED — this is not a rescue and there is nothing to

@@ -997,6 +997,14 @@ defmodule Pokex.Settings do
     # Lucas 2026-08-24, watching Rattata be walked past). With this off, worth
     # fighting means fight NOW, and a stretch recorded for mobbing is walked
     # with the fire free instead of held.
+    #
+    # MEDIDO em 25/08, e antes disso não podia ser: o bench respondia
+    # `luring?: false` sempre, então o ramo `:gathering` era inalcançável e uma
+    # varredura deste botão foi uma varredura de nada. Com um trecho de mobada
+    # no cenário da caçada, 5 min × 12 sementes: juntando 7,13 mortos/min contra
+    # 6,35 solto, com 0,08 quedas contra 0,25 e menos da metade do tempo no
+    # chão. Na régua dele (1) o placar quase empata — o que faz sentido: quem
+    # luta tudo não precisa que a pilha se forme.
     engine_gather_piles: true,
     # "Pararam de chegar" needs a floor: how long the count must hold still
     # before the pile counts as closed. A MEASUREMENT, not a preference — his

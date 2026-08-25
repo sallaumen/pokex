@@ -310,4 +310,51 @@ defmodule Pokex.Sim.BenchTest do
       assert longo.outcome.killed > curto.outcome.killed
     end
   end
+
+  # O trecho de MOBADA era invisível pra este banco: `luring?` estava fixo em
+  # false, então o ramo `:gathering` da decisão — e o `engine_gather_piles`
+  # junto — só existia em teste unitário. Uma varredura de um botão que o banco
+  # não alcança é uma varredura de nada, e uma foi reportada.
+  describe "o trecho de mobada" do
+    test "a caçada passa por ele, e mobar não é lutar" do
+      %{timeline: t} = Bench.run(Scenario.get("cacada"), duration_ms: 120_000)
+
+      assert Enum.any?(t, &(&1.phase == :gathering)),
+             "o cenário da caçada não tem trecho de mobada alcançável"
+
+      for line <- t, line.phase == :gathering do
+        assert line.why =~ "mobando"
+      end
+    end
+
+    test "e desligar o botão apaga o trecho, em vez de mudá-lo de sentido" do
+      solto =
+        Bench.run(Scenario.get("cacada"), duration_ms: 120_000, config: %{gather_piles: false})
+
+      refute Enum.any?(solto.timeline, &(&1.phase == :gathering))
+    end
+
+    # Uma semente é sorte; o número que decide um botão é a média. Seis corridas
+    # de cinco minutos cada, e a diferença que elas mostram é a que está escrita
+    # no ajuste.
+    test "e juntar a pilha paga, medido em seis sementes" do
+      juntando = mortos_em(6, %{})
+      solto = mortos_em(6, %{gather_piles: false})
+
+      assert juntando > solto, "juntando #{juntando} × solto #{solto}"
+    end
+
+    defp mortos_em(seeds, config) do
+      for seed <- 1..seeds, reduce: 0 do
+        total ->
+          %{outcome: o} =
+            Bench.run(%{Scenario.get("cacada") | seed: seed},
+              duration_ms: 300_000,
+              config: config
+            )
+
+          total + o.killed
+      end
+    end
+  end
 end

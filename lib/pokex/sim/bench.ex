@@ -35,6 +35,7 @@ defmodule Pokex.Sim.Bench do
   right", never "did the key land".
   """
 
+  alias Pokex.Bots.Cavebot.Route
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
@@ -187,7 +188,12 @@ defmodule Pokex.Sim.Bench do
     picture = Situation.build(inputs(before, state.picture), state.config, before.clock)
 
     {logic, orders} =
-      Logic.step(state.logic, decision_world(before, picture), state.config, before.clock)
+      Logic.step(
+        state.logic,
+        decision_world(before, picture, state.leg),
+        state.config,
+        before.clock
+      )
 
     acted = %{state | world: obey(before, orders, state.leg)} |> support(picture)
     world = acted.world
@@ -374,10 +380,12 @@ defmodule Pokex.Sim.Bench do
 
   # A hunt is always running here — the scenario IS the hunt. Standing where
   # monsters are on screen is `:fighting`, which is what makes the ruler run.
-  defp decision_world(world, picture) do
+  defp decision_world(world, picture, leg) do
+    luring? = luring?(world, leg)
+
     %{
       situation: picture,
-      hunt: %{state: hunt_state(world), luring?: false},
+      hunt: %{state: hunt_state(world, luring?), luring?: luring?},
       hands: %{opening: opening(world), single: keys_of_kind(world, :single)}
     }
   end
@@ -386,7 +394,28 @@ defmodule Pokex.Sim.Bench do
     for {key, %{kind: ^kind}} <- world.keys, do: key
   end
 
-  defp hunt_state(world) do
+  # THE MOBBING LEG, which this bench could not see until 2026-08-25 and
+  # therefore could not measure: `luring?` was hard-coded false, so the whole
+  # `:gathering` branch of the decision — and `engine_gather_piles` with it —
+  # was answered by unit tests alone. A sweep of a knob the bench cannot reach
+  # is a sweep of nothing, and one was reported.
+  #
+  # The leg being walked is the one LEAVING the previous waypoint, exactly as
+  # `Cavebot.Logic.luring?/1` reads it.
+  defp luring?(world, leg) do
+    count = length(world.route.waypoints)
+
+    count > 0 and Route.lure_leg?(world.route.waypoints, Integer.mod(leg - 1, count))
+  end
+
+  # A hunt walking a mobbing stretch is NOT fighting, whatever is on screen —
+  # that is the whole point of the stretch ("se não tá lutando, ele tá no modo
+  # mobado, onde ele não deveria atacar NUNCA"). Conflating the two is what let
+  # this bench answer `:fighting` for a leg the cavebot walks with the fire
+  # held.
+  defp hunt_state(_world, true = _luring?), do: :walking
+
+  defp hunt_state(world, _not_luring) do
     if Enum.any?(world.mobs, &World.reachable?(&1, world)), do: :fighting, else: :walking
   end
 

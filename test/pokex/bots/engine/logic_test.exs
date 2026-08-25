@@ -139,6 +139,30 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
+  # "Terminar o que começou" é a regra pra uma lista que ENCOLHE, não pra uma
+  # tela com ninguém nela: segurar a rota ali narra uma luta contra nada e
+  # mantém a caçada parada num ponto que ela já limpou.
+  describe "a pilha que acabou" do
+    test "a lista vazia encerra a rodada em vez de virar luta contra ninguém" do
+      pilha = world(%{hunt: hunt(%{state: :fighting})})
+      {logic, orders} = step(pilha, 1_000)
+      assert orders.phase == :engaged
+
+      limpa =
+        world(%{
+          situation: situation(%{enemies: 0, worth_fighting?: false}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {_logic, orders} = step(logic, limpa, 2_000)
+
+      assert orders.phase == :travelling
+      assert orders.route == :go
+      assert orders.fire == :hold
+      assert orders.why =~ "pilha limpa"
+    end
+  end
+
   describe "the yellow band: fecha a rodada (R3)" do
     defp yellow(overrides \\ %{}) do
       world(%{

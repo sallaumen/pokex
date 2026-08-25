@@ -63,7 +63,9 @@ defmodule Pokex.Sim.Bench do
     resume_pct: :engine_resume_pct,
     recover_timeout_ms: :engine_recover_timeout_ms,
     closing_timeout_ms: :engine_closing_timeout_ms,
-    downed_retry_ms: :engine_downed_retry_ms
+    downed_retry_ms: :engine_downed_retry_ms,
+    revive_confirm_ms: :engine_revive_confirm_ms,
+    rescue_cooldown_ms: :rescue_cooldown_ms
   }
 
   # The WORLD's knobs that are not the world's to invent: the two floors between

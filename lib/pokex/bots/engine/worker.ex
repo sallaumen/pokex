@@ -246,7 +246,12 @@ defmodule Pokex.Bots.Engine.Worker do
       resume_pct: Settings.get(:engine_resume_pct),
       recover_timeout_ms: Settings.get(:engine_recover_timeout_ms),
       closing_timeout_ms: Settings.get(:engine_closing_timeout_ms),
-      downed_retry_ms: Settings.get(:engine_downed_retry_ms)
+      downed_retry_ms: Settings.get(:engine_downed_retry_ms),
+      revive_confirm_ms: Settings.get(:engine_revive_confirm_ms),
+      # Not the engine's own number: the floor the PlayerSupport actually keeps
+      # between two rescues. The brain planning around a press the hands cannot
+      # make is how a hunt froze for thirty seconds at a time.
+      rescue_cooldown_ms: Settings.get(:rescue_cooldown_ms)
     }
   end
 

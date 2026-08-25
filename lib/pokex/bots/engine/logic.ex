@@ -43,6 +43,15 @@ defmodule Pokex.Bots.Engine.Logic do
       16 seeds × 5 minutes it bought 5–9% more monsters and cost the character
       health every time, which is why it is still off by default — and why it
       now refuses to fire on a bar that is not full.
+    * **R5 — a revive you cannot press is not a plan.** The floor between two
+      presses is `rescue_cooldown_ms`, and it is a MINUTE. Waiting for one that
+      cannot come does not heal anything: measured 2026-08-25, a bench hunt
+      spent **47.5% of itself in `:recovering`**, standing still in thirty-second
+      blocks while the health bar kept falling, and `:engaged` got 0.1%. So the
+      wait now ends the moment the revive is seen NOT to have landed, and while
+      it cannot come the band stops holding the route — the order stays out, so
+      the press lands the instant the floor passes, and the hunt walks instead
+      of freezing.
     * **R4 — the stun is a clock nothing contradicts.** A partial stun is the
       common case, not the exception, and the window it opens is the best one
       available: "essa é a melhor janela antes de eu não ter mais opções e
@@ -99,9 +108,21 @@ defmodule Pokex.Bots.Engine.Logic do
   # to one key that did not leave the hand.
   @downed_retry_ms 4_000
 
+  # How long a revive has to prove it landed before it is called a refusal. Its
+  # only job is to be longer than the game takes to put the body back and much
+  # shorter than `recover_timeout_ms`.
+  @revive_confirm_ms 3_000
+
+  # The floor the ACTUATOR keeps between two rescues, mirrored here so the brain
+  # stops planning around a press that cannot happen. Authority is Settings.
+  @rescue_cooldown_ms 60_000
+
   defstruct state: :idle,
             # when each phase started, so a wait can have a ceiling
             since: %{},
+            # the health the last revive was ORDERED at, which is how a revive
+            # that landed is told from one the game refused
+            revive_hp: nil,
             why: nil
 
   @type t :: %__MODULE__{}
@@ -172,6 +193,12 @@ defmodule Pokex.Bots.Engine.Logic do
     cond do
       # Health still rules first: the revive needs no attack key, and a pokémon
       # about to fall must not be abandoned because nobody classified its bar.
+      # …unless the answer to the band is not available at all (R5): a band whose
+      # only move is a revive the game will refuse for another forty seconds is
+      # not a reason to stand still.
+      band in [:yellow, :red] and not revive_plausible?(logic, config, now) ->
+        unaided(logic, world, config, now, band)
+
       band == :red -> emergency(logic, world, config, now)
       band == :yellow -> closing(logic, world, config, now)
       world.situation.blind? -> blind(logic)
@@ -289,7 +316,7 @@ defmodule Pokex.Bots.Engine.Logic do
   defp emergency(logic, world, _config, now) do
     hp = world.situation.own_hp
 
-    {to_recovering(logic, now),
+    {to_recovering(logic, now, hp),
      orders(:emergency, :red,
        route: :hold,
        fire: :free,
@@ -324,7 +351,7 @@ defmodule Pokex.Bots.Engine.Logic do
       # longer buys nothing either way, and the alternative is the revive
       # combo firing with no pokémon left on the field.
       revive_now?(logic, s, config, now) ->
-        {to_recovering(logic, now),
+        {to_recovering(logic, now, hp),
          orders(:closing, :yellow,
            route: :hold,
            fire: :free,
@@ -361,6 +388,13 @@ defmodule Pokex.Bots.Engine.Logic do
       is_integer(hp) and hp >= config.resume_pct ->
         logic |> reset() |> normal(world, config, now)
 
+      # R5. The press was made and NOTHING moved — the bar did not rise and the
+      # body never left the field. That is a refusal, not a slow revive, and
+      # waiting out the whole recovery ceiling on it is the thirty-second freeze
+      # this rule exists to end.
+      not landed?(logic, hp) and not within?(logic, :recovering, confirm_ms(config), now) ->
+        denied(logic, world, config, now)
+
       not within?(logic, :recovering, config.recover_timeout_ms, now) ->
         {reset(%{logic | state: :travelling}),
          orders(:travelling, band(world.situation, config),
@@ -378,6 +412,66 @@ defmodule Pokex.Bots.Engine.Logic do
          )}
     end
   end
+
+  # A revive that LANDED always shows itself: the bar comes back higher than it
+  # was when the key was pressed. (The body leaving the field is the other sign,
+  # and `:downed` catches that one before this function is ever reached.)
+  defp landed?(%{revive_hp: was}, hp) when is_integer(was) and is_integer(hp), do: hp > was
+  defp landed?(_no_mark, _hp), do: false
+
+  defp confirm_ms(config), do: Map.get(config, :revive_confirm_ms, @revive_confirm_ms)
+
+  # The refusal, remembered. Nothing here presses anything: it walks, and it
+  # writes down WHEN, so the bands stop holding the route until the floor the
+  # actuator keeps (`rescue_cooldown_ms`) has actually passed.
+  defp denied(logic, world, config, now) do
+    logic = %{reset(logic) | state: :travelling, since: %{revive_denied: now}, revive_hp: nil}
+
+    {logic,
+     orders(:travelling, band(world.situation, config),
+       route: :go,
+       fire: :free,
+       opening: opening(world),
+       why: "o revive não saiu — seguindo a rota, o próximo só daqui a #{floor_s(config)}s"
+     )}
+  end
+
+  defp floor_s(config), do: div(revive_floor_ms(config), 1_000)
+
+  defp revive_floor_ms(config), do: Map.get(config, :rescue_cooldown_ms, @rescue_cooldown_ms)
+
+  defp revive_plausible?(logic, config, now) do
+    case Map.get(logic.since, :revive_denied) do
+      nil -> true
+      at -> now - at >= revive_floor_ms(config)
+    end
+  end
+
+  # The band is right and the only answer to it is out of reach. Neither of the
+  # two obvious moves is the one: standing still does not raise a health bar
+  # (that was the 47.5% freeze), and hunting on at 45% with no revive behind it
+  # just spends the pokemon (measured — it doubled the falls).
+  #
+  # So: WALK IT OFF. The route goes, because progress is the only thing still
+  # available; the keys stay free, because what is already biting has to be
+  # answered; and no pile is opened, because opening one is choosing a fight
+  # with no way out of it. It is what he does himself when he is low — keep
+  # moving and let them lose interest (R2, used on purpose instead of suffered).
+  defp unaided(logic, world, config, now, band) do
+    hp = world.situation.own_hp
+    left = div(max(revive_floor_ms(config) - denied_for(logic, now), 0), 1_000)
+
+    {reset_fight(%{logic | state: :unaided}, :unaided, now),
+     orders(:unaided, band,
+       route: :go,
+       fire: :free,
+       opening: opening(world),
+       why: "#{hp}% e o revive só volta em #{left}s — andando sem abrir pilha"
+     )}
+  end
+
+  defp denied_for(logic, now), do: now - Map.get(logic.since, :revive_denied, now)
+
 
   # GREEN: what the route says, with the ruler applied where it stops.
   defp normal(logic, %{hunt: %{state: :fighting}} = world, config, now),
@@ -562,8 +656,13 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
-  defp to_recovering(logic, now),
-    do: %{logic | state: :recovering, since: Map.put(logic.since, :recovering, now)}
+  defp to_recovering(logic, now, hp),
+    do: %{
+      logic
+      | state: :recovering,
+        since: Map.put(logic.since, :recovering, now),
+        revive_hp: hp
+    }
 
   # A new round's clocks must not be bound by the one that just ended.
   defp reset(logic), do: %{logic | since: %{}}

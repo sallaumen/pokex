@@ -20,7 +20,9 @@ defmodule Pokex.Bots.Engine.LogicTest do
     resume_pct: 80,
     recover_timeout_ms: 30_000,
     closing_timeout_ms: 8_000,
-    downed_retry_ms: 4_000
+    downed_retry_ms: 4_000,
+    revive_confirm_ms: 3_000,
+    rescue_cooldown_ms: 60_000
   }
 
   defp situation(overrides \\ %{}) do
@@ -554,6 +556,70 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert orders.phase in [:sizing, :engaged]
       assert orders.route == :hold
+    end
+  end
+
+  # 47,5% de uma caçada inteira do bench foi gasta em `:recovering`, parada em
+  # blocos de trinta segundos, com a barra caindo o tempo todo e `:engaged` com
+  # 0,1%. O piso entre dois revives é um MINUTO: esperar por um que não pode vir
+  # não cura nada.
+  describe "o revive que não pode vir (R5)" do
+    defp ferido(hp), do: world(%{situation: situation(%{own_hp: hp}), hunt: hunt(%{state: :fighting})})
+
+    defp ordena_e_espera(hp) do
+      {logic, orders} = step(ferido(hp), 1_000)
+      assert orders.revive == :now
+      logic
+    end
+
+    test "a espera acaba assim que a vida não sobe" do
+      logic = ordena_e_espera(20)
+
+      {_logic, orders} = step(logic, ferido(20), 1_000 + @config.revive_confirm_ms)
+
+      assert orders.route == :go
+      assert orders.why =~ "o revive não saiu"
+    end
+
+    test "mas uma vida que subiu é um revive que saiu: aí ela espera mesmo" do
+      logic = ordena_e_espera(20)
+
+      {_logic, orders} = step(logic, ferido(45), 1_000 + @config.revive_confirm_ms)
+
+      assert orders.phase == :recovering
+      assert orders.route == :hold
+    end
+
+    test "recusado, a banda para de segurar a rota até o piso passar" do
+      logic = ordena_e_espera(20)
+      {logic, _} = step(logic, ferido(20), 1_000 + @config.revive_confirm_ms)
+
+      {_logic, orders} = step(logic, ferido(45), 10_000)
+
+      assert orders.phase == :unaided
+      assert orders.route == :go, "parar não levanta barra de vida nenhuma"
+      assert orders.fire == :free, "o que já está mordendo tem que ser respondido"
+      assert orders.why =~ "andando sem abrir pilha"
+    end
+
+    test "e não pede o que não pode ser dado" do
+      logic = ordena_e_espera(20)
+      {logic, _} = step(logic, ferido(20), 1_000 + @config.revive_confirm_ms)
+
+      {_logic, orders} = step(logic, ferido(45), 10_000)
+
+      assert orders.revive == :hold
+    end
+
+    test "passado o piso, a banda volta a mandar" do
+      logic = ordena_e_espera(20)
+      {logic, _} = step(logic, ferido(20), 1_000 + @config.revive_confirm_ms)
+
+      passou = 1_000 + @config.revive_confirm_ms + @config.rescue_cooldown_ms + 1
+      {_logic, orders} = step(logic, ferido(20), passou)
+
+      assert orders.phase == :emergency
+      assert orders.revive == :now
     end
   end
 

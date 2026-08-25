@@ -1070,6 +1070,12 @@ defmodule Pokex.Settings do
     # The first ask waits the same window: the ordinary reason to be off the field
     # is a revive already in flight.
     engine_downed_retry_ms: 4_000,
+    # R5: how long a revive has to prove it landed before the engine calls it a
+    # refusal and walks again. Its only job is to be longer than the game takes
+    # to put the body back and much shorter than the recovery ceiling — the
+    # ceiling spent 47.5% of a bench hunt standing in front of a bar that
+    # standing still does not raise.
+    engine_revive_confirm_ms: 3_000,
     # How often a plain VITALS reading is filed while nothing is changing. The
     # transitions that carry the four measurements are written the instant they
     # happen (see `Engine.Worker.sample_vitals/4`); this is only the heartbeat
@@ -1301,6 +1307,7 @@ defmodule Pokex.Settings do
     engine_recover_timeout_ms: 1_000..600_000,
     engine_closing_timeout_ms: 100..600_000,
     engine_downed_retry_ms: 500..600_000,
+    engine_revive_confirm_ms: 500..600_000,
     engine_hunt_max_age_ms: 200..60_000,
     engine_orders_max_age_ms: 200..60_000,
     posture_max_age_ms: 500..60_000,

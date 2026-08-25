@@ -34,7 +34,12 @@ defmodule Pokex.Sim.Knobs do
     heal_skill_cooldown_ms: :heal_skill_cooldown_ms,
     potion_enabled: :potion_enabled,
     potion_pct: :pokemon_hp_potion_pct,
-    potion_cooldown_ms: :potion_cooldown_ms
+    potion_cooldown_ms: :potion_cooldown_ms,
+    # …e o prefixo do resgate: o stun de área guardado pra este momento, e os
+    # milissegundos que o pokémon fica em campo DEPOIS dele, tanqueando, pra que
+    # a pilha esteja mesmo dormindo antes de o campo esvaziar.
+    rescue_stun_first: :rescue_stun_first,
+    rescue_stun_settle_ms: :rescue_stun_settle_ms
   }
 
   @type source :: :seeds | :live

@@ -520,7 +520,18 @@ defmodule Pokex.Settings do
     rescue_enabled: false,
     rescue_key: "q",
     pokemon_hp_rescue_pct: 50,
-    rescue_cooldown_ms: 60_000,
+    # O PISO ENTRE DOIS RESGATES, e a curva dele foi medida em 25/08 no circuito
+    # denso, 60 minutos por linha, com o stun na frente do revive:
+    #
+    #   piso  2s → 0 quedas · 139 revives/h · ele termina com 88%
+    #   piso 15s → 2 quedas · 137 revives/h · ele termina com 82%
+    #   piso 60s → 45 quedas · 86 revives/h · ele termina MORTO
+    #
+    # Sessenta segundos economizava 51 revives por hora e pagava por eles com
+    # quarenta e cinco quedas — e uma queda custa o campo vazio, que é quando as
+    # mordidas passam a ser DELE. Quinze é onde a economia ainda existe sem que a
+    # noite se pague em mortes; dois (o dele) é o único ponto com zero.
+    rescue_cooldown_ms: 15_000,
     # ms between the stun prefix and the revive so the game registers each.
     rescue_step_ms: 40,
     # How long to wait for a skill-bar reading NEWER than the crowd-control
@@ -550,11 +561,20 @@ defmodule Pokex.Settings do
     # Stun BEFORE reviving (2026-07-30): hunting strong mobs, the pokémon's own
     # area-control keys are reserved for this moment and become the PREFIX of
     # the same atomic sequence, so the pile is asleep while the field is empty.
-    # OFF by default: this client's revive is a single key and empties the field
-    # only for a moment, so the confirmation wait the prefix costs is a wait the
-    # pokémon may not have to spare. A key on cooldown is SKIPPED, and with no
-    # control ready there is simply no prefix — always failing toward SAVING.
-    rescue_stun_first: false,
+    #
+    # LIGADO desde 25/08, e o motivo do "desligado" anterior era o que estava
+    # errado: "o revive deste cliente é uma tecla só e esvazia o campo por um
+    # instante, então a espera do prefixo é uma espera que o pokémon pode não
+    # ter". O instante de campo vazio é EXATAMENTE o que mata — as mordidas
+    # passam a ser dele — e o prefixo é o que impede isso. Medido no circuito
+    # denso, 60 minutos: sem o stun, 45 quedas e o personagem morto; com o stun
+    # e o piso curto dele, ZERO quedas em toda faixa de banda testada. É a
+    # frase dele de volta: "com o revive e stun em área antes de usar o revive
+    # tudo se resolve".
+    #
+    # Uma tecla em cooldown é PULADA, e sem controle pronto simplesmente não há
+    # prefixo — sempre falhando na direção de SALVAR.
+    rescue_stun_first: true,
     # The main Pokémon's own HEALING SKILL — the rung above the potion. A skill is
     # an instant press, not a channel, so unlike the potion it works MID-FIGHT,
     # which is the case that actually kills a pokémon. Higher than the potion

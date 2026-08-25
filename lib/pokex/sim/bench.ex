@@ -94,7 +94,12 @@ defmodule Pokex.Sim.Bench do
   @spec run(Scenario.t(), keyword) :: map
   def run(%Scenario{} = scenario, opts \\ []) do
     duration = Keyword.get(opts, :duration_ms, @default_duration_ms)
-    config = Map.merge(default_config(), Keyword.get(opts, :config, %{}))
+
+    config =
+      default_config()
+      |> Map.merge(scenario.config)
+      |> Map.merge(Keyword.get(opts, :config, %{}))
+
     routes = Keyword.get(opts, :routes, [])
 
     world =
@@ -164,7 +169,7 @@ defmodule Pokex.Sim.Bench do
     {world, hands} = Hands.obey(before, orders, state.hands, state.config)
 
     %{state | world: world, hands: hands, logic: logic, picture: picture}
-    |> measure(previous, before, world, orders, picture)
+    |> measure(previous, before, world, orders, picture, hands)
     |> record(orders, picture)
     |> mark(orders, world)
   end
@@ -206,7 +211,7 @@ defmodule Pokex.Sim.Bench do
   # A DEATH happens between the first two — the bite kills it — and comparing
   # the wrong pair reported zero deaths in a run whose pokemon spent 97% of
   # itself on the floor (2026-08-25).
-  defp measure(state, previous, decided_on, world, orders, picture) do
+  defp measure(state, previous, decided_on, world, orders, picture, hands) do
     metrics =
       state.metrics
       |> tally_time(world, orders, picture)
@@ -214,7 +219,7 @@ defmodule Pokex.Sim.Bench do
       |> tally_violations(world, orders, picture)
       |> tally_bodies(previous, world)
       |> tally_death(previous, world)
-      |> tally_revive(decided_on, world, orders, picture)
+      |> tally_revive(decided_on, world, orders, picture, hands)
       |> tally_pile(world, picture)
 
     %{state | metrics: metrics}
@@ -303,13 +308,30 @@ defmodule Pokex.Sim.Bench do
 
   defp tally_death(metrics, _before, _world), do: metrics
 
-  # An ORDER is not a press that landed. `revive_ready?/1` on the world the
-  # decision was taken against is the difference between "the hunt asked" and
-  # "the game got it", and conflating them is how a bench would report six
-  # revives from one key.
-  defp tally_revive(metrics, before, world, %{revive: :now} = orders, picture) do
-    accepted? = World.revive_ready?(before) and world.revive_at != before.revive_at
+  # AN ORDER IS NOT A PRESS THAT LANDED, and since the rescue became a COMBO the
+  # two do not even happen on the same tick: the stun goes out when the order is
+  # given and the revive lands `rescue_stun_settle_ms` later, with no order in
+  # sight. Counting at the order said "zero revives" for a run full of them
+  # (measured 2026-08-25) — which is the worst kind of wrong, because the revive
+  # is the expensive half.
+  #
+  # So: the ACCEPTANCE is read off the world (a revive going into flight), and
+  # the REFUSAL off the order (asked for, and the world did not move). The
+  # picture the refusal is judged by is the one the asking was done on.
+  defp tally_revive(metrics, before, world, orders, picture, hands) do
+    cond do
+      landed?(before, world) -> file_revive(metrics, world, orders, picture, true)
+      # The stun went out and the revive is scheduled: the order is IN FLIGHT,
+      # not refused. Counting this tick as a refusal filed every rescue twice.
+      hands.revive_at != nil -> metrics
+      orders.revive == :now -> file_revive(metrics, world, orders, picture, false)
+      true -> metrics
+    end
+  end
 
+  defp landed?(before, world), do: before.revive_at == nil and world.revive_at != nil
+
+  defp file_revive(metrics, world, orders, picture, accepted?) do
     event = %{
       at: world.clock,
       phase: orders.phase,
@@ -322,8 +344,6 @@ defmodule Pokex.Sim.Bench do
 
     %{metrics | revives: [event | metrics.revives]}
   end
-
-  defp tally_revive(metrics, _before, _world, _orders, _picture), do: metrics
 
   # A pile EPISODE: from the first monster on the list to the list being empty
   # again. How long one takes is the agility number — "matar tudo e ser ágil".

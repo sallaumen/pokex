@@ -133,7 +133,14 @@ defmodule Pokex.Sim.Score do
   """
   @spec run(Scenario.t(), keyword) :: map
   def run(%Scenario{} = scenario, opts \\ []) do
-    config = Map.merge(Bench.default_config(), Keyword.get(opts, :config, %{}))
+    # O que o CENÁRIO fixa entra por baixo do que o chamador pediu, exatamente
+    # como no `Bench.run/2` — senão o placar julgaria a corrida por um ajuste
+    # diferente do que ela rodou.
+    config =
+      Bench.default_config()
+      |> Map.merge(scenario.config)
+      |> Map.merge(Keyword.get(opts, :config, %{}))
+
     result = Bench.run(scenario, Keyword.put(opts, :config, config))
 
     Map.put(result, :card, card(result, config))

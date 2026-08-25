@@ -4,69 +4,118 @@ defmodule Pokex.PokedexTest do
 
   alias Pokex.Pokedex
 
+  defp species(name, extra) do
+    Map.merge(
+      %{
+        "name" => name,
+        "number" => 1,
+        "generation" => 1,
+        "variant" => "normal",
+        "shiny_of" => nil,
+        "level" => 1,
+        "tier" => "6",
+        "role" => "PVE",
+        "hp" => 600,
+        "experience" => 900,
+        "elements" => ["Water"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/001_#{String.downcase(name)}"
+      },
+      extra
+    )
+  end
+
   @dataset %{
     "species" => [
       %{
-        "name" => "Seadra",
-        "number" => 117,
-        "level" => 50,
-        "elements" => ["Water"],
-        "weak_to" => ["Grass", "Electric"],
-        "resists" => ["Fire"],
-        "evolutions" => [%{"name" => "Horsea", "level" => 10}],
-        "sprite" => "images/pokedex/seadra.gif",
+        "name" => "Bulbasaur",
+        "number" => 1,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => "Shiny Seadra",
-        "materia" => "Seavell",
-        "edited_at" => "2026-02-06"
+        "level" => 1,
+        "tier" => "6",
+        "role" => "PVE",
+        "hp" => 600,
+        "experience" => 900,
+        "elements" => ["Grass", "Poison"],
+        "habilidades" => ["Cut"],
+        "description" => "uma semente",
+        "moves" => [
+          %{"slot" => "M1", "name" => "Tackle", "cooldown_s" => 12, "element" => "Normal"}
+        ],
+        "evolves_to" => [%{"name" => "Ivysaur", "level" => 40, "items" => ["Leaf Stone"]}],
+        "evolves_from" => [],
+        "sprite" => "images/pokedex/001.png",
+        "path" => "gen/1/001_bulbasaur"
       },
       %{
-        "name" => "Shiny Seadra",
-        "number" => 117,
-        "level" => 80,
-        "elements" => ["Water"],
-        "weak_to" => ["Grass", "Electric"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => "images/pokedex/shiny-seadra.png",
-        "shiny_of" => "Seadra",
-        "shiny_name" => nil
+        "name" => "Shiny Bulbasaur",
+        "number" => 1,
+        "generation" => 1,
+        "variant" => "shiny",
+        "shiny_of" => "Bulbasaur",
+        "level" => 40,
+        "tier" => "5",
+        "role" => "PVE",
+        "hp" => 900,
+        "experience" => 1800,
+        "elements" => ["Grass", "Poison"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => "images/pokedex/001.1.png",
+        "path" => "shiny/001_shiny_bulbasaur"
       },
       %{
         "name" => "Charizard",
         "number" => 6,
-        "level" => 100,
-        "elements" => ["Fire", "Flying"],
-        "weak_to" => ["Water", "Rock"],
-        "resists" => ["Grass"],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => nil,
-        "materia" => "Volcanic Superior"
+        "level" => 100,
+        "tier" => "ULTIMATE",
+        "role" => "PVE",
+        "hp" => 500,
+        "experience" => 800,
+        "elements" => ["Fire", "Flying"],
+        "habilidades" => ["Fly"],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/006_charizard"
       },
       %{
-        "name" => "Venusaur",
-        "number" => 3,
-        "level" => 60,
-        "elements" => ["Grass", "Poison"],
-        "weak_to" => ["Fire", "Psychic", "Ice"],
-        "resists" => ["Water"],
-        "evolutions" => [],
-        "sprite" => nil,
+        "name" => "Piplup",
+        "number" => 393,
+        "generation" => 4,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => "Shiny Venusaur"
+        "level" => 20,
+        "tier" => nil,
+        "role" => nil,
+        "hp" => 400,
+        "experience" => 600,
+        "elements" => ["Water"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/4/393_piplup"
       }
     ],
-    "lures" => [
-      %{
-        "name" => "Shrimp",
-        "tiers" => [
-          %{"fishing_level" => 50, "pokemon" => ["Seadra", "Poliwhirl"]},
-          %{"fishing_level" => 60, "pokemon" => ["Shiny Seadra"]}
-        ]
-      }
-    ]
+    "scraped_at" => "2026-08-25T10:00:00Z"
   }
 
   setup %{tmp_dir: tmp} do
@@ -77,68 +126,60 @@ defmodule Pokex.PokedexTest do
     :ok
   end
 
-  describe "element normalization (the wiki writes dual types 5 ways)" do
+  describe "effectiveness derived from the type chart" do
     @tag :tmp_dir
-    test "separators and case always normalize to the same element list", %{tmp_dir: tmp} do
-      dataset =
-        put_in(@dataset["species"], [
-          %{"name" => "Rayquaza", "elements" => ["Dragon &amp; Flying"], "number" => 384},
-          %{"name" => "Girafarig", "elements" => ["Normal e Psychic"], "number" => 203},
-          %{"name" => "Qwilfish", "elements" => ["water"], "number" => 211},
-          %{"name" => "Delibird", "elements" => ["Ice. Poison"], "number" => 225},
-          %{"name" => "Beautifly", "elements" => ["flying and\nbug"], "number" => 267},
-          %{"name" => "Qwilfish2", "elements" => ["Ice Poison"], "number" => 212},
-          %{
-            "name" => "Typo",
-            "elements" => ["Groud"],
-            "weak_to" => ["Posion", "Fly"],
-            "number" => 999
-          },
-          %{"name" => "Venusaur", "elements" => ["Grass / Poison"], "number" => 3}
-        ])
+    test "a Grass and Poison species is weak to what the canonical chart says" do
+      assert Pokedex.get("Bulbasaur").weak_to == ["Fire", "Flying", "Ice", "Psychic"]
+    end
 
-      File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(dataset))
-      Pokex.Pokedex.reload()
+    @tag :tmp_dir
+    test "the buckets come from the chart, not from the file on disk" do
+      bulbasaur = Pokedex.get("Bulbasaur")
 
-      assert %{elements: ["Dragon", "Flying"]} = Pokedex.get("Rayquaza")
-      assert %{elements: ["Normal", "Psychic"]} = Pokedex.get("Girafarig")
-      assert %{elements: ["Water"]} = Pokedex.get("Qwilfish")
-      assert %{elements: ["Ice", "Poison"]} = Pokedex.get("Delibird")
-      assert %{elements: ["Flying", "Bug"]} = Pokedex.get("Beautifly")
-      assert %{elements: ["Grass", "Poison"]} = Pokedex.get("Venusaur")
+      assert "Water" in bulbasaur.resists
+      assert "Grass" in bulbasaur.resists
+      assert bulbasaur.immune == []
+      assert "Normal" in bulbasaur.neutral
+      assert Enum.any?(bulbasaur.effectiveness, &(&1.label == "Muito Inefetivo"))
+    end
 
-      assert %{elements: ["Ice", "Poison"]} = Pokedex.get("Qwilfish2")
-      assert %{elements: ["Ground"], weak_to: ["Poison", "Flying"]} = Pokedex.get("Typo")
+    @tag :tmp_dir
+    test "a shiny derives the same buckets as its base form, sharing its elements" do
+      assert Pokedex.get("Shiny Bulbasaur").weak_to == Pokedex.get("Bulbasaur").weak_to
+    end
 
-      assert Pokedex.elements() == [
-               "Bug",
-               "Dragon",
-               "Flying",
-               "Grass",
-               "Ground",
-               "Ice",
-               "Normal",
-               "Poison",
-               "Psychic",
-               "Water"
-             ]
+    @tag :tmp_dir
+    test "a quadruple weakness reads as its own tier" do
+      charizard = Pokedex.get("Charizard")
 
-      assert "Rayquaza" in (Pokedex.search(%{elements: ["Flying"]}) |> Enum.map(& &1.name))
+      assert %{label: "Muito Efetivo", elements: ["Rock"]} = hd(charizard.effectiveness)
     end
   end
 
-  describe "clans derived from matéria" do
+  describe "the Poké Alliance facts the entry carries" do
     @tag :tmp_dir
-    test "each entry gets its clans; a shiny without matéria inherits from its base form" do
-      assert %{clans: ["Seavell"]} = Pokedex.get("Seadra")
-      assert %{clans: ["Volcanic"]} = Pokedex.get("Charizard")
+    test "an entry keeps its generation, tier, role, hp and experience" do
+      bulbasaur = Pokedex.get("Bulbasaur")
 
-      assert %{clans: ["Seavell"]} = Pokedex.get("Shiny Seadra")
+      assert bulbasaur.generation == 1
+      assert bulbasaur.tier == "6"
+      assert bulbasaur.role == "PVE"
+      assert bulbasaur.hp == 600
+      assert bulbasaur.experience == 900
     end
 
     @tag :tmp_dir
-    test "an entry without matéria and without a base form has no clan" do
-      assert %{clans: []} = Pokedex.get("Venusaur")
+    test "the two evolution directions carry the level and the items" do
+      assert [%{name: "Ivysaur", level: 40, items: ["Leaf Stone"]}] =
+               Pokedex.get("Bulbasaur").evolves_to
+
+      assert Pokedex.get("Bulbasaur").evolves_from == []
+    end
+
+    @tag :tmp_dir
+    test "wiki_url points at the species' own page on the Poké Alliance" do
+      assert Pokedex.wiki_url(Pokedex.get("Bulbasaur")) ==
+               "https://wiki.pokealliance.com/gen/1/001_bulbasaur"
     end
   end
 
@@ -147,8 +188,8 @@ defmodule Pokex.PokedexTest do
     test "elements: [Grass, Water] is the union" do
       names = Pokedex.search(%{elements: ["Grass", "Water"]}) |> Enum.map(& &1.name)
 
-      assert "Venusaur" in names
-      assert "Seadra" in names
+      assert "Bulbasaur" in names
+      assert "Piplup" in names
       refute "Charizard" in names
     end
 
@@ -160,11 +201,11 @@ defmodule Pokex.PokedexTest do
     @tag :tmp_dir
     test "different groups still compose with AND" do
       names =
-        Pokedex.search(%{elements: ["Grass", "Water"], min_level: 55})
+        Pokedex.search(%{elements: ["Grass", "Water"], min_level: 30})
         |> Enum.map(& &1.name)
 
-      assert "Venusaur" in names
-      refute "Seadra" in names
+      assert "Shiny Bulbasaur" in names
+      refute "Bulbasaur" in names
     end
 
     @tag :tmp_dir
@@ -172,132 +213,159 @@ defmodule Pokex.PokedexTest do
       names = Pokedex.search(%{weak_to: ["Rock", "Electric"]}) |> Enum.map(& &1.name)
 
       assert "Charizard" in names
-      assert "Seadra" in names
-    end
-
-    @tag :tmp_dir
-    test "clans filters by the derived clan" do
-      names = Pokedex.search(%{clans: ["Seavell"]}) |> Enum.map(& &1.name)
-
-      assert "Seadra" in names
-      assert "Shiny Seadra" in names
-      refute "Charizard" in names
+      assert "Piplup" in names
     end
 
     @tag :tmp_dir
     test "the old singular keys still work (bookmarked URLs)" do
-      assert Pokedex.search(%{element: "Water"}) |> Enum.map(& &1.name) |> Enum.member?("Seadra")
+      assert Pokedex.search(%{element: "Water"}) |> Enum.map(& &1.name) == ["Piplup"]
       assert Pokedex.search(%{weak_to: "Rock"}) |> Enum.map(& &1.name) == ["Charizard"]
     end
   end
 
-  @tag :tmp_dir
-  test "search composes name/element/weakness/level/shiny filters" do
-    assert [%{name: "Seadra"}, %{name: "Shiny Seadra"}] =
-             Pokedex.search(%{name: "seadra"})
+  describe "search/1 — the Poké Alliance axes" do
+    @tag :tmp_dir
+    test "filters by generation" do
+      assert Pokedex.search(%{generations: [4]}) |> Enum.map(& &1.name) == ["Piplup"]
+    end
 
-    assert [%{name: "Charizard"}] = Pokedex.search(%{weak_to: "Water"})
+    @tag :tmp_dir
+    test "filters by tier, including the named ones" do
+      assert Pokedex.search(%{tiers: ["ULTIMATE"]}) |> Enum.map(& &1.name) == ["Charizard"]
+    end
 
-    assert [%{name: "Charizard"}] = Pokedex.search(%{element: "Fire"})
+    @tag :tmp_dir
+    test "filters by role" do
+      names = Pokedex.search(%{roles: ["PVE"]}) |> Enum.map(& &1.name)
 
-    assert [%{name: "Venusaur"}, %{name: "Charizard"}, %{name: "Shiny Seadra"}] =
-             Pokedex.search(%{min_level: 60})
+      refute "Piplup" in names
+      assert "Bulbasaur" in names
+    end
 
-    assert [%{name: "Shiny Seadra"}] = Pokedex.search(%{only_shiny: true})
-    assert [%{name: "Seadra"}] = Pokedex.search(%{max_level: 50, element: "Water"})
+    @tag :tmp_dir
+    test "filters by variant" do
+      assert Pokedex.search(%{variant: "shiny"}) |> Enum.map(& &1.name) == ["Shiny Bulbasaur"]
 
-    assert [%{name: "Venusaur"}, %{name: "Charizard"} | _] =
-             Pokedex.search(%{name: "", element: ""})
+      refute "Shiny Bulbasaur" in (Pokedex.search(%{variant: "normal"}) |> Enum.map(& &1.name))
+    end
+
+    @tag :tmp_dir
+    test "an entry with no tier survives a search that does not filter on tier" do
+      assert "Piplup" in (Pokedex.search(%{}) |> Enum.map(& &1.name))
+    end
+
+    @tag :tmp_dir
+    test "search composes name, element, weakness and level filters" do
+      assert [%{name: "Bulbasaur"}, %{name: "Shiny Bulbasaur"}] =
+               Pokedex.search(%{name: "bulbasaur"})
+
+      assert [%{name: "Charizard"}] = Pokedex.search(%{element: "Fire"})
+      assert [%{name: "Charizard"}] = Pokedex.search(%{min_level: 60})
+      assert [%{name: "Piplup"}] = Pokedex.search(%{max_level: 20, element: "Water"})
+    end
   end
 
-  @tag :tmp_dir
-  test "shinies_for_lure lists the shiny tiers of one lure" do
-    assert Pokedex.shinies_for_lure("Shrimp") == [
-             %{name: "Shiny Seadra", fishing_level: 60}
-           ]
+  describe "sorting" do
+    @tag :tmp_dir
+    test "level, element, weakness and shiny — and inversion" do
+      names = Pokedex.search(%{sort: :level}) |> Enum.map(& &1.name)
+      assert names == ["Bulbasaur", "Piplup", "Shiny Bulbasaur", "Charizard"]
 
-    assert Pokedex.shinies_for_lure("inexistente") == []
+      desc = Pokedex.search(%{sort: :level, desc: true}) |> Enum.map(& &1.name)
+      assert hd(desc) == "Charizard"
+
+      assert %{name: "Charizard", elements: ["Fire" | _]} =
+               Pokedex.search(%{sort: :element}) |> hd()
+
+      # by FIRST weakness, descending: Fire (the Bulbasaur pair) over Electric
+      # (Charizard and Piplup), name breaking the tie
+      assert %{name: "Shiny Bulbasaur"} = Pokedex.search(%{sort: :weak_to, desc: true}) |> hd()
+
+      shiny_first = Pokedex.search(%{sort: :shiny}) |> Enum.map(& &1.name)
+      assert hd(shiny_first) == "Shiny Bulbasaur"
+    end
+
+    @tag :tmp_dir
+    test "sorting by tier puts ULTIMATE ahead of the numbered tiers" do
+      assert Pokedex.search(%{sort: :tier}) |> hd() |> Map.get(:name) == "Charizard"
+    end
+
+    @tag :tmp_dir
+    test "an entry with no tier sinks to the bottom in both directions" do
+      assert Pokedex.search(%{sort: :tier}) |> List.last() |> Map.get(:name) == "Piplup"
+
+      assert Pokedex.search(%{sort: :tier, desc: true}) |> List.last() |> Map.get(:name) ==
+               "Piplup"
+    end
+
+    @tag :tmp_dir
+    test "sorting by generation orders ascending by default" do
+      assert Pokedex.search(%{sort: :generation}) |> List.last() |> Map.get(:name) == "Piplup"
+    end
   end
 
+  describe "variant_of/2" do
+    @tag :tmp_dir
+    test "finds a species' shiny by the number they share" do
+      assert Pokedex.variant_of(Pokedex.get("Bulbasaur"), "shiny").name == "Shiny Bulbasaur"
+    end
+
+    @tag :tmp_dir
+    test "finds the base form from the shiny" do
+      assert Pokedex.variant_of(Pokedex.get("Shiny Bulbasaur"), "normal").name == "Bulbasaur"
+    end
+
+    @tag :tmp_dir
+    test "a species with no shiny answers nil" do
+      assert Pokedex.variant_of(Pokedex.get("Charizard"), "shiny") == nil
+    end
+  end
+
+  describe "the filter option lists" do
+    @tag :tmp_dir
+    test "generations, tiers and roles come from the dataset, sorted and deduped" do
+      assert Pokedex.generations() == [1, 4]
+      assert Pokedex.tiers() == ["ULTIMATE", "5", "6"]
+      assert Pokedex.roles() == ["PVE"]
+    end
+
+    @tag :tmp_dir
+    test "elements are the eighteen canonical ones, not just what the dataset holds" do
+      assert length(Pokedex.elements()) == 18
+      assert "Steel" in Pokedex.elements()
+    end
+  end
+
+  # scoring: +2 super-effective hit, -2 per resisted element, +1 when a shiny
+  # variant exists; resisting everything disqualifies a target outright
   @tag :tmp_dir
-  # scoring: +2 super-effective hit, +1 shiny variant; resisting the element
-  # disqualifies a target outright
   test "hunt_suggestions ranks who my team hits hard, and who hits back" do
     %{targets: targets, threats: threats} = Pokedex.hunt_suggestions(["Charizard"])
 
-    assert [%{entry: %{name: "Venusaur"}, member: "Charizard", hits: ["Fire"], score: 3}] =
-             targets
+    # Charizard is Fire AND Flying, and Grass/Poison is weak to both: two hits
+    # at +2 each, plus +1 for the shiny that exists
+    assert [
+             %{
+               entry: %{name: "Bulbasaur"},
+               member: "Charizard",
+               hits: ["Fire", "Flying"],
+               score: 5
+             }
+           ] = targets
 
-    assert [%{entry: %{name: "Seadra"}, members: ["Charizard"], via: ["Water"]}] = threats
-
-    %{targets: [row]} = Pokedex.hunt_suggestions(["Seadra"])
-    assert row.entry.name == "Charizard"
-    assert row.score == 2
+    assert [%{entry: %{name: "Piplup"}, members: ["Charizard"], via: ["Water"]}] = threats
   end
 
   @tag :tmp_dir
   test "level window: targets near the player's strength; an empty window falls back to the closest below" do
-    assert %{window: :all, targets: [%{entry: %{name: "Venusaur"}}]} =
+    assert %{window: :all, targets: [%{entry: %{name: "Bulbasaur"}}]} =
              Pokedex.hunt_suggestions(["Charizard"])
 
-    assert %{window: {:window, 50, 80}, targets: [%{entry: %{name: "Venusaur"}}]} =
-             Pokedex.hunt_suggestions(["Charizard"], %{player_level: 65, level_margin: 15})
+    assert %{window: {:window, 1, 16}, targets: [%{entry: %{name: "Bulbasaur"}}]} =
+             Pokedex.hunt_suggestions(["Charizard"], %{player_level: 1, level_margin: 15})
 
-    assert %{window: {:below, 88}, targets: [%{entry: %{name: "Venusaur"}}]} =
-             Pokedex.hunt_suggestions(["Charizard"], %{player_level: 88, level_margin: 15})
-
-    assert %{window: :all, targets: [%{entry: %{name: "Venusaur"}}]} =
-             Pokedex.hunt_suggestions(["Charizard"], %{player_level: 1, level_margin: 5})
-  end
-
-  @tag :tmp_dir
-  test "edited_after keeps only pages edited on/after the date (unknown dates drop)" do
-    assert [%{name: "Seadra"}] = Pokedex.search(%{edited_after: "2026-01-01"})
-    assert [%{name: "Seadra"}] = Pokedex.search(%{edited_after: "2026-02-06"})
-    assert [] = Pokedex.search(%{edited_after: "2026-02-07"})
-  end
-
-  @tag :tmp_dir
-  test "sorting: level, element, weakness, shiny, wiki edit — and inversion" do
-    names = Pokedex.search(%{sort: :level}) |> Enum.map(& &1.name)
-    assert names == ["Seadra", "Venusaur", "Shiny Seadra", "Charizard"]
-
-    desc = Pokedex.search(%{sort: :level, desc: true}) |> Enum.map(& &1.name)
-    assert hd(desc) == "Charizard"
-
-    assert %{name: "Charizard", elements: ["Fire" | _]} =
-             Pokedex.search(%{sort: :element}) |> hd()
-
-    assert %{name: "Charizard"} = Pokedex.search(%{sort: :weak_to, desc: true}) |> hd()
-
-    shiny_first = Pokedex.search(%{sort: :shiny}) |> Enum.map(& &1.name)
-    assert hd(shiny_first) == "Shiny Seadra"
-
-    assert %{name: "Seadra"} = Pokedex.search(%{sort: :edited}) |> hd()
-  end
-
-  @tag :tmp_dir
-  test "novelty = wiki freshness (auto-recycles): inside the window, outside, and unknown",
-       %{tmp_dir: tmp} do
-    today = ~D[2026-07-21]
-
-    dataset =
-      update_in(@dataset["species"], fn species ->
-        Enum.map(species, fn
-          %{"name" => "Seadra"} = s -> Map.put(s, "edited_at", "2026-07-20")
-          %{"name" => "Charizard"} = s -> Map.put(s, "edited_at", "2026-06-21")
-          s -> Map.delete(s, "edited_at")
-        end)
-      end)
-
-    File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(dataset))
-    Pokedex.reload()
-
-    assert {:wiki, 1} = Pokedex.novelty(Pokedex.get("Seadra"), today)
-    assert Pokedex.novelty(Pokedex.get("Charizard"), today) == nil
-    assert Pokedex.novelty(Pokedex.get("Venusaur"), today) == nil
-    assert Pokedex.wiki_age_days(Pokedex.get("Charizard"), today) == 30
-    assert Pokedex.novelty_days() == 7
+    assert %{window: {:below, 88}, targets: [%{entry: %{name: "Bulbasaur"}}]} =
+             Pokedex.hunt_suggestions(["Charizard"], %{player_level: 88, level_margin: 5})
   end
 
   describe "page/3 — cursor (keyset) pagination" do
@@ -306,22 +374,14 @@ defmodule Pokex.PokedexTest do
     defp big_dataset do
       species =
         for i <- 1..250 do
-          %{
-            "name" => "Mon#{String.pad_leading("#{i}", 3, "0")}",
+          species("Mon#{String.pad_leading("#{i}", 3, "0")}", %{
             "number" => i,
             # only 5 distinct levels → mass ties
-            "level" => rem(i, 5) * 10 + 10,
-            "elements" => ["Water"],
-            "weak_to" => [],
-            "resists" => [],
-            "evolutions" => [],
-            "sprite" => nil,
-            "shiny_of" => nil,
-            "shiny_name" => nil
-          }
+            "level" => rem(i, 5) * 10 + 10
+          })
         end
 
-      %{"species" => species, "lures" => []}
+      %{"species" => species}
     end
 
     defp load_big(tmp) do
@@ -388,25 +448,11 @@ defmodule Pokex.PokedexTest do
     test "entries without a sort value still sink to the end, and page", %{tmp_dir: tmp} do
       species =
         for i <- 1..150 do
-          base = %{
-            "name" => "Mon#{String.pad_leading("#{i}", 3, "0")}",
-            "number" => i,
-            "elements" => ["Water"],
-            "weak_to" => [],
-            "resists" => [],
-            "evolutions" => [],
-            "sprite" => nil,
-            "shiny_of" => nil,
-            "shiny_name" => nil
-          }
-
-          if rem(i, 2) == 0, do: Map.put(base, "level", 50), else: base
+          level = if rem(i, 2) == 0, do: 50
+          species("Mon#{String.pad_leading("#{i}", 3, "0")}", %{"number" => i, "level" => level})
         end
 
-      File.write!(
-        Path.join(tmp, "pokedex.json"),
-        JSON.encode!(%{"species" => species, "lures" => []})
-      )
+      File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(%{"species" => species}))
 
       Pokedex.reload()
 
@@ -428,16 +474,10 @@ defmodule Pokex.PokedexTest do
   end
 
   @tag :tmp_dir
-  test "lures_for finds every tier that hooks the species" do
-    assert Pokedex.lures_for("Seadra") == [%{lure: "Shrimp", fishing_level: 50}]
-    assert Pokedex.lures_for("Charizard") == []
-  end
-
-  @tag :tmp_dir
   test "reload swaps the cached dataset in place (the sync button's refresh)", %{tmp_dir: tmp} do
     assert Pokedex.get("Lapras") == nil
 
-    bigger = update_in(@dataset["species"], &(&1 ++ [%{"name" => "Lapras", "number" => 131}]))
+    bigger = update_in(@dataset["species"], &(&1 ++ [species("Lapras", %{"number" => 131})]))
     File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(bigger))
 
     assert :ok = Pokedex.reload()
@@ -449,6 +489,5 @@ defmodule Pokex.PokedexTest do
     Application.put_env(:pokex, :pokedex_path, "/nao/existe.json")
     refute Pokedex.loaded?()
     assert Pokedex.search(%{}) == []
-    assert Pokedex.lures() == []
   end
 end

@@ -22,6 +22,15 @@ defmodule Pokex.Pokedex.Api do
     end
   end
 
+  @doc """
+  The absolute URL for a wiki path, percent-encoded.
+
+  Encoding is not cosmetic: one species is `gen/6/669_flabébé`, and the raw
+  accented path is rejected before it ever leaves the machine — it was the
+  single failure of the first full 910-species run.
+  """
+  def url(path) when is_binary(path), do: base() <> URI.encode(path)
+
   @doc "One species page's HTML — feed it to `Pokex.Pokedex.PageParser`."
   def page(path) when is_binary(path) do
     with {:ok, body} <- get("/api/page/" <> path),
@@ -37,7 +46,7 @@ defmodule Pokex.Pokedex.Api do
   def asset(path) when is_binary(path), do: get(path)
 
   defp get(path) do
-    case Req.get(base() <> path, retry: :transient, max_retries: 2) do
+    case Req.get(url(path), retry: :transient, max_retries: 2) do
       {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
       {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, JSON.encode!(body)}
       other -> {:error, other}

@@ -602,10 +602,10 @@ defmodule PokexWeb.TeamLive do
                     ✨ tem shiny
                   </span>
                   <span
-                    :for={lure <- Enum.take(row.lures, 2)}
+                    :if={row.entry.tier}
                     class="rounded bg-[#101d24] px-1 py-0.5 text-[#7cc0e8]"
                   >
-                    🎣 {lure.lure} lv{lure.fishing_level}
+                    🏅 tier {row.entry.tier}
                   </span>
                 </p>
               </.link>

@@ -1,9 +1,9 @@
 defmodule Pokex.Pokedex.Sync do
   @moduledoc """
-  The one scraping pipeline, shared by `mix pokedex.scrape` (terminal) and the
-  /pokedex "Sincronizar" button (UI): wiki index + lure tables + species pages
-  (Shiny variants followed), sprites into priv/static/images/pokedex/, and an
-  UPSERT into priv/pokedex/pokedex.json.
+  The one sync pipeline, shared by `mix pokedex.sync` (terminal) and the
+  /pokedex "Sincronizar" button (UI): the Poké Alliance index, one page per
+  species, sprites into priv/static/images/pokedex/, and an UPSERT into
+  priv/pokedex/pokedex.json.
 
   `run/2` is synchronous and reports through the injected `progress` callback
   (the mix task prints, the UI broadcasts). `start/1` is the UI entry: ONE
@@ -11,12 +11,21 @@ defmodule Pokex.Pokedex.Sync do
   the "pokedex_sync" PubSub topic, and the in-memory dataset reloaded on done
   — no server restart needed.
 
-  Network-bound and polite (delay between fetches) — safe to run alongside
-  the bots; sprite downloads skip files that already exist.
+  ## No gap pass
+
+  The PokeXGames pipeline ended every run re-scraping entries with no moveset,
+  because its regexes missed headings and left 202 of 866 entries silently
+  empty. The PA serves one machine-generated template, where an absent moves
+  table is the truth about that species (Groudon has none). A page that fails
+  to FETCH simply does not update its entry — the upsert keeps the old one —
+  and the count comes back in the summary as `failed`.
+
+  Network-bound and polite (delay between fetches) — safe to run alongside the
+  bots; sprite downloads skip files that already exist.
   """
 
   alias Pokex.Pokedex
-  alias Pokex.Pokedex.Scraper
+  alias Pokex.Pokedex.{Api, Index, PageParser, Upsert}
 
   @topic "pokedex_sync"
   @process_name :pokedex_sync
@@ -60,44 +69,41 @@ defmodule Pokex.Pokedex.Sync do
 
   @doc """
   The synchronous pipeline. Options: `:only` ("Seadra,Horsea"), `:fresh`,
-  `:limit`, `:delay_ms` (default 200), `:skip_sprites`. Returns
-  `{:ok, %{updated, base, shinies, filled}}`.
-
-  Every run ends with a GAP PASS: any entry still missing the harvest (moves
-  == nil — an older dataset, a partial `--only` run, a fetch that failed, a
-  shiny built from the link fallback) is scraped again by name until the base
-  is whole.
+  `:limit`, `:delay_ms` (default 120), `:skip_sprites`. Returns
+  `{:ok, %{updated, base, shinies, failed}}`.
   """
   def run(opts, progress) when is_function(progress, 1) do
-    delay = opts[:delay_ms] || 200
+    delay = opts[:delay_ms] || 120
 
     progress.("índice de espécies…")
-    index = fetch!("/index.php/Pok%C3%A9mon") |> Scraper.parse_index()
-    progress.("#{length(index)} espécies no índice; tabelas de iscas…")
-    lures = fetch!("/index.php/Fishing") |> Scraper.parse_lures()
+    {:ok, raw_index} = Api.index()
+    index = Index.parse(raw_index)
+    progress.("#{length(index)} espécies no índice")
 
-    targets = index ++ lure_extras(index, lures)
-    targets = narrow_to_only(targets, opts[:only], progress)
+    targets = narrow_to_only(index, opts[:only], progress)
     targets = if opts[:limit], do: Enum.take(targets, opts[:limit]), else: targets
     total = length(targets)
     scraped_at = DateTime.utc_now() |> DateTime.to_iso8601()
 
-    species =
+    results =
       targets
       |> Enum.with_index(1)
-      |> Enum.flat_map(fn {target, i} ->
+      |> Enum.map(fn {target, i} ->
         if rem(i, 25) == 0 or i == total, do: progress.("#{i}/#{total} #{target.name}")
         Process.sleep(delay)
-        scrape_species(target, delay, opts, scraped_at, progress)
+        harvest(target, opts, scraped_at, progress)
       end)
 
-    merged = if opts[:fresh], do: species, else: Scraper.upsert(existing_species(), species)
-    {merged, filled} = fill_gaps(merged, delay, opts, scraped_at, progress)
-    save_element_icons(opts, progress)
+    species = Enum.reject(results, &is_nil/1)
+    failed = total - length(species)
+
+    merged = if opts[:fresh], do: species, else: Upsert.merge(existing_species(), species)
+    merged = link_shinies(merged)
+    save_element_icons(raw_index, opts, progress)
 
     File.mkdir_p!(out_dir())
 
-    json = %{scraped_at: scraped_at, base: base(), species: merged, lures: lures}
+    json = %{scraped_at: scraped_at, base: Api.base(), species: merged}
     File.write!(Path.join(out_dir(), "pokedex.json"), JSON.encode!(json))
 
     {:ok,
@@ -105,162 +111,121 @@ defmodule Pokex.Pokedex.Sync do
        updated: length(species),
        base: length(merged),
        shinies: Enum.count(merged, &shiny_entry?/1),
-       filled: filled
+       failed: failed
      }}
   end
 
-  # The game's own type icons (one small PNG per element), harvested from any
-  # species page and cached under priv/static/images/pokedex/elements/ so the
-  # UI can show them instead of plain words. Best-effort: a failed download
-  # just leaves the coloured text chip in place.
-  defp save_element_icons(opts, progress) do
-    if opts[:skip_sprites], do: :ok, else: harvest_element_icons(progress)
+  # One species: the index row carries identity and stats, the page carries the
+  # prose, the moves and the evolutions. A page that fails leaves the entry
+  # alone rather than writing a half-entry over a good one.
+  defp harvest(target, opts, scraped_at, progress) do
+    with {:ok, html} <- Api.page(target.path),
+         {:ok, page} <- PageParser.parse(html) do
+      to_entry(target, page, opts, scraped_at)
+    else
+      _fetch_or_parse_error ->
+        progress.("! falhou: #{target.name} (#{target.path})")
+        nil
+    end
   end
 
-  @doc """
-  Entries with no moveset that this run did NOT just fetch — what the gap pass
-  targets.
+  defp to_entry(target, page, opts, scraped_at) do
+    %{
+      name: target.name,
+      number: target.number,
+      generation: target.generation,
+      variant: target.variant,
+      # filled by link_shinies/1 once the whole harvest is in hand
+      shiny_of: nil,
+      # the index's level is the one the wiki filters by; the page repeats it
+      level: target.level || page.level,
+      tier: target.tier || page.tier,
+      role: target.role || page.role,
+      hp: page.hp,
+      experience: page.experience,
+      elements: target.elements,
+      habilidades: page.habilidades,
+      description: page.description,
+      moves: page.moves,
+      evolves_to: page.evolves_to,
+      evolves_from: page.evolves_from,
+      sprite: download_sprite(target.image, opts),
+      path: target.path,
+      scraped_at: scraped_at
+    }
+  end
 
-  An empty `moves` used to count as complete ("the wiki simply has no table
-  there"), which was wrong: 202 of 866 entries were empty because the parser
-  missed the page's heading spelling, and the pass that exists to fix gaps never
-  looked at them. Two states, two rules:
+  # A shiny points at the normal form sharing its number. Done AFTER the merge
+  # so a `--only "Shiny Rattata"` run still links against the base on disk.
+  defp link_shinies(species) do
+    normals =
+      for entry <- species,
+          field(entry, "variant") == "normal",
+          into: %{},
+          do: {field(entry, "number"), field(entry, "name")}
 
-    * `nil` — never harvested (an old dataset, a shiny kept from the link
-      fallback because its page failed): always a gap, retried even inside the
-      run that created it, exactly as before.
-    * `[]` — the page WAS parsed and had no table: a gap only if this run did
-      not just fetch it, so a full sync never pays for a second round-trip
-      while a partial one (`--only`, `--limit`) still heals the rest of the base.
-  """
-  def incomplete(entries, scraped_at \\ nil) do
-    Enum.filter(entries, fn entry ->
-      case field(entry, "moves") do
-        nil -> true
-        [] -> scraped_at == nil or field(entry, "scraped_at") != scraped_at
-        _harvested -> false
+    Enum.map(species, fn entry ->
+      if field(entry, "variant") == "shiny" do
+        put_field(entry, "shiny_of", Map.get(normals, field(entry, "number")))
+      else
+        entry
       end
     end)
   end
 
-  # The gap pass. Scrapes by NAME (the wiki page always mirrors it), keeps the
-  # entry's own name and shiny_of so a variant stays a variant, and runs at the
-  # same polite delay. A page that stays unparsable is simply retried next run
-  # — never a silent half-entry.
-  defp fill_gaps(merged, delay, opts, scraped_at, progress) do
-    gaps = incomplete(merged, scraped_at)
-    total = length(gaps)
-
-    if total == 0 do
-      {merged, 0}
+  # The wiki's own type icons, one small PNG per element, cached under
+  # priv/static/images/pokedex/elements/ so the UI can show them instead of
+  # plain words. Best-effort: a failed download leaves the coloured text chip.
+  defp save_element_icons(raw_index, opts, progress) do
+    if opts[:skip_sprites] do
+      :ok
     else
-      progress.("completando #{total} entradas sem movimentos…")
+      icons = Index.element_icons(raw_index)
+      dir = Path.join(sprites_dir(), "elements")
+      File.mkdir_p!(dir)
 
-      fresh =
-        gaps
-        |> Enum.with_index(1)
-        |> Enum.flat_map(fn {entry, i} ->
-          announce_gap(progress, entry, i, total)
-          Process.sleep(delay)
-          scrape_by_name(entry, opts, scraped_at)
-        end)
+      Enum.each(icons, fn {element, url} ->
+        fetch_asset(url, Path.join(dir, String.downcase(element) <> ".png"))
+      end)
 
-      {Scraper.upsert(merged, fresh), length(fresh)}
+      progress.("ícones de elemento: #{map_size(icons)}")
     end
   end
 
-  # Same resumability as the icons: what is on disk is never fetched again.
-  defp fetch_sprite(url, dest) do
+  # Public only for the test. skip_sprites must mean "don't FETCH", never
+  # "forget": a --fresh --skip-sprites run once nulled the sprite of every
+  # entry in the base and 824 paths had to be restored by hand. What is
+  # already on disk stays claimed either way.
+  @doc false
+  def download_sprite(nil, _opts), do: nil
+
+  def download_sprite(url, opts) do
+    file = Path.basename(url)
+    dest = Path.join(sprites_dir(), file)
+
+    unless opts[:skip_sprites] do
+      File.mkdir_p!(sprites_dir())
+      fetch_asset(url, dest)
+    end
+
+    if File.exists?(dest), do: "images/pokedex/" <> file
+  end
+
+  # What is on disk is never fetched again — the sync is resumable.
+  defp fetch_asset(url, dest) do
     if File.exists?(dest) do
       :skip
     else
-      case Req.get(base() <> url, retry: :transient, max_retries: 2) do
-        {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(dest, body)
+      case Api.asset(url) do
+        {:ok, body} -> File.write!(dest, body)
         _error -> :skip
       end
     end
   end
 
-  defp harvest_element_icons(progress) do
-    with {:ok, html} <- fetch("/index.php/Sceptile"),
-         icons when map_size(icons) > 0 <- Scraper.element_icons(html) do
-      dir = Path.join(sprites_dir(), "elements")
-      File.mkdir_p!(dir)
-      Enum.each(icons, fn {element, url} -> fetch_icon(dir, element, url) end)
-      progress.("ícones de elemento: #{map_size(icons)}")
-    else
-      _unavailable -> :ok
-    end
-  end
-
-  # An icon already on disk is never fetched again — the sync is resumable.
-  defp fetch_icon(dir, element, url) do
-    path = Path.join(dir, String.downcase(element) <> ".png")
-
-    if File.exists?(path) do
-      :skip
-    else
-      case Req.get(base() <> url, retry: :transient, max_retries: 2) do
-        {:ok, %{status: 200, body: body}} when is_binary(body) -> File.write!(path, body)
-        _error -> :skip
-      end
-    end
-  end
-
-  defp announce_gap(progress, entry, i, total) do
-    if rem(i, 25) == 0 or i == total,
-      do: progress.("completando #{i}/#{total} #{field(entry, "name")}")
-  end
-
-  defp scrape_by_name(entry, opts, scraped_at) do
-    name = field(entry, "name")
-    page = "/index.php/" <> URI.encode(String.replace(name, " ", "_"))
-
-    with true <- is_binary(name),
-         {:ok, html} <- fetch(page),
-         {:ok, parsed} <- Scraper.parse_species(html) do
-      # the page we asked for IS this entry — keep its identity even if the
-      # wiki's own "Nome:" field disagrees (redirects, odd forms)
-      [to_entry(%{parsed | name: name}, field(entry, "shiny_of"), opts, scraped_at)]
-    else
-      _unavailable -> []
-    end
-  end
-
-  defp field(entry, key) when is_map(entry),
-    do: Map.get(entry, key) || Map.get(entry, String.to_existing_atom(key))
-
-  defp broadcast(event),
-    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:pokedex_sync, event})
-
-  defp shiny_entry?(%{shiny_of: shiny_of}), do: shiny_of != nil
-  defp shiny_entry?(%{"shiny_of" => shiny_of}), do: shiny_of != nil
-  defp shiny_entry?(_entry), do: false
-
-  # Lure tables reference forms the index doesn't list (Mini/Big/Giant Magikarp
-  # etc.) — scrape those too so every lure entry resolves. Shiny names resolve
-  # through their base species' "Outras Versões", never directly.
-  defp lure_extras(index, lures) do
-    known = MapSet.new(index, & &1.name)
-
-    lures
-    |> Enum.flat_map(& &1.tiers)
-    |> Enum.flat_map(& &1.pokemon)
-    |> Enum.uniq()
-    |> Enum.reject(&(MapSet.member?(known, &1) or String.starts_with?(&1, "Shiny ")))
-    |> Enum.map(fn name ->
-      %{
-        number: nil,
-        name: name,
-        page: "/index.php/" <> URI.encode(String.replace(name, " ", "_"))
-      }
-    end)
-  end
-
-  # --only "Seadra,Horsea": scrape just these targets (their Shiny variants
-  # follow automatically); unknown names are reported, never silently dropped.
-  defp narrow_to_only(targets, nil, _progress), do: targets
-  defp narrow_to_only(targets, "", _progress), do: targets
+  # --only "Seadra,Horsea": sync just these; unknown names are reported, never
+  # silently dropped.
+  defp narrow_to_only(targets, only, _progress) when only in [nil, ""], do: targets
 
   defp narrow_to_only(targets, only, progress) do
     wanted = only |> String.split(",") |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
@@ -281,134 +246,22 @@ defmodule Pokex.Pokedex.Sync do
     end
   end
 
-  defp scrape_species(target, delay, opts, scraped_at, progress) do
-    with {:ok, html} <- fetch(target.page),
-         {:ok, parsed} <- Scraper.parse_species(html) do
-      [
-        to_entry(parsed, nil, opts, scraped_at)
-        | scrape_shiny(parsed, delay, opts, scraped_at)
-      ]
-    else
-      _fetch_or_parse_error ->
-        progress.("! falhou: #{target.name} (#{target.page})")
-        []
-    end
+  defp broadcast(event),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:pokedex_sync, event})
+
+  defp shiny_entry?(entry), do: field(entry, "variant") == "shiny"
+
+  defp field(entry, key) when is_map(entry),
+    do: Map.get(entry, key) || Map.get(entry, String.to_existing_atom(key))
+
+  defp put_field(entry, key, value) do
+    if Map.has_key?(entry, key),
+      do: Map.put(entry, key, value),
+      else: Map.put(entry, String.to_existing_atom(key), value)
   end
 
-  defp scrape_shiny(%{shiny: nil}, _delay, _opts, _scraped_at), do: []
-
-  defp scrape_shiny(%{shiny: shiny} = base, delay, opts, scraped_at) do
-    Process.sleep(delay)
-
-    with {:ok, html} <- fetch(shiny.page),
-         {:ok, parsed} <- Scraper.parse_species(html) do
-      [to_entry(parsed, base.name, opts, scraped_at)]
-    else
-      # shiny page missing/odd: keep a minimal entry from the link itself so the
-      # variant still exists (name + sprite), stats nil
-      _error ->
-        sprite = download_sprite(shiny.sprite_url, shiny.name, opts)
-
-        [
-          %{
-            name: shiny.name,
-            number: base.number,
-            level: nil,
-            elements: base.elements,
-            boost: nil,
-            habilidades: base.habilidades,
-            materia: nil,
-            evolution_stones: [],
-            description: nil,
-            weak_to: base.weak_to,
-            resists: base.resists,
-            neutral: base.neutral,
-            immune: base.immune,
-            effectiveness: base.effectiveness,
-            evolutions: [],
-            moves: nil,
-            moves_pvp: nil,
-            sprite: sprite,
-            shiny_of: base.name,
-            shiny_name: nil,
-            edited_at: nil,
-            scraped_at: scraped_at
-          }
-        ]
-    end
-  end
-
-  defp to_entry(parsed, shiny_of, opts, scraped_at) do
-    %{
-      name: parsed.name,
-      number: parsed.number,
-      level: parsed.level,
-      elements: parsed.elements,
-      boost: parsed.boost,
-      habilidades: parsed.habilidades,
-      materia: parsed.materia,
-      evolution_stones: parsed.evolution_stones,
-      description: parsed.description,
-      weak_to: parsed.weak_to,
-      resists: parsed.resists,
-      neutral: parsed.neutral,
-      immune: parsed.immune,
-      effectiveness: parsed.effectiveness,
-      evolutions: parsed.evolutions,
-      moves: parsed.moves,
-      moves_pvp: parsed.moves_pvp,
-      sprite: download_sprite(parsed.sprite_url, parsed.name, opts),
-      shiny_of: shiny_of,
-      shiny_name: parsed.shiny && parsed.shiny.name,
-      edited_at: parsed.edited_at,
-      scraped_at: scraped_at
-    }
-  end
-
-  # -- sprites -----------------------------------------------------------------
-
-  # Public only for the test. skip_sprites must mean "don't FETCH", never
-  # "forget": a --fresh --skip-sprites run once nulled the sprite of every
-  # entry in the base, and PR #46 had to restore 824 paths by hand from the
-  # previous JSON. What is already on disk stays claimed either way.
-  @doc false
-  def download_sprite(nil, _name, _opts), do: nil
-
-  def download_sprite(url, name, opts) do
-    file = slug(name) <> Path.extname(url)
-    dest = Path.join(sprites_dir(), file)
-
-    unless opts[:skip_sprites] do
-      File.mkdir_p!(sprites_dir())
-      fetch_sprite(url, dest)
-    end
-
-    if File.exists?(dest), do: "images/pokedex/" <> file
-  end
-
-  defp slug(name), do: name |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "-")
-
-  # -- IO ----------------------------------------------------------------------
-
-  defp fetch(path) do
-    case Req.get(base() <> path, retry: :transient, max_retries: 2) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
-      other -> {:error, other}
-    end
-  end
-
-  defp fetch!(path) do
-    {:ok, body} = fetch(path)
-    body
-  end
-
-  # Relative to the repo root — where both `mix pokedex.scrape` and the dev
+  # Relative to the repo root — where both `mix pokedex.sync` and the dev
   # server run from (dev-only tooling; priv/ is symlinked into _build).
-  # The wiki origin lives in config (`:wiki_base`) — the one place the specific
-  # server is named. It is also written into pokedex.json, so a dataset always
-  # records where it was harvested from.
-  defp base, do: Application.get_env(:pokex, :wiki_base)
-
   defp out_dir, do: "priv/pokedex"
 
   defp sprites_dir,

@@ -2,67 +2,113 @@ defmodule PokexWeb.PokedexLiveTest do
   use PokexWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
 
+  defp species(name, extra) do
+    Map.merge(
+      %{
+        "name" => name,
+        "number" => 1,
+        "generation" => 1,
+        "variant" => "normal",
+        "shiny_of" => nil,
+        "level" => 50,
+        "tier" => "6",
+        "role" => "PVE",
+        "hp" => 600,
+        "experience" => 900,
+        "elements" => ["Water"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/001_#{String.downcase(name)}"
+      },
+      extra
+    )
+  end
+
   @dataset %{
     "species" => [
       %{
         "name" => "Seadra",
         "number" => 117,
-        "level" => 50,
-        "elements" => ["Water"],
-        "weak_to" => ["Grass", "Electric"],
-        "resists" => ["Fire"],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => "Shiny Seadra",
-        "materia" => "Seavell",
-        "edited_at" => "2026-02-06"
+        "level" => 50,
+        "tier" => "6",
+        "role" => "PVE",
+        "hp" => 600,
+        "experience" => 900,
+        "elements" => ["Water"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/117_seadra"
       },
       %{
         "name" => "Shiny Seadra",
         "number" => 117,
-        "level" => 80,
-        "elements" => ["Water"],
-        "weak_to" => ["Grass"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "shiny",
         "shiny_of" => "Seadra",
-        "shiny_name" => nil
+        "level" => 80,
+        "tier" => "4",
+        "role" => "PVE",
+        "hp" => 900,
+        "experience" => 1800,
+        "elements" => ["Water"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "shiny/117_shiny_seadra"
       },
       %{
         "name" => "Charizard",
         "number" => 6,
-        "level" => 100,
-        "elements" => ["Fire"],
-        "weak_to" => ["Water"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => nil,
-        "materia" => "Volcanic Superior"
+        "level" => 100,
+        "tier" => "ULTIMATE",
+        "role" => "PVP",
+        "hp" => 500,
+        "experience" => 800,
+        "elements" => ["Fire"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/006_charizard"
       },
       %{
         "name" => "Venusaur",
         "number" => 3,
-        "level" => 60,
-        "elements" => ["Grass"],
-        "weak_to" => ["Fire"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 4,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => "Shiny Venusaur"
-      }
-    ],
-    "lures" => [
-      %{
-        "name" => "Shrimp",
-        "tiers" => [
-          %{"fishing_level" => 50, "pokemon" => ["Seadra"]},
-          %{"fishing_level" => 60, "pokemon" => ["Shiny Seadra"]}
-        ]
+        "level" => 60,
+        "tier" => "3",
+        "role" => "PVE",
+        "hp" => 700,
+        "experience" => 1200,
+        "elements" => ["Grass"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/4/003_venusaur"
       }
     ]
   }
@@ -118,13 +164,28 @@ defmodule PokexWeb.PokedexLiveTest do
     end
 
     @tag :tmp_dir
-    test "the clan filter finds the members (inheriting shiny included)", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"clans" => ["Seavell"]}}")
+    test "the tier filter finds everyone in that tier", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"tiers" => ["ULTIMATE"]}}")
 
       results = view |> element("#pokedex-results") |> render()
-      assert results =~ "Seadra"
-      assert results =~ "Shiny Seadra"
+      assert results =~ "Charizard"
+      refute results =~ "Venusaur"
+    end
+
+    @tag :tmp_dir
+    test "the generation filter narrows to that generation", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"generations" => ["4"]}}")
+
+      results = view |> element("#pokedex-results") |> render()
+      assert results =~ "Venusaur"
       refute results =~ "Charizard"
+    end
+
+    @tag :tmp_dir
+    test "a hand-typed generation that is not a number narrows nothing", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"generations" => ["abc"]}}")
+
+      assert render(view) =~ "4 resultado(s)"
     end
 
     @tag :tmp_dir
@@ -137,10 +198,12 @@ defmodule PokexWeb.PokedexLiveTest do
     end
 
     @tag :tmp_dir
-    test "the card shows the Pokémon's clan", %{conn: conn} do
+    test "the card shows the Pokémon's tier and generation", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"name" => "Charizard"}}")
 
-      assert view |> element("#pokedex-results") |> render() =~ "Volcanic"
+      card = view |> element("#pokedex-results") |> render()
+      assert card =~ "tier ULTIMATE"
+      assert card =~ "gen 1"
     end
 
     @tag :tmp_dir
@@ -182,27 +245,24 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "only shinies + the per-lure view highlighting the shinies", %{conn: conn} do
+  test "the variant select narrows to shinies, then back to normals", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex")
 
-    view
-    |> form("#pokedex-filter-form", %{"f" => %{"only_shiny" => "true"}})
-    |> render_change()
+    view |> form("#pokedex-filter-form", %{"f" => %{"variant" => "shiny"}}) |> render_change()
 
     html = render(view)
     assert html =~ "Shiny Seadra"
     assert html =~ "1 resultado(s)"
 
-    view |> form("#lure-form", %{"lure" => "Shrimp"}) |> render_change()
+    view |> form("#pokedex-filter-form", %{"f" => %{"variant" => "normal"}}) |> render_change()
+
     html = render(view)
-    assert html =~ "pesca lv 50"
-    assert html =~ "pesca lv 60"
-    assert has_element?(view, "#lure-shiny-count")
-    assert html =~ "1 shiny(s)"
+    assert html =~ "3 resultado(s)"
+    refute view |> element("#pokedex-results") |> render() =~ "Shiny Seadra"
   end
 
   @tag :tmp_dir
-  test "filters live in the URL: changes patch, a direct link restores, lure included", %{
+  test "filters live in the URL: changes patch and a direct link restores", %{
     conn: conn
   } do
     {:ok, view, _} = live(conn, ~p"/pokedex")
@@ -215,24 +275,18 @@ defmodule PokexWeb.PokedexLiveTest do
     assert html2 =~ "1 resultado(s)"
     assert view2 |> element("#pokedex-results") |> render() =~ "Charizard"
 
-    {:ok, view3, _} = live(conn, ~p"/pokedex?isca=Shrimp")
-    assert view3 |> element("#lure-tiers") |> render() =~ "pesca lv 50"
-    assert has_element?(view3, "#lure-shiny-count")
+    {:ok, view3, _} = live(conn, ~p"/pokedex?#{%{"tiers" => ["ULTIMATE"]}}")
+    assert view3 |> element("#pokedex-results") |> render() =~ "Charizard"
 
     assert has_element?(view3, "input[data-quick-search]")
   end
 
   @tag :tmp_dir
-  test "the wiki edit-date filter narrows the results", %{conn: conn} do
-    {:ok, view, _} = live(conn, ~p"/pokedex")
+  test "the role filter separates PVP from PVE", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/pokedex?#{%{"roles" => ["PVP"]}}")
 
-    view
-    |> form("#pokedex-filter-form", %{"f" => %{"edited_after" => "2026-01-01"}})
-    |> render_change()
-
-    html = render(view)
-    assert html =~ "1 resultado(s)"
-    assert view |> element("#pokedex-results") |> render() =~ "Seadra"
+    assert render(view) =~ "1 resultado(s)"
+    assert view |> element("#pokedex-results") |> render() =~ "Charizard"
   end
 
   @tag :tmp_dir
@@ -259,61 +313,23 @@ defmodule PokexWeb.PokedexLiveTest do
   end
 
   @tag :tmp_dir
-  test "novelty = wiki freshness: the NOVO badge and the self-recycling chip", %{
-    conn: conn,
-    path: path
-  } do
-    hoje = Date.utc_today()
-
-    dataset =
-      update_in(@dataset["species"], fn species ->
-        Enum.map(species, fn
-          %{"name" => "Charizard"} = s ->
-            Map.put(s, "edited_at", Date.to_iso8601(Date.add(hoje, -1)))
-
-          %{"name" => "Venusaur"} = s ->
-            Map.put(s, "edited_at", Date.to_iso8601(Date.add(hoje, -60)))
-
-          s ->
-            Map.delete(s, "edited_at")
-        end)
-      end)
-
-    File.write!(path, JSON.encode!(dataset))
-    Pokex.Pokedex.reload()
-
+  test "sorting by tier puts ULTIMATE first and a tierless entry last", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex")
 
-    results = view |> element("#pokedex-results") |> render()
-    assert results =~ "NOVO"
-    assert Regex.scan(~r/NOVO/, results) |> length() == 1
+    view |> element(~s(#pokedex-sort button[phx-value-by="tier"])) |> render_click()
+    assert_patch(view, "/pokedex?sort=tier")
 
-    view |> element(~s(#pokedex-sort button[phx-click="toggle_novelty"])) |> render_click()
-    assert_patch(view, "/pokedex?novidades=true")
-
-    assert render(view) =~ "1 resultado(s)"
-    assert view |> element("#pokedex-results") |> render() =~ "Charizard"
+    assert view |> element("#pokedex-results li:first-child") |> render() =~ "Charizard"
   end
 
   @tag :tmp_dir
   test "infinite scroll: first batch of 100, loads more, then ends", %{conn: conn, path: path} do
     species =
       for i <- 1..250 do
-        %{
-          "name" => "Mon#{String.pad_leading("#{i}", 3, "0")}",
-          "number" => i,
-          "level" => 50,
-          "elements" => ["Water"],
-          "weak_to" => [],
-          "resists" => [],
-          "evolutions" => [],
-          "sprite" => nil,
-          "shiny_of" => nil,
-          "shiny_name" => nil
-        }
+        species("Mon#{String.pad_leading("#{i}", 3, "0")}", %{"number" => i})
       end
 
-    File.write!(path, JSON.encode!(%{"species" => species, "lures" => []}))
+    File.write!(path, JSON.encode!(%{"species" => species}))
     Pokex.Pokedex.reload()
 
     {:ok, view, _} = live(conn, ~p"/pokedex")
@@ -346,21 +362,13 @@ defmodule PokexWeb.PokedexLiveTest do
   } do
     species =
       for i <- 1..150 do
-        %{
-          "name" => "Mon#{String.pad_leading("#{i}", 3, "0")}",
+        species("Mon#{String.pad_leading("#{i}", 3, "0")}", %{
           "number" => i,
-          "level" => if(i <= 100, do: 10, else: 90),
-          "elements" => ["Water"],
-          "weak_to" => [],
-          "resists" => [],
-          "evolutions" => [],
-          "sprite" => nil,
-          "shiny_of" => nil,
-          "shiny_name" => nil
-        }
+          "level" => if(i <= 100, do: 10, else: 90)
+        })
       end
 
-    File.write!(path, JSON.encode!(%{"species" => species, "lures" => []}))
+    File.write!(path, JSON.encode!(%{"species" => species}))
     Pokex.Pokedex.reload()
 
     {:ok, view, _} = live(conn, ~p"/pokedex")
@@ -398,14 +406,14 @@ defmodule PokexWeb.PokedexLiveTest do
 
     assert render(view) =~ "350/635 Snorlax"
 
-    bigger = update_in(@dataset["species"], &(&1 ++ [%{"name" => "Lapras", "number" => 131}]))
+    bigger = update_in(@dataset["species"], &(&1 ++ [species("Lapras", %{"number" => 131})]))
     File.write!(path, JSON.encode!(bigger))
     Pokex.Pokedex.reload()
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "pokedex_sync",
-      {:pokedex_sync, {:done, %{updated: 2, base: 5, shinies: 1}}}
+      {:pokedex_sync, {:done, %{updated: 2, base: 5, shinies: 1, failed: 0}}}
     )
 
     html = render(view)

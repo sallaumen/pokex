@@ -1,14 +1,13 @@
 defmodule PokexWeb.PokedexLive do
   @moduledoc """
-  The local Pokédex (scraped from the PokeTibia wiki by `mix pokedex.scrape`):
+  The local Pokédex (fetched from the wiki's API by `mix pokedex.sync`):
   Lucas's queryable base — search by name, element, WEAKNESS ("which are
-  weak to grass?") and level — plus the per-lure view that answers "fishing
-  with THIS lure, which Shinies can come?". Every card links into
+  weak to grass?"), level, generation, tier and role. Every card links into
   `/pokedex/:name`; the team and its hunt suggestions live on `/time`.
 
   FILTERS LIVE IN THE URL: exploring a card and coming BACK restores the
-  exact view (the day-to-day flow), and any filtered view — including the
-  per-lure one (`?isca=Shrimp`) — is a shareable, bookmarkable link.
+  exact view (the day-to-day flow), and any filtered view is a shareable,
+  bookmarkable link.
 
   RESULTS STREAM IN by CURSOR (`Pokedex.page/3`), 100 at a time, appended to a
   LiveView stream as the viewport reaches the bottom — the DOM grows without
@@ -18,7 +17,6 @@ defmodule PokexWeb.PokedexLive do
   use PokexWeb, :live_view
 
   alias Pokex.Pokedex
-  alias Pokex.Pokedex.Clans
   alias Pokex.Pokedex.Sync
   alias PokexWeb.PanelForms
   alias PokexWeb.PokedexStyle
@@ -37,8 +35,8 @@ defmodule PokexWeb.PokedexLive do
        sync_msg: nil,
        loaded?: Pokedex.loaded?(),
        elements: Pokedex.elements(),
-       clans: Clans.all(),
-       lures: Pokedex.lures(),
+       generations: Pokedex.generations(),
+       tiers: Pokedex.tiers(),
        species_names: Enum.map(Pokedex.search(%{}), & &1.name)
      )}
   end
@@ -53,9 +51,10 @@ defmodule PokexWeb.PokedexLive do
         name: params["name"] || "",
         elements: multi_param(params, "elements", "element"),
         weak_to: multi_param(params, "weak_to"),
-        clans: multi_param(params, "clans"),
-        only_shiny: params["only_shiny"] == "true",
-        edited_after: params["edited_after"] || ""
+        generations: integer_param(params, "generations"),
+        tiers: multi_param(params, "tiers"),
+        roles: multi_param(params, "roles"),
+        variant: params["variant"] || ""
       }
       |> put_level(:min_level, params["min_level"])
       |> put_level(:max_level, params["max_level"])
@@ -67,7 +66,6 @@ defmodule PokexWeb.PokedexLive do
       filters
       |> Map.put(:sort, sort)
       |> Map.put(:desc, desc?)
-      |> Map.put(:only_novelty, params["novidades"] == "true")
 
     page = Pokedex.page(filters)
 
@@ -79,24 +77,23 @@ defmodule PokexWeb.PokedexLive do
        raw_filters:
          params
          |> Map.take(
-           ~w(name elements weak_to clans min_level max_level only_shiny edited_after sort desc novidades)
+           ~w(name elements weak_to generations tiers roles variant min_level max_level sort desc)
          )
          |> Map.merge(%{
            "elements" => filters.elements,
            "weak_to" => filters.weak_to,
-           "clans" => filters.clans
+           "generations" => multi_param(params, "generations"),
+           "tiers" => filters.tiers,
+           "roles" => filters.roles
          })
          |> clean_query(),
        filters: filters,
        form: filter_form(params),
        sort: sort,
        desc?: desc?,
-       only_novelty?: params["novidades"] == "true",
        cursor: page.cursor,
        total: page.total,
-       loaded: length(page.entries),
-       novelty_count: Enum.count(Pokedex.search(filters), &(Pokedex.novelty(&1) != nil)),
-       selected_lure: Enum.find(socket.assigns.lures, &(&1.name == params["isca"]))
+       loaded: length(page.entries)
      )
      # a new filter/sort is a NEW list — reset instead of diffing the old cards
      |> stream(:species, page.entries, reset: true)}
@@ -129,17 +126,6 @@ defmodule PokexWeb.PokedexLive do
     query =
       socket.assigns.raw_filters
       |> Map.merge(%{"sort" => by, "desc" => if(flip?, do: "1", else: nil)})
-      |> Map.put("isca", current_lure_name(socket))
-      |> clean_query()
-
-    {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
-  end
-
-  def handle_event("toggle_novelty", _params, socket) do
-    query =
-      socket.assigns.raw_filters
-      |> Map.put("novidades", if(socket.assigns.only_novelty?, do: nil, else: "true"))
-      |> Map.put("isca", current_lure_name(socket))
       |> clean_query()
 
     {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
@@ -154,7 +140,7 @@ defmodule PokexWeb.PokedexLive do
   # empty string — and render_click/1 never sees it, because the test client
   # reads the attributes only. Any phx-value-* name is safe except "value".
   def handle_event("toggle_filter", %{"key" => key, "option" => option}, socket)
-      when key in ~w(elements weak_to clans) do
+      when key in ~w(elements weak_to generations tiers roles) do
     current = socket.assigns.raw_filters[key] || []
     updated = if option in current, do: List.delete(current, option), else: current ++ [option]
 
@@ -162,28 +148,22 @@ defmodule PokexWeb.PokedexLive do
   end
 
   def handle_event("clear_filter", %{"key" => key}, socket)
-      when key in ~w(elements weak_to clans) do
+      when key in ~w(elements weak_to generations tiers roles) do
     {:noreply, patch_with(socket, %{key => []})}
   end
 
   @impl true
   def handle_event("filter", %{"f" => params}, socket) do
-    # sort/novelty AND the chip groups survive a form change — typing a name
-    # must never wipe the elements/clans he just toggled on
+    # sort AND the chip groups survive a form change — typing a name must
+    # never wipe the elements/tiers he just toggled on
     keep =
-      Map.take(socket.assigns.raw_filters, ~w(sort desc novidades elements weak_to clans))
+      Map.take(
+        socket.assigns.raw_filters,
+        ~w(sort desc elements weak_to generations tiers roles)
+      )
 
-    query =
-      params
-      |> Map.merge(keep)
-      |> Map.put("isca", current_lure_name(socket))
-      |> clean_query()
+    query = params |> Map.merge(keep) |> clean_query()
 
-    {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
-  end
-
-  def handle_event("select_lure", %{"lure" => name}, socket) do
-    query = socket.assigns.raw_filters |> Map.put("isca", name) |> clean_query()
     {:noreply, push_patch(socket, to: ~p"/pokedex?#{query}")}
   end
 
@@ -212,13 +192,11 @@ defmodule PokexWeb.PokedexLive do
         sync_msg:
           "sincronizado: #{summary.updated} atualizadas, #{summary.base} na base " <>
             "(#{summary.shinies} shinies)" <>
-            if(Map.get(summary, :filled, 0) > 0,
-              do: " · #{summary.filled} completadas",
-              else: ""
-            ),
+            if(summary.failed > 0, do: " · #{summary.failed} falharam", else: ""),
         loaded?: Pokedex.loaded?(),
         elements: Pokedex.elements(),
-        lures: Pokedex.lures(),
+        generations: Pokedex.generations(),
+        tiers: Pokedex.tiers(),
         species_names: Enum.map(Pokedex.search(%{}), & &1.name)
       )
       |> push_patch(to: ~p"/pokedex?#{clean_query(socket.assigns.raw_filters)}")
@@ -235,13 +213,9 @@ defmodule PokexWeb.PokedexLive do
        )}
 
   # Every filter change goes through here: merge onto the current URL state,
-  # keep the lure, drop the empties, patch.
+  # drop the empties, patch.
   defp patch_with(socket, changes) do
-    query =
-      socket.assigns.raw_filters
-      |> Map.merge(changes)
-      |> Map.put("isca", current_lure_name(socket))
-      |> clean_query()
+    query = socket.assigns.raw_filters |> Map.merge(changes) |> clean_query()
 
     push_patch(socket, to: ~p"/pokedex?#{query}")
   end
@@ -253,9 +227,6 @@ defmodule PokexWeb.PokedexLive do
     |> Map.new()
   end
 
-  defp current_lure_name(socket),
-    do: socket.assigns.selected_lure && socket.assigns.selected_lure.name
-
   # Multi-value filters ride the URL as lists (?elements[]=Grass&elements[]=
   # Poison). `legacy` reads the pre-chips singular param so old bookmarks keep
   # working; a lone binary under the plural key (hand-typed URL) counts too.
@@ -265,6 +236,19 @@ defmodule PokexWeb.PokedexLive do
       value when is_binary(value) and value != "" -> [value]
       _absent -> []
     end
+  end
+
+  # Generations ride the URL as strings and the filter compares integers. A
+  # hand-typed ?generations[]=abc must narrow nothing, never raise.
+  defp integer_param(params, key) do
+    params
+    |> multi_param(key)
+    |> Enum.flat_map(fn raw ->
+      case Integer.parse(raw) do
+        {number, _rest} -> [number]
+        :error -> []
+      end
+    end)
   end
 
   defp put_level(filters, key, raw) do
@@ -280,14 +264,11 @@ defmodule PokexWeb.PokedexLive do
         "name" => params["name"] || "",
         "min_level" => params["min_level"] || "",
         "max_level" => params["max_level"] || "",
-        "only_shiny" => params["only_shiny"] || "false",
-        "edited_after" => params["edited_after"] || ""
+        "variant" => params["variant"] || ""
       },
       as: :f
     )
   end
-
-  defp shiny?(name), do: String.starts_with?(name, "Shiny ")
 
   defp dom_slug(name), do: name |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "-")
 
@@ -298,8 +279,8 @@ defmodule PokexWeb.PokedexLive do
     {:element, "tipo"},
     {:weak_to, "fraqueza"},
     {:shiny, "shiny"},
-    {:edited, "edição da wiki"},
-    {:changed, "mudou aqui"}
+    {:tier, "tier"},
+    {:generation, "geração"}
   ]
 
   defp sorts, do: @sorts
@@ -489,26 +470,23 @@ defmodule PokexWeb.PokedexLive do
                 class="input input-bordered h-9 w-20 bg-[#090d0f] font-mono text-sm"
               />
             </label>
-            <label
-              class="flex flex-col gap-1"
-              title="páginas da wiki editadas a partir desta data — bom pra caçar NOVIDADES do PokeTibia"
-            >
-              wiki editada após
-              <input
-                type="date"
-                name="f[edited_after]"
-                value={@form[:edited_after].value}
-                class="input input-bordered h-9 w-36 bg-[#090d0f] font-mono text-sm"
-              />
-            </label>
-            <label class="flex h-9 items-center gap-2">
-              <input
-                type="checkbox"
-                name="f[only_shiny]"
-                value="true"
-                checked={@form[:only_shiny].value == "true"}
-                class="checkbox checkbox-warning checkbox-sm"
-              /> só shinies ✨
+            <label class="flex flex-col gap-1" title="normais, shinies, ou os dois">
+              variante
+              <select
+                id="filter-variant"
+                name="f[variant]"
+                class="select select-bordered h-9 w-40 bg-[#090d0f] font-mono text-sm"
+              >
+                <option value="" selected={@form[:variant].value == ""}>
+                  normais e shinies
+                </option>
+                <option value="normal" selected={@form[:variant].value == "normal"}>
+                  só normais
+                </option>
+                <option value="shiny" selected={@form[:variant].value == "shiny"}>
+                  só shinies ✨
+                </option>
+              </select>
             </label>
           </.form>
 
@@ -532,13 +510,22 @@ defmodule PokexWeb.PokedexLive do
               style_fun={&PokedexStyle.element_style/1}
             />
             <.filter_chips
-              id="filter-clans"
-              label="clã"
-              hint="derivado da matéria do Pokémon na wiki"
-              param="clans"
-              options={@clans}
-              selected={@filters.clans}
-              style_fun={&PokedexStyle.clan_style/1}
+              id="filter-generations"
+              label="geração"
+              hint="a geração em que o Pokémon entrou no jogo"
+              param="generations"
+              options={Enum.map(@generations, &Integer.to_string/1)}
+              selected={Enum.map(@filters.generations, &Integer.to_string/1)}
+              style_fun={fn _generation -> "" end}
+            />
+            <.filter_chips
+              id="filter-tiers"
+              label="tier"
+              hint="a faixa de força que a wiki dá ao Pokémon"
+              param="tiers"
+              options={@tiers}
+              selected={@filters.tiers}
+              style_fun={fn _tier -> "" end}
             />
           </div>
 
@@ -566,20 +553,6 @@ defmodule PokexWeb.PokedexLive do
             >
               {label}{if @sort == key, do: if(@desc?, do: " ↓", else: " ↑")}
             </button>
-
-            <button
-              phx-click="toggle_novelty"
-              title={"só o que a wiki editou nos últimos #{Pokedex.novelty_days()} dias — a lista se recicla sozinha"}
-              class={[
-                "ml-auto rounded px-1.5 py-0.5 transition",
-                if(@only_novelty?,
-                  do: "bg-[#211b0d] text-[#f3ba4e] ring-1 ring-[#674f20]",
-                  else: "text-[#89939a] hover:bg-[#161b1f] hover:text-white"
-                )
-              ]}
-            >
-              🆕 novidades{if @novelty_count > 0 and not @only_novelty?, do: " (#{@novelty_count})"}
-            </button>
           </div>
 
           <p id="pokedex-count" class="mt-2 font-mono text-[10px] text-[#737d85]">
@@ -603,7 +576,7 @@ defmodule PokexWeb.PokedexLive do
                 navigate={~p"/pokedex/#{entry.name}"}
                 class={[
                   "block rounded-lg border bg-[#101418] px-2.5 py-2 transition hover:border-[#37d07d]/60",
-                  if(entry.shiny_of,
+                  if(entry.variant == "shiny",
                     do: "border-[#674f20]",
                     else: "border-[#232b30]"
                   )
@@ -619,37 +592,21 @@ defmodule PokexWeb.PokedexLive do
                     loading="lazy"
                   />
                   <div class="min-w-0">
-                    <p
-                      class="truncate text-sm font-semibold"
-                      title={entry.edited_at && "wiki editada em #{entry.edited_at}"}
-                    >
-                      {entry.name}<span :if={entry.shiny_of}> ✨</span><span
-                        :if={Pokedex.novelty(entry, @today)}
-                        title={"a wiki editou esta página há #{elem(Pokedex.novelty(entry, @today), 1)} dia(s)"}
-                        class="ml-1 rounded bg-[#0d3822] px-1 py-0.5 align-middle font-mono text-[8px] text-[#3de083]"
-                      >NOVO</span>
+                    <p class="truncate text-sm font-semibold">
+                      {entry.name}<span :if={entry.variant == "shiny"}> ✨</span>
                     </p>
                     <p class="flex flex-wrap items-center gap-1 font-mono text-[9px] text-[#737d85]">
                       <span :if={entry.number}>#{entry.number}</span>
                       <span class="rounded bg-[#161b1f] px-1 py-0.5 text-[#aeb6bd]">
                         lv {entry.level || "?"}
                       </span>
-                      <.element_chip :for={el <- entry.elements} element={el} />
-                      <span
-                        :for={clan <- entry.clans}
-                        class="rounded px-1 py-0.5"
-                        style={PokedexStyle.clan_style(clan)}
-                      >
-                        ⚑ {clan}
+                      <span :if={entry.tier} class="rounded bg-[#161b1f] px-1 py-0.5 text-[#aeb6bd]">
+                        tier {entry.tier}
                       </span>
-                    </p>
-                    <p
-                      :if={@sort in [:edited, :changed] and (entry.edited_at || entry.changed_at)}
-                      class="font-mono text-[9px] text-[#59636b]"
-                    >
-                      {if @sort == :edited,
-                        do: "wiki #{entry.edited_at || "?"}",
-                        else: "mudou #{short_stamp(entry.changed_at) || "?"}"}
+                      <span :if={entry.generation} class="rounded bg-[#161b1f] px-1 py-0.5">
+                        gen {entry.generation}
+                      </span>
+                      <.element_chip :for={el <- entry.elements} element={el} />
                     </p>
                   </div>
                 </div>
@@ -680,59 +637,6 @@ defmodule PokexWeb.PokedexLive do
               — fim da lista ({@total}) —
             </p>
           </div>
-        </section>
-
-        <section
-          :if={@loaded? and @lures != []}
-          class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
-        >
-          <div class="flex flex-wrap items-center gap-2">
-            <h2 class="text-sm font-semibold">🎣 Por isca</h2>
-            <form id="lure-form" phx-change="select_lure">
-              <select
-                name="lure"
-                class="select select-bordered h-9 bg-[#090d0f] font-mono text-sm"
-              >
-                <option value="">escolhe a isca…</option>
-                <option
-                  :for={lure <- @lures}
-                  value={lure.name}
-                  selected={@selected_lure && @selected_lure.name == lure.name}
-                >
-                  {lure.name}
-                </option>
-              </select>
-            </form>
-            <p
-              :if={@selected_lure}
-              id="lure-shiny-count"
-              class="font-mono text-[10px] text-[#e7ca82]"
-            >
-              ✨ {length(Pokedex.shinies_for_lure(@selected_lure.name))} shiny(s) possível(is) — fica esperto
-            </p>
-          </div>
-
-          <ul :if={@selected_lure} id="lure-tiers" class="mt-2 space-y-1">
-            <li
-              :for={tier <- @selected_lure.tiers}
-              class="rounded-lg border border-[#232b30] bg-[#101418] px-3 py-2"
-            >
-              <span class="font-mono text-[10px] text-[#737d85]">pesca lv {tier.fishing_level}:</span>
-              <.link
-                :for={name <- tier.pokemon}
-                navigate={~p"/pokedex/#{name}"}
-                class={[
-                  "ml-1 inline-block rounded px-1.5 py-0.5 text-[11px] hover:underline",
-                  if(shiny?(name),
-                    do: "bg-[#211b0d] font-semibold text-[#f3ba4e]",
-                    else: "bg-[#161b1f] text-[#aeb6bd]"
-                  )
-                ]}
-              >
-                {name}{if shiny?(name), do: " ✨"}
-              </.link>
-            </li>
-          </ul>
         </section>
       </div>
     </Layouts.app>

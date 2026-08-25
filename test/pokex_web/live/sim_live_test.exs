@@ -147,6 +147,21 @@ defmodule PokexWeb.SimLiveTest do
            "a página tem que dizer COMO medir a quarta, e com qual tecla"
   end
 
+  # A mesa pedia dano de uma tecla de buff e listava "0" antes do "1", sem dizer
+  # o que cada tecla faz. "Não tá se adequando ao meu pokémon" (Lucas, 25/08).
+  test "a mesa mostra a barra do pokémon, com o trabalho de cada tecla", %{conn: conn} do
+    {:ok, live, _html} = live(conn, ~p"/sim")
+    live |> element("button", "Armar simulação") |> render_click()
+
+    html = live |> element("button", "Mesa de calibragem") |> render_click()
+
+    assert html =~ "o que faz"
+    assert html =~ "área"
+    assert html =~ "alvo único"
+    assert html =~ "buff", "uma tecla de buff tem que aparecer dizendo que é buff"
+    assert html =~ "MESMA", "a mesa tem que dizer que vida e dano estão na mesma unidade"
+  end
+
   test "opening the calibration table renders every field it offers", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/sim")
     live |> element("button", "Armar simulação") |> render_click()

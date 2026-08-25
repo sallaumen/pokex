@@ -50,11 +50,26 @@ defmodule Pokex.Bots.Combat.Loadout do
   """
   @spec current() :: t | nil
   def current do
+    real() || simulated()
+  end
+
+  defp real do
     case Team.active() do
       nil -> nil
       name -> resolve(name, Team.skills(name))
     end
   end
+
+  # THE SIMULATOR'S STAND-IN, and only ever the simulator's: `Sim.Fence` puts a
+  # bar here while it is armed and takes it away when it disarms, exactly like
+  # it does with the rig and the eyes. Without it, arming with no team
+  # configured gave the engine no hands, so it ordered nothing, so a whole
+  # simulated hunt ran without a single key leaving the bar — silently (found
+  # by him playing it, 2026-08-25).
+  #
+  # It can never leak into a real hunt: nothing else writes this key, and the
+  # fence restores it in the same order it restores the hands.
+  defp simulated, do: Application.get_env(:pokex, :simulated_loadout)
 
   @doc """
   Builds a loadout from a name and its profile. Pure — the whole reason the

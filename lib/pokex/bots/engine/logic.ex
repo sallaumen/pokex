@@ -148,11 +148,30 @@ defmodule Pokex.Bots.Engine.Logic do
     band = band(world.situation, config)
 
     cond do
+      # Health still rules first: the revive needs no attack key, and a pokémon
+      # about to fall must not be abandoned because nobody classified its bar.
       band == :red -> emergency(logic, world, config, now)
       band == :yellow -> closing(logic, world, config, now)
       world.situation.blind? -> blind(logic)
+      # NO HANDS. `fire: :free` with an empty `opening` is an order that looks
+      # like an action and does nothing — the shape of "lutando como sem pokémon
+      # escolhido" in his own journal, and of a simulator that ran a whole fight
+      # without a single key leaving the bar (2026-08-25). A fight with no keys
+      # is not a fight; say so instead of narrating one.
+      opening(world) == [] -> handless(logic, world, config)
       true -> normal(logic, world, config, now)
     end
+  end
+
+  # The route keeps walking: standing still would turn a missing configuration
+  # into a stopped night. What it will NOT do is pretend to fight.
+  defp handless(logic, world, config) do
+    {%{logic | state: :handless},
+     orders(:handless, band(world.situation, config),
+       route: :go,
+       fire: :hold,
+       why: "sem teclas de ataque: nenhum pokémon configurado pra lutar"
+     )}
   end
 
   # An unknown health bar is not a band. The guard only ever fires on a number

@@ -221,4 +221,46 @@ defmodule Pokex.Sim.BenchTest do
 
     assert result.outcome.ran_for_ms >= 60_000
   end
+  # A escada do suporte tem três degraus e este banco só modelava o terceiro.
+  # `PlayerSupport.Logic` é pura, então quem decide é ela mesma — não uma cópia.
+  describe "os dois degraus baratos da escada" do
+    alias Pokex.Bots.Combat.Loadout
+
+    @curador %Loadout{name: "Curador", aoe: ["3"], single: ["4"], heal: ["7"]}
+
+    defp curando(loadout) do
+      Bench.run(Scenario.get("vida-caindo"),
+        duration_ms: 60_000,
+        config: %{engage_from: 1},
+        loadout: loadout
+      )
+    end
+
+    test "a cura do pokémon sai no meio da luta: é o único degrau que funciona lutando" do
+      %{metrics: com} = curando(@curador)
+      %{metrics: sem} = curando(%{@curador | heal: []})
+
+      assert com.min_hp > sem.min_hp
+    end
+
+    # A poção é um CANAL e a batalha cancela ela — o mesmo portão que o worker
+    # guarda. A prova está nos dois números juntos: a vida mais baixa da corrida
+    # é a MESMA com e sem poção (nenhuma foi bebida com a pilha viva) e só o
+    # final muda, depois que a tela limpou.
+    test "e a poção só depois, com a tela limpa" do
+      drinking = %{
+        engage_from: 1,
+        potion_enabled: true,
+        potion_pct: 95,
+        potion_cooldown_ms: 3_000
+      }
+
+      com = Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: drinking)
+      sem = Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: %{engage_from: 1})
+
+      assert com.metrics.min_hp == sem.metrics.min_hp
+      assert com.outcome.hp_at_end > sem.outcome.hp_at_end
+    end
+  end
+
 end

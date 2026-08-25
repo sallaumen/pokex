@@ -213,8 +213,12 @@ defmodule Pokex.Bots.Engine.Worker do
   # and no consumer has to ask who is on the field. The reserved control key
   # (`Strategy.reserved/1`) is deliberately absent — it belongs to
   # `PlayerSupport`'s rescue combo alone, see `Logic`'s moduledoc.
-  defp hands(nil), do: %{opening: []}
-  defp hands(loadout), do: %{opening: Strategy.opening(loadout)}
+  defp hands(nil), do: %{opening: [], single: []}
+
+  # `single` travels beside `opening` so a decision can spend the CHEAP keys
+  # without spending the area — the ruler saves the area for a pile, not the
+  # whole bar.
+  defp hands(loadout), do: %{opening: Strategy.opening(loadout), single: loadout.single}
 
   defp inputs(state, now) do
     %{
@@ -251,7 +255,8 @@ defmodule Pokex.Bots.Engine.Worker do
       # Not the engine's own number: the floor the PlayerSupport actually keeps
       # between two rescues. The brain planning around a press the hands cannot
       # make is how a hunt froze for thirty seconds at a time.
-      rescue_cooldown_ms: Settings.get(:rescue_cooldown_ms)
+      rescue_cooldown_ms: Settings.get(:rescue_cooldown_ms),
+      skip_fire: Settings.get(:engine_skip_fire)
     }
   end
 

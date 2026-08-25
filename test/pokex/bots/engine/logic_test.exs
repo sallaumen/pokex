@@ -50,7 +50,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
   defp world(overrides \\ %{}) do
     Map.merge(
-      %{situation: situation(), hunt: hunt(), hands: %{opening: ~w(3 4 5 6 7 8 9)}},
+      %{
+        situation: situation(),
+        hunt: hunt(),
+        hands: %{opening: ~w(3 4 5 6 7 8 9), single: ~w(7 8 9)}
+      },
       overrides
     )
   end
@@ -620,6 +624,42 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert orders.phase == :emergency
       assert orders.revive == :now
+    end
+  end
+
+  # R1 manda ignorar um ou dois e seguir a vida. Só que quem vem atrás morde o
+  # caminho inteiro, e a fase que anda BATENDO mata mais por minuto no bench.
+  # A chave existe pra ele decidir, com o número na frente.
+  describe "bater em quem vem junto ao deixar a pilha" do
+    @batendo Map.put(@config, :skip_fire, true)
+
+    defp passando(config) do
+      pequena =
+        world(%{
+          situation: situation(%{enemies: 1, worth_fighting?: false}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      [0, @config.size_ceiling_ms + 1, @config.size_ceiling_ms + 100]
+      |> Enum.reduce({Logic.new(), nil}, fn at, {logic, _} ->
+        Logic.step(logic, pequena, config, at)
+      end)
+    end
+
+    test "por padrão passa de mãos baixas: a régua é dele" do
+      {_logic, orders} = passando(@config)
+
+      assert orders.phase == :skipping
+      assert orders.fire == :hold
+    end
+
+    test "ligada, bate — e só com as teclas de alvo único" do
+      {_logic, orders} = passando(@batendo)
+
+      assert orders.phase == :skipping
+      assert orders.route == :go
+      assert orders.fire == :free
+      assert orders.opening == ~w(7 8 9), "a área é o que a régua está guardando"
     end
   end
 

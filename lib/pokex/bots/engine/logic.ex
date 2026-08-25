@@ -541,9 +541,12 @@ defmodule Pokex.Bots.Engine.Logic do
     {logic,
      orders(:skipping, band(world.situation, config),
        route: :go,
-       why: "deixei essa pilha pra trás — seguindo a rota"
+       fire: skip_fire(config),
+       opening: skip_keys(world, config),
+       why: skip_why(config)
      )}
   end
+
 
   defp sizing(logic, world, config, now) do
     logic = enter(logic, :sizing, now)
@@ -585,6 +588,28 @@ defmodule Pokex.Bots.Engine.Logic do
          )}
     end
   end
+
+  # R1 says to IGNORE one or two and walk on ("eu às vezes até ignoro aquele mob
+  # e sigo a minha vida"), and that is what this does by default. The knob is
+  # here because the bench found the opposite worth measuring: the phase that
+  # walks while firing (`:unaided`) kills more per minute than this one, which
+  # walks with the hands down — and what follows a hunt out of a skipped pile
+  # bites it the whole way. Single-target only when it is on: the area is what
+  # the ruler is saving, not the cheap keys.
+  defp skip_fire(config), do: if(Map.get(config, :skip_fire, false), do: :free, else: :hold)
+
+  defp skip_keys(world, config) do
+    if Map.get(config, :skip_fire, false), do: singles(world), else: []
+  end
+
+  defp skip_why(config) do
+    if Map.get(config, :skip_fire, false),
+      do: "deixei essa pilha pra trás — seguindo a rota, batendo em quem vier junto",
+      else: "deixei essa pilha pra trás — seguindo a rota"
+  end
+
+  defp singles(%{hands: %{single: keys}}) when keys != [], do: keys
+  defp singles(world), do: opening(world)
 
   # Gathering is what makes waiting worth it. Hunting creatures that arrive ONE
   # BY ONE — and that a pile never forms around — the wait is pure loss: the

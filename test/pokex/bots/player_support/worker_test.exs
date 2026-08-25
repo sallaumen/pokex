@@ -411,6 +411,10 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # revive. A reserved control key EXISTS in this test on purpose — with the
   # prefix off, not even a ready control key may delay the revive.
   test "the revive is one press and nothing more", %{tmp: tmp, body: body} do
+    # O prefixo do stun é o PADRÃO desde 25/08 — este teste é sobre a tecla do
+    # revive em si, então ele desliga o prefixo pra perguntar só isso.
+    SettingsStash.stash!(rescue_stun_first: false)
+
     SettingsStash.stash_keys!([:rescue_key])
     Settings.put(:rescue_key, "f4")
     classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})

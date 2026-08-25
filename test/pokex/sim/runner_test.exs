@@ -300,7 +300,16 @@ defmodule Pokex.Sim.RunnerTest do
     advance.(200)
     Runner.tick_now(server)
 
-    # the body takes revive_settle_ms to come back — the order starts it
+    # O RESGATE É UM COMBO: esta primeira volta manda o stun e AGENDA o revive
+    # pra depois de `rescue_stun_settle_ms` — o pokémon fica em campo tanqueando
+    # até a pilha dormir de verdade.
+    assert Runner.world(server).own.out?, "o corpo não sai antes de a pilha dormir"
+
+    advance.(2_000)
+    Runner.tick_now(server)
+    refute Runner.world(server).own.out?, "passado o settle, o revive sai sozinho"
+
+    # …e o corpo ainda leva `revive_settle_ms` pra voltar
     advance.(2_000)
     Runner.tick_now(server)
 

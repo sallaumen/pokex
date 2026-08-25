@@ -282,7 +282,12 @@ defmodule Pokex.Sim.Runner do
         %{state | world: world, hands: hands}
 
       _stale_or_missing ->
-        state
+        # UM RESGATE MEIO FEITO NÃO DEPENDE DA ORDEM. O stun e o revive estão a
+        # dois tiques de distância e a ordem já sumiu no segundo — o cérebro
+        # entra em `:recovering` na hora. Sem isto, uma ordem que envelhece entre
+        # os dois deixa o pokémon com a pilha dormindo e ninguém pra recolher.
+        {world, hands} = Hands.finish_rescue(state.world, state.hands)
+        %{state | world: world, hands: hands}
     end
   end
 

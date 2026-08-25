@@ -62,4 +62,37 @@ defmodule Pokex.Sim.InvariantsTest do
       end
     end
   end
+
+  # A APOSTA DELE, virada em teste: "teoricamente mesmo no caos nunca deveríamos
+  # morrer, que com o revive e stun em área antes de usar o revive tudo se
+  # resolve" (25/08).
+  #
+  # Ele estava certo, e o que faltava não era regra nenhuma — era o simulador
+  # modelar a prensa sem o SONO na frente dela. O preço de um revive é o campo
+  # vazio; uma pilha dormindo não cobra esse preço.
+  #
+  # Duas condições, e as duas são ajuste dele, não código: o prefixo do stun
+  # ligado (e um pokémon com controle na barra pra ele apertar) e um piso curto
+  # entre dois resgates. Com as duas, vinte e quatro corridas de cinco minutos
+  # em cada circuito não perdem o pokémon uma única vez.
+  describe "com stun na frente do revive, nada cai" do
+    @dele %{rescue_stun_first: true}
+    @piso %{revive_cooldown_ms: 2_000}
+
+    for id <- ["cacada", "formigueiro"] do
+      @id id
+
+      test "#{id}: nenhuma queda em 24 corridas" do
+        base = Scenario.get(@id)
+
+        for seed <- 1..24 do
+          cenario = %{base | seed: seed, knobs: Map.merge(base.knobs, @piso)}
+          %{outcome: o} = Bench.run(cenario, duration_ms: 300_000, config: @dele)
+
+          refute o.died_at, "#{@id} semente #{seed}: caiu em #{o.died_at}ms"
+          assert o.killed > 0
+        end
+      end
+    end
+  end
 end

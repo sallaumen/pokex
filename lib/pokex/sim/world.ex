@@ -150,6 +150,16 @@ defmodule Pokex.Sim.World do
     # which is what made every hurt run look like a revive treadmill.
     heal_skill_pct: 25,
     potion_heal_pct: 40,
+    # O STUN, que é a metade do revive que este mundo nunca teve. "Com o revive e
+    # stun em área antes de usar o revive tudo se resolve" (Lucas, 2026-08-25) —
+    # e ele está certo: o preço do revive é o campo vazio, e uma pilha dormindo
+    # não cobra esse preço. Modelar a prensa sem o sono fazia todo revive parecer
+    # um convite pra morrer.
+    #
+    # Ambos INVENTADOS, e dos mais dignos de um cronômetro: quanto tempo a
+    # skill de controle dele derruba a pilha, e a que distância.
+    stun_ms: 4_000,
+    stun_radius: 4,
     revive_settle_ms: 1_200,
     revive_cooldown_ms: 60_000,
     fainted_revive_cooldown_ms: 15_000,
@@ -368,7 +378,10 @@ defmodule Pokex.Sim.World do
         # is asleep, and sleeping at home can never count as being dragged away.
         woke?: false,
         walk_debt_ms: 0,
-        bite_debt_ms: 0
+        bite_debt_ms: 0,
+        # Dorme até: uma pilha dormindo não anda e não morde, que é o que faz o
+        # campo vazio do revive sair de graça.
+        asleep_until: 0
       }
 
       %{acc | mobs: acc.mobs ++ [mob], rand: rand, next_id: acc.next_id + 1}
@@ -594,6 +607,11 @@ defmodule Pokex.Sim.World do
   defp damage(world, key, :single),
     do: hit(world, 1, band(world, key, world.knobs.single_damage_pct))
 
+  # THE CONTROL KEY, reserved from every ordinary fight by `Strategy.reserved/1`
+  # for exactly one moment: the prefix of the rescue. It buys the seconds the
+  # revive needs — the pile is asleep while the field is empty.
+  defp damage(world, _key, :crowd), do: sleep(world, world.knobs.stun_radius)
+
   # THE FIRST RUNG of the ladder his support has always had and this world never
   # modelled: a healing skill is free, instant, and works mid-fight. Only the
   # third rung — the revive — existed here, which is why every hurt run looked
@@ -670,6 +688,23 @@ defmodule Pokex.Sim.World do
   # which is the entire point of calibrating a bar per pokemon. Combined with it
   # trailing two tiles behind, this alone moves where a pile has to be standing
   # for an area skill to be worth pressing.
+  defp sleep(world, radius) do
+    until = world.clock + world.knobs.stun_ms
+
+    mobs =
+      Enum.map(world.mobs, fn mob ->
+        if in_reach?(mob, world.own.pos, radius),
+          do: %{mob | asleep_until: max(mob.asleep_until, until), bite_debt_ms: 0},
+          else: mob
+      end)
+
+    %{world | mobs: mobs}
+  end
+
+  @doc "Is this creature asleep right now?"
+  @spec asleep?(map, t) :: boolean
+  def asleep?(mob, %__MODULE__{} = world), do: world.clock < Map.get(mob, :asleep_until, 0)
+
   defp hit(world, radius, {lo, hi}) do
     {mobs, rand} =
       Enum.map_reduce(world.mobs, world.rand, fn mob, r ->
@@ -1004,6 +1039,16 @@ defmodule Pokex.Sim.World do
   defp walk_mob(mob, world, dt_ms, blocked) do
     target = target_of(mob, world)
 
+    if asleep?(mob, world),
+      do: dozing(mob),
+      else: walk_awake(mob, world, dt_ms, blocked, target)
+  end
+
+  # Dorme parado, e sem dívida de passo: acordar não pode devolver os tiles que
+  # ele teria andado dormindo.
+  defp dozing(mob), do: %{mob | walk_debt_ms: 0}
+
+  defp walk_awake(mob, world, dt_ms, blocked, target) do
     if distance(mob.pos, target) > world.knobs.aggro_tiles do
       mob
     else
@@ -1098,7 +1143,7 @@ defmodule Pokex.Sim.World do
   defp chew(mob, world, dt_ms) do
     victim = if world.own.out?, do: world.own.pos, else: world.pos
 
-    if in_reach?(mob, victim, 1) do
+    if in_reach?(mob, victim, 1) and not asleep?(mob, world) do
       owed = mob.bite_debt_ms + dt_ms
       per_bite = world.knobs.bite_every_ms
       {%{mob | bite_debt_ms: rem(owed, per_bite)}, div(owed, per_bite)}

@@ -29,6 +29,13 @@ defmodule Pokex.Sim.Scenario do
             route: nil,
             seed: 42,
             knobs: %{},
+            # OS AJUSTES QUE A PERGUNTA PRECISA, quando ela precisa de algum. Um
+            # cenário é um experimento controlado, e um padrão novo pode apagar
+            # a pergunta que ele existe pra fazer: quando o stun do resgate foi
+            # ligado por padrão, "Ele cai" parou de derrubar o pokémon, porque
+            # uma pilha dormindo não morde ninguém. O que o cenário fixa aqui
+            # ainda pode ser sobrescrito por quem o roda.
+            config: %{},
             script: []
 
   @type action :: {:fail, term} | {:recover, term}
@@ -156,6 +163,9 @@ defmodule Pokex.Sim.Scenario do
             "ORDENADO e não sai (a falha de 24/08), senão ele salva sempre e a queda " <>
             "nunca chega a acontecer.",
         knobs: %{nest_size: 3, nest_radius: 0, aggro_tiles: 20, bite_dmg: 20, bite_every_ms: 400},
+        # SEM o stun do resgate: a pergunta aqui é o que a caçada faz quando o
+        # revive não sai, e com a pilha dormindo ela não chega a precisar de um.
+        config: %{rescue_stun_first: false},
         script: [{100, {:fail, :dead_revive}}]
       },
       %__MODULE__{

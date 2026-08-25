@@ -33,7 +33,13 @@ defmodule Pokex.Sim.Hands do
   alias Pokex.Bots.PlayerSupport.Logic, as: Support
   alias Pokex.Sim.World
 
-  defstruct leg: 0, prev_hp: nil, last_heal_at: nil, last_potion_at: nil
+  defstruct leg: 0,
+            prev_hp: nil,
+            last_heal_at: nil,
+            last_potion_at: nil,
+            # o resgate em duas partes: o stun já saiu e o revive sai em
+            # `revive_at` — ver `rescue/3`
+            revive_at: nil
 
   @type t :: %__MODULE__{}
 
@@ -48,15 +54,26 @@ defmodule Pokex.Sim.Hands do
   """
   @spec obey(World.t(), map, t, map) :: {World.t(), t}
   def obey(world, orders, %__MODULE__{} = hands, config) do
-    world =
-      world
-      |> walk(orders, hands.leg)
-      |> fire(orders)
-      |> revive(orders)
-
+    world = world |> walk(orders, hands.leg) |> fire(orders)
+    {world, hands} = rescue_combo(world, orders, hands, config)
     {world, hands} = support(world, hands, config)
 
     {world, %{hands | leg: next_leg(world, hands.leg), prev_hp: world.own.hp_pct}}
+  end
+
+  @doc """
+  Finishes a rescue that is mid-combo, with no orders involved.
+
+  The stun and the revive are two ticks apart, and the order that started them
+  is gone by the second one — the engine enters `:recovering` immediately. A
+  caller that only acts while a fresh `:orders` fact exists (the live runner
+  does exactly that) would leave the pokémon stunned and never recalled.
+  """
+  @spec finish_rescue(World.t(), t) :: {World.t(), t}
+  def finish_rescue(world, %__MODULE__{} = hands) do
+    if due?(hands, world),
+      do: {World.revive(world), %{hands | revive_at: nil}},
+      else: {world, hands}
   end
 
   @doc "Where the route is heading, after a load that changed it."
@@ -103,8 +120,52 @@ defmodule Pokex.Sim.Hands do
 
   defp fire(world, _holding), do: world
 
-  defp revive(world, %{revive: :now}), do: World.revive(world)
-  defp revive(world, _holding), do: world
+  # THE RESCUE IS A COMBO, NOT A KEY — and modelling only the key made every
+  # revive look like an invitation to die. `PlayerSupport` fires the reserved
+  # CONTROL skill first, confirms it, waits `rescue_stun_settle_ms` with the
+  # pokémon still out and tanking, and only then recalls: "com o revive e stun
+  # em área antes de usar o revive tudo se resolve" (Lucas, 2026-08-25). The
+  # price of a revive is the empty field, and a sleeping pile does not charge
+  # it.
+  #
+  # Two ticks, because the wait is real: the stun goes out now and the revive
+  # goes out when the settle has passed. It finishes on its own — the engine
+  # drops `revive: :now` the moment it enters `:recovering`, and a rescue that
+  # needed the order to still be there would be a rescue that never lands.
+  defp rescue_combo(world, orders, hands, config) do
+    cond do
+      pending?(hands, world) -> {world, hands}
+      due?(hands, world) -> {World.revive(world), %{hands | revive_at: nil}}
+      orders.revive != :now -> {world, hands}
+      stun_first?(world, config) -> stun(world, hands, config)
+      true -> {World.revive(world), hands}
+    end
+  end
+
+  defp pending?(%{revive_at: at}, world) when is_integer(at), do: world.clock < at
+  defp pending?(_none, _world), do: false
+
+  defp due?(%{revive_at: at}, world) when is_integer(at), do: world.clock >= at
+  defp due?(_none, _world), do: false
+
+  # No stun for a pokémon already on the floor: there is nobody left to press it
+  # and nobody left to protect (`PlayerSupport.dispatch_fallen/1` says the same).
+  # And no stun without a control key ready — every failure falls toward SAVING.
+  defp stun_first?(world, config) do
+    Map.get(config, :rescue_stun_first, false) and world.own.out? and
+      ready_crowd_keys(world) != []
+  end
+
+  defp stun(world, hands, config) do
+    [key | _] = ready_crowd_keys(world)
+    settle = Map.get(config, :rescue_stun_settle_ms, 0)
+
+    {World.press(world, {:press, key}), %{hands | revive_at: world.clock + settle}}
+  end
+
+  defp ready_crowd_keys(world) do
+    for {key, %{kind: :crowd, ready_at: at}} <- world.keys, at <= world.clock, do: key
+  end
 
   # THE LADDER, cheapest rung first. The revive is NOT here: the engine owns
   # when it happens (`orders.revive`), which is the whole reason it exists.

@@ -725,7 +725,13 @@ defmodule PokexWeb.SimLive do
 
   defp truth_rows(world) do
     Enum.map(world.mobs, fn mob ->
-      %{name: mob.name, hp_pct: World.hp_pct(mob), pos: mob.pos, leash: leash_left(mob, world)}
+      %{
+        name: mob.name,
+        hp_pct: World.hp_pct(mob),
+        pos: mob.pos,
+        leash: leash_left(mob, world),
+        asleep?: World.asleep?(mob, world)
+      }
     end)
   end
 
@@ -1277,6 +1283,9 @@ defmodule PokexWeb.SimLive do
                   stroke="rgb(56 189 248 / 0.35)"
                   stroke-width="0.3"
                 />
+                <%!-- DORMINDO tem contorno próprio, não cor própria: a cor já
+                      carrega a vida, e o sono é o que decide se aquele bicho vai
+                      morder no instante em que o campo esvaziar. --%>
                 <rect
                   :for={mob <- @mobs}
                   x={elem(mob.pos, 0) - 0.5}
@@ -1284,8 +1293,12 @@ defmodule PokexWeb.SimLive do
                   width="1"
                   height="1"
                   fill={mob_fill(World.hp_pct(mob))}
-                  stroke="rgb(24 24 27)"
-                  stroke-width="0.08"
+                  fill-opacity={if World.asleep?(mob, @world), do: "0.45", else: "1"}
+                  stroke={
+                    if World.asleep?(mob, @world), do: "rgb(125 211 252)", else: "rgb(24 24 27)"
+                  }
+                  stroke-width={if World.asleep?(mob, @world), do: "0.18", else: "0.08"}
+                  stroke-dasharray={if World.asleep?(mob, @world), do: "0.25 0.2", else: nil}
                 />
                 <line
                   :if={@world.own.out?}
@@ -1643,15 +1656,20 @@ defmodule PokexWeb.SimLive do
             <p class="flex items-start gap-1.5 text-pk-meta text-pk-text-2">
               <.icon name="hero-information-circle" class="mt-px size-3.5 shrink-0 text-pk-info" />
               <span>
-                A coluna da direita roda com
+                O preço de um revive é o <b class="text-pk-text">campo vazio</b>: pelo
+                settle não há nada seu lá fora e cada mordida passa a ser sua. Uma pilha
+                DORMINDO não cobra esse preço — é por isso que o resgate aperta o controle
+                guardado primeiro, espera o sono cair, e só então recolhe. A coluna da
+                direita roda com
                 <span :for={{key, value} <- @score.tuning}>
                   <code class="font-mono">{key}</code>
                   <span class="pk-num font-mono text-pk-text">{inspect(value)}</span> ·
                 </span>
-                e o preço dela tem <b class="text-pk-text">duas moedas</b>: o revive que
-                sai do estoque, e os segundos em que ninguém seu está em campo — que são
-                exatamente os segundos em que as mordidas passam a ser <b class="text-pk-text">suas</b>. O piso entre duas prensas decide as duas:
-                com seis segundos a regra vira torneira.
+                e é a mesma caçada sem esse prefixo. Ele só sai se o pokémon em campo tiver
+                uma skill de <b class="text-pk-text">controle</b>
+                marcada no /time — sem ela
+                não há o que apertar, e o revive volta a esvaziar o campo com a pilha
+                acordada.
               </span>
             </p>
           </div>
@@ -1794,7 +1812,10 @@ defmodule PokexWeb.SimLive do
             <p :if={@truth == []} class="text-sm text-zinc-500">nada no chão</p>
             <ul class="space-y-1 text-sm">
               <li :for={row <- @truth} class="flex justify-between gap-2 text-zinc-300">
-                <span>{row.name}</span>
+                <span>
+                  {row.name}
+                  <span :if={row.asleep?} class="text-sky-300">· dormindo</span>
+                </span>
                 <span class="text-zinc-500">
                   {row.hp_pct}% · leash {row.leash}
                 </span>

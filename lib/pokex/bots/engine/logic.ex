@@ -58,7 +58,23 @@ defmodule Pokex.Bots.Engine.Logic do
       it cannot come the band stops holding the route — the order stays out, so
       the press lands the instant the floor passes, and the hunt walks instead
       of freezing.
-    * **R4 — the stun is a clock nothing contradicts.** A partial stun is the
+    * **R4 — the stun is a clock nothing contradicts, and it is what makes the
+      revive free.** The price of a revive is the empty field: for
+      `revive_settle_ms` there is nothing of his out there and every bite lands
+      on HIM. A pile asleep does not charge that price, which is why
+      `PlayerSupport`'s rescue fires the reserved control key first, waits for
+      the sleep to land, and only then recalls.
+
+      His claim, 2026-08-25: *"teoricamente mesmo no caos nunca deveríamos
+      morrer, que com o revive e stun em área antes de usar o revive tudo se
+      resolve"*. Measured once the simulator finally modelled the sleep: with
+      the prefix on and his own floor between two rescues, **forty-eight runs of
+      five minutes across both circuits, four thousand six hundred monsters, and
+      the pokémon did not fall once** — at any band setting. Without it, the
+      dense circuit loses it forty-five times an hour and kills the character.
+
+      Nothing in THIS module changed for that. The rule was always here; what
+      was missing was a world that modelled it. A partial stun is the
       common case, not the exception, and the window it opens is the best one
       available: "essa é a melhor janela antes de eu não ter mais opções e
       deixar meu pokémon morrer." Untouched here on purpose — see the note
@@ -360,6 +376,11 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
+  # UMA CHAVE TENTADA E REMOVIDA: separar o revive do amarelo (o luxo — fechar a
+  # rodada e voltar cheio) do revive do vermelho (o resgate). Medida em 25/08 no
+  # formigueiro, 60 minutos, com o stun na frente: desligar o luxo economiza 11
+  # revives por hora e custa 7% dos monstros, nos três pisos. Uma chave cuja
+  # posição desligada nunca é a certa não é uma escolha, é entulho.
   defp revive_now?(t),
     do: t.s.enemies == 0 or not within?(t, :closing, t.config.closing_timeout_ms)
 

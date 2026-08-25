@@ -50,23 +50,21 @@ defmodule Pokex.Sim.Bench do
   @doc "The world knobs whose authority is `Settings`, at their seeded values."
   def world_knobs, do: Knobs.world(:seeds)
 
-  # THE RIVAL BRAIN: the one question about this hunt that is still open, run
-  # side by side with what he has in force. It is R3b — his own idea, "usar o
-  # revive no F4 rapidinho pra luta seguir firme e forte" — because everything
-  # else the bench swept, he already runs (ruler of one, potions on), and a
-  # panel comparing a brain against itself teaches nothing.
+  # THE RIVAL BRAIN, and it is now the OLD one — because the question the panel
+  # used to ask got answered.
   #
-  # Measured on HIS settings, 5 min x 12 seeds, 2026-08-25 — and the shape of it
-  # is a dose curve, not a yes or no:
+  # It asked about R3b, his own idea: spend a revive to buy the bar back when
+  # every damage key is on cooldown. With the stun modelled and R7 in place the
+  # rule is dead flat — 30,65 → 30,45 mortos/min no formigueiro, 8,52 → 8,17 na
+  # caçada, e o tempo sem cooldown mal se move (90,77% → 90,51%). A instinto
+  # estava certo sobre o problema; andar enquanto a barra recarrega captura o
+  # mesmo valor DE GRAÇA.
   #
-  #   desligada         8,10 mortos/min · 0,38 revives/min · ele termina com 88%
-  #   piso de 6s        9,17 mortos/min · 3,78 revives/min · ele termina com 0%
-  #   piso de 60s       8,68 mortos/min · 1,43 revives/min · ele termina com 64%
-  #   piso de 120s      8,45 mortos/min · 0,98 revives/min · ele termina com 76%
-  #
-  # The rule pays; the seeded floor of six seconds was a faucet. Sixty is the
-  # value the panel argues for and the seed now carries.
-  @tuning %{reset_revive: true, reset_revive_cooldown_ms: 60_000}
+  # O que a tela precisa mostrar agora é o que o STUN compra, porque é a
+  # diferença entre uma noite e um cemitério: sem o prefixo, o circuito denso
+  # perde o pokémon 45 vezes por hora e mata o personagem; com ele, zero quedas
+  # em 48 corridas. A coluna da direita é a configuração SEM ele, de propósito.
+  @tuning %{rescue_stun_first: false}
 
   @doc "The changes the bench found worth their price, as overrides."
   def tuning, do: @tuning
@@ -94,7 +92,12 @@ defmodule Pokex.Sim.Bench do
   @spec run(Scenario.t(), keyword) :: map
   def run(%Scenario{} = scenario, opts \\ []) do
     duration = Keyword.get(opts, :duration_ms, @default_duration_ms)
-    config = Map.merge(default_config(), Keyword.get(opts, :config, %{}))
+
+    config =
+      default_config()
+      |> Map.merge(scenario.config)
+      |> Map.merge(Keyword.get(opts, :config, %{}))
+
     routes = Keyword.get(opts, :routes, [])
 
     world =
@@ -164,7 +167,7 @@ defmodule Pokex.Sim.Bench do
     {world, hands} = Hands.obey(before, orders, state.hands, state.config)
 
     %{state | world: world, hands: hands, logic: logic, picture: picture}
-    |> measure(previous, before, world, orders, picture)
+    |> measure(previous, before, world, orders, picture, hands)
     |> record(orders, picture)
     |> mark(orders, world)
   end
@@ -206,7 +209,7 @@ defmodule Pokex.Sim.Bench do
   # A DEATH happens between the first two — the bite kills it — and comparing
   # the wrong pair reported zero deaths in a run whose pokemon spent 97% of
   # itself on the floor (2026-08-25).
-  defp measure(state, previous, decided_on, world, orders, picture) do
+  defp measure(state, previous, decided_on, world, orders, picture, hands) do
     metrics =
       state.metrics
       |> tally_time(world, orders, picture)
@@ -214,7 +217,7 @@ defmodule Pokex.Sim.Bench do
       |> tally_violations(world, orders, picture)
       |> tally_bodies(previous, world)
       |> tally_death(previous, world)
-      |> tally_revive(decided_on, world, orders, picture)
+      |> tally_revive(decided_on, world, orders, picture, hands)
       |> tally_pile(world, picture)
 
     %{state | metrics: metrics}
@@ -303,13 +306,30 @@ defmodule Pokex.Sim.Bench do
 
   defp tally_death(metrics, _before, _world), do: metrics
 
-  # An ORDER is not a press that landed. `revive_ready?/1` on the world the
-  # decision was taken against is the difference between "the hunt asked" and
-  # "the game got it", and conflating them is how a bench would report six
-  # revives from one key.
-  defp tally_revive(metrics, before, world, %{revive: :now} = orders, picture) do
-    accepted? = World.revive_ready?(before) and world.revive_at != before.revive_at
+  # AN ORDER IS NOT A PRESS THAT LANDED, and since the rescue became a COMBO the
+  # two do not even happen on the same tick: the stun goes out when the order is
+  # given and the revive lands `rescue_stun_settle_ms` later, with no order in
+  # sight. Counting at the order said "zero revives" for a run full of them
+  # (measured 2026-08-25) — which is the worst kind of wrong, because the revive
+  # is the expensive half.
+  #
+  # So: the ACCEPTANCE is read off the world (a revive going into flight), and
+  # the REFUSAL off the order (asked for, and the world did not move). The
+  # picture the refusal is judged by is the one the asking was done on.
+  defp tally_revive(metrics, before, world, orders, picture, hands) do
+    cond do
+      landed?(before, world) -> file_revive(metrics, world, orders, picture, true)
+      # The stun went out and the revive is scheduled: the order is IN FLIGHT,
+      # not refused. Counting this tick as a refusal filed every rescue twice.
+      hands.revive_at != nil -> metrics
+      orders.revive == :now -> file_revive(metrics, world, orders, picture, false)
+      true -> metrics
+    end
+  end
 
+  defp landed?(before, world), do: before.revive_at == nil and world.revive_at != nil
+
+  defp file_revive(metrics, world, orders, picture, accepted?) do
     event = %{
       at: world.clock,
       phase: orders.phase,
@@ -322,8 +342,6 @@ defmodule Pokex.Sim.Bench do
 
     %{metrics | revives: [event | metrics.revives]}
   end
-
-  defp tally_revive(metrics, _before, _world, _orders, _picture), do: metrics
 
   # A pile EPISODE: from the first monster on the list to the list being empty
   # again. How long one takes is the agility number — "matar tudo e ser ágil".

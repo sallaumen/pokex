@@ -225,6 +225,38 @@ defmodule Pokex.CalibrationTest do
   end
 
   @tag :tmp_dir
+  # The accident of 2026-08-24: the ruler rescaled 21 settings on the very
+  # screen they had been measured on, and the snapshot dutifully stored the
+  # wreckage (`tile_px` 255). The settings were repaired the same day; the
+  # sidecar was not, and sat there for days one "Usar" away from putting the
+  # wreckage back. On the seed screen a stored copy can never beat the seed.
+  test "the screen the numbers were measured on keeps no stored copy of them", %{tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
+    seed_screen = %{sample() | screen_w: 3440, screen_h: 1440}
+
+    Calibration.save(seed_screen)
+    assert {:ok, "aqui"} = Calibration.save_profile("aqui")
+    assert Calibration.profile_settings("aqui") == %{}
+    assert Calibration.profile_settings("auto-3440x1440") == %{}
+
+    # a sidecar left by an older build is removed, not trusted
+    File.write!(
+      Path.join([tmp, "calibrations", "aqui.settings.json"]),
+      Jason.encode!(%{tile_px: 255})
+    )
+
+    assert {:ok, "aqui"} = Calibration.save_profile("aqui")
+    assert Calibration.profile_settings("aqui") == %{}
+
+    # and applying it leaves the measured numbers alone
+    tile = Settings.get(:tile_px)
+    assert {:ok, _calib, 0} = Calibration.apply_profile("aqui")
+    assert Settings.get(:tile_px) == tile
+  end
+
+  @tag :tmp_dir
   # A profile saved before the numbers were carried still has to apply — its
   # MARKS are good. The count is what tells him the numbers did not come.
   test "a profile without numbers applies its marks and reports zero", %{tmp_dir: tmp} do

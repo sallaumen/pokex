@@ -13,13 +13,14 @@ defmodule PokexWeb.CalibrationSteps do
   """
 
   @instructions %{
-    water: "Clique no PONTO DA ÁGUA onde o bot deve arremessar.",
+    water: "Clique no PONTO DA ÁGUA onde o bot deve arremessar (só pesca).",
     battle_a: "Clique no canto SUPERIOR-ESQUERDO da área de criaturas da janela Battle.",
     battle_b:
       "Agora o canto INFERIOR-DIREITO da mesma área (incluindo a coluna do ícone de pokébola).",
     neutral: "Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
     player:
-      "Clique bem no CENTRO do seu PERSONAGEM — é nele que o bot ancora a barra do minigame de pesca. Fique parado onde vai pescar.",
+      "Clique bem no CENTRO do seu PERSONAGEM — é nele que o bot ancora o mundo: " <>
+        "o quadrado onde procura corpos, o reposicionamento e (na pesca) a faixa do minigame.",
     skill_a:
       "Canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1). IMPORTANTE: " <>
         "deixe TODAS as skills PRONTAS (sem cooldown) — a foto de cada ícone vira a " <>
@@ -107,18 +108,22 @@ defmodule PokexWeb.CalibrationSteps do
         :escape_point
       ]
 
-  def index(:water), do: 1
-  def index(:battle_a), do: 2
-  def index(:battle_b), do: 3
-  def index(:neutral), do: 4
-  def index(:player), do: 5
-  def index(:skill_a), do: 6
-  def index(:skill_b), do: 7
-  def index(:hp_a), do: 8
-  def index(:hp_b), do: 9
-  def index(:photo), do: 10
+  # The numbered run is what a HUNT needs, and nothing else. Água (and the
+  # mini-game strip behind it) left it on 2026-08-25: they are fishing gear, and
+  # asking for a fishing spot before he can calibrate a hunt is a step he cannot
+  # answer standing where he plays. They keep their own buttons in the fishing
+  # strip, and a run that never asks now PRESERVES whatever was marked there.
+  def index(:battle_a), do: 1
+  def index(:battle_b), do: 2
+  def index(:neutral), do: 3
+  def index(:player), do: 4
+  def index(:skill_a), do: 5
+  def index(:skill_b), do: 6
+  def index(:hp_a), do: 7
+  def index(:hp_b), do: 8
+  def index(:photo), do: 9
   def index(_), do: nil
 
   @doc "How many steps the FULL wizard has (the quick-fix flows are unnumbered)."
-  def total, do: 10
+  def total, do: 9
 end

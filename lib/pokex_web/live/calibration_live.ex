@@ -119,7 +119,7 @@ defmodule PokexWeb.CalibrationLive do
            scale: screen.scale,
            screen: screen,
            screen_check: screen_check(shot_points(screen)),
-           step: :water,
+           step: :battle_a,
            mode: :full,
            draft: %{skill_bar_count: socket.assigns.skill_count},
            done: false,
@@ -821,22 +821,26 @@ defmodule PokexWeb.CalibrationLive do
   # nothing ever read — Vision.glow?/3 has no caller, and fishing detects the
   # cyan bubbles instead. A mandatory step feeding a dead field is the exact
   # "calibração inútil que dificulta a vida" (2026-08-03).
+  # The run OVERWRITES what it asked for and keeps everything else. Building a
+  # fresh struct here blanked every mark outside the numbered steps — minimapa,
+  # faixa da coordenada, tile do pokémon, escada, água — so re-running the
+  # wizard to fix the battle list silently blinded the cavebot. Marks a run
+  # never asks about are not marks a run may erase.
   defp finish(socket, draft) do
     calib = %Calibration{
-      scale: socket.assigns.scale,
-      screen_w: socket.assigns.screen.w,
-      screen_h: socket.assigns.screen.h,
-      water_point: draft.water_point,
-      glow_region: draft.glow_region,
-      battle_region: draft.battle_region,
-      neutral_point: draft.neutral_point,
-      player_point: draft[:player_point],
-      skill_bar_region: draft.skill_bar_region,
-      skill_bar_count: draft.skill_bar_count,
-      skill_slot_refs:
-        skill_slot_refs(socket.assigns.screen, draft.skill_bar_region, draft.skill_bar_count),
-      pokemon_hp_region: draft[:pokemon_hp_region],
-      pokemon_photo_point: draft[:pokemon_photo_point]
+      previous_calibration(socket.assigns.screen)
+      | scale: socket.assigns.scale,
+        screen_w: socket.assigns.screen.w,
+        screen_h: socket.assigns.screen.h,
+        battle_region: draft.battle_region,
+        neutral_point: draft.neutral_point,
+        player_point: draft[:player_point],
+        skill_bar_region: draft.skill_bar_region,
+        skill_bar_count: draft.skill_bar_count,
+        skill_slot_refs:
+          skill_slot_refs(socket.assigns.screen, draft.skill_bar_region, draft.skill_bar_count),
+        pokemon_hp_region: draft[:pokemon_hp_region],
+        pokemon_photo_point: draft[:pokemon_photo_point]
     }
 
     Calibration.save(calib)
@@ -850,6 +854,16 @@ defmodule PokexWeb.CalibrationLive do
       calibrated?: true,
       screen_check: screen_check(shot_points(socket.assigns.screen))
     )
+  end
+
+  # Only marks made on THIS screen survive: on another monitor they point at
+  # coordinates that no longer exist, and a blind-but-honest nil beats a mark
+  # that looks calibrated and is not.
+  defp previous_calibration(%{w: w, h: h}) do
+    case Calibration.load() do
+      {:ok, %Calibration{screen_w: ^w, screen_h: ^h} = calib} -> calib
+      _other_screen_or_none -> %Calibration{}
+    end
   end
 
   defp photo_error(:no_anchor),
@@ -1384,23 +1398,16 @@ defmodule PokexWeb.CalibrationLive do
   defp record_point(socket, point),
     do: record_step(socket.assigns.step, socket, point, socket.assigns.draft)
 
-  defp record_step(:water, socket, point, draft) do
+  # Fishing gear, reached only by the água button: the numbered run does not ask
+  # for a fishing spot to calibrate a hunt.
+  defp record_step(:water, socket, point, _draft) do
     {x, y} = point
     glow = {x - @glow_half, y - @glow_half, @glow_half * 2, @glow_half * 2}
 
-    case socket.assigns.mode do
-      :water_only ->
-        save_mark(socket, %{water_point: point, glow_region: glow}, %{
-          ok: "Água re-marcada em #{inspect(point)} — o brilho da isca acompanhou.",
-          error: "não deu pra salvar a água"
-        })
-
-      _wizard ->
-        assign(socket,
-          draft: Map.merge(draft, %{water_point: point, glow_region: glow}),
-          step: :battle_a
-        )
-    end
+    save_mark(socket, %{water_point: point, glow_region: glow}, %{
+      ok: "Água re-marcada em #{inspect(point)} — o brilho da isca acompanhou.",
+      error: "não deu pra salvar a água"
+    })
   end
 
   defp record_step(:battle_a, socket, point, draft) do
@@ -2137,13 +2144,7 @@ defmodule PokexWeb.CalibrationLive do
                   event="calibrate_player"
                   icon="hero-user"
                   title="Só o personagem"
-                  hint="âncora da detecção do minigame quando não há faixa dedicada"
-                />
-                <.quick_fix
-                  event="calibrate_mini_game"
-                  icon="hero-flag"
-                  title="Só o minigame"
-                  hint="a faixa onde a barra do minigame aparece (2 cliques) — detecção direta"
+                  hint="a âncora do mundo: o quadrado onde procura corpos e o reposicionamento"
                 />
                 <.quick_fix
                   event="calibrate_minimap"
@@ -2164,12 +2165,6 @@ defmodule PokexWeb.CalibrationLive do
                   hint="o tile do caminho COLADO na escada — a fuga anda até ele e entra de seta"
                 />
                 <.quick_fix
-                  event="calibrate_water"
-                  icon="hero-beaker"
-                  title="Só a água"
-                  hint="o ponto do arremesso (1 clique) — o brilho da isca acompanha sozinho"
-                />
-                <.quick_fix
                   event="calibrate_battle"
                   icon="hero-list-bullet"
                   title="Só a Battle"
@@ -2187,6 +2182,28 @@ defmodule PokexWeb.CalibrationLive do
                   title="Só a vida"
                   hint="a barra de vida do Pokémon (2 cliques) + a foto dele (1 clique)"
                 />
+              </div>
+
+              <%!-- Pesca à parte: nada disso existe numa caçada, e por isso
+                    saiu do fluxo numerado. --%>
+              <div class="space-y-2 border-t border-pk-line pt-3">
+                <p class="text-pk-meta font-semibold uppercase tracking-wide text-pk-text-3">
+                  Só pra pesca
+                </p>
+                <div class="grid gap-2 sm:grid-cols-2">
+                  <.quick_fix
+                    event="calibrate_water"
+                    icon="hero-beaker"
+                    title="Ponto da água"
+                    hint="onde o bot arremessa (1 clique) — o brilho da isca acompanha sozinho"
+                  />
+                  <.quick_fix
+                    event="calibrate_mini_game"
+                    icon="hero-flag"
+                    title="Faixa do minigame"
+                    hint="onde a barra do minigame aparece (2 cliques) — a cápsula só existe pescando"
+                  />
+                </div>
               </div>
             </section>
 

@@ -306,7 +306,7 @@ defmodule Pokex.Calibration do
          {:ok, calib} <- load() do
       File.mkdir_p!(profiles_dir())
       save(calib, profile_path(slug))
-      write_profile_settings(slug)
+      write_profile_settings(slug, calib)
       {:ok, slug}
     end
   end
@@ -348,10 +348,21 @@ defmodule Pokex.Calibration do
     ArgumentError -> %{}
   end
 
-  defp write_profile_settings(slug) do
-    %{linear: linear, area: area} = Pokex.ScreenScale.keys()
-    values = Map.new(linear ++ area, &{&1, Pokex.Settings.get(&1)})
-    File.write(profile_settings_path(slug), Jason.encode!(values))
+  # THE SEED SCREEN KEEPS NO SIDECAR. On the screen the numbers were measured on,
+  # a stored copy can never be more right than the seed itself — and a stale one
+  # is a loaded gun: his own `auto-3440x1440` sidecar still held the ruler
+  # accident of 2026-08-24 (`tile_px` 255, `glow_threshold` 4168) days after the
+  # settings themselves were repaired, one click on "Usar" away from breaking
+  # the hunt again. Any leftover file is removed rather than trusted.
+  defp write_profile_settings(slug, calib) do
+    if Pokex.ScreenScale.reference_screen?(calib) do
+      File.rm(profile_settings_path(slug))
+      :ok
+    else
+      %{linear: linear, area: area} = Pokex.ScreenScale.keys()
+      values = Map.new(linear ++ area, &{&1, Pokex.Settings.get(&1)})
+      File.write(profile_settings_path(slug), Jason.encode!(values))
+    end
   end
 
   defp apply_profile_settings(slug) do
@@ -377,7 +388,7 @@ defmodule Pokex.Calibration do
     slug = screen_slug({w, h})
     File.mkdir_p!(profiles_dir())
     save(calib, profile_path(slug))
-    write_profile_settings(slug)
+    write_profile_settings(slug, calib)
     :ok
   end
 

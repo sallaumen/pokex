@@ -17,7 +17,7 @@ config :pokex,
   # pointing at another server also means rewriting the parsers in
   # `Pokex.Pokedex.Scraper`: the HTML shape is not portable. Override at runtime
   # with POKEX_WIKI_BASE (see config/runtime.exs).
-  wiki_base: "https://wiki.pokexgames.com"
+  wiki_base: "https://wiki.pokealliance.com"
 
 # Configure the endpoint
 config :pokex, PokexWeb.Endpoint,

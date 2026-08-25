@@ -1,0 +1,209 @@
+{
+  "pokemon": [
+    {
+      "path": "gen/1/001_bulbasaur",
+      "route": "gen/1/bulbasaur",
+      "generation": "1",
+      "number": "001",
+      "name": "Bulbasaur",
+      "displayName": "001 - Bulbasaur",
+      "image": "/pokemon/001.png",
+      "level": 1,
+      "tier": 6,
+      "displayTier": 6,
+      "role": "PVE",
+      "elements": [
+        {
+          "name": "grass",
+          "icon": "/elements/4.png"
+        },
+        {
+          "name": "poison",
+          "icon": "/elements/8.png"
+        }
+      ],
+      "variant": "normal",
+      "detailAvailable": true
+    },
+    {
+      "path": "shiny/001_shiny_bulbasaur",
+      "route": "shiny/001_shiny_bulbasaur",
+      "generation": "1",
+      "number": "001",
+      "name": "Shiny Bulbasaur",
+      "displayName": "001 - Shiny Bulbasaur",
+      "image": "/pokemon/001.1.png",
+      "level": 40,
+      "tier": 5,
+      "displayTier": 5,
+      "role": "PVE",
+      "elements": [
+        {
+          "name": "grass",
+          "icon": "/elements/4.png"
+        },
+        {
+          "name": "poison",
+          "icon": "/elements/8.png"
+        }
+      ],
+      "variant": "shiny",
+      "detailAvailable": true
+    },
+    {
+      "path": "gen/1/002_ivysaur",
+      "route": "gen/1/ivysaur",
+      "generation": "1",
+      "number": "002",
+      "name": "Ivysaur",
+      "displayName": "002 - Ivysaur",
+      "image": "/pokemon/002.png",
+      "level": 40,
+      "tier": 5,
+      "displayTier": 5,
+      "role": "PVE",
+      "elements": [
+        {
+          "name": "grass",
+          "icon": "/elements/4.png"
+        },
+        {
+          "name": "poison",
+          "icon": "/elements/8.png"
+        }
+      ],
+      "variant": "normal",
+      "detailAvailable": true
+    },
+    {
+      "path": "gen/1/019_rattata",
+      "route": "gen/1/rattata",
+      "generation": "1",
+      "number": "019",
+      "name": "Rattata",
+      "displayName": "019 - Rattata",
+      "image": "/pokemon/019.png",
+      "level": 1,
+      "tier": 7,
+      "displayTier": 7,
+      "role": "PVE",
+      "elements": [
+        {
+          "name": "normal",
+          "icon": "/elements/1.png"
+        }
+      ],
+      "variant": "normal",
+      "detailAvailable": true
+    },
+    {
+      "path": "shiny/019_shiny_rattata",
+      "route": "shiny/019_shiny_rattata",
+      "generation": "1",
+      "number": "019",
+      "name": "Shiny Rattata",
+      "displayName": "019 - Shiny Rattata",
+      "image": "/pokemon/019.1.png",
+      "level": 20,
+      "tier": 6,
+      "displayTier": 6,
+      "role": "PVE",
+      "elements": [
+        {
+          "name": "normal",
+          "icon": "/elements/1.png"
+        }
+      ],
+      "variant": "shiny",
+      "detailAvailable": true
+    },
+    {
+      "path": "shiny/094_shiny_gengar",
+      "route": "shiny/094_shiny_gengar",
+      "generation": "1",
+      "number": "094",
+      "name": "Shiny Gengar",
+      "displayName": "094 - Shiny Gengar",
+      "image": "/pokemon/094.1.png",
+      "level": 120,
+      "tier": "Legendary",
+      "displayTier": "Legendary",
+      "role": "PVE",
+      "elements": [
+        {
+          "name": "ghost",
+          "icon": "/elements/14.png"
+        },
+        {
+          "name": "poison",
+          "icon": "/elements/8.png"
+        }
+      ],
+      "variant": "shiny",
+      "detailAvailable": true
+    },
+    {
+      "path": "gen/1/150_mewtwo",
+      "route": "gen/1/mewtwo",
+      "generation": "1",
+      "number": "150",
+      "name": "Mewtwo",
+      "displayName": "150 - Mewtwo",
+      "image": "/pokemon/150.png",
+      "level": 120,
+      "tier": 1,
+      "displayTier": "ULTIMATE",
+      "role": "PVE",
+      "elements": [
+        {
+          "name": "psychic",
+          "icon": "/elements/11.png"
+        }
+      ],
+      "variant": "normal",
+      "detailAvailable": true
+    },
+    {
+      "path": "gen/2/unown_a",
+      "route": "gen/2/unown_a",
+      "generation": "2",
+      "number": "201",
+      "name": "Unown A",
+      "displayName": "201 - Unown A",
+      "image": "/pokemon/201.png",
+      "level": 20,
+      "tier": null,
+      "displayTier": null,
+      "role": null,
+      "elements": [
+        {
+          "name": "psychic",
+          "icon": "/elements/11.png"
+        }
+      ],
+      "variant": "normal",
+      "detailAvailable": true
+    },
+    {
+      "path": "gen/3/383_groudon",
+      "route": "gen/3/groudon",
+      "generation": "3",
+      "number": "383",
+      "name": "Groudon",
+      "displayName": "383 - Groudon",
+      "image": "/pokemon/383.png",
+      "level": 200,
+      "tier": 1,
+      "displayTier": "ULTIMATE",
+      "role": "PVP",
+      "elements": [
+        {
+          "name": "ground",
+          "icon": "/elements/9.png"
+        }
+      ],
+      "variant": "normal",
+      "detailAvailable": true
+    }
+  ]
+}

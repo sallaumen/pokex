@@ -86,6 +86,24 @@ defmodule PokexWeb.SimLiveTest do
     assert html =~ "seu pokémon"
   end
 
+  # The table is the answer to "validar vários cenários": one row per scenario,
+  # and a template that reads outcome keys is code nothing else type-checks.
+  test "rodar TODOS renders one row per scenario, with the knobs it used", %{conn: conn} do
+    {:ok, live, _html} = live(conn, ~p"/sim")
+
+    html = live |> element("button", "Rodar TODOS") |> render_click()
+
+    assert html =~ "Todos os cenários"
+    assert html =~ "engaja a partir de"
+
+    for scenario <- Pokex.Sim.Scenario.all() do
+      assert html =~ scenario.name, "faltou a linha de #{scenario.id}"
+    end
+
+    # "Ele cai" is the one run that must not read as a clean night
+    assert html =~ "caiu"
+  end
+
   test "opening the calibration table renders every field it offers", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/sim")
     live |> element("button", "Armar simulação") |> render_click()

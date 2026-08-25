@@ -58,10 +58,10 @@ defmodule Pokex.Sim.BenchTest do
   test "a vanished mob is never counted as a killed one" do
     result = run("ganancia", duration_ms: 40_000)
 
-    assert result.outcome.killed + result.outcome.vanished + result.outcome.left_alive == 6
+    assert result.outcome.killed + result.outcome.vanished + result.outcome.left_alive == 2
   end
 
-  # This assertion has now flipped TWICE, and the history is the lesson.
+  # This assertion has now flipped THREE times, and the history is the lesson.
   #
   #   1. Originally `killed == 0`: the engine skipped a pile worth fighting and
   #      lost all five to the leash. Reported to him as a real finding.
@@ -69,6 +69,11 @@ defmodule Pokex.Sim.BenchTest do
   #      vanished: 0`, and I told him finding #1 had been an artifact.
   #   3. Then the screen fix — 15x11 instead of a 15x15 Chebyshev square —
   #      put it back to `killed: 0, vanished: 5`.
+  #   4. Then the leash fix (2026-08-25) made it `killed: 3, vanished: 2`: the
+  #      rope used to be spent on the walk TOWARDS the fight, so a mob that
+  #      woke could evaporate before ever reaching the pokemon. It cannot now,
+  #      and what is lost here is lost for the reason the scenario names — the
+  #      hunt walked on and left them behind.
   #
   # Step 2 was the artifact. The engine only "collected them on the way back"
   # because it could see two extra tiles above and below what the game shows.
@@ -78,7 +83,6 @@ defmodule Pokex.Sim.BenchTest do
     result = run("pilha-que-pinga", duration_ms: 30_000)
 
     assert :skipping in result.outcome.phases
-    assert result.outcome.killed == 0
     assert result.outcome.vanished > 0, "the pile has to be LOST, not merely skipped"
   end
 
@@ -115,6 +119,70 @@ defmodule Pokex.Sim.BenchTest do
     healthy = Bench.run(%{Scenario.get("tecla-morta") | script: []}, duration_ms: 40_000)
 
     assert dead.outcome.killed <= healthy.outcome.killed
+  end
+
+  # THE CONTRACT THE PHYSICS OWES THE SCENARIOS (2026-08-25). Before the leash
+  # fix, a mob spent its rope walking TOWARDS the fight and evaporated three
+  # tiles short of the pokemon — so with his own ruler (engage from 1, nothing
+  # is ever abandoned) piles still ended half "vanished", every health scenario
+  # ended at 100% health, and "Ele cai" never produced a fall. A monster that
+  # woke and was never walked away from has to be FOUGHT.
+  describe "com a régua dele (engaja a partir de 1), o que acorda é lutado" do
+    @his_ruler %{engage_from: 1}
+
+    test "nenhum monstro some sem luta em cenário nenhum" do
+      for scenario <- Scenario.all(), scenario.id != "ganancia" do
+        %{outcome: o} = Bench.run(scenario, duration_ms: 60_000, config: @his_ruler)
+
+        assert o.vanished == 0,
+               "#{scenario.id}: #{o.vanished} sumiram sem luta (mortos: #{o.killed})"
+      end
+    end
+
+    test "a vida cai de verdade quando a mordida é forte" do
+      %{timeline: t} = Bench.run(Scenario.get("vida-caindo"), config: @his_ruler)
+
+      assert Enum.any?(t, &(is_integer(&1.hp) and &1.hp < 60)),
+             "a barra nunca saiu do verde: a mordida não chegou a acontecer"
+    end
+
+    test "ele cai, e a queda leva a caçada pra recuperação" do
+      %{outcome: o} = Bench.run(Scenario.get("morte"), config: @his_ruler)
+
+      assert is_integer(o.died_at), "o cenário chamado 'Ele cai' tem que derrubar o pokémon"
+      assert :recovering in o.phases
+    end
+  end
+
+  # R2 belongs to the RULER, not to the rope: what is lost is lost because the
+  # hunt decided the pile was not worth it and walked on.
+  test "com a régua padrão a pilha pequena é abandonada — e some" do
+    %{outcome: o} = Bench.run(Scenario.get("ganancia"), duration_ms: 40_000)
+
+    assert :skipping in o.phases
+    assert o.killed == 0
+    assert o.vanished > 0
+  end
+
+  test "com a régua dele os mesmos dois morrem — o preço da régua, medido" do
+    %{outcome: o} =
+      Bench.run(Scenario.get("ganancia"), duration_ms: 40_000, config: %{engage_from: 1})
+
+    assert o.killed == 2
+    assert o.vanished == 0
+  end
+
+  # The bench used to keep its own copy of the numbers and drifted two of them
+  # away from the seeds (recover 20s vs 30s, closing 15s vs 8s), so every
+  # verdict it gave was about a bot that does not exist.
+  test "os botões da decisão são os do bot, não uma cópia" do
+    config = Bench.default_config()
+    seeds = Pokex.Settings.defaults()
+
+    assert config.engage_from == seeds.engine_engage_from
+    assert config.recover_timeout_ms == seeds.engine_recover_timeout_ms
+    assert config.closing_timeout_ms == seeds.engine_closing_timeout_ms
+    assert config.gather_piles == seeds.engine_gather_piles
   end
 
   test "a sweep answers once per value, tagged with the value it used" do

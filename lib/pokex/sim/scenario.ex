@@ -82,9 +82,11 @@ defmodule Pokex.Sim.Scenario do
         group: :ruler,
         name: "Ganância: eles somem",
         why:
-          "Leash curto. Ande para longe do ninho e veja a pilha DESAPARECER — é a R2 " <>
-            "acontecendo, não uma regra escrita em lugar nenhum.",
-        knobs: %{nest_size: 6, nest_radius: 1, aggro_tiles: 20, leash_tiles: 4}
+          "Dois monstros e uma corda curta. Com a régua em 3 a pilha é ABANDONADA, ele " <>
+            "segue andando, e os dois que já tinham acordado desaparecem — R2 " <>
+            "acontecendo, não uma regra escrita em lugar nenhum. Com a régua em 1 " <>
+            "(a sua, pros Ratata) os mesmos dois morrem: é o preço da régua, medido.",
+        knobs: %{nest_size: 2, nest_radius: 1, aggro_tiles: 8, leash_tiles: 8}
       },
       %__MODULE__{
         id: "vida-caindo",
@@ -108,11 +110,14 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "morte",
         group: :health,
-        name: "Ele cai",
+        name: "Ele cai (e o revive não sai)",
         why:
           "A barra some junto com o pokémon: o fato vira readable?: false e fainted?: true. " <>
-            "É assim que o suporte descobre a morte — não por vida zero.",
-        knobs: %{nest_size: 3, nest_radius: 0, aggro_tiles: 20, bite_dmg: 20, bite_every_ms: 400}
+            "É assim que o suporte descobre a morte — não por vida zero. O revive é " <>
+            "ORDENADO e não sai (a falha de 24/08), senão ele salva sempre e a queda " <>
+            "nunca chega a acontecer.",
+        knobs: %{nest_size: 3, nest_radius: 0, aggro_tiles: 20, bite_dmg: 20, bite_every_ms: 400},
+        script: [{100, {:fail, :dead_revive}}]
       },
       %__MODULE__{
         id: "tecla-morta",

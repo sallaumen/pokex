@@ -251,11 +251,17 @@ defmodule Pokex.Sim.Calibrate do
   # Every stretch with the pokemon off the field, as {went_at, came_back_at}.
   defp down_windows(vitals), do: Enum.map(down_pairs(vitals), fn {a, b} -> b["at"] - a["at"] end)
 
+  # OFF the field is anything that is not `true`. The reading has three answers
+  # since the engine gained a rule that refuses to fight without a body out, and
+  # only a fall proven by the support answers `false` — a HEALTHY recall (which
+  # is exactly the press R3b is about) leaves the bar unreadable and answers
+  # `:unknown`. Pairing on `== false` would have measured the price of every
+  # revive except the one being asked about.
   defp down_pairs(vitals) do
     vitals
     |> Enum.reduce({nil, []}, fn reading, {went, pairs} ->
       cond do
-        went == nil and reading["out"] == false -> {reading, pairs}
+        went == nil and reading["out"] != true -> {reading, pairs}
         went != nil and reading["out"] == true -> {nil, [{went, reading} | pairs]}
         true -> {went, pairs}
       end

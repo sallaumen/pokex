@@ -17,6 +17,18 @@ defmodule Pokex.Bots.Engine.Situation do
   monotonic `now`, and returns a map. No ETS, no clock, no captures — the whole
   thing is a table test.
 
+  ## `own_out?` has three answers, not two
+
+  `true` is "the bar reads, so the pokemon is on the field". `false` is a
+  PROVEN absence — the support saw a live bar fall below the faint line and then
+  vanish for two straight reads. `:unknown` is everything else: a minimised
+  party window, a stale fact, a frame the reader did not recognise.
+
+  Two answers were enough while nobody acted on the absence. They stopped being
+  enough the moment `Logic` gained a rule that refuses to fight without a body
+  on the field: with `false` also meaning "I could not read it", one bad frame
+  would have stopped the hunt.
+
   ## `nil` is a legal answer
 
   An empty screen and an unreadable screen are the same pixels to a counter and
@@ -62,7 +74,7 @@ defmodule Pokex.Bots.Engine.Situation do
   Builds the picture from what was read this tick.
 
   `inputs` carries `:battle` (the fact's observation, or `nil` when missing or
-  stale), `:own_hp`, `:own_out?`, `:own_name` (the pokémon on the field),
+  stale), `:own_hp`, `:own_out?` (`true | false | :unknown`), `:own_name`,
   `:ready_keys` (or `nil` when the bar could not be read), `:damage_keys` (this
   pokémon's area + single keys), and `:prev` — the previous picture, which is
   what makes "is the pile still growing?" answerable.
@@ -75,7 +87,7 @@ defmodule Pokex.Bots.Engine.Situation do
       read_battle(
         Map.get(inputs, :battle),
         Map.get(inputs, :own_name),
-        Map.get(inputs, :own_out?, false)
+        Map.get(inputs, :own_out?, :unknown)
       )
 
     {growing?, stable_since} = settle(battle.enemies, Map.get(inputs, :prev), now)
@@ -90,7 +102,7 @@ defmodule Pokex.Bots.Engine.Situation do
       stable_since: stable_since,
       stable_for_ms: now - stable_since,
       own_hp: Map.get(inputs, :own_hp),
-      own_out?: Map.get(inputs, :own_out?, false),
+      own_out?: Map.get(inputs, :own_out?, :unknown),
       ready_keys: Map.get(inputs, :ready_keys),
       spent?: spent?(Map.get(inputs, :damage_keys, []), Map.get(inputs, :ready_keys)),
       blind?: Map.get(inputs, :battle) == nil,

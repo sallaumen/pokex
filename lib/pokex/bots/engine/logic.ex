@@ -86,6 +86,11 @@ defmodule Pokex.Bots.Engine.Logic do
   there is nothing to wait for that closing/emergency's split still buys.
   """
 
+  # The grace before the engine asks for a second revive. Long enough that a
+  # revive already in flight has landed; short enough that a night is not lost
+  # to one key that did not leave the hand.
+  @downed_retry_ms 4_000
+
   defstruct state: :idle,
             # when each phase started, so a wait can have a ceiling
             since: %{},
@@ -120,6 +125,15 @@ defmodule Pokex.Bots.Engine.Logic do
     {logic, orders} = decide(logic, world, config, now)
     {%{logic | why: orders.why}, orders}
   end
+
+  # NOTHING IS ON THE FIELD, and it was PROVEN — `own_out?` answers `:unknown`
+  # when the bar merely could not be read. Every order below this line spends a
+  # bar that belongs to a body in the ball, so none of them may be given: the
+  # keys hit nothing, the health bar is gone (and `nil` is not a band), and the
+  # hunt narrates "estourando a área" at a pile it cannot touch. That is not a
+  # hypothetical — it was 93% of a bench run, measured 2026-08-25.
+  defp decide(logic, %{situation: %{own_out?: false}} = world, config, now),
+    do: downed(logic, world, config, now)
 
   # No hunt to run — but HP still means what it always means. See the
   # moduledoc's "No hunt does not mean no pokémon".
@@ -161,6 +175,76 @@ defmodule Pokex.Bots.Engine.Logic do
       opening(world) == [] -> handless(logic, world, config)
       true -> normal(logic, world, config, now)
     end
+  end
+
+  # The route keeps walking, for the same reason it does with no keys: standing
+  # still in a pile with nothing to defend him is the worse of the two. What it
+  # will NOT do is fight, and what it WILL do is keep asking for the body back —
+  # the fallen rescue fires exactly once and then disarms itself until a live
+  # bar is seen again (`PlayerSupport.Logic.fainted?/1`), so a revive that does
+  # not land has, until now, ended the night with nobody ever asking twice.
+  #
+  # The first ask waits `downed_retry_ms` on purpose: the ordinary reason to be
+  # off the field is a revive already in flight, and a second press on top of it
+  # buys nothing and costs a revive.
+  defp downed(logic, world, config, now) do
+    logic = enter_downed(logic, now)
+    band = band(world.situation, config)
+
+    if ask_revive?(logic, config, now) do
+      {%{logic | since: Map.put(logic.since, :downed_asked, now)},
+       orders(:downed, band,
+         route: :go,
+         fire: :hold,
+         revive: :now,
+         why: downed_why(logic, config, now)
+       )}
+    else
+      {logic,
+       orders(:downed, band,
+         route: :go,
+         fire: :hold,
+         why: "sem pokémon em campo — nada a atacar até ele voltar"
+       )}
+    end
+  end
+
+  # After the same ceiling that already governs "a revive that never lands must
+  # not end the night standing still", the asking SLOWS DOWN instead of stopping:
+  # seven presses that changed nothing are enough to say the revive is not
+  # working, and one press a minute keeps the door open for the night to fix
+  # itself when he refills the stock.
+  defp asking_every(logic, config, now) do
+    ceiling = Map.get(config, :recover_timeout_ms, 30_000)
+    retry = Map.get(config, :downed_retry_ms, @downed_retry_ms)
+
+    if down_for(logic, now) >= ceiling, do: max(ceiling, retry), else: retry
+  end
+
+  defp ask_revive?(logic, config, now) do
+    since = Map.get(logic.since, :downed_asked) || Map.get(logic.since, :downed, now)
+
+    now - since >= asking_every(logic, config, now)
+  end
+
+  defp down_for(logic, now), do: now - Map.get(logic.since, :downed, now)
+
+  defp downed_why(logic, config, now) do
+    if down_for(logic, now) >= Map.get(config, :recover_timeout_ms, 30_000) do
+      "o revive não está saindo há #{div(down_for(logic, now), 1_000)}s — insistindo devagar"
+    else
+      "o pokémon não voltou pro campo — pedindo o revive de novo"
+    end
+  end
+
+  # A NEW fall starts both clocks over. Carrying `:downed_asked` across would
+  # make the first tick of the next fall ask immediately — on top of the revive
+  # that had just put the pokemon in the ball.
+  defp enter_downed(%{state: :downed} = logic, _now), do: logic
+
+  defp enter_downed(logic, now) do
+    since = logic.since |> Map.put(:downed, now) |> Map.delete(:downed_asked)
+    %{logic | state: :downed, since: since}
   end
 
   # The route keeps walking: standing still would turn a missing configuration

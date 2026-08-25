@@ -342,4 +342,20 @@ defmodule Pokex.Sim.CalibrateTest do
     assert report.walk.n == 40
     assert report.pile.engagements == 1
   end
+  # O recall SAUDÁVEL — a única prensa que a R3b existe pra medir — deixa a barra
+  # ilegível sem prova de queda: `out` responde `:unknown`, não `false`.
+  describe "o preço do F4 num recall que não é queda" do
+    @tag :tmp_dir
+    test "mede a janela mesmo quando a queda nunca foi provada" do
+      vitals = [
+        %{"at" => 0, "out" => true, "ready" => 0, "keys" => 4},
+        %{"at" => 400, "out" => :unknown},
+        %{"at" => 1_600, "out" => true, "ready" => 4, "keys" => 4}
+      ]
+
+      assert %{median: 1_200} = Calibrate.revive_settle(vitals)
+      assert %{n: 1, resets: 1} = Calibrate.revive_reset(vitals)
+    end
+  end
+
 end

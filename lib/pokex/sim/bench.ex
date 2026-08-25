@@ -61,7 +61,8 @@ defmodule Pokex.Sim.Bench do
     band_red_pct: :engine_band_red_pct,
     resume_pct: :engine_resume_pct,
     recover_timeout_ms: :engine_recover_timeout_ms,
-    closing_timeout_ms: :engine_closing_timeout_ms
+    closing_timeout_ms: :engine_closing_timeout_ms,
+    downed_retry_ms: :engine_downed_retry_ms
   }
 
   @doc """
@@ -180,7 +181,8 @@ defmodule Pokex.Sim.Bench do
       deaths: [],
       revives: [],
       piles: [],
-      pile_open: nil
+      pile_open: nil,
+      by_phase: %{}
     }
   end
 
@@ -221,7 +223,11 @@ defmodule Pokex.Sim.Bench do
         ms_stalled: metrics.ms_stalled + if(stalled?, do: @tick_ms, else: 0),
         ms_down: metrics.ms_down + if(world.own.out?, do: 0, else: @tick_ms),
         ms_fighting:
-          metrics.ms_fighting + if(orders.phase in @fight_phases, do: @tick_ms, else: 0)
+          metrics.ms_fighting + if(orders.phase in @fight_phases, do: @tick_ms, else: 0),
+        # Where the minute WENT. A rate per minute says the hunt is slow; this
+        # says which phase ate it, which is the only version of the number a
+        # knob can be chosen from.
+        by_phase: Map.update(metrics.by_phase, orders.phase, @tick_ms, &(&1 + @tick_ms))
     }
   end
 
@@ -292,13 +298,21 @@ defmodule Pokex.Sim.Bench do
     %{
       battle: if(battle.enemies == nil, do: nil, else: battle),
       own_hp: pokemon.hp_pct,
-      own_out?: world.own.out?,
+      own_out?: out_state(pokemon),
       own_name: world.own.name,
       ready_keys: World.observe(world, :skill_bar).ready_keys,
       damage_keys: damage_keys(world),
       prev: previous
     }
   end
+
+  # Read off the OBSERVATION, never off `world.own.out?` — the same three answers
+  # the real worker gets. A blind world hides the bar without the pokemon having
+  # gone anywhere, and a bench that peeked at the truth would never exercise the
+  # `:unknown` the engine has to survive.
+  defp out_state(%{readable?: true}), do: true
+  defp out_state(%{fainted?: true}), do: false
+  defp out_state(_unreadable), do: :unknown
 
   # A hunt is always running here — the scenario IS the hunt. Standing where
   # monsters are on screen is `:fighting`, which is what makes the ruler run.

@@ -19,7 +19,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
     band_red_pct: 30,
     resume_pct: 80,
     recover_timeout_ms: 30_000,
-    closing_timeout_ms: 8_000
+    closing_timeout_ms: 8_000,
+    downed_retry_ms: 4_000
   }
 
   defp situation(overrides \\ %{}) do
@@ -449,6 +450,99 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert orders.phase == :emergency
       assert orders.revive == :now
+    end
+  end
+
+  # A ordem "estourando a área" com o pokémon no chão foi 93% de uma corrida
+  # inteira do bench: a barra some, `own_hp` vira nil, nil não é banda nenhuma,
+  # e a caçada volta a abrir pilhas com o campo vazio. O fato já estava na
+  # foto — `own_out?` — e ninguém lia.
+  describe "sem pokémon em campo" do
+    defp caido(overrides \\ %{}) do
+      world(%{
+        situation: situation(Map.merge(%{own_out?: false, own_hp: nil}, overrides)),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    test "não abre luta nenhuma e diz por quê" do
+      {_logic, orders} = step(caido(), 1_000)
+
+      assert orders.phase == :downed
+      assert orders.fire == :hold
+      assert orders.opening == []
+      assert orders.why =~ "sem pokémon em campo"
+    end
+
+    test "segue andando a rota: parar no meio da pilha é pior" do
+      {_logic, orders} = step(caido(), 1_000)
+
+      assert orders.route == :go
+    end
+
+    test "espera o corpo voltar antes de pedir outro revive" do
+      {_logic, orders} = step(caido(), 1_000)
+
+      assert orders.revive == :hold
+    end
+
+    test "e pede de novo quando ele não volta" do
+      {logic, _} = step(caido(), 1_000)
+      {_logic, orders} = step(logic, caido(), 1_000 + @config.downed_retry_ms)
+
+      assert orders.revive == :now
+      assert orders.why =~ "não voltou"
+    end
+
+    test "uma vez por piso, não uma por tique" do
+      {logic, _} = step(caido(), 1_000)
+      {logic, first} = step(logic, caido(), 1_000 + @config.downed_retry_ms)
+      assert first.revive == :now
+
+      {logic, second} = step(logic, caido(), 1_100 + @config.downed_retry_ms)
+      assert second.revive == :hold
+
+      {_logic, third} = step(logic, caido(), 1_000 + 2 * @config.downed_retry_ms)
+      assert third.revive == :now
+    end
+
+    test "uma queda nova recomeça o piso, sem herdar o relógio da anterior" do
+      {logic, _} = step(caido(), 1_000)
+      {logic, _} = step(logic, caido(), 1_000 + @config.downed_retry_ms)
+      {logic, _} = step(logic, world(), 60_000)
+
+      {_logic, orders} = step(logic, caido(), 60_100)
+
+      assert orders.revive == :hold
+    end
+
+    test "não sei se ele está em campo não é ele estar no chão" do
+      unknown = caido(%{own_out?: :unknown, own_hp: 90})
+
+      {_logic, orders} = step(unknown, 1_000)
+
+      refute orders.phase == :downed
+    end
+
+    test "sete pedidos sem resposta bastam: depois disso ele insiste devagar" do
+      {logic, _} = step(caido(), 0)
+
+      {_logic, asks} =
+        Enum.reduce(1..700, {logic, []}, fn tick, {logic, asks} ->
+          {logic, orders} = step(logic, caido(), tick * 100)
+          {logic, if(orders.revive == :now, do: [orders | asks], else: asks)}
+        end)
+
+      assert length(asks) <= 9, "70s de chão não podem virar uma tecla presa"
+      assert hd(asks).why =~ "não está saindo"
+    end
+
+    test "o corpo de volta retoma a caçada" do
+      {logic, _} = step(caido(), 1_000)
+      {_logic, orders} = step(logic, world(%{hunt: hunt(%{state: :fighting})}), 2_000)
+
+      assert orders.phase in [:sizing, :engaged]
+      assert orders.route == :hold
     end
   end
 

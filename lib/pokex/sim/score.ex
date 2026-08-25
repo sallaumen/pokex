@@ -101,6 +101,7 @@ defmodule Pokex.Sim.Score do
       fighting_pct: pct(metrics.ms_fighting, metrics.ms),
       enemies_pct: pct(metrics.ms_enemies, metrics.ms),
       piles_cleared: length(metrics.piles),
+      by_phase: phase_shares(metrics),
       pile_ms: %{median: median(metrics.piles), worst: Enum.max(metrics.piles, fn -> nil end)},
       revives: %{
         ordered: length(revives),
@@ -166,6 +167,16 @@ defmodule Pokex.Sim.Score do
   defp kind_of(_event, _engage_from), do: :other
 
   defp count_kind(events, kind), do: Enum.count(events, &(&1.kind == kind))
+
+  # Sorted by how much of the run each phase ate, because that is the order the
+  # question gets asked in: what took the time, then what took the rest.
+  defp phase_shares(%{by_phase: by_phase, ms: ms}) do
+    by_phase
+    |> Enum.map(fn {phase, spent} -> %{phase: phase, ms: spent, pct: pct(spent, ms)} end)
+    |> Enum.sort_by(& &1.ms, :desc)
+  end
+
+  defp phase_shares(_no_phases), do: []
 
   defp per_min(count, minutes), do: Float.round(count / minutes, 2)
 

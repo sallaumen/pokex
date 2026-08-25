@@ -1020,17 +1020,23 @@ defmodule Pokex.Settings do
     # seguir firme e forte", Lucas 2026-08-25). The simulator measured the hunt
     # spending 12-23% of every run in exactly that state.
     #
-    # OFF by default on purpose. Whether taking the pokemon off the field and
-    # bringing it back really clears its cooldowns in Poké Alliance is a fact
-    # about the GAME, and it has to be MEASURED before the bot spends presses on
-    # it — `/sim`'s "As quatro medições do jogo" reads it off a real hunt.
+    # OFF by default on purpose. Whether the pokemon comes back with its
+    # cooldowns cleared is a fact about the GAME, and it has to be MEASURED
+    # before the bot spends presses on it — `/sim`'s "As quatro medições do
+    # jogo" reads it off a real hunt.
     #
-    # And which key does it is not settled either. His client's own hotkey file
-    # (2026-08-25) says `ACTION_BAR_4: F4` — F4 is the fourth ITEM slot, not a
-    # recall — while the skills are `ACTION_1..12` on 1..9. So the reset, if it
-    # exists, most likely belongs to the pokémon SWAP (`POKEBAR_CYCLE: Q`,
-    # `POKEBAR_1..6: Ctrl+1..6`) rather than to the revive item. The measurement
-    # reads what HAPPENED, not what was pressed, so it answers either way.
+    # WHICH KEY, settled by him (2026-08-25): **F4 is the whole choreography** —
+    # it recalls, uses the revive and puts the pokemon back on the field, all
+    # from one press. The hotkey file calls it `ACTION_BAR_4` because it lives
+    # in the item bar (the skills are `ACTION_1..12` on 1..9), and that is what
+    # `rescue_key: "f4"` presses. Poké Alliance has no "Q recall" any more —
+    # `POKEBAR_CYCLE: Q` is still bound in the file and is not one — so the only
+    # other way off the field is a real SWAP on `Ctrl+1..6`, which brings out a
+    # DIFFERENT pokemon and is a different decision entirely.
+    #
+    # THE COST THIS MODEL DOES NOT CARRY: if F4 spends a revive item, every
+    # proactive press has a price in inventory, not only in the seconds the
+    # pokemon is off the field. `Score`'s `revives.accepted` IS that bill.
     engine_reset_revive: false,
     # The floor between two of them, so a fight whose bar stays empty does not
     # become a key held down. Comfortably above the game's own rescue cooldown

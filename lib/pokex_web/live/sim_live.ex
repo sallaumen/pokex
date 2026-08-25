@@ -1363,12 +1363,28 @@ defmodule PokexWeb.SimLive do
             </p>
           </div>
 
+          <%!-- O placar conta segundos. Se o F4 gasta item, a conta de verdade
+                tem uma segunda moeda, e ela não está em lugar nenhum do
+                simulador — então pelo menos está dita. --%>
+          <p class="flex items-start gap-1.5 text-pk-meta leading-relaxed text-pk-text-2">
+            <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0 text-pk-warn" />
+            <span>
+              <b class="text-pk-text">O que o placar não cobra:</b>
+              se o F4 gasta um item de revive, cada revive proativo tem preço em
+              INVENTÁRIO, não só nos segundos fora de campo. O simulador conta segundos;
+              a conta dos itens é o número de <b class="text-pk-text">revives aceitos</b>
+              no placar.
+            </span>
+          </p>
+
           <p class="border-t border-pk-line pt-2 text-pk-meta leading-relaxed text-pk-text-2">
             <b class="text-pk-text">Como medir:</b>
-            cace com o cavebot rodando — os três primeiros saem sozinhos. Pro quarto, com a <b class="text-pk-text">barra gasta e bicho na tela</b>, faça sair o pokémon de
-            campo e volte: o bot lê o antes e o depois e diz se as skills voltaram prontas.
-            Vale qualquer caminho — trocar de pokémon (<code class="font-mono">Q</code>
-            ou <code class="font-mono">Ctrl+1..6</code>) ou o revive do <code class="font-mono">F4</code>. Ele mede o que aconteceu, não o que foi apertado.
+            cace com o cavebot rodando — os três primeiros saem sozinhos. Pro quarto, com a <b class="text-pk-text">barra gasta e bicho na tela</b>, aperte <code class="font-mono">F4</code>: ele recolhe, usa o revive e devolve o pokémon
+            pro campo de uma vez só. O bot lê o antes e o depois e diz se as skills voltaram
+            prontas. Ele mede o que ACONTECEU, então trocar de pokémon no
+            <code class="font-mono">Ctrl+1..6</code>
+            também responde — mas aí quem volta é
+            outro bicho, o que é outra decisão.
           </p>
         </section>
 
@@ -1467,9 +1483,9 @@ defmodule PokexWeb.SimLive do
               <.icon name="hero-information-circle" class="mt-px size-3.5 shrink-0 text-pk-info" />
               <span>
                 A regra está <b class="text-pk-text">desligada</b>
-                no bot (<code class="font-mono">engine_reset_revive</code>). Ligue só depois de
-                conferir no jogo que recolher um pokémon SAUDÁVEL zera os cooldowns dele —
-                é um fato do jogo, não deste código.
+                no bot (<code class="font-mono">engine_reset_revive</code>). Ligue depois que
+                a medição disser que o pokémon volta com as skills prontas — é um fato do
+                jogo, não deste código. E lembre que cada revive aqui é um <code class="font-mono">F4</code>: se ele gasta item, a conta tem duas moedas.
               </span>
             </p>
           </div>

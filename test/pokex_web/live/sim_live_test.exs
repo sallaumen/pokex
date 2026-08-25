@@ -142,7 +142,9 @@ defmodule PokexWeb.SimLiveTest do
     end
 
     assert html =~ "a noite não mediu"
-    assert html =~ "faça sair o pokémon de", "a página tem que dizer COMO medir a quarta"
+
+    assert html =~ "recolhe, usa o revive e devolve",
+           "a página tem que dizer COMO medir a quarta, e com qual tecla"
   end
 
   test "opening the calibration table renders every field it offers", %{conn: conn} do

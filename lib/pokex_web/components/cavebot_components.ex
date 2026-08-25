@@ -528,9 +528,10 @@ defmodule PokexWeb.CavebotComponents do
       </button>
 
       <%!-- R3b: barra vazia na frente de uma pilha que ainda vale é uma rodada
-            que já acabou. Desligado até a medição dizer que tirar o pokémon de
-            campo e trazê-lo de volta zera mesmo os cooldowns dele — em
-            /sim, "As quatro medições do jogo". --%>
+            que já acabou. O revive aqui é o F4, que no Poké Alliance faz a
+            coreografia inteira sozinho — recolhe, usa e devolve o pokémon pro
+            campo. Desligado até a medição dizer que ele volta com as skills
+            prontas: /sim, "As quatro medições do jogo". --%>
       <button
         id="toggle-reset-revive"
         type="button"

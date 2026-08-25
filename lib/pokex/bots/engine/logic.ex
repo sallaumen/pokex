@@ -27,6 +27,10 @@ defmodule Pokex.Bots.Engine.Logic do
       of a pile still worth fighting with every damage key on cooldown is a
       round that has already ended, whatever the health bar says: waiting out
       eight seconds of cooldown buys nothing the reset would not buy in one.
+      The press is `rescue_key` — F4, which in Poké Alliance is the whole
+      choreography in one key: it recalls, uses the revive and puts the pokemon
+      back on the field (his own account, 2026-08-25). The reset is the
+      send-out; whether it really clears the cooldowns is measured in `/sim`.
       "Quando estávamos com 0 cooldowns livres, muitos inimigos ainda na tela,
       vale a pena usar o revive no F4 rapidinho pra luta seguir firme e forte"
       (Lucas, 2026-08-25). Measured in the bench before it was written: the

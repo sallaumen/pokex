@@ -214,7 +214,12 @@ defmodule Pokex.Sim.FleetTest do
   defp todas(world), do: world.keys |> Map.keys() |> Enum.sort()
 
   # O runner tem relógio próprio de verdade aqui: basta deixar o tempo passar.
-  defp play(runner, until?, tries \\ 400) do
+  # O ORÇAMENTO tem que caber o RELÓGIO DO CÉREBRO, não a impressão de quem
+  # escreveu o teste. Eram 4s, e o teto de `size_ceiling_ms` virou 8: numa
+  # máquina de 2 núcleos (o CI) a pilha assenta depois do orçamento e o teste
+  # falha por pressa, não por bug (25/08). Só se paga na falha — o laço volta no
+  # instante em que a condição vale.
+  defp play(runner, until?, tries \\ 1_500) do
     world = Runner.world(runner)
 
     cond do

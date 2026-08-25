@@ -37,6 +37,7 @@ defmodule Pokex.Sim.Bench do
 
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
+  alias Pokex.Bots.PlayerSupport.Logic, as: Support
   alias Pokex.Settings
   alias Pokex.Sim.Scenario
   alias Pokex.Sim.World
@@ -55,14 +56,43 @@ defmodule Pokex.Sim.Bench do
     gather_piles: :engine_gather_piles,
     reset_revive: :engine_reset_revive,
     reset_revive_cooldown_ms: :engine_reset_revive_cooldown_ms,
+    reset_revive_min_hp: :engine_reset_revive_min_hp,
     pile_settle_ms: :engine_pile_settle_ms,
     size_ceiling_ms: :engine_size_ceiling_ms,
     band_yellow_pct: :engine_band_yellow_pct,
     band_red_pct: :engine_band_red_pct,
     resume_pct: :engine_resume_pct,
     recover_timeout_ms: :engine_recover_timeout_ms,
-    closing_timeout_ms: :engine_closing_timeout_ms
+    closing_timeout_ms: :engine_closing_timeout_ms,
+    downed_retry_ms: :engine_downed_retry_ms,
+    revive_confirm_ms: :engine_revive_confirm_ms,
+    rescue_cooldown_ms: :rescue_cooldown_ms,
+    skip_fire: :engine_skip_fire,
+    # …and the SUPPORT's ladder, which the loop obeys too. It is not the
+    # engine's decision, but it is what keeps a pokemon alive between two
+    # revives, and a bench that models only the last rung answers about a hunt
+    # that has no first aid at all.
+    heal_skill_enabled: :heal_skill_enabled,
+    heal_pct: :pokemon_hp_heal_pct,
+    heal_skill_cooldown_ms: :heal_skill_cooldown_ms,
+    potion_enabled: :potion_enabled,
+    potion_pct: :pokemon_hp_potion_pct,
+    potion_cooldown_ms: :potion_cooldown_ms
   }
+
+  # The WORLD's knobs that are not the world's to invent: the two floors between
+  # two revives belong to `PlayerSupport`, and a bench that keeps its own copy
+  # of them answers about a bot that cannot exist. Same lesson as `@knobs`, and
+  # it cost the same way — 2s here against 60s in the seeds made a run report
+  # 174 revives in 25 minutes without anybody noticing the hunt could never
+  # afford them.
+  @world_knobs %{
+    revive_cooldown_ms: :rescue_cooldown_ms,
+    fainted_revive_cooldown_ms: :fainted_revive_cooldown_ms
+  }
+
+  @doc "The world knobs whose authority is `Settings`, at their seeded values."
+  def world_knobs, do: Map.new(@world_knobs, fn {knob, setting} -> {knob, seed(setting)} end)
 
   @doc """
   The decision knobs a run uses when the caller names none: the SEEDS, not the
@@ -73,6 +103,27 @@ defmodule Pokex.Sim.Bench do
   do", pass `config: Bench.config_in_force()`.
   """
   def default_config, do: Map.new(@knobs, fn {knob, setting} -> {knob, seed(setting)} end)
+
+  # THE RIVAL BRAIN: the one question about this hunt that is still open, run
+  # side by side with what he has in force. It is R3b — his own idea, "usar o
+  # revive no F4 rapidinho pra luta seguir firme e forte" — because everything
+  # else the bench swept, he already runs (ruler of one, potions on), and a
+  # panel comparing a brain against itself teaches nothing.
+  #
+  # Measured on HIS settings, 5 min x 12 seeds, 2026-08-25 — and the shape of it
+  # is a dose curve, not a yes or no:
+  #
+  #   desligada         8,10 mortos/min · 0,38 revives/min · ele termina com 88%
+  #   piso de 6s        9,17 mortos/min · 3,78 revives/min · ele termina com 0%
+  #   piso de 60s       8,68 mortos/min · 1,43 revives/min · ele termina com 64%
+  #   piso de 120s      8,45 mortos/min · 0,98 revives/min · ele termina com 76%
+  #
+  # The rule pays; the seeded floor of six seconds was a faucet. Sixty is the
+  # value the panel argues for and the seed now carries.
+  @tuning %{reset_revive: true, reset_revive_cooldown_ms: 60_000}
+
+  @doc "The changes the bench found worth their price, as overrides."
+  def tuning, do: @tuning
 
   @doc "The knobs as the bot is running them right now — his overrides included."
   def config_in_force,
@@ -98,7 +149,7 @@ defmodule Pokex.Sim.Bench do
       |> Scenario.route(routes)
       |> World.new(
         seed: scenario.seed,
-        knobs: scenario.knobs,
+        knobs: Map.merge(world_knobs(), scenario.knobs),
         loadout: Keyword.get(opts, :loadout, loadout())
       )
 
@@ -112,6 +163,8 @@ defmodule Pokex.Sim.Bench do
       leg: 0,
       revived_at: nil,
       died_at: nil,
+      last_heal_at: nil,
+      last_potion_at: nil,
       metrics: blank_metrics()
     }
 
@@ -145,17 +198,18 @@ defmodule Pokex.Sim.Bench do
 
   defp step(state) do
     was = state.world.clock
-    before = state.world |> World.step(@tick_ms) |> apply_script(state.scenario, was)
+    previous = state.world
+    before = previous |> World.step(@tick_ms) |> apply_script(state.scenario, was)
     picture = Situation.build(inputs(before, state.picture), state.config, before.clock)
 
     {logic, orders} =
       Logic.step(state.logic, decision_world(before, picture), state.config, before.clock)
 
-    world = obey(before, orders, state.leg)
-    leg = advance_leg(world, state.leg)
+    acted = %{state | world: obey(before, orders, state.leg)} |> support(picture)
+    world = acted.world
 
-    %{state | world: world, logic: logic, picture: picture, leg: leg}
-    |> measure(state.world, before, world, orders, picture)
+    %{acted | logic: logic, picture: picture, leg: advance_leg(world, state.leg)}
+    |> measure(previous, before, world, orders, picture)
     |> record(orders, picture)
     |> mark(orders, world)
   end
@@ -180,7 +234,11 @@ defmodule Pokex.Sim.Bench do
       deaths: [],
       revives: [],
       piles: [],
-      pile_open: nil
+      pile_open: nil,
+      by_phase: %{},
+      by_band: %{},
+      min_hp: nil,
+      player_hp: 100
     }
   end
 
@@ -196,6 +254,7 @@ defmodule Pokex.Sim.Bench do
     metrics =
       state.metrics
       |> tally_time(world, orders, picture)
+      |> tally_risk(world, orders, picture)
       |> tally_bodies(previous, world)
       |> tally_death(previous, world)
       |> tally_revive(decided_on, world, orders, picture)
@@ -221,9 +280,30 @@ defmodule Pokex.Sim.Bench do
         ms_stalled: metrics.ms_stalled + if(stalled?, do: @tick_ms, else: 0),
         ms_down: metrics.ms_down + if(world.own.out?, do: 0, else: @tick_ms),
         ms_fighting:
-          metrics.ms_fighting + if(orders.phase in @fight_phases, do: @tick_ms, else: 0)
+          metrics.ms_fighting + if(orders.phase in @fight_phases, do: @tick_ms, else: 0),
+        # Where the minute WENT. A rate per minute says the hunt is slow; this
+        # says which phase ate it, which is the only version of the number a
+        # knob can be chosen from.
+        by_phase: Map.update(metrics.by_phase, orders.phase, @tick_ms, &(&1 + @tick_ms))
     }
   end
+
+  # A run with zero deaths is not the same as a safe run, and telling them apart
+  # is the difference between tuning and gambling. The lowest the bar ever got,
+  # how much of the run each band held, and what the CHARACTER paid — the bites
+  # that land on him are the whole price of a pokemon off the field.
+  defp tally_risk(metrics, world, orders, picture) do
+    %{
+      metrics
+      | by_band: Map.update(metrics.by_band, orders.band, @tick_ms, &(&1 + @tick_ms)),
+        min_hp: lowest(metrics.min_hp, picture.own_hp),
+        player_hp: min(metrics.player_hp, world.player.hp_pct)
+    }
+  end
+
+  defp lowest(nil, hp), do: hp
+  defp lowest(low, nil), do: low
+  defp lowest(low, hp), do: min(low, hp)
 
   defp tally_bodies(metrics, before, world) do
     %{
@@ -292,7 +372,7 @@ defmodule Pokex.Sim.Bench do
     %{
       battle: if(battle.enemies == nil, do: nil, else: battle),
       own_hp: pokemon.hp_pct,
-      own_out?: world.own.out?,
+      own_out?: out_state(pokemon),
       own_name: world.own.name,
       ready_keys: World.observe(world, :skill_bar).ready_keys,
       damage_keys: damage_keys(world),
@@ -300,14 +380,26 @@ defmodule Pokex.Sim.Bench do
     }
   end
 
+  # Read off the OBSERVATION, never off `world.own.out?` — the same three answers
+  # the real worker gets. A blind world hides the bar without the pokemon having
+  # gone anywhere, and a bench that peeked at the truth would never exercise the
+  # `:unknown` the engine has to survive.
+  defp out_state(%{readable?: true}), do: true
+  defp out_state(%{fainted?: true}), do: false
+  defp out_state(_unreadable), do: :unknown
+
   # A hunt is always running here — the scenario IS the hunt. Standing where
   # monsters are on screen is `:fighting`, which is what makes the ruler run.
   defp decision_world(world, picture) do
     %{
       situation: picture,
       hunt: %{state: hunt_state(world), luring?: false},
-      hands: %{opening: opening(world)}
+      hands: %{opening: opening(world), single: keys_of_kind(world, :single)}
     }
+  end
+
+  defp keys_of_kind(world, kind) do
+    for {key, %{kind: ^kind}} <- world.keys, do: key
   end
 
   defp hunt_state(world) do
@@ -372,6 +464,73 @@ defmodule Pokex.Sim.Bench do
     if max(abs(target.x - x), abs(target.y - y)) <= 1,
       do: rem(leg + 1, length(world.route.waypoints)),
       else: leg
+  end
+
+  # The OTHER worker in the loop. `PlayerSupport.Logic` is pure, so the ladder
+  # it decides by is called here directly rather than copied — the same reason
+  # `Engine.Logic` is. Its two cheap rungs are what stand between a hurt pokemon
+  # and the revive, and without them every health scenario answered as if the
+  # revive were the only first aid in the game.
+  #
+  # The revive rung is NOT here: the engine already owns when it happens
+  # (`orders.revive`), which is the whole reason the engine exists.
+  defp support(state, picture) do
+    state
+    |> heal_skill(picture)
+    |> potion(picture)
+  end
+
+  defp heal_skill(state, picture) do
+    with true <- Support.heal_wanted?(heal_input(state, picture)),
+         [key | _] <- ready_heal_keys(state.world) do
+      %{
+        state
+        | world: World.press(state.world, {:press, key}),
+          last_heal_at: state.world.clock
+      }
+    else
+      _nothing_to_press -> state
+    end
+  end
+
+  # A potion is a CHANNEL and combat cancels it — same gate the worker keeps,
+  # and the reason the heal skill exists at all.
+  defp potion(state, %{enemies: 0} = picture) do
+    if Support.potion_wanted?(potion_input(state, picture)) do
+      %{state | world: World.potion(state.world), last_potion_at: state.world.clock}
+    else
+      state
+    end
+  end
+
+  defp potion(state, _in_combat), do: state
+
+  defp heal_input(state, picture) do
+    %{
+      hp_pct: picture.own_hp,
+      prev_hp_pct: state.picture && state.picture.own_hp,
+      threshold_pct: state.config.heal_pct,
+      enabled?: state.config.heal_skill_enabled,
+      cooldown_ms: state.config.heal_skill_cooldown_ms,
+      last_heal_at: state.last_heal_at,
+      now: state.world.clock
+    }
+  end
+
+  defp potion_input(state, picture) do
+    %{
+      hp_pct: picture.own_hp,
+      prev_hp_pct: state.picture && state.picture.own_hp,
+      threshold_pct: state.config.potion_pct,
+      enabled?: state.config.potion_enabled,
+      cooldown_ms: state.config.potion_cooldown_ms,
+      last_potion_at: state.last_potion_at,
+      now: state.world.clock
+    }
+  end
+
+  defp ready_heal_keys(world) do
+    for {key, %{kind: :heal, ready_at: at}} <- world.keys, at <= world.clock, do: key
   end
 
   defp fire(world, %{fire: :free, opening: keys}) when keys != [],

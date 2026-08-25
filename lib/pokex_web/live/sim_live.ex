@@ -223,15 +223,14 @@ defmodule PokexWeb.SimLive do
     config = Bench.config_in_force()
     minutes = 5
 
+    tuned = Map.merge(config, Bench.tuning())
+
     rows =
       Enum.map(Scenario.all(), fn scenario ->
-        %{card: without} =
-          Score.hunt(scenario, minutes: minutes, config: Map.put(config, :reset_revive, false))
+        %{card: without} = Score.hunt(scenario, minutes: minutes, config: config)
+        %{card: with_tuning} = Score.hunt(scenario, minutes: minutes, config: tuned)
 
-        %{card: with_reset} =
-          Score.hunt(scenario, minutes: minutes, config: Map.put(config, :reset_revive, true))
-
-        %{scenario: scenario, without: without, with: with_reset}
+        %{scenario: scenario, without: without, with: with_tuning}
       end)
 
     {:noreply,
@@ -240,6 +239,7 @@ defmodule PokexWeb.SimLive do
          rows: rows,
          minutes: minutes,
          config: config,
+         tuning: Bench.tuning(),
          totals: %{without: totals(rows, :without), with: totals(rows, :with)}
        }
      )}
@@ -476,6 +476,7 @@ defmodule PokexWeb.SimLive do
       kills_per_min: rate(Enum.sum(Enum.map(cards, & &1.kills)), minutes),
       deaths_per_min: rate(Enum.sum(Enum.map(cards, & &1.deaths)), minutes),
       vanished_per_min: rate(Enum.sum(Enum.map(cards, & &1.vanished)), minutes),
+      revives_per_min: rate(Enum.sum(Enum.map(cards, & &1.revives.accepted)), minutes),
       stalled_pct: share(cards, :ms_stalled_of, ms),
       down_pct: share(cards, :ms_down_of, ms),
       revives: %{
@@ -484,7 +485,12 @@ defmodule PokexWeb.SimLive do
         rescue: Enum.sum(Enum.map(cards, & &1.revives.rescue)),
         refused: Enum.sum(Enum.map(cards, & &1.revives.refused))
       },
-      pile_ms: median(Enum.reject(Enum.map(cards, & &1.pile_ms.median), &is_nil/1))
+      pile_ms: median(Enum.reject(Enum.map(cards, & &1.pile_ms.median), &is_nil/1)),
+      # A session with no falls is not the same as a safe session, and the two
+      # numbers that tell them apart are the lowest the bar ever got and what
+      # HE paid — he is only ever bitten while nothing of his is on the field.
+      min_hp: Enum.min(Enum.map(cards, &(&1.min_hp || 100))),
+      player_hp: Enum.min(Enum.map(cards, & &1.player_hp))
     }
   end
 
@@ -532,6 +538,47 @@ defmodule PokexWeb.SimLive do
   defp delta_class(pct) when pct < 0, do: "font-bold text-pk-danger"
   defp delta_class(_zero), do: "text-pk-text-3"
 
+  # The phases of every scenario added up by TIME, which is the only way to add
+  # percentages of runs of different lengths without lying. Anything under one
+  # percent of the session is noise on a strip this small.
+  defp phase_shares(rows) do
+    cards = Enum.map(rows, & &1.without)
+    total = cards |> Enum.map(& &1.ms) |> Enum.sum() |> max(1)
+
+    cards
+    |> Enum.flat_map(& &1.by_phase)
+    |> Enum.reduce(%{}, fn %{phase: phase, ms: ms}, acc ->
+      Map.update(acc, phase, ms, &(&1 + ms))
+    end)
+    |> Enum.map(fn {phase, ms} -> %{phase: phase, pct: Float.round(ms * 100 / total, 1)} end)
+    |> Enum.reject(&(&1.pct < 1.0))
+    |> Enum.sort_by(& &1.pct, :desc)
+  end
+
+  @phase_labels %{
+    travelling: "andando",
+    gathering: "mobando",
+    sizing: "contando",
+    engaged: "lutando",
+    skipping: "deixando pra trás",
+    closing: "fechando a rodada",
+    emergency: "vermelho",
+    recovering: "esperando o revive",
+    unaided: "ferido, sem revive",
+    downed: "no chão",
+    handless: "sem teclas",
+    blind: "cego",
+    idle: "parado",
+    guarding: "só protegendo"
+  }
+
+  defp phase_label(phase), do: Map.get(@phase_labels, phase, to_string(phase))
+
+  # He is only ever bitten while nothing of his is on the field, so this number
+  # is the price of every second down, in one figure. Silent when he paid none.
+  defp his_bill(%{player_hp: 100}), do: ""
+  defp his_bill(%{player_hp: hp}), do: " · você caiu a #{hp}%"
+
   defp ms_text(nil), do: "—"
   defp ms_text(ms), do: "#{Float.round(ms / 1000, 1)}s"
 
@@ -563,7 +610,7 @@ defmodule PokexWeb.SimLive do
         label: "no chão",
         value: "#{without.down_pct}%",
         tone: if(without.down_pct > 10, do: "text-pk-danger", else: "text-pk-text"),
-        note: "sem pokémon em campo"
+        note: "sem pokémon em campo · vida mínima #{without.min_hp}%#{his_bill(without)}"
       },
       %{
         label: "pilha (mediana)",
@@ -1535,12 +1582,30 @@ defmodule PokexWeb.SimLive do
             </div>
           </dl>
 
-          <%!-- O F4 julgado, não contado: a mesma pilha, os mesmos segundos,
-                a única diferença sendo a regra. --%>
+          <%!-- ONDE FOI O MINUTO. Uma taxa por minuto diz que a caçada está
+                lenta; isto diz qual fase comeu o tempo, que é a única versão do
+                número da qual dá pra escolher um botão. --%>
+          <div class="space-y-1 rounded border border-pk-line bg-pk-sunken p-2">
+            <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+              Onde foi o minuto
+            </h3>
+
+            <dl class="flex flex-wrap gap-x-4 gap-y-1">
+              <div :for={slice <- phase_shares(@score.rows)} class="flex items-baseline gap-1">
+                <dt class="text-pk-body text-pk-text-2">{phase_label(slice.phase)}</dt>
+                <dd class="pk-num font-mono text-pk-body font-bold text-pk-text">
+                  {slice.pct}%
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          <%!-- O CÉREBRO CONTRA O CÉREBRO: o mesmo mundo, a mesma semente, e só
+                as três chaves que o banco achou que pagam o próprio preço. --%>
           <div class="space-y-2 rounded border border-pk-line bg-pk-sunken p-2">
             <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
-                O revive como reset de cooldown (R3b)
+                Hoje → com o F4 proativo (R3b)
               </h3>
               <p class="text-pk-meta text-pk-text-2">
                 mesmo mundo, mesma semente — só a regra muda
@@ -1561,26 +1626,32 @@ defmodule PokexWeb.SimLive do
               <span class="pk-num font-mono font-bold text-pk-text">
                 {@score.totals.without.deaths} → {@score.totals.with.deaths}
               </span>
-              · tempo sem cooldown
+              · pilhas abandonadas
               <span class="pk-num font-mono font-bold text-pk-text">
-                {@score.totals.without.stalled_pct}% → {@score.totals.with.stalled_pct}%
+                {@score.totals.without.vanished} → {@score.totals.with.vanished}
               </span>
-              · revives proativos
+              · revives
               <span class="pk-num font-mono font-bold text-pk-text">
-                {@score.totals.without.revives.proactive} → {@score.totals.with.revives.proactive}
+                {@score.totals.without.revives_per_min} → {@score.totals.with.revives_per_min}/min
+              </span>
+              · sua vida no fim
+              <span class="pk-num font-mono font-bold text-pk-text">
+                {@score.totals.without.player_hp}% → {@score.totals.with.player_hp}%
               </span>
             </p>
 
-            <p
-              :if={not @score.config.reset_revive}
-              class="flex items-start gap-1.5 text-pk-meta text-pk-text-2"
-            >
+            <p class="flex items-start gap-1.5 text-pk-meta text-pk-text-2">
               <.icon name="hero-information-circle" class="mt-px size-3.5 shrink-0 text-pk-info" />
               <span>
-                A regra está <b class="text-pk-text">desligada</b>
-                no bot (<code class="font-mono">engine_reset_revive</code>). Ligue depois que
-                a medição disser que o pokémon volta com as skills prontas — é um fato do
-                jogo, não deste código. E lembre que cada revive aqui é um <code class="font-mono">F4</code>: se ele gasta item, a conta tem duas moedas.
+                A coluna da direita roda com
+                <span :for={{key, value} <- @score.tuning}>
+                  <code class="font-mono">{key}</code>
+                  <span class="pk-num font-mono text-pk-text">{inspect(value)}</span> ·
+                </span>
+                e o preço dela tem <b class="text-pk-text">duas moedas</b>: o revive que
+                sai do estoque, e os segundos em que ninguém seu está em campo — que são
+                exatamente os segundos em que as mordidas passam a ser <b class="text-pk-text">suas</b>. O piso entre duas prensas decide as duas:
+                com seis segundos a regra vira torneira.
               </span>
             </p>
           </div>
@@ -1653,7 +1724,13 @@ defmodule PokexWeb.SimLive do
             nunca foram medidos no jogo. <b class="text-pk-text">Comparação vale</b>
             — mesmo mundo, mesma semente, a diferença é do cérebro.
             <b class="text-pk-text">Número absoluto não vale</b>
-            — "5 monstros por minuto" é uma propriedade dos meus chutes, não do Ratata.
+            — "5 monstros por minuto" é uma propriedade dos meus chutes, não do Ratata. <br />
+            <b class="text-pk-text">O que NÃO é chute</b>
+            são os pisos: o tempo entre dois resgates é o
+            <code class="font-mono">rescue_cooldown_ms</code>
+            que você configurou ({div(@score.config.rescue_cooldown_ms, 1000)}s), e é ele
+            que decide quantos revives a noite comporta. Enquanto ele não passa, o revive
+            não é uma opção — e nenhuma banda pode segurar a rota esperando por um.
           </p>
         </section>
 

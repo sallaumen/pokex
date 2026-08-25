@@ -941,6 +941,47 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       Process.sleep(300)
       assert Worker.status(worker).counters.rescues == spent
     end
+
+    # O outro lado da mesma moeda. O resgate do caído dispara uma vez por morte
+    # de propósito; o preço disso era que um revive que NÃO SAIU encerrava a
+    # noite, porque ninguém perguntava de novo. Quem pergunta é o cérebro — é o
+    # único que sabe se o corpo voltou (`:downed`).
+    @tag :tmp_dir
+    test "e um revive que não saiu é pedido de novo, quando o cérebro insiste", %{
+      tmp: tmp,
+      body: body
+    } do
+      Settings.put(:fainted_revive_cooldown_ms, 1)
+      dying_then_gone(tmp)
+      orders!(:now)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert await_log("caiu") =~ "revive na hora"
+      assert await_log("insiste") =~ "de novo"
+      assert Worker.status(worker).counters.rescues >= 2
+    end
+
+    @tag :tmp_dir
+    test "mas calado o cérebro não é permissão: sem ordem, segue sendo um por morte", %{
+      tmp: tmp,
+      body: body
+    } do
+      Settings.put(:fainted_revive_cooldown_ms, 1)
+      dying_then_gone(tmp)
+      orders!(:hold)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert await_log("caiu") =~ "revive na hora"
+      Process.sleep(300)
+
+      assert Worker.status(worker).counters.rescues == 1
+    end
   end
 
   defp await_snapshot(matcher) do

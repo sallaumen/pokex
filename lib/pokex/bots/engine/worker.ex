@@ -213,8 +213,12 @@ defmodule Pokex.Bots.Engine.Worker do
   # and no consumer has to ask who is on the field. The reserved control key
   # (`Strategy.reserved/1`) is deliberately absent — it belongs to
   # `PlayerSupport`'s rescue combo alone, see `Logic`'s moduledoc.
-  defp hands(nil), do: %{opening: []}
-  defp hands(loadout), do: %{opening: Strategy.opening(loadout)}
+  defp hands(nil), do: %{opening: [], single: []}
+
+  # `single` travels beside `opening` so a decision can spend the CHEAP keys
+  # without spending the area — the ruler saves the area for a pile, not the
+  # whole bar.
+  defp hands(loadout), do: %{opening: Strategy.opening(loadout), single: loadout.single}
 
   defp inputs(state, now) do
     %{
@@ -238,13 +242,21 @@ defmodule Pokex.Bots.Engine.Worker do
       gather_piles: Settings.get(:engine_gather_piles),
       reset_revive: Settings.get(:engine_reset_revive),
       reset_revive_cooldown_ms: Settings.get(:engine_reset_revive_cooldown_ms),
+      reset_revive_min_hp: Settings.get(:engine_reset_revive_min_hp),
       pile_settle_ms: Settings.get(:engine_pile_settle_ms),
       size_ceiling_ms: Settings.get(:engine_size_ceiling_ms),
       band_yellow_pct: Settings.get(:engine_band_yellow_pct),
       band_red_pct: Settings.get(:engine_band_red_pct),
       resume_pct: Settings.get(:engine_resume_pct),
       recover_timeout_ms: Settings.get(:engine_recover_timeout_ms),
-      closing_timeout_ms: Settings.get(:engine_closing_timeout_ms)
+      closing_timeout_ms: Settings.get(:engine_closing_timeout_ms),
+      downed_retry_ms: Settings.get(:engine_downed_retry_ms),
+      revive_confirm_ms: Settings.get(:engine_revive_confirm_ms),
+      # Not the engine's own number: the floor the PlayerSupport actually keeps
+      # between two rescues. The brain planning around a press the hands cannot
+      # make is how a hunt froze for thirty seconds at a time.
+      rescue_cooldown_ms: Settings.get(:rescue_cooldown_ms),
+      skip_fire: Settings.get(:engine_skip_fire)
     }
   end
 
@@ -262,8 +274,17 @@ defmodule Pokex.Bots.Engine.Worker do
     end
   end
 
+  # Three answers, and the third one is the whole point: `false` here means the
+  # support PROVED the fall (a live bar below the faint line, then gone for two
+  # reads), never "the frame did not read". `Logic` refuses to fight on `false`,
+  # so an unreadable party window answering `false` would stop the hunt on one
+  # bad capture.
   defp own_out?(now) do
-    match?({:ok, %{readable?: true}}, Perception.pokemon(now))
+    case Perception.pokemon(now) do
+      {:ok, %{readable?: true}} -> true
+      {:ok, %{fainted?: true}} -> false
+      _unreadable_or_missing -> :unknown
+    end
   end
 
   defp damage_keys(nil), do: []

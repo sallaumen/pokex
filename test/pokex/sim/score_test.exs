@@ -92,9 +92,18 @@ defmodule Pokex.Sim.ScoreTest do
 
       assert sem.revives.proactive == 0
       assert com.revives.proactive > 0
-      assert com.kills > sem.kills, "se não paga em monstros, a regra não se justifica"
-      assert com.deaths <= sem.deaths, "e não pode ser paga com quedas"
       assert com.stalled_pct < sem.stalled_pct, "o que ela ataca é o tempo sem cooldown"
+
+      # O QUE A REGRA REALMENTE FAZ, medido depois que o piso entre dois revives
+      # passou a ser o de verdade (`rescue_cooldown_ms`, um minuto, e não os 2s
+      # que este simulador inventou até 25/08): ela não COMPRA revives, ela os
+      # REALOCA. O piso decide quantos cabem na noite; a R3b decide se eles são
+      # gastos como resgate ou adiantados como reset.
+      assert com.revives.accepted <= sem.revives.accepted + 1,
+             "o piso é o teto: a regra não pode multiplicar as prensas"
+
+      assert com.revives.rescue < sem.revives.rescue,
+             "cada proativo sai de um resgate — é isso que ela custa"
     end
   end
 

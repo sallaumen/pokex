@@ -19,7 +19,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
     band_red_pct: 30,
     resume_pct: 80,
     recover_timeout_ms: 30_000,
-    closing_timeout_ms: 8_000
+    closing_timeout_ms: 8_000,
+    downed_retry_ms: 4_000,
+    revive_confirm_ms: 3_000,
+    rescue_cooldown_ms: 60_000
   }
 
   defp situation(overrides \\ %{}) do
@@ -47,7 +50,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
   defp world(overrides \\ %{}) do
     Map.merge(
-      %{situation: situation(), hunt: hunt(), hands: %{opening: ~w(3 4 5 6 7 8 9)}},
+      %{
+        situation: situation(),
+        hunt: hunt(),
+        hands: %{opening: ~w(3 4 5 6 7 8 9), single: ~w(7 8 9)}
+      },
       overrides
     )
   end
@@ -339,7 +346,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     defp spent_fight(overrides \\ %{}) do
       world(%{
-        situation: situation(Map.merge(%{enemies: 4, spent?: true}, overrides)),
+        situation: situation(Map.merge(%{enemies: 4, spent?: true, own_hp: 100}, overrides)),
         hunt: hunt(%{state: :fighting})
       })
     end
@@ -399,6 +406,17 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.revive == :hold
     end
 
+    # O piso entre dois revives é `rescue_cooldown_ms`: um MINUTO. Uma prensa
+    # proativa com a barra pela metade é o resgate que essa luta vai precisar
+    # daqui a quarenta segundos, gasto adiantado.
+    test "não com a vida pela metade: isso é gastar o resgate adiantado" do
+      logic = engaged(&reset_step/3)
+
+      {_logic, orders} = reset_step(logic, spent_fight(%{own_hp: 70}), 2_000)
+
+      assert orders.revive == :hold
+    end
+
     test "não por uma pilha que a régua nem abriria" do
       logic = engaged(&reset_step/3)
 
@@ -449,6 +467,200 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert orders.phase == :emergency
       assert orders.revive == :now
+    end
+  end
+
+  # A ordem "estourando a área" com o pokémon no chão foi 93% de uma corrida
+  # inteira do bench: a barra some, `own_hp` vira nil, nil não é banda nenhuma,
+  # e a caçada volta a abrir pilhas com o campo vazio. O fato já estava na
+  # foto — `own_out?` — e ninguém lia.
+  describe "sem pokémon em campo" do
+    defp caido(overrides \\ %{}) do
+      world(%{
+        situation: situation(Map.merge(%{own_out?: false, own_hp: nil}, overrides)),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    test "não abre luta nenhuma e diz por quê" do
+      {_logic, orders} = step(caido(), 1_000)
+
+      assert orders.phase == :downed
+      assert orders.fire == :hold
+      assert orders.opening == []
+      assert orders.why =~ "sem pokémon em campo"
+    end
+
+    test "segue andando a rota: parar no meio da pilha é pior" do
+      {_logic, orders} = step(caido(), 1_000)
+
+      assert orders.route == :go
+    end
+
+    test "espera o corpo voltar antes de pedir outro revive" do
+      {_logic, orders} = step(caido(), 1_000)
+
+      assert orders.revive == :hold
+    end
+
+    test "e pede de novo quando ele não volta" do
+      {logic, _} = step(caido(), 1_000)
+      {_logic, orders} = step(logic, caido(), 1_000 + @config.downed_retry_ms)
+
+      assert orders.revive == :now
+      assert orders.why =~ "não voltou"
+    end
+
+    test "uma vez por piso, não uma por tique" do
+      {logic, _} = step(caido(), 1_000)
+      {logic, first} = step(logic, caido(), 1_000 + @config.downed_retry_ms)
+      assert first.revive == :now
+
+      {logic, second} = step(logic, caido(), 1_100 + @config.downed_retry_ms)
+      assert second.revive == :hold
+
+      {_logic, third} = step(logic, caido(), 1_000 + 2 * @config.downed_retry_ms)
+      assert third.revive == :now
+    end
+
+    test "uma queda nova recomeça o piso, sem herdar o relógio da anterior" do
+      {logic, _} = step(caido(), 1_000)
+      {logic, _} = step(logic, caido(), 1_000 + @config.downed_retry_ms)
+      {logic, _} = step(logic, world(), 60_000)
+
+      {_logic, orders} = step(logic, caido(), 60_100)
+
+      assert orders.revive == :hold
+    end
+
+    test "não sei se ele está em campo não é ele estar no chão" do
+      unknown = caido(%{own_out?: :unknown, own_hp: 90})
+
+      {_logic, orders} = step(unknown, 1_000)
+
+      refute orders.phase == :downed
+    end
+
+    test "sete pedidos sem resposta bastam: depois disso ele insiste devagar" do
+      {logic, _} = step(caido(), 0)
+
+      {_logic, asks} =
+        Enum.reduce(1..700, {logic, []}, fn tick, {logic, asks} ->
+          {logic, orders} = step(logic, caido(), tick * 100)
+          {logic, if(orders.revive == :now, do: [orders | asks], else: asks)}
+        end)
+
+      assert length(asks) <= 9, "70s de chão não podem virar uma tecla presa"
+      assert hd(asks).why =~ "não está saindo"
+    end
+
+    test "o corpo de volta retoma a caçada" do
+      {logic, _} = step(caido(), 1_000)
+      {_logic, orders} = step(logic, world(%{hunt: hunt(%{state: :fighting})}), 2_000)
+
+      assert orders.phase in [:sizing, :engaged]
+      assert orders.route == :hold
+    end
+  end
+
+  # 47,5% de uma caçada inteira do bench foi gasta em `:recovering`, parada em
+  # blocos de trinta segundos, com a barra caindo o tempo todo e `:engaged` com
+  # 0,1%. O piso entre dois revives é um MINUTO: esperar por um que não pode vir
+  # não cura nada.
+  describe "o revive que não pode vir (R5)" do
+    defp ferido(hp),
+      do: world(%{situation: situation(%{own_hp: hp}), hunt: hunt(%{state: :fighting})})
+
+    defp ordena_e_espera(hp) do
+      {logic, orders} = step(ferido(hp), 1_000)
+      assert orders.revive == :now
+      logic
+    end
+
+    test "a espera acaba assim que a vida não sobe" do
+      logic = ordena_e_espera(20)
+
+      {_logic, orders} = step(logic, ferido(20), 1_000 + @config.revive_confirm_ms)
+
+      assert orders.route == :go
+      assert orders.why =~ "o revive não saiu"
+    end
+
+    test "mas uma vida que subiu é um revive que saiu: aí ela espera mesmo" do
+      logic = ordena_e_espera(20)
+
+      {_logic, orders} = step(logic, ferido(45), 1_000 + @config.revive_confirm_ms)
+
+      assert orders.phase == :recovering
+      assert orders.route == :hold
+    end
+
+    test "recusado, a banda para de segurar a rota até o piso passar" do
+      logic = ordena_e_espera(20)
+      {logic, _} = step(logic, ferido(20), 1_000 + @config.revive_confirm_ms)
+
+      {_logic, orders} = step(logic, ferido(45), 10_000)
+
+      assert orders.phase == :unaided
+      assert orders.route == :go, "parar não levanta barra de vida nenhuma"
+      assert orders.fire == :free, "o que já está mordendo tem que ser respondido"
+      assert orders.why =~ "andando sem abrir pilha"
+    end
+
+    test "e não pede o que não pode ser dado" do
+      logic = ordena_e_espera(20)
+      {logic, _} = step(logic, ferido(20), 1_000 + @config.revive_confirm_ms)
+
+      {_logic, orders} = step(logic, ferido(45), 10_000)
+
+      assert orders.revive == :hold
+    end
+
+    test "passado o piso, a banda volta a mandar" do
+      logic = ordena_e_espera(20)
+      {logic, _} = step(logic, ferido(20), 1_000 + @config.revive_confirm_ms)
+
+      passou = 1_000 + @config.revive_confirm_ms + @config.rescue_cooldown_ms + 1
+      {_logic, orders} = step(logic, ferido(20), passou)
+
+      assert orders.phase == :emergency
+      assert orders.revive == :now
+    end
+  end
+
+  # R1 manda ignorar um ou dois e seguir a vida. Só que quem vem atrás morde o
+  # caminho inteiro, e a fase que anda BATENDO mata mais por minuto no bench.
+  # A chave existe pra ele decidir, com o número na frente.
+  describe "bater em quem vem junto ao deixar a pilha" do
+    @batendo Map.put(@config, :skip_fire, true)
+
+    defp passando(config) do
+      pequena =
+        world(%{
+          situation: situation(%{enemies: 1, worth_fighting?: false}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      [0, @config.size_ceiling_ms + 1, @config.size_ceiling_ms + 100]
+      |> Enum.reduce({Logic.new(), nil}, fn at, {logic, _} ->
+        Logic.step(logic, pequena, config, at)
+      end)
+    end
+
+    test "por padrão passa de mãos baixas: a régua é dele" do
+      {_logic, orders} = passando(@config)
+
+      assert orders.phase == :skipping
+      assert orders.fire == :hold
+    end
+
+    test "ligada, bate — e só com as teclas de alvo único" do
+      {_logic, orders} = passando(@batendo)
+
+      assert orders.phase == :skipping
+      assert orders.route == :go
+      assert orders.fire == :free
+      assert orders.opening == ~w(7 8 9), "a área é o que a régua está guardando"
     end
   end
 

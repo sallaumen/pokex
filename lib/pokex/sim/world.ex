@@ -131,11 +131,28 @@ defmodule Pokex.Sim.World do
     #     between the key and the body being back. During it the bar is gone, it
     #     deals no damage, and the bites land on HIM. That is the real cost.
     #   * `revive_cooldown_ms` — HIS: `rescue_cooldown_ms` in settings, the floor
-    #     the PlayerSupport already keeps between two presses.
+    #     the PlayerSupport keeps between two RESCUES of a pokemon that is still
+    #     standing. It is a MINUTE, and this file said 2 seconds until
+    #     2026-08-25 — thirty times more often than the bot has ever been able
+    #     to press it, which is how a bench run reported 174 revives in 25
+    #     minutes and called the hunt sustainable.
+    #   * `fainted_revive_cooldown_ms` — HIS too, the much shorter floor that
+    #     governs the OTHER press: the one at a pokemon already on the floor,
+    #     where every second is the character being bitten instead.
     #
-    # Both are measurable in the game with a stopwatch and should be.
+    # Both are measurable in the game with a stopwatch and should be. The
+    # authority is `Settings`, not this map — see `Bench.world_knobs/0`.
+    # THE TWO CHEAP RUNGS of the support ladder, both invented: how much one
+    # press of the pokemon's own healing skill gives back, and how much one
+    # potion does. `PlayerSupport.Logic` documents the ladder — heal skill is
+    # free and works in combat, the potion costs money and only out of it, the
+    # revive is the last resort — and this world modelled only the last one,
+    # which is what made every hurt run look like a revive treadmill.
+    heal_skill_pct: 25,
+    potion_heal_pct: 40,
     revive_settle_ms: 1_200,
-    revive_cooldown_ms: 2_000,
+    revive_cooldown_ms: 60_000,
+    fainted_revive_cooldown_ms: 15_000,
     # How long a cleared nest takes to be worth walking past again. `nil` means
     # never, which is what a SCENARIO wants: a controlled experiment must not
     # have monsters arriving from off-stage. A HUNT wants a number — no rate
@@ -486,9 +503,17 @@ defmodule Pokex.Sim.World do
       world
       | own: %{world.own | out?: false},
         revive_at: world.clock + world.knobs.revive_settle_ms,
-        revive_ready_at: world.clock + world.knobs.revive_cooldown_ms
+        revive_ready_at: world.clock + next_floor(world)
     }
   end
+
+  # Two floors, because the bot has two: a pokemon on the floor may be revived
+  # again far sooner than one merely hurt. Which one applies is decided by the
+  # state the press was made IN.
+  defp next_floor(%{own: %{out?: false}} = world),
+    do: Map.get(world.knobs, :fainted_revive_cooldown_ms, world.knobs.revive_cooldown_ms)
+
+  defp next_floor(world), do: world.knobs.revive_cooldown_ms
 
   # R3, landed: full health, back on its feet, every cooldown at zero — and back
   # at HIS side, because it comes out of the ball where he is standing, not
@@ -552,7 +577,26 @@ defmodule Pokex.Sim.World do
   defp damage(world, key, :single),
     do: hit(world, 1, band(world, key, world.knobs.single_damage_pct))
 
+  # THE FIRST RUNG of the ladder his support has always had and this world never
+  # modelled: a healing skill is free, instant, and works mid-fight. Only the
+  # third rung — the revive — existed here, which is why every hurt run looked
+  # like a revive treadmill.
+  defp damage(world, _key, :heal), do: %{world | own: mend(world.own, world.knobs.heal_skill_pct)}
+
   defp damage(world, _key, _no_damage), do: world
+
+  @doc """
+  THE SECOND RUNG: a potion. Costs money, is a channel, and so only ever
+  happens out of combat — the caller owns that gate, exactly as
+  `PlayerSupport` does.
+  """
+  @spec potion(t) :: t
+  def potion(%__MODULE__{own: %{out?: true}} = world),
+    do: %{world | own: mend(world.own, world.knobs.potion_heal_pct)}
+
+  def potion(world), do: world
+
+  defp mend(own, amount), do: %{own | hp_pct: min(own.hp_pct + amount, 100)}
 
   @doc """
   What a key would do right now, as `{min, max}`.

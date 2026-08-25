@@ -19,7 +19,8 @@ defmodule Pokex.Sim.ScenarioTest do
   test "the four groups he marked are all covered" do
     groups = Scenario.all() |> Enum.map(& &1.group) |> Enum.uniq() |> Enum.sort()
 
-    assert groups == [:blind, :hands, :health, :ruler]
+    assert Enum.sort(Scenario.experiment_groups()) == [:blind, :hands, :health, :ruler]
+    assert groups == [:blind, :hands, :health, :hunt, :ruler]
   end
 
   test "every group has a label for the screen" do

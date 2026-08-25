@@ -23,6 +23,12 @@ defmodule Pokex.Sim.Score do
       inimigos ainda na tela". If this is small, a revive-to-reset rule has
       nothing to win; if it is large, it has.
     * **`vanished_per_min`** — piles walked away from. R2's bill.
+    * **`min_hp` / `yellow_pct` / `red_pct` / `player_hp`** — the RISK, for the
+      runs that end with zero deaths and no way to tell luck from safety. The
+      lowest the bar ever got, how much of the run the brain spent in each band,
+      and what the character himself paid: he is only ever bitten while nothing
+      of his is on the field, so `player_hp` is the price of every second spent
+      down, in one number.
     * **`pile_ms`** (median / worst) — how long one pile takes from first
       monster on the list to empty list. Agility, in his words: "matar tudo e
       ser ágil".
@@ -101,6 +107,11 @@ defmodule Pokex.Sim.Score do
       fighting_pct: pct(metrics.ms_fighting, metrics.ms),
       enemies_pct: pct(metrics.ms_enemies, metrics.ms),
       piles_cleared: length(metrics.piles),
+      by_phase: phase_shares(metrics),
+      min_hp: metrics.min_hp,
+      player_hp: metrics.player_hp,
+      yellow_pct: pct(Map.get(metrics.by_band, :yellow, 0), metrics.ms),
+      red_pct: pct(Map.get(metrics.by_band, :red, 0), metrics.ms),
       pile_ms: %{median: median(metrics.piles), worst: Enum.max(metrics.piles, fn -> nil end)},
       revives: %{
         ordered: length(revives),
@@ -166,6 +177,16 @@ defmodule Pokex.Sim.Score do
   defp kind_of(_event, _engage_from), do: :other
 
   defp count_kind(events, kind), do: Enum.count(events, &(&1.kind == kind))
+
+  # Sorted by how much of the run each phase ate, because that is the order the
+  # question gets asked in: what took the time, then what took the rest.
+  defp phase_shares(%{by_phase: by_phase, ms: ms}) do
+    by_phase
+    |> Enum.map(fn {phase, spent} -> %{phase: phase, ms: spent, pct: pct(spent, ms)} end)
+    |> Enum.sort_by(& &1.ms, :desc)
+  end
+
+  defp phase_shares(_no_phases), do: []
 
   defp per_min(count, minutes), do: Float.round(count / minutes, 2)
 

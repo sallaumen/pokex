@@ -303,6 +303,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                     error: "barra de vida não reconhecida (janela do Pokémon minimizada?)"
                 }
                 |> maybe_revive_fallen()
+                |> maybe_retry_fallen()
 
               publish_pokemon_fact(%{
                 hp_pct: nil,
@@ -433,6 +434,42 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       send(worker, {:fallen_done, Body.perform(actions, :critical, body)})
     end)
   end
+
+  # The fallen revive fires exactly ONCE per death — `last_seen_hp: nil`
+  # afterwards is the anti-loop that stops a pokemon merely stored in its ball
+  # from draining the stock overnight, and it stays. What it cost was the other
+  # half: a revive that did not LAND ended the night, because nothing ever asked
+  # a second time.
+  #
+  # The engine is what can ask. It is the only thing watching whether a body
+  # ever came back (`Logic`'s `:downed`), and it asks on its own floor. So a
+  # RETRY is allowed here — never a first press — under three conditions: the
+  # fall was already proven by this worker, the engine is asking right now, and
+  # the same floor a first fallen revive keeps has passed.
+  defp maybe_retry_fallen(%{fainted?: true} = state) do
+    if InputGate.allowed?() and Settings.get(:rescue_enabled) and engine_revive() == :now and
+         fallen_floor_elapsed?(state) do
+      at = now()
+      dispatch_fallen(state.body)
+      broadcast_log(:macro, "💀 ele segue no chão e o cérebro insiste — revive de novo")
+
+      %{
+        state
+        | last_faint_at: at,
+          counters: bump(state.counters, :rescues),
+          last_action: %{text: "revive do caído (de novo)", at: at}
+      }
+    else
+      state
+    end
+  end
+
+  defp maybe_retry_fallen(state), do: state
+
+  defp fallen_floor_elapsed?(%{last_faint_at: nil}), do: false
+
+  defp fallen_floor_elapsed?(%{last_faint_at: at}),
+    do: now() - at >= Settings.get(:fainted_revive_cooldown_ms)
 
   defp faint_input(state) do
     %{

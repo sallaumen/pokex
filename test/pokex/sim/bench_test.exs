@@ -46,11 +46,17 @@ defmodule Pokex.Sim.BenchTest do
     result = run("pilha-pequena", duration_ms: 30_000)
 
     assert :skipping in result.outcome.phases
-    assert result.outcome.killed == 0
+    refute :engaged in result.outcome.phases, "a régua decidiu não abrir — e não abriu"
   end
 
+  # O TETO MUDOU E ISTO MUDOU COM ELE (2026-08-25). Com 4s o par abandonado
+  # sumia; com 8s ele alcança o pokémon parado, morde até o amarelo, e a banda
+  # fecha a rodada matando os dois — pagando um revive por uma pilha que a régua
+  # tinha recusado. O teto de 4s era "a maior mobada gravada dele (4806ms)
+  # arredondada PRA BAIXO", uma frase que enuncia o próprio bug, e a caçada
+  # inteira aprova a troca. Este cenário é onde ela cobra.
   test "greed makes the pile vanish rather than die" do
-    result = run("ganancia", duration_ms: 40_000)
+    result = run("ganancia", duration_ms: 40_000, config: %{size_ceiling_ms: 4_000})
 
     assert result.outcome.vanished > 0
   end
@@ -75,15 +81,31 @@ defmodule Pokex.Sim.BenchTest do
   #      and what is lost here is lost for the reason the scenario names — the
   #      hunt walked on and left them behind.
   #
+  #   5. E o teto (2026-08-25): `size_ceiling_ms` era "a maior mobada gravada
+  #      dele (4806ms) arredondada PRA BAIXO" — 4s, ou seja, um teto ABAIXO da
+  #      pilha mais lenta que ele já registrou, que portanto corta essa pilha
+  #      toda vez. Com 8s a pilha que pinga é esperada até o fim e morre
+  #      inteira. Foi a única das cinco viradas que veio de um número dele em
+  #      vez de um da física.
+  #
   # Step 2 was the artifact. The engine only "collected them on the way back"
   # because it could see two extra tiles above and below what the game shows.
   # The finding is real, and the moral is that a conclusion drawn from a model
   # is worth exactly what the model's fidelity is worth.
-  test "a dripping pile is skipped, and the leash takes what was left behind" do
-    result = run("pilha-que-pinga", duration_ms: 30_000)
+  test "a dripping pile is skipped by a ceiling below his own slowest gather" do
+    cortada =
+      Bench.run(Scenario.get("pilha-que-pinga"),
+        duration_ms: 30_000,
+        config: %{size_ceiling_ms: 4_000}
+      )
 
-    assert :skipping in result.outcome.phases
-    assert result.outcome.vanished > 0, "the pile has to be LOST, not merely skipped"
+    assert :skipping in cortada.outcome.phases
+    assert cortada.outcome.vanished > 0, "the pile has to be LOST, not merely skipped"
+
+    inteira = run("pilha-que-pinga", duration_ms: 30_000)
+
+    assert :engaged in inteira.outcome.phases
+    assert inteira.outcome.vanished == 0
   end
 
   test "red health revives immediately instead of finishing the round" do
@@ -130,8 +152,18 @@ defmodule Pokex.Sim.BenchTest do
   describe "com a régua dele (engaja a partir de 1), o que acorda é lutado" do
     @his_ruler %{engage_from: 1}
 
+    # Só os EXPERIMENTOS: uma pilha, uma pergunta, o mapa parado. Numa caçada
+    # inteira passar por um canto enquanto se luta em outro é o que ela é, não
+    # uma falha da física. E dois experimentos ficam de fora por motivos
+    # opostos: "ganancia" mede a régua ABANDONANDO a pilha de propósito, e
+    # "morte" tem o revive quebrado — sem pokémon em campo, ir embora é a
+    # resposta certa.
+    @walks_away ~w(ganancia morte)
+
     test "nenhum monstro some sem luta em cenário nenhum" do
-      for scenario <- Scenario.all(), scenario.id != "ganancia" do
+      for scenario <- Scenario.all(),
+          scenario.group in Scenario.experiment_groups(),
+          scenario.id not in @walks_away do
         %{outcome: o} = Bench.run(scenario, duration_ms: 60_000, config: @his_ruler)
 
         assert o.vanished == 0,
@@ -157,7 +189,8 @@ defmodule Pokex.Sim.BenchTest do
   # R2 belongs to the RULER, not to the rope: what is lost is lost because the
   # hunt decided the pile was not worth it and walked on.
   test "com a régua padrão a pilha pequena é abandonada — e some" do
-    %{outcome: o} = Bench.run(Scenario.get("ganancia"), duration_ms: 40_000)
+    %{outcome: o} =
+      Bench.run(Scenario.get("ganancia"), duration_ms: 40_000, config: %{size_ceiling_ms: 4_000})
 
     assert :skipping in o.phases
     assert o.killed == 0
@@ -195,7 +228,10 @@ defmodule Pokex.Sim.BenchTest do
 
   test "raising the ruler past the pile makes the bench walk away from it" do
     [low, high] =
-      Bench.sweep(Scenario.get("pilha-que-fecha"), :engage_from, [3, 9], duration_ms: 30_000)
+      Bench.sweep(Scenario.get("pilha-que-fecha"), :engage_from, [3, 9],
+        duration_ms: 30_000,
+        config: %{size_ceiling_ms: 4_000}
+      )
 
     assert low.killed > 0
     assert high.killed == 0
@@ -210,5 +246,68 @@ defmodule Pokex.Sim.BenchTest do
     result = run("pilha-que-fecha", duration_ms: 60_000)
 
     assert result.outcome.ran_for_ms >= 60_000
+  end
+
+  # A escada do suporte tem três degraus e este banco só modelava o terceiro.
+  # `PlayerSupport.Logic` é pura, então quem decide é ela mesma — não uma cópia.
+  describe "os dois degraus baratos da escada" do
+    alias Pokex.Bots.Combat.Loadout
+
+    @curador %Loadout{name: "Curador", aoe: ["3"], single: ["4"], heal: ["7"]}
+
+    defp curando(loadout) do
+      Bench.run(Scenario.get("vida-caindo"),
+        duration_ms: 60_000,
+        config: %{engage_from: 1},
+        loadout: loadout
+      )
+    end
+
+    test "a cura do pokémon sai no meio da luta: é o único degrau que funciona lutando" do
+      %{metrics: com} = curando(@curador)
+      %{metrics: sem} = curando(%{@curador | heal: []})
+
+      assert com.min_hp > sem.min_hp
+    end
+
+    # A poção é um CANAL e a batalha cancela ela — o mesmo portão que o worker
+    # guarda. A prova está nos dois números juntos: a vida mais baixa da corrida
+    # é a MESMA com e sem poção (nenhuma foi bebida com a pilha viva) e só o
+    # final muda, depois que a tela limpou.
+    test "e a poção só depois, com a tela limpa" do
+      drinking = %{
+        engage_from: 1,
+        potion_enabled: true,
+        potion_pct: 95,
+        potion_cooldown_ms: 3_000
+      }
+
+      com = Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: drinking)
+
+      sem =
+        Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: %{engage_from: 1})
+
+      assert com.metrics.min_hp == sem.metrics.min_hp
+      assert com.outcome.hp_at_end > sem.outcome.hp_at_end
+    end
+  end
+
+  # A queixa dele, com número: "o cérebro PULA uma pilha de cinco que valia".
+  # A pilha que PINGA nunca fica parada tempo bastante, o teto estoura, e a
+  # régua desiste de uma pilha que ela mesma teria aberto.
+  describe "a pilha que chega de um em um" do
+    test "com o teto de 4s ela é abandonada; com 8s (o padrão) ela é morta inteira" do
+      curto =
+        Bench.run(Scenario.get("pilha-que-pinga"),
+          duration_ms: 60_000,
+          config: %{size_ceiling_ms: 4_000}
+        )
+
+      longo = Bench.run(Scenario.get("pilha-que-pinga"), duration_ms: 60_000)
+
+      assert curto.outcome.vanished > 0
+      assert longo.outcome.vanished == 0
+      assert longo.outcome.killed > curto.outcome.killed
+    end
   end
 end

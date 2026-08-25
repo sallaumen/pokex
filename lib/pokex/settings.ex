@@ -1003,9 +1003,17 @@ defmodule Pokex.Settings do
     # own recording shows 1264, 2543, 3248 and 4806ms of real gathering.
     engine_pile_settle_ms: 1_500,
     # …and a ceiling, because R2 says greed makes the pile VANISH: past this,
-    # the hunt decides with whatever showed up instead of waiting more. 4s is
-    # his longest recorded gather (4806) rounded down.
-    engine_size_ceiling_ms: 4_000,
+    # the hunt decides with whatever showed up instead of waiting more.
+    #
+    # It was 4s — "his longest recorded gather (4806) rounded down", which is a
+    # sentence that names its own bug: a ceiling BELOW the slowest pile he ever
+    # recorded cuts that pile off every time it happens. It is his complaint of
+    # 2026-08-24 in one number ("o cérebro PULA uma pilha de cinco que valia"),
+    # and `pilha-que-pinga` reproduces it: at 4s two of five are abandoned, at
+    # 8s all five die. Over a whole hunt at his ruler of three, 5,42 → 6,88
+    # mortos/min with FEWER falls and less time on the floor. Above his slowest
+    # gather now, and still bounded.
+    engine_size_ceiling_ms: 8_000,
     # THE BANDS (2026-08-17). Yellow is where the round starts being CLOSED —
     # stop gathering, let the pile arrive, spend everything on it, then revive
     # so the next leg starts full. Red is where nothing is worth waiting for.
@@ -1037,11 +1045,34 @@ defmodule Pokex.Settings do
     # THE COST THIS MODEL DOES NOT CARRY: if F4 spends a revive item, every
     # proactive press has a price in inventory, not only in the seconds the
     # pokemon is off the field. `Score`'s `revives.accepted` IS that bill.
+    #
+    # STILL OFF after being measured properly (2026-08-25): with the real floor
+    # between two presses in the model, the rule reallocates rescues into resets
+    # rather than adding presses, buys 5–9% more monsters, and costs the
+    # character health in every run. The lever that actually moves the hunt is
+    # `rescue_cooldown_ms` itself — 60s → 30s was +21% monsters in the bench,
+    # paid in revive items.
     engine_reset_revive: false,
     # The floor between two of them, so a fight whose bar stays empty does not
-    # become a key held down. Comfortably above the game's own rescue cooldown
-    # (2s) and below a full skill cooldown (8s).
-    engine_reset_revive_cooldown_ms: 6_000,
+    # become a key held down. It WAS six seconds — comfortably above the game's
+    # own rescue cooldown and below a full skill cooldown, and measured on his
+    # own settings a faucet: 3,78 revives por minuto e o PERSONAGEM terminando a
+    # caçada com 0% de vida, porque cada prensa tira o pokémon de campo e as
+    # mordidas passam a ser dele. A curva inteira, 5 min x 12 sementes:
+    #
+    #   desligada      8,10 mortos/min · 0,38 revives/min · ele com 88%
+    #   piso 6s        9,17 mortos/min · 3,78 revives/min · ele com 0%
+    #   piso 30s       8,87 mortos/min · 1,85 revives/min · ele com 52%
+    #   piso 60s       8,68 mortos/min · 1,43 revives/min · ele com 64%
+    #   piso 120s      8,45 mortos/min · 0,98 revives/min · ele com 76%
+    engine_reset_revive_cooldown_ms: 60_000,
+    # …and the health it refuses to spend a revive at. The floor between two
+    # presses is `rescue_cooldown_ms` — a MINUTE — so a proactive press made on a
+    # half-empty bar is the rescue this fight needs in forty seconds, spent
+    # early. Swept in the bench on 2026-08-25 across five floors: gating at full
+    # health beat gating at 80% on monsters killed at every floor, and cost the
+    # CHARACTER far less health.
+    engine_reset_revive_min_hp: 100,
     # …and the route only walks again above this.
     engine_resume_pct: 80,
     # A revive that never lands must not end the night standing still.
@@ -1049,6 +1080,25 @@ defmodule Pokex.Settings do
     # Nor may closing a round wait forever for a pile that stopped coming — the
     # ceiling this same number doubles as, for when to give up and revive.
     engine_closing_timeout_ms: 8_000,
+    # With the pokemon PROVEN off the field the engine asks for the revive again
+    # every this-many ms. The fallen rescue in PlayerSupport fires once per death
+    # and then disarms itself until a live bar is seen again, so before this knob
+    # existed a revive that did not land ended the night with nobody asking twice.
+    # The first ask waits the same window: the ordinary reason to be off the field
+    # is a revive already in flight.
+    engine_downed_retry_ms: 4_000,
+    # R5: how long a revive has to prove it landed before the engine calls it a
+    # refusal and walks again. Its only job is to be longer than the game takes
+    # to put the body back and much shorter than the recovery ceiling — the
+    # ceiling spent 47.5% of a bench hunt standing in front of a bar that
+    # standing still does not raise.
+    engine_revive_confirm_ms: 3_000,
+    # R1 diz pra IGNORAR um ou dois e seguir a vida, e é isso que o padrão faz.
+    # A chave existe porque o bench achou o contrário digno de medida: a fase que
+    # anda BATENDO mata mais por minuto do que a que anda de mãos baixas, e quem
+    # vem atrás de uma pilha abandonada morde o caminho inteiro. Ligada, só as
+    # teclas de alvo único — a área é o que a régua está guardando.
+    engine_skip_fire: false,
     # How often a plain VITALS reading is filed while nothing is changing. The
     # transitions that carry the four measurements are written the instant they
     # happen (see `Engine.Worker.sample_vitals/4`); this is only the heartbeat
@@ -1270,6 +1320,7 @@ defmodule Pokex.Settings do
     # is the battle panel's own row count — a ruler above it never engages.
     engine_engage_from: 1..12,
     engine_reset_revive_cooldown_ms: 0..60_000,
+    engine_reset_revive_min_hp: 0..100,
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_size_ceiling_ms: 100..600_000,
@@ -1278,6 +1329,8 @@ defmodule Pokex.Settings do
     engine_resume_pct: 1..100,
     engine_recover_timeout_ms: 1_000..600_000,
     engine_closing_timeout_ms: 100..600_000,
+    engine_downed_retry_ms: 500..600_000,
+    engine_revive_confirm_ms: 500..600_000,
     engine_hunt_max_age_ms: 200..60_000,
     engine_orders_max_age_ms: 200..60_000,
     posture_max_age_ms: 500..60_000,

@@ -82,6 +82,7 @@ defmodule PokexWeb.CavebotLive do
        situation: engine_fact(:situation),
        orders: engine_fact(:orders),
        gather_piles: Settings.get(:engine_gather_piles),
+       reset_revive: Settings.get(:engine_reset_revive),
        minimap_gap?: minimap_gap?(),
        recording?: false,
        # Read health: read_coord is all-or-nothing (requires 1.0 confidence),
@@ -815,6 +816,20 @@ defmodule PokexWeb.CavebotLive do
        text: log_as_text(socket.assigns.log, socket.assigns.show_debug)
      })
      |> assign(notice: "feed copiado — pode colar no relato", notice_kind: :ok)}
+  end
+
+  # R3b lives beside the pile switch because it is the same kind of decision:
+  # a rule about HOW the hunt spends its round, with no other screen to live on.
+  def handle_event("toggle_reset_revive", _params, socket) do
+    value = not Settings.get(:engine_reset_revive)
+    Settings.put(:engine_reset_revive, value)
+
+    {:noreply,
+     assign(socket,
+       reset_revive: value,
+       notice: reset_revive_notice(value),
+       notice_kind: if(value, do: :warn, else: :ok)
+     )}
   end
 
   # Mobar é escolha, não natureza da caçada: contra bicho fraco que aparece de
@@ -1683,6 +1698,15 @@ defmodule PokexWeb.CavebotLive do
   end
 
   # The whitelist IS the parser: client strings never become atoms.
+  # Warn, not ok, when it is turned ON: it spends presses on a game mechanic
+  # nobody has watched yet, and the strip is the only place that says so.
+  defp reset_revive_notice(true),
+    do:
+      "F4 passa a zerar cooldown no meio da luta — confira no jogo se recolher um pokémon " <>
+        "SAUDÁVEL zera mesmo os cooldowns dele"
+
+  defp reset_revive_notice(false), do: "F4 volta a ser só resgate (vermelho e fim de rodada)"
+
   defp gather_notice(true), do: "juntando pilha antes de bater"
 
   defp gather_notice(false),
@@ -1966,7 +1990,12 @@ defmodule PokexWeb.CavebotLive do
               inside a process. It says what WOULD happen — nobody obeys it
               yet — and the feed below carries the same sentence beside what
               the bot actually did. --%>
-        <.engine_brain situation={@situation} orders={@orders} gather_piles={@gather_piles} />
+        <.engine_brain
+          situation={@situation}
+          orders={@orders}
+          gather_piles={@gather_piles}
+          reset_revive={@reset_revive}
+        />
 
         <%!-- The pre-sleep checklist: whether TONIGHT's hunt survives without
               him. The three switches are the support worker's (same settings

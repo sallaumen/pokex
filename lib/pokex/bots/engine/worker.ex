@@ -200,6 +200,8 @@ defmodule Pokex.Bots.Engine.Worker do
     %{
       engage_from: Settings.get(:engine_engage_from),
       gather_piles: Settings.get(:engine_gather_piles),
+      reset_revive: Settings.get(:engine_reset_revive),
+      reset_revive_cooldown_ms: Settings.get(:engine_reset_revive_cooldown_ms),
       pile_settle_ms: Settings.get(:engine_pile_settle_ms),
       size_ceiling_ms: Settings.get(:engine_size_ceiling_ms),
       band_yellow_pct: Settings.get(:engine_band_yellow_pct),

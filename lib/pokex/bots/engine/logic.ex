@@ -23,6 +23,14 @@ defmodule Pokex.Bots.Engine.Logic do
       AND heals, so it is spent at the END of a round, once the cooldowns are
       already gone. "Reviver no meio do nada, só porque a vida do pokémon ficou
       baixa, também é uma lógica muito burra."
+    * **R3b — a bar with nothing left IS the end of a round.** Standing in front
+      of a pile still worth fighting with every damage key on cooldown is a
+      round that has already ended, whatever the health bar says: waiting out
+      eight seconds of cooldown buys nothing the reset would not buy in one.
+      "Quando estávamos com 0 cooldowns livres, muitos inimigos ainda na tela,
+      vale a pena usar o revive no F4 rapidinho pra luta seguir firme e forte"
+      (Lucas, 2026-08-25). Measured in the bench before it was written: the
+      hunt spends **12% to 23% of every run** in exactly that state.
     * **R4 — the stun is a clock nothing contradicts.** A partial stun is the
       common case, not the exception, and the window it opens is the best one
       available: "essa é a melhor janela antes de eu não ter mais opções e
@@ -292,16 +300,32 @@ defmodule Pokex.Bots.Engine.Logic do
 
   # THE RULER (R1). Standing at the kill spot, the question is not "is there
   # something to hit" but "is this worth the area damage".
-  defp sizing(%{state: :engaged} = logic, world, config, _now) do
-    # A fight already opened does not re-measure itself as it kills: finishing
-    # what you started is right even as the list shrinks past three.
-    {logic,
-     orders(:engaged, band(world.situation, config),
-       route: :hold,
-       fire: :free,
-       opening: opening(world),
-       why: "matando o que já abriu"
-     )}
+  defp sizing(%{state: :engaged} = logic, world, config, now) do
+    s = world.situation
+
+    if reset_revive?(logic, s, config, now) do
+      # R3b. Stays ENGAGED — this is not a rescue and there is nothing to
+      # recover from: the body comes back full, with a full bar, into the same
+      # fight it left.
+      {%{logic | since: Map.put(logic.since, :reset_revive, now)},
+       orders(:engaged, band(s, config),
+         route: :hold,
+         fire: :free,
+         opening: opening(world),
+         revive: :now,
+         why: "sem cooldown com #{count(s)} na frente — revive pra voltar com a barra cheia"
+       )}
+    else
+      # A fight already opened does not re-measure itself as it kills: finishing
+      # what you started is right even as the list shrinks past three.
+      {logic,
+       orders(:engaged, band(s, config),
+         route: :hold,
+         fire: :free,
+         opening: opening(world),
+         why: "matando o que já abriu"
+       )}
+    end
   end
 
   defp sizing(%{state: :skipping} = logic, world, config, _now) do
@@ -370,6 +394,35 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp opening(%{hands: %{opening: keys}}), do: keys
   defp opening(_no_hands), do: []
+
+  # R3b, with every guard it needs to not become "press F4 always":
+  #
+  #   * OFF by default (`reset_revive`), because whether recalling a HEALTHY
+  #     pokemon really resets its cooldowns is a fact about the game that has
+  #     to be watched once with his own eyes, not a fact about this code.
+  #   * only with the bar actually spent — `spent?` is every DAMAGE key on
+  #     cooldown, which is his "0 cooldowns livres".
+  #   * only in front of a pile the ruler would still open on, so the reset is
+  #     bought for a fight worth having.
+  #   * only with a pokemon ON the field: ordering a second one while the first
+  #     is still in the ball spends the press against a closed door.
+  #   * and never twice inside `reset_revive_cooldown_ms`, so a fight whose bar
+  #     stays empty does not turn into a key held down.
+  defp reset_revive?(logic, s, config, now) do
+    Map.get(config, :reset_revive, false) and s.spent? == true and s.own_out? == true and
+      is_integer(s.enemies) and s.enemies >= config.engage_from and
+      reset_revive_ready?(logic, config, now)
+  end
+
+  # NOT `within?/4`: that one answers true for a clock never started, which is
+  # the right default for a ceiling and exactly the wrong one for a floor — the
+  # rule would refuse the very first press it exists to make.
+  defp reset_revive_ready?(logic, config, now) do
+    case Map.get(logic.since, :reset_revive) do
+      nil -> true
+      at -> now - at >= Map.get(config, :reset_revive_cooldown_ms, 6_000)
+    end
+  end
 
   defp enter(%{state: state} = logic, state, _now), do: logic
 

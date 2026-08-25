@@ -300,6 +300,10 @@ defmodule Pokex.Sim.RunnerTest do
     advance.(200)
     Runner.tick_now(server)
 
+    # the body takes revive_settle_ms to come back — the order starts it
+    advance.(2_000)
+    Runner.tick_now(server)
+
     world = Runner.world(server)
     assert world.own.hp_pct == 100
     assert world.own.alive?

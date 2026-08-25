@@ -287,13 +287,43 @@ defmodule Pokex.Sim.WorldTest do
     assert distance(mob.pos, arrived.pos) == 1
   end
 
-  test "a mob dragged past its leash vanishes" do
-    world = lone_mob(%{leash_tiles: 3})
-    assert length(world.mobs) == 1
+  # WHO the rope is measured on: HIM. Charging the MOB for its own walk made a
+  # creature that burned the rope crossing the room and evaporated short of the
+  # pokemon — which is why every health scenario ended at 100% health until
+  # 2026-08-25. Greed is his, the walking away is his, and R2 says "you dragged
+  # them too far from home".
+  test "a mob that woke vanishes once HE leaves its nest, not once it has walked" do
+    world = lone_mob(%{leash_tiles: 4})
 
-    dragged = Enum.reduce(1..40, world, fn _tick, w -> World.step(w, 100) end)
+    # he walks in until the mob notices him — and no farther, or the walk in is
+    # already the walk away
+    awake =
+      Enum.reduce(1..20, World.press(world, {:key_down, "right"}), fn _tick, w ->
+        World.step(w, 100)
+      end)
 
-    assert dragged.mobs == []
+    assert [%{woke?: true}] = awake.mobs
+
+    # and now he walks away, past the rope (letting go of "right" first — two
+    # opposite keys held at once is a character standing still)
+    walking_back =
+      awake |> World.press({:key_up, "right"}) |> World.press({:key_down, "left"})
+
+    gone = Enum.reduce(1..120, walking_back, fn _tick, w -> World.step(w, 100) end)
+
+    assert gone.mobs == []
+    assert gone.stats.vanished == 1
+  end
+
+  test "a mob that never woke is never leashed, however far away he stands" do
+    # aggro is capped by the rope, so 4 tiles is all it can notice — and he
+    # never gets that close.
+    world = lone_mob(%{leash_tiles: 4})
+
+    still_there = Enum.reduce(1..80, world, fn _tick, w -> World.step(w, 100) end)
+
+    assert [%{woke?: false}] = still_there.mobs
+    assert still_there.stats.vanished == 0
   end
 
   test "a mob still inside its leash is still there" do
@@ -302,6 +332,15 @@ defmodule Pokex.Sim.WorldTest do
     kept = Enum.reduce(1..40, world, fn _tick, w -> World.step(w, 100) end)
 
     assert length(kept.mobs) == 1
+  end
+
+  # A creature that notices from farther than the rope lets it come can never
+  # arrive: it is a monster the fight cannot happen with, and the model built
+  # exactly that for weeks (aggro 20, leash 12).
+  test "a creature never notices from farther than its rope lets it come" do
+    world = World.new(nest_route(), knobs: %{aggro_tiles: 20, leash_tiles: 12})
+
+    assert world.knobs.aggro_tiles == 12
   end
 
   test "a mob on another floor is not walked at all" do

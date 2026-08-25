@@ -65,6 +65,7 @@ defmodule PokexWeb.SimLive do
        scenarios: Scenario.all(),
        scenario: Runner.scenario(),
        bench: nil,
+       bench_all: nil,
        setup: saved,
        kill_combo: Map.get(saved, :kill_combo, []),
        setup_open?: false,
@@ -126,7 +127,7 @@ defmodule PokexWeb.SimLive do
         do: socket.assigns.kill_combo -- [key],
         else: Enum.sort(socket.assigns.kill_combo ++ [key])
 
-    socket |> assign(kill_combo: combo, bench: nil) |> reload_world()
+    socket |> assign(kill_combo: combo, bench: nil, bench_all: nil) |> reload_world()
   end
 
   def handle_event("toggle-setup", _params, socket),
@@ -175,6 +176,23 @@ defmodule PokexWeb.SimLive do
       scenario ->
         {:noreply, assign(socket, bench: Bench.run(scenario, routes: socket.assigns.routes))}
     end
+  end
+
+  # Every scenario at once, with the knobs the bot is running RIGHT NOW —
+  # "validar vários cenários, ver como ele se comporta" (Lucas, 2026-08-25).
+  # One at a time answers "did this one work"; all of them side by side answers
+  # the question he actually asks, which is what a knob COSTS: the same nine
+  # rows under `engine_engage_from: 1` and under 3 are two different hunts.
+  def handle_event("bench_all", _params, socket) do
+    config = Bench.config_in_force()
+
+    rows =
+      Enum.map(Scenario.all(), fn scenario ->
+        %{outcome: outcome} = Bench.run(scenario, routes: socket.assigns.routes, config: config)
+        %{id: scenario.id, name: scenario.name, outcome: outcome}
+      end)
+
+    {:noreply, assign(socket, bench_all: %{rows: rows, config: config})}
   end
 
   # The hands, from HIS keyboard instead of from the bot's. The world cannot
@@ -345,6 +363,17 @@ defmodule PokexWeb.SimLive do
 
   defp failures(nil), do: []
   defp failures(world), do: Enum.map(world.failures, &failure_label/1)
+
+  # A run that ended with the pokemon down is not the same news as one that
+  # ended with the ground clean, and a table where both read "clean" is a table
+  # nobody looks twice at.
+  defp ending_text(:died), do: "caiu"
+  defp ending_text(:clean), do: "limpo"
+  defp ending_text(:timeout), do: "ficou gente"
+
+  defp ending_class(:died), do: "font-semibold text-rose-400"
+  defp ending_class(:clean), do: "text-emerald-400"
+  defp ending_class(_still_going), do: "text-amber-400"
 
   defp failure_label(:blind), do: "tela ilegível"
   defp failure_label({:dead_key, key}), do: "tecla #{key} não sai"
@@ -632,6 +661,13 @@ defmodule PokexWeb.SimLive do
             class="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-500"
           >
             <.icon name="hero-forward" class="mr-1 h-4 w-4" /> Rodar rápido (1 min)
+          </button>
+
+          <button
+            phx-click="bench_all"
+            class="rounded-lg border border-violet-700 px-3 py-1.5 text-sm font-medium text-violet-200 hover:bg-violet-900/40"
+          >
+            <.icon name="hero-table-cells" class="mr-1 h-4 w-4" /> Rodar TODOS
           </button>
 
           <button
@@ -1060,6 +1096,58 @@ defmodule PokexWeb.SimLive do
               <span class="text-zinc-400">{line.why}</span>
             </li>
           </ol>
+        </div>
+
+        <div :if={@bench_all} class="rounded-xl border border-violet-900/60 bg-violet-950/20 p-3">
+          <h2 class="mb-1 text-sm font-semibold text-violet-100">
+            Todos os cenários
+            <span class="font-normal text-violet-300/70">
+              — um minuto cada, com os botões que o bot está usando agora
+            </span>
+          </h2>
+          <p class="mb-2 font-mono text-xs text-violet-300/70">
+            engaja a partir de {@bench_all.config.engage_from} · {if @bench_all.config.gather_piles,
+              do: "juntando pilha",
+              else: "sem juntar pilha"} · assenta em {@bench_all.config.pile_settle_ms}ms · teto {@bench_all.config.size_ceiling_ms}ms
+          </p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-violet-300/70">
+                <tr>
+                  <th class="py-1 pr-3 font-medium">cenário</th>
+                  <th class="py-1 pr-3 font-medium">fim</th>
+                  <th class="py-1 pr-3 text-right font-medium">mortos</th>
+                  <th class="py-1 pr-3 text-right font-medium">sumiram</th>
+                  <th class="py-1 pr-3 text-right font-medium">de pé</th>
+                  <th class="py-1 pr-3 text-right font-medium">vida</th>
+                  <th class="py-1 font-medium">fases</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={row <- @bench_all.rows} class="border-t border-violet-900/40">
+                  <td class="py-1 pr-3 text-violet-100">{row.name}</td>
+                  <td class={"py-1 pr-3 #{ending_class(row.outcome.ended)}"}>
+                    {ending_text(row.outcome.ended)}
+                  </td>
+                  <td class="py-1 pr-3 text-right tabular-nums text-zinc-300">
+                    {row.outcome.killed}
+                  </td>
+                  <td class={"py-1 pr-3 text-right tabular-nums #{if row.outcome.vanished > 0, do: "text-amber-400", else: "text-zinc-500"}"}>
+                    {row.outcome.vanished}
+                  </td>
+                  <td class="py-1 pr-3 text-right tabular-nums text-zinc-300">
+                    {row.outcome.left_alive}
+                  </td>
+                  <td class="py-1 pr-3 text-right tabular-nums text-zinc-300">
+                    {row.outcome.hp_at_end}%
+                  </td>
+                  <td class="py-1 font-mono text-[11px] text-zinc-400">
+                    {Enum.join(row.outcome.phases, " › ")}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div class="grid gap-4 md:grid-cols-2">

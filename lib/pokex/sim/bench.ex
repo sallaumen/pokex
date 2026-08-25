@@ -37,25 +37,46 @@ defmodule Pokex.Sim.Bench do
 
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
+  alias Pokex.Settings
   alias Pokex.Sim.Scenario
   alias Pokex.Sim.World
 
   @tick_ms 100
   @default_duration_ms 60_000
 
-  @default_config %{
-    engage_from: 3,
-    pile_settle_ms: 1_500,
-    size_ceiling_ms: 4_000,
-    band_yellow_pct: 60,
-    band_red_pct: 30,
-    resume_pct: 80,
-    recover_timeout_ms: 20_000,
-    closing_timeout_ms: 15_000
+  # The decision knobs, by the name the engine calls them and the name Settings
+  # stores them under. Hand-copying the VALUES here is what let this bench drift
+  # into answering about a bot that does not exist: on 2026-08-25 its copy still
+  # said `recover_timeout_ms: 20_000` and `closing_timeout_ms: 15_000` while the
+  # seeds had been 30_000 and 8_000 for weeks. Only the mapping is written now;
+  # the numbers come from the one place that has them.
+  @knobs %{
+    engage_from: :engine_engage_from,
+    gather_piles: :engine_gather_piles,
+    pile_settle_ms: :engine_pile_settle_ms,
+    size_ceiling_ms: :engine_size_ceiling_ms,
+    band_yellow_pct: :engine_band_yellow_pct,
+    band_red_pct: :engine_band_red_pct,
+    resume_pct: :engine_resume_pct,
+    recover_timeout_ms: :engine_recover_timeout_ms,
+    closing_timeout_ms: :engine_closing_timeout_ms
   }
 
-  @doc "The decision knobs a run uses when the caller names none — his own defaults."
-  def default_config, do: @default_config
+  @doc """
+  The decision knobs a run uses when the caller names none: the SEEDS, not the
+  values in force.
+
+  Seeds keep a bench run reproducible — the same scenario answers the same on
+  his machine and in CI, whatever he has tuned today. To ask "what would MY bot
+  do", pass `config: Bench.config_in_force()`.
+  """
+  def default_config, do: Map.new(@knobs, fn {knob, setting} -> {knob, seed(setting)} end)
+
+  @doc "The knobs as the bot is running them right now — his overrides included."
+  def config_in_force,
+    do: Map.new(@knobs, fn {knob, setting} -> {knob, Settings.get(setting)} end)
+
+  defp seed(setting), do: Map.fetch!(Settings.defaults(), setting)
 
   @doc """
   Runs `scenario` and answers what happened.
@@ -67,7 +88,7 @@ defmodule Pokex.Sim.Bench do
   @spec run(Scenario.t(), keyword) :: map
   def run(%Scenario{} = scenario, opts \\ []) do
     duration = Keyword.get(opts, :duration_ms, @default_duration_ms)
-    config = Map.merge(@default_config, Keyword.get(opts, :config, %{}))
+    config = Map.merge(default_config(), Keyword.get(opts, :config, %{}))
     routes = Keyword.get(opts, :routes, [])
 
     world =

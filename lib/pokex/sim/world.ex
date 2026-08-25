@@ -162,7 +162,7 @@ defmodule Pokex.Sim.World do
   @spec new(Route.t(), keyword) :: t
   def new(%Route{} = route, opts \\ []) do
     seed = Keyword.get(opts, :seed, 42)
-    knobs = Map.merge(@default_knobs, Keyword.get(opts, :knobs, %{}))
+    knobs = @default_knobs |> Map.merge(Keyword.get(opts, :knobs, %{})) |> coherent_aggro()
     start = List.first(route.waypoints)
 
     {stairs, refused} = stairs_of(route)
@@ -189,6 +189,15 @@ defmodule Pokex.Sim.World do
 
     spawn_nests(world)
   end
+
+  # A creature cannot NOTICE from farther than its rope lets it come. Left free
+  # of each other, the two numbers built a monster that starts chasing 20 tiles
+  # away and gives up at 12 — one that can never touch the pokemon. Measured
+  # 2026-08-25, before this line existed: "Ele cai" ended every run at 100%
+  # health, "Vida caindo" never left green, and half of every pile was counted
+  # as vanished without a single bite being thrown.
+  defp coherent_aggro(knobs),
+    do: %{knobs | aggro_tiles: min(knobs.aggro_tiles, knobs.leash_tiles)}
 
   # What each key DOES comes from his real team.json, through the same Loadout
   # the Combat worker reads. Only the damage numbers are mine.
@@ -264,6 +273,9 @@ defmodule Pokex.Sim.World do
         hp: acc.knobs.mob_hp,
         max_hp: acc.knobs.mob_hp,
         spawn: pos,
+        # A mob that never noticed anything is not "keeping its distance" — it
+        # is asleep, and sleeping at home can never count as being dragged away.
+        woke?: false,
         walk_debt_ms: 0,
         bite_debt_ms: 0
       }
@@ -353,6 +365,9 @@ defmodule Pokex.Sim.World do
       modelled so the pattern can be compared instead of guessed at.
     * `{:hp, pct}` — puts the health where the scenario needs it, so a band can
       be reached without waiting to be bitten there.
+    * `:dead_revive` — the revive is ordered, the key leaves the hand and the
+      pokemon STAYS DOWN. Without it every fall is survivable and the fainted
+      path is never exercised at all.
   """
   @spec fail(t, term) :: t
   def fail(world, {:hp, pct}),
@@ -373,7 +388,15 @@ defmodule Pokex.Sim.World do
   runner so the bench and the live world cannot drift apart on what it does.
   """
   @spec revive(t) :: t
-  def revive(world) do
+  # The revive that does not land. In the game the key leaves the hand, the
+  # order is obeyed, and the pokemon stays down — the failure he hit on
+  # 2026-08-24. Modelled here so a scenario can watch what the hunt does when
+  # its only way out stops working, instead of assuming it always works.
+  def revive(%__MODULE__{} = world) do
+    if broken?(world, :dead_revive), do: world, else: do_revive(world)
+  end
+
+  defp do_revive(world) do
     own = %{
       world.own
       | hp_pct: 100,
@@ -765,7 +788,7 @@ defmodule Pokex.Sim.World do
         {next, taken |> MapSet.delete(mob.pos) |> MapSet.put(next.pos)}
       end)
 
-    {kept, gone} = Enum.split_with(moved, &(not leashed?(&1, world.knobs.leash_tiles)))
+    {kept, gone} = Enum.split_with(moved, &(not leashed?(&1, world)))
 
     %{world | mobs: kept, stats: bump(world.stats, :vanished, length(gone))}
   end
@@ -791,10 +814,23 @@ defmodule Pokex.Sim.World do
   defp bump(stats, _key, 0), do: stats
   defp bump(stats, key, n), do: Map.update!(stats, key, &(&1 + n))
 
-  # R2 as physics, not policy: dragged far enough from where it spawned, the mob
-  # does not stop and does not turn back — it is GONE. That is what puts a
+  # R2 as physics, not policy: drag a mob far enough from where it spawned and
+  # it does not stop and does not turn back — it is GONE. That is what puts a
   # ceiling on greed, and the engine gets to discover it instead of being told.
-  defp leashed?(mob, leash_tiles), do: distance(mob.pos, mob.spawn) > leash_tiles
+  #
+  # WHO is measured matters, and it took a day of impossible fights to see it.
+  # Measuring the MOB's own walk charged it for the trip TOWARDS the fight: it
+  # burned its rope crossing the room and evaporated three tiles short of the
+  # pokemon, every time, in every scenario. Measuring the POKEMON charges it for
+  # a body that trails two to five tiles behind — the mob gave up because of
+  # where the pet was standing. The reference is HIM: greed is his, the walking
+  # away is his, and R2 says "you dragged them too far from home".
+  #
+  # And a mob that never woke is never leashed: at the top of a run he is
+  # already outside every nest he has not reached yet.
+  defp leashed?(%{woke?: false}, _world), do: false
+
+  defp leashed?(mob, world), do: distance(world.pos, mob.spawn) > world.knobs.leash_tiles
 
   defp walk_mob(%{pos: {_x, _y, mz}} = mob, %{pos: {_px, _py, pz}}, _dt_ms, _blocked)
        when mz != pz,
@@ -810,7 +846,12 @@ defmodule Pokex.Sim.World do
       per_tile = world.knobs.mob_ms_per_tile
       tiles = div(owed, per_tile)
 
-      %{mob | pos: chase(mob.pos, target, tiles, blocked), walk_debt_ms: rem(owed, per_tile)}
+      %{
+        mob
+        | pos: chase(mob.pos, target, tiles, blocked),
+          walk_debt_ms: rem(owed, per_tile),
+          woke?: true
+      }
     end
   end
 

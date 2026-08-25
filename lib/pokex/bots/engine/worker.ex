@@ -42,6 +42,7 @@ defmodule Pokex.Bots.Engine.Worker do
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Engine.Events
+  alias Pokex.Engine.Vitals
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
@@ -62,7 +63,10 @@ defmodule Pokex.Bots.Engine.Worker do
       # the pokémon on the field: its name is how the own row is told from an
       # enemy, its keys are what "cooldowns spent" means. Read on run and
       # refreshed on the event — never per tick, the team file is a disk read.
-      loadout: nil
+      loadout: nil,
+      # the last VITALS line written, so the next one can be written on a change
+      # instead of on a clock alone
+      vitals: nil
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -160,8 +164,40 @@ defmodule Pokex.Bots.Engine.Worker do
     state
     |> narrate(picture)
     |> narrate_orders(orders)
+    |> sample_vitals(picture, orders, now)
     |> Map.merge(%{picture: picture, orders: orders, logic: logic})
     |> tap(&broadcast({:engine, &1.picture, &1.orders}))
+  end
+
+  # --- VITALS: the four numbers the simulator is still guessing at -------------
+  #
+  # A `decision` line is written when the engine CHANGES ITS MIND, which is the
+  # right cadence for reading a night and the wrong one for measuring it: five
+  # minutes of one steady fight is one line, and a rate needs samples. So the
+  # same tick also files a plain reading — health, how many are on the list, how
+  # many damage keys are ready, and whether the pokémon is on the field at all.
+  #
+  # Written on a CHANGE of the three things whose transitions carry the
+  # measurement (the pokémon leaving or returning to the field, the list
+  # growing or shrinking, the bar running dry) and otherwise once every
+  # `engine_vitals_ms`. That keeps the transition timestamps at tick resolution
+  # — 200ms — without turning a night into a hundred thousand identical lines.
+  #
+  # From this stream, `Pokex.Sim.Calibrate` answers all four:
+  #
+  #   * how fast health falls per monster on screen (`bite_dmg`/`bite_every_ms`)
+  #   * how many presses and how long one monster costs (`mob_hp` vs the damage)
+  #   * how long F4 leaves the pokemon in the ball (`revive_settle_ms`)
+  #   * and whether coming back out resets the cooldowns at all (R3b's premise)
+  defp sample_vitals(state, picture, orders, now) do
+    reading = Vitals.reading(picture, orders, damage_keys(state.loadout))
+
+    if Vitals.due?(state.vitals, reading, now, Settings.get(:engine_vitals_ms)) do
+      Events.record(:vitals, reading)
+      %{state | vitals: Map.put(reading, :at, now)}
+    else
+      state
+    end
   end
 
   # Where the hunt is. Absent (no cavebot running, or a stale fact) is a legal

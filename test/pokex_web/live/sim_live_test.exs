@@ -130,6 +130,21 @@ defmodule PokexWeb.SimLiveTest do
     assert html =~ "Comparação vale"
   end
 
+  # As quatro medições que faltavam pro placar virar absoluto. Sem noite
+  # medida, cada uma tem que DIZER que não mediu em vez de mostrar um padrão.
+  test "as quatro medições aparecem, e uma noite vazia diz que não mediu", %{conn: conn} do
+    {:ok, _live, html} = live(conn, ~p"/sim")
+
+    assert html =~ "As quatro medições do jogo"
+
+    for label <- ["a mordida", "o custo de um bicho", "o preço do F4", "F4 zera cooldown?"] do
+      assert html =~ label, "faltou a leitura de #{label}"
+    end
+
+    assert html =~ "a noite não mediu"
+    assert html =~ "faça sair o pokémon de", "a página tem que dizer COMO medir a quarta"
+  end
+
   test "opening the calibration table renders every field it offers", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/sim")
     live |> element("button", "Armar simulação") |> render_click()

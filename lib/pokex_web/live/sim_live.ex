@@ -68,6 +68,7 @@ defmodule PokexWeb.SimLive do
        bench: nil,
        bench_all: nil,
        score: nil,
+       measured_note: nil,
        setup: saved,
        kill_combo: Map.get(saved, :kill_combo, []),
        setup_open?: false,
@@ -143,6 +144,20 @@ defmodule PokexWeb.SimLive do
     Setup.write(knobs)
 
     socket |> assign(setup: knobs, bench: nil) |> reload_world()
+  end
+
+  # MEDIR → USAR, em um clique. Sem isto, `Calibrate.knobs/1` era um número
+  # bonito numa tela que ninguém podia gastar: ele lia "a mordida tira 2%/s por
+  # bicho" e continuava simulando com o meu chute. Só o que a noite REALMENTE
+  # mediu entra; o resto do painel fica como está.
+  def handle_event("use-measured", _params, socket) do
+    measured = Calibrate.knobs(socket.assigns.calib.date)
+    knobs = Map.merge(socket.assigns.setup, measured)
+    Setup.write(knobs)
+
+    socket
+    |> assign(setup: knobs, bench: nil, bench_all: nil, score: nil, measured_note: measured)
+    |> reload_world()
   end
 
   def handle_event("reset-setup", _params, socket) do
@@ -339,6 +354,11 @@ defmodule PokexWeb.SimLive do
      ]},
     {"A tela do jogo — o que a engine pode saber",
      [{:screen_w, "largura"}, {:screen_h, "altura"}]},
+    {"O preço do F4 — o que decide se vale apertar por cooldown",
+     [
+       {:revive_settle_ms, "fica na bola (ms)"},
+       {:revive_cooldown_ms, "piso entre dois (ms)"}
+     ]},
     {"O mundo", [{:stray_chance_pct, "perdido por esquina %"}]}
   ]
 
@@ -703,6 +723,65 @@ defmodule PokexWeb.SimLive do
   defp measured_text(%{n: n, median: median, min: min, max: max}) do
     "mediana #{round(median)} · de #{round(min)} a #{round(max)} · #{n} amostras"
   end
+
+  # Uma leitura por medição, com o n do lado: número sem amostra é boato, e uma
+  # noite que não mediu diz que não mediu em vez de mostrar um padrão.
+  defp measurements(calib) do
+    [
+      %{
+        label: "a mordida",
+        value: bite_value(calib.bite),
+        tone: measured_tone(calib.bite),
+        note: "quanto a vida cai por segundo, por bicho na tela"
+      },
+      %{
+        label: "o custo de um bicho",
+        value: kill_value(calib.kill),
+        tone: measured_tone(calib.kill),
+        note: "teclas e segundos por monstro morto em luta aberta"
+      },
+      %{
+        label: "o preço do F4",
+        value: settle_value(calib.revive_settle),
+        tone: measured_tone(calib.revive_settle),
+        note: "quanto tempo o pokémon fica na bola"
+      },
+      %{
+        label: "F4 zera cooldown?",
+        value: reset_value(calib.revive_reset),
+        tone: reset_tone(calib.revive_reset),
+        note: "a premissa da R3b — e um fato do jogo, não do código"
+      }
+    ]
+  end
+
+  defp measured_tone(nil), do: "text-pk-text-3"
+  defp measured_tone(_measured), do: "text-pk-text"
+
+  defp bite_value(nil), do: "a noite não mediu"
+
+  defp bite_value(bite),
+    do: "#{Float.round(bite.median, 2)}%/s por bicho · #{bite.n} janelas"
+
+  defp kill_value(nil), do: "a noite não mediu"
+
+  defp kill_value(kill),
+    do: "#{kill.presses_per_kill} teclas · #{ms_text(kill.ms_per_kill)} · #{kill.n} mortes"
+
+  defp settle_value(nil), do: "a noite não mediu"
+  defp settle_value(settle), do: "#{round(settle.median)}ms · #{settle.n} revives"
+
+  defp reset_value(nil), do: "a noite não mediu"
+  defp reset_value(%{resets: r, kept: 0, n: n}) when r > 0, do: "SIM, zerou · #{n} revives"
+  defp reset_value(%{resets: 0, kept: k}), do: "NÃO zerou · #{k} revives"
+
+  defp reset_value(%{resets: r, kept: k}),
+    do: "misturado: #{r} zeraram, #{k} não"
+
+  defp reset_tone(nil), do: "text-pk-text-3"
+  defp reset_tone(%{resets: r, kept: 0}) when r > 0, do: "text-pk-ok"
+  defp reset_tone(%{resets: 0}), do: "text-pk-danger"
+  defp reset_tone(_mixed), do: "text-pk-warn"
 
   defp revive_text(nil), do: "não"
   defp revive_text(at), do: "#{at}ms"
@@ -1240,6 +1319,58 @@ defmodule PokexWeb.SimLive do
             </dl>
           </div>
         </div>
+
+        <%!-- AS QUATRO. O placar comparava dois cérebros com exatidão e não
+              sabia dizer um número absoluto, porque o dano por baixo dele era
+              chutado. Estas quatro leituras saem da mesma noite que ele caça,
+              e o botão as gasta. --%>
+        <section
+          id="quatro-medicoes"
+          class="space-y-2 rounded-lg border border-pk-line bg-pk-surface p-3"
+        >
+          <header class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h2 class="text-pk-title font-bold text-pk-text">As quatro medições do jogo</h2>
+            <p class="pk-num font-mono text-pk-meta text-pk-text-3">
+              {@calib.vitals} leituras hoje
+            </p>
+          </header>
+
+          <dl class="grid grid-cols-1 gap-px overflow-hidden rounded border border-pk-line bg-pk-line sm:grid-cols-2">
+            <div :for={m <- measurements(@calib)} class="bg-pk-sunken px-3 py-2">
+              <dt class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+                {m.label}
+              </dt>
+              <dd class={["pk-num mt-0.5 font-mono text-pk-body font-bold", m.tone]}>{m.value}</dd>
+              <dd class="text-pk-meta text-pk-text-2">{m.note}</dd>
+            </div>
+          </dl>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              phx-click="use-measured"
+              disabled={Calibrate.knobs(@calib.date) == %{}}
+              class="rounded-lg border border-pk-ok-line bg-pk-ok-dim px-2.5 py-1 text-pk-meta font-bold text-pk-ok hover:bg-pk-ok/20 disabled:cursor-not-allowed disabled:border-pk-line-strong disabled:bg-transparent disabled:text-pk-text-3"
+            >
+              Usar o que a noite mediu
+            </button>
+            <p :if={@measured_note} class="pk-num font-mono text-pk-meta text-pk-ok">
+              {map_size(@measured_note)} botão(ões) trocado(s): {@measured_note
+              |> Map.keys()
+              |> Enum.join(", ")}
+            </p>
+            <p :if={is_nil(@measured_note)} class="text-pk-meta text-pk-text-2">
+              troca só o que a noite mediu — o resto do painel fica como está
+            </p>
+          </div>
+
+          <p class="border-t border-pk-line pt-2 text-pk-meta leading-relaxed text-pk-text-2">
+            <b class="text-pk-text">Como medir:</b>
+            cace com o cavebot rodando — os três primeiros saem sozinhos. Pro quarto, com a <b class="text-pk-text">barra gasta e bicho na tela</b>, faça sair o pokémon de
+            campo e volte: o bot lê o antes e o depois e diz se as skills voltaram prontas.
+            Vale qualquer caminho — trocar de pokémon (<code class="font-mono">Q</code>
+            ou <code class="font-mono">Ctrl+1..6</code>) ou o revive do <code class="font-mono">F4</code>. Ele mede o que aconteceu, não o que foi apertado.
+          </p>
+        </section>
 
         <div :if={@bench} class="rounded-xl border border-violet-900/60 bg-violet-950/20 p-3">
           <h2 class="mb-2 text-sm font-semibold text-violet-100">

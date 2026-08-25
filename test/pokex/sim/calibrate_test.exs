@@ -36,6 +36,198 @@ defmodule Pokex.Sim.CalibrateTest do
     end
   end
 
+  # A vitals reading, the way the engine files one.
+  defp vital(at, fields) do
+    Map.merge(
+      %{
+        kind: "vitals",
+        at: at,
+        enemies: 0,
+        hp: 100,
+        out: true,
+        spent: false,
+        ready: 4,
+        keys: 4,
+        phase: "travelling",
+        revive: "hold"
+      },
+      fields
+    )
+  end
+
+  describe "a mordida: quanto a vida cai por bicho na tela" do
+    @tag :tmp_dir
+    test "mede a queda por segundo por inimigo, e só as quedas", %{tmp_dir: tmp} do
+      # 20 leituras de 1s, dois bichos batendo, 4% por segundo (2% por bicho)
+      caindo =
+        for i <- 0..20,
+            do: vital(1_000 + i * 1_000, %{enemies: 2, hp: 100 - i * 4, phase: "engaged"})
+
+      write_events(tmp, caindo)
+
+      bite = Calibrate.report(@date).bite
+
+      assert bite.n == 20
+      assert_in_delta bite.median, 2.0, 0.01
+    end
+
+    @tag :tmp_dir
+    test "uma poção subindo a vida não vira mordida negativa", %{tmp_dir: tmp} do
+      subindo =
+        for i <- 0..20, do: vital(1_000 + i * 1_000, %{enemies: 2, hp: 40 + i, phase: "engaged"})
+
+      write_events(tmp, subindo)
+
+      assert Calibrate.report(@date).bite == nil
+    end
+
+    @tag :tmp_dir
+    test "e a vida com o pokémon fora de campo não é vida de ninguém", %{tmp_dir: tmp} do
+      na_bola =
+        for i <- 0..20,
+            do: vital(1_000 + i * 1_000, %{enemies: 2, hp: 100 - i * 4, out: false})
+
+      write_events(tmp, na_bola)
+
+      assert Calibrate.report(@date).bite == nil
+    end
+  end
+
+  describe "o custo de um bicho: teclas e segundos" do
+    @tag :tmp_dir
+    test "conta a lista encolhendo em luta, e as teclas gastas na janela", %{tmp_dir: tmp} do
+      # quatro bichos, um morrendo por segundo, dois toques por segundo
+      lutando =
+        for i <- 0..4,
+            do: vital(1_000 + i * 1_000, %{enemies: 4 - i, phase: "engaged", spent: true})
+
+      teclas =
+        for i <- 0..3, do: %{kind: "press", at: 1_500 + i * 1_000, keys: ["3", "4"], n: 2}
+
+      write_events(tmp, lutando ++ teclas)
+
+      kill = Calibrate.report(@date).kill
+
+      assert kill.n == 4
+      assert kill.presses == 8
+      assert kill.presses_per_kill == 2.0
+      assert kill.ms_per_kill == 1_000
+    end
+
+    # Andar embora encolhe a lista do mesmo jeito, e é bicho perdido, não morto.
+    @tag :tmp_dir
+    test "a lista encolhendo enquanto ele ANDA não conta como morte", %{tmp_dir: tmp} do
+      andando =
+        for i <- 0..4,
+            do: vital(1_000 + i * 1_000, %{enemies: 4 - i, phase: "travelling"})
+
+      write_events(tmp, andando)
+
+      assert Calibrate.report(@date).kill == nil
+    end
+  end
+
+  describe "o preço do F4" do
+    @tag :tmp_dir
+    test "mede da barra sumir até a barra voltar", %{tmp_dir: tmp} do
+      write_events(tmp, [
+        vital(1_000, %{ready: 0, spent: true, enemies: 3, phase: "engaged"}),
+        vital(1_200, %{out: false, ready: nil, revive: "now", enemies: 3}),
+        vital(2_600, %{ready: 4, enemies: 3, phase: "engaged"})
+      ])
+
+      settle = Calibrate.report(@date).revive_settle
+
+      assert settle.n == 1
+      assert settle.median == 1_400
+    end
+
+    # Um revive que não sai não é um settle lento: é outra falha, com nome.
+    @tag :tmp_dir
+    test "uma queda que nunca volta não entra na média", %{tmp_dir: tmp} do
+      write_events(tmp, [
+        vital(1_000, %{ready: 0, spent: true}),
+        vital(1_200, %{out: false, ready: nil, revive: "now"}),
+        vital(60_000, %{ready: 4})
+      ])
+
+      assert Calibrate.report(@date).revive_settle == nil
+    end
+  end
+
+  describe "a premissa da R3b: voltar zera cooldown?" do
+    @tag :tmp_dir
+    test "barra vazia antes e cheia depois é um reset", %{tmp_dir: tmp} do
+      write_events(tmp, [
+        vital(1_000, %{ready: 0, spent: true, enemies: 3, phase: "engaged"}),
+        vital(1_200, %{out: false, ready: nil, revive: "now", enemies: 3}),
+        vital(2_600, %{ready: 4, enemies: 3, phase: "engaged"})
+      ])
+
+      assert %{n: 1, resets: 1, kept: 0} = Calibrate.report(@date).revive_reset
+    end
+
+    @tag :tmp_dir
+    test "barra vazia antes e vazia depois NÃO é", %{tmp_dir: tmp} do
+      write_events(tmp, [
+        vital(1_000, %{ready: 0, spent: true, enemies: 3, phase: "engaged"}),
+        vital(1_200, %{out: false, ready: nil, revive: "now", enemies: 3}),
+        vital(2_600, %{ready: 1, enemies: 3, phase: "engaged"})
+      ])
+
+      assert %{n: 1, resets: 0, kept: 1} = Calibrate.report(@date).revive_reset
+    end
+
+    # Uma barra que já estava cheia não prova nada sobre reset nenhum.
+    @tag :tmp_dir
+    test "uma barra cheia antes do revive não vira prova", %{tmp_dir: tmp} do
+      write_events(tmp, [
+        vital(1_000, %{ready: 4}),
+        vital(1_200, %{out: false, ready: nil, revive: "now"}),
+        vital(2_600, %{ready: 4})
+      ])
+
+      assert Calibrate.report(@date).revive_reset == nil
+    end
+  end
+
+  describe "as medições viram botões do simulador" do
+    @tag :tmp_dir
+    test "a mordida vira bite_dmg com cadência fixa, e as teclas viram dano", %{tmp_dir: tmp} do
+      caindo =
+        for i <- 0..20,
+            do: vital(1_000 + i * 1_000, %{enemies: 2, hp: 100 - i * 4, phase: "engaged"})
+
+      lutando =
+        for i <- 0..4,
+            do: vital(100_000 + i * 1_000, %{enemies: 4 - i, phase: "engaged"})
+
+      teclas =
+        for i <- 0..3, do: %{kind: "press", at: 100_500 + i * 1_000, keys: ["3"], n: 4}
+
+      write_events(tmp, caindo ++ lutando ++ teclas)
+
+      knobs = Calibrate.knobs(@date)
+
+      assert knobs.bite_dmg == 2
+      assert knobs.bite_every_ms == 1_000
+      # 16 teclas / 4 mortes = 4 por morte ⇒ 25% de vida por tecla
+      assert knobs.single_damage_pct == 25
+      assert knobs.aoe_damage_pct == 25
+    end
+
+    @tag :tmp_dir
+    test "uma noite que não mediu nada não devolve botão nenhum", %{tmp_dir: tmp} do
+      write_events(tmp, [vital(1_000, %{})])
+
+      knobs = Calibrate.knobs(@date)
+
+      refute Map.has_key?(knobs, :bite_dmg)
+      refute Map.has_key?(knobs, :single_damage_pct)
+      refute Map.has_key?(knobs, :revive_settle_ms)
+    end
+  end
+
   @tag :tmp_dir
   test "measures milliseconds per tile from consecutive walk lines", %{tmp_dir: tmp} do
     write_journal(tmp, walk_lines(40))

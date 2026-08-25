@@ -1702,10 +1702,11 @@ defmodule PokexWeb.CavebotLive do
   # nobody has watched yet, and the strip is the only place that says so.
   defp reset_revive_notice(true),
     do:
-      "F4 passa a zerar cooldown no meio da luta — confira no jogo se recolher um pokémon " <>
-        "SAUDÁVEL zera mesmo os cooldowns dele"
+      "o revive passa a sair no meio da luta pra zerar cooldown — meça antes em /sim se " <>
+        "tirar o pokémon de campo e trazer de volta zera mesmo as skills dele"
 
-  defp reset_revive_notice(false), do: "F4 volta a ser só resgate (vermelho e fim de rodada)"
+  defp reset_revive_notice(false),
+    do: "o revive volta a ser só resgate (vermelho e fim de rodada)"
 
   defp gather_notice(true), do: "juntando pilha antes de bater"
 

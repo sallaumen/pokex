@@ -911,12 +911,43 @@ defmodule Pokex.Sim.World do
     if MapSet.member?(blocked, spot), do: nearest_free(world.pos, blocked), else: spot
   end
 
+  # O PERSONAGEM TAMBÉM É UM CORPO, e até 26/08 não era: ele atravessava a pilha
+  # inteira. Isso fazia a fuga da R7 sempre funcionar no banco — e no jogo dele
+  # a caçada tropeçou em `:stuck` no meio de uma fuga, cercada, quinze segundos
+  # depois de começar. Uma regra medida num mundo onde escapar é sempre possível
+  # é uma regra medida em outro jogo.
+  #
+  # E ele DESLIZA, como o cavebot: bater de frente e parar transformaria
+  # qualquer bicho parado no caminho numa rota travada, que é o oposto do que o
+  # jogo faz (`Cavebot.Logic.unstick/3` já escorrega pelo mesmo motivo).
   defp advance(world, tiles) do
     heading = heading(world.held)
 
     Enum.reduce(1..tiles//1, world.pos, fn _tile, pos ->
-      one_tile(pos, heading, world.stairs)
+      step(pos, heading, world, occupied_by_creatures(world))
     end)
+  end
+
+  defp step(pos, heading, world, blocked) do
+    heading
+    |> slides()
+    |> Enum.map(&one_tile(pos, &1, world.stairs))
+    |> Enum.find(pos, &(&1 not in blocked))
+  end
+
+  # A reta primeiro; depois cada eixo sozinho, que é o escorregão do cavebot.
+  defp slides({0, 0}), do: []
+  defp slides({dx, 0}), do: [{dx, 0}]
+  defp slides({0, dy}), do: [{0, dy}]
+  defp slides({dx, dy}), do: [{dx, dy}, {dx, 0}, {0, dy}]
+
+  # A EXCLUSÃO é das criaturas: o pokémon dele e os monstros. `occupied/1`
+  # inclui a própria posição do personagem, que aqui seria bloquear a si mesmo.
+  defp occupied_by_creatures(world) do
+    world.mobs
+    |> Enum.map(& &1.pos)
+    |> then(&if(world.own.out?, do: [world.own.pos | &1], else: &1))
+    |> MapSet.new()
   end
 
   defp heading(held) do

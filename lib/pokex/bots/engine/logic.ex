@@ -154,8 +154,11 @@ defmodule Pokex.Bots.Engine.Logic do
             # (`within?/3`) or as a floor (`elapsed?/3`) — never both
             since: %{},
             # R3b desarmada porque um reset foi COBRADO e não veio: ver
-            # `reset_delivered?/1`
-            reset_broken?: false
+            # `judge_reset/2`
+            reset_broken?: false,
+            # quantos tiles já tinham sido andados quando a fuga da R7 começou —
+            # é como se sabe se ela está andando de verdade
+            kite_from: nil
 
   @type t :: %__MODULE__{}
   @type orders :: Orders.t()
@@ -579,7 +582,7 @@ defmodule Pokex.Bots.Engine.Logic do
          )}
 
       kiting?(t) ->
-        {t.logic,
+        {arm_kite(t),
          Orders.walking_and_firing(
            :engaged,
            t.band,
@@ -596,7 +599,29 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
-  defp kiting?(t), do: t.config.kite_when_spent and t.s.spent? == true and some?(t.s)
+  # UMA FUGA QUE NÃO ANDA NÃO É FUGA. Cercado, o pé não sai do lugar: a caçada
+  # nem escapa nem luta, e no jogo dele ela ainda tropeçou em `:stuck` no meio
+  # disso, quinze segundos depois de começar (26/08). O banco não via porque o
+  # personagem atravessava a pilha — atravessa não mais.
+  #
+  # Então a fuga se prova: passada a janela, se `walked_total` não andou um
+  # tile, ela é abandonada e a luta volta a ser parada. `walked_total` é
+  # monotônico, então "andou" é uma subtração — nada de histórico de posição.
+  defp kiting?(t) do
+    t.config.kite_when_spent and t.s.spent? == true and some?(t.s) and escaping?(t)
+  end
+
+  # Ainda dentro da janela, a fuga tem o benefício da dúvida; passada ela, só
+  # segue quem realmente andou.
+  defp escaping?(%{logic: %{kite_from: nil}}), do: true
+
+  defp escaping?(t) do
+    within?(t, :kiting, kite_confirm_ms(t)) or Map.get(t.s, :walked_total, 0) > t.logic.kite_from
+  end
+
+  # Generosa em relação ao tique (200ms) e ao passo (~320ms/tile): cobrar cedo
+  # demais chamaria de parada uma fuga que só não tinha completado um tile.
+  defp kite_confirm_ms(t), do: max(t.config.revive_confirm_ms, 1_500)
 
   # UMA REGRA TENTADA E REFUTADA, escrita pra não voltar: "não se abre uma pilha
   # com a barra vazia — espera os cooldowns andando, que o tempo passa de graça
@@ -748,6 +773,15 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp close_reset(logic), do: %{logic | since: Map.delete(logic.since, :reset_pending)}
 
+  defp arm_kite(%{logic: %{kite_from: from} = logic}) when is_integer(from), do: logic
+
+  defp arm_kite(t),
+    do: %{mark(t.logic, :kiting, t.now) | kite_from: Map.get(t.s, :walked_total, 0)}
+
+  # A fuga pertence a UMA luta: sair de `:engaged` a esquece, senão a próxima
+  # herdaria o veredito da anterior.
+  defp forget_kite(logic), do: %{logic | kite_from: nil, since: Map.delete(logic.since, :kiting)}
+
   # O corpo volta em `revive_settle_ms`, que é do MUNDO e não deste módulo — a
   # janela aqui é generosa de propósito: cobrar cedo demais desarmaria a regra
   # por causa de um tique, e desarmar é definitivo.
@@ -837,5 +871,5 @@ defmodule Pokex.Bots.Engine.Logic do
   defp reset_fight(%{state: state} = logic, state), do: logic
 
   defp reset_fight(logic, state),
-    do: %{logic | state: state, since: Map.drop(logic.since, [:sizing, :closing])}
+    do: %{forget_kite(logic) | state: state, since: Map.drop(logic.since, [:sizing, :closing])}
 end

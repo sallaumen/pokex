@@ -29,8 +29,9 @@ defmodule Pokex.Bots.Engine.LogicTest do
         spent?: false,
         blind?: false,
         # a segunda metade da régua (R6): quantos passos já foram andados
-        # puxando ESTA pilha
-        walked: 0
+        # puxando ESTA pilha, e o contador monotônico do qual ela sai
+        walked: 0,
+        walked_total: 0
       },
       overrides
     )
@@ -563,6 +564,62 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # inteira do bench: a barra some, `own_hp` vira nil, nil não é banda nenhuma,
   # e a caçada volta a abrir pilhas com o campo vazio. O fato já estava na
   # foto — `own_out?` — e ninguém lia.
+  # UMA FUGA QUE NÃO ANDA NÃO É FUGA. Cercado, o pé não sai do lugar: a caçada
+  # nem escapa nem luta — e no jogo dele ela ainda tropeçou em `:stuck` no meio
+  # de uma, quinze segundos depois de começar (26/08).
+  describe "a fuga da barra vazia" do
+    defp sem_cooldown(walked_total) do
+      world(%{
+        situation: situation(%{enemies: 3, spent?: true, walked_total: walked_total}),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    defp lutando_gasto(now) do
+      {logic, _} = step(sem_cooldown(0), 0)
+      {logic, orders} = step(logic, sem_cooldown(0), now)
+      {logic, orders}
+    end
+
+    test "com a barra vazia ela anda" do
+      {_logic, orders} = lutando_gasto(200)
+
+      assert orders.phase == :engaged
+      assert orders.route == :go
+      assert orders.why =~ "andando até a barra voltar"
+    end
+
+    test "mas se não sair do lugar, ela desiste e volta a lutar parada" do
+      {logic, _} = lutando_gasto(200)
+
+      {_logic, orders} = step(logic, sem_cooldown(0), 5_000)
+
+      assert orders.route == :hold, "andar contra uma parede não é fugir"
+      assert orders.why =~ "matando o que já abriu"
+    end
+
+    test "e se sair, ela continua" do
+      {logic, _} = lutando_gasto(200)
+
+      {_logic, orders} = step(logic, sem_cooldown(4), 5_000)
+
+      assert orders.route == :go
+    end
+
+    # A fuga pertence a UMA luta: a próxima não pode herdar o veredito da
+    # anterior.
+    test "e a próxima luta começa com a dúvida a favor dela de novo" do
+      {logic, _} = lutando_gasto(200)
+      {logic, _} = step(logic, sem_cooldown(0), 5_000)
+
+      {logic, _} = step(logic, world(%{hunt: hunt(%{state: :walking})}), 6_000)
+      {logic, _} = step(logic, sem_cooldown(0), 7_000)
+      {_logic, orders} = step(logic, sem_cooldown(0), 7_200)
+
+      assert orders.route == :go
+    end
+  end
+
   describe "sem pokémon em campo" do
     defp caido(overrides \\ %{}) do
       world(%{

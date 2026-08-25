@@ -1141,10 +1141,17 @@ defmodule Pokex.Settings do
     # é uma troca em que só um lado bate. Andando, eles seguem sem morder, e o
     # fogo segue livre — a primeira tecla que volta sai na hora.
     #
-    # LIGADO porque foi medido nos dois circuitos, 5 min × 12 sementes, e ganha
-    # nos dois eixos ao mesmo tempo: no formigueiro 15,82 → 18,58 mortos/min com
-    # as quedas caindo de 1,17 pra 0,62; na caçada esparsa 7,58 → 8,92 mortos/min
-    # com ZERO quedas, e o personagem terminando com 82% em vez de 52%.
+    # LIGADO, mas o veredito MUDOU DE NATUREZA quando o personagem ganhou corpo
+    # no mundo simulado (26/08): até então ele atravessava a pilha, e fugir era
+    # sempre possível. Com colisão, no formigueiro, 5 min × 12 sementes:
+    #
+    #   parado    23,92 mortos/min · 0,45 quedas/min · ele termina MORTO
+    #   andando   24,27 mortos/min · 0,05 quedas/min · ele termina com 22%
+    #
+    # Ou seja: o ganho em DANO era artefato de uma fuga sem atrito (era +17%, é
+    # +2%). O que sobra é o que importa — SEIS VEZES menos quedas — e o preço
+    # aparece: três vezes mais monstros perdidos pra corda. É uma regra de
+    # sobrevivência, não de dano.
     engine_kite_when_spent: true,
     # How often a plain VITALS reading is filed while nothing is changing. The
     # transitions that carry the four measurements are written the instant they

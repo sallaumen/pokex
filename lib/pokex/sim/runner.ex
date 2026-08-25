@@ -40,6 +40,8 @@ defmodule Pokex.Sim.Runner do
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
+  alias Pokex.Sim.Hands
+  alias Pokex.Sim.Knobs
   alias Pokex.Sim.Loadout
   alias Pokex.Sim.Scenario
   alias Pokex.Sim.World
@@ -71,7 +73,7 @@ defmodule Pokex.Sim.Runner do
       knobs: Keyword.get(opts, :knobs, %{}),
       scenario: nil,
       auto?: false,
-      leg: 0,
+      hands: Hands.new(),
       loadout: Keyword.get(opts, :loadout)
     }
 
@@ -228,12 +230,28 @@ defmodule Pokex.Sim.Runner do
     world =
       World.new(route,
         seed: Keyword.get(opts, :seed, state.seed),
-        knobs: Keyword.get(opts, :knobs, state.knobs),
+        knobs: Map.merge(inherited_knobs(), Keyword.get(opts, :knobs, state.knobs)),
         loadout: Keyword.get(opts, :loadout) || state.loadout || Loadout.current()
       )
 
-    %{state | world: world, published: %{}, last_at: state.clock.(), route: route, leg: 0}
+    %{
+      state
+      | world: world,
+        published: %{},
+        last_at: state.clock.(),
+        route: route,
+        hands: Hands.new()
+    }
   end
+
+  # THE NUMBERS THIS WORLD DOES NOT OWN, and did not read until 2026-08-25: the
+  # two floors between two revives, and the respawn. The live tab was running on
+  # `World`'s own literals — a sixty-second revive floor and a map that never
+  # repopulated — so his very first run showed a health bar falling all the way
+  # down with no press behind it and a hunt walking an empty ring afterwards.
+  #
+  # `:live`, not `:seeds`: this tab exists to show what HIS settings do.
+  defp inherited_knobs, do: Map.put(Knobs.world(:live), :respawn_ms, Knobs.respawn_ms(:live))
 
   defp advance(%{world: nil} = state), do: state
   defp advance(%{playing?: false} = state), do: state
@@ -260,54 +278,13 @@ defmodule Pokex.Sim.Runner do
   defp obey(state, now) do
     case WorldState.get(:orders, 2_000, now) do
       {:ok, orders} ->
-        world = state.world |> walk_to_leg(orders, state.leg) |> fire(orders) |> revive(orders)
-        %{state | world: world, leg: next_leg(world, state.leg)}
+        {world, hands} = Hands.obey(state.world, orders, state.hands, Knobs.support(:live))
+        %{state | world: world, hands: hands}
 
       _stale_or_missing ->
         state
     end
   end
-
-  defp walk_to_leg(world, %{route: :hold}, _leg), do: release(world)
-
-  defp walk_to_leg(world, _going, leg) do
-    target = Enum.at(world.route.waypoints, leg)
-    {x, y, _z} = world.pos
-
-    wanted =
-      Enum.reject(
-        [axis(target.x - x, "right", "left"), axis(target.y - y, "down", "up")],
-        &is_nil/1
-      )
-
-    Enum.reduce(wanted, release(world), &World.press(&2, {:key_down, &1}))
-  end
-
-  defp release(world), do: Enum.reduce(world.held, world, &World.press(&2, {:key_up, &1}))
-
-  defp axis(0, _positive, _negative), do: nil
-  defp axis(delta, positive, _negative) when delta > 0, do: positive
-  defp axis(_delta, _positive, negative), do: negative
-
-  defp next_leg(world, leg) do
-    target = Enum.at(world.route.waypoints, leg)
-    {x, y, _z} = world.pos
-
-    if max(abs(target.x - x), abs(target.y - y)) <= 1,
-      do: rem(leg + 1, length(world.route.waypoints)),
-      else: leg
-  end
-
-  defp fire(world, %{fire: :free, opening: keys}) when keys != [],
-    do: Enum.reduce(keys, world, &World.press(&2, {:press, &1}))
-
-  defp fire(world, _holding), do: world
-
-  # The revive is R3 in one key: it heals AND zeroes every cooldown. Modelling
-  # only the healing would make the engine look wrong about when to spend it.
-  defp revive(world, %{revive: :now}), do: World.revive(world)
-
-  defp revive(world, _holding), do: world
 
   # Fired against the world's clock so a scenario is reproducible: a script on
   # the machine's clock would drift with the load, and "it did not revive" would

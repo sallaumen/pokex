@@ -1094,6 +1094,12 @@ defmodule Pokex.Settings do
     # ceiling spent 47.5% of a bench hunt standing in front of a bar that
     # standing still does not raise.
     engine_revive_confirm_ms: 3_000,
+    # Quanto tempo um ninho limpo leva pra voltar, no mundo simulado. Um mapa
+    # que esvazia uma vez e fica vazio é uma luta só vestida de noite — foi o
+    # que a aba do simulador mostrou até 25/08. Chute dele pra começar ("a cada
+    # 20 segundos, por exemplo"), e um dos números mais dignos de medir na
+    # caçada de verdade.
+    sim_respawn_ms: 20_000,
     # R1 diz pra IGNORAR um ou dois e seguir a vida, e é isso que o padrão faz.
     # A chave existe porque o bench achou o contrário digno de medida: a fase que
     # anda BATENDO mata mais por minuto do que a que anda de mãos baixas, e quem
@@ -1331,6 +1337,7 @@ defmodule Pokex.Settings do
     engine_recover_timeout_ms: 1_000..600_000,
     engine_closing_timeout_ms: 100..600_000,
     engine_revive_confirm_ms: 500..600_000,
+    sim_respawn_ms: 1_000..600_000,
     engine_hunt_max_age_ms: 200..60_000,
     engine_orders_max_age_ms: 200..60_000,
     posture_max_age_ms: 500..60_000,

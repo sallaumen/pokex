@@ -39,40 +39,16 @@ defmodule Pokex.Sim.Bench do
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
-  alias Pokex.Bots.PlayerSupport.Logic, as: Support
-  alias Pokex.Settings
+  alias Pokex.Sim.Hands
+  alias Pokex.Sim.Knobs
   alias Pokex.Sim.Scenario
   alias Pokex.Sim.World
 
   @tick_ms 100
   @default_duration_ms 60_000
 
-  # The world knobs whose authority is `Settings`: the two floors between two
-  # revives belong to `PlayerSupport`, and a bench that keeps its own copy of
-  # them answers about a bot that cannot exist. Same lesson as the decision
-  # knobs — which is why those now live in `Engine.Config` and not here — and it
-  # cost the same way: 2s here against 60s in the seeds made a run report 174
-  # revives in 25 minutes without anybody noticing the hunt could never afford
-  # them.
-  @world_knobs %{
-    revive_cooldown_ms: :rescue_cooldown_ms,
-    fainted_revive_cooldown_ms: :fainted_revive_cooldown_ms
-  }
-
-  # …and the SUPPORT's ladder, which the loop obeys too. Not the engine's
-  # decision, but what keeps a pokémon alive between two revives: a bench that
-  # models only the last rung answers about a hunt with no first aid at all.
-  @support_knobs %{
-    heal_skill_enabled: :heal_skill_enabled,
-    heal_pct: :pokemon_hp_heal_pct,
-    heal_skill_cooldown_ms: :heal_skill_cooldown_ms,
-    potion_enabled: :potion_enabled,
-    potion_pct: :pokemon_hp_potion_pct,
-    potion_cooldown_ms: :potion_cooldown_ms
-  }
-
   @doc "The world knobs whose authority is `Settings`, at their seeded values."
-  def world_knobs, do: Map.new(@world_knobs, fn {knob, setting} -> {knob, seed(setting)} end)
+  def world_knobs, do: Knobs.world(:seeds)
 
   # THE RIVAL BRAIN: the one question about this hunt that is still open, run
   # side by side with what he has in force. It is R3b — his own idea, "usar o
@@ -103,18 +79,10 @@ defmodule Pokex.Sim.Bench do
   his machine and in CI, whatever he has tuned today. To ask "what would MY bot
   do", pass `config: Bench.config_in_force()`.
   """
-  def default_config, do: Map.merge(Config.defaults(), support_seeds())
+  def default_config, do: Map.merge(Config.defaults(), Knobs.support(:seeds))
 
   @doc "The knobs as the bot is running them right now — his overrides included."
-  def config_in_force do
-    support = Map.new(@support_knobs, fn {knob, setting} -> {knob, Settings.get(setting)} end)
-    Map.merge(Config.in_force(), support)
-  end
-
-  defp support_seeds,
-    do: Map.new(@support_knobs, fn {knob, setting} -> {knob, seed(setting)} end)
-
-  defp seed(setting), do: Map.fetch!(Settings.defaults(), setting)
+  def config_in_force, do: Map.merge(Config.in_force(), Knobs.support(:live))
 
   @doc """
   Runs `scenario` and answers what happened.
@@ -145,11 +113,9 @@ defmodule Pokex.Sim.Bench do
       scenario: scenario,
       config: config,
       timeline: [],
-      leg: 0,
+      hands: Hands.new(),
       revived_at: nil,
       died_at: nil,
-      last_heal_at: nil,
-      last_potion_at: nil,
       metrics: blank_metrics()
     }
 
@@ -190,15 +156,14 @@ defmodule Pokex.Sim.Bench do
     {logic, orders} =
       Logic.step(
         state.logic,
-        decision_world(before, picture, state.leg),
+        decision_world(before, picture, state.hands.leg),
         state.config,
         before.clock
       )
 
-    acted = %{state | world: obey(before, orders, state.leg)} |> support(picture)
-    world = acted.world
+    {world, hands} = Hands.obey(before, orders, state.hands, state.config)
 
-    %{acted | logic: logic, picture: picture, leg: advance_leg(world, state.leg)}
+    %{state | world: world, hands: hands, logic: logic, picture: picture}
     |> measure(previous, before, world, orders, picture)
     |> record(orders, picture)
     |> mark(orders, world)
@@ -427,133 +392,6 @@ defmodule Pokex.Sim.Bench do
   end
 
   defp damage_keys(world), do: opening(world)
-
-  # The three orders the fleet obeys, obeyed here by one function. That closure
-  # is the difference between a shadow engine and a bench: the fire spends the
-  # cooldowns, the kills empty the pile, and the revive does BOTH of its jobs
-  # (R3) — so the next decision sees what the last one caused.
-  defp obey(world, orders, leg) do
-    world
-    |> walk(orders, leg)
-    |> fire(orders)
-    |> revive(orders)
-  end
-
-  # `route: :go` walks toward the current waypoint; `:hold` lets go of the keys.
-  # It goes through the same `key_down`/`key_up` the cavebot uses, so the bench
-  # walks at the same pace and by the same rules — stairs included — as the live
-  # simulator does.
-  defp walk(world, %{route: :hold}, _leg), do: release(world)
-
-  defp walk(world, _going, leg) do
-    target = Enum.at(world.route.waypoints, leg)
-    {x, y, _z} = world.pos
-
-    wanted =
-      Enum.reject(
-        [axis(target.x - x, "right", "left"), axis(target.y - y, "down", "up")],
-        &is_nil/1
-      )
-
-    world
-    |> release()
-    |> then(fn released ->
-      Enum.reduce(wanted, released, &World.press(&2, {:key_down, &1}))
-    end)
-  end
-
-  defp release(world), do: Enum.reduce(world.held, world, &World.press(&2, {:key_up, &1}))
-
-  defp axis(0, _positive, _negative), do: nil
-  defp axis(delta, positive, _negative) when delta > 0, do: positive
-  defp axis(_delta, _positive, negative), do: negative
-
-  # A waypoint counts as reached inside one tile, the same tolerance the cavebot
-  # uses; the route loops, because a bench run has no end of route to reach.
-  defp advance_leg(world, leg) do
-    target = Enum.at(world.route.waypoints, leg)
-    {x, y, _z} = world.pos
-
-    if max(abs(target.x - x), abs(target.y - y)) <= 1,
-      do: rem(leg + 1, length(world.route.waypoints)),
-      else: leg
-  end
-
-  # The OTHER worker in the loop. `PlayerSupport.Logic` is pure, so the ladder
-  # it decides by is called here directly rather than copied — the same reason
-  # `Engine.Logic` is. Its two cheap rungs are what stand between a hurt pokemon
-  # and the revive, and without them every health scenario answered as if the
-  # revive were the only first aid in the game.
-  #
-  # The revive rung is NOT here: the engine already owns when it happens
-  # (`orders.revive`), which is the whole reason the engine exists.
-  defp support(state, picture) do
-    state
-    |> heal_skill(picture)
-    |> potion(picture)
-  end
-
-  defp heal_skill(state, picture) do
-    with true <- Support.heal_wanted?(heal_input(state, picture)),
-         [key | _] <- ready_heal_keys(state.world) do
-      %{
-        state
-        | world: World.press(state.world, {:press, key}),
-          last_heal_at: state.world.clock
-      }
-    else
-      _nothing_to_press -> state
-    end
-  end
-
-  # A potion is a CHANNEL and combat cancels it — same gate the worker keeps,
-  # and the reason the heal skill exists at all.
-  defp potion(state, %{enemies: 0} = picture) do
-    if Support.potion_wanted?(potion_input(state, picture)) do
-      %{state | world: World.potion(state.world), last_potion_at: state.world.clock}
-    else
-      state
-    end
-  end
-
-  defp potion(state, _in_combat), do: state
-
-  defp heal_input(state, picture) do
-    %{
-      hp_pct: picture.own_hp,
-      prev_hp_pct: state.picture && state.picture.own_hp,
-      threshold_pct: state.config.heal_pct,
-      enabled?: state.config.heal_skill_enabled,
-      cooldown_ms: state.config.heal_skill_cooldown_ms,
-      last_heal_at: state.last_heal_at,
-      now: state.world.clock
-    }
-  end
-
-  defp potion_input(state, picture) do
-    %{
-      hp_pct: picture.own_hp,
-      prev_hp_pct: state.picture && state.picture.own_hp,
-      threshold_pct: state.config.potion_pct,
-      enabled?: state.config.potion_enabled,
-      cooldown_ms: state.config.potion_cooldown_ms,
-      last_potion_at: state.last_potion_at,
-      now: state.world.clock
-    }
-  end
-
-  defp ready_heal_keys(world) do
-    for {key, %{kind: :heal, ready_at: at}} <- world.keys, at <= world.clock, do: key
-  end
-
-  defp fire(world, %{fire: :free, opening: keys}) when keys != [],
-    do: Enum.reduce(keys, world, &World.press(&2, {:press, &1}))
-
-  defp fire(world, _holding), do: world
-
-  defp revive(world, %{revive: :now}), do: World.revive(world)
-
-  defp revive(world, _holding), do: world
 
   # One line per DECISION CHANGE, not per tick: a timeline with six hundred
   # identical rows is not a timeline.

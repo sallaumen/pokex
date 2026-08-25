@@ -1937,6 +1937,15 @@ defmodule PokexWeb.PanelLive do
   defp cavebot_block_text(:floor_changed),
     do: "caçada BLOQUEADA: mudou de andar — a rota é de outro andar, parei tudo"
 
+  # O QUE FALTA VEM JUNTO. "O combate recusou o arranque" é uma frase que não
+  # conserta nada — o preflight sabe exatamente o que está faltando, e é isso
+  # que ele precisa ler no alarme.
+  defp cavebot_block_text({:combat_preflight_failed, [_ | _] = messages}),
+    do: "caçada BLOQUEADA: #{Enum.join(messages, " · ")} — parei tudo"
+
+  defp cavebot_block_text({:combat_preflight_failed, _none}),
+    do: cavebot_block_text(:combat_preflight_failed)
+
   defp cavebot_block_text(:combat_preflight_failed),
     do: "caçada BLOQUEADA: o combate recusou o arranque — parei tudo"
 

@@ -26,7 +26,11 @@ defmodule Pokex.TeamFixtures do
   """
   def ready!(name \\ "Bulbasaur", opts \\ []) do
     count = Keyword.get(opts, :count, 4)
-    skills = Keyword.get(opts, :skills, Map.new(1..count, &{to_string(&1), :single}))
+    # As teclas de uma barra de N slots são `SkillBar.keys/1`, e a décima é o
+    # ZERO — uma fixture que inventasse `1..10` concordaria com o bug em vez de
+    # com o jogo.
+    skills =
+      Keyword.get(opts, :skills, Map.new(Pokex.Bots.SkillBar.keys(count), &{&1, :single}))
 
     restore_team_on_exit()
 

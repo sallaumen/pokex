@@ -82,6 +82,28 @@ defmodule Pokex.PreflightTest do
 
       assert Preflight.run(Pokex.Rig.Fake) == :ok
     end
+
+    # A DÉCIMA TECLA É O ZERO, e este check contava 1..10. O Dugtrio dele tem os
+    # dez slots todos classificados (0–9) e o preflight procurava uma tecla "10"
+    # que não existe em barra nenhuma: recusava o arranque PARA SEMPRE, e a
+    # caçada bloqueava sem sair do lugar — "nem andar ele andou" (26/08).
+    @tag :tmp_dir
+    test "uma barra de dez slots começa: a décima tecla é o 0, não o 10" do
+      dez = Map.new(~w(1 2 3 4 5 6 7 8 9 0), &{&1, :single})
+      Pokex.TeamFixtures.ready!("Dugtrio", count: 10, skills: dez)
+
+      assert Preflight.run(Pokex.Rig.Fake) == :ok
+    end
+
+    @tag :tmp_dir
+    test "e sem o 0 ela reclama do 0, não de um 10 que não existe" do
+      nove = Map.new(~w(1 2 3 4 5 6 7 8 9), &{&1, :single})
+      Pokex.TeamFixtures.ready!("Dugtrio", count: 10, skills: nove)
+
+      assert {:error, msgs} = Preflight.run(Pokex.Rig.Fake)
+      assert Enum.any?(msgs, &(&1 =~ "a tecla 0"))
+      refute Enum.any?(msgs, &(&1 =~ "tecla 10"))
+    end
   end
 
   # THE REFUSAL THAT STOPPED EVERYTHING (2026-08-07). His calibration was saved

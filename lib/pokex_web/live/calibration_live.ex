@@ -68,6 +68,7 @@ defmodule PokexWeb.CalibrationLive do
        scale: nil,
        step: nil,
        mode: nil,
+       saved: nil,
        draft: %{},
        done: false,
        calibrated?: Calibration.exists?(),
@@ -110,18 +111,29 @@ defmodule PokexWeb.CalibrationLive do
      )}
   end
 
+  # A monitor already calibrated does NOT ask for nine clicks again. The run
+  # opens on what is saved for this screen, drawn over a fresh screenshot, and
+  # asks a single question: está tudo no lugar? ("quero que ele já sempre
+  # sugira a calibração que ele já tem salvo pra usar... só me pedindo pra
+  # confirmar", Lucas, 2026-08-25). Confirming re-marks NOTHING — the points
+  # are exactly the ones on disk, so a screen that did not change cannot drift
+  # by being looked at.
   @impl true
   def handle_event("capture_screen", _params, socket) do
     case grab_screen() do
       {:ok, screen} ->
+        saved = saved_for_screen(screen)
+        draft = draft_from(saved, socket.assigns.skill_count)
+
         {:noreply,
          assign(socket,
            scale: screen.scale,
            screen: screen,
            screen_check: screen_check(shot_points(screen)),
-           step: :battle_a,
+           saved: saved,
+           step: if(complete?(draft), do: :confirm_saved, else: :battle_a),
            mode: :full,
-           draft: %{skill_bar_count: socket.assigns.skill_count},
+           draft: draft,
            done: false,
            review: nil,
            error: nil,
@@ -132,6 +144,25 @@ defmodule PokexWeb.CalibrationLive do
 
       error ->
         {:noreply, assign(socket, error: "captura falhou: #{inspect(error)}")}
+    end
+  end
+
+  # Confirming is the whole run: the draft ALREADY carries every saved mark.
+  def handle_event("confirm_saved", _params, socket),
+    do: {:noreply, finish(socket, socket.assigns.draft)}
+
+  # "Conferir marca por marca": the same draft, walked step by step, where each
+  # step can be kept with one click or replaced with two.
+  def handle_event("walk_saved", _params, socket),
+    do: {:noreply, assign(socket, step: :battle_a, zoom_at: nil)}
+
+  # Keeping a mark advances over the WHOLE mark (a region is two clicks, one
+  # decision) without touching the draft — that is what "nunca mudar esses
+  # locais" means in code.
+  def handle_event("keep_step", _params, socket) do
+    case keep_after(socket.assigns.step) do
+      :done -> {:noreply, finish(socket, socket.assigns.draft)}
+      next -> {:noreply, assign(socket, step: next, zoom_at: nil)}
     end
   end
 
@@ -838,7 +869,8 @@ defmodule PokexWeb.CalibrationLive do
         skill_bar_region: draft.skill_bar_region,
         skill_bar_count: draft.skill_bar_count,
         skill_slot_refs:
-          skill_slot_refs(socket.assigns.screen, draft.skill_bar_region, draft.skill_bar_count),
+          draft[:skill_slot_refs] ||
+            skill_slot_refs(socket.assigns.screen, draft.skill_bar_region, draft.skill_bar_count),
         pokemon_hp_region: draft[:pokemon_hp_region],
         pokemon_photo_point: draft[:pokemon_photo_point]
     }
@@ -858,13 +890,82 @@ defmodule PokexWeb.CalibrationLive do
 
   # Only marks made on THIS screen survive: on another monitor they point at
   # coordinates that no longer exist, and a blind-but-honest nil beats a mark
-  # that looks calibrated and is not.
-  defp previous_calibration(%{w: w, h: h}) do
-    case Calibration.load() do
-      {:ok, %Calibration{screen_w: ^w, screen_h: ^h} = calib} -> calib
-      _other_screen_or_none -> %Calibration{}
+  # that looks calibrated and is not. The active file first, then this
+  # monitor's own snapshot — coming back to a screen he calibrated last week
+  # is the same situation as re-running on the one in front of him.
+  defp saved_for_screen(%{w: w, h: h}) do
+    with {:ok, %Calibration{screen_w: ^w, screen_h: ^h} = calib} <- Calibration.load() do
+      calib
+    else
+      _other_screen_or_none ->
+        case Calibration.last_for_screen({w, h}) do
+          {:ok, calib} -> calib
+          :none -> nil
+        end
     end
   end
+
+  defp previous_calibration(screen) do
+    case saved_for_screen(screen) do
+      %Calibration{} = calib -> calib
+      nil -> %Calibration{}
+    end
+  end
+
+  # The run starts from what is already known, so every step is a confirmation
+  # and `finish/2` keeps what it never asked about. `skill_slot_refs` rides
+  # along on purpose: kept, they are the colours learned with all skills READY,
+  # and re-reading them from a screenshot taken mid-cooldown would teach the
+  # reader that "pronta" looks dark. Re-marking the bar drops them (see
+  # `record_step(:skill_b, ...)`) and they are learned again.
+  defp draft_from(nil, skill_count), do: %{skill_bar_count: skill_count}
+
+  defp draft_from(%Calibration{} = calib, skill_count) do
+    %{
+      water_point: calib.water_point,
+      glow_region: calib.glow_region,
+      battle_region: calib.battle_region,
+      neutral_point: calib.neutral_point,
+      player_point: calib.player_point,
+      skill_bar_region: calib.skill_bar_region,
+      skill_bar_count: skill_count,
+      skill_slot_refs: calib.skill_slot_refs,
+      pokemon_hp_region: calib.pokemon_hp_region,
+      pokemon_photo_point: calib.pokemon_photo_point,
+      minimap_region: calib.minimap_region,
+      minimap_player_point: calib.minimap_player_point,
+      minimap_coord_region: calib.minimap_coord_region,
+      mini_game_region: calib.mini_game_region
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  # Every mark the numbered run asks for. Anything missing and the run walks:
+  # confirming half a calibration would be confirming a hole.
+  @wizard_marks ~w(battle_region neutral_point player_point skill_bar_region
+                   pokemon_hp_region pokemon_photo_point)a
+
+  defp complete?(draft), do: Enum.all?(@wizard_marks, &Map.has_key?(draft, &1))
+
+  # Where "manter" lands: past the whole mark, never into its second click.
+  defp keep_after(step) when step in [:battle_a, :battle_b], do: :neutral
+  defp keep_after(:neutral), do: :player
+  defp keep_after(:player), do: :skill_a
+  defp keep_after(step) when step in [:skill_a, :skill_b], do: :hp_a
+  defp keep_after(step) when step in [:hp_a, :hp_b], do: :photo
+  defp keep_after(:photo), do: :done
+  defp keep_after(_no_mark_to_keep), do: :done
+
+  # What "manter" would keep at this step — nil hides the button, so a step with
+  # nothing saved cannot offer to keep nothing.
+  defp keepable(step, draft) when step in [:battle_a, :battle_b], do: draft[:battle_region]
+  defp keepable(:neutral, draft), do: draft[:neutral_point]
+  defp keepable(:player, draft), do: draft[:player_point]
+  defp keepable(step, draft) when step in [:skill_a, :skill_b], do: draft[:skill_bar_region]
+  defp keepable(step, draft) when step in [:hp_a, :hp_b], do: draft[:pokemon_hp_region]
+  defp keepable(:photo, draft), do: draft[:pokemon_photo_point]
+  defp keepable(_step, _draft), do: nil
 
   defp photo_error(:no_anchor),
     do: "marque o seu personagem na calibração (ou salve a resolução da tela) antes de ensinar"
@@ -1410,8 +1511,12 @@ defmodule PokexWeb.CalibrationLive do
     })
   end
 
+  # The old box leaves the picture on the FIRST click of its replacement:
+  # drawing yesterday's rectangle while he marks today's corner is the surest
+  # way to make him mark it wrong.
   defp record_step(:battle_a, socket, point, draft) do
-    assign(socket, draft: Map.put(draft, :battle_a, point), step: :battle_b)
+    draft = draft |> Map.delete(:battle_region) |> Map.put(:battle_a, point)
+    assign(socket, draft: draft, step: :battle_b)
   end
 
   defp record_step(:battle_b, socket, point, draft) do
@@ -1452,8 +1557,15 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  # Re-marking the bar also drops the READY colours: they belong to the region
+  # they were read from, and `finish/2` learns them again from the new one.
   defp record_step(:skill_a, socket, point, draft) do
-    assign(socket, draft: Map.put(draft, :skill_a, point), step: :skill_b)
+    draft =
+      draft
+      |> Map.drop([:skill_bar_region, :skill_slot_refs])
+      |> Map.put(:skill_a, point)
+
+    assign(socket, draft: draft, step: :skill_b)
   end
 
   defp record_step(:skill_b, socket, point, draft) do
@@ -1481,7 +1593,8 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   defp record_step(:hp_a, socket, point, draft) do
-    assign(socket, draft: Map.put(draft, :hp_a, point), step: :hp_b)
+    draft = draft |> Map.delete(:pokemon_hp_region) |> Map.put(:hp_a, point)
+    assign(socket, draft: draft, step: :hp_b)
   end
 
   defp record_step(:hp_b, socket, point, draft) do
@@ -1968,6 +2081,10 @@ defmodule PokexWeb.CalibrationLive do
   defp draft_player(%{player_point: point}) when is_tuple(point), do: point
   defp draft_player(_draft), do: nil
 
+  # Steps that draw the screenshot: the ones that take a click, plus the
+  # confirmation, which shows the same picture and takes none.
+  defp shows_photo?(step), do: CalibrationSteps.marking?(step) or step == :confirm_saved
+
   @impl true
   def render(assigns) do
     # module attributes are not available inside ~H as @foo (that reads assigns)
@@ -2088,9 +2205,11 @@ defmodule PokexWeb.CalibrationLive do
                 <div class="min-w-0">
                   <h2 class="text-pk-title font-bold text-pk-text">Calibração completa</h2>
                   <p class="mt-0.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
-                    Os 10 passos guiados: água, Battle, ponto neutro, personagem, skills e
-                    vida. Pode deixar o jogo em TELA CHEIA — ao capturar, ele vem pra frente por
-                    ~1s, tira a foto e volta pra cá sozinho.
+                    Se esta tela já foi calibrada, eu começo desenhando as marcas salvas em
+                    cima da foto nova — você só confirma, e nada se move. Se não, são os
+                    9 passos guiados: Battle, ponto neutro, personagem, skills e vida. Pode
+                    deixar o jogo em TELA CHEIA — ao capturar, ele vem pra frente por ~1s,
+                    tira a foto e volta pra cá sozinho.
                   </p>
                 </div>
               </div>
@@ -2113,7 +2232,8 @@ defmodule PokexWeb.CalibrationLive do
                   </p>
                 </.form>
                 <button class="btn btn-primary" phx-click="capture_screen">
-                  <.icon name="hero-camera" class="size-4" /> Capturar tela e começar
+                  <.icon name="hero-camera" class="size-4" />
+                  {if @calibrated?, do: "Capturar tela e conferir", else: "Capturar tela e começar"}
                 </button>
               </div>
             </section>
@@ -2541,10 +2661,19 @@ defmodule PokexWeb.CalibrationLive do
             :if={@step}
             class="rounded-lg border border-pk-info-line bg-pk-info-dim px-3 py-2 text-pk-body font-medium text-pk-text"
           >
-            <span :if={@mode == :full} class="font-bold">
+            <span :if={@mode == :full and CalibrationSteps.index(@step)} class="font-bold">
               Passo {CalibrationSteps.index(@step)}/{@total_steps} —
             </span>
             {CalibrationSteps.instruction(@step)}
+            <button
+              :if={keepable(@step, @draft)}
+              type="button"
+              id="keep-step"
+              phx-click="keep_step"
+              class="ml-1 rounded-lg border border-pk-ok/60 bg-pk-ok/15 px-2.5 py-1 align-middle text-pk-meta font-bold text-pk-ok hover:bg-pk-ok/25"
+            >
+              Manter <span class="pk-num font-mono">{inspect(keepable(@step, @draft))}</span>
+            </button>
             <.form
               :if={@step in [:skill_a, :skill_b]}
               for={@skill_count_form}
@@ -2562,6 +2691,34 @@ defmodule PokexWeb.CalibrationLive do
                 class="input input-bordered input-xs w-14 text-center font-bold"
               />
             </.form>
+          </div>
+
+          <div
+            :if={@step == :confirm_saved}
+            id="confirm-saved"
+            class="flex flex-wrap items-center gap-2 rounded-lg border border-pk-ok/60 bg-pk-ok/10 px-3 py-2 text-pk-body"
+          >
+            <span class="flex-1 text-pk-text-2">
+              Calibração salva desta tela
+              <b class="pk-num font-mono text-pk-text">{@screen.w}×{@screen.h}</b>
+              — confirmando, nenhum ponto se move.
+            </span>
+            <button
+              type="button"
+              id="confirm-saved-use"
+              phx-click="confirm_saved"
+              class="rounded-lg border border-pk-ok/60 bg-pk-ok/20 px-2.5 py-1 text-pk-meta font-bold text-pk-ok hover:bg-pk-ok/30"
+            >
+              Confirmar e usar
+            </button>
+            <button
+              type="button"
+              id="confirm-saved-walk"
+              phx-click="walk_saved"
+              class="rounded-lg border border-pk-line-strong px-2.5 py-1 text-pk-meta font-semibold text-pk-text-2 hover:bg-pk-raised hover:text-white"
+            >
+              Conferir marca por marca
+            </button>
           </div>
 
           <div
@@ -2602,18 +2759,20 @@ defmodule PokexWeb.CalibrationLive do
             </button>
           </p>
 
-          <.legend :if={CalibrationSteps.marking?(@step)} />
+          <.legend :if={shows_photo?(@step)} />
 
           <div
-            :if={CalibrationSteps.marking?(@step)}
+            :if={shows_photo?(@step)}
             class="overflow-hidden rounded-lg border border-pk-line-strong"
           >
             <div class="relative" style={CalibrationZoom.style(@zoom_at, @screen, @zoom_factor)}>
+              <%!-- The confirmation step SHOWS the marks and takes no clicks:
+                    a stray click there would re-mark what he came to keep. --%>
               <img
                 id="calibration-screen"
-                phx-hook="ImgClick"
+                phx-hook={CalibrationSteps.marking?(@step) && "ImgClick"}
                 src={@screen.src}
-                class="w-full cursor-crosshair"
+                class={["w-full", CalibrationSteps.marking?(@step) && "cursor-crosshair"]}
               />
               <.overlays
                 screen={@screen}

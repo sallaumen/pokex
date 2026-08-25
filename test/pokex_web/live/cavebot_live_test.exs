@@ -2005,4 +2005,33 @@ defmodule PokexWeb.CavebotLiveTest do
       assert render(view) =~ "sem juntar pilha"
     end
   end
+
+  # R3b: a chave que decide se o F4 é resgate ou também reset de cooldown. O
+  # simulador mediu +13% de monstros com ela ligada e zero quedas a mais — mas
+  # ela gasta tecla numa mecânica do jogo que ninguém conferiu, então nasce
+  # desligada e o card é o único lugar onde ela existe.
+  describe "a chave do F4 como reset de cooldown" do
+    setup do
+      antes = Pokex.Settings.get(:engine_reset_revive)
+      on_exit(fn -> Pokex.Settings.put(:engine_reset_revive, antes) end)
+      :ok
+    end
+
+    test "aparece no card do cérebro, inverte o ajuste e avisa o que conferir", %{conn: conn} do
+      Pokex.Settings.put(:engine_reset_revive, false)
+      at = System.monotonic_time(:millisecond)
+      WorldState.put(:situation, %{enemies: 4, growing?: false, stable_for_ms: 2_000}, at)
+      WorldState.put(:orders, %{band: :green, why: "matando o que já abriu"}, at)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      assert has_element?(view, "#toggle-reset-revive")
+      assert render(view) =~ "F4 só no resgate"
+
+      html = view |> element("#toggle-reset-revive") |> render_click()
+
+      assert Pokex.Settings.get(:engine_reset_revive)
+      assert html =~ "F4 reseta cooldown"
+      assert html =~ "confira no jogo", "ligar sem dizer o que conferir é ligar no escuro"
+    end
+  end
 end

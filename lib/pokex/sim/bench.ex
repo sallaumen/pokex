@@ -53,6 +53,8 @@ defmodule Pokex.Sim.Bench do
   @knobs %{
     engage_from: :engine_engage_from,
     gather_piles: :engine_gather_piles,
+    reset_revive: :engine_reset_revive,
+    reset_revive_cooldown_ms: :engine_reset_revive_cooldown_ms,
     pile_settle_ms: :engine_pile_settle_ms,
     size_ceiling_ms: :engine_size_ceiling_ms,
     band_yellow_pct: :engine_band_yellow_pct,
@@ -109,7 +111,8 @@ defmodule Pokex.Sim.Bench do
       timeline: [],
       leg: 0,
       revived_at: nil,
-      died_at: nil
+      died_at: nil,
+      metrics: blank_metrics()
     }
 
     state
@@ -142,19 +145,136 @@ defmodule Pokex.Sim.Bench do
 
   defp step(state) do
     was = state.world.clock
-    world = state.world |> World.step(@tick_ms) |> apply_script(state.scenario, was)
-    picture = Situation.build(inputs(world, state.picture), state.config, world.clock)
+    before = state.world |> World.step(@tick_ms) |> apply_script(state.scenario, was)
+    picture = Situation.build(inputs(before, state.picture), state.config, before.clock)
 
     {logic, orders} =
-      Logic.step(state.logic, decision_world(world, picture), state.config, world.clock)
+      Logic.step(state.logic, decision_world(before, picture), state.config, before.clock)
 
-    world = obey(world, orders, state.leg)
+    world = obey(before, orders, state.leg)
     leg = advance_leg(world, state.leg)
 
     %{state | world: world, logic: logic, picture: picture, leg: leg}
+    |> measure(state.world, before, world, orders, picture)
     |> record(orders, picture)
     |> mark(orders, world)
   end
+
+  # --- the scoreboard ---------------------------------------------------------
+  #
+  # Counted on EVERY tick, not only where a decision changed: a rate per minute
+  # made of decision changes would be a rate of opinions. `before` is the world
+  # the decision was taken on and `world` is the world it produced, so a revive
+  # can be told from a revive that was REFUSED (cooldown, in flight, dead key)
+  # by whether the order moved anything.
+
+  defp blank_metrics do
+    %{
+      ms: 0,
+      ms_enemies: 0,
+      ms_stalled: 0,
+      ms_down: 0,
+      ms_fighting: 0,
+      kills: 0,
+      vanished: 0,
+      deaths: [],
+      revives: [],
+      piles: [],
+      pile_open: nil
+    }
+  end
+
+  @fight_phases [:sizing, :engaged, :closing, :gathering, :emergency]
+
+  # Three worlds, and the difference between them is the whole point.
+  # `previous` ended the last tick; `decided_on` is what this tick's decision
+  # saw (the bites have landed by then); `world` is what the orders produced.
+  # A DEATH happens between the first two — the bite kills it — and comparing
+  # the wrong pair reported zero deaths in a run whose pokemon spent 97% of
+  # itself on the floor (2026-08-25).
+  defp measure(state, previous, decided_on, world, orders, picture) do
+    metrics =
+      state.metrics
+      |> tally_time(world, orders, picture)
+      |> tally_bodies(previous, world)
+      |> tally_death(previous, world)
+      |> tally_revive(decided_on, world, orders, picture)
+      |> tally_pile(world, picture)
+
+    %{state | metrics: metrics}
+  end
+
+  defp tally_time(metrics, world, orders, picture) do
+    # `enemies` is nil while blind and `spent?` is nil while the bar is
+    # unreadable, and neither nil may be counted as a fact: a blind stretch is
+    # not a stretch without monsters, and an unreadable bar is not a bar with
+    # cooldowns free.
+    seen? = is_integer(picture.enemies) and picture.enemies > 0
+    stalled? = seen? and picture.spent? == true
+
+    %{
+      metrics
+      | ms: metrics.ms + @tick_ms,
+        ms_enemies: metrics.ms_enemies + if(seen?, do: @tick_ms, else: 0),
+        # THE number behind "vale a pena o revive rapidinho": time standing in
+        # front of monsters with nothing left to press.
+        ms_stalled: metrics.ms_stalled + if(stalled?, do: @tick_ms, else: 0),
+        ms_down: metrics.ms_down + if(world.own.out?, do: 0, else: @tick_ms),
+        ms_fighting:
+          metrics.ms_fighting + if(orders.phase in @fight_phases, do: @tick_ms, else: 0)
+    }
+  end
+
+  defp tally_bodies(metrics, before, world) do
+    %{
+      metrics
+      | kills: metrics.kills + (world.stats.killed - before.stats.killed),
+        vanished: metrics.vanished + (world.stats.vanished - before.stats.vanished)
+    }
+  end
+
+  defp tally_death(metrics, %{own: %{alive?: true}}, %{own: %{alive?: false}} = world),
+    do: %{metrics | deaths: [world.clock | metrics.deaths]}
+
+  defp tally_death(metrics, _before, _world), do: metrics
+
+  # An ORDER is not a press that landed. `revive_ready?/1` on the world the
+  # decision was taken against is the difference between "the hunt asked" and
+  # "the game got it", and conflating them is how a bench would report six
+  # revives from one key.
+  defp tally_revive(metrics, before, world, %{revive: :now} = orders, picture) do
+    accepted? = World.revive_ready?(before) and world.revive_at != before.revive_at
+
+    event = %{
+      at: world.clock,
+      phase: orders.phase,
+      accepted?: accepted?,
+      enemies: picture.enemies,
+      spent?: picture.spent?,
+      ready: length(picture.ready_keys || []),
+      hp: picture.own_hp
+    }
+
+    %{metrics | revives: [event | metrics.revives]}
+  end
+
+  defp tally_revive(metrics, _before, _world, _orders, _picture), do: metrics
+
+  # A pile EPISODE: from the first monster on the list to the list being empty
+  # again. How long one takes is the agility number — "matar tudo e ser ágil".
+  # A blind tick (enemies nil) keeps the episode open rather than closing it,
+  # because not seeing the pile is not the pile ending.
+  defp tally_pile(metrics, _world, %{enemies: nil}), do: metrics
+
+  defp tally_pile(%{pile_open: nil} = metrics, world, %{enemies: n}) when n > 0,
+    do: %{metrics | pile_open: world.clock}
+
+  defp tally_pile(%{pile_open: nil} = metrics, _world, _no_enemies), do: metrics
+
+  defp tally_pile(%{pile_open: opened} = metrics, world, %{enemies: 0}),
+    do: %{metrics | pile_open: nil, piles: [world.clock - opened | metrics.piles]}
+
+  defp tally_pile(metrics, _world, _pile_still_up), do: metrics
 
   defp apply_script(world, scenario, was) do
     scenario
@@ -305,6 +425,12 @@ defmodule Pokex.Sim.Bench do
 
     %{
       timeline: timeline,
+      metrics: %{
+        state.metrics
+        | deaths: Enum.reverse(state.metrics.deaths),
+          revives: Enum.reverse(state.metrics.revives),
+          piles: Enum.reverse(state.metrics.piles)
+      },
       outcome: %{
         phases: timeline |> Enum.map(& &1.phase) |> Enum.dedup(),
         revived_at: state.revived_at,

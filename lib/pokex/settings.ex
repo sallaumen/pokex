@@ -1012,6 +1012,23 @@ defmodule Pokex.Settings do
     # Both inherit the numbers he had already chosen for the old thresholds.
     engine_band_yellow_pct: 60,
     engine_band_red_pct: 30,
+    # R3b — THE REVIVE AS A COOLDOWN RESET, mid-round. Standing in front of a
+    # pile still worth fighting with every damage key on cooldown is a round
+    # that has already ended: waiting out eight seconds of cooldown buys
+    # nothing that one press would not buy at once ("0 cooldowns livres, muitos
+    # inimigos ainda na tela… vale a pena usar o revive no F4 rapidinho pra luta
+    # seguir firme e forte", Lucas 2026-08-25). The simulator measured the hunt
+    # spending 12-23% of every run in exactly that state.
+    #
+    # OFF by default on purpose. Whether recalling a HEALTHY pokemon really
+    # resets its cooldowns in Poké Alliance is a fact about the GAME, and it has
+    # to be watched once with his own eyes before the bot spends presses on it.
+    # `/sim` measures what it would be worth; the switch is his to flip.
+    engine_reset_revive: false,
+    # The floor between two of them, so a fight whose bar stays empty does not
+    # become a key held down. Comfortably above the game's own rescue cooldown
+    # (2s) and below a full skill cooldown (8s).
+    engine_reset_revive_cooldown_ms: 6_000,
     # …and the route only walks again above this.
     engine_resume_pct: 80,
     # A revive that never lands must not end the night standing still.
@@ -1233,6 +1250,7 @@ defmodule Pokex.Settings do
     # 1 means "fight anything", which is a legal (if greedy) choice; the ceiling
     # is the battle panel's own row count — a ruler above it never engages.
     engine_engage_from: 1..12,
+    engine_reset_revive_cooldown_ms: 0..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_size_ceiling_ms: 100..600_000,
     engine_band_yellow_pct: 0..100,

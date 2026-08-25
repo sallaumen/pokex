@@ -122,6 +122,26 @@ defmodule Pokex.Sim.World do
     screen_h: 11,
     bite_dmg: 4,
     bite_every_ms: 900,
+    # THE PRICE OF A REVIVE, which is the whole question behind using it as a
+    # cooldown reset. A revive that is free and instant makes "aperta F4 sempre"
+    # the right answer to everything, which is not an answer — it is a model
+    # with no cost in it.
+    #
+    #   * `revive_settle_ms` — INVENTED: how long the pokemon is off the field
+    #     between the key and the body being back. During it the bar is gone, it
+    #     deals no damage, and the bites land on HIM. That is the real cost.
+    #   * `revive_cooldown_ms` — HIS: `rescue_cooldown_ms` in settings, the floor
+    #     the PlayerSupport already keeps between two presses.
+    #
+    # Both are measurable in the game with a stopwatch and should be.
+    revive_settle_ms: 1_200,
+    revive_cooldown_ms: 2_000,
+    # How long a cleared nest takes to be worth walking past again. `nil` means
+    # never, which is what a SCENARIO wants: a controlled experiment must not
+    # have monsters arriving from off-stage. A HUNT wants a number — no rate
+    # per minute means anything on a map that empties once and stays empty.
+    # INVENTED, and one of the numbers most worth measuring in his own hunts.
+    respawn_ms: nil,
     # HIS open measurement, not a knob I get to settle: interpret.ex:44 records a
     # live reading saying his pokemon does NOT take a row; he says it always does.
     # The difference is 1, and 1 is the distance between attacking a pile and
@@ -147,6 +167,11 @@ defmodule Pokex.Sim.World do
             clock: 0,
             failures: MapSet.new(),
             stats: %{killed: 0, vanished: 0},
+            # A revive in flight (`revive_at`) and the floor before the next one
+            # may be pressed (`revive_ready_at`).
+            revive_at: nil,
+            revive_ready_at: 0,
+            nests: [],
             next_id: 1,
             rand: nil,
             knobs: %{}
@@ -221,11 +246,50 @@ defmodule Pokex.Sim.World do
   # IS the map of where the monsters are, and inventing spawn points would throw
   # away the only trustworthy spatial data in the whole simulator.
   defp spawn_nests(world) do
-    Enum.reduce(world.route.waypoints, world, fn waypoint, acc ->
+    nests = Enum.map(world.route.waypoints, &%{waypoint: &1, cleared_at: nil})
+
+    world.route.waypoints
+    |> Enum.with_index()
+    |> Enum.reduce(%{world | nests: nests}, fn {waypoint, index}, acc ->
       {count, rand} = population_of(acc, waypoint)
-      spawn_mobs(%{acc | rand: rand}, waypoint, count)
+      spawn_mobs(%{acc | rand: rand}, waypoint, index, count)
     end)
   end
+
+  # A map that empties once and stays empty is not a hunt, it is a single
+  # fight — and no rate per minute means anything on it. A cleared corner comes
+  # back after `respawn_ms`, redrawing its population, so a long run walks the
+  # ring and meets the piles again exactly the way a night does.
+  #
+  # `nil` (the default) keeps every SCENARIO a controlled experiment: monsters
+  # arriving from off-stage would ruin the one question it exists to ask.
+  defp repopulate(%{knobs: %{respawn_ms: nil}} = world), do: world
+
+  defp repopulate(world) do
+    live = MapSet.new(world.mobs, & &1.nest)
+
+    world.nests
+    |> Enum.with_index()
+    |> Enum.reduce(world, fn {nest, index}, acc ->
+      cond do
+        MapSet.member?(live, index) -> mark_nest(acc, index, nil)
+        is_nil(nest.cleared_at) -> mark_nest(acc, index, acc.clock)
+        acc.clock - nest.cleared_at < acc.knobs.respawn_ms -> acc
+        true -> refill(acc, nest.waypoint, index)
+      end
+    end)
+  end
+
+  defp refill(world, waypoint, index) do
+    {count, rand} = population_of(world, waypoint)
+
+    %{world | rand: rand}
+    |> spawn_mobs(waypoint, index, count)
+    |> mark_nest(index, if(count == 0, do: world.clock))
+  end
+
+  defp mark_nest(world, index, at),
+    do: %{world | nests: List.update_at(world.nests, index, &%{&1 | cleared_at: at})}
 
   # Two different questions, one per corner. A corner his hand marked draws its
   # size from his distribution; an unmarked one rolls a much smaller chance of
@@ -262,13 +326,16 @@ defmodule Pokex.Sim.World do
     {size, rand}
   end
 
-  defp spawn_mobs(world, waypoint, count) do
+  defp spawn_mobs(world, waypoint, nest, count) do
     Enum.reduce(1..count//1, world, fn _mob, acc ->
       {pos, rand} = free_spot(acc, {waypoint.x, waypoint.y, waypoint.z})
 
       mob = %{
         id: acc.next_id,
         name: acc.knobs.mob_name,
+        # which corner it belongs to, so a cleared corner can be told from a
+        # corner whose pile simply walked away
+        nest: nest,
         pos: pos,
         hp: acc.knobs.mob_hp,
         max_hp: acc.knobs.mob_hp,
@@ -328,6 +395,8 @@ defmodule Pokex.Sim.World do
     |> move_mobs(dt_ms)
     |> bite(dt_ms)
     |> Map.update!(:clock, &(&1 + dt_ms))
+    |> land_revive()
+    |> repopulate()
   end
 
   @doc """
@@ -392,11 +461,43 @@ defmodule Pokex.Sim.World do
   # order is obeyed, and the pokemon stays down — the failure he hit on
   # 2026-08-24. Modelled here so a scenario can watch what the hunt does when
   # its only way out stops working, instead of assuming it always works.
+  #
+  # And a revive COSTS. The order does not heal on the spot: the pokemon goes
+  # off the field for `revive_settle_ms` — bar gone, no damage dealt, and every
+  # bite landing on HIM instead — and no second press is accepted for
+  # `revive_cooldown_ms`. Without that price the model answers "press F4 always"
+  # to every question, which is not an answer.
   def revive(%__MODULE__{} = world) do
-    if broken?(world, :dead_revive), do: world, else: do_revive(world)
+    cond do
+      broken?(world, :dead_revive) -> world
+      world.clock < world.revive_ready_at -> world
+      world.revive_at != nil -> world
+      true -> start_revive(world)
+    end
   end
 
-  defp do_revive(world) do
+  @doc "Would a revive ordered right now actually be accepted?"
+  @spec revive_ready?(t) :: boolean
+  def revive_ready?(%__MODULE__{} = world),
+    do: world.clock >= world.revive_ready_at and world.revive_at == nil
+
+  defp start_revive(world) do
+    %{
+      world
+      | own: %{world.own | out?: false},
+        revive_at: world.clock + world.knobs.revive_settle_ms,
+        revive_ready_at: world.clock + world.knobs.revive_cooldown_ms
+    }
+  end
+
+  # R3, landed: full health, back on its feet, every cooldown at zero — and back
+  # at HIS side, because it comes out of the ball where he is standing, not
+  # where it fell.
+  defp land_revive(%{revive_at: nil} = world), do: world
+
+  defp land_revive(%{revive_at: at, clock: clock} = world) when clock < at, do: world
+
+  defp land_revive(world) do
     own = %{
       world.own
       | hp_pct: 100,
@@ -409,6 +510,7 @@ defmodule Pokex.Sim.World do
     %{
       world
       | own: own,
+        revive_at: nil,
         keys: Map.new(world.keys, fn {key, skill} -> {key, %{skill | ready_at: 0}} end)
     }
   end
@@ -419,7 +521,9 @@ defmodule Pokex.Sim.World do
   # exactly the bug open in the real game today.
   # A fallen pokemon casts nothing: the bar belongs to IT, not to him. Every key
   # pressed between the fall and the revive does nothing — which is most of what
-  # makes a revive urgent instead of optional.
+  # makes a revive urgent instead of optional. The same clause is what puts the
+  # PRICE on a revive spent for its cooldown reset: while the body is in the
+  # ball, the fight deals no damage at all.
   defp fire(%{own: %{out?: false}} = world, _key), do: world
 
   defp fire(world, key) do

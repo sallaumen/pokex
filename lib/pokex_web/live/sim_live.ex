@@ -22,6 +22,7 @@ defmodule PokexWeb.SimLive do
   alias Pokex.Sim.Fence
   alias Pokex.Sim.Runner
   alias Pokex.Sim.Bench
+  alias Pokex.Sim.Score
   alias Pokex.Sim.Calibrate
   alias Pokex.Sim.Scenario
   alias Pokex.Sim.Setup
@@ -66,6 +67,7 @@ defmodule PokexWeb.SimLive do
        scenario: Runner.scenario(),
        bench: nil,
        bench_all: nil,
+       score: nil,
        setup: saved,
        kill_combo: Map.get(saved, :kill_combo, []),
        setup_open?: false,
@@ -127,7 +129,7 @@ defmodule PokexWeb.SimLive do
         do: socket.assigns.kill_combo -- [key],
         else: Enum.sort(socket.assigns.kill_combo ++ [key])
 
-    socket |> assign(kill_combo: combo, bench: nil, bench_all: nil) |> reload_world()
+    socket |> assign(kill_combo: combo, bench: nil, bench_all: nil, score: nil) |> reload_world()
   end
 
   def handle_event("toggle-setup", _params, socket),
@@ -193,6 +195,39 @@ defmodule PokexWeb.SimLive do
       end)
 
     {:noreply, assign(socket, bench_all: %{rows: rows, config: config})}
+  end
+
+  # THE SCOREBOARD. Every scenario walked for five simulated minutes, twice —
+  # once with the brain as it is and once with R3b on — because the question he
+  # asks is never "did this run go well", it is "is this brain better than that
+  # one", and that is a question only two runs of the same world can answer.
+  #
+  # 177ms for the whole thing (18 runs of five minutes), so it is a click and
+  # not a job.
+  def handle_event("score", _params, socket) do
+    config = Bench.config_in_force()
+    minutes = 5
+
+    rows =
+      Enum.map(Scenario.all(), fn scenario ->
+        %{card: without} =
+          Score.hunt(scenario, minutes: minutes, config: Map.put(config, :reset_revive, false))
+
+        %{card: with_reset} =
+          Score.hunt(scenario, minutes: minutes, config: Map.put(config, :reset_revive, true))
+
+        %{scenario: scenario, without: without, with: with_reset}
+      end)
+
+    {:noreply,
+     assign(socket,
+       score: %{
+         rows: rows,
+         minutes: minutes,
+         config: config,
+         totals: %{without: totals(rows, :without), with: totals(rows, :with)}
+       }
+     )}
   end
 
   # The hands, from HIS keyboard instead of from the bot's. The world cannot
@@ -363,6 +398,131 @@ defmodule PokexWeb.SimLive do
 
   defp failures(nil), do: []
   defp failures(world), do: Enum.map(world.failures, &failure_label/1)
+
+  # The session, not the average of the averages: nine runs of five minutes are
+  # 45 minutes of hunting, and a rate over the whole of it is the number a night
+  # would actually produce.
+  defp totals(rows, key) do
+    cards = Enum.map(rows, &Map.fetch!(&1, key))
+    minutes = Enum.sum(Enum.map(cards, & &1.minutes))
+    ms = Enum.sum(Enum.map(cards, & &1.ms))
+
+    %{
+      minutes: minutes,
+      kills: Enum.sum(Enum.map(cards, & &1.kills)),
+      deaths: Enum.sum(Enum.map(cards, & &1.deaths)),
+      vanished: Enum.sum(Enum.map(cards, & &1.vanished)),
+      kills_per_min: rate(Enum.sum(Enum.map(cards, & &1.kills)), minutes),
+      deaths_per_min: rate(Enum.sum(Enum.map(cards, & &1.deaths)), minutes),
+      vanished_per_min: rate(Enum.sum(Enum.map(cards, & &1.vanished)), minutes),
+      stalled_pct: share(cards, :ms_stalled_of, ms),
+      down_pct: share(cards, :ms_down_of, ms),
+      revives: %{
+        accepted: Enum.sum(Enum.map(cards, & &1.revives.accepted)),
+        proactive: Enum.sum(Enum.map(cards, & &1.revives.proactive)),
+        rescue: Enum.sum(Enum.map(cards, & &1.revives.rescue)),
+        refused: Enum.sum(Enum.map(cards, & &1.revives.refused))
+      },
+      pile_ms: median(Enum.reject(Enum.map(cards, & &1.pile_ms.median), &is_nil/1))
+    }
+  end
+
+  defp rate(count, minutes) when minutes > 0, do: Float.round(count / minutes, 2)
+  defp rate(_count, _minutes), do: 0.0
+
+  # The percentages come back as percentages, so weighting them by each run's
+  # length and dividing by the total is the only way to add them without lying.
+  defp share(cards, :ms_stalled_of, total_ms),
+    do: weighted(cards, & &1.stalled_pct, total_ms)
+
+  defp share(cards, :ms_down_of, total_ms), do: weighted(cards, & &1.down_pct, total_ms)
+
+  defp weighted(_cards, _get, 0), do: 0.0
+
+  defp weighted(cards, get, total_ms) do
+    cards
+    |> Enum.map(fn card -> get.(card) * card.ms end)
+    |> Enum.sum()
+    |> Kernel./(total_ms)
+    |> Float.round(1)
+  end
+
+  defp median([]), do: nil
+
+  defp median(values) do
+    sorted = Enum.sort(values)
+    middle = div(length(sorted), 2)
+
+    if rem(length(sorted), 2) == 1,
+      do: Enum.at(sorted, middle),
+      else: div(Enum.at(sorted, middle - 1) + Enum.at(sorted, middle), 2)
+  end
+
+  # A delta the eye can read without arithmetic: the sign is the label, so the
+  # colour never has to carry the meaning on its own.
+  defp delta_pct(before, aft) when before > 0, do: round((aft - before) * 100 / before)
+  defp delta_pct(_before, aft) when aft > 0, do: 100
+  defp delta_pct(_before, _aft), do: 0
+
+  defp delta_text(pct) when pct > 0, do: "+#{pct}%"
+  defp delta_text(pct), do: "#{pct}%"
+
+  defp delta_class(pct) when pct > 0, do: "font-bold text-pk-text"
+  defp delta_class(pct) when pct < 0, do: "font-bold text-pk-danger"
+  defp delta_class(_zero), do: "text-pk-text-3"
+
+  defp ms_text(nil), do: "—"
+  defp ms_text(ms), do: "#{Float.round(ms / 1000, 1)}s"
+
+  # Six readouts, in the order he would read them: what it produced, what it
+  # cost, and the two numbers that say WHY. Deliberately not six big-number
+  # cards — one dense strip of hairline-separated cells, which is what this
+  # panel is made of everywhere else.
+  defp score_readouts(%{without: without, with: with_reset}) do
+    [
+      %{
+        label: "mortos/min",
+        value: without.kills_per_min,
+        tone: "text-pk-text",
+        note: "com R3b: #{with_reset.kills_per_min}"
+      },
+      %{
+        label: "quedas/min",
+        value: without.deaths_per_min,
+        tone: if(without.deaths > 0, do: "text-pk-danger", else: "text-pk-text"),
+        note: "com R3b: #{with_reset.deaths_per_min}"
+      },
+      %{
+        label: "sem cooldown",
+        value: "#{without.stalled_pct}%",
+        tone: "text-pk-text",
+        note: "do tempo, com bicho na tela"
+      },
+      %{
+        label: "no chão",
+        value: "#{without.down_pct}%",
+        tone: if(without.down_pct > 10, do: "text-pk-danger", else: "text-pk-text"),
+        note: "sem pokémon em campo"
+      },
+      %{
+        label: "pilha (mediana)",
+        value: ms_text(without.pile_ms),
+        tone: "text-pk-text",
+        note: "do primeiro bicho à lista vazia"
+      },
+      %{
+        label: "revives",
+        value: without.revives.accepted,
+        tone: if(without.revives.refused > 0, do: "text-pk-warn", else: "text-pk-text"),
+        note: revive_note(without.revives)
+      }
+    ]
+  end
+
+  defp revive_note(%{refused: refused} = revives) when refused > 0,
+    do: "#{revives.proactive} proativos · #{refused} recusados"
+
+  defp revive_note(revives), do: "#{revives.proactive} proativos · #{revives.rescue} resgates"
 
   # A run that ended with the pokemon down is not the same news as one that
   # ended with the ground clean, and a table where both read "clean" is a table
@@ -668,6 +828,13 @@ defmodule PokexWeb.SimLive do
             class="rounded-lg border border-violet-700 px-3 py-1.5 text-sm font-medium text-violet-200 hover:bg-violet-900/40"
           >
             <.icon name="hero-table-cells" class="mr-1 h-4 w-4" /> Rodar TODOS
+          </button>
+
+          <button
+            phx-click="score"
+            class="rounded-lg border border-pk-ok-line bg-pk-ok-dim px-3 py-1.5 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok/20"
+          >
+            <.icon name="hero-calculator" class="mr-1 h-4 w-4" /> Placar (5 min por cenário)
           </button>
 
           <button
@@ -1097,6 +1264,156 @@ defmodule PokexWeb.SimLive do
             </li>
           </ol>
         </div>
+
+        <%!-- O PLACAR. Painel de instrumento, não dashboard: fio de 1px entre
+              células, número mono tabular, rótulo em caixa alta. O que ele
+              pergunta nunca é "essa corrida foi boa", é "esse cérebro é melhor
+              que aquele" — então tudo aqui é medido duas vezes. --%>
+        <section
+          :if={@score}
+          id="placar"
+          class="space-y-3 rounded-lg border border-pk-line bg-pk-surface p-3"
+        >
+          <header class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h2 class="text-pk-title font-bold text-pk-text">Placar da caçada</h2>
+            <p class="pk-num font-mono text-pk-meta text-pk-text-3">
+              {length(@score.rows)} cenários · {@score.minutes} min cada · engaja a partir de {@score.config.engage_from} · piso do reset {@score.config.reset_revive_cooldown_ms}ms
+            </p>
+          </header>
+
+          <dl class="grid grid-cols-2 gap-px overflow-hidden rounded border border-pk-line bg-pk-line sm:grid-cols-3 lg:grid-cols-6">
+            <div :for={cell <- score_readouts(@score.totals)} class="bg-pk-sunken px-3 py-2">
+              <dt class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+                {cell.label}
+              </dt>
+              <dd class={["pk-num mt-1 font-mono text-pk-title font-bold", cell.tone]}>
+                {cell.value}
+              </dd>
+              <dd class="text-pk-meta text-pk-text-2">{cell.note}</dd>
+            </div>
+          </dl>
+
+          <%!-- O F4 julgado, não contado: a mesma pilha, os mesmos segundos,
+                a única diferença sendo a regra. --%>
+          <div class="space-y-2 rounded border border-pk-line bg-pk-sunken p-2">
+            <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+                O revive como reset de cooldown (R3b)
+              </h3>
+              <p class="text-pk-meta text-pk-text-2">
+                mesmo mundo, mesma semente — só a regra muda
+              </p>
+            </div>
+
+            <p class="text-pk-body text-pk-text-2">
+              <span class="pk-num font-mono font-bold text-pk-text">
+                {@score.totals.without.kills} → {@score.totals.with.kills} monstros
+              </span>
+              <span class={[
+                "pk-num ml-1 font-mono",
+                delta_class(delta_pct(@score.totals.without.kills, @score.totals.with.kills))
+              ]}>
+                {delta_text(delta_pct(@score.totals.without.kills, @score.totals.with.kills))}
+              </span>
+              · quedas
+              <span class="pk-num font-mono font-bold text-pk-text">
+                {@score.totals.without.deaths} → {@score.totals.with.deaths}
+              </span>
+              · tempo sem cooldown
+              <span class="pk-num font-mono font-bold text-pk-text">
+                {@score.totals.without.stalled_pct}% → {@score.totals.with.stalled_pct}%
+              </span>
+              · revives proativos
+              <span class="pk-num font-mono font-bold text-pk-text">
+                {@score.totals.without.revives.proactive} → {@score.totals.with.revives.proactive}
+              </span>
+            </p>
+
+            <p
+              :if={not @score.config.reset_revive}
+              class="flex items-start gap-1.5 text-pk-meta text-pk-text-2"
+            >
+              <.icon name="hero-information-circle" class="mt-px size-3.5 shrink-0 text-pk-info" />
+              <span>
+                A regra está <b class="text-pk-text">desligada</b>
+                no bot (<code class="font-mono">engine_reset_revive</code>). Ligue só depois de
+                conferir no jogo que recolher um pokémon SAUDÁVEL zera os cooldowns dele —
+                é um fato do jogo, não deste código.
+              </span>
+            </p>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-pk-body">
+              <thead>
+                <tr class="text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
+                  <th class="py-1 pr-3 font-semibold">cenário</th>
+                  <th class="py-1 pr-3 text-right font-semibold">mortos/min · Δ R3b</th>
+                  <th class="py-1 pr-3 text-right font-semibold">quedas/min</th>
+                  <th class="py-1 pr-3 text-right font-semibold">sumiram/min</th>
+                  <th class="py-1 pr-3 text-right font-semibold">sem cooldown · com R3b</th>
+                  <th class="py-1 pr-3 text-right font-semibold">no chão</th>
+                  <th class="py-1 pr-3 text-right font-semibold">pilha</th>
+                  <th class="py-1 text-right font-semibold">revives</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={row <- @score.rows} class="border-t border-pk-line align-baseline">
+                  <td class="py-1 pr-3 text-pk-text">{row.scenario.name}</td>
+                  <td class="pk-num py-1 pr-3 text-right font-mono text-pk-text">
+                    {row.without.kills_per_min}
+                    <span class={["ml-1", delta_class(delta_pct(row.without.kills, row.with.kills))]}>
+                      {delta_text(delta_pct(row.without.kills, row.with.kills))}
+                    </span>
+                  </td>
+                  <td class={[
+                    "pk-num py-1 pr-3 text-right font-mono",
+                    if(row.without.deaths > 0, do: "font-bold text-pk-danger", else: "text-pk-text-2")
+                  ]}>
+                    {row.without.deaths_per_min}
+                  </td>
+                  <td class={[
+                    "pk-num py-1 pr-3 text-right font-mono",
+                    if(row.without.vanished > 0, do: "text-pk-warn", else: "text-pk-text-2")
+                  ]}>
+                    {row.without.vanished_per_min}
+                  </td>
+                  <td class="pk-num py-1 pr-3 text-right font-mono text-pk-text-2">
+                    {row.without.stalled_pct}% → {row.with.stalled_pct}%
+                  </td>
+                  <td class={[
+                    "pk-num py-1 pr-3 text-right font-mono",
+                    if(row.without.down_pct > 20,
+                      do: "font-bold text-pk-danger",
+                      else: "text-pk-text-2"
+                    )
+                  ]}>
+                    {row.without.down_pct}%
+                  </td>
+                  <td class="pk-num py-1 pr-3 text-right font-mono text-pk-text-2">
+                    {ms_text(row.without.pile_ms.median)}
+                  </td>
+                  <td class="pk-num py-1 text-right font-mono text-pk-text-2">
+                    {row.without.revives.accepted}
+                    <span :if={row.without.revives.refused > 0} class="text-pk-warn">
+                      +{row.without.revives.refused} recusados
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="border-t border-pk-line pt-2 text-pk-meta leading-relaxed text-pk-text-2">
+            <b class="text-pk-text">O que estes números valem:</b>
+            a aritmética é exata, o mundo por baixo dela é chutado. Vida de monstro,
+            dano por skill, cooldown, mordida e o tempo que o F4 deixa o pokémon na bola
+            nunca foram medidos no jogo. <b class="text-pk-text">Comparação vale</b>
+            — mesmo mundo, mesma semente, a diferença é do cérebro.
+            <b class="text-pk-text">Número absoluto não vale</b>
+            — "5 monstros por minuto" é uma propriedade dos meus chutes, não do Ratata.
+          </p>
+        </section>
 
         <div :if={@bench_all} class="rounded-xl border border-violet-900/60 bg-violet-950/20 p-3">
           <h2 class="mb-1 text-sm font-semibold text-violet-100">

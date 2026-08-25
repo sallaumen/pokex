@@ -104,6 +104,32 @@ defmodule PokexWeb.SimLiveTest do
     assert html =~ "caiu"
   end
 
+  # The scoreboard is the instrument he tunes on, and a template that reads
+  # nested outcome keys is code nothing else type-checks.
+  test "o placar renderiza os seis mostradores, a comparação e a ressalva", %{conn: conn} do
+    {:ok, live, _html} = live(conn, ~p"/sim")
+
+    html = live |> element("button", "Placar") |> render_click()
+
+    assert html =~ "Placar da caçada"
+
+    for label <- ["mortos/min", "quedas/min", "sem cooldown", "no chão", "pilha (mediana)"] do
+      assert html =~ label, "faltou o mostrador de #{label}"
+    end
+
+    # a comparação existe e é nomeada
+    assert html =~ "O revive como reset de cooldown (R3b)"
+    assert html =~ "revives proativos"
+
+    # uma linha por cenário
+    for scenario <- Pokex.Sim.Scenario.all() do
+      assert html =~ scenario.name, "faltou a linha de #{scenario.id}"
+    end
+
+    # e a ressalva honesta sobre o que os números valem
+    assert html =~ "Comparação vale"
+  end
+
   test "opening the calibration table renders every field it offers", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/sim")
     live |> element("button", "Armar simulação") |> render_click()

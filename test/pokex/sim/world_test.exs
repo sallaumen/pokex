@@ -334,6 +334,30 @@ defmodule Pokex.Sim.WorldTest do
     assert length(kept.mobs) == 1
   end
 
+  # A map that empties once and stays empty is a single fight, not a hunt — and
+  # no rate per minute means anything on it.
+  test "um ninho limpo volta depois de respawn_ms" do
+    world = World.new(nest_route(), knobs: %{nest_size: 2, nest_radius: 0, respawn_ms: 5_000})
+    assert length(world.mobs) == 2
+
+    cleared = %{world | mobs: []}
+
+    too_soon = Enum.reduce(1..40, cleared, fn _tick, w -> World.step(w, 100) end)
+    assert too_soon.mobs == [], "4s ainda não são 5"
+
+    back = Enum.reduce(1..20, too_soon, fn _tick, w -> World.step(w, 100) end)
+    assert length(back.mobs) == 2
+  end
+
+  test "sem respawn_ms um ninho limpo fica limpo — um cenário é um experimento" do
+    world = World.new(nest_route(), knobs: %{nest_size: 2, nest_radius: 0})
+    cleared = %{world | mobs: []}
+
+    later = Enum.reduce(1..600, cleared, fn _tick, w -> World.step(w, 100) end)
+
+    assert later.mobs == []
+  end
+
   # A creature that notices from farther than the rope lets it come can never
   # arrive: it is a monster the fight cannot happen with, and the model built
   # exactly that for weeks (aggro 20, leash 12).
@@ -796,11 +820,57 @@ defmodule Pokex.Sim.WorldTest do
         | own: %{world.own | hp_pct: 0, out?: false, alive?: false, pos: {1, 1, 5}}
       }
 
-      back = World.revive(fallen)
+      # the order alone does not put it back: the body takes revive_settle_ms to
+      # arrive, and the whole point of the number is that the gap has a price
+      ordered = World.revive(fallen)
+      refute ordered.own.out?
+
+      back = World.step(ordered, world.knobs.revive_settle_ms)
 
       assert back.own.out?
       assert back.own.hp_pct == 100
       assert distance(back.own.pos, back.pos) == 1
+    end
+
+    # A revive that is free and instant makes "press F4 always" the answer to
+    # every question. It is not free: the pokemon is off the field while it
+    # happens, which is the stretch where the bites land on HIM.
+    test "while the revive is in flight the pokemon is off the field and he is the one bitten" do
+      world = armed(%{nest_size: 0, stray_chance_pct: 0, revive_settle_ms: 1_000})
+      ordered = World.revive(%{world | own: %{world.own | hp_pct: 40}})
+
+      assert World.observe(ordered, :pokemon) == %{hp_pct: nil, readable?: false, fainted?: true}
+
+      halfway = World.step(ordered, 500)
+      refute halfway.own.out?
+      assert halfway.own.hp_pct == 40, "a revive in flight has not healed anything yet"
+
+      landed = World.step(halfway, 500)
+      assert landed.own.out?
+      assert landed.own.hp_pct == 100
+    end
+
+    test "a second revive inside the cooldown is refused, and accepted after it" do
+      world =
+        armed(%{
+          nest_size: 0,
+          stray_chance_pct: 0,
+          revive_settle_ms: 200,
+          revive_cooldown_ms: 2_000
+        })
+
+      landed = world |> World.revive() |> World.step(200)
+      assert landed.own.hp_pct == 100
+
+      too_soon = landed |> Map.update!(:own, &%{&1 | hp_pct: 30}) |> World.revive()
+      refute World.revive_ready?(too_soon)
+      assert World.step(too_soon, 500).own.hp_pct == 30, "a refused revive heals nothing"
+
+      later = World.step(too_soon, 2_000)
+      assert World.revive_ready?(later)
+
+      assert later |> World.revive() |> World.step(200) |> Map.fetch!(:own) |> Map.fetch!(:hp_pct) ==
+               100
     end
   end
 

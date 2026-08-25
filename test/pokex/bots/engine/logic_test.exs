@@ -328,6 +328,95 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # (Lucas, 2026-08-24). Gathering is what makes the sizing wait worth paying;
   # against creatures that wander in one at a time it only loses fights — his
   # own hunt skipped a pile of three, twice, right after two clean kills.
+  # R3b: "0 cooldowns livres, muitos inimigos ainda na tela… vale a pena usar o
+  # revive no F4 rapidinho pra luta seguir firme e forte" (Lucas, 2026-08-25).
+  # The bench measured the hunt spending 12-23% of a run in exactly that state,
+  # and the rule buying back +13% of the kills for zero extra deaths.
+  describe "o revive como reset de cooldown (R3b)" do
+    @reset Map.merge(@config, %{reset_revive: true, engage_from: 3})
+
+    defp reset_step(logic, world, now), do: Logic.step(logic, world, @reset, now)
+
+    defp spent_fight(overrides \\ %{}) do
+      world(%{
+        situation: situation(Map.merge(%{enemies: 4, spent?: true}, overrides)),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    defp engaged(step_fun) do
+      {logic, _opening} = step_fun.(Logic.new(), spent_fight(%{spent?: false}), 1_000)
+      logic
+    end
+
+    test "com a chave ligada, a barra vazia na frente da pilha pede o revive" do
+      logic = engaged(&reset_step/3)
+
+      {_logic, orders} = reset_step(logic, spent_fight(), 2_000)
+
+      assert orders.revive == :now
+      assert orders.fire == :free, "a luta continua enquanto o corpo volta"
+      assert orders.why =~ "sem cooldown"
+    end
+
+    test "e NÃO entra em recuperação: isto não é um resgate" do
+      logic = engaged(&reset_step/3)
+
+      {after_order, _orders} = reset_step(logic, spent_fight(), 2_000)
+      {_logic, next} = reset_step(after_order, spent_fight(%{spent?: false}), 9_000)
+
+      assert next.phase == :engaged
+      assert next.route == :hold
+    end
+
+    test "desligada (o padrão), a mesma barra vazia não pede nada" do
+      logic = engaged(&step/3)
+
+      {_logic, orders} = step(logic, spent_fight(), 2_000)
+
+      assert orders.revive == :hold
+      assert orders.why =~ "matando o que já abriu"
+    end
+
+    test "não duas vezes dentro do piso: uma barra que segue vazia não vira tecla presa" do
+      logic = engaged(&reset_step/3)
+
+      {after_first, first} = reset_step(logic, spent_fight(), 2_000)
+      assert first.revive == :now
+
+      {after_second, second} = reset_step(after_first, spent_fight(), 4_000)
+      assert second.revive == :hold, "4s depois ainda está dentro do piso de 6s"
+
+      {_logic, third} = reset_step(after_second, spent_fight(), 9_000)
+      assert third.revive == :now
+    end
+
+    test "não com o pokémon já na bola — a ordem bateria numa porta fechada" do
+      logic = engaged(&reset_step/3)
+
+      {_logic, orders} = reset_step(logic, spent_fight(%{own_out?: false}), 2_000)
+
+      assert orders.revive == :hold
+    end
+
+    test "não por uma pilha que a régua nem abriria" do
+      logic = engaged(&reset_step/3)
+
+      {_logic, orders} = reset_step(logic, spent_fight(%{enemies: 2}), 2_000)
+
+      assert orders.revive == :hold
+    end
+
+    test "vermelho continua sendo vermelho: o resgate ganha do reset" do
+      logic = engaged(&reset_step/3)
+
+      {_logic, orders} = reset_step(logic, spent_fight(%{own_hp: 20}), 2_000)
+
+      assert orders.phase == :emergency
+      assert orders.revive == :now
+    end
+  end
+
   describe "hunting without gathering a pile" do
     @solo Map.merge(@config, %{gather_piles: false, engage_from: 1})
 

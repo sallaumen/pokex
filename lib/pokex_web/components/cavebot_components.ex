@@ -483,6 +483,7 @@ defmodule PokexWeb.CavebotComponents do
   feed below carries the same sentence beside what actually did.
   """
   attr :gather_piles, :boolean, default: true
+  attr :reset_revive, :boolean, default: false
 
   def engine_brain(assigns) do
     ~H"""
@@ -524,6 +525,26 @@ defmodule PokexWeb.CavebotComponents do
         ]}
       >
         {if @gather_piles, do: "juntando pilha", else: "sem juntar pilha"}
+      </button>
+
+      <%!-- R3b: barra vazia na frente de uma pilha que ainda vale é uma rodada
+            que já acabou. Desligado até ele conferir no jogo que recolher um
+            pokémon saudável zera os cooldowns dele. --%>
+      <button
+        id="toggle-reset-revive"
+        type="button"
+        phx-click="toggle_reset_revive"
+        aria-pressed={to_string(@reset_revive)}
+        title="Revive pra zerar cooldown quando a barra acaba com a pilha de pé"
+        class={[
+          "shrink-0 rounded border px-2 py-0.5 font-mono text-pk-meta",
+          if(@reset_revive,
+            do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+            else: "border-pk-line-strong text-pk-text-3"
+          )
+        ]}
+      >
+        {if @reset_revive, do: "F4 reseta cooldown", else: "F4 só no resgate"}
       </button>
     </section>
     """

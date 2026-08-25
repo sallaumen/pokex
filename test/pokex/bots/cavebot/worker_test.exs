@@ -663,7 +663,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     tick!(own)
 
     assert_receive {:combat_cmd, :run}, 1_000
-    assert_receive {:cavebot_alarm, :combat_preflight_failed}, 1_000
+    # O MOTIVO VAI JUNTO: "o combate recusou o arranque" sozinho não conserta
+    # nada, e o preflight sabe exatamente o que falta.
+    assert_receive {:cavebot_alarm, {:combat_preflight_failed, ["sem calibração"]}}, 1_000
     assert InputGate.panic_latched?()
     assert Worker.status(own).state == :blocked
   end

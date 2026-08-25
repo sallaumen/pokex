@@ -2,6 +2,7 @@ defmodule Pokex.Preflight do
   @moduledoc "Sanity checks executed when the user hits Start. Messages in PT-BR."
 
   alias Pokex.Bots.Capture
+  alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
   alias Pokex.Pokedex.Team
   alias Pokex.Rig.Mac
@@ -64,21 +65,21 @@ defmodule Pokex.Preflight do
 
   # Every slot, not just some: a key without a job is a key the fight cannot
   # choose — nem área, nem controle, nem alvo único.
+  #
+  # A DÉCIMA TECLA É O ZERO, e este check contava 1..10. Uma barra de dez slots
+  # tem as teclas 1–9 e 0, então ele procurava por uma tecla "10" que não existe
+  # em barra nenhuma e recusava o arranque PARA SEMPRE — o Dugtrio dele, com os
+  # dez slots todos classificados, nunca conseguiu ligar o combate, e a caçada
+  # bloqueava sem sair do lugar (26/08). `SkillBar.keys/1` já sabia disso desde
+  # sempre; era o único lugar que sabia.
   defp check_skills(errors, name) do
     skills = Team.skills(name)
     slots = bar_slots()
-    missing = Enum.reject(1..max(slots, 1)//1, &Map.has_key?(skills, to_string(&1)))
+    missing = Enum.reject(SkillBar.keys(slots), &Map.has_key?(skills, &1))
 
-    cond do
-      slots == 0 ->
-        errors
-
-      missing == [] ->
-        errors
-
-      true ->
-        ["#{name}: falta dizer o que faz #{slot_list(missing)} no /time" | errors]
-    end
+    if slots == 0 or missing == [],
+      do: errors,
+      else: ["#{name}: falta dizer o que faz #{slot_list(missing)} no /time" | errors]
   end
 
   defp bar_slots do

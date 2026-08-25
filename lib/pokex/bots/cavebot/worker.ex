@@ -670,8 +670,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
         state
 
       {:error, messages} ->
+        # O MOTIVO VAI JUNTO. Ele ficava só no Logger, e a tela dizia "o combate
+        # recusou o arranque" e mais nada — que é uma frase que não conserta
+        # nada. O preflight SABE o que falta ("Dugtrio está sem barra", "falta
+        # dizer o que faz a tecla 0"), e é isso que ele precisa ler pra
+        # resolver (26/08).
         Logger.warning("Cavebot: combate recusou o arranque (#{inspect(messages)})")
-        translate(state, {:block, :combat_preflight_failed})
+        translate(state, {:block, {:combat_preflight_failed, messages}})
     end
   end
 
@@ -692,7 +697,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # Then the full handbrake applies, in emergency_escape order: latch FIRST
   # (nothing may auto-resume over it), then the combat this worker drives, then
   # the whole fleet.
-  def translate(state, {:block, reason}) when reason in @dangerous_blocks do
+  def translate(state, {:block, reason}) do
+    if dangerous?(reason),
+      do: dangerous_block(state, reason),
+      else: local_block(state, reason)
+  end
+
+  # O motivo pode vir SOZINHO (`:floor_changed`) ou com o que precisa ser
+  # consertado junto (`{:combat_preflight_failed, mensagens}`). O que decide a
+  # gravidade é o nome, não a forma — e antes disto a forma nova teria caído
+  # calada no bloqueio local, sem trava e sem parar a frota.
+  defp dangerous?({name, _detail}), do: name in @dangerous_blocks
+  defp dangerous?(name), do: name in @dangerous_blocks
+
+  defp dangerous_block(state, reason) do
     state = release_walk(state)
     Logger.warning("Cavebot: BLOQUEADO (#{inspect(reason)}) — parando a frota")
     InputGate.set_panic_latch(true)
@@ -707,7 +725,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # latch (Focus can still resume on its own) and no `stop_all`. Only this hunt
   # stops: the tick, the feeds, and the combat — which in a hunt is driven from
   # here and would fight alone forever if it outlived its owner.
-  def translate(state, {:block, reason}) do
+  defp local_block(state, reason) do
     state = release_walk(state)
     Logger.warning("Cavebot: parei (#{inspect(reason)}) — o resto da frota segue")
     BotSupervisor.safe_halt(state.combat)
@@ -800,6 +818,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
   end
 
   defp block_text(:floor_changed), do: "BLOQUEADO: mudou de andar"
+
+  defp block_text({:combat_preflight_failed, messages}) when is_list(messages) and messages != [],
+    do: "BLOQUEADO: o combate recusou o arranque — " <> Enum.join(messages, " · ")
+
+  defp block_text({:combat_preflight_failed, _none}), do: block_text(:combat_preflight_failed)
   defp block_text(:combat_preflight_failed), do: "BLOQUEADO: o combate recusou o arranque"
   defp block_text(:stuck), do: "parei: travado, sem sair do lugar"
 

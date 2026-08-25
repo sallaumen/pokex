@@ -9,21 +9,13 @@ defmodule Pokex.Bots.Engine.LogicTest do
   """
   use ExUnit.Case, async: true
 
+  alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
 
-  @config %{
-    engage_from: 3,
-    pile_settle_ms: 1_500,
-    size_ceiling_ms: 4_000,
-    band_yellow_pct: 60,
-    band_red_pct: 30,
-    resume_pct: 80,
-    recover_timeout_ms: 30_000,
-    closing_timeout_ms: 8_000,
-    downed_retry_ms: 4_000,
-    revive_confirm_ms: 3_000,
-    rescue_cooldown_ms: 60_000
-  }
+  # AS SEMENTES, não uma cópia à mão. A cópia é a mesma armadilha que fez o
+  # bench responder sobre um bot que não existe: um ajuste novo nascia com um
+  # valor aqui e outro no `Settings`, e nenhum teste notava.
+  @config Config.merge()
 
   defp situation(overrides \\ %{}) do
     Map.merge(
@@ -102,7 +94,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert logic.state == :sizing
       assert orders.fire == :hold
 
-      {logic, orders} = step(logic, w, 1_000 + 4_000)
+      {logic, orders} = step(logic, w, 1_000 + @config.size_ceiling_ms)
       assert logic.state == :skipping
       assert orders.route == :go
       assert orders.fire == :hold
@@ -144,6 +136,30 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert logic.state == :engaged
       assert orders.fire == :free
+    end
+  end
+
+  # "Terminar o que começou" é a regra pra uma lista que ENCOLHE, não pra uma
+  # tela com ninguém nela: segurar a rota ali narra uma luta contra nada e
+  # mantém a caçada parada num ponto que ela já limpou.
+  describe "a pilha que acabou" do
+    test "a lista vazia encerra a rodada em vez de virar luta contra ninguém" do
+      pilha = world(%{hunt: hunt(%{state: :fighting})})
+      {logic, orders} = step(pilha, 1_000)
+      assert orders.phase == :engaged
+
+      limpa =
+        world(%{
+          situation: situation(%{enemies: 0, worth_fighting?: false}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {_logic, orders} = step(logic, limpa, 2_000)
+
+      assert orders.phase == :travelling
+      assert orders.route == :go
+      assert orders.fire == :hold
+      assert orders.why =~ "pilha limpa"
     end
   end
 
@@ -252,13 +268,21 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.route == :go
     end
 
-    # A revive that never lands must not end the night standing still.
-    test "gives up recovering after the ceiling and walks again" do
+    # Um revive que não sai não pode encerrar a noite parado — e a espera dura o
+    # que um revive leva pra se mostrar (`revive_confirm_ms`), não o teto de
+    # recuperação inteiro. Ver R5.
+    test "gives up as soon as the revive fails to show itself" do
       {logic, _} = step(world(%{situation: situation(%{own_hp: 18})}), 1_000)
-      {logic, orders} = step(logic, world(%{situation: situation(%{own_hp: 40})}), 1_000 + 30_000)
+
+      {logic, orders} =
+        step(
+          logic,
+          world(%{situation: situation(%{own_hp: 40})}),
+          1_000 + @config.revive_confirm_ms
+        )
 
       assert logic.state == :travelling
-      assert orders.why =~ "desisti de esperar"
+      assert orders.why =~ "o revive não saiu"
     end
   end
 
@@ -340,7 +364,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # The bench measured the hunt spending 12-23% of a run in exactly that state,
   # and the rule buying back +13% of the kills for zero extra deaths.
   describe "o revive como reset de cooldown (R3b)" do
-    @reset Map.merge(@config, %{reset_revive: true, engage_from: 3})
+    @reset Config.merge(%{reset_revive: true, engage_from: 3})
 
     defp reset_step(logic, world, now), do: Logic.step(logic, world, @reset, now)
 
@@ -392,9 +416,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert first.revive == :now
 
       {after_second, second} = reset_step(after_first, spent_fight(), 4_000)
-      assert second.revive == :hold, "4s depois ainda está dentro do piso de 6s"
+      assert second.revive == :hold, "ainda dentro do piso"
 
-      {_logic, third} = reset_step(after_second, spent_fight(), 9_000)
+      passou = 2_000 + @reset.reset_revive_cooldown_ms + 1
+      {_logic, third} = reset_step(after_second, spent_fight(), passou)
       assert third.revive == :now
     end
 
@@ -497,6 +522,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.route == :go
     end
 
+    # O motivo comum pra estar fora de campo é um revive JÁ em voo. A carência é
+    # o tempo que um leva pra se mostrar, não a cadência inteira.
     test "espera o corpo voltar antes de pedir outro revive" do
       {_logic, orders} = step(caido(), 1_000)
 
@@ -505,27 +532,30 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     test "e pede de novo quando ele não volta" do
       {logic, _} = step(caido(), 1_000)
-      {_logic, orders} = step(logic, caido(), 1_000 + @config.downed_retry_ms)
+      {_logic, orders} = step(logic, caido(), 1_000 + @config.revive_confirm_ms)
 
       assert orders.revive == :now
       assert orders.why =~ "não voltou"
     end
 
-    test "uma vez por piso, não uma por tique" do
+    # A cadência é o piso que a MÃO respeita entre dois revives de caído. Pedir
+    # mais rápido do que ela responde é barulho no feed e nada no jogo.
+    test "e depois na cadência da mão, não uma por tique" do
       {logic, _} = step(caido(), 1_000)
-      {logic, first} = step(logic, caido(), 1_000 + @config.downed_retry_ms)
+      {logic, first} = step(logic, caido(), 1_000 + @config.revive_confirm_ms)
       assert first.revive == :now
 
-      {logic, second} = step(logic, caido(), 1_100 + @config.downed_retry_ms)
+      {logic, second} = step(logic, caido(), 1_100 + @config.revive_confirm_ms)
       assert second.revive == :hold
 
-      {_logic, third} = step(logic, caido(), 1_000 + 2 * @config.downed_retry_ms)
+      passou = 1_000 + @config.revive_confirm_ms + @config.fainted_revive_cooldown_ms
+      {_logic, third} = step(logic, caido(), passou)
       assert third.revive == :now
     end
 
     test "uma queda nova recomeça o piso, sem herdar o relógio da anterior" do
       {logic, _} = step(caido(), 1_000)
-      {logic, _} = step(logic, caido(), 1_000 + @config.downed_retry_ms)
+      {logic, _} = step(logic, caido(), 1_000 + @config.revive_confirm_ms)
       {logic, _} = step(logic, world(), 60_000)
 
       {_logic, orders} = step(logic, caido(), 60_100)
@@ -550,7 +580,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
           {logic, if(orders.revive == :now, do: [orders | asks], else: asks)}
         end)
 
-      assert length(asks) <= 9, "70s de chão não podem virar uma tecla presa"
+      assert length(asks) <= 6, "70s de chão não podem virar uma tecla presa"
       assert hd(asks).why =~ "não está saindo"
     end
 
@@ -586,13 +616,18 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "o revive não saiu"
     end
 
-    test "mas uma vida que subiu é um revive que saiu: aí ela espera mesmo" do
+    # A prova de que o revive SAIU é a barra cheia: ele devolve o pokémon com
+    # 100%, e o caminho de volta (corpo fora de campo) é do `:downed`. Uma vida
+    # que subiu um pouco é uma poção, não um revive — esperar por ele aí é
+    # esperar por algo que já foi recusado.
+    test "e a barra de volta acima da linha retoma a caçada" do
       logic = ordena_e_espera(20)
 
-      {_logic, orders} = step(logic, ferido(45), 1_000 + @config.revive_confirm_ms)
+      {_logic, orders} =
+        step(logic, ferido(@config.resume_pct + 5), 1_000 + @config.revive_confirm_ms)
 
-      assert orders.phase == :recovering
-      assert orders.route == :hold
+      refute orders.phase == :recovering
+      assert orders.route == :hold, "voltou pra caçada: a pilha ainda está lá"
     end
 
     test "recusado, a banda para de segurar a rota até o piso passar" do
@@ -632,7 +667,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # caminho inteiro, e a fase que anda BATENDO mata mais por minuto no bench.
   # A chave existe pra ele decidir, com o número na frente.
   describe "bater em quem vem junto ao deixar a pilha" do
-    @batendo Map.put(@config, :skip_fire, true)
+    @batendo Config.merge(%{skip_fire: true})
 
     defp passando(config) do
       pequena =
@@ -665,7 +700,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
   end
 
   describe "hunting without gathering a pile" do
-    @solo Map.merge(@config, %{gather_piles: false, engage_from: 1})
+    @solo Config.merge(%{gather_piles: false, engage_from: 1})
 
     defp solo_step(logic \\ Logic.new(), world, now),
       do: Logic.step(logic, world, @solo, now)

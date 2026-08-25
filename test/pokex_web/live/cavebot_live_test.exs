@@ -207,15 +207,24 @@ defmodule PokexWeb.CavebotLiveTest do
 
     # the Fake answers from its SCRIPT, and repeats the last entry forever
     # the Fake answers from its SCRIPT, and repeats the last entry forever
+    # UM watch responde uma vez. O `Rig.Fake` repete a última entrada do roteiro
+    # pra sempre (certo pra uma leitura de estado, como a posição do cursor, e
+    # mentira pra um watch, que reporta "o que aconteceu desde a última vez").
+    # Sem o silêncio no fim, um tique a mais — e numa máquina lenta ele vem —
+    # relê os mesmos eventos e o combo sai duplicado: o CI pegou `["3", "3"]`
+    # onde a máquina daqui sempre viu `["3"]` (25/08).
     defp clicks!(count, point, at \\ 0) do
       Agent.update(Pokex.Rig.Fake, fn state ->
-        put_in(state.script[:middle_watch], [{:ok, %{count: count, point: point, at: at}}])
+        put_in(state.script[:middle_watch], [
+          {:ok, %{count: count, point: point, at: at}},
+          {:ok, %{count: 0, point: {0, 0}, at: 0}}
+        ])
       end)
     end
 
     defp presses!(events) do
       Agent.update(Pokex.Rig.Fake, fn state ->
-        put_in(state.script[:key_watch], [{:ok, events}])
+        put_in(state.script[:key_watch], [{:ok, events}, {:ok, []}])
       end)
     end
 

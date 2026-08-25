@@ -70,6 +70,23 @@ defmodule Pokex.Bots.Engine.Situation do
   guess must never look like one made on a name.
   """
 
+  @type t :: %{
+          rows: non_neg_integer | nil,
+          enemies: non_neg_integer | nil,
+          named: [map],
+          own_row_seen?: boolean | :unnamed | nil,
+          worth_fighting?: boolean,
+          growing?: boolean,
+          stable_since: integer,
+          stable_for_ms: non_neg_integer,
+          own_hp: 0..100 | nil,
+          own_out?: boolean | :unknown,
+          ready_keys: [String.t()] | nil,
+          spent?: boolean | nil,
+          blind?: boolean,
+          at: integer
+        }
+
   @doc """
   Builds the picture from what was read this tick.
 
@@ -81,7 +98,7 @@ defmodule Pokex.Bots.Engine.Situation do
 
   `config` carries `:engage_from`.
   """
-  @spec build(map, map, integer) :: map
+  @spec build(map, map, integer) :: t
   def build(inputs, config, now) do
     battle =
       read_battle(

@@ -997,6 +997,14 @@ defmodule Pokex.Settings do
     # Lucas 2026-08-24, watching Rattata be walked past). With this off, worth
     # fighting means fight NOW, and a stretch recorded for mobbing is walked
     # with the fire free instead of held.
+    #
+    # MEDIDO em 25/08, e antes disso não podia ser: o bench respondia
+    # `luring?: false` sempre, então o ramo `:gathering` era inalcançável e uma
+    # varredura deste botão foi uma varredura de nada. Com um trecho de mobada
+    # no cenário da caçada, 5 min × 12 sementes: juntando 7,13 mortos/min contra
+    # 6,35 solto, com 0,08 quedas contra 0,25 e menos da metade do tempo no
+    # chão. Na régua dele (1) o placar quase empata — o que faz sentido: quem
+    # luta tudo não precisa que a pilha se forme.
     engine_gather_piles: true,
     # "Pararam de chegar" needs a floor: how long the count must hold still
     # before the pile counts as closed. A MEASUREMENT, not a preference — his
@@ -1080,13 +1088,6 @@ defmodule Pokex.Settings do
     # Nor may closing a round wait forever for a pile that stopped coming — the
     # ceiling this same number doubles as, for when to give up and revive.
     engine_closing_timeout_ms: 8_000,
-    # With the pokemon PROVEN off the field the engine asks for the revive again
-    # every this-many ms. The fallen rescue in PlayerSupport fires once per death
-    # and then disarms itself until a live bar is seen again, so before this knob
-    # existed a revive that did not land ended the night with nobody asking twice.
-    # The first ask waits the same window: the ordinary reason to be off the field
-    # is a revive already in flight.
-    engine_downed_retry_ms: 4_000,
     # R5: how long a revive has to prove it landed before the engine calls it a
     # refusal and walks again. Its only job is to be longer than the game takes
     # to put the body back and much shorter than the recovery ceiling — the
@@ -1329,7 +1330,6 @@ defmodule Pokex.Settings do
     engine_resume_pct: 1..100,
     engine_recover_timeout_ms: 1_000..600_000,
     engine_closing_timeout_ms: 100..600_000,
-    engine_downed_retry_ms: 500..600_000,
     engine_revive_confirm_ms: 500..600_000,
     engine_hunt_max_age_ms: 200..60_000,
     engine_orders_max_age_ms: 200..60_000,

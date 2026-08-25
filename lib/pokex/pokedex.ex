@@ -1,76 +1,76 @@
 defmodule Pokex.Pokedex do
   @moduledoc """
-  The local Pokédex: every species (and its Shiny variant) scraped from the
-  PokeTibia wiki by `mix pokedex.scrape`, loaded once from priv/pokedex/pokedex.json
+  The local Pokédex: every species (and its Shiny variant) fetched from the
+  wiki's API by `mix pokedex.sync`, loaded once from priv/pokedex/pokedex.json
   and served from :persistent_term — pure reads, no process.
 
   This is the queryable base Lucas asked for (search by level, element,
-  weakness) AND the future shiny-detector's reference set (each entry carries
-  its sprite, shinies included). Re-scraping rewrites the JSON; the app picks
-  it up on the next restart.
+  weakness, generation, tier) AND the shiny-detector's reference set (each
+  entry carries its sprite, shinies included). Re-syncing rewrites the JSON;
+  the app picks it up on the next restart.
+
+  The four effectiveness buckets are NOT in the file: the wiki publishes no
+  effectiveness at all, so `Pokex.Pokedex.TypeChart` derives them from each
+  entry's elements at load time. The file holds only what the wiki said.
   """
 
-  alias Pokex.Pokedex.Clans
+  alias Pokex.Pokedex.TypeChart
 
   @doc "Every species entry (shiny variants included, `shiny_of` set on them)."
   def species, do: data().species
 
-  @doc "Every fishing lure with its level tiers."
-  def lures, do: data().lures
-
-  @doc "When the dataset was last synced (ISO8601), or nil — anchors the novelty badges."
+  @doc "When the dataset was last synced (ISO8601), or nil."
   def synced_at, do: data().synced_at
-
-  @novelty_days 7
-
-  @doc "The novelty window in days (the wiki-edit recency that counts as NEW)."
-  def novelty_days, do: @novelty_days
-
-  @doc """
-  How many days ago the WIKI last edited this entry's page, or nil when
-  unknown. This — not our own sync bookkeeping — is what "novidade" means:
-  it recycles itself as time passes, and a first-ever sync doesn't paint the
-  whole base as new (per Lucas: new means new ON THE WIKI in the last seven
-  days, not new to this local base).
-  """
-  def wiki_age_days(entry, today \\ nil) do
-    today = today || Date.utc_today()
-
-    with date when is_binary(date) <- entry.edited_at,
-         {:ok, edited} <- Date.from_iso8601(date) do
-      Date.diff(today, edited)
-    else
-      _unknown -> nil
-    end
-  end
-
-  @doc "Fresh on the WIKI: edited within `novelty_days` (nil when older/unknown)."
-  def novelty(entry, today \\ nil) do
-    case wiki_age_days(entry, today) do
-      days when is_integer(days) and days >= 0 and days <= @novelty_days -> {:wiki, days}
-      _older_or_unknown -> nil
-    end
-  end
 
   def get(name), do: Enum.find(species(), &(&1.name == name))
 
   @doc "Every species name — the lexicon a screen reading is closed against."
   def names, do: Enum.map(species(), & &1.name)
 
-  # The origin lives in config (`:wiki_base`) — the one place the specific
-  # server is named, so the rest of this codebase can say PokeTibia.
-  defp wiki_base, do: Application.get_env(:pokex, :wiki_base) <> "/index.php/"
+  @doc """
+  The same species in the other skin: `variant_of(bulbasaur, "shiny")`.
+
+  Asked by NUMBER and variant, which is the pairing the wiki actually
+  publishes — the PokeXGames base carried a `shiny_name` string on the normal
+  form, and the Poké Alliance has no such field.
+  """
+  def variant_of(%{number: number}, variant) when is_integer(number) and is_binary(variant),
+    do: Enum.find(species(), &(&1.number == number and &1.variant == variant))
+
+  def variant_of(_numberless, _variant), do: nil
 
   @doc """
-  The entry's page on the PokeTibia wiki — where every field here came from, and
-  the escape hatch whenever the harvest still looks thin (Lucas asked for the
-  original wiki link on every pokémon). Derived from the name exactly like
-  the scraper derives it, so the link points at the page we actually read.
+  The entry's page on the wiki — where every field here came from, and the
+  escape hatch whenever the harvest still looks thin (Lucas asked for the
+  original wiki link on every pokémon). Built from the entry's OWN path, so
+  the link points at the page we actually read.
   """
-  def wiki_url(%{name: name}) when is_binary(name) and name != "",
-    do: wiki_base() <> URI.encode(String.replace(name, " ", "_"))
+  def wiki_url(%{path: path}) when is_binary(path) and path != "",
+    do: Application.get_env(:pokex, :wiki_base) <> "/" <> path
 
-  def wiki_url(_nameless), do: nil
+  def wiki_url(_pathless), do: nil
+
+  @doc "Every generation in the dataset (for the filter chips)."
+  def generations, do: species() |> Enum.map(& &1.generation) |> distinct_sorted()
+
+  @doc "Every tier in the dataset, ordered the way the wiki's own filter orders them."
+  def tiers, do: species() |> Enum.map(& &1.tier) |> distinct() |> Enum.sort_by(&tier_rank/1)
+
+  @doc "Every role in the dataset (PVE/PVP)."
+  def roles, do: species() |> Enum.map(& &1.role) |> distinct_sorted()
+
+  defp distinct(values), do: values |> Enum.reject(&is_nil/1) |> Enum.uniq()
+  defp distinct_sorted(values), do: values |> distinct() |> Enum.sort()
+
+  # The wiki's own filter order: ULTIMATE, tiers 1-7, then the named ones.
+  @tier_order ~w(ULTIMATE 1 2 3 4 5 6 7) ++ ["Super Rare", "Legendary", "Mythic", "Ultra Rare"]
+
+  defp tier_rank(tier) do
+    case Enum.find_index(@tier_order, &(&1 == tier)) do
+      nil -> length(@tier_order)
+      index -> index
+    end
+  end
 
   @doc """
   Filtered species search. Filters compose (all must match):
@@ -80,18 +80,16 @@ defmodule Pokex.Pokedex do
       `:element` binary still works, for bookmarked URLs)
     * `:weak_to` — ANY of these elements hits the species hard (list, or the
       old singular binary)
-    * `:clans` — species belongs to ANY of these PokeTibia clans (derived from materia)
+    * `:generations` — species belongs to ANY of these generations (list of integers)
+    * `:tiers` — species sits in ANY of these tiers (list; "ULTIMATE", "6", "Legendary"…)
+    * `:roles` — species is marked for ANY of these roles (list; "PVE"/"PVP")
+    * `:variant` — `"normal"` or `"shiny"` (absent/"" means both)
     * `:min_level` / `:max_level` — inclusive bounds (species without a level drop)
-    * `:only_shiny` — only Shiny variants
-    * `:edited_after` — wiki page edited on/after this "YYYY-MM-DD" (entries
-      without a known edit date drop when this filter is on)
-    * `:only_novelty` — only entries the LAST sync brought in or changed
 
   Sorting (`:sort` + `:desc`): `:number` (default), `:name`, `:level`,
-  `:element`, `:weak_to`, `:shiny`, `:edited` (the WIKI's own edit date —
-  which pokémon the wiki touched last) or `:changed` (OUR last content
-  change). Missing values always sink to the bottom, in BOTH directions —
-  a level-less entry is never the "highest level".
+  `:element`, `:weak_to`, `:shiny`, `:tier` or `:generation`. Missing values
+  always sink to the bottom, in BOTH directions — a level-less entry is never
+  the "highest level", and a tier-less one is never the strongest.
   """
   def search(filters) when is_map(filters) do
     {sort, desc?, filters} = pop_sort(filters)
@@ -193,33 +191,12 @@ defmodule Pokex.Pokedex do
   defp sort_key(entry, :level), do: entry.level
   defp sort_key(entry, :element), do: List.first(entry.elements)
   defp sort_key(entry, :weak_to), do: List.first(entry.weak_to)
-  defp sort_key(entry, :edited), do: entry.edited_at
-  defp sort_key(entry, :changed), do: entry.changed_at || entry.first_seen_at
+  defp sort_key(entry, :tier), do: entry.tier && tier_rank(entry.tier)
+  defp sort_key(entry, :generation), do: entry.generation
   # shiny variants first (or last, flipped): the base form's own name groups
   # each pair together, so a Shiny sits beside its base either way
   defp sort_key(entry, :shiny), do: {entry.shiny_of == nil, entry.shiny_of || entry.name}
   defp sort_key(entry, _number_or_unknown), do: entry.number || 9_999
-
-  @doc "The Shiny variants a lure can hook, with the fishing level of each tier."
-  def shinies_for_lure(lure_name) do
-    case Enum.find(lures(), &(&1.name == lure_name)) do
-      nil ->
-        []
-
-      lure ->
-        for tier <- lure.tiers,
-            name <- tier.pokemon,
-            String.starts_with?(name, "Shiny "),
-            do: %{name: name, fishing_level: tier.fishing_level}
-    end
-  end
-
-  @doc "Which lures can hook `name`, as [%{lure, fishing_level}] (all tiers)."
-  def lures_for(name) do
-    for lure <- lures(), tier <- lure.tiers, name in tier.pokemon do
-      %{lure: lure.name, fishing_level: tier.fishing_level}
-    end
-  end
 
   @doc """
   Hunt suggestions for the team: `%{targets, threats}`.
@@ -227,8 +204,8 @@ defmodule Pokex.Pokedex do
   TARGETS — base species at least one member hits super-effectively (a member
   element inside the target's weak_to), ranked by a transparent score:
   +2 per weakness hit, -2 per member element the target RESISTS, +1 when a
-  Shiny variant exists (upside!), +1 when fishable. Each row names the best
-  member and carries the reasons, so the ranking is auditable on screen.
+  Shiny variant exists (upside!). Each row names the best member and carries
+  the reasons, so the ranking is auditable on screen.
 
   THREATS — species whose own elements hit a member's weaknesses (who hits
   ME hard), one row per species with every endangered member, ranked by
@@ -253,7 +230,7 @@ defmodule Pokex.Pokedex do
 
     candidates =
       search(filters)
-      |> Enum.filter(&(&1.shiny_of == nil and &1.name not in member_names))
+      |> Enum.filter(&(&1.variant == "normal" and &1.name not in member_names))
 
     {pool, window} = level_pool(candidates, player_level, margin)
 
@@ -312,8 +289,7 @@ defmodule Pokex.Pokedex do
         nil
 
       {base_score, member, hits, resisted} ->
-        lures = lures_for(target.name)
-        shiny? = target.shiny_name != nil
+        shiny? = variant_of(target, "shiny") != nil
 
         %{
           entry: target,
@@ -321,8 +297,7 @@ defmodule Pokex.Pokedex do
           hits: hits,
           resisted: resisted,
           shiny?: shiny?,
-          lures: lures,
-          score: base_score + if(shiny?, do: 1, else: 0) + if(lures != [], do: 1, else: 0)
+          score: base_score + if(shiny?, do: 1, else: 0)
         }
     end
   end
@@ -347,13 +322,8 @@ defmodule Pokex.Pokedex do
     end
   end
 
-  @doc "Every element seen in the dataset (for filter selects)."
-  def elements do
-    species()
-    |> Enum.flat_map(&(&1.elements ++ &1.weak_to))
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
+  @doc "The eighteen elements, for the filter chips — the chart's list, not the dataset's."
+  def elements, do: TypeChart.elements()
 
   @doc "True when the scraped dataset is present (the page hints at the mix task when not)."
   def loaded?, do: species() != []
@@ -393,8 +363,20 @@ defmodule Pokex.Pokedex do
     Enum.any?(list, &(&1 in entry.weak_to))
   end
 
-  defp filter_matches?(entry, {:clans, list}) when is_list(list) and list != [] do
-    Enum.any?(list, &(&1 in entry.clans))
+  defp filter_matches?(entry, {:generations, list}) when is_list(list) and list != [] do
+    entry.generation in list
+  end
+
+  defp filter_matches?(entry, {:tiers, list}) when is_list(list) and list != [] do
+    entry.tier in list
+  end
+
+  defp filter_matches?(entry, {:roles, list}) when is_list(list) and list != [] do
+    entry.role in list
+  end
+
+  defp filter_matches?(entry, {:variant, variant}) when is_binary(variant) and variant != "" do
+    entry.variant == variant
   end
 
   defp filter_matches?(entry, {:min_level, min}) when is_integer(min) do
@@ -403,20 +385,6 @@ defmodule Pokex.Pokedex do
 
   defp filter_matches?(entry, {:max_level, max}) when is_integer(max) do
     is_integer(entry.level) and entry.level <= max
-  end
-
-  defp filter_matches?(entry, {:only_shiny, true}) do
-    entry.shiny_of != nil
-
-    # ISO dates compare correctly as strings
-  end
-
-  defp filter_matches?(entry, {:edited_after, date}) when is_binary(date) and date != "" do
-    is_binary(entry.edited_at) and entry.edited_at >= date
-  end
-
-  defp filter_matches?(entry, {:only_novelty, true}) do
-    novelty(entry) != nil
   end
 
   defp filter_matches?(_entry, _ignored_filter) do
@@ -449,114 +417,48 @@ defmodule Pokex.Pokedex do
     with {:ok, bin} <- File.read(path),
          {:ok, json} <- JSON.decode(bin) do
       %{
-        species: (json["species"] || []) |> Enum.map(&species_entry/1) |> inherit_clans(),
-        lures: Enum.map(json["lures"] || [], &lure_entry/1),
+        species: Enum.map(json["species"] || [], &species_entry/1),
         synced_at: json["scraped_at"]
       }
     else
-      _missing_or_corrupt -> %{species: [], lures: [], synced_at: nil}
+      _missing_or_corrupt -> %{species: [], synced_at: nil}
     end
   end
 
-  # The wiki writes a dual type five different ways — "Grass / Poison",
-  # "Normal e Psychic", "Dragon &amp; Flying", "Ice. Poison", "flying and bug"
-  # — and sometimes in lowercase. Unsplit, 30 entries carried a single bogus
-  # element: filtering by Flying simply MISSED Rayquaza, and the filter's own
-  # option list showed 40 phantom "elements". Normalising here (not in the
-  # scraper) heals the base already on disk, with no re-sync.
-  # No PokeTibia element name has a space, so whitespace is a separator too — that is
-  # what rescues "Ice Poison", written with no separator at all.
-  @element_separators ~r{\s*(?:/|&amp;|&|,|\.|\be\b|\band\b)\s*|\s+}
-
-  # One-off wiki misspellings, each measured at 1-5 occurrences in the whole
-  # base (against Crystal's 865, which is a REAL PokeTibia type, not a typo).
-  @element_aliases %{
-    "Gound" => "Ground",
-    "Groud" => "Ground",
-    "Earth" => "Ground",
-    "Posion" => "Poison",
-    "Fly" => "Flying",
-    "Metal" => "Steel"
-  }
-
-  defp normalize_elements(list) do
-    (list || [])
-    |> Enum.flat_map(&String.split(&1, @element_separators, trim: true))
-    |> Enum.map(fn element ->
-      element = element |> String.trim() |> String.capitalize()
-      Map.get(@element_aliases, element, element)
-    end)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  # 18 of the 80 materia-less entries are Shiny variants whose base form HAS
-  # one — same creature, same clan, so inherit it instead of showing "no clan".
-  defp inherit_clans(species) do
-    by_name = Map.new(species, &{&1.name, &1})
-
-    Enum.map(species, fn
-      %{clans: [], shiny_of: base_name} = entry when is_binary(base_name) ->
-        case by_name[base_name] do
-          %{clans: clans} -> %{entry | clans: clans}
-          nil -> entry
-        end
-
-      entry ->
-        entry
-    end)
-  end
-
+  # The four effectiveness buckets are DERIVED here, not read: the wiki
+  # publishes no effectiveness at all, so pokedex.json holds only what the
+  # wiki said and `TypeChart` answers the rest. Correcting a chart cell is an
+  # edit, not a re-sync of 910 pages.
   defp species_entry(map) do
+    elements = map["elements"] || []
+
     %{
       name: map["name"],
       number: map["number"],
-      level: map["level"],
-      elements: normalize_elements(map["elements"]),
-      boost: map["boost"],
-      habilidades: map["habilidades"] || [],
-      materia: map["materia"],
-      # PokeTibia clan(s), derived from materia at load time — filterable, with no
-      # hand-marking of 866 entries; a shiny without materia inherits from its
-      # base form (see inherit_clans/1)
-      clans: Clans.parse(map["materia"]),
-      evolution_stones: map["evolution_stones"] || [],
-      description: map["description"],
-      # effectiveness lines are element lists too — same five spellings, same
-      # normalisation, or "fraco contra Flying" misses "Flying e Rock"
-      weak_to: normalize_elements(map["weak_to"]),
-      resists: normalize_elements(map["resists"]),
-      neutral: normalize_elements(map["neutral"]),
-      # elements that do NOTHING to it ("Nulo"/"Imune") — absent from older
-      # scrapes, which simply never read that line
-      immune: normalize_elements(map["immune"]),
-      # the tiers as the page words them ("Efetivo" vs "Muito Efetivo"), so the
-      # detail page can show two strengths instead of one flattened list
-      effectiveness:
-        Enum.map(map["effectiveness"] || [], fn tier ->
-          %{
-            label: tier["label"],
-            kind: tier["kind"],
-            elements: normalize_elements(tier["elements"])
-          }
-        end),
-      evolutions:
-        Enum.map(map["evolutions"] || [], fn evo ->
-          %{name: evo["name"], level: evo["level"]}
-        end),
-      # nil = entry predates the moves scrape (the page hints at re-sync);
-      # [] = scraped and the page truly has no table
-      moves: map["moves"] && Enum.map(map["moves"], &move_entry/1),
-      # the PVP moveset — same slots, different cooldowns; kept apart so the
-      # hunting (PVE) numbers are never mixed with it
-      moves_pvp: map["moves_pvp"] && Enum.map(map["moves_pvp"], &move_entry/1),
-      sprite: map["sprite"],
+      generation: map["generation"],
+      variant: map["variant"],
       shiny_of: map["shiny_of"],
-      shiny_name: map["shiny_name"],
-      edited_at: map["edited_at"],
+      level: map["level"],
+      tier: map["tier"],
+      role: map["role"],
+      hp: map["hp"],
+      experience: map["experience"],
+      elements: elements,
+      habilidades: map["habilidades"] || [],
+      description: map["description"],
+      moves: map["moves"] && Enum.map(map["moves"], &move_entry/1),
+      evolves_to: Enum.map(map["evolves_to"] || [], &evolution_entry/1),
+      evolves_from: Enum.map(map["evolves_from"] || [], &evolution_entry/1),
+      sprite: map["sprite"],
+      path: map["path"],
+      weak_to: TypeChart.weak_to(elements),
+      resists: TypeChart.resists(elements),
+      neutral: TypeChart.neutral(elements),
+      immune: TypeChart.immune(elements),
+      effectiveness: TypeChart.effectiveness(elements),
       scraped_at: map["scraped_at"],
-      # our own clock (see Scraper.upsert): when this entry ENTERED the base
-      # and when its content last actually changed — the novelty signals
+      # our own clock (see Pokex.Pokedex.Upsert): when this entry ENTERED the
+      # base and when its content last actually changed
       first_seen_at: map["first_seen_at"],
       changed_at: map["changed_at"]
     }
@@ -567,19 +469,11 @@ defmodule Pokex.Pokedex do
       slot: map["slot"],
       name: map["name"],
       cooldown_s: map["cooldown_s"],
-      element: map["element"],
-      tags: map["tags"] || [],
-      level: map["level"]
+      element: map["element"]
     }
   end
 
-  defp lure_entry(map) do
-    %{
-      name: map["name"],
-      tiers:
-        Enum.map(map["tiers"] || [], fn tier ->
-          %{fishing_level: tier["fishing_level"], pokemon: tier["pokemon"] || []}
-        end)
-    }
+  defp evolution_entry(map) do
+    %{name: map["name"], level: map["level"], items: map["items"] || []}
   end
 end

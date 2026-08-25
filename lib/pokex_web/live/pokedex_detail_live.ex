@@ -2,7 +2,7 @@ defmodule PokexWeb.PokedexDetailLive do
   @moduledoc """
   One Pokémon, one page (`/pokedex/:name`): the click-through Lucas asked
   for — explore an individual Pokémon with easy back navigation and a snappy
-  feel. Pure `Pokedex.get/1` + `lures_for/1` reads — nothing heavy — and
+  feel. Pure `Pokedex.get/1` + `variant_of/2` reads — nothing heavy — and
   every related name (evolutions, shiny variant, base form) is another
   navigate link, so exploring chains is one click per hop with the browser's
   back button always meaningful.
@@ -63,7 +63,6 @@ defmodule PokexWeb.PokedexDetailLive do
       page_title: "Pokédex",
       entry: nil,
       missing_name: name,
-      lures: [],
       base: nil,
       shiny: nil,
       membership: nil,
@@ -77,9 +76,8 @@ defmodule PokexWeb.PokedexDetailLive do
       page_title: entry.name,
       entry: entry,
       missing_name: nil,
-      lures: Pokedex.lures_for(entry.name),
-      base: entry.shiny_of && Pokedex.get(entry.shiny_of),
-      shiny: entry.shiny_name && Pokedex.get(entry.shiny_name),
+      base: entry.variant == "shiny" && Pokedex.variant_of(entry, "normal"),
+      shiny: entry.variant == "normal" && Pokedex.variant_of(entry, "shiny"),
       membership: membership(entry.name),
       matchup: matchup(entry),
       team_empty?: Team.members() == []
@@ -112,16 +110,23 @@ defmodule PokexWeb.PokedexDetailLive do
     end
   end
 
-  # The wiki words effectiveness in tiers of different strength — Venusaur has
-  # BOTH "Inefetivo" and "Muito Inefetivo" — so show the tiers apart, labelled
-  # as the page labels them. Only one tier (or an entry scraped before we kept
-  # the labels) collapses back to a single unlabelled row.
+  # The chart answers in tiers of different strength — Grass/Poison has BOTH
+  # "Inefetivo" and "Muito Inefetivo" — so show the tiers apart, labelled as
+  # the old wiki pages worded them. A single tier collapses back to one
+  # unlabelled row.
   defp tiers(entry, kind, fallback) do
     case Enum.filter(entry.effectiveness, &(&1.kind == kind and &1.elements != [])) do
       [] -> [%{label: nil, elements: fallback}]
       [only] -> [%{only | label: nil}]
       many -> many
     end
+  end
+
+  # Both directions in one list, each row labelled — the wiki publishes
+  # "Evolui de" and "Pode evoluir para" separately, and a species can have both.
+  defp evolution_rows(entry) do
+    Enum.map(entry.evolves_from, &{"evolui de", &1}) ++
+      Enum.map(entry.evolves_to, &{"evolui para", &1})
   end
 
   attr :element, :string, required: true
@@ -167,13 +172,6 @@ defmodule PokexWeb.PokedexDetailLive do
         >
           ⏱ {move.cooldown_s}s
         </span>
-        <span
-          :for={tag <- Enum.reject(move.tags, &(&1 == "Focus Blocked"))}
-          class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[9px] text-[#8b949d]"
-        >
-          {tag}
-        </span>
-        <span :if={move.level} class="font-mono text-[9px] text-[#59636b]">lv {move.level}</span>
       </li>
     </ul>
     """
@@ -239,7 +237,7 @@ defmodule PokexWeb.PokedexDetailLive do
               />
               <div class="min-w-0">
                 <h1 class="text-xl font-bold">
-                  {@entry.name}<span :if={@entry.shiny_of}> ✨</span>
+                  {@entry.name}<span :if={@entry.variant == "shiny"}> ✨</span>
                 </h1>
                 <p class="mt-1 flex flex-wrap gap-1.5 font-mono text-[11px]">
                   <span :if={@entry.number} class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd]">
@@ -249,23 +247,42 @@ defmodule PokexWeb.PokedexDetailLive do
                     lv {@entry.level || "?"}
                   </span>
                   <.element_chip :for={el <- @entry.elements} element={el} />
-                  <span :if={@entry.clans != []} id="entry-clans" class="contents">
-                    <.link
-                      :for={clan <- @entry.clans}
-                      navigate={~p"/pokedex?#{%{"clans" => [clan]}}"}
-                      title={"ver todos do clã #{clan}"}
-                      class="rounded px-1.5 py-0.5 transition hover:ring-1 hover:ring-[#37d07d]/60"
-                      style={PokedexStyle.clan_style(clan)}
-                    >
-                      ⚑ {clan}
-                    </.link>
+                  <.link
+                    :if={@entry.tier}
+                    id="entry-tier"
+                    navigate={~p"/pokedex?#{%{"tiers" => [@entry.tier]}}"}
+                    title={"ver todos do tier #{@entry.tier}"}
+                    class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd] transition hover:ring-1 hover:ring-[#37d07d]/60"
+                  >
+                    🏅 tier {@entry.tier}
+                  </.link>
+                  <.link
+                    :if={@entry.generation}
+                    id="entry-generation"
+                    navigate={~p"/pokedex?#{%{"generations" => [@entry.generation]}}"}
+                    title={"ver todos da geração #{@entry.generation}"}
+                    class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd] transition hover:ring-1 hover:ring-[#37d07d]/60"
+                  >
+                    gen {@entry.generation}
+                  </.link>
+                  <span :if={@entry.role} class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd]">
+                    🎯 {@entry.role}
                   </span>
-                  <span :if={@entry.boost} class="rounded bg-[#211b0d] px-1.5 py-0.5 text-[#f3ba4e]">
-                    boost {@entry.boost}
+                  <span
+                    :if={@entry.hp}
+                    id="entry-hp"
+                    class="rounded bg-[#211b0d] px-1.5 py-0.5 text-[#f3ba4e]"
+                  >
+                    ❤️ {@entry.hp}
+                  </span>
+                  <span
+                    :if={@entry.experience}
+                    class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd]"
+                  >
+                    ⭐ {@entry.experience}
                   </span>
                 </p>
                 <p class="mt-1 font-mono text-[9px] text-[#59636b]">
-                  <span :if={@entry.edited_at}>wiki editada em {@entry.edited_at} ·</span>
                   <.link
                     id="wiki-link"
                     href={Pokedex.wiki_url(@entry)}
@@ -390,18 +407,6 @@ defmodule PokexWeb.PokedexDetailLive do
                 </span>
               </h2>
               <.moves_table moves={@entry.moves} />
-
-              <details :if={@entry.moves_pvp not in [nil, []]} id="entry-moves-pvp" class="mt-2 group">
-                <summary class="cursor-pointer list-none font-mono text-[10px] uppercase tracking-[0.12em] text-[#69737b] hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
-                  ▸ moveset PVP
-                  <span class="font-normal normal-case tracking-normal text-[#59636b]">
-                    — mesmos golpes, cooldowns diferentes
-                  </span>
-                </summary>
-                <div class="mt-1.5 opacity-80">
-                  <.moves_table moves={@entry.moves_pvp} />
-                </div>
-              </details>
             </section>
 
             <div class="space-y-3">
@@ -467,12 +472,12 @@ defmodule PokexWeb.PokedexDetailLive do
               </section>
 
               <section
-                :if={@entry.habilidades != [] or @entry.evolution_stones != [] or @entry.materia}
+                :if={@entry.habilidades != []}
                 id="entry-info"
                 class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
               >
                 <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-                  habilidades &amp; itens
+                  habilidades
                 </h2>
                 <div class="space-y-1.5">
                   <p :if={@entry.habilidades != []} class="flex flex-wrap items-center gap-1">
@@ -484,63 +489,43 @@ defmodule PokexWeb.PokedexDetailLive do
                       {hab}
                     </span>
                   </p>
-                  <p :if={@entry.evolution_stones != []} class="flex flex-wrap items-center gap-1">
-                    <span class="font-mono text-[9px] text-[#59636b]">💎 pedra</span>
-                    <span
-                      :for={stone <- @entry.evolution_stones}
-                      class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[11px] text-[#f3ba4e]"
-                    >
-                      {stone}
-                    </span>
-                  </p>
-                  <p :if={@entry.materia} class="flex items-center gap-1">
-                    <span class="font-mono text-[9px] text-[#59636b]">🧪 matéria</span>
-                    <span class="rounded bg-[#161b1f] px-1.5 py-0.5 font-mono text-[11px] text-[#aeb6bd]">
-                      {@entry.materia}
-                    </span>
-                  </p>
                 </div>
-              </section>
-
-              <section
-                :if={@lures != []}
-                id="entry-lures"
-                class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
-              >
-                <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-                  🎣 vem nestas iscas
-                </h2>
-                <p class="flex flex-wrap gap-1">
-                  <span
-                    :for={lure <- @lures}
-                    class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[11px] text-[#7cc0e8]"
-                  >
-                    {lure.lure} · lv {lure.fishing_level}
-                  </span>
-                </p>
               </section>
             </div>
           </div>
 
           <div class="grid gap-3 sm:grid-cols-2 sm:items-start">
             <section
-              :if={@entry.evolutions != []}
+              :if={@entry.evolves_from != [] or @entry.evolves_to != []}
               id="entry-evolutions"
               class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
             >
               <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
                 evoluções
               </h2>
-              <p class="flex flex-wrap items-center gap-1.5">
-                <.link
-                  :for={evo <- @entry.evolutions}
-                  patch={~p"/pokedex/#{evo.name}"}
-                  class="rounded-lg border border-[#293238] bg-[#101418] px-2 py-1 text-xs hover:border-[#37d07d]/60 hover:text-white"
+              <div class="space-y-1.5">
+                <p
+                  :for={{label, evo} <- evolution_rows(@entry)}
+                  class="flex flex-wrap items-center gap-1.5"
                 >
-                  {evo.name}
-                  <span :if={evo.level} class="font-mono text-[9px] text-[#737d85]">lv {evo.level}</span>
-                </.link>
-              </p>
+                  <span class="font-mono text-[9px] text-[#59636b]">{label}</span>
+                  <.link
+                    patch={~p"/pokedex/#{evo.name}"}
+                    class="rounded-lg border border-[#293238] bg-[#101418] px-2 py-1 text-xs hover:border-[#37d07d]/60 hover:text-white"
+                  >
+                    {evo.name}
+                    <span :if={evo.level} class="font-mono text-[9px] text-[#737d85]">
+                      lv {evo.level}
+                    </span>
+                  </.link>
+                  <span
+                    :for={item <- evo.items}
+                    class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[10px] text-[#f3ba4e]"
+                  >
+                    💎 {item}
+                  </span>
+                </p>
+              </div>
             </section>
 
             <section

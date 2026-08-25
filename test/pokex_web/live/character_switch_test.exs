@@ -20,29 +20,44 @@ defmodule PokexWeb.CharacterSwitchTest do
       %{
         "name" => "Charizard",
         "number" => 6,
-        "level" => 100,
-        "elements" => ["Fire"],
-        "weak_to" => ["Water"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => nil
+        "level" => 100,
+        "tier" => "1",
+        "role" => "PVE",
+        "hp" => 500,
+        "experience" => 800,
+        "elements" => ["Fire"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/006_charizard"
       },
       %{
         "name" => "Caterpie",
         "number" => 10,
-        "level" => 5,
-        "elements" => ["Bug"],
-        "weak_to" => ["Fire"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => nil
+        "level" => 5,
+        "tier" => "7",
+        "role" => "PVE",
+        "hp" => 100,
+        "experience" => 50,
+        "elements" => ["Bug"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/010_caterpie"
       }
-    ],
-    "lures" => []
+    ]
   }
 
   @moduletag :tmp_dir

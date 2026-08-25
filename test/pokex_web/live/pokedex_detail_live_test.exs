@@ -6,147 +6,153 @@ defmodule PokexWeb.PokedexDetailLiveTest do
 
   # Derived from config `:wiki_base`, not hardcoded: the domain lives in exactly
   # one place, and pointing the app at another wiki must not break these.
-  defp wiki_url(name),
-    do: Application.get_env(:pokex, :wiki_base) <> "/index.php/" <> name
+  defp wiki_url(path),
+    do: Application.get_env(:pokex, :wiki_base) <> "/" <> path
 
   @dataset %{
     "species" => [
       %{
         "name" => "Horsea",
         "number" => 116,
-        "level" => 20,
-        "elements" => ["Water"],
-        "weak_to" => ["Grass", "Electric"],
-        "resists" => ["Fire", "Water"],
-        "evolutions" => [%{"name" => "Seadra", "level" => 50}],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => nil
+        "level" => 20,
+        "tier" => "7",
+        "role" => "PVE",
+        "hp" => 300,
+        "experience" => 400,
+        "elements" => ["Water"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [%{"name" => "Seadra", "level" => 50, "items" => ["Water Stone"]}],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/116_horsea"
       },
       %{
         "name" => "Seadra",
         "number" => 117,
+        "generation" => 1,
+        "variant" => "normal",
+        "shiny_of" => nil,
         "level" => 50,
+        "tier" => "5",
+        "role" => "PVE",
+        "hp" => 1200,
+        "experience" => 2400,
         "elements" => ["Water"],
-        "weak_to" => ["Grass", "Electric"],
-        "resists" => ["Fire"],
-        "neutral" => ["Normal", "Fighting"],
         "habilidades" => ["Surf", "Headbutt"],
-        "materia" => "Seavell",
-        "evolution_stones" => ["Water Stone", "Crystal Stone"],
         "description" => "As farpas venenosas em todo o corpo são altamente valorizadas.",
         "moves" => [
-          %{
-            "slot" => "M1",
-            "name" => "Mud Shot",
-            "cooldown_s" => 15,
-            "element" => "Ground",
-            "tags" => ["Target", "Focus Blocked", "Damage", "Blind"],
-            "level" => 50
-          },
-          %{
-            "slot" => "P",
-            "name" => "Dragon Rage",
-            "cooldown_s" => nil,
-            "element" => "Dragon",
-            "tags" => ["Passive", "Buff"],
-            "level" => nil
-          }
+          %{"slot" => "M1", "name" => "Mud Shot", "cooldown_s" => 15, "element" => "Ground"},
+          %{"slot" => "M2", "name" => "Dragon Rage", "cooldown_s" => 30, "element" => "Dragon"}
         ],
-        "moves_pvp" => [
-          %{
-            "slot" => "M1",
-            "name" => "Mud Shot",
-            "cooldown_s" => 40,
-            "element" => "Ground",
-            "tags" => ["Damage"],
-            "level" => 50
-          }
-        ],
-        "evolutions" => [],
+        "evolves_to" => [],
+        "evolves_from" => [%{"name" => "Horsea", "level" => 50, "items" => ["Water Stone"]}],
         "sprite" => nil,
-        "shiny_of" => nil,
-        "shiny_name" => "Shiny Seadra",
-        "edited_at" => "2026-02-06",
-        "boost" => "+50 hp"
+        "path" => "gen/1/117_seadra"
       },
       %{
         "name" => "Shiny Seadra",
         "number" => 117,
-        "level" => 80,
-        "elements" => ["Water"],
-        "weak_to" => ["Grass"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "shiny",
         "shiny_of" => "Seadra",
-        "shiny_name" => nil
+        "level" => 80,
+        "tier" => "3",
+        "role" => "PVE",
+        "hp" => 1800,
+        "experience" => 4800,
+        "elements" => ["Water"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "shiny/117_shiny_seadra"
       },
       %{
         "name" => "Charizard",
         "number" => 6,
-        "level" => 100,
-        "elements" => ["Fire"],
-        "weak_to" => ["Water"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => nil
+        "level" => 100,
+        "tier" => "ULTIMATE",
+        "role" => "PVP",
+        "hp" => 500,
+        "experience" => 800,
+        "elements" => ["Fire"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/006_charizard"
       },
       %{
         "name" => "Dragonite",
         "number" => 149,
-        "level" => 100,
-        "elements" => ["Dragon"],
-        "weak_to" => ["Ice"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => nil
+        "level" => 100,
+        "tier" => "1",
+        "role" => "PVE",
+        "hp" => 2000,
+        "experience" => 5000,
+        "elements" => ["Dragon"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/149_dragonite"
       },
       %{
         "name" => "Florges",
         "number" => 671,
-        "level" => 100,
-        "elements" => ["Fairy"],
-        "weak_to" => ["Poison", "Steel"],
-        "resists" => ["Fighting", "Bug", "Dark", "Grass"],
-        "immune" => ["Dragon"],
-        "effectiveness" => [
-          %{"label" => "Super efetivo", "kind" => "weak", "elements" => ["Poison", "Steel"]},
-          %{"label" => "Inefetivo", "kind" => "resists", "elements" => ["Grass"]},
-          %{
-            "label" => "Muito inefetivo",
-            "kind" => "resists",
-            "elements" => ["Fighting", "Bug", "Dark"]
-          },
-          %{"label" => "Nulo", "kind" => "immune", "elements" => ["Dragon"]}
-        ],
-        "evolutions" => [],
-        "moves" => [%{"slot" => "M1", "name" => "Tackle", "cooldown_s" => 8, "tags" => []}],
-        "sprite" => nil,
+        "generation" => 6,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => nil
+        "level" => 100,
+        "tier" => "2",
+        "role" => "PVE",
+        "hp" => 1500,
+        "experience" => 3000,
+        "elements" => ["Fairy"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [%{"slot" => "M1", "name" => "Tackle", "cooldown_s" => 8, "element" => nil}],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/6/671_florges"
       },
       %{
         "name" => "Venusaur",
         "number" => 3,
-        "level" => 60,
-        "elements" => ["Grass"],
-        "weak_to" => ["Fire"],
-        "resists" => [],
-        "evolutions" => [],
-        "sprite" => nil,
+        "generation" => 1,
+        "variant" => "normal",
         "shiny_of" => nil,
-        "shiny_name" => nil
-      }
-    ],
-    "lures" => [
-      %{
-        "name" => "Shrimp",
-        "tiers" => [%{"fishing_level" => 50, "pokemon" => ["Seadra"]}]
+        "level" => 60,
+        "tier" => "3",
+        "role" => "PVE",
+        "hp" => 700,
+        "experience" => 1200,
+        "elements" => ["Grass", "Poison"],
+        "habilidades" => [],
+        "description" => nil,
+        "moves" => [],
+        "evolves_to" => [],
+        "evolves_from" => [],
+        "sprite" => nil,
+        "path" => "gen/1/003_venusaur"
       }
     ]
   }
@@ -166,7 +172,7 @@ defmodule PokexWeb.PokedexDetailLiveTest do
   end
 
   @tag :tmp_dir
-  test "the detail page shows everything: chips, weaknesses, lures and shiny", %{
+  test "the detail page shows the Poké Alliance facts, the weaknesses and the shiny", %{
     conn: conn
   } do
     {:ok, view, html} = live(conn, ~p"/pokedex/Seadra")
@@ -174,13 +180,15 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     assert html =~ "Seadra"
     assert html =~ "#117"
     assert html =~ "lv 50"
-    assert html =~ "boost +50 hp"
-    assert html =~ "wiki editada em 2026-02-06"
+    assert html =~ "tier 5"
+    assert html =~ "gen 1"
+    assert html =~ "1200"
+    assert html =~ "2400"
+    assert html =~ "PVE"
 
     assert view |> element("#entry-card") |> render() =~ "Grass"
     assert render(view) =~ "ele RESISTE"
 
-    assert view |> element("#entry-lures") |> render() =~ "Shrimp · lv 50"
     assert view |> element("#entry-shiny-links") |> render() =~ "ver Shiny Seadra (lv 80)"
   end
 
@@ -192,11 +200,15 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     assert has_element?(list, ~s(#pokedex-results a[href="/pokedex/Horsea"]))
 
     {:ok, view, _} = live(conn, ~p"/pokedex/Horsea")
-    assert view |> element("#entry-evolutions") |> render() =~ "Seadra"
+    evolutions = view |> element("#entry-evolutions") |> render()
+    assert evolutions =~ "Seadra"
+    assert evolutions =~ "evolui para"
+    assert evolutions =~ "Water Stone"
 
     view |> element(~s(#entry-evolutions a), "Seadra") |> render_click()
     assert_patch(view, "/pokedex/Seadra")
     assert render(view) =~ "ver Shiny Seadra"
+    assert view |> element("#entry-evolutions") |> render() =~ "evolui de"
 
     {:ok, shiny, _} = live(conn, ~p"/pokedex/#{"Shiny Seadra"}")
     assert shiny |> element("#entry-shiny-links") |> render() =~ "forma base: Seadra"
@@ -242,7 +254,7 @@ defmodule PokexWeb.PokedexDetailLiveTest do
   end
 
   @tag :tmp_dir
-  test "the full harvest on the page: moves, habilidades, stones, description, neutral", %{
+  test "the full harvest on the page: moves, habilidades, description, neutral", %{
     conn: conn
   } do
     {:ok, view, html} = live(conn, ~p"/pokedex/Seadra")
@@ -254,16 +266,9 @@ defmodule PokexWeb.PokedexDetailLiveTest do
     assert moves =~ "Mud Shot"
     assert moves =~ "Ground"
     assert moves =~ "⏱ 15s"
-    assert moves =~ "Blind"
-    assert moves =~ "lv 50"
     assert moves =~ "Dragon Rage"
-    assert moves =~ "Passive"
-    refute moves =~ "Focus Blocked"
 
-    info = view |> element("#entry-info") |> render()
-    assert info =~ "Surf"
-    assert info =~ "Water Stone"
-    assert info =~ "Seavell"
+    assert view |> element("#entry-info") |> render() =~ "Surf"
 
     assert view |> element("#entry-neutral") |> render() =~ "Fighting"
 
@@ -281,49 +286,45 @@ defmodule PokexWeb.PokedexDetailLiveTest do
 
     missing = view |> element("#entry-moves-missing") |> render()
     assert missing =~ "sem tabela de golpes"
-    assert missing =~ wiki_url("Horsea")
+    assert missing =~ wiki_url("gen/1/116_horsea")
 
     assert html =~ "Horsea"
     assert view |> element("#entry-evolutions") |> render() =~ "Seadra"
   end
 
   @tag :tmp_dir
-  test "the clan appears in the header and clicks through to the filtered list", %{conn: conn} do
+  test "the tier and the generation click through to the filtered list", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex/Seadra")
 
-    chip = view |> element("#entry-clans") |> render()
-    assert chip =~ "Seavell"
-    assert chip =~ "clans[]=Seavell"
-
-    {:ok, shiny, _} = live(conn, ~p"/pokedex/#{"Shiny Seadra"}")
-    assert shiny |> element("#entry-clans") |> render() =~ "Seavell"
+    assert view |> element("#entry-tier") |> render() =~ "tiers[]=5"
+    assert view |> element("#entry-generation") |> render() =~ "generations[]=1"
   end
 
   @tag :tmp_dir
-  test "every page links to the original wiki, with composite names URL-encoded", %{conn: conn} do
+  test "every page links to the wiki page it was harvested from", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/pokedex/Seadra")
 
-    assert view |> element("#wiki-link") |> render() =~
-             wiki_url("Seadra")
+    assert view |> element("#wiki-link") |> render() =~ wiki_url("gen/1/117_seadra")
 
     {:ok, shiny, _} = live(conn, ~p"/pokedex/#{"Shiny Seadra"}")
 
-    assert shiny |> element("#wiki-link") |> render() =~
-             wiki_url("Shiny_Seadra")
+    assert shiny |> element("#wiki-link") |> render() =~ wiki_url("shiny/117_shiny_seadra")
   end
 
   @tag :tmp_dir
-  test "effectiveness: tiers labeled when the wiki has two, and what is Nulo against it", %{
+  test "effectiveness: two resistance tiers get their labels, and immunity gets its own row", %{
     conn: conn
   } do
-    {:ok, view, _} = live(conn, ~p"/pokedex/Florges")
+    # Grass/Poison resists Water at half and Grass at a quarter — two tiers
+    {:ok, venusaur, _} = live(conn, ~p"/pokedex/Venusaur")
 
-    card = view |> element("#entry-card") |> render()
+    card = venusaur |> element("#entry-card") |> render()
     assert card =~ "Inefetivo"
-    assert card =~ "Muito inefetivo"
-    refute card =~ "Super efetivo"
+    assert card =~ "Muito Inefetivo"
 
-    assert view |> element("#entry-immune") |> render() =~ "Dragon"
+    # Fairy takes nothing at all from Dragon
+    {:ok, florges, _} = live(conn, ~p"/pokedex/Florges")
+    assert florges |> element("#entry-immune") |> render() =~ "Dragon"
   end
 
   @tag :tmp_dir

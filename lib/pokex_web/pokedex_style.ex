@@ -28,7 +28,6 @@ defmodule PokexWeb.PokedexStyle do
     "dark" => {"#a9a2ab", "#1a171c"},
     "steel" => {"#b8c6cf", "#141b21"},
     "fairy" => {"#f7a8d8", "#2a1122"},
-    "crystal" => {"#8ee8dc", "#0a2422"},
     "neutral" => {"#c8cdd1", "#191c1f"},
     "normal" => {"#c8cdd1", "#191c1f"}
   }
@@ -45,29 +44,6 @@ defmodule PokexWeb.PokedexStyle do
   def element_style(element) do
     {text, background} = element_colors(element)
     "color: #{text}; background-color: #{background};"
-  end
-
-  # Clan → the element whose palette it wears (PokeTibia's own pairing: Volcanic is
-  # the Fire clan, Seavell the Water one…). Reusing the element colours means
-  # the eye learns ONE palette, not two.
-  @clan_elements %{
-    "volcanic" => "fire",
-    "seavell" => "water",
-    "orebound" => "rock",
-    "wingeon" => "flying",
-    "raibolt" => "electric",
-    "gardestrike" => "fighting",
-    "naturia" => "grass",
-    "malefic" => "ghost",
-    "psycraft" => "psychic",
-    "ironhard" => "steel"
-  }
-
-  @doc "Inline style for a clan chip — wears its element's palette."
-  def clan_style(clan) do
-    @clan_elements
-    |> Map.get(String.downcase(to_string(clan)))
-    |> element_style()
   end
 
   @doc """

@@ -131,11 +131,20 @@ defmodule Pokex.Sim.World do
     #     between the key and the body being back. During it the bar is gone, it
     #     deals no damage, and the bites land on HIM. That is the real cost.
     #   * `revive_cooldown_ms` — HIS: `rescue_cooldown_ms` in settings, the floor
-    #     the PlayerSupport already keeps between two presses.
+    #     the PlayerSupport keeps between two RESCUES of a pokemon that is still
+    #     standing. It is a MINUTE, and this file said 2 seconds until
+    #     2026-08-25 — thirty times more often than the bot has ever been able
+    #     to press it, which is how a bench run reported 174 revives in 25
+    #     minutes and called the hunt sustainable.
+    #   * `fainted_revive_cooldown_ms` — HIS too, the much shorter floor that
+    #     governs the OTHER press: the one at a pokemon already on the floor,
+    #     where every second is the character being bitten instead.
     #
-    # Both are measurable in the game with a stopwatch and should be.
+    # Both are measurable in the game with a stopwatch and should be. The
+    # authority is `Settings`, not this map — see `Bench.world_knobs/0`.
     revive_settle_ms: 1_200,
-    revive_cooldown_ms: 2_000,
+    revive_cooldown_ms: 60_000,
+    fainted_revive_cooldown_ms: 15_000,
     # How long a cleared nest takes to be worth walking past again. `nil` means
     # never, which is what a SCENARIO wants: a controlled experiment must not
     # have monsters arriving from off-stage. A HUNT wants a number — no rate
@@ -486,9 +495,17 @@ defmodule Pokex.Sim.World do
       world
       | own: %{world.own | out?: false},
         revive_at: world.clock + world.knobs.revive_settle_ms,
-        revive_ready_at: world.clock + world.knobs.revive_cooldown_ms
+        revive_ready_at: world.clock + next_floor(world)
     }
   end
+
+  # Two floors, because the bot has two: a pokemon on the floor may be revived
+  # again far sooner than one merely hurt. Which one applies is decided by the
+  # state the press was made IN.
+  defp next_floor(%{own: %{out?: false}} = world),
+    do: Map.get(world.knobs, :fainted_revive_cooldown_ms, world.knobs.revive_cooldown_ms)
+
+  defp next_floor(world), do: world.knobs.revive_cooldown_ms
 
   # R3, landed: full health, back on its feet, every cooldown at zero — and back
   # at HIS side, because it comes out of the ball where he is standing, not

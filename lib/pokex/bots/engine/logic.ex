@@ -35,6 +35,14 @@ defmodule Pokex.Bots.Engine.Logic do
       vale a pena usar o revive no F4 rapidinho pra luta seguir firme e forte"
       (Lucas, 2026-08-25). Measured in the bench before it was written: the
       hunt spends **12% to 23% of every run** in exactly that state.
+
+      And measured AGAIN once the bench stopped inventing the floor between two
+      revives (it used 2s; `rescue_cooldown_ms` is 60s): the rule does not BUY
+      revives, it REALLOCATES them. The floor decides how many a night can hold;
+      R3b decides whether they are spent as rescues or forward as resets. Over
+      16 seeds × 5 minutes it bought 5–9% more monsters and cost the character
+      health every time, which is why it is still off by default — and why it
+      now refuses to fire on a bar that is not full.
     * **R4 — the stun is a clock nothing contradicts.** A partial stun is the
       common case, not the exception, and the window it opens is the best one
       available: "essa é a melhor janela antes de eu não ter mais opções e
@@ -518,8 +526,19 @@ defmodule Pokex.Bots.Engine.Logic do
   defp reset_revive?(logic, s, config, now) do
     Map.get(config, :reset_revive, false) and s.spent? == true and s.own_out? == true and
       is_integer(s.enemies) and s.enemies >= config.engage_from and
-      reset_revive_ready?(logic, config, now)
+      healthy_enough?(s, config) and reset_revive_ready?(logic, config, now)
   end
+
+  # …and only on a pokemon that is not already half spent. The floor between two
+  # revives is a MINUTE (`rescue_cooldown_ms`), so a proactive press made at 60%
+  # health is not "a bar bought cheaply" — it is the rescue this fight will need
+  # in forty seconds, spent early. Measured 2026-08-25: with the real floor in
+  # the bench, R3b without this guard traded rescues one-for-one for resets and
+  # bought no monsters at all.
+  defp healthy_enough?(%{own_hp: hp}, config) when is_integer(hp),
+    do: hp >= Map.get(config, :reset_revive_min_hp, 100)
+
+  defp healthy_enough?(_unknown_bar, _config), do: false
 
   # NOT `within?/4`: that one answers true for a clock never started, which is
   # the right default for a ceiling and exactly the wrong one for a floor — the

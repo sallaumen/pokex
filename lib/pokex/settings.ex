@@ -1037,11 +1037,25 @@ defmodule Pokex.Settings do
     # THE COST THIS MODEL DOES NOT CARRY: if F4 spends a revive item, every
     # proactive press has a price in inventory, not only in the seconds the
     # pokemon is off the field. `Score`'s `revives.accepted` IS that bill.
+    #
+    # STILL OFF after being measured properly (2026-08-25): with the real floor
+    # between two presses in the model, the rule reallocates rescues into resets
+    # rather than adding presses, buys 5–9% more monsters, and costs the
+    # character health in every run. The lever that actually moves the hunt is
+    # `rescue_cooldown_ms` itself — 60s → 30s was +21% monsters in the bench,
+    # paid in revive items.
     engine_reset_revive: false,
     # The floor between two of them, so a fight whose bar stays empty does not
     # become a key held down. Comfortably above the game's own rescue cooldown
     # (2s) and below a full skill cooldown (8s).
     engine_reset_revive_cooldown_ms: 6_000,
+    # …and the health it refuses to spend a revive at. The floor between two
+    # presses is `rescue_cooldown_ms` — a MINUTE — so a proactive press made on a
+    # half-empty bar is the rescue this fight needs in forty seconds, spent
+    # early. Swept in the bench on 2026-08-25 across five floors: gating at full
+    # health beat gating at 80% on monsters killed at every floor, and cost the
+    # CHARACTER far less health.
+    engine_reset_revive_min_hp: 100,
     # …and the route only walks again above this.
     engine_resume_pct: 80,
     # A revive that never lands must not end the night standing still.
@@ -1277,6 +1291,7 @@ defmodule Pokex.Settings do
     # is the battle panel's own row count — a ruler above it never engages.
     engine_engage_from: 1..12,
     engine_reset_revive_cooldown_ms: 0..60_000,
+    engine_reset_revive_min_hp: 0..100,
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_size_ceiling_ms: 100..600_000,

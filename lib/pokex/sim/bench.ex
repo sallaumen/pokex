@@ -55,6 +55,7 @@ defmodule Pokex.Sim.Bench do
     gather_piles: :engine_gather_piles,
     reset_revive: :engine_reset_revive,
     reset_revive_cooldown_ms: :engine_reset_revive_cooldown_ms,
+    reset_revive_min_hp: :engine_reset_revive_min_hp,
     pile_settle_ms: :engine_pile_settle_ms,
     size_ceiling_ms: :engine_size_ceiling_ms,
     band_yellow_pct: :engine_band_yellow_pct,
@@ -64,6 +65,20 @@ defmodule Pokex.Sim.Bench do
     closing_timeout_ms: :engine_closing_timeout_ms,
     downed_retry_ms: :engine_downed_retry_ms
   }
+
+  # The WORLD's knobs that are not the world's to invent: the two floors between
+  # two revives belong to `PlayerSupport`, and a bench that keeps its own copy
+  # of them answers about a bot that cannot exist. Same lesson as `@knobs`, and
+  # it cost the same way — 2s here against 60s in the seeds made a run report
+  # 174 revives in 25 minutes without anybody noticing the hunt could never
+  # afford them.
+  @world_knobs %{
+    revive_cooldown_ms: :rescue_cooldown_ms,
+    fainted_revive_cooldown_ms: :fainted_revive_cooldown_ms
+  }
+
+  @doc "The world knobs whose authority is `Settings`, at their seeded values."
+  def world_knobs, do: Map.new(@world_knobs, fn {knob, setting} -> {knob, seed(setting)} end)
 
   @doc """
   The decision knobs a run uses when the caller names none: the SEEDS, not the
@@ -99,7 +114,7 @@ defmodule Pokex.Sim.Bench do
       |> Scenario.route(routes)
       |> World.new(
         seed: scenario.seed,
-        knobs: scenario.knobs,
+        knobs: Map.merge(world_knobs(), scenario.knobs),
         loadout: Keyword.get(opts, :loadout, loadout())
       )
 
@@ -182,7 +197,10 @@ defmodule Pokex.Sim.Bench do
       revives: [],
       piles: [],
       pile_open: nil,
-      by_phase: %{}
+      by_phase: %{},
+      by_band: %{},
+      min_hp: nil,
+      player_hp: 100
     }
   end
 
@@ -198,6 +216,7 @@ defmodule Pokex.Sim.Bench do
     metrics =
       state.metrics
       |> tally_time(world, orders, picture)
+      |> tally_risk(world, orders, picture)
       |> tally_bodies(previous, world)
       |> tally_death(previous, world)
       |> tally_revive(decided_on, world, orders, picture)
@@ -230,6 +249,23 @@ defmodule Pokex.Sim.Bench do
         by_phase: Map.update(metrics.by_phase, orders.phase, @tick_ms, &(&1 + @tick_ms))
     }
   end
+
+  # A run with zero deaths is not the same as a safe run, and telling them apart
+  # is the difference between tuning and gambling. The lowest the bar ever got,
+  # how much of the run each band held, and what the CHARACTER paid — the bites
+  # that land on him are the whole price of a pokemon off the field.
+  defp tally_risk(metrics, world, orders, picture) do
+    %{
+      metrics
+      | by_band: Map.update(metrics.by_band, orders.band, @tick_ms, &(&1 + @tick_ms)),
+        min_hp: lowest(metrics.min_hp, picture.own_hp),
+        player_hp: min(metrics.player_hp, world.player.hp_pct)
+    }
+  end
+
+  defp lowest(nil, hp), do: hp
+  defp lowest(low, nil), do: low
+  defp lowest(low, hp), do: min(low, hp)
 
   defp tally_bodies(metrics, before, world) do
     %{

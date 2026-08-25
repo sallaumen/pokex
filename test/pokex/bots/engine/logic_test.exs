@@ -340,7 +340,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     defp spent_fight(overrides \\ %{}) do
       world(%{
-        situation: situation(Map.merge(%{enemies: 4, spent?: true}, overrides)),
+        situation: situation(Map.merge(%{enemies: 4, spent?: true, own_hp: 100}, overrides)),
         hunt: hunt(%{state: :fighting})
       })
     end
@@ -396,6 +396,17 @@ defmodule Pokex.Bots.Engine.LogicTest do
       logic = engaged(&reset_step/3)
 
       {_logic, orders} = reset_step(logic, spent_fight(%{own_out?: false}), 2_000)
+
+      assert orders.revive == :hold
+    end
+
+    # O piso entre dois revives é `rescue_cooldown_ms`: um MINUTO. Uma prensa
+    # proativa com a barra pela metade é o resgate que essa luta vai precisar
+    # daqui a quarenta segundos, gasto adiantado.
+    test "não com a vida pela metade: isso é gastar o resgate adiantado" do
+      logic = engaged(&reset_step/3)
+
+      {_logic, orders} = reset_step(logic, spent_fight(%{own_hp: 70}), 2_000)
 
       assert orders.revive == :hold
     end

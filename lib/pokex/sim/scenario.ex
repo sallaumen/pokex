@@ -35,11 +35,15 @@ defmodule Pokex.Sim.Scenario do
   @type t :: %__MODULE__{}
 
   @groups %{
+    hunt: "A caçada inteira",
     ruler: "A régua e a pilha",
     health: "Vida, revive e morte",
     hands: "Mãos que falham",
     blind: "Rota e cegueira"
   }
+
+  @doc "The groups that are controlled EXPERIMENTS — one pile, one question."
+  def experiment_groups, do: [:ruler, :health, :hands, :blind]
 
   @doc "How the screen names each group."
   def group_label(group), do: Map.get(@groups, group, to_string(group))
@@ -48,6 +52,19 @@ defmodule Pokex.Sim.Scenario do
   @spec all() :: [t]
   def all do
     [
+      %__MODULE__{
+        id: "cacada",
+        group: :hunt,
+        name: "A caçada inteira",
+        why:
+          "Não é uma pergunta, é a NOITE: quatro cantos que renascem, pilhas do tamanho " <>
+            "que a distribuição dele dá (1 ou 2 na maioria, 3 e 4 de vez em quando), " <>
+            "perdidos no caminho entre elas. É o único cenário em que “monstros por " <>
+            "minuto” quer dizer o que ele quer dizer — os outros medem uma luta, este " <>
+            "mede uma caçada.",
+        route: :hunt_field,
+        knobs: %{respawn_ms: 45_000, aggro_tiles: 8, leash_tiles: 12}
+      },
       %__MODULE__{
         id: "pilha-pequena",
         group: :ruler,
@@ -155,6 +172,7 @@ defmodule Pokex.Sim.Scenario do
   """
   @spec route(t, [Route.t()]) :: Route.t()
   def route(%__MODULE__{route: nil}, _available), do: ring()
+  def route(%__MODULE__{route: :hunt_field}, _available), do: hunt_field()
 
   def route(%__MODULE__{route: name}, available),
     do: Enum.find(available, &(&1.name == name)) || ring()
@@ -182,6 +200,49 @@ defmodule Pokex.Sim.Scenario do
             park_point: nil,
             park_tiles: nil,
             fight_ms: nil,
+            gather_ms: gather,
+            combo: [],
+            skills: [],
+            gather_wait_ms: nil
+          }
+        end
+    }
+  end
+
+  @doc """
+  A LAP, not an experiment: four corners his hand would have marked, far enough
+  apart that walking between them is most of the minute.
+
+  The ring is deliberately too small to measure a hunt on — one nest, twenty
+  tiles, and the character is back before anything respawned. A rate per minute
+  taken there is a rate per fight wearing a minute's clothes.
+  """
+  @spec hunt_field() :: Route.t()
+  def hunt_field do
+    %Route{
+      name: "caçada de teste",
+      waypoints:
+        for {x, y, gather, fight} <- [
+              {1_000, 1_000, nil, nil},
+              {1_012, 1_000, 4_000, nil},
+              {1_012, 1_010, nil, nil},
+              {1_024, 1_010, nil, 3_000},
+              {1_024, 1_020, nil, nil},
+              {1_012, 1_020, 4_000, nil},
+              {1_000, 1_020, nil, nil},
+              {1_000, 1_010, nil, 3_000}
+            ] do
+          %{
+            x: x,
+            y: y,
+            z: 7,
+            action: :walk,
+            stops: [],
+            at: nil,
+            dwell_ms: nil,
+            park_point: nil,
+            park_tiles: nil,
+            fight_ms: fight,
             gather_ms: gather,
             combo: [],
             skills: [],

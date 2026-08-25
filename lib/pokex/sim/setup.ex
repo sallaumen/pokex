@@ -37,6 +37,11 @@ defmodule Pokex.Sim.Setup do
     :leash_tiles,
     :bite_dmg,
     :bite_every_ms,
+    # The price of a revive, measurable since 2026-08-25: how long F4 leaves the
+    # pokemon in the ball, and the floor between two presses. Both are what
+    # decides whether spending one for its cooldown reset pays.
+    :revive_settle_ms,
+    :revive_cooldown_ms,
     :stray_chance_pct
   ]
 

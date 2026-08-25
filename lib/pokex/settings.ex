@@ -1020,10 +1020,17 @@ defmodule Pokex.Settings do
     # seguir firme e forte", Lucas 2026-08-25). The simulator measured the hunt
     # spending 12-23% of every run in exactly that state.
     #
-    # OFF by default on purpose. Whether recalling a HEALTHY pokemon really
-    # resets its cooldowns in Poké Alliance is a fact about the GAME, and it has
-    # to be watched once with his own eyes before the bot spends presses on it.
-    # `/sim` measures what it would be worth; the switch is his to flip.
+    # OFF by default on purpose. Whether taking the pokemon off the field and
+    # bringing it back really clears its cooldowns in Poké Alliance is a fact
+    # about the GAME, and it has to be MEASURED before the bot spends presses on
+    # it — `/sim`'s "As quatro medições do jogo" reads it off a real hunt.
+    #
+    # And which key does it is not settled either. His client's own hotkey file
+    # (2026-08-25) says `ACTION_BAR_4: F4` — F4 is the fourth ITEM slot, not a
+    # recall — while the skills are `ACTION_1..12` on 1..9. So the reset, if it
+    # exists, most likely belongs to the pokémon SWAP (`POKEBAR_CYCLE: Q`,
+    # `POKEBAR_1..6: Ctrl+1..6`) rather than to the revive item. The measurement
+    # reads what HAPPENED, not what was pressed, so it answers either way.
     engine_reset_revive: false,
     # The floor between two of them, so a fight whose bar stays empty does not
     # become a key held down. Comfortably above the game's own rescue cooldown
@@ -1036,6 +1043,12 @@ defmodule Pokex.Settings do
     # Nor may closing a round wait forever for a pile that stopped coming — the
     # ceiling this same number doubles as, for when to give up and revive.
     engine_closing_timeout_ms: 8_000,
+    # How often a plain VITALS reading is filed while nothing is changing. The
+    # transitions that carry the four measurements are written the instant they
+    # happen (see `Engine.Worker.sample_vitals/4`); this is only the heartbeat
+    # between them, so a steady fight still produces a rate and a quiet night
+    # still costs ~1 line/s.
+    engine_vitals_ms: 1_000,
     # How old the hunt's own fact may be before the engine treats it as "no hunt
     # running". Generous against the cavebot's 200ms tick.
     engine_hunt_max_age_ms: 2_000,
@@ -1251,6 +1264,7 @@ defmodule Pokex.Settings do
     # is the battle panel's own row count — a ruler above it never engages.
     engine_engage_from: 1..12,
     engine_reset_revive_cooldown_ms: 0..60_000,
+    engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_size_ceiling_ms: 100..600_000,
     engine_band_yellow_pct: 0..100,

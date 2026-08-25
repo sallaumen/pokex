@@ -2025,13 +2025,13 @@ defmodule PokexWeb.CavebotLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/cavebot")
       assert has_element?(view, "#toggle-reset-revive")
-      assert render(view) =~ "F4 só no resgate"
+      assert render(view) =~ "revive só no resgate"
 
       html = view |> element("#toggle-reset-revive") |> render_click()
 
       assert Pokex.Settings.get(:engine_reset_revive)
-      assert html =~ "F4 reseta cooldown"
-      assert html =~ "confira no jogo", "ligar sem dizer o que conferir é ligar no escuro"
+      assert html =~ "revive reseta cooldown"
+      assert html =~ "meça antes em /sim", "ligar sem dizer o que conferir é ligar no escuro"
     end
   end
 end

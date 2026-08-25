@@ -505,7 +505,16 @@ defmodule Pokex.Bots.Combat.Worker do
     with :ok <- Perception.mini_game_gate(),
          :ok <- Pokex.Rig.impl().press_many(keys, opts),
          :ok <- Perception.mini_game_gate() do
-      ask_for_receipt(keys, before, at, parent)
+      # The receipt FIRST: it is the timing-critical half of a burst, and
+      # nothing measured is worth delaying it by even a cast.
+      receipt = ask_for_receipt(keys, before, at, parent)
+
+      # One typed line per BURST — the other half of "quantas teclas matam um
+      # bicho". The vitals stream says when the list shrank; this says what was
+      # spent to make it shrink, and the two together are the only way the
+      # simulator's `mob_hp` vs damage ratio stops being a number I made up.
+      Pokex.Engine.Events.record(:press, %{keys: keys, n: length(keys) * opts[:tap_count]})
+      receipt
     else
       {:blocked, :mini_game_active} -> :ok
       {:error, reason} -> send(parent, {:key_burst_failed, reason})

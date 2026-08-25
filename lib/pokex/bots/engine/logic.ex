@@ -152,7 +152,10 @@ defmodule Pokex.Bots.Engine.Logic do
   defstruct state: :idle,
             # when each phase started or each press was made, read as a ceiling
             # (`within?/3`) or as a floor (`elapsed?/3`) — never both
-            since: %{}
+            since: %{},
+            # R3b desarmada porque um reset foi COBRADO e não veio: ver
+            # `reset_delivered?/1`
+            reset_broken?: false
 
   @type t :: %__MODULE__{}
   @type orders :: Orders.t()
@@ -193,6 +196,8 @@ defmodule Pokex.Bots.Engine.Logic do
   # and a six-branch cond, so reading the order meant reading four places in the
   # right sequence.
   defp decide(t) do
+    t = %{t | logic: audit_reset(t)}
+
     cond do
       # NOTHING IS ON THE FIELD, and it was PROVEN — `own_out?` answers
       # `:unknown` when the bar merely could not be read. Every rule below this
@@ -564,7 +569,7 @@ defmodule Pokex.Bots.Engine.Logic do
         # R3b. Stays ENGAGED — this is not a rescue and there is nothing to
         # recover from: the body comes back full, with a full bar, into the same
         # fight it left.
-        {mark(t.logic, :reset_revive, t.now),
+        {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
          Orders.standing_and_firing(
            :engaged,
            t.band,
@@ -705,6 +710,51 @@ defmodule Pokex.Bots.Engine.Logic do
   #     this fight needs in forty seconds, spent early.
   #   * and never twice inside `reset_revive_cooldown_ms`, so a fight whose bar
   #     stays empty does not turn into a key held down.
+  # A TRAVA QUE ELE PEDIU. "Usei revive e diz que recuperou 5 cooldowns, mas não
+  # recuperou um" — uma R3b que gasta um revive e não recebe a barra de volta é
+  # uma R3b que vai gastar o próximo, e o próximo. Então ela se DESARMA na
+  # primeira vez que a promessa não é cumprida.
+  #
+  # A cobrança é feita depois que o corpo já teve tempo de voltar: a prensa
+  # tira o pokémon de campo, e enquanto ele está na bola a barra não é dele pra
+  # ler. Passada essa janela, com o pokémon em campo e a barra AINDA vazia, o
+  # reset não aconteceu — seja porque o jogo não zera nada, seja porque a
+  # leitura mente. As duas conclusões pedem a mesma coisa: parar de pagar.
+  defp audit_reset(%{logic: %{reset_broken?: true}} = t), do: t.logic
+
+  defp audit_reset(t) do
+    case Map.get(t.logic.since, :reset_pending) do
+      nil -> t.logic
+      at -> judge_reset(t, at)
+    end
+  end
+
+  # Três respostas, e a terceira é definitiva. O caso fica ABERTO enquanto o
+  # corpo pode não ter voltado ainda ou a barra não pode ser lida; fecha
+  # CUMPRIDO na primeira leitura de uma barra que voltou; e fecha QUEBRADO
+  # quando, com o pokémon em campo e a janela vencida, ela ainda está vazia.
+  #
+  # `:reset_pending` é uma marca própria de propósito: o piso entre duas prensas
+  # (`:reset_revive`) não pode ser zerado por um veredito, senão fechar o caso
+  # liberaria a prensa seguinte na hora.
+  defp judge_reset(t, at) do
+    cond do
+      t.now - at < t.config.revive_confirm_ms + reset_grace_ms(t) -> t.logic
+      t.s.own_out? != true -> t.logic
+      t.s.spent? != true -> close_reset(t.logic)
+      true -> %{close_reset(t.logic) | reset_broken?: true}
+    end
+  end
+
+  defp close_reset(logic), do: %{logic | since: Map.delete(logic.since, :reset_pending)}
+
+  # O corpo volta em `revive_settle_ms`, que é do MUNDO e não deste módulo — a
+  # janela aqui é generosa de propósito: cobrar cedo demais desarmaria a regra
+  # por causa de um tique, e desarmar é definitivo.
+  defp reset_grace_ms(t), do: max(t.config.rescue_cooldown_ms, 5_000)
+
+  defp reset_revive?(%{logic: %{reset_broken?: true}}), do: false
+
   defp reset_revive?(t) do
     t.config.reset_revive and t.s.spent? == true and t.s.own_out? == true and
       is_integer(t.s.enemies) and t.s.enemies >= t.config.engage_from and

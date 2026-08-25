@@ -1395,6 +1395,71 @@ defmodule PokexWeb.CavebotLive do
   # The RUNNING fight's answer when there is one — that is the proof the profile
   # is being obeyed. Falling back to the configuration keeps the page useful
   # with the bot stopped, and the badge beside it says which one he is reading.
+  # A BARRA, tecla por tecla, no estado em que ela está AGORA. `ready_skills`
+  # responde `nil` quando a leitura não existe ou envelheceu — e não saber é
+  # diferente de estar em cooldown, então tem cara própria.
+  defp skill_slots(combat) do
+    case fighting_as(combat) do
+      nil -> []
+      loadout -> Enum.map(bar_order(loadout), &bar_slot(&1, loadout, Perception.ready_skills()))
+    end
+  end
+
+  # A ordem da FILEIRA, com o zero por último, que é onde ele está na barra.
+  defp bar_order(loadout) do
+    keys = loadout.opening ++ loadout.reserved ++ loadout.buffs ++ loadout.heal
+
+    Enum.sort_by(Enum.uniq(keys), &if(&1 == "0", do: 10, else: String.to_integer(&1)))
+  rescue
+    _nao_numerica -> Enum.uniq(loadout.opening ++ loadout.reserved)
+  end
+
+  defp bar_slot(key, loadout, ready) do
+    job = job_of(key, loadout)
+
+    %{
+      key: key,
+      job: job,
+      state: state_of(key, ready),
+      title: "#{key}: #{job} · #{state_text(state_of(key, ready))}"
+    }
+  end
+
+  defp state_of(_key, nil), do: :unknown
+  defp state_of(key, ready), do: if(key in ready, do: :ready, else: :cooling)
+
+  defp state_text(:ready), do: "pronta"
+  defp state_text(:cooling), do: "em cooldown"
+  defp state_text(:unknown), do: "sem leitura da barra"
+
+  defp job_of(key, loadout) do
+    cond do
+      key in loadout.reserved -> "controle (guardado pro revive)"
+      key in loadout.buffs -> "aura"
+      key in loadout.heal -> "cura"
+      key in loadout.opening -> "dano"
+      true -> "sem trabalho"
+    end
+  end
+
+  defp slot_class(%{state: :ready, job: "controle" <> _}), do: "bg-pk-warn/20 text-pk-warn"
+  defp slot_class(%{state: :ready}), do: "bg-pk-ok-dim text-pk-ok"
+  defp slot_class(%{state: :cooling}), do: "bg-pk-raised text-pk-text-3 line-through"
+  defp slot_class(%{state: :unknown}), do: "bg-pk-raised text-pk-text-3"
+
+  defp burst_line do
+    "rajada: #{burst_size()} tecla(s) a cada #{burst_gap_ms()}ms"
+  end
+
+  defp burst_size, do: max(Settings.get(:combat_skill_burst_size) || 1, 1)
+  defp burst_gap_ms, do: Settings.get(:combat_skill_gap_ms) || 0
+  defp default_burst_gap_ms, do: Map.fetch!(Settings.defaults(), :combat_skill_gap_ms)
+  defp burst_cost_ms, do: burst_size() * burst_gap_ms()
+
+  # "Devagar" não é uma opinião: é o intervalo estar acima do padrão o bastante
+  # pra uma rajada custar mais de meio segundo.
+  defp slow_burst?, do: burst_gap_ms() > default_burst_gap_ms() and burst_cost_ms() >= 500
+
   defp fighting_as(%{loadout: %{} = live}), do: live
   defp fighting_as(_no_running_fight), do: configured_loadout()
 
@@ -1911,6 +1976,41 @@ defmodule PokexWeb.CavebotLive do
             </span>
             <span :if={fighting_as(@combat).reserved != []} class="text-pk-warn">
               🌀 guarda {keys_line(fighting_as(@combat).reserved)} pro revive
+            </span>
+          </p>
+
+          <%!-- OS COOLDOWNS, VISTOS. Ele desconfiava que a rotação não estava
+                usando algumas skills, e não tinha como olhar: o rastro dizia 6
+                de 8 teclas prontas o tempo todo enquanto a luta apertava só
+                duas. Uma barra que a gente não vê é uma barra sobre a qual a
+                gente só pode ter opinião. --%>
+          <div :if={fighting_as(@combat)} class="mt-1 flex flex-wrap items-center gap-1">
+            <span
+              :for={slot <- skill_slots(@combat)}
+              class={[
+                "rounded px-1.5 py-0.5 font-mono text-pk-meta",
+                slot_class(slot)
+              ]}
+              title={slot.title}
+            >
+              {slot.key}
+            </span>
+
+            <span :if={skill_slots(@combat) == []} class="text-pk-meta text-pk-text-3">
+              sem barra classificada
+            </span>
+
+            <span class="ml-2 text-pk-meta text-pk-text-2">{burst_line()}</span>
+          </div>
+
+          <%!-- A RAJADA CUSTA O QUE O INTERVALO MANDA. Um `gap` alto não parece
+                nada num arquivo de ajustes e é o teto de dano da caçada
+                inteira. --%>
+          <p :if={slow_burst?()} class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
+            <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
+            <span>
+              o intervalo entre teclas está em <b>{burst_gap_ms()}ms</b>
+              (o padrão é {default_burst_gap_ms()}ms) — cada rajada custa {burst_cost_ms()}ms, e é isso que limita o dano da caçada
             </span>
           </p>
 

@@ -39,6 +39,7 @@ defmodule Pokex.Bots.Engine.Worker do
 
   alias Pokex.Bots.Combat
   alias Pokex.Bots.Combat.Strategy
+  alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Engine.Events
@@ -142,7 +143,11 @@ defmodule Pokex.Bots.Engine.Worker do
 
   defp observe(state) do
     now = now()
-    picture = Situation.build(inputs(state, now), config(), now)
+    # ONE config for the tick, read once. The picture needs `engage_from` and
+    # the decision needs all sixteen, and building two maps from the same
+    # settings was two chances to read a different value in the same tick.
+    config = Config.in_force()
+    picture = Situation.build(inputs(state, now), config, now)
 
     WorldState.put(:situation, picture, now)
 
@@ -150,7 +155,7 @@ defmodule Pokex.Bots.Engine.Worker do
       Logic.step(
         state.logic,
         %{situation: picture, hunt: hunt(now), hands: hands(state.loadout)},
-        decision_config(),
+        config,
         now
       )
 
@@ -229,34 +234,6 @@ defmodule Pokex.Bots.Engine.Worker do
       ready_keys: Perception.ready_skills(now),
       damage_keys: damage_keys(state.loadout),
       prev: state.picture
-    }
-  end
-
-  defp config do
-    %{engage_from: Settings.get(:engine_engage_from)}
-  end
-
-  defp decision_config do
-    %{
-      engage_from: Settings.get(:engine_engage_from),
-      gather_piles: Settings.get(:engine_gather_piles),
-      reset_revive: Settings.get(:engine_reset_revive),
-      reset_revive_cooldown_ms: Settings.get(:engine_reset_revive_cooldown_ms),
-      reset_revive_min_hp: Settings.get(:engine_reset_revive_min_hp),
-      pile_settle_ms: Settings.get(:engine_pile_settle_ms),
-      size_ceiling_ms: Settings.get(:engine_size_ceiling_ms),
-      band_yellow_pct: Settings.get(:engine_band_yellow_pct),
-      band_red_pct: Settings.get(:engine_band_red_pct),
-      resume_pct: Settings.get(:engine_resume_pct),
-      recover_timeout_ms: Settings.get(:engine_recover_timeout_ms),
-      closing_timeout_ms: Settings.get(:engine_closing_timeout_ms),
-      downed_retry_ms: Settings.get(:engine_downed_retry_ms),
-      revive_confirm_ms: Settings.get(:engine_revive_confirm_ms),
-      # Not the engine's own number: the floor the PlayerSupport actually keeps
-      # between two rescues. The brain planning around a press the hands cannot
-      # make is how a hunt froze for thirty seconds at a time.
-      rescue_cooldown_ms: Settings.get(:rescue_cooldown_ms),
-      skip_fire: Settings.get(:engine_skip_fire)
     }
   end
 

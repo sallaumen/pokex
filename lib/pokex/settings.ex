@@ -1080,13 +1080,6 @@ defmodule Pokex.Settings do
     # Nor may closing a round wait forever for a pile that stopped coming — the
     # ceiling this same number doubles as, for when to give up and revive.
     engine_closing_timeout_ms: 8_000,
-    # With the pokemon PROVEN off the field the engine asks for the revive again
-    # every this-many ms. The fallen rescue in PlayerSupport fires once per death
-    # and then disarms itself until a live bar is seen again, so before this knob
-    # existed a revive that did not land ended the night with nobody asking twice.
-    # The first ask waits the same window: the ordinary reason to be off the field
-    # is a revive already in flight.
-    engine_downed_retry_ms: 4_000,
     # R5: how long a revive has to prove it landed before the engine calls it a
     # refusal and walks again. Its only job is to be longer than the game takes
     # to put the body back and much shorter than the recovery ceiling — the
@@ -1329,7 +1322,6 @@ defmodule Pokex.Settings do
     engine_resume_pct: 1..100,
     engine_recover_timeout_ms: 1_000..600_000,
     engine_closing_timeout_ms: 100..600_000,
-    engine_downed_retry_ms: 500..600_000,
     engine_revive_confirm_ms: 500..600_000,
     engine_hunt_max_age_ms: 200..60_000,
     engine_orders_max_age_ms: 200..60_000,

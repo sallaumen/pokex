@@ -35,6 +35,7 @@ defmodule Pokex.Sim.Bench do
   right", never "did the key land".
   """
 
+  alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Bots.PlayerSupport.Logic, as: Support
@@ -45,33 +46,22 @@ defmodule Pokex.Sim.Bench do
   @tick_ms 100
   @default_duration_ms 60_000
 
-  # The decision knobs, by the name the engine calls them and the name Settings
-  # stores them under. Hand-copying the VALUES here is what let this bench drift
-  # into answering about a bot that does not exist: on 2026-08-25 its copy still
-  # said `recover_timeout_ms: 20_000` and `closing_timeout_ms: 15_000` while the
-  # seeds had been 30_000 and 8_000 for weeks. Only the mapping is written now;
-  # the numbers come from the one place that has them.
-  @knobs %{
-    engage_from: :engine_engage_from,
-    gather_piles: :engine_gather_piles,
-    reset_revive: :engine_reset_revive,
-    reset_revive_cooldown_ms: :engine_reset_revive_cooldown_ms,
-    reset_revive_min_hp: :engine_reset_revive_min_hp,
-    pile_settle_ms: :engine_pile_settle_ms,
-    size_ceiling_ms: :engine_size_ceiling_ms,
-    band_yellow_pct: :engine_band_yellow_pct,
-    band_red_pct: :engine_band_red_pct,
-    resume_pct: :engine_resume_pct,
-    recover_timeout_ms: :engine_recover_timeout_ms,
-    closing_timeout_ms: :engine_closing_timeout_ms,
-    downed_retry_ms: :engine_downed_retry_ms,
-    revive_confirm_ms: :engine_revive_confirm_ms,
-    rescue_cooldown_ms: :rescue_cooldown_ms,
-    skip_fire: :engine_skip_fire,
-    # …and the SUPPORT's ladder, which the loop obeys too. It is not the
-    # engine's decision, but it is what keeps a pokemon alive between two
-    # revives, and a bench that models only the last rung answers about a hunt
-    # that has no first aid at all.
+  # The world knobs whose authority is `Settings`: the two floors between two
+  # revives belong to `PlayerSupport`, and a bench that keeps its own copy of
+  # them answers about a bot that cannot exist. Same lesson as the decision
+  # knobs — which is why those now live in `Engine.Config` and not here — and it
+  # cost the same way: 2s here against 60s in the seeds made a run report 174
+  # revives in 25 minutes without anybody noticing the hunt could never afford
+  # them.
+  @world_knobs %{
+    revive_cooldown_ms: :rescue_cooldown_ms,
+    fainted_revive_cooldown_ms: :fainted_revive_cooldown_ms
+  }
+
+  # …and the SUPPORT's ladder, which the loop obeys too. Not the engine's
+  # decision, but what keeps a pokémon alive between two revives: a bench that
+  # models only the last rung answers about a hunt with no first aid at all.
+  @support_knobs %{
     heal_skill_enabled: :heal_skill_enabled,
     heal_pct: :pokemon_hp_heal_pct,
     heal_skill_cooldown_ms: :heal_skill_cooldown_ms,
@@ -80,29 +70,8 @@ defmodule Pokex.Sim.Bench do
     potion_cooldown_ms: :potion_cooldown_ms
   }
 
-  # The WORLD's knobs that are not the world's to invent: the two floors between
-  # two revives belong to `PlayerSupport`, and a bench that keeps its own copy
-  # of them answers about a bot that cannot exist. Same lesson as `@knobs`, and
-  # it cost the same way — 2s here against 60s in the seeds made a run report
-  # 174 revives in 25 minutes without anybody noticing the hunt could never
-  # afford them.
-  @world_knobs %{
-    revive_cooldown_ms: :rescue_cooldown_ms,
-    fainted_revive_cooldown_ms: :fainted_revive_cooldown_ms
-  }
-
   @doc "The world knobs whose authority is `Settings`, at their seeded values."
   def world_knobs, do: Map.new(@world_knobs, fn {knob, setting} -> {knob, seed(setting)} end)
-
-  @doc """
-  The decision knobs a run uses when the caller names none: the SEEDS, not the
-  values in force.
-
-  Seeds keep a bench run reproducible — the same scenario answers the same on
-  his machine and in CI, whatever he has tuned today. To ask "what would MY bot
-  do", pass `config: Bench.config_in_force()`.
-  """
-  def default_config, do: Map.new(@knobs, fn {knob, setting} -> {knob, seed(setting)} end)
 
   # THE RIVAL BRAIN: the one question about this hunt that is still open, run
   # side by side with what he has in force. It is R3b — his own idea, "usar o
@@ -125,9 +94,24 @@ defmodule Pokex.Sim.Bench do
   @doc "The changes the bench found worth their price, as overrides."
   def tuning, do: @tuning
 
+  @doc """
+  The knobs a run uses when the caller names none: the SEEDS, not the values in
+  force.
+
+  Seeds keep a bench run reproducible — the same scenario answers the same on
+  his machine and in CI, whatever he has tuned today. To ask "what would MY bot
+  do", pass `config: Bench.config_in_force()`.
+  """
+  def default_config, do: Map.merge(Config.defaults(), support_seeds())
+
   @doc "The knobs as the bot is running them right now — his overrides included."
-  def config_in_force,
-    do: Map.new(@knobs, fn {knob, setting} -> {knob, Settings.get(setting)} end)
+  def config_in_force do
+    support = Map.new(@support_knobs, fn {knob, setting} -> {knob, Settings.get(setting)} end)
+    Map.merge(Config.in_force(), support)
+  end
+
+  defp support_seeds,
+    do: Map.new(@support_knobs, fn {knob, setting} -> {knob, seed(setting)} end)
 
   defp seed(setting), do: Map.fetch!(Settings.defaults(), setting)
 

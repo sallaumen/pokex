@@ -167,7 +167,11 @@ defmodule Pokex.Settings do
     # warns loudly on start.
     corpse_match_min_similarity: 0.72,
     # side of the square crop (RAW frame px) when photographing/validating a corpse
-    corpse_sprite_box_px: 56,
+    # Derived, not measured: this and the corpse lengths below follow the tile,
+    # which was re-measured on the new client (see tile_px) — 151/131 bigger
+    # than the old one's. What the ground is made of did not change; how many
+    # points a step of it takes did.
+    corpse_sprite_box_px: 65,
     # The capture SCAN SQUARE: radius in tiles of the square swept around the
     # character when a kill happens. 3 = 7×7 tiles ≈ 616pt on Lucas's screen —
     # covers the fallen corpse in any plausible neighborhood without sweeping
@@ -208,8 +212,8 @@ defmodule Pokex.Settings do
     # the Body returns it to Lucas's spot (restore_mouse_after_actions).
     # Without it the cursor was yanked ~2ms after the key.
     capture_hold_ms: 120,
-    corpse_scan_step_px: 44,
-    corpse_scan_refine_px: 7,
+    corpse_scan_step_px: 51,
+    corpse_scan_refine_px: 8,
     corpse_scan_refine_peaks: 4,
     # Auto-recovery: consecutive NEAR-EMPTY-water frames (bubble px below
     # line_present_min_px — no line in the water) before we assume the cast FAILED
@@ -296,21 +300,22 @@ defmodule Pokex.Settings do
     # RAISE it if a red enemy element in the strip ever gets mistaken for a pokeball.
     pokeball_min_red_px: 5,
     # Screen points per game tile — the ruler for everything measured FROM THE
-    # CHARACTER. RE-MEASURED 2026-08-11 at 3440x1440, scale 1.0; the old 88 was
-    # two thirds of a tile.
+    # CHARACTER. RE-MEASURED 2026-08-24 on the client he plays; 131 was the old
+    # one's, and before that 88 was two thirds of a tile.
     #
-    # The method assumes nothing: two full-screen photos of the same hunt whose
-    # minimap coordinates differ (2652,30434 → 2644,30438 — 8 tiles west, 4
-    # south), matched against each other. The terrain moved 1047 points across
-    # and 524 down: 1047/8 = 130.9, 524/4 = 131.0. Two independent numbers
-    # agreeing to 0.1%, at a match score of 0.99.
+    # The method assumes nothing: two full-screen photos whose minimap
+    # coordinates differ by a known number of tiles, matched against each other.
+    # Walking 4 tiles west moved the terrain 604 points across (604/4 = 151.00,
+    # the same answer from three different patches of ground); walking 3 south
+    # moved it 452 up (452/3 = 150.67). Two axes agreeing to 0.2%.
     #
-    # 88 came from the floor texture repeating every 44 points, read as TWO
-    # rows per tile sprite. It is three: 3 × 44 = 132. A ruler two thirds of
-    # size is why the blind sweep threw several balls at the same square and
-    # none at the ring around it, and why the corpse search covered 5.4 of the
-    # 8 tiles it was asked for.
-    tile_px: 131,
+    # Both wrong answers this number has had came from trusting a texture
+    # instead of a walk: 88 was the floor pattern repeating every 44 points read
+    # as two rows per tile, and one patch of THIS measurement locked onto 302 —
+    # exactly two tiles — with an error ten times the true match's. A ruler off
+    # by a third is why the blind sweep threw several balls at one square and
+    # none at the ring around it.
+    tile_px: 151,
     # /diagnostics still shows the per-row red target-ring read for manual inspection; this
     # is the threshold it uses (a real ring is 600-900 red px, the unlocked baseline ~40-150).
     # Combat itself no longer reads the ring — it targets by HP bar + pokeball (enemy_rows).
@@ -780,16 +785,16 @@ defmodule Pokex.Settings do
     # Start the bot with the ground CLEAN — a corpse present at attach becomes part of the baseline.
     feed_corpses_ms: 400,
     corpse_warmup_frames: 20,
-    corpse_cell_px: 16,
+    corpse_cell_px: 18,
     # per-channel delta for a sample to count as changed (warmup: mask a cell; scanning: heat it)
     corpse_noise_threshold: 40,
     corpse_diff_threshold: 40,
     # samples per 16px cell = 16 (stride 4); a cell is HOT when this many changed
-    corpse_cell_min_samples: 6,
+    corpse_cell_min_samples: 8,
     # a blob needs this many connected hot cells (a corpse sprite spans ~2-3 cells)
     corpse_min_cells: 2,
     corpse_stationary_frames: 2,
-    corpse_stationary_tolerance_px: 24,
+    corpse_stationary_tolerance_px: 28,
     # Catcher: one ball in flight at a time, confirmed against the next observations. A hit
     # consumes the corpse instantly (game rule), so a blob that SURVIVES corpse_max_balls
     # throws is not a corpse (a parked pet) → ignored for corpse_ignore_ttl_ms. Confirmation
@@ -799,7 +804,7 @@ defmodule Pokex.Settings do
     # viewport may act) or "moving" (Lucas is walking around — capture is his).
     player_mode: "still",
     # Independent switches, both only meaningful while parado:
-    corpse_match_tolerance_px: 32,
+    corpse_match_tolerance_px: 37,
     corpse_max_balls: 2,
     corpse_ignore_ttl_ms: 45_000,
     corpse_confirm_after_ms: 800,

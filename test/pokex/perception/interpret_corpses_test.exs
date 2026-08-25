@@ -41,8 +41,19 @@ defmodule Pokex.Perception.Interpret.CorpsesTest do
     {x, y}
   end
 
+  # The cell is PINNED here: these are tests of the TRACKING, painted on a
+  # synthetic 16-px grid, and they were quietly rewritten every time the seed
+  # moved with the game's tile (2026-08-24, when the new client's tile measured
+  # 151 against the old one's 131). What the seed says belongs to the game; what
+  # this file says belongs to the logic.
   defp settings(overrides \\ %{}) do
-    Map.merge(Settings.defaults(), Map.merge(%{corpse_warmup_frames: 3}, overrides))
+    Settings.defaults()
+    |> Map.merge(%{
+      corpse_warmup_frames: 3,
+      corpse_cell_px: 16,
+      corpse_stationary_tolerance_px: 24
+    })
+    |> Map.merge(overrides)
   end
 
   defp frame(paint), do: Pokex.FrameFixtures.of(64, 64, paint)

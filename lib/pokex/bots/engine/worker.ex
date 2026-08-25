@@ -41,6 +41,7 @@ defmodule Pokex.Bots.Engine.Worker do
   alias Pokex.Bots.Combat.Strategy
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
+  alias Pokex.Bots.Engine.Narration
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Engine.Events
   alias Pokex.Engine.Vitals
@@ -167,8 +168,7 @@ defmodule Pokex.Bots.Engine.Worker do
     WorldState.put(:orders, orders, now)
 
     state
-    |> narrate(picture)
-    |> narrate_orders(orders)
+    |> narrate(picture, orders)
     |> sample_vitals(picture, orders, now)
     |> Map.merge(%{picture: picture, orders: orders, logic: logic})
     |> tap(&broadcast({:engine, &1.picture, &1.orders}))
@@ -267,47 +267,33 @@ defmodule Pokex.Bots.Engine.Worker do
   defp damage_keys(nil), do: []
   defp damage_keys(loadout), do: loadout.aoe ++ loadout.single
 
-  # Speaking per tick would bury the fact it exists to surface — 200ms of
-  # cadence is five lines a second. Only the EDGES talk.
-  defp narrate(state, picture) do
-    state
-    |> narrate_count(picture)
-    |> narrate_own_row(picture)
-  end
+  # Only the EDGES talk: 200ms of cadence is five lines a second, and a feed
+  # nobody can read is silence with more scrolling. WHAT to say is
+  # `Engine.Narration`, a pure function of two ticks — it lived here as five
+  # `defp`s that each took the whole state and gave it back unchanged after a
+  # `log/2`, which made the rule only testable by starting a GenServer.
+  defp narrate(state, picture, orders) do
+    previous = %{picture: state.picture, orders: state.orders}
+    current = %{picture: picture, orders: orders}
 
-  defp narrate_count(%{picture: %{enemies: same}} = state, %{enemies: same}), do: state
+    previous
+    |> Narration.lines(current, own_label(state))
+    |> Enum.each(&log(:macro, &1))
 
-  defp narrate_count(state, %{enemies: nil}) do
-    if state.picture && state.picture.enemies != nil,
-      do: log(:macro, "perdi a lista de batalha — não sei quantos são")
+    if changed_mind?(state, orders), do: file(state, picture, orders)
 
-    state
-  end
-
-  defp narrate_count(state, picture) do
-    log(:macro, "#{picture.enemies} #{plural(picture.enemies)}#{named_as(picture)}")
     state
   end
 
-  # THE SHADOW. One line per DECISION CHANGE, in the same feed as what the bot
-  # actually did — so a night can be read as two columns without a second
-  # screen: "🧠 quem mandaria" beside the hunt's own lines. The `why` is the
-  # whole point; the phase is there so a change of mind is visible even when the
-  # sentence reads similar.
-  defp narrate_orders(%{orders: %{why: same}} = state, %{why: same}), do: state
+  defp changed_mind?(%{orders: %{why: same}}, %{why: same}), do: false
+  defp changed_mind?(_state, _orders), do: true
 
-  defp narrate_orders(state, orders) do
-    log(:macro, "🧠 #{orders.why}#{shadow_hint(orders)}")
-    file(state, orders)
-    state
-  end
-
-  # …and the same moment a second time, TYPED. The sentence above is what he
-  # reads in the morning; this is what tells us later whether three was the
+  # …and the same moment a second time, TYPED. The sentence in the feed is what
+  # he reads in the morning; this is what tells us later whether three was the
   # right ruler — a question no amount of prose can answer.
-  defp file(%{picture: nil}, _orders), do: :ok
+  defp file(_state, nil, _orders), do: :ok
 
-  defp file(%{picture: picture}, orders) do
+  defp file(_state, picture, orders) do
     Events.record(:decision, %{
       phase: orders.phase,
       band: orders.band,
@@ -321,62 +307,6 @@ defmodule Pokex.Bots.Engine.Worker do
       hp: picture.own_hp,
       why: orders.why
     })
-  end
-
-  # What it WOULD have changed, named only when it differs from just watching —
-  # this is what makes the comparison against the bot's real behaviour concrete.
-  # Ordered by weight, not by field: a tick that would revive AND hold the route
-  # is a revive — naming the hold there would bury the expensive half.
-  defp shadow_hint(%{revive: :now}), do: " [reviveria agora]"
-  defp shadow_hint(%{fire: :free}), do: " [liberaria o fogo]"
-  defp shadow_hint(%{route: :hold}), do: " [seguraria a rota]"
-  defp shadow_hint(_watching), do: ""
-
-  defp plural(1), do: "inimigo na tela"
-  defp plural(_n), do: "inimigos na tela"
-
-  defp named_as(%{named: []}), do: " (sem nomes — layout não localizado)"
-
-  defp named_as(%{named: named}) do
-    names =
-      named
-      |> Enum.map(&(&1.name || "?"))
-      |> Enum.join(", ")
-
-    " — " <> names
-  end
-
-  # THE MEASUREMENT. Said once, when it becomes knowable, and again only if it
-  # ever changes its mind: whether his own pokémon takes a row in the list is
-  # what decides if the ruler of three is measured against 3 rows or 4.
-  defp narrate_own_row(%{picture: %{own_row_seen?: same}} = state, %{own_row_seen?: same}),
-    do: state
-
-  defp narrate_own_row(state, %{own_row_seen?: nil}), do: state
-
-  # A discount made on an ABSENCE must never read like one made on a name: on
-  # 2026-08-18 the by-name discount silently never fired for a whole hunt, and
-  # nothing on any screen said so. This line is what would have said it.
-  defp narrate_own_row(state, %{own_row_seen?: :unnamed}) do
-    log(
-      :macro,
-      "#{own_label(state)} está na lista mas o nome saiu ilegível — descontei a primeira " <>
-        "linha sem nome. Ensine os glifos dele na calibração pra voltar a descontar pelo nome."
-    )
-
-    state
-  end
-
-  defp narrate_own_row(state, %{own_row_seen?: seen?} = picture) do
-    who = own_label(state)
-
-    if seen? do
-      log(:macro, "#{who} ocupa uma linha da lista — a contagem desconta ele")
-    else
-      log(:macro, "#{who} NÃO aparece na lista (#{picture.rows} linha(s), nenhuma é ele)")
-    end
-
-    state
   end
 
   defp own_label(%{loadout: nil}), do: "o pokémon em campo"

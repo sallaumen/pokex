@@ -980,11 +980,48 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # the fight over. Clear rows alone are not enough — see `engaged?/1`: a held
   # lock is a live fight the count cannot see, and the debounce must not even
   # start under one.
-  defp fight(logic, %{enemies: 0} = world, now) do
+  # O CÉREBRO MANDA NA ESTRADA, inclusive no meio de uma luta.
+  #
+  # Até 26/08 este estado simplesmente não andava: o combate travava um alvo, a
+  # caçada parava, e ficava parada até a tela limpar. Isso apagava, no jogo, a
+  # metade da régua que o simulador acabou de ganhar — "andei dois passos e
+  # achei três inimigos; que que custa andar mais 5 passos, juntar mais
+  # monstros e aí matar todo mundo já ao redor?". O cérebro dizia `route: :go`
+  # e a estrada não ouvia.
+  #
+  # Agora ouve. Enquanto existe uma ordem fresca, quem decide se o pé anda é
+  # ela — parada pra estourar a área, andando pra juntar, andando pra não
+  # apanhar com a barra vazia. Sem ordem nenhuma, o comportamento é o de sempre:
+  # parar e lutar.
+  defp fight(logic, world, now) do
+    if walk_ordered?(world),
+      do: follow_route(fight_clocks(logic, world, now), world, now),
+      else: stand_and_fight(logic, world, now)
+  end
+
+  # A ordem é uma só e vem com idade: `route_hold?` é `false` tanto quando o
+  # cérebro manda andar quanto quando não há cérebro nenhum, e as duas coisas
+  # não podem se parecer. `engine?` é o que separa.
+  defp walk_ordered?(world),
+    do: Map.get(world, :engine?, false) and not Map.get(world, :route_hold?, false)
+
+  # ANDANDO, o relógio do travamento não corre — e não é descuido. Ele mede uma
+  # luta que não sai do lugar, e quem está andando tem outro guarda: o da rota,
+  # que já reclama de um pé que não anda (`:stuck`). Deixar os dois correrem
+  # juntos fazia a caçada ser declarada travada por estar fazendo exatamente o
+  # que foi mandada fazer.
+  #
+  # Zerado, e não pausado: quando o cérebro parar a estrada, a janela do
+  # travamento começa do instante em que ela realmente parou.
+  defp fight_clocks(logic, world, _now) do
+    %{logic | since: Map.delete(logic.since, :fight), last_enemies: Map.get(world, :enemies)}
+  end
+
+  defp stand_and_fight(logic, %{enemies: 0} = world, now) do
     if engaged?(world), do: fight_on(logic, 0, now), else: fight_clear(logic, now)
   end
 
-  defp fight(logic, %{enemies: enemies}, now), do: fight_on(logic, enemies, now)
+  defp stand_and_fight(logic, %{enemies: enemies}, now), do: fight_on(logic, enemies, now)
 
   defp fight_clear(logic, now) do
     logic = %{logic | last_enemies: 0}

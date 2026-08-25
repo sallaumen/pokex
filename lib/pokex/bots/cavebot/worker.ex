@@ -476,6 +476,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
          {:ok, picture} <-
            WorldState.get(:situation, Settings.get(:engine_orders_max_age_ms), now) do
       %{
+        engine?: true,
         route_hold?: Map.get(orders, :route) == :hold,
         reset_worth?: reset_worth?(picture),
         reset_note: reset_note(picture)

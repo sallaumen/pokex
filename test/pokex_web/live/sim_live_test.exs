@@ -191,4 +191,43 @@ defmodule PokexWeb.SimLiveTest do
 
     assert live |> element("button", "perto") |> render_click() =~ "aproximar"
   end
+
+  # O PLACAR DA NOITE: as mesmas perguntas do placar simulado, feitas ao rastro
+  # que o bot deixou. Sem rastro ele não aparece — um número sem noite atrás é
+  # um número inventado.
+  describe "o placar da noite" do
+    test "não aparece quando a noite não deixou rastro", %{conn: conn} do
+      {:ok, _live, html} = live(conn, ~p"/sim")
+
+      refute html =~ "O placar da noite"
+    end
+
+    @tag :tmp_dir
+    test "e mostra o que a noite rendeu quando deixou", %{conn: conn, tmp_dir: tmp} do
+      hoje = Date.utc_today()
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      File.mkdir_p!(Path.join(tmp, "events"))
+
+      linhas = [
+        %{kind: "vitals", at: 0, enemies: 3, ready: 0, out: true},
+        %{kind: "decision", at: 1_000, phase: "engaged", revive: "now"},
+        %{kind: "kill", at: 30_000, n: 1},
+        %{kind: "vitals", at: 60_000, enemies: 0, ready: 2, out: true}
+      ]
+
+      File.write!(
+        Path.join([tmp, "events", "#{Date.to_iso8601(hoje)}.jsonl"]),
+        Enum.map_join(linhas, "\n", &Jason.encode!/1) <> "\n"
+      )
+
+      {:ok, _live, html} = live(conn, ~p"/sim")
+
+      assert html =~ "O placar da noite"
+      assert html =~ "mortos/min"
+      assert html =~ "As pilhas que ele encontrou"
+      assert html =~ "Onde foi o minuto, no jogo"
+    end
+  end
 end

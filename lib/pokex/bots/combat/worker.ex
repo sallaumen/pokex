@@ -442,8 +442,13 @@ defmodule Pokex.Bots.Combat.Worker do
     # ball on the disengage snapshot's advance — the ball consumes the corpse WITH its loot, so
     # this producer-side order IS the loot-before-ball guarantee (same sender → same receiver
     # preserves it).
-    if logic.counters.fights > previous.counters.fights,
-      do: broadcast_kill()
+    if logic.counters.fights > previous.counters.fights do
+      broadcast_kill()
+      # …e o mesmo instante, TIPADO. Sem isto uma noite de verdade não tem
+      # numerador: o simulador conta mortos porque é dono do mundo, e aqui o
+      # único lugar que sabe que um alvo caiu é este contador.
+      Pokex.Engine.Events.record(:kill, %{n: logic.counters.fights})
+    end
 
     if logic.state != previous.state or logic.counters != previous.counters or
          state.last_action != previous_action,

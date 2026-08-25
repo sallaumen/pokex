@@ -185,9 +185,16 @@ defmodule Pokex.Sim.World do
             failures: MapSet.new(),
             stats: %{killed: 0, vanished: 0},
             # A revive in flight (`revive_at`) and the floor before the next one
-            # may be pressed (`revive_ready_at`).
+            # may be pressed — TWO of them, because the bot keeps two: a pokémon
+            # still standing waits `rescue_cooldown_ms` between two presses, one
+            # already on the floor waits the much shorter
+            # `fainted_revive_cooldown_ms`. Sharing one clock made a rescue
+            # spent while standing block the revive of the FALL that followed
+            # it, and the pokémon lay there for the long floor: 45% of a dense
+            # run on the ground, measured 2026-08-25.
             revive_at: nil,
-            revive_ready_at: 0,
+            rescue_ready_at: 0,
+            fainted_ready_at: 0,
             nests: [],
             next_id: 1,
             rand: nil,
@@ -487,7 +494,7 @@ defmodule Pokex.Sim.World do
   def revive(%__MODULE__{} = world) do
     cond do
       broken?(world, :dead_revive) -> world
-      world.clock < world.revive_ready_at -> world
+      world.clock < floor_of(world) -> world
       world.revive_at != nil -> world
       true -> start_revive(world)
     end
@@ -496,24 +503,34 @@ defmodule Pokex.Sim.World do
   @doc "Would a revive ordered right now actually be accepted?"
   @spec revive_ready?(t) :: boolean
   def revive_ready?(%__MODULE__{} = world),
-    do: world.clock >= world.revive_ready_at and world.revive_at == nil
+    do: world.clock >= floor_of(world) and world.revive_at == nil
 
+  # The floor is stamped on the state the press was made IN, and only then does
+  # the body leave the field — reading it afterwards would call every press a
+  # fallen revive, including the rescue of a pokémon that was standing.
   defp start_revive(world) do
-    %{
-      world
-      | own: %{world.own | out?: false},
-        revive_at: world.clock + world.knobs.revive_settle_ms,
-        revive_ready_at: world.clock + next_floor(world)
-    }
+    world
+    |> stamp_floor()
+    |> Map.put(:own, %{world.own | out?: false})
+    |> Map.put(:revive_at, world.clock + world.knobs.revive_settle_ms)
   end
 
-  # Two floors, because the bot has two: a pokemon on the floor may be revived
-  # again far sooner than one merely hurt. Which one applies is decided by the
-  # state the press was made IN.
-  defp next_floor(%{own: %{out?: false}} = world),
-    do: Map.get(world.knobs, :fainted_revive_cooldown_ms, world.knobs.revive_cooldown_ms)
+  # WHICH floor, decided by the state the press was made in — and stamped on
+  # that clock alone. The bot keeps the two independently (`last_rescue_at` and
+  # `last_faint_at` in `PlayerSupport`), so a rescue spent on a standing pokémon
+  # must not be able to hold down the revive of the fall that follows it.
+  defp floor_of(%{own: %{out?: false}} = world), do: world.fainted_ready_at
+  defp floor_of(world), do: world.rescue_ready_at
 
-  defp next_floor(world), do: world.knobs.revive_cooldown_ms
+  defp stamp_floor(%{own: %{out?: false}} = world) do
+    %{world | fainted_ready_at: world.clock + fainted_floor(world)}
+  end
+
+  defp stamp_floor(world),
+    do: %{world | rescue_ready_at: world.clock + world.knobs.revive_cooldown_ms}
+
+  defp fainted_floor(world),
+    do: Map.get(world.knobs, :fainted_revive_cooldown_ms, world.knobs.revive_cooldown_ms)
 
   # R3, landed: full health, back on its feet, every cooldown at zero — and back
   # at HIS side, because it comes out of the ball where he is standing, not

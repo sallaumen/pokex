@@ -185,7 +185,7 @@ defmodule Pokex.Sim.RunnerTest do
     Runner.load_scenario(server, Scenario.get("pilha-pequena"), [])
 
     assert Runner.scenario(server).id == "pilha-pequena"
-    assert length(Runner.world(server).mobs) == 2
+    assert length(Runner.world(server).mobs) == 1
   end
 
   test "a scripted failure fires on the world clock, not the machine's", %{

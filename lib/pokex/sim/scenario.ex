@@ -66,13 +66,35 @@ defmodule Pokex.Sim.Scenario do
         knobs: %{respawn_ms: 45_000, aggro_tiles: 8, leash_tiles: 12}
       },
       %__MODULE__{
+        id: "formigueiro",
+        group: :hunt,
+        name: "Formigueiro (cheio de bicho)",
+        why:
+          "A caçada dele, na densidade que ele descreveu: “esse jogo geralmente se dá uma " <>
+            "andada: aparece mais três inimigos de uma vez, mais dois inimigos de uma vez”. " <>
+            "Doze cantos, quase todos com ninho, pilhas de 2 a 5, perdidos em mais da metade " <>
+            "do caminho e um renascimento de 20s. É aqui que a régua de passos tem o que " <>
+            "medir — no anel esparso todas as respostas empatam.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{2 => 4, 3 => 4, 4 => 2, 5 => 1},
+          nest_radius: 3,
+          stray_chance_pct: 60,
+          aggro_tiles: 8,
+          leash_tiles: 12,
+          respawn_ms: 20_000
+        }
+      },
+      %__MODULE__{
         id: "pilha-pequena",
         group: :ruler,
         name: "Pilha pequena",
         why:
-          "Dois monstros só. A régua de 3 manda seguir andando — olhe o cérebro dizer " <>
-            "que não vale a área em vez de estourar.",
-        knobs: %{nest_size: 2, nest_radius: 1, aggro_tiles: 12}
+          "UM monstro só — que é o que “abaixo da régua” quer dizer desde que ela virou " <>
+            "dois (25/08). A régua não o ignora, ela ADIA: ele é carregado junto enquanto " <>
+            "a caçada anda, e vira luta quando a paciência acaba. Com a paciência " <>
+            "desligada, é ele sendo deixado pra trás.",
+        knobs: %{nest_size: 1, nest_radius: 1, aggro_tiles: 8, leash_tiles: 20}
       },
       %__MODULE__{
         id: "pilha-que-fecha",
@@ -99,11 +121,11 @@ defmodule Pokex.Sim.Scenario do
         group: :ruler,
         name: "Ganância: eles somem",
         why:
-          "Dois monstros e uma corda curta. Com a régua em 3 a pilha é ABANDONADA, ele " <>
-            "segue andando, e os dois que já tinham acordado desaparecem — R2 " <>
-            "acontecendo, não uma regra escrita em lugar nenhum. Com a régua em 1 " <>
-            "(a sua, pros Ratata) os mesmos dois morrem: é o preço da régua, medido.",
-        knobs: %{nest_size: 2, nest_radius: 1, aggro_tiles: 8, leash_tiles: 8}
+          "Um monstro e uma corda curta. Com a régua acima dele E a paciência desligada a " <>
+            "pilha é ABANDONADA, a caçada segue andando, e quem já tinha acordado " <>
+            "desaparece — R2 acontecendo, não uma regra escrita em lugar nenhum. Com a " <>
+            "régua em 1 (a sua) ele morre: é o preço da régua, medido.",
+        knobs: %{nest_size: 1, nest_radius: 1, aggro_tiles: 8, leash_tiles: 8}
       },
       %__MODULE__{
         id: "vida-caindo",
@@ -112,7 +134,7 @@ defmodule Pokex.Sim.Scenario do
         why:
           "A mordida é forte. Acompanhe verde → amarelo: a rota deve travar (fecha a " <>
             "rodada) antes de qualquer revive.",
-        knobs: %{nest_size: 4, nest_radius: 1, aggro_tiles: 20, bite_dmg: 6, bite_every_ms: 700}
+        knobs: %{nest_size: 4, nest_radius: 1, aggro_tiles: 20, bite_dmg: 14, bite_every_ms: 500}
       },
       %__MODULE__{
         id: "vermelho",
@@ -173,6 +195,7 @@ defmodule Pokex.Sim.Scenario do
   @spec route(t, [Route.t()]) :: Route.t()
   def route(%__MODULE__{route: nil}, _available), do: ring()
   def route(%__MODULE__{route: :hunt_field}, _available), do: hunt_field()
+  def route(%__MODULE__{route: :anthill}, _available), do: anthill()
 
   def route(%__MODULE__{route: name}, available),
     do: Enum.find(available, &(&1.name == name)) || ring()
@@ -242,6 +265,55 @@ defmodule Pokex.Sim.Scenario do
             y: y,
             z: 7,
             action: action,
+            stops: [],
+            at: nil,
+            dwell_ms: nil,
+            park_point: nil,
+            park_tiles: nil,
+            fight_ms: fight,
+            gather_ms: gather,
+            combo: [],
+            skills: [],
+            gather_wait_ms: nil
+          }
+        end
+    }
+  end
+
+  @doc """
+  A LONG lap, thick with monsters: twelve corners, a nest on almost every one,
+  and strays on more than half the road between them.
+
+  The sparse ring cannot tell two rulers apart — every answer lands inside the
+  noise, because there is rarely more than one pile in play. This is where a
+  ruler measured in STEPS has something to measure, and it is the density he
+  described: "aparece mais três inimigos de uma vez, mais dois inimigos de uma
+  vez" (2026-08-25).
+  """
+  @spec anthill() :: Route.t()
+  def anthill do
+    %Route{
+      name: "formigueiro de teste",
+      waypoints:
+        for {x, y, gather, fight} <- [
+              {1_000, 1_000, nil, nil},
+              {1_010, 1_000, 3_000, nil},
+              {1_020, 1_000, nil, 3_000},
+              {1_030, 1_004, 3_000, nil},
+              {1_034, 1_012, nil, 3_000},
+              {1_030, 1_020, 3_000, nil},
+              {1_020, 1_024, nil, 3_000},
+              {1_010, 1_024, 3_000, nil},
+              {1_000, 1_020, nil, 3_000},
+              {996, 1_012, 3_000, nil},
+              {998, 1_006, nil, 3_000},
+              {1_000, 1_002, nil, nil}
+            ] do
+          %{
+            x: x,
+            y: y,
+            z: 7,
+            action: :walk,
             stops: [],
             at: nil,
             dwell_ms: nil,

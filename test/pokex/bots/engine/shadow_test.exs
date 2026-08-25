@@ -119,17 +119,19 @@ defmodule Pokex.Bots.Engine.ShadowTest do
     assert shadow =~ "[liberaria o fogo]"
   end
 
-  # R1 in the field: two monsters at a kill spot is not a fight, it is a corner
-  # to walk away from. It takes the ceiling to conclude that, so the decision
-  # only lands on the tick where waiting stopped being worth it.
-  test "it would walk away from a pile that never reached three", %{worker: worker} do
-    see(~w(Venonat Paras))
+  # R1 no campo, na forma que ele deu a ela em 25/08: UM monstro num canto não
+  # é uma luta, é uma pilha pra carregar junto enquanto a caçada anda — e a
+  # régua de passos é quem diz quando ela vira luta.
+  test "it would carry a lone monster along instead of standing next to it", %{worker: worker} do
+    see(~w(Venonat))
     hunting(%{state: :fighting})
 
     tick(worker)
-    assert orders().phase == :sizing
-    assert_receive {:engine_log, :macro, "quadro: 🧠" <> waiting}
-    assert waiting =~ "contando quem chega"
+    assert orders().phase == :gathering
+    assert orders().route == :go
+    assert orders().fire == :hold
+    assert_receive {:engine_log, :macro, "quadro: 🧠" <> juntando}
+    assert juntando =~ "juntando"
   end
 
   test "nobody obeys yet: the posture the fight reads is untouched", %{worker: worker} do

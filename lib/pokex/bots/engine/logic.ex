@@ -450,6 +450,12 @@ defmodule Pokex.Bots.Engine.Logic do
   defp denied_for(t), do: t.now - Map.get(t.logic.since, :revive_denied, t.now)
 
   # GREEN: what the route says, with the ruler applied where it stops.
+  #
+  # …and where it does NOT stop, once the brain itself decided to walk a pile
+  # together (R6): the hunt reports `:walking` the moment the route moves, and
+  # letting that end the gathering would cancel the decision on its own first
+  # step.
+  defp normal(%{logic: %{state: :gathering}} = t), do: ruler(t)
   defp normal(%{hunt: %{state: :fighting}} = t), do: ruler(t)
 
   defp normal(%{hunt: %{state: :walking, luring?: true}} = t) do
@@ -485,7 +491,15 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp ruler(%{logic: %{state: :engaged}} = t), do: engaged(t)
   defp ruler(%{logic: %{state: :skipping}} = t), do: skipping(t)
-  defp ruler(t), do: sizing(%{t | logic: enter(t.logic, :sizing, t.now)})
+  defp ruler(t), do: sizing(%{t | logic: enter_sizing(t.logic, t.now)})
+
+  # Walking a pile together is still SIZING — it is the same question, asked
+  # while moving — so the clock started at the first sighting keeps running and
+  # the ceiling still bounds the whole thing.
+  defp enter_sizing(%{state: state} = logic, now) when state in [:sizing, :gathering],
+    do: %{logic | state: :sizing, since: Map.put_new(logic.since, :sizing, now)}
+
+  defp enter_sizing(logic, now), do: enter(logic, :sizing, now)
 
   # THE ROUND IS OVER when the list is empty — 0, not `nil`. "Finishing what you
   # started" is the rule for a list that is shrinking, not for a screen with
@@ -496,27 +510,63 @@ defmodule Pokex.Bots.Engine.Logic do
      Orders.walking(:travelling, t.band, "pilha limpa — seguindo a rota")}
   end
 
+  # R7 — A BARRA VAZIA NÃO SEGURA A ROTA.
+  #
+  # Medido no formigueiro (2026-08-25): a salva de área abre em cinco e mata
+  # três, e os dois que sobram comem 64% da vida nos oito segundos seguintes,
+  # com todas as teclas em cooldown. Parado, a luta é uma troca em que só um
+  # lado bate. Andando, eles seguem sem morder — e o fogo continua livre, então
+  # a primeira tecla que volta sai na hora.
+  #
+  # É o que uma mão humana faz sem pensar, e é o oposto do que "terminar o que
+  # começou" diz quando lido como "não sair do lugar".
+  #
+  # Vem DEPOIS da R3b de propósito: as duas respondem à mesma barra vazia na
+  # frente da mesma pilha, e a R3b é a cara — ela compra a barra de volta com um
+  # revive. Andar é de graça, então é a resposta quando a cara está desligada ou
+  # não cabe.
   defp engaged(t) do
-    if reset_revive?(t) do
-      # R3b. Stays ENGAGED — this is not a rescue and there is nothing to
-      # recover from: the body comes back full, with a full bar, into the same
-      # fight it left.
-      {mark(t.logic, :reset_revive, t.now),
-       Orders.standing_and_firing(
-         :engaged,
-         t.band,
-         opening(t),
-         "sem cooldown com #{count(t.s)} na frente — revive pra voltar com a barra cheia",
-         revive: :now
-       )}
-    else
-      # A fight already opened does not re-measure itself as it kills: finishing
-      # what you started is right even as the list shrinks past three.
-      {t.logic,
-       Orders.standing_and_firing(:engaged, t.band, opening(t), "matando o que já abriu")}
+    cond do
+      reset_revive?(t) ->
+        # R3b. Stays ENGAGED — this is not a rescue and there is nothing to
+        # recover from: the body comes back full, with a full bar, into the same
+        # fight it left.
+        {mark(t.logic, :reset_revive, t.now),
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           opening(t),
+           "sem cooldown com #{count(t.s)} na frente — revive pra voltar com a barra cheia",
+           revive: :now
+         )}
+
+      kiting?(t) ->
+        {t.logic,
+         Orders.walking_and_firing(
+           :engaged,
+           t.band,
+           opening(t),
+           "sem cooldown com #{count(t.s)} em cima — andando até a barra voltar"
+         )}
+
+      true ->
+        # A fight already opened does not re-measure itself as it kills:
+        # finishing what you started is right even as the list shrinks past
+        # three.
+        {t.logic,
+         Orders.standing_and_firing(:engaged, t.band, opening(t), "matando o que já abriu")}
     end
   end
 
+  defp kiting?(t), do: t.config.kite_when_spent and t.s.spent? == true and some?(t.s)
+
+  # UMA REGRA TENTADA E REFUTADA, escrita pra não voltar: "não se abre uma pilha
+  # com a barra vazia — espera os cooldowns andando, que o tempo passa de graça
+  # e a pilha só cresce". Soa certa e não muda nada: `sizing` só é alcançado
+  # quando a luta anterior já acabou, e a barra a essa altura quase sempre
+  # voltou. Medida em 25/08 nos dois circuitos, 5 min × 12 sementes: 31,2 →
+  # 30,95 e 8,92 → 8,75 mortos/min, tudo dentro do ruído.
+  #
   # R1 says to IGNORE one or two and walk on ("eu às vezes até ignoro aquele mob
   # e sigo a minha vida"), and that is what this does by default. The knob is
   # here because the bench found the opposite worth measuring: the phase that
@@ -540,32 +590,44 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp sizing(t) do
     cond do
+      # Nobody there. Not `nil` — that is the blind case, and it never reaches
+      # here. Walking a pile that no longer exists is walking.
+      t.s.enemies == 0 ->
+        {reset_fight(t.logic, :travelling),
+         Orders.walking(:travelling, t.band, "nada aqui — seguindo a rota")}
+
       t.s.worth_fighting? and not t.config.gather_piles ->
-        {%{t.logic | state: :engaged},
-         Orders.standing_and_firing(
-           :engaged,
-           t.band,
-           opening(t),
-           "#{count(t.s)}: caindo em cima, sem esperar juntar"
-         )}
+        open(t, "#{count(t.s)}: caindo em cima, sem esperar juntar")
+
+      # R6. The pile is worth fighting AND it has been walked for: the steps
+      # bought whatever was going to join, and dragging further only spends the
+      # rope R2 charges for.
+      t.s.worth_fighting? and walked_enough?(t) ->
+        open(t, "#{count(t.s)} depois de #{walked(t)} passos juntando: estourando a área")
 
       t.s.worth_fighting? and settled?(t) ->
-        {%{t.logic | state: :engaged},
-         Orders.standing_and_firing(
-           :engaged,
-           t.band,
-           opening(t),
-           "#{count(t.s)} e pararam de chegar: estourando a área"
-         )}
+        open(t, "#{count(t.s)} e pararam de chegar: estourando a área")
 
+      # "Ou quando a gente já andou demais e não achou mais ninguém": past the
+      # patience, what is there is worth more than what might still come.
+      some?(t.s) and out_of_patience?(t) ->
+        open(t, "#{walked(t)} passos e não veio mais ninguém: matando #{count(t.s)}")
+
+      # Nothing worth having, and the clock says stop looking here.
       not within?(t, :sizing, t.config.size_ceiling_ms) ->
         {%{t.logic | state: :skipping},
-         Orders.walking(
-           :skipping,
-           t.band,
-           "só #{count(t.s)}: não vale a área — seguindo a rota"
-         )}
+         Orders.walking(:skipping, t.band, "só #{count(t.s)}: não vale a área — seguindo a rota")}
 
+      # AND OTHERWISE: KEEP WALKING. This branch used to stand still counting,
+      # which is the one thing his own hands never do — "que que custa eu andar
+      # mais 5 passos, fechar mais um, andar mais um pouquinho, juntar mais
+      # monstros". The pile follows, and the walking is what makes it a pile.
+      t.config.gather_piles ->
+        {reset_fight(%{t.logic | state: :gathering}, :gathering),
+         Orders.walking(:gathering, t.band, gathering_why(t))}
+
+      # …unless gathering is off, and then there is nothing to walk FOR: the
+      # count is the whole ruler and the wait is just a wait.
       true ->
         {t.logic,
          Orders.standing(
@@ -575,6 +637,24 @@ defmodule Pokex.Bots.Engine.Logic do
          )}
     end
   end
+
+  defp open(t, why),
+    do:
+      {%{t.logic | state: :engaged},
+       Orders.standing_and_firing(:engaged, t.band, opening(t), why)}
+
+  defp gathering_why(t) do
+    "juntando: #{count(t.s)} até agora, #{walked(t)} de #{t.config.gather_tiles} passos"
+  end
+
+  defp walked(t), do: Map.get(t.s, :walked, 0)
+
+  defp walked_enough?(t), do: walked(t) >= t.config.gather_tiles
+
+  defp out_of_patience?(t), do: walked(t) >= t.config.patience_tiles
+
+  defp some?(%{enemies: n}) when is_integer(n) and n > 0, do: true
+  defp some?(_none_or_unknown), do: false
 
   # R3b, with every guard it needs to not become "press F4 always":
   #

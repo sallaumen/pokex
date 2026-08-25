@@ -27,7 +27,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
         own_hp: 90,
         own_out?: true,
         spent?: false,
-        blind?: false
+        blind?: false,
+        # a segunda metade da régua (R6): quantos passos já foram andados
+        # puxando ESTA pilha
+        walked: 0
       },
       overrides
     )
@@ -83,42 +86,72 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "4 inimigos"
     end
 
-    # "se tem 1 ou 2 monstros, eu às vezes até ignoro aquele mob e sigo a minha
-    # vida, deixo eles sumirem mesmo" — the ceiling is what turns waiting into
-    # a decision instead of a hang.
-    test "a pile that never reaches three is left behind once the ceiling runs out" do
-      small = situation(%{enemies: 2, worth_fighting?: false})
+    # "Se tem 1 ou 2 monstros, eu às vezes até ignoro aquele mob e sigo a minha
+    # vida" — e ESPERAR agora é ANDAR (R6). Uma pilha abaixo da régua é
+    # carregada junto até a paciência acabar; o teto continua sendo o que
+    # transforma a espera numa decisão em vez de um travamento.
+    test "a pile under the ruler is carried along, not stood next to" do
+      small = situation(%{enemies: 1, worth_fighting?: false})
       w = world(%{situation: small, hunt: hunt(%{state: :fighting})})
 
       {logic, orders} = step(w, 1_000)
-      assert logic.state == :sizing
-      assert orders.fire == :hold
 
+      assert logic.state == :gathering
+      assert orders.route == :go, "parar pra contar é o que ele nunca faz"
+      assert orders.fire == :hold
+      assert orders.why =~ "juntando"
+    end
+
+    test "and it is left behind once the ceiling runs out" do
+      small = situation(%{enemies: 1, worth_fighting?: false})
+      w = world(%{situation: small, hunt: hunt(%{state: :fighting})})
+
+      {logic, _} = step(w, 1_000)
       {logic, orders} = step(logic, w, 1_000 + @config.size_ceiling_ms)
+
       assert logic.state == :skipping
       assert orders.route == :go
       assert orders.fire == :hold
       assert orders.why =~ "não vale"
     end
 
-    test "a pile still walking in is waited for, not fired at" do
-      arriving = situation(%{enemies: 4, growing?: true, stable_for_ms: 0})
+    test "a pile still walking in is gathered, not fired at" do
+      arriving = situation(%{enemies: 4, growing?: true, stable_for_ms: 0, walked: 0})
       w = world(%{situation: arriving, hunt: hunt(%{state: :fighting})})
 
       {logic, orders} = step(w, 1_000)
 
-      assert logic.state == :sizing
+      assert logic.state == :gathering
       assert orders.fire == :hold
-      assert orders.why =~ "chegando"
+      assert orders.why =~ "juntando"
     end
 
-    test "a pile that stopped growing, but not for long enough, is still waited for" do
-      settling = situation(%{stable_for_ms: 900})
+    # R6, a frase dele inteira: "andei dois passos e achei três inimigos, só que
+    # eu só andei dois passos. Que que custa eu andar mais 5 passos?"
+    test "and the steps are what close it, not the clock" do
+      w = fn walked ->
+        world(%{
+          situation: situation(%{enemies: 3, growing?: true, stable_for_ms: 0, walked: walked}),
+          hunt: hunt(%{state: :fighting})
+        })
+      end
+
+      {logic, dois} = step(w.(2), 1_000)
+      assert dois.phase == :gathering
+      assert dois.why =~ "2 de #{@config.gather_tiles} passos"
+
+      {_logic, seis} = step(logic, w.(@config.gather_tiles), 1_200)
+      assert seis.phase == :engaged
+      assert seis.why =~ "passos juntando"
+    end
+
+    test "a pile that stopped growing, but not for long enough, is still gathered" do
+      settling = situation(%{stable_for_ms: 900, walked: 0})
       w = world(%{situation: settling, hunt: hunt(%{state: :fighting})})
 
       {logic, orders} = step(w, 1_000)
 
-      assert logic.state == :sizing
+      assert logic.state == :gathering
       assert orders.fire == :hold
     end
 
@@ -400,13 +433,14 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert next.route == :hold
     end
 
-    test "desligada (o padrão), a mesma barra vazia não pede nada" do
+    # Sem a R3b, a mesma barra vazia tem a resposta de graça: andar (R7).
+    test "desligada (o padrão), a mesma barra vazia anda em vez de pedir revive" do
       logic = engaged(&step/3)
 
       {_logic, orders} = step(logic, spent_fight(), 2_000)
 
       assert orders.revive == :hold
-      assert orders.why =~ "matando o que já abriu"
+      assert orders.why =~ "andando até a barra voltar"
     end
 
     test "não duas vezes dentro do piso: uma barra que segue vazia não vira tecla presa" do

@@ -12,6 +12,7 @@ defmodule Pokex.Sim.FleetTest do
   alias Pokex.Bots.Engine
   alias Pokex.Perception.WorldState
   alias Pokex.Sim.Runner
+  alias Pokex.Sim.Scenario
   alias Pokex.Sim.World
 
   @facts [:battle, :pokemon, :skill_bar, :minimap, :situation, :orders, :hunt]
@@ -219,6 +220,81 @@ defmodule Pokex.Sim.FleetTest do
   # máquina de 2 núcleos (o CI) a pilha assenta depois do orçamento e o teste
   # falha por pressa, não por bug (25/08). Só se paga na falha — o laço volta no
   # instante em que a condição vale.
+  # A CORRIDA DELE, 25/08: "a vida dele foi descendo, e ele não tentou usar
+  # revive. Quando ele notou que a vida estava baixa, ele caiu porque morreu, e
+  # os pokémons inimigos mataram o meu personagem."
+  #
+  # O cérebro MANDAVA reviver; a aba não tinha mãos pra isso — nem pra curar,
+  # nem pra beber poção — porque a obediência estava escrita duas vezes e a
+  # metade viva não tinha a escada do suporte nem os pisos do `Settings`.
+  #
+  # A queda vem do ROTEIRO do cenário, no relógio do MUNDO: esperar a física
+  # derrubar a barra é esperar o relógio da máquina, e numa máquina carregada
+  # isso é uma corrida contra o timeout em vez de um teste.
+  describe "com o cérebro no comando, a vida é defendida" do
+    setup do
+      Application.put_env(:pokex, :simulated_loadout, Pokex.Sim.Loadout.fallback())
+      on_exit(fn -> Application.delete_env(:pokex, :simulated_loadout) end)
+
+      runner = start_supervised!({Runner, name: nil, tick_ms: 20}, id: :defended_runner)
+
+      Runner.load_scenario(runner, Scenario.get("vermelho"), [], %{
+        ms_per_tile: 60,
+        mob_ms_per_tile: 80,
+        skill_cooldown_ms: 400
+      })
+
+      Runner.play(runner)
+      Runner.auto(runner, true)
+
+      engine = start_supervised!({Engine.Worker, name: nil, active: true}, id: :defended_engine)
+      :ok = Engine.Worker.run(engine)
+
+      %{runner: runner}
+    end
+
+    # A PROVA de que a ordem foi obedecida é o corpo SAIR de campo: é o que um
+    # revive aceito faz, e é a coisa mais cedo que dá pra observar.
+    test "a barra cai no vermelho e o revive é OBEDECIDO", %{runner: runner} do
+      ferido = play(runner, &(&1.own.hp_pct < 30))
+      assert ferido.own.hp_pct < 30, "o roteiro não chegou a derrubar a barra"
+
+      revivendo = play(runner, &(&1.own.out? == false or &1.own.hp_pct == 100))
+
+      assert revivendo.own.out? == false or revivendo.own.hp_pct == 100,
+             "o revive foi ordenado e ninguém obedeceu"
+    end
+
+    # O personagem paga UM POUCO por revive — o corpo sai de campo pelo settle e
+    # as mordidas passam a ser dele — e é esse o preço que a R3 cobra. O que ele
+    # não pode é MORRER, que foi o fim da corrida dele.
+    test "e o personagem sobrevive ao preço", %{runner: runner} do
+      play(runner, &(&1.own.hp_pct < 30))
+      world = play(runner, &(&1.own.out? == false or &1.own.hp_pct == 100))
+
+      assert world.player.alive?
+    end
+  end
+
+  # "os monstros não renascem" — a aba viva rodava com `respawn_ms: nil`, o
+  # padrão que existe pros EXPERIMENTOS, onde um bicho chegando de fora do palco
+  # estragaria a pergunta.
+  describe "o ninho volta" do
+    test "o mundo vivo herda o respawn dos ajustes, não o nil do experimento" do
+      runner = start_supervised!({Runner, name: nil, route: route()}, id: :respawn_runner)
+
+      assert Runner.world(runner).knobs.respawn_ms == Pokex.Settings.get(:sim_respawn_ms)
+    end
+
+    test "e os pisos entre dois revives vêm dos ajustes dele" do
+      runner = start_supervised!({Runner, name: nil, route: route()}, id: :floors_runner)
+      knobs = Runner.world(runner).knobs
+
+      assert knobs.revive_cooldown_ms == Pokex.Settings.get(:rescue_cooldown_ms)
+      assert knobs.fainted_revive_cooldown_ms == Pokex.Settings.get(:fainted_revive_cooldown_ms)
+    end
+  end
+
   defp play(runner, until?, tries \\ 1_500) do
     world = Runner.world(runner)
 

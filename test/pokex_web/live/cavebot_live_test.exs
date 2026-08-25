@@ -2043,4 +2043,71 @@ defmodule PokexWeb.CavebotLiveTest do
       assert html =~ "meça antes em /sim", "ligar sem dizer o que conferir é ligar no escuro"
     end
   end
+
+  # OS COOLDOWNS, VISTOS. Ele desconfiava que a rotação não estava usando
+  # algumas skills e não tinha como olhar — o rastro da noite dizia 6 de 8
+  # teclas prontas o tempo todo enquanto a luta apertava só duas.
+  describe "a barra de skills na Central" do
+    setup do
+      Pokex.TeamFixtures.ready!("Dugtrio",
+        count: 10,
+        skills: %{
+          "1" => :crowd,
+          "2" => :buffs,
+          "3" => :aoe,
+          "4" => :aoe,
+          "5" => :aoe,
+          "6" => :aoe,
+          "7" => :single,
+          "8" => :single,
+          "9" => :single,
+          "0" => :single
+        }
+      )
+
+      :ok
+    end
+
+    @tag :tmp_dir
+    test "mostra cada tecla na ordem da fileira, com o zero por último", %{conn: conn} do
+      {:ok, _live, html} = live(conn, ~p"/cavebot")
+
+      teclas =
+        Regex.scan(~r/title="(\d): ([^"]+)"/, html)
+        |> Enum.map(fn [_, key, rest] -> {key, rest} end)
+
+      assert Enum.map(teclas, &elem(&1, 0)) == ~w(1 2 3 4 5 6 7 8 9 0)
+      assert {"1", "controle (guardado pro revive)" <> _} = hd(teclas)
+    end
+
+    # Não saber é diferente de estar em cooldown, e sem leitura da barra as duas
+    # coisas se pareciam.
+    @tag :tmp_dir
+    test "e sem leitura da barra diz que não sabe, em vez de dizer que esfriou", %{conn: conn} do
+      {:ok, _live, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ "sem leitura da barra"
+    end
+
+    # UM INTERVALO ALTO não parece nada num arquivo de ajustes e é o teto de dano
+    # da caçada inteira: 500ms com rajada de 2 são 1s por rajada.
+    @tag :tmp_dir
+    test "e avisa quando o intervalo entre teclas está estrangulando a rajada", %{conn: conn} do
+      Pokex.SettingsStash.stash!(combat_skill_gap_ms: 500, combat_skill_burst_size: 2)
+
+      {:ok, _live, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ "rajada: 2 tecla(s) a cada 500ms"
+      assert html =~ "é isso que limita o dano da caçada"
+    end
+
+    @tag :tmp_dir
+    test "e cala a boca quando ele está no padrão", %{conn: conn} do
+      Pokex.SettingsStash.stash!(combat_skill_gap_ms: 35, combat_skill_burst_size: 3)
+
+      {:ok, _live, html} = live(conn, ~p"/cavebot")
+
+      refute html =~ "é isso que limita o dano da caçada"
+    end
+  end
 end

@@ -449,12 +449,42 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {after_first, first} = reset_step(logic, spent_fight(), 2_000)
       assert first.revive == :now
 
-      {after_second, second} = reset_step(after_first, spent_fight(), 4_000)
+      {_logic, second} = reset_step(after_first, spent_fight(), 4_000)
       assert second.revive == :hold, "ainda dentro do piso"
+    end
 
-      passou = 2_000 + @reset.reset_revive_cooldown_ms + 1
-      {_logic, third} = reset_step(after_second, spent_fight(), passou)
-      assert third.revive == :now
+    # A TRAVA QUE ELE PEDIU (26/08): "usei revive e diz que recuperou 5
+    # cooldowns, mas não recuperou um". Uma regra que paga um revive e não
+    # recebe a barra de volta vai pagar o próximo, e o próximo. Ela se DESARMA
+    # na primeira vez que a promessa não é cumprida.
+    test "e se a barra NÃO voltar, ela se desarma em vez de insistir" do
+      logic = engaged(&reset_step/3)
+      {logic, primeira} = reset_step(logic, spent_fight(), 2_000)
+      assert primeira.revive == :now
+
+      # muito depois do piso, com o pokémon em campo e a barra AINDA vazia
+      passou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
+      {logic, depois} = reset_step(logic, spent_fight(), passou)
+
+      assert depois.revive == :hold
+      assert logic.reset_broken?, "o reset foi cobrado e não veio — a regra sai de cena"
+
+      {_logic, nunca_mais} = reset_step(logic, spent_fight(), passou + 600_000)
+      assert nunca_mais.revive == :hold
+    end
+
+    test "mas uma barra que VOLTA mantém a regra armada" do
+      logic = engaged(&reset_step/3)
+      {logic, _} = reset_step(logic, spent_fight(), 2_000)
+
+      cheia = spent_fight(%{spent?: false})
+      passou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
+      {logic, _} = reset_step(logic, cheia, passou)
+
+      refute logic.reset_broken?
+
+      {_logic, de_novo} = reset_step(logic, spent_fight(), passou + 1_000)
+      assert de_novo.revive == :now
     end
 
     test "não com o pokémon já na bola — a ordem bateria numa porta fechada" do

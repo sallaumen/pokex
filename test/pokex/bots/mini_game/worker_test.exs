@@ -59,6 +59,22 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     %{tmp: tmp}
   end
 
+  # The capsule needs a rod: a hunt that started the watcher would pay a capture
+  # per tick, against the one serialized broker, for something that cannot be on
+  # screen.
+  @tag :tmp_dir
+  test "outside the fishing mode a run leaves the watcher idle", %{tmp: tmp} do
+    game = png!(tmp, "mini-game.png", true)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, game}]})
+    SettingsStash.stash!(player_mode: "hunt")
+
+    worker = start_supervised!({Worker, name: nil})
+
+    assert :ok = Worker.run(worker)
+    assert %{state: :off} = Worker.status(worker)
+    refute_receive {:mini_game, %{state: :playing}}, 200
+  end
+
   @tag :tmp_dir
   test "announces enter and exit transitions on the panel topic", %{tmp: tmp} do
     game = png!(tmp, "mini-game.png", true)

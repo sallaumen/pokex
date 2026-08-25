@@ -134,16 +134,6 @@ defmodule Pokex.Sim.Scenario do
             "dizer que não está vendo e SEGURAR, em vez de concluir que a tela esvaziou.",
         knobs: %{nest_size: 4, nest_radius: 1},
         script: [{3_000, {:fail, :blind}}, {9_000, {:recover, :blind}}]
-      },
-      %__MODULE__{
-        id: "mini-game",
-        group: :blind,
-        name: "Mini-game na tela",
-        why:
-          "A cápsula entra e TODO fato congela — os feeds reais pulam a captura. Fato velho " <>
-            "aqui não é sinal de nada, e a engine tem que segurar em vez de decidir sobre gelo.",
-        knobs: %{nest_size: 4, nest_radius: 1},
-        script: [{3_000, {:fail, :mini_game}}, {10_000, {:recover, :mini_game}}]
       }
     ]
   end

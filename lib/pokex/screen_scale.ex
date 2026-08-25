@@ -115,7 +115,15 @@ defmodule Pokex.ScreenScale do
 
   def measure(_uncalibrated), do: :unknown
 
-  defp reference_screen?(%Calibration{screen_w: w, screen_h: h}), do: {w, h} == @reference_screen
+  @doc """
+  Is this the very screen the seeds were measured on?
+
+  On it there is nothing to rescale — the numbers in force ARE the measurement —
+  so a stored per-screen copy of them can only ever be a stale duplicate (see
+  `Pokex.Calibration.snapshot_for_screen/1`).
+  """
+  @spec reference_screen?(Calibration.t()) :: boolean
+  def reference_screen?(%Calibration{screen_w: w, screen_h: h}), do: {w, h} == @reference_screen
 
   @doc """
   What each screen-dependent setting should become at `ratio`, as

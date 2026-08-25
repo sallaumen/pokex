@@ -23,9 +23,9 @@ defmodule Pokex.Sim.Runner do
   each tick would erase the most interesting problem the bot has: facts of
   different ages, arriving out of step.
 
-  `:mini_game` is published on purpose as `playing?: false`. Without it,
-  `Perception.mini_game_playing?/1` finds no fact and the engine stops deciding,
-  believing the fishing capsule is on screen.
+  There is no `:mini_game` fact here, and there is no need for one: the capsule
+  only appears over a rod, so outside the fishing mode the gate answers false
+  without reading the blackboard. A simulated hunt has nothing to say about it.
 
   ## It is registered under its own name for a reason
 
@@ -51,8 +51,7 @@ defmodule Pokex.Sim.Runner do
     battle: 120,
     pokemon: 120,
     skill_bar: 400,
-    minimap: 500,
-    mini_game: 1_000
+    minimap: 500
   }
 
   def topic, do: @topic
@@ -393,8 +392,7 @@ defmodule Pokex.Sim.Runner do
       battle: setting(:feed_battle_ms, :battle),
       pokemon: setting(:feed_battle_ms, :pokemon),
       skill_bar: setting(:feed_skill_bar_ms, :skill_bar),
-      minimap: setting(:feed_minimap_ms, :minimap),
-      mini_game: @fallback_cadences.mini_game
+      minimap: setting(:feed_minimap_ms, :minimap)
     }
   end
 

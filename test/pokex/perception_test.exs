@@ -44,6 +44,8 @@ defmodule Pokex.PerceptionTest do
   end
 
   test "mini_game_playing? mirrors a fresh fact" do
+    Pokex.SettingsStash.stash!(player_mode: "still")
+
     WorldState.put(:mini_game, %{playing?: true, confidence: 0.9}, 10_000)
     assert Perception.mini_game_playing?(10_100)
 
@@ -56,10 +58,27 @@ defmodule Pokex.PerceptionTest do
   end
 
   test "mini_game_playing? fails open on a stale fact — a dead worker never strands peers" do
+    Pokex.SettingsStash.stash!(player_mode: "still")
+
     WorldState.put(:mini_game, %{playing?: true, confidence: 0.9}, 10_000)
     stale_at = 10_000 + Pokex.Settings.get(:mini_game_fact_max_age_ms) + 1
 
     refute Perception.mini_game_playing?(stale_at)
+  end
+
+  # The capsule only appears over a rod. A hunt asking the blackboard at all is
+  # how a leftover fact — or a mode that simply never runs the watcher — could
+  # freeze a fight over something that cannot be on screen.
+  test "mini_game_playing? is false outside the fishing mode, fresh fact or not" do
+    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, 10_000)
+
+    Pokex.SettingsStash.stash_keys!([:player_mode])
+
+    for mode <- ["hunt", "moving"] do
+      Pokex.Settings.put(:player_mode, mode)
+      refute Perception.mini_game_playing?(10_100), "#{mode} consultou o minigame"
+      assert Perception.mini_game_gate(10_100) == :ok
+    end
   end
 
   # unknown is nil, never []: an empty list would read "all on cooldown" and stall

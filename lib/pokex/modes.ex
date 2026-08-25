@@ -79,6 +79,18 @@ defmodule Pokex.Modes do
   def workers(mode), do: bundle(mode).workers
 
   @doc """
+  Does `mode` watch for the fishing mini-game?
+
+  The capsule only ever appears over a rod, so the whole mini-game apparatus —
+  the watcher, the fact, and every peer that holds itself on it — belongs to
+  the fishing mode and nowhere else. Asking the MODE (instead of trusting that
+  the watcher happens not to be up) is what makes "não existe minigame fora da
+  pesca" (Lucas, 2026-08-25) a property of the bot rather than a coincidence of
+  which workers were started.
+  """
+  def watches_mini_game?(mode \\ current()), do: :mini_game in workers(mode)
+
+  @doc """
   Switches to `mode` and writes its whole bundle.
 
   Switching REAPPLIES the defaults, so any exception made under the previous

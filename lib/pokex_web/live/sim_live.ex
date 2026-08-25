@@ -347,7 +347,6 @@ defmodule PokexWeb.SimLive do
   defp failures(world), do: Enum.map(world.failures, &failure_label/1)
 
   defp failure_label(:blind), do: "tela ilegível"
-  defp failure_label(:mini_game), do: "mini-game na tela"
   defp failure_label({:dead_key, key}), do: "tecla #{key} não sai"
   defp failure_label({:hp, pct}), do: "vida forçada em #{pct}%"
   defp failure_label(other), do: to_string(other)

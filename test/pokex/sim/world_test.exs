@@ -448,10 +448,6 @@ defmodule Pokex.Sim.WorldTest do
     end
   end
 
-  test "the mini game fact is published as not playing" do
-    assert World.observe(armed(), :mini_game) == %{playing?: false, confidence: 0.0}
-  end
-
   test "an unreadable screen answers nil enemies rather than zero" do
     world = armed(%{readable?: false})
     battle = World.observe(world, :battle)
@@ -604,22 +600,6 @@ defmodule Pokex.Sim.WorldTest do
     fired = World.press(world, {:press, "4"})
 
     assert Enum.all?(fired.mobs, &(&1.hp < 100))
-  end
-
-  test "the mini game freezes every fact rather than reporting an empty screen" do
-    world = World.fail(armed(), :mini_game)
-
-    assert World.observe(world, :battle).enemies == nil
-    assert World.observe(world, :mini_game) == %{playing?: true, confidence: 1.0}
-  end
-
-  test "the mini game stops the world from moving" do
-    world = lone_mob() |> World.fail(:mini_game)
-    [before] = world.mobs
-
-    [after_step] = World.step(world, 5_000).mobs
-
-    assert after_step.pos == before.pos
   end
 
   test "forcing health puts the band where the scenario needs it" do

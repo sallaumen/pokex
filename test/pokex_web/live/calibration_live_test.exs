@@ -43,6 +43,19 @@ defmodule PokexWeb.CalibrationLiveTest do
         capture_screen: [{:ok, screen}]
       })
 
+    # marks this screen already carries that the numbered run never asks about —
+    # a re-run to fix the battle list must not blind the cavebot
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      minimap_region: {80, 0, 20, 20},
+      minimap_player_point: {90, 10},
+      escape_point: {12, 40}
+    })
+
     {:ok, view, _html} = live(conn, ~p"/calibration")
 
     view
@@ -50,7 +63,9 @@ defmodule PokexWeb.CalibrationLiveTest do
     |> render_change()
 
     view |> element("button", "Capturar tela") |> render_click()
-    assert render(view) =~ "PONTO DA ÁGUA"
+    # the run opens on the battle list: água is fishing gear and left it
+    assert render(view) =~ "Passo 1/9"
+    assert render(view) =~ "SUPERIOR-ESQUERDO"
 
     click = fn x, y ->
       params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
@@ -58,25 +73,23 @@ defmodule PokexWeb.CalibrationLiveTest do
       render_hook(view, "img_click", params)
     end
 
-    click.(25.0, 15.0)
-    assert render(view) =~ "SUPERIOR-ESQUERDO"
     click.(35.0, 5.0)
     click.(45.0, 20.0)
     click.(26.0, 18.0)
 
-    assert render(view) =~ "Passo 5/10"
+    assert render(view) =~ "Passo 4/9"
     assert render(view) =~ "PERSONAGEM"
     click.(20.0, 16.0)
 
-    assert render(view) =~ "Passo 6/10"
+    assert render(view) =~ "Passo 5/9"
     click.(5.0, 30.0)
-    assert render(view) =~ "Passo 7/10"
+    assert render(view) =~ "Passo 6/9"
     click.(29.0, 35.0)
 
-    assert render(view) =~ "Passo 8/10"
+    assert render(view) =~ "Passo 7/9"
     click.(15.0, 20.0)
     click.(45.0, 30.0)
-    assert render(view) =~ "Passo 10/10"
+    assert render(view) =~ "Passo 9/9"
 
     # the last click IS the end — no more "cast the line and wait" step
     click.(20.0, 25.0)
@@ -87,9 +100,14 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.scale == 2.0
     assert calib.screen_w == 100
     assert calib.screen_h == 75
+    assert calib.battle_region == {70, 10, 20, 30}
+
+    # everything the run never asked about is still there
     assert calib.water_point == {50, 30}
     assert calib.glow_region == {18, -2, 64, 64}
-    assert calib.battle_region == {70, 10, 20, 30}
+    assert calib.minimap_region == {80, 0, 20, 20}
+    assert calib.minimap_player_point == {90, 10}
+    assert calib.escape_point == {12, 40}
     assert calib.neutral_point == {52, 36}
     assert calib.player_point == {40, 32}
     assert calib.skill_bar_region == {10, 60, 48, 10}
@@ -368,7 +386,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     end
 
     # água: one click; the glow box follows the point
-    view |> element("button", "Só a água") |> render_click()
+    view |> element("button", "Ponto da água") |> render_click()
     click.(10.0, 10.0)
     assert {:ok, %{water_point: {20, 20}, glow_region: glow}} = Calibration.load()
     assert {_gx, _gy, gw, gw} = glow
@@ -1300,7 +1318,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     {:ok, view, _} = live(conn, ~p"/calibration")
 
-    view |> element("button", "Só o minigame") |> render_click()
+    view |> element("button", "Faixa do minigame") |> render_click()
     assert render(view) =~ "FAIXA"
     assert has_element?(view, "#calibration-screen")
 
@@ -1349,7 +1367,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     {:ok, view, _} = live(conn, ~p"/calibration")
 
-    html = view |> element("button", "Só o minigame") |> render_click()
+    html = view |> element("button", "Faixa do minigame") |> render_click()
 
     # from the character: centre 12 to his right, 24 wide, 16 above him, 474 down
     suggestion = {100, 44, 24, 474}

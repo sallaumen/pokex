@@ -123,14 +123,11 @@ defmodule Pokex.Bots.Engine.Worker do
   @impl true
   def handle_info(:tick, %{running?: false} = state), do: {:noreply, %{state | timer: nil}}
 
-  def handle_info(:tick, state) do
-    state =
-      if Perception.mini_game_playing?(),
-        do: state,
-        else: observe(state)
-
-    {:noreply, schedule_tick(state)}
-  end
+  # No mini-game branch here on purpose: the engine is the HUNT's brain and the
+  # fishing capsule cannot appear over a rod nobody is holding. The gate lives
+  # once, in `Perception.mini_game_playing?/1`, which answers false outside the
+  # fishing mode — so a hunt tick has nothing to ask.
+  def handle_info(:tick, state), do: {:noreply, state |> observe() |> schedule_tick()}
 
   # The team file changed under us: a swap changes both the name that identifies
   # the own row and the keys that "spent" is measured against.

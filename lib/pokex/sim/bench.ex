@@ -104,17 +104,23 @@ defmodule Pokex.Sim.Bench do
   """
   def default_config, do: Map.new(@knobs, fn {knob, setting} -> {knob, seed(setting)} end)
 
-  # THE RIVAL BRAIN. Not a preference: the three changes that came out ahead on
-  # every axis of a 5 min x 8 seeds hunt, measured 2026-08-25 with the revive's
-  # real floors in the model.
+  # THE RIVAL BRAIN: the one question about this hunt that is still open, run
+  # side by side with what he has in force. It is R3b — his own idea, "usar o
+  # revive no F4 rapidinho pra luta seguir firme e forte" — because everything
+  # else the bench swept, he already runs (ruler of one, potions on), and a
+  # panel comparing a brain against itself teaches nothing.
   #
-  #   como está hoje       5,42 mortos/min · 0,13 quedas/min · 3,68 somem/min
-  #   com estes três       7,82 mortos/min · 0,03 quedas/min · 0,25 somem/min
+  # Measured on HIS settings, 5 min x 12 seeds, 2026-08-25 — and the shape of it
+  # is a dose curve, not a yes or no:
   #
-  # All three are HIS to flip, and none is code: the ruler is a setting, the
-  # potion is a setting, and firing at what follows a skipped pile is a setting
-  # that exists precisely because it argues with R1 as he stated it.
-  @tuning %{engage_from: 1, skip_fire: true, potion_enabled: true}
+  #   desligada         8,10 mortos/min · 0,38 revives/min · ele termina com 88%
+  #   piso de 6s        9,17 mortos/min · 3,78 revives/min · ele termina com 0%
+  #   piso de 60s       8,68 mortos/min · 1,43 revives/min · ele termina com 64%
+  #   piso de 120s      8,45 mortos/min · 0,98 revives/min · ele termina com 76%
+  #
+  # The rule pays; the seeded floor of six seconds was a faucet. Sixty is the
+  # value the panel argues for and the seed now carries.
+  @tuning %{reset_revive: true, reset_revive_cooldown_ms: 60_000}
 
   @doc "The changes the bench found worth their price, as overrides."
   def tuning, do: @tuning

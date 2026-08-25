@@ -47,7 +47,13 @@ defmodule Pokex.Bots.Engine.Logic do
       presses is `rescue_cooldown_ms`, and it is a MINUTE. Waiting for one that
       cannot come does not heal anything: measured 2026-08-25, a bench hunt
       spent **47.5% of itself in `:recovering`**, standing still in thirty-second
-      blocks while the health bar kept falling, and `:engaged` got 0.1%. So the
+      blocks while the health bar kept falling, and `:engaged` got 0.1%.
+
+      That measurement was taken at the SEEDED floor of sixty seconds; his own
+      `rescue_cooldown_ms` is two, so the freeze is not what his nights look
+      like today. It is what they look like the moment a revive is refused for
+      any other reason — an empty stock, a key that did not leave the hand, a
+      closed gate — which is the failure already sitting in his journal. So the
       wait now ends the moment the revive is seen NOT to have landed, and while
       it cannot come the band stops holding the route — the order stays out, so
       the press lands the instant the floor passes, and the hunt walks instead
@@ -618,6 +624,14 @@ defmodule Pokex.Bots.Engine.Logic do
   defp singles(%{hands: %{single: keys}}) when keys != [], do: keys
   defp singles(world), do: opening(world)
 
+  # A RULE THAT WAS TRIED AND REFUTED, written down so it is not tried again:
+  # "a pile under the ruler that has stopped arriving has nothing left to wait
+  # for — skip it now instead of standing still while it bites". It reads well
+  # and it is wrong, because "stopped arriving" is measured over
+  # `pile_settle_ms` and a pile that DRIPS is idle for longer than that between
+  # arrivals. Measured 2026-08-25 on `pilha-que-pinga`: five monsters, five
+  # abandoned, none killed — his own complaint made worse.
+  #
   # Gathering is what makes waiting worth it. Hunting creatures that arrive ONE
   # BY ONE — and that a pile never forms around — the wait is pure loss: the
   # pile never stops growing, `size_ceiling_ms` runs out, and a fight that was

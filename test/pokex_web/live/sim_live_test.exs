@@ -118,8 +118,9 @@ defmodule PokexWeb.SimLiveTest do
     end
 
     # a comparação existe, é nomeada, e diz quais chaves mudaram
-    assert html =~ "Como está hoje → afinado"
+    assert html =~ "Hoje → com o F4 proativo (R3b)"
     assert html =~ "pilhas abandonadas"
+    assert html =~ "sua vida no fim"
 
     for {key, _value} <- Pokex.Sim.Bench.tuning() do
       assert html =~ to_string(key), "o placar não disse qual chave mudou (#{key})"

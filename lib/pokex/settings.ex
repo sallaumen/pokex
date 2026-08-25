@@ -1003,9 +1003,17 @@ defmodule Pokex.Settings do
     # own recording shows 1264, 2543, 3248 and 4806ms of real gathering.
     engine_pile_settle_ms: 1_500,
     # …and a ceiling, because R2 says greed makes the pile VANISH: past this,
-    # the hunt decides with whatever showed up instead of waiting more. 4s is
-    # his longest recorded gather (4806) rounded down.
-    engine_size_ceiling_ms: 4_000,
+    # the hunt decides with whatever showed up instead of waiting more.
+    #
+    # It was 4s — "his longest recorded gather (4806) rounded down", which is a
+    # sentence that names its own bug: a ceiling BELOW the slowest pile he ever
+    # recorded cuts that pile off every time it happens. It is his complaint of
+    # 2026-08-24 in one number ("o cérebro PULA uma pilha de cinco que valia"),
+    # and `pilha-que-pinga` reproduces it: at 4s two of five are abandoned, at
+    # 8s all five die. Over a whole hunt at his ruler of three, 5,42 → 6,88
+    # mortos/min with FEWER falls and less time on the floor. Above his slowest
+    # gather now, and still bounded.
+    engine_size_ceiling_ms: 8_000,
     # THE BANDS (2026-08-17). Yellow is where the round starts being CLOSED —
     # stop gathering, let the pile arrive, spend everything on it, then revive
     # so the next leg starts full. Red is where nothing is worth waiting for.
@@ -1046,9 +1054,18 @@ defmodule Pokex.Settings do
     # paid in revive items.
     engine_reset_revive: false,
     # The floor between two of them, so a fight whose bar stays empty does not
-    # become a key held down. Comfortably above the game's own rescue cooldown
-    # (2s) and below a full skill cooldown (8s).
-    engine_reset_revive_cooldown_ms: 6_000,
+    # become a key held down. It WAS six seconds — comfortably above the game's
+    # own rescue cooldown and below a full skill cooldown, and measured on his
+    # own settings a faucet: 3,78 revives por minuto e o PERSONAGEM terminando a
+    # caçada com 0% de vida, porque cada prensa tira o pokémon de campo e as
+    # mordidas passam a ser dele. A curva inteira, 5 min x 12 sementes:
+    #
+    #   desligada      8,10 mortos/min · 0,38 revives/min · ele com 88%
+    #   piso 6s        9,17 mortos/min · 3,78 revives/min · ele com 0%
+    #   piso 30s       8,87 mortos/min · 1,85 revives/min · ele com 52%
+    #   piso 60s       8,68 mortos/min · 1,43 revives/min · ele com 64%
+    #   piso 120s      8,45 mortos/min · 0,98 revives/min · ele com 76%
+    engine_reset_revive_cooldown_ms: 60_000,
     # …and the health it refuses to spend a revive at. The floor between two
     # presses is `rescue_cooldown_ms` — a MINUTE — so a proactive press made on a
     # half-empty bar is the rescue this fight needs in forty seconds, spent

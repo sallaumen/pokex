@@ -476,6 +476,7 @@ defmodule PokexWeb.SimLive do
       kills_per_min: rate(Enum.sum(Enum.map(cards, & &1.kills)), minutes),
       deaths_per_min: rate(Enum.sum(Enum.map(cards, & &1.deaths)), minutes),
       vanished_per_min: rate(Enum.sum(Enum.map(cards, & &1.vanished)), minutes),
+      revives_per_min: rate(Enum.sum(Enum.map(cards, & &1.revives.accepted)), minutes),
       stalled_pct: share(cards, :ms_stalled_of, ms),
       down_pct: share(cards, :ms_down_of, ms),
       revives: %{
@@ -591,13 +592,13 @@ defmodule PokexWeb.SimLive do
         label: "mortos/min",
         value: without.kills_per_min,
         tone: "text-pk-text",
-        note: "afinado: #{with_reset.kills_per_min}"
+        note: "com R3b: #{with_reset.kills_per_min}"
       },
       %{
         label: "quedas/min",
         value: without.deaths_per_min,
         tone: if(without.deaths > 0, do: "text-pk-danger", else: "text-pk-text"),
-        note: "afinado: #{with_reset.deaths_per_min}"
+        note: "com R3b: #{with_reset.deaths_per_min}"
       },
       %{
         label: "sem cooldown",
@@ -1604,10 +1605,10 @@ defmodule PokexWeb.SimLive do
           <div class="space-y-2 rounded border border-pk-line bg-pk-sunken p-2">
             <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
-                Como está hoje → afinado
+                Hoje → com o F4 proativo (R3b)
               </h3>
               <p class="text-pk-meta text-pk-text-2">
-                mesmo mundo, mesma semente — só as três chaves mudam
+                mesmo mundo, mesma semente — só a regra muda
               </p>
             </div>
 
@@ -1631,21 +1632,26 @@ defmodule PokexWeb.SimLive do
               </span>
               · revives
               <span class="pk-num font-mono font-bold text-pk-text">
-                {@score.totals.without.revives.accepted} → {@score.totals.with.revives.accepted}
+                {@score.totals.without.revives_per_min} → {@score.totals.with.revives_per_min}/min
+              </span>
+              · sua vida no fim
+              <span class="pk-num font-mono font-bold text-pk-text">
+                {@score.totals.without.player_hp}% → {@score.totals.with.player_hp}%
               </span>
             </p>
 
             <p class="flex items-start gap-1.5 text-pk-meta text-pk-text-2">
               <.icon name="hero-information-circle" class="mt-px size-3.5 shrink-0 text-pk-info" />
               <span>
-                As três são <b class="text-pk-text">suas</b>, e nenhuma é código:
+                A coluna da direita roda com
                 <span :for={{key, value} <- @score.tuning}>
                   <code class="font-mono">{key}</code>
                   <span class="pk-num font-mono text-pk-text">{inspect(value)}</span> ·
                 </span>
-                a régua é ajuste, a poção é ajuste, e bater em quem vem atrás de uma pilha
-                abandonada é um ajuste que existe justamente porque discute com a régua
-                do jeito que você a enunciou.
+                e o preço dela tem <b class="text-pk-text">duas moedas</b>: o revive que
+                sai do estoque, e os segundos em que ninguém seu está em campo — que são
+                exatamente os segundos em que as mordidas passam a ser <b class="text-pk-text">suas</b>. O piso entre duas prensas decide as duas:
+                com seis segundos a regra vira torneira.
               </span>
             </p>
           </div>
@@ -1655,10 +1661,10 @@ defmodule PokexWeb.SimLive do
               <thead>
                 <tr class="text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
                   <th class="py-1 pr-3 font-semibold">cenário</th>
-                  <th class="py-1 pr-3 text-right font-semibold">mortos/min · Δ afinado</th>
+                  <th class="py-1 pr-3 text-right font-semibold">mortos/min · Δ R3b</th>
                   <th class="py-1 pr-3 text-right font-semibold">quedas/min</th>
                   <th class="py-1 pr-3 text-right font-semibold">sumiram/min</th>
-                  <th class="py-1 pr-3 text-right font-semibold">sem cooldown · afinado</th>
+                  <th class="py-1 pr-3 text-right font-semibold">sem cooldown · com R3b</th>
                   <th class="py-1 pr-3 text-right font-semibold">no chão</th>
                   <th class="py-1 pr-3 text-right font-semibold">pilha</th>
                   <th class="py-1 text-right font-semibold">revives</th>

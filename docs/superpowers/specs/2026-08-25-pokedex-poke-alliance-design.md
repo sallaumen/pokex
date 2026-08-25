@@ -138,9 +138,9 @@ Some também `shiny_name`, e ele tem dois consumidores que precisam de substitut
 
 O sync passa a ser uma chamada de índice mais 910 chamadas de página. Continua com `--delay-ms` — a wiki do PA é de terceiros e a educação não muda com o formato.
 
-**Sprites.** Baixa `<numero>.png` e `<numero>.1.png` para `priv/static/images/pokedex/` (~23 MB pras 910) e os 18 ícones de elemento para `priv/static/images/pokedex/elements/`. Apaga os 428 `.gif` e 401 `.png` do PXG — 61 MB no working tree.
+**Sprites.** Baixa `<numero>.png` e `<numero>.1.png` para `priv/static/images/pokedex/` (~23 MB pras 910) e os 18 ícones de elemento para `priv/static/images/pokedex/elements/`.
 
-Nota honesta: apagar do working tree não encolhe o `.git` (41 MB de pack hoje). Reescrever histórico é outra empreitada e não entra aqui.
+**Correção feita na implementação (25/08):** este desenho dizia que havia 61 MB de sprites do PXG pra apagar do working tree, e que o `.git` continuaria carregando o peso. Errado nas duas pontas — `.gitignore:44` já exclui `priv/static/images/pokedex/`, os sprites nunca estiveram no git, e um worktree novo nasce sem eles. Não havia nada pra apagar: só o comentário do `.gitignore` mudou, de `mix pokedex.scrape` pra `mix pokedex.sync`.
 
 Os sprites da Pokédex são **decoração de tela**. `Pokex.Bots.PokemonSprites` é outro acervo — recortes que Lucas captura da tela, em `~/.pokex/pokemon_sprites.json`. Nada nesta migração toca nele.
 
@@ -189,7 +189,7 @@ Cada etapa fecha com `mix precommit` verde no worktree.
 3. **`Sync` reescrito + schema novo + `mix pokedex.sync`.** Roda o sync de verdade: novo `pokedex.json` e novos sprites entram no repo, os do PXG saem.
 4. **`Pokedex` enxuto.** Corta iscas/clans/novidade, deriva a efetividade, ganha os filtros novos. `Team` acompanha.
 5. **As telas.** `/pokedex`, `/pokedex/:name`, `/time`, `PokedexStyle`.
-6. **Varredura final.** `scraper.ex`, `clans.ex`, sprites do PXG, `config/config.exs`, e as menções a PokeTibia/PXG em `README.md`, `AGENTS.md` e `DESIGN.md`.
+6. **Varredura final.** `scraper.ex`, `clans.ex`, `config/config.exs`, e as menções a PokeTibia/PXG em `README.md`, `AGENTS.md` e `DESIGN.md`.
 
 A ordem tem uma propriedade: da 1 à 2 o app roda com a base velha; a 3 é o único ponto em que a base troca; da 4 à 6 a base já é a certa e o que se ajusta é quem lê. Se a 3 der errado, o `revert` é de um commit.
 
@@ -199,6 +199,5 @@ A ordem tem uma propriedade: da 1 à 2 o app roda com a base velha; a 3 é o ún
 
 - Não importa as 43 páginas de sistema do PA (helds, prey, talentos, boost). Fora de escopo por decisão.
 - Não guarda a base do PXG em arquivo. Fora por decisão — o git guarda.
-- Não reescreve o histórico do git pra recuperar os 61 MB de sprites antigos.
 - Não mede a efetividade real do PA em jogo. A matriz canônica entra como aposta declarada, corrigível numa célula.
 - Não toca em `PokemonSprites`, `PokemonTracker` nem em nada da camada de visão. A Pokédex ganha nomes novos em `Pokedex.names/0` e o `Interpret` colhe isso de graça.

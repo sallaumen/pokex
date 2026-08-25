@@ -207,12 +207,11 @@ quando há estado. A única saturação alta do sistema é o verde.
 
 ### A Paleta de Elementos
 
-Sistema à parte e legítimo: `PokexWeb.PokedexStyle` guarda 20 pares
-`{texto, fundo}`, um por elemento (fire, water, grass…), tunados para a
-superfície quase-preta — saturados o bastante para ler como "o de Fogo" de
-relance, escuros o bastante para não vibrarem numa lista densa. Os clãs do PokeTibia
-vestem a paleta do seu elemento (Volcanic usa Fogo, Seavell usa Água), então o
-olho aprende UMA paleta, não duas. Os valores são normativos e vivem no sidecar
+Sistema à parte e legítimo: `PokexWeb.PokedexStyle` guarda um par
+`{texto, fundo}` por elemento (fire, water, grass…), tunados para a superfície
+quase-preta — saturados o bastante para ler como "o de Fogo" de relance,
+escuros o bastante para não vibrarem numa lista densa. Os valores são
+normativos e vivem no sidecar
 `.impeccable/design.json` (`extensions.colorMeta.element-*`); nunca escreva um
 par de elemento à mão — chame `PokedexStyle.element_style/1`.
 
@@ -445,10 +444,10 @@ passa — nunca vira aviso permanente.
 ### Chip de elemento (componente-assinatura)
 
 O único lugar onde o sistema é colorido, e o charme assumido do produto: nome do
-elemento (ou do clã) com `color`/`background-color` vindos de
+elemento com `color`/`background-color` vindos de
 `PokedexStyle.element_style/1`, mais o ícone oficial do wiki quando
 `priv/static/images/pokedex/elements/<element>.png` existe. A cor é a camada
-garantida (dado puro, sempre disponível); o ícone é o bônus. Vinte paletas, um
+garantida (dado puro, sempre disponível); o ícone é o bônus. Dezoito paletas, um
 par cada, e nenhuma delas escrita à mão no template.
 
 ### Barra de leitura
@@ -476,8 +475,7 @@ sozinho e o olho precisa perceber a direção.
   + `border-pk-line`), e reservar sombra para popover e overlay.
 - **Do** usar 8px (`rounded-lg`) como raio padrão, e `rounded-full` só onde
   círculo significa "indicador".
-- **Do** chamar `PokedexStyle.element_style/1` para qualquer cor de elemento ou
-  de clã.
+- **Do** chamar `PokedexStyle.element_style/1` para qualquer cor de elemento.
 - **Do** deixar o foco visível: o app comanda o mouse de verdade, então "onde
   estou" não pode depender de enxergar o cursor.
 - **Do** respeitar `prefers-reduced-motion` — o app já zera transição e animação

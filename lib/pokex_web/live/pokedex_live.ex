@@ -430,7 +430,7 @@ defmodule PokexWeb.PokedexLive do
           class="rounded-lg border border-[#674f20] bg-[#211b0d] p-4 text-sm text-[#e7ca82]"
         >
           Sem dados ainda — clica em "🔄 Sincronizar wiki" aí em cima (ou roda
-          <code class="font-mono">mix pokedex.scrape</code>
+          <code class="font-mono">mix pokedex.sync</code>
           no terminal) pra popular a base.
         </section>
 

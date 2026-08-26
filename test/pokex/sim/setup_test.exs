@@ -43,18 +43,32 @@ defmodule Pokex.Sim.SetupTest do
     assert Setup.read().kill_combo == ["3", "4", "5"]
   end
 
-  # The whitelist is the point: `nest_size` PINS a scenario's pile and `own_row?`
-  # is an open measurement between him and a live reading. A stray key in this
-  # file silently redefining either would make a scenario answer about a
-  # different world while still calling itself by name.
+  # The whitelist is the point: `own_row?` is an open measurement between him and
+  # a live reading, and a stray key in this file silently redefining it would
+  # make a scenario answer about a different world while still calling itself by
+  # name.
   test "a knob that is not his to set is dropped, not merged" do
-    Setup.write(%{mob_hp: 300, nest_size: 99, own_row?: true})
+    Setup.write(%{mob_hp: 300, own_row?: true})
 
     saved = Setup.read()
 
     assert saved.mob_hp == 300
-    refute Map.has_key?(saved, :nest_size)
     refute Map.has_key?(saved, :own_row?)
+  end
+
+  # `nest_size` used to be on the wrong side of that line, for the right reason:
+  # it PINS every scenario's pile at once. It moved on 2026-08-26 because that
+  # is exactly the crank he asked for — "a meta é ver quanto inimigo a gente
+  # consegue surrar ao mesmo tempo... sem limites pra chegar no máximo de mortos
+  # por minuto". The danger did not go away, it got a label on the form instead.
+  test "a pilha fixa É dele pra mexer, apesar de valer pra todo cenário" do
+    Setup.write(%{nest_size: 12, nest_radius: 2, respawn_ms: 15_000})
+
+    saved = Setup.read()
+
+    assert saved.nest_size == 12
+    assert saved.nest_radius == 2
+    assert saved.respawn_ms == 15_000
   end
 
   @tag :capture_log

@@ -239,4 +239,58 @@ defmodule PokexWeb.SimLiveTest do
       assert html =~ "Onde foi o minuto, no jogo"
     end
   end
+
+  describe "o guindaste da densidade" do
+    # Estes testes ESCREVEM `sim_setup.json`, e o home de teste é um só pra
+    # suíte inteira: sem um próprio, dois testes disputam o mesmo arquivo e a
+    # falha aparece uma rodada sim, outra não.
+    @describetag :tmp_dir
+
+    setup %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+      Store.put([route()])
+      :ok
+    end
+
+    test "os knobs de quantidade estão na mesa, não só no código" do
+      # "seria legal a gente poder ter mais configuração quanto a quantidade de
+      # inimigos... pra você poder ir subindo e descendo" (26/08). Antes disto a
+      # única forma de subir a densidade era editar um cenário à mão.
+      tunable = Pokex.Sim.Setup.tunable()
+
+      assert :nest_radius in tunable
+      assert :respawn_ms in tunable
+      assert :nest_size in tunable
+    end
+
+    test "pilha fixa em 0 DEVOLVE o sorteio ao cenário, não esvazia o mundo", %{conn: conn} do
+      # A caixa só sabe escrever números. Se 0 pinasse, todo ninho de todo
+      # cenário passaria a ter zero bicho — um mundo vazio que ainda responde.
+      {:ok, view, _html} = live(conn, ~p"/sim")
+
+      view
+      |> element(~s(button[phx-click="toggle-setup"]))
+      |> render_click()
+
+      # PINA primeiro, senão o refute passa sem nada ter acontecido.
+      view |> form("#sim-mesa", %{"nest_size" => "12", "mob_hp" => "100"}) |> render_submit()
+      assert Pokex.Sim.Setup.read().nest_size == 12
+
+      view |> form("#sim-mesa", %{"nest_size" => "0", "mob_hp" => "100"}) |> render_submit()
+      refute Map.has_key?(Pokex.Sim.Setup.read(), :nest_size)
+    end
+
+    test "pilha fixa num número PINA, e isso vale pra todo cenário", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/sim")
+
+      view
+      |> element(~s(button[phx-click="toggle-setup"]))
+      |> render_click()
+
+      view |> form("#sim-mesa", %{"nest_size" => "12", "mob_hp" => "100"}) |> render_submit()
+
+      assert Pokex.Sim.Setup.read().nest_size == 12
+    end
+  end
 end

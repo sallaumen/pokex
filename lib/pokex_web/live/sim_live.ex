@@ -361,7 +361,17 @@ defmodule PokexWeb.SimLive do
        {:revive_settle_ms, "fica na bola (ms)"},
        {:revive_cooldown_ms, "piso entre dois (ms)"}
      ]},
-    {"O mundo", [{:stray_chance_pct, "perdido por esquina %"}]}
+    {"O mundo", [{:stray_chance_pct, "perdido por esquina %"}]},
+    # A DENSIDADE, o guindaste que ele pediu: "a meta é ver quanto inimigo a
+    # gente consegue surrar ao mesmo tempo... sem limites pra chegar no máximo".
+    # `pilha fixa` sai por último no grupo porque é o que muda TODO cenário de
+    # uma vez, e o rótulo diz isso.
+    {"A densidade — quanto bicho ao mesmo tempo",
+     [
+       {:nest_radius, "ninho: espalha (tiles)"},
+       {:respawn_ms, "renasce a cada (ms)"},
+       {:nest_size, "pilha fixa (força TODO cenário; 0 = deixa o cenário decidir)"}
+     ]}
   ]
 
   defp setup_groups, do: @setup_groups
@@ -434,8 +444,16 @@ defmodule PokexWeb.SimLive do
           into: %{},
           do: {key, n}
 
-    Map.put(numbers, :skill_damage, parse_damage(params))
+    numbers
+    |> unpin_at_zero()
+    |> Map.put(:skill_damage, parse_damage(params))
   end
+
+  # `nest_size` PINA a pilha: um número liga o pino, `nil` devolve o sorteio ao
+  # cenário. Mas a caixa só sabe escrever números, e "0" no formulário quer dizer
+  # "não pina" — não "todo ninho tem zero bicho", que é um mundo vazio.
+  defp unpin_at_zero(%{nest_size: 0} = knobs), do: Map.delete(knobs, :nest_size)
+  defp unpin_at_zero(knobs), do: knobs
 
   defp parse_damage(params) do
     for key <- ~w(1 2 3 4 5 6 7 8 9),

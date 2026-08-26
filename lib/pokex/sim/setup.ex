@@ -10,7 +10,7 @@ defmodule Pokex.Sim.Setup do
 
   The whitelist is deliberate. A free merge of the whole file into the knobs
   would let a typo redefine physics the rest of the simulator leans on
-  (`nest_size` pins a scenario, `own_row?` is an open measurement), and the
+  (`own_row?` is an open measurement), and the
   failure would be silent: a scenario quietly answering about a different world.
   Anything not on this list is ignored and said so.
   """
@@ -42,7 +42,20 @@ defmodule Pokex.Sim.Setup do
     # decides whether spending one for its cooldown reset pays.
     :revive_settle_ms,
     :revive_cooldown_ms,
-    :stray_chance_pct
+    :stray_chance_pct,
+    # A DENSIDADE, que é a pergunta dele: "a meta é a gente ver quanto inimigo a
+    # gente consegue surrar ao mesmo tempo, usando o Revive pra voltar cooldown,
+    # e vai que vai, sem limites pra chegar no máximo de mortos por minuto"
+    # (26/08). Sem estes três a única forma de subir a densidade era editar um
+    # cenário no código.
+    :nest_radius,
+    :respawn_ms,
+    # …e o guindaste. `nest_size` PINA a pilha e desliga o sorteio: todo ninho de
+    # todo cenário passa a ter exatamente este tamanho. Ficou fora desta lista
+    # desde o começo justamente por isso, e entra agora porque é o botão que ele
+    # pediu — mas entra ETIQUETADO, porque um cenário respondendo sobre uma
+    # densidade que não é a dele é pior do que não poder mexer.
+    :nest_size
   ]
 
   @doc "The knobs the screen is allowed to set, in the order it shows them."

@@ -39,10 +39,8 @@ defmodule Pokex.ScreenshotTest do
     {:ok, _} = Fake.start_link(%{capture_screen: [{:ok, screen}], capture: [{:ok, probe}]})
   end
 
-  defp png!(dir, name, w, h) do
-    rows = for _ <- 1..h, do: for(_ <- 1..w, do: {9, 9, 9, 255})
-    Pokex.PngFixtures.write!(Path.join(dir, name), rows)
-  end
+  defp png!(dir, name, w, h),
+    do: Pokex.PngFixtures.solid!(Path.join(dir, name), w, h, {9, 9, 9, 255})
 
   setup do
     {:ok, _} = Fake.start_link()

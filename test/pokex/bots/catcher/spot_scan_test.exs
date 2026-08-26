@@ -64,7 +64,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
   end
 
   defp teach_red!(name \\ "Corsola") do
-    solid = Pokex.FrameFixtures.of(24, 24, fn _x, _y -> @red end)
+    solid = Pokex.FrameFixtures.uniform(24, 24, @red)
     {:ok, _n} = CorpseLibrary.add(name, solid)
     :ok
   end
@@ -78,7 +78,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
 
       capture = fn {_rx, _ry, rw, rh} = region, _f ->
         send(test_pid, {:region, region})
-        {:ok, Pokex.FrameFixtures.of(rw, rh, fn _x, _y -> @ground end)}
+        {:ok, Pokex.FrameFixtures.uniform(rw, rh, @ground)}
       end
 
       SpotScan.scan(calib(player_point: {500, 600}), capture)
@@ -106,7 +106,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
 
       capture = fn region, _f ->
         send(test_pid, {:region, region})
-        {:ok, Pokex.FrameFixtures.of(elem(region, 2), elem(region, 3), fn _x, _y -> @ground end)}
+        {:ok, Pokex.FrameFixtures.uniform(elem(region, 2), elem(region, 3), @ground)}
       end
 
       SpotScan.scan(calib(player_point: nil), capture)
@@ -121,7 +121,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
       capture = fn {rx, ry, rw, rh} = region, _f ->
         send(test_pid, {:region, region})
         assert rx >= 0 and ry >= 0 and rx + rw <= 1000 and ry + rh <= 700
-        {:ok, Pokex.FrameFixtures.of(rw, rh, fn _x, _y -> @ground end)}
+        {:ok, Pokex.FrameFixtures.uniform(rw, rh, @ground)}
       end
 
       SpotScan.scan(calib(player_point: {20, 20}), capture)
@@ -134,7 +134,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
 
       capture = fn {_rx, _ry, rw, rh} = region, _f ->
         send(test_pid, {:region, region})
-        {:ok, Pokex.FrameFixtures.of(rw, rh, fn _x, _y -> @ground end)}
+        {:ok, Pokex.FrameFixtures.uniform(rw, rh, @ground)}
       end
 
       SpotScan.scan(calib(player_point: {500, 500}, pokemon_spot_point: {500, 200}), capture)

@@ -137,13 +137,13 @@ defmodule Pokex.LayoutTest do
   end
 
   test "a screen without the game fails loudly — never a silent wrong region" do
-    black = Pokex.FrameFixtures.of(3440, 1440, fn _x, _y -> {0, 0, 0} end)
+    black = Pokex.FrameFixtures.uniform(3440, 1440, {0, 0, 0})
 
     assert {:error, {:anchor_not_found, :battle_header}} = Layout.locate(black)
   end
 
   test "a frame of the wrong resolution is rejected before any search" do
-    small = Pokex.FrameFixtures.of(1280, 800, fn _x, _y -> {0, 0, 0} end)
+    small = Pokex.FrameFixtures.uniform(1280, 800, {0, 0, 0})
 
     assert {:error, {:resolution, {1280, 800}}} = Layout.locate(small)
   end

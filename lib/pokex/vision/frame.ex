@@ -12,6 +12,8 @@ defmodule Pokex.Vision.Frame do
   # while `screencapture` answered 392×430 (2×). Taking the scale from the
   # calibration file instead makes every conversion wrong by 2× the moment the
   # backend changes, which reads as the bot aiming at the top-left corner.
+  alias Pokex.Vision.Png
+
   defstruct [:width, :height, :rgba, scale: 1.0]
 
   @type t :: %__MODULE__{
@@ -59,13 +61,28 @@ defmodule Pokex.Vision.Frame do
   @doc """
   Decodes a PNG file into a `Frame`.
 
-  Adapter note: `ExPng.Image.from_file/1` does NOT return flat iodata in a
-  `:pixels` field of bytes — it returns `pixels: [[<<r,g,b,a>>, ...], ...]`,
-  a list of rows where each row is a list of 4-byte RGBA binaries (one binary
-  per pixel; see `ExPng.Color.t/0`). We flatten the rows and concatenate the
-  per-pixel binaries to get the flat row-major RGBA binary this struct needs.
+  `Pokex.Vision.Png` reads the 8-bit non-interlaced truecolor shapes every
+  capture on this machine has; it answers `:unsupported` for the rest of the
+  format and those go to ExPng, which covers it all.
+
+  Adapter note for that fallback: `ExPng.Image.from_file/1` does NOT return
+  flat iodata in a `:pixels` field of bytes — it returns
+  `pixels: [[<<r,g,b,a>>, ...], ...]`, a list of rows where each row is a list
+  of 4-byte RGBA binaries (one binary per pixel; see `ExPng.Color.t/0`). We
+  flatten the rows and concatenate the per-pixel binaries to get the flat
+  row-major RGBA binary this struct needs. That shape is also WHY the fast path
+  exists: building it costs one binary per pixel.
   """
   def from_png_file(path) do
+    with {:ok, bytes} <- File.read(path) do
+      case Png.decode(bytes) do
+        {:ok, w, h, rgba} -> {:ok, %__MODULE__{width: w, height: h, rgba: rgba}}
+        _unsupported_or_broken -> via_ex_png(path)
+      end
+    end
+  end
+
+  defp via_ex_png(path) do
     case ExPng.Image.from_file(path) do
       {:ok, %ExPng.Image{width: w, height: h, pixels: rows}} ->
         rgba = rows |> List.flatten() |> IO.iodata_to_binary()

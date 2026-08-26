@@ -24,7 +24,7 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     assert config.skill_keys == ["1", "2", "3"]
     assert config.combat_skill_burst_size == 3
     assert config.combat_skill_tap_count == 1
-    assert config.combat_skill_gap_ms == 35
+    assert config.combat_skill_gap_ms == 300
     assert config.combat_skill_jitter_ms == 20
     assert config.watch_timeout_ms == 30_000
     assert config.target_lost_streak == 2

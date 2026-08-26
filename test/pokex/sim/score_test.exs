@@ -9,8 +9,18 @@ defmodule Pokex.Sim.ScoreTest do
   alias Pokex.Sim.Score
   alias Pokex.Sim.Scenario
 
+  # A RAJADA DE GRAÇA por padrão, pelo mesmo motivo do arquivo da bancada: desde
+  # #367 as teclas custam tempo e a semente é 300ms, e um placar que mede o
+  # preço da rajada junto com o que ele afirma não prova nenhum dos dois.
   defp card(id, opts \\ []) do
-    %{card: card} = Score.run(Scenario.get(id), Keyword.put_new(opts, :duration_ms, 60_000))
+    config = opts |> Keyword.get(:config, %{}) |> Map.put_new(:skill_gap_ms, 0)
+
+    %{card: card} =
+      Score.run(
+        Scenario.get(id),
+        opts |> Keyword.put(:config, config) |> Keyword.put_new(:duration_ms, 60_000)
+      )
+
     card
   end
 

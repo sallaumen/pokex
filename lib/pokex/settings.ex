@@ -65,7 +65,18 @@ defmodule Pokex.Settings do
     # compares integers.
     timers_tick_ms: 1_000,
     combat_skill_tap_count: 1,
-    combat_skill_gap_ms: 35,
+    # ESCOLHA DELE (26/08): "usa um gap universal de uns 300ms acho que é
+    # suficiente". Os 35 anteriores eram uma semente que ninguém tinha medido
+    # contra o cliente — eu já recomendei esse número por ele ser a semente, e
+    # não por alguém ter provado que o jogo aceita. Trezentos é o palpite DELE,
+    # que joga, e vale mais que o meu.
+    #
+    # O que custa, medido em 26/08 (16 sementes × 180s, vida 300, três áreas
+    # fortes): a rajada ocupa o corpo por (N-1) intervalos, e nesse tempo não se
+    # anda nem se foge. Aos 500ms que ele rodava, o preço era ~20% dos mortos e
+    # o DOBRO das quedas. O recibo (`SkillReceipt`) é quem pode confirmar se 300
+    # sai inteiro no cliente — ele mede, isto só assume.
+    combat_skill_gap_ms: 300,
     combat_skill_jitter_ms: 20,
     # --- Skill-bar cooldown tracking (SkillBar reads the hotbar per-process) ---
     # Legacy fallback when an old calibration has no explicit count. New calibrations

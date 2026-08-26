@@ -93,6 +93,33 @@ defmodule Pokex.Sim.Scenario do
         }
       },
       %__MODULE__{
+        id: "lotavanon",
+        group: :hunt,
+        name: "Lotavanon (o anel de Electrode)",
+        why:
+          "O mapa REAL que ele está testando, com os números dele: “é uma área circular " <>
+            "mesmo, cheia de bichinho. Toda hora aparece no monte, direto tem nove pokémon ao " <>
+            "redor do meu” — e, o que muda tudo, “os electrodos mal me dão dano, tipo menos de " <>
+            "1% da minha vida por ataque”. É o cenário onde a pergunta não é sobreviver, é " <>
+            "quanta gente cada tiro pega: com a mordida quase de graça, o que sobra medindo é " <>
+            "a economia de skill.",
+        route: :lotavanon,
+        knobs: %{
+          # nove ao redor, que é o que ele vê
+          nest_sizes: %{7 => 2, 8 => 3, 9 => 4},
+          nest_radius: 2,
+          stray_chance_pct: 30,
+          aggro_tiles: 9,
+          leash_tiles: 14,
+          respawn_ms: 15_000,
+          # MEDIDO POR ELE: "menos de 1% da minha vida por ataque". A vida aqui é
+          # 0-100, então a mordida é o menor número que ainda é uma mordida. É o
+          # que faz este mapa uma questão de dano, não de sobrevivência.
+          bite_dmg: 1,
+          player_bite_dmg: 1
+        }
+      },
+      %__MODULE__{
         id: "pilha-pequena",
         group: :ruler,
         name: "Pilha pequena",
@@ -206,6 +233,7 @@ defmodule Pokex.Sim.Scenario do
   def route(%__MODULE__{route: nil}, _available), do: ring()
   def route(%__MODULE__{route: :hunt_field}, _available), do: hunt_field()
   def route(%__MODULE__{route: :anthill}, _available), do: anthill()
+  def route(%__MODULE__{route: :lotavanon}, _available), do: lotavanon()
 
   def route(%__MODULE__{route: name}, available),
     do: Enum.find(available, &(&1.name == name)) || ring()
@@ -286,6 +314,38 @@ defmodule Pokex.Sim.Scenario do
             skills: [],
             gather_wait_ms: nil
           }
+        end
+    }
+  end
+
+  @doc """
+  O anel de Lotavanon: doze cantos num CÍRCULO, cada um com ninho.
+
+  Os outros circuitos são polígonos desenhados pra caber numa pergunta. Este é a
+  forma do mapa dele — "uma área circular mesmo, cheia de bichinho" — e a forma
+  importa: num anel ele nunca anda de volta pelo que já limpou, então o
+  renascimento chega nele em vez de ele voltar buscar.
+  """
+  @spec lotavanon() :: Route.t()
+  def lotavanon do
+    %Route{
+      name: "anel de lotavanon",
+      waypoints:
+        for {x, y} <- [
+              {1011, 1000},
+              {1010, 1005},
+              {1006, 1010},
+              {1000, 1011},
+              {995, 1010},
+              {990, 1005},
+              {989, 1000},
+              {990, 995},
+              {994, 990},
+              {1000, 989},
+              {1006, 990},
+              {1010, 994}
+            ] do
+          %{x: x, y: y, z: 7, action: :walk, stops: [], at: nil, gather_wait_ms: 2_000, park: nil}
         end
     }
   end

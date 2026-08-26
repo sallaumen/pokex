@@ -554,7 +554,23 @@ defmodule Pokex.Bots.Combat.Worker do
     # is the service.
     send(parent, {:skill_bar_seen, later, skills})
 
-    case skills |> then(&SkillReceipt.check(before, later, &1)) |> SkillReceipt.verdict() do
+    check = SkillReceipt.check(before, later, skills)
+
+    # …e o recibo vira NÚMERO, não só um aviso. Quanto tempo entre duas teclas o
+    # jogo aceita é uma pergunta sobre o JOGO, e ele já responde: uma tecla que
+    # saiu deixa de estar pronta. Sem isto, "35ms derruba tecla?" só podia ser
+    # discutido — com isto, uma noite responde (Lucas, 26/08: "esse gap não pode
+    # ser tão rápido").
+    Pokex.Engine.Events.record(:receipt, %{
+      keys: skills,
+      fired: Map.get(check, :fired, []),
+      missed: Map.get(check, :missed, []),
+      unknown: Map.get(check, :unknown, []),
+      gap_ms: Settings.get(:combat_skill_gap_ms),
+      taps: Settings.get(:combat_skill_tap_count)
+    })
+
+    case SkillReceipt.verdict(check) do
       {:missed, missed} -> send(parent, {:skills_missed, missed})
       _confirmed_or_unknown -> :ok
     end

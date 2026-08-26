@@ -1562,6 +1562,50 @@ defmodule PokexWeb.SimLive do
             </dl>
           </div>
 
+          <%!-- O INTERVALO ENTRE TECLAS, RESPONDIDO PELO JOGO. Quanto ele
+                aceita não é uma discussão: uma tecla que saiu deixa de estar
+                pronta, e o recibo lê isso. Duas noites com intervalos
+                diferentes decidem sozinhas. --%>
+          <div
+            :if={@noite.keys != %{}}
+            class="space-y-1 rounded border border-pk-line bg-pk-sunken p-2"
+          >
+            <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+              As teclas que realmente saíram
+            </h3>
+            <table class="w-full text-left text-pk-body">
+              <thead>
+                <tr class="text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
+                  <th class="py-1 pr-3 font-semibold">intervalo</th>
+                  <th class="py-1 pr-3 text-right font-semibold">rajadas</th>
+                  <th class="py-1 pr-3 text-right font-semibold">saíram</th>
+                  <th class="py-1 pr-3 text-right font-semibold">falharam</th>
+                  <th class="py-1 text-right font-semibold">taxa</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={{gap, t} <- Enum.sort(@noite.keys)} class="border-t border-pk-line">
+                  <td class="pk-num py-1 pr-3 font-mono text-pk-text">{gap}ms</td>
+                  <td class="pk-num py-1 pr-3 text-right font-mono text-pk-text-2">{t.rajadas}</td>
+                  <td class="pk-num py-1 pr-3 text-right font-mono text-pk-text">{t.sairam}</td>
+                  <td class={[
+                    "pk-num py-1 pr-3 text-right font-mono",
+                    if(t.falharam > 0, do: "text-pk-warn", else: "text-pk-text-2")
+                  ]}>
+                    {t.falharam}
+                  </td>
+                  <td class="pk-num py-1 text-right font-mono font-bold text-pk-text">
+                    {if t.taxa, do: "#{t.taxa}%", else: "—"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="text-pk-meta text-pk-text-2">
+              o que já estava esfriando quando a rajada saiu fica fora da conta — sobre
+              essa tecla o recibo não tem o que dizer
+            </p>
+          </div>
+
           <%!-- A RÉGUA DELE DISCUTIDA COM O QUE O JOGO ENTREGA, em vez de com o
                 que eu imagino: quantas vezes a lista de batalha teve 1, 2, 3… --%>
           <div

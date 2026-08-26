@@ -108,6 +108,14 @@ defmodule Pokex.Bots.Cavebot.Store do
     }
   end
 
+  # The whitelist as {text, atom} pairs, resolved once at COMPILE time. Built
+  # per waypoint it meant an `Atom.to_string/1` for every stop and every skill
+  # of every waypoint of every read, and the hunt re-reads this file many times
+  # a second. MEASURED 2026-08-26 on the step alone: 0.7us per waypoint against
+  # 0.4us — small next to the file read, and free.
+  @stop_names Enum.map(Route.stops(), &{Atom.to_string(&1), &1})
+  @skill_names Enum.map(Route.skills(), &{Atom.to_string(&1), &1})
+
   defp decode_waypoint(%{"x" => x, "y" => y, "z" => z} = map),
     do: %{
       x: x,
@@ -133,7 +141,7 @@ defmodule Pokex.Bots.Cavebot.Store do
   # and a typo in it must not mint an atom. Canonical order on the way out, not
   # the file's order.
   defp decode_skills(list) when is_list(list),
-    do: Enum.filter(Route.skills(), &(Atom.to_string(&1) in list))
+    do: for({name, skill} <- @skill_names, name in list, do: skill)
 
   defp decode_skills(_absent), do: []
 
@@ -156,7 +164,7 @@ defmodule Pokex.Bots.Cavebot.Store do
   # marked routes were written with, before stops became a list — it reads as
   # `[:sweep]` forever.
   defp decode_stops(%{"stops" => list}) when is_list(list) do
-    Enum.filter(Route.stops(), &(Atom.to_string(&1) in list))
+    for {name, stop} <- @stop_names, name in list, do: stop
   end
 
   defp decode_stops(%{"sweep" => true}), do: [:sweep]

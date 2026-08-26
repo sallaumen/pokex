@@ -1,6 +1,20 @@
 defmodule Pokex.PngFixtures do
   @moduledoc "Minimal RGBA8 PNG encoder so tests never depend on binary fixture files."
 
+  @doc """
+  A solid-colour PNG of `w`x`h`, built without materialising a pixel list.
+
+  `write!/2` wants a list of rows of `{r,g,b,a}` tuples, which is right for a
+  hand-painted scene and absurd for a picture that is one colour: the display
+  fixtures in `Pokex.ScreenshotTest` are 3024x1964 and 3440x1440, so building
+  them that way meant ~11 million tuples for a file whose only interesting
+  bytes are the four in its IHDR.
+  """
+  def solid!(path, w, h, {r, g, b, a}) do
+    row = <<0>> <> :binary.copy(<<r, g, b, a>>, w)
+    encode!(path, w, h, :binary.copy(row, h))
+  end
+
   def write!(path, rows) do
     height = length(rows)
     width = length(hd(rows))
@@ -10,6 +24,10 @@ defmodule Pokex.PngFixtures do
         <<0>> <> for({r, g, b, a} <- row, into: <<>>, do: <<r, g, b, a>>)
       end
 
+    encode!(path, width, height, raw)
+  end
+
+  defp encode!(path, width, height, raw) do
     ihdr = chunk("IHDR", <<width::32, height::32, 8, 6, 0, 0, 0>>)
     idat = chunk("IDAT", :zlib.compress(raw))
 

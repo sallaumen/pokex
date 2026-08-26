@@ -69,9 +69,12 @@ defmodule PokexWeb.AppHeaderTest do
       refute title in labels, "the group #{title} has the same name as a menu item"
     end
 
-    for {path, _page} <- @routes, title <- titles do
+    for {path, _page} <- @routes do
       {:ok, _view, html} = live(conn, path)
-      assert html =~ title, "#{path}: the menu does not show the group #{title}"
+
+      for title <- titles do
+        assert html =~ title, "#{path}: the menu does not show the group #{title}"
+      end
     end
   end
 

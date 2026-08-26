@@ -757,7 +757,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp taking_damage?(_no_pair), do: false
 
   defp direct_battle_read(calib) do
-    with {:ok, frame} <- Capture.frame(calib.battle_region, "potion_battle.png") do
+    with {:ok, frame} <- Capture.frame(calib.battle_region, "potion_battle.raw") do
       {:ok, locked?(Interpret.battle(frame, calib, Settings.all()))}
     end
   end

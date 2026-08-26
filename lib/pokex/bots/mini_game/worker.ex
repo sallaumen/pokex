@@ -244,7 +244,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
         min_dark_ratio: Settings.get(:mini_game_min_dark_ratio)
       ]
 
-    with {:ok, frame} <- Capture.frame(region, "mini_game.png") do
+    with {:ok, frame} <- Capture.frame(region, "mini_game.raw") do
       {:ok, Detector.detect(frame, opts ++ anchor_opts(frame, state.calib, region))}
     end
   end

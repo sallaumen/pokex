@@ -80,7 +80,7 @@ defmodule Pokex.Layout do
     [pw, ph] = profile["resolution"]
     {wx, wy, ww, wh} = window(spec, template, pw, ph)
 
-    with {:ok, frame} <- Capture.frame({wx, wy, ww, wh}, "layout_#{spec["template"]}"),
+    with {:ok, frame} <- Capture.frame({wx, wy, ww, wh}, "layout_#{spec["template"]}.raw"),
          {:ok, {x, y}} <-
            search(
              frame,

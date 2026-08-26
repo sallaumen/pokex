@@ -67,7 +67,7 @@ defmodule Pokex.Bots.CrowdScan do
     with {:ok, calib} <- calibration(),
          {px, py} when is_integer(px) <- Calibration.player_point(calib),
          region = box_around({px, py}, radius, calib),
-         {:ok, frame} <- capture.(region, "crowd_scan.png") do
+         {:ok, frame} <- capture.(region, "crowd_scan.raw") do
       %{
         read?: true,
         seen: 0,

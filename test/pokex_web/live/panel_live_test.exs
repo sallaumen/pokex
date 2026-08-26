@@ -722,7 +722,10 @@ defmodule PokexWeb.PanelLiveTest do
     })
 
     File.mkdir_p!("/tmp/fake")
-    File.cp!("test/fixtures/battle/shiny_star_list.png", "/tmp/fake/shiny_probe.png")
+    # Under a .raw NAME, but PNG BYTES: `Frame.from_file/1` sniffs the header, which
+    # is what makes switching a call site's extension safe even when the
+    # `screencapture` fallback ignores it and writes a PNG anyway.
+    File.cp!("test/fixtures/battle/shiny_star_list.png", "/tmp/fake/shiny_probe.raw")
 
     {:ok, view, _} = live(conn, ~p"/config")
 

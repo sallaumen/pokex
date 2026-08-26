@@ -1361,7 +1361,7 @@ defmodule PokexWeb.PanelLive do
   def handle_event("shiny_probe", _params, socket) do
     {msg, px} =
       with {:ok, calib} <- Calibration.load(),
-           {:ok, frame} <- Capture.frame(calib.battle_region, "shiny_probe.png") do
+           {:ok, frame} <- Capture.frame(calib.battle_region, "shiny_probe.raw") do
         settings = Settings.all()
         {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height])
         rows = settings[:battle_max_rows]

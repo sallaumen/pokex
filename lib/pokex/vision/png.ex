@@ -119,8 +119,13 @@ defmodule Pokex.Vision.Png do
   defp reconstruct(1, line, _prev, 4), do: sub4(line, 0, 0, 0, 0, <<>>)
   defp reconstruct(3, line, prev, 3), do: avg3(line, prev, 0, 0, 0, <<>>)
   defp reconstruct(3, line, prev, 4), do: avg4(line, prev, 0, 0, 0, 0, <<>>)
-  defp reconstruct(4, line, prev, 3), do: paeth3(line, prev, 0, 0, 0, 0, 0, 0, <<>>)
-  defp reconstruct(4, line, prev, 4), do: paeth4(line, prev, 0, 0, 0, 0, 0, 0, 0, 0, <<>>)
+  # `c` of one pixel is `b` of the pixel before it, so the previous line is
+  # walked TWICE — once in step and once one pixel behind — instead of carrying
+  # three more accumulators (and tripping credo's arity ceiling).
+  defp reconstruct(4, line, prev, 3), do: paeth3(line, prev, <<0, 0, 0>> <> prev, 0, 0, 0, <<>>)
+
+  defp reconstruct(4, line, prev, 4),
+    do: paeth4(line, prev, <<0, 0, 0, 0>> <> prev, 0, 0, 0, 0, <<>>)
 
   defp up(
          <<x1, x2, x3, x4, x5, x6, x7, x8, rest::binary>>,
@@ -186,43 +191,38 @@ defmodule Pokex.Vision.Png do
   defp paeth3(
          <<x1, x2, x3, rest::binary>>,
          <<b1, b2, b3, prev::binary>>,
+         <<c1, c2, c3, behind::binary>>,
          a1,
          a2,
          a3,
-         c1,
-         c2,
-         c3,
          acc
        ) do
     r1 = x1 + paeth(a1, b1, c1) &&& 0xFF
     r2 = x2 + paeth(a2, b2, c2) &&& 0xFF
     r3 = x3 + paeth(a3, b3, c3) &&& 0xFF
-    paeth3(rest, prev, r1, r2, r3, b1, b2, b3, <<acc::binary, r1, r2, r3>>)
+    paeth3(rest, prev, behind, r1, r2, r3, <<acc::binary, r1, r2, r3>>)
   end
 
-  defp paeth3(<<>>, _prev, _a1, _a2, _a3, _c1, _c2, _c3, acc), do: acc
+  defp paeth3(<<>>, _prev, _behind, _a1, _a2, _a3, acc), do: acc
 
   defp paeth4(
          <<x1, x2, x3, x4, rest::binary>>,
          <<b1, b2, b3, b4, prev::binary>>,
+         <<c1, c2, c3, c4, behind::binary>>,
          a1,
          a2,
          a3,
          a4,
-         c1,
-         c2,
-         c3,
-         c4,
          acc
        ) do
     r1 = x1 + paeth(a1, b1, c1) &&& 0xFF
     r2 = x2 + paeth(a2, b2, c2) &&& 0xFF
     r3 = x3 + paeth(a3, b3, c3) &&& 0xFF
     r4 = x4 + paeth(a4, b4, c4) &&& 0xFF
-    paeth4(rest, prev, r1, r2, r3, r4, b1, b2, b3, b4, <<acc::binary, r1, r2, r3, r4>>)
+    paeth4(rest, prev, behind, r1, r2, r3, r4, <<acc::binary, r1, r2, r3, r4>>)
   end
 
-  defp paeth4(<<>>, _prev, _a1, _a2, _a3, _a4, _c1, _c2, _c3, _c4, acc), do: acc
+  defp paeth4(<<>>, _prev, _behind, _a1, _a2, _a3, _a4, acc), do: acc
 
   defp paeth(a, b, c) do
     p = a + b - c

@@ -18,15 +18,16 @@ defmodule Pokex.Vision.PngTest do
   @filters [0, 1, 2, 3, 4]
 
   defp picture(w, h, channels) do
-    for y <- 0..(h - 1) do
-      for x <- 0..(w - 1) do
-        # a gradient with a hard edge: smooth enough for paeth/average to
-        # predict well, broken enough that a wrong predictor shows up
-        base = {rem(x * 7 + y * 3, 256), rem(x * x + y, 256), rem(x + y * 11, 256)}
-        {r, g, b} = if x > div(w, 2), do: base, else: {255 - elem(base, 0), 30, 200}
-        if channels == 4, do: {r, g, b, rem(x + y, 2) * 255}, else: {r, g, b}
-      end
-    end
+    for y <- 0..(h - 1), do: for(x <- 0..(w - 1), do: pixel(x, y, w, channels))
+  end
+
+  # A gradient with a hard edge down the middle: smooth enough that paeth and
+  # average predict well, broken enough that a wrong predictor shows up.
+  defp pixel(x, y, w, channels) do
+    base = {rem(x * 7 + y * 3, 256), rem(x * x + y, 256), rem(x + y * 11, 256)}
+    {r, g, b} = if x > div(w, 2), do: base, else: {255 - elem(base, 0), 30, 200}
+
+    if channels == 4, do: {r, g, b, rem(x + y, 2) * 255}, else: {r, g, b}
   end
 
   defp encode(rows, filter, channels) do

@@ -117,8 +117,10 @@ defmodule Pokex.Vision.Glyphs do
       |> ink_cells({x, y, w, h}, strong, max(strong - drop, 40))
       |> drop_background()
 
+    rows_by_column = Enum.group_by(cells, fn {i, _j} -> i end, fn {_i, j} -> j end)
+
     0..(w - 1)//1
-    |> Enum.map(fn i -> {x + i, Enum.filter(0..(h - 1)//1, &MapSet.member?(cells, {i, &1}))} end)
+    |> Enum.map(fn i -> {x + i, rows_by_column |> Map.get(i, []) |> Enum.sort()} end)
     |> Enum.chunk_by(fn {_cx, rows} -> rows != [] end)
     |> Enum.filter(fn [{_cx, rows} | _] -> rows != [] end)
     |> Enum.map(&to_glyph(&1, h))
@@ -268,66 +270,97 @@ defmodule Pokex.Vision.Glyphs do
 
   # 8-connected groups of ink. The client's dark outline is what makes this
   # trustworthy: text is never connected to whatever is drawn behind it.
-  defp blobs(cells), do: blobs(MapSet.to_list(cells), cells, [])
+  defp blobs(cells), do: blobs(MapSet.to_list(cells), Map.new(cells, &{&1, []}), [])
 
   defp blobs([], _left, acc), do: acc
 
   defp blobs([cell | rest], left, acc) do
-    if MapSet.member?(left, cell) do
-      {blob, left} = flood([cell], MapSet.delete(left, cell), MapSet.new([cell]))
-      blobs(rest, left, [blob | acc])
-    else
-      blobs(rest, left, acc)
+    case :maps.take(cell, left) do
+      {_taken, left} ->
+        {blob, left} = flood([cell], left, MapSet.new([cell]))
+        blobs(rest, left, [blob | acc])
+
+      :error ->
+        blobs(rest, left, acc)
     end
   end
 
   defp flood([], left, blob), do: {blob, left}
 
   defp flood([{i, j} | rest], left, blob) do
-    {found, left} =
-      for di <- -1..1//1, dj <- -1..1//1, reduce: {[], left} do
-        {acc, remaining} ->
-          neighbour = {i + di, j + dj}
-
-          if MapSet.member?(remaining, neighbour),
-            do: {[neighbour | acc], MapSet.delete(remaining, neighbour)},
-            else: {acc, remaining}
-      end
+    {found, left} = claim(i, j, left)
 
     flood(found ++ rest, left, Enum.reduce(found, blob, &MapSet.put(&2, &1)))
   end
 
-  # Strong pixels seed; weak pixels join only when they touch the growing blob.
-  defp ink_cells(frame, {x, y, w, h}, strong_floor, weak_floor) do
-    {strong, weak} =
-      for j <- 0..(h - 1)//1, i <- 0..(w - 1)//1, reduce: {MapSet.new(), MapSet.new()} do
-        {s, k} ->
-          {r, g, b} = Frame.at(frame, x + i, y + j)
-          lo = min(r, min(g, b))
+  # The 8-neighbourhood plus the cell itself, taken out of `left` as it is
+  # found. Written out rather than looped: this runs once per ink cell in both
+  # passes below, and the nested `for` around it was building a range
+  # enumerable per cell (eprof 2026-08-26: the neighbour lookups and the ranges
+  # driving them were a fifth of a band search).
+  defp claim(i, j, left) do
+    {[], left}
+    |> take({i - 1, j - 1})
+    |> take({i - 1, j})
+    |> take({i - 1, j + 1})
+    |> take({i, j - 1})
+    |> take({i, j})
+    |> take({i, j + 1})
+    |> take({i + 1, j - 1})
+    |> take({i + 1, j})
+    |> take({i + 1, j + 1})
+  end
 
-          cond do
-            max(r, max(g, b)) - lo > @max_spread -> {s, k}
-            lo >= strong_floor -> {MapSet.put(s, {i, j}), k}
-            lo >= weak_floor -> {s, MapSet.put(k, {i, j})}
-            true -> {s, k}
-          end
+  # `left` is a plain map rather than a MapSet so this is ONE `:maps.take/2` —
+  # the membership test and the removal in a single hash walk instead of
+  # `MapSet.member?` followed by `MapSet.delete`. It runs nine times per ink
+  # cell in both passes; on a band search that was a fifth of the whole sweep.
+  defp take({acc, left}, cell) do
+    case :maps.take(cell, left) do
+      {_taken, left} -> {[cell | acc], left}
+      :error -> {acc, left}
+    end
+  end
+
+  # Strong pixels seed; weak pixels join only when they touch the growing blob.
+  defp ink_cells(%Frame{width: fw, rgba: rgba}, {x, y, w, h}, strong_floor, weak_floor) do
+    row_bytes = w * 4
+
+    {strong, weak} =
+      Enum.reduce(0..(h - 1)//1, {[], []}, fn j, acc ->
+        rgba
+        |> binary_part(((y + j) * fw + x) * 4, row_bytes)
+        |> classify_row(0, j, strong_floor, weak_floor, acc)
+      end)
+
+    grow(strong, MapSet.new(strong), Map.new(weak, &{&1, []}))
+  end
+
+  # Walks the region one ROW-SLICE at a time instead of asking the frame for a
+  # pixel at a time. `Frame.at/3` allocates a sub-binary per pixel, and the
+  # sweep in `CoordBandSearch` re-reads every row ~11x (two band heights sliding
+  # in steps of 4) for each of its ink floors: the reads were 23% of a segment
+  # and the ranges driving them another 31% (eprof, 2026-08-26).
+  defp classify_row(<<r, g, b, _a, rest::binary>>, i, j, strong_floor, weak_floor, {s, k}) do
+    lo = min(r, min(g, b))
+
+    acc =
+      cond do
+        max(r, max(g, b)) - lo > @max_spread -> {s, k}
+        lo >= strong_floor -> {[{i, j} | s], k}
+        lo >= weak_floor -> {s, [{i, j} | k]}
+        true -> {s, k}
       end
 
-    grow(MapSet.to_list(strong), strong, weak)
+    classify_row(rest, i + 1, j, strong_floor, weak_floor, acc)
   end
+
+  defp classify_row(<<>>, _i, _j, _strong_floor, _weak_floor, acc), do: acc
 
   defp grow([], ink, _weak), do: ink
 
   defp grow([{i, j} | rest], ink, weak) do
-    {joined, weak} =
-      for di <- -1..1//1, dj <- -1..1//1, reduce: {[], weak} do
-        {acc, remaining} ->
-          neighbour = {i + di, j + dj}
-
-          if MapSet.member?(remaining, neighbour),
-            do: {[neighbour | acc], MapSet.delete(remaining, neighbour)},
-            else: {acc, remaining}
-      end
+    {joined, weak} = claim(i, j, weak)
 
     grow(joined ++ rest, Enum.reduce(joined, ink, &MapSet.put(&2, &1)), weak)
   end
@@ -520,12 +553,19 @@ defmodule Pokex.Vision.Glyphs do
   # different-character runner-up rule keep the answer honest.
   defp nearest(bitmap), do: nearest_within(bitmap)
 
-  defp difference(a, b) do
-    Enum.zip(a, b)
-    |> Enum.reduce(0, fn {row_a, row_b}, acc ->
-      acc + Enum.count(Enum.zip(row_a, row_b), fn {x, y} -> x != y end)
-    end)
-  end
+  # Walks both bitmaps in step instead of zipping them: `Enum.zip/2` allocated a
+  # tuple per ROW and another per CELL, and this is the innermost loop of the
+  # atlas match — 2.2 million cell comparisons in a single band search.
+  defp difference(a, b), do: diff_rows(a, b, 0)
+
+  defp diff_rows([row_a | a], [row_b | b], acc),
+    do: diff_rows(a, b, diff_cells(row_a, row_b, acc))
+
+  defp diff_rows(_a, _b, acc), do: acc
+
+  defp diff_cells([x | xs], [x | ys], acc), do: diff_cells(xs, ys, acc)
+  defp diff_cells([_x | xs], [_y | ys], acc), do: diff_cells(xs, ys, acc + 1)
+  defp diff_cells(_xs, _ys, acc), do: acc
 
   # -- fused pairs -------------------------------------------------------------
 

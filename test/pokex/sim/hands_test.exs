@@ -16,6 +16,7 @@ defmodule Pokex.Sim.HandsTest do
 
   @com_controle %Loadout{name: "Controlador", aoe: ["3"], single: ["4"], crowd: ["1"]}
   @sem_controle %Loadout{name: "Sem controle", aoe: ["3"], single: ["4"], crowd: []}
+  @barra %Loadout{name: "Barra", aoe: ["3", "4", "5"], single: [], crowd: []}
 
   @stun %{
     rescue_stun_first: true,
@@ -136,6 +137,70 @@ defmodule Pokex.Sim.HandsTest do
       depois = World.step(world, 1_100)
 
       refute Enum.any?(depois.mobs, &World.asleep?(&1, depois))
+    end
+  end
+
+  describe "o preço da rajada" do
+    # Este mundo tratava seis teclas como um evento instantâneo. No jogo dele
+    # elas saem uma a cada `combat_skill_gap_ms`, e com o intervalo em 500ms uma
+    # rajada de seis são dois segundos e meio em que o corpo não faz mais nada.
+    # A própria Central já avisa que "é isso que limita o dano da caçada", e a
+    # bancada media isso como zero.
+    defp rajada(keys), do: ordens(%{fire: :free, opening: keys})
+
+    defp soltando(keys, config) do
+      Hands.obey(mundo(@barra), rajada(keys), Hands.new(), Map.merge(@stun, config))
+    end
+
+    test "N teclas ocupam o corpo por (N-1) intervalos" do
+      {_world, hands} = soltando(["3", "4", "5"], %{skill_gap_ms: 500})
+
+      assert hands.busy_until == 1_000
+    end
+
+    test "uma tecla só não custa intervalo nenhum" do
+      {_world, hands} = soltando(["3"], %{skill_gap_ms: 500})
+
+      assert hands.busy_until == 0
+    end
+
+    test "sem intervalo configurado, a rajada segue de graça" do
+      {_world, hands} = soltando(["3", "4", "5"], %{})
+
+      assert hands.busy_until == 0
+    end
+
+    test "enquanto a rajada sai, o corpo não anda nem aperta" do
+      # É isto que faz uma tecla a mais custar alguma coisa: o corpo é um só.
+      {world, hands} = soltando(["3", "4", "5"], %{skill_gap_ms: 500})
+
+      antes = hd(world.mobs).hp
+      ocupado = %{world | clock: world.clock + 200}
+
+      {depois, _hands} =
+        Hands.obey(
+          ocupado,
+          rajada(["3", "4", "5"]),
+          hands,
+          Map.merge(@stun, %{skill_gap_ms: 500})
+        )
+
+      assert hd(depois.mobs).hp == antes, "nenhuma tecla saiu enquanto a anterior ainda saía"
+      assert depois.held == [], "as teclas de andar são soltas"
+    end
+
+    test "passada a rajada, o corpo volta a andar" do
+      # Depois da janela ele obedece de novo. A prova é o ANDAR, não outra
+      # rajada: as teclas da primeira ainda estão em cooldown, e um teste que
+      # esperasse dano estaria medindo o cooldown, não a ocupação.
+      {world, hands} = soltando(["3", "4", "5"], %{skill_gap_ms: 500})
+
+      livre = %{world | clock: world.clock + 1_500}
+      andando = ordens(%{route: :go})
+
+      {depois, _hands} = Hands.obey(livre, andando, hands, Map.merge(@stun, %{skill_gap_ms: 500}))
+
+      assert depois.held != [], "com o corpo livre, as teclas de andar voltam a ser seguradas"
     end
   end
 end

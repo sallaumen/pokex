@@ -47,7 +47,7 @@ defmodule Pokex.Bots.SkillMeter do
 
   alias Pokex.Perception.WorldState
 
-  @type shot :: %{took_pct: float, delay_ms: non_neg_integer}
+  @type shot :: %{key: String.t(), took_pct: float, delay_ms: non_neg_integer}
 
   # Quanto tempo esperar a queda aparecer. A observação dele — "leva tipo 1s" —
   # é o piso do que isto precisa cobrir, com folga pro tique da lista.
@@ -156,7 +156,9 @@ defmodule Pokex.Bots.SkillMeter do
     with {:ok, raw} <- File.read(Pokex.Home.skill_meter_file()),
          {:ok, %{"shots" => by_key}} <- JSON.decode(raw) do
       Map.new(by_key, fn {key, list} ->
-        {key, Enum.map(list, &%{took_pct: &1["took_pct"], delay_ms: &1["delay_ms"]})}
+        # A tecla é a chave do mapa; ela volta pra DENTRO de cada tiro pra que
+        # um tiro lido do arquivo tenha a mesma forma de um recém-medido.
+        {key, Enum.map(list, &%{key: key, took_pct: &1["took_pct"], delay_ms: &1["delay_ms"]})}
       end)
     else
       _nothing_or_torn -> %{}

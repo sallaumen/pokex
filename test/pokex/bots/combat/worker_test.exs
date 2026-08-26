@@ -476,6 +476,51 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       # silence on the log topic is the proof.
       refute feeding_bar([], fn -> logged?("não saiu") end, 400)
     end
+
+    # O relógio do recibo é o da ÚLTIMA tecla, não o da primeira. Uma rajada de
+    # n teclas leva (n-1) × gap para sair da mão — 3,3s com o gap dele — e a
+    # barra é publicada a cada 400ms. Julgando contra o instante do PEDIDO, o
+    # recibo aceita um quadro tirado no MEIO da rajada, onde a cauda ainda não
+    # foi apertada e portanto ainda está pronta: "não saiu" fabricado, e uma
+    # repressão inteira em cima dele.
+    @tag :tmp_dir
+    test "o recibo julga contra um quadro de DEPOIS da última tecla, nunca do meio da rajada",
+         %{worker: worker} do
+      SettingsStash.stash!(skill_keys: ["1"], combat_skill_burst_size: 1)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
+
+      # a rajada demora a sair da mão, como a dele demora
+      Agent.update(Fake, &put_in(&1.script[:press_many_sleep_ms], 300))
+
+      bar!(["1"])
+      world!(worker, battle_obs(enemies: [0]))
+      assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+
+      world!(worker, battle_obs(locked?: true, locked_row: 0))
+      assert eventually(fn -> Worker.status(worker).state == :fighting end)
+
+      # Um quadro da barra a cada volta, inclusive ENQUANTO a rajada dorme: a
+      # tecla ainda não saiu, então ela ainda está pronta — e é exatamente essa
+      # leitura do meio da rajada que o recibo antigo aceitava como veredito.
+      assert eventually(
+               fn ->
+                 bar!(["1"])
+
+                 "1" in presses() or
+                   (world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
+               end,
+               3_000
+             ),
+             "a rajada nunca saiu: #{inspect(presses())}"
+
+      # A partir daqui o jogo responde a verdade: a tecla saiu e está em cooldown.
+      # O que se refuta é a DECISÃO, não a contagem de teclas — a dança acima
+      # solta rajadas ordinárias sozinha, e contá-las lê rajada como repressão
+      # (a mesma armadilha anotada no teste do "ainda pronta", acima). Toda
+      # repressão é anunciada antes, então o silêncio no tópico é a prova.
+      refute feeding_bar([], fn -> logged?("não saiu") end, 900),
+             "julgou a tecla contra um quadro do meio da rajada"
+    end
   end
 
   # The engine decides the same question the posture does, but with more than

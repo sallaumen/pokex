@@ -1194,7 +1194,12 @@ defmodule Pokex.Settings do
     # falls back to what it does on its own. THIS is the number that makes a
     # central brain safe in an eight-hour hunt: an engine that dies stops
     # refreshing, the fact ages out, and the fleet keeps working without it.
-    engine_orders_max_age_ms: 1_500
+    engine_orders_max_age_ms: 1_500,
+    # --- Onde estão os monstros (leitura, não regra) ----------------------------------------------
+    # How far out `Pokex.Bots.CrowdScan` looks when asked. The box it captures is
+    # this many tiles in EVERY direction, so raising it costs area quadratically —
+    # 6 already covers more than any area skill in the game reaches.
+    crowd_scan_radius_tiles: 6
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)
@@ -1403,6 +1408,7 @@ defmodule Pokex.Settings do
     engine_engage_from: 1..12,
     engine_reset_revive_cooldown_ms: 0..60_000,
     engine_reset_revive_min_hp: 0..100,
+    crowd_scan_radius_tiles: 1..20,
     engine_crowd_from: 1..20,
     engine_stun_window_ms: 500..60_000,
     engine_vitals_ms: 100..60_000,

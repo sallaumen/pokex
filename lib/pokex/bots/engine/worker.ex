@@ -38,6 +38,7 @@ defmodule Pokex.Bots.Engine.Worker do
   use GenServer
 
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Combat.Strategy
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
@@ -155,7 +156,7 @@ defmodule Pokex.Bots.Engine.Worker do
     {logic, orders} =
       Logic.step(
         state.logic,
-        %{situation: picture, hunt: hunt(now), hands: hands(state.loadout)},
+        %{situation: picture, hunt: hunt(now), hands: hands(state.loadout, picture)},
         config,
         now
       )
@@ -218,7 +219,7 @@ defmodule Pokex.Bots.Engine.Worker do
   # and no consumer has to ask who is on the field. The reserved control key
   # (`Strategy.reserved/1`) is deliberately absent — it belongs to
   # `PlayerSupport`'s rescue combo alone, see `Logic`'s moduledoc.
-  defp hands(nil), do: %{opening: [], single: [], crowd: []}
+  defp hands(nil, _picture), do: %{opening: [], single: [], crowd: []}
 
   # `single` travels beside `opening` so a decision can spend the CHEAP keys
   # without spending the area — the ruler saves the area for a pile, not the
@@ -226,9 +227,17 @@ defmodule Pokex.Bots.Engine.Worker do
   # `crowd` viaja junto porque deixou de ser um amuleto: a R10 gasta a tecla de
   # controle numa pilha grande, em vez de guardá-la pro resgate que talvez nunca
   # venha. `Strategy.opening/1` continua sem ela — quem a escolhe é a regra.
-  defp hands(loadout),
+  # …e a AURA DE DANO lidera a abertura quando a barra diz que ela está pronta.
+  # A regra saiu em #357 e o cérebro não a usava: só o worker de combate passava
+  # a condição, e é a ENGINE que monta a abertura que o simulador dispara. O
+  # resultado era um multiplicador de 20% que nunca multiplicava nada, e uma
+  # medição que não conseguia notar a diferença.
+  defp hands(loadout, picture),
     do: %{
-      opening: Strategy.opening(loadout),
+      opening:
+        Strategy.opening(loadout,
+          aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys)
+        ),
       single: loadout.single,
       crowd: Strategy.reserved(loadout)
     }

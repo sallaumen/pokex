@@ -19,6 +19,7 @@ defmodule PokexWeb.CavebotLive do
 
   alias Pokex.Bots.Cavebot.{HandsRead, Photos, Recording, Route, Store, WalkTest, Worker}
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Calibration
   alias Pokex.Perception
@@ -85,6 +86,9 @@ defmodule PokexWeb.CavebotLive do
        reset_revive: Settings.get(:engine_reset_revive),
        minimap_gap?: minimap_gap?(),
        recording?: false,
+       # What the last look at the SCREEN found, and nothing until he asks: the
+       # scan costs a capture, so it never runs on the poll (see the button).
+       crowd: nil,
        # Read health: read_coord is all-or-nothing (requires 1.0 confidence),
        # so ONE doubtful glyph drops the whole coordinate to nil. Occasional
        # misses don't hurt recording — but without a counter there is no way
@@ -804,6 +808,14 @@ defmodule PokexWeb.CavebotLive do
   # flips — Settings is the one truth — and arming re-runs the idempotent
   # support monitor exactly like the panel does, so a net turned on here is a
   # net that is actually watching.
+  # ONE look at the screen, because he pressed the button. Deliberately not on
+  # the poll: a capture is ~0.28s serialized through the broker, and a page left
+  # open would spend that every second for a number nobody is reading.
+  def handle_event("crowd_scan", _params, socket) do
+    reading = CrowdScan.look(listed: enemy_count(socket.assigns.world))
+    {:noreply, assign(socket, crowd: reading)}
+  end
+
   def handle_event("toggle_debug", _params, socket),
     do: {:noreply, assign(socket, show_debug: not socket.assigns.show_debug)}
 
@@ -1232,6 +1244,34 @@ defmodule PokexWeb.CavebotLive do
   end
 
   # -- what the world strip reads ---------------------------------------------
+
+  # -- onde eles estão --------------------------------------------------------
+
+  defp crowd_headline(%{seen: 0, radius: r}),
+    do: "nenhum nome legível dentro de #{r} tiles"
+
+  defp crowd_headline(%{seen: seen, spots: [%{tiles: near} | _]}) do
+    "#{seen} #{if seen == 1, do: "monstro localizado", else: "monstros localizados"} — o mais perto a #{near} #{if near == 1, do: "tile", else: "tiles"}"
+  end
+
+  # The histogram he can check against his own screen: how many at each ring.
+  defp crowd_spread(%{spots: []}), do: "—"
+
+  defp crowd_spread(%{spots: spots}) do
+    spots
+    |> Enum.frequencies_by(& &1.tiles)
+    |> Enum.sort()
+    |> Enum.map_join("  ", fn {tiles, n} -> "#{tiles}t×#{n}" end)
+  end
+
+  # What the battle list counted that the screen could not place. Only a gap
+  # when there IS a list to compare against.
+  defp crowd_gap(%{listed: listed, seen: seen}) when is_integer(listed), do: max(listed - seen, 0)
+  defp crowd_gap(_no_list), do: 0
+
+  defp crowd_reason(:not_calibrated), do: "o /calibrar nunca rodou nesta tela"
+  defp crowd_reason(:no_player_point), do: "a calibração não marcou onde o personagem fica"
+  defp crowd_reason(reason), do: to_string(reason)
 
   defp enemy_count(%{enemies: enemies}), do: length(enemies)
   defp enemy_count(_none), do: 0
@@ -2031,6 +2071,54 @@ defmodule PokexWeb.CavebotLive do
           >
             último aperto da luta: {@combat.last_action.text}
           </p>
+        </section>
+        <%!-- ONDE ELES ESTÃO. A lista de batalha sempre soube QUANTOS existem;
+              o que faltava era a distância — "não adianta a gente otimizar ele
+              ter mais cooldowns pra usar com Revives se ele não espera os
+              pokémons estarem próximos" (2026-08-26).
+
+              Isto é LEITURA: não manda em nada, e está aqui pra ele julgar se
+              merece virar regra. --%>
+        <section id="cavebot-crowd" class="rounded-pk border border-pk-line bg-pk-surface p-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="text-pk-sm font-semibold text-pk-text-1">onde eles estão</h3>
+            <button
+              type="button"
+              phx-click="crowd_scan"
+              class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
+            >
+              olhar agora
+            </button>
+            <span class="text-pk-meta text-pk-text-3">
+              custa uma foto da tela (~0,3s) — só quando você pede
+            </span>
+          </div>
+
+          <p :if={@crowd == nil} class="mt-2 text-pk-meta text-pk-text-3">
+            ninguém olhou ainda
+          </p>
+
+          <p :if={@crowd && !@crowd.read?} class="mt-2 text-pk-meta text-pk-warn">
+            não deu pra olhar: {crowd_reason(@crowd.reason)}
+          </p>
+
+          <div :if={@crowd && @crowd.read?} class="mt-2">
+            <p class="text-pk-sm text-pk-text-1">{crowd_headline(@crowd)}</p>
+            <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">{crowd_spread(@crowd)}</p>
+
+            <%!-- O ponto cego, escrito onde ele lê o número: efeito de skill
+                  pinta por cima do nome, então some quem está DENTRO da área.
+                  Erra sempre pra menos. --%>
+            <p
+              :if={crowd_gap(@crowd) > 0}
+              class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn"
+            >
+              <.icon name="hero-eye-slash" class="mt-px size-3.5 shrink-0" />
+              <span>
+                a lista tem {@crowd.listed} e eu localizei {@crowd.seen} — {crowd_gap(@crowd)} sem nome legível (efeito na tela cobre o nome, ou está fora do alcance da vista)
+              </span>
+            </p>
+          </div>
         </section>
 
         <%!-- THE WORLD, as the bot sees it. Everything here already existed as

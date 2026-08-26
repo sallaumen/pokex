@@ -213,7 +213,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
 
     # ...nada é capturado e o jogo JAMAIS "entra" (o flap era isto)
     refute_receive {:mini_game, %{state: :playing}}, 200
-    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, "mini_game.png"}, &1))
+    refute Enum.any?(Pokex.Rig.Fake.calls(), &match?({:capture, _, "mini_game.raw"}, &1))
 
     # marcar a faixa religa o vigia SEM restart: a calibração é relida no tick
     {:ok, calib} = Calibration.load()
@@ -237,7 +237,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     assert :ok = Worker.run(worker)
     assert_receive {:mini_game, %{state: :playing, transition: :entered}}, 1_000
 
-    assert {:capture, {140, 20, 60, 180}, "mini_game.png"} in Fake.calls()
+    assert {:capture, {140, 20, 60, 180}, "mini_game.raw"} in Fake.calls()
   end
 
   @tag :tmp_dir

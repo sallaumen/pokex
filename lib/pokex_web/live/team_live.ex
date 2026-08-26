@@ -253,7 +253,7 @@ defmodule PokexWeb.TeamLive do
     with fix when not is_nil(fix) <- Pokex.Layout.current(),
          {cx0, cy0, pw, ph} when not is_nil(cx0) <- Pokex.Layout.region(:team_icon_first, fix),
          {rx, ry, rw, rh} <- Pokex.Layout.region(:team_column, fix),
-         {:ok, frame} <- Capture.frame({rx, ry, rw, rh}, "team_portraits.png") do
+         {:ok, frame} <- Capture.frame({rx, ry, rw, rh}, "team_portraits.raw") do
       learned = TeamIcons.all()
 
       for row <- 0..4//1 do

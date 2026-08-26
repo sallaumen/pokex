@@ -51,7 +51,7 @@ defmodule Pokex.Bots.PokemonTracker do
     with :ok <- taught(),
          {:ok, calib} <- calibration(),
          region = box_around(point, radius_px, calib),
-         {:ok, frame} <- capture.(region, "pokemon_track.png") do
+         {:ok, frame} <- capture.(region, "pokemon_track.raw") do
       PokemonSprites.library()
       |> Finder.find(frame,
         box: Settings.get(:pokemon_sprite_box_px),

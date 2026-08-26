@@ -419,4 +419,30 @@ defmodule Pokex.Sim.BenchTest do
       assert a.outcome.killed == b.outcome.killed
     end
   end
+
+  describe "a janela dos 5 segundos, contada da hora certa" do
+    # `since_stun_ms` misturava DUAS horas: a fase vinha do tique em que o revive
+    # foi PEDIDO e o relógio do tique em que ele CHEGOU. Um revive pedido dentro
+    # da janela e segurado pelo piso das mãos aparecia como revive sem prefixo, e
+    # foi assim que a distribuição saiu bimodal com uma cauda de 18-29s que
+    # ninguém conseguia explicar. A cauda era a costura, não o cérebro.
+    test "um revive que chega tarde ainda é medido pelo pedido" do
+      %{metrics: m} =
+        Bench.run(Scenario.get("lotavanon"),
+          duration_ms: 120_000,
+          knobs: %{
+            mob_hp: 300,
+            skill_damage: %{"3" => {60, 80}, "4" => {60, 80}, "5" => {60, 80}}
+          }
+        )
+
+      engaged = Enum.filter(m.revives, &(&1.accepted? and &1.phase == :engaged))
+      dentro = Enum.filter(engaged, &(&1.since_stun_ms && &1.since_stun_ms <= 5_000))
+
+      assert engaged != [], "o cenário tem que produzir revives de reset pra haver o que medir"
+
+      assert length(dentro) == length(engaged),
+             "todo revive que a regra dele governa sai dentro da janela do controle"
+    end
+  end
 end

@@ -26,6 +26,7 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Perception
   alias Pokex.Pokedex.SkillProfile
   alias Pokex.Settings
+  alias Pokex.Sim.Fence
   alias Pokex.World
   alias PokexWeb.CavebotMap
   alias PokexWeb.PanelForms
@@ -64,6 +65,15 @@ defmodule PokexWeb.CavebotLive do
       # pixels — which is exactly how this tile announced a SHINY that did not
       # exist the first time it was drawn (2026-08-10).
       Perception.attach(:minimap)
+
+      # A HEARTBEAT, because every other assign on this page arrives by
+      # broadcast — and the states worth warning about are exactly the ones
+      # where NO broadcast comes. With the simulator's fence up the real feeds
+      # are switched off by design, so the page rendered once at mount and then
+      # sat there showing a coordinate from an hour earlier while he walked a
+      # whole route that recorded nothing (2026-08-26). A page that can only
+      # learn it is blind from the thing that went blind cannot warn about it.
+      :timer.send_interval(2_000, :health)
     end
 
     routes = Store.all()
@@ -90,6 +100,9 @@ defmodule PokexWeb.CavebotLive do
        # What the last look at the SCREEN found, and nothing until he asks: the
        # scan costs a capture, so it never runs on the poll (see the button).
        crowd: nil,
+       # The simulator's fence points the eyes at a world that is not the game.
+       # Free to read (`:persistent_term`), and re-read on the heartbeat.
+       sim_armed?: Fence.armed?(),
        # A calibração do raio da área: o modo, e o que os disparos já disseram.
        area_probe?: Settings.get(:area_probe_enabled) == true,
        area: AreaProbe.summary(),
@@ -171,6 +184,11 @@ defmodule PokexWeb.CavebotLive do
   # the world strip without touching the recording.
   def handle_info({:world, _key, _obs}, socket),
     do: {:noreply, assign(socket, world: World.snapshot())}
+
+  # The heartbeat: the two facts this page cannot learn from a broadcast —
+  # whether the eyes are switched off, and how old the last position is.
+  def handle_info(:health, socket),
+    do: {:noreply, assign(socket, sim_armed?: Fence.armed?(), world: World.snapshot())}
 
   def handle_info({:cavebot, snapshot}, socket), do: {:noreply, assign(socket, hunt: snapshot)}
 
@@ -571,6 +589,20 @@ defmodule PokexWeb.CavebotLive do
            recording?: false,
            notice: "gravação parada — #{n} waypoints na rota, e tirei a foto do fim",
            notice_kind: :ok
+         )}
+
+      # THE ONE REFUSAL THAT MATTERS HERE. Recording lays waypoints from minimap
+      # broadcasts, and the fence switches the real feeds off — so arming this
+      # with the simulator up gives him a route that records NOTHING while
+      # looking exactly like one that is recording. He walked a whole route that
+      # way (2026-08-26). Refusing costs a click; not refusing costs the walk.
+      Fence.armed?() ->
+        {:noreply,
+         assign(socket,
+           notice:
+             "o simulador está armado — os olhos estão no mundo falso e a gravação não " <>
+               "receberia nenhuma posição. Desarme no /sim e grave de novo.",
+           notice_kind: :warn
          )}
 
       socket.assigns.active_route == nil ->
@@ -1743,6 +1775,13 @@ defmodule PokexWeb.CavebotLive do
   defp pos_text(pos), do: PositionReadout.coords(pos)
   defp read_health(reads, misses), do: PositionReadout.read_health(reads, misses)
 
+  # "aguardando a primeira leitura" was TRUE and useless: the feed only
+  # broadcasts when the observation CHANGES, so this counter cannot tell
+  # "reading fine, standing still" apart from "not reading at all". With the
+  # fence up it is the second one, always — say that instead.
+  defp read_note(true, _reads, _misses), do: "os olhos estão desligados pelo simulador"
+  defp read_note(_free, reads, misses), do: read_health(reads, misses)
+
   # The position read needs the minimap rect (the feed's capture) and the
   # coordinate strip. Both resolve hand-mark first, layout as fallback — and a
   # layout from another screen was already dropped at Calibration.load. When
@@ -2239,6 +2278,31 @@ defmodule PokexWeb.CavebotLive do
           </div>
         </section>
 
+        <%!-- OS OLHOS ESTÃO DESLIGADOS. A cerca do simulador aponta os feeds pro
+              mundo falso de propósito — e o resultado, nesta página, é que NADA
+              chega: ela renderiza uma vez e congela. Foi assim que ele andou uma
+              rota inteira achando que gravava, olhando pra uma coordenada de uma
+              hora antes (26/08). O aviso vem antes de tudo porque enquanto ele
+              estiver de pé, todo o resto da página é ficção. --%>
+        <section
+          :if={@sim_armed?}
+          id="cavebot-sim-armed"
+          class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
+        >
+          <p class="flex items-start gap-2 text-pk-sm font-semibold text-pk-danger">
+            <.icon name="hero-eye-slash" class="mt-px size-4 shrink-0" />
+            <span>
+              o simulador está armado — os olhos do bot estão apontados pro mundo falso
+            </span>
+          </p>
+          <p class="mt-1 text-pk-meta text-pk-text-2">
+            nada nesta página está sendo lido do jogo: a posição, os inimigos e a vida são do
+            momento em que você abriu. Gravar rota não grava nada.
+            <.link navigate={~p"/sim"} class="underline">Desarme no simulador</.link>
+            pra voltar a enxergar.
+          </p>
+        </section>
+
         <%!-- THE WORLD, as the bot sees it. Everything here already existed as
               facts; what was missing was a place to read them together while
               the hunt runs. --%>
@@ -2256,8 +2320,14 @@ defmodule PokexWeb.CavebotLive do
             icon="hero-eye"
             label="leitura"
             value={"#{@reads}/#{@reads + @misses}"}
-            note={read_health(@reads, @misses)}
-            tone={if @misses > @reads, do: :warn, else: :neutral}
+            note={read_note(@sim_armed?, @reads, @misses)}
+            tone={
+              cond do
+                @sim_armed? -> :warn
+                @misses > @reads -> :warn
+                true -> :neutral
+              end
+            }
           />
           <.world_tile
             id="tile-enemies"

@@ -197,7 +197,9 @@ defmodule Pokex.Bots.Engine.Logic do
 
   # THE PRIORITY, as one list. It used to be split across three function heads
   # and a six-branch cond, so reading the order meant reading four places in the
-  # right sequence.
+  # right sequence. Splitting it again to buy a lower complexity score would
+  # undo exactly that, so the check is off for this head and this head only.
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp decide(t) do
     t = %{t | logic: audit_reset(t)}
 
@@ -715,23 +717,30 @@ defmodule Pokex.Bots.Engine.Logic do
         {reset_fight(t.logic, :travelling),
          Orders.walking(:travelling, t.band, "nada aqui — seguindo a rota")}
 
-      t.s.worth_fighting? and not t.config.gather_piles ->
+      rushing_in?(t) ->
         open(t, "#{count(t.s)}: caindo em cima, sem esperar juntar")
 
       # R6. The pile is worth fighting AND it has been walked for: the steps
       # bought whatever was going to join, and dragging further only spends the
       # rope R2 charges for.
-      t.s.worth_fighting? and walked_enough?(t) ->
+      gathered_enough?(t) ->
         open(t, "#{count(t.s)} depois de #{walked(t)} passos juntando: estourando a área")
 
-      t.s.worth_fighting? and settled?(t) ->
+      stopped_arriving?(t) ->
         open(t, "#{count(t.s)} e pararam de chegar: estourando a área")
 
       # "Ou quando a gente já andou demais e não achou mais ninguém": past the
       # patience, what is there is worth more than what might still come.
-      some?(t.s) and out_of_patience?(t) ->
+      patience_out?(t) ->
         open(t, "#{walked(t)} passos e não veio mais ninguém: matando #{count(t.s)}")
 
+      true ->
+        still_sizing(t)
+    end
+  end
+
+  defp still_sizing(t) do
+    cond do
       # Nothing worth having, and the clock says stop looking here.
       not within?(t, :sizing, t.config.size_ceiling_ms) ->
         {%{t.logic | state: :skipping},
@@ -769,6 +778,14 @@ defmodule Pokex.Bots.Engine.Logic do
   defp walked(t), do: Map.get(t.s, :walked, 0)
 
   defp walked_enough?(t), do: walked(t) >= t.config.gather_tiles
+
+  defp rushing_in?(t), do: t.s.worth_fighting? and not t.config.gather_piles
+
+  defp gathered_enough?(t), do: t.s.worth_fighting? and walked_enough?(t)
+
+  defp stopped_arriving?(t), do: t.s.worth_fighting? and settled?(t)
+
+  defp patience_out?(t), do: some?(t.s) and out_of_patience?(t)
 
   defp out_of_patience?(t), do: walked(t) >= t.config.patience_tiles
 

@@ -85,16 +85,25 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | {:block, atom}
 
   @type world :: %{
-          pos: {integer, integer, integer} | nil,
-          enemies: non_neg_integer,
-          combat_state: atom,
-          capture_pending: non_neg_integer,
-          capture_changed_at: integer | nil,
-          sweep_pending: non_neg_integer,
-          sweep_changed_at: integer | nil,
+          :pos => {integer, integer, integer} | nil,
+          :enemies => non_neg_integer,
+          :combat_state => atom,
+          :capture_pending => non_neg_integer,
+          :capture_changed_at => integer | nil,
+          :sweep_pending => non_neg_integer,
+          :sweep_changed_at => integer | nil,
           # own pokémon's HP — nil when the bar is unreadable (recalled into
           # the ball, covered) or the :pokemon fact is stale/absent
-          hp_pct: integer | nil
+          :hp_pct => integer | nil,
+          :fainted? => boolean,
+          # What the engine asks of the road. Absent as a block when no orders
+          # fact is fresh — `engine?` is what separates "asks nothing" from
+          # "asks to walk", so every reader goes through Map.get/3 with a
+          # default rather than assuming the key is there.
+          optional(:engine?) => boolean,
+          optional(:route_hold?) => boolean,
+          optional(:reset_worth?) => boolean | :unknown,
+          optional(:reset_note) => String.t() | nil
         }
 
   @type config :: %{

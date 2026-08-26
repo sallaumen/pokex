@@ -129,11 +129,13 @@ defmodule Pokex.Bots.CrowdScanTest do
 
     rgba =
       for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
-        if Enum.any?(boxes, fn {bx, by} -> x >= bx and x < bx + 56 and y >= by and y < by + 10 end),
-           do: <<220, 0, 0, 255>>,
-           else: <<90, 90, 90, 255>>
+        if on_bar?(boxes, x, y), do: <<220, 0, 0, 255>>, else: <<90, 90, 90, 255>>
       end
 
     %Frame{width: w, height: h, rgba: rgba, scale: 1.0}
+  end
+
+  defp on_bar?(boxes, x, y) do
+    Enum.any?(boxes, fn {bx, by} -> x >= bx and x < bx + 56 and y >= by and y < by + 10 end)
   end
 end

@@ -44,6 +44,40 @@ jobs:
       # them. This flag is that gate.
       - run: mix test --warnings-as-errors
 
+  # Credo e dialyzer são o alias `mix lint`, e até agora ninguém os rodava a não
+  # ser à mão — foi assim que 38 apontamentos do credo e 19 do dialyzer (um
+  # `no_return` que apagava dez funções do cavebot da análise) se acumularam sem
+  # ninguém ver. A PLT vai no cache: só a primeira execução paga por ela.
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.5"
+          otp-version: "27"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-dev-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-dev-${{ runner.os }}-
+
+      - uses: actions/cache@v4
+        with:
+          path: priv/plts
+          key: plt-${{ runner.os }}-${{ hashFiles('mix.lock') }}
+          restore-keys: plt-${{ runner.os }}-
+
+      - run: mix deps.get
+      - run: mix credo
+      - run: mix dialyzer
+
   assets:
     runs-on: ubuntu-latest
     steps:

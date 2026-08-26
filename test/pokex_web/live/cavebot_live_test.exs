@@ -1679,9 +1679,9 @@ defmodule PokexWeb.CavebotLiveTest do
   # numbers he can act on — and silent on a route that has neither.
   describe "the route doctor" do
     test "names the corners the hunt cannot walk between", %{conn: conn} do
-      {:ok, route} = Route.append(Route.new("cavena"), {2305, 30014, 5})
-      {:ok, route} = Route.append(route, {2304, 30014, 5})
-      {:ok, route} = Route.append(route, {2290, 30014, 5})
+      {:ok, route} = Route.append(Route.new("cavena"), {2305, 30_014, 5})
+      {:ok, route} = Route.append(route, {2304, 30_014, 5})
+      {:ok, route} = Route.append(route, {2290, 30_014, 5})
       :ok = Store.add(route)
 
       {:ok, view, _html} = live(conn, ~p"/cavebot")
@@ -1692,9 +1692,9 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "names a staircase that goes up and comes straight back", %{conn: conn} do
-      {:ok, route} = Route.append(Route.new("cavena"), {2310, 30021, 5})
-      {:ok, route} = Route.append(route, {2310, 30023, 6})
-      {:ok, route} = Route.append(route, {2310, 30021, 5})
+      {:ok, route} = Route.append(Route.new("cavena"), {2310, 30_021, 5})
+      {:ok, route} = Route.append(route, {2310, 30_023, 6})
+      {:ok, route} = Route.append(route, {2310, 30_021, 5})
       :ok = Store.add(route)
 
       {:ok, view, _html} = live(conn, ~p"/cavebot")
@@ -1703,8 +1703,8 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "a healthy route says nothing at all", %{conn: conn} do
-      {:ok, route} = Route.append(Route.new("cavena"), {2300, 30014, 5})
-      {:ok, route} = Route.append(route, {2310, 30014, 5})
+      {:ok, route} = Route.append(Route.new("cavena"), {2300, 30_014, 5})
+      {:ok, route} = Route.append(route, {2310, 30_014, 5})
       :ok = Store.add(route)
 
       {:ok, view, _html} = live(conn, ~p"/cavebot")

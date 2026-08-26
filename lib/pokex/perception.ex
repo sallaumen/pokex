@@ -90,7 +90,8 @@ defmodule Pokex.Perception do
   (monitor halted / not calibrated) — readers fail open on it, as with every
   fact.
   """
-  @spec pokemon(integer) :: {:ok, %{hp_pct: integer | nil, readable?: boolean}} | :unknown
+  @spec pokemon(integer) ::
+          {:ok, %{hp_pct: integer | nil, readable?: boolean, fainted?: boolean}} | :unknown
   def pokemon(now_ms \\ System.monotonic_time(:millisecond)) do
     case WorldState.get(:pokemon, Settings.get(:pokemon_fact_max_age_ms), now_ms) do
       {:ok, obs} -> {:ok, obs}

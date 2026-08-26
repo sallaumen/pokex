@@ -213,11 +213,15 @@ defmodule Pokex.Sim.Calibrate do
       elapsed = (b["at"] || 0) - (a["at"] || 0)
       shrank = (a["enemies"] || 0) - (b["enemies"] || 0)
 
-      if a["phase"] in @fight_phases and is_integer(a["enemies"]) and is_integer(b["enemies"]) and
-           elapsed > 0 and elapsed <= @max_window_ms,
-         do: [%{from: a["at"], to: b["at"], killed: max(shrank, 0), ms: elapsed}],
-         else: []
+      if open_fight?(a, b, elapsed),
+        do: [%{from: a["at"], to: b["at"], killed: max(shrank, 0), ms: elapsed}],
+        else: []
     end)
+  end
+
+  defp open_fight?(a, b, elapsed) do
+    a["phase"] in @fight_phases and is_integer(a["enemies"]) and is_integer(b["enemies"]) and
+      elapsed > 0 and elapsed <= @max_window_ms
   end
 
   defp presses_in(events, fights) do

@@ -32,8 +32,11 @@ defmodule PokexWeb.CalibrationSteps do
     skill_b:
       "Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões.",
     hp_a:
-      "Canto SUPERIOR-ESQUERDO da barra de VIDA do Pokémon principal — bem RENTE à barra, sem pegar o fundo azul acima nem os ícones abaixo.",
-    hp_b: "Canto INFERIOR-DIREITO da MESMA barra de vida (colado na barra, só ela).",
+      "Canto SUPERIOR-ESQUERDO da barra do Pokémon na POKEBAR — a linha do Ctrl+N que mostra a " <>
+        "porcentagem. CUIDADO: a barra vermelha do painel 'Pokémon' é a vida do PERSONAGEM, " <>
+        "não a dele. Marque bem RENTE à barra.",
+    hp_b:
+      "Canto INFERIOR-DIREITO da MESMA barra (só ela — a faixa do Ctrl+N logo abaixo fica de fora).",
     photo: "Centro da FOTO do Pokémon principal (onde o mouse fica pro Shift+Q do revive).",
     mini_game_a:
       "Canto SUPERIOR-ESQUERDO da FAIXA onde a barra do minigame aparece quando você pesca " <>

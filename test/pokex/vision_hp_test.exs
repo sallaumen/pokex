@@ -92,4 +92,24 @@ defmodule Pokex.VisionHpTest do
     lit = frame(fill(10, 10, @white) ++ fill(90, 10, @dark))
     assert Vision.hp_region_plausible?(lit)
   end
+
+  # THE BLIND SPOT AT 65% (Poké Alliance, 2026-08-26): the pokebar's empty
+  # track is (45,69,69) — brighter than the 60 the old client's track sat
+  # under, so an emptying column counted as neither fill nor track. The known
+  # share fell with the HP and crossed the floor at ~65%, blanking the reading
+  # exactly where the potion (85%) and the rescue (60%) live.
+  @light_track {45, 69, 69}
+
+  test "an emptying bar stays readable when its track is lighter than the old client's" do
+    rows =
+      for _y <- 0..9 do
+        for x <- 0..19, do: if(x < 6, do: @green, else: @light_track)
+      end
+
+    bar = frame(rows)
+
+    refute Vision.hp_region_plausible?(bar, max_track_brightness: 60)
+    assert Vision.hp_region_plausible?(bar)
+    assert Vision.hp_fill_pct(bar) == 30
+  end
 end

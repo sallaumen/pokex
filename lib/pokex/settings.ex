@@ -596,16 +596,23 @@ defmodule Pokex.Settings do
     pokemon_hp_min_brightness: 45,
     pokemon_hp_min_saturation: 30,
     # The HP bar's tips are ROUNDED: the last few columns of the calibrated box never hold a
-    # coloured pixel even at genuinely full health, so the raw column-fill tops out below 100
-    # (Lucas's bar plateaus at 95). Raw readings are rescaled so this value displays — and
-    # gates — as 100%. Lower it if a recalibrated tighter box still plateaus below 100; set
-    # 100 to disable the correction.
-    pokemon_hp_full_at_pct: 95,
+    # coloured pixel even at genuinely full health, so the raw column-fill can top out below
+    # 100 and the raw reading is rescaled so this value gates as 100%. The old client's bar
+    # plateaued at 95; Poké Alliance's pokebar track reads a true 100 (measured on both full
+    # rows, 2026-08-26), and correcting a bar that does not need it inflated every reading by
+    # ~5pp — the wrong direction for a rescue. 100 disables the correction.
+    pokemon_hp_full_at_pct: 100,
     # Sanity floor on the HP read: at least this % of the region's pixels must be the bar's own
     # two populations (warm fill + near-black track). Below it the frame is NOT the bar — e.g.
     # the party window is MINIMIZED and the region shows game world — and the read is UNKNOWN
     # (never acted on), instead of a garbage "low HP" that fired the combo in a loop.
     pokemon_hp_min_known_pct: 55,
+    # How bright the bar's EMPTY track is allowed to be, and the reason the floor above is
+    # survivable. Poké Alliance's pokebar track is (45,69,69) — measured 2026-08-26 — so the
+    # old ceiling of 60 filed every emptying column under "unknown": the known share fell WITH
+    # the HP and crossed the floor at ~65%, which reads as "bar não reconhecida" and acts on
+    # nothing. Blind below 65% is blind exactly where the potion and the rescue live.
+    pokemon_hp_max_track_brightness: 75,
     # A uniformly DARK strip is a covered window, not an empty bar: every dark
     # pixel used to count as the bar's empty track, so the browser in front of
     # the game read as a recognised bar at 0% and fired the survival combo on a

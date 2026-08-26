@@ -90,4 +90,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   `Frame.crop` on each would copy hundreds of binaries just to discard them.
   """
   def best_in(%Frame{} = frame, window), do: SpriteLibrary.best_in(library(), frame, window)
+
+  @doc "The library resolved once, for a caller about to score many windows."
+  def aimed, do: SpriteLibrary.aimed(library())
 end

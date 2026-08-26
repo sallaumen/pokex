@@ -35,7 +35,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.{Calibration, Settings}
-  alias Pokex.Vision.Frame
+  alias Pokex.Vision.{Frame, SpriteLibrary}
 
   @doc "Loads the current calibration and scans. Blind observation when it cannot see."
   def scan do
@@ -146,8 +146,9 @@ defmodule Pokex.Bots.Catcher.SpotScan do
     refine = max(Settings.get(:corpse_scan_refine_px), 1)
 
     forbidden = forbidden_zones(calib, frame.scale, region, box)
+    aimed = CorpseLibrary.aimed()
 
-    grosso = score(frame, windows(frame, box, step), box, forbidden)
+    grosso = score(aimed, frame, windows(frame, box, step), box, forbidden)
 
     finas =
       grosso
@@ -156,7 +157,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
       |> Enum.flat_map(&windows_around(&1, frame, box, step, refine))
       |> Enum.uniq()
 
-    todas = grosso ++ score(frame, finas, box, forbidden)
+    todas = grosso ++ score(aimed, frame, finas, box, forbidden)
 
     targets = peaks(todas, min_sim, Settings.get(:corpse_match_tolerance_px))
 
@@ -193,10 +194,10 @@ defmodule Pokex.Bots.Catcher.SpotScan do
         do: {nx, ny}
   end
 
-  defp score(frame, positions, box, forbidden) do
+  defp score(aimed, frame, positions, box, forbidden) do
     for {x, y} <- positions,
         not forbidden?(x, y, box, forbidden),
-        info = CorpseLibrary.best_in(frame, {x, y, box, box}),
+        info = SpriteLibrary.best_in(aimed, frame, {x, y, box, box}),
         info != nil,
         do: %{x: x, y: y, name: info.name, score: info.score, aimed?: info.aimed?}
   end

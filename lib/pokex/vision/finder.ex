@@ -95,8 +95,10 @@ defmodule Pokex.Vision.Finder do
     do: {rx + round(fx / scale), ry + round(fy / scale)}
 
   defp score_all(lib, frame, positions, box) do
+    aimed = SpriteLibrary.aimed(lib)
+
     for {x, y} <- positions,
-        info = SpriteLibrary.best_in(lib, frame, {x, y, box, box}),
+        info = SpriteLibrary.best_in(aimed, frame, {x, y, box, box}),
         info != nil,
         do: %{x: x, y: y, name: info.name, score: info.score}
   end

@@ -525,7 +525,7 @@ defmodule Pokex.Bots.Combat.Worker do
 
   defp tap_keys(keys, parent, confirm?, area?) do
     before = if confirm?, do: Perception.ready_skills()
-    at = now()
+    started_at = now()
 
     opts = [
       tap_count: Settings.get(:combat_skill_tap_count) |> positive_int(1),
@@ -536,6 +536,14 @@ defmodule Pokex.Bots.Combat.Worker do
     with :ok <- Perception.mini_game_gate(),
          :ok <- Pokex.Rig.impl().press_many(keys, opts),
          :ok <- Perception.mini_game_gate() do
+      # The clock of the receipt is the LAST key, never the first. A burst of n
+      # keys takes (n-1) x gap_ms to leave the hand (3,3s with his 500) while
+      # the bar is published every `feed_skill_bar_ms`, so judging against the
+      # REQUEST accepted a frame captured mid-burst — one where the tail had not
+      # been pressed yet and was therefore still ready. Every such key came back
+      # `missed` by construction, and each one bought a retry burst on top.
+      at = now()
+
       # The receipt FIRST: it is the timing-critical half of a burst, and
       # nothing measured is worth delaying it by even a cast.
       receipt = ask_for_receipt(keys, before, at, parent)
@@ -544,7 +552,14 @@ defmodule Pokex.Bots.Combat.Worker do
       # bicho". The vitals stream says when the list shrank; this says what was
       # spent to make it shrink, and the two together are the only way the
       # simulator's `mob_hp` vs damage ratio stops being a number I made up.
-      Pokex.Engine.Events.record(:press, %{keys: keys, n: length(keys) * opts[:tap_count]})
+      # `elapsed_ms` is how long the keys took to LEAVE, and it is the number the
+      # gap sweep is read against: the burst is also combat's only dispatch slot
+      # (`burst_pid`), so every millisecond here is a decision not taken.
+      Pokex.Engine.Events.record(:press, %{
+        keys: keys,
+        n: length(keys) * opts[:tap_count],
+        elapsed_ms: at - started_at
+      })
 
       # CALIBRATION MODE, and only then: one look at where the damage landed.
       # Spawned like the receipt and for the same reason — this process must die

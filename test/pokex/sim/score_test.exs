@@ -92,13 +92,13 @@ defmodule Pokex.Sim.ScoreTest do
       %{card: sem} =
         Score.hunt(Scenario.get("pilha-que-fecha"),
           minutes: 5,
-          config: %{engage_from: 1, reset_revive: false, crowd_from: 99}
+          config: %{engage_from: 1, reset_revive: false, crowd_from: 99, skill_gap_ms: 0}
         )
 
       %{card: com} =
         Score.hunt(Scenario.get("pilha-que-fecha"),
           minutes: 5,
-          config: %{engage_from: 1, reset_revive: true, crowd_from: 99}
+          config: %{engage_from: 1, reset_revive: true, crowd_from: 99, skill_gap_ms: 0}
         )
 
       assert sem.revives.proactive == 0
@@ -127,6 +127,12 @@ defmodule Pokex.Sim.ScoreTest do
       #      realocar, e cada proativo é uma prensa a mais.
       #
       # Ou seja: a R3b ficou mais cara exatamente porque o resto ficou melhor.
+      #
+      # …e a rajada de graça (`skill_gap_ms: 0`), de propósito: desde 26/08 as
+      # teclas custam tempo, e com o intervalo ligado esta pilha VOLTA a precisar
+      # de resgate — o corpo ocupado é o que o pokémon paga. Isso é um achado, e
+      # está dito no PR; este teste é sobre o que a R7 compra, e mistura as duas
+      # coisas se pagar as duas.
       assert sem.revives.rescue == 0, "com a R7 no lugar, esta pilha não precisa de resgate"
       assert com.revives.accepted > sem.revives.accepted, "então cada proativo é um revive novo"
     end

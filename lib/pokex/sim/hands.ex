@@ -39,7 +39,15 @@ defmodule Pokex.Sim.Hands do
             last_potion_at: nil,
             # o resgate em duas partes: o stun já saiu e o revive sai em
             # `revive_at` — ver `rescue/3`
-            revive_at: nil
+            revive_at: nil,
+            # ATÉ QUANDO A RAJADA AINDA ESTÁ SAINDO. Este mundo tratava seis
+            # teclas como um evento instantâneo, e no jogo dele elas custam
+            # `combat_skill_gap_ms` uma da outra — com o intervalo em 500ms, uma
+            # rajada de seis são dois segundos e meio em que o corpo não faz mais
+            # nada. A própria Central já avisa que "é isso que limita o dano da
+            # caçada", e a bancada não sabia disso: media um bot que aperta a
+            # barra inteira de graça.
+            busy_until: 0
 
   @type t :: %__MODULE__{}
 
@@ -54,7 +62,25 @@ defmodule Pokex.Sim.Hands do
   """
   @spec obey(World.t(), map, t, map) :: {World.t(), t}
   def obey(world, orders, %__MODULE__{} = hands, config) do
-    world = world |> walk(orders, hands.leg) |> fire(orders)
+    world = if busy?(hands, world), do: release(world), else: world
+
+    obeying(world, orders, hands, config)
+  end
+
+  defp busy?(%{busy_until: until}, world), do: world.clock < until
+
+  # A RAJADA OCUPA O CORPO — mas não a escada de segurança. No bot de verdade o
+  # resgate e a cura vão pelo Body com prioridade `:high`
+  # (`PlayerSupport.Worker`), e furam a fila justamente porque esperar uma
+  # rajada terminar é como se perde um pokémon. Bloquear os dois aqui derrubou o
+  # invariante "com stun na frente do revive, nada cai" na primeira rodada — e
+  # esse invariante estava certo; o modelo é que estava errado.
+  defp obeying(world, orders, hands, config) do
+    {world, hands} =
+      if busy?(hands, world),
+        do: {world, hands},
+        else: world |> walk(orders, hands.leg) |> fire(orders, hands, config)
+
     {world, hands} = rescue_combo(world, orders, hands, config)
     {world, hands} = support(world, hands, config)
 
@@ -115,10 +141,17 @@ defmodule Pokex.Sim.Hands do
       else: leg
   end
 
-  defp fire(world, %{fire: :free, opening: keys}) when keys != [],
-    do: Enum.reduce(keys, world, &World.press(&2, {:press, &1}))
+  # O PREÇO DA RAJADA. As teclas saem uma a cada `combat_skill_gap_ms`, então N
+  # teclas ocupam o corpo por (N-1) intervalos. O efeito de cada uma acontece
+  # agora — o que a espera modela é o corpo ocupado, não o dano atrasado.
+  defp fire(world, %{fire: :free, opening: keys}, hands, config) when keys != [] do
+    gap = Map.get(config, :skill_gap_ms, 0)
 
-  defp fire(world, _holding), do: world
+    {Enum.reduce(keys, world, &World.press(&2, {:press, &1})),
+     %{hands | busy_until: world.clock + gap * (length(keys) - 1)}}
+  end
+
+  defp fire(world, _holding, hands, _config), do: {world, hands}
 
   # THE RESCUE IS A COMBO, NOT A KEY — and modelling only the key made every
   # revive look like an invitation to die. `PlayerSupport` fires the reserved

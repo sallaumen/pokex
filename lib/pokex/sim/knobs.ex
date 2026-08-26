@@ -39,7 +39,12 @@ defmodule Pokex.Sim.Knobs do
     # milissegundos que o pokémon fica em campo DEPOIS dele, tanqueando, pra que
     # a pilha esteja mesmo dormindo antes de o campo esvaziar.
     rescue_stun_first: :rescue_stun_first,
-    rescue_stun_settle_ms: :rescue_stun_settle_ms
+    rescue_stun_settle_ms: :rescue_stun_settle_ms,
+    # …e o PREÇO DE CADA TECLA. As teclas de uma rajada saem uma a cada tanto, e
+    # o corpo é um só: enquanto a rajada sai, não se anda nem se aperta mais
+    # nada. É o número que a Central chama de "o que limita o dano da caçada", e
+    # que a bancada media como zero.
+    skill_gap_ms: :combat_skill_gap_ms
   }
 
   @type source :: :seeds | :live

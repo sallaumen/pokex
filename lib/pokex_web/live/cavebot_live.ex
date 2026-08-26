@@ -18,6 +18,7 @@ defmodule PokexWeb.CavebotLive do
   import PokexWeb.CavebotComponents
 
   alias Pokex.Bots.Cavebot.{HandsRead, Photos, Recording, Route, Store, WalkTest, Worker}
+  alias Pokex.Bots.AreaProbe
   alias Pokex.Bots.Combat
   alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.Combat.Loadout
@@ -89,6 +90,9 @@ defmodule PokexWeb.CavebotLive do
        # What the last look at the SCREEN found, and nothing until he asks: the
        # scan costs a capture, so it never runs on the poll (see the button).
        crowd: nil,
+       # A calibração do raio da área: o modo, e o que os disparos já disseram.
+       area_probe?: Settings.get(:area_probe_enabled) == true,
+       area: AreaProbe.summary(),
        # Read health: read_coord is all-or-nothing (requires 1.0 confidence),
        # so ONE doubtful glyph drops the whole coordinate to nil. Occasional
        # misses don't hurt recording — but without a counter there is no way
@@ -811,6 +815,23 @@ defmodule PokexWeb.CavebotLive do
   # ONE look at the screen, because he pressed the button. Deliberately not on
   # the poll: a capture is ~0.28s serialized through the broker, and a page left
   # open would spend that every second for a number nobody is reading.
+  # O MODO de calibração. Custa uma foto por disparo de área, então é coisa de
+  # ligar por uma caçada e desligar — nunca um padrão.
+  def handle_event("toggle_area_probe", _params, socket) do
+    on? = not socket.assigns.area_probe?
+    Settings.put(:area_probe_enabled, on?)
+    {:noreply, assign(socket, area_probe?: on?, area: AreaProbe.summary())}
+  end
+
+  def handle_event("clear_area_probe", _params, socket) do
+    AreaProbe.clear()
+    {:noreply, assign(socket, area: nil)}
+  end
+
+  def handle_event("refresh_area_probe", _params, socket) do
+    {:noreply, assign(socket, area: AreaProbe.summary())}
+  end
+
   def handle_event("crowd_scan", _params, socket) do
     reading = CrowdScan.look(listed: enemy_count(socket.assigns.world), evidence: true)
     {:noreply, assign(socket, crowd: reading)}
@@ -1272,6 +1293,16 @@ defmodule PokexWeb.CavebotLive do
   # An area skill leaves the POKÉMON. When its green name is covered the reading
   # falls back to the character, and the difference is two tiles on his screen —
   # so it is said out loud instead of quietly changing what the number means.
+  defp area_headline(%{p50: p50, casts: casts}) do
+    "alcance medido: ~#{Float.round(p50, 1)} tiles em #{casts} #{if casts == 1, do: "disparo", else: "disparos"}"
+  end
+
+  # The whole shape, because the median alone cannot show contamination.
+  defp area_spread(%{p50: p50, p75: p75, top: top, hits: hits, discarded: dropped}) do
+    "mediana #{Float.round(p50, 1)}t · p75 #{Float.round(p75, 1)}t · topo #{Float.round(top, 1)}t · #{hits} números de dano" <>
+      if dropped > 0, do: " · #{dropped} descartado(s) por não achar o nome verde", else: ""
+  end
+
   defp crowd_anchor(:pokemon), do: "medido do seu pokémon"
   defp crowd_anchor(:character), do: "medido do personagem (não achei o nome verde)"
 
@@ -2127,6 +2158,71 @@ defmodule PokexWeb.CavebotLive do
             <p :if={@crowd.evidence} class="mt-1 text-pk-meta text-pk-text-3">
               caixa azul = hostil · verde = seu pokémon · cruz rosa = de onde mediu
             </p>
+          </div>
+
+          <%!-- QUANTO A ÁREA ALCANÇA. O simulador resolve todo disparo de área
+                com `aoe_radius: 4`, debaixo de um comentário que diz que o
+                número foi inventado — e é ele que faz TODOS os knobs de
+                posicionamento darem chapado na bancada. O outro número
+                inventado daquele arquivo era um cooldown de 8s; o vídeo dele
+                mediu 45s. --%>
+          <div class="mt-3 border-t border-pk-line pt-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <h4 class="text-pk-sm font-semibold text-pk-text-1">o alcance da área</h4>
+              <button
+                type="button"
+                phx-click="toggle_area_probe"
+                class={[
+                  "rounded border px-2 py-0.5 text-pk-meta",
+                  if(@area_probe?,
+                    do: "border-pk-ok text-pk-ok",
+                    else: "border-pk-line text-pk-text-2 hover:bg-pk-surface-2"
+                  )
+                ]}
+              >
+                {if @area_probe?, do: "medindo — clique pra parar", else: "medir durante a caçada"}
+              </button>
+              <button
+                :if={@area}
+                type="button"
+                phx-click="refresh_area_probe"
+                class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
+              >
+                atualizar
+              </button>
+              <button
+                :if={@area}
+                type="button"
+                phx-click="clear_area_probe"
+                class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-surface-2"
+              >
+                zerar
+              </button>
+            </div>
+
+            <p :if={@area_probe?} class="mt-1 text-pk-meta text-pk-text-3">
+              custa uma foto a cada disparo de área — ligue por uma caçada, não deixe ligado
+            </p>
+
+            <p :if={@area == nil} class="mt-2 text-pk-meta text-pk-text-3">
+              nenhum disparo medido ainda
+            </p>
+
+            <div :if={@area} class="mt-2">
+              <p class="text-pk-sm text-pk-text-1">{area_headline(@area)}</p>
+              <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">{area_spread(@area)}</p>
+              <%!-- O confundidor, escrito onde ele lê o número: número de dano
+                    não diz QUEM causou. Nos quadros do vídeo dele os disparos de
+                    outros jogadores apareciam como um segundo grupo, de 7 a 17
+                    tiles — só inflam, nunca encolhem. --%>
+              <p class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
+                <.icon name="hero-users" class="mt-px size-3.5 shrink-0" />
+                <span>
+                  o dano de outro jogador na tela conta junto e só ESTICA o alcance — se o topo
+                  estiver muito acima da mediana, é isso
+                </span>
+              </p>
+            </div>
 
             <%!-- O ponto cego, escrito onde ele lê o número: efeito de skill
                   pinta por cima do nome, então some quem está DENTRO da área.

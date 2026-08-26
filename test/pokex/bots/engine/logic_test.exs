@@ -28,6 +28,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
         own_out?: true,
         spent?: false,
         blind?: false,
+        ready_keys: nil,
         # a segunda metade da régua (R6): quantos passos já foram andados
         # puxando ESTA pilha, e o contador monotônico do qual ela sai
         walked: 0,
@@ -49,7 +50,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       %{
         situation: situation(),
         hunt: hunt(),
-        hands: %{opening: ~w(3 4 5 6 7 8 9), single: ~w(7 8 9)}
+        hands: %{opening: ~w(3 4 5 6 7 8 9), single: ~w(7 8 9), crowd: ["1"]}
       },
       overrides
     )
@@ -398,7 +399,9 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # The bench measured the hunt spending 12-23% of a run in exactly that state,
   # and the rule buying back +13% of the kills for zero extra deaths.
   describe "o revive como reset de cooldown (R3b)" do
-    @reset Config.merge(%{reset_revive: true, engage_from: 3})
+    # `crowd_from: 99` mantém a R10 fora desta pergunta: aqui o assunto é a
+    # barra vazia, não a pilha grande.
+    @reset Config.merge(%{reset_revive: true, engage_from: 3, crowd_from: 99})
 
     defp reset_step(logic, world, now), do: Logic.step(logic, world, @reset, now)
 
@@ -435,10 +438,12 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
 
     # Sem a R3b, a mesma barra vazia tem a resposta de graça: andar (R7).
-    test "desligada (o padrão), a mesma barra vazia anda em vez de pedir revive" do
-      logic = engaged(&step/3)
+    test "desligada, a mesma barra vazia anda em vez de pedir revive" do
+      sem = Config.merge(%{reset_revive: false, crowd_from: 99})
+      sem_step = fn logic, world, now -> Logic.step(logic, world, sem, now) end
+      logic = engaged(sem_step)
 
-      {_logic, orders} = step(logic, spent_fight(), 2_000)
+      {_logic, orders} = sem_step.(logic, spent_fight(), 2_000)
 
       assert orders.revive == :hold
       assert orders.why =~ "andando até a barra voltar"
@@ -873,6 +878,74 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {_logic, orders} = solo_step(world, 1_000)
 
       refute orders.phase == :engaged
+    end
+  end
+
+  # R10 — O CONTROLE É UMA SKILL, NÃO UM AMULETO, e a regra é dele inteira
+  # (26/08, vendo a própria caçada): "tento ir usando o 1 pra quando tem muito
+  # monstro, pra eu não morrer, porque se eu ficar guardando o 1 nessas hunts
+  # mais sérias não dá certo... mas SEMPRE usar o revive dentro da range de 5
+  # segundos no máximo depois de usar a skill de controle".
+  describe "o controle e a janela de cinco segundos" do
+    @r10 Config.merge(%{reset_revive: true, crowd_from: 4, stun_window_ms: 5_000})
+
+    defp pilha(n, overrides \\ %{}) do
+      world(%{
+        situation: situation(Map.merge(%{enemies: n, ready_keys: ~w(1 3 4 5 6)}, overrides)),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    # Abre a luta numa pilha PEQUENA: assim o `:engaged` já existe e o controle
+    # ainda não foi gasto quando a pilha cresce.
+    defp aberta(_mundo) do
+      pequena = pilha(2)
+      {logic, _} = Logic.step(Logic.new(), pequena, @r10, 0)
+      {logic, _} = Logic.step(logic, pequena, @r10, 100)
+      logic
+    end
+
+    test "numa pilha grande o controle sai junto com o dano" do
+      {_logic, orders} = Logic.step(aberta(pilha(5)), pilha(5), @r10, 200)
+
+      assert "1" in orders.opening
+      assert orders.why =~ "controle e dano juntos"
+    end
+
+    test "numa pilha pequena ele não sai — continua guardado" do
+      {_logic, orders} = Logic.step(aberta(pilha(2)), pilha(2), @r10, 200)
+
+      refute "1" in orders.opening
+    end
+
+    test "e com a tecla em cooldown ele não é prometido" do
+      esfriando = pilha(5, %{ready_keys: ~w(3 4 5 6)})
+
+      {_logic, orders} = Logic.step(aberta(esfriando), esfriando, @r10, 200)
+
+      refute "1" in orders.opening
+    end
+
+    # A JANELA: com a pilha dormindo o campo vazio não custa nada, e o revive
+    # devolve o controle junto com o resto da barra.
+    test "e o revive sai dentro da janela, logo depois do controle" do
+      logic = aberta(pilha(5))
+      {logic, primeira} = Logic.step(logic, pilha(5), @r10, 200)
+      assert "1" in primeira.opening
+
+      {_logic, orders} = Logic.step(logic, pilha(5), @r10, 1_200)
+
+      assert orders.revive == :now
+      assert orders.why =~ "dentro da janela"
+    end
+
+    test "mas não depois que ela fecha" do
+      logic = aberta(pilha(5))
+      {logic, _} = Logic.step(logic, pilha(5), @r10, 200)
+
+      {_logic, orders} = Logic.step(logic, pilha(5), @r10, 200 + @r10.stun_window_ms + 1)
+
+      refute orders.why =~ "dentro da janela"
     end
   end
 end

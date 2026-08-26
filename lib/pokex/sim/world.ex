@@ -87,9 +87,17 @@ defmodule Pokex.Sim.World do
     leash_tiles: 12,
     # invented — the route does not record what lives in it
     mob_name: "Venonat",
-    # inherited — the real cooldowns live in team.json; this is the fallback for a
-    # loadout that does not name one
-    skill_cooldown_ms: 8_000,
+    # MEDIDO NO VÍDEO DELE (26/08, gravação de 53s da hunt elétrica): o cliente
+    # desenha os segundos que faltam sobre o ícone, então a barra é um
+    # cronômetro. As teclas 1, 2 e 3 saem com **40**; as teclas 4, 5 e 6 com
+    # **50**. Este número era 8_000 — um chute que fazia a barra voltar seis
+    # vezes mais rápido do que volta, e com ele TODA conclusão sobre "tempo sem
+    # cooldown", sobre a R7 e sobre o valor do revive estava medida no jogo
+    # errado.
+    #
+    # 45s é a média das duas famílias; a diferença entre 40 e 50 não muda a
+    # economia, a diferença entre 8 e 45 muda tudo.
+    skill_cooldown_ms: 45_000,
     # His to calibrate: how much health a monster of this hunt carries. Damage
     # is in the SAME unit, so both numbers move together and neither is a
     # percentage of something invisible.
@@ -127,9 +135,12 @@ defmodule Pokex.Sim.World do
     # the right answer to everything, which is not an answer — it is a model
     # with no cost in it.
     #
-    #   * `revive_settle_ms` — INVENTED: how long the pokemon is off the field
-    #     between the key and the body being back. During it the bar is gone, it
-    #     deals no damage, and the bites land on HIM. That is the real cost.
+    #   * `revive_settle_ms` — MEDIDO no vídeo dele (26/08): a barra de skills
+    #     pertence ao pokémon, então ela SOME enquanto ele está na bola. A 10
+    #     quadros por segundo ela fica ausente por cinco quadros — **~500ms**,
+    #     não os 1200 que este arquivo chutava. Durante ela nada é causado e as
+    #     mordidas passam a ser dele; é o preço de verdade, e ele é menor do
+    #     que eu supunha.
     #   * `revive_cooldown_ms` — HIS: `rescue_cooldown_ms` in settings, the floor
     #     the PlayerSupport keeps between two RESCUES of a pokemon that is still
     #     standing. It is a MINUTE, and this file said 2 seconds until
@@ -160,7 +171,7 @@ defmodule Pokex.Sim.World do
     # skill de controle dele derruba a pilha, e a que distância.
     stun_ms: 4_000,
     stun_radius: 4,
-    revive_settle_ms: 1_200,
+    revive_settle_ms: 500,
     revive_cooldown_ms: 60_000,
     fainted_revive_cooldown_ms: 15_000,
     # How long a cleared nest takes to be worth walking past again. `nil` means

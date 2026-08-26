@@ -40,6 +40,8 @@ defmodule Pokex.Bots.Engine.Config do
     size_ceiling_ms: :engine_size_ceiling_ms,
     skip_fire: :engine_skip_fire,
     kite_when_spent: :engine_kite_when_spent,
+    crowd_from: :engine_crowd_from,
+    stun_window_ms: :engine_stun_window_ms,
     band_yellow_pct: :engine_band_yellow_pct,
     band_red_pct: :engine_band_red_pct,
     resume_pct: :engine_resume_pct,

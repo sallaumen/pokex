@@ -38,7 +38,10 @@ defmodule Pokex.Sim.ScoreTest do
         )
 
       %{card: cacando} =
-        Score.hunt(Scenario.get("pilha-que-fecha"), minutes: 5, config: %{engage_from: 1})
+        Score.hunt(Scenario.get("pilha-que-fecha"),
+          minutes: 5,
+          config: %{engage_from: 1, reset_revive: false, crowd_from: 99}
+        )
 
       assert cacando.kills > parado.kills
     end
@@ -81,13 +84,18 @@ defmodule Pokex.Sim.ScoreTest do
 
     # HIS definition: bar spent, pile still worth fighting.
     test "com a R3b ligada, o mesmo mundo passa a ter revives proativos" do
+      # `crowd_from: 99` dos dois lados: a pergunta é sobre a barra vazia, não
+      # sobre a pilha grande — a R10 tem o teste dela.
       %{card: sem} =
-        Score.hunt(Scenario.get("pilha-que-fecha"), minutes: 5, config: %{engage_from: 1})
+        Score.hunt(Scenario.get("pilha-que-fecha"),
+          minutes: 5,
+          config: %{engage_from: 1, reset_revive: false, crowd_from: 99}
+        )
 
       %{card: com} =
         Score.hunt(Scenario.get("pilha-que-fecha"),
           minutes: 5,
-          config: %{engage_from: 1, reset_revive: true}
+          config: %{engage_from: 1, reset_revive: true, crowd_from: 99}
         )
 
       assert sem.revives.proactive == 0

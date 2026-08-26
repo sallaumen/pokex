@@ -605,11 +605,19 @@ defmodule Pokex.Calibration do
 
   defp scaled(_unmarked, _ratio), do: nil
 
-  # Measured on Lucas's 3440×1440 screen (2026-07-10): the main Pokémon is the TOP of the 6 party
-  # slots at the game's bottom-left — a green→yellow→red HP bar and the "Q" portrait beside it.
-  # These estimates let the PlayerSupport run before the field is calibrated; set the real region
-  # in the calibration UI to fine-tune per screen.
-  @default_pokemon_hp_region {134, 921, 230, 18}
+  # Measured on Lucas's 3440×1440 screen (2026-08-26): the active Pokémon's bar is the FIRST
+  # row of the Pokebar panel — its track runs x 46..166 at y 1105, and the row pitch is 49.
+  # This estimate lets the PlayerSupport run before the field is calibrated; set the real
+  # region in the calibration UI to fine-tune per screen.
+  #
+  # THE BAR ABOVE IS NOT IT. Poké Alliance's panel is titled "Pokémon", carries the active
+  # Pokémon's portrait, and its red bar is the CHARACTER's health — 400/400 in the same frame
+  # where the Pokémon was at 74%. The old default here pointed at the previous client's party
+  # slots and now lands on that panel's title bar and the grass beside it, where it reads a
+  # confident 76% of nothing.
+  @default_pokemon_hp_region {46, 1105, 121, 13}
+  # Still the old client's point: nothing reads it today (the revive presses a key), so it is
+  # left unmeasured rather than guessed.
   @default_pokemon_photo_point {70, 934}
 
   @doc "The main Pokémon's HP bar region (calibrated, else a measured estimate)."

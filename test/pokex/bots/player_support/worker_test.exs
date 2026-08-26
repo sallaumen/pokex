@@ -87,6 +87,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :rescue_cooldown_ms,
       :rescue_stun_first,
       :pokemon_hp_rescue_pct,
+      :pokemon_hp_full_at_pct,
       :potion_enabled,
       :potion_cooldown_ms,
       :pokemon_hp_potion_pct,
@@ -327,12 +328,15 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert_receive {:performed, :critical, _}, 1_000
   end
 
-  # A real full bar reads raw 95: the rounded tip never paints the last columns of the box.
+  # The old client's full bar read raw 95: its rounded tip never painted the last columns of
+  # the box. Poké Alliance's reads a true 100, so the correction is off by default and this
+  # test asks for it.
   @tag :tmp_dir
   test "the rounded bar tip is corrected: raw 95% reads as a genuinely FULL 100%", %{
     tmp: tmp,
     body: body
   } do
+    Settings.put(:pokemon_hp_full_at_pct, 95)
     nearly = hp_png(tmp, "nearly.png", 19)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, nearly}]})
 
@@ -1545,7 +1549,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
       status = Worker.status(worker)
       assert status.counters.potions == 0
-      assert status.hp_pct == 32
+      assert status.hp_pct == 30
       assert status.hold_reason =~ "há luta"
     end
   end

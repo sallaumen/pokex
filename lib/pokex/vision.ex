@@ -872,7 +872,11 @@ defmodule Pokex.Vision do
   fail-safe rule as everywhere else.
 
   Options: `:min_brightness`/`:min_saturation` (the fill predicate, same defaults as
-  `hp_fill_pct/2`) and `:min_known_pct` (55) — the floor on (fill + track) share.
+  `hp_fill_pct/2`), `:min_known_pct` (55) — the floor on (fill + track) share — and
+  `:max_track_brightness` (75), how bright the EMPTY track is allowed to be. That last one
+  is per-client: Poké Alliance's pokebar track is (45,69,69), so a ceiling of 60 counted
+  every emptying column as neither fill nor track and the share fell WITH the HP, blanking
+  the reading below ~65% — blind exactly where the potion and the rescue live.
   """
   def hp_region_plausible?(frame, opts \\ [])
 
@@ -882,8 +886,9 @@ defmodule Pokex.Vision do
     min_s = Keyword.get(opts, :min_saturation) || 30
     min_known = Keyword.get(opts, :min_known_pct) || 55
     min_bright = Keyword.get(opts, :min_bright_pct) || 10
+    max_track = Keyword.get(opts, :max_track_brightness) || 75
 
-    {known, bright, total} = hp_known_px(rgba, min_b, min_s, 0, 0, 0)
+    {known, bright, total} = hp_known_px(rgba, min_b, min_s, max_track, 0, 0, 0)
 
     # A UNIFORMLY DARK region is a covered window, not an empty bar. Without
     # this floor every dark pixel counted as "the bar's empty track", so the
@@ -897,23 +902,25 @@ defmodule Pokex.Vision do
 
   def hp_region_plausible?(_frame, _opts), do: false
 
-  defp hp_known_px(<<r, g, b, _a, rest::binary>>, min_b, min_s, known, lit, total) do
+  defp hp_known_px(<<r, g, b, _a, rest::binary>>, min_b, min_s, max_track, known, lit, total) do
     bright = max(r, max(g, b))
     sat = bright - min(r, min(g, b))
     fill? = bright >= min_b and sat >= min_s and b <= max(r, g)
-    track? = bright <= 60
+    track? = bright <= max_track
 
     hp_known_px(
       rest,
       min_b,
       min_s,
+      max_track,
       known + if(fill? or track?, do: 1, else: 0),
       lit + if(bright > 60, do: 1, else: 0),
       total + 1
     )
   end
 
-  defp hp_known_px(<<>>, _min_b, _min_s, known, lit, total), do: {known, lit, max(total, 1)}
+  defp hp_known_px(<<>>, _min_b, _min_s, _max_track, known, lit, total),
+    do: {known, lit, max(total, 1)}
 
   @doc """
   Fill percentage (0..100) of a horizontal HP bar frame — the fraction of COLUMNS that hold a

@@ -4,7 +4,15 @@ defmodule Pokex.Sim.BenchTest do
   alias Pokex.Sim.Bench
   alias Pokex.Sim.Scenario
 
-  defp run(id, opts), do: Bench.run(Scenario.get(id), opts)
+  # A RAJADA DE GRAÇA por padrão neste arquivo. Desde #367 as teclas custam tempo
+  # e a semente é 300ms, então cada teste daqui passaria a medir o preço da
+  # rajada JUNTO com o que ele afirma — e um teste que mede duas coisas não
+  # prova nenhuma. Quem quer o preço o pede por `config`.
+  defp run(id, opts) do
+    config = opts |> Keyword.get(:config, %{}) |> Map.put_new(:skill_gap_ms, 0)
+
+    Bench.run(Scenario.get(id), Keyword.put(opts, :config, config))
+  end
 
   test "a run answers with a timeline and an outcome" do
     result = run("pilha-que-fecha", duration_ms: 10_000)
@@ -319,7 +327,10 @@ defmodule Pokex.Sim.BenchTest do
 
       Bench.run(%{cenario | knobs: Map.merge(cenario.knobs, %{bite_dmg: 12, bite_every_ms: 400})},
         duration_ms: 60_000,
-        config: %{engage_from: 1},
+        # A rajada de graça: estes dois testes são sobre os DEGRAUS da escada de
+        # apoio, e o preço da rajada entraria na conta da vida sem ser o que eles
+        # afirmam. Mesmo motivo do `run/2` deste arquivo.
+        config: %{engage_from: 1, skill_gap_ms: 0},
         loadout: loadout
       )
     end
@@ -338,7 +349,10 @@ defmodule Pokex.Sim.BenchTest do
     test "e a poção só depois, com a tela limpa" do
       # sem revive nenhum: ele devolve a vida cheia, e o que está sendo medido
       # aqui é a POÇÃO
-      seco = %{engage_from: 1, reset_revive: false, crowd_from: 99}
+      # …e a rajada de graça: com ela custando tempo, esta pilha nem chega a
+      # machucar o suficiente pra haver poção a beber, e o teste passaria a
+      # medir o preço da rajada em vez do canal da poção.
+      seco = %{engage_from: 1, reset_revive: false, crowd_from: 99, skill_gap_ms: 0}
 
       drinking =
         Map.merge(seco, %{potion_enabled: true, potion_pct: 95, potion_cooldown_ms: 3_000})

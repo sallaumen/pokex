@@ -26,6 +26,7 @@ defmodule PokexWeb.SimLive do
   alias Pokex.Engine.Tally
   alias Pokex.Sim.Calibrate
   alias Pokex.Sim.Scenario
+  alias Pokex.Sim.DamageLevel
   alias Pokex.Sim.Setup
   alias Pokex.Sim.World
 
@@ -92,6 +93,19 @@ defmodule PokexWeb.SimLive do
         {:noreply, assign(socket, refusal: refusal_text(names))}
     end
   end
+
+  # UM CLIQUE VALE NA HORA. O formulário só salva no botão Salvar, e um nível
+  # que não muda nada até ele achar outro botão não é "selecionar clicando".
+  # Grava direto, sem passar pelo formulário: os outros campos podem estar
+  # sendo digitados e um clique que não é sobre eles não pode sobrescrevê-los.
+  def handle_event("dmg_one", %{"key" => key, "level" => level}, socket),
+    do: write_damage(socket, [key], level)
+
+  # A BARRA INTEIRA de uma vez. Ele tem dez teclas, e "facilita pra mim" não
+  # combina com dez cliques pra montar um experimento que ele vai repetir por
+  # vida de monstro.
+  def handle_event("dmg_all", %{"level" => level}, socket),
+    do: write_damage(socket, damaging_keys(socket.assigns.world), level)
 
   def handle_event("disarm", _params, socket) do
     Runner.pause()
@@ -193,7 +207,10 @@ defmodule PokexWeb.SimLive do
         {:noreply, socket}
 
       scenario ->
-        {:noreply, assign(socket, bench: Bench.run(scenario, routes: socket.assigns.routes))}
+        {:noreply,
+         assign(socket,
+           bench: Bench.run(scenario, routes: socket.assigns.routes, knobs: extra_knobs(socket))
+         )}
     end
   end
 
@@ -207,7 +224,13 @@ defmodule PokexWeb.SimLive do
 
     rows =
       Enum.map(Scenario.all(), fn scenario ->
-        %{outcome: outcome} = Bench.run(scenario, routes: socket.assigns.routes, config: config)
+        %{outcome: outcome} =
+          Bench.run(scenario,
+            routes: socket.assigns.routes,
+            config: config,
+            knobs: extra_knobs(socket)
+          )
+
         %{id: scenario.id, name: scenario.name, outcome: outcome}
       end)
 
@@ -316,6 +339,46 @@ defmodule PokexWeb.SimLive do
 
   # His combo rides over whatever the route or the scenario asked for: it
   # describes his POKEMON, not the experiment.
+  defp write_damage(socket, keys, level) do
+    saved = Map.get(socket.assigns.setup, :skill_damage, %{})
+
+    case damage_for(level) do
+      :unknown ->
+        {:noreply, socket}
+
+      # `:padrao` tira o nível e devolve o chute em %. Só das teclas que ESTÃO
+      # num dos quatro: uma faixa que ele digitou à mão sobrevive, pelo mesmo
+      # motivo que ela sobrevive tecla a tecla — apagar em silêncio o que ele
+      # mediu seria pior do que oferecer um botão a menos.
+      nil ->
+        keep = Enum.reject(keys, &match?({:custom, _}, DamageLevel.of(saved[&1])))
+        save_damage(socket, Map.drop(saved, keep))
+
+      band ->
+        save_damage(socket, Enum.reduce(keys, saved, &Map.put(&2, &1, band)))
+    end
+  end
+
+  defp damage_for(level) do
+    DamageLevel.band(String.to_existing_atom(level))
+  rescue
+    ArgumentError -> :unknown
+  end
+
+  # O combo vive no socket, não no `setup` lido do disco — `toggle-kill-key` só
+  # mexe no socket. Sem costurá-lo de volta, gravar a mesa por qualquer outro
+  # caminho apaga o que ele acabou de marcar, e ele só descobre no F5 seguinte.
+  # É o que `save-setup` já fazia, e o que faltava aqui.
+  defp save_damage(socket, damage) do
+    knobs =
+      socket.assigns.setup
+      |> Map.put(:skill_damage, damage)
+      |> Map.put(:kill_combo, socket.assigns.kill_combo)
+
+    Setup.write(knobs)
+    socket |> assign(setup: knobs, bench: nil) |> reload_world()
+  end
+
   defp extra_knobs(socket) do
     socket.assigns.setup
     |> Map.drop([:kill_combo])
@@ -429,12 +492,49 @@ defmodule PokexWeb.SimLive do
 
   defp bar_owner(_world), do: "a barra do #{Pokex.Sim.Loadout.current().name}"
 
-  defp tuned(setup, key) do
-    case Map.get(setup, :skill_damage, %{})[key] do
-      {lo, hi} -> {lo, hi}
-      _untuned -> {nil, nil}
+  defp level_of(setup, key), do: setup |> tuned_band(key) |> DamageLevel.of()
+
+  defp custom_label({:custom, {lo, hi}}), do: "#{lo}~#{hi} (seu)"
+  defp custom_label(_level), do: ""
+
+  # Só é mistura quando ele JÁ escolheu algum nível: uma barra inteira em padrão
+  # é o comportamento de sempre, e avisar sobre ela seria ruído.
+  defp mixed_units?(setup, world) do
+    DamageLevel.mixed?(Map.get(setup, :skill_damage, %{}), damaging_keys(world))
+  end
+
+  defp damaging_keys(nil), do: []
+  defp damaging_keys(world), do: Enum.filter(bar_order(world), &damages?(world, &1))
+
+  # O que as teclas em padrão tiram desta vida — o número que torna o aviso
+  # concreto em vez de uma advertência genérica.
+  #
+  # Sai de `World.damage_band/2`, que é EXATAMENTE de onde vem a coluna "agora"
+  # da mesma linha. A primeira versão usava `aoe_damage_pct` para qualquer
+  # tecla, e errava em duas das três fontes: uma tecla de alvo único tira
+  # `single_damage_pct` (22, não 34), e uma tecla no `kill_combo` tira
+  # `mob_hp / length(combo)`. A tabela dizia 94~126 e o aviso logo abaixo dizia
+  # 170 — a tela se contradizendo sobre o mesmo número.
+  defp pct_hit(nil, _setup), do: "—"
+
+  defp pct_hit(world, setup) do
+    saved = Map.get(setup, :skill_damage, %{})
+
+    world
+    |> damaging_keys()
+    |> Enum.reject(&Map.has_key?(saved, &1))
+    |> Enum.map(&World.damage_band(world, &1))
+    |> Enum.filter(&match?({_lo, _hi}, &1))
+    |> case do
+      [] ->
+        "—"
+
+      bands ->
+        "#{bands |> Enum.map(&elem(&1, 0)) |> Enum.min()} a #{bands |> Enum.map(&elem(&1, 1)) |> Enum.max()} de HP"
     end
   end
+
+  defp tuned_band(setup, key), do: Map.get(setup, :skill_damage, %{})[key]
 
   # A blank box means "use the default", NOT zero: zero milliseconds per tile
   # is a character that teleports, and that is never what an empty field means.
@@ -445,9 +545,10 @@ defmodule PokexWeb.SimLive do
           into: %{},
           do: {key, n}
 
+    # O dano é dos CLIQUES, não deste formulário: ele passa por aqui intacto.
     numbers
     |> unpin_at_zero()
-    |> Map.put(:skill_damage, parse_damage(params))
+    |> Map.put(:skill_damage, Map.get(Setup.read(), :skill_damage, %{}))
   end
 
   # `nest_size` PINA a pilha: um número liga o pino, `nil` devolve o sorteio ao
@@ -455,14 +556,6 @@ defmodule PokexWeb.SimLive do
   # "não pina" — não "todo ninho tem zero bicho", que é um mundo vazio.
   defp unpin_at_zero(%{nest_size: 0} = knobs), do: Map.delete(knobs, :nest_size)
   defp unpin_at_zero(knobs), do: knobs
-
-  defp parse_damage(params) do
-    for key <- ~w(1 2 3 4 5 6 7 8 9),
-        {:ok, lo} <- [as_int(params["dmg_min_" <> key])],
-        {:ok, hi} <- [as_int(params["dmg_max_" <> key])],
-        into: %{},
-        do: {key, {min(lo, hi), max(lo, hi)}}
-  end
 
   defp as_int(text) when is_binary(text) do
     case Integer.parse(String.trim(text)) do
@@ -1193,13 +1286,26 @@ defmodule PokexWeb.SimLive do
               <p class="mb-1 text-pk-meta font-semibold text-pk-text-2">
                 Dano por skill — {bar_owner(@world)}
               </p>
+              <div class="mt-1 flex flex-wrap items-center gap-1 text-pk-meta">
+                <span class="text-pk-text-3">a barra toda:</span>
+                <button
+                  :for={nivel <- DamageLevel.all()}
+                  type="button"
+                  phx-click="dmg_all"
+                  phx-value-level={nivel}
+                  title={DamageLevel.note(nivel)}
+                  class="rounded border border-pk-line-strong px-1.5 py-0.5 text-pk-text-2 hover:bg-pk-raised"
+                >
+                  {DamageLevel.label(nivel)}
+                </button>
+              </div>
+
               <table class="w-full text-left text-pk-meta">
                 <thead class="text-pk-text-3">
                   <tr>
                     <th class="py-0.5 pr-2 font-semibold">tecla</th>
                     <th class="py-0.5 pr-2 font-semibold">o que faz</th>
-                    <th class="py-0.5 pr-2 font-semibold">mín</th>
-                    <th class="py-0.5 pr-2 font-semibold">máx</th>
+                    <th class="py-0.5 pr-2 font-semibold">quanto tira</th>
                     <th class="py-0.5 font-semibold">agora</th>
                   </tr>
                 </thead>
@@ -1208,26 +1314,34 @@ defmodule PokexWeb.SimLive do
                     <td class="pk-num py-0.5 pr-2 font-mono font-bold text-pk-text">{chave}</td>
                     <td class="py-0.5 pr-2 text-pk-text-2">{job_label(@world, chave)}</td>
                     <td class="py-0.5 pr-2">
-                      <input
-                        :if={damages?(@world, chave)}
-                        type="number"
-                        min="0"
-                        name={"dmg_min_" <> chave}
-                        value={elem(tuned(@setup, chave), 0)}
-                        placeholder="—"
-                        class="w-16 rounded border border-pk-line-strong bg-pk-bg px-1 py-0.5 text-pk-meta text-pk-text"
-                      />
-                    </td>
-                    <td class="py-0.5 pr-2">
-                      <input
-                        :if={damages?(@world, chave)}
-                        type="number"
-                        min="0"
-                        name={"dmg_max_" <> chave}
-                        value={elem(tuned(@setup, chave), 1)}
-                        placeholder="—"
-                        class="w-16 rounded border border-pk-line-strong bg-pk-bg px-1 py-0.5 text-pk-meta text-pk-text"
-                      />
+                      <div :if={damages?(@world, chave)} class="flex flex-wrap gap-1">
+                        <button
+                          :for={nivel <- DamageLevel.all()}
+                          type="button"
+                          phx-click="dmg_one"
+                          phx-value-key={chave}
+                          phx-value-level={nivel}
+                          title={DamageLevel.note(nivel)}
+                          class={[
+                            "rounded border px-1.5 py-0.5",
+                            if(level_of(@setup, chave) == nivel,
+                              do: "border-pk-ok bg-pk-ok/10 text-pk-ok",
+                              else: "border-pk-line-strong text-pk-text-3 hover:bg-pk-raised"
+                            )
+                          ]}
+                        >
+                          {DamageLevel.label(nivel)}
+                        </button>
+                        <%!-- Uma faixa que ele digitou à mão antes dos níveis
+                              existirem não é nenhum dos quatro. Ela aparece como
+                              número, e continua valendo até ele clicar. --%>
+                        <span
+                          :if={match?({:custom, _}, level_of(@setup, chave))}
+                          class="rounded border border-pk-warn px-1.5 py-0.5 text-pk-warn"
+                        >
+                          {custom_label(level_of(@setup, chave))}
+                        </span>
+                      </div>
                     </td>
                     <td class="pk-num py-0.5 font-mono text-pk-text-3">
                       {band_label(@world, chave)}
@@ -1236,8 +1350,25 @@ defmodule PokexWeb.SimLive do
                 </tbody>
               </table>
               <p class="mt-1 text-pk-meta text-pk-text-3">
-                em branco usa o combo ou o meu chute · a vida do monstro e o dano estão na MESMA
-                unidade ({@world && @world.knobs.mob_hp} de vida)
+                os níveis são HP de verdade · o monstro tem {@world && @world.knobs.mob_hp} de vida,
+                na MESMA unidade
+              </p>
+
+              <%!-- A ARMADILHA que estragaria o experimento em silêncio: uma
+                    tecla em "padrão" tira uma PORCENTAGEM da vida, então ela
+                    cresce junto com o monstro. Com 500 de vida, 34% é 170 — mais
+                    do que o dobro do "muito dano". --%>
+              <p
+                :if={mixed_units?(@setup, @world)}
+                class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn"
+              >
+                <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
+                <span>
+                  tem tecla em <b>padrão</b>
+                  no meio: ela tira uma % da vida, então CRESCE junto com o monstro. Com {@world &&
+                    @world.knobs.mob_hp} de vida elas tiram {pct_hit(@world, @setup)},
+                  e a medida deixa de ser a que você configurou.
+                </span>
               </p>
             </div>
 

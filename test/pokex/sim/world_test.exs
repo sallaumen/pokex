@@ -1091,4 +1091,90 @@ defmodule Pokex.Sim.WorldTest do
       bite_debt_ms: 0
     }
   end
+
+  describe "as duas auras que ele descreveu" do
+    # "a aura de dano tb dá um dano fraco; a aura de aumentar dano não dá dano
+    # por si só mas aumenta o dano das outras skills em 20%; a skill 1 dá stun
+    # em área" (26/08). Nenhuma das duas primeiras existia neste mundo.
+    defp barra do
+      Pokex.Bots.Combat.Loadout.resolve("Teste", %{
+        "1" => :crowd,
+        "2" => :buffs,
+        "3" => :shield,
+        "4" => :aoe
+      })
+    end
+
+    # Um canto com ninho de UM, encostado nele: `population_of/2` só trata um
+    # waypoint como ninho quando ele tem `gather_ms` ou `fight_ms`, e sem isso
+    # o mundo nasce vazio — a mesma armadilha que deixou o anel de Lotavanon
+    # sem bicho nenhum.
+    defp parado(knobs) do
+      %Route{waypoints: [wp]} = route([{100, 100, 7}])
+      com_ninho = %Route{name: "aura", waypoints: [%{wp | gather_ms: 2_000}]}
+
+      World.new(com_ninho,
+        loadout: barra(),
+        seed: 1,
+        knobs: Map.merge(%{nest_size: 1, nest_radius: 0, stray_chance_pct: 0, mob_hp: 300}, knobs)
+      )
+    end
+
+    test "a aura de dano TIRA vida — fraca, mas tira" do
+      antes = parado(%{skill_damage: %{"2" => {10, 10}}})
+      depois = World.press(antes, {:press, "2"})
+
+      assert hd(depois.mobs).hp == hd(antes.mobs).hp - 10
+    end
+
+    test "e enquanto ela vale, as outras teclas tiram 20% a mais" do
+      # A prova é a faixa, não um sorteio: o bônus multiplica a FAIXA, senão
+      # achataria a variação que ela existe pra ter.
+      knobs = %{skill_damage: %{"2" => {0, 0}, "4" => {100, 100}}, aura_boost_pct: 20}
+
+      sem = parado(knobs) |> World.press({:press, "4"})
+      com = parado(knobs) |> World.press({:press, "2"}) |> World.press({:press, "4"})
+
+      assert hd(sem.mobs).hp == 200
+      assert hd(com.mobs).hp == 180
+    end
+
+    test "o aumento EXPIRA — uma aura eterna seria um multiplicador, não uma aura" do
+      knobs = %{skill_damage: %{"2" => {0, 0}, "4" => {100, 100}}, aura_boost_ms: 1_000}
+
+      gasto =
+        parado(knobs)
+        |> World.press({:press, "2"})
+        |> Map.update!(:clock, &(&1 + 2_000))
+        |> World.press({:press, "4"})
+
+      assert hd(gasto.mobs).hp == 200
+    end
+
+    test "a aura de DEFESA não tira vida de ninguém" do
+      antes = parado(%{})
+      depois = World.press(antes, {:press, "3"})
+
+      assert hd(depois.mobs).hp == hd(antes.mobs).hp
+    end
+
+    test "…mas enquanto vale, a mordida não encosta" do
+      # "uma hora que deixa ele indestrutível". É o que separa uma pilha que
+      # mata de uma pilha que espera.
+      escudado = parado(%{shield_ms: 10_000}) |> World.press({:press, "3"})
+
+      assert escudado.own.shield_until > escudado.clock
+    end
+
+    test "a tecla de controle CARIMBA a hora — a regra dele é uma janela" do
+      # "SEMPRE usar o revive dentro da range de 5 segundos no máximo depois de
+      # usar a skill de controle". Sem este carimbo a bancada media revives e
+      # nunca soube se um stun os precedeu.
+      antes = parado(%{})
+      assert antes.stunned_at == nil
+
+      depois = World.press(antes, {:press, "1"})
+      assert depois.stunned_at == depois.clock
+    end
+  end
 end

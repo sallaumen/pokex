@@ -812,7 +812,7 @@ defmodule PokexWeb.CavebotLive do
   # the poll: a capture is ~0.28s serialized through the broker, and a page left
   # open would spend that every second for a number nobody is reading.
   def handle_event("crowd_scan", _params, socket) do
-    reading = CrowdScan.look(listed: enemy_count(socket.assigns.world))
+    reading = CrowdScan.look(listed: enemy_count(socket.assigns.world), evidence: true)
     {:noreply, assign(socket, crowd: reading)}
   end
 
@@ -1268,6 +1268,12 @@ defmodule PokexWeb.CavebotLive do
   # when there IS a list to compare against.
   defp crowd_gap(%{listed: listed, seen: seen}) when is_integer(listed), do: max(listed - seen, 0)
   defp crowd_gap(_no_list), do: 0
+
+  # An area skill leaves the POKÉMON. When its green name is covered the reading
+  # falls back to the character, and the difference is two tiles on his screen —
+  # so it is said out loud instead of quietly changing what the number means.
+  defp crowd_anchor(:pokemon), do: "medido do seu pokémon"
+  defp crowd_anchor(:character), do: "medido do personagem (não achei o nome verde)"
 
   defp crowd_reason(:not_calibrated), do: "o /calibrar nunca rodou nesta tela"
   defp crowd_reason(:no_player_point), do: "a calibração não marcou onde o personagem fica"
@@ -2104,7 +2110,23 @@ defmodule PokexWeb.CavebotLive do
 
           <div :if={@crowd && @crowd.read?} class="mt-2">
             <p class="text-pk-sm text-pk-text-1">{crowd_headline(@crowd)}</p>
-            <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">{crowd_spread(@crowd)}</p>
+            <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">
+              {crowd_spread(@crowd)} · {crowd_anchor(@crowd.anchor)}
+            </p>
+
+            <%!-- A PROVA. Um número não diz se errou o detector, a âncora ou a
+                  régua — três bugs diferentes, um "2" indistinguível. Aqui dá
+                  pra ver: caixa azul é hostil, verde é o pokémon dele, e a cruz
+                  rosa é o ponto de onde a distância foi medida. --%>
+            <img
+              :if={@crowd.evidence}
+              src={@crowd.evidence}
+              alt="o que a leitura enxergou"
+              class="mt-2 w-full max-w-2xl rounded border border-pk-line"
+            />
+            <p :if={@crowd.evidence} class="mt-1 text-pk-meta text-pk-text-3">
+              caixa azul = hostil · verde = seu pokémon · cruz rosa = de onde mediu
+            </p>
 
             <%!-- O ponto cego, escrito onde ele lê o número: efeito de skill
                   pinta por cima do nome, então some quem está DENTRO da área.

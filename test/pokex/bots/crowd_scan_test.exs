@@ -22,6 +22,9 @@ defmodule Pokex.Bots.CrowdScanTest do
   @tile 80
   @screen 1600
 
+  @red <<220, 0, 0, 255>>
+  @green <<5, 166, 67, 255>>
+
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Pokex.TestHome.restore() end)
@@ -71,6 +74,46 @@ defmodule Pokex.Bots.CrowdScanTest do
     end
   end
 
+  describe "what it measures FROM" do
+    test "the green name of his own pokémon is the origin" do
+      # An area skill leaves the pokémon. Same hostile, same screen: TWO tiles
+      # from the pokémon that would fire at it, three from the trainer standing
+      # behind. The next test measures the identical scene from the character.
+      reading = look([{3, 1}], own: {3, 3})
+
+      assert reading.anchor == :pokemon
+      assert [%{tiles: 2}] = reading.spots
+    end
+
+    test "without the green name it falls back to the character AND says so" do
+      # A distance whose origin is unknown is worse than no distance, because it
+      # looks exactly like a good one.
+      reading = look([{3, 1}])
+
+      assert reading.anchor == :character
+      assert [%{tiles: 3}] = reading.spots
+    end
+
+    test "his own pokémon is never one of the spots" do
+      reading = look([{3, 1}], own: {3, 3})
+
+      assert reading.seen == 1
+    end
+  end
+
+  describe "showing its work" do
+    test "evidence is off unless asked for" do
+      refute look([{2, 1}]).evidence
+    end
+
+    test "asked for, it returns a picture a browser can draw" do
+      reading = look([{2, 1}], evidence: true)
+
+      assert "data:image/bmp;base64," <> b64 = reading.evidence
+      assert {:ok, <<"BM", _rest::binary>>} = Base.decode64(b64)
+    end
+  end
+
   describe "the question a rule asks" do
     test "within/2 counts only what is inside the reach" do
       reading = look([{5, 1}, {1, 1}, {-3, 1}])
@@ -110,32 +153,41 @@ defmodule Pokex.Bots.CrowdScanTest do
   # --- a screen with labels painted on it ----------------------------------
 
   defp look(tiles, opts \\ []) do
+    own = Keyword.get(opts, :own)
+    place = fn {dx, dy} -> {800 + dx * @tile, 800 + dy * @tile} end
+
     capture = fn {rx, ry, w, h}, _name ->
-      {:ok,
-       scene(
-         w,
-         h,
-         Enum.map(tiles, fn {dx, dy} -> {800 + dx * @tile - rx, 800 + dy * @tile - ry} end)
-       )}
+      shift = fn {x, y} -> {x - rx, y - ry} end
+
+      points =
+        Enum.map(tiles, &{shift.(place.(&1)), @red}) ++
+          if own, do: [{shift.(place.(own)), @green}], else: []
+
+      {:ok, scene(w, h, points)}
     end
 
-    CrowdScan.look(Keyword.put(opts, :capture, capture))
+    CrowdScan.look(opts |> Keyword.drop([:own]) |> Keyword.put(:capture, capture))
   end
 
-  # Ground, with a name-shaped red bar painted centred on each point: 56×10 is
-  # what "Pikachu" measured on his own display.
+  # Ground, with a name-shaped bar painted centred on each point: 56×10 is what
+  # "Pikachu" measured on his own display, red for a hostile and green for his.
   defp scene(w, h, points) do
-    boxes = Enum.map(points, fn {x, y} -> {x - 28, y - 5} end)
+    boxes = Enum.map(points, fn {{x, y}, colour} -> {x - 28, y - 5, colour} end)
 
     rgba =
       for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
-        if on_bar?(boxes, x, y), do: <<220, 0, 0, 255>>, else: <<90, 90, 90, 255>>
+        on_bar(boxes, x, y) || <<90, 90, 90, 255>>
       end
 
     %Frame{width: w, height: h, rgba: rgba, scale: 1.0}
   end
 
-  defp on_bar?(boxes, x, y) do
-    Enum.any?(boxes, fn {bx, by} -> x >= bx and x < bx + 56 and y >= by and y < by + 10 end)
+  # The label's colour where a label is painted, nil on bare ground. Extracted
+  # in #352 to keep the comprehension shallow; it answers a colour now, because
+  # a green name and a red one have to stay tellable apart.
+  defp on_bar(boxes, x, y) do
+    Enum.find_value(boxes, fn {bx, by, colour} ->
+      if x >= bx and x < bx + 56 and y >= by and y < by + 10, do: colour
+    end)
   end
 end

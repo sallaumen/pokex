@@ -1199,7 +1199,11 @@ defmodule Pokex.Settings do
     # How far out `Pokex.Bots.CrowdScan` looks when asked. The box it captures is
     # this many tiles in EVERY direction, so raising it costs area quadratically —
     # 6 already covers more than any area skill in the game reaches.
-    crowd_scan_radius_tiles: 6
+    crowd_scan_radius_tiles: 6,
+    # How much the evidence picture is shrunk before it is drawn. 4 turns a
+    # 1812px box into 453px — small enough for a panel, big enough that a missed
+    # name is still visibly a name.
+    crowd_scan_evidence_shrink: 4
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)
@@ -1409,6 +1413,7 @@ defmodule Pokex.Settings do
     engine_reset_revive_cooldown_ms: 0..60_000,
     engine_reset_revive_min_hp: 0..100,
     crowd_scan_radius_tiles: 1..20,
+    crowd_scan_evidence_shrink: 1..16,
     engine_crowd_from: 1..20,
     engine_stun_window_ms: 500..60_000,
     engine_vitals_ms: 100..60_000,

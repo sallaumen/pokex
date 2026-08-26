@@ -1,6 +1,6 @@
 defmodule Pokex.Bots.CrowdScan do
   @moduledoc """
-  How many creatures are CLOSE, and how close.
+  How many creatures are CLOSE, how close, and close to WHAT.
 
   The battle list has always answered "how many exist" — that is where
   `world.enemies` comes from, and it is the count every rule in
@@ -10,32 +10,49 @@ defmodule Pokex.Bots.CrowdScan do
   os pokémons estarem próximos pra realmente usar as skills e aí desperdiçam as
   skills todas" (2026-08-26).
 
-  This looks at the screen around the character and reports distances, in tiles,
-  from the name labels `Pokex.Vision.NameLabels` reads. It DECIDES NOTHING. The
-  count it produces sits beside the battle-list total everywhere it is shown, on
-  purpose: the two disagreeing is the single most useful fact about how much the
-  reading can be trusted on any given screen, and hiding that behind one number
-  would be the assumption this module exists to remove.
+  ## Measured from the pokémon, not the trainer
+
+  An area skill leaves the POKÉMON. The first version of this measured from the
+  character because that is the point the calibration knows, and on his screen
+  the two sit two tiles apart routinely — every distance carried that error.
+
+  The fix needed no sprite taught: the game draws HIS pokémon's name in green,
+  so the same pass that finds the red hostiles finds the green anchor.
+  `Pokex.Bots.PokemonTracker` could have answered too, but only for pokémon he
+  has photographed — on 2026-08-26 his library held two he no longer plays.
+
+  When the green label is covered, the reading falls back to the character and
+  SAYS SO in `:anchor`. A distance whose origin is unknown is worse than no
+  distance, because it looks the same as a good one.
+
+  ## It shows its work
+
+  "ainda BEM impreciso" — and a number cannot say whether it was the detector,
+  the anchor or the ruler. `look/1` with `evidence: true` returns the picture it
+  read with boxes on what it found and a cross on what it measured from.
 
   ## Cost
 
-  One capture (~0.28s serialized through `Pokex.Bots.Capture`) plus a row scan
-  of the box. That is a per-DECISION cost, not a per-tick one — nothing here is
-  wired into a feed. Ask when about to spend a skill, or when he is watching the
-  panel; never in a loop.
+  One capture (~0.28s serialized through `Pokex.Bots.Capture`, raw pixels — see
+  `capture_format_test.exs`) plus a row scan of the box (14-31ms). That is a
+  per-DECISION cost, not a per-tick one; nothing here is wired into a feed.
 
   ## Reads low, never high
 
-  A creature standing under a bright spell effect loses its label to the effect
-  (measured on his own recording: the three labels readable during an Earthquake
-  were the ones OUTSIDE the blast). So `seen` is a floor, and a rule that gates
-  on "enough of them are close" gets more cautious under effects rather than
-  more reckless — the safe direction for a mistake to run.
+  A creature standing under a bright spell effect loses its label to the effect,
+  and a yellow skill banner lands in the same band as the names — measured in
+  the field: four hostiles on screen, the two with uncovered names counted. So
+  `seen` is a floor, and a rule that gates on "enough of them are close" gets
+  more cautious under effects rather than more reckless.
   """
 
   alias Pokex.Bots.Capture
   alias Pokex.Calibration
-  alias Pokex.Vision.{Frame, NameLabels}
+  alias Pokex.Vision.{Evidence, Frame, NameLabels}
+
+  @hostile_box {0, 220, 255}
+  @own_box {0, 255, 120}
+  @anchor_cross {255, 0, 255}
 
   @type spot :: %{tiles: non_neg_integer, dx: integer, dy: integer, point: {integer, integer}}
   @type reading ::
@@ -44,8 +61,10 @@ defmodule Pokex.Bots.CrowdScan do
             seen: non_neg_integer,
             listed: non_neg_integer | nil,
             spots: [spot],
+            anchor: :pokemon | :character,
             radius: pos_integer,
-            took_ms: non_neg_integer
+            took_ms: non_neg_integer,
+            evidence: String.t() | nil
           }
           | %{read?: false, reason: atom}
 
@@ -56,6 +75,7 @@ defmodule Pokex.Bots.CrowdScan do
 
     * `:radius_tiles` — how far out to look (default `crowd_scan_radius_tiles`)
     * `:listed` — the battle-list count to report alongside, when the caller has one
+    * `:evidence` — also return the picture it read, with its findings drawn on
     * `:capture` — injected for tests
   """
   @spec look(keyword) :: reading
@@ -68,13 +88,18 @@ defmodule Pokex.Bots.CrowdScan do
          {px, py} when is_integer(px) <- Calibration.player_point(calib),
          region = box_around({px, py}, radius, calib),
          {:ok, frame} <- capture.(region, "crowd_scan.raw") do
+      labels = NameLabels.find(frame)
+      {anchor, from} = anchor(labels, frame, region, {px, py})
+
       %{
         read?: true,
         seen: 0,
         listed: Keyword.get(opts, :listed),
-        spots: spots(frame, region, {px, py}),
+        spots: spots(labels, region, from, frame),
+        anchor: anchor,
         radius: radius,
-        took_ms: System.monotonic_time(:millisecond) - started
+        took_ms: System.monotonic_time(:millisecond) - started,
+        evidence: evidence(opts, frame, labels, region, from)
       }
       |> then(&%{&1 | seen: length(&1.spots)})
     else
@@ -92,9 +117,7 @@ defmodule Pokex.Bots.CrowdScan do
   def within(%{read?: true, spots: spots}, tiles), do: Enum.count(spots, &(&1.tiles <= tiles))
   def within(_unread, _tiles), do: 0
 
-  @doc """
-  The nearest creature's distance in tiles, or `nil` when none was placed.
-  """
+  @doc "The nearest creature's distance in tiles, or `nil` when none was placed."
   @spec nearest(reading) :: non_neg_integer | nil
   def nearest(%{read?: true, spots: [_ | _] = spots}),
     do: spots |> Enum.map(& &1.tiles) |> Enum.min()
@@ -103,36 +126,61 @@ defmodule Pokex.Bots.CrowdScan do
 
   # --- geometry ------------------------------------------------------------
 
-  defp spots(%Frame{} = frame, {rx, ry, _w, _h}, {px, py}) do
+  # His pokémon's own green name when it was readable, else the calibrated
+  # character point — and the caller is told which, because the two are
+  # routinely two tiles apart.
+  defp anchor(labels, frame, region, player) do
+    case NameLabels.own(labels) do
+      nil -> {:character, player}
+      label -> {:pokemon, creature_point(label, region, frame)}
+    end
+  end
+
+  defp spots(labels, region, {ax, ay}, frame) do
     tile = Calibration.tile_px()
-    scale = frame_scale(frame)
 
-    frame
-    |> NameLabels.find(band(scale))
+    labels
+    |> NameLabels.hostiles()
     |> Enum.map(fn label ->
-      # The label is drawn ABOVE the creature it names — one tile up, measured
-      # on his recording. Expressed in TILES so it survives any client zoom that
-      # moves `tile_px`; a pixel constant here would silently rot.
-      x = rx + round((label.x + div(label.w, 2)) / scale)
-      y = ry + round((label.y + div(label.h, 2)) / scale) + tile
-
-      dx = round((x - px) / tile)
-      dy = round((y - py) / tile)
+      {x, y} = creature_point(label, region, frame)
+      dx = round((x - ax) / tile)
+      dy = round((y - ay) / tile)
       %{tiles: max(abs(dx), abs(dy)), dx: dx, dy: dy, point: {x, y}}
     end)
     |> Enum.sort_by(& &1.tiles)
   end
 
-  # The label bands were measured in PIXELS on his 2× display ("Pikachu" came out
-  # 56×10). A frame captured at 1× carries the same label at half that, so the
-  # band travels with the frame's own scale instead of assuming his monitor.
-  defp band(scale) do
-    [
-      min_w: round(22 * scale),
-      max_w: round(150 * scale),
-      min_h: round(6 * scale),
-      max_h: round(20 * scale)
-    ]
+  # The label is drawn ABOVE the creature it names — one tile up, measured on
+  # his recording. Expressed in TILES so it survives any client zoom that moves
+  # `tile_px`; a pixel constant here would silently rot.
+  defp creature_point(label, {rx, ry, _w, _h}, frame) do
+    scale = frame_scale(frame)
+
+    {
+      rx + round((label.x + div(label.w, 2)) / scale),
+      ry + round((label.y + div(label.h, 2)) / scale) + Calibration.tile_px()
+    }
+  end
+
+  defp evidence(opts, frame, labels, {rx, ry, _w, _h}, {ax, ay}) do
+    if Keyword.get(opts, :evidence, false) do
+      scale = frame_scale(frame)
+
+      Evidence.data_url(frame,
+        shrink: Pokex.Settings.get(:crowd_scan_evidence_shrink),
+        boxes:
+          Enum.map(labels, fn l ->
+            %{
+              x: l.x,
+              y: l.y,
+              w: l.w,
+              h: l.h,
+              colour: if(l.kind == :hostile, do: @hostile_box, else: @own_box)
+            }
+          end),
+        marks: [{round((ax - rx) * scale), round((ay - ry) * scale), @anchor_cross}]
+      )
+    end
   end
 
   defp frame_scale(%Frame{scale: scale}) when is_number(scale) and scale > 0, do: scale

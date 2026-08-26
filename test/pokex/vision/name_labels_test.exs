@@ -12,12 +12,13 @@ defmodule Pokex.Vision.NameLabelsTest do
     end
 
     test "finds the hostile names the game draws", %{frame: frame} do
-      assert [a, b, c] = NameLabels.find(frame)
+      assert [a, b, c] = frame |> NameLabels.find() |> NameLabels.hostiles()
 
       # Three creatures, placed where a person looking at the picture puts them.
       assert {a.x, a.y} == {62, 54}
       assert {b.x, b.y} == {214, 54}
       assert {c.x, c.y} == {214, 356}
+      assert Enum.all?([a, b, c], &(&1.kind == :hostile))
 
       # "Pikachu" is one width on his display, whatever else is on screen — the
       # steadiest thing about the signal, and what makes the width band safe.
@@ -40,7 +41,7 @@ defmodule Pokex.Vision.NameLabelsTest do
       refute Enum.any?(labels, &(&1.x < 100 and &1.y > 300))
     end
 
-    test "leaves his OWN pokémon out, because the game draws it green" do
+    test "keeps his OWN pokémon apart, because the game draws it green" do
       # The fixture holds a green "Dugtrio" label directly under a red "Pikachu"
       # one. A reader that counted every name would report his own pokémon as a
       # creature to fire at — the same class of mistake as teaching his pokémon
@@ -48,9 +49,17 @@ defmodule Pokex.Vision.NameLabelsTest do
       {:ok, frame} = Frame.from_png_file(Path.expand(@fixture))
       labels = NameLabels.find(frame)
 
-      # The Dugtrio label sits at y≈207 in fixture coordinates; nothing found
-      # there means the colour rule did the excluding for free.
-      refute Enum.any?(labels, &(&1.y in 195..225))
+      assert %{kind: :own, y: y} = NameLabels.own(labels)
+      assert y in 195..225
+      refute Enum.any?(NameLabels.hostiles(labels), &(&1.y in 195..225))
+    end
+
+    test "the green sparkles of a skill effect are not his pokémon" do
+      # The fixture is full of green AGILITY sparkle over the Pikachus. Exactly
+      # ONE green thing in it is name-shaped.
+      {:ok, frame} = Frame.from_png_file(Path.expand(@fixture))
+
+      assert frame |> NameLabels.find() |> Enum.count(&(&1.kind == :own)) == 1
     end
 
     test "leaves the yellow skill banners out", %{frame: frame} do
@@ -80,6 +89,7 @@ defmodule Pokex.Vision.NameLabelsTest do
     test "a name-shaped red run is found where it was painted" do
       frame = grey(200, 120) |> paint(40, 30, 56, 10, {220, 0, 0})
       assert [label] = NameLabels.find(frame)
+      assert label.kind == :hostile
       assert label.x == 40
       assert label.w == 56
       assert label.y in 28..32
@@ -92,6 +102,25 @@ defmodule Pokex.Vision.NameLabelsTest do
         |> paint(120, 30, 56, 10, {220, 0, 0})
 
       assert length(NameLabels.find(frame)) == 2
+    end
+
+    test "a name-shaped GREEN run is his own, not a target" do
+      frame = grey(200, 120) |> paint(40, 30, 56, 10, {5, 166, 67})
+      assert [%{kind: :own}] = NameLabels.find(frame)
+      assert NameLabels.hostiles(NameLabels.find(frame)) == []
+    end
+
+    test "a red name touching a green one stays two labels" do
+      # His pokémon standing right under a hostile: one colour must never grow
+      # into the other, or the anchor and the target become the same thing.
+      frame =
+        grey(200, 140)
+        |> paint(40, 30, 56, 10, {220, 0, 0})
+        |> paint(40, 42, 56, 10, {5, 166, 67})
+
+      labels = NameLabels.find(frame)
+      assert length(labels) == 2
+      assert Enum.map(labels, & &1.kind) |> Enum.sort() == [:hostile, :own]
     end
 
     test "orange damage numbers are not names" do

@@ -26,7 +26,7 @@ defmodule Pokex.Vision.SpriteLibrary do
   so this project carries no PNG encoder.
   """
 
-  alias Pokex.Vision.Frame
+  alias Pokex.Vision.{Evidence, Frame}
 
   @type t :: %{file: String.t(), max_samples: pos_integer, cache_key: term}
 
@@ -170,26 +170,11 @@ defmodule Pokex.Vision.SpriteLibrary do
   @spec thumb(map) :: String.t()
   def thumb(%{"w" => w, "h" => h, "rgba" => rgba_b64}) do
     rgba = Base.decode64!(rgba_b64)
-    row_size = div(w * 3 + 3, 4) * 4
-    data_size = row_size * h
 
-    rows =
-      for y <- (h - 1)..0//-1, into: <<>> do
-        row =
-          for x <- 0..(w - 1), into: <<>> do
-            <<r, g, b, _a>> = binary_part(rgba, (y * w + x) * 4, 4)
-            <<b, g, r>>
-          end
-
-        row <> :binary.copy(<<0>>, row_size - w * 3)
-      end
-
-    bmp =
-      <<"BM", 14 + 40 + data_size::little-32, 0::32, 54::little-32, 40::little-32, w::little-32,
-        h::little-32, 1::little-16, 24::little-16, 0::little-32, data_size::little-32,
-        2835::little-32, 2835::little-32, 0::little-32, 0::little-32>> <> rows
-
-    "data:image/bmp;base64," <> Base.encode64(bmp)
+    Evidence.bmp(w, h, fn x, y ->
+      <<r, g, b, _a>> = binary_part(rgba, (y * w + x) * 4, 4)
+      {r, g, b}
+    end)
   end
 
   @doc """

@@ -59,7 +59,10 @@ defmodule Pokex.Sim.ScoreTest do
     end
 
     test "e o tempo no chão é o pokémon fora de campo, não a vida baixa" do
-      card = card("morte", config: %{engage_from: 1})
+      # `reset_revive: false` pelo mesmo motivo do teste irmão na bancada: com a
+      # R3b ligada o prefixo de controle dorme a pilha e o pokémon não cai, e
+      # este teste é sobre o TEMPO NO CHÃO — sem chão não há o que medir.
+      card = card("morte", config: %{engage_from: 1, reset_revive: false})
 
       assert card.deaths == 1
       assert card.down_pct > 50, "o revive está quebrado neste cenário: ele não volta"

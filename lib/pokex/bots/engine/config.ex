@@ -42,6 +42,7 @@ defmodule Pokex.Bots.Engine.Config do
     kite_when_spent: :engine_kite_when_spent,
     crowd_from: :engine_crowd_from,
     stun_window_ms: :engine_stun_window_ms,
+    reset_needs_control: :engine_reset_needs_control,
     band_yellow_pct: :engine_band_yellow_pct,
     band_red_pct: :engine_band_red_pct,
     resume_pct: :engine_resume_pct,

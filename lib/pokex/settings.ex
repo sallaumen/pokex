@@ -1188,6 +1188,17 @@ defmodule Pokex.Settings do
     # skill de controle". A pilha está dormindo, então o campo vazio não custa
     # nada — e o revive devolve o controle junto com o resto da barra.
     engine_stun_window_ms: 5_000,
+    # …e o que fazer quando o controle NÃO está pronto e a barra está vazia.
+    # Desligado, a R3b gasta o revive assim mesmo: um reset atrasado vale mais
+    # que um reset que nunca vem. Ligado, ela ESPERA o controle — a regra dele
+    # lida ao pé da letra ("SEMPRE usar o revive dentro da range de 5 segundos
+    # no máximo depois de usar a skill de controle"), ao preço de deixar a barra
+    # vazia por mais tempo.
+    #
+    # MEDIDO em 26/08 com `since_stun_ms`: dos revives que a regra governa (fase
+    # `engaged`), 60% saíam na janela no anel e 40% no formigueiro. Os que
+    # faltam são exatamente estes — o controle em cooldown.
+    engine_reset_needs_control: false,
     # How often a plain VITALS reading is filed while nothing is changing. The
     # transitions that carry the four measurements are written the instant they
     # happen (see `Engine.Worker.sample_vitals/4`); this is only the heartbeat

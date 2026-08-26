@@ -412,6 +412,19 @@ defmodule Pokex.Bots.Engine.LogicTest do
       })
     end
 
+    # A SEQUÊNCIA DELE, em dois tiques: "SEMPRE usar o revive dentro da range de
+    # 5 segundos no máximo depois de usar a skill de controle". A R3b furava a
+    # janela — gastava o revive com a pilha acordada — e desde 26/08 ela manda o
+    # controle primeiro quando ele está pronto. O revive vem no tique seguinte.
+    defp com_controle(logic, world, now) do
+      {logic, controle} = reset_step(logic, world, now)
+
+      assert controle.revive == :hold, "o controle sai antes, sem revive junto"
+      assert controle.why =~ "controle primeiro"
+
+      reset_step(logic, world, now + 500)
+    end
+
     defp engaged(step_fun) do
       {logic, _opening} = step_fun.(Logic.new(), spent_fight(%{spent?: false}), 1_000)
       logic
@@ -420,11 +433,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "com a chave ligada, a barra vazia na frente da pilha pede o revive" do
       logic = engaged(&reset_step/3)
 
-      {_logic, orders} = reset_step(logic, spent_fight(), 2_000)
+      {_logic, orders} = com_controle(logic, spent_fight(), 2_000)
 
       assert orders.revive == :now
       assert orders.fire == :free, "a luta continua enquanto o corpo volta"
-      assert orders.why =~ "sem cooldown"
+      assert orders.why =~ "controle no chão"
     end
 
     test "e NÃO entra em recuperação: isto não é um resgate" do
@@ -452,7 +465,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "não duas vezes dentro do piso: uma barra que segue vazia não vira tecla presa" do
       logic = engaged(&reset_step/3)
 
-      {after_first, first} = reset_step(logic, spent_fight(), 2_000)
+      {after_first, first} = com_controle(logic, spent_fight(), 2_000)
       assert first.revive == :now
 
       {_logic, second} = reset_step(after_first, spent_fight(), 4_000)
@@ -465,7 +478,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # na primeira vez que a promessa não é cumprida.
     test "e se a barra NÃO voltar, ela se desarma em vez de insistir" do
       logic = engaged(&reset_step/3)
-      {logic, primeira} = reset_step(logic, spent_fight(), 2_000)
+      {logic, primeira} = com_controle(logic, spent_fight(), 2_000)
       assert primeira.revive == :now
 
       # muito depois do piso, com o pokémon em campo e a barra AINDA vazia
@@ -481,7 +494,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     test "mas uma barra que VOLTA mantém a regra armada" do
       logic = engaged(&reset_step/3)
-      {logic, _} = reset_step(logic, spent_fight(), 2_000)
+      {logic, _} = com_controle(logic, spent_fight(), 2_000)
 
       cheia = spent_fight(%{spent?: false})
       passou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
@@ -489,8 +502,35 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       refute logic.reset_broken?
 
-      {_logic, de_novo} = reset_step(logic, spent_fight(), passou + 1_000)
+      {_logic, de_novo} = com_controle(logic, spent_fight(), passou + 1_000)
       assert de_novo.revive == :now
+    end
+
+    # A JANELA DELE, provada nos dois sentidos.
+    test "sem controle pronto, a R3b ainda dispara — atrasado vale mais que nunca" do
+      # Esperar o cooldown do controle seria trocar a barra inteira por um
+      # prefixo. Sem `crowd` nas mãos não há prefixo a esperar.
+      sem_controle =
+        world(%{
+          situation: situation(%{enemies: 4, spent?: true, own_hp: 100}),
+          hunt: hunt(%{state: :fighting}),
+          hands: %{opening: ["3"], single: [], crowd: []}
+        })
+
+      logic =
+        elem(
+          reset_step(
+            Logic.new(),
+            %{sem_controle | situation: situation(%{enemies: 4, spent?: false, own_hp: 100})},
+            1_000
+          ),
+          0
+        )
+
+      {_logic, orders} = reset_step(logic, sem_controle, 2_000)
+
+      assert orders.revive == :now
+      assert orders.why =~ "sem cooldown"
     end
 
     test "não com o pokémon já na bola — a ordem bateria numa porta fechada" do

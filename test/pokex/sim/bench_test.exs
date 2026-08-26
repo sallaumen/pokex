@@ -223,7 +223,13 @@ defmodule Pokex.Sim.BenchTest do
     end
 
     test "ele cai, e a queda leva a caçada pra recuperação" do
-      %{outcome: o} = Bench.run(Scenario.get("morte"), config: @his_ruler)
+      # SEM a R3b: desde 26/08 o prefixo de controle sai antes do revive de
+      # reset, e ele dorme a pilha — que é a regra dele funcionando ("com o
+      # revive e stun em área antes de usar o revive tudo se resolve"), e é
+      # exatamente o que este cenário NÃO pode ter. Ele existe pra provar a
+      # queda e o caminho de volta; com a pilha dormindo não há queda pra provar.
+      %{outcome: o} =
+        Bench.run(Scenario.get("morte"), config: Map.put(@his_ruler, :reset_revive, false))
 
       assert is_integer(o.died_at), "o cenário chamado 'Ele cai' tem que derrubar o pokémon"
       assert :recovering in o.phases

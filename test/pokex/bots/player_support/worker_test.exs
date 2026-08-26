@@ -87,6 +87,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       :rescue_cooldown_ms,
       :rescue_stun_first,
       :pokemon_hp_rescue_pct,
+      :pokemon_hp_full_at_pct,
       :potion_enabled,
       :potion_cooldown_ms,
       :pokemon_hp_potion_pct,

@@ -596,10 +596,33 @@ defmodule Pokex.Bots.Engine.Logic do
            revive: :now
          )}
 
-      reset_revive?(t) ->
-        # R3b. Stays ENGAGED — this is not a rescue and there is nothing to
-        # recover from: the body comes back full, with a full bar, into the same
-        # fight it left.
+      # A R3b PASSA A OBEDECER A JANELA DELE. A regra é dele e não tem exceção —
+      # "SEMPRE usar o revive dentro da range de 5 segundos no máximo depois de
+      # usar a skill de controle" — e a R3b era a única porta que a furava: ela
+      # gasta um revive com a pilha ACORDADA e deixa o campo vazio na frente
+      # dela por todo o settle.
+      #
+      # MEDIDO em 26/08, com `stunned_at` carimbado: só 39% dos revives do anel
+      # e 29% do formigueiro saíam dentro dos cinco segundos, e esta era a
+      # razão. Com o controle pronto ele sai PRIMEIRO, e o revive cai no
+      # `stun_window?` do tique seguinte — que é exatamente a sequência que ele
+      # descreveu: controle, algum dano, revive.
+      stun_before_reset?(t) ->
+        {mark(t.logic, :stunned, t.now),
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           crowd(t) ++ opening(t),
+           "sem cooldown com #{count(t.s)} na frente — controle primeiro, revive na sequência"
+         )}
+
+      reset_revive?(t) and not t.config.reset_needs_control ->
+        # R3b SEM CONTROLE PRONTO, que é o único jeito de chegar aqui agora: um
+        # reset atrasado ainda vale mais que um reset que nunca vem, e esperar o
+        # cooldown do controle seria trocar a barra inteira por um prefixo.
+        #
+        # Com `reset_needs_control` ligado esta porta fecha e a regra dele passa
+        # a ser lida ao pé da letra: sem controle, sem revive.
         {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
          Orders.standing_and_firing(
            :engaged,
@@ -638,9 +661,20 @@ defmodule Pokex.Bots.Engine.Logic do
   # Só com a pilha grande, só com a tecla PRONTA (a barra responde isso), e só
   # com um pokémon em campo pra apertá-la.
   defp stun_now?(t) do
-    crowd(t) != [] and t.s.own_out? == true and
-      is_integer(t.s.enemies) and t.s.enemies >= t.config.crowd_from and
-      Enum.any?(crowd(t), &ready?(t, &1)) and elapsed?(t, :stunned, t.config.stun_window_ms)
+    control_ready?(t) and is_integer(t.s.enemies) and t.s.enemies >= t.config.crowd_from and
+      elapsed?(t, :stunned, t.config.stun_window_ms)
+  end
+
+  # O PREFIXO DO REVIVE, não uma segunda R10: a pilha não precisa ser grande pra
+  # justificar o controle aqui, porque quem está sendo comprado é a barra, não a
+  # pilha. `crowd_from` continua sendo o dono do controle OFENSIVO.
+  defp stun_before_reset?(t) do
+    reset_revive?(t) and control_ready?(t) and
+      elapsed?(t, :stunned, t.config.stun_window_ms)
+  end
+
+  defp control_ready?(t) do
+    crowd(t) != [] and t.s.own_out? == true and Enum.any?(crowd(t), &ready?(t, &1))
   end
 
   # A janela só existe depois de um controle que ESTE módulo mandou sair, e só

@@ -120,6 +120,30 @@ defmodule Pokex.Sim.World do
     aoe_damage_pct: 34,
     aoe_radius: 4,
     single_damage_pct: 22,
+    # A AURA DELE, em duas metades que ele descreveu juntas (26/08): "a aura de
+    # dano tb dá um dano fraco" e "a aura de aumentar dano não dá dano por si só
+    # mas aumenta o dano das outras skills em 20%".
+    #
+    # O dano fraco sai como qualquer outro — pela faixa gravada, ou por esta
+    # porcentagem quando ele não gravou nenhuma. O aumento é o que este mundo
+    # não sabia fazer de jeito nenhum: uma tecla que não tira vida e ainda assim
+    # muda o valor de todas as outras.
+    # ZERO por padrão, e não por timidez: "a aura de dano tb dá um dano fraco" é
+    # uma frase sobre a barra DELE, não sobre toda aura que existe. Quem tem uma
+    # aura que bate diz quanto com um nível — e assim nenhum cenário antigo
+    # ganha dano que ninguém pediu.
+    buff_damage_pct: 0,
+    # …e ZERO pelo mesmo motivo: "aumenta o dano das outras skills em 20%" é uma
+    # medida da barra DELE. Ligado por padrão, ele deixaria todo cenário 20%
+    # mais forte de uma vez — inclusive os que existem pra provar que o pokémon
+    # CAI, que passariam a sobreviver por uma mudança que ninguém pediu ali.
+    # Ele põe o 20 na mesa; o mundo só sabe fazer a conta.
+    aura_boost_pct: 0,
+    aura_boost_ms: 20_000,
+    # A OUTRA AURA: "uma hora que deixa ele indestrutível". Enquanto vale, a
+    # mordida não encosta — é a diferença entre uma pilha que mata e uma pilha
+    # que espera.
+    shield_ms: 8_000,
     # The game window is a RECTANGLE: 15 tiles across, 11 down. A Chebyshev
     # radius of 7 made it a 15x15 SQUARE, so the engine was handed creatures
     # sitting six and seven tiles above and below him. Measured on his real
@@ -209,6 +233,12 @@ defmodule Pokex.Sim.World do
             # is the whole difference between a bar on cooldown and damage done,
             # and nothing was counting it.
             stats: %{killed: 0, vanished: 0, casts: 0, reached: 0},
+            # QUANDO O CONTROLE SAIU. A regra dele é uma janela — "SEMPRE usar o
+            # revive dentro da range de 5 segundos no máximo depois de usar a
+            # skill de controle" — e até 26/08 nada aqui registrava a ponta de
+            # baixo dela: a bancada media revives e nunca soube se um stun os
+            # precedeu.
+            stunned_at: nil,
             # A revive in flight (`revive_at`) and the floor before the next one
             # may be pressed — TWO of them, because the bot keeps two: a pokémon
             # still standing waits `rescue_cooldown_ms` between two presses, one
@@ -254,7 +284,12 @@ defmodule Pokex.Sim.World do
         out?: true,
         alive?: true,
         pos: beside({start.x, start.y, start.z}),
-        walk_debt_ms: 0
+        walk_debt_ms: 0,
+        # Os dois efeitos que a barra dele tem e este mundo nunca modelou. Zero
+        # é "nunca" no relógio do mundo, o mesmo jeito que `asleep_until` diz
+        # que um monstro está acordado.
+        boost_until: 0,
+        shield_until: 0
       },
       keys: keys_of(loadout),
       rand: :rand.seed_s(:exsss, {seed, seed, seed}),
@@ -282,6 +317,7 @@ defmodule Pokex.Sim.World do
           aoe: loadout.aoe,
           single: loadout.single,
           buffs: loadout.buffs,
+          shield: loadout.shield,
           heal: loadout.heal,
           crowd: loadout.crowd
         ],
@@ -622,10 +658,28 @@ defmodule Pokex.Sim.World do
   defp damage(world, key, :single),
     do: hit(world, 1, band(world, key, world.knobs.single_damage_pct))
 
+  # A AURA DE DANO faz DUAS coisas, e ele disse as duas na mesma frase: tira um
+  # pouco de vida e, enquanto vale, multiplica o que as outras teclas tiram. Uma
+  # aura que só multiplicasse seria metade dela; uma que só batesse seria a
+  # outra metade, e nenhuma das duas é o que está na barra dele.
+  defp damage(world, key, :buffs) do
+    world
+    |> hit(world.knobs.aoe_radius, band(world, key, world.knobs.buff_damage_pct))
+    |> boost()
+  end
+
+  # A AURA DE DEFESA: nada de dano, e a mordida não encosta enquanto vale.
+  # `Strategy.reserved/1` a mantém fora de toda rajada — ela existe pro momento
+  # em que a pilha ia matar, e uma invulnerabilidade gasta na abertura é uma
+  # invulnerabilidade que não existe quando ele precisa.
+  defp damage(world, _key, :shield),
+    do: put_in(world.own.shield_until, world.clock + world.knobs.shield_ms)
+
   # THE CONTROL KEY, reserved from every ordinary fight by `Strategy.reserved/1`
   # for exactly one moment: the prefix of the rescue. It buys the seconds the
   # revive needs — the pile is asleep while the field is empty.
-  defp damage(world, _key, :crowd), do: sleep(world, world.knobs.stun_radius)
+  defp damage(world, _key, :crowd),
+    do: %{sleep(world, world.knobs.stun_radius) | stunned_at: world.clock}
 
   # THE FIRST RUNG of the ladder his support has always had and this world never
   # modelled: a healing skill is free, instant, and works mid-fight. Only the
@@ -634,6 +688,8 @@ defmodule Pokex.Sim.World do
   defp damage(world, _key, :heal), do: %{world | own: mend(world.own, world.knobs.heal_skill_pct)}
 
   defp damage(world, _key, _no_damage), do: world
+
+  defp boost(world), do: put_in(world.own.boost_until, world.clock + world.knobs.aura_boost_ms)
 
   @doc """
   THE SECOND RUNG: a potion. Costs money, is a channel, and so only ever
@@ -721,6 +777,8 @@ defmodule Pokex.Sim.World do
   def asleep?(mob, %__MODULE__{} = world), do: world.clock < Map.get(mob, :asleep_until, 0)
 
   defp hit(world, radius, {lo, hi}) do
+    {lo, hi} = boosted(world, {lo, hi})
+
     {mobs, {rand, reached}} =
       Enum.map_reduce(world.mobs, {world.rand, 0}, fn mob, {r, n} ->
         if in_reach?(mob, world.own.pos, radius) do
@@ -741,6 +799,16 @@ defmodule Pokex.Sim.World do
 
     %{world | mobs: alive, rand: rand, stats: stats}
   end
+
+  # O aumento da aura multiplica a FAIXA, não o sorteio: um bônus aplicado
+  # depois do dado achataria a variação que a faixa existe pra ter.
+  defp boosted(%{own: %{boost_until: until}} = world, band) when until > 0 do
+    if world.clock < until, do: scale(band, 100 + world.knobs.aura_boost_pct), else: band
+  end
+
+  defp boosted(_world, band), do: band
+
+  defp scale({lo, hi}, pct), do: {div(lo * pct, 100), div(hi * pct, 100)}
 
   # Every target rolls its OWN number, the way the game does. That is the whole
   # point of the band: one volley kills four and leaves the fifth on a sliver,
@@ -1185,7 +1253,7 @@ defmodule Pokex.Sim.World do
     %{
       world
       | mobs: mobs,
-        own: hurt(world.own, on_pet * world.knobs.bite_dmg),
+        own: hurt(world.own, bitten_for(world, on_pet)),
         player: wound(world.player, on_player * world.knobs.player_bite_dmg)
     }
   end
@@ -1203,6 +1271,12 @@ defmodule Pokex.Sim.World do
       {%{mob | bite_debt_ms: 0}, 0}
     end
   end
+
+  # A AURA DE DEFESA no único lugar em que ela importa: enquanto vale, a mordida
+  # não encosta. É por isso que ela é reservada — "uma hora que deixa ele
+  # indestrutível" só é uma hora se ninguém a gastou antes.
+  defp bitten_for(%{own: %{shield_until: until}, clock: clock}, _bites) when clock < until, do: 0
+  defp bitten_for(world, bites), do: bites * world.knobs.bite_dmg
 
   defp hurt(own, 0), do: own
 

@@ -36,6 +36,8 @@ defmodule Pokex.Sim.Bench do
   """
 
   alias Pokex.Bots.Cavebot.Route
+  alias Pokex.Bots.Combat.Loadout
+  alias Pokex.Bots.Combat.Strategy
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
@@ -385,7 +387,13 @@ defmodule Pokex.Sim.Bench do
       enemies: picture.enemies,
       spent?: picture.spent?,
       ready: length(picture.ready_keys || []),
-      hp: picture.own_hp
+      hp: picture.own_hp,
+      # A REGRA DELE, medida: "SEMPRE usar o revive dentro da range de 5 segundos
+      # no máximo depois de usar a skill de controle". `spent?` fala só das
+      # teclas de DANO e o controle é `:crowd`, então até aqui nada na bancada
+      # sabia se o stun tinha saído — a pergunta que ele fez era a única que
+      # ninguém podia responder.
+      since_stun_ms: world.stunned_at && world.clock - world.stunned_at
     }
 
     %{metrics | revives: [event | metrics.revives]}
@@ -449,7 +457,7 @@ defmodule Pokex.Sim.Bench do
       situation: picture,
       hunt: %{state: hunt_state(world, luring?), luring?: luring?},
       hands: %{
-        opening: opening(world),
+        opening: opening(world, picture),
         single: keys_of_kind(world, :single),
         crowd: keys_of_kind(world, :crowd)
       }
@@ -485,14 +493,41 @@ defmodule Pokex.Sim.Bench do
     if Enum.any?(world.mobs, &World.reachable?(&1, world)), do: :fighting, else: :walking
   end
 
-  defp opening(world) do
-    world.keys
-    |> Enum.filter(fn {_key, skill} -> skill.kind in [:aoe, :single] end)
-    |> Enum.map(&elem(&1, 0))
-    |> Enum.sort()
+  # A BANCADA TEM QUE MEDIR O BOT, NÃO UM PARECIDO. Até 26/08 isto era uma
+  # reimplementação própria — filtrava `kind in [:aoe, :single]` do mundo e
+  # ordenava por ordem alfabética — enquanto o bot de verdade passa por
+  # `Strategy.opening/2`, que decide área-antes-de-alvo pela contagem e põe a
+  # aura de dano na frente quando ela está pronta.
+  #
+  # A divergência não era teórica: a aura NUNCA saía numa corrida de bancada, e
+  # com ela fora o multiplicador de 20% que ele descreveu não multiplicava nada.
+  # Um sweep de `aura_boost_pct` dava a mesma linha duas vezes, e a explicação
+  # não estava no knob.
+  defp opening(world, picture) do
+    loadout = loadout_of(world)
+
+    Strategy.opening(loadout,
+      aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys)
+    )
   end
 
-  defp damage_keys(world), do: opening(world)
+  defp loadout_of(world) do
+    %Loadout{
+      name: world.own.name,
+      aoe: keys_of_kind(world, :aoe),
+      single: keys_of_kind(world, :single),
+      buffs: keys_of_kind(world, :buffs),
+      shield: keys_of_kind(world, :shield),
+      heal: keys_of_kind(world, :heal),
+      crowd: keys_of_kind(world, :crowd)
+    }
+  end
+
+  # As teclas de DANO seguem sendo área + alvo, do mesmo jeito que
+  # `Engine.Worker.damage_keys/1`: `spent?` é sobre a barra que mata, e a aura
+  # entrar aqui mudaria o significado de "gastou" no meio de uma medição.
+  defp damage_keys(world),
+    do: Enum.sort(keys_of_kind(world, :aoe) ++ keys_of_kind(world, :single))
 
   # One line per DECISION CHANGE, not per tick: a timeline with six hundred
   # identical rows is not a timeline.

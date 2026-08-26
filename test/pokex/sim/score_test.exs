@@ -100,7 +100,17 @@ defmodule Pokex.Sim.ScoreTest do
 
       assert sem.revives.proactive == 0
       assert com.revives.proactive > 0
-      assert com.stalled_pct < sem.stalled_pct, "o que ela ataca é o tempo sem cooldown"
+      # O QUE ELA ATACA é o tempo sem cooldown — e o que ela CONSEGUE é outra
+      # coisa. O próprio `Bench` já mede a regra como chapada ("dead flat —
+      # 30,65 → 30,45 mortos/min, e o tempo sem cooldown mal se move: 90,77% →
+      # 90,51%"), e aqui são cinco minutos com UM revive proativo: a direção do
+      # sinal é um evento, não uma tendência. Este teste afirmava `<` estrito e
+      # passava por sorte deste cenário; afirmar de novo seria pedir que o ruído
+      # aponte sempre pro mesmo lado.
+      #
+      # O que a regra faz de verdade e sempre está uma linha acima: revives
+      # proativos existem com ela e não existem sem ela.
+      assert_in_delta com.stalled_pct, sem.stalled_pct, 5.0
 
       # O QUE A REGRA CUSTA MUDOU DE NATUREZA, duas vezes, e o teste conta as
       # duas porque a segunda só existe por causa da primeira:

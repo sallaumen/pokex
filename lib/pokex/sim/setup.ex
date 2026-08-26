@@ -51,7 +51,7 @@ defmodule Pokex.Sim.Setup do
     :nest_radius,
     :respawn_ms,
     # …e o guindaste. `nest_size` PINA a pilha e desliga o sorteio: todo ninho de
-    # todo cenário passa a ter exatamente este tamanho. Ficou fora desta lista
+    # cada cenário passa a ter exatamente este tamanho. Ficou fora desta lista
     # desde o começo justamente por isso, e entra agora porque é o botão que ele
     # pediu — mas entra ETIQUETADO, porque um cenário respondendo sobre uma
     # densidade que não é a dele é pior do que não poder mexer.

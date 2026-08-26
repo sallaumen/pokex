@@ -355,7 +355,7 @@ defmodule Pokex.Sim.Scenario do
             dwell_ms: nil,
             park_point: nil,
             park_tiles: nil,
-            # TODO CANTO é ninho: num anel cheio não existe trecho vazio, e um
+            # CADA CANTO é ninho: num anel cheio não existe trecho vazio, e um
             # waypoint sem `gather_ms`/`fight_ms` não é ninho nenhum — só tira
             # um dado de passante (`World.population_of/2`). A primeira versão
             # deste circuito não tinha nenhum dos dois, então o "mapa cheio de

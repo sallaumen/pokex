@@ -102,7 +102,7 @@ defmodule Pokex.Sim.ScenarioTest do
 
       assert length(pts) == 12
 
-      # Todo canto à mesma distância do centro (±1 tile de arredondamento): num
+      # Cada canto à mesma distância do centro (±1 tile de arredondamento): num
       # anel ele nunca volta pelo que já limpou, e o renascimento chega nele em
       # vez de ele voltar buscar.
       raios = Enum.map(pts, fn p -> :math.sqrt((p.x - 1000) ** 2 + (p.y - 1000) ** 2) end)
@@ -110,7 +110,7 @@ defmodule Pokex.Sim.ScenarioTest do
       assert Enum.max(raios) - Enum.min(raios) <= 1.0
     end
 
-    test "TODO canto é ninho — sem isso o mapa cheio nasce vazio" do
+    test "CADA canto é ninho — sem isso o mapa cheio nasce vazio" do
       # `World.population_of/2` só trata um waypoint como ninho quando ele tem
       # `gather_ms` ou `fight_ms`; sem nenhum dos dois sai um dado de passante.
       # A primeira versão deste circuito não tinha nenhum dos dois e o "mapa

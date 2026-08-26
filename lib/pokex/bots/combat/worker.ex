@@ -505,6 +505,16 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   end
 
+  # Só com UMA tecla — uma rajada de três tira uma queda só e ninguém sabe de
+  # quem foi, que é exatamente o modo que ele descreveu ("ele e um inimigo de
+  # vida cheia, usa uma skill e calcula a diferença").
+  defp measure_damage([only]) do
+    if SkillMeter.on?(), do: spawn(fn -> SkillMeter.file(only) end)
+    :ok
+  end
+
+  defp measure_damage(_rajada), do: :ok
+
   # A aura de dano só lidera a rajada quando está PRONTA — "usar a aura 2 quando
   # disponível" (26/08). A barra é lida do fato, sem captura nova, e uma leitura
   # velha responde "não", que é o lado barato de errar.
@@ -541,14 +551,8 @@ defmodule Pokex.Bots.Combat.Worker do
       # now so the next decision is not skipped as "a burst still in flight".
       if area?, do: spawn(&AreaProbe.file/0)
 
-      # E o OUTRO modo de checagem: quanto esta tecla tirou. Só com UMA tecla —
-      # uma rajada de três tira uma queda só e ninguém sabe de quem foi, que é
-      # exatamente o modo que ele descreveu ("ele e um inimigo de vida cheia,
-      # usa uma skill e calcula a diferença").
-      case keys do
-        [only] -> if SkillMeter.on?(), do: spawn(fn -> SkillMeter.file(only) end)
-        _rajada -> :ok
-      end
+      # E o OUTRO modo de checagem: quanto esta tecla tirou.
+      measure_damage(keys)
 
       receipt
     else

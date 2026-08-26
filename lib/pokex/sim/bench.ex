@@ -344,13 +344,19 @@ defmodule Pokex.Sim.Bench do
   # resgate virou combo o revive cai um ou dois tiques depois de ser pedido, e a
   # fase já mudou — um resgate pedido no amarelo aparecia como proativo, que é
   # exatamente a conta que a R3b existe pra fazer.
+  # …e o RELÓGIO DO PEDIDO junto com a foto dele. Sem isso, `since_stun_ms`
+  # misturava duas horas diferentes: a fase vinha do tique em que o revive foi
+  # PEDIDO e o relógio do tique em que ele CHEGOU. Um revive pedido dentro da
+  # janela e segurado vinte segundos pelo piso das mãos aparecia como um revive
+  # sem prefixo — e foi assim que a distribuição saiu bimodal, com uma cauda em
+  # 18-29s que ninguém conseguia explicar. A cauda era esta costura.
   defp remember_ask(state, orders, picture, hands) do
     cond do
       hands.revive_at != nil and state.asked_revive == nil ->
-        %{state | asked_revive: %{orders: orders, picture: picture}}
+        %{state | asked_revive: ask_photo(state, orders, picture)}
 
       orders.revive == :now and state.asked_revive == nil ->
-        %{state | asked_revive: %{orders: orders, picture: picture}}
+        %{state | asked_revive: ask_photo(state, orders, picture)}
 
       true ->
         state
@@ -361,12 +367,19 @@ defmodule Pokex.Sim.Bench do
     {asked_orders, asked_picture} = asked_or_now(asked, orders, picture)
 
     cond do
-      landed?(before, world) -> file_revive(metrics, world, asked_orders, asked_picture, true)
+      landed?(before, world) ->
+        file_revive(metrics, world, asked_orders, asked_picture, true, asked)
+
       # The stun went out and the revive is scheduled: the order is IN FLIGHT,
       # not refused. Counting this tick as a refusal filed every rescue twice.
-      hands.revive_at != nil -> metrics
-      orders.revive == :now -> file_revive(metrics, world, asked_orders, asked_picture, false)
-      true -> metrics
+      hands.revive_at != nil ->
+        metrics
+
+      orders.revive == :now ->
+        file_revive(metrics, world, asked_orders, asked_picture, false, asked)
+
+      true ->
+        metrics
     end
   end
 
@@ -374,12 +387,23 @@ defmodule Pokex.Sim.Bench do
     if landed?(before, world), do: %{state | asked_revive: nil}, else: state
   end
 
+  defp ask_photo(state, orders, picture),
+    do: %{orders: orders, picture: picture, since_stun_ms: since_stun(state.world)}
+
   defp asked_or_now(%{orders: o, picture: p}, _orders, _picture), do: {o, p}
   defp asked_or_now(_never_asked, orders, picture), do: {orders, picture}
 
+  # A JANELA DELE, contada da hora do PEDIDO. `world.stunned_at` é o último
+  # controle que realmente saiu; `nil` quando nenhum saiu ainda.
+  defp since_stun(%{stunned_at: nil}), do: nil
+  defp since_stun(world), do: world.clock - world.stunned_at
+
   defp landed?(before, world), do: before.revive_at == nil and world.revive_at != nil
 
-  defp file_revive(metrics, world, orders, picture, accepted?) do
+  defp asked_since_stun(%{since_stun_ms: ms}, _world), do: ms
+  defp asked_since_stun(_never_asked, world), do: since_stun(world)
+
+  defp file_revive(metrics, world, orders, picture, accepted?, asked) do
     event = %{
       at: world.clock,
       phase: orders.phase,
@@ -393,7 +417,7 @@ defmodule Pokex.Sim.Bench do
       # teclas de DANO e o controle é `:crowd`, então até aqui nada na bancada
       # sabia se o stun tinha saído — a pergunta que ele fez era a única que
       # ninguém podia responder.
-      since_stun_ms: world.stunned_at && world.clock - world.stunned_at
+      since_stun_ms: asked_since_stun(asked, world)
     }
 
     %{metrics | revives: [event | metrics.revives]}

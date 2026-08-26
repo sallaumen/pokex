@@ -105,7 +105,19 @@ defmodule Pokex.Sim.Bench do
       |> Scenario.route(routes)
       |> World.new(
         seed: scenario.seed,
-        knobs: Map.merge(world_knobs(), scenario.knobs),
+        # A MESA DELE POR ÚLTIMO. Até 26/08 a bancada montava o mundo só com
+        # `world_knobs/0` (duas chaves) e os knobs do cenário: a vida do monstro,
+        # os níveis de dano e o raio da área que ele acabou de configurar na tela
+        # não chegavam aqui. Ele clicava "Rodar" e media um mundo de 100 de vida
+        # com dano em porcentagem, enquanto a tela dizia 500 com dano absoluto.
+        #
+        # Vem por último de propósito, e carrega SÓ o que ele escolheu (o
+        # `sim_setup.json` guarda as chaves que ele tocou, não os padrões), então
+        # um cenário continua dono de tudo que ele não mexeu.
+        knobs:
+          world_knobs()
+          |> Map.merge(scenario.knobs)
+          |> Map.merge(Keyword.get(opts, :knobs, %{})),
         loadout: Keyword.get(opts, :loadout, loadout())
       )
 

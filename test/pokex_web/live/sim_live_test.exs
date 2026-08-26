@@ -250,6 +250,13 @@ defmodule PokexWeb.SimLiveTest do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Pokex.TestHome.restore() end)
       Store.put([route()])
+
+      # O MUNDO VEM DO RUNNER, não do mount: `mount/3` faz `world: Runner.world()`
+      # e nunca chama `load_route/1`. Sem carregar aqui, a mesa inteira fica
+      # atrás de `:if={@world}` e o teste só passava quando um teste ANTERIOR
+      # tinha deixado um mundo no processo — dependência de ordem que passava no
+      # arquivo inteiro e falhava sozinha.
+      :ok = Pokex.Sim.Runner.load(route(), knobs: %{})
       :ok
     end
 
@@ -294,6 +301,133 @@ defmodule PokexWeb.SimLiveTest do
       view |> form("#sim-mesa", %{"nest_size" => "12", "mob_hp" => "100"}) |> render_submit()
 
       assert Pokex.Sim.Setup.read().nest_size == 12
+    end
+  end
+
+  describe "os quatro níveis de dano, num clique" do
+    @describetag :tmp_dir
+
+    setup %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+      Store.put([route()])
+
+      # O MUNDO VEM DO RUNNER, não do mount: `mount/3` faz `world: Runner.world()`
+      # e nunca chama `load_route/1`. Sem carregar aqui, a mesa inteira fica
+      # atrás de `:if={@world}` e o teste só passava quando um teste ANTERIOR
+      # tinha deixado um mundo no processo — dependência de ordem que passava no
+      # arquivo inteiro e falhava sozinha.
+      :ok = Pokex.Sim.Runner.load(route(), knobs: %{})
+      :ok
+    end
+
+    defp clicar(view, tecla, nivel) do
+      view
+      |> element(
+        ~s(button[phx-click="dmg_one"][phx-value-key="#{tecla}"][phx-value-level="#{nivel}"])
+      )
+      |> render_click()
+    end
+
+    defp mesa(conn) do
+      {:ok, view, _html} = live(conn, ~p"/sim")
+      view |> element(~s(button[phx-click="toggle-setup"])) |> render_click()
+      view
+    end
+
+    test "clicar 'muito' grava 60~80 de HP, não uma porcentagem", %{conn: conn} do
+      # A unidade é o ponto: com HP absoluto, subir a vida do bicho de 100 pra
+      # 500 realmente o deixa mais duro. Com porcentagem, não deixa.
+      view = mesa(conn)
+
+      view
+      |> element(~s(button[phx-click="dmg_one"][phx-value-key="3"][phx-value-level="muito"]))
+      |> render_click()
+
+      assert Pokex.Sim.Setup.read().skill_damage["3"] == {60, 80}
+    end
+
+    test "clicar 'padrão' APAGA a faixa, devolvendo o chute em %", %{conn: conn} do
+      view = mesa(conn)
+      clicar(view, "3", "muito")
+      assert Pokex.Sim.Setup.read().skill_damage["3"] == {60, 80}
+
+      clicar(view, "3", "padrao")
+
+      refute Map.has_key?(Pokex.Sim.Setup.read().skill_damage, "3")
+    end
+
+    test "uma tecla não mexida mantém o que tinha", %{conn: conn} do
+      view = mesa(conn)
+
+      clicar(view, "3", "muito")
+      clicar(view, "4", "baixo")
+
+      clicar(view, "3", "medio")
+
+      damage = Pokex.Sim.Setup.read().skill_damage
+      assert damage["3"] == {30, 50}
+      assert damage["4"] == {10, 20}
+    end
+
+    test "uma faixa que ele digitou à mão sobrevive a um salvamento", %{conn: conn} do
+      # Um `sim_setup.json` de antes dos botões, ou um número que ele mediu:
+      # apagar em silêncio o que ele mediu seria pior que não ter os botões.
+      Pokex.Sim.Setup.write(%{skill_damage: %{"5" => {28, 41}}})
+
+      view = mesa(conn)
+      clicar(view, "3", "muito")
+
+      assert Pokex.Sim.Setup.read().skill_damage["5"] == {28, 41}
+    end
+
+    test "a barra TODA num clique — ele tem dez teclas", %{conn: conn} do
+      # "facilita pra mim" não combina com dez cliques pra montar um
+      # experimento que ele vai repetir por vida de monstro.
+      view = mesa(conn)
+
+      view |> element(~s(button[phx-click="dmg_all"][phx-value-level="muito"])) |> render_click()
+
+      damage = Pokex.Sim.Setup.read().skill_damage
+      assert damage != %{}
+      assert Enum.all?(damage, fn {_key, band} -> band == {60, 80} end)
+    end
+
+    test "a barra toda em 'padrão' limpa tudo de volta", %{conn: conn} do
+      view = mesa(conn)
+      view |> element(~s(button[phx-click="dmg_all"][phx-value-level="muito"])) |> render_click()
+      refute Pokex.Sim.Setup.read().skill_damage == %{}
+
+      view |> element(~s(button[phx-click="dmg_all"][phx-value-level="padrao"])) |> render_click()
+
+      assert Pokex.Sim.Setup.read().skill_damage == %{}
+    end
+
+    test "o atalho NÃO reescreve o resto da mesa", %{conn: conn} do
+      # Ele grava direto, sem passar pelo formulário: os outros números não
+      # estavam sendo editados e um clique que não é sobre eles não pode
+      # sobrescrevê-los.
+      Pokex.Sim.Setup.write(%{mob_hp: 500, skill_damage: %{}})
+
+      view = mesa(conn)
+      view |> element(~s(button[phx-click="dmg_all"][phx-value-level="medio"])) |> render_click()
+
+      assert Pokex.Sim.Setup.read().mob_hp == 500
+    end
+
+    test "a mistura de unidades é AVISADA, com o número que a torna concreta", %{conn: conn} do
+      # A armadilha que estragaria o experimento em silêncio: uma tecla em
+      # padrão tira uma % da vida, então cresce junto com o monstro.
+      view = mesa(conn)
+
+      view |> form("#sim-mesa", %{"mob_hp" => "500"}) |> render_submit()
+      html = clicar(view, "3", "muito")
+
+      assert html =~ "CRESCE junto com o monstro"
+      # E o número vem de `World.damage_band/2`, o MESMO lugar da coluna
+      # "agora" — a primeira versão dizia 170 (34% de 500) para qualquer tecla,
+      # inclusive as de alvo único, que tiram 22%.
+      assert html =~ "de HP"
     end
   end
 end

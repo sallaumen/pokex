@@ -382,4 +382,35 @@ defmodule Pokex.Sim.BenchTest do
       assert curto.outcome.vanished > 0
     end
   end
+
+  describe "a mesa dele chega na bancada" do
+    # Até 26/08 a bancada montava o mundo com `world_knobs/0` (DUAS chaves) e os
+    # knobs do cenário. A vida do monstro, os níveis de dano e o raio da área que
+    # ele acabou de configurar na tela não chegavam aqui: ele clicava "Rodar" e
+    # media um mundo de 100 de vida com dano em porcentagem, enquanto a tela
+    # dizia 500 com dano absoluto. Toda a calibração era decorativa.
+    #
+    # A prova é por RESULTADO, não por espiar o mundo: um bicho cinco vezes mais
+    # gordo apanhando 10~20 por tecla não pode morrer no mesmo tempo.
+    test "a vida e o dano que ele configurou mudam o que acontece" do
+      tanque =
+        Bench.run(Scenario.get("pilha-pequena"),
+          duration_ms: 30_000,
+          knobs: %{mob_hp: 500, skill_damage: Map.new(~w(1 2 3 4 5 6 7 8 9 0), &{&1, {10, 20}})}
+        )
+
+      normal = Bench.run(Scenario.get("pilha-pequena"), duration_ms: 30_000)
+
+      assert normal.outcome.killed > tanque.outcome.killed
+    end
+
+    test "sem ele dizer nada, o cenário continua dono de tudo" do
+      # Duas corridas iguais têm que dar o mesmo: a porta que a mesa abriu não
+      # pode vazar nada quando ninguém passa por ela.
+      a = Bench.run(Scenario.get("pilha-pequena"), duration_ms: 30_000)
+      b = Bench.run(Scenario.get("pilha-pequena"), duration_ms: 30_000, knobs: %{})
+
+      assert a.outcome.killed == b.outcome.killed
+    end
+  end
 end

@@ -218,12 +218,20 @@ defmodule Pokex.Bots.Engine.Worker do
   # and no consumer has to ask who is on the field. The reserved control key
   # (`Strategy.reserved/1`) is deliberately absent — it belongs to
   # `PlayerSupport`'s rescue combo alone, see `Logic`'s moduledoc.
-  defp hands(nil), do: %{opening: [], single: []}
+  defp hands(nil), do: %{opening: [], single: [], crowd: []}
 
   # `single` travels beside `opening` so a decision can spend the CHEAP keys
   # without spending the area — the ruler saves the area for a pile, not the
   # whole bar.
-  defp hands(loadout), do: %{opening: Strategy.opening(loadout), single: loadout.single}
+  # `crowd` viaja junto porque deixou de ser um amuleto: a R10 gasta a tecla de
+  # controle numa pilha grande, em vez de guardá-la pro resgate que talvez nunca
+  # venha. `Strategy.opening/1` continua sem ela — quem a escolhe é a regra.
+  defp hands(loadout),
+    do: %{
+      opening: Strategy.opening(loadout),
+      single: loadout.single,
+      crowd: Strategy.reserved(loadout)
+    }
 
   defp inputs(state, now) do
     %{

@@ -144,9 +144,17 @@ defmodule Pokex.Sim.BenchTest do
     assert Enum.all?(blind, &(&1.enemies == nil))
   end
 
+  # `reset_revive`/`crowd_from` fora: a pergunta aqui é sobre a TECLA MORTA, e
+  # uma barra que o revive devolve inteira responde outra coisa.
   test "a dead key leaves monsters standing that the other keys would have killed" do
-    dead = run("tecla-morta", duration_ms: 40_000)
-    healthy = Bench.run(%{Scenario.get("tecla-morta") | script: []}, duration_ms: 40_000)
+    so_a_tecla = %{reset_revive: false, crowd_from: 99}
+    dead = run("tecla-morta", duration_ms: 40_000, config: so_a_tecla)
+
+    healthy =
+      Bench.run(%{Scenario.get("tecla-morta") | script: []},
+        duration_ms: 40_000,
+        config: so_a_tecla
+      )
 
     assert dead.outcome.killed <= healthy.outcome.killed
   end
@@ -176,12 +184,23 @@ defmodule Pokex.Sim.BenchTest do
       # `gather_tiles: 0` e sem fuga (R7): as duas regras que ANDAM têm o próprio
       # preço em corda, e este contrato é sobre a FÍSICA — o que acorda e não é
       # abandonado tem que ser lutado.
-      parado = Map.merge(@his_ruler, %{gather_tiles: 0, kite_when_spent: false})
+      parado =
+        Map.merge(@his_ruler, %{
+          gather_tiles: 0,
+          kite_when_spent: false,
+          reset_revive: false,
+          crowd_from: 99
+        })
 
       for scenario <- Scenario.all(),
           scenario.group in Scenario.experiment_groups(),
           scenario.id not in @walks_away do
-        %{outcome: o} = Bench.run(scenario, duration_ms: 60_000, config: parado)
+        # COOLDOWN CURTO de propósito: este contrato é sobre a FÍSICA — o que
+        # acorda e não é abandonado tem que ser lutado — e com os 45s medidos no
+        # vídeo dele (26/08) uma pilha de quatro simplesmente sobrevive à barra,
+        # o que responde sobre a economia de dano e não sobre a corda.
+        rapido = %{scenario | knobs: Map.put(scenario.knobs, :skill_cooldown_ms, 8_000)}
+        %{outcome: o} = Bench.run(rapido, duration_ms: 120_000, config: parado)
 
         assert o.vanished == 0,
                "#{scenario.id}: #{o.vanished} sumiram sem luta (mortos: #{o.killed})"
@@ -195,7 +214,9 @@ defmodule Pokex.Sim.BenchTest do
     # verdade quem fica parado: `kite_when_spent: false` é o que mantém a
     # pergunta sobre a MORDIDA em vez de sobre a fuga.
     test "a vida cai de verdade quando a mordida é forte" do
-      parado = Map.put(@his_ruler, :kite_when_spent, false)
+      parado =
+        Map.merge(@his_ruler, %{kite_when_spent: false, reset_revive: false, crowd_from: 99})
+
       %{metrics: m} = Bench.run(Scenario.get("vida-caindo"), config: parado)
 
       assert m.min_hp < 60, "a barra nunca saiu do verde: a mordida não chegou a acontecer"
@@ -305,17 +326,15 @@ defmodule Pokex.Sim.BenchTest do
     # é a MESMA com e sem poção (nenhuma foi bebida com a pilha viva) e só o
     # final muda, depois que a tela limpou.
     test "e a poção só depois, com a tela limpa" do
-      drinking = %{
-        engage_from: 1,
-        potion_enabled: true,
-        potion_pct: 95,
-        potion_cooldown_ms: 3_000
-      }
+      # sem revive nenhum: ele devolve a vida cheia, e o que está sendo medido
+      # aqui é a POÇÃO
+      seco = %{engage_from: 1, reset_revive: false, crowd_from: 99}
+
+      drinking =
+        Map.merge(seco, %{potion_enabled: true, potion_pct: 95, potion_cooldown_ms: 3_000})
 
       com = Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: drinking)
-
-      sem =
-        Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: %{engage_from: 1})
+      sem = Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: seco)
 
       assert com.metrics.min_hp == sem.metrics.min_hp
       assert com.outcome.hp_at_end > sem.outcome.hp_at_end

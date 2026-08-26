@@ -1091,7 +1091,24 @@ defmodule Pokex.Settings do
     # character health in every run. The lever that actually moves the hunt is
     # `rescue_cooldown_ms` itself — 60s → 30s was +21% monsters in the bench,
     # paid in revive items.
-    engine_reset_revive: false,
+    #
+    # LIGADA em 26/08, e o que a ligou foi um vídeo de 53 segundos da caçada
+    # dele. Até então este simulador supunha cooldown de 8s; a barra do jogo
+    # desenha os segundos que faltam, e eles são **40 a 50**. Com o número certo
+    # a caçada fica presa em "sem cooldown" 85% do tempo, e o revive deixa de
+    # ser um luxo pra ser o ÚNICO jeito de ter barra.
+    #
+    # Medido com a barra dele (1 controle, 3–6 área), no circuito denso, 5 min ×
+    # 12 sementes:
+    #
+    #   controle guardado pro resgate   17,97 mortos/min · 2,8 revives/min · ele com 40%
+    #   R10, piso de 15s                20,00 mortos/min · 4,3 revives/min · ele com 40%
+    #   R10, piso de 5s                 26,72 mortos/min · 9,2 revives/min · ele com 82%
+    #
+    # O piso é a carteira: 15s é o padrão porque quadruplicar a conta de revives
+    # é decisão dele, não minha. Em 5s a regra rende +49% e ele ainda termina
+    # mais inteiro — a pilha dorme, então o campo vazio sai de graça.
+    engine_reset_revive: true,
     # The floor between two of them, so a fight whose bar stays empty does not
     # become a key held down. It WAS six seconds — comfortably above the game's
     # own rescue cooldown and below a full skill cooldown, and measured on his
@@ -1104,7 +1121,7 @@ defmodule Pokex.Settings do
     #   piso 30s       8,87 mortos/min · 1,85 revives/min · ele com 52%
     #   piso 60s       8,68 mortos/min · 1,43 revives/min · ele com 64%
     #   piso 120s      8,45 mortos/min · 0,98 revives/min · ele com 76%
-    engine_reset_revive_cooldown_ms: 60_000,
+    engine_reset_revive_cooldown_ms: 15_000,
     # …and the health it refuses to spend a revive at. The floor between two
     # presses is `rescue_cooldown_ms` — a MINUTE — so a proactive press made on a
     # half-empty bar is the rescue this fight needs in forty seconds, spent
@@ -1153,6 +1170,17 @@ defmodule Pokex.Settings do
     # aparece: três vezes mais monstros perdidos pra corda. É uma regra de
     # sobrevivência, não de dano.
     engine_kite_when_spent: true,
+    # R10 — O CONTROLE É UMA SKILL, NÃO UM AMULETO. Ele guardava a tecla de
+    # controle só pro resgate, e ele desmentiu isso vendo a própria caçada
+    # (26/08): "tento ir usando o 1 pra quando tem muito monstro, pra eu não
+    # morrer, porque se eu ficar guardando o 1 nessas hunts mais sérias não dá
+    # certo". Daqui em diante ela SAI numa pilha grande.
+    engine_crowd_from: 4,
+    # …e a segunda metade da regra dele, que é o que a torna barata: "SEMPRE
+    # usar o revive dentro da range de 5 segundos no máximo depois de usar a
+    # skill de controle". A pilha está dormindo, então o campo vazio não custa
+    # nada — e o revive devolve o controle junto com o resto da barra.
+    engine_stun_window_ms: 5_000,
     # How often a plain VITALS reading is filed while nothing is changing. The
     # transitions that carry the four measurements are written the instant they
     # happen (see `Engine.Worker.sample_vitals/4`); this is only the heartbeat
@@ -1375,6 +1403,8 @@ defmodule Pokex.Settings do
     engine_engage_from: 1..12,
     engine_reset_revive_cooldown_ms: 0..60_000,
     engine_reset_revive_min_hp: 0..100,
+    engine_crowd_from: 1..20,
+    engine_stun_window_ms: 500..60_000,
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_gather_tiles: 0..60,

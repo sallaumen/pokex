@@ -117,6 +117,10 @@ defmodule Pokex.Sim.Bench do
       config: config,
       timeline: [],
       hands: Hands.new(),
+      # o que a caçada VIA quando pediu o revive: com o resgate virando combo, a
+      # prensa cai um ou dois tiques depois do pedido, e julgar a prensa pela
+      # foto da chegada chamava de proativo um resgate pedido no amarelo
+      asked_revive: nil,
       revived_at: nil,
       died_at: nil,
       metrics: blank_metrics()
@@ -165,9 +169,11 @@ defmodule Pokex.Sim.Bench do
       )
 
     {world, hands} = Hands.obey(before, orders, state.hands, state.config)
+    state = remember_ask(state, orders, picture, hands)
 
     %{state | world: world, hands: hands, logic: logic, picture: picture}
     |> measure(previous, before, world, orders, picture, hands)
+    |> forget_ask(before, world)
     |> record(orders, picture)
     |> mark(orders, world)
   end
@@ -217,7 +223,7 @@ defmodule Pokex.Sim.Bench do
       |> tally_violations(world, orders, picture)
       |> tally_bodies(previous, world)
       |> tally_death(previous, world)
-      |> tally_revive(decided_on, world, orders, picture, hands)
+      |> tally_revive(decided_on, world, orders, picture, hands, state.asked_revive)
       |> tally_pile(world, picture)
 
     %{state | metrics: metrics}
@@ -316,16 +322,42 @@ defmodule Pokex.Sim.Bench do
   # So: the ACCEPTANCE is read off the world (a revive going into flight), and
   # the REFUSAL off the order (asked for, and the world did not move). The
   # picture the refusal is judged by is the one the asking was done on.
-  defp tally_revive(metrics, before, world, orders, picture, hands) do
+  # A PRENSA É JULGADA PELA FOTO DO PEDIDO, não pela da chegada. Desde que o
+  # resgate virou combo o revive cai um ou dois tiques depois de ser pedido, e a
+  # fase já mudou — um resgate pedido no amarelo aparecia como proativo, que é
+  # exatamente a conta que a R3b existe pra fazer.
+  defp remember_ask(state, orders, picture, hands) do
     cond do
-      landed?(before, world) -> file_revive(metrics, world, orders, picture, true)
+      hands.revive_at != nil and state.asked_revive == nil ->
+        %{state | asked_revive: %{orders: orders, picture: picture}}
+
+      orders.revive == :now and state.asked_revive == nil ->
+        %{state | asked_revive: %{orders: orders, picture: picture}}
+
+      true ->
+        state
+    end
+  end
+
+  defp tally_revive(metrics, before, world, orders, picture, hands, asked) do
+    {asked_orders, asked_picture} = asked_or_now(asked, orders, picture)
+
+    cond do
+      landed?(before, world) -> file_revive(metrics, world, asked_orders, asked_picture, true)
       # The stun went out and the revive is scheduled: the order is IN FLIGHT,
       # not refused. Counting this tick as a refusal filed every rescue twice.
       hands.revive_at != nil -> metrics
-      orders.revive == :now -> file_revive(metrics, world, orders, picture, false)
+      orders.revive == :now -> file_revive(metrics, world, asked_orders, asked_picture, false)
       true -> metrics
     end
   end
+
+  defp forget_ask(state, before, world) do
+    if landed?(before, world), do: %{state | asked_revive: nil}, else: state
+  end
+
+  defp asked_or_now(%{orders: o, picture: p}, _orders, _picture), do: {o, p}
+  defp asked_or_now(_never_asked, orders, picture), do: {orders, picture}
 
   defp landed?(before, world), do: before.revive_at == nil and world.revive_at != nil
 
@@ -400,7 +432,11 @@ defmodule Pokex.Sim.Bench do
     %{
       situation: picture,
       hunt: %{state: hunt_state(world, luring?), luring?: luring?},
-      hands: %{opening: opening(world), single: keys_of_kind(world, :single)}
+      hands: %{
+        opening: opening(world),
+        single: keys_of_kind(world, :single),
+        crowd: keys_of_kind(world, :crowd)
+      }
     }
   end
 

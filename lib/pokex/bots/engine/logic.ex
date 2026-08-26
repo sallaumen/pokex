@@ -568,6 +568,32 @@ defmodule Pokex.Bots.Engine.Logic do
   # não cabe.
   defp engaged(t) do
     cond do
+      # R10, primeira metade: a pilha é grande e o controle está pronto. Ele sai
+      # AGORA, junto com o dano — guardá-lo pro resgate é guardá-lo pra um
+      # resgate que, numa hunt séria, chega tarde demais.
+      stun_now?(t) ->
+        {mark(t.logic, :stunned, t.now),
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           crowd(t) ++ opening(t),
+           "#{count(t.s)} em cima — controle e dano juntos"
+         )}
+
+      # …e a segunda metade, que é o que torna o controle barato: com a pilha
+      # dormindo, o campo vazio não custa nada, e o revive devolve o controle
+      # junto com o resto da barra. A janela é dele: "SEMPRE usar o revive
+      # dentro da range de 5 segundos no máximo depois da skill de controle".
+      stun_window?(t) ->
+        {mark(t.logic, :reset_revive, t.now) |> mark(:reset_pending, t.now) |> forget_stun(),
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           opening(t),
+           "controle no chão — revive dentro da janela, pra voltar com a barra cheia",
+           revive: :now
+         )}
+
       reset_revive?(t) ->
         # R3b. Stays ENGAGED — this is not a rescue and there is nothing to
         # recover from: the body comes back full, with a full bar, into the same
@@ -607,6 +633,36 @@ defmodule Pokex.Bots.Engine.Logic do
   # Então a fuga se prova: passada a janela, se `walked_total` não andou um
   # tile, ela é abandonada e a luta volta a ser parada. `walked_total` é
   # monotônico, então "andou" é uma subtração — nada de histórico de posição.
+  # Só com a pilha grande, só com a tecla PRONTA (a barra responde isso), e só
+  # com um pokémon em campo pra apertá-la.
+  defp stun_now?(t) do
+    crowd(t) != [] and t.s.own_out? == true and
+      is_integer(t.s.enemies) and t.s.enemies >= t.config.crowd_from and
+      Enum.any?(crowd(t), &ready?(t, &1)) and elapsed?(t, :stunned, t.config.stun_window_ms)
+  end
+
+  # A janela só existe depois de um controle que ESTE módulo mandou sair, e só
+  # enquanto ela dura: fora dela o revive volta a ser a regra de sempre.
+  defp stun_window?(t) do
+    t.config.reset_revive and Map.has_key?(t.logic.since, :stunned) and
+      within?(t, :stunned, t.config.stun_window_ms) and t.s.own_out? == true and
+      elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms)
+  end
+
+  # Sem leitura da barra a tecla conta como pronta: uma leitura que falta não
+  # pode ser o motivo de a caçada nunca usar o controle.
+  defp ready?(t, key) do
+    case Map.get(t.s, :ready_keys) do
+      nil -> true
+      keys -> key in keys
+    end
+  end
+
+  defp crowd(%{hands: %{crowd: keys}}), do: keys
+  defp crowd(_no_hands), do: []
+
+  defp forget_stun(logic), do: %{logic | since: Map.delete(logic.since, :stunned)}
+
   defp kiting?(t) do
     t.config.kite_when_spent and t.s.spent? == true and some?(t.s) and escaping?(t)
   end

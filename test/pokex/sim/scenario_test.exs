@@ -109,5 +109,16 @@ defmodule Pokex.Sim.ScenarioTest do
 
       assert Enum.max(raios) - Enum.min(raios) <= 1.0
     end
+
+    test "TODO canto é ninho — sem isso o mapa cheio nasce vazio" do
+      # `World.population_of/2` só trata um waypoint como ninho quando ele tem
+      # `gather_ms` ou `fight_ms`; sem nenhum dos dois sai um dado de passante.
+      # A primeira versão deste circuito não tinha nenhum dos dois e o "mapa
+      # cheio de bichinho" rendia 1,19 monstro por tiro contra os 3,82 do
+      # formigueiro — num mapa que devia render MAIS.
+      %{waypoints: pts} = Scenario.route(Scenario.get("lotavanon"), [])
+
+      assert Enum.all?(pts, &(&1.gather_ms || &1.fight_ms))
+    end
   end
 end

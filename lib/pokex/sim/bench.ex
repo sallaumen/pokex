@@ -194,6 +194,8 @@ defmodule Pokex.Sim.Bench do
       ms_down: 0,
       ms_fighting: 0,
       kills: 0,
+      casts: 0,
+      reached: 0,
       vanished: 0,
       deaths: [],
       revives: [],
@@ -303,6 +305,8 @@ defmodule Pokex.Sim.Bench do
     %{
       metrics
       | kills: metrics.kills + (world.stats.killed - before.stats.killed),
+        casts: metrics.casts + (world.stats.casts - before.stats.casts),
+        reached: metrics.reached + (world.stats.reached - before.stats.reached),
         vanished: metrics.vanished + (world.stats.vanished - before.stats.vanished)
     }
   end

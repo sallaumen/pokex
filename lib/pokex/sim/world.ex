@@ -204,7 +204,11 @@ defmodule Pokex.Sim.World do
             keys: %{},
             clock: 0,
             failures: MapSet.new(),
-            stats: %{killed: 0, vanished: 0},
+            # `casts`/`reached` answer the question he actually asks of an area
+            # skill: "quanta gente cada tiro pega". A cast that reaches nobody
+            # is the whole difference between a bar on cooldown and damage done,
+            # and nothing was counting it.
+            stats: %{killed: 0, vanished: 0, casts: 0, reached: 0},
             # A revive in flight (`revive_at`) and the floor before the next one
             # may be pressed — TWO of them, because the bot keeps two: a pokémon
             # still standing waits `rescue_cooldown_ms` between two presses, one
@@ -717,19 +721,25 @@ defmodule Pokex.Sim.World do
   def asleep?(mob, %__MODULE__{} = world), do: world.clock < Map.get(mob, :asleep_until, 0)
 
   defp hit(world, radius, {lo, hi}) do
-    {mobs, rand} =
-      Enum.map_reduce(world.mobs, world.rand, fn mob, r ->
+    {mobs, {rand, reached}} =
+      Enum.map_reduce(world.mobs, {world.rand, 0}, fn mob, {r, n} ->
         if in_reach?(mob, world.own.pos, radius) do
           {roll, r} = draw(lo, hi, r)
-          {%{mob | hp: mob.hp - roll}, r}
+          {%{mob | hp: mob.hp - roll}, {r, n + 1}}
         else
-          {mob, r}
+          {mob, {r, n}}
         end
       end)
 
     {alive, dead} = Enum.split_with(mobs, &(&1.hp > 0))
 
-    %{world | mobs: alive, rand: rand, stats: bump(world.stats, :killed, length(dead))}
+    stats =
+      world.stats
+      |> bump(:killed, length(dead))
+      |> bump(:casts, 1)
+      |> bump(:reached, reached)
+
+    %{world | mobs: alive, rand: rand, stats: stats}
   end
 
   # Every target rolls its OWN number, the way the game does. That is the whole

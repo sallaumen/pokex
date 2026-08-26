@@ -345,7 +345,28 @@ defmodule Pokex.Sim.Scenario do
               {1006, 990},
               {1010, 994}
             ] do
-          %{x: x, y: y, z: 7, action: :walk, stops: [], at: nil, gather_wait_ms: 2_000, park: nil}
+          %{
+            x: x,
+            y: y,
+            z: 7,
+            action: :walk,
+            stops: [],
+            at: nil,
+            dwell_ms: nil,
+            park_point: nil,
+            park_tiles: nil,
+            # TODO CANTO é ninho: num anel cheio não existe trecho vazio, e um
+            # waypoint sem `gather_ms`/`fight_ms` não é ninho nenhum — só tira
+            # um dado de passante (`World.population_of/2`). A primeira versão
+            # deste circuito não tinha nenhum dos dois, então o "mapa cheio de
+            # bichinho" nascia praticamente vazio: 1,19 monstro por tiro contra
+            # os 3,82 do formigueiro.
+            fight_ms: nil,
+            gather_ms: 2_000,
+            combo: [],
+            skills: [],
+            gather_wait_ms: nil
+          }
         end
     }
   end

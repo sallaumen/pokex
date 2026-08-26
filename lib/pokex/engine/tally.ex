@@ -47,6 +47,7 @@ defmodule Pokex.Engine.Tally do
     vitals = Enum.filter(events, &(&1["kind"] == "vitals"))
     decisions = Enum.filter(events, &(&1["kind"] == "decision"))
     kills = Enum.filter(events, &(&1["kind"] == "kill"))
+    receipts = Enum.filter(events, &(&1["kind"] == "receipt"))
 
     case window(events) do
       nil ->
@@ -66,7 +67,8 @@ defmodule Pokex.Engine.Tally do
           down_pct: share(vitals, &(&1["out"] != true)),
           stalled_pct: share(vitals, &stalled?/1),
           piles: piles(vitals),
-          by_phase: by_phase(decisions, to)
+          by_phase: by_phase(decisions, to),
+          keys: keys(receipts)
         }
     end
   end
@@ -110,6 +112,41 @@ defmodule Pokex.Engine.Tally do
     |> Enum.map(& &1["enemies"])
     |> Enum.filter(&(is_integer(&1) and &1 > 0))
     |> Enum.frequencies()
+  end
+
+  @doc """
+  AS TECLAS QUE REALMENTE SAÍRAM, por intervalo entre elas.
+
+  "Quanto tempo entre duas teclas o jogo aceita" é uma pergunta sobre o JOGO, e
+  ele já responde: uma tecla que saiu deixa de estar pronta. Uma noite com o
+  intervalo em 500ms e outra com 200 respondem juntas o que nenhuma discussão
+  responde — e é por isso que o `gap_ms` viaja em cada recibo, e não fora dele.
+
+  `unknown` não é falha: é uma tecla que já estava esfriando quando a rajada
+  saiu, e sobre essa o recibo não tem o que dizer.
+  """
+  @spec keys([map]) :: %{optional(integer) => map}
+  def keys(receipts) do
+    receipts
+    |> Enum.group_by(& &1["gap_ms"])
+    |> Map.new(fn {gap, rows} -> {gap, tally_keys(rows)} end)
+  end
+
+  defp tally_keys(rows) do
+    count = fn field -> Enum.sum(Enum.map(rows, &length(&1[field] || []))) end
+    fired = count.("fired")
+    missed = count.("missed")
+    judged = fired + missed
+
+    %{
+      rajadas: length(rows),
+      sairam: fired,
+      falharam: missed,
+      sem_veredito: count.("unknown"),
+      # a taxa só existe quando houve o que julgar: uma noite inteira de teclas
+      # já esfriando não prova nada sobre o intervalo
+      taxa: if(judged > 0, do: Float.round(fired * 100 / judged, 1))
+    }
   end
 
   # Onde foi o minuto. Uma linha de decisão vale até a próxima, que é

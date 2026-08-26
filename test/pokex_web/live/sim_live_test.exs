@@ -214,6 +214,14 @@ defmodule PokexWeb.SimLiveTest do
         %{kind: "vitals", at: 0, enemies: 3, ready: 0, out: true},
         %{kind: "decision", at: 1_000, phase: "engaged", revive: "now"},
         %{kind: "kill", at: 30_000, n: 1},
+        %{
+          kind: "receipt",
+          at: 31_000,
+          gap_ms: 500,
+          fired: ["3"],
+          missed: ["4"],
+          unknown: []
+        },
         %{kind: "vitals", at: 60_000, enemies: 0, ready: 2, out: true}
       ]
 
@@ -227,6 +235,7 @@ defmodule PokexWeb.SimLiveTest do
       assert html =~ "O placar da noite"
       assert html =~ "mortos/min"
       assert html =~ "As pilhas que ele encontrou"
+      assert html =~ "As teclas que realmente saíram"
       assert html =~ "Onde foi o minuto, no jogo"
     end
   end

@@ -107,4 +107,43 @@ defmodule Pokex.Engine.TallyTest do
 
     assert card.revives == 2
   end
+
+  # "QUANTO TEMPO ENTRE DUAS TECLAS O JOGO ACEITA" é uma pergunta sobre o jogo, e
+  # ele já responde: uma tecla que saiu deixa de estar pronta. Duas noites com
+  # intervalos diferentes respondem juntas o que nenhuma discussão responde.
+  describe "as teclas que realmente saíram" do
+    defp receipt(gap, fired, missed, unknown \\ []) do
+      %{
+        "kind" => "receipt",
+        "at" => 0,
+        "gap_ms" => gap,
+        "fired" => fired,
+        "missed" => missed,
+        "unknown" => unknown
+      }
+    end
+
+    test "agrupadas pelo intervalo em vigor, com a taxa de cada um" do
+      %{keys: keys} =
+        Tally.card([
+          vitals(0),
+          receipt(500, ~w(3 4), []),
+          receipt(500, ~w(5), ~w(6)),
+          receipt(120, ~w(3), ~w(4 5)),
+          vitals(60_000)
+        ])
+
+      assert %{rajadas: 2, sairam: 3, falharam: 1, taxa: 75.0} = keys[500]
+      assert %{rajadas: 1, sairam: 1, falharam: 2, taxa: 33.3} = keys[120]
+    end
+
+    # Uma tecla que já estava esfriando não prova nada sobre o intervalo, e
+    # contá-la como falha inventaria uma culpa.
+    test "e o que já estava esfriando fica de fora da conta" do
+      %{keys: keys} =
+        Tally.card([vitals(0), receipt(35, [], [], ~w(7 8 9)), vitals(60_000)])
+
+      assert %{sem_veredito: 3, taxa: nil} = keys[35]
+    end
+  end
 end

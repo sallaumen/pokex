@@ -212,7 +212,7 @@ defmodule Pokex.Vision.SpriteLibrary do
   sub-binaries summed straight into the histogram. `{x, y}` is the top-left in
   frame px; out of bounds returns `nil`, so scanners need no border checks.
   """
-  @spec best_in(t, Frame.t(), {integer, integer, pos_integer, pos_integer}) :: map | nil
+  @spec best_in(t | map, Frame.t(), {integer, integer, pos_integer, pos_integer}) :: map | nil
   def best_in(lib, %Frame{width: fw, height: fh} = frame, {x, y, w, h})
       when x >= 0 and y >= 0 and w > 0 and h > 0 and x + w <= fw and y + h <= fh do
     frame |> window_signature(x, y, w, h) |> best_of(lib)
@@ -220,8 +220,24 @@ defmodule Pokex.Vision.SpriteLibrary do
 
   def best_in(_lib, _frame, _window_outside), do: nil
 
+  @doc """
+  The library resolved ONCE, to hand to `best_in/3` for a whole sweep.
+
+  `best_in/3` re-reads the cache STAMP on every call — a `File.stat` — and a
+  dense scan calls it once per WINDOW: 1549 stat syscalls in one
+  `SpotScan.scan` of a 2x capture, MEASURED 2026-08-26 at 38ms of a 67ms
+  sweep. The stamp is what makes the cache notice a sample taught while the bot
+  runs, and a sweep already in flight finishing on the library it started with
+  is the same answer it would have given anyway.
+  """
+  @spec aimed(t) :: map
+  def aimed(lib), do: cache(lib)
+
+  defp signatures(%{signatures: signatures}), do: signatures
+  defp signatures(lib), do: cache(lib).signatures
+
   defp best_of(sig, lib) do
-    cache(lib).signatures
+    signatures(lib)
     |> Enum.map(fn {name, ref_sigs, aimed?} ->
       {name, ref_sigs |> Enum.map(&intersection(sig, &1)) |> Enum.max(fn -> 0.0 end), aimed?}
     end)
@@ -252,6 +268,11 @@ defmodule Pokex.Vision.SpriteLibrary do
     Map.new(counts, fn {bin, n} -> {bin, n / total} end)
   end
 
+  # `Map.update/4` builds an anonymous function per PIXEL, and this runs once per
+  # pixel of every window a dense sweep scores: 6.5 million of them in one
+  # `SpotScan.scan` of a 2x capture, 88% of the sweep (eprof, 2026-08-26).
+  # Matching the key out and writing it back with `%{acc | bin => ...}` is the
+  # same histogram with no closure and no key-presence probe.
   defp count_bins(<<r, g, b, _a, rest::binary>>, acc) do
     bin =
       Bitwise.bor(
@@ -259,7 +280,13 @@ defmodule Pokex.Vision.SpriteLibrary do
         Bitwise.bsr(b, 5)
       )
 
-    count_bins(rest, Map.update(acc, bin, 1, &(&1 + 1)))
+    acc =
+      case acc do
+        %{^bin => n} -> %{acc | bin => n + 1}
+        _first_of_its_colour -> Map.put(acc, bin, 1)
+      end
+
+    count_bins(rest, acc)
   end
 
   defp count_bins(_tail, acc), do: acc

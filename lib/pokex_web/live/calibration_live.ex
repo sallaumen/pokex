@@ -894,9 +894,10 @@ defmodule PokexWeb.CalibrationLive do
   # monitor's own snapshot — coming back to a screen he calibrated last week
   # is the same situation as re-running on the one in front of him.
   defp saved_for_screen(%{w: w, h: h}) do
-    with {:ok, %Calibration{screen_w: ^w, screen_h: ^h} = calib} <- Calibration.load() do
-      calib
-    else
+    case Calibration.load() do
+      {:ok, %Calibration{screen_w: ^w, screen_h: ^h} = calib} ->
+        calib
+
       _other_screen_or_none ->
         case Calibration.last_for_screen({w, h}) do
           {:ok, calib} -> calib

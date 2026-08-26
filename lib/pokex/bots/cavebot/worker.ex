@@ -168,7 +168,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
           comeback?: boolean,
           luring?: boolean,
           last_action: %{text: String.t(), at: integer} | nil,
-          counters: %{waypoints: non_neg_integer, steps: non_neg_integer}
+          counters: %{
+            waypoints: non_neg_integer,
+            steps: non_neg_integer,
+            aborts: non_neg_integer,
+            comebacks: non_neg_integer,
+            blocks: non_neg_integer
+          }
         }
 
   @spec status(GenServer.server()) :: snapshot
@@ -761,7 +767,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         state
         | timer: Process.send_after(self(), :comeback, ms),
           block_retries: attempt,
-          hold_note: "#{block_text_of(state)} — #{note}"
+          hold_note: "#{state.hold_note} — #{note}"
       }
 
       broadcast_status(state)
@@ -770,9 +776,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       state
     end
   end
-
-  defp block_text_of(%{hold_note: note}) when is_binary(note), do: note
-  defp block_text_of(_state), do: "parei"
 
   # Re-entering, not resuming: a brand-new Logic homes in at the nearest corner
   # on the current floor, which is the whole point — wherever the character

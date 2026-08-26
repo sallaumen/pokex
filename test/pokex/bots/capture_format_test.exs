@@ -49,9 +49,9 @@ defmodule Pokex.Bots.CaptureFormatTest do
         |> String.split("\n")
         |> Enum.with_index(1)
         |> Enum.filter(fn {line, _n} ->
-          String.contains?(line, "Capture.frame") or String.contains?(line, "Capture.grab")
+          (String.contains?(line, "Capture.frame") or String.contains?(line, "Capture.grab")) and
+            String.contains?(line, ".png")
         end)
-        |> Enum.filter(fn {line, _n} -> String.contains?(line, ".png") end)
         |> Enum.reject(fn {line, _n} -> Enum.any?(@allowed_png, &String.contains?(line, &1)) end)
         |> Enum.map(fn {line, n} -> "#{file}:#{n}  #{String.trim(line)}" end)
       end)

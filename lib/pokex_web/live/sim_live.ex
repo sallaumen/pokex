@@ -416,12 +416,7 @@ defmodule PokexWeb.SimLive do
 
   defp bar_owner(nil), do: "sem pokémon"
 
-  defp bar_owner(_world) do
-    case Pokex.Sim.Loadout.current() do
-      %{name: name} -> "a barra do #{name}"
-      _none -> "sem pokémon"
-    end
-  end
+  defp bar_owner(_world), do: "a barra do #{Pokex.Sim.Loadout.current().name}"
 
   defp tuned(setup, key) do
     case Map.get(setup, :skill_damage, %{})[key] do
@@ -831,6 +826,13 @@ defmodule PokexWeb.SimLive do
               "ou jogue você mesmo com as setas e as teclas 1–9."
         }
 
+      true ->
+        running_status(assigns)
+    end
+  end
+
+  defp running_status(assigns) do
+    cond do
       # ENTREGUE E MUDO. Uma simulação que roda com o cérebro no comando e não
       # faz nada não pode parecer igual a uma que está caçando: ele rodou uma
       # assim e teve que adivinhar ("ele não usou nenhuma skill nem andou",

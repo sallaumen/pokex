@@ -310,8 +310,6 @@ defmodule Pokex.Bots.Engine.Worker do
   # …and the same moment a second time, TYPED. The sentence in the feed is what
   # he reads in the morning; this is what tells us later whether three was the
   # right ruler — a question no amount of prose can answer.
-  defp file(_state, nil, _orders), do: :ok
-
   defp file(_state, picture, orders) do
     Events.record(:decision, %{
       phase: orders.phase,

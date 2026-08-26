@@ -239,8 +239,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
         |> String.graphemes()
         |> Enum.with_index()
         |> Enum.filter(fn {_char, index} -> keep.(index) end)
-        |> Enum.map(&elem(&1, 0))
-        |> Enum.join()
+        |> Enum.map_join("", &elem(&1, 0))
 
       teach_line(glyphs, chars)
     end

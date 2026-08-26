@@ -84,17 +84,16 @@ defmodule Pokex.Bots.BotSupervisor do
     # killable by mouse-to-corner like everything else; it re-arms on boot, Iniciar bot, or a
     # support toggle).
     on_panic = fn ->
-      order_and_halt(
-        "Guardian: pânico ou meta batida",
-        fishing,
-        combat,
-        catcher,
-        mini_game,
-        player_support,
-        cavebot,
-        timers,
-        engine
-      )
+      order_and_halt("Guardian: pânico ou meta batida", %{
+        fishing: fishing,
+        combat: combat,
+        catcher: catcher,
+        mini_game: mini_game,
+        player_support: player_support,
+        cavebot: cavebot,
+        timers: timers,
+        engine: engine
+      })
     end
 
     children = [
@@ -367,6 +366,20 @@ defmodule Pokex.Bots.BotSupervisor do
       :ok
   end
 
+  # Every automated worker, by its registered name. `order_and_halt` and
+  # `halt_fleet` take the whole fleet as one term so a caller cannot silently
+  # drop one by miscounting positional arguments.
+  @default_fleet %{
+    fishing: Fishing.Worker,
+    combat: Combat.Worker,
+    catcher: Catcher.Worker,
+    mini_game: MiniGame.Worker,
+    player_support: PlayerSupport.Worker,
+    cavebot: Cavebot.Worker,
+    timers: Timers.Worker,
+    engine: Engine.Worker
+  }
+
   @doc "Halts all workers. Safe to call repeatedly — halting an idle worker is a no-op."
   @spec stop_all(GenServer.server(), GenServer.server(), GenServer.server()) :: :ok
   def stop_all(fishing, combat, catcher) do
@@ -405,25 +418,24 @@ defmodule Pokex.Bots.BotSupervisor do
         cavebot \\ Cavebot.Worker,
         timers \\ Timers.Worker
       ) do
-    order_and_halt("parar", fishing, combat, catcher, mini_game, player_support, cavebot, timers)
+    order_and_halt("parar", %{
+      @default_fleet
+      | fishing: fishing,
+        combat: combat,
+        catcher: catcher,
+        mini_game: mini_game,
+        player_support: player_support,
+        cavebot: cavebot,
+        timers: timers
+    })
   end
 
   # A fleet Stop is an ORDER: bumps the generation (killing any older pending
   # resume — Focus only re-arms its own pause's generation) and RECORDS the
   # reason the panel shows as "stopped why". All production callers funnel here.
-  defp order_and_halt(
-         reason,
-         fishing,
-         combat,
-         catcher,
-         mini_game,
-         player_support,
-         cavebot,
-         timers,
-         engine \\ Engine.Worker
-       ) do
+  defp order_and_halt(reason, fleet) do
     safe_order(:stop, reason)
-    halt_fleet(fishing, combat, catcher, mini_game, player_support, cavebot, timers, engine)
+    halt_fleet(fleet)
   end
 
   @doc """
@@ -437,29 +449,21 @@ defmodule Pokex.Bots.BotSupervisor do
   def hold_for_focus do
     generation = safe_order(:hold, "foco perdido")
 
-    halt_fleet(
-      Fishing.Worker,
-      Combat.Worker,
-      Catcher.Worker,
-      MiniGame.Worker,
-      PlayerSupport.Worker,
-      Cavebot.Worker,
-      Timers.Worker
-    )
+    halt_fleet(@default_fleet)
 
     generation
   end
 
-  defp halt_fleet(
-         fishing,
-         combat,
-         catcher,
-         mini_game,
-         player_support,
-         cavebot,
-         timers,
-         engine \\ Engine.Worker
-       ) do
+  defp halt_fleet(%{
+         fishing: fishing,
+         combat: combat,
+         catcher: catcher,
+         mini_game: mini_game,
+         player_support: player_support,
+         cavebot: cavebot,
+         timers: timers,
+         engine: engine
+       }) do
     # The cavebot goes down FIRST: it drives Combat.run itself, so halting it
     # after Combat would leave a tick free to re-arm the fight in between.
     # The self() guard is for its {:block, _} brake, which calls the global
@@ -514,16 +518,7 @@ defmodule Pokex.Bots.BotSupervisor do
   fallback for callers that can't say more.
   """
   def stop_all(reason) when is_binary(reason) do
-    order_and_halt(
-      reason,
-      Fishing.Worker,
-      Combat.Worker,
-      Catcher.Worker,
-      MiniGame.Worker,
-      PlayerSupport.Worker,
-      Cavebot.Worker,
-      Timers.Worker
-    )
+    order_and_halt(reason, @default_fleet)
   end
 
   # A worker can be legitimately unresponsive for seconds — e.g. parked on a screen capture the

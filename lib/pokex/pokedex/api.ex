@@ -16,9 +16,8 @@ defmodule Pokex.Pokedex.Api do
 
   @doc "The decoded `/api/pokemon` payload — feed it to `Pokex.Pokedex.Index`."
   def index do
-    with {:ok, body} <- get("/api/pokemon"),
-         {:ok, json} <- JSON.decode(body) do
-      {:ok, json}
+    with {:ok, body} <- get("/api/pokemon") do
+      JSON.decode(body)
     end
   end
 

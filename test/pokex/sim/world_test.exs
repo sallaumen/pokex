@@ -733,7 +733,7 @@ defmodule Pokex.Sim.WorldTest do
             do: length(World.new(plain, seed: seed, knobs: %{stray_chance_pct: 100}).mobs)
 
       assert Enum.min(counts) > 0, "a road of 100% strays produced an empty world"
-      assert length(World.new(plain, knobs: %{stray_chance_pct: 0}).mobs) == 0
+      assert World.new(plain, knobs: %{stray_chance_pct: 0}).mobs == []
     end
 
     test "nobody is born on a tile somebody already occupies" do

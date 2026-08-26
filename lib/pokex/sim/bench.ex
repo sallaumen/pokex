@@ -291,7 +291,7 @@ defmodule Pokex.Sim.Bench do
         {:wasted_revive,
          orders.revive == :now and picture.enemies == 0 and picture.own_hp == 100 and
            picture.spent? != true},
-        {:mute_order, not (is_binary(orders.why) and orders.why != "")}
+        {:mute_order, orders.why == ""}
       ]
       |> Enum.filter(&elem(&1, 1))
       |> Enum.map(&elem(&1, 0))

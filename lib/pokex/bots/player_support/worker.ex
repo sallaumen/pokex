@@ -810,13 +810,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # WHEN it is worth reviving ever misfires into asking twice too close
   # together.
   defp revive_decision(state) do
-    if Settings.get(:rescue_enabled) do
-      case engine_revive() do
-        :now -> if cooldown_elapsed?(state), do: :rescue, else: :hold
-        _hold_or_stale -> :hold
-      end
-    else
-      :hold
+    cond do
+      not Settings.get(:rescue_enabled) -> :hold
+      engine_revive() != :now -> :hold
+      cooldown_elapsed?(state) -> :rescue
+      true -> :hold
     end
   end
 

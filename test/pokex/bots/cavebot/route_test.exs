@@ -81,7 +81,7 @@ defmodule Pokex.Bots.Cavebot.RouteTest do
     end
 
     test "corners closer than the tolerance are named by index" do
-      route = route_of([{2305, 30014, 5}, {2304, 30014, 5}, {2300, 30014, 5}])
+      route = route_of([{2305, 30_014, 5}, {2304, 30_014, 5}, {2300, 30_014, 5}])
 
       assert Route.unwalkable_pairs(route, 1) == [0]
       assert Route.unwalkable_pairs(route, 0) == []
@@ -100,13 +100,14 @@ defmodule Pokex.Bots.Cavebot.RouteTest do
     end
 
     test "up and straight back down onto the same tile is a round trip" do
-      route = route_of([{2310, 30021, 5}, {2310, 30023, 6}, {2310, 30021, 5}, {2308, 30017, 5}])
+      route =
+        route_of([{2310, 30_021, 5}, {2310, 30_023, 6}, {2310, 30_021, 5}, {2308, 30_017, 5}])
 
       assert Route.stair_round_trips(route) == [0]
     end
 
     test "a climb that goes somewhere else is not a round trip" do
-      route = route_of([{2310, 30021, 5}, {2310, 30023, 6}, {2315, 30030, 5}])
+      route = route_of([{2310, 30_021, 5}, {2310, 30_023, 6}, {2315, 30_030, 5}])
 
       assert Route.stair_round_trips(route) == []
     end

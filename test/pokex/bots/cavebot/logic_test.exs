@@ -1599,7 +1599,13 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
   # that need walking still cost a walk.
   describe "corners the character is already standing on" do
     defp tight_route do
-      [{2305, 30014, 5}, {2304, 30014, 5}, {2303, 30014, 5}, {2303, 30015, 5}, {2307, 30016, 5}]
+      [
+        {2305, 30_014, 5},
+        {2304, 30_014, 5},
+        {2303, 30_014, 5},
+        {2303, 30_015, 5},
+        {2307, 30_016, 5}
+      ]
       |> Enum.reduce(Route.new("meganium"), fn {x, y, z}, route ->
         {:ok, r} = Route.append(route, {x, y, z})
         r
@@ -1615,7 +1621,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     test "a plain corner already within tolerance is swallowed by the same tick" do
       logic = walking_at(tight_route(), 0)
 
-      {logic, _action} = Logic.step(logic, world_at({2305, 30014, 5}), 0)
+      {logic, _action} = Logic.step(logic, world_at({2305, 30_014, 5}), 0)
 
       # corner 2 is one tile away (already "arrived"); corner 3 is two, so it
       # is where the walking actually resumes
@@ -1626,7 +1632,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       route = Route.set_action(tight_route(), 1, :lure_end)
       logic = walking_at(route, 0)
 
-      {logic, _action} = Logic.step(logic, world_at({2305, 30014, 5}), 0)
+      {logic, _action} = Logic.step(logic, world_at({2305, 30_014, 5}), 0)
 
       assert logic.wp_index == 1
     end
@@ -1635,7 +1641,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       route = Route.set_stop(tight_route(), 1, :sweep, true)
       logic = walking_at(route, 0)
 
-      {logic, _action} = Logic.step(logic, world_at({2305, 30014, 5}), 0)
+      {logic, _action} = Logic.step(logic, world_at({2305, 30_014, 5}), 0)
 
       assert logic.wp_index == 1
     end
@@ -1643,10 +1649,10 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     test "a corner that needs walking still costs a walk" do
       logic = walking_at(tight_route(), 3)
 
-      {logic, _arrival} = Logic.step(logic, world_at({2303, 30015, 5}), 0)
+      {logic, _arrival} = Logic.step(logic, world_at({2303, 30_015, 5}), 0)
       assert logic.wp_index == 4
 
-      {_logic, action} = Logic.step(logic, world_at({2303, 30015, 5}), 200)
+      {_logic, action} = Logic.step(logic, world_at({2303, 30_015, 5}), 200)
       assert match?({:walk, _, _}, action)
     end
   end

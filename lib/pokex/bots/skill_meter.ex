@@ -72,74 +72,67 @@ defmodule Pokex.Bots.SkillMeter do
   def watch(key, opts \\ []) do
     read = Keyword.get(opts, :read, &battle/0)
     now = Keyword.get(opts, :now, fn -> System.monotonic_time(:millisecond) end)
-    sleep = Keyword.get(opts, :sleep, &Process.sleep/1)
 
-    with {:ok, row, before} when before > 0 <- locked_bar(read.()) do
-      started = now.()
-      chase(key, row, before, started, now, read, sleep)
-    else
+    case locked_bar(read.()) do
+      {:ok, row, before} when before > 0 ->
+        chase(%{
+          key: key,
+          row: row,
+          before: before,
+          started: now.(),
+          now: now,
+          read: read,
+          sleep: Keyword.get(opts, :sleep, &Process.sleep/1)
+        })
+
       # Uma barra já vazia antes do aperto não tem queda pra dar.
-      {:ok, _row, 0} -> {:error, :no_bar}
-      error -> error
+      {:ok, _row, _zero} ->
+        {:error, :no_bar}
+
+      error ->
+        error
     end
   end
 
-  defp chase(key, row, before, started, now, read, sleep) do
-    elapsed = now.() - started
-
-    cond do
-      elapsed > @wait_ms ->
-        {:error, :no_drop}
-
-      true ->
-        sleep.(@poll_ms)
-
-        case locked_bar(read.()) do
-          # A linha travada mudou de bicho (o anterior morreu, a lista andou):
-          # a queda que viria agora não é da mesma barra, e uma medida assim
-          # seria pior que nenhuma.
-          {:ok, other, _bar} when other != row ->
-            {:error, :target_changed}
-
-          # MORREU: a barra zerou ou a linha sumiu da lista. É a medida mais
-          # valiosa que existe aqui — "se ele se identificar aqui com a skill 4
-          # sozinha, ele já mata" — e a única que se perderia por parecer erro.
-          {:ok, ^row, 0} ->
-            {:ok, %{key: key, took_pct: 100.0, delay_ms: now.() - started}}
-
-          {:error, :no_bar} ->
-            {:ok, %{key: key, took_pct: 100.0, delay_ms: now.() - started}}
-
-          {:ok, ^row, bar} when bar < before ->
-            took = (before - bar) * 100 / before
-
-            if took >= @min_drop_pct,
-              do: {:ok, %{key: key, took_pct: Float.round(took, 1), delay_ms: now.() - started}},
-              else: chase(key, row, before, started, now, read, sleep)
-
-          {:ok, ^row, _same_or_healed} ->
-            chase(key, row, before, started, now, read, sleep)
-
-          # Sem alvo travado nenhum: a lista pode ter andado por qualquer
-          # motivo, e chamar isso de morte seria inventar um 100%.
-          {:error, _no_target} ->
-            {:error, :target_gone}
-        end
+  defp chase(t) do
+    if t.now.() - t.started > @wait_ms do
+      {:error, :no_drop}
+    else
+      t.sleep.(@poll_ms)
+      judge(t, locked_bar(t.read.()))
     end
   end
 
-  # A barra da linha TRAVADA, em pixels verdes. Sem alvo travado não há o que
-  # medir: a queda de uma linha qualquer não é dano desta tecla.
-  defp locked_bar(%{locked_row: row, hp: hp}) when is_integer(row) and is_list(hp) do
-    case Enum.at(hp, row) do
-      count when is_integer(count) -> {:ok, row, count}
-      # A linha travada saiu da lista: durante a perseguição isso é morte, antes
-      # dela é não ter o que medir. Quem chama sabe em qual dos dois está.
-      nil -> {:error, :no_bar}
-    end
+  # MORREU: a barra zerou ou a linha sumiu da lista. É a medida mais valiosa que
+  # existe aqui — "se ele se identificar aqui com a skill 4 sozinha, ele já
+  # mata" — e a única que se perderia por parecer erro.
+  defp judge(%{row: row} = t, {:ok, row, 0}), do: killed(t)
+  defp judge(t, {:error, :no_bar}), do: killed(t)
+
+  # A linha travada mudou de bicho (o anterior morreu, a lista andou): a queda
+  # que viria agora não é da mesma barra, e uma medida assim seria pior que
+  # nenhuma.
+  defp judge(%{row: row} = t, {:ok, row, bar}), do: drop(t, bar)
+
+  defp judge(_t, {:ok, _other_row, _bar}), do: {:error, :target_changed}
+
+  # Sem alvo travado nenhum: a lista pode ter andado por qualquer motivo, e
+  # chamar isso de morte seria inventar um 100%.
+  defp judge(_t, {:error, _no_target}), do: {:error, :target_gone}
+
+  defp drop(%{before: before} = t, bar) when bar >= before, do: chase(t)
+
+  defp drop(t, bar) do
+    took = (t.before - bar) * 100 / t.before
+
+    if took >= @min_drop_pct,
+      do: {:ok, shot(t, Float.round(took, 1))},
+      else: chase(t)
   end
 
-  defp locked_bar(_no_lock), do: {:error, :no_target}
+  defp killed(t), do: {:ok, shot(t, 100.0)}
+
+  defp shot(t, pct), do: %{key: t.key, took_pct: pct, delay_ms: t.now.() - t.started}
 
   @doc """
   Observa e GUARDA. O que o processo da rajada chama no modo de checagem.
@@ -224,6 +217,19 @@ defmodule Pokex.Bots.SkillMeter do
 
     Pokex.Home.write!(Pokex.Home.skill_meter_file(), body)
   end
+
+  # A barra da linha TRAVADA, em pixels verdes. Sem alvo travado não há o que
+  # medir: a queda de uma linha qualquer não é dano desta tecla.
+  defp locked_bar(%{locked_row: row, hp: hp}) when is_integer(row) and is_list(hp) do
+    case Enum.at(hp, row) do
+      count when is_integer(count) -> {:ok, row, count}
+      # A linha travada saiu da lista: durante a perseguição isso é morte, antes
+      # dela é não ter o que medir. Quem chama sabe em qual dos dois está.
+      nil -> {:error, :no_bar}
+    end
+  end
+
+  defp locked_bar(_no_lock), do: {:error, :no_target}
 
   defp battle do
     max_age = Pokex.Settings.get(:combat_world_max_age_ms)

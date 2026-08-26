@@ -267,17 +267,20 @@ defmodule PokexWeb.SimLiveTest do
     test "pilha fixa em 0 DEVOLVE o sorteio ao cenário, não esvazia o mundo", %{conn: conn} do
       # A caixa só sabe escrever números. Se 0 pinasse, todo ninho de todo
       # cenário passaria a ter zero bicho — um mundo vazio que ainda responde.
+      #
+      # Pinado ANTES de abrir a página: sem isso o refute passaria sem nada ter
+      # acontecido, e o teste diria que funciona mesmo se o 0 nunca chegasse.
+      Pokex.Sim.Setup.write(%{nest_size: 12})
+      assert Pokex.Sim.Setup.read().nest_size == 12
+
       {:ok, view, _html} = live(conn, ~p"/sim")
 
       view
       |> element(~s(button[phx-click="toggle-setup"]))
       |> render_click()
 
-      # PINA primeiro, senão o refute passa sem nada ter acontecido.
-      view |> form("#sim-mesa", %{"nest_size" => "12", "mob_hp" => "100"}) |> render_submit()
-      assert Pokex.Sim.Setup.read().nest_size == 12
-
       view |> form("#sim-mesa", %{"nest_size" => "0", "mob_hp" => "100"}) |> render_submit()
+
       refute Map.has_key?(Pokex.Sim.Setup.read(), :nest_size)
     end
 

@@ -17,6 +17,7 @@ defmodule Pokex.Bots.Combat.Worker do
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.{Loadout, Logic, Strategy}
   alias Pokex.Bots.Perf
+  alias Pokex.Bots.SkillMeter
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.SkillSuspect
   alias Pokex.Perception
@@ -325,7 +326,9 @@ defmodule Pokex.Bots.Combat.Worker do
   # supposed to survive for the revive.
   defp opening_keys(loadout, recorded) do
     if Loadout.attacks?(loadout),
-      do: {"em área com #{loadout.name}", Strategy.opening(loadout)},
+      do:
+        {"em área com #{loadout.name}",
+         Strategy.opening(loadout, aura_ready?: aura_ready?(loadout))},
       else: {"com o combo da caçada", recorded}
   end
 
@@ -502,6 +505,21 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   end
 
+  # Só com UMA tecla — uma rajada de três tira uma queda só e ninguém sabe de
+  # quem foi, que é exatamente o modo que ele descreveu ("ele e um inimigo de
+  # vida cheia, usa uma skill e calcula a diferença").
+  defp measure_damage([only]) do
+    if SkillMeter.on?(), do: spawn(fn -> SkillMeter.file(only) end)
+    :ok
+  end
+
+  defp measure_damage(_rajada), do: :ok
+
+  # A aura de dano só lidera a rajada quando está PRONTA — "usar a aura 2 quando
+  # disponível" (26/08). A barra é lida do fato, sem captura nova, e uma leitura
+  # velha responde "não", que é o lado barato de errar.
+  defp aura_ready?(loadout), do: Loadout.aura_ready?(loadout, Perception.ready_skills())
+
   defp area_key?(%Loadout{aoe: aoe}, keys), do: Enum.any?(keys, &(&1 in aoe))
   defp area_key?(_no_loadout, _keys), do: false
 
@@ -532,6 +550,9 @@ defmodule Pokex.Bots.Combat.Worker do
       # Spawned like the receipt and for the same reason — this process must die
       # now so the next decision is not skipped as "a burst still in flight".
       if area?, do: spawn(&AreaProbe.file/0)
+
+      # E o OUTRO modo de checagem: quanto esta tecla tirou.
+      measure_damage(keys)
 
       receipt
     else

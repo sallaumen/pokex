@@ -20,6 +20,7 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.Cavebot.{HandsRead, Photos, Recording, Route, Store, WalkTest, Worker}
   alias Pokex.Bots.AreaProbe
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.SkillMeter
   alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Calibration
@@ -106,6 +107,9 @@ defmodule PokexWeb.CavebotLive do
        # A calibração do raio da área: o modo, e o que os disparos já disseram.
        area_probe?: Settings.get(:area_probe_enabled) == true,
        area: AreaProbe.summary(),
+       # Quanto cada tecla tira, e quanto demora — a calibração de checagem.
+       meter?: Settings.get(:skill_meter_enabled) == true,
+       meter: SkillMeter.summary(),
        # Read health: read_coord is all-or-nothing (requires 1.0 confidence),
        # so ONE doubtful glyph drops the whole coordinate to nil. Occasional
        # misses don't hurt recording — but without a counter there is no way
@@ -849,6 +853,21 @@ defmodule PokexWeb.CavebotLive do
   # open would spend that every second for a number nobody is reading.
   # O MODO de calibração. Custa uma foto por disparo de área, então é coisa de
   # ligar por uma caçada e desligar — nunca um padrão.
+  def handle_event("toggle_skill_meter", _params, socket) do
+    on? = not socket.assigns.meter?
+    Settings.put(:skill_meter_enabled, on?)
+    {:noreply, assign(socket, meter?: on?, meter: SkillMeter.summary())}
+  end
+
+  def handle_event("clear_skill_meter", _params, socket) do
+    SkillMeter.clear()
+    {:noreply, assign(socket, meter: %{})}
+  end
+
+  def handle_event("refresh_skill_meter", _params, socket) do
+    {:noreply, assign(socket, meter: SkillMeter.summary())}
+  end
+
   def handle_event("toggle_area_probe", _params, socket) do
     on? = not socket.assigns.area_probe?
     Settings.put(:area_probe_enabled, on?)
@@ -2262,6 +2281,85 @@ defmodule PokexWeb.CavebotLive do
                 </span>
               </p>
             </div>
+          </div>
+
+          <%!-- QUANTO CADA TECLA TIRA, e quanto demora. Ideia dele inteira:
+                "ele e um inimigo de vida cheia, o sistema usa uma skill e
+                calcula a diferença e salva essa diferença associada a essa
+                skill... se ele se identificar aqui com a skill 4 sozinha, ele já
+                mata, não precisa ficar usando 4, 5, 6 sempre". --%>
+          <div class="mt-3 border-t border-pk-line pt-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <h4 class="text-pk-sm font-semibold text-pk-text-1">o que cada tecla tira</h4>
+              <button
+                type="button"
+                phx-click="toggle_skill_meter"
+                class={[
+                  "rounded border px-2 py-0.5 text-pk-meta",
+                  if(@meter?,
+                    do: "border-pk-ok text-pk-ok",
+                    else: "border-pk-line text-pk-text-2 hover:bg-pk-surface-2"
+                  )
+                ]}
+              >
+                {if @meter?, do: "medindo — clique pra parar", else: "medir durante a caçada"}
+              </button>
+              <button
+                :if={@meter != %{}}
+                type="button"
+                phx-click="refresh_skill_meter"
+                class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
+              >
+                atualizar
+              </button>
+              <button
+                :if={@meter != %{}}
+                type="button"
+                phx-click="clear_skill_meter"
+                class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-surface-2"
+              >
+                zerar
+              </button>
+            </div>
+
+            <p :if={@meter?} class="mt-1 text-pk-meta text-pk-text-3">
+              só mede apertos de UMA tecla — uma rajada de três tira uma queda só e ninguém
+              sabe de quem foi
+            </p>
+
+            <p :if={@meter == %{}} class="mt-2 text-pk-meta text-pk-text-3">
+              nenhuma tecla medida ainda
+            </p>
+
+            <table :if={@meter != %{}} class="mt-2 w-full font-mono text-pk-meta">
+              <thead class="text-pk-text-3">
+                <tr>
+                  <th class="text-left font-normal">tecla</th>
+                  <th class="text-right font-normal">tira</th>
+                  <th class="text-right font-normal">demora</th>
+                  <th class="text-right font-normal">pra matar</th>
+                  <th class="text-right font-normal">amostras</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={{key, m} <- Enum.sort_by(@meter, &elem(&1, 0))} class="text-pk-text-2">
+                  <td class="text-left">{key}</td>
+                  <td class="text-right">{m.took_pct}%</td>
+                  <td class="text-right">{m.delay_ms}ms</td>
+                  <td class="text-right">{m.to_kill || "—"}×</td>
+                  <td class={["text-right", if(m.shots < 5, do: "text-pk-warn")]}>{m.shots}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <%!-- As duas coisas que o número NÃO sabe, onde ele lê o número. --%>
+            <p :if={@meter != %{}} class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
+              <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
+              <span>
+                é MEDIANA: o dano de outro jogador na mesma linha entra na conta. E poucas
+                amostras (em amarelo) não merecem a mesma fé que muitas.
+              </span>
+            </p>
 
             <%!-- O ponto cego, escrito onde ele lê o número: efeito de skill
                   pinta por cima do nome, então some quem está DENTRO da área.

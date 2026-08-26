@@ -314,7 +314,7 @@ defmodule PokexWeb.TeamLiveTest do
       # the jobs that are not the kill say WHEN they are, and the control says
       # out loud why it is not in the combo
       moments = view |> element("#skills-moments-Charizard") |> render()
-      assert moments =~ "na mobada, no meio do bolo"
+      assert moments =~ "na mobada, e ANTES das skills de dano"
       assert moments =~ "reservada pro stun antes do revive"
       assert moments =~ "não está lá pro revive"
 

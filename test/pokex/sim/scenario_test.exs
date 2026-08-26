@@ -82,4 +82,43 @@ defmodule Pokex.Sim.ScenarioTest do
 
     assert [{_at, {:fail, {:dead_key, "3"}}}] = scenario.script
   end
+
+  describe "o anel de Lotavanon" do
+    test "é o mapa dele, com os números dele" do
+      s = Scenario.get("lotavanon")
+
+      # MEDIDO POR ELE: "os electrodos mal me dão dano, tipo menos de 1% da minha
+      # vida por ataque". É o que torna este mapa uma questão de dano em vez de
+      # sobrevivência, e é a única razão pra ele existir ao lado do formigueiro.
+      assert s.knobs.bite_dmg == 1
+      assert s.knobs.player_bite_dmg == 1
+
+      # "direto tem nove pokémon ao redor do meu"
+      assert Map.keys(s.knobs.nest_sizes) |> Enum.max() == 9
+    end
+
+    test "o circuito é um CÍRCULO, não um polígono de conveniência" do
+      %{waypoints: pts} = Scenario.route(Scenario.get("lotavanon"), [])
+
+      assert length(pts) == 12
+
+      # Cada canto à mesma distância do centro (±1 tile de arredondamento): num
+      # anel ele nunca volta pelo que já limpou, e o renascimento chega nele em
+      # vez de ele voltar buscar.
+      raios = Enum.map(pts, fn p -> :math.sqrt((p.x - 1000) ** 2 + (p.y - 1000) ** 2) end)
+
+      assert Enum.max(raios) - Enum.min(raios) <= 1.0
+    end
+
+    test "CADA canto é ninho — sem isso o mapa cheio nasce vazio" do
+      # `World.population_of/2` só trata um waypoint como ninho quando ele tem
+      # `gather_ms` ou `fight_ms`; sem nenhum dos dois sai um dado de passante.
+      # A primeira versão deste circuito não tinha nenhum dos dois e o "mapa
+      # cheio de bichinho" rendia 1,19 monstro por tiro contra os 3,82 do
+      # formigueiro — num mapa que devia render MAIS.
+      %{waypoints: pts} = Scenario.route(Scenario.get("lotavanon"), [])
+
+      assert Enum.all?(pts, &(&1.gather_ms || &1.fight_ms))
+    end
+  end
 end

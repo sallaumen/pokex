@@ -30,13 +30,14 @@ defmodule Pokex.Bots.Combat.Loadout do
   alias Pokex.Pokedex.{SkillProfile, Team}
 
   @enforce_keys [:name]
-  defstruct name: nil, aoe: [], single: [], buffs: [], heal: [], crowd: []
+  defstruct name: nil, aoe: [], single: [], buffs: [], shield: [], heal: [], crowd: []
 
   @type t :: %__MODULE__{
           name: String.t(),
           aoe: [String.t()],
           single: [String.t()],
           buffs: [String.t()],
+          shield: [String.t()],
           heal: [String.t()],
           crowd: [String.t()]
         }
@@ -82,6 +83,7 @@ defmodule Pokex.Bots.Combat.Loadout do
       aoe: SkillProfile.keys(profile, :aoe),
       single: SkillProfile.keys(profile, :single),
       buffs: SkillProfile.keys(profile, :buffs),
+      shield: SkillProfile.keys(profile, :shield),
       heal: SkillProfile.keys(profile, :heal),
       crowd: SkillProfile.keys(profile, :crowd)
     }
@@ -110,7 +112,7 @@ defmodule Pokex.Bots.Combat.Loadout do
   @spec classified?(t) :: boolean
   def classified?(%__MODULE__{} = loadout) do
     Enum.any?(
-      [loadout.aoe, loadout.single, loadout.buffs, loadout.heal, loadout.crowd],
+      [loadout.aoe, loadout.single, loadout.buffs, loadout.shield, loadout.heal, loadout.crowd],
       &(&1 != [])
     )
   end
@@ -144,4 +146,21 @@ defmodule Pokex.Bots.Combat.Loadout do
 
     "#{loadout.name} · #{parts}"
   end
+
+  @doc """
+  Is this pokémon's DAMAGE aura ready to press right now?
+
+  `ready` is whatever `Pokex.Perception.ready_skills/1` answered — `nil` when the
+  skill-bar reading is stale or missing, and that answers FALSE. Failing closed
+  is the cheap side: a burst that skips a ready aura loses one multiplier, a
+  burst that leads with an aura on cooldown loses `combat_skill_gap_ms` of
+  damage every single time, and his gap is 500ms.
+
+  Pure on purpose — the caller reads the bar, this only decides.
+  """
+  @spec aura_ready?(t | nil, [String.t()] | nil) :: boolean
+  def aura_ready?(%__MODULE__{buffs: buffs}, ready) when is_list(ready),
+    do: Enum.any?(buffs, &(&1 in ready))
+
+  def aura_ready?(_loadout, _no_reading), do: false
 end

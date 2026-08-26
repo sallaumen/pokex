@@ -112,11 +112,86 @@ defmodule Pokex.Bots.Combat.StrategyTest do
   describe "reading the loadout out loud" do
     test "it names the pokémon and what it brings" do
       assert Loadout.describe(vileplume()) ==
-               "Shiny Vileplume · área 3+4+5+6 · alvo único 7 · aura 1"
+               "Shiny Vileplume · área 3+4+5+6 · alvo único 7 · aura de dano 1"
     end
 
     test "no choice says so, instead of an empty line" do
       assert Loadout.describe(nil) == "sem pokémon escolhido"
+    end
+  end
+
+  describe "a aura de dano, quando ela está pronta" do
+    # "usar a aura 2 quando disponível e se for usar outras skills usar elas
+    # depois" (26/08). Uma aura que multiplica dano e sai DEPOIS do dano não
+    # multiplicou nada.
+    test "pronta, ela lidera — e o resto da ordem não muda" do
+      assert Strategy.skill_order(vileplume(), enemies: 5, aura_ready?: true) == ~w(1 3 4 5 6 7)
+      assert Strategy.skill_order(vileplume(), enemies: 1, aura_ready?: true) == ~w(1 7 3 4 5 6)
+    end
+
+    test "sem ninguém dizer que está pronta, a rajada é a de sempre" do
+      # O "quando disponível" não é decoração: com o intervalo dele em 500ms,
+      # uma tecla em cooldown na frente da rajada custa meio segundo de dano.
+      assert Strategy.skill_order(vileplume(), enemies: 5) == ~w(3 4 5 6 7)
+    end
+
+    test "a abertura também aceita a condição" do
+      assert Strategy.opening(vileplume()) == ~w(3 4 5 6 7)
+      assert Strategy.opening(vileplume(), aura_ready?: true) == ~w(1 3 4 5 6 7)
+    end
+  end
+
+  describe "a aura de DEFESA nunca sai na rajada" do
+    defp dugtrio do
+      Loadout.resolve("Dugtrio", %{
+        "1" => :crowd,
+        "2" => :buffs,
+        "3" => :shield,
+        "4" => :aoe,
+        "5" => :aoe,
+        "6" => :single
+      })
+    end
+
+    # "a aura 2 é uma aura para dar dano e a aura 3 é uma hora que deixa ele
+    # indestrutível" (26/08). Uma invulnerabilidade gasta a cada abertura é uma
+    # invulnerabilidade que não existe quando ele precisa — o mesmo motivo pelo
+    # qual o controle é reservado.
+    test "nem pronta, nem na abertura, nem com pilha" do
+      refute "3" in Strategy.skill_order(dugtrio(), enemies: 9, aura_ready?: true)
+      refute "3" in Strategy.opening(dugtrio(), aura_ready?: true)
+      refute "3" in Strategy.skill_order(dugtrio(), enemies: 1)
+    end
+
+    test "ela é reservada, ao lado do controle — e dá pra PROVAR" do
+      assert "3" in Strategy.reserved(dugtrio())
+      assert "1" in Strategy.reserved(dugtrio())
+    end
+
+    test "a aura de dano do mesmo pokémon continua liderando quando pronta" do
+      assert Strategy.skill_order(dugtrio(), enemies: 9, aura_ready?: true) == ~w(2 4 5 6)
+    end
+  end
+
+  describe "quem decide se a aura está pronta" do
+    # A barra vem de `Perception.ready_skills/1`, que responde `nil` quando a
+    # leitura está velha ou não existe. Falhar fechado é o lado barato: uma
+    # rajada que pula uma aura pronta perde um multiplicador; uma que lidera com
+    # a aura em cooldown perde `combat_skill_gap_ms` de dano toda vez, e o dele
+    # está em 500ms.
+    test "leitura velha responde NÃO, nunca um chute" do
+      refute Loadout.aura_ready?(vileplume(), nil)
+    end
+
+    test "pronta é a aura DESTE pokémon estar na barra lida" do
+      assert Loadout.aura_ready?(vileplume(), ~w(1 3 4))
+      refute Loadout.aura_ready?(vileplume(), ~w(3 4 5))
+    end
+
+    test "um pokémon sem aura nenhuma nunca está com a aura pronta" do
+      sem_aura = Loadout.resolve("Sem aura", %{"3" => :aoe, "7" => :single})
+
+      refute Loadout.aura_ready?(sem_aura, ~w(1 2 3))
     end
   end
 end

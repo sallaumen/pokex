@@ -1368,7 +1368,7 @@ defmodule PokexWeb.CavebotLiveTest do
       badge = view |> element("#waypoint-skills-0") |> render()
       assert badge =~ "✨"
       assert badge =~ "❤️"
-      assert badge =~ "aura, cura"
+      assert badge =~ "aura de dano, cura"
       # read-only: the badge is a label, never a button
       refute badge =~ "phx-click"
     end

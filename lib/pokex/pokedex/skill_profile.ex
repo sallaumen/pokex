@@ -48,9 +48,14 @@ defmodule Pokex.Pokedex.SkillProfile do
   """
 
   # Ordered by MOMENT, so reading the editor top to bottom tells the story of
-  # a hunt: hold the aura while gathering, open with area, finish on a target,
-  # heal when asked, and keep the control for the revive.
-  @categories [:buffs, :aoe, :single, :heal, :crowd]
+  # a hunt: raise the damage aura while gathering, open with area, finish on a
+  # target, heal when asked, and keep the control for the revive.
+  #
+  # `:buffs` and `:shield` were ONE job until 2026-08-26, and being one is what
+  # made the bot use them badly: "a aura 2 é uma aura para dar dano e a aura 3 é
+  # uma hora que deixa ele indestrutível". A timer that fires "the auras" spends
+  # the invulnerability every eight seconds of gathering, on nothing.
+  @categories [:buffs, :shield, :aoe, :single, :heal, :crowd]
 
   # The two halves of the kill, in the order they fire. Area first because it
   # needs no target; single-target after, once something is marked.
@@ -60,7 +65,7 @@ defmodule Pokex.Pokedex.SkillProfile do
   # same mapping `Pokex.Bots.SkillBar` reads cooldowns from.
   @hotbar_keys ~w(1 2 3 4 5 6 7 8 9 0)
 
-  @type category :: :heal | :buffs | :aoe | :single | :crowd
+  @type category :: :heal | :buffs | :shield | :aoe | :single | :crowd
   @type t :: %{optional(String.t()) => category}
 
   @doc "Every job a skill can have, in the order the editor offers them."
@@ -74,14 +79,16 @@ defmodule Pokex.Pokedex.SkillProfile do
   @doc "The Portuguese label for a job — the only place these words are written."
   @spec label(category) :: String.t()
   def label(:heal), do: "cura"
-  def label(:buffs), do: "aura"
+  def label(:buffs), do: "aura de dano"
+  def label(:shield), do: "aura de defesa"
   def label(:aoe), do: "área"
   def label(:single), do: "alvo único"
   def label(:crowd), do: "controle"
 
   @doc "When this job happens, in one phrase — the thing the first cut got wrong."
   @spec moment(category) :: String.t()
-  def moment(:buffs), do: "na mobada, no meio do bolo"
+  def moment(:buffs), do: "na mobada, e ANTES das skills de dano"
+  def moment(:shield), do: "guardada pro perigo — não sai na rajada"
   def moment(:aoe), do: "abre a matança — não precisa de alvo"
   def moment(:single), do: "fecha a matança, só com alvo marcado"
   def moment(:heal), do: "quando a vida do pokémon pede — antes da poção"
@@ -90,6 +97,7 @@ defmodule Pokex.Pokedex.SkillProfile do
   @doc "The icon each moment carries, so the row reads at a glance."
   @spec icon(category) :: String.t()
   def icon(:buffs), do: "✨"
+  def icon(:shield), do: "🛡️"
   def icon(:aoe), do: "💥"
   def icon(:single), do: "🎯"
   def icon(:heal), do: "❤️"

@@ -325,7 +325,9 @@ defmodule Pokex.Bots.Combat.Worker do
   # supposed to survive for the revive.
   defp opening_keys(loadout, recorded) do
     if Loadout.attacks?(loadout),
-      do: {"em área com #{loadout.name}", Strategy.opening(loadout)},
+      do:
+        {"em área com #{loadout.name}",
+         Strategy.opening(loadout, aura_ready?: aura_ready?(loadout))},
       else: {"com o combo da caçada", recorded}
   end
 
@@ -501,6 +503,11 @@ defmodule Pokex.Bots.Combat.Worker do
          }, :sent}
     end
   end
+
+  # A aura de dano só lidera a rajada quando está PRONTA — "usar a aura 2 quando
+  # disponível" (26/08). A barra é lida do fato, sem captura nova, e uma leitura
+  # velha responde "não", que é o lado barato de errar.
+  defp aura_ready?(loadout), do: Loadout.aura_ready?(loadout, Perception.ready_skills())
 
   defp area_key?(%Loadout{aoe: aoe}, keys), do: Enum.any?(keys, &(&1 in aoe))
   defp area_key?(_no_loadout, _keys), do: false

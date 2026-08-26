@@ -324,7 +324,8 @@ defmodule PokexWeb.SimLive do
 
   defp kind_label(:aoe), do: "área"
   defp kind_label(:single), do: "alvo"
-  defp kind_label(:buffs), do: "buff"
+  defp kind_label(:buffs), do: "aura dano"
+  defp kind_label(:shield), do: "aura defesa"
   defp kind_label(:heal), do: "cura"
   defp kind_label(:crowd), do: "controle"
   defp kind_label(other), do: to_string(other)

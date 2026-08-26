@@ -66,7 +66,7 @@ defmodule Pokex.Bots.Cavebot.Route do
   2) does not make the route lie. Written ONLY by his hand — the recorder never
   touches this.
   """
-  @type skill :: :buffs | :aoe | :single | :heal | :crowd
+  @type skill :: :buffs | :shield | :aoe | :single | :heal | :crowd
 
   # Read from the Pokédex at COMPILE time, never written twice. The categories
   # are the profile's to define, and a second literal here is a drift waiting

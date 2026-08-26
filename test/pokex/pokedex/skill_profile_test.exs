@@ -14,6 +14,7 @@ defmodule Pokex.Pokedex.SkillProfileTest do
     test "an empty profile categorises nothing" do
       assert SkillProfile.by_category(%{}) == %{
                buffs: [],
+               shield: [],
                aoe: [],
                single: [],
                heal: [],
@@ -38,6 +39,7 @@ defmodule Pokex.Pokedex.SkillProfileTest do
 
       assert SkillProfile.by_category(profile) == %{
                buffs: [],
+               shield: [],
                aoe: [],
                single: [],
                heal: [],

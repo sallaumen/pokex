@@ -47,7 +47,7 @@ defmodule Pokex.Vision.NameLabels do
   40 labels; the capture that feeds it costs ten times that.
   """
 
-  alias Pokex.Vision.Frame
+  alias Pokex.Vision.{Frame, Ink}
 
   # Compression darkens the text's edges, so the tests are RATIOS (one channel
   # dominates) rather than floors on absolute values: sampled from his
@@ -58,11 +58,6 @@ defmodule Pokex.Vision.NameLabels do
   # numbers ("1889") and yellow skill banners ("AGILITY!"), which sit in the
   # same places and must not be counted as creatures.
   @max_channel_split 40
-
-  # A 10px-tall label survives sampling every other row, and halves the work.
-  @row_step 2
-  # Letter spacing, in px, that still belongs to one word.
-  @gap 6
 
   @type kind :: :hostile | :own
   @type label :: %{
@@ -81,75 +76,19 @@ defmodule Pokex.Vision.NameLabels do
   Options (all measured defaults; exposed because a different client zoom moves
   them together):
 
-    * `:min_w` / `:max_w` — label width band in px (default #{22}/#{150})
-    * `:min_h` / `:max_h` — label height band in px (default #{6}/#{20})
-    * `:min_rows` — how many sampled rows must agree (default #{2})
+    * `:min_w` / `:max_w` — label width band in px (default 22/150)
+    * `:min_h` / `:max_h` — label height band in px (default 6/20)
+    * `:min_rows` — how many sampled rows must agree (default 2)
   """
   @spec find(Frame.t(), keyword) :: [label]
   def find(%Frame{} = frame, opts \\ []) do
-    min_w = Keyword.get(opts, :min_w, 22)
-    max_w = Keyword.get(opts, :max_w, 150)
-    min_h = Keyword.get(opts, :min_h, 6)
-    max_h = Keyword.get(opts, :max_h, 20)
-    min_rows = Keyword.get(opts, :min_rows, 2)
-
-    0..(frame.height - 1)//@row_step
-    |> Enum.flat_map(&runs(frame, &1, min_w, max_w))
-    |> Enum.reduce([], &merge/2)
-    |> Enum.filter(fn l ->
-      l.rows >= min_rows and l.w >= min_w and l.w <= max_w and l.h >= min_h and l.h <= max_h
-    end)
-    |> Enum.sort_by(&{&1.y, &1.x})
-  end
-
-  @doc "Only the hostiles — the pile a rule would count."
-  @spec hostiles([label]) :: [label]
-  def hostiles(labels), do: Enum.filter(labels, &(&1.kind == :hostile))
-
-  @doc """
-  His own pokémon's label, when the green name was readable — the point an area
-  skill actually leaves from. `nil` when it was covered or off the frame, and a
-  caller that gets `nil` must say which anchor it fell back to rather than
-  quietly measuring from somewhere else.
-  """
-  @spec own([label]) :: label | nil
-  def own(labels), do: Enum.find(labels, &(&1.kind == :own))
-
-  # --- one row -------------------------------------------------------------
-
-  defp runs(frame, y, min_w, max_w) do
-    row = binary_part(frame.rgba, y * frame.width * 4, frame.width * 4)
-    scan(row, 0, nil, y, {min_w, max_w}, [])
-  end
-
-  # `run` is `{kind, start, last}` or nil: carried through so a red run and a
-  # green run that touch stay two labels, never one.
-  defp scan(<<r, g, b, _a, rest::binary>>, x, run, y, band, acc) do
-    case {ink(r, g, b), run} do
-      {nil, nil} ->
-        scan(rest, x + 1, nil, y, band, acc)
-
-      {nil, {_kind, _start, last}} when x - last > @gap ->
-        scan(rest, x + 1, nil, y, band, close(acc, run, y, band))
-
-      {nil, _open} ->
-        scan(rest, x + 1, run, y, band, acc)
-
-      {kind, {kind, start, _last}} ->
-        scan(rest, x + 1, {kind, start, x}, y, band, acc)
-
-      {kind, _other_or_none} ->
-        scan(rest, x + 1, {kind, x, x}, y, band, close(acc, run, y, band))
-    end
-  end
-
-  defp scan(<<>>, _x, run, y, band, acc), do: close(acc, run, y, band)
-
-  defp close(acc, nil, _y, _band), do: acc
-
-  defp close(acc, {kind, start, last}, y, {min_w, max_w}) do
-    w = last - start + 1
-    if w >= min_w and w <= max_w, do: [{kind, y, start, last} | acc], else: acc
+    Ink.find(frame, &ink/3, %{
+      min_w: Keyword.get(opts, :min_w, 22),
+      max_w: Keyword.get(opts, :max_w, 150),
+      min_h: Keyword.get(opts, :min_h, 6),
+      max_h: Keyword.get(opts, :max_h, 20),
+      min_rows: Keyword.get(opts, :min_rows, 2)
+    })
   end
 
   # Red is a hostile, green is his. Everything else — orange damage, yellow
@@ -168,32 +107,16 @@ defmodule Pokex.Vision.NameLabels do
     end
   end
 
-  # --- rows into labels ----------------------------------------------------
+  @doc "Only the hostiles — the pile a rule would count."
+  @spec hostiles([label]) :: [label]
+  def hostiles(labels), do: Enum.filter(labels, &(&1.kind == :hostile))
 
-  # A run joins a label when it is of the SAME colour, on the next sampled row
-  # (or the one after — compression eats whole rows of thin text) and overlaps
-  # it horizontally.
-  defp merge({kind, y, a, b}, labels) do
-    case Enum.split_with(labels, &touches?(&1, kind, y, a, b)) do
-      {[], rest} ->
-        [%{kind: kind, x: a, y: y, w: b - a + 1, h: @row_step, rows: 1} | rest]
-
-      {[hit | _] = hits, rest} ->
-        grown = %{
-          kind: kind,
-          x: min(hit.x, a),
-          y: min(hit.y, y),
-          w: max(hit.x + hit.w, b + 1) - min(hit.x, a),
-          h: max(hit.y + hit.h, y + @row_step) - min(hit.y, y),
-          rows: hit.rows + 1
-        }
-
-        [grown | rest ++ tl(hits)]
-    end
-  end
-
-  defp touches?(l, kind, y, a, b) do
-    l.kind == kind and y >= l.y and y - (l.y + l.h) <= @row_step and
-      not (b < l.x - 8 or a > l.x + l.w + 8)
-  end
+  @doc """
+  His own pokémon's label, when the green name was readable — the point an area
+  skill actually leaves from. `nil` when it was covered or off the frame, and a
+  caller that gets `nil` must say which anchor it fell back to rather than
+  quietly measuring from somewhere else.
+  """
+  @spec own([label]) :: label | nil
+  def own(labels), do: Enum.find(labels, &(&1.kind == :own))
 end

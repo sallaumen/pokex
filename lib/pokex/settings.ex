@@ -1210,7 +1210,13 @@ defmodule Pokex.Settings do
     # How much the evidence picture is shrunk before it is drawn. 4 turns a
     # 1812px box into 453px — small enough for a panel, big enough that a missed
     # name is still visibly a name.
-    crowd_scan_evidence_shrink: 4
+    crowd_scan_evidence_shrink: 4,
+    # CALIBRATION MODE, off by default: after every area key the bot presses,
+    # take one capture and file where the damage landed. It costs a capture per
+    # cast, so it is something he turns on for a hunt and off again — the point
+    # is to replace `Sim.World`'s invented `aoe_radius: 4` with a number his own
+    # screen produced.
+    area_probe_enabled: false
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

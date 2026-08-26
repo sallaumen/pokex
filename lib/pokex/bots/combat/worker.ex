@@ -13,6 +13,7 @@ defmodule Pokex.Bots.Combat.Worker do
   use GenServer
   require Logger
 
+  alias Pokex.Bots.AreaProbe
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.{Loadout, Logic, Strategy}
   alias Pokex.Bots.Perf
@@ -488,16 +489,23 @@ defmodule Pokex.Bots.Combat.Worker do
         parent = self()
         confirm? = Settings.get(:combat_confirm_skills) and state.retry_ok?
 
+        # Is this burst worth measuring the AREA with? Only a cast that actually
+        # contained an area key can say how far an area key reaches.
+        area? = AreaProbe.on?() and area_key?(state.loadout, keys)
+
         {%{
            state
-           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?) end),
+           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?, area?) end),
              last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
              retry_ok?: true
          }, :sent}
     end
   end
 
-  defp tap_keys(keys, parent, confirm?) do
+  defp area_key?(%Loadout{aoe: aoe}, keys), do: Enum.any?(keys, &(&1 in aoe))
+  defp area_key?(_no_loadout, _keys), do: false
+
+  defp tap_keys(keys, parent, confirm?, area?) do
     before = if confirm?, do: Perception.ready_skills()
     at = now()
 
@@ -519,6 +527,12 @@ defmodule Pokex.Bots.Combat.Worker do
       # spent to make it shrink, and the two together are the only way the
       # simulator's `mob_hp` vs damage ratio stops being a number I made up.
       Pokex.Engine.Events.record(:press, %{keys: keys, n: length(keys) * opts[:tap_count]})
+
+      # CALIBRATION MODE, and only then: one look at where the damage landed.
+      # Spawned like the receipt and for the same reason — this process must die
+      # now so the next decision is not skipped as "a burst still in flight".
+      if area?, do: spawn(&AreaProbe.file/0)
+
       receipt
     else
       {:blocked, :mini_game_active} -> :ok

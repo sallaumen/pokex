@@ -50,6 +50,7 @@ defmodule Pokex.Home do
 
   def calibration_file, do: Path.join(dir(), "calibration.json")
   def settings_file, do: Path.join(dir(), "settings.json")
+  def area_probe_file, do: Path.join(dir(), "area_probe.json")
 
   @doc """
   Writes a state file so a reader never catches it half-written.

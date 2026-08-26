@@ -436,12 +436,8 @@ defmodule Pokex.Sim.BenchTest do
           }
         )
 
-      dentro =
-        m.revives
-        |> Enum.filter(&(&1.accepted? and &1.phase == :engaged))
-        |> Enum.filter(&(&1.since_stun_ms && &1.since_stun_ms <= 5_000))
-
       engaged = Enum.filter(m.revives, &(&1.accepted? and &1.phase == :engaged))
+      dentro = Enum.filter(engaged, &(&1.since_stun_ms && &1.since_stun_ms <= 5_000))
 
       assert engaged != [], "o cenário tem que produzir revives de reset pra haver o que medir"
 

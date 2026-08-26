@@ -17,6 +17,7 @@ defmodule Pokex.Bots.Combat.Worker do
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.{Loadout, Logic, Strategy}
   alias Pokex.Bots.Perf
+  alias Pokex.Bots.SkillMeter
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.SkillSuspect
   alias Pokex.Perception
@@ -539,6 +540,15 @@ defmodule Pokex.Bots.Combat.Worker do
       # Spawned like the receipt and for the same reason — this process must die
       # now so the next decision is not skipped as "a burst still in flight".
       if area?, do: spawn(&AreaProbe.file/0)
+
+      # E o OUTRO modo de checagem: quanto esta tecla tirou. Só com UMA tecla —
+      # uma rajada de três tira uma queda só e ninguém sabe de quem foi, que é
+      # exatamente o modo que ele descreveu ("ele e um inimigo de vida cheia,
+      # usa uma skill e calcula a diferença").
+      case keys do
+        [only] -> if SkillMeter.on?(), do: spawn(fn -> SkillMeter.file(only) end)
+        _rajada -> :ok
+      end
 
       receipt
     else

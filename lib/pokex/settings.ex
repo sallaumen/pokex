@@ -1216,7 +1216,12 @@ defmodule Pokex.Settings do
     # cast, so it is something he turns on for a hunt and off again — the point
     # is to replace `Sim.World`'s invented `aoe_radius: 4` with a number his own
     # screen produced.
-    area_probe_enabled: false
+    area_probe_enabled: false,
+    # MODO DE CHECAGEM, desligado por padrão: com ele ligado, todo aperto de UMA
+    # tecla vira uma medida de quanto ela tirou da barra do alvo e de quanto
+    # tempo levou pra tirar. Ideia dele por inteiro (26/08), e o que responde
+    # "a skill 4 sozinha já mata?" com um número em vez de um palpite.
+    skill_meter_enabled: false
   }
 
   @setting_keys @seed_settings |> Map.keys() |> Enum.sort_by(&Atom.to_string/1)

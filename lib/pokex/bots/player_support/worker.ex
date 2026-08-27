@@ -340,6 +340,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
               fail(state, reason)
           end
 
+        # The file exists but its numbers cannot be read (half-written, hand-edited,
+        # an older schema). Says so rather than borrowing "sem calibração": that one
+        # sends him to the wizard, and re-marking a screen does not repair a file
+        # that is already corrupt on disk.
+        {:error, {:calibracao_ilegivel, _reason}} ->
+          %{state | hp_pct: nil, gate: nil, error: "calibração ilegível (arquivo corrompido?)"}
+
         # No calibration yet → nothing to read; keep monitoring so it starts the instant one exists.
         {:error, _reason} ->
           %{state | hp_pct: nil, gate: nil, error: "sem calibração"}
@@ -352,6 +359,26 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     if changed?(previous, state), do: broadcast(state)
 
     {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
+  catch
+    # The monitor that keeps him alive must not be killable by what it reads OR
+    # by whom it calls. `read_hp/1` has been uncrashable since it was written;
+    # the rest of the tick was not — and the rest of the tick includes three
+    # `GenServer.call`s into the Body (potion, heal, reposition), which is the
+    # exact shape the workspace rule forbids: a process that must survive never
+    # depends on another answering. A Body restarting mid-perform used to take
+    # this worker with it, and at a 120ms cadence three deaths in 360ms exhaust
+    # BotSupervisor's default restart intensity, then the application's, and the
+    # whole VM goes down (2026-08-27, via a raise in `Calibration.load/1`).
+    #
+    # Never silent: it lands on the panel as an error and bumps the failures
+    # counter, the same surface a bad HP read uses. And it MUST reschedule — a
+    # loop that stops without dying is worse than one that dies, because no
+    # supervisor comes to restart it.
+    kind, reason ->
+      {:noreply,
+       state
+       |> fail({kind, reason})
+       |> reschedule(Settings.get(:support_tick_ms))}
   end
 
   # Uncrashable: this monitor runs forever, so a transient capture failure (the broker or the Rig

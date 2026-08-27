@@ -12,6 +12,11 @@ defmodule Pokex.Sim.ScoreTest do
   # A RAJADA DE GRAÇA por padrão, pelo mesmo motivo do arquivo da bancada: desde
   # #367 as teclas custam tempo e a semente é 300ms, e um placar que mede o
   # preço da rajada junto com o que ele afirma não prova nenhum dos dois.
+  # …e o ALVO DO BOLO em 1 junto: desde 27/08 a janela só fecha com seis na
+  # tela, e os cenários daqui são pilhas de um a quatro — sem isso nenhum deles
+  # abriria fogo, e todo teste do arquivo mediria a régua nova em vez do que
+  # afirma.
+  #
   # …e a ESPERA DA R12 em zero pelo mesmo motivo: desde 27/08 a régua para dois
   # segundos antes de estourar a área, e num cenário de 60s isso entra na conta
   # de tudo que se meça aqui. Quem quer medir a espera a pede por `config` — o

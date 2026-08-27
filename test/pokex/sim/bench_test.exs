@@ -8,6 +8,11 @@ defmodule Pokex.Sim.BenchTest do
   # e a semente é 300ms, então cada teste daqui passaria a medir o preço da
   # rajada JUNTO com o que ele afirma — e um teste que mede duas coisas não
   # prova nenhuma. Quem quer o preço o pede por `config`.
+  # …e o ALVO DO BOLO em 1 junto: desde 27/08 a janela só fecha com seis na
+  # tela, e os cenários daqui são pilhas de um a quatro — sem isso nenhum deles
+  # abriria fogo, e todo teste do arquivo mediria a régua nova em vez do que
+  # afirma.
+  #
   # …e a ESPERA DA R12 em zero pelo mesmo motivo: desde 27/08 a régua para dois
   # segundos antes de estourar a área, e num cenário de 60s isso entra na conta
   # de tudo que se meça aqui. Quem quer medir a espera a pede por `config` — o
@@ -213,7 +218,13 @@ defmodule Pokex.Sim.BenchTest do
           gather_tiles: 0,
           kite_when_spent: false,
           reset_revive: false,
-          crowd_from: 99
+          crowd_from: 99,
+          # …e a janela fechando em qualquer bolo, pelo mesmo motivo: o alvo de
+          # seis (27/08) é uma regra sobre QUANDO parar de juntar, e uma pilha
+          # de três que nunca fecha a janela some na corda sem que ninguém tenha
+          # decidido abandoná-la — que é a pergunta oposta à deste contrato.
+          gather_target: 1,
+          bunch_ms: 0
         })
 
       for scenario <- Scenario.all(),
@@ -297,7 +308,10 @@ defmodule Pokex.Sim.BenchTest do
 
   test "com a régua dele o que a régua recusava morre — o preço da régua, medido" do
     %{outcome: o} =
-      Bench.run(Scenario.get("ganancia"), duration_ms: 40_000, config: %{engage_from: 1})
+      Bench.run(Scenario.get("ganancia"),
+        duration_ms: 40_000,
+        config: %{engage_from: 1, gather_target: 1, bunch_ms: 0}
+      )
 
     assert o.killed == 1
     assert o.vanished == 0
@@ -328,7 +342,12 @@ defmodule Pokex.Sim.BenchTest do
     [low, high] =
       Bench.sweep(Scenario.get("pilha-que-fecha"), :engage_from, [3, 9],
         duration_ms: 30_000,
-        config: %{size_ceiling_ms: 4_000, patience_tiles: 10_000}
+        config: %{
+          size_ceiling_ms: 4_000,
+          patience_tiles: 10_000,
+          gather_target: 1,
+          bunch_ms: 0
+        }
       )
 
     assert low.killed > 0
@@ -459,13 +478,19 @@ defmodule Pokex.Sim.BenchTest do
     # A prova é por RESULTADO, não por espiar o mundo: um bicho cinco vezes mais
     # gordo apanhando 10~20 por tecla não pode morrer no mesmo tempo.
     test "a vida e o dano que ele configurou mudam o que acontece" do
+      # `gather_target: 1` e `bunch_ms: 0` como no resto do arquivo: a pergunta
+      # aqui é se a MESA dele chega no mundo, e uma pilha pequena que nunca
+      # fecha a janela não mataria nada dos dois lados.
+      solto = %{gather_target: 1, bunch_ms: 0}
+
       tanque =
         Bench.run(Scenario.get("pilha-pequena"),
           duration_ms: 30_000,
+          config: solto,
           knobs: %{mob_hp: 500, skill_damage: Map.new(~w(1 2 3 4 5 6 7 8 9 0), &{&1, {10, 20}})}
         )
 
-      normal = Bench.run(Scenario.get("pilha-pequena"), duration_ms: 30_000)
+      normal = Bench.run(Scenario.get("pilha-pequena"), duration_ms: 30_000, config: solto)
 
       assert normal.outcome.killed > tanque.outcome.killed
     end

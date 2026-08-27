@@ -20,7 +20,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # POR QUÊ; a espera que vem depois de fechar é uma regra própria, com o bloco
   # próprio dela no fim do arquivo. É o mesmo isolamento que `crowd_from: 99` e
   # `reset_revive: false` já fazem aqui.
-  @config Config.merge(%{bunch_ms: 0})
+  # …e `gather_target: 1` junto, pelo mesmo motivo: desde 27/08 a janela só
+  # fecha quando o bolo chega no alvo (seis), e a maior parte deste arquivo
+  # pergunta OUTRA coisa sobre pilhas de dois a quatro. O alvo tem o bloco dele.
+  @config Config.merge(%{bunch_ms: 0, gather_target: 1})
 
   defp situation(overrides \\ %{}) do
     Map.merge(
@@ -410,7 +413,17 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # `bunch_ms: 0` pelo mesmo motivo que `crowd_from: 99` está aqui: desde 27/08
     # a régua PARA antes de estourar a área (R12), e a espera apareceria na
     # frente da pergunta deste bloco.
-    @reset Config.merge(%{reset_revive: true, engage_from: 3, crowd_from: 99, bunch_ms: 0})
+    @reset Config.merge(%{
+             reset_revive: true,
+             engage_from: 3,
+             crowd_from: 99,
+             bunch_ms: 0,
+             gather_target: 1,
+             # a porta "sem controle pronto" é o assunto DESTE bloco: ele mede a
+             # R3b sozinha, e desde 27/08 ela nasce fechada (o revive sem stun
+             # quase matou o pokémon dele numa rota real)
+             reset_needs_control: false
+           })
 
     defp reset_step(logic, world, now), do: Logic.step(logic, world, @reset, now)
 
@@ -461,7 +474,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     # Sem a R3b, a mesma barra vazia tem a resposta de graça: andar (R7).
     test "desligada, a mesma barra vazia anda em vez de pedir revive" do
-      sem = Config.merge(%{reset_revive: false, crowd_from: 99, bunch_ms: 0})
+      sem = Config.merge(%{reset_revive: false, crowd_from: 99, bunch_ms: 0, gather_target: 1})
       sem_step = fn logic, world, now -> Logic.step(logic, world, sem, now) end
       logic = engaged(sem_step)
 
@@ -631,7 +644,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # em 90 a R3b passa a estar disponível numa barra vazia, e reviver é melhor
     # que andar — zera a barra na hora em vez de esperar 45s. A fuga é a regra
     # de quando NÃO há revive; medi-la com revive à mão mediria a R3b.
-    @fuga Config.merge(%{crowd_from: 99, reset_revive: false, bunch_ms: 0})
+    @fuga Config.merge(%{crowd_from: 99, reset_revive: false, bunch_ms: 0, gather_target: 1})
 
     defp fuga_step(logic \\ Logic.new(), world, now), do: Logic.step(logic, world, @fuga, now)
 
@@ -914,7 +927,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
   end
 
   describe "hunting without gathering a pile" do
-    @solo Config.merge(%{gather_piles: false, engage_from: 1, bunch_ms: 0})
+    @solo Config.merge(%{gather_piles: false, engage_from: 1, bunch_ms: 0, gather_target: 1})
 
     defp solo_step(logic \\ Logic.new(), world, now),
       do: Logic.step(logic, world, @solo, now)
@@ -978,7 +991,13 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # `bunch_ms: 0` pelo mesmo motivo que `crowd_from: 99` está aqui: desde 27/08
     # a régua PARA antes de estourar a área (R12), e a espera apareceria na
     # frente da pergunta deste bloco.
-    @r10 Config.merge(%{reset_revive: true, crowd_from: 4, stun_window_ms: 5_000, bunch_ms: 0})
+    @r10 Config.merge(%{
+           reset_revive: true,
+           crowd_from: 4,
+           stun_window_ms: 5_000,
+           bunch_ms: 0,
+           gather_target: 1
+         })
 
     defp pilha(n, overrides \\ %{}) do
       world(%{
@@ -1071,7 +1090,12 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # As outras regras de revive perguntam "acabou a barra?". Esta pergunta "a
   # barra está inteira?" — e entre as duas cabe a barra pela metade.
   describe "chegar preparado no próximo grupo" do
-    @preparo Config.merge(%{prepare_revive: true, reset_revive_cooldown_ms: 3_000})
+    @preparo Config.merge(%{
+               prepare_revive: true,
+               reset_revive_cooldown_ms: 3_000,
+               gather_target: 1,
+               bunch_ms: 0
+             })
 
     defp limpo(overrides \\ %{}) do
       world(%{
@@ -1142,7 +1166,13 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # recém-chegados à lista estão longe do pokémon, não em cima dele: a área pega
   # um e gasta o cooldown dos três.
   describe "a espera antes de estourar a área" do
-    @espera Config.merge(%{bunch_ms: 2_000, gather_piles: false, engage_from: 2})
+    @espera Config.merge(%{
+              bunch_ms: 2_000,
+              bunch_walk_tiles: 0,
+              gather_target: 1,
+              gather_piles: false,
+              engage_from: 2
+            })
 
     defp pilha_pronta(n \\ 3) do
       world(%{
@@ -1158,7 +1188,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.fire == :hold
       assert orders.route == :hold, "parar é o que faz eles virem"
       assert logic.state == :bunching
-      assert orders.why =~ "chegarem perto"
+      assert orders.why =~ "esperando eles fecharem em cima do pokémon"
     end
 
     test "passada a espera, aí sim estoura a área" do
@@ -1191,6 +1221,119 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert orders.phase == :engaged
       assert orders.fire == :free
+    end
+  end
+
+  # O ALVO DO BOLO e OS PASSOS DA ESPERA — as duas metades do que ele descreveu
+  # em 27/08 depois de rodar o bot:
+  #
+  #   "Quando encontra dois monstros, pode andar bastante até ter seis monstros.
+  #   Se tiver cinco monstros na tela, pode andar um pouquinho e depois parar.
+  #   Ele não precisa parar na hora que identificou isso: pode andar mais uns 5
+  #   passos, porque aí os monstros que ele encontrou lá na frente já vão ter se
+  #   enfiado um pouco mais no meio deles."
+  describe "o bolo que vale parar" do
+    @bolo Config.merge(%{
+            gather_target: 6,
+            gather_piles: true,
+            engage_from: 2,
+            bunch_walk_tiles: 5,
+            bunch_ms: 6_000,
+            patience_tiles: 50
+          })
+
+    defp juntando(quantos, andou) do
+      world(%{
+        situation:
+          situation(%{
+            enemies: quantos,
+            worth_fighting?: true,
+            walked: andou,
+            stable_for_ms: 9_000
+          }),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    test "com dois na tela ele SEGUE andando, mesmo com os passos cumpridos" do
+      {_logic, orders} = Logic.step(Logic.new(), juntando(2, 30), @bolo, 1_000)
+
+      assert orders.phase == :gathering
+      assert orders.route == :go
+      assert orders.fire == :hold
+    end
+
+    test "chegando no alvo, a janela fecha" do
+      {_logic, orders} = Logic.step(Logic.new(), juntando(6, 30), @bolo, 1_000)
+
+      assert orders.phase == :bunching
+    end
+
+    # A paciência segue sendo o teto: um bolo que nunca enche não segura a
+    # caçada pra sempre.
+    test "…ou quando a paciência acaba, com o bolo pela metade" do
+      curta = Config.merge(%{@bolo | patience_tiles: 10})
+
+      {_logic, orders} = Logic.step(Logic.new(), juntando(3, 12), curta, 1_000)
+
+      assert orders.phase in [:bunching, :engaged]
+    end
+
+    # "Estranhamente, ele está parando de andar": parar no instante em que a
+    # janela fecha era o defeito.
+    test "a espera ANDA os primeiros passos, de fogo segurado" do
+      {logic, primeiro} = Logic.step(Logic.new(), juntando(6, 30), @bolo, 1_000)
+
+      assert primeiro.route == :go, "ainda tem passo pra arrastar o bolo"
+      assert primeiro.fire == :hold
+      assert primeiro.why =~ "passo(s) pra puxar eles"
+
+      # cinco passos depois, ela para
+      {logic, parado} = Logic.step(logic, juntando(6, 35), @bolo, 2_000)
+      assert parado.route == :hold
+      assert parado.fire == :hold
+
+      # e o relógio termina o serviço
+      {_logic, fogo} = Logic.step(logic, juntando(6, 35), @bolo, 8_000)
+      assert fogo.phase == :engaged
+      assert fogo.fire == :free
+    end
+  end
+
+  # A PORTA DO REVIVE SEM STUN, fechada em 27/08: "ele quase morreu porque não
+  # tinha o stun de controle disponível para poder usar o revive de forma
+  # segura, então ele usou o revive de forma insegura".
+  describe "o revive sem controle na frente" do
+    @sem_stun Config.merge(%{
+                reset_revive: true,
+                crowd_from: 99,
+                gather_target: 1,
+                bunch_ms: 0
+              })
+
+    defp barra_vazia_sem_controle do
+      world(%{
+        situation:
+          situation(%{enemies: 4, spent?: true, prepared?: false, ready_keys: [], own_hp: 95}),
+        hunt: hunt(%{state: :fighting}),
+        hands: %{opening: ~w(3 4), single: [], crowd: ["1"]}
+      })
+    end
+
+    test "com a barra vazia e o controle em cooldown, o revive NÃO sai" do
+      {logic, _} = Logic.step(Logic.new(), barra_vazia_sem_controle(), @sem_stun, 1_000)
+      {_logic, orders} = Logic.step(logic, barra_vazia_sem_controle(), @sem_stun, 2_000)
+
+      assert orders.revive == :hold
+    end
+
+    test "desligada a trava, ele volta a gastar o revive sem prefixo" do
+      solto = Config.merge(%{@sem_stun | reset_needs_control: false})
+
+      {logic, _} = Logic.step(Logic.new(), barra_vazia_sem_controle(), solto, 1_000)
+      {_logic, orders} = Logic.step(logic, barra_vazia_sem_controle(), solto, 2_000)
+
+      assert orders.revive == :now
     end
   end
 end

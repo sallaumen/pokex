@@ -44,12 +44,19 @@ defmodule Pokex.Perception.Feed do
   Zero means the loop is idle: `handle_info(:tick, %{consumers: consumers})`
   with none captures nothing. Answers 0 for a feed that is not up — a feed that
   cannot be asked is not photographing anything either.
+
+  Um feed que NÃO RESPONDE a tempo é o contrário disso. A única coisa que segura
+  o laço é a própria captura (`observe/1` espera o corretor sem teto), então o
+  silêncio é a resposta "estou fotografando AGORA" — e quem pergunta (a cerca do
+  simulador) precisa exatamente dessa. Fica no lado seguro: morto é 0, ocupado é
+  1.
   """
   @spec consumer_count(GenServer.server()) :: non_neg_integer
   def consumer_count(server) do
     GenServer.call(server, :consumer_count, 500)
   catch
-    :exit, _reason -> 0
+    :exit, {:timeout, _call} -> 1
+    :exit, _dead -> 0
   end
 
   def attach(server, consumer \\ self()), do: GenServer.call(server, {:attach, consumer})

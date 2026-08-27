@@ -40,6 +40,7 @@ defmodule Pokex.Sim.Fence do
 
   alias Pokex.Bots.BotSupervisor
   alias Pokex.Bots.InputGate
+  alias Pokex.Sim.Runner
 
   @pt {__MODULE__, :arm_state}
   @arm_timeout_ms 15_000
@@ -79,7 +80,7 @@ defmodule Pokex.Sim.Fence do
   expensive to be the side effect of a click meant for something else. The
   caller offers "stop everything and arm" as a separate, explicit action.
   """
-  @spec arm(GenServer.server()) :: :ok | {:error, [atom]}
+  @spec arm(GenServer.server()) :: :ok | {:error, [atom | String.t()]}
   def arm(server \\ __MODULE__), do: GenServer.call(server, :arm, @arm_timeout_ms)
 
   @spec disarm(GenServer.server()) :: :ok
@@ -180,7 +181,15 @@ defmodule Pokex.Sim.Fence do
       |> Enum.filter(fn {_name, snapshot} -> BotSupervisor.active?(snapshot) end)
       |> Enum.map(&elem(&1, 0))
 
-    watching = Enum.map(state.watched.(), &"aba olhando #{inspect(&1)}")
+    # SÓ as chaves que o simulador escreve. Contar qualquer feed com consumidor
+    # recusava para sempre: o `StockAlerts` é semeado ligado, vive no supervisor
+    # da aplicação e mantém o `:hud` attachado — um fato que o `Sim.Runner` não
+    # publica. A cerca nasceu, então, impossível de armar em qualquer VM real,
+    # com zero abas abertas (medido em 27/08, na config dele).
+    watching =
+      state.watched.()
+      |> Enum.filter(&(&1 in Runner.published_keys()))
+      |> Enum.map(&"aba olhando #{inspect(&1)}")
 
     Enum.sort(workers ++ watching)
   end

@@ -2,7 +2,7 @@ defmodule Pokex.Sim.FenceTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Perception.Feed
-  alias Pokex.Sim.Fence
+  alias Pokex.Sim.{Fence, Runner}
 
   @env_keys [:rig, :perception_feeds_active, :journal_persist]
 
@@ -32,10 +32,16 @@ defmodule Pokex.Sim.FenceTest do
   defp start_fence(ctx, opts \\ []) do
     running = Keyword.get(opts, :running, [])
 
-    start_supervised!(
-      {Fence, name: nil, status: fn -> status_of(running) end, stop_all: ctx.stop_all},
-      id: Keyword.get(opts, :id, :fence)
-    )
+    fence =
+      [name: nil, status: fn -> status_of(running) end, stop_all: ctx.stop_all]
+      |> then(fn args ->
+        case Keyword.fetch(opts, :watched) do
+          {:ok, watched} -> Keyword.put(args, :watched, watched)
+          :error -> args
+        end
+      end)
+
+    start_supervised!({Fence, fence}, id: Keyword.get(opts, :id, :fence))
   end
 
   defp status_of(running) do
@@ -65,6 +71,19 @@ defmodule Pokex.Sim.FenceTest do
 
     assert {:error, names} = Fence.arm(fence)
     assert Enum.any?(names, &(to_string(&1) =~ "minimap")), inspect(names)
+  end
+
+  # A CERCA NASCEU IMPOSSÍVEL DE ARMAR. Contar QUALQUER feed com consumidor
+  # recusa para sempre: o `StockAlerts` é semeado ligado, vive no supervisor da
+  # aplicação e mantém o `:hud` attachado — e `:hud` não é chave que o
+  # `Sim.Runner` publica. O perigo é o último `:ets.insert` vencer na MESMA
+  # chave; quem olha um fato que o simulador não escreve não disputa nada.
+  test "uma aba olhando um fato que o simulador não publica NÃO impede", ctx do
+    refute :hud in Runner.published_keys()
+
+    fence = start_fence(ctx, watched: fn -> [:hud, :team, :corpses] end)
+
+    assert Fence.arm(fence) == :ok
   end
 
   test "arming turns the perception feeds off", ctx do

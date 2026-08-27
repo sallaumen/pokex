@@ -120,7 +120,8 @@ defmodule Pokex.Sim.Bench do
           world_knobs()
           |> Map.merge(scenario.knobs)
           |> Map.merge(Keyword.get(opts, :knobs, %{})),
-        loadout: Keyword.get(opts, :loadout, loadout())
+        loadout: Keyword.get(opts, :loadout, loadout()),
+        blocked: Scenario.blocked(scenario)
       )
 
     state = %{

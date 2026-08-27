@@ -239,6 +239,15 @@ defmodule Pokex.Sim.World do
             # baixo dela: a bancada media revives e nunca soube se um stun os
             # precedeu.
             stunned_at: nil,
+            # AS PAREDES E AS PEDRAS. Um `MapSet` de `{x, y, z}` que o
+            # personagem não atravessa — o mesmo caminho que já desviava de
+            # criatura desde #348, agora com o cenário dentro dele.
+            #
+            # "uns pontos de obstáculo no caminho pra ele tropeçar e vermos como
+            # ele lida" (26/08). Um circuito de chão liso responde sobre a régua
+            # e sobre o dano; não responde nada sobre a rota, que é onde a caçada
+            # de verdade trava.
+            blocked: MapSet.new(),
             # A revive in flight (`revive_at`) and the floor before the next one
             # may be pressed — TWO of them, because the bot keeps two: a pokémon
             # still standing waits `rescue_cooldown_ms` between two presses, one
@@ -275,6 +284,7 @@ defmodule Pokex.Sim.World do
 
     world = %__MODULE__{
       route: route,
+      blocked: Keyword.get(opts, :blocked, MapSet.new()),
       stairs: stairs,
       unsimulated_stairs: refused,
       pos: {start.x, start.y, start.z},
@@ -1013,7 +1023,7 @@ defmodule Pokex.Sim.World do
     heading = heading(world.held)
 
     Enum.reduce(1..tiles//1, world.pos, fn _tile, pos ->
-      step(pos, heading, world, occupied_by_creatures(world))
+      step(pos, heading, world, impassable(world))
     end)
   end
 
@@ -1029,6 +1039,9 @@ defmodule Pokex.Sim.World do
   defp slides({dx, 0}), do: [{dx, 0}]
   defp slides({0, dy}), do: [{0, dy}]
   defp slides({dx, dy}), do: [{dx, dy}, {dx, 0}, {0, dy}]
+
+  # O que o personagem não atravessa: as criaturas E o cenário.
+  defp impassable(world), do: MapSet.union(occupied_by_creatures(world), world.blocked)
 
   # A EXCLUSÃO é das criaturas: o pokémon dele e os monstros. `occupied/1`
   # inclui a própria posição do personagem, que aqui seria bloquear a si mesmo.

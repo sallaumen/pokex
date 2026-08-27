@@ -1177,4 +1177,50 @@ defmodule Pokex.Sim.WorldTest do
       assert depois.stunned_at == depois.clock
     end
   end
+
+  describe "o que o personagem não atravessa" do
+    test "uma parede na frente para o passo" do
+      rota = route([{100, 100, 7}, {110, 100, 7}])
+      parede = MapSet.new(for y <- 98..102, do: {103, y, 7})
+
+      world =
+        World.new(rota, seed: 1, blocked: parede, knobs: %{nest_size: 0, stray_chance_pct: 0})
+
+      andando =
+        world
+        |> World.press({:key_down, "right"})
+        |> World.step(10_000)
+
+      {x, _y, _z} = andando.pos
+      assert x < 103, "ele parou antes da parede"
+    end
+
+    test "sem parede, o mesmo passo atravessa" do
+      rota = route([{100, 100, 7}, {110, 100, 7}])
+      world = World.new(rota, seed: 1, knobs: %{nest_size: 0, stray_chance_pct: 0})
+
+      andando = world |> World.press({:key_down, "right"}) |> World.step(10_000)
+
+      {x, _y, _z} = andando.pos
+      assert x >= 103
+    end
+
+    test "uma parede em UM eixo deixa o escorregão passar pelo outro" do
+      # É o mesmo escorregão do cavebot (`slides/1`): a reta primeiro, depois
+      # cada eixo sozinho. Uma pedra não pode parar quem tem para onde desviar.
+      rota = route([{100, 100, 7}, {110, 110, 7}])
+      pedra = MapSet.new([{101, 101, 7}])
+
+      world =
+        World.new(rota, seed: 1, blocked: pedra, knobs: %{nest_size: 0, stray_chance_pct: 0})
+
+      andando =
+        world
+        |> World.press({:key_down, "right"})
+        |> World.press({:key_down, "down"})
+        |> World.step(400)
+
+      refute andando.pos == {100, 100, 7}, "ele desviou em vez de travar"
+    end
+  end
 end

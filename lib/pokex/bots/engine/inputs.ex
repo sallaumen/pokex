@@ -38,7 +38,11 @@ defmodule Pokex.Bots.Engine.Inputs do
   control, that is a rule of its own with a field of its own, not a list reused
   for the opposite meaning.
   """
-  @spec hands(Loadout.t() | nil, %{ready_keys: [String.t()] | nil}) :: t
+  # A picture is the WHOLE situation map, and this reads one field of it: a
+  # closed map here made every real caller (o worker e a bancada) break the
+  # contract, and o dialyzer do CI ficou vermelho na main.
+  @spec hands(Loadout.t() | nil, %{:ready_keys => [String.t()] | nil, optional(atom()) => any()}) ::
+          t
   def hands(loadout, picture)
 
   def hands(nil, _picture), do: %{opening: [], single: [], crowd: []}

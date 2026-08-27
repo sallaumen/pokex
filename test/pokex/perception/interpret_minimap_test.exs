@@ -37,6 +37,20 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     end
   end
 
+  # A altura é a DOS DÍGITOS, não a do glifo mais alto: nesta captura dele a
+  # linha tem dez dígitos de 15 linhas, duas vírgulas de 6 e dois parênteses de
+  # 19. Pela mais alta a resposta seria 19 — uma altura em que o atlas está
+  # completo — e a pergunta erraria a fonte que ela queria medir.
+  test "a fonte medida é a dos dígitos, e um render completo não acusa buraco" do
+    for {name, _expected} <- @coords do
+      {fix, panel} = located(name)
+      calib = %Calibration{scale: 1.0, layout: fix}
+
+      assert {%{coord_gap: nil}, _state} = Minimap.interpret(panel, calib, %{}, nil),
+             "acusou buraco de alfabeto num render que lê tudo: #{name}"
+    end
+  end
+
   test "hand-marked regions read without any layout" do
     {fix, panel} = located("ultrawide_3440x1440_time")
 
@@ -265,11 +279,43 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       assert state.pending == {125, 100, 7}
     end
 
-    test "a long gap earns a long reach — a slow feed is not a teleport" do
+    # ANTES a permissão crescia sem teto com o tempo cego, então depois de uns
+    # segundos sem leitura um salto de 30 casas passava de primeira — que é
+    # exatamente o tamanho do salto que um dígito errado na casa das dezenas
+    # produz. Agora o tempo cego não é prova de caminhada: vem de novo.
+    test "um tempo cego longo não vira licença de teleporte — mas volta em duas leituras" do
       state = %{last: {100, 100, 7}, pending: nil, at: 0}
 
-      # five seconds of walking at 8 tiles/s covers 40
-      assert {%{pos: {130, 100, 7}}, _state} = Minimap.accept({130, 100, 7}, state, 5_000)
+      assert {%{pos: {100, 100, 7}}, state} = Minimap.accept({130, 100, 7}, state, 5_000)
+      assert {%{pos: {130, 100, 7}}, state} = Minimap.accept({130, 100, 7}, state, 5_500)
+      assert state.last == {130, 100, 7}
+    end
+
+    # O 1088 dele lido ora como 1066, ora como 1099. Com a permissão medida do
+    # último ACEITO os dois valores errados ficavam a 33 casas um do outro
+    # dentro de uma janela de 40, então um confirmava o outro e o mundo ia
+    # parar do outro lado do mapa. A confirmação é contra o relógio do
+    # PENDENTE: entre duas leituras cabem 4 casas, não 40.
+    test "duas leituras erradas DIFERENTES não confirmam uma à outra" do
+      state = %{last: {1088, 1409, 5}, pending: nil, at: 0}
+
+      assert {%{pos: {1088, 1409, 5}}, state} = Minimap.accept({1066, 1409, 5}, state, 4_000)
+      assert {%{pos: {1088, 1409, 5}}, state} = Minimap.accept({1099, 1409, 5}, state, 4_500)
+      assert {%{pos: {1088, 1409, 5}}, state} = Minimap.accept({1066, 1409, 5}, state, 5_000)
+      assert state.last == {1088, 1409, 5}
+    end
+
+    # Um número montado por PARECENÇA (nenhum acerto exato no atlas) tem que
+    # voltar duas vezes. Custa um tique ao teleporte de verdade, num render que
+    # o atlas nunca viu — e custa tudo ao chute.
+    test "leitura adivinhada precisa vir três vezes; leitura conhecida, duas" do
+      state = %{last: {100, 100, 7}, pending: nil, at: 0}
+      longe = %{pos: {900, 900, 7}, guessed: 2, px: 8}
+
+      assert {%{pos: {100, 100, 7}}, state} = Minimap.accept(longe, state, 500)
+      assert {%{pos: {100, 100, 7}}, state} = Minimap.accept(longe, state, 1_000)
+      assert {%{pos: {900, 900, 7}}, state} = Minimap.accept(longe, state, 1_500)
+      assert state.last == {900, 900, 7}
     end
 
     test "a REAL teleport still re-baselines: two reads that agree" do

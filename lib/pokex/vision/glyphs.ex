@@ -59,6 +59,7 @@ defmodule Pokex.Vision.Glyphs do
   @weak_drop 20
   @atlas_key {:pokex, :glyph_atlas}
   @index_key {:pokex, :glyph_atlas_index}
+  @gaps_key {:pokex, :glyph_atlas_gaps}
   # A glyph drawn over a red pokeball and the SAME glyph over a yellow one
   # differ at their anti-aliased edges. Exact matching alone therefore loses
   # characters the instant an item sprite changes — which is what made Lucas's
@@ -503,10 +504,64 @@ defmodule Pokex.Vision.Glyphs do
     |> Enum.filter(&(&1.guess == nil))
   end
 
+  @digitos ~w(0 1 2 3 4 5 6 7 8 9)
+
+  @doc """
+  Quais dígitos faltam no atlas, POR ALTURA de glifo.
+
+  O buraco que ninguém tinha como ver, e que custou caro em 27/08: o jogo dele em
+  `1088, 1409, 5` e o painel em `1066, 1409`. O atlas tinha 8 em duas alturas e
+  nenhum na de 8 linhas, que é a da faixa dele. Sem um 8 pra concorrer, o 8 da
+  tela casa com o 6 ou o 9 mais parecido, e casa com MARGEM, porque o certo nunca
+  esteve na disputa. "Às vezes ele acha que é 9, às vezes que é 6, mas ele nunca
+  acha que é 8" — nunca ia achar.
+
+  A regra da margem em `nearest_within/1` protege contra AMBIGUIDADE e não tem
+  como proteger contra AUSÊNCIA: ela compara o que está no atlas com o que está
+  no atlas. Só quem olha o alfabeto inteiro enxerga um dígito que nunca foi
+  ensinado — e é isso que esta função mostra, antes de um número errado virar um
+  salto no mapa.
+
+  Agrupa por ALTURA e não por forma porque é assim que uma fonte funciona: todos
+  os dígitos dela têm a mesma altura, e larguras diferentes — o `1` é estreito e
+  o `4` é largo por desenho, não por falta. Agrupar por forma acusaria falta de
+  `1` em toda largura que não fosse a dele.
+
+  Só relata alturas que já têm algum dígito: uma altura que só ensinou vírgula
+  não está incompleta, está fora do assunto.
+  """
+  @spec missing_digits() :: %{pos_integer => [String.t()]}
+  def missing_digits do
+    case :persistent_term.get(@gaps_key, nil) do
+      nil ->
+        gaps = digit_gaps()
+        :persistent_term.put(@gaps_key, gaps)
+        gaps
+
+      gaps ->
+        gaps
+    end
+  end
+
+  # Built off `index/0`, which already decoded every signature: this is asked
+  # on every minimap tick and must not re-parse the atlas to answer.
+  defp digit_gaps do
+    index()
+    |> Enum.flat_map(fn {{rows, _cols}, entries} ->
+      Enum.map(entries, fn {_bitmap, char} -> {rows, char} end)
+    end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.filter(fn {_altura, chars} -> Enum.any?(chars, &(&1 in @digitos)) end)
+    |> Map.new(fn {altura, chars} -> {altura, Enum.reject(@digitos, &(&1 in chars))} end)
+    |> Enum.reject(fn {_altura, faltam} -> faltam == [] end)
+    |> Map.new()
+  end
+
   @doc "Drops the cached atlas (tests, and after `mix glyphs.learn`)."
   def clear do
     :persistent_term.erase(@atlas_key)
     :persistent_term.erase(@index_key)
+    :persistent_term.erase(@gaps_key)
   end
 
   # Glyphs grouped by shape, decoded once: the nearest-match pass only ever
@@ -706,8 +761,24 @@ defmodule Pokex.Vision.Glyphs do
     %{
       text: chars |> Enum.reverse() |> Enum.join(),
       confidence: confidence(known, glyphs),
-      guessed: guessed
+      guessed: guessed,
+      px: font_height(glyphs)
     }
+  end
+
+  # The height the DIGITS are drawn at, which is what a caller asking about
+  # alphabet coverage means. The most common height and not the tallest:
+  # measured on his own capture, `(337, 46107, 4)` segments as ten digits of 15
+  # rows, two commas of 6 and two parentheses of 19. The tallest glyph would
+  # answer 19 — a height at which the atlas is complete — and the question
+  # would silently miss the font it was asked about.
+  defp font_height([]), do: nil
+
+  defp font_height(glyphs) do
+    glyphs
+    |> Enum.frequencies_by(&length(&1.bitmap))
+    |> Enum.max_by(fn {rows, count} -> {count, rows} end)
+    |> elem(0)
   end
 
   # {character, counts-as-read, counts-as-guessed}. An atlas signature hit is
@@ -799,8 +870,25 @@ defmodule Pokex.Vision.Glyphs do
 
   @doc ~S'The minimap coordinate: "(337, 46107, 4)" or "2944, 2211, 7" -> tuple, or nil.'
   def read_coord(%Frame{} = frame, region, opts \\ []) do
-    case read_line(frame, region, opts) do
-      %{text: text, confidence: 1.0} -> parse_coord(text)
+    case read_coord_detail(frame, region, opts) do
+      %{pos: pos} -> pos
+      nil -> nil
+    end
+  end
+
+  @doc """
+  The same read, with what it took to get it: `%{pos:, guessed:, px:}`.
+
+  `guessed` is how many of those digits came from `nearest/1` instead of an
+  atlas hit, and `px` is the height the line is drawn at. Together they say
+  whether this coordinate is knowledge or resemblance — and at which font to
+  ask `missing_digits/0` whether a digit was even in the running.
+  """
+  def read_coord_detail(%Frame{} = frame, region, opts \\ []) do
+    with %{text: text, confidence: 1.0} = line <- read_line(frame, region, opts),
+         {_x, _y, _z} = pos <- parse_coord(text) do
+      %{pos: pos, guessed: line.guessed, px: line.px}
+    else
       _uncertain -> nil
     end
   end

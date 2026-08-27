@@ -27,6 +27,12 @@ defmodule Pokex.World do
               # stopped" from "the feed is reading but the coordinate came out
               # unreadable": both arrive as nil, and they have opposite fixes.
               pos_age_ms: nil,
+              # The digits the atlas has never been taught at the height the
+              # coordinate band is drawn at. Not cosmetic: a digit missing from
+              # the alphabet comes back as the nearest one that is there, so
+              # this is the difference between a coordinate that is late and a
+              # coordinate that is WRONG.
+              coord_gap: nil,
               layout?: false,
               at: nil
   end
@@ -65,6 +71,7 @@ defmodule Pokex.World do
       engaged?: battle[:locked?] == true,
       pos: minimap[:pos],
       pos_age_ms: WorldState.age(:minimap, now),
+      coord_gap: minimap[:coord_gap],
       # NOT time-limited: the layout is configuration, not an observation. It
       # stops being true when the panels MOVE (the sentinel's job to notice),
       # never merely because it was located a while ago.

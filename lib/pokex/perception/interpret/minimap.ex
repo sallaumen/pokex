@@ -9,7 +9,13 @@ defmodule Pokex.Perception.Interpret.Minimap do
   Two sanity gates keep a garbled frame from teleporting the world model: the
   floor must be plausible, and a jump larger than `@max_jump` tiles against the
   last good read is rejected. The rejection is not sticky — a genuine teleport
-  (stairs, boat) re-baselines as soon as a second read agrees with the first.
+  (stairs, boat) re-baselines as soon as the same reading comes back.
+
+  The observation also carries `coord_gap`: the digits the atlas has never been
+  taught at the height this band is drawn at. A digit that is not in the atlas
+  does not read as "unknown", it reads as the nearest digit that IS — so a hole
+  in the alphabet is a WRONG coordinate, not a missing one, and only the
+  alphabet can show it.
   """
 
   alias Pokex.{Calibration, Layout, Settings}
@@ -24,6 +30,12 @@ defmodule Pokex.Perception.Interpret.Minimap do
   # counting waypoints as "reached" one second apart while the character stood
   # against a wall.
   @tiles_per_second 8
+  # The ceiling on that allowance, however long the feed was blind. A misread
+  # digit in the tens place moves the character 10 to 90 tiles; walking moves
+  # it 4 between ticks. Anything at or past this has to come back a second time
+  # before the world believes it — which costs a real teleport one tick and
+  # costs a misread everything.
+  @max_jump 10
   # The floor under the allowance: at the feed's cadence a real step must
   # always fit, and a clock that reports no elapsed time must not freeze the
   # reader.
@@ -33,13 +45,36 @@ defmodule Pokex.Perception.Interpret.Minimap do
   # nothing. First miss hunts immediately (a walking bot must not stay blind),
   # then every 6th.
   @search_every 6
-  @fresh_state %{last: nil, pending: nil, band: nil, ink: nil, misses: 0, at: nil}
+  @fresh_state %{
+    last: nil,
+    pending: nil,
+    pending_at: nil,
+    pending_seen: 0,
+    band: nil,
+    ink: nil,
+    misses: 0,
+    at: nil,
+    gap: nil
+  }
 
   def interpret(frame, calib, settings, state \\ nil) do
     state = Map.merge(@fresh_state, state || %{})
     {read, state} = read_position(frame, calib, settings, state)
-    accept(read, state)
+    state = %{state | gap: gap(read) || state.gap}
+    {obs, state} = accept(read, state)
+    {Map.put(obs, :coord_gap, state.gap), state}
   end
+
+  # Sticky: the answer changes when he TEACHES, not when a tick fails to read.
+  # A banner that blinks with the feed is a banner he learns to ignore.
+  defp gap(%{px: px}) when is_integer(px) do
+    case Map.get(Glyphs.missing_digits(), px) do
+      nil -> nil
+      faltam -> %{px: px, faltam: faltam}
+    end
+  end
+
+  defp gap(_no_read), do: nil
 
   # The frame is the crop of minimap_capture_region — the SAME union the feed
   # captures — so every band is relative to that origin. The label MOVES with
@@ -78,8 +113,8 @@ defmodule Pokex.Perception.Interpret.Minimap do
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
     |> Enum.find_value(:miss, fn band ->
-      case Glyphs.read_coord(frame, band, opts) do
-        {_x, _y, _z} = pos -> {:ok, band, pos}
+      case Glyphs.read_coord_detail(frame, band, opts) do
+        %{} = read -> {:ok, band, read}
         nil -> nil
       end
     end)
@@ -92,7 +127,7 @@ defmodule Pokex.Perception.Interpret.Minimap do
          {mx, my, mw, mh} <- Calibration.minimap_region(calib),
          {:ok, band, pos, ink} <-
            CoordBandSearch.search(frame, {mx - ox, my - oy, mw, mh}, frame_scale(frame), opts) do
-      {pos, %{state | band: band, ink: ink, misses: 0}}
+      {%{pos: pos, guessed: 0, px: nil}, %{state | band: band, ink: ink, misses: 0}}
     else
       _not_found -> {nil, %{state | misses: misses}}
     end
@@ -115,40 +150,84 @@ defmodule Pokex.Perception.Interpret.Minimap do
   """
   def accept(read, state, now \\ nil)
 
-  def accept(nil, state, _now), do: {%{pos: nil}, %{state | pending: nil}}
+  def accept(nil, state, _now), do: {%{pos: nil}, forget(state)}
 
-  def accept({_x, _y, z} = pos, state, _now) when z < 0 or z > @max_floor,
-    do: {%{pos: nil}, %{state | pending: pos}}
+  def accept(read, state, now), do: judge(position(read), guessed(read), state, stamp(now))
 
-  def accept(pos, %{last: nil} = state, now),
-    do: {%{pos: pos}, accepted(state, pos, stamp(now))}
+  defp position({_x, _y, _z} = pos), do: pos
+  defp position(%{pos: pos}), do: pos
 
-  def accept(pos, %{last: last} = state, now) do
-    now = stamp(now)
-    reach = reach(state, now)
+  defp guessed(%{guessed: n}) when is_integer(n), do: n
+  defp guessed(_bare), do: 0
 
+  defp judge({_x, _y, z} = pos, _guessed, state, _now) when z < 0 or z > @max_floor,
+    do: {%{pos: nil}, Map.merge(state, %{pending: pos, pending_at: nil, pending_seen: 0})}
+
+  defp judge(pos, _guessed, %{last: nil} = state, now),
+    do: {%{pos: pos}, accepted(state, pos, now)}
+
+  defp judge(pos, guessed, %{last: last} = state, now) do
     cond do
-      near?(pos, last, reach) ->
+      near?(pos, last, reach(state[:at], now)) ->
         {%{pos: pos}, accepted(state, pos, now)}
 
-      # a second read agreeing with the first is a real move (stairs, boat),
-      # not a glitch — re-baseline instead of rejecting forever
-      state.pending && near?(pos, state.pending, reach) ->
+      confirmed?(pos, guessed, state, now) ->
         {%{pos: pos}, accepted(state, pos, now)}
 
       true ->
-        {%{pos: last}, %{state | pending: pos}}
+        {%{pos: last}, hold(state, pos, now)}
     end
   end
 
+  # A jump re-baselines only when the SAME reading comes back — and "the same"
+  # is measured against the PENDING read's clock, not the last accepted one.
+  # With the old code both used the allowance since the last good position, so
+  # after a few blind seconds two readings up to forty tiles apart confirmed
+  # each other: a coordinate flickering between two wrong values (Lucas's 1088
+  # read as 1066 and as 1099) re-baselined the world onto a misread.
+  #
+  # And a reading built from GUESSED glyphs has to come back twice. The atlas
+  # hit is knowledge; `nearest/1` is resemblance, and resemblance flickers with
+  # the anti-aliasing. Costs a real teleport one extra tick on a render the
+  # atlas has never seen, and nothing at all on one it knows.
+  defp confirmed?(pos, guessed, state, now) do
+    pending = state[:pending]
+
+    pending != nil and near?(pos, pending, reach(state[:pending_at], now)) and
+      (state[:pending_seen] || 0) + 1 >= needed(guessed)
+  end
+
+  defp needed(0), do: 1
+  defp needed(_guessed), do: 2
+
+  defp hold(state, pos, now) do
+    streak =
+      if state[:pending] && near?(pos, state[:pending], reach(state[:pending_at], now)),
+        do: (state[:pending_seen] || 0) + 1,
+        else: 0
+
+    Map.merge(state, %{pending: pos, pending_at: now, pending_seen: streak})
+  end
+
+  defp forget(state), do: Map.merge(state, %{pending: nil, pending_at: nil, pending_seen: 0})
+
   # Map.merge, not the update syntax: a state shaped before the clock existed
   # (a feed mid-upgrade, a caller's own map) must not raise on a missing key.
-  defp accepted(state, pos, now), do: Map.merge(state, %{last: pos, pending: nil, at: now})
+  defp accepted(state, pos, now),
+    do: Map.merge(state, %{last: pos, pending: nil, pending_at: nil, pending_seen: 0, at: now})
 
-  # How far the character COULD have walked since the last accepted read.
-  defp reach(state, now) do
-    elapsed = if state[:at], do: max(now - state.at, 0), else: 0
-    max(round(elapsed * @tiles_per_second / 1000), @min_jump)
+  # How far the character COULD have walked since `at` — capped, because a long
+  # blind stretch is not evidence of a long walk.
+  defp reach(nil, _now), do: @min_jump
+
+  defp reach(at, now) do
+    elapsed = max(now - at, 0)
+
+    elapsed
+    |> Kernel.*(@tiles_per_second)
+    |> div(1000)
+    |> max(@min_jump)
+    |> min(@max_jump)
   end
 
   defp stamp(nil), do: System.monotonic_time(:millisecond)

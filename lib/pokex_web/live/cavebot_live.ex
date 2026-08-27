@@ -192,7 +192,12 @@ defmodule PokexWeb.CavebotLive do
   # The heartbeat: the two facts this page cannot learn from a broadcast —
   # whether the eyes are switched off, and how old the last position is.
   def handle_info(:health, socket),
-    do: {:noreply, assign(socket, sim_armed?: Fence.armed?(), world: World.snapshot())}
+    do:
+      {:noreply,
+       assign(socket,
+         sim_armed?: Fence.armed?(),
+         world: World.snapshot()
+       )}
 
   def handle_info({:cavebot, snapshot}, socket), do: {:noreply, assign(socket, hunt: snapshot)}
 
@@ -1354,6 +1359,15 @@ defmodule PokexWeb.CavebotLive do
       if dropped > 0, do: " · #{dropped} descartado(s) por não achar o nome verde", else: ""
   end
 
+  # "o 8 nunca foi ensinado" / "o 6 e o 8 nunca foram ensinados" — o número de
+  # dígitos que falta muda a frase, e a frase é o que ele vai ler correndo.
+  defp gap_words([digito]), do: "o #{digito} nunca foi ensinado"
+
+  defp gap_words(digitos) do
+    {inicio, [ultimo]} = Enum.split(digitos, -1)
+    "o " <> Enum.join(inicio, ", o ") <> " e o " <> ultimo <> " nunca foram ensinados"
+  end
+
   defp crowd_anchor(:pokemon), do: "medido do seu pokémon"
   defp crowd_anchor(:character), do: "medido do personagem (não achei o nome verde)"
 
@@ -2398,6 +2412,40 @@ defmodule PokexWeb.CavebotLive do
             momento em que você abriu. Gravar rota não grava nada.
             <.link navigate={~p"/sim"} class="underline">Desarme no simulador</.link>
             pra voltar a enxergar.
+          </p>
+        </section>
+
+        <%!-- UM DÍGITO QUE O ATLAS NÃO TEM não vira "não sei ler": vira OUTRO
+              dígito. A regra da margem do casador compara o que está no atlas
+              com o que está no atlas, e não tem como perceber que o certo nunca
+              esteve na disputa.
+
+              Em 27/08 o jogo dele mostrava `1088, 1409, 5` e o painel `1066,
+              1409` — e a rota gravada saltava pro outro lado do mapa. Só
+              aparece pela fonte que ESTA faixa usa: o atlas tem buraco em cinco
+              alturas, e quatro delas ele nunca lê. --%>
+        <section
+          :if={@world.coord_gap}
+          id="cavebot-glifos"
+          class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
+        >
+          <p class="flex items-start gap-2 text-pk-sm font-semibold text-pk-danger">
+            <.icon name="hero-hashtag" class="mt-px size-4 shrink-0" />
+            <span>
+              a fonte da sua coordenada não tem
+              <span class="font-mono">{Enum.join(@world.coord_gap.faltam, " ")}</span>
+              no atlas — o número pode vir ERRADO, não vazio
+            </span>
+          </p>
+          <p class="mt-1 text-pk-meta text-pk-text-2">
+            a faixa que o bot lê é desenhada com {@world.coord_gap.px}px de altura, e nessa altura {gap_words(
+              @world.coord_gap.faltam
+            )} nunca foi ensinado. Um dígito que falta casa com o
+            mais parecido que existe, e casa com folga — o certo não entra na disputa. Ensine na <.link
+              navigate={~p"/calibration"}
+              class="underline"
+            >calibração</.link>, digitando a
+            coordenada que está na tela.
           </p>
         </section>
 

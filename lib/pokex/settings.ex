@@ -1211,8 +1211,28 @@ defmodule Pokex.Settings do
     # controle só pro resgate, e ele desmentiu isso vendo a própria caçada
     # (26/08): "tento ir usando o 1 pra quando tem muito monstro, pra eu não
     # morrer, porque se eu ficar guardando o 1 nessas hunts mais sérias não dá
-    # certo". Daqui em diante ela SAI numa pilha grande.
-    engine_crowd_from: 4,
+    # certo".
+    #
+    # UM, e não quatro. Medido em 27/08 com a bancada já destravada (32 sementes
+    # × 3 cenários × 120s, vida 300, três áreas fortes):
+    #
+    #     cenário       crowd_from 4   crowd_from 1
+    #     lotavanon           71,61          74,78
+    #     formigueiro         12,06          19,02   (+58%)
+    #     cacada               3,94           4,47
+    #
+    # Zero quedas nos seis. O denso ganha mais porque era o mais faminto — 80%
+    # do tempo sem cooldown.
+    #
+    # O motivo não é o controle valer mais, é o que vem DEPOIS dele: o revive
+    # sai dentro dos cinco segundos (a regra dele) e devolve a barra inteira. Com
+    # o limiar em quatro, uma pilha de dois ou três nunca abria essa porta e a
+    # barra ficava vazia esperando o cooldown. Com um, toda pilha abre.
+    #
+    # Nenhum outro knob some com este: `reset_revive_min_hp` a 70 mede o MESMO
+    # número junto dele (65,51 nos dois), porque o revive passa a vir pela janela
+    # do controle em vez da R3b — e a janela não olha vida.
+    engine_crowd_from: 1,
     # …e a segunda metade da regra dele, que é o que a torna barata: "SEMPRE
     # usar o revive dentro da range de 5 segundos no máximo depois de usar a
     # skill de controle". A pilha está dormindo, então o campo vazio não custa

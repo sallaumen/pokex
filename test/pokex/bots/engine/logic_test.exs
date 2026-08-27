@@ -613,6 +613,15 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # nem escapa nem luta — e no jogo dele ela ainda tropeçou em `:stuck` no meio
   # de uma, quinze segundos depois de começar (26/08).
   describe "a fuga da barra vazia" do
+    # `crowd_from: 99` pra isolar a R7, do mesmo jeito que os testes da R3b já
+    # fazem: desde 27/08 o limiar do controle é UM, então a R10 sai antes da
+    # fuga em qualquer pilha — que é a mudança certa e mede +12% de mortos, e
+    # que aqui apagaria a pergunta. A pergunta é sobre a barra vazia, não sobre
+    # quando o controle sai.
+    @fuga Config.merge(%{crowd_from: 99})
+
+    defp fuga_step(logic \\ Logic.new(), world, now), do: Logic.step(logic, world, @fuga, now)
+
     defp sem_cooldown(walked_total) do
       world(%{
         situation: situation(%{enemies: 3, spent?: true, walked_total: walked_total}),
@@ -621,8 +630,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
 
     defp lutando_gasto(now) do
-      {logic, _} = step(sem_cooldown(0), 0)
-      {logic, orders} = step(logic, sem_cooldown(0), now)
+      {logic, _} = fuga_step(sem_cooldown(0), 0)
+      {logic, orders} = fuga_step(logic, sem_cooldown(0), now)
       {logic, orders}
     end
 
@@ -637,7 +646,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "mas se não sair do lugar, ela desiste e volta a lutar parada" do
       {logic, _} = lutando_gasto(200)
 
-      {_logic, orders} = step(logic, sem_cooldown(0), 5_000)
+      {_logic, orders} = fuga_step(logic, sem_cooldown(0), 5_000)
 
       assert orders.route == :hold, "andar contra uma parede não é fugir"
       assert orders.why =~ "matando o que já abriu"
@@ -646,7 +655,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "e se sair, ela continua" do
       {logic, _} = lutando_gasto(200)
 
-      {_logic, orders} = step(logic, sem_cooldown(4), 5_000)
+      {_logic, orders} = fuga_step(logic, sem_cooldown(4), 5_000)
 
       assert orders.route == :go
     end
@@ -655,11 +664,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # anterior.
     test "e a próxima luta começa com a dúvida a favor dela de novo" do
       {logic, _} = lutando_gasto(200)
-      {logic, _} = step(logic, sem_cooldown(0), 5_000)
+      {logic, _} = fuga_step(logic, sem_cooldown(0), 5_000)
 
-      {logic, _} = step(logic, world(%{hunt: hunt(%{state: :walking})}), 6_000)
-      {logic, _} = step(logic, sem_cooldown(0), 7_000)
-      {_logic, orders} = step(logic, sem_cooldown(0), 7_200)
+      {logic, _} = fuga_step(logic, world(%{hunt: hunt(%{state: :walking})}), 6_000)
+      {logic, _} = fuga_step(logic, sem_cooldown(0), 7_000)
+      {_logic, orders} = fuga_step(logic, sem_cooldown(0), 7_200)
 
       assert orders.route == :go
     end

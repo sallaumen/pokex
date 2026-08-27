@@ -101,6 +101,27 @@ defmodule PokexWeb.SimLive do
   def handle_event("dmg_one", %{"key" => key, "level" => level}, socket),
     do: write_damage(socket, [key], level)
 
+  # O COOLDOWN DE UMA TECLA, em segundos. Campo vazio é "não sei" e volta pro
+  # chute global — apagar tem que ser possível, senão um número digitado por
+  # engano fica pra sempre.
+  def handle_event("set_cooldown", %{"key" => key, "segundos" => segundos}, socket) do
+    saved = Map.get(socket.assigns.setup, :skill_cooldowns, %{})
+
+    cooldowns =
+      case cooldown_ms(segundos) do
+        nil -> Map.delete(saved, key)
+        ms -> Map.put(saved, key, ms)
+      end
+
+    knobs =
+      socket.assigns.setup
+      |> Map.put(:skill_cooldowns, cooldowns)
+      |> Map.put(:kill_combo, socket.assigns.kill_combo)
+
+    Setup.write(knobs)
+    {:noreply, socket |> assign(setup: knobs, bench: nil) |> reload_world()}
+  end
+
   # A BARRA INTEIRA de uma vez. Ele tem dez teclas, e "facilita pra mim" não
   # combina com dez cliques pra montar um experimento que ele vai repetir por
   # vida de monstro.
@@ -357,6 +378,32 @@ defmodule PokexWeb.SimLive do
       band ->
         save_damage(socket, Enum.reduce(keys, saved, &Map.put(&2, &1, band)))
     end
+  end
+
+  defp cooldown_ms(segundos) do
+    case Float.parse(String.trim(segundos)) do
+      {s, _rest} when s >= 1 and s <= 600 -> round(s * 1_000)
+      _vazio_ou_fora_de_faixa -> nil
+    end
+  end
+
+  # O QUE APARECE NO CAMPO: a mesa primeiro (é o experimento), depois o que ele
+  # gravou no /time pra este pokémon. Vazio quer dizer "cai no chute global",
+  # e o placeholder mostra qual é esse chute.
+  defp cooldown_seconds(setup, world, key) do
+    ms =
+      Map.get(Map.get(setup, :skill_cooldowns, %{}), key) ||
+        (world && get_in(world.keys, [key, :cooldown_ms]))
+
+    if ms, do: seconds_label(ms), else: ""
+  end
+
+  defp cooldown_placeholder(world),
+    do: if(world, do: seconds_label(world.knobs.skill_cooldown_ms), else: "s")
+
+  defp seconds_label(ms) do
+    segundos = ms / 1_000
+    if segundos == trunc(segundos), do: "#{trunc(segundos)}", else: "#{segundos}"
   end
 
   defp damage_for(level) do
@@ -1318,7 +1365,8 @@ defmodule PokexWeb.SimLive do
                     <th class="py-0.5 pr-2 font-semibold">tecla</th>
                     <th class="py-0.5 pr-2 font-semibold">o que faz</th>
                     <th class="py-0.5 pr-2 font-semibold">quanto tira</th>
-                    <th class="py-0.5 font-semibold">agora</th>
+                    <th class="py-0.5 pr-2 font-semibold">agora</th>
+                    <th class="py-0.5 font-semibold">volta em</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1355,8 +1403,30 @@ defmodule PokexWeb.SimLive do
                         </span>
                       </div>
                     </td>
-                    <td class="pk-num py-0.5 font-mono text-pk-text-3">
+                    <td class="pk-num py-0.5 pr-2 font-mono text-pk-text-3">
                       {band_label(@world, chave)}
+                    </td>
+                    <%!-- O COOLDOWN DESTA TECLA. O mundo tinha um número só pra
+                          barra inteira (45s), e uma barra com tudo igual não tem
+                          ordem preferida — nenhuma regra sobre gastar a barra
+                          podia ser medida aqui. O que ele grava no /time é a
+                          verdade; isto é a mesa do experimento, e vence. --%>
+                    <td class="py-0.5">
+                      <form phx-change="set_cooldown" phx-value-key={chave}>
+                        <input type="hidden" name="key" value={chave} />
+                        <input
+                          type="number"
+                          name="segundos"
+                          inputmode="decimal"
+                          min="1"
+                          max="600"
+                          step="0.5"
+                          value={cooldown_seconds(@setup, @world, chave)}
+                          placeholder={cooldown_placeholder(@world)}
+                          aria-label={"Cooldown da tecla " <> chave}
+                          class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-right font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                        />
+                      </form>
                     </td>
                   </tr>
                 </tbody>

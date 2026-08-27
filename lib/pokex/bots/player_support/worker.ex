@@ -20,6 +20,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Focus
+  alias Pokex.Bots.SkillClock
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
@@ -230,6 +231,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state =
       case outcome do
         :ok ->
+          # O REVIVE ZERA TODOS OS COOLDOWNS (R3, medida no vídeo dele). Sem
+          # isto o relógio das teclas seguraria por 45s uma barra que o jogo
+          # acabou de devolver inteira — e a decisão que MAIS depende do relógio
+          # é justamente a de gastar um revive pra zerar a barra.
+          SkillClock.reset()
           broadcast_log(:macro, "🚑 revive despachado — as teclas saíram")
           %{state | last_action: %{text: "revive despachado", at: now()}}
 

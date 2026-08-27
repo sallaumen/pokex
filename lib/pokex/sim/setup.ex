@@ -112,6 +112,7 @@ defmodule Pokex.Sim.Setup do
     numbers
     |> Map.put("kill_combo", Map.get(knobs, :kill_combo, []))
     |> Map.put("skill_damage", encode_damage(Map.get(knobs, :skill_damage, %{})))
+    |> Map.put("skill_cooldowns", Map.get(knobs, :skill_cooldowns, %{}))
   end
 
   # A tuple has no JSON, so a band goes to disk as the two-element list it
@@ -131,12 +132,28 @@ defmodule Pokex.Sim.Setup do
     numbers
     |> put_if(:kill_combo, decode_combo(map["kill_combo"]))
     |> put_if(:skill_damage, decode_damage(map["skill_damage"]))
+    |> put_if(:skill_cooldowns, decode_cooldowns(map["skill_cooldowns"]))
   end
 
   defp decode(_shapeless), do: %{}
 
   defp put_if(knobs, _key, nil), do: knobs
   defp put_if(knobs, key, value), do: Map.put(knobs, key, value)
+
+  # O COOLDOWN QUE ELE DIGITA NA MESA, por tecla. Mesma faixa saneada do
+  # /time: fora dela é descartado, porque "não sei" decide melhor que um número
+  # errado com cara de medido.
+  defp decode_cooldowns(map) when is_map(map) do
+    for {key, ms} <- map,
+        is_binary(key),
+        is_integer(ms),
+        ms >= 1_000,
+        ms <= 600_000,
+        into: %{},
+        do: {key, ms}
+  end
+
+  defp decode_cooldowns(_absent), do: nil
 
   defp decode_combo(list) when is_list(list), do: Enum.filter(list, &is_binary/1)
   defp decode_combo(_absent), do: nil

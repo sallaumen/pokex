@@ -77,7 +77,7 @@ defmodule Pokex.Pokedex.Team do
           entry =
             Enum.find(
               data.members ++ data.bank,
-              %{name: name, level: nil, slot: nil, skills: %{}, bar: nil},
+              %{name: name, level: nil, slot: nil, skills: %{}, cooldowns: %{}, bar: nil},
               &(&1.name == name)
             )
 
@@ -182,6 +182,38 @@ defmodule Pokex.Pokedex.Team do
       %{skills: skills} -> skills
       _absent -> %{}
     end
+  end
+
+  @doc """
+  Quanto cada skill deste pokémon leva pra voltar, em ms.
+
+  Vazio para quem ele ainda não mediu — e vazio quer dizer "não sei", nunca
+  "instantâneo": quem lê isto trata a tecla sem cooldown escrito como pronta,
+  que é o comportamento que o bot já tinha antes de existir esta tabela.
+  """
+  def cooldowns(name) do
+    case Enum.find(members() ++ bank(), &(&1.name == name)) do
+      %{cooldowns: cooldowns} -> cooldowns
+      _absent -> %{}
+    end
+  end
+
+  @doc "Grava os cooldowns deste pokémon. No-op se ele não existe."
+  def set_cooldowns(name, cooldowns) when is_map(cooldowns) do
+    cooldowns = SkillProfile.decode_cooldowns(cooldowns)
+
+    update = fn list ->
+      Enum.map(list, fn
+        %{name: ^name} = entry -> Map.put(entry, :cooldowns, cooldowns)
+        entry -> entry
+      end)
+    end
+
+    data = read()
+
+    %{data | members: update.(data.members), bank: update.(data.bank)}
+    |> persist()
+    |> announce()
   end
 
   @doc """
@@ -369,13 +401,14 @@ defmodule Pokex.Pokedex.Team do
   defp name_or_nil(value) when is_binary(value) and value != "", do: value
   defp name_or_nil(_other), do: nil
 
-  # v1 stored bare name strings; v2 added "level"; v3 "slot"; v4 "skills" —
-  # every one of them still loads, and a missing field is simply unset.
+  # v1 stored bare name strings; v2 added "level"; v3 "slot"; v4 "skills";
+  # v5 "cooldowns" — every one of them still loads, e um campo que falta é
+  # simplesmente vazio.
   defp entries(list) when is_list(list) do
     list
     |> Enum.map(fn
       name when is_binary(name) ->
-        %{name: name, level: nil, slot: nil, skills: %{}, bar: nil}
+        %{name: name, level: nil, slot: nil, skills: %{}, cooldowns: %{}, bar: nil}
 
       %{"name" => name} = map when is_binary(name) ->
         %{
@@ -383,6 +416,7 @@ defmodule Pokex.Pokedex.Team do
           level: int_or_nil(map["level"]),
           slot: slot_or_nil(map["slot"]),
           skills: SkillProfile.decode(map["skills"]),
+          cooldowns: SkillProfile.decode_cooldowns(map["cooldowns"]),
           bar: decode_bar(map["bar"])
         }
 
@@ -406,6 +440,7 @@ defmodule Pokex.Pokedex.Team do
       "level" => entry.level,
       "slot" => entry.slot,
       "skills" => SkillProfile.encode(entry.skills),
+      "cooldowns" => Map.get(entry, :cooldowns, %{}),
       "bar" => encode_bar(Map.get(entry, :bar))
     }
   end

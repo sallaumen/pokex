@@ -38,11 +38,13 @@ defmodule Pokex.Bots.Engine.Worker do
   use GenServer
 
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Inputs
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Narration
   alias Pokex.Bots.Engine.Situation
+  alias Pokex.Bots.SkillClock
   alias Pokex.Engine.Events
   alias Pokex.Engine.Vitals
   alias Pokex.Perception
@@ -235,6 +237,9 @@ defmodule Pokex.Bots.Engine.Worker do
   # a mesma decisão não pode ser DERIVADA de dois lados.
   defp hands(loadout, picture), do: Inputs.hands(loadout, picture)
 
+  defp cooldowns(%Loadout{cooldowns: cooldowns}), do: cooldowns
+  defp cooldowns(_no_loadout), do: %{}
+
   defp inputs(state, now) do
     %{
       battle: battle(now),
@@ -242,7 +247,10 @@ defmodule Pokex.Bots.Engine.Worker do
       own_out?: own_out?(now),
       own_name: state.loadout && state.loadout.name,
       pos: pos(now),
-      ready_keys: Perception.ready_skills(now),
+      # A TELA CRUZADA COM O RELÓGIO. `spent?` — a pergunta que decide gastar um
+      # revive pra zerar a barra — sai daqui, e ela estava sendo respondida por
+      # uma foto que pode ter até `skill_bar_fact_max_age_ms` de idade.
+      ready_keys: SkillClock.ready(Perception.ready_skills(now), cooldowns(state.loadout), now),
       damage_keys: damage_keys(state.loadout),
       prev: state.picture
     }

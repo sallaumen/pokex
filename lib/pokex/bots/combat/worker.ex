@@ -17,6 +17,7 @@ defmodule Pokex.Bots.Combat.Worker do
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.{Loadout, Logic, Strategy}
   alias Pokex.Bots.Perf
+  alias Pokex.Bots.SkillClock
   alias Pokex.Bots.SkillMeter
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.SkillSuspect
@@ -281,7 +282,7 @@ defmodule Pokex.Bots.Combat.Worker do
       |> Logic.set_posture(posture)
       |> Logic.set_loadout(state.loadout)
 
-    {logic, actions} = Logic.step(logic, with_ready_skills(obs), now())
+    {logic, actions} = Logic.step(logic, with_ready_skills(obs, state.loadout), now())
     apply_step(state, logic, actions)
   end
 
@@ -403,13 +404,23 @@ defmodule Pokex.Bots.Combat.Worker do
   # burst it decides fires only READY skills. nil obs stays nil (a timer wake without a
   # frame must not become a fake observation), and a missing/stale/unreadable fact merges
   # as nil → Logic blind-rotates (fail-open; see Logic.press_next_skill).
-  defp with_ready_skills(nil), do: nil
+  defp with_ready_skills(nil, _loadout), do: nil
 
-  defp with_ready_skills(obs) do
+  defp with_ready_skills(obs, loadout) do
     obs
-    |> Map.put(:ready_skills, Perception.ready_skills())
+    |> Map.put(:ready_skills, ready_skills(loadout))
     |> Map.put(:own_out?, own_pokemon_out?())
   end
+
+  # AS DUAS FONTES, cruzadas: a tela sabe de coisas que ninguém escreveu e o
+  # relógio sabe da tecla que saiu agora e a foto ainda não mostrou. Com a barra
+  # ilegível o relógio responde sozinho, e é aí que ele paga: antes disso, uma
+  # leitura ruim mandava o combate rodar a barra às cegas.
+  defp ready_skills(loadout),
+    do: SkillClock.ready(Perception.ready_skills(), cooldowns(loadout))
+
+  defp cooldowns(%Loadout{cooldowns: cooldowns}), do: cooldowns
+  defp cooldowns(_no_loadout), do: %{}
 
   # Reading his pokémon's HP bar IS the proof it is out of its ball — the same
   # bar PlayerSupport potions and revives from. With it out, a battle list of
@@ -526,7 +537,13 @@ defmodule Pokex.Bots.Combat.Worker do
   # A aura de dano só lidera a rajada quando está PRONTA — "usar a aura 2 quando
   # disponível" (26/08). A barra é lida do fato, sem captura nova, e uma leitura
   # velha responde "não", que é o lado barato de errar.
-  defp aura_ready?(loadout), do: Loadout.aura_ready?(loadout, Perception.ready_skills())
+  defp aura_ready?(loadout), do: Loadout.aura_ready?(loadout, ready_skills(loadout))
+
+  defp stamp_clock(keys, started_at, gap_ms) do
+    keys
+    |> Enum.with_index()
+    |> Enum.each(fn {key, idx} -> SkillClock.pressed(key, started_at + idx * gap_ms) end)
+  end
 
   defp area_key?(%Loadout{aoe: aoe}, keys), do: Enum.any?(keys, &(&1 in aoe))
   defp area_key?(_no_loadout, _keys), do: false
@@ -544,6 +561,13 @@ defmodule Pokex.Bots.Combat.Worker do
     with :ok <- Perception.mini_game_gate(),
          :ok <- Pokex.Rig.impl().press_many(keys, opts),
          :ok <- Perception.mini_game_gate() do
+      # O RELÓGIO DAS TECLAS. A rajada não passa pelo `Body` (ela vai direto no
+      # rig pra sair inteira, sem ceder o corpo no meio), então o carimbo do
+      # portão não a vê — e ela é justamente a maior parte do que o bot aperta.
+      # Cada tecla é carimbada na hora em que SAIU, não na hora do pedido: uma
+      # rajada de seis com 300ms de intervalo leva 1,5s pra terminar.
+      stamp_clock(keys, started_at, opts[:gap_ms] || 0)
+
       # The clock of the receipt is the LAST key, never the first. A burst of n
       # keys takes (n-1) x gap_ms to leave the hand (3,3s with his 500) while
       # the bar is published every `feed_skill_bar_ms`, so judging against the

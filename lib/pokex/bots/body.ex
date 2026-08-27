@@ -8,7 +8,7 @@ defmodule Pokex.Bots.Body do
   here — they are read-only and each worker senses on its own.
   """
   use GenServer
-  alias Pokex.Bots.{InputGate, Perf}
+  alias Pokex.Bots.{InputGate, Perf, SkillClock}
   alias Pokex.{Perception, Rig}
 
   @topic "body"
@@ -510,7 +510,21 @@ defmodule Pokex.Bots.Body do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  defp execute({:press, key}), do: Rig.impl().press(key)
+  # O CARIMBO DO RELÓGIO DAS TECLAS mora aqui porque aqui é o único portão: não
+  # existe caminho no bot que aperte uma tecla sem passar por `execute/1`, então
+  # não existe jeito de o cérebro perder um disparo. Só o que o rig ACEITOU
+  # conta — um input suprimido pelo portão não gastou cooldown nenhum.
+  defp execute({:press, key}) do
+    case Rig.impl().press(key) do
+      :ok ->
+        SkillClock.pressed(key)
+        :ok
+
+      other ->
+        other
+    end
+  end
+
   defp execute({:click, button, point}), do: Rig.impl().click(button, point)
   defp execute({:move, point}), do: Rig.impl().move(point)
   defp execute({:tap, combo}), do: Rig.impl().tap(combo)

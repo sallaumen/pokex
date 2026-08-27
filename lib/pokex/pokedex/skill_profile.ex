@@ -223,4 +223,72 @@ defmodule Pokex.Pokedex.SkillProfile do
   @doc "The JSON-safe shape: `%{\"3\" => \"aoe\"}`."
   @spec encode(t) :: %{optional(String.t()) => String.t()}
   def encode(profile), do: Map.new(profile, fn {key, cat} -> {key, Atom.to_string(cat)} end)
+
+  @typedoc "Quanto cada tecla leva pra voltar, em ms."
+  @type cooldowns :: %{optional(String.t()) => pos_integer}
+
+  @doc """
+  Os cooldowns vindos do formulário, em SEGUNDOS — que é como ele os lê no
+  jogo ("essa volta em 40 segundos"), e a única unidade em que digitar o número
+  errado é difícil.
+
+  Campo vazio é ausência, não zero: apagar o número é como se diz "não sei".
+  """
+  @spec cooldowns_from_form(term) :: cooldowns
+  def cooldowns_from_form(params) when is_map(params) do
+    for {key, value} <- params,
+        key in @hotbar_keys,
+        ms = seconds_to_ms(value),
+        into: %{},
+        do: {key, ms}
+  end
+
+  def cooldowns_from_form(_absent), do: %{}
+
+  defp seconds_to_ms(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {seconds, _rest} -> sane_ms(round(seconds * 1_000))
+      :error -> nil
+    end
+  end
+
+  defp seconds_to_ms(_absent), do: nil
+
+  @doc "O cooldown de `key` em segundos, pro formulário. Vazio quando não há."
+  @spec seconds(cooldowns, String.t()) :: String.t()
+  def seconds(cooldowns, key) do
+    case Map.get(cooldowns, key) do
+      ms when is_integer(ms) -> ms |> div(100) |> Kernel./(10) |> trim_zero()
+      nil -> ""
+    end
+  end
+
+  defp trim_zero(seconds) do
+    if seconds == trunc(seconds),
+      do: Integer.to_string(trunc(seconds)),
+      else: Float.to_string(seconds)
+  end
+
+  @doc """
+  O cooldown de cada tecla, saneado.
+
+  Mora junto do perfil porque é a mesma pergunta feita à mesma pessoa sobre a
+  mesma tecla — "o que ela faz" e "de quanto em quanto tempo dá pra usar" — e
+  porque quem troca de pokémon troca as duas respostas de uma vez.
+
+  Fora de faixa é DESCARTADO e não corrigido: um cooldown de 0 (ou de meia
+  hora) digitado por engano vira "não sei", que é o único valor que não faz o
+  cérebro decidir errado com confiança. O teto de 10 minutos é generoso de
+  propósito; o piso de 1 segundo separa o que ele mediu do que escapou.
+  """
+  @spec decode_cooldowns(term) :: cooldowns
+  def decode_cooldowns(map) when is_map(map) do
+    for {key, value} <- map, key in @hotbar_keys, ms = sane_ms(value), into: %{}, do: {key, ms}
+  end
+
+  def decode_cooldowns(_absent), do: %{}
+
+  defp sane_ms(value) when is_integer(value) and value >= 1_000 and value <= 600_000, do: value
+  defp sane_ms(value) when is_float(value), do: sane_ms(round(value))
+  defp sane_ms(_out_of_range), do: nil
 end

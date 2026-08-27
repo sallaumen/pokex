@@ -32,6 +32,10 @@ config :pokex, perf_log_interval_ms: 0
 # The blind sweep's cadence is an actuator loop on an app-global worker: armed
 # during the suite it throws balls into the shared Rig other tests assert on.
 config :pokex, sweep_auto_tick: false
+# …e a porta por instância é `auto_tick: true` no `Catcher.Worker`, exercitada em
+# `test/pokex/bots/catcher/worker_test.exs` ("a varredura re-arma mesmo
+# desligada"). Antes disso o env era lido cru dentro de `arm_sweep/1` e a
+# cadência não tinha como ser exercitada por teste nenhum.
 # Tests often script different fake images for the same region back-to-back. Keep
 # the global broker uncached there; targeted Capture tests enable cache explicitly.
 config :pokex, capture_cache_ttl_ms: 0
@@ -74,6 +78,10 @@ config :phoenix,
 # The always-on PlayerSupport monitor is started explicitly by the tests that need it,
 # not auto-started, so the app-wide instance stays idle during unrelated tests.
 config :pokex, :player_support_auto_monitor, false
+# …porta por instância: `auto_monitor: true`, exercitada em
+# `test/pokex/bots/player_support/worker_test.exs` ("com o arranque automático
+# ligado, ele já nasce monitorando"). É a via que protege o jogador ANTES do
+# preflight, e até agora nenhum teste jamais a tinha visto.
 # The Focus poller shells out to osascript for the frontmost app — never let the app-wide
 # instance poll during unrelated tests. Focus tests drive their own instance with an injected
 # frontmost reader.

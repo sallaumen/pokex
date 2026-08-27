@@ -60,7 +60,14 @@ defmodule Pokex.Bots.Catcher.Worker do
     init_arg = %{
       body: Keyword.get(opts, :body, Body),
       # kill-anchored vision; injectable in tests like the Body
-      scanner: Keyword.get(opts, :scanner, &SpotScan.scan/0)
+      scanner: Keyword.get(opts, :scanner, &SpotScan.scan/0),
+      # PORTA DE ENTRADA, como todo irmão desta família tem. O env estava sendo
+      # lido CRU dentro de `arm_sweep/1`, então na suíte o `sweep_timer` ficava
+      # nil pra sempre e o re-armar não tinha como ser exercitado — a regra
+      # escrita logo acima dele ("não pode calar até o próximo Iniciar") passava
+      # verde mesmo estreitada.
+      auto_tick?:
+        Keyword.get(opts, :auto_tick, Application.get_env(:pokex, :sweep_auto_tick, true))
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -100,7 +107,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     do: GenServer.cast(server, {:sweep_now, around})
 
   @impl true
-  def init(%{body: body, scanner: scanner}) do
+  def init(%{body: body, scanner: scanner, auto_tick?: auto_tick?}) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
@@ -112,6 +119,7 @@ defmodule Pokex.Bots.Catcher.Worker do
        logic: nil,
        body: body,
        scanner: scanner,
+       auto_tick?: auto_tick?,
        timer: nil,
        attached?: false,
        combat_engaged?: false,
@@ -466,7 +474,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     # asserting on (it did — a stray "f1" in Bots.BodyTest, 2026-08-06). Same
     # reasoning as :player_support_auto_monitor; tests that exercise the cadence
     # drive `:sweep` themselves.
-    if Application.get_env(:pokex, :sweep_auto_tick, true) do
+    if state.auto_tick? do
       ms = max(Settings.get(:sweep_interval_ms), 1_000)
       %{state | sweep_timer: Process.send_after(self(), :sweep, ms)}
     else

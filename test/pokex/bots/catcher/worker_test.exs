@@ -476,6 +476,32 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   # --- Varredura cega ---------------------------------------------------------
+  # A CADÊNCIA DA VARREDURA NÃO PODIA SER EXERCITADA. `sweep_auto_tick` era lido
+  # CRU dentro do `arm_sweep/1` privado — o único da família sem porta por
+  # instância —, então na suíte inteira o `sweep_timer` ficava nil pra sempre e
+  # a regra escrita logo acima dele ("uma varredura segurada tem que tentar de
+  # novo no ciclo seguinte, não calar até o próximo Iniciar") passava verde
+  # mesmo se alguém a estreitasse pra só re-armar quando `sweep_enabled`.
+  @tag :tmp_dir
+  test "a varredura re-arma mesmo desligada: não cala até o próximo Iniciar", %{tmp_dir: _tmp} do
+    Settings.put(:sweep_enabled, false)
+
+    {:ok, body} = FakeBody.start_link(self())
+
+    worker =
+      start_supervised!(
+        {Worker, name: nil, body: body, scanner: fn -> nil end, auto_tick: true},
+        id: :catcher_auto_tick
+      )
+
+    :ok = Worker.run(worker)
+    assert :sys.get_state(worker).sweep_timer, "não armou no arranque"
+
+    send(worker, :sweep)
+
+    assert :sys.get_state(worker).sweep_timer, "calou depois de uma passada segurada"
+  end
+
   # The blind sweep: no detector, no library, a ball at every tile in reach.
   # It exists because the aimed capture MISSES (Lucas, 2026-08-05: "atualmente
   # eu tô vendo ele perder muito pokémon"), so what it must prove here is that

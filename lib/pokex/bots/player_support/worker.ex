@@ -40,6 +40,16 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     state = %{
       body: Keyword.get(opts, :body, Body),
+      # PORTA DE ENTRADA, como todo irmão desta família tem. O env estava sendo
+      # lido CRU aqui dentro, então na suíte era impossível optar por voltar: o
+      # arranque automático — a via que protege o jogador antes do preflight —
+      # não tinha como ser exercitado em teste nenhum.
+      auto_monitor?:
+        Keyword.get(
+          opts,
+          :auto_monitor,
+          Application.get_env(:pokex, :player_support_auto_monitor, true)
+        ),
       timer: nil,
       # explicit lifecycle flag: a halt must stick even when a :tick was already in flight
       # (the timer fires before the cancel lands) — the flag, not the timer, decides.
@@ -115,7 +125,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     # Auto-start monitoring on boot (real app). Gated off in the test env so the app-wide instance
     # doesn't tick against the shared Rig/home during unrelated tests — tests call run/1 to monitor.
-    if Application.get_env(:pokex, :player_support_auto_monitor, true),
+    if state.auto_monitor?,
       do: {:ok, reschedule(%{state | running?: true}, 0)},
       else: {:ok, state}
   end

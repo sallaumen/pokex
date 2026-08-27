@@ -45,8 +45,22 @@ defmodule Pokex.Bots.Engine.InputsTest do
     assert Inputs.hands(nil, picture()) == %{opening: [], single: [], crowd: []}
   end
 
-  test "single é a barra de alvo único, tal e qual" do
-    assert Inputs.hands(loadout(), picture()).single == ["7", "8"]
+  # `single` É O QUE A FASE `:skipping` GASTA nas teclas baratas — e desde 27/08
+  # a caçada não usa as de alvo único por padrão: "o que dá dano é a skill em
+  # área, praticamente exclusivamente". Uma tecla que não machuca não é barata,
+  # é perdida.
+  test "single é a barra de alvo único quando ela está ligada" do
+    assert Inputs.hands(loadout(), picture(), %{single_target: true}).single == ["7", "8"]
+  end
+
+  test "e some quando ela está desligada, que é o padrão" do
+    assert Inputs.hands(loadout(), picture()).single == []
+  end
+
+  test "…mas volta pra quem não tem área: ficar mudo é pior que bater fraco" do
+    so_alvo = loadout(%{aoe: []})
+
+    assert Inputs.hands(so_alvo, picture()).single == ["7", "8"]
   end
 
   # A exclusão continua sendo `reserved/1` — o que muda é quem a usa. A abertura

@@ -150,7 +150,7 @@ defmodule Pokex.Bots.Engine.Worker do
     # the decision needs all sixteen, and building two maps from the same
     # settings was two chances to read a different value in the same tick.
     config = Config.in_force()
-    picture = Situation.build(inputs(state, now), config, now)
+    picture = Situation.build(inputs(state, now, config), config, now)
 
     WorldState.put(:situation, picture, now)
 
@@ -197,7 +197,7 @@ defmodule Pokex.Bots.Engine.Worker do
   #   * how long F4 leaves the pokemon in the ball (`revive_settle_ms`)
   #   * and whether coming back out resets the cooldowns at all (R3b's premise)
   defp sample_vitals(state, picture, orders, now) do
-    reading = Vitals.reading(picture, orders, damage_keys(state.loadout))
+    reading = Vitals.reading(picture, orders, damage_keys(state.loadout, Config.in_force()))
 
     if Vitals.due?(state.vitals, reading, now, Settings.get(:engine_vitals_ms)) do
       Events.record(:vitals, reading)
@@ -238,7 +238,7 @@ defmodule Pokex.Bots.Engine.Worker do
   defp cooldowns(%Loadout{cooldowns: cooldowns}), do: cooldowns
   defp cooldowns(_no_loadout), do: %{}
 
-  defp inputs(state, now) do
+  defp inputs(state, now, config) do
     %{
       battle: battle(now),
       own_hp: own_hp(now),
@@ -255,7 +255,7 @@ defmodule Pokex.Bots.Engine.Worker do
           cooldowns(state.loadout),
           now
         ),
-      damage_keys: damage_keys(state.loadout),
+      damage_keys: damage_keys(state.loadout, config),
       prev: state.picture
     }
   end
@@ -297,8 +297,21 @@ defmodule Pokex.Bots.Engine.Worker do
     end
   end
 
-  defp damage_keys(nil), do: []
-  defp damage_keys(loadout), do: loadout.aoe ++ loadout.single
+  # AS TECLAS QUE ESTA CAÇADA GASTA PRA MATAR — e é sobre elas que `spent?`
+  # pergunta "acabou?".
+  #
+  # Precisa seguir a mesma regra que decide o que É apertado: com as de alvo
+  # único fora da rotação (27/08), elas nunca esfriam, e uma tecla que está
+  # sempre pronta dentro desta lista faz `spent?` nunca ser verdadeiro — a barra
+  # jamais conta como gasta, e toda regra de revive que depende disso morre em
+  # silêncio.
+  defp damage_keys(nil, _config), do: []
+
+  defp damage_keys(loadout, config) do
+    if Map.get(config, :single_target, false) or loadout.aoe == [],
+      do: loadout.aoe ++ loadout.single,
+      else: loadout.aoe
+  end
 
   # Only the EDGES talk: 200ms of cadence is five lines a second, and a feed
   # nobody can read is silence with more scrolling. WHAT to say is

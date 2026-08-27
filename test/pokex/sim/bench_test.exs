@@ -8,8 +8,16 @@ defmodule Pokex.Sim.BenchTest do
   # e a semente é 300ms, então cada teste daqui passaria a medir o preço da
   # rajada JUNTO com o que ele afirma — e um teste que mede duas coisas não
   # prova nenhuma. Quem quer o preço o pede por `config`.
+  # …e a ESPERA DA R12 em zero pelo mesmo motivo: desde 27/08 a régua para dois
+  # segundos antes de estourar a área, e num cenário de 60s isso entra na conta
+  # de tudo que se meça aqui. Quem quer medir a espera a pede por `config` — o
+  # bloco dela vive em `logic_test.exs`.
   defp run(id, opts) do
-    config = opts |> Keyword.get(:config, %{}) |> Map.put_new(:skill_gap_ms, 0)
+    config =
+      opts
+      |> Keyword.get(:config, %{})
+      |> Map.put_new(:skill_gap_ms, 0)
+      |> Map.put_new(:bunch_ms, 0)
 
     Bench.run(Scenario.get(id), Keyword.put(opts, :config, config))
   end
@@ -532,12 +540,20 @@ defmodule Pokex.Sim.BenchTest do
     # `spend_the_minimum` é semeado FALSE e só a bancada o lê (#385), então isto
     # não muda caçada nenhuma hoje. Muda quem for ligar: ligar a regra sem
     # resolver essa briga primeiro custa mortos.
-    test "cortando a cauda ele gasta menos tiro por morto — e hoje mata MENOS" do
+    # A DIREÇÃO DOS MORTOS JÁ VIROU TRÊS VEZES em 27/08 — mais, menos, mais — e
+    # cada virada foi uma mudança legítima na economia do revive (a janela
+    # exigindo barra gasta, o piso de vida saindo do caminho, as de alvo único
+    # saindo da rotação). Um número que muda de sinal a cada regra nova não é
+    # uma propriedade da regra: é a interação dela com o resto, e afirmar a
+    # direção aqui seria pedir que a próxima regra não mexa nela.
+    #
+    # O que NÃO virou nenhuma das três vezes é o preço por morto — que é o que a
+    # regra promete. É isso que fica afirmado.
+    test "cortando a cauda ele gasta menos tiro por morto" do
       com = cortando(true)
       sem = cortando(false)
 
       assert com.casts / com.killed < sem.casts / sem.killed
-      assert com.killed < sem.killed
     end
   end
 

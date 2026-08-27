@@ -575,6 +575,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # share one function name, so `sizing(%{state: :engaged})` was a thing you had
   # to read twice.
 
+  defp ruler(%{logic: %{state: :bunching}} = t), do: bunching(t)
   defp ruler(%{logic: %{state: :engaged}} = t), do: engaged(t)
   defp ruler(%{logic: %{state: :skipping}} = t), do: skipping(t)
   defp ruler(t), do: sizing(%{t | logic: enter_sizing(t.logic, t.now)})
@@ -862,10 +863,55 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
-  defp open(t, why),
+  # R12 — A JANELA FECHOU; AGORA DEIXA ELES CHEGAREM.
+  #
+  # "Fecho essa janela de mob (…) só que, quando fecho, eu tenho que aguardar,
+  # por exemplo, cinco segundos, pros bichos se aproximarem do meu pokémon"
+  # (27/08). A régua sabia QUANDO parar de juntar e disparava no mesmo tique —
+  # e três bichos que acabaram de aparecer na lista estão longe do pokémon, não
+  # em cima dele. Uma área estourada ali pega um e gasta o cooldown dos três.
+  #
+  # O pé PARA (a rota segura) e o fogo espera: parar é o que faz eles virem, e é
+  # o que a mão dele faz. Passado o relógio, abre com tudo.
+  defp open(t, why) do
+    if t.config.bunch_ms > 0 do
+      {enter(t.logic, :bunching, t.now),
+       Orders.standing(
+         :bunching,
+         t.band,
+         "#{why} — parado #{t.config.bunch_ms}ms pra eles chegarem perto"
+       )}
+    else
+      fire_all(t, why)
+    end
+  end
+
+  defp fire_all(t, why),
     do:
       {%{t.logic | state: :engaged},
        Orders.standing_and_firing(:engaged, t.band, opening(t), why)}
+
+  # A ESPERA, com as duas saídas que ela precisa ter: o relógio, e a pilha
+  # sumindo (matou-se sozinha, fugiu, ou a leitura caiu). Nada de fogo no meio —
+  # é justamente o que ela compra.
+  defp bunching(t) do
+    cond do
+      t.s.enemies == 0 ->
+        {reset_fight(t.logic, :travelling),
+         Orders.walking(:travelling, t.band, "sumiram enquanto eu esperava — seguindo a rota")}
+
+      within?(t, :bunching, t.config.bunch_ms) ->
+        {t.logic,
+         Orders.standing(
+           :bunching,
+           t.band,
+           "#{count(t.s)} vindo — esperando eles fecharem em cima do pokémon"
+         )}
+
+      true ->
+        fire_all(t, "#{count(t.s)} em cima e perto: estourando a área")
+    end
+  end
 
   defp gathering_why(t) do
     "juntando: #{count(t.s)} até agora, #{walked(t)} de #{t.config.gather_tiles} passos"

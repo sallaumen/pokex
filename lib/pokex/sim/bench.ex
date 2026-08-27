@@ -180,7 +180,9 @@ defmodule Pokex.Sim.Bench do
     was = state.world.clock
     previous = state.world
     before = previous |> World.step(@tick_ms) |> apply_script(state.scenario, was)
-    picture = Situation.build(inputs(before, state.picture), state.config, before.clock)
+
+    picture =
+      Situation.build(inputs(before, state.picture, state.config), state.config, before.clock)
 
     {logic, orders} =
       Logic.step(
@@ -464,7 +466,7 @@ defmodule Pokex.Sim.Bench do
     end)
   end
 
-  defp inputs(world, previous) do
+  defp inputs(world, previous, config) do
     battle = World.observe(world, :battle)
     pokemon = World.observe(world, :pokemon)
 
@@ -475,7 +477,7 @@ defmodule Pokex.Sim.Bench do
       pos: World.observe(world, :minimap).pos,
       own_name: world.own.name,
       ready_keys: World.observe(world, :skill_bar).ready_keys,
-      damage_keys: damage_keys(world),
+      damage_keys: damage_keys(world, config),
       prev: previous
     }
   end
@@ -603,11 +605,18 @@ defmodule Pokex.Sim.Bench do
     }
   end
 
-  # As teclas de DANO seguem sendo área + alvo, do mesmo jeito que
-  # `Engine.Worker.damage_keys/1`: `spent?` é sobre a barra que mata, e a aura
-  # entrar aqui mudaria o significado de "gastou" no meio de uma medição.
-  defp damage_keys(world),
-    do: Enum.sort(keys_of_kind(world, :aoe) ++ keys_of_kind(world, :single))
+  # As teclas de DANO, do mesmo jeito que `Engine.Worker.damage_keys/2`:
+  # `spent?` é sobre a barra que mata, a aura não entra — e a de alvo único só
+  # entra quando a caçada realmente a usa. Uma tecla que nunca é apertada está
+  # sempre pronta, e uma tecla sempre pronta dentro desta lista faz `spent?`
+  # nunca ser verdadeiro.
+  defp damage_keys(world, config) do
+    area = keys_of_kind(world, :aoe)
+
+    if Map.get(config, :single_target, false) or area == [],
+      do: Enum.sort(area ++ keys_of_kind(world, :single)),
+      else: Enum.sort(area)
+  end
 
   # One line per DECISION CHANGE, not per tick: a timeline with six hundred
   # identical rows is not a timeline.

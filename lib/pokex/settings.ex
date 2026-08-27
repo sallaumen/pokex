@@ -44,6 +44,18 @@ defmodule Pokex.Settings do
     # the pokémon on the field has its keys classified (/time); the opening of
     # a gathered pile is always area, whatever this says.
     combat_aoe_from_enemies: 3,
+    # SE A CAÇADA USA AS TECLAS DE ALVO ÚNICO.
+    #
+    # Desligado, e por medição dele em campo (27/08): "o que dá dano é a skill
+    # em área, praticamente exclusivamente — a gente nem precisa usar as de alvo
+    # único". Ele viu o defeito de dentro: entrou numa luta com DOIS bichos, o
+    # `combat_aoe_from_enemies: 3` pôs o alvo único na frente e a luta virou uma
+    # sequência de teclas que não matam.
+    #
+    # Um pokémon SEM área classificada continua usando as de alvo único: ficar
+    # mudo é pior que bater fraco. E `combat_aoe_from_enemies` só volta a
+    # significar alguma coisa com esta ligada.
+    combat_single_target: false,
     # A PARTIR DE QUANTOS INIMIGOS a aura de DEFESA vale a pena.
     #
     # "A de defesa vale sempre que tem já uns 2 pokémons atacando ele pelo menos,
@@ -1086,6 +1098,15 @@ defmodule Pokex.Settings do
     # before the pile counts as closed. A MEASUREMENT, not a preference — his
     # own recording shows 1264, 2543, 3248 and 4806ms of real gathering.
     engine_pile_settle_ms: 1_500,
+    # R12 — QUANTO ESPERAR, DEPOIS DE FECHAR A JANELA, pros bichos chegarem
+    # perto do pokémon antes de estourar a área.
+    #
+    # "Fecho essa janela de mob (…) só que, quando fecho, eu tenho que aguardar,
+    # por exemplo, cinco segundos, pros bichos se aproximarem do meu pokémon"
+    # (27/08). A régua sabia quando PARAR DE JUNTAR e disparava no mesmo tique —
+    # e três bichos recém-chegados à lista estão longe, não em cima. Uma área
+    # ali pega um e gasta o cooldown dos três.
+    engine_bunch_ms: 2_000,
     # …and a ceiling, because R2 says greed makes the pile VANISH: past this,
     # the hunt decides with whatever showed up instead of waiting more.
     #
@@ -1585,6 +1606,7 @@ defmodule Pokex.Settings do
     engine_stun_window_ms: 500..60_000,
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
+    engine_bunch_ms: 0..30_000,
     engine_gather_tiles: 0..60,
     engine_patience_tiles: 1..200,
     engine_size_ceiling_ms: 100..600_000,

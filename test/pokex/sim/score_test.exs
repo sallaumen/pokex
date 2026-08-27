@@ -12,8 +12,16 @@ defmodule Pokex.Sim.ScoreTest do
   # A RAJADA DE GRAÇA por padrão, pelo mesmo motivo do arquivo da bancada: desde
   # #367 as teclas custam tempo e a semente é 300ms, e um placar que mede o
   # preço da rajada junto com o que ele afirma não prova nenhum dos dois.
+  # …e a ESPERA DA R12 em zero pelo mesmo motivo: desde 27/08 a régua para dois
+  # segundos antes de estourar a área, e num cenário de 60s isso entra na conta
+  # de tudo que se meça aqui. Quem quer medir a espera a pede por `config` — o
+  # bloco dela vive em `logic_test.exs`.
   defp card(id, opts \\ []) do
-    config = opts |> Keyword.get(:config, %{}) |> Map.put_new(:skill_gap_ms, 0)
+    config =
+      opts
+      |> Keyword.get(:config, %{})
+      |> Map.put_new(:skill_gap_ms, 0)
+      |> Map.put_new(:bunch_ms, 0)
 
     %{card: card} =
       Score.run(
@@ -110,20 +118,43 @@ defmodule Pokex.Sim.ScoreTest do
       # Este número era o padrão inventado do `hunt/2` (45s); agora que o padrão
       # é o do dono (`sim_respawn_ms`, 20s) o cenário vira um fluxo contínuo e a
       # pilha deixa de ser uma. Um teste que depende do mundo declara o mundo.
+      # …e AS DE ALVO ÚNICO LIGADAS dos dois lados: desde 27/08 a caçada não as
+      # usa por padrão (no jogo dele elas não machucam), mas neste MODELO elas
+      # dão dano — e sem elas esta pilha passa a chegar no amarelo, o que troca
+      # a pergunta do teste (o que a R3b compra) pela pergunta de quanto dano
+      # cada tecla dá.
       mundo = [minutes: 5, respawn_ms: 45_000]
 
       %{card: sem} =
         Score.hunt(
           Scenario.get("pilha-que-fecha"),
           mundo ++
-            [config: %{engage_from: 1, reset_revive: false, crowd_from: 99, skill_gap_ms: 0}]
+            [
+              config: %{
+                engage_from: 1,
+                reset_revive: false,
+                crowd_from: 99,
+                skill_gap_ms: 0,
+                single_target: true,
+                bunch_ms: 0
+              }
+            ]
         )
 
       %{card: com} =
         Score.hunt(
           Scenario.get("pilha-que-fecha"),
           mundo ++
-            [config: %{engage_from: 1, reset_revive: true, crowd_from: 99, skill_gap_ms: 0}]
+            [
+              config: %{
+                engage_from: 1,
+                reset_revive: true,
+                crowd_from: 99,
+                skill_gap_ms: 0,
+                single_target: true,
+                bunch_ms: 0
+              }
+            ]
         )
 
       assert sem.revives.proactive == 0
@@ -138,7 +169,13 @@ defmodule Pokex.Sim.ScoreTest do
       #
       # O que a regra faz de verdade e sempre está uma linha acima: revives
       # proativos existem com ela e não existem sem ela.
-      assert_in_delta com.stalled_pct, sem.stalled_pct, 5.0
+      #
+      # E EM 27/08 A DIREÇÃO APARECEU: com as de alvo único fora da rotação, as
+      # teclas que a caçada gasta são só as de área, e a R3b passou a devolver a
+      # barra em tempo de importar — 1,2% de tempo parado com ela contra 11,6%
+      # sem. A folga de 5 pontos virou uma afirmação: com a regra ligada o bot
+      # fica MENOS parado, e não "quase igual".
+      assert com.stalled_pct < sem.stalled_pct
 
       # O QUE A REGRA CUSTA MUDOU DE NATUREZA, duas vezes, e o teste conta as
       # duas porque a segunda só existe por causa da primeira:

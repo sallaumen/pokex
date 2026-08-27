@@ -1549,7 +1549,16 @@ defmodule PokexWeb.CavebotLive do
 
   # A ordem da FILEIRA, com o zero por último, que é onde ele está na barra.
   defp bar_order(loadout) do
-    keys = loadout.opening ++ loadout.reserved ++ loadout.buffs ++ loadout.heal
+    # `single` entra mesmo quando a caçada não a usa: a barra é o que ELE tem,
+    # não o que a rotação vai apertar. Desde 27/08 as de alvo único ficam fora
+    # da rotação por padrão, e uma tecla que some da tela é uma tecla que ele
+    # não sabe que existe — o `job_of/2` diz que ela está fora.
+    keys =
+      loadout.opening ++
+        loadout.reserved ++
+        loadout.buffs ++
+        Map.get(loadout, :single, []) ++
+        loadout.heal
 
     Enum.sort_by(Enum.uniq(keys), &if(&1 == "0", do: 10, else: String.to_integer(&1)))
   rescue
@@ -1580,6 +1589,7 @@ defmodule PokexWeb.CavebotLive do
       key in loadout.buffs -> "aura"
       key in loadout.heal -> "cura"
       key in loadout.opening -> "dano"
+      key in Map.get(loadout, :single, []) -> "alvo único (fora da rotação)"
       true -> "sem trabalho"
     end
   end
@@ -1616,6 +1626,7 @@ defmodule PokexWeb.CavebotLive do
           opening: Combat.Strategy.opening(loadout),
           reserved: Combat.Strategy.reserved(loadout),
           buffs: loadout.buffs,
+          single: loadout.single,
           heal: loadout.heal
         }
     end

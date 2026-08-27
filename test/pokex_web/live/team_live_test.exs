@@ -419,7 +419,9 @@ defmodule PokexWeb.TeamLiveTest do
 
       assert Team.active() == "Charizard"
       opening = view |> element("#active-opening") |> render()
-      assert opening =~ "3 4 7"
+      # desde 27/08 a caçada não abre com as de alvo único: só a área machuca
+      assert opening =~ "3 4"
+      refute opening =~ "3 4 7"
       refute opening =~ "2"
     end
 

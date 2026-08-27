@@ -54,10 +54,14 @@ defmodule Pokex.Bots.Engine.Inputs do
     %{
       opening:
         Strategy.opening(loadout,
+          single_target?: single?(config),
           aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys),
           shield_ready?: shield?(loadout, picture, config)
         ),
-      single: loadout.single,
+      # A MESMA REGRA aqui: `single` é o que a fase `:skipping` gasta nas teclas
+      # BARATAS, e uma tecla que não machuca não é barata, é perdida. Com a área
+      # vazia ela volta, pelo mesmo motivo de sempre.
+      single: if(single?(config) or loadout.aoe == [], do: loadout.single, else: []),
       crowd: loadout.crowd
     }
   end
@@ -66,6 +70,8 @@ defmodule Pokex.Bots.Engine.Inputs do
   # pronta. O número é o mesmo que o `Combat.Logic` usa na rotação sustentada —
   # uma regra, um knob, senão a abertura e o resto da luta discordam sobre
   # quando ele fica indestrutível.
+  defp single?(config), do: Map.get(config, :single_target, false)
+
   defp shield?(loadout, picture, config) do
     quantos = Map.get(picture, :enemies)
 

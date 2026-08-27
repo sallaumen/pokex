@@ -38,6 +38,7 @@ defmodule Pokex.Bots.Engine.Orders do
           | :travelling
           | :gathering
           | :sizing
+          | :bunching
           | :engaged
           | :skipping
           | :closing

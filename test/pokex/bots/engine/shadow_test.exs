@@ -20,7 +20,10 @@ defmodule Pokex.Bots.Engine.ShadowTest do
     # monotonic clock it cannot be lied to about. Zero here makes "the count
     # held still" true on the second reading — the rule under test is the
     # RULER, and `logic_test.exs` is where the floor itself is measured.
-    Pokex.SettingsStash.stash!(engine_pile_settle_ms: 0)
+    # …e a espera da R12 fora do caminho pelo mesmo motivo: o assunto aqui é a
+    # RÉGUA (quem fecha a janela), e a espera que vem depois de fechar tem o
+    # bloco dela em `logic_test.exs`.
+    Pokex.SettingsStash.stash!(engine_pile_settle_ms: 0, engine_bunch_ms: 0)
     # A brain with no configured pokémon has no hands, and since 2026-08-25 it
     # SAYS so instead of narrating a fight it cannot have. These tests are about
     # the ruler, so they put a creature on the field first.

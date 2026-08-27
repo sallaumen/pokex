@@ -44,4 +44,41 @@ defmodule Pokex.Bots.Engine.ConfigTest do
   test "o piso do resgate vem do ajuste do suporte" do
     assert Config.knobs()[:rescue_cooldown_ms] == :rescue_cooldown_ms
   end
+
+  # UM KNOB QUE SÓ A BANCADA LÊ É UMA REGRA QUE O BOT NÃO TEM — e como este mapa
+  # é a linha de base de `Bench.default_config/0` E de `Bench.config_in_force/0`
+  # (que se documenta como "os knobs como o bot está rodando agora"), a bancada
+  # passa a medir um bot que obedece uma regra que o de verdade nunca viu. É a
+  # mesma família de #358 e #367: a bancada media um parecido.
+  #
+  # No molde do guarda que `display_feeds_test.exs` já tem: uma varredura de
+  # texto, porque a pergunta é justamente "alguém lê isto?".
+  test "todo knob da decisão é lido pelo cérebro, não só pela bancada" do
+    fontes =
+      ["lib/pokex/bots/engine/logic.ex", "lib/pokex/bots/engine/worker.ex"]
+      |> Enum.map_join("\n", &File.read!/1)
+
+    orfaos =
+      Config.knobs()
+      |> Map.keys()
+      |> Enum.reject(
+        &(String.contains?(fontes, "#{&1}") or Map.has_key?(Config.bench_only(), &1))
+      )
+      |> Enum.sort()
+
+    assert orfaos == [],
+           "knobs que só a bancada lê (o bot não tem essa regra): #{inspect(orfaos)}"
+  end
+
+  # E o que é declarado como só-da-bancada nasce DESLIGADO: ligado por semente,
+  # a linha de base de todo sweep mede um bot que obedece uma regra que o de
+  # verdade não tem.
+  test "o que só a bancada obedece vem desligado por semente" do
+    ligados =
+      Config.bench_only()
+      |> Map.keys()
+      |> Enum.filter(fn knob -> Settings.get(Map.fetch!(Config.knobs(), knob)) end)
+
+    assert ligados == [], "semeados ligados sem o cérebro obedecer: #{inspect(ligados)}"
+  end
 end

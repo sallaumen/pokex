@@ -1244,7 +1244,15 @@ defmodule Pokex.Settings do
     #
     # Sem dano medido a regra não faz nada: uma tecla sem número conta como zero
     # e nunca é a última, então a ordem sai inteira. Quem não mediu não economiza.
-    engine_spend_the_minimum: true,
+    #
+    # SEMEADO DESLIGADO, e não por desacordo: hoje SÓ A BANCADA obedece esta
+    # regra (`Strategy.enough/3` tem um único chamador, `Sim.Bench`), porque o
+    # mundo simulado já sabe quanto cada tecla tira e o cérebro não — o dano
+    # medido vive no `SkillMeter` e não chega ao `Engine.Worker.hands/2`.
+    # Ligado por semente, a linha de base de TODO sweep media um bot que corta a
+    # cauda enquanto o de verdade gasta a rajada inteira. Um sweep que pergunta
+    # sobre a regra passa o knob explicitamente. Ver `Engine.Config.bench_only/0`.
+    engine_spend_the_minimum: false,
     # …e a segunda metade da regra dele, que é o que a torna barata: "SEMPRE
     # usar o revive dentro da range de 5 segundos no máximo depois de usar a
     # skill de controle". A pilha está dormindo, então o campo vazio não custa

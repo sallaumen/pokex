@@ -519,4 +519,22 @@ defmodule Pokex.Sim.BenchTest do
       assert com.reached / com.casts > sem.reached / sem.casts
     end
   end
+
+  # UMA VARREDURA DE SEMENTES QUE MEDE A MESMA CORRIDA SEIS VEZES não é média,
+  # é uma corrida com seis nomes — e a lição desta bancada é justamente que
+  # resultado de semente única é ruído. `seed:` era aceito e ignorado.
+  describe "a semente do chamador" do
+    test "muda a corrida; sem ela, o cenário manda" do
+      corrida = fn opts -> Bench.run(Scenario.get("formigueiro"), opts).metrics.kills end
+
+      padrao = corrida.(duration_ms: 60_000)
+
+      assert corrida.(duration_ms: 60_000) == padrao, "sem semente, duas corridas têm que bater"
+
+      outras = Enum.map([7, 11, 13, 17], &corrida.(duration_ms: 60_000, seed: &1))
+
+      assert Enum.uniq(outras) != [padrao],
+             "quatro sementes deram exatamente o resultado do padrão: #{inspect(outras)}"
+    end
+  end
 end

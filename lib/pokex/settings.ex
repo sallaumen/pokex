@@ -1106,7 +1106,21 @@ defmodule Pokex.Settings do
     # (27/08). A régua sabia quando PARAR DE JUNTAR e disparava no mesmo tique —
     # e três bichos recém-chegados à lista estão longe, não em cima. Uma área
     # ali pega um e gasta o cooldown dos três.
-    engine_bunch_ms: 2_000,
+    #
+    # 3s por escolha dele (27/08), depois de corrigir a velocidade dos bichos no
+    # simulador — com eles no passo antigo (420ms/tile) a curva pedia 2s, e com
+    # o passo de verdade (900ms) ela virou:
+    #
+    #   espera   lotavanon        formigueiro
+    #      0ms   96,3 mortos/min  18,6
+    #   2000ms   90,4             21,2
+    #   3000ms   92,8             21,9   <- aqui
+    #   5000ms   82,7             19,9
+    #
+    # Ou seja: no anel esparso esperar CUSTA (o valor lá é cobrir chão), e no
+    # formigueiro paga +18%. 3s é o meio que ele escolheu, e o knob existe pra
+    # quando ele medir o passo de verdade no jogo.
+    engine_bunch_ms: 3_000,
     # …and a ceiling, because R2 says greed makes the pile VANISH: past this,
     # the hunt decides with whatever showed up instead of waiting more.
     #

@@ -67,14 +67,20 @@ defmodule Pokex.Sim.World do
     # unmarked corner, so the road between piles stops being a safe corridor.
     stray_chance_pct: 22,
     aggro_tiles: 8,
-    # invented — the same unmeasured tiles/s hole as the character's step
-    mob_ms_per_tile: 420,
+    # DELE, e não mais um chute: "reduz um pouco a velocidade dos monstros e do
+    # meu próprio pokémon? eles geralmente são mais lentos, por isso que disse
+    # uns 5 segundos" (27/08). A 900ms por tile um bicho cruza cinco tiles e
+    # meio em cinco segundos — que é mais ou menos a distância da borda da tela
+    # até o pokémon, e é de onde a intuição dos 5s dele sai.
+    mob_ms_per_tile: 900,
     # HIS account of the game, tiles counted by his eye: the pokemon trails him
     # at about two tiles, walks a little slower than he does, and a long march
     # stretches that gap — until it leaves his screen and the game snaps it to
     # his side. The tile numbers are his; the speed is mine.
     pet_follow_tiles: 2,
-    pet_ms_per_tile: 380,
+    # …e o pokémon dele junto, pelo mesmo relato: ele anda um pouco mais devagar
+    # que o personagem, e o personagem não mudou.
+    pet_ms_per_tile: 700,
     # Tibia's viewport is 15x11 tiles: seven across from the centre. Leaving
     # that box is what triggers the snap.
     screen_tiles: 7,

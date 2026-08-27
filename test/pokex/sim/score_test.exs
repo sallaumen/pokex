@@ -104,7 +104,15 @@ defmodule Pokex.Sim.ScoreTest do
       # `prepare_revive: false` pelo mesmo motivo que o resto isola knob: desde
       # 27/08 existe um revive PROATIVO que não é a R3b — o de chegar preparado
       # no próximo grupo —, e ele sairia aqui com a tela limpa.
-      card = card("vermelho", config: %{engage_from: 1, prepare_revive: false})
+      # …e `reset_revive: false` porque é literalmente o que a asserção diz:
+      # "sem a regra R3b". Ela vinha da semente (ligada) e o cenário só não
+      # produzia proativo por sorte — com os bichos no passo lento de verdade
+      # (27/08) a barra passa a esgotar aqui, e o teste virou vermelho dizendo
+      # a verdade sobre si mesmo.
+      card =
+        card("vermelho",
+          config: %{engage_from: 1, prepare_revive: false, reset_revive: false}
+        )
 
       assert card.revives.rescue > 0
       assert card.revives.proactive == 0, "sem a regra R3b, nada é proativo"

@@ -23,7 +23,14 @@ defmodule Pokex.Bots.Engine.ShadowTest do
     # …e a espera da R12 fora do caminho pelo mesmo motivo: o assunto aqui é a
     # RÉGUA (quem fecha a janela), e a espera que vem depois de fechar tem o
     # bloco dela em `logic_test.exs`.
-    Pokex.SettingsStash.stash!(engine_pile_settle_ms: 0, engine_bunch_ms: 0)
+    Pokex.SettingsStash.stash!(
+      engine_pile_settle_ms: 0,
+      engine_bunch_ms: 0,
+      # …e o alvo do bolo em 1: desde 27/08 a régua só fecha a janela com seis
+      # na tela, e estes testes põem quatro. A pergunta aqui é a RÉGUA.
+      engine_gather_target: 1
+    )
+
     # A brain with no configured pokémon has no hands, and since 2026-08-25 it
     # SAYS so instead of narrating a fight it cannot have. These tests are about
     # the ruler, so they put a creature on the field first.

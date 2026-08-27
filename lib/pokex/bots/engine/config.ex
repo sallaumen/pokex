@@ -46,6 +46,8 @@ defmodule Pokex.Bots.Engine.Config do
     shield_from: :combat_shield_from_enemies,
     single_target: :combat_single_target,
     bunch_ms: :engine_bunch_ms,
+    bunch_walk_tiles: :engine_bunch_walk_tiles,
+    gather_target: :engine_gather_target,
     spend_the_minimum: :engine_spend_the_minimum,
     stun_window_ms: :engine_stun_window_ms,
     reset_needs_control: :engine_reset_needs_control,

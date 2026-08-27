@@ -67,6 +67,14 @@ defmodule Pokex.Sim.World do
     # unmarked corner, so the road between piles stops being a safe corridor.
     stray_chance_pct: 22,
     aggro_tiles: 8,
+    # O QUE ESTE MUNDO NÃO MODELA, e ele já sentiu doer: ataque à DISTÂNCIA. "Tem
+    # pokémons que têm ataques à distância também, eles acabam me acertando
+    # muito rápido quando eu tô nesse espaço de revive" (27/08). Aqui a mordida
+    # só acontece encostado (`bite_dmg` por bicho adjacente), então o preço do
+    # revive neste simulador é sempre menor que o de verdade — e qualquer
+    # medição sobre "vale a pena reviver aqui" é otimista por construção.
+    #
+    # Ele pediu pra não modelar agora, só registrar. Fica registrado.
     # DELE, e não mais um chute: "eles geralmente são mais lentos" e, olhando os
     # 900 que eu tinha posto, "na verdade é ainda mais lento" (27/08). A 1200ms
     # por tile um bicho cruza quatro tiles em cinco segundos — que é a distância

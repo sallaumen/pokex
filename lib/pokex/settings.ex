@@ -1120,7 +1120,22 @@ defmodule Pokex.Settings do
     # Ou seja: no anel esparso esperar CUSTA (o valor lá é cobrir chão), e no
     # formigueiro paga +18%. 3s é o meio que ele escolheu, e o knob existe pra
     # quando ele medir o passo de verdade no jogo.
-    engine_bunch_ms: 3_000,
+    engine_bunch_ms: 6_000,
+    # …e os PASSOS que ela anda antes de parar. "Ele não precisa parar na hora
+    # que identificou isso. Ele pode andar um pouquinho até na rota, mais uns 5
+    # passos, e parar, porque aí os monstros que ele encontrou lá na frente já
+    # vão ter se enfiado um pouco mais no meio deles" (27/08).
+    engine_bunch_walk_tiles: 5,
+    # QUANTOS BICHOS FAZEM UM BOLO — o alvo que a régua persegue antes de fechar
+    # a janela. "Quando encontra dois monstros, pode andar bastante até ter seis
+    # monstros; se tiver cinco monstros na tela, pode andar um pouquinho e
+    # depois parar" (27/08).
+    #
+    # Sem isso a janela fechava assim que o bolo valia a pena (`engage_from`, 2)
+    # e os passos tinham sido dados — e a caçada abria fogo em dois. A paciência
+    # (`engine_patience_tiles`) segue sendo o teto: um bolo que nunca chega no
+    # alvo não segura a caçada pra sempre.
+    engine_gather_target: 6,
     # …and a ceiling, because R2 says greed makes the pile VANISH: past this,
     # the hunt decides with whatever showed up instead of waiting more.
     #
@@ -1369,7 +1384,17 @@ defmodule Pokex.Settings do
     # MEDIDO em 26/08 com `since_stun_ms`: dos revives que a regra governa (fase
     # `engaged`), 60% saíam na janela no anel e 40% no formigueiro. Os que
     # faltam são exatamente estes — o controle em cooldown.
-    engine_reset_needs_control: false,
+    #
+    # LIGADO desde 27/08, pelo que ele viu na segunda pilha de uma rota: "ele
+    # quase morreu porque ele não tinha o stun de controle disponível para poder
+    # usar o revive de forma segura, então ele usou o revive de forma insegura".
+    # O revive recolhe o pokémon; sem ninguém dormindo na frente, o que sobra é
+    # o personagem apanhando — e ele tem bicho de ataque à distância na hunt.
+    #
+    # O que NÃO fecha com isto: o resgate do vermelho (é emergência, e emergência
+    # não espera cooldown) e o revive de preparo da R11 (tela limpa, não há bolo
+    # acordado pra proteger).
+    engine_reset_needs_control: true,
     # How often a plain VITALS reading is filed while nothing is changing. The
     # transitions that carry the four measurements are written the instant they
     # happen (see `Engine.Worker.sample_vitals/4`); this is only the heartbeat
@@ -1621,6 +1646,8 @@ defmodule Pokex.Settings do
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_bunch_ms: 0..30_000,
+    engine_bunch_walk_tiles: 0..30,
+    engine_gather_target: 1..20,
     engine_gather_tiles: 0..60,
     engine_patience_tiles: 1..200,
     engine_size_ceiling_ms: 100..600_000,

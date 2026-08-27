@@ -875,30 +875,59 @@ defmodule Pokex.Bots.Engine.Logic do
   # o que a mão dele faz. Passado o relógio, abre com tudo.
   defp open(t, why) do
     if t.config.bunch_ms > 0 do
-      {enter(t.logic, :bunching, t.now),
-       Orders.standing(
-         :bunching,
-         t.band,
-         "#{why} — parado #{t.config.bunch_ms}ms pra eles chegarem perto"
-       )}
+      # O MESMO TIQUE já decide a primeira metade: entrar na espera e mandar
+      # PARAR era o que ele via como "estranhamente ele está parando de andar" —
+      # os passos que faltavam eram os que arrastam o bolo pra cima do pokémon.
+      # O carimbo vem ANTES de entrar na fase: `mark_bunch_from/2` se protege de
+      # re-marcar quem já está esperando, e depois do `enter/3` essa guarda
+      # casaria sempre — os passos ficariam eternamente faltando cinco.
+      logic = t.logic |> mark_bunch_from(t) |> enter(:bunching, t.now)
+
+      %{t | logic: logic} |> bunching() |> narrate_open(why)
     else
       fire_all(t, why)
     end
   end
+
+  # A razão de FECHAR a janela viaja junto com a razão de estar esperando: a
+  # primeira só é dita uma vez, e é ela que explica por que a caçada parou de
+  # juntar.
+  defp narrate_open({logic, orders}, why), do: {logic, %{orders | why: "#{why} · #{orders.why}"}}
+
+  # De onde contar os passos da primeira metade da espera. Vai no mesmo mapa dos
+  # relógios porque tem a mesma vida: nasce com a fase e morre com ela.
+  defp mark_bunch_from(%{state: :bunching} = logic, _t), do: logic
+  defp mark_bunch_from(logic, t), do: put_in(logic.since[:bunch_from], walked(t))
 
   defp fire_all(t, why),
     do:
       {%{t.logic | state: :engaged},
        Orders.standing_and_firing(:engaged, t.band, opening(t), why)}
 
-  # A ESPERA, com as duas saídas que ela precisa ter: o relógio, e a pilha
-  # sumindo (matou-se sozinha, fugiu, ou a leitura caiu). Nada de fogo no meio —
-  # é justamente o que ela compra.
+  # A ESPERA, em duas metades, e a primeira ANDA.
+  #
+  # "Ele não precisa parar na hora que identificou isso. Ele pode andar um
+  # pouquinho até na rota, mais uns 5 passos, e parar, porque aí os monstros que
+  # ele encontrou lá na frente já vão ter se enfiado um pouco mais no meio
+  # deles" (27/08). Parar no instante em que a janela fecha é o "estranhamente
+  # ele está parando de andar" que ele viu: os passos que faltavam eram os que
+  # arrastavam o bolo pra cima do pokémon.
+  #
+  # Fogo segurado nas duas metades — é o que a espera compra —, e as saídas de
+  # sempre: o relógio, e a pilha sumindo.
   defp bunching(t) do
     cond do
       t.s.enemies == 0 ->
         {reset_fight(t.logic, :travelling),
          Orders.walking(:travelling, t.band, "sumiram enquanto eu esperava — seguindo a rota")}
+
+      arrastando?(t) ->
+        {t.logic,
+         Orders.walking(
+           :bunching,
+           t.band,
+           "#{count(t.s)}: mais #{passos_que_faltam(t)} passo(s) pra puxar eles antes de parar"
+         )}
 
       within?(t, :bunching, t.config.bunch_ms) ->
         {t.logic,
@@ -913,6 +942,17 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
+  # Os passos que a espera ainda tem pra andar. `walked` é medido desde o
+  # primeiro avistamento desta pilha, então o marco é onde ela estava quando a
+  # janela fechou — guardado em `since`, que é o relógio desta fase.
+  defp arrastando?(t), do: passos_que_faltam(t) > 0
+
+  defp passos_que_faltam(t) do
+    andados = walked(t) - Map.get(t.logic.since, :bunch_from, walked(t))
+
+    max(t.config.bunch_walk_tiles - andados, 0)
+  end
+
   defp gathering_why(t) do
     "juntando: #{count(t.s)} até agora, #{walked(t)} de #{t.config.gather_tiles} passos"
   end
@@ -923,9 +963,21 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp rushing_in?(t), do: t.s.worth_fighting? and not t.config.gather_piles
 
-  defp gathered_enough?(t), do: t.s.worth_fighting? and walked_enough?(t)
+  # O ALVO DO BOLO, e não só os passos: "quando encontra dois monstros, pode
+  # andar bastante até ter seis monstros; se tiver cinco monstros na tela, pode
+  # andar um pouquinho e depois parar" (27/08). Com dois na tela e o passo
+  # cumprido, a régua fechava a janela e abria fogo num bolo de dois — que é o
+  # "usando as skills cedo demais" que ele viu.
+  #
+  # A paciência (`patience_tiles`) continua sendo o teto: um bolo que nunca
+  # chega no alvo não pode segurar a caçada pra sempre.
+  defp gathered_enough?(t), do: bolo_cheio?(t) and walked_enough?(t)
 
-  defp stopped_arriving?(t), do: t.s.worth_fighting? and settled?(t)
+  defp stopped_arriving?(t), do: bolo_cheio?(t) and settled?(t)
+
+  defp bolo_cheio?(t) do
+    t.s.worth_fighting? and is_integer(t.s.enemies) and t.s.enemies >= t.config.gather_target
+  end
 
   defp patience_out?(t), do: some?(t.s) and out_of_patience?(t)
 

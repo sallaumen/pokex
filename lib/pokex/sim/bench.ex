@@ -107,7 +107,12 @@ defmodule Pokex.Sim.Bench do
       scenario
       |> Scenario.route(routes)
       |> World.new(
-        seed: scenario.seed,
+        # A SEMENTE DO CHAMADOR VENCE. `Bench.run(cenario, seed: 7)` é a chamada
+        # que qualquer um escreve pra varrer sementes, e até 27/08 ela era
+        # ACEITA E IGNORADA: as seis corridas de uma varredura saíam idênticas
+        # até o último morto, e a média de seis parecia prova. Só
+        # `%{cenario | seed: n}` funcionava, e nada dizia isso.
+        seed: Keyword.get(opts, :seed, scenario.seed),
         # A MESA DELE POR ÚLTIMO. Até 26/08 a bancada montava o mundo só com
         # `world_knobs/0` (duas chaves) e os knobs do cenário: a vida do monstro,
         # os níveis de dano e o raio da área que ele acabou de configurar na tela

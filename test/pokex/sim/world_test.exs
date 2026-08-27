@@ -416,6 +416,49 @@ defmodule Pokex.Sim.WorldTest do
     assert "3" in World.observe(world, :skill_bar).ready_keys
   end
 
+  # ELE PEDIU O COOLDOWN POR SKILL em 27/08: "cada skill tem que ter um cooldown
+  # escrito". Até então o mundo tinha UM número pra barra inteira, e uma barra
+  # com o mesmo cooldown em tudo não tem ordem preferida — nenhuma regra sobre
+  # gastar a barra podia ser medida aqui.
+  describe "o cooldown de cada tecla" do
+    test "o que está escrito no time vale por tecla, e o global só cobre o resto" do
+      bar = %{loadout() | cooldowns: %{"3" => 1_000}}
+
+      world =
+        World.new(nest_route(),
+          loadout: bar,
+          knobs: %{nest_size: 3, nest_radius: 1, skill_cooldown_ms: 30_000}
+        )
+
+      world =
+        world
+        |> World.press({:press, "3"})
+        |> World.press({:press, "4"})
+        |> World.step(1_000)
+
+      ready = World.observe(world, :skill_bar).ready_keys
+
+      assert "3" in ready, "a que ele mediu em 1s tinha que ter voltado"
+      refute "4" in ready, "a que ninguém mediu segue no chute global de 30s"
+    end
+
+    # A mesa do /sim é o experimento e o time é a verdade medida no jogo: ele
+    # pergunta "e se a área voltasse em 2s?" sem apagar o que gravou.
+    test "a mesa do /sim vence o que está gravado no time" do
+      bar = %{loadout() | cooldowns: %{"3" => 30_000}}
+
+      world =
+        World.new(nest_route(),
+          loadout: bar,
+          knobs: %{nest_size: 3, nest_radius: 1, skill_cooldowns: %{"3" => 2_000}}
+        )
+
+      world = world |> World.press({:press, "3"}) |> World.step(2_000)
+
+      assert "3" in World.observe(world, :skill_bar).ready_keys
+    end
+  end
+
   test "a key still on cooldown fires nothing" do
     world = armed(%{skill_cooldown_ms: 9_999, aoe_damage_pct: 10, damage_spread_pct: 0})
 

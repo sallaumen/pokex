@@ -30,7 +30,16 @@ defmodule Pokex.Bots.Combat.Loadout do
   alias Pokex.Pokedex.{SkillProfile, Team}
 
   @enforce_keys [:name]
-  defstruct name: nil, aoe: [], single: [], buffs: [], shield: [], heal: [], crowd: []
+  defstruct name: nil,
+            aoe: [],
+            single: [],
+            buffs: [],
+            shield: [],
+            heal: [],
+            crowd: [],
+            # QUANTO CADA TECLA LEVA PRA VOLTAR, escrito por ele no /time. Vazio
+            # é "não sei", nunca "instantâneo" — ver `Pokex.Bots.SkillClock`.
+            cooldowns: %{}
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -39,7 +48,8 @@ defmodule Pokex.Bots.Combat.Loadout do
           buffs: [String.t()],
           shield: [String.t()],
           heal: [String.t()],
-          crowd: [String.t()]
+          crowd: [String.t()],
+          cooldowns: SkillProfile.cooldowns()
         }
 
   @doc """
@@ -57,7 +67,7 @@ defmodule Pokex.Bots.Combat.Loadout do
   defp real do
     case Team.active() do
       nil -> nil
-      name -> resolve(name, Team.skills(name))
+      name -> resolve(name, Team.skills(name), Team.cooldowns(name))
     end
   end
 
@@ -76,10 +86,13 @@ defmodule Pokex.Bots.Combat.Loadout do
   Builds a loadout from a name and its profile. Pure — the whole reason the
   rules are testable without a team file.
   """
-  @spec resolve(String.t(), SkillProfile.t()) :: t | nil
-  def resolve(name, profile) when is_binary(name) and is_map(profile) do
+  @spec resolve(String.t(), SkillProfile.t(), SkillProfile.cooldowns()) :: t | nil
+  def resolve(name, profile, cooldowns \\ %{})
+
+  def resolve(name, profile, cooldowns) when is_binary(name) and is_map(profile) do
     loadout = %__MODULE__{
       name: name,
+      cooldowns: cooldowns,
       aoe: SkillProfile.keys(profile, :aoe),
       single: SkillProfile.keys(profile, :single),
       buffs: SkillProfile.keys(profile, :buffs),
@@ -96,7 +109,7 @@ defmodule Pokex.Bots.Combat.Loadout do
     if classified?(loadout), do: loadout, else: nil
   end
 
-  def resolve(_no_name, _no_profile), do: nil
+  def resolve(_no_name, _no_profile, _no_cooldowns), do: nil
 
   @doc """
   Whether this loadout has anything to ATTACK with — the fight's question.

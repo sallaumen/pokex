@@ -98,6 +98,13 @@ defmodule Pokex.Sim.World do
     # 45s é a média das duas famílias; a diferença entre 40 e 50 não muda a
     # economia, a diferença entre 8 e 45 muda tudo.
     skill_cooldown_ms: 45_000,
+    # E O COOLDOWN DE CADA TECLA, quando ele escreveu — `%{"4" => 12_000}`. O
+    # número acima é o chute para quem não tem: uma barra inteira com o MESMO
+    # cooldown não tem ordem preferida, e foi assim que este simulador nasceu.
+    # A fonte de verdade é o /time (`Loadout.cooldowns`), que é a mesma que o
+    # bot de verdade lê; esta chave existe pro /sim poder experimentar com
+    # números que ele ainda não gravou no time.
+    skill_cooldowns: %{},
     # His to calibrate: how much health a monster of this hunt carries. Damage
     # is in the SAME unit, so both numbers move together and neither is a
     # percentage of something invisible.
@@ -323,6 +330,8 @@ defmodule Pokex.Sim.World do
   defp keys_of(nil), do: %{}
 
   defp keys_of(loadout) do
+    cooldowns = Map.get(loadout, :cooldowns, %{})
+
     for {kind, keys} <- [
           aoe: loadout.aoe,
           single: loadout.single,
@@ -333,7 +342,7 @@ defmodule Pokex.Sim.World do
         ],
         key <- keys,
         into: %{},
-        do: {key, %{kind: kind, ready_at: 0}}
+        do: {key, %{kind: kind, ready_at: 0, cooldown_ms: Map.get(cooldowns, key)}}
   end
 
   # Nests sit where HIS HAND stopped: a corner carrying `gather_ms` (he waited
@@ -658,8 +667,19 @@ defmodule Pokex.Sim.World do
   end
 
   defp spend(world, key) do
-    ready_at = world.clock + world.knobs.skill_cooldown_ms
-    %{world | keys: put_in(world.keys, [key, :ready_at], ready_at)}
+    %{world | keys: put_in(world.keys, [key, :ready_at], world.clock + cooldown_of(world, key))}
+  end
+
+  # O COOLDOWN DESTA TECLA, na ordem em que as fontes mandam: o que ele digitou
+  # no /sim, o que ele gravou no /time, e por último o chute único de 45s.
+  #
+  # A ordem importa porque a mesa do /sim é o experimento e o time é a verdade:
+  # ele mexe na mesa pra perguntar "e se a área voltasse em 12s?", e não quer
+  # que isso apague o que ele mediu no jogo.
+  defp cooldown_of(world, key) do
+    Map.get(world.knobs.skill_cooldowns, key) ||
+      get_in(world.keys, [key, :cooldown_ms]) ||
+      world.knobs.skill_cooldown_ms
   end
 
   defp damage(world, key, :aoe),

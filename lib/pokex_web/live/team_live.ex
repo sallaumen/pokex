@@ -119,6 +119,10 @@ defmodule PokexWeb.TeamLive do
   # selects sharing one name, and nothing would have saved in a real browser.
   def handle_event("set_skills", %{"name" => name} = params, socket) do
     Team.set_skills(name, SkillProfile.from_form(params["skill"]))
+    # O MESMO FORMULÁRIO carrega as duas respostas sobre a mesma tecla: o que
+    # ela faz e de quanto em quanto tempo dá pra usar. Salvar junto é o que
+    # impede um lado de ficar velho em relação ao outro.
+    Team.set_cooldowns(name, SkillProfile.cooldowns_from_form(params["cd"]))
     {:noreply, assign_team(socket)}
   end
 
@@ -287,6 +291,7 @@ defmodule PokexWeb.TeamLive do
           level: level,
           entry: entry,
           skills: Map.get(member, :skills) || %{},
+          cooldowns: Map.get(member, :cooldowns) || %{},
           bar: Map.get(member, :bar)
         }
   end
@@ -776,6 +781,15 @@ defmodule PokexWeb.TeamLive do
           a área abre tudo de uma vez (não precisa de alvo) e o alvo único fecha, depois de
           marcar · salva sozinho
         </p>
+        <%!-- O SEGUNDO NÚMERO DE CADA TECLA. Sem ele o cérebro só sabia se uma
+              skill está pronta OLHANDO a barra, então uma leitura ruim virava
+              rotação cega e "gastei tudo" era um chute. Com ele o bot conta o
+              próprio tempo e só confere a tela. --%>
+        <p class="mb-2 font-mono text-[9px] text-[#69737b]">
+          o <span class="text-[#8b949d]">cooldown</span>
+          é em segundos, do jeito que o jogo escreve em cima do ícone — em branco quer dizer
+          "não sei", e aí ele volta a confiar só na barra
+        </p>
 
         <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           <label
@@ -806,6 +820,19 @@ defmodule PokexWeb.TeamLive do
                 {SkillProfile.icon(category)} {SkillProfile.label(category)}
               </option>
             </select>
+            <input
+              type="number"
+              inputmode="decimal"
+              min="1"
+              max="600"
+              step="0.5"
+              name={"cd[" <> key <> "]"}
+              value={SkillProfile.seconds(@row.cooldowns, key)}
+              placeholder="s"
+              title={"Cooldown da skill " <> key <> ", em segundos"}
+              aria-label={"Cooldown da skill " <> key <> " de " <> @row.name}
+              class="h-7 w-12 shrink-0 rounded border border-[#293238] bg-[#090d0f] px-1 text-right font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+            />
           </label>
         </div>
 

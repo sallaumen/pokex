@@ -178,7 +178,7 @@ defmodule Pokex.Sim.Bench do
     {logic, orders} =
       Logic.step(
         state.logic,
-        decision_world(before, picture, state.hands.leg),
+        decision_world(before, picture, state.hands.leg, state.config),
         state.config,
         before.clock
       )
@@ -475,14 +475,14 @@ defmodule Pokex.Sim.Bench do
 
   # A hunt is always running here — the scenario IS the hunt. Standing where
   # monsters are on screen is `:fighting`, which is what makes the ruler run.
-  defp decision_world(world, picture, leg) do
+  defp decision_world(world, picture, leg, config) do
     luring? = luring?(world, leg)
 
     %{
       situation: picture,
       hunt: %{state: hunt_state(world, luring?), luring?: luring?},
       hands: %{
-        opening: opening(world, picture),
+        opening: opening(world, picture, config),
         single: keys_of_kind(world, :single),
         crowd: keys_of_kind(world, :crowd)
       }
@@ -528,12 +528,38 @@ defmodule Pokex.Sim.Bench do
   # com ela fora o multiplicador de 20% que ele descreveu não multiplicava nada.
   # Um sweep de `aura_boost_pct` dava a mesma linha duas vezes, e a explicação
   # não estava no knob.
-  defp opening(world, picture) do
+  defp opening(world, picture, config) do
     loadout = loadout_of(world)
 
-    Strategy.opening(loadout,
-      aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys)
-    )
+    ordem =
+      Strategy.opening(loadout, aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys))
+
+    if config[:spend_the_minimum],
+      do: Strategy.enough(ordem, dano_por_tecla(world), falta_no_alvo(world)),
+      else: ordem
+  end
+
+  # QUANTO CADA TECLA TIRA, na mesma unidade da vida que falta: porcentagem da
+  # vida do bicho. No bot de verdade quem responde isto é o `SkillMeter`, que
+  # mede olhando a barra do alvo antes e depois; aqui o mundo já sabe, e usar o
+  # que ele sabe é o que torna a regra mensurável antes de existir no jogo.
+  #
+  # O PISO da faixa, não o meio: cortar a rajada pelo dano MÉDIO deixa metade
+  # dos bichos vivos com a barra gasta, que é a pior troca desta caçada.
+  defp dano_por_tecla(world) do
+    for {key, _skill} <- world.keys,
+        {lo, _hi} <- [World.damage_band(world, key)],
+        into: %{},
+        do: {key, lo * 100 / max(world.knobs.mob_hp, 1)}
+  end
+
+  # A vida que falta no bicho MAIS GORDO ao alcance: uma rajada de área não mira
+  # um alvo, e cortar pelo mais fraco deixaria o resto em pé.
+  defp falta_no_alvo(world) do
+    world.mobs
+    |> Enum.filter(&World.reachable?(&1, world))
+    |> Enum.map(&World.hp_pct/1)
+    |> Enum.max(fn -> nil end)
   end
 
   defp loadout_of(world) do

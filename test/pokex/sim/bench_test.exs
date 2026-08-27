@@ -475,4 +475,48 @@ defmodule Pokex.Sim.BenchTest do
              "todo revive que a regra dele governa sai dentro da janela do controle"
     end
   end
+
+  describe "gastar o mínimo pra matar, na bancada" do
+    # A regra é dele e agora tem como se provar: desde #367 uma tecla custa
+    # `combat_skill_gap_ms` das seguintes, e o corpo não anda enquanto a rajada
+    # sai. Numa bancada onde tecla era de graça, gastar seis era igual a gastar
+    # uma.
+    # OITO SEMENTES, não uma: numa corrida só os tiros empatam com facilidade, e
+    # o efeito desta regra é agregado. Uma semente única já enganou este projeto
+    # uma vez — um sweep que parecia enorme virou ruído com 24.
+    defp cortando(corta) do
+      dano = Map.new(~w(3 4 5), &{&1, {60, 80}})
+
+      runs =
+        for seed <- 1..8 do
+          Bench.run(%{Scenario.get("lotavanon") | seed: seed},
+            duration_ms: 60_000,
+            config: %{spend_the_minimum: corta},
+            knobs: %{mob_hp: 300, skill_damage: dano}
+          )
+        end
+
+      %{
+        killed: Enum.sum(Enum.map(runs, & &1.outcome.killed)),
+        casts: Enum.sum(Enum.map(runs, & &1.metrics.casts)),
+        reached: Enum.sum(Enum.map(runs, & &1.metrics.reached))
+      }
+    end
+
+    test "cortando a cauda ele dá MENOS tiros e mata MAIS" do
+      com = cortando(true)
+      sem = cortando(false)
+
+      assert com.killed > sem.killed
+      assert com.casts < sem.casts
+    end
+
+    test "e cada tiro pega mais gente, que é de onde o ganho vem" do
+      # A tecla poupada não gasta o cooldown: ela sai depois, numa pilha maior.
+      com = cortando(true)
+      sem = cortando(false)
+
+      assert com.reached / com.casts > sem.reached / sem.casts
+    end
+  end
 end

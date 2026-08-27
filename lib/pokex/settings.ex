@@ -1233,6 +1233,18 @@ defmodule Pokex.Settings do
     # número junto dele (65,51 nos dois), porque o revive passa a vir pela janela
     # do controle em vez da R3b — e a janela não olha vida.
     engine_crowd_from: 1,
+    # GASTAR O MÍNIMO PRA MATAR. "Se ele se identificar aqui com a skill 4
+    # sozinha, ele já mata. Ele não precisa ficar usando 4, 5, 6 sempre. Ele
+    # pode usar só 4, esperar um pouquinho. Se não matar, usa 5" (26/08).
+    #
+    # A rajada é cortada no ponto em que o dano MEDIDO já cobre o que o alvo
+    # ainda tem. Uma tecla custa `combat_skill_gap_ms` das seguintes e o corpo
+    # não anda enquanto ela sai; cortar a cauda devolve esse tempo E o cooldown
+    # da tecla que não saiu.
+    #
+    # Sem dano medido a regra não faz nada: uma tecla sem número conta como zero
+    # e nunca é a última, então a ordem sai inteira. Quem não mediu não economiza.
+    engine_spend_the_minimum: true,
     # …e a segunda metade da regra dele, que é o que a torna barata: "SEMPRE
     # usar o revive dentro da range de 5 segundos no máximo depois de usar a
     # skill de controle". A pilha está dormindo, então o campo vazio não custa

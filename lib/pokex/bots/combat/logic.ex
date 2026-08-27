@@ -692,9 +692,25 @@ defmodule Pokex.Bots.Combat.Logic do
   # the loadout: no pokémon chosen means nothing changes.
   defp attack_keys(%{loadout: loadout, config: config}, obs) do
     if Loadout.attacks?(loadout) do
+      quantos = length(enemies(obs))
+      prontas = obs[:ready_skills]
+
+      # AS DUAS AURAS ENTRAM NA ROTAÇÃO, e não só na abertura. Elas só eram
+      # consideradas em `open_with_combo`, que sai UMA vez na borda da luta: uma
+      # aura que fica pronta no meio de uma luta de quarenta segundos nunca era
+      # apertada. Medido no rastro dele de 27/08: a tecla 2 do Vespiquen (a aura
+      # de dano) saiu 3 vezes contra 28 da tecla 7.
+      #
+      # "A aura de ataque vale a pena ele usar sempre que tiver em luta com um
+      # pokémon e o cooldown estiver disponível; a de defesa, sempre que tem já
+      # uns 2 pokémons atacando ele pelo menos" (27/08).
       Strategy.skill_order(loadout,
-        enemies: length(enemies(obs)),
-        aoe_from: Map.get(config, :combat_aoe_from_enemies, 3)
+        enemies: quantos,
+        aoe_from: Map.get(config, :combat_aoe_from_enemies, 3),
+        aura_ready?: Loadout.aura_ready?(loadout, prontas),
+        shield_ready?:
+          quantos >= Map.get(config, :combat_shield_from_enemies, 2) and
+            Loadout.shield_ready?(loadout, prontas)
       )
     else
       # Nobody chosen, or one whose ATTACKS he has not classified — a pokémon

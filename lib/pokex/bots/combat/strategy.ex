@@ -42,7 +42,8 @@ defmodule Pokex.Bots.Combat.Strategy do
           enemies: non_neg_integer,
           opening?: boolean,
           aoe_from: pos_integer,
-          aura_ready?: boolean
+          aura_ready?: boolean,
+          shield_ready?: boolean
         ]
 
   @doc """
@@ -72,11 +73,21 @@ defmodule Pokex.Bots.Combat.Strategy do
     # dano. Então quem chama diz se ela está pronta; sem ninguém dizendo, a
     # rajada continua exatamente como era.
     #
-    # `shield` nunca entra, com pronta ou sem: uma invulnerabilidade gasta a cada
-    # abertura é uma invulnerabilidade que não existe quando ele precisa.
-    if Keyword.get(opts, :aura_ready?, false),
-      do: loadout.buffs ++ damage,
-      else: damage
+    # A ORDEM DAS DUAS AURAS: escudo, dano, e só então as teclas de dano. O
+    # escudo primeiro porque ele é sobre SOBREVIVER à salva que vem; a aura de
+    # dano depois porque ela multiplica o que sai atrás dela.
+    #
+    # `shield` era proibido aqui, com pronta ou sem — "uma invulnerabilidade
+    # gasta a cada abertura é uma invulnerabilidade que não existe quando ele
+    # precisa". Ele desmentiu isso em 27/08, olhando a caçada: "a de defesa vale
+    # sempre que tem já uns 2 pokémons atacando ele pelo menos (…) ou no pior
+    # dos casos, que nem a aura de ataque: quando entrar em luta, sempre
+    # garantir usar se estiver disponível". Quem decide o "2" é quem chama —
+    # aqui ela entra quando mandarem, e nunca por conta própria.
+    escudo = if Keyword.get(opts, :shield_ready?, false), do: loadout.shield, else: []
+    aura = if Keyword.get(opts, :aura_ready?, false), do: loadout.buffs, else: []
+
+    escudo ++ aura ++ damage
   end
 
   @doc """

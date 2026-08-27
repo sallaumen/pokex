@@ -43,6 +43,7 @@ defmodule Pokex.Bots.Engine.Config do
     spent_keys_left: :engine_spent_keys_left,
     prepare_revive: :engine_prepare_revive,
     crowd_from: :engine_crowd_from,
+    shield_from: :combat_shield_from_enemies,
     spend_the_minimum: :engine_spend_the_minimum,
     stun_window_ms: :engine_stun_window_ms,
     reset_needs_control: :engine_reset_needs_control,

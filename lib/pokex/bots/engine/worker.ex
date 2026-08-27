@@ -157,7 +157,7 @@ defmodule Pokex.Bots.Engine.Worker do
     {logic, orders} =
       Logic.step(
         state.logic,
-        %{situation: picture, hunt: hunt(now), hands: hands(state.loadout, picture)},
+        %{situation: picture, hunt: hunt(now), hands: hands(state.loadout, picture, config)},
         config,
         now
       )
@@ -220,8 +220,6 @@ defmodule Pokex.Bots.Engine.Worker do
   # and no consumer has to ask who is on the field. The reserved control key
   # (`Strategy.reserved/1`) is deliberately absent — it belongs to
   # `PlayerSupport`'s rescue combo alone, see `Logic`'s moduledoc.
-  defp hands(nil, _picture), do: %{opening: [], single: [], crowd: []}
-
   # `single` travels beside `opening` so a decision can spend the CHEAP keys
   # without spending the area — the ruler saves the area for a pile, not the
   # whole bar.
@@ -235,7 +233,7 @@ defmodule Pokex.Bots.Engine.Worker do
   # medição que não conseguia notar a diferença.
   # …e a montagem em si mora em `Engine.Inputs`, chamada também pela bancada:
   # a mesma decisão não pode ser DERIVADA de dois lados.
-  defp hands(loadout, picture), do: Inputs.hands(loadout, picture)
+  defp hands(loadout, picture, config), do: Inputs.hands(loadout, picture, config)
 
   defp cooldowns(%Loadout{cooldowns: cooldowns}), do: cooldowns
   defp cooldowns(_no_loadout), do: %{}

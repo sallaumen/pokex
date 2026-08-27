@@ -44,7 +44,12 @@ defmodule Pokex.Sim.Knobs do
     # o corpo é um só: enquanto a rajada sai, não se anda nem se aperta mais
     # nada. É o número que a Central chama de "o que limita o dano da caçada", e
     # que a bancada media como zero.
-    skill_gap_ms: :combat_skill_gap_ms
+    skill_gap_ms: :combat_skill_gap_ms,
+    # …e QUANTO ELE INSISTE numa parede antes de desistir do canto. O caminhante
+    # simulado não tem o `unstick/3` do cavebot, então sem um teto ele encosta
+    # numa pedra e fica lá o resto da corrida — reportando mortos/min de uma
+    # caçada que nunca andou. O dono do número é o cavebot, não este arquivo.
+    walk_timeout_ms: :cavebot_walk_timeout_ms
   }
 
   @type source :: :seeds | :live

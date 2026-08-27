@@ -13,6 +13,14 @@ defmodule Pokex.Bots.GuardianTest.FakeBody do
   def init(reply), do: {:ok, reply}
 
   @impl true
+  # `{:mute, test}` takes the call, tells the test it was asked, and NEVER
+  # answers — a Body parked inline in `apply_hold/2` (four serialized Rig calls
+  # on a diagonal change) looks exactly like this from here.
+  def handle_call(:cursor, _from, {:mute, test} = state) do
+    send(test, :asked)
+    {:noreply, state}
+  end
+
   def handle_call(:cursor, _from, reply), do: {:reply, reply, reply}
   def handle_call({:set_reply, reply}, _from, _state), do: {:reply, :ok, reply}
 end
@@ -78,6 +86,37 @@ defmodule Pokex.Bots.GuardianTest do
     Process.sleep(3 * 100)
 
     assert Fake.calls() == []
+  end
+
+  # O VIGIA DO CANTO NÃO PODE MORRER PORQUE O CORPO DEMOROU. `Body.cursor/1`
+  # era um `GenServer.call` no timeout padrão de 5s, e timeout é EXIT, não
+  # `{:error, _}` — o `_error -> state` deste laço não pega. O Body atende
+  # `:cursor` na hora, MAS `apply_hold/2` roda INLINE no loop dele (de
+  # propósito: o conjunto de teclas presas é estado, e um executor spawnado não
+  # pode ser dono dele), e uma troca de diagonal são quatro chamadas seriadas
+  # ao Rig com 1500ms de teto cada. Passa dos 5s sem nem tocar no osascript — e
+  # aí o canto de matar deixa de ser vigiado exatamente durante o
+  # congestionamento para o qual ele existe.
+  test "um corpo que não responde não mata o vigia: ele segue perguntando", %{
+    on_panic: on_panic
+  } do
+    {:ok, body} = FakeBody.start_link({:mute, self()})
+
+    {:ok, guardian} =
+      Guardian.start_link(
+        name: nil,
+        body: body,
+        on_panic: on_panic,
+        poll_ms: 5,
+        auto_poll: true,
+        cursor_timeout_ms: 50
+      )
+
+    ref = Process.monitor(guardian)
+
+    assert_receive :asked, 500
+    assert_receive :asked, 500
+    refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 100
   end
 
   test "a cursor in the kill corner triggers on_panic", %{on_panic: on_panic} do

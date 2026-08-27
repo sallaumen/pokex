@@ -24,8 +24,20 @@ defmodule Pokex.Bots.Body do
   def perform(actions, priority \\ :normal, server \\ __MODULE__),
     do: GenServer.call(server, {:perform, actions, priority, now()}, :infinity)
 
-  @spec cursor(GenServer.server()) :: {:ok, {integer, integer}} | {:error, term}
-  def cursor(server \\ __MODULE__), do: GenServer.call(server, :cursor)
+  @doc """
+  Where the pointer is. Answered off the queue — this is the panic path.
+
+  The timeout is EXPLICIT because the caller that matters is the Guardian's
+  100ms poll: `:cursor` is replied to at once, but `apply_hold/2` runs INLINE on
+  this loop (the held-key set is state, and a throwaway executor cannot own it),
+  and one diagonal change is four serialized Rig calls at 1500ms each. Past the
+  default 5s the caller does not get `{:error, _}` — it gets an EXIT, which the
+  Guardian's `case` cannot catch, and the kill corner stops being watched
+  exactly during the congestion it exists for.
+  """
+  @spec cursor(GenServer.server(), timeout) :: {:ok, {integer, integer}} | {:error, term}
+  def cursor(server \\ __MODULE__, timeout \\ 5_000),
+    do: GenServer.call(server, :cursor, timeout)
 
   @doc """
   HOLDS a set of keys (0, 1 or 2 arrows), releasing whatever else was held.

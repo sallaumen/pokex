@@ -38,9 +38,8 @@ defmodule Pokex.Bots.Engine.Worker do
   use GenServer
 
   alias Pokex.Bots.Combat
-  alias Pokex.Bots.Combat.Loadout
-  alias Pokex.Bots.Combat.Strategy
   alias Pokex.Bots.Engine.Config
+  alias Pokex.Bots.Engine.Inputs
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Narration
   alias Pokex.Bots.Engine.Situation
@@ -232,15 +231,9 @@ defmodule Pokex.Bots.Engine.Worker do
   # a condição, e é a ENGINE que monta a abertura que o simulador dispara. O
   # resultado era um multiplicador de 20% que nunca multiplicava nada, e uma
   # medição que não conseguia notar a diferença.
-  defp hands(loadout, picture),
-    do: %{
-      opening:
-        Strategy.opening(loadout,
-          aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys)
-        ),
-      single: loadout.single,
-      crowd: Strategy.reserved(loadout)
-    }
+  # …e a montagem em si mora em `Engine.Inputs`, chamada também pela bancada:
+  # a mesma decisão não pode ser DERIVADA de dois lados.
+  defp hands(loadout, picture), do: Inputs.hands(loadout, picture)
 
   defp inputs(state, now) do
     %{

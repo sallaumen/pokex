@@ -383,6 +383,28 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert Worker.status(worker).counters.rescues >= 1
   end
 
+  # A VIA QUE PROTEGE O JOGADOR ANTES DO PREFLIGHT. O monitor arranca sozinho no
+  # boot (e `BotSupervisor.start_all` o arma ANTES do preflight de propósito,
+  # pra que uma calibração quebrada ainda deixe o jogador protegido). O env que
+  # decide isso era lido CRU dentro do `init/1`, então na suíte inteira era
+  # impossível optar por voltar: nenhum teste jamais viu esse arranque.
+  @tag :tmp_dir
+  test "com o arranque automático ligado, ele já nasce monitorando", %{tmp: _tmp, body: body} do
+    worker = start_supervised!({Worker, name: nil, body: body, auto_monitor: true})
+
+    assert Worker.status(worker).state == :monitoring
+  end
+
+  @tag :tmp_dir
+  test "e desligado ele espera o run/1, que é como a suíte inteira roda", %{
+    tmp: _tmp,
+    body: body
+  } do
+    worker = start_supervised!({Worker, name: nil, body: body, auto_monitor: false})
+
+    assert Worker.status(worker).state == :idle
+  end
+
   # UMA MENSAGEM PERDIDA NÃO PODE DESLIGAR UMA VIA DE SEGURANÇA PRA SEMPRE.
   # `rescuing?` é ligado ao despachar o combo e só volta a false quando o
   # `{:rescue_done, _, _}` chega — e a tarefa que manda essa mensagem é um

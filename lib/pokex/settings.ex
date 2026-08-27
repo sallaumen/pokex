@@ -1237,6 +1237,22 @@ defmodule Pokex.Settings do
     # a que sobrou é a mais fraca da barra — e isso se mede, agora que cada
     # skill tem o próprio cooldown pra medir com.
     engine_spent_keys_left: 0,
+    # CHEGAR PREPARADO NO PRÓXIMO GRUPO — a regra dele, dita em 27/08:
+    #
+    #   "é raro quando uso todas minhas skills realmente esperar cooldown, eu
+    #   sempre uso um revive antes de matar o próximo grupo de monstros,
+    #   normalmente dá bem certinho depois de matar um grupo usar um revive,
+    #   mesmo que nem tenha acabado todos os cooldowns, pra já deixar preparado
+    #   pro próximo grupo que logo vai aparecer na tela conforme andarmos"
+    #
+    # É uma regra de PREPARO, não de emergência: com a tela limpa não há pilha
+    # acordada pra machucar ninguém, então ela não precisa do prefixo de
+    # controle que a R10 exige — o controle existe pra proteger um revive dado
+    # NO MEIO da luta.
+    #
+    # Ela se limita sozinha: o revive devolve a barra inteira, e a condição é
+    # justamente a barra não estar inteira. Um revive por grupo, no máximo.
+    engine_prepare_revive: true,
     # R10 — O CONTROLE É UMA SKILL, NÃO UM AMULETO. Ele guardava a tecla de
     # controle só pro resgate, e ele desmentiu isso vendo a própria caçada
     # (26/08): "tento ir usando o 1 pra quando tem muito monstro, pra eu não

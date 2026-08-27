@@ -502,18 +502,30 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # is the case he named: "você reseta só porque é um local da rota que parece
   # que faz sentido" (2026-08-17).
   #
+  # A PERGUNTA MUDOU EM 27/08: era `spent?` — "acabou TUDO?" — e ele explicou
+  # que caça de outro jeito: "é raro quando uso todas minhas skills realmente
+  # esperar cooldown, eu sempre uso um revive antes de matar o próximo grupo (…)
+  # mesmo que nem tenha acabado todos os cooldowns, pra já deixar preparado".
+  # Uma esquina marcada acontece com a tela limpa, entre dois grupos, que é
+  # exatamente o momento da regra dele — então o que vale aqui é `prepared?`, a
+  # outra ponta: "a barra está INTEIRA?". Barra inteira e vida cheia segue sendo
+  # a única recusa.
+  #
   # Unknown is never a refusal: a reading we could not take must not be the
   # reason a corner he marked stops working.
-  defp reset_worth?(%{own_hp: hp, spent?: spent?}) do
+  defp reset_worth?(%{own_hp: hp} = picture) do
+    prepared? = Map.get(picture, :prepared?, :unknown)
+
     cond do
       is_integer(hp) and hp < Settings.get(:engine_band_yellow_pct) -> true
-      spent? == true -> true
-      is_integer(hp) and spent? == false -> false
+      prepared? == false -> true
+      is_integer(hp) and hp < 100 -> true
+      prepared? == true and is_integer(hp) -> false
       true -> :unknown
     end
   end
 
-  defp reset_note(%{own_hp: hp, spent?: false}) when is_integer(hp),
+  defp reset_note(%{own_hp: hp, prepared?: true}) when is_integer(hp),
     do: "vida #{hp}%, cooldowns prontos"
 
   defp reset_note(%{own_hp: hp}) when is_integer(hp), do: "vida #{hp}%"

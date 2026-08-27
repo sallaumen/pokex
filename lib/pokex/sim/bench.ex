@@ -303,8 +303,16 @@ defmodule Pokex.Sim.Bench do
   #     was 71% of a run once, narrated as "estourando a área".
   #   * `:hold_while_down` — standing still with the pokémon in the ball, which
   #     is the character taking the bites for it.
-  #   * `:wasted_revive` — a press with full health, nothing spent and an empty
-  #     screen: it buys nothing and costs an item.
+  #   * `:wasted_revive` — a press with full health, a bar that is INTEIRA and
+  #     an empty screen: aí ele não compra nada.
+  #
+  #     A regra era `spent? != true` — "não acabou tudo" — e ela dizia que
+  #     reviver com a barra pela metade na tela limpa era desperdício. Ele
+  #     desmentiu isso descrevendo como caça (27/08): "eu sempre uso um revive
+  #     antes de matar o próximo grupo (…) mesmo que nem tenha acabado todos os
+  #     cooldowns, pra já deixar preparado". Com a tela limpa, o que esse revive
+  #     compra é a barra inteira no próximo grupo. Desperdício mesmo é reviver
+  #     com a barra JÁ inteira.
   #   * `:mute_order` — an order with no reason. A brain that decides in silence
   #     is indistinguishable from a brain that is stopped.
   defp tally_violations(metrics, _world, orders, picture) do
@@ -314,7 +322,7 @@ defmodule Pokex.Sim.Bench do
         {:hold_while_down, orders.route == :hold and picture.own_out? == false},
         {:wasted_revive,
          orders.revive == :now and picture.enemies == 0 and picture.own_hp == 100 and
-           picture.spent? != true},
+           Map.get(picture, :prepared?) == true},
         {:mute_order, orders.why == ""}
       ]
       |> Enum.filter(&elem(&1, 1))

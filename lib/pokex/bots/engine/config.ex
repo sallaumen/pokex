@@ -41,6 +41,7 @@ defmodule Pokex.Bots.Engine.Config do
     skip_fire: :engine_skip_fire,
     kite_when_spent: :engine_kite_when_spent,
     spent_keys_left: :engine_spent_keys_left,
+    prepare_revive: :engine_prepare_revive,
     crowd_from: :engine_crowd_from,
     spend_the_minimum: :engine_spend_the_minimum,
     stun_window_ms: :engine_stun_window_ms,

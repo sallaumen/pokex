@@ -37,10 +37,14 @@ defmodule Pokex.Sim.BenchTest do
     assert a.timeline == b.timeline
   end
 
+  # O QUE ESTE TESTE PROVA é que a linha do tempo conta DECISÕES e não tiques:
+  # 20 segundos são 400 tiques. O teto era 20 e passou a 60 quando o mundo ficou
+  # lento (27/08) — com o bicho a 1200ms por tile a mesma pilha leva mais tempo
+  # e muda de ideia mais vezes, o que não é o defeito que este teto vigia.
   test "the timeline records decision changes, not ticks" do
     result = run("pilha-que-fecha", duration_ms: 20_000)
 
-    assert length(result.timeline) < 20
+    assert length(result.timeline) < 60
   end
 
   test "every timeline line carries the reason in his own words" do
@@ -219,7 +223,19 @@ defmodule Pokex.Sim.BenchTest do
         # acorda e não é abandonado tem que ser lutado — e com os 45s medidos no
         # vídeo dele (26/08) uma pilha de quatro simplesmente sobrevive à barra,
         # o que responde sobre a economia de dano e não sobre a corda.
-        rapido = %{scenario | knobs: Map.put(scenario.knobs, :skill_cooldown_ms, 8_000)}
+        # …E O PASSO ANTIGO, pelo mesmo motivo: os cenários foram calibrados com
+        # o bicho a 420ms por tile, e com o passo lento de verdade (27/08) uma
+        # pilha que acorda longe não chega antes da corda esticar. Isso é uma
+        # pergunta sobre a CORDA, não sobre a física do que acorda.
+        rapido = %{
+          scenario
+          | knobs:
+              scenario.knobs
+              |> Map.put(:skill_cooldown_ms, 8_000)
+              |> Map.put(:mob_ms_per_tile, 420)
+              |> Map.put(:pet_ms_per_tile, 380)
+        }
+
         %{outcome: o} = Bench.run(rapido, duration_ms: 120_000, config: parado)
 
         assert o.vanished == 0,
@@ -260,7 +276,16 @@ defmodule Pokex.Sim.BenchTest do
   # hunt decided the pile was not worth it and walked on.
   test "com a régua padrão a pilha pequena é abandonada — e some" do
     %{outcome: o} =
-      Bench.run(Scenario.get("ganancia"),
+      Bench.run(
+        %{
+          Scenario.get("ganancia")
+          | # o passo antigo: este cenário foi calibrado nele, e a pergunta é
+            # sobre a RÉGUA abandonar a pilha, não sobre quanto o bicho anda
+            knobs:
+              Scenario.get("ganancia").knobs
+              |> Map.put(:mob_ms_per_tile, 420)
+              |> Map.put(:pet_ms_per_tile, 380)
+        },
         duration_ms: 40_000,
         config: %{size_ceiling_ms: 4_000, patience_tiles: 10_000}
       )

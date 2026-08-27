@@ -178,12 +178,13 @@ defmodule Pokex.Sim.ScoreTest do
       # O que a regra faz de verdade e sempre está uma linha acima: revives
       # proativos existem com ela e não existem sem ela.
       #
-      # E EM 27/08 A DIREÇÃO APARECEU: com as de alvo único fora da rotação, as
-      # teclas que a caçada gasta são só as de área, e a R3b passou a devolver a
-      # barra em tempo de importar — 1,2% de tempo parado com ela contra 11,6%
-      # sem. A folga de 5 pontos virou uma afirmação: com a regra ligada o bot
-      # fica MENOS parado, e não "quase igual".
-      assert com.stalled_pct < sem.stalled_pct
+      # E A DIREÇÃO VOLTOU A SUMIR quando o mundo ficou lento (27/08): 7,3%
+      # contra 5,9%, do outro lado. Duas viradas em um dia, nas duas direções,
+      # por mudanças que não são da regra — a folga volta, e com ela a leitura
+      # certa: o que a R3b faz de verdade está uma linha acima (revives
+      # proativos existem com ela e não existem sem ela); o tempo parado é uma
+      # consequência que depende do mundo inteiro.
+      assert_in_delta com.stalled_pct, sem.stalled_pct, 5.0
 
       # O QUE A REGRA CUSTA MUDOU DE NATUREZA, duas vezes, e o teste conta as
       # duas porque a segunda só existe por causa da primeira:

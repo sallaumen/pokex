@@ -5,6 +5,8 @@ defmodule Pokex.Calibration do
   scale) lives HERE and nowhere else.
   """
 
+  require Logger
+
   defstruct [
     :scale,
     :screen_w,
@@ -257,33 +259,69 @@ defmodule Pokex.Calibration do
   def load(path \\ nil) do
     with {:ok, bin} <- File.read(path || Pokex.Home.calibration_file()),
          {:ok, map} <- JSON.decode(bin) do
-      {:ok,
-       %__MODULE__{
-         scale: map["scale"] / 1,
-         screen_w: map["screen_w"],
-         screen_h: map["screen_h"],
-         water_point: to_tuple(map["water_point"]),
-         glow_region: to_tuple(map["glow_region"]),
-         battle_region: to_tuple(map["battle_region"]),
-         neutral_point: to_tuple(map["neutral_point"]),
-         player_point: to_tuple(map["player_point"]),
-         mini_game_region: to_tuple(map["mini_game_region"]),
-         minimap_region: to_tuple(map["minimap_region"]),
-         minimap_player_point: to_tuple(map["minimap_player_point"]),
-         minimap_coord_region: to_tuple(map["minimap_coord_region"]),
-         pokemon_spot_point: to_tuple(map["pokemon_spot_point"]),
-         escape_point: to_tuple(map["escape_point"]),
-         skill_bar_region: to_tuple(map["skill_bar_region"]),
-         skill_bar_count: map["skill_bar_count"],
-         skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),
-         # A layout located on ANOTHER screen is worse than none: its regions
-         # land outside the frame, the captures quarantine, and every consumer
-         # goes blind while looking calibrated. Geometry decides.
-         layout: Pokex.Layout.current() |> Pokex.Layout.fitting(map["screen_w"], map["screen_h"]),
-         pokemon_hp_region: to_tuple(map["pokemon_hp_region"]),
-         pokemon_photo_point: to_tuple(map["pokemon_photo_point"])
-       }}
+      {:ok, from_map(map)}
     end
+  catch
+    # This answers {:ok, t} | {:error, reason}, and every caller is written to
+    # that contract — including the always-on support monitor, which reloads the
+    # calibration EVERY TICK (120ms). A file whose numbers are unreadable (half
+    # written, hand-edited, from an older schema) is an error, never a raise: one
+    # that did raise on 2026-08-27 terminated that monitor tick after tick until
+    # BotSupervisor's restart intensity ran out, then the application's, and the
+    # whole VM went down with it.
+    kind, reason -> {:error, {:calibracao_ilegivel, {kind, reason}}}
+  end
+
+  defp from_map(map) do
+    %__MODULE__{
+      scale: map["scale"] / 1,
+      screen_w: map["screen_w"],
+      screen_h: map["screen_h"],
+      water_point: to_tuple(map["water_point"]),
+      glow_region: to_tuple(map["glow_region"]),
+      battle_region: to_tuple(map["battle_region"]),
+      neutral_point: to_tuple(map["neutral_point"]),
+      player_point: to_tuple(map["player_point"]),
+      mini_game_region: to_tuple(map["mini_game_region"]),
+      minimap_region: to_tuple(map["minimap_region"]),
+      minimap_player_point: to_tuple(map["minimap_player_point"]),
+      minimap_coord_region: to_tuple(map["minimap_coord_region"]),
+      pokemon_spot_point: to_tuple(map["pokemon_spot_point"]),
+      escape_point: to_tuple(map["escape_point"]),
+      skill_bar_region: to_tuple(map["skill_bar_region"]),
+      skill_bar_count: map["skill_bar_count"],
+      skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),
+      layout: layout_in_force(map["screen_w"], map["screen_h"]),
+      pokemon_hp_region: to_tuple(map["pokemon_hp_region"]),
+      pokemon_photo_point: to_tuple(map["pokemon_photo_point"])
+    }
+  end
+
+  # A layout located on ANOTHER screen is worse than none: its regions land
+  # outside the frame, the captures quarantine, and every consumer goes blind
+  # while looking calibrated. Geometry decides.
+  #
+  # And a layout that cannot be READ at all is dropped rather than allowed to
+  # condemn the file it rides in: the auto-located HUD is an ENRICHMENT of the
+  # hand marks, which stand on their own — `Layout.region/2` and
+  # `Layout.region_opts/2` both already answer for a nil layout, and Lucas ran
+  # without a `layout_fix.json` for months. What can fail here is everything
+  # `Layout.current/0` touches: the blackboard, the persisted file's shape, and
+  # the module itself (2026-08-27: `:undef` for a few ticks while the dev code
+  # reloader had it purged mid-recompile).
+  defp layout_in_force(screen_w, screen_h) do
+    case Pokex.Layout.current() do
+      nil -> nil
+      fix -> Pokex.Layout.fitting(fix, screen_w, screen_h)
+    end
+  catch
+    kind, reason ->
+      Logger.warning(
+        "layout ignorado nesta leitura da calibração (#{inspect({kind, reason})}) — " <>
+          "as marcações à mão seguem valendo"
+      )
+
+      nil
   end
 
   # Named snapshots of a whole calibration (~/.pokex/calibrations/<slug>.json):

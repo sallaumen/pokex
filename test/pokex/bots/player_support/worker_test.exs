@@ -35,6 +35,22 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest.BlockingBody do
   end
 end
 
+defmodule Pokex.Bots.PlayerSupport.WorkerTest.CrashingBody do
+  @moduledoc "A Body that dies on perform — the real Body being restarted mid-call."
+  use GenServer
+
+  def start_link(test), do: GenServer.start_link(__MODULE__, test)
+
+  @impl true
+  def init(test), do: {:ok, test}
+
+  @impl true
+  def handle_call({:perform, actions, priority, _requested_at}, _from, test) do
+    send(test, {:performing, priority, actions})
+    raise "body caiu no meio do perform"
+  end
+end
+
 defmodule Pokex.Bots.PlayerSupport.WorkerTest.RefusingBody do
   @moduledoc "A Body that refuses every perform, the way a closed gate does."
   use GenServer
@@ -57,6 +73,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Worker
   alias Pokex.Bots.PlayerSupport.WorkerTest.BlockingBody
+  alias Pokex.Bots.PlayerSupport.WorkerTest.CrashingBody
   alias Pokex.Bots.PlayerSupport.WorkerTest.FakeBody
   alias Pokex.Calibration
   alias Pokex.Perception.WorldState
@@ -1653,5 +1670,97 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert status.hp_pct == 30
       assert status.hold_reason =~ "há luta"
     end
+  end
+
+  # The monitor that keeps him alive must not be killable by what it reads, nor
+  # by whom it calls. `read_hp/1` has been uncrashable since it was written; the
+  # calibration load one line above it was not. On 2026-08-27 a transient
+  # `Pokex.Layout` :undef inside `Calibration.load/1` terminated this worker on
+  # every tick — and at a 120ms cadence, three deaths in 360ms exhaust
+  # BotSupervisor's default restart intensity, then the application's, taking
+  # the whole VM down with them.
+  describe "the tick survives what it reads and whom it calls" do
+    @tag :tmp_dir
+    test "a calibration file that raises mid-read does not terminate the monitor", %{body: body} do
+      File.write!(
+        Pokex.Home.calibration_file(),
+        JSON.encode!(%{"screen_w" => 1000, "screen_h" => 700})
+      )
+
+      worker = start_worker(body)
+      ref = Process.monitor(worker)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 300
+
+      status = Worker.status(worker)
+      assert status.state == :monitoring
+      assert status.error == "calibração ilegível (arquivo corrompido?)"
+    end
+
+    # The potion, the heal skill and the reposition call the Body INLINE on this
+    # loop — the revive does not (it rides a spawned task, which is why it never
+    # showed this up). A Body restarting mid-perform is an EXIT in the caller,
+    # and the caller here is the monitor that must survive.
+    @tag :tmp_dir
+    @tag :capture_log
+    test "a Body that dies mid-perform does not take the monitor with it", %{tmp: tmp} do
+      Settings.put(:rescue_enabled, false)
+      Settings.put(:potion_enabled, true)
+      Settings.put(:potion_cooldown_ms, 60_000)
+
+      fresh_battle!(enemies: [])
+      low = hp_png(tmp, "low.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      {:ok, crashing} = CrashingBody.start_link(self())
+      Process.unlink(crashing)
+
+      worker = start_worker(crashing)
+      ref = Process.monitor(worker)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performing, :high, [{:press, "e"}]}, 1_000
+      refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 300
+
+      status = Worker.status(worker)
+      assert status.state == :monitoring
+      assert status.counters.failures > 0
+    end
+
+    @tag :tmp_dir
+    test "the monitor reads again the moment the calibration is readable", %{tmp: tmp, body: body} do
+      File.write!(
+        Pokex.Home.calibration_file(),
+        JSON.encode!(%{"screen_w" => 1000, "screen_h" => 700})
+      )
+
+      full = hp_png(tmp, "full.png", 20)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, full}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+      assert Worker.status(worker).counters.reads == 0
+
+      Calibration.save(%Calibration{
+        scale: 1.0,
+        screen_w: 1000,
+        screen_h: 700,
+        pokemon_hp_region: {0, 0, 20, 4}
+      })
+
+      assert eventually(fn -> Worker.status(worker).counters.reads > 0 end)
+    end
+  end
+
+  defp eventually(fun, tries \\ 60) do
+    Enum.reduce_while(1..tries, false, fn _try, _acc ->
+      if fun.() do
+        {:halt, true}
+      else
+        Process.sleep(20)
+        {:cont, false}
+      end
+    end)
   end
 end

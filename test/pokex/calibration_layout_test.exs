@@ -101,4 +101,44 @@ defmodule Pokex.CalibrationLayoutTest do
 
     assert Calibration.minimap_region(calib) == {3150, -132, 290, 458}
   end
+
+  # 2026-08-27: `Pokex.Layout.current/0` came back `:undef` for a few ticks (the
+  # dev code reloader had the module purged mid-recompile). The raise escaped
+  # `load/1` — whose contract is {:ok, t} | {:error, reason} — and terminated the
+  # always-on support monitor, which reloads the calibration every 120ms. Three
+  # deaths in 360ms exhausted BotSupervisor's restart intensity, then the
+  # application's, and the whole VM went down. The layout is an ENRICHMENT: the
+  # hand marks in the file are valid without it, and every consumer already
+  # handles a nil layout.
+  @tag :tmp_dir
+  @tag :capture_log
+  test "a layout the reader cannot turn into a Fix leaves layout nil and keeps the hand marks",
+       %{tmp: tmp} do
+    write_layout!(tmp, Map.delete(@ultrawide_fact, "anchors"))
+    path = write_calibration!(tmp, %{})
+
+    assert {:ok, calib} = Calibration.load(path)
+
+    assert calib.layout == nil
+    assert calib.battle_region == {1321, 333, 187, 252}
+  end
+
+  @tag :tmp_dir
+  @tag :capture_log
+  test "a layout whose regions have the wrong shape leaves layout nil", %{tmp: tmp} do
+    write_layout!(tmp, Map.put(@ultrawide_fact, "regions", %{"minimap" => [3150, -132]}))
+    path = write_calibration!(tmp, %{})
+
+    assert {:ok, calib} = Calibration.load(path)
+
+    assert calib.layout == nil
+  end
+
+  @tag :tmp_dir
+  test "a calibration whose own numbers are unreadable is an error, not a raise", %{tmp: tmp} do
+    path = Path.join(tmp, "calibration.json")
+    File.write!(path, JSON.encode!(%{"screen_w" => 1512, "screen_h" => 982}))
+
+    assert {:error, _reason} = Calibration.load(path)
+  end
 end

@@ -44,6 +44,18 @@ defmodule Pokex.Settings do
     # the pokémon on the field has its keys classified (/time); the opening of
     # a gathered pile is always area, whatever this says.
     combat_aoe_from_enemies: 3,
+    # A PARTIR DE QUANTOS INIMIGOS a aura de DEFESA vale a pena.
+    #
+    # "A de defesa vale sempre que tem já uns 2 pokémons atacando ele pelo menos,
+    # e ele tá pretendendo entrar em luta muito em breve (…) ou no pior dos
+    # casos, que nem a aura de ataque: quando entrar em luta, sempre garantir
+    # usar se estiver disponível" (27/08). Em 1 ela vira a regra da aura de
+    # ataque — sai em toda luta com a tecla pronta.
+    #
+    # Ela só faz alguma coisa para um pokémon com tecla classificada como
+    # `:shield` no /time; em 27/08 nenhum dos seis do time dele tinha uma, e é
+    # por isso que a aura de defesa nunca saiu.
+    combat_shield_from_enemies: 2,
     # --- Tracking HIS OWN pokémon on screen (Pokex.Bots.PokemonTracker) ---
     # The teach-sized square, and the coarse stride the finder slides it by. The
     # box is a tile and a bit: a pokémon is bigger than a corpse and the taught
@@ -1496,6 +1508,7 @@ defmodule Pokex.Settings do
     scenery_ttl_ms: 1_000..3_600_000,
     target_lost_streak: 1..99,
     combat_aoe_from_enemies: 1..20,
+    combat_shield_from_enemies: 1..20,
     timers_tick_ms: 100..60_000,
     pokemon_sprite_box_px: 16..512,
     pokemon_track_step_px: 1..64,

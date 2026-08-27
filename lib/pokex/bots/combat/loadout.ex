@@ -194,4 +194,16 @@ defmodule Pokex.Bots.Combat.Loadout do
     do: Enum.any?(buffs, &(&1 in ready))
 
   def aura_ready?(_loadout, _no_reading), do: false
+
+  @doc """
+  A aura de DEFESA deste pokémon está pronta?
+
+  Mesma forma da de dano, e a mesma resposta cautelosa sem leitura: apertar uma
+  tecla em cooldown custa o intervalo dela na rajada, e a rajada é o que mata.
+  """
+  @spec shield_ready?(t | nil, [String.t()] | nil) :: boolean
+  def shield_ready?(%__MODULE__{shield: shield}, ready) when is_list(ready),
+    do: Enum.any?(shield, &(&1 in ready))
+
+  def shield_ready?(_loadout, _no_reading), do: false
 end

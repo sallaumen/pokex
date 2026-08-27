@@ -1,7 +1,7 @@
 defmodule Pokex.Bots.Combat.LogicTest do
   use ExUnit.Case, async: true
 
-  alias Pokex.Bots.Combat.Logic
+  alias Pokex.Bots.Combat.{Loadout, Logic}
 
   defp config(overrides) do
     Enum.into(overrides, %{
@@ -380,6 +380,89 @@ defmodule Pokex.Bots.Combat.LogicTest do
         assert actions == [{:press, "1"}, {:press, "2"}, {:press, "3"}],
                "ready_skills: #{inspect(ready)} must blind-rotate"
       end
+    end
+
+    # AS AURAS NA ROTAÇÃO SUSTENTADA, e não só na abertura. Elas só eram
+    # consideradas em `open_with_combo`, que sai UMA vez na borda da luta: uma
+    # aura que fica pronta no meio de uma luta de quarenta segundos nunca era
+    # apertada. No rastro dele de 27/08 a tecla 2 do Vespiquen — a aura de dano —
+    # saiu 3 vezes contra 28 da tecla 7.
+    test "a aura de DANO lidera a rotação assim que fica pronta" do
+      loadout =
+        Loadout.resolve("Vespiquen", %{"2" => :buffs, "4" => :aoe, "5" => :aoe, "7" => :single})
+
+      logic = Logic.set_loadout(confirmed(combat_skill_burst_size: 3), loadout)
+
+      {_logic, actions} =
+        Logic.step(
+          logic,
+          obs(locked?: true, locked_row: 0, captured_at: 400, ready_skills: ~w(2 4 7)),
+          400
+        )
+
+      assert hd(actions) == {:press, "2"}
+    end
+
+    test "com a aura em cooldown, a rotação é a de sempre" do
+      loadout =
+        Loadout.resolve("Vespiquen", %{"2" => :buffs, "4" => :aoe, "5" => :aoe, "7" => :single})
+
+      logic = Logic.set_loadout(confirmed(combat_skill_burst_size: 3), loadout)
+
+      {_logic, actions} =
+        Logic.step(
+          logic,
+          obs(locked?: true, locked_row: 0, captured_at: 400, ready_skills: ~w(4 7)),
+          400
+        )
+
+      refute {:press, "2"} in actions
+    end
+
+    # "A de defesa vale sempre que tem já uns 2 pokémons atacando ele pelo
+    # menos" (27/08).
+    test "a aura de DEFESA entra com dois na tela, e não com um" do
+      loadout =
+        Loadout.resolve("Dugtrio", %{"3" => :shield, "4" => :aoe, "7" => :single})
+
+      logic =
+        Logic.set_loadout(
+          confirmed(combat_skill_burst_size: 3, combat_shield_from_enemies: 2),
+          loadout
+        )
+
+      {_logic, com_dois} =
+        Logic.step(
+          logic,
+          obs(
+            enemies: [0, 1],
+            locked?: true,
+            locked_row: 0,
+            captured_at: 400,
+            ready_skills: ~w(3 4 7)
+          ),
+          400
+        )
+
+      assert hd(com_dois) == {:press, "3"}
+
+      {_logic, com_um} =
+        Logic.step(
+          Logic.set_loadout(
+            confirmed(combat_skill_burst_size: 3, combat_shield_from_enemies: 2),
+            loadout
+          ),
+          obs(
+            enemies: [0],
+            locked?: true,
+            locked_row: 0,
+            captured_at: 400,
+            ready_skills: ~w(3 4 7)
+          ),
+          400
+        )
+
+      refute {:press, "3"} in com_um
     end
 
     test "an observation WITHOUT the key (older world snapshot) blind-rotates too" do

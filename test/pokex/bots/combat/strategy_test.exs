@@ -141,7 +141,7 @@ defmodule Pokex.Bots.Combat.StrategyTest do
     end
   end
 
-  describe "a aura de DEFESA nunca sai na rajada" do
+  describe "a aura de DEFESA, quando o bolo justifica" do
     defp dugtrio do
       Loadout.resolve("Dugtrio", %{
         "1" => :crowd,
@@ -153,23 +153,42 @@ defmodule Pokex.Bots.Combat.StrategyTest do
       })
     end
 
-    # "a aura 2 é uma aura para dar dano e a aura 3 é uma hora que deixa ele
-    # indestrutível" (26/08). Uma invulnerabilidade gasta a cada abertura é uma
-    # invulnerabilidade que não existe quando ele precisa — o mesmo motivo pelo
-    # qual o controle é reservado.
-    test "nem pronta, nem na abertura, nem com pilha" do
+    # ELA ERA PROIBIDA AQUI, por uma leitura minha de 26/08 ("uma
+    # invulnerabilidade gasta a cada abertura é uma invulnerabilidade que não
+    # existe quando ele precisa"). Ele desmentiu isso olhando a caçada em 27/08:
+    # "a de defesa vale sempre que tem já uns 2 pokémons atacando ele pelo
+    # menos". Quem sabe se são dois é quem chama; aqui ela entra quando mandarem.
+    test "por conta própria ela não sai — nem pronta a aura de dano, nem com pilha" do
       refute "3" in Strategy.skill_order(dugtrio(), enemies: 9, aura_ready?: true)
       refute "3" in Strategy.opening(dugtrio(), aura_ready?: true)
       refute "3" in Strategy.skill_order(dugtrio(), enemies: 1)
     end
 
-    test "ela é reservada, ao lado do controle — e dá pra PROVAR" do
+    # Escudo primeiro: ele é sobre SOBREVIVER à salva que vem, e a aura de dano
+    # multiplica o que sai atrás dela.
+    test "mandada, ela lidera até a aura de dano" do
+      assert Strategy.skill_order(dugtrio(), enemies: 9, shield_ready?: true) == ~w(3 4 5 6)
+
+      assert Strategy.skill_order(dugtrio(),
+               enemies: 9,
+               aura_ready?: true,
+               shield_ready?: true
+             ) == ~w(3 2 4 5 6)
+    end
+
+    test "ela segue reservada da rajada comum — e dá pra PROVAR" do
       assert "3" in Strategy.reserved(dugtrio())
       assert "1" in Strategy.reserved(dugtrio())
     end
 
     test "a aura de dano do mesmo pokémon continua liderando quando pronta" do
       assert Strategy.skill_order(dugtrio(), enemies: 9, aura_ready?: true) == ~w(2 4 5 6)
+    end
+
+    test "quem responde se o escudo está pronto é a barra lida" do
+      assert Loadout.shield_ready?(dugtrio(), ~w(3 4))
+      refute Loadout.shield_ready?(dugtrio(), ~w(4 5))
+      refute Loadout.shield_ready?(dugtrio(), nil)
     end
   end
 

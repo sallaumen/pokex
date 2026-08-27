@@ -550,7 +550,7 @@ defmodule Pokex.Sim.Bench do
   # Um sweep de `aura_boost_pct` dava a mesma linha duas vezes, e a explicação
   # não estava no knob.
   defp hands(world, picture, config) do
-    hands = Inputs.hands(loadout_of(world), picture)
+    hands = Inputs.hands(loadout_of(world), picture, config)
 
     if config[:spend_the_minimum],
       do: %{

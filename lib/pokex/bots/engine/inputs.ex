@@ -41,18 +41,35 @@ defmodule Pokex.Bots.Engine.Inputs do
   # A picture is the WHOLE situation map, and this reads one field of it: a
   # closed map here made every real caller (o worker e a bancada) break the
   # contract, and o dialyzer do CI ficou vermelho na main.
-  @spec hands(Loadout.t() | nil, %{:ready_keys => [String.t()] | nil, optional(atom()) => any()}) ::
-          t
-  def hands(loadout, picture)
+  @spec hands(
+          Loadout.t() | nil,
+          %{:ready_keys => [String.t()] | nil, optional(atom()) => any()},
+          map
+        ) :: t
+  def hands(loadout, picture, config \\ %{})
 
-  def hands(nil, _picture), do: %{opening: [], single: [], crowd: []}
+  def hands(nil, _picture, _config), do: %{opening: [], single: [], crowd: []}
 
-  def hands(%Loadout{} = loadout, picture) do
+  def hands(%Loadout{} = loadout, picture, config) do
     %{
       opening:
-        Strategy.opening(loadout, aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys)),
+        Strategy.opening(loadout,
+          aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys),
+          shield_ready?: shield?(loadout, picture, config)
+        ),
       single: loadout.single,
       crowd: loadout.crowd
     }
+  end
+
+  # A AURA DE DEFESA, pela régua dele: a partir de dois em cima, com a tecla
+  # pronta. O número é o mesmo que o `Combat.Logic` usa na rotação sustentada —
+  # uma regra, um knob, senão a abertura e o resto da luta discordam sobre
+  # quando ele fica indestrutível.
+  defp shield?(loadout, picture, config) do
+    quantos = Map.get(picture, :enemies)
+
+    is_integer(quantos) and quantos >= Map.get(config, :shield_from, 2) and
+      Loadout.shield_ready?(loadout, picture.ready_keys)
   end
 end

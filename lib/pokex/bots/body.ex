@@ -192,11 +192,19 @@ defmodule Pokex.Bots.Body do
     do:
       {:ok,
        %{
-         busy?: false,
+         # ONE LANE PER ACTUATOR. The body had a single slot, so a potion —
+         # which never touches the mouse — waited behind a ball throw or a
+         # minimap step for no physical reason. Priority only reorders the
+         # QUEUE: `dequeue/1` is reached when the running sequence ENDS, so not
+         # even `:critical` cuts into what is already running.
+         #
+         # A sequence takes every lane its actions actuate, and takes them
+         # together — a `move → wait → press` (the rod, the ball) must never be
+         # split in two, so it holds both until it is done.
+         lanes: %{keys: nil, mouse: nil},
          critical: :queue.new(),
          high: :queue.new(),
          normal: :queue.new(),
-         current: nil,
          last_priority: nil,
          # keys currently held down, and the watchdog that outlives their caller
          held: [],
@@ -234,22 +242,52 @@ defmodule Pokex.Bots.Body do
 
   def handle_call(:held, _from, state), do: {:reply, state.held, state}
 
-  def handle_call({:perform, actions, priority, requested_at}, from, %{busy?: false} = state) do
-    {:noreply, run_next(state, actions, from, requested_at, priority)}
-  end
-
   def handle_call({:perform, actions, priority, requested_at}, from, state) do
-    q =
-      case priority do
-        :critical -> :critical
-        :high -> :high
-        _ -> :normal
-      end
+    item = %{
+      actions: actions,
+      from: from,
+      requested_at: requested_at,
+      priority: priority,
+      lanes: lanes_of(actions),
+      started_at: nil
+    }
 
-    state = Map.update!(state, q, &:queue.in({actions, from, requested_at, priority}, &1))
-    broadcast_queue(:queued, state, actions, priority, requested_at)
-    {:noreply, state}
+    if free?(state, item.lanes) do
+      {:noreply, run_next(state, item)}
+    else
+      state = Map.update!(state, queue_for(priority), &:queue.in(item, &1))
+      broadcast_queue(:queued, state, actions, priority, requested_at)
+      {:noreply, state}
+    end
   end
+
+  defp queue_for(:critical), do: :critical
+  defp queue_for(:high), do: :high
+  defp queue_for(_normal), do: :normal
+
+  # Which actuator does each action drive? By ACTUATOR, never by tuple shape:
+  # the MIDDLE click is the one click with no `cliclick` — it goes out through
+  # the same native key helper every keystroke uses (`Rig.Mac.click/2`) AND it
+  # moves the pointer, so it holds both lanes. A sequence of pure waits/logs
+  # actuates nothing and takes the key lane, which is where the old single slot
+  # would have put it.
+  defp lanes_of(actions) do
+    case actions |> Enum.flat_map(&actuators/1) |> Enum.uniq() do
+      [] -> [:keys]
+      lanes -> lanes
+    end
+  end
+
+  defp actuators({:press, _key}), do: [:keys]
+  defp actuators({:tap, _combo}), do: [:keys]
+  defp actuators({:click, :middle, _point}), do: [:keys, :mouse]
+  defp actuators({:click, _button, _point}), do: [:mouse]
+  defp actuators({:move, _point}), do: [:mouse]
+  defp actuators({:focus_click, _point}), do: [:mouse]
+  defp actuators({:capture_sequence, _point}), do: [:mouse, :keys]
+  defp actuators(_not_actuation), do: []
+
+  defp free?(state, lanes), do: Enum.all?(lanes, &is_nil(state.lanes[&1]))
 
   @impl true
   # The watchdog: whoever was holding stopped refreshing (crashed, wedged,
@@ -259,35 +297,34 @@ defmodule Pokex.Bots.Body do
     {:noreply, apply_hold(%{state | hold_timer: nil}, [])}
   end
 
-  def handle_info({:done, from, result}, state) do
-    GenServer.reply(from, result)
-    broadcast_done(state, result)
-    {:noreply, dequeue(%{state | current: nil})}
+  def handle_info({:done, item, result}, state) do
+    GenServer.reply(item.from, result)
+    broadcast_done(item, result)
+
+    lanes = Enum.reduce(item.lanes, state.lanes, &Map.put(&2, &1, nil))
+    {:noreply, dequeue(%{state | lanes: lanes})}
   end
 
   # Pick the next sequence. :critical (the survival combo) always drains first — nothing gets
   # ahead of it. Otherwise high is preferred, but after a high action we let an already-waiting
   # normal action run once, so repeated combat clicks can't keep fishing off the mouse forever.
   defp dequeue(state) do
-    case next_queued(state) do
-      {:ok, actions, from, requested_at, priority, state} ->
-        run_next(state, actions, from, requested_at, priority)
-
-      :empty ->
-        %{state | busy?: false, current: nil}
+    case next_runnable(state) do
+      {:ok, item, state} -> state |> run_next(item) |> dequeue()
+      :empty -> state
     end
   end
 
-  defp next_queued(state) do
-    case pop(:critical, state) do
-      {:ok, _actions, _from, _requested_at, _priority, _state} = picked -> picked
+  defp next_runnable(state) do
+    case pop_fit(:critical, state) do
+      {:ok, _item, _state} = picked -> picked
       :empty -> next_high_normal(state)
     end
   end
 
   defp next_high_normal(%{last_priority: :high} = state) do
-    case pop(:normal, state) do
-      {:ok, _actions, _from, _requested_at, _priority, _state} = picked -> picked
+    case pop_fit(:normal, state) do
+      {:ok, _item, _state} = picked -> picked
       :empty -> high_then_normal(state)
     end
   end
@@ -295,69 +332,73 @@ defmodule Pokex.Bots.Body do
   defp next_high_normal(state), do: high_then_normal(state)
 
   defp high_then_normal(state) do
-    case pop(:high, state) do
-      {:ok, _actions, _from, _requested_at, _priority, _state} = picked -> picked
-      :empty -> pop(:normal, state)
+    case pop_fit(:high, state) do
+      {:ok, _item, _state} = picked -> picked
+      :empty -> pop_fit(:normal, state)
     end
   end
 
-  defp pop(key, state) do
-    case :queue.out(Map.fetch!(state, key)) do
-      {{:value, {actions, from, requested_at, priority}}, rest} ->
-        {:ok, actions, from, requested_at, priority, %{state | key => rest}}
-
-      {:empty, _queue} ->
-        :empty
+  # The first item in this queue whose lanes are FREE; the order of the rest is
+  # kept. A mouse sequence waiting on a busy pointer must not hold up the
+  # key-only one behind it — that head-of-line block is what two lanes exist to
+  # remove.
+  defp pop_fit(key, state) do
+    case first_fitting(:queue.to_list(Map.fetch!(state, key)), state, []) do
+      {item, rest} -> {:ok, item, %{state | key => :queue.from_list(rest)}}
+      :none -> :empty
     end
   end
 
-  defp run_next(state, actions, from, requested_at, priority) do
+  defp first_fitting([], _state, _passed), do: :none
+
+  defp first_fitting([item | rest], state, passed) do
+    if free?(state, item.lanes),
+      do: {item, Enum.reverse(passed) ++ rest},
+      else: first_fitting(rest, state, [item | passed])
+  end
+
+  defp run_next(state, item) do
+    item = %{item | started_at: now()}
+
     state = %{
       state
-      | busy?: true,
-        current: %{
-          actions: actions,
-          priority: priority,
-          requested_at: requested_at,
-          started_at: now()
-        },
-        last_priority: priority
+      | lanes: Enum.reduce(item.lanes, state.lanes, &Map.put(&2, &1, item)),
+        last_priority: item.priority
     }
 
-    broadcast_queue(:start, state, actions, priority, requested_at)
-    run(actions, from, requested_at, priority)
+    broadcast_queue(:start, state, item.actions, item.priority, item.requested_at)
+    run(item)
     state
   end
 
   # Execute the sequence off the GenServer loop so a slow input never blocks the
   # cursor read (the panic path). Report back via {:done, ...}.
   #
-  # This executor must be uncrashable: {:done, from, result} is the ONLY
-  # signal that dequeues the next sequence and unblocks the caller (who is
-  # parked in `perform/3` with an :infinity timeout). If a single action
+  # This executor must be uncrashable: {:done, item, result} is the ONLY signal
+  # that frees the item's lanes and unblocks the caller (who is parked in
+  # `perform/3` with an :infinity timeout). If a single action
   # raises/throws/exits (e.g. Rig.Mac.Commands.press/1's Map.fetch!/2 on an
   # unknown modifier from a mis-keyed config) and that isn't caught here, this
   # spawned process dies silently, {:done} never arrives, the calling worker
-  # blocks forever, and the Body never processes anything queued behind it —
-  # including a :halt call, defeating the panic corner. So: always reply.
-  defp run(actions, from, requested_at, priority) do
+  # blocks forever, and the lane stays taken forever — including against a
+  # :halt call, defeating the panic corner. So: always reply.
+  defp run(item) do
     server = self()
-    queue_ms = now() - requested_at
-    label = body_label(priority, actions)
-    Perf.record("body.queue:#{label}", queue_ms)
+    label = body_label(item.priority, item.actions)
+    Perf.record("body.queue:#{label}", now() - item.requested_at)
 
     spawn(fn ->
       started_at = now()
 
       result =
         try do
-          with_mouse_restore(actions, fn -> run_guarded(actions, priority) end)
+          with_mouse_restore(item, fn -> run_guarded(item.actions, item.priority) end)
         catch
           kind, reason -> {:error, {:crashed, kind, reason}}
         end
 
       Perf.record("body.run:#{label}", now() - started_at)
-      send(server, {:done, from, result})
+      send(server, {:done, item, result})
     end)
   end
 
@@ -368,8 +409,8 @@ defmodule Pokex.Bots.Body do
   # Rig.move — if a panic/defocus closed the gate mid-sequence it is suppressed with
   # everything else, so it can never fight the human's own hand (e.g. yank the cursor OUT of
   # the panic corner they just reached). A failed origin read skips the restore, never the run.
-  defp with_mouse_restore(actions, fun) do
-    if restore_mouse?() and Enum.any?(actions, &mouse_action?/1) do
+  defp with_mouse_restore(item, fun) do
+    if restore_mouse?() and :mouse in item.lanes do
       origin =
         case safe_cursor_position() do
           {:ok, point} -> point
@@ -389,12 +430,6 @@ defmodule Pokex.Bots.Body do
   catch
     :exit, _reason -> false
   end
-
-  defp mouse_action?({:move, _point}), do: true
-  defp mouse_action?({:focus_click, _point}), do: true
-  defp mouse_action?({:click, _button, _point}), do: true
-  defp mouse_action?({:capture_sequence, _point}), do: true
-  defp mouse_action?(_action), do: false
 
   # The survival combo (:critical) bypasses the mini-game gate entirely — recalling and
   # max-reviving the Pokémon must run even while the mini-game overlay is up.
@@ -521,13 +556,11 @@ defmodule Pokex.Bots.Body do
     Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:body_log, :debug, text})
   end
 
-  defp broadcast_done(%{current: nil}, _result), do: :ok
-
-  defp broadcast_done(%{current: current}, result) do
-    elapsed_ms = max(now() - current.started_at, 0)
+  defp broadcast_done(item, result) do
+    elapsed_ms = max(now() - item.started_at, 0)
 
     text =
-      "fila ✓#{priority_label(current.priority)} #{actions_label(current.actions)} #{elapsed_ms}ms #{result_label(result)}"
+      "fila ✓#{priority_label(item.priority)} #{actions_label(item.actions)} #{elapsed_ms}ms #{result_label(result)}"
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:body_log, :debug, text})
   end

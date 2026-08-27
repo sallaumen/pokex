@@ -398,7 +398,7 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   end
 
   defp wait_until_busy(body) do
-    if :sys.get_state(body).busy? do
+    if Enum.any?(:sys.get_state(body).lanes, fn {_lane, item} -> item end) do
       :ok
     else
       Process.sleep(1)

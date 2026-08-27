@@ -74,6 +74,50 @@ defmodule Pokex.Bots.BodyTest.SlowRig do
   end
 end
 
+defmodule Pokex.Bots.BodyTest.SlowMouseRig do
+  # Test-local Rig double: `move/1` blocks until released, every other call
+  # answers at once and is logged. It is the MOUSE half of `SlowRig` — the
+  # shape a test needs to ask "does a key still get out while the pointer is
+  # busy?", which is the whole point of the body having two lanes.
+  use Pokex.RigDouble
+
+  def start_link, do: Agent.start_link(fn -> %{held?: true, log: []} end, name: __MODULE__)
+
+  def release, do: Agent.update(__MODULE__, &%{&1 | held?: false})
+
+  def log, do: __MODULE__ |> Agent.get(& &1.log) |> Enum.reverse()
+
+  @impl true
+  def move(point) do
+    record({:move, point})
+    wait_release()
+    :ok
+  end
+
+  @impl true
+  def press(combo), do: record({:press, combo})
+
+  @impl true
+  def click(button, point), do: record({:click, button, point})
+
+  @impl true
+  def cursor_position, do: {:ok, {500, 500}}
+
+  defp record(call) do
+    Agent.update(__MODULE__, &%{&1 | log: [call | &1.log]})
+    :ok
+  end
+
+  defp wait_release do
+    if Agent.get(__MODULE__, & &1.held?) do
+      Process.sleep(1)
+      wait_release()
+    else
+      :ok
+    end
+  end
+end
+
 defmodule Pokex.Bots.BodyTest.GameOpeningRig do
   alias Pokex.Perception.WorldState
 
@@ -118,6 +162,7 @@ defmodule Pokex.Bots.BodyTest do
   alias Pokex.Bots.Body
   alias Pokex.Bots.BodyTest.GameOpeningRig
   alias Pokex.Bots.BodyTest.RaisingRig
+  alias Pokex.Bots.BodyTest.SlowMouseRig
   alias Pokex.Bots.BodyTest.SlowRig
   alias Pokex.Perception.WorldState
   alias Pokex.Rig.Fake
@@ -330,12 +375,73 @@ defmodule Pokex.Bots.BodyTest do
 
   defp now_ms, do: System.monotonic_time(:millisecond)
 
-  defp wait_until_busy(body) do
-    if :sys.get_state(body).busy? do
+  # DUAS PISTAS, UMA POR ATUADOR. O corpo tinha uma vaga só, e uma poção — que
+  # não toca no mouse — esperava atrás de um arremesso de bola ou de um passo
+  # de minimapa sem nenhuma razão física. A prioridade só reordena a FILA:
+  # `dequeue/1` só é alcançado quando a sequência em voo termina, então nem
+  # `:critical` fura o que já está rodando.
+  test "uma tecla crítica sai enquanto uma sequência de MOUSE está em voo" do
+    body = with_slow_mouse(:body_test_lanes_body, :body_lanes)
+
+    # o mouse fica preso dentro do move
+    spawn(fn -> Body.perform([{:move, {5, 5}}, {:click, :left, {5, 5}}], :normal, body) end)
+    wait_until_busy(body, :mouse)
+
+    task = Task.async(fn -> Body.perform([{:press, "f4"}], :critical, body) end)
+
+    assert Task.yield(task, 500) == {:ok, :ok},
+           "a tecla ficou presa atrás do mouse: #{inspect(SlowMouseRig.log())}"
+
+    assert {:press, "f4"} in SlowMouseRig.log()
+    refute {:click, :left, {5, 5}} in SlowMouseRig.log(), "o mouse ainda estava preso"
+
+    SlowMouseRig.release()
+  end
+
+  # A outra metade do contrato: quem toca os DOIS atuadores toma as duas pistas
+  # e espera as duas. É o que mantém `move → wait → press` inteiro — a vara e a
+  # bola miram com o cursor e disparam NELE, e um segundo dono do mouse entre a
+  # mira e o tiro joga a pokébola em coordenada vazia.
+  test "uma sequência que toca os dois atuadores espera as DUAS pistas" do
+    body = with_slow_mouse(:body_test_both_lanes_body, :body_both)
+
+    spawn(fn -> Body.perform([{:move, {5, 5}}], :normal, body) end)
+    wait_until_busy(body, :mouse)
+
+    task = Task.async(fn -> Body.perform([{:move, {9, 9}}, {:press, "1"}], :critical, body) end)
+
+    assert Task.yield(task, 300) == nil, "não esperou o mouse: #{inspect(SlowMouseRig.log())}"
+    refute {:press, "1"} in SlowMouseRig.log()
+
+    SlowMouseRig.release()
+    assert Task.await(task, 1_000) == :ok
+  end
+
+  # O CLIQUE DO MEIO É TECLA TANTO QUANTO É MOUSE: é o único clique sem
+  # `cliclick`, sai pelo mesmo ajudante nativo de toda tecla — e mesmo assim
+  # move o ponteiro, então o cursor volta pro lugar dele.
+  test "o clique do meio devolve o cursor", %{body: body} do
+    assert :ok = Body.perform([{:click, :middle, {7, 7}}], :normal, body)
+
+    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
+    assert calls == [{:click, :middle, {7, 7}}, {:move, {500, 500}}]
+  end
+
+  defp with_slow_mouse(id, name) do
+    previous_rig = Application.get_env(:pokex, :rig)
+    Application.put_env(:pokex, :rig, SlowMouseRig)
+    on_exit(fn -> Application.put_env(:pokex, :rig, previous_rig) end)
+
+    start_supervised!(%{id: SlowMouseRig, start: {SlowMouseRig, :start_link, []}})
+    start_body(id, name: name)
+  end
+
+  defp wait_until_busy(body, lane \\ :keys) do
+    if :sys.get_state(body).lanes[lane] do
       :ok
     else
       Process.sleep(1)
-      wait_until_busy(body)
+      wait_until_busy(body, lane)
     end
   end
 

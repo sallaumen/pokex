@@ -28,13 +28,14 @@ defmodule Pokex.Bots.Combat.StrategyTest do
     # "quando termina o período de mobar, ele vai começar sempre usando as
     # skills em área"
     test "area comes first, always — the gathering only exists for this" do
-      assert Strategy.opening(vileplume()) == ~w(3 4 5 6 7)
+      assert Strategy.opening(vileplume(), single_target?: true) == ~w(3 4 5 6 7)
     end
 
     # The crowd is why the hunt walked the whole blue stretch; the battle list
     # at that instant may still be catching up with what is walking in.
     test "even reading ONE enemy, the opening still leads with area" do
-      assert Strategy.skill_order(vileplume(), opening?: true, enemies: 1) == ~w(3 4 5 6 7)
+      assert Strategy.skill_order(vileplume(), opening?: true, enemies: 1, single_target?: true) ==
+               ~w(3 4 5 6 7)
     end
   end
 
@@ -43,21 +44,26 @@ defmodule Pokex.Bots.Combat.StrategyTest do
     # target primeiro com poucos inimigos e guardar para mobar em inimigos
     # maiores" — the fishing case, where nothing is ever gathered.
     test "one enemy: single-target first, area behind it" do
-      assert Strategy.skill_order(vileplume(), enemies: 1) == ~w(7 3 4 5 6)
+      assert Strategy.skill_order(vileplume(), enemies: 1, single_target?: true) == ~w(7 3 4 5 6)
     end
 
     test "a crowd: area first, without any gathering needed" do
-      assert Strategy.skill_order(vileplume(), enemies: 5) == ~w(3 4 5 6 7)
+      assert Strategy.skill_order(vileplume(), enemies: 5, single_target?: true) == ~w(3 4 5 6 7)
     end
 
     test "the threshold is the number, not a feeling — and it is configurable" do
-      assert Strategy.skill_order(vileplume(), enemies: 2, aoe_from: 3) == ~w(7 3 4 5 6)
-      assert Strategy.skill_order(vileplume(), enemies: 3, aoe_from: 3) == ~w(3 4 5 6 7)
-      assert Strategy.skill_order(vileplume(), enemies: 2, aoe_from: 2) == ~w(3 4 5 6 7)
+      assert Strategy.skill_order(vileplume(), enemies: 2, aoe_from: 3, single_target?: true) ==
+               ~w(7 3 4 5 6)
+
+      assert Strategy.skill_order(vileplume(), enemies: 3, aoe_from: 3, single_target?: true) ==
+               ~w(3 4 5 6 7)
+
+      assert Strategy.skill_order(vileplume(), enemies: 2, aoe_from: 2, single_target?: true) ==
+               ~w(3 4 5 6 7)
     end
 
     test "with nothing said about the crowd it assumes ONE — the cautious read" do
-      assert Strategy.skill_order(vileplume(), []) == ~w(7 3 4 5 6)
+      assert Strategy.skill_order(vileplume(), single_target?: true) == ~w(7 3 4 5 6)
     end
   end
 
@@ -78,7 +84,7 @@ defmodule Pokex.Bots.Combat.StrategyTest do
       loadout =
         Loadout.resolve("Gardevoir", %{"1" => :buffs, "3" => :aoe, "8" => :heal})
 
-      order = Strategy.skill_order(loadout, enemies: 4)
+      order = Strategy.skill_order(loadout, enemies: 4, single_target?: true)
 
       assert order == ["3"]
       refute "1" in order
@@ -90,7 +96,7 @@ defmodule Pokex.Bots.Combat.StrategyTest do
     # nil is what makes every consumer fall back to the global key list, which
     # is exactly the behaviour that existed before any of this.
     test "no loadout answers an empty order, never a crash" do
-      assert Strategy.skill_order(nil, enemies: 3) == []
+      assert Strategy.skill_order(nil, enemies: 3, single_target?: true) == []
       assert Strategy.opening(nil) == []
       assert Strategy.reserved(nil) == []
     end
@@ -102,7 +108,7 @@ defmodule Pokex.Bots.Combat.StrategyTest do
       loadout = Loadout.resolve("Gogoat", %{"2" => :crowd, "8" => :heal})
 
       refute Loadout.attacks?(loadout)
-      assert Strategy.skill_order(loadout, enemies: 4) == []
+      assert Strategy.skill_order(loadout, enemies: 4, single_target?: true) == []
       assert loadout.crowd == ["2"]
 
       assert Loadout.resolve("Gogoat", %{}) == nil
@@ -125,19 +131,30 @@ defmodule Pokex.Bots.Combat.StrategyTest do
     # depois" (26/08). Uma aura que multiplica dano e sai DEPOIS do dano não
     # multiplicou nada.
     test "pronta, ela lidera — e o resto da ordem não muda" do
-      assert Strategy.skill_order(vileplume(), enemies: 5, aura_ready?: true) == ~w(1 3 4 5 6 7)
-      assert Strategy.skill_order(vileplume(), enemies: 1, aura_ready?: true) == ~w(1 7 3 4 5 6)
+      assert Strategy.skill_order(vileplume(),
+               enemies: 5,
+               aura_ready?: true,
+               single_target?: true
+             ) == ~w(1 3 4 5 6 7)
+
+      assert Strategy.skill_order(vileplume(),
+               enemies: 1,
+               aura_ready?: true,
+               single_target?: true
+             ) == ~w(1 7 3 4 5 6)
     end
 
     test "sem ninguém dizer que está pronta, a rajada é a de sempre" do
       # O "quando disponível" não é decoração: com o intervalo dele em 500ms,
       # uma tecla em cooldown na frente da rajada custa meio segundo de dano.
-      assert Strategy.skill_order(vileplume(), enemies: 5) == ~w(3 4 5 6 7)
+      assert Strategy.skill_order(vileplume(), enemies: 5, single_target?: true) == ~w(3 4 5 6 7)
     end
 
     test "a abertura também aceita a condição" do
-      assert Strategy.opening(vileplume()) == ~w(3 4 5 6 7)
-      assert Strategy.opening(vileplume(), aura_ready?: true) == ~w(1 3 4 5 6 7)
+      assert Strategy.opening(vileplume(), single_target?: true) == ~w(3 4 5 6 7)
+
+      assert Strategy.opening(vileplume(), aura_ready?: true, single_target?: true) ==
+               ~w(1 3 4 5 6 7)
     end
   end
 
@@ -159,20 +176,30 @@ defmodule Pokex.Bots.Combat.StrategyTest do
     # "a de defesa vale sempre que tem já uns 2 pokémons atacando ele pelo
     # menos". Quem sabe se são dois é quem chama; aqui ela entra quando mandarem.
     test "por conta própria ela não sai — nem pronta a aura de dano, nem com pilha" do
-      refute "3" in Strategy.skill_order(dugtrio(), enemies: 9, aura_ready?: true)
+      refute "3" in Strategy.skill_order(dugtrio(),
+               enemies: 9,
+               aura_ready?: true,
+               single_target?: true
+             )
+
       refute "3" in Strategy.opening(dugtrio(), aura_ready?: true)
-      refute "3" in Strategy.skill_order(dugtrio(), enemies: 1)
+      refute "3" in Strategy.skill_order(dugtrio(), enemies: 1, single_target?: true)
     end
 
     # Escudo primeiro: ele é sobre SOBREVIVER à salva que vem, e a aura de dano
     # multiplica o que sai atrás dela.
     test "mandada, ela lidera até a aura de dano" do
-      assert Strategy.skill_order(dugtrio(), enemies: 9, shield_ready?: true) == ~w(3 4 5 6)
+      assert Strategy.skill_order(dugtrio(),
+               enemies: 9,
+               shield_ready?: true,
+               single_target?: true
+             ) == ~w(3 4 5 6)
 
       assert Strategy.skill_order(dugtrio(),
                enemies: 9,
                aura_ready?: true,
-               shield_ready?: true
+               shield_ready?: true,
+               single_target?: true
              ) == ~w(3 2 4 5 6)
     end
 
@@ -182,7 +209,8 @@ defmodule Pokex.Bots.Combat.StrategyTest do
     end
 
     test "a aura de dano do mesmo pokémon continua liderando quando pronta" do
-      assert Strategy.skill_order(dugtrio(), enemies: 9, aura_ready?: true) == ~w(2 4 5 6)
+      assert Strategy.skill_order(dugtrio(), enemies: 9, aura_ready?: true, single_target?: true) ==
+               ~w(2 4 5 6)
     end
 
     test "quem responde se o escudo está pronto é a barra lida" do
@@ -262,6 +290,36 @@ defmodule Pokex.Bots.Combat.StrategyTest do
 
     test "uma ordem vazia continua vazia" do
       assert Strategy.enough([], @dano, 100.0) == []
+    end
+  end
+
+  # O QUE DÁ DANO NESTA CAÇADA (27/08, medido por ele em campo): "o que dá dano
+  # é a skill em área, praticamente exclusivamente — a gente nem precisa usar as
+  # de alvo único". Ele viu o defeito de dentro: entrou numa luta com DOIS
+  # bichos, o limiar pôs alvo único na frente, e a luta virou uma sequência de
+  # teclas que não matam.
+  describe "as teclas de alvo único, desligadas" do
+    test "por padrão elas não entram — nem com um bicho só, nem na abertura" do
+      assert Strategy.skill_order(vileplume(), enemies: 1) == ~w(3 4 5 6)
+      assert Strategy.skill_order(vileplume(), enemies: 9) == ~w(3 4 5 6)
+      assert Strategy.opening(vileplume()) == ~w(3 4 5 6)
+    end
+
+    test "ligadas, a ordem entre área e alvo único volta a valer" do
+      assert Strategy.skill_order(vileplume(), enemies: 1, single_target?: true) ==
+               ~w(7 3 4 5 6)
+    end
+
+    # Ficar mudo é pior que bater fraco: quem não tem área classificada segue
+    # apertando o que tem.
+    test "um pokémon SEM área continua usando as de alvo único" do
+      so_alvo = Loadout.resolve("Sem Área", %{"7" => :single, "8" => :single})
+
+      assert Strategy.skill_order(so_alvo, enemies: 4) == ~w(7 8)
+    end
+
+    test "e as auras seguem na frente do que sobrou" do
+      assert Strategy.skill_order(vileplume(), enemies: 4, aura_ready?: true) == ~w(1 3 4 5 6)
     end
   end
 end

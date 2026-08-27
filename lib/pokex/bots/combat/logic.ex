@@ -707,6 +707,7 @@ defmodule Pokex.Bots.Combat.Logic do
       Strategy.skill_order(loadout,
         enemies: quantos,
         aoe_from: Map.get(config, :combat_aoe_from_enemies, 3),
+        single_target?: Map.get(config, :combat_single_target, false),
         aura_ready?: Loadout.aura_ready?(loadout, prontas),
         shield_ready?:
           quantos >= Map.get(config, :combat_shield_from_enemies, 2) and

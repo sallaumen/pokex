@@ -15,7 +15,12 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # AS SEMENTES, não uma cópia à mão. A cópia é a mesma armadilha que fez o
   # bench responder sobre um bot que não existe: um ajuste novo nascia com um
   # valor aqui e outro no `Settings`, e nenhum teste notava.
-  @config Config.merge()
+  # …com UMA exceção declarada: a espera da R12 (`bunch_ms`) fica em zero na
+  # base. O assunto da maior parte deste arquivo é QUEM fecha a janela de mob e
+  # POR QUÊ; a espera que vem depois de fechar é uma regra própria, com o bloco
+  # próprio dela no fim do arquivo. É o mesmo isolamento que `crowd_from: 99` e
+  # `reset_revive: false` já fazem aqui.
+  @config Config.merge(%{bunch_ms: 0})
 
   defp situation(overrides \\ %{}) do
     Map.merge(
@@ -402,7 +407,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
   describe "o revive como reset de cooldown (R3b)" do
     # `crowd_from: 99` mantém a R10 fora desta pergunta: aqui o assunto é a
     # barra vazia, não a pilha grande.
-    @reset Config.merge(%{reset_revive: true, engage_from: 3, crowd_from: 99})
+    # `bunch_ms: 0` pelo mesmo motivo que `crowd_from: 99` está aqui: desde 27/08
+    # a régua PARA antes de estourar a área (R12), e a espera apareceria na
+    # frente da pergunta deste bloco.
+    @reset Config.merge(%{reset_revive: true, engage_from: 3, crowd_from: 99, bunch_ms: 0})
 
     defp reset_step(logic, world, now), do: Logic.step(logic, world, @reset, now)
 
@@ -453,7 +461,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     # Sem a R3b, a mesma barra vazia tem a resposta de graça: andar (R7).
     test "desligada, a mesma barra vazia anda em vez de pedir revive" do
-      sem = Config.merge(%{reset_revive: false, crowd_from: 99})
+      sem = Config.merge(%{reset_revive: false, crowd_from: 99, bunch_ms: 0})
       sem_step = fn logic, world, now -> Logic.step(logic, world, sem, now) end
       logic = engaged(sem_step)
 
@@ -623,7 +631,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # em 90 a R3b passa a estar disponível numa barra vazia, e reviver é melhor
     # que andar — zera a barra na hora em vez de esperar 45s. A fuga é a regra
     # de quando NÃO há revive; medi-la com revive à mão mediria a R3b.
-    @fuga Config.merge(%{crowd_from: 99, reset_revive: false})
+    @fuga Config.merge(%{crowd_from: 99, reset_revive: false, bunch_ms: 0})
 
     defp fuga_step(logic \\ Logic.new(), world, now), do: Logic.step(logic, world, @fuga, now)
 
@@ -906,7 +914,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
   end
 
   describe "hunting without gathering a pile" do
-    @solo Config.merge(%{gather_piles: false, engage_from: 1})
+    @solo Config.merge(%{gather_piles: false, engage_from: 1, bunch_ms: 0})
 
     defp solo_step(logic \\ Logic.new(), world, now),
       do: Logic.step(logic, world, @solo, now)
@@ -967,7 +975,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # mais sérias não dá certo... mas SEMPRE usar o revive dentro da range de 5
   # segundos no máximo depois de usar a skill de controle".
   describe "o controle e a janela de cinco segundos" do
-    @r10 Config.merge(%{reset_revive: true, crowd_from: 4, stun_window_ms: 5_000})
+    # `bunch_ms: 0` pelo mesmo motivo que `crowd_from: 99` está aqui: desde 27/08
+    # a régua PARA antes de estourar a área (R12), e a espera apareceria na
+    # frente da pergunta deste bloco.
+    @r10 Config.merge(%{reset_revive: true, crowd_from: 4, stun_window_ms: 5_000, bunch_ms: 0})
 
     defp pilha(n, overrides \\ %{}) do
       world(%{
@@ -1116,6 +1127,70 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {_logic, orders} = Logic.step(Logic.new(), limpo(), config, 5_000)
 
       assert orders.revive == :hold
+    end
+  end
+
+  # R12 — A JANELA FECHOU; AGORA DEIXA ELES CHEGAREM (27/08):
+  #
+  #   "Notei três bichos, ele entra na janela de 'já tenho mob decente'. Se eu
+  #   continuar andando mais um segundo, não aparecia mais um bicho, eu fecho
+  #   essa janela de mob e mato eles com tudo que eu tiver. Só que, quando fecho
+  #   uma janela de mob, eu tenho que aguardar, por exemplo, cinco segundos, pros
+  #   bichos se aproximarem do meu pokémon."
+  #
+  # A régua sabia QUANDO parar de juntar e disparava no mesmo tique. Três bichos
+  # recém-chegados à lista estão longe do pokémon, não em cima dele: a área pega
+  # um e gasta o cooldown dos três.
+  describe "a espera antes de estourar a área" do
+    @espera Config.merge(%{bunch_ms: 2_000, gather_piles: false, engage_from: 2})
+
+    defp pilha_pronta(n \\ 3) do
+      world(%{
+        situation: situation(%{enemies: n, worth_fighting?: true, stable_for_ms: 9_000}),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    test "ao fechar a janela ele PARA e não atira" do
+      {logic, orders} = Logic.step(Logic.new(), pilha_pronta(), @espera, 1_000)
+
+      assert orders.phase == :bunching
+      assert orders.fire == :hold
+      assert orders.route == :hold, "parar é o que faz eles virem"
+      assert logic.state == :bunching
+      assert orders.why =~ "chegarem perto"
+    end
+
+    test "passada a espera, aí sim estoura a área" do
+      {logic, _} = Logic.step(Logic.new(), pilha_pronta(), @espera, 1_000)
+      {logic, meio} = Logic.step(logic, pilha_pronta(), @espera, 2_500)
+
+      assert meio.phase == :bunching, "1,5s ainda é dentro da janela"
+
+      {_logic, depois} = Logic.step(logic, pilha_pronta(), @espera, 3_100)
+
+      assert depois.phase == :engaged
+      assert depois.fire == :free
+      assert depois.opening != []
+    end
+
+    # Esperar por uma pilha que não existe mais é ficar parado de graça.
+    test "se eles somem no meio da espera, ela acaba na hora" do
+      {logic, _} = Logic.step(Logic.new(), pilha_pronta(), @espera, 1_000)
+
+      {_logic, orders} = Logic.step(logic, pilha_pronta(0), @espera, 1_500)
+
+      assert orders.phase == :travelling
+      assert orders.why =~ "sumiram"
+    end
+
+    test "em zero ela não existe: abre disparando, como antes" do
+      config = Config.merge(%{bunch_ms: 0, gather_piles: false, engage_from: 2})
+
+      {_logic, orders} = Logic.step(Logic.new(), pilha_pronta(), config, 1_000)
+
+      assert orders.phase == :engaged
+      assert orders.fire == :free
     end
   end
 end

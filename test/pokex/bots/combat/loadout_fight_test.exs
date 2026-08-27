@@ -39,6 +39,10 @@ defmodule Pokex.Bots.Combat.LoadoutFightTest do
     skill_keys: ["9"],
     combat_skill_burst_size: 9,
     combat_aoe_from_enemies: 3,
+    # A ORDEM entre área e alvo único é o assunto deste arquivo, e desde 27/08
+    # ela só existe com as de alvo único LIGADAS — por padrão a caçada não as
+    # usa ("o que dá dano é a skill em área, praticamente exclusivamente").
+    combat_single_target: true,
     max_consecutive_failures: 5
   }
 
@@ -147,6 +151,33 @@ defmodule Pokex.Bots.Combat.LoadoutFightTest do
       loadout = Loadout.resolve("Gogoat", %{"1" => :buffs})
 
       assert Loadout.keys(loadout, :name) == []
+    end
+  end
+
+  # E O PADRÃO, provado onde importa: nas TECLAS que chegam ao jogo.
+  describe "com as de alvo único desligadas (o padrão)" do
+    defp so_area(loadout, enemies) do
+      obs = %{enemies: enemies, locked?: true, locked_row: 0, captured_at: 1}
+
+      logic =
+        %{@config | combat_single_target: false}
+        |> Logic.new()
+        |> Logic.start(0)
+        |> elem(0)
+        |> Logic.set_loadout(loadout)
+
+      {logic, _tab} = Logic.step(logic, obs, 10)
+      {_logic, actions} = Logic.step(logic, %{obs | captured_at: 15}, 20)
+
+      Enum.uniq(for {:press, key} <- actions, do: key)
+    end
+
+    test "com dois bichos ele abre com ÁREA, não com alvo único" do
+      assert so_area(loadout(), [0, 1]) == ~w(3 4 5 6)
+    end
+
+    test "e com um só, também" do
+      assert so_area(loadout(), [0]) == ~w(3 4 5 6)
     end
   end
 end

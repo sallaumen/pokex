@@ -43,7 +43,8 @@ defmodule Pokex.Bots.Combat.Strategy do
           opening?: boolean,
           aoe_from: pos_integer,
           aura_ready?: boolean,
-          shield_ready?: boolean
+          shield_ready?: boolean,
+          single_target?: boolean
         ]
 
   @doc """
@@ -57,10 +58,7 @@ defmodule Pokex.Bots.Combat.Strategy do
   def skill_order(nil, _opts), do: []
 
   def skill_order(%Loadout{} = loadout, opts) do
-    damage =
-      if area_first?(loadout, opts),
-        do: loadout.aoe ++ loadout.single,
-        else: loadout.single ++ loadout.aoe
+    damage = damage_keys(loadout, opts)
 
     # A REGRA DELE, com a condição que ele pôs: "usar a aura 2 QUANDO DISPONÍVEL
     # e se for usar outras skills usar elas depois" (26/08). Uma aura de dano que
@@ -88,6 +86,28 @@ defmodule Pokex.Bots.Combat.Strategy do
     aura = if Keyword.get(opts, :aura_ready?, false), do: loadout.buffs, else: []
 
     escudo ++ aura ++ damage
+  end
+
+  # O QUE DÁ DANO NESTA CAÇADA, na régua dele (27/08): "o que dá dano é a skill
+  # em área, praticamente exclusivamente (…) a gente nem precisa usar as de
+  # alvo único".
+  #
+  # Ele viu o defeito de dentro: entrou numa luta com DOIS bichos, o
+  # `combat_aoe_from_enemies: 3` pôs alvo único na frente, e a luta virou uma
+  # sequência de teclas que não matam. A ordem entre área e alvo único era uma
+  # pergunta legítima quando as duas machucavam; nesta hunt uma delas não
+  # machuca, e a resposta certa é não gastar o tempo dela.
+  #
+  # O alvo único VOLTA sozinho pra quem não tem área: um pokémon sem tecla de
+  # área classificada com esta regra ligada não teria o que apertar, e ficar
+  # mudo é pior que bater fraco.
+  defp damage_keys(loadout, opts) do
+    cond do
+      loadout.aoe == [] -> loadout.single
+      not Keyword.get(opts, :single_target?, false) -> loadout.aoe
+      area_first?(loadout, opts) -> loadout.aoe ++ loadout.single
+      true -> loadout.single ++ loadout.aoe
+    end
   end
 
   @doc """

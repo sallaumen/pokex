@@ -152,6 +152,52 @@ defmodule Pokex.Sim.HandsTest do
       Hands.obey(mundo(@barra), rajada(keys), Hands.new(), Map.merge(@stun, config))
     end
 
+    test "só as teclas PRONTAS saem, e só elas custam" do
+      # O bot de verdade faz isso desde sempre: `Combat.Logic.ready_in_priority/2`
+      # filtra a ordem pela leitura da barra ("only READY skills fire"). Estas
+      # mãos foram escritas sem esse passo, e o resultado foi um bot paralisado:
+      # com a barra gasta ele pedia quatro teclas, pagava os intervalos por
+      # todas, nenhuma saía, e no tique seguinte pedia de novo.
+      #
+      # MEDIDO no traço de 40s: ocupado em 79% dos tiques, e em 77% ocupado SEM
+      # ter apertado nada — parado no meio de 21 monstros com a vida caindo.
+      # Depois do conserto: 9% e 8%.
+      mundo = mundo(@barra)
+      gasta = %{mundo | keys: Map.put(mundo.keys, "4", %{mundo.keys["4"] | ready_at: 99_999})}
+
+      {_world, hands} =
+        Hands.obey(
+          gasta,
+          rajada(["3", "4", "5"]),
+          Hands.new(),
+          Map.merge(@stun, %{skill_gap_ms: 500})
+        )
+
+      # Duas prontas de três: um intervalo, não dois.
+      assert Hands.busy_until(hands) == 500
+    end
+
+    test "com a barra INTEIRA em cooldown, a rajada não custa nada" do
+      # É este o caso que paralisava: pagar por uma rajada que não sai deixa o
+      # corpo ocupado pra sempre, porque no tique seguinte ele pede de novo.
+      mundo = mundo(@barra)
+
+      gasta = %{
+        mundo
+        | keys: Map.new(mundo.keys, fn {k, v} -> {k, %{v | ready_at: 99_999}} end)
+      }
+
+      {_world, hands} =
+        Hands.obey(
+          gasta,
+          rajada(["3", "4", "5"]),
+          Hands.new(),
+          Map.merge(@stun, %{skill_gap_ms: 500})
+        )
+
+      assert Hands.busy_until(hands) == 0
+    end
+
     test "N teclas ocupam o corpo por (N-1) intervalos" do
       {_world, hands} = soltando(["3", "4", "5"], %{skill_gap_ms: 500})
 

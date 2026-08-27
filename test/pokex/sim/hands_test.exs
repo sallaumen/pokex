@@ -277,4 +277,57 @@ defmodule Pokex.Sim.HandsTest do
       assert depois.held != [], "com o corpo livre, as teclas de andar voltam a ser seguradas"
     end
   end
+
+  # O CAMINHANTE ENCOSTA NA PEDRA E FICA LÁ. `Sim.Hands` reimplementa o andar e
+  # não tem nada equivalente ao `unstick/3` do cavebot: quando todo candidato do
+  # escorregão está bloqueado, `World.step/4` devolve a mesma posição, e não há
+  # mais nada no mundo que mexa o personagem. Uma corrida de bancada parada num
+  # canto ainda reporta mortos/min — só que de uma caçada que nunca andou.
+  describe "andando" do
+    defp rota_reta do
+      %Pokex.Bots.Cavebot.Route{
+        name: "reta",
+        dungeon: nil,
+        waypoints: [
+          %{x: 1000, y: 1000, z: 7, action: :walk, note: nil},
+          %{x: 1010, y: 1000, z: 7, action: :walk, note: nil}
+        ]
+      }
+    end
+
+    defp encostado_na_pedra do
+      # UMA pedra, e o alvo alinhado no outro eixo: `wanted` tem uma direção só,
+      # então o escorregão do mundo não tem candidato nenhum pra oferecer. É o
+      # caso mínimo, e é o comum numa caverna.
+      pedra = MapSet.new([{1001, 1000, 7}])
+
+      world =
+        World.new(rota_reta(),
+          seed: 1,
+          loadout: @barra,
+          blocked: pedra,
+          knobs: %{nest_size: 0, stray_chance_pct: 0}
+        )
+
+      %{world | pos: {1000, 1000, 7}}
+    end
+
+    defp andando(world, hands, config, ate) do
+      if world.clock >= ate do
+        {world, hands}
+      else
+        {world, hands} = Hands.obey(world, ordens(%{route: :go}), hands, config)
+        andando(World.step(world, 100), hands, config, ate)
+      end
+    end
+
+    test "uma parede inteira no caminho não deixa a caçada parada a noite toda" do
+      world = encostado_na_pedra()
+      config = Map.merge(@stun, %{walk_timeout_ms: 3_000})
+
+      {depois, _hands} = andando(world, Hands.new(), config, 30_000)
+
+      refute depois.pos == world.pos, "ficou encostado na pedra a corrida inteira"
+    end
+  end
 end

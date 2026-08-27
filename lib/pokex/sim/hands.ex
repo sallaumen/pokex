@@ -53,7 +53,17 @@ defmodule Pokex.Sim.Hands do
             # um bot parecido: a última tecla de uma rajada de sete sai 1,8s
             # depois da primeira, e nesse intervalo o bicho pode já ter morrido.
             # Cada tecla sai quando chega a vez dela, no mundo que existir então.
-            firing: []
+            firing: [],
+            # ONDE ELE ESTAVA E QUANDO ANDOU A ÚLTIMA VEZ. Este caminhante
+            # segura setas na direção do waypoint e não tinha nada equivalente
+            # ao `unstick/3` do cavebot: com todo candidato do escorregão
+            # bloqueado, `World.step/4` devolve a mesma posição e nada mais no
+            # mundo mexe o personagem. Uma corrida encostada num canto seguia
+            # reportando mortos/min — de uma caçada que nunca andou.
+            last_pos: nil,
+            moved_at: 0,
+            # a direção do desvio enquanto ele está travado (nil = seguir a rota)
+            sidestep: nil
 
   @type t :: %__MODULE__{}
 
@@ -100,12 +110,12 @@ defmodule Pokex.Sim.Hands do
     {world, hands} =
       if busy?(hands),
         do: {world, hands},
-        else: world |> walk(orders, hands.leg) |> fire(orders, hands, config)
+        else: world |> walk(orders, hands) |> fire(orders, hands, config)
 
     {world, hands} = rescue_combo(world, orders, hands, config)
     {world, hands} = support(world, hands, config)
 
-    {world, %{hands | leg: next_leg(world, hands.leg), prev_hp: world.own.hp_pct}}
+    {world, %{advance(hands, world, config) | prev_hp: world.own.hp_pct}}
   end
 
   @doc """
@@ -130,9 +140,12 @@ defmodule Pokex.Sim.Hands do
   # `route: :go` walks toward the current waypoint; `:hold` lets go of the keys.
   # It goes through the same `key_down`/`key_up` the cavebot uses, so the world
   # walks at the same pace and by the same rules — stairs included.
-  defp walk(world, %{route: :hold}, _leg), do: release(world)
+  defp walk(world, %{route: :hold}, _hands), do: release(world)
 
-  defp walk(world, _going, leg) do
+  defp walk(world, _going, %{sidestep: dir}) when is_binary(dir),
+    do: World.press(release(world), {:key_down, dir})
+
+  defp walk(world, _going, %{leg: leg}) do
     target = Enum.at(world.route.waypoints, leg)
     {x, y, _z} = world.pos
 
@@ -150,6 +163,48 @@ defmodule Pokex.Sim.Hands do
   defp axis(0, _positive, _negative), do: nil
   defp axis(delta, positive, _negative) when delta > 0, do: positive
   defp axis(_delta, _positive, negative), do: negative
+
+  # ANDOU, OU DESISTE DESTE CANTO. Chegar tem prioridade; um pé parado além do
+  # `walk_timeout_ms` — o mesmo teto que o cavebot usa antes do `unstick` —
+  # pula pro waypoint seguinte, que é o equivalente barato do que ele faz na
+  # parede. Sem isto o simulador media uma noite inteira de uma caçada travada.
+  defp advance(hands, world, config) do
+    cond do
+      world.pos != hands.last_pos ->
+        %{
+          hands
+          | last_pos: world.pos,
+            moved_at: world.clock,
+            sidestep: nil,
+            leg: next_leg(world, hands.leg)
+        }
+
+      travado?(hands, world, config) ->
+        %{hands | moved_at: world.clock, sidestep: sidestep(world, hands.leg)}
+
+      true ->
+        %{hands | leg: next_leg(world, hands.leg)}
+    end
+  end
+
+  defp travado?(hands, world, config) do
+    case Map.get(config, :walk_timeout_ms) do
+      ms when is_integer(ms) and ms > 0 -> world.clock - hands.moved_at >= ms
+      _sem_teto -> false
+    end
+  end
+
+  # O DESVIO, no molde do `unstick/3` do cavebot: um passo PERPENDICULAR ao eixo
+  # que travou. Sozinho ele não contorna nada; o que ele faz é tirar o
+  # personagem do alinhamento, e daí o escorregão do próprio mundo (`slides/1`,
+  # a reta e depois cada eixo sozinho) volta a ter candidato. Pular o waypoint
+  # não serve: o seguinte costuma estar do outro lado da MESMA pedra.
+  defp sidestep(world, leg) do
+    target = Enum.at(world.route.waypoints, leg)
+    {x, _y, _z} = world.pos
+
+    if axis(target.x - x, "right", "left"), do: "down", else: "right"
+  end
 
   # A waypoint counts as reached inside one tile, the same tolerance the cavebot
   # uses; the route loops, because a simulated run has no end of route to reach.

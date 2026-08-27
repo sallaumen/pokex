@@ -1735,7 +1735,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       }
     end
 
-    defp lutando_parado(overrides \\ %{}) do
+    defp lutando_parado(overrides) do
       Map.merge(
         %{
           pos: {100, 100, 7},

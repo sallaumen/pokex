@@ -417,7 +417,7 @@ defmodule Pokex.Bots.Combat.Worker do
   # ilegível o relógio responde sozinho, e é aí que ele paga: antes disso, uma
   # leitura ruim mandava o combate rodar a barra às cegas.
   defp ready_skills(loadout),
-    do: SkillClock.ready(Perception.ready_skills(), cooldowns(loadout))
+    do: SkillClock.ready(Perception.ready_skills(), Loadout.keys(loadout), cooldowns(loadout))
 
   defp cooldowns(%Loadout{cooldowns: cooldowns}), do: cooldowns
   defp cooldowns(_no_loadout), do: %{}

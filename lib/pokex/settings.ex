@@ -1159,13 +1159,30 @@ defmodule Pokex.Settings do
     # semente de 15 — a mão andava rápido e o cérebro só pedia de quinze em
     # quinze. Os dois pisos falam do mesmo botão e agora dizem o mesmo número.
     engine_reset_revive_cooldown_ms: 3_000,
-    # …and the health it refuses to spend a revive at. The floor between two
-    # presses is `rescue_cooldown_ms` — a MINUTE — so a proactive press made on a
-    # half-empty bar is the rescue this fight needs in forty seconds, spent
-    # early. Swept in the bench on 2026-08-25 across five floors: gating at full
-    # health beat gating at 80% on monsters killed at every floor, and cost the
-    # CHARACTER far less health.
-    engine_reset_revive_min_hp: 100,
+    # …e a vida abaixo da qual ele recusa gastar um revive só pra zerar
+    # cooldowns.
+    #
+    # Era 100 — vida CHEIA — por uma varredura de 25/08 que hoje não vale: até
+    # 27/08 a janela do controle (`stun_window?`) não passava por
+    # `reset_revive?`, então ela ignorava este piso, e a varredura mediu um
+    # caminho que quase nunca era tomado. Com a janela obedecendo a regra, o
+    # piso passou a MANDAR, e vida cheia virou "quase nunca reseta".
+    #
+    # Medido em 27/08, 12 sementes × 120s, com a janela exigindo barra gasta:
+    #
+    #   piso   lotavanon              formigueiro
+    #   100%   67,1 mortos/min        22,9
+    #    95%   69,3                   23,3
+    #    90%   72,5 (4,7 revives/min) 23,1 (5,5 revives/min)
+    #    85%   72,5                   24,3 (8,1 revives/min)
+    #    80%   72,5                   24,8 (8,7)
+    #
+    # 90 pega o ganho inteiro do anel (+8%) na melhor troca da tabela — 15,5
+    # mortos por revive — e recusa o do formigueiro, que só vem gastando o dobro
+    # de revives por +0,9%. Zero quedas em todos os pisos.
+    #
+    # E o revive CURA: exigir vida cheia era jogar fora a metade curativa dele.
+    engine_reset_revive_min_hp: 90,
     # …and the route only walks again above this.
     engine_resume_pct: 80,
     # A revive that never lands must not end the night standing still.

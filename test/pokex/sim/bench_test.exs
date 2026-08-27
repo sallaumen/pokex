@@ -503,27 +503,24 @@ defmodule Pokex.Sim.BenchTest do
       }
     end
 
-    # POR MORTO, não no total. A regra é "gastar o mínimo PRA MATAR", e o total
-    # tem outro dono: quantos bichos a caçada alcança. Com o caminhante
-    # destravado (ele empurrava pedra e vagava fora da rota) a mesma janela
-    # encontra mais gente, então o total de tiros SOBE dos dois lados enquanto o
-    # preço de cada morto cai — que é a coisa que a regra promete. Medido:
-    # 0,73 tiros/morto cortando contra 0,77 sem cortar, com 879 mortos contra
-    # 823.
-    test "cortando a cauda ele gasta MENOS tiros por morto, e mata MAIS" do
+    # O QUE SOBROU DA REGRA depois que a janela do revive passou a exigir a barra
+    # gasta (27/08). Antes disso a bancada media 0,73 tiros/morto cortando
+    # contra 0,77 sem cortar, e o ganho era explicado por "cada tiro pega mais
+    # gente". Na economia nova a explicação não se sustenta mais — as duas
+    # regras se atrapalham, e é bom que isso esteja escrito:
+    #
+    #   cortando   796 mortos · 0,697 tiros/morto · 10,07 alcançados por tiro · 106 revives
+    #   sem cortar 688 mortos · 0,686 tiros/morto · 10,34 alcançados por tiro ·  87 revives
+    #
+    # Ou seja: cortar segue matando MAIS (+15,7%), mas não por gastar menos tiro
+    # por morto — segurar uma tecla é segurar a barra longe de "gasta", que é a
+    # condição do reset. Quem quiser as duas regras juntas tem que resolver essa
+    # briga primeiro.
+    test "cortando a cauda ele mata MAIS" do
       com = cortando(true)
       sem = cortando(false)
 
       assert com.killed > sem.killed
-      assert com.casts / com.killed < sem.casts / sem.killed
-    end
-
-    test "e cada tiro pega mais gente, que é de onde o ganho vem" do
-      # A tecla poupada não gasta o cooldown: ela sai depois, numa pilha maior.
-      com = cortando(true)
-      sem = cortando(false)
-
-      assert com.reached / com.casts > sem.reached / sem.casts
     end
   end
 

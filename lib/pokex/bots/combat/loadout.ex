@@ -145,6 +145,24 @@ defmodule Pokex.Bots.Combat.Loadout do
 
   def keys(nil, _no_pokemon), do: []
 
+  @doc """
+  TODAS as teclas classificadas deste pokémon, na ordem da barra.
+
+  É a lista que o relógio das teclas precisa pra responder sozinho quando a
+  barra na tela está ilegível: sem ela, "o que está pronto?" só poderia falar
+  das teclas que ele já mediu.
+  """
+  @spec keys(t | nil) :: [String.t()]
+  def keys(%__MODULE__{} = loadout) do
+    todas =
+      Enum.flat_map(SkillProfile.categories(), &Map.get(loadout, &1, []))
+      |> MapSet.new()
+
+    Enum.filter(SkillProfile.hotbar_keys(), &(&1 in todas))
+  end
+
+  def keys(nil), do: []
+
   @doc "One line for a log or a panel: `\"Shiny Vileplume · área 3+4 · alvo 7\"`."
   @spec describe(t | nil) :: String.t()
   def describe(nil), do: "sem pokémon escolhido"

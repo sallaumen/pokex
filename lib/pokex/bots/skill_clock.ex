@@ -23,12 +23,12 @@ defmodule Pokex.Bots.SkillClock do
 
   ## A tela continua mandando quando discorda
 
-  `ready/3` cruza as duas fontes e a regra é conservadora dos dois lados: uma
-  tecla só está pronta se a tela não disser que não E o relógio não disser que
-  não. A tela é o jogo falando (ela sabe de coisas que ninguém escreveu: um
-  silence, um cooldown global); o relógio é o que a gente sabe ter apertado (e
-  ele sabe de coisas que a tela demora a mostrar — o fato tem idade, e uma foto
-  de 400ms atrás ainda mostra pronta a tecla que já saiu).
+  `ready/4` cruza as duas fontes e a regra é conservadora dos dois lados: uma
+  tecla só está pronta se a tela não disser que não E um cooldown ESCRITO não
+  disser que não. A tela é o jogo falando (ela sabe de coisas que ninguém
+  escreveu: um silence, um cooldown global); o relógio é o que a gente sabe ter
+  apertado (e ele sabe de coisas que a tela demora a mostrar — o fato tem idade,
+  e uma foto de 400ms atrás ainda mostra pronta a tecla que já saiu).
 
   Com a tela ilegível, o relógio responde sozinho — que é o ganho grande: em vez
   de rotação cega, o bot segue sabendo o que gastou.
@@ -42,6 +42,18 @@ defmodule Pokex.Bots.SkillClock do
   """
 
   @table :pokex_skill_clock
+
+  # O QUE ASSUMIR PARA A TECLA QUE ELE AINDA NÃO MEDIU (pedido dele, 27/08: "na
+  # falta de configuração, faz ele assumir que o cooldown é 45 segundos").
+  #
+  # É a média das duas famílias que o vídeo mediu (26/08, gravação de 53s): as
+  # teclas 1, 2 e 3 voltam com 40s e as 4, 5 e 6 com 50s. O mesmo número que o
+  # simulador usa pra quem não tem cooldown escrito.
+  @assumed_ms 45_000
+
+  @doc "O cooldown assumido pra tecla sem número escrito."
+  @spec assumed_ms() :: pos_integer
+  def assumed_ms, do: @assumed_ms
 
   @doc false
   def table, do: @table
@@ -91,14 +103,26 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  As teclas que o RELÓGIO considera prontas, entre as de `cooldowns`.
+  As teclas de `keys` que o RELÓGIO considera prontas — com o assumido valendo
+  para as que ninguém mediu.
 
-  Uma tecla sem cooldown escrito conta como pronta: o relógio não inventa
-  espera para o que ninguém mediu.
+  Só é usado quando a TELA não respondeu: é aí que o palpite de 45s vale mais
+  que o nada que existia antes.
   """
-  @spec ready_by_clock(%{optional(String.t()) => pos_integer}, integer) :: [String.t()]
-  def ready_by_clock(cooldowns, now \\ now()) when is_map(cooldowns) do
-    for {key, _ms} <- cooldowns, cooling_ms(key, cooldowns, now) == 0, do: key
+  @spec ready_by_clock([String.t()], %{optional(String.t()) => pos_integer}, integer) ::
+          [String.t()]
+  def ready_by_clock(keys, cooldowns, now \\ now()) when is_list(keys) and is_map(cooldowns) do
+    Enum.filter(keys, &(assumed_cooling_ms(&1, cooldowns, now) == 0))
+  end
+
+  @doc """
+  Quanto falta para `key` voltar, em ms, pelo cooldown ASSUMIDO quando não há um
+  escrito. Zero quando está pronta.
+  """
+  @spec assumed_cooling_ms(String.t(), %{optional(String.t()) => pos_integer}, integer) ::
+          non_neg_integer
+  def assumed_cooling_ms(key, cooldowns, now \\ now()) do
+    cooling_ms(key, Map.put_new(cooldowns, key, @assumed_ms), now)
   end
 
   @doc """
@@ -119,26 +143,36 @@ defmodule Pokex.Bots.SkillClock do
   @doc """
   As teclas prontas de verdade: a leitura da tela cruzada com o relógio.
 
-  * tela com lista → a interseção, porque as duas fontes só valem quando
-    concordam e cada uma sabe de algo que a outra não sabe;
-  * tela `nil` (ilegível, velha, ausente) → a resposta do relógio, que é o
-    ponto deste módulo: uma leitura ruim deixava o combate cego;
-  * relógio vazio E tela nil → `nil`, o desconhecido de sempre, para quem lê
-    isso continuar falhando OPEN como sempre fez.
-  """
-  @spec ready([String.t()] | nil, %{optional(String.t()) => pos_integer}, integer) ::
-          [String.t()] | nil
-  def ready(screen, cooldowns, now \\ now())
+  * tela com lista → ela manda, menos as teclas que um cooldown ESCRITO diz
+    estarem esfriando (a foto tem idade: uma tecla que saiu há 200ms ainda
+    aparece pronta nela);
+  * tela `nil` (ilegível, velha, ausente) → o relógio responde sozinho, e aí o
+    assumido de 45s vale — é o ponto deste módulo, porque antes uma leitura
+    ruim deixava o combate cego;
+  * sem teclas conhecidas e sem tela → `nil`, o desconhecido de sempre, pra
+    quem lê continuar falhando OPEN como sempre fez.
 
-  def ready(screen, cooldowns, _now) when is_list(screen) and map_size(cooldowns) == 0,
+  ## Por que o ASSUMIDO não derruba o que a tela viu
+
+  Um cooldown escrito é medição dele e pode contradizer uma foto velha. Um
+  cooldown assumido é palpite: se a skill volta em 8s e a gente chuta 45, vetar
+  a tela faria o bot deixar de usar a tecla mais rápida da barra por 37
+  segundos, e ninguém veria por quê. Palpite preenche buraco; não desmente
+  observação.
+  """
+  @spec ready([String.t()] | nil, [String.t()], %{optional(String.t()) => pos_integer}, integer) ::
+          [String.t()] | nil
+  def ready(screen, keys, cooldowns, now \\ now())
+
+  def ready(screen, _keys, cooldowns, _now) when is_list(screen) and map_size(cooldowns) == 0,
     do: screen
 
-  def ready(screen, cooldowns, now) when is_list(screen),
+  def ready(screen, _keys, cooldowns, now) when is_list(screen),
     do: Enum.reject(screen, &(cooling_ms(&1, cooldowns, now) > 0))
 
-  def ready(nil, cooldowns, _now) when map_size(cooldowns) == 0, do: nil
+  def ready(nil, [], _cooldowns, _now), do: nil
 
-  def ready(nil, cooldowns, now), do: ready_by_clock(cooldowns, now)
+  def ready(nil, keys, cooldowns, now), do: ready_by_clock(keys, cooldowns, now)
 
   defp now, do: System.monotonic_time(:millisecond)
 end

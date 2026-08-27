@@ -38,6 +38,7 @@ defmodule Pokex.Sim.Bench do
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Combat.Strategy
+  alias Pokex.Bots.Engine.Inputs
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
@@ -481,11 +482,10 @@ defmodule Pokex.Sim.Bench do
     %{
       situation: picture,
       hunt: %{state: hunt_state(world, luring?), luring?: luring?},
-      hands: %{
-        opening: opening(world, picture, config),
-        single: keys_of_kind(world, :single),
-        crowd: keys_of_kind(world, :crowd)
-      }
+      # CHAMADA, não derivada: é a mesma função que o `Engine.Worker` usa, e o
+      # corte da cauda (declarado em `Engine.Config.bench_only/0`) vem POR CIMA
+      # dela, nunca no lugar dela.
+      hands: hands(world, picture, config)
     }
   end
 
@@ -528,15 +528,15 @@ defmodule Pokex.Sim.Bench do
   # com ela fora o multiplicador de 20% que ele descreveu não multiplicava nada.
   # Um sweep de `aura_boost_pct` dava a mesma linha duas vezes, e a explicação
   # não estava no knob.
-  defp opening(world, picture, config) do
-    loadout = loadout_of(world)
-
-    ordem =
-      Strategy.opening(loadout, aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys))
+  defp hands(world, picture, config) do
+    hands = Inputs.hands(loadout_of(world), picture)
 
     if config[:spend_the_minimum],
-      do: Strategy.enough(ordem, dano_por_tecla(world), falta_no_alvo(world)),
-      else: ordem
+      do: %{
+        hands
+        | opening: Strategy.enough(hands.opening, dano_por_tecla(world), falta_no_alvo(world))
+      },
+      else: hands
   end
 
   # QUANTO CADA TECLA TIRA, na mesma unidade da vida que falta: porcentagem da

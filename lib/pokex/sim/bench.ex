@@ -39,6 +39,7 @@ defmodule Pokex.Sim.Bench do
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Combat.Strategy
   alias Pokex.Bots.Engine.Inputs
+  alias Pokex.Pokedex.SkillProfile
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Situation
@@ -494,8 +495,15 @@ defmodule Pokex.Sim.Bench do
     }
   end
 
+  # NA ORDEM DA BARRA, e o `"0"` é a DÉCIMA tecla. Isto percorria o MAPA
+  # `world.keys`, então por ordem de termo o `"0"` saía PRIMEIRO aqui e por
+  # último no bot, onde `SkillProfile.keys/2` filtra a barra canônica. E
+  # `Strategy.skill_order/2` preserva a ordem das listas: era literalmente outra
+  # rajada, invisível enquanto todo dano era igual e mensurável no instante em
+  # que deixa de ser. Mesma armadilha do preflight que procurava a tecla "10"
+  # (#346), num lugar novo.
   defp keys_of_kind(world, kind) do
-    for {key, %{kind: ^kind}} <- world.keys, do: key
+    for key <- SkillProfile.hotbar_keys(), match?(%{kind: ^kind}, world.keys[key]), do: key
   end
 
   # THE MOBBING LEG, which this bench could not see until 2026-08-25 and
@@ -567,7 +575,15 @@ defmodule Pokex.Sim.Bench do
     |> Enum.max(fn -> nil end)
   end
 
-  defp loadout_of(world) do
+  @doc """
+  O `%Loadout{}` que este mundo simulado representa — a barra na ordem do jogo.
+
+  Público porque é o que o teste de contrato compara: uma entrada da decisão que
+  a bancada monta é uma entrada que pode divergir da do bot, e a ordem das
+  teclas é uma delas.
+  """
+  @spec loadout_of(World.t()) :: Loadout.t()
+  def loadout_of(world) do
     %Loadout{
       name: world.own.name,
       aoe: keys_of_kind(world, :aoe),

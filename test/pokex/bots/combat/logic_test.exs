@@ -284,6 +284,32 @@ defmodule Pokex.Bots.Combat.LogicTest do
     assert Logic.next_wake(error, 500) == nil
   end
 
+  # "SEGUIDAS" É O QUE A PRÓPRIA MENSAGEM DE ERRO PROMETE, e o contador nunca
+  # voltava a zero: nem no sucesso, nem com o tempo. Cinco erros de IO
+  # espalhados por uma noite inteira — um a cada duas horas — travavam o combate
+  # em `:error` para sempre, com a tela dizendo "5x seguidas".
+  test "cinco falhas espalhadas pela noite não são cinco seguidas" do
+    hora = 60 * 60 * 1_000
+
+    logic =
+      Enum.reduce(1..5, hunting(0), fn n, logic ->
+        {logic, _} = Logic.io_failed(logic, :boom, n * hora)
+        logic
+      end)
+
+    refute logic.state == :error
+  end
+
+  test "mas cinco de verdade seguidas travam, que é para o que a regra existe" do
+    logic =
+      Enum.reduce(1..5, hunting(0), fn n, logic ->
+        {logic, _} = Logic.io_failed(logic, :boom, n * 100)
+        logic
+      end)
+
+    assert logic.state == :error
+  end
+
   test "next_wake: free hunting polls at 1ms floor even with skill_burst_every_ms: 0" do
     free = hunting(0, skill_burst_every_ms: 0)
     assert Logic.next_wake(free, 500) == 1

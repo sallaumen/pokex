@@ -66,6 +66,9 @@ defmodule Pokex.Bots.Combat.Logic do
             hp_seen: nil,
             hp_changed_at: nil,
             failures: 0,
+            # quando foi a última — uma falha longe da anterior começa uma
+            # sequência nova (ver `fail/3`)
+            last_failure_at: nil,
             error: nil,
             # What the HUNT asked of combat: `:free_fight` (always, historically
             # and by default) or `:hold_fire` while it walks a mob stretch
@@ -115,6 +118,7 @@ defmodule Pokex.Bots.Combat.Logic do
          hp_changed_at: nil,
          stance: nil,
          failures: 0,
+         last_failure_at: nil,
          error: nil
      }, []}
   end
@@ -710,18 +714,36 @@ defmodule Pokex.Bots.Combat.Logic do
 
   defp ready_in_priority(_skill_keys, _unknown), do: nil
 
+  # SEGUIDAS, como a própria mensagem promete. O contador nunca voltava a zero —
+  # nem no sucesso, nem com o tempo — então cinco erros de IO espalhados por uma
+  # noite inteira, um a cada duas horas, travavam o combate em `:error` para
+  # sempre, com a tela dizendo "5x seguidas". Uma falha longe da anterior começa
+  # sequência nova: é o que a palavra quer dizer, e é o que separa "a mão parou
+  # de funcionar" (a emergência) de "a noite teve soluços" (que não é). Perto =
+  # dentro de uma janela, porque o tempo é a única prova que este módulo tem —
+  # o sucesso de uma rajada não volta para cá.
+  @failure_streak_window_ms 60_000
+
   defp fail(%__MODULE__{} = logic, now, reason) do
-    failures = logic.failures + 1
+    failures = if streak?(logic, now), do: logic.failures + 1, else: 1
     logic = update_in(logic.counters.failures, &(&1 + 1))
     reason = to_string(reason)
 
     if failures >= logic.config.max_consecutive_failures do
-      {%{logic | state: :error, failures: failures, error: "#{reason} (#{failures}x seguidas)"},
-       [{:log, reason}]}
+      {%{
+         logic
+         | state: :error,
+           failures: failures,
+           last_failure_at: now,
+           error: "#{reason} (#{failures}x seguidas)"
+       }, [{:log, reason}]}
     else
-      {%{rehunt(logic, now) | failures: failures}, [{:log, reason}]}
+      {%{rehunt(logic, now) | failures: failures, last_failure_at: now}, [{:log, reason}]}
     end
   end
+
+  defp streak?(%{last_failure_at: nil}, _now), do: false
+  defp streak?(%{last_failure_at: at}, now), do: now - at <= @failure_streak_window_ms
 
   defp enemies(nil), do: []
   defp enemies(obs), do: obs[:enemies] || []

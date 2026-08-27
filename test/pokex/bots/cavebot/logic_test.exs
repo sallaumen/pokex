@@ -1716,4 +1716,61 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :fight_stalled
     end
   end
+
+  # ESPERAR COOLDOWN NÃO É TRAVAR. Com quatro Magnetons e a barra gasta a tela
+  # fica idêntica por dezenas de segundos, e o `fight_timeout_ms` dele são 15s —
+  # um terço de UM ciclo da barra. Toda luta difícil virava `:fight_stalled` e,
+  # esgotadas as tentativas, `:blocked`: "ele para em vez de tentar se
+  # recuperar" (27/08).
+  describe "a luta que espera cooldown" do
+    defp lutando(timeout) do
+      config = %{@cfg | fight_timeout_ms: timeout}
+
+      %{
+        Logic.new(route(), config)
+        | state: :fighting,
+          combat_running?: true,
+          last_enemies: 4,
+          since: %{fight: 0, fight_from: 0}
+      }
+    end
+
+    defp lutando_parado(overrides \\ %{}) do
+      Map.merge(
+        %{
+          pos: {100, 100, 7},
+          enemies: 4,
+          combat_state: :fighting,
+          engine?: true,
+          route_hold?: true
+        },
+        overrides
+      )
+    end
+
+    test "com a barra gasta, a tela idêntica NÃO vira empate" do
+      logic = lutando(1_000)
+
+      {logic, _} = Logic.step(logic, lutando_parado(%{bar_spent?: true}), 5_000)
+
+      assert logic.state == :fighting
+    end
+
+    test "sem a barra gasta, ela vira — a regra de sempre" do
+      logic = lutando(1_000)
+
+      {logic, _} = Logic.step(logic, lutando_parado(%{bar_spent?: false}), 5_000)
+
+      assert logic.state == :fight_stalled
+    end
+
+    # …e o teto duro: uma tecla morta não pode virar espera eterna.
+    test "passado o teto duro, nem a barra gasta segura" do
+      logic = lutando(1_000)
+
+      {logic, _} = Logic.step(logic, lutando_parado(%{bar_spent?: true}), 60_000)
+
+      assert logic.state == :fight_stalled
+    end
+  end
 end

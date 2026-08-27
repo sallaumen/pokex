@@ -304,12 +304,31 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.revive == :hold
     end
 
-    test "resumes the route once the bar is back" do
+    test "resumes the route once the bar is back — com a tela limpa" do
       {logic, _} = step(world(%{situation: situation(%{own_hp: 18})}), 1_000)
-      {logic, orders} = step(logic, world(%{situation: situation(%{own_hp: 95})}), 2_000)
+
+      {logic, orders} =
+        step(logic, world(%{situation: situation(%{own_hp: 95, enemies: 0})}), 2_000)
 
       assert logic.state == :travelling
       assert orders.route == :go
+    end
+
+    # …E COM BICHO NA TELA, A LUTA CONTINUA. "Quando ele acaba de usar o combo e
+    # não mata, ele anda um pouco antes de reusar o combo depois que ele revive
+    # — não faz sentido: a gente está no meio de uma luta agressiva" (27/08). O
+    # revive foi gasto pra o combo chegar CEDO; recomeçar a régua (juntar,
+    # andar, esperar) é o combo chegando tarde.
+    test "mas com bicho na frente ela volta pro fogo, sem recomeçar a régua" do
+      {logic, _} = step(world(%{situation: situation(%{own_hp: 18})}), 1_000)
+
+      {logic, orders} =
+        step(logic, world(%{situation: situation(%{own_hp: 95, enemies: 4})}), 2_000)
+
+      assert logic.state == :engaged
+      assert orders.fire == :free
+      assert orders.route == :hold
+      assert orders.why =~ "a luta continua"
     end
 
     # Um revive que não sai não pode encerrar a noite parado — e a espera dura o

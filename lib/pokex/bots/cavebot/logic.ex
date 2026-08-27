@@ -69,6 +69,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # ring search gets its turn
             stair_taps: 0
 
+  # Quantas vezes o `fight_timeout_ms` uma luta pode durar esperando cooldown
+  # antes de ser chamada de empate assim mesmo. Com os 15s dele, isso dá 90s —
+  # dois ciclos inteiros da barra, e o suficiente pra qualquer bolo que ele
+  # ainda pretenda matar.
+  @stall_slack 6
+
   @type state ::
           :walking | :fighting | :post_fight | :stuck | :fight_stalled | :stairs | :blocked
 
@@ -102,6 +108,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           # default rather than assuming the key is there.
           optional(:engine?) => boolean,
           optional(:route_hold?) => boolean,
+          optional(:bar_spent?) => boolean,
           optional(:reset_worth?) => boolean | :unknown,
           optional(:reset_note) => String.t() | nil
         }
@@ -565,7 +572,15 @@ defmodule Pokex.Bots.Cavebot.Logic do
     do: %{logic | since: Map.put(logic.since, :walk_progress, now)}
 
   defp enter_fight(logic, now) do
-    since = logic.since |> Map.delete(:clear) |> Map.put(:fight, now)
+    since =
+      logic.since
+      |> Map.delete(:clear)
+      |> Map.put(:fight, now)
+      # O RELÓGIO QUE NÃO REINICIA. `:fight` volta a zero a cada sinal de
+      # progresso; este marca quando a luta COMEÇOU, e é o teto duro que impede
+      # que "esperando cooldown" vire espera eterna.
+      |> Map.put_new(:fight_from, now)
+
     {%{logic | state: :fighting, since: since}, :none}
   end
 
@@ -1053,10 +1068,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
   end
 
   defp stand_and_fight(logic, %{enemies: 0} = world, now) do
-    if engaged?(world), do: fight_on(logic, 0, now), else: fight_clear(logic, now)
+    if engaged?(world), do: fight_on(logic, 0, world, now), else: fight_clear(logic, now)
   end
 
-  defp stand_and_fight(logic, %{enemies: enemies}, now), do: fight_on(logic, enemies, now)
+  defp stand_and_fight(logic, %{enemies: enemies} = world, now),
+    do: fight_on(logic, enemies, world, now)
 
   defp fight_clear(logic, now) do
     logic = %{logic | last_enemies: 0}
@@ -1087,26 +1103,50 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # everything else was working. A changing enemy count IS progress (one died,
   # or one arrived), so it restarts the clock; only a screen that stays
   # identical for the whole timeout is a stall.
-  defp fight_on(logic, enemies, now) do
+  defp fight_on(logic, enemies, world, now) do
     since = Map.delete(logic.since, :clear)
     progress? = logic.last_enemies != nil and logic.last_enemies != enemies
     logic = %{logic | last_enemies: enemies}
 
     case Map.get(since, :fight) do
       fight_since when fight_since != nil and not progress? ->
-        stall_or_wait(logic, since, fight_since, now)
+        stall_or_wait(logic, since, fight_since, world, now)
 
       _fresh_or_progressing ->
         {%{logic | since: Map.put(since, :fight, now)}, :none}
     end
   end
 
-  defp stall_or_wait(logic, since, fight_since, now) do
-    if now - fight_since >= logic.config.fight_timeout_ms do
-      {%{logic | state: :fight_stalled, since: since, retries: 0}, :none}
-    else
-      {%{logic | since: since}, :none}
+  # ESPERAR COOLDOWN NÃO É TRAVAR. Com quatro Magnetons e a barra gasta, a tela
+  # fica idêntica por dezenas de segundos porque o bot está esperando as skills
+  # voltarem — e o `fight_timeout_ms` dele são 15s, um terço de UM ciclo da
+  # barra (40-50s). Toda luta difícil virava `:fight_stalled` e, esgotadas as
+  # tentativas, `:blocked`: "ele para em vez de tentar se recuperar" (27/08).
+  #
+  # Então a barra gasta segura o relógio do empate — mas só até o teto duro
+  # contado do início da luta, senão uma tecla morta viraria espera eterna.
+  defp stall_or_wait(logic, since, fight_since, world, now) do
+    cond do
+      now - fight_since < logic.config.fight_timeout_ms ->
+        {%{logic | since: since}, :none}
+
+      esperando_cooldown?(logic, since, world, now) ->
+        {%{logic | since: Map.put(since, :fight, now)}, :none}
+
+      true ->
+        {%{logic | state: :fight_stalled, since: since, retries: 0}, :none}
     end
+  end
+
+  # O cérebro diz que a barra está gasta, e a luta ainda cabe no teto duro.
+  defp esperando_cooldown?(logic, since, world, now) do
+    dentro_do_teto? =
+      case Map.get(since, :fight_from) do
+        nil -> true
+        from -> now - from < logic.config.fight_timeout_ms * @stall_slack
+      end
+
+    Map.get(world, :bar_spent?, false) and dentro_do_teto?
   end
 
   # Arrow walking does NOT pathfind: the client routed around obstacles when

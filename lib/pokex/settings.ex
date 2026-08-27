@@ -540,9 +540,23 @@ defmodule Pokex.Settings do
     #
     # Sessenta segundos economizava 51 revives por hora e pagava por eles com
     # quarenta e cinco quedas — e uma queda custa o campo vazio, que é quando as
-    # mordidas passam a ser DELE. Quinze é onde a economia ainda existe sem que a
-    # noite se pague em mortes; dois (o dele) é o único ponto com zero.
-    rescue_cooldown_ms: 15_000,
+    # mordidas passam a ser DELE.
+    #
+    # TRÊS SEGUNDOS, escolha dele (26/08): "parece um bom tempo pra usarmos todas
+    # skills e usar o ress de acordo ainda". Medido com a bancada já destravada
+    # (24 sementes × 180s, vida 300, três áreas fortes):
+    #
+    #     piso  lotavanon  quedas  vida mín
+    #      15s       46,0     3,0        1%
+    #       4s       85,3       0       27%
+    #       3s       85,2       0       25%
+    #       2s       99,2       0       25%
+    #
+    # Quase o DOBRO dos mortos e zero quedas. Três e quatro dão o mesmo número —
+    # a escolha entre eles é livre, e é dele. Dois mede mais alto ainda e fica
+    # registrado, mas o raciocínio dele é sobre caber a barra inteira entre dois
+    # revives, e isso é uma leitura do jogo que a bancada não tem.
+    rescue_cooldown_ms: 3_000,
     # ms between the stun prefix and the revive so the game registers each.
     rescue_step_ms: 40,
     # How long to wait for a skill-bar reading NEWER than the crowd-control
@@ -567,8 +581,9 @@ defmodule Pokex.Settings do
     pokemon_hp_fainted_below_pct: 35,
     # Cinto de segurança depois de reviver um caído. A regra que de verdade
     # impede o loop é outra: exigir ver o pokémon VIVO de novo antes de gastar
-    # o próximo revive.
-    fainted_revive_cooldown_ms: 15_000,
+    # o próximo revive. Acompanha o piso de cima — um caído nunca deve esperar
+    # MAIS que um em pé.
+    fainted_revive_cooldown_ms: 3_000,
     # Stun BEFORE reviving (2026-07-30): hunting strong mobs, the pokémon's own
     # area-control keys are reserved for this moment and become the PREFIX of
     # the same atomic sequence, so the pile is asleep while the field is empty.
@@ -1139,7 +1154,11 @@ defmodule Pokex.Settings do
     #   piso 30s       8,87 mortos/min · 1,85 revives/min · ele com 52%
     #   piso 60s       8,68 mortos/min · 1,43 revives/min · ele com 64%
     #   piso 120s      8,45 mortos/min · 0,98 revives/min · ele com 76%
-    engine_reset_revive_cooldown_ms: 15_000,
+    # O MESMO PISO, e é aqui que ele estava descompassado: o `settings.json` dele
+    # já tinha o resgate em 2s desde agosto, e o reset de cooldown seguia na
+    # semente de 15 — a mão andava rápido e o cérebro só pedia de quinze em
+    # quinze. Os dois pisos falam do mesmo botão e agora dizem o mesmo número.
+    engine_reset_revive_cooldown_ms: 3_000,
     # …and the health it refuses to spend a revive at. The floor between two
     # presses is `rescue_cooldown_ms` — a MINUTE — so a proactive press made on a
     # half-empty bar is the rescue this fight needs in forty seconds, spent

@@ -132,7 +132,7 @@ defmodule PokexWeb.WorldLive do
   defp enemies_text(%{enemies: [], shiny?: true}), do: "✨ SHINY"
 
   defp enemies_text(%{enemies: enemies, shiny?: shiny?}) do
-    names = Enum.map_join(enemies, ", ", &(&1[:name] || "?"))
+    names = Enum.map_join(enemies, ", ", &Pokex.Bots.Engine.Narration.row_label/1)
     if shiny?, do: "✨ " <> names, else: names
   end
 

@@ -94,7 +94,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       settle(worker)
       assert_receive {:engine_log, :macro, text}
       assert text =~ "3 inimigos na tela"
-      assert text =~ "Venonat, Paras, Venomoth"
+      assert text =~ "Venonat 100%, Paras 100%, Venomoth 100%"
       # the own-row measurement rides the same first tick — see its own test
       assert_receive {:engine_log, :macro, _measurement}
       assert_shadow()
@@ -164,7 +164,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       settle(worker)
 
       assert_receive {:engine_log, :macro, text}
-      assert text =~ "sem nomes"
+      assert text == "quadro: 3 inimigos na tela"
       assert_shadow()
       refute_receive {:engine_log, :macro, _}, 20
     end

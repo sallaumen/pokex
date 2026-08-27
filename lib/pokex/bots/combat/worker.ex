@@ -213,8 +213,17 @@ defmodule Pokex.Bots.Combat.Worker do
     )
 
     state = %{state | suspects: SkillSuspect.missed(state.suspects, keys)} |> accuse()
+    state = dispatch(%{state | retry_ok?: false}, Enum.map(keys, &{:press, &1}))
 
-    {:noreply, dispatch(%{state | retry_ok?: false}, Enum.map(keys, &{:press, &1}))}
+    # …e AGORA a tela cala sobre elas. A retentativa fica: uma tecla comida pelo
+    # foco da janela sai na segunda. O que não pode continuar é a rotação
+    # oferecer, cinco segundos depois, a mesma tecla que o jogo acabou de
+    # ignorar — foi o que ele viu em 27/08, com o jogo escrevendo o cooldown em
+    # cima dela.
+    Enum.each(keys, &SkillClock.denied/1)
+    mute_log(keys, cooldowns(state.loadout))
+
+    {:noreply, state}
   end
 
   def handle_info({:skills_missed, _keys}, state), do: {:noreply, state}
@@ -661,6 +670,23 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   catch
     kind, reason -> Logger.debug("combat receipt crashed: #{inspect({kind, reason})}")
+  end
+
+  defp mute_log([], _cooldowns), do: :ok
+
+  defp mute_log(keys, cooldowns) do
+    held =
+      Enum.map_join(keys, ", ", fn key ->
+        "#{key} (#{div(SkillClock.deaf_ms(key, cooldowns), 1_000)}s)"
+      end)
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:combat_log, :macro,
+       "combate: 🔇 a barra diz que #{held} está pronta e o jogo não reage — " <>
+         "segurando ela até o relógio devolver. Recalibre a barra com TUDO pronto."}
+    )
   end
 
   # Said ONCE per key: a slot whose reference is inverted misses forever, and a

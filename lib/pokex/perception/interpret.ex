@@ -12,7 +12,15 @@ defmodule Pokex.Perception.Interpret do
 
   @doc """
   The battle panel: candidate enemy rows (HP bar, no own-pokemon pokeball), per-row
-  lock-ring red counts, and whether/where the lock ring is up.
+  lock-ring red counts, whether/where the lock ring is up — and, per occupied row,
+  how much health is left in it.
+
+  `enemies_detail` used to be empty without a located layout, and that silence
+  cost a hunt: on 2026-08-27 the area killed all six Magnetons, his own Steelix
+  was the one row left, the brain counted it as an enemy and the bot stood
+  there firing at it for nineteen seconds. Everything needed to know better was
+  on screen — the row's own health track, reading the same 69% the Pokebar was
+  reading from the other side of the HUD.
   """
   def battle(frame, calib, settings) do
     measured = calib && calib.layout && Pokex.Layout.battle_rows()
@@ -51,7 +59,11 @@ defmodule Pokex.Perception.Interpret do
     # target your pokemon) confirms real targets.
     body = Frame.crop(frame, {0, 0, frame.width - strip_px, frame.height})
 
-    creatures = body |> Vision.hp_bar_row_positions() |> rows_of(top, band, rows)
+    # The BARS come off the whole frame, never the body: the pokeball strip is
+    # cropped by a constant measured on the old client, and on his panel that
+    # constant eats the right end of the health track — a full bar read 87%.
+    placed = frame |> Vision.hp_bars() |> rows_of(top, band, rows)
+    creatures = Enum.map(placed, &elem(&1, 0))
     red = Vision.red_row_counts(body, top: top, band: band, rows: rows)
 
     locked_row =
@@ -74,7 +86,7 @@ defmodule Pokex.Perception.Interpret do
         min_x: star_zone(measured)
       )
 
-    detail = enemies_detail(body, measured, creatures, Enum.map(stars, &elem(&1, 0)))
+    detail = enemies_detail(body, measured, placed, Enum.map(stars, &elem(&1, 0)))
 
     %{
       enemies: Enum.sort(creatures),
@@ -116,26 +128,49 @@ defmodule Pokex.Perception.Interpret do
   defp star_zone(%{name: {[nx, _ny], _size}}), do: max(nx - 20, 0)
   defp star_zone(_no_layout), do: 0
 
-  # Only rows that actually hold a creature are described — an empty row has no
-  # name to read and no bar to measure.
-  defp enemies_detail(_body, nil, _creatures, _shiny_rows), do: []
-
-  defp enemies_detail(body, measured, creatures, shiny_rows) do
-    %{name: {[nx, ny], [nw, nh]}, bar: {[bx, by], [bw, bh]}, pitch: pitch} = measured
+  # Every occupied row is described, WITH OR WITHOUT a located layout. It used
+  # to answer `[]` without one, and that silence is what the panel was really
+  # costing him: the health of each creature was on screen, his own pokemon's
+  # row could not be told apart from an enemy's, and "I killed them all" was
+  # unanswerable. Measured on his hunt of 2026-08-27 — one row left, his own
+  # Steelix at 69%, counted as an enemy, and the bot stood there firing at it
+  # for nineteen seconds.
+  #
+  # The NAME still needs the located layout and stays nil without one. The
+  # HEALTH does not: the bar measures its own box.
+  defp enemies_detail(body, measured, placed, shiny_rows) do
     lexicon = Pokex.Pokedex.names()
 
-    for row <- Enum.sort(creatures) do
+    for {row, bar} <- Enum.sort_by(placed, &elem(&1, 0)) do
       %{
         row: row,
-        name: Glyphs.read_name(body, {nx, ny + row * pitch, nw, nh}, lexicon),
-        hp_pct: bar_fill(body, {bx, by + row * pitch, bw, bh}),
+        name: name_at(body, measured, row, lexicon),
+        hp_pct: hp_pct(body, measured, row, bar),
         shiny?: row in shiny_rows
       }
     end
   end
 
-  # The green fill runs left to right inside a fixed track; where it stops is
-  # the health. No green at all means the row has no bar to read.
+  defp name_at(_body, nil, _row, _lexicon), do: nil
+
+  defp name_at(body, %{name: {[nx, ny], [nw, nh]}, pitch: pitch}, row, lexicon),
+    do: Glyphs.read_name(body, {nx, ny + row * pitch, nw, nh}, lexicon)
+
+  # A DECLARED box wins over a measured one, the same way the hand wins over the
+  # auto-layout everywhere else here: the profile's box was measured on real
+  # captures and it includes the spent part of the track, which is drawn in a
+  # neutral grey on the old client and cannot be told from the panel behind it
+  # by colour alone. Where no box is declared, the bar answers for itself — the
+  # spent track of the new client IS separable (a slate blue), and a self-
+  # measured bar is the difference between knowing a creature's health and
+  # knowing only that it has a bar.
+  defp hp_pct(body, %{bar: {[bx, by], [bw, bh]}, pitch: pitch}, row, _bar),
+    do: bar_fill(body, {bx, by + row * pitch, bw, bh})
+
+  defp hp_pct(_body, _no_box, _row, bar), do: Float.round(bar.pct, 3)
+
+  # The fill runs left to right inside a fixed track; where it stops is the
+  # health. No fill at all means the row has no bar to read.
   defp bar_fill(%Frame{} = frame, {x, y, w, h}) do
     greens =
       for cy <- y..(y + h - 1)//1,
@@ -152,10 +187,10 @@ defmodule Pokex.Perception.Interpret do
 
   defp green?({r, g, b}), do: g >= 90 and g > r + 30 and g > b + 30
 
-  # Bucket frame-Ys into distinct 0-based battle rows (same math as the lock sensor).
-  defp rows_of(ys, top, band, rows) do
-    ys
-    |> Enum.map(fn y -> max(0, min(div(y - top, band), rows - 1)) end)
-    |> Enum.uniq()
+  # Bucket bars into distinct 0-based battle rows (same math as the lock sensor).
+  defp rows_of(bars, top, band, rows) do
+    bars
+    |> Enum.map(&{max(0, min(div(&1.y - top, band), rows - 1)), &1})
+    |> Enum.uniq_by(&elem(&1, 0))
   end
 end

@@ -63,7 +63,13 @@ defmodule Pokex.Perception.BattleEnemiesTest do
       )
 
     assert length(obs.enemies) < 3
-    assert obs.enemies_detail == []
+
+    # What it does see it now DESCRIBES, layout or no layout: the row's own bar
+    # measures its own health. Without that, the panel answered `[]` here, and
+    # the brain could not tell his own pokémon's row from an enemy's — which is
+    # what left the bot firing at an empty screen on 2026-08-27.
+    assert Enum.all?(obs.enemies_detail, &(&1.hp_pct > 0.9))
+    assert Enum.map(obs.enemies_detail, & &1.name) == [nil, nil]
 
     derived = battle("ultrawide_3440x1440_outro_mapa")
     assert length(derived.enemies) == 6

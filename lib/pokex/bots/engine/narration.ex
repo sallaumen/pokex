@@ -57,8 +57,28 @@ defmodule Pokex.Bots.Engine.Narration do
   defp plural(1), do: "inimigo na tela"
   defp plural(_n), do: "inimigos na tela"
 
-  defp named_as(%{named: []}), do: " (sem nomes — layout não localizado)"
-  defp named_as(%{named: named}), do: " — " <> Enum.map_join(named, ", ", &(&1.name || "?"))
+  defp named_as(%{named: []}), do: ""
+  defp named_as(%{named: named}), do: " — " <> Enum.map_join(named, ", ", &row_label/1)
+
+  @doc """
+  How one row of the battle list reads out loud: its name when the glyphs can
+  spell it, its health when they cannot, and both when both are known.
+
+  The health half is the answer to "o que a gente está esperando?" (27/08): the
+  panel has been showing how hurt every creature is all along, and the feed was
+  saying "sem nomes — layout não localizado" over it.
+  """
+  @spec row_label(map) :: String.t()
+  def row_label(row) do
+    case {Map.get(row, :name), Map.get(row, :hp_pct)} do
+      {name, pct} when is_binary(name) and is_number(pct) -> "#{name} #{pct_text(pct)}"
+      {name, _no_bar} when is_binary(name) -> name
+      {_no_name, pct} when is_number(pct) -> pct_text(pct)
+      _nothing_known -> "?"
+    end
+  end
+
+  defp pct_text(pct), do: "#{round(pct * 100)}%"
 
   # THE MEASUREMENT. Said once, when it becomes knowable, and again only if it
   # ever changes its mind: whether his own pokémon takes a row in the list is
@@ -76,6 +96,14 @@ defmodule Pokex.Bots.Engine.Narration do
     do: [
       "#{who} está na lista mas o nome saiu ilegível — descontei a primeira " <>
         "linha sem nome. Ensine os glifos dele na calibração pra voltar a descontar pelo nome."
+    ]
+
+  # Found by HEALTH, not by name: the Pokebar and the row's own track are two
+  # readings of the same number, and when they agree the row is his.
+  defp own_row(_previous, %{picture: %{own_row_seen?: :by_hp, own_hp: hp}}, who),
+    do: [
+      "#{who} está na lista sem nome legível — descontei a linha que está com " <>
+        "#{hp}% de vida, a mesma da Pokebar"
     ]
 
   defp own_row(_previous, %{picture: %{own_row_seen?: true}}, who),

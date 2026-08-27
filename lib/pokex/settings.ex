@@ -344,7 +344,13 @@ defmodule Pokex.Settings do
     # the wrong number straddles two rows, which costs BOTH the row a creature
     # is bucketed into and the red the lock sensor is looking for.
     battle_first_row_y: 31,
-    battle_max_rows: 6,
+    # How many rows the reader is willing to bucket creatures into. It is a
+    # CEILING, and a ceiling under the panel's own height is a silent undercount:
+    # a bar below it is clamped into the last row and then deduped away. His
+    # region is 318px tall with a pitch of 30, so ten rows fit — and with his own
+    # pokémon taking one of them, the old 6 meant the biggest pile he could ever
+    # count was five, under a gathering rule that asks for six.
+    battle_max_rows: 10,
     # Min bright-red (r>=200,g<=60,b<=60) px on a scanline of the rightmost strip for it to count
     # as the OWN-pokemon pokeball (so that row is EXCLUDED from attack candidates). MEASURED on
     # Lucas's real Mareep (2026-07-09): the icon is a small ~7-px red blob per scanline, so the

@@ -93,6 +93,45 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
+  Carimba que a TELA MENTIU sobre `key`: o bot apertou, e a barra continuou
+  dizendo que a tecla está pronta.
+
+  É o recibo (`Pokex.Bots.SkillReceipt`) falando — `missed` só sai quando a
+  tecla estava pronta ANTES e continua pronta DEPOIS. O jogo não reagiu, e a
+  única explicação que sobra é a barra: a leitura de prontidão compara um pixel
+  de referência com o que a calibração guardou, e uma referência tirada com a
+  skill carregando casa justamente com o estado carregando.
+
+  MEDIDO na captura dele de 2026-08-27, 19:07: o jogo escrevia `12`, `32` e `32`
+  em cima das teclas 3, 4 e 5, e a leitura respondia "3 e 5 prontas". A rotação
+  gastou dezenove segundos apertando as duas.
+
+  A partir daqui a tela deixa de responder por essa tecla até o relógio dizer
+  que ela voltou. É estreito de propósito: vale só para a tecla que o jogo
+  provou ignorar, e passa sozinho.
+  """
+  @spec denied(String.t(), integer) :: :ok
+  def denied(key, at \\ now()) when is_binary(key) do
+    ensure_table()
+    :ets.insert(@table, {{:denied, key}, at})
+    :ok
+  end
+
+  @doc """
+  Quanto falta, em ms, até a TELA voltar a responder por `key`. Zero quando
+  ninguém pegou a barra mentindo sobre ela.
+  """
+  @spec deaf_ms(String.t(), %{optional(String.t()) => pos_integer}, integer) :: non_neg_integer
+  def deaf_ms(key, cooldowns, now \\ now()) do
+    ensure_table()
+
+    case :ets.lookup(@table, {:denied, key}) do
+      [{_key, at}] -> max(at + Map.get(cooldowns, key, @assumed_ms) - now, 0)
+      [] -> 0
+    end
+  end
+
+  @doc """
   Esquece tudo — o que o revive faz no jogo, e o que um personagem novo pede.
   """
   @spec reset() :: :ok
@@ -152,7 +191,12 @@ defmodule Pokex.Bots.SkillClock do
   * sem teclas conhecidas e sem tela → `nil`, o desconhecido de sempre, pra
     quem lê continuar falhando OPEN como sempre fez.
 
-  ## Por que o ASSUMIDO não derruba o que a tela viu
+  ## Por que o ASSUMIDO não derruba o que a tela viu — a não ser que ela minta
+
+  Um palpite não desmente uma observação. Mas `missed` não é palpite: é o jogo
+  respondendo que não reagiu, e uma tecla pronta que não sai não existe. Aí o
+  assumido vale, para essa tecla só, até ela voltar — ver `denied/2`.
+
 
   Um cooldown escrito é medição dele e pode contradizer uma foto velha. Um
   cooldown assumido é palpite: se a skill volta em 8s e a gente chuta 45, vetar
@@ -164,15 +208,18 @@ defmodule Pokex.Bots.SkillClock do
           [String.t()] | nil
   def ready(screen, keys, cooldowns, now \\ now())
 
-  def ready(screen, _keys, cooldowns, _now) when is_list(screen) and map_size(cooldowns) == 0,
-    do: screen
-
   def ready(screen, _keys, cooldowns, now) when is_list(screen),
-    do: Enum.reject(screen, &(cooling_ms(&1, cooldowns, now) > 0))
+    do: Enum.reject(screen, &muted?(&1, cooldowns, now))
 
   def ready(nil, [], _cooldowns, _now), do: nil
 
   def ready(nil, keys, cooldowns, now), do: ready_by_clock(keys, cooldowns, now)
+
+  # Duas razões pra não oferecer o que a tela ofereceu: um cooldown ESCRITO que
+  # a foto ainda não mostrou, e uma tecla que o jogo já provou não estar
+  # aceitando (`denied/2`).
+  defp muted?(key, cooldowns, now),
+    do: cooling_ms(key, cooldowns, now) > 0 or deaf_ms(key, cooldowns, now) > 0
 
   defp now, do: System.monotonic_time(:millisecond)
 end

@@ -111,4 +111,43 @@ defmodule Pokex.Bots.SkillClockTest do
 
     assert SkillClock.cooling_ms("4", @cds, 1_000) == 0
   end
+
+  describe "quando a tela mente" do
+    # MEDIDO na captura dele de 27/08 19:07: o jogo escrevia 12, 32 e 32 em cima
+    # das teclas 3, 4 e 5, e a leitura de prontidão respondia "3 e 5 prontas".
+    test "a tecla que o jogo ignorou sai da lista mesmo com a tela oferecendo" do
+      SkillClock.pressed("5", 0)
+      SkillClock.denied("5", 1_300)
+
+      assert SkillClock.ready(["3", "5"], [], @cds, 2_000) == ["3"]
+    end
+
+    test "ela volta quando o cooldown ESCRITO dela termina" do
+      SkillClock.denied("5", 0)
+
+      assert SkillClock.deaf_ms("5", @cds, 7_999) == 1
+      assert SkillClock.ready(["5"], [], @cds, 7_999) == []
+      assert SkillClock.ready(["5"], [], @cds, 8_000) == ["5"]
+    end
+
+    test "sem cooldown escrito, o assumido é quem devolve a tecla" do
+      SkillClock.denied("9", 0)
+
+      assert SkillClock.ready(["9"], [], %{}, 44_999) == []
+      assert SkillClock.ready(["9"], [], %{}, 45_000) == ["9"]
+    end
+
+    test "a mentira é por tecla — nenhuma outra é calada junto" do
+      SkillClock.denied("5", 0)
+
+      assert SkillClock.ready(["3", "4", "5", "9"], [], %{}, 1_000) == ["3", "4", "9"]
+    end
+
+    test "o revive devolve tudo, inclusive a confiança na tela" do
+      SkillClock.denied("5", 0)
+      SkillClock.reset()
+
+      assert SkillClock.ready(["5"], [], %{}, 1_000) == ["5"]
+    end
+  end
 end

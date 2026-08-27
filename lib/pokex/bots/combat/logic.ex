@@ -169,57 +169,20 @@ defmodule Pokex.Bots.Combat.Logic do
   defp do_step(%__MODULE__{state: :hunting, posture: :hold_fire} = logic, _obs, _now),
     do: wear(logic, :defense)
 
+  # DUAS MÁQUINAS, e a config escolhe qual: com Tab a luta começa travando um
+  # alvo; sem Tab, começa por haver bicho na tela.
+  #
+  # "Na prática, na hunt, a gente nem precisa apertar o tab (…) eles vão
+  # perseguir a gente, e apertar o tab pra ele atacar um inimigo é pior, porque
+  # atrapalha a organização dos bichos — meu pokémon pode se mexer demais"
+  # (27/08). Com as teclas de alvo único fora da rotação, o alvo travado não
+  # move mais nada do dano: só move o pokémon.
   defp do_step(%{state: :hunting} = logic, obs, now) do
     logic = refresh_scenery(logic, obs, now)
 
-    cond do
-      logic.hold_until != nil and now < logic.hold_until ->
-        {logic, []}
-
-      # SEM TAB: a luta começa por ter bicho na tela, não por travar um alvo.
-      #
-      # "Na prática, na hunt, a gente nem precisa apertar o tab (…) eles vão
-      # perseguir a gente, e apertar o tab pra ele atacar um inimigo é pior,
-      # porque atrapalha a organização dos bichos — meu pokémon pode se mexer
-      # demais" (27/08). Com as teclas de alvo único fora da rotação, o alvo
-      # travado não move mais nada do dano: só move o pokémon.
-      length(enemies(obs)) > (logic.scenery_rows || 0) and not tab?(logic) ->
-        logic = %{
-          logic
-          | hold_until: nil,
-            hunt_enemies: length(enemies(obs)),
-            state: :fighting,
-            entered_at: now,
-            lost_streak: 0,
-            locked_row: nil,
-            last_burst_at: nil,
-            failed_hunts: 0,
-            hp_seen: nil,
-            hp_changed_at: now
-        }
-
-        press_next_skill(logic, now, obs)
-
-      # Only targets BEYOND the presumed scenery justify a Tab — presumed ones
-      # are de facto allies (like the own position). With no active presumption
-      # any target counts, as always.
-      length(enemies(obs)) > (logic.scenery_rows || 0) ->
-        {tab(%{logic | hold_until: nil, hunt_enemies: length(enemies(obs))}, now),
-         [{:tab}, {:log, "alvo na lista; Tab"}]}
-
-      # Probe window (opened by a kill/timeout rehunt or a fish hook): press Tab even with NO
-      # detected enemy. The HP-bar row detector going momentarily blind right after a kill left
-      # 2-3 fished enemies standing unattacked — the worst possible idle. Tab is free: on an
-      # empty list the game selects nothing, and the lock RING (the most reliable read we have)
-      # is what confirms a real target in :tabbing. The window bounds the extra presses; probes
-      # are naturally throttled by the tab-confirm/hunt-hold cycle itself.
-      logic.probe_until != nil and now < logic.probe_until ->
-        {tab(%{logic | hold_until: nil, hunt_enemies: 0}, now),
-         [{:tab}, {:log, "sonda pós-kill; Tab às cegas"}]}
-
-      true ->
-        {%{logic | hold_until: nil, probe_until: nil, locked_row: nil}, []}
-    end
+    if tab?(logic),
+      do: hunting_with_tab(logic, obs, now),
+      else: hunting_by_screen(logic, obs, now)
   end
 
   defp do_step(%{state: :tabbing} = logic, obs, now) do
@@ -276,24 +239,28 @@ defmodule Pokex.Bots.Combat.Logic do
     end
   end
 
+  # SEM TAB a luta é sobre a TELA, não sobre um alvo: enquanto houver bicho na
+  # lista há o que estourar, e a lista vazia é o fim da rodada. O
+  # empate-contra-a-parede (`stalemate?`) não tem como ser lido aqui — ele olha
+  # a barra da linha travada, e não há linha travada —, então quem limita uma
+  # luta que não anda é o `fight_timeout_ms`.
   defp do_step(%{state: :fighting} = logic, obs, now) do
     cond do
       now - logic.entered_at > logic.config.fight_timeout_ms ->
         {rehunt(logic, now), [{:log, "timeout do alvo; recaçando"}]}
 
-      # SEM TAB a luta é sobre a TELA, não sobre um alvo: enquanto houver bicho
-      # na lista há o que estourar, e a lista vazia é o fim da rodada. O
-      # empate-contra-a-parede (`stalemate?`) não tem como ser lido aqui — ele
-      # olha a barra da linha travada, e não há linha travada —, então quem
-      # limita uma luta que não anda é o `fight_timeout_ms` acima.
-      not tab?(logic) and observed?(obs) ->
-        if enemies(obs) == [] do
-          logic = update_in(logic.counters.fights, &(&1 + 1))
-          killed(rehunt(logic, now), now)
-        else
-          logic |> disprove_scenery(obs) |> press_next_skill(now, obs)
-        end
+      not tab?(logic) ->
+        if observed?(obs), do: fight_by_screen(logic, obs, now), else: {logic, []}
 
+      true ->
+        fighting_with_lock(logic, obs, now)
+    end
+  end
+
+  # A luta que TRAVA ALVO: a barra da linha travada é o que diz se ela anda, e o
+  # alvo perdido é o que a encerra.
+  defp fighting_with_lock(logic, obs, now) do
+    cond do
       locked?(obs) ->
         logic =
           %{disprove_scenery(logic, obs) | lost_streak: 0, locked_row: obs.locked_row}
@@ -313,6 +280,46 @@ defmodule Pokex.Bots.Combat.Logic do
       true ->
         # timer wake without a fresh frame: only the timeout above may act.
         {logic, []}
+    end
+  end
+
+  defp hunting_by_screen(logic, obs, now) do
+    cond do
+      logic.hold_until != nil and now < logic.hold_until ->
+        {logic, []}
+
+      length(enemies(obs)) > (logic.scenery_rows || 0) ->
+        logic |> enter_fight_without_lock(obs, now) |> press_next_skill(now, obs)
+
+      true ->
+        {%{logic | hold_until: nil, probe_until: nil, locked_row: nil}, []}
+    end
+  end
+
+  defp hunting_with_tab(logic, obs, now) do
+    cond do
+      logic.hold_until != nil and now < logic.hold_until ->
+        {logic, []}
+
+      # Only targets BEYOND the presumed scenery justify a Tab — presumed ones
+      # are de facto allies (like the own position). With no active presumption
+      # any target counts, as always.
+      length(enemies(obs)) > (logic.scenery_rows || 0) ->
+        {tab(%{logic | hold_until: nil, hunt_enemies: length(enemies(obs))}, now),
+         [{:tab}, {:log, "alvo na lista; Tab"}]}
+
+      # Probe window (opened by a kill/timeout rehunt or a fish hook): press Tab even with NO
+      # detected enemy. The HP-bar row detector going momentarily blind right after a kill left
+      # 2-3 fished enemies standing unattacked — the worst possible idle. Tab is free: on an
+      # empty list the game selects nothing, and the lock RING (the most reliable read we have)
+      # is what confirms a real target in :tabbing. The window bounds the extra presses; probes
+      # are naturally throttled by the tab-confirm/hunt-hold cycle itself.
+      logic.probe_until != nil and now < logic.probe_until ->
+        {tab(%{logic | hold_until: nil, hunt_enemies: 0}, now),
+         [{:tab}, {:log, "sonda pós-kill; Tab às cegas"}]}
+
+      true ->
+        {%{logic | hold_until: nil, probe_until: nil, locked_row: nil}, []}
     end
   end
 
@@ -801,6 +808,35 @@ defmodule Pokex.Bots.Combat.Logic do
 
   defp enemies(nil), do: []
   defp enemies(obs), do: obs[:enemies] || []
+
+  # A luta que começa sem travar nada: os mesmos campos que o `:tabbing` zera ao
+  # confirmar um lock, menos o lock.
+  defp enter_fight_without_lock(logic, obs, now) do
+    %{
+      logic
+      | hold_until: nil,
+        hunt_enemies: length(enemies(obs)),
+        state: :fighting,
+        entered_at: now,
+        lost_streak: 0,
+        locked_row: nil,
+        last_burst_at: nil,
+        failed_hunts: 0,
+        hp_seen: nil,
+        hp_changed_at: now
+    }
+  end
+
+  # …e a rodada que acaba pela tela: lista vazia é o fim, e qualquer bicho é
+  # motivo pra seguir estourando.
+  defp fight_by_screen(logic, obs, now) do
+    if enemies(obs) == [] do
+      logic = update_in(logic.counters.fights, &(&1 + 1))
+      killed(rehunt(logic, now), now)
+    else
+      logic |> disprove_scenery(obs) |> press_next_skill(now, obs)
+    end
+  end
 
   # Se a caçada aperta Tab. Desligado por medição dele em campo: o alvo travado
   # não muda o dano (só a área machuca) e move o pokémon pra cima do alvo,

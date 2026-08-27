@@ -62,6 +62,7 @@ defmodule Pokex.Sim.Fence do
   def start_link(opts \\ []) do
     state = %{
       status: Keyword.get(opts, :status, &BotSupervisor.status/0),
+      watched: Keyword.get(opts, :watched, &Pokex.Perception.watched_keys/0),
       stop_all: Keyword.get(opts, :stop_all, &BotSupervisor.stop_all/1)
     }
 
@@ -164,11 +165,24 @@ defmodule Pokex.Sim.Fence do
     InputGate.set_focus_ok(true)
   end
 
+  # Quem ainda mexe na tela: os workers da frota E as abas que estão OLHANDO.
+  #
+  # A segunda metade não era contada, e desligar `perception_feeds_active` não
+  # cobre: a flag só torna inertes os attaches NOVOS, e o laço do Feed nunca a
+  # consulta. Uma aba /panel aberta noutra janela segue fotografando a tela real
+  # contra as MESMAS chaves que o `Sim.Runner` publica — os dois com
+  # `:ets.insert` cru, último a escrever vence. O motor está rodando durante a
+  # simulação e lê essas chaves, então a régua sai errada e calada, que é o
+  # único produto do /sim. Recusar nomeando é melhor que medir errado.
   defp running(state) do
-    state.status.()
-    |> Enum.filter(fn {_name, snapshot} -> BotSupervisor.active?(snapshot) end)
-    |> Enum.map(&elem(&1, 0))
-    |> Enum.sort()
+    workers =
+      state.status.()
+      |> Enum.filter(fn {_name, snapshot} -> BotSupervisor.active?(snapshot) end)
+      |> Enum.map(&elem(&1, 0))
+
+    watching = Enum.map(state.watched.(), &"aba olhando #{inspect(&1)}")
+
+    Enum.sort(workers ++ watching)
   end
 
   # The fleet stops FIRST and the hands come back after: a worker still deciding

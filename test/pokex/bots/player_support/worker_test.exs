@@ -56,6 +56,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Worker
+  alias Pokex.Bots.PlayerSupport.WorkerTest.BlockingBody
   alias Pokex.Bots.PlayerSupport.WorkerTest.FakeBody
   alias Pokex.Calibration
   alias Pokex.Perception.WorldState
@@ -1322,6 +1323,34 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
            ]
 
     assert %{text: "fuga (escada)", at: _} = Worker.status(worker).last_action
+  end
+
+  # A FUGA NÃO PODE SEGURAR QUEM MANDOU FUGIR. `emergency_escape/1` faz
+  # latch → fuga → PARAR A FROTA, e a fuga é um `handle_call` que ficava parado
+  # dentro do `Body.perform` (que espera `:infinity`) pelo `escape_walk_wait_ms`
+  # inteiro. Com o valor DELE (5000ms) a sequência passa dos 5s do timeout
+  # padrão de um `GenServer.call`: quem mandou fugir morre de timeout e o
+  # `stop_all` NUNCA roda — a frota segue caçando ao lado do shiny que disparou
+  # a fuga.
+  @tag :tmp_dir
+  test "a fuga responde na hora, mesmo com o corpo andando por segundos", %{tmp: _tmp} do
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | escape_point: {620, 240}})
+
+    blocking =
+      start_supervised!(%{id: :flee_blocking, start: {BlockingBody, :start_link, [self()]}})
+
+    worker = start_worker(blocking)
+
+    task = Task.async(fn -> Worker.flee_to_escape(worker) end)
+
+    # o corpo está PARADO dentro do perform, como um walk wait de 5s
+    assert_receive {:performing, :critical, _actions}, 1_000
+
+    assert Task.yield(task, 300) == {:ok, :ok},
+           "a fuga segurou quem mandou fugir enquanto o corpo andava"
+
+    send(blocking, :release)
   end
 
   @tag :tmp_dir

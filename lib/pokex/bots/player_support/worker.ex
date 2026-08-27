@@ -103,7 +103,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   `escape_direction` × `escape_steps` to enter the stairs.
   :ok | {:error, :not_calibrated | :input_gated | term}.
   """
-  def flee_to_escape(server \\ __MODULE__), do: GenServer.call(server, :flee_to_escape)
+  def flee_to_escape(server \\ __MODULE__, timeout \\ 5_000),
+    do: GenServer.call(server, :flee_to_escape, timeout)
 
   @impl true
   def init(state) do
@@ -148,24 +149,46 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   def handle_call(:flee_to_escape, _from, state) do
     with {:ok, %Calibration{escape_point: point}} when is_tuple(point) <- Calibration.load(),
          :ok <- Focus.ensure_front() do
-      case Body.perform(flee_actions(point), :critical, state.body) do
-        :ok ->
-          broadcast_log(
-            :macro,
-            "🏃 fuga: andou até o tile calibrado e entrou na escada " <>
-              "(#{Settings.get(:escape_steps)}× #{direction_label(escape_direction())})"
-          )
+      # THE WALK GOES OFF THE LOOP, AND THIS ANSWERS AT ONCE.
+      # `BotSupervisor.emergency_escape/1` is latch → flee → STOP THE FLEET, and
+      # this used to sit inside `Body.perform` (which waits `:infinity`) for the
+      # whole `escape_walk_wait_ms`. At his 5000 the sequence outlives the 5s
+      # DEFAULT timeout of the caller's own `GenServer.call`: whoever ordered the
+      # escape died of a timeout and `stop_all` NEVER RAN — the fleet kept
+      # hunting beside the shiny that triggered the flee, with only the latch
+      # (which forbids auto-resume, not actuation) standing.
+      #
+      # A safety path never waits on the fleeing party. `:ok` therefore means
+      # "the escape LEFT", not "the character arrived"; the arrival is what the
+      # log below announces, with its real outcome.
+      #
+      # UNLINKED on purpose: the halt that follows must not kill the walk.
+      spawn(flee_walk(point, state.body))
 
-          state = %{state | last_action: %{text: "fuga (escada)", at: now()}}
-          broadcast(state)
-          {:reply, :ok, state}
-
-        {:error, reason} ->
-          {:reply, {:error, reason}, state}
-      end
+      state = %{state | last_action: %{text: "fuga (escada)", at: now()}}
+      broadcast(state)
+      {:reply, :ok, state}
     else
       {:error, :panic_corner} -> {:reply, {:error, :panic_corner}, state}
       _no_point_or_no_calib -> {:reply, {:error, :not_calibrated}, state}
+    end
+  end
+
+  defp flee_walk(point, body) do
+    actions = flee_actions(point)
+    steps = "#{Settings.get(:escape_steps)}× #{direction_label(escape_direction())}"
+
+    fn ->
+      case Body.perform(actions, :critical, body) do
+        :ok ->
+          broadcast_log(
+            :macro,
+            "🏃 fuga: andou até o tile calibrado e entrou na escada (#{steps})"
+          )
+
+        {:error, reason} ->
+          broadcast_log(:macro, "🏃 fuga NÃO completou: #{inspect(reason)}")
+      end
     end
   end
 

@@ -105,6 +105,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
       body: Keyword.get(opts, :body, Pokex.Bots.Body),
       combat: Keyword.get(opts, :combat, Combat.Worker),
       catcher: Keyword.get(opts, :catcher, Catcher.Worker),
+      # A ceiling on starting combat, because that call runs the whole
+      # `Preflight` inline and the preflight queues behind the capture broker.
+      # Without one the tick took the default 5s and EXITED — see
+      # `safe_combat_run/1`.
+      combat_run_timeout_ms: Keyword.get(opts, :combat_run_timeout_ms, 5_000),
       active?: Keyword.get(opts, :active, Application.get_env(:pokex, :cavebot_active, true)),
       logic: nil,
       timer: nil,
@@ -670,9 +675,22 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # believe combat is up. Better to block via the same brake, immediately, with
   # a clear reason, than degrade via fight_stalled seconds later.
   def translate(state, :run_combat) do
-    case Combat.Worker.run(state.combat) do
+    case safe_combat_run(state) do
       :ok ->
         log(:debug, "combate ligado")
+        state
+
+      # NOT a block, and deliberately not the dangerous one. The preflight runs
+      # inline inside that call and queues behind the capture broker, so "it did
+      # not answer in time" means the machine is congested — not that the world
+      # stopped matching the route. Blocking here would latch the panic and stop
+      # the whole fleet over a slow screenshot; dying (which is what the default
+      # 5s timeout did, from inside the tick) restarted this worker as `:idle`
+      # with no alarm and no reason, while the stale `:posture` fact read as
+      # free fight and combat spent the night fighting off-route. So: say it out
+      # loud and let the next tick ask again.
+      :timeout ->
+        log(:macro, "⏳ o combate está demorando pra arrancar — tento de novo")
         state
 
       {:error, messages} ->
@@ -713,6 +731,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # consertado junto (`{:combat_preflight_failed, mensagens}`). O que decide a
   # gravidade é o nome, não a forma — e antes disto a forma nova teria caído
   # calada no bloqueio local, sem trava e sem parar a frota.
+  defp safe_combat_run(state) do
+    Combat.Worker.run(state.combat, state.combat_run_timeout_ms)
+  catch
+    :exit, _reason -> :timeout
+  end
+
   defp dangerous?({name, _detail}), do: name in @dangerous_blocks
   defp dangerous?(name), do: name in @dangerous_blocks
 

@@ -59,7 +59,15 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   end
 
-  def run(server \\ __MODULE__), do: GenServer.call(server, :run)
+  @doc """
+  Starts the fight. EXPLICIT timeout, because this one is not cheap: the
+  `handle_call` runs `Preflight.run/1` inline, and that reaches
+  `Capture.display_points/1` — a `GenServer.call(..., :infinity)` on the broker
+  that serializes every capture in the app (2-4s each when they contend). The
+  hunt calls this from inside its own tick, so the default 5s was a silent exit
+  waiting to happen.
+  """
+  def run(server \\ __MODULE__, timeout \\ 5_000), do: GenServer.call(server, :run, timeout)
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 

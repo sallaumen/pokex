@@ -105,6 +105,15 @@ config :pokex, :cavebot_active, false
 # The engine touches no hands, but its tick WRITES the shared :situation fact into
 # the one table every test reads — an app-global one ticking in the background would
 # plant facts under other tests. Engine tests opt in with `active: true`.
+#
+# AND THE COMBINATION IS COVERED SEPARATELY, because this flag once hid a real
+# latch: `engine_active` is TRUE in production, so every clear screen answers
+# `route: :go`, and the hunt never left `:fighting`. No test could see it —
+# every cavebot test ran with the engine silent. The pure machine is where the
+# two meet without either flag, so the pairing is proven in
+# `test/pokex/bots/cavebot/engine_orders_test.exs` ("com o cérebro ligado"),
+# feeding `engine?: true` straight into `Cavebot.Logic.step/3`. A flag that
+# turns a subsystem off in the suite owes a test that pairs it back up.
 config :pokex, :engine_active, false
 # The app-wide Guardian must NOT act on session rules (stop conditions / anti-stagnation)
 # during tests: a test planting a global :session fact + limits would wake its REAL

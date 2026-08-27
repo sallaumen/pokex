@@ -192,10 +192,33 @@ defmodule Pokex.Bots.Engine.SituationTest do
   describe "cooldowns" do
     # The revive is worth most when the cooldowns are already gone (R3), so the
     # picture has to be able to say that they are.
-    test "most damage keys cooling means spent" do
+    #
+    # ACABOU É ACABOU (27/08). Era "metade ou menos", cravado: com sete teclas
+    # de dano o revive saía com TRÊS na mão. "Ele usa muito ressurect à toa (…)
+    # a gente tem que usar todas as skills, para depois usar um ressurect,
+    # porque ele tem um certo custo que não é de graça."
+    test "uma tecla de dano ainda pronta NÃO é barra gasta" do
       picture =
         inputs(%{ready_keys: ~w(9)})
         |> Situation.build(@config, 1_000)
+
+      assert picture.spent? == false
+    end
+
+    test "com a barra inteira em cooldown, aí sim" do
+      picture =
+        inputs(%{ready_keys: []})
+        |> Situation.build(@config, 1_000)
+
+      assert picture.spent? == true
+    end
+
+    # O knob existe porque a folga de UMA tecla pode se pagar quando a que
+    # sobrou é a mais fraca da barra — e isso se mede.
+    test "a folga é ajustável, e é o que decide" do
+      picture =
+        inputs(%{ready_keys: ~w(9)})
+        |> Situation.build(Map.put(@config, :spent_keys_left, 1), 1_000)
 
       assert picture.spent? == true
     end

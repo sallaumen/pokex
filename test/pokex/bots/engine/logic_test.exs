@@ -737,17 +737,38 @@ defmodule Pokex.Bots.Engine.LogicTest do
       refute orders.phase == :downed
     end
 
-    test "sete pedidos sem resposta bastam: depois disso ele insiste devagar" do
+    test "poucos pedidos bastam: depois disso ele insiste devagar" do
       {logic, _} = step(caido(), 0)
 
-      {_logic, asks} =
-        Enum.reduce(1..700, {logic, []}, fn tick, {logic, asks} ->
+      {_logic, quando} =
+        Enum.reduce(1..700, {logic, []}, fn tick, {logic, quando} ->
           {logic, orders} = step(logic, caido(), tick * 100)
-          {logic, if(orders.revive == :now, do: [orders | asks], else: asks)}
+          {logic, if(orders.revive == :now, do: [{tick * 100, orders} | quando], else: quando)}
         end)
 
-      assert length(asks) <= 6, "70s de chão não podem virar uma tecla presa"
-      assert hd(asks).why =~ "não está saindo"
+      # A PROPRIEDADE, não um número: o que impede a tecla presa é a cadência
+      # CAIR, e ela cai por `recover_timeout_ms`. O teste afirmava `<= 6`, que
+      # era o piso do caído (15s) disfarçado de regra — com o piso em 3s o mesmo
+      # comportamento correto dá 10 pedidos, e o número quebrou sem nada ter
+      # piorado. Setecentos tiques com resposta seriam a tecla presa; dez não são.
+      horas = quando |> Enum.map(&elem(&1, 0)) |> Enum.sort()
+
+      intervalos = Enum.zip(tl(horas), horas) |> Enum.map(fn {b, a} -> b - a end)
+
+      # A PROPRIEDADE, não um número: o que impede a tecla presa é a cadência
+      # CAIR. Com o piso em 3s (26/08) ele pede a cada 3s por meio minuto e
+      # depois espalha — medido: 3s, 6s… 27s, e o próximo só aos 57s.
+      #
+      # O teste afirmava `<= 6`, que era o piso do caído (15s) disfarçado de
+      # regra: o número quebrou sem nada ter piorado. Setecentos tiques com
+      # resposta seriam a tecla presa; dez não são.
+      assert length(horas) < 20, "70s de chão não podem virar uma tecla presa"
+
+      assert List.last(intervalos) >= 5 * Enum.min(intervalos),
+             "a insistência tem que DESACELERAR, não seguir na mesma cadência"
+
+      # `quando` é acumulado por prepend: a cabeça é o pedido MAIS RECENTE.
+      assert quando |> hd() |> elem(1) |> Map.get(:why) =~ "não está saindo"
     end
 
     test "o corpo de volta retoma a caçada" do
@@ -800,7 +821,12 @@ defmodule Pokex.Bots.Engine.LogicTest do
       logic = ordena_e_espera(20)
       {logic, _} = step(logic, ferido(20), 1_000 + @config.revive_confirm_ms)
 
-      {_logic, orders} = step(logic, ferido(45), 10_000)
+      # DENTRO do piso, e escrito em função dele: com o piso em 10s este teste
+      # perguntava aos 10_000ms e pegava a banda ainda segurando por sorte da
+      # aritmética. Com o piso em 3s (26/08) os 10s já passaram, e o que ele
+      # afirma — "até o piso passar" — pede um instante que esteja dentro dele.
+      dentro = 1_000 + @config.revive_confirm_ms + div(@config.rescue_cooldown_ms, 2)
+      {_logic, orders} = step(logic, ferido(45), dentro)
 
       assert orders.phase == :unaided
       assert orders.route == :go, "parar não levanta barra de vida nenhuma"

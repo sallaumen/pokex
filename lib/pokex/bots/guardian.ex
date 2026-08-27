@@ -60,12 +60,14 @@ defmodule Pokex.Bots.Guardian do
   `Rig.Mac.gated/1` reads it per primitive), so what the sequence can still do
   after the panic is nothing; what it costs is the WAIT.
 
-  Two things stretch that wait, and both are named here rather than papered
-  over: `{:wait, ms}` is one `Process.sleep` and is not chunked, so the flee's
-  `escape_walk_wait_ms` (5s by default) is the real ceiling; and since the body
+  A `{:wait, ms}` inside a sequence is sliced and ABANDONED once the gate shuts
+  (`Body`'s `@wait_slice_ms`), so the flee's `escape_walk_wait_ms` — 5s at his
+  setting, and once the real ceiling — no longer outlives the halt it is
+  supposed to obey. What is left is the actions themselves, and since the body
   runs one sequence per ACTUATOR lane, the bound is the longer of the two in
-  flight, not the single one it used to be. Shortening it needs an abort flag
-  read between actions plus a chunked wait — neither exists yet.
+  flight rather than the single one it used to be. Shortening it further would
+  need an abort flag read between actions; that does not exist, and with the
+  wait sliced there is no known sequence long enough to want one.
   """
   use GenServer
   require Logger

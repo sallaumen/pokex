@@ -160,6 +160,7 @@ end
 defmodule Pokex.Bots.BodyTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.Body
+  alias Pokex.Bots.InputGate
   alias Pokex.Bots.BodyTest.GameOpeningRig
   alias Pokex.Bots.BodyTest.RaisingRig
   alias Pokex.Bots.BodyTest.SlowMouseRig
@@ -425,6 +426,35 @@ defmodule Pokex.Bots.BodyTest do
 
     calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == [{:click, :middle, {7, 7}}, {:move, {500, 500}}]
+  end
+
+  # O PÂNICO NÃO PODE ESPERAR O SONO. Uma espera existe para dar ao jogo o tempo
+  # de responder a um input que acabou de acontecer; com o portão fechado NADA
+  # aconteceu — toda primitiva está sendo engolida — e a espera vira atraso puro
+  # segurando uma pista. O `escape_walk_wait_ms` da fuga (5s, um `Process.sleep`
+  # inteiro) era o teto real da janela do pânico por causa disso.
+  test "uma espera longa é abandonada quando o portão fecha", %{body: body} do
+    # O portão é uma tabela ETS GLOBAL: reabrir só no `on_exit` deixa uma janela
+    # entre a saída do processo de teste e o callback, e o arquivo seguinte
+    # herda um portão fechado.
+    on_exit(fn -> InputGate.set_corner_ok(true) end)
+
+    task = Task.async(fn -> Body.perform([{:wait, 3_000}], :normal, body) end)
+    Process.sleep(50)
+    InputGate.set_corner_ok(false)
+
+    yielded = Task.yield(task, 900)
+    InputGate.set_corner_ok(true)
+
+    assert yielded == {:ok, :ok}, "a sequência dormiu os 3s inteiros com o portão fechado"
+  end
+
+  # E o portão ABERTO não encurta nada: uma espera é atômica dentro da
+  # sequência por design (a vara arma e só então clica na água).
+  test "com o portão aberto a espera é paga inteira", %{body: body} do
+    {us, :ok} = :timer.tc(fn -> Body.perform([{:wait, 250}], :normal, body) end)
+
+    assert div(us, 1000) >= 250
   end
 
   defp with_slow_mouse(id, name) do

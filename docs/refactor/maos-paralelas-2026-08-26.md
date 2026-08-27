@@ -169,9 +169,11 @@ pistas (sai pelo ajudante nativo das teclas E move o ponteiro), `tap`/
 fila, e o `flee_to_escape` continua travando o GenServer do PlayerSupport (o
 bloqueio ACIMA do Body, que duas pistas não resolvem — segue em aberto).
 
-**Fica em aberto o `Body.abort/0` e o `{:wait, ms}` fatiado.** A janela do
-pânico agora é o MÁXIMO das duas pistas, e o texto do `guardian.ex` foi
-corrigido para dizer isso — inclusive que a fuga de 5s é o teto real.
+O `{:wait, ms}` passou a ser **fatiado e abandonado quando o portão fecha** — a
+espera existe para dar ao jogo tempo de responder a um input, e com o portão
+fechado nenhum input aconteceu. A fuga de 5s deixou de ser o teto da janela do
+pânico. O `Body.abort/0` entre ações **não** foi construído: sem a espera longa
+não sobrou nenhuma sequência que justifique.
 
 ---
 

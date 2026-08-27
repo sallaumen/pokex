@@ -508,7 +508,21 @@ defmodule Pokex.Bots.Body do
   # (e.g. between arming the rod and clicking the water) without releasing the Body
   # to a competing worker in between. Runs in the executor task, so the cursor read
   # (panic path) is never blocked.
-  defp execute({:wait, ms}) when is_integer(ms) and ms > 0, do: Process.sleep(ms)
+  #
+  # SLICED, and abandoned when the gate shuts. A wait exists to give the game
+  # time to answer an input that just happened; with the `InputGate` closed
+  # NOTHING happened — every primitive is being swallowed — so the rest of the
+  # wait is pure delay holding a lane. That delay was the real ceiling on the
+  # panic window: the flee's `escape_walk_wait_ms` (5s at his setting, one
+  # `Process.sleep`) outlived by seconds the halt it was supposed to obey.
+  # Sliced, the ceiling is @wait_slice_ms.
+  #
+  # The rest of the sequence still runs — its primitives are gated no-ops — so
+  # the global contract holds: a suppressed sequence answers `:ok`, never an
+  # I/O error.
+  @wait_slice_ms 100
+
+  defp execute({:wait, ms}) when is_integer(ms) and ms > 0, do: sliced_wait(ms)
   defp execute({:wait, _ms}), do: :ok
   defp execute({:log, _}), do: :ok
   # Alarms ride the action list like logs: the worker plays them, not the Body.
@@ -518,6 +532,16 @@ defmodule Pokex.Bots.Body do
   # blocks on the mini-game worker's mailbox (which is busy capturing). Checked before
   # AND after each input so a sequence already running when the game opens stops
   # between inputs instead of finishing.
+  defp sliced_wait(ms) when ms <= @wait_slice_ms do
+    Process.sleep(ms)
+    :ok
+  end
+
+  defp sliced_wait(ms) do
+    Process.sleep(@wait_slice_ms)
+    if InputGate.allowed?(), do: sliced_wait(ms - @wait_slice_ms), else: :ok
+  end
+
   defp mini_game_gate(action) do
     if guarded_input?(action), do: Perception.mini_game_gate(), else: :ok
   end

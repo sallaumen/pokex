@@ -72,64 +72,62 @@ defmodule Pokex.Rig.Mac.CommandsTest do
               ["-e", ~s(tell application "System Events" to key code 49 using {shift down})]}
   end
 
-  test "press_many batches top-row skill keys into one System Events script" do
-    assert Commands.press_many(["1", "2", "shift+space"], tap_count: 1, gap_ms: 25) ==
-             {"osascript",
-              [
-                "-e",
-                Enum.join(
-                  [
-                    ~s(tell application "System Events"),
-                    "  key code 18",
-                    "  delay 0.025",
-                    "  key code 19",
-                    "  delay 0.025",
-                    "  key code 49 using {shift down}",
-                    "end tell"
-                  ],
-                  "\n"
-                )
-              ]}
+  # O intervalo entre teclas NUNCA viaja dentro de um script do barramento: o
+  # `delay` do osascript roda dentro do `System.cmd` do `OsaBus.handle_call`, e
+  # uma rajada de três teclas com o intervalo dele parava a fila global de
+  # teclas por mais de um segundo — resgate, poção e setas de fallback atrás
+  # dela. A rajada vira PASSOS, e quem paga a pausa é o chamador, entre
+  # comandos curtos.
+  test "burst devolve uma tecla por comando e a pausa como passo próprio" do
+    assert Commands.burst(["1", "2", "shift+space"], tap_count: 1, gap_ms: 25) ==
+             [
+               {:press, "1"},
+               {:pause, 25},
+               {:press, "2"},
+               {:pause, 25},
+               {:press, "shift+space"}
+             ]
   end
 
-  test "press_many can repeat each skill tap inside the same script" do
-    assert Commands.press_many(["1", "2"], tap_count: 2, gap_ms: 0) ==
-             {"osascript",
-              [
-                "-e",
-                Enum.join(
-                  [
-                    ~s(tell application "System Events"),
-                    "  key code 18",
-                    "  delay 0",
-                    "  key code 18",
-                    "  delay 0",
-                    "  key code 19",
-                    "  delay 0",
-                    "  key code 19",
-                    "end tell"
-                  ],
-                  "\n"
-                )
-              ]}
+  test "burst repete cada tecla tap_count vezes, com pausa entre todas" do
+    assert Commands.burst(["1", "2"], tap_count: 2, gap_ms: 10) ==
+             [
+               {:press, "1"},
+               {:pause, 10},
+               {:press, "1"},
+               {:pause, 10},
+               {:press, "2"},
+               {:pause, 10},
+               {:press, "2"}
+             ]
   end
 
-  test "press_many can add random jitter to the delay between skills" do
-    assert Commands.press_many(["1", "2"], tap_count: 1, gap_ms: 35, jitter_ms: 20) ==
-             {"osascript",
-              [
-                "-e",
-                Enum.join(
-                  [
-                    ~s(tell application "System Events"),
-                    "  key code 18",
-                    "  delay (0.035 + (random number from 0 to 0.020))",
-                    "  key code 19",
-                    "end tell"
-                  ],
-                  "\n"
-                )
-              ]}
+  test "burst sorteia o jitter por pausa, dentro da faixa" do
+    pauses =
+      for {:pause, ms} <- Commands.burst(["1", "2", "3"], tap_count: 1, gap_ms: 35, jitter_ms: 20),
+          do: ms
+
+    assert length(pauses) == 2
+    assert Enum.all?(pauses, &(&1 >= 35 and &1 <= 55))
+  end
+
+  # O único `delay` que pode existir num script é o do guarda de foco (50ms
+  # depois de re-frontar o jogo). O da CADÊNCIA não: um comando de rajada
+  # carrega no máximo uma tecla, então não há entre-teclas para esperar dentro
+  # do barramento.
+  test "um comando de rajada carrega no máximo uma tecla" do
+    steps = Commands.burst(["shift+1", "4", "5"], tap_count: 2, gap_ms: 300, jitter_ms: 40)
+
+    for {:press, combo} <- steps do
+      {"osascript", ["-e", script]} = Commands.press(combo, focus_app: "Jogo")
+
+      key_lines =
+        script
+        |> String.split("\n")
+        |> Enum.count(&(String.contains?(&1, "key code") or String.contains?(&1, "keystroke")))
+
+      assert key_lines == 1, script
+    end
   end
 
   test "tab is a key EVENT (code 48), never the typed letters t-a-b" do
@@ -166,13 +164,16 @@ defmodule Pokex.Rig.Mac.CommandsTest do
              )
   end
 
-  test "focus_app guards a press_many burst too, before the first key" do
-    {"osascript", ["-e", script]} =
-      Commands.press_many(["1", "2"], tap_count: 1, gap_ms: 0, focus_app: "wine")
+  # Com a rajada em passos, cada tecla é um comando — logo cada uma carrega o
+  # guarda, e não só a primeira da leva.
+  test "focus_app guards every key of a burst, before the key event" do
+    for {:press, combo} <- Commands.burst(["1", "2"], tap_count: 1, gap_ms: 0) do
+      {"osascript", ["-e", script]} = Commands.press(combo, focus_app: "wine")
 
-    assert script =~ ~s(set frontmost of application process "wine" to true)
-    # the guard comes BEFORE any key event
-    assert :binary.match(script, "frontmost") < :binary.match(script, "key code 18")
+      assert script =~ ~s(set frontmost of application process "wine" to true)
+      # the guard comes BEFORE the key event
+      assert :binary.match(script, "frontmost") < :binary.match(script, "key code")
+    end
   end
 
   test "left and right click" do

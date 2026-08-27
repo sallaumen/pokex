@@ -57,6 +57,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       hp_pct: nil,
       prev_hp_pct: nil,
       last_rescue_at: nil,
+      # A ÚLTIMA VEZ QUE O CÉREBRO PEDIU UM REVIVE E A CHAVE DELE ESTAVA
+      # DESLIGADA. Sem isto o pedido morre em silêncio: em 27/08 a engine pediu
+      # 556 vezes num dia e nenhuma tecla saiu, porque `rescue_enabled` nasce
+      # desligado e ninguém tinha por onde ver isso.
+      last_switch_warn_at: nil,
       # true from the moment a combo is dispatched until {:rescue_done, _, _}
       # reports back — see act/2's re-entry guard.
       rescuing?: false,
@@ -455,7 +460,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       if not state.rescuing? and revive_decision(state) == :rescue do
         fire_rescue(%{state | gate: nil})
       else
-        %{state | gate: nil} |> maybe_heal_skill() |> maybe_potion(calib)
+        %{state | gate: nil} |> warn_switch_off() |> maybe_heal_skill() |> maybe_potion(calib)
       end
     else
       # Everything this worker exists for is blocked here, and until now the ONLY
@@ -464,6 +469,36 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       %{state | gate: closed_gate()}
     end
   end
+
+  # O PEDIDO QUE MORRE NA CHAVE. `rescue_enabled` é a mão dele no interruptor e
+  # continua vencendo o cérebro — mas um cérebro pedindo revive contra uma chave
+  # desligada é a coisa mais cara que este bot faz em silêncio: em 27/08 a
+  # engine pediu 556 vezes num dia inteiro e nenhuma tecla saiu.
+  #
+  # Um aviso a cada cinco minutos, e só quando o pedido é de AGORA: barulho de
+  # tique a tique seria a mesma invisibilidade com outro nome.
+  @switch_warn_every_ms 300_000
+  defp warn_switch_off(state) do
+    if engine_revive() == :now and not Settings.get(:rescue_enabled) and
+         switch_warn_due?(state) do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:rule_alarm, :hp,
+         "o cérebro pediu revive e a chave está DESLIGADA — ligue “revive automático” " <>
+           "no /config, senão nenhuma regra de revive sai do papel"}
+      )
+
+      %{state | last_switch_warn_at: now()}
+    else
+      state
+    end
+  end
+
+  defp switch_warn_due?(%{last_switch_warn_at: nil}), do: true
+
+  defp switch_warn_due?(%{last_switch_warn_at: at}),
+    do: now() - at >= @switch_warn_every_ms
 
   # The pokémon FELL. Nothing is on the field, which means the character is the
   # one taking the hits — so this is the shortest path in the whole module:

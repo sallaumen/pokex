@@ -512,24 +512,32 @@ defmodule Pokex.Sim.BenchTest do
       }
     end
 
-    # O QUE SOBROU DA REGRA depois que a janela do revive passou a exigir a barra
-    # gasta (27/08). Antes disso a bancada media 0,73 tiros/morto cortando
-    # contra 0,77 sem cortar, e o ganho era explicado por "cada tiro pega mais
-    # gente". Na economia nova a explicação não se sustenta mais — as duas
-    # regras se atrapalham, e é bom que isso esteja escrito:
+    # A REGRA VIROU AO CONTRÁRIO no mesmo dia, e o registro fica porque a
+    # reviravolta é o achado.
     #
-    #   cortando   796 mortos · 0,697 tiros/morto · 10,07 alcançados por tiro · 106 revives
-    #   sem cortar 688 mortos · 0,686 tiros/morto · 10,34 alcançados por tiro ·  87 revives
+    # Ela prometia três coisas: menos tiros por morto, mais gente por tiro, e
+    # mais mortos. Medida em 27/08 de manhã, com a janela do revive ainda sem
+    # exigir barra gasta, as três valiam. À tarde, com a janela exigindo a barra
+    # gasta (#400) e o piso de vida fora do caminho (o revive CURA), sobrou
+    # isto — 8 sementes × 60s, lotavanon, monstro de 300:
     #
-    # Ou seja: cortar segue matando MAIS (+15,7%), mas não por gastar menos tiro
-    # por morto — segurar uma tecla é segurar a barra longe de "gasta", que é a
-    # condição do reset. Quem quiser as duas regras juntas tem que resolver essa
-    # briga primeiro.
-    test "cortando a cauda ele mata MAIS" do
+    #   cortando   844 mortos · 0,685 tiros/morto · 123 revives
+    #   sem cortar 889 mortos · 0,790 tiros/morto · 139 revives
+    #
+    # Cortar segue sendo mais BARATO por morto (0,685 contra 0,790) e passou a
+    # matar MENOS (-5%). O motivo é a briga que a economia nova criou: segurar
+    # uma tecla pronta é segurar a barra longe de "gastou tudo", que é a
+    # condição do revive de reset — e o reset vale mais que a tecla poupada.
+    #
+    # `spend_the_minimum` é semeado FALSE e só a bancada o lê (#385), então isto
+    # não muda caçada nenhuma hoje. Muda quem for ligar: ligar a regra sem
+    # resolver essa briga primeiro custa mortos.
+    test "cortando a cauda ele gasta menos tiro por morto — e hoje mata MENOS" do
       com = cortando(true)
       sem = cortando(false)
 
-      assert com.killed > sem.killed
+      assert com.casts / com.killed < sem.casts / sem.killed
+      assert com.killed < sem.killed
     end
   end
 

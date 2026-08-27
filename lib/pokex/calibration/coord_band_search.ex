@@ -99,12 +99,20 @@ defmodule Pokex.Calibration.CoordBandSearch do
   @gap 12
 
   @type band :: {integer, integer, integer, integer}
-  @type found :: {:ok, band, {integer, integer, integer}, integer}
+  @type found :: {:ok, band, {integer, integer, integer}, integer, String.t(), [map]}
   @type unread :: {:unread, band, integer, String.t(), [map]}
 
   @doc """
-  `{:ok, band, {x, y, z}, ink}` — the band (points) and the ink floor that
-  already read the position on `frame`.
+  `{:ok, band, {x, y, z}, ink, text, glyphs}` — the band (points), the ink floor
+  that read the position on `frame`, the line exactly as it came out, and its
+  characters left to right.
+
+  The text and the glyphs ride along on the READ path too, and not only on
+  `:unread`, because a line that reads is not a line that is right: a digit the
+  atlas was never taught comes back as the nearest one it does have, and comes
+  back WITH margin (his `8` read as `6`, 2026-08-27). Only he knows the number,
+  and to teach the whole line from it the caller needs the glyphs THIS reading
+  cut — at the spacing THIS render drew.
 
   `{:unread, band, ink, text, glyphs}` when a band carries the coordinate's
   SHAPE but not every glyph resolved: the band is proven, `text` is the partial
@@ -155,8 +163,8 @@ defmodule Pokex.Calibration.CoordBandSearch do
       band = scale_rect({mx, my + offset, mw, height}, scale)
 
       case probe(frame, band, round(scale * @margin), round(scale * @gap), ink) do
-        {:read, tight, pos} ->
-          {:halt, {:ok, to_points(tight, scale), pos, ink}}
+        {:read, tight, pos, text, glyphs} ->
+          {:halt, {:ok, to_points(tight, scale), pos, ink, text, glyphs}}
 
         {:shape, tight, text, glyphs} ->
           {:cont, unread || unread(tight, scale, ink, text, glyphs)}
@@ -231,9 +239,14 @@ defmodule Pokex.Calibration.CoordBandSearch do
   end
 
   defp read_band(frame, rect, ink) do
-    case Glyphs.read_coord(frame, rect, ink: ink) do
-      {_x, _y, _z} = pos -> {:read, rect, pos}
-      nil -> nil
+    line = Glyphs.read_line(frame, rect, ink: ink)
+
+    case line.confidence == 1.0 && Glyphs.parse_coord(line.text) do
+      {_x, _y, _z} = pos ->
+        {:read, rect, pos, line.text, Glyphs.segment(frame, rect, ink: ink)}
+
+      _no_coordinate ->
+        nil
     end
   end
 

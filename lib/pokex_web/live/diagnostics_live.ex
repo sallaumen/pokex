@@ -5,6 +5,7 @@ defmodule PokexWeb.DiagnosticsLive do
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.KeyProbe
   alias Pokex.Calibration
+  alias Pokex.Perception.Interpret.Minimap
   alias Pokex.Rig
   alias Pokex.Rig.Mac.KeyEvents
   alias Pokex.Screenshot
@@ -33,6 +34,11 @@ defmodule PokexWeb.DiagnosticsLive do
        preview: nil,
        xray: nil,
        unknown_glyphs: [],
+       # Quais dígitos o atlas não tem, POR ALTURA de fonte. Nesta página a
+       # lista inteira é o assunto (na Central só a altura que ele lê é), e é
+       # ela que diz o que procurar: um dígito ausente não aparece como "?" na
+       # tela, aparece como outro dígito.
+       glyph_gaps: Glyphs.missing_digits(),
        probe: nil,
        calibrated?: Calibration.exists?(),
        native_status: KeyEvents.status()
@@ -147,25 +153,9 @@ defmodule PokexWeb.DiagnosticsLive do
   # than wait for a developer to catch a screenshot with that digit in it, scan
   # the HUD, show whatever came back unreadable, and let him name it.
   def handle_event("scan_glyphs", _params, socket) do
-    case Pokex.Layout.locate() do
-      {:ok, fix} ->
-        unknown =
-          [:level, :food, :fishing, :slot_f1, :slot_f2, :slot_e, :slot_s_q]
-          |> Enum.flat_map(&unknown_in_region(fix, &1, "feed_hud.png", :hud_bottom))
-          |> Kernel.++(unknown_in_region(fix, :pokemon_hp, "feed_team.png", :team_column))
-          |> Kernel.++(unknown_in_region(fix, :minimap_coord, "feed_minimap.png", :minimap))
-          |> Enum.uniq_by(& &1.signature)
+    {found, skipped} = sweep_glyphs()
 
-        msg =
-          if unknown == [],
-            do: "nenhum glifo desconhecido — tudo que está na tela é legível",
-            else: "#{length(unknown)} glifo(s) que eu não sei ler: diga o que são"
-
-        {:noreply, assign(socket, unknown_glyphs: unknown, glyph_msg: msg)}
-
-      {:error, reason} ->
-        {:noreply, assign(socket, glyph_msg: "HUD não localizado (#{inspect(reason)})")}
-    end
+    {:noreply, assign(socket, unknown_glyphs: found, glyph_msg: sweep_msg(found, skipped))}
   end
 
   def handle_event("teach_glyph", %{"signature" => signature, "char" => char}, socket) do
@@ -178,6 +168,7 @@ defmodule PokexWeb.DiagnosticsLive do
         {:noreply,
          assign(socket,
            unknown_glyphs: remaining,
+           glyph_gaps: Glyphs.missing_digits(),
            glyph_msg: "aprendi \"#{char}\" — #{total} glifos conhecidos agora"
          )}
 
@@ -532,21 +523,109 @@ defmodule PokexWeb.DiagnosticsLive do
 
   # The region rects are absolute; a feed frame is the panel crop, so each read
   # shifts by that panel's own origin.
-  defp unknown_in_region(fix, region, filename, panel) do
-    with {panel_rect, region_rect} when not is_nil(panel_rect) and not is_nil(region_rect) <-
-           {Pokex.Layout.region(panel, fix), Pokex.Layout.region(region, fix)},
-         {px, py, pw, ph} = panel_rect,
-         {rx, ry, rw, rh} = region_rect,
-         {:ok, frame} <- Capture.frame({px, py, pw, ph}, filename) do
-      Glyphs.uncertain_in(
-        frame,
-        {rx - px, ry - py, rw, rh},
-        Pokex.Layout.region_opts(fix, region)
-      )
-    else
-      _unavailable -> []
+  # A VARREDURA, pela mesma calibração que o bot usa.
+  #
+  # Antes ela começava com `Layout.locate/0`, que fotografa a tela e exige que
+  # as TRÊS âncoras apareçam. Faltando uma, a função para na primeira e a
+  # varredura inteira morria — foi o que ele viu em 27/08:
+  # `{:anchor_not_found, :battle_header}`, com a janela de batalha fechada.
+  #
+  # E o layout era o único caminho, então as marcações À MÃO dele — que são o
+  # que o cavebot usa pra ler a coordenada todo dia — não contavam. A faixa que
+  # ele PRECISAVA ensinar era exatamente a que ele tinha marcado.
+  #
+  # Agora cada região se resolve sozinha, na ordem do bot (mão ganha, layout é
+  # reserva), e uma que não resolve é PULADA com o motivo, não fatal.
+  defp sweep_glyphs do
+    calib =
+      case Calibration.load() do
+        {:ok, calib} -> calib
+        _none -> %Calibration{scale: 1.0, layout: nil}
+      end
+
+    calib = %{calib | layout: calib.layout || Pokex.Layout.current()}
+
+    {found, skipped} =
+      Enum.reduce(sweep_targets(calib), {[], []}, fn {label, target}, {found, skipped} ->
+        case sweep_one(target) do
+          {:ok, glyphs} -> {found ++ glyphs, skipped}
+          {:skip, why} -> {found, skipped ++ ["#{label} (#{why})"]}
+        end
+      end)
+
+    {Enum.uniq_by(found, & &1.signature), skipped}
+  end
+
+  # A faixa da coordenada PRIMEIRO: é a que ele lê o dia inteiro, a única que
+  # sobrevive sem layout, e a do buraco do 8. As opções dela vêm do leitor de
+  # verdade — um glifo cortado noutro piso de tinta é outro bitmap, e o atlas
+  # aprenderia uma forma que o leitor nunca produz.
+  @doc false
+  def sweep_targets(calib) do
+    fix = calib.layout
+
+    coord =
+      {"coordenada",
+       %{
+         panel: Calibration.minimap_capture_region(calib),
+         region: Calibration.minimap_coord_region(calib),
+         opts: Minimap.coord_opts(calib, Settings.all()),
+         file: "diag_glyphs_coord.raw"
+       }}
+
+    hud =
+      for region <- [:level, :food, :fishing, :slot_f1, :slot_f2, :slot_e, :slot_s_q] do
+        {"HUD/#{region}", layout_target(fix, region, :hud_bottom, "diag_glyphs_hud.raw")}
+      end
+
+    team = [
+      {"time/pokemon_hp", layout_target(fix, :pokemon_hp, :team_column, "diag_glyphs_team.raw")}
+    ]
+
+    [coord | hud ++ team]
+  end
+
+  defp layout_target(fix, region, panel, file),
+    do: %{
+      panel: Pokex.Layout.region(panel, fix),
+      region: Pokex.Layout.region(region, fix),
+      opts: Pokex.Layout.region_opts(fix, region),
+      file: file
+    }
+
+  defp sweep_one(%{panel: nil}), do: {:skip, "sem layout nem marcação"}
+  defp sweep_one(%{region: nil}), do: {:skip, "sem layout nem marcação"}
+
+  defp sweep_one(%{panel: {px, py, pw, ph}, region: {rx, ry, rw, rh}} = target) do
+    case Capture.frame({px, py, pw, ph}, target.file) do
+      {:ok, frame} ->
+        {:ok, Glyphs.uncertain_in(frame, {rx - px, ry - py, rw, rh}, target.opts)}
+
+      {:error, reason} ->
+        {:skip, inspect(reason)}
     end
   end
+
+  # Uma linha por ALTURA de fonte, que é como uma fonte funciona: todos os
+  # dígitos dela têm a mesma altura, e larguras diferentes por desenho.
+  defp gap_line(faltam) do
+    Enum.map_join(Enum.sort(faltam), " · ", fn {altura, digitos} ->
+      "#{altura}px: #{Enum.join(digitos, " ")}"
+    end)
+  end
+
+  defp sweep_msg([], []), do: "nada pra varrer: nenhuma região resolveu"
+
+  defp sweep_msg([], skipped),
+    do: "nenhum glifo duvidoso no que deu pra ler" <> skipped_tail(skipped)
+
+  defp sweep_msg(found, skipped),
+    do:
+      "#{length(found)} glifo(s) que eu não sei de verdade: confira o desenho e diga o que são" <>
+        skipped_tail(skipped)
+
+  defp skipped_tail([]), do: ""
+  defp skipped_tail(skipped), do: " · pulei #{Enum.join(skipped, ", ")}"
 
   defp native_ready?(:ready), do: true
   defp native_ready?(_other), do: false
@@ -953,11 +1032,12 @@ defmodule PokexWeb.DiagnosticsLive do
                 Aqui aparece todo caractere que esta instalação
                 <b class="text-pk-text">não sabe de verdade</b>
                 — tanto o que virou "?" quanto o que ela apenas <b class="text-pk-text">chutou</b>
-                pelo desenho mais parecido. Chute erra: medido na tua coordenada em 2026-08-12, a
-                faixa dizia <span class="font-mono text-pk-text-2">(3415, 30964, 2)</span>
-                e o leitor respondeu <span class="font-mono text-pk-text-2">(3418, 30963, 3)</span>
-                — inclusive o andar, que é do que a escada depende. Varra,
-                <b class="text-pk-text">confira o desenho</b>
+                pelo desenho mais parecido. Chute erra, e erra calado: em 27/08 a faixa dizia
+                <span class="font-mono text-pk-text-2">1088, 1409, 5</span>
+                e o leitor respondeu <span class="font-mono text-pk-text-2">1066, 1409</span>
+                — um 8 que o atlas nunca teve vira o 6 mais parecido, com folga. Varre a faixa da
+                coordenada primeiro (é a que sobrevive só com a tua marcação à mão), depois o HUD e
+                o time. <b class="text-pk-text">Confira o desenho</b>
                 e confirme: fica sabido pra sempre e o chute acaba.
               </p>
             </div>
@@ -965,9 +1045,17 @@ defmodule PokexWeb.DiagnosticsLive do
               class="btn btn-sm h-8 shrink-0 border border-pk-ok-line bg-pk-ok-dim px-4 font-mono text-pk-body font-semibold text-pk-ok hover:bg-pk-ok-dim/70"
               phx-click="scan_glyphs"
             >
-              Varrer HUD
+              Varrer tela
             </button>
           </div>
+
+          <p
+            :if={@glyph_gaps != %{}}
+            id="glyph-gaps"
+            class="rounded-lg border border-pk-warn-line bg-pk-warn-dim/40 p-2 font-mono text-pk-meta text-pk-warn"
+          >
+            dígitos que o atlas não tem: {gap_line(@glyph_gaps)}
+          </p>
 
           <ul :if={@unknown_glyphs != []} class="flex flex-wrap gap-3">
             <li

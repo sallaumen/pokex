@@ -28,7 +28,8 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
       {:ok, fix} = Layout.locate(frame)
       map = Layout.region(:minimap, fix)
 
-      assert {:ok, band, ^expected, _ink} = CoordBandSearch.search(frame, map, 1.0, ink: 120),
+      assert {:ok, band, ^expected, _ink, _text, _glyphs} =
+               CoordBandSearch.search(frame, map, 1.0, ink: 120),
              "não achei a faixa em #{name}"
 
       # the found band must agree with where the layout knows the strip lives
@@ -44,7 +45,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
     {:ok, fix} = Layout.locate(frame)
 
-    {:ok, band, _pos, ink} =
+    {:ok, band, _pos, ink, _text, _glyphs} =
       CoordBandSearch.search(frame, Layout.region(:minimap, fix), 1.0, ink: 120)
 
     assert Pokex.Vision.Glyphs.read_coord(frame, band, ink: ink) == {337, 46_107, 4}
@@ -59,7 +60,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     {:ok, fix} = Layout.locate(frame)
     {_cx, cy, _cw, _ch} = Layout.region(:minimap_coord, fix)
 
-    assert {:ok, _band, {337, 46_107, 4}, _ink} =
+    assert {:ok, _band, {337, 46_107, 4}, _ink, _text, _glyphs} =
              CoordBandSearch.search(frame, {3150, cy - 46, 290, 458}, 1.0, ink: 120)
   end
 
@@ -83,7 +84,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
 
     assert Pokex.Vision.Glyphs.read_coord(frame, {0, 0, 259, 50}, ink: 120) == nil
 
-    assert {:ok, _band, {2671, 30_439, 5}, ink} =
+    assert {:ok, _band, {2671, 30_439, 5}, ink, _text, _glyphs} =
              CoordBandSearch.search(frame, {0, 0, 259, 50}, 1.0, ink: 120)
 
     assert ink > 120
@@ -121,7 +122,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
 
       teach_line(glyphs, "(2310,30804,6)")
 
-      assert {:ok, _band, {2310, 30_804, 6}, ^ink} =
+      assert {:ok, _band, {2310, 30_804, 6}, ^ink, _text, _glyphs} =
                CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 170)
     end
   end
@@ -130,7 +131,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     frame = ScreenFixtures.frame!("ultrawide_3440x1440_full")
     {:ok, fix} = Layout.locate(frame)
 
-    assert {:ok, _band, {337, 46_107, 4}, _ink} =
+    assert {:ok, _band, {337, 46_107, 4}, _ink, _text, _glyphs} =
              CoordBandSearch.search(frame, Layout.region(:minimap, fix), 1.0, ink: 120)
   end
 
@@ -170,7 +171,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     test "proximity finds the label with no brackets to anchor on", ctx do
       teach_chip(ctx.frame, "3015,2213,7")
 
-      assert {:ok, band, {3015, 2213, 7}, ink} =
+      assert {:ok, band, {3015, 2213, 7}, ink, _text, _glyphs} =
                CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 120)
 
       assert Glyphs.read_coord(ctx.frame, band, ink: ink) == {3015, 2213, 7}
@@ -182,7 +183,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     test "the band grows toward the clock and stops before it", ctx do
       teach_chip(ctx.frame, "3015,2213,7")
 
-      assert {:ok, {bx, _by, bw, _bh} = band, _pos, _ink} =
+      assert {:ok, {bx, _by, bw, _bh} = band, _pos, _ink, _text, _glyphs} =
                CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 120)
 
       assert bx + bw < 130, "a faixa alcançou o relógio: #{inspect(band)}"
@@ -205,7 +206,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
 
       assert Glyphs.read_coord(ctx.frame, {14, 24, 108, 22}, ink: 170) == nil
 
-      assert {:ok, _band, {3015, 2213, 7}, 120} =
+      assert {:ok, _band, {3015, 2213, 7}, 120, _text, _glyphs} =
                CoordBandSearch.search(ctx.frame, ctx.map, 1.0, ink: 170)
     end
 
@@ -259,7 +260,7 @@ defmodule Pokex.Calibration.CoordBandSearchTest do
     # the same capture described as a 2x screen: the map is half-sized in
     # points, the probes must land on the SAME pixels, and the band comes back
     # in points — the unit the calibration file speaks
-    assert {:ok, {bx, by, _bw, _bh}, {337, 46_107, 4}, _ink} =
+    assert {:ok, {bx, by, _bw, _bh}, {337, 46_107, 4}, _ink, _text, _glyphs} =
              CoordBandSearch.search(
                frame,
                {div(mx, 2), div(my, 2), div(mw, 2), div(mh, 2)},

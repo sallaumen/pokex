@@ -1910,7 +1910,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       _ = cross
 
-      html = view |> element("button", "Salvar assim") |> render_click()
+      html = view |> element("button", "Bate — salvar assim") |> render_click()
       assert html =~ "salvos"
       assert html =~ "li a coordenada da foto: (337, 46107, 4)"
 
@@ -2070,11 +2070,76 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert html =~ ~s(id="coord-band-found")
       assert html =~ "li: (2310, 30804, 6)"
 
-      html = view |> element("button", "Salvar assim") |> render_click()
+      html = view |> element("button", "Bate — salvar assim") |> render_click()
       assert html =~ "salvos"
 
       assert {:ok, calib} = Calibration.load()
       assert calib.minimap_coord_region != nil
+    end
+
+    @tag :tmp_dir
+    # LER NÃO É ACERTAR, e essa era a porta fechada. O assistente só oferecia
+    # ensinar quando a leitura FALHAVA (`:unread`). Um dígito que o atlas nunca
+    # aprendeu não falha: volta como o mais parecido que ele tem, e volta com
+    # folga — a tela dele em 27/08 dizia `1088, 1409, 5` e a faixa foi lida
+    # `1066, 1409` sem uma dúvida. Ele foi ensinar o 8 e não tinha por onde.
+    test "uma leitura que saiu ainda pode ser corrigida — e o número vem cru, do jeito que a faixa desenhou",
+         %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
+
+      probe =
+        Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(100, 100, {9, 9, 9, 255}))
+
+      {:ok, _} =
+        Fake.start_link(%{
+          capture: [{:ok, probe}],
+          capture_screen: [{:ok, "test/fixtures/screen/ultrawide_3440x1440_full.png"}]
+        })
+
+      {:ok, view, _} = live(conn, ~p"/calibration")
+      view |> element("button", "Posição & minimapa") |> render_click()
+
+      click = fn x, y ->
+        params = %{
+          "x" => x,
+          "y" => y,
+          "cw" => 3440.0,
+          "ch" => 1440.0,
+          "nw" => 3440.0,
+          "nh" => 1440.0
+        }
+
+        render_hook(view, "img_click", params)
+        render_hook(view, "img_click", params)
+      end
+
+      {mx, my, mw, mh} = {3153.0, 30.0, 274.0, 274.0}
+      click.(mx, my)
+      click.(mx + mw, my + mh)
+      click.(mx + mw / 2, my + mh / 2)
+
+      html = render(view)
+      assert html =~ ~s(id="coord-band-found")
+      assert html =~ "li: (337, 46107, 4)"
+
+      # a porta: o campo já vem aberto com o TEXTO CRU, parênteses e vírgulas
+      # inclusive, porque a correção é casada glifo a glifo com o que a faixa
+      # desenhou — um número reformatado teria outra contagem de caracteres
+      assert html =~ ~s(id="coord-fix-form")
+      assert html =~ ~S|value="(337, 46107, 4)"|
+
+      # e a contagem é conferida: um número que não casa com a faixa é recusado
+      # com a conta na tela, nunca ensinado torto
+      html =
+        view
+        |> form("#coord-fix-form", %{"coord" => "(337, 4610, 4)"})
+        |> render_submit()
+
+      assert html =~ ~s(id="coord-fix-msg")
+      assert html =~ "eu vejo 13"
     end
 
     @tag :tmp_dir

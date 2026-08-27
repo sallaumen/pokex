@@ -56,6 +56,23 @@ defmodule Pokex.Settings do
     # mudo é pior que bater fraco. E `combat_aoe_from_enemies` só volta a
     # significar alguma coisa com esta ligada.
     combat_single_target: false,
+    # SE A CAÇADA APERTA TAB pra travar um alvo. Desligado, por medição dele em
+    # campo (27/08):
+    #
+    #   "Na prática, na hunt, a gente nem precisa apertar o tab (…) essas hunts
+    #   de bicho forte, os bichos sempre vão lutar contra a gente sozinhos, eles
+    #   vão perseguir a gente — e apertar o tab pra ele atacar um inimigo é
+    #   pior, porque atrapalha a organização dos bichos: meu pokémon pode se
+    #   mexer demais por aí."
+    #
+    # Com as teclas de alvo único fora da rotação, o alvo travado não move mais
+    # nada do dano; move só o pokémon, pra cima de um bicho, desmanchando o bolo
+    # que a régua acabou de juntar.
+    #
+    # O que se perde ligando isto em off: o empate-contra-a-parede
+    # (`no_damage_ms`) lê a barra da linha TRAVADA, e sem alvo não há linha —
+    # quem limita uma luta que não anda passa a ser só o `fight_timeout_ms`.
+    combat_tab_target: false,
     # A PARTIR DE QUANTOS INIMIGOS a aura de DEFESA vale a pena.
     #
     # "A de defesa vale sempre que tem já uns 2 pokémons atacando ele pelo menos,

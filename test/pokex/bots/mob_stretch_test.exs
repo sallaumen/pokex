@@ -152,6 +152,13 @@ defmodule Pokex.Bots.MobStretchTest do
     # the huddle after "até aqui" is real (4s in production); shortened here so
     # the test measures the WIRE, not the wait
     Pokex.SettingsStash.stash!(cavebot_gather_wait_ms: 200)
+    # O TAB LIGADO: desde 27/08 a caçada não trava alvo por padrão ("apertar o
+    # tab pra ele atacar um inimigo é pior, porque atrapalha a organização dos
+    # bichos"), e o sinal de vida deste arquivo é justamente o Tab. O assunto
+    # aqui é o FIO entre a caçada e o combate, não a tecla que o combate
+    # escolhe — e o combate lê a config quando a caçada o liga, logo abaixo.
+    Pokex.SettingsStash.stash!(combat_tab_target: true)
+
     lure_route!()
     :ok = Cavebot.run(hunt)
 
@@ -201,6 +208,13 @@ defmodule Pokex.Bots.MobStretchTest do
     combat: combat
   } do
     Pokex.SettingsStash.stash!(posture_max_age_ms: 500)
+
+    # O TAB LIGADO: desde 27/08 a caçada não trava alvo por padrão ("apertar o
+    # tab pra ele atacar um inimigo é pior, porque atrapalha a organização dos
+    # bichos"), e o sinal de vida deste arquivo é justamente o Tab. O assunto
+    # aqui é o FIO entre a caçada e o combate, não a tecla que o combate
+    # escolhe — e o combate lê a config quando a caçada o liga, logo abaixo.
+    Pokex.SettingsStash.stash!(combat_tab_target: true)
 
     lure_route!()
     :ok = Cavebot.run(hunt)

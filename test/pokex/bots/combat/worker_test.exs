@@ -14,7 +14,10 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     Application.put_env(:pokex, :home_dir, tmp)
 
-    SettingsStash.stash!(skill_burst_every_ms: 0)
+    # …e o Tab LIGADO: desde 27/08 a caçada não trava alvo por padrão, e este
+    # arquivo prova o worker levando a máquina de Tab até as teclas. O modo sem
+    # Tab é decidido na `Logic` e tem os testes dele lá.
+    SettingsStash.stash!(skill_burst_every_ms: 0, combat_tab_target: true)
 
     SettingsStash.stash_keys!([
       :tab_confirm_ms,

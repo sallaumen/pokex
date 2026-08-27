@@ -15,7 +15,12 @@ defmodule Pokex.Bots.Combat.LogicTest do
       skill_keys: ["1", "2", "3"],
       combat_skill_burst_size: 3,
       max_consecutive_failures: 5,
-      hunt_probe_window_ms: 8_000
+      hunt_probe_window_ms: 8_000,
+      # O TAB LIGADO NA BASE: desde 27/08 a caçada não aperta Tab por padrão
+      # (ele mediu que travar alvo só move o pokémon e desmancha o bolo), mas a
+      # máquina de Tab continua existindo e é opção dele. A maior parte deste
+      # arquivo é sobre ela; o modo sem Tab tem o bloco próprio no fim.
+      combat_tab_target: true
     })
   end
 
@@ -1029,5 +1034,56 @@ defmodule Pokex.Bots.Combat.LogicTest do
     {logic, _} = Logic.step(logic, obs(locked?: true, locked_row: 0, captured_at: 30), 40)
     assert logic.state == :fighting
     logic
+  end
+
+  # SEM TAB — o padrão desde 27/08:
+  #
+  #   "Na prática, na hunt, a gente nem precisa apertar o tab (…) eles vão
+  #   perseguir a gente, e apertar o tab pra ele atacar um inimigo é pior,
+  #   porque atrapalha a organização dos bichos: meu pokémon pode se mexer
+  #   demais por aí."
+  describe "a caçada que não trava alvo" do
+    defp sem_tab(now \\ 0) do
+      {logic, []} = Logic.start(Logic.new(config(combat_tab_target: false)), now)
+      logic
+    end
+
+    test "bicho na tela vira luta na hora, sem Tab nenhum" do
+      {logic, actions} = Logic.step(sem_tab(), obs(enemies: [0, 1], captured_at: 10), 10)
+
+      assert logic.state == :fighting
+      refute {:tab} in actions
+      assert Enum.any?(actions, &match?({:press, _}, &1)), "a luta já começa apertando"
+    end
+
+    # A rodada acaba quando a TELA esvazia: sem alvo travado, não há "alvo
+    # perdido" pra contar.
+    test "a lista vazia encerra a rodada" do
+      {logic, _} = Logic.step(sem_tab(), obs(enemies: [0], captured_at: 10), 10)
+      assert logic.state == :fighting
+
+      {logic, _} = Logic.step(logic, obs(enemies: [], captured_at: 20), 20)
+
+      assert logic.state == :hunting
+    end
+
+    test "enquanto houver bicho, ele segue estourando sem travar nada" do
+      {logic, _} = Logic.step(sem_tab(), obs(enemies: [0, 1], captured_at: 10), 10)
+
+      {logic, actions} =
+        Logic.step(logic, obs(enemies: [0, 1], captured_at: 400), 400)
+
+      assert logic.state == :fighting
+      assert logic.locked_row == nil
+      refute {:tab} in actions
+    end
+
+    # Ligado, a máquina de sempre volta inteira.
+    test "com a opção ligada, o Tab volta" do
+      {logic, actions} = Logic.step(hunting(), obs(enemies: [0], captured_at: 10), 10)
+
+      assert logic.state == :tabbing
+      assert {:tab} in actions
+    end
   end
 end

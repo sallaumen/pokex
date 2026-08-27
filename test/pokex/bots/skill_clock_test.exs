@@ -33,23 +33,23 @@ defmodule Pokex.Bots.SkillClockTest do
       SkillClock.pressed("4", 0)
       SkillClock.pressed("5", 0)
 
-      assert SkillClock.ready_by_clock(@cds, 10_000) == ["5"]
+      assert SkillClock.ready_by_clock(~w(4 5), @cds, 10_000) == ["5"]
     end
 
     # Um cooldown que ninguém escreveu não pode virar espera inventada: o bot
     # tem que seguir se comportando como antes desta tabela existir.
-    test "tecla sem cooldown escrito conta como pronta" do
+    test "tecla sem cooldown escrito não é vetada pelo relógio" do
       SkillClock.pressed("9", 0)
 
       assert SkillClock.cooling_ms("9", @cds, 1) == 0
-      assert SkillClock.ready(["9"], @cds, 1) == ["9"]
+      assert SkillClock.ready(["9"], ~w(9), @cds, 1) == ["9"]
     end
   end
 
   describe "a tela cruzada com o relógio" do
     test "a tela manda quando diz que NÃO — ela sabe de coisas que ninguém escreveu" do
-      assert SkillClock.ready(["5"], @cds, 100_000) == ["5"]
-      refute "4" in SkillClock.ready(["5"], @cds, 100_000)
+      assert SkillClock.ready(["5"], ~w(4 5), @cds, 100_000) == ["5"]
+      refute "4" in SkillClock.ready(["5"], ~w(4 5), @cds, 100_000)
     end
 
     # A foto tem idade (`skill_bar_fact_max_age_ms`): uma tecla que saiu agora
@@ -58,18 +58,45 @@ defmodule Pokex.Bots.SkillClockTest do
     test "o relógio manda quando diz que NÃO, mesmo com a tela dizendo que sim" do
       SkillClock.pressed("4", 0)
 
-      assert SkillClock.ready(["4", "5"], @cds, 1_000) == ["5"]
+      assert SkillClock.ready(["4", "5"], ~w(4 5), @cds, 1_000) == ["5"]
     end
 
     test "com a tela ilegível o relógio responde sozinho, em vez de cegar o bot" do
       SkillClock.pressed("4", 0)
 
-      assert SkillClock.ready(nil, @cds, 1_000) == ["5"]
+      assert SkillClock.ready(nil, ~w(4 5), @cds, 1_000) == ["5"]
     end
 
-    test "sem cooldown nenhum escrito, tudo é como era antes: a tela, ou o desconhecido" do
-      assert SkillClock.ready(["1", "2"], %{}, 0) == ["1", "2"]
-      assert SkillClock.ready(nil, %{}, 0) == nil
+    test "sem tela e sem tecla conhecida, o desconhecido de sempre" do
+      assert SkillClock.ready(["1", "2"], [], %{}, 0) == ["1", "2"]
+      assert SkillClock.ready(nil, [], %{}, 0) == nil
+    end
+  end
+
+  # "Na falta de configuração, faz ele assumir que o cooldown é 45 segundos"
+  # (27/08). 45s é a média das duas famílias que o vídeo mediu: 40s nas teclas
+  # 1-3 e 50s nas 4-6.
+  describe "o cooldown assumido" do
+    test "sem tela, uma tecla sem número escrito espera os 45 segundos" do
+      SkillClock.pressed("7", 0)
+
+      assert SkillClock.ready(nil, ~w(7), %{}, 44_999) == []
+      assert SkillClock.ready(nil, ~w(7), %{}, 45_000) == ["7"]
+    end
+
+    test "o que ELE escreveu vence o assumido" do
+      SkillClock.pressed("5", 0)
+
+      assert SkillClock.ready(nil, ~w(5), @cds, 8_000) == ["5"]
+    end
+
+    # Palpite preenche buraco; não desmente observação. Se a skill volta em 8s e
+    # a gente chuta 45, vetar a tela tiraria a tecla mais rápida da barra por 37
+    # segundos — e ninguém veria por quê.
+    test "o assumido NÃO derruba a tela: só o cooldown escrito faz isso" do
+      SkillClock.pressed("7", 0)
+
+      assert SkillClock.ready(["7"], ~w(7), %{}, 1_000) == ["7"]
     end
   end
 

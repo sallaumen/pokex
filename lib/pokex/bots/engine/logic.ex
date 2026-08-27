@@ -679,10 +679,19 @@ defmodule Pokex.Bots.Engine.Logic do
 
   # A janela só existe depois de um controle que ESTE módulo mandou sair, e só
   # enquanto ela dura: fora dela o revive volta a ser a regra de sempre.
+  #
+  # E ELA EXIGE A BARRA GASTA. Não exigia, e por isso o controle OFENSIVO virava
+  # gatilho de revive: com `crowd_from: 1` qualquer bolo faz o controle sair, a
+  # janela abre, e o revive saía com a barra INTEIRA na mão. Medido em 27/08,
+  # nas 6 sementes: 19 dos 137 revives do anel saíram com cinco teclas prontas.
+  #
+  # "A gente tem que usar todas as skills, para depois usar um ressurect, porque
+  # ele tem um certo custo que não é de graça" (27/08). A janela dele é sobre a
+  # ORDEM — quando reviver, revive logo depois do controle —, não uma licença
+  # pra reviver toda vez que o controle sai.
   defp stun_window?(t) do
-    t.config.reset_revive and Map.has_key?(t.logic.since, :stunned) and
-      within?(t, :stunned, t.config.stun_window_ms) and t.s.own_out? == true and
-      elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms)
+    reset_revive?(t) and Map.has_key?(t.logic.since, :stunned) and
+      within?(t, :stunned, t.config.stun_window_ms)
   end
 
   # Sem leitura da barra a tecla conta como pronta: uma leitura que falta não

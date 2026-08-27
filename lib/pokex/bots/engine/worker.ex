@@ -250,7 +250,13 @@ defmodule Pokex.Bots.Engine.Worker do
       # A TELA CRUZADA COM O RELÓGIO. `spent?` — a pergunta que decide gastar um
       # revive pra zerar a barra — sai daqui, e ela estava sendo respondida por
       # uma foto que pode ter até `skill_bar_fact_max_age_ms` de idade.
-      ready_keys: SkillClock.ready(Perception.ready_skills(now), cooldowns(state.loadout), now),
+      ready_keys:
+        SkillClock.ready(
+          Perception.ready_skills(now),
+          Loadout.keys(state.loadout),
+          cooldowns(state.loadout),
+          now
+        ),
       damage_keys: damage_keys(state.loadout),
       prev: state.picture
     }

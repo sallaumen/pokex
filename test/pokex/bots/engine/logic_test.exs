@@ -618,7 +618,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # fuga em qualquer pilha — que é a mudança certa e mede +12% de mortos, e
     # que aqui apagaria a pergunta. A pergunta é sobre a barra vazia, não sobre
     # quando o controle sai.
-    @fuga Config.merge(%{crowd_from: 99})
+    # E `reset_revive: false` pelo MESMO motivo, desde 27/08: com o piso de vida
+    # em 90 a R3b passa a estar disponível numa barra vazia, e reviver é melhor
+    # que andar — zera a barra na hora em vez de esperar 45s. A fuga é a regra
+    # de quando NÃO há revive; medi-la com revive à mão mediria a R3b.
+    @fuga Config.merge(%{crowd_from: 99, reset_revive: false})
 
     defp fuga_step(logic \\ Logic.new(), world, now), do: Logic.step(logic, world, @fuga, now)
 
@@ -1004,22 +1008,42 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # A JANELA: com a pilha dormindo o campo vazio não custa nada, e o revive
     # devolve o controle junto com o resto da barra.
     test "e o revive sai dentro da janela, logo depois do controle" do
-      logic = aberta(pilha(5))
-      {logic, primeira} = Logic.step(logic, pilha(5), @r10, 200)
+      gasta = pilha(5, %{spent?: true})
+      logic = aberta(gasta)
+      {logic, primeira} = Logic.step(logic, gasta, @r10, 200)
       assert "1" in primeira.opening
 
-      {_logic, orders} = Logic.step(logic, pilha(5), @r10, 1_200)
+      {_logic, orders} = Logic.step(logic, gasta, @r10, 1_200)
 
       assert orders.revive == :now
       assert orders.why =~ "dentro da janela"
     end
 
     test "mas não depois que ela fecha" do
+      gasta = pilha(5, %{spent?: true})
+      logic = aberta(gasta)
+      {logic, _} = Logic.step(logic, gasta, @r10, 200)
+
+      {_logic, orders} = Logic.step(logic, gasta, @r10, 200 + @r10.stun_window_ms + 1)
+
+      refute orders.why =~ "dentro da janela"
+    end
+
+    # O CONTROLE OFENSIVO NÃO É LICENÇA PRA REVIVER. Até 27/08 a janela não
+    # olhava a barra: com `crowd_from` baixo, qualquer bolo fazia o controle
+    # sair, a janela abria, e o revive saía com a barra INTEIRA na mão. Medido
+    # nas 6 sementes: 19 dos 137 revives do anel saíam com cinco teclas prontas.
+    #
+    # "A gente tem que usar todas as skills, para depois usar um ressurect,
+    # porque ele tem um certo custo que não é de graça" (27/08).
+    test "com a barra cheia, o controle abre a janela mas o revive NÃO sai" do
       logic = aberta(pilha(5))
-      {logic, _} = Logic.step(logic, pilha(5), @r10, 200)
+      {logic, primeira} = Logic.step(logic, pilha(5), @r10, 200)
+      assert "1" in primeira.opening, "o controle sai — a pilha é grande"
 
-      {_logic, orders} = Logic.step(logic, pilha(5), @r10, 200 + @r10.stun_window_ms + 1)
+      {_logic, orders} = Logic.step(logic, pilha(5), @r10, 1_200)
 
+      assert orders.revive == :hold
       refute orders.why =~ "dentro da janela"
     end
   end

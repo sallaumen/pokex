@@ -273,4 +273,65 @@ defmodule PokexWeb.DiagnosticsLiveTest do
       assert render(view) =~ "pokébola: true"
     end
   end
+
+  # Em 27/08 ele foi ensinar o 8 e o cartão respondeu
+  # `HUD não localizado ({:anchor_not_found, :battle_header})`. A varredura
+  # inteira começava por `Layout.locate/0`, que fotografa a tela e para na
+  # PRIMEIRA âncora que não achar — com a janela de batalha fechada, morria
+  # tudo. E o layout era o único caminho, então as marcações à mão dele (as que
+  # o cavebot usa pra ler a coordenada todo dia) não contavam: a faixa que ele
+  # precisava ensinar era justamente a que ele tinha marcado.
+  describe "a varredura de glifos" do
+    alias Pokex.Calibration
+    alias PokexWeb.DiagnosticsLive
+
+    test "a faixa da coordenada resolve só com marcação à mão, sem layout nenhum" do
+      calib = %Calibration{
+        scale: 1.0,
+        layout: nil,
+        minimap_region: {3245, 2, 195, 248},
+        minimap_coord_region: {3250, 28, 87, 15}
+      }
+
+      alvos = Map.new(DiagnosticsLive.sweep_targets(calib))
+
+      assert %{panel: {3245, 2, 195, 248}, region: {3250, 28, 87, 15}} = alvos["coordenada"]
+    end
+
+    test "ela corta a faixa com as opções do LEITOR, não com as do layout" do
+      Pokex.Settings.put(:minimap_coord_ink, 137)
+      on_exit(fn -> Pokex.Settings.put(:minimap_coord_ink, 120) end)
+
+      calib = %Calibration{scale: 1.0, layout: nil, minimap_coord_region: {3250, 28, 87, 15}}
+      alvos = Map.new(DiagnosticsLive.sweep_targets(calib))
+
+      assert alvos["coordenada"].opts[:ink] == 137
+    end
+
+    test "sem layout, o HUD é pulado — e não leva a coordenada junto" do
+      calib = %Calibration{scale: 1.0, layout: nil, minimap_coord_region: {3250, 28, 87, 15}}
+      alvos = DiagnosticsLive.sweep_targets(calib)
+
+      assert [{"coordenada", _coord} | resto] = alvos
+      assert Enum.all?(resto, fn {_label, alvo} -> is_nil(alvo.panel) or is_nil(alvo.region) end)
+    end
+
+    test "nenhuma captura pede PNG: a faixa é fotografada em cru" do
+      calib = %Calibration{scale: 1.0, layout: nil, minimap_coord_region: {3250, 28, 87, 15}}
+
+      for {_label, alvo} <- DiagnosticsLive.sweep_targets(calib) do
+        assert String.ends_with?(alvo.file, ".raw"), "#{alvo.file} pede decode de PNG"
+      end
+    end
+
+    test "a página do ensino diz QUAIS dígitos faltam, por altura de fonte", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/diagnostics")
+
+      # o atlas de fábrica tem buraco; o que importa é a página nomear o dígito
+      # e a altura, que é o que ele precisa procurar na tela
+      assert html =~ ~s(id="glyph-gaps")
+      assert html =~ "dígitos que o atlas não tem"
+      assert html =~ "px:"
+    end
+  end
 end

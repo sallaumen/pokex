@@ -213,14 +213,23 @@ defmodule PokexWeb.CalibrationLive do
       {:unread, band, ink, _text, glyphs} ->
         {:noreply, teach_coord_line(socket, typed, band, ink, glyphs)}
 
-      _not_unread ->
+      # UMA LEITURA QUE SAIU NÃO É UMA LEITURA CERTA. Um dígito que o atlas
+      # nunca aprendeu não volta como "?": volta como o mais parecido que ele
+      # tem, e volta com folga — a margem de `nearest_within/1` compara o atlas
+      # com o atlas. Em 27/08 a tela dele dizia `1088, 1409, 5` e a faixa foi
+      # lida como `1066, 1409` sem uma dúvida sequer, e o cavebot saltou o mapa.
+      # Quem sabe o número é ele; aqui ele corrige e a linha inteira é ensinada.
+      {:found, band, _text, ink, glyphs} ->
+        {:noreply, teach_coord_line(socket, typed, band, ink, glyphs)}
+
+      _no_band ->
         {:noreply, socket}
     end
   end
 
   def handle_event("save_found_band", _params, socket) do
     case socket.assigns.coord_search do
-      {:found, band, _pos, ink} ->
+      {:found, band, _text, ink, _glyphs} ->
         # the floor that READ is the floor the reader must start from: over
         # bright terrain the taught 120 welds the map to the strokes
         Settings.put(:minimap_coord_ink, ink)
@@ -1206,9 +1215,14 @@ defmodule PokexWeb.CalibrationLive do
     end)
   end
 
-  defp fold({:found, shot, band, pos, ink, _mode}, socket) do
+  defp fold({:found, shot, band, ink, _mode, text, glyphs}, socket) do
     {:halt,
-     assign(socket, screen: shot, scale: shot.scale, coord_search: {:found, band, pos, ink})}
+     assign(socket,
+       screen: shot,
+       scale: shot.scale,
+       coord_search: {:found, band, text, ink, glyphs},
+       coord_teach_msg: nil
+     )}
   end
 
   defp fold({:hovered, shot}, socket) do
@@ -1288,7 +1302,7 @@ defmodule PokexWeb.CalibrationLive do
     Process.sleep(@walk_settle_ms)
 
     case shot_and_search(draft, :walk) do
-      {:found, _shot, _band, _pos, _ink, _mode} = hit -> {:halt, {hit, index}}
+      {:found, _s, _b, _i, _m, _t, _g} = hit -> {:halt, {hit, index}}
       {:hovered, _shot} = hovered -> {:halt, {hovered, index}}
       {:unread, _s, _b, _i, _t, _g} = unread -> {:halt, {unread, index}}
       other -> {:cont, {other, index}}
@@ -1305,7 +1319,10 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  defp verdict({:ok, band, pos, ink}, shot, mode), do: {:found, shot, band, pos, ink, mode}
+  # A posição em si não entra: a tela mostra o TEXTO cru da leitura, que é o
+  # que o campo de correção precisa casar glifo a glifo.
+  defp verdict({:ok, band, _pos, ink, text, glyphs}, shot, mode),
+    do: {:found, shot, band, ink, mode, text, glyphs}
 
   defp verdict({:unread, band, ink, text, glyphs}, shot, _mode),
     do: {:unread, shot, band, ink, text, glyphs}
@@ -1313,8 +1330,12 @@ defmodule PokexWeb.CalibrationLive do
   defp verdict(:hovered, shot, _mode), do: {:hovered, shot}
   defp verdict(:error, shot, _mode), do: {:shot, shot}
 
-  defp found_band({:found, band, _pos, _ink}), do: band
-  defp found_pos_text({:found, _band, {x, y, z}, _ink}), do: "(#{x}, #{y}, #{z})"
+  defp found_band({:found, band, _text, _ink, _glyphs}), do: band
+
+  # O texto CRU da leitura, não o número reformatado: o campo de correção é
+  # zipado glifo a glifo, então o que aparece nele tem que ter os mesmos
+  # caracteres que a faixa desenhou — parênteses e vírgulas inclusive.
+  defp found_pos_text({:found, _band, text, _ink, _glyphs}), do: text
 
   defp unread_band({:unread, band, _ink, _text, _glyphs}), do: band
   defp unread_text({:unread, _band, _ink, text, _glyphs}), do: text
@@ -1347,12 +1368,17 @@ defmodule PokexWeb.CalibrationLive do
   # Taught is not read: the band must prove itself again on the same photo
   # before the wizard offers to save it, or a typo would be calibrated in.
   defp confirm_taught_band(socket, band, ink) do
-    scale = socket.assigns.scale || 1.0
+    rect = scale_rect(band, socket.assigns.scale || 1.0)
 
     with %{path: path} <- socket.assigns.screen,
          {:ok, frame} <- Vision.Frame.from_png_file(path),
-         {_x, _y, _z} = pos <- Vision.Glyphs.read_coord(frame, scale_rect(band, scale), ink: ink) do
-      assign(socket, coord_search: {:found, band, pos, ink}, coord_teach_msg: nil)
+         line = Vision.Glyphs.read_line(frame, rect, ink: ink),
+         {_x, _y, _z} <- Vision.Glyphs.parse_coord(line.text) do
+      assign(socket,
+        coord_search:
+          {:found, band, line.text, ink, Vision.Glyphs.segment(frame, rect, ink: ink)},
+        coord_teach_msg: nil
+      )
     else
       _still_unread ->
         assign(socket,
@@ -2804,9 +2830,16 @@ defmodule PokexWeb.CalibrationLive do
               pra fazer o texto aparecer, e fotografando…
             </p>
 
-            <div :if={match?({:found, _, _, _}, @coord_search)} class="space-y-2">
+            <%!-- LEU NÃO É ACERTOU. Um dígito que o atlas nunca aprendeu não
+                  volta como "?" — volta como o mais parecido que ele tem, e
+                  com folga, porque a regra da margem compara o atlas com o
+                  atlas. Em 27/08 a tela dizia `1088, 1409, 5` e esta faixa foi
+                  lida `1066, 1409` sem uma dúvida sequer. Por isso a leitura
+                  vem como PERGUNTA e o campo já está aberto: se um dígito não
+                  bater, ele corrige aqui e a linha inteira é ensinada. --%>
+            <div :if={match?({:found, _, _, _, _}, @coord_search)} class="space-y-2">
               <p id="coord-band-found" class="text-pk-body font-semibold text-pk-ok">
-                li: {found_pos_text(@coord_search)} ✓ — é onde você está? Então salva.
+                li: {found_pos_text(@coord_search)} — confira dígito por dígito com o seu minimapa.
               </p>
               <div
                 class="rounded border border-pk-ok-line bg-pk-sunken"
@@ -2814,7 +2847,7 @@ defmodule PokexWeb.CalibrationLive do
               />
               <div class="flex flex-wrap gap-2">
                 <button class="btn btn-primary btn-sm" phx-click="save_found_band">
-                  Salvar assim
+                  Bate — salvar assim
                 </button>
                 <button class="btn btn-ghost btn-sm" phx-click="coord_search_again">
                   Buscar de novo
@@ -2823,6 +2856,23 @@ defmodule PokexWeb.CalibrationLive do
                   Marcar na mão
                 </button>
               </div>
+              <form
+                id="coord-fix-form"
+                phx-submit="coord_teach_line"
+                class="flex flex-wrap items-center gap-2"
+              >
+                <span class="text-pk-meta text-pk-text-2">Não bate? Escreva o que está na tela:</span>
+                <input
+                  name="coord"
+                  value={found_pos_text(@coord_search)}
+                  autocomplete="off"
+                  class="input input-bordered input-sm w-56 font-mono"
+                />
+                <button class="btn btn-outline btn-sm">Corrigir e aprender</button>
+              </form>
+              <p :if={@coord_teach_msg} id="coord-fix-msg" class="text-pk-meta text-pk-warn">
+                {@coord_teach_msg}
+              </p>
             </div>
 
             <%!-- The band is PROVEN and the number is not readable yet. Both

@@ -125,7 +125,7 @@ defmodule Pokex.Perception.Interpret.Minimap do
 
     with true <- rem(misses - 1, @search_every) == 0,
          {mx, my, mw, mh} <- Calibration.minimap_region(calib),
-         {:ok, band, pos, ink} <-
+         {:ok, band, pos, ink, _text, _glyphs} <-
            CoordBandSearch.search(frame, {mx - ox, my - oy, mw, mh}, frame_scale(frame), opts) do
       {%{pos: pos, guessed: 0, px: nil}, %{state | band: band, ink: ink, misses: 0}}
     else
@@ -135,10 +135,19 @@ defmodule Pokex.Perception.Interpret.Minimap do
 
   defp frame_scale(frame), do: Map.get(frame, :scale) || 1.0
 
-  # The strip's ink floor is TUNABLE (minimap_coord_ink): the global default
-  # (120) let the map's lit ground compete with the digits. The layout
-  # region's declared opts still apply underneath — merge, never replace.
-  defp coord_opts(calib, settings) do
+  @doc """
+  The options this reader segments the coordinate band with.
+
+  Public because a page that TEACHES the band has to segment it exactly as the
+  reader does: a glyph cut at another ink floor is a different bitmap, so the
+  atlas would learn a shape the reader never produces and the teaching would
+  appear to do nothing.
+
+  The strip's ink floor is TUNABLE (minimap_coord_ink): the global default
+  (120) let the map's lit ground compete with the digits. The layout region's
+  declared opts still apply underneath — merge, never replace.
+  """
+  def coord_opts(calib, settings) do
     layout_opts = if calib.layout, do: Layout.region_opts(calib.layout, :minimap_coord), else: []
     Keyword.merge(layout_opts, ink: Settings.value(settings, :minimap_coord_ink))
   end

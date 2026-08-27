@@ -56,6 +56,16 @@ defmodule Pokex.Sim.Runner do
     minimap: 500
   }
 
+  # AS CHAVES QUE O SIMULADOR ESCREVE. É a lista que a cerca usa pra decidir se
+  # uma aba aberta atrapalha: o perigo é o último `:ets.insert` vencer na MESMA
+  # chave, e uma aba olhando um fato que o simulador não publica não disputa
+  # nada com ele.
+  @published_keys Map.keys(@fallback_cadences) ++ [:hunt]
+
+  @doc "Os fatos que uma corrida do simulador publica no blackboard."
+  @spec published_keys() :: [atom]
+  def published_keys, do: @published_keys
+
   def topic, do: @topic
 
   def start_link(opts \\ []) do

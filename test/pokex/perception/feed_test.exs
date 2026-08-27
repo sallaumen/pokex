@@ -210,4 +210,28 @@ defmodule Pokex.Perception.FeedTest do
   end
 
   defp now, do: System.monotonic_time(:millisecond)
+
+  # UM FEED CALADO ESTÁ FOTOGRAFANDO, NÃO DORMINDO. O laço só demora a responder
+  # porque está dentro da captura — que é o estado exato que a cerca do
+  # simulador existe pra recusar. Tratar o timeout como "ninguém olhando" fazia
+  # a guarda falhar justamente no caso perigoso.
+  describe "quem não responde" do
+    @describetag :tmp_dir
+
+    test "um processo ocupado conta como olhando; um que não existe, como zero" do
+      ocupado =
+        spawn(fn ->
+          receive do
+            :nunca -> :ok
+          end
+        end)
+
+      assert Feed.consumer_count(ocupado) == 1
+
+      morto = spawn(fn -> :ok end)
+      Process.sleep(10)
+
+      assert Feed.consumer_count(morto) == 0
+    end
+  end
 end

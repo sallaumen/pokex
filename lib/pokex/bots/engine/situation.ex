@@ -132,7 +132,12 @@ defmodule Pokex.Bots.Engine.Situation do
       own_hp: Map.get(inputs, :own_hp),
       own_out?: Map.get(inputs, :own_out?, :unknown),
       ready_keys: Map.get(inputs, :ready_keys),
-      spent?: spent?(Map.get(inputs, :damage_keys, []), Map.get(inputs, :ready_keys)),
+      spent?:
+        spent?(
+          Map.get(inputs, :damage_keys, []),
+          Map.get(inputs, :ready_keys),
+          Map.get(config, :spent_keys_left, 0)
+        ),
       blind?: Map.get(inputs, :battle) == nil,
       at: now
     }
@@ -251,14 +256,21 @@ defmodule Pokex.Bots.Engine.Situation do
 
   defp worth_fighting?(_unknown, _config), do: false
 
-  # The revive is worth most when the cooldowns are already gone (R3), so the
-  # picture has to be able to say that they are. Half or fewer of this pokémon's
-  # damage keys ready counts as spent; no bar reading, or no classified keys, is
-  # an unknown rather than a false.
-  defp spent?([], _ready), do: nil
-  defp spent?(_damage, nil), do: nil
+  # O REVIVE VALE MAIS QUANDO OS COOLDOWNS JÁ FORAM (R3), então a foto precisa
+  # saber dizer que foram. Sem leitura da barra, ou sem tecla classificada, a
+  # resposta é DESCONHECIDO e não "não".
+  #
+  # `spent_keys_left` é quantas teclas de dano ainda prontas ele aceita chamar
+  # de "acabou". Era METADE, cravado — com sete teclas de dano o revive saía com
+  # três na mão, e ele viu isso na caçada: "ele usa muito ressurect à toa (…) a
+  # gente tem que usar todas as skills, para depois usar um ressurect, porque
+  # ele tem um certo custo que não é de graça" (27/08). Zero é a regra dele; o
+  # knob existe porque a folga de uma tecla pode valer a pena quando a que
+  # sobrou é a mais fraca da barra, e isso é medição, não opinião.
+  defp spent?([], _ready, _left), do: nil
+  defp spent?(_damage, nil, _left), do: nil
 
-  defp spent?(damage, ready) do
-    Enum.count(damage, &(&1 in ready)) <= div(length(damage), 2)
+  defp spent?(damage, ready, left) do
+    Enum.count(damage, &(&1 in ready)) <= left
   end
 end

@@ -54,8 +54,17 @@ defmodule Pokex.Bots.Engine.ConfigTest do
   # No molde do guarda que `display_feeds_test.exs` já tem: uma varredura de
   # texto, porque a pergunta é justamente "alguém lê isto?".
   test "todo knob da decisão é lido pelo cérebro, não só pela bancada" do
+    # A FOTO É PARTE DO CÉREBRO: `Situation.build/3` recebe a config e é o que
+    # a `Logic` decide em cima. Um knob lido só ali estava sendo acusado de
+    # órfão (o `spent_keys_left`, 27/08), que é o oposto do que este guarda
+    # existe pra achar.
     fontes =
-      ["lib/pokex/bots/engine/logic.ex", "lib/pokex/bots/engine/worker.ex"]
+      [
+        "lib/pokex/bots/engine/logic.ex",
+        "lib/pokex/bots/engine/worker.ex",
+        "lib/pokex/bots/engine/situation.ex",
+        "lib/pokex/bots/engine/inputs.ex"
+      ]
       |> Enum.map_join("\n", &File.read!/1)
 
     orfaos =

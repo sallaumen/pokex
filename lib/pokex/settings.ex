@@ -1207,6 +1207,19 @@ defmodule Pokex.Settings do
     # aparece: três vezes mais monstros perdidos pra corda. É uma regra de
     # sobrevivência, não de dano.
     engine_kite_when_spent: true,
+    # QUANTAS TECLAS DE DANO AINDA PRONTAS ainda contam como "acabou a barra" —
+    # a condição que autoriza gastar um revive só pra zerar cooldowns.
+    #
+    # Era METADE, cravado no código: com sete teclas de dano o revive saía com
+    # TRÊS na mão. Ele viu isso na caçada e disse o que quer (27/08): "ele usa
+    # muito ressurect à toa (…) a gente tem que usar todas as skills, para
+    # depois usar um ressurect, porque ele tem um certo custo que não é de
+    # graça". Zero é isso: acabou é acabou.
+    #
+    # Vira knob e não constante porque a folga de uma tecla pode se pagar quando
+    # a que sobrou é a mais fraca da barra — e isso se mede, agora que cada
+    # skill tem o próprio cooldown pra medir com.
+    engine_spent_keys_left: 0,
     # R10 — O CONTROLE É UMA SKILL, NÃO UM AMULETO. Ele guardava a tecla de
     # controle só pro resgate, e ele desmentiu isso vendo a própria caçada
     # (26/08): "tento ir usando o 1 pra quando tem muito monstro, pra eu não
@@ -1514,6 +1527,7 @@ defmodule Pokex.Settings do
     crowd_scan_radius_tiles: 1..20,
     crowd_scan_evidence_shrink: 1..16,
     engine_crowd_from: 1..20,
+    engine_spent_keys_left: 0..9,
     engine_stun_window_ms: 500..60_000,
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,

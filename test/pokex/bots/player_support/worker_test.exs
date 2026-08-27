@@ -808,6 +808,39 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       refute_receive {:performed, :critical, _}, 400
     end
 
+    # …E DIZ QUE RECUSOU. A chave continua vencendo o cérebro — ela é a mão dele
+    # no interruptor —, mas um pedido que morre em silêncio é a coisa mais cara
+    # que este bot faz sem contar: em 27/08 a engine pediu revive 556 vezes num
+    # dia inteiro, e nenhuma tecla saiu porque `rescue_enabled` nasce desligado.
+    @tag :tmp_dir
+    test "e ela AVISA, em vez de engolir o pedido", %{tmp: tmp, body: body} do
+      Settings.put(:rescue_enabled, false)
+      low = hp_png(tmp, "engine_switch_warn.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:rule_alarm, :hp, aviso}, 800
+      assert aviso =~ "chave está DESLIGADA"
+    end
+
+    @tag :tmp_dir
+    test "com a chave ligada não há aviso nenhum", %{tmp: tmp, body: body} do
+      Settings.put(:rescue_enabled, true)
+      low = hp_png(tmp, "engine_switch_quiet.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:rule_alarm, :hp, _aviso}, 400
+    end
+
     # There is no older ladder underneath this one anymore (PR 7): a stale or
     # missing :orders fact holds rather than guessing off HP alone, the same
     # fail-open rule as every other missing fact in this codebase. A brief gap

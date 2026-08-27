@@ -1172,7 +1172,7 @@ defmodule Pokex.Settings do
     # quinze. Os dois pisos falam do mesmo botão e agora dizem o mesmo número.
     engine_reset_revive_cooldown_ms: 3_000,
     # …e a vida abaixo da qual ele recusa gastar um revive só pra zerar
-    # cooldowns.
+    # cooldowns. ZERO: ele não recusa por vida.
     #
     # Era 100 — vida CHEIA — por uma varredura de 25/08 que hoje não vale: até
     # 27/08 a janela do controle (`stun_window?`) não passava por
@@ -1184,17 +1184,25 @@ defmodule Pokex.Settings do
     #
     #   piso   lotavanon              formigueiro
     #   100%   67,1 mortos/min        22,9
-    #    95%   69,3                   23,3
-    #    90%   72,5 (4,7 revives/min) 23,1 (5,5 revives/min)
-    #    85%   72,5                   24,3 (8,1 revives/min)
-    #    80%   72,5                   24,8 (8,7)
+    #    90%   72,5                   23,1
     #
-    # 90 pega o ganho inteiro do anel (+8%) na melhor troca da tabela — 15,5
-    # mortos por revive — e recusa o do formigueiro, que só vem gastando o dobro
-    # de revives por +0,9%. Zero quedas em todos os pisos.
+    # 90 era o melhor NAQUELA barra. Com o Golem dele — o primeiro pokémon com
+    # aura de defesa classificada, 12 sementes × 120s — a resposta virou:
     #
-    # E o revive CURA: exigir vida cheia era jogar fora a metade curativa dele.
-    engine_reset_revive_min_hp: 90,
+    #   piso   lotavanon                    formigueiro
+    #    90%   93,0 mortos/min · hp mín 35%  25,7 · hp mín 72%
+    #    60%   95,7            · hp mín 58%  25,2 · hp mín 72%
+    #     0%   95,7            · hp mín 58%  25,2 · hp mín 72%
+    #
+    # E o rastro DELE decidiu: com a barra gasta e o pokémon em campo, a vida
+    # estava abaixo de 90 em UM TERÇO dos tiques (1180 de 3638, 27/08). O piso
+    # recusava o revive exatamente quando o pokémon estava machucado — e o
+    # revive CURA. Gastar um revive num pokémon ferido é a melhor hora de
+    # gastar, não a pior.
+    #
+    # Segue knob porque a pergunta é legítima e varre; o que era arbitrário era
+    # o número.
+    engine_reset_revive_min_hp: 0,
     # …and the route only walks again above this.
     engine_resume_pct: 80,
     # A revive that never lands must not end the night standing still.

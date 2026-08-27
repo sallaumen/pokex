@@ -38,6 +38,20 @@ defmodule Pokex.Perception.Feed do
 
   def name(key), do: :"#{__MODULE__}.#{key}"
 
+  @doc """
+  How many processes are watching this feed right now.
+
+  Zero means the loop is idle: `handle_info(:tick, %{consumers: consumers})`
+  with none captures nothing. Answers 0 for a feed that is not up — a feed that
+  cannot be asked is not photographing anything either.
+  """
+  @spec consumer_count(GenServer.server()) :: non_neg_integer
+  def consumer_count(server) do
+    GenServer.call(server, :consumer_count, 500)
+  catch
+    :exit, _reason -> 0
+  end
+
   def attach(server, consumer \\ self()), do: GenServer.call(server, {:attach, consumer})
   def detach(server, consumer \\ self()), do: GenServer.call(server, {:detach, consumer})
 
@@ -63,6 +77,9 @@ defmodule Pokex.Perception.Feed do
   end
 
   def handle_call({:detach, pid}, _from, state), do: {:reply, :ok, drop_consumer(state, pid)}
+
+  def handle_call(:consumer_count, _from, state),
+    do: {:reply, map_size(state.consumers), state}
 
   @impl true
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state),

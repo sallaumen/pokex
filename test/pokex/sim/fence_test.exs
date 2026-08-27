@@ -1,6 +1,7 @@
 defmodule Pokex.Sim.FenceTest do
   use ExUnit.Case, async: false
 
+  alias Pokex.Perception.Feed
   alias Pokex.Sim.Fence
 
   @env_keys [:rig, :perception_feeds_active, :journal_persist]
@@ -48,6 +49,22 @@ defmodule Pokex.Sim.FenceTest do
 
     assert Fence.arm(fence) == :ok
     assert Pokex.Rig.impl() == Pokex.Rig.Sim
+  end
+
+  # DESLIGAR O `attach` NÃO PARA QUEM JÁ ESTAVA ATTACHADO. `perception_feeds_active`
+  # só torna inertes os attaches NOVOS, e o laço do Feed nunca consulta a flag —
+  # uma aba /panel aberta noutra janela segue FOTOGRAFANDO A TELA REAL contra as
+  # MESMAS chaves que o `Sim.Runner` publica, os dois com `:ets.insert` cru, e o
+  # último a escrever vence. A régua do /sim mente calada, que é o único produto
+  # dele.
+  test "não arma enquanto uma aba ainda está olhando a tela", ctx do
+    :ok = Feed.attach(Feed.name(:minimap))
+    on_exit(fn -> Feed.detach(Feed.name(:minimap)) end)
+
+    fence = start_fence(ctx)
+
+    assert {:error, names} = Fence.arm(fence)
+    assert Enum.any?(names, &(to_string(&1) =~ "minimap")), inspect(names)
   end
 
   test "arming turns the perception feeds off", ctx do

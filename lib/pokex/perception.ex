@@ -27,6 +27,19 @@ defmodule Pokex.Perception do
   def topic, do: Feed.topic()
 
   @doc """
+  Which feeds are being WATCHED right now — the ones whose loop is capturing.
+
+  `attach/1` going inert (`:perception_feeds_active`) only stops NEW attaches;
+  a feed a page already attached keeps photographing the real screen. Anything
+  that needs the screen to hold still — the simulator's fence — has to ask this
+  instead of trusting the flag.
+  """
+  @spec watched_keys() :: [atom]
+  def watched_keys do
+    for spec <- feed_specs(), Feed.consumer_count(Feed.name(spec.key)) > 0, do: spec.key
+  end
+
+  @doc """
   Attach the calling process as a consumer of `key` (starts its captures if first).
 
   Inert in the suite (`:perception_feeds_active`). Waking a NAMED feed starts a

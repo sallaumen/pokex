@@ -814,8 +814,12 @@ defmodule PokexWeb.SimLive do
     end
   end
 
+  # Os nomes agora podem ser worker OU aba: uma página aberta noutra janela
+  # continua fotografando a tela real por cima das chaves que o simulador
+  # publica, e "pare a frota" sozinho manda ele consertar a coisa errada.
   defp refusal_text(names) do
-    "não dá pra armar com #{Enum.map_join(names, ", ", &to_string/1)} rodando — pare a frota primeiro"
+    "não dá pra armar com #{Enum.map_join(names, ", ", &to_string/1)} — " <>
+      "pare a frota e feche as abas que estão olhando a tela"
   end
 
   defp fact(key) do

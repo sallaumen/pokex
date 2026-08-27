@@ -64,49 +64,32 @@ defmodule Pokex.Rig.Mac do
 
   def press_many(combos, opts), do: gated(fn -> do_press_many(combos, opts) end)
 
-  # All-native bursts compose the taps/gaps in Elixir (each key event ~2ms through the
-  # serialized helper; the pacing sleeps happen HERE in the caller's task, holding nothing).
-  # Any unmappable combo (a modifier like shift+v, an unmapped letter) or an unready helper
-  # falls back to the single composed osascript, serialized by the OsaBus.
+  # The pacing is paid HERE, in the caller's own process, between short commands
+  # — never as a `delay` inside a script. A burst carrying a modifier (his
+  # stance keys `shift+1`/`shift+3` ride ahead of the damage ones) used to
+  # compose ONE osascript with every gap inside it, and that script runs inside
+  # `OsaBus.handle_call`: three keys at his 300ms parked the GLOBAL key queue
+  # for 600ms, with the rescue, the potion and the fallback arrows waiting
+  # behind it. Now each key takes its own route — native CGEvent when it is
+  # mapped and modifier-free, one short osascript otherwise — and the gap holds
+  # nothing at all.
+  #
+  # First error wins: a key that reached NEITHER route is a real failure, and
+  # combat's `{:key_burst_failed, _}` is the caller that should hear about it.
   defp do_press_many(combos, opts) do
-    if Enum.all?(combos, &native_pressable?/1) and KeyEvents.status() == :ready do
-      native_burst(combos, opts)
-    else
-      run_key(Commands.press_many(combos, Keyword.put(opts, :focus_app, focus_app())))
-    end
-  end
+    combos
+    |> Commands.burst(opts)
+    |> Enum.reduce_while(:ok, fn
+      {:pause, ms}, :ok ->
+        Process.sleep(ms)
+        {:cont, :ok}
 
-  defp native_pressable?(combo),
-    do: not String.contains?(combo, "+") and match?({:ok, _}, Commands.keycode(combo))
-
-  defp native_burst(combos, opts) do
-    tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
-    gap_ms = opts |> Keyword.get(:gap_ms, 0) |> max(0)
-    jitter_ms = opts |> Keyword.get(:jitter_ms, 0) |> max(0)
-    taps = Enum.flat_map(combos, fn combo -> List.duplicate(combo, tap_count) end)
-    last = length(taps) - 1
-
-    taps
-    |> Enum.with_index()
-    |> Enum.each(fn {combo, idx} ->
-      {:ok, code} = Commands.keycode(combo)
-      # per-key best effort: a mid-burst helper hiccup sends THAT key via the bus instead of
-      # double-pressing the whole burst through the fallback
-      case KeyEvents.key(:press, code, focus_app()) do
-        :ok -> :ok
-        _ -> run_key(Commands.press(combo, focus_app: focus_app()))
-      end
-
-      if idx < last, do: pause_between_keys(gap_ms, jitter_ms)
+      {:press, combo}, :ok ->
+        case do_press(combo) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
     end)
-
-    :ok
-  end
-
-  # Jitter so a burst never lands on a perfectly even cadence.
-  defp pause_between_keys(gap_ms, jitter_ms) do
-    jitter = if jitter_ms > 0, do: :rand.uniform(jitter_ms + 1) - 1, else: 0
-    Process.sleep(gap_ms + jitter)
   end
 
   defp run_key(cmd) do

@@ -77,7 +77,7 @@ Isto invalida qualquer varredura de `gap_ms` feita contra `Tally.keys/1` antes
 desta correção, pelo mesmo motivo de sempre: **a bancada media um bot
 parecido.**
 
-### 3.2 Uma rajada com modificador para o barramento de teclas inteiro
+### 3.2 Uma rajada com modificador parava o barramento de teclas inteiro — CORRIGIDO
 
 `Commands.press_many/2` emite as linhas `delay <gap+jitter>` **dentro do
 script osascript**, e esse script roda via `System.cmd` **dentro de
@@ -90,8 +90,12 @@ barramento global de teclas por ~1,1s — resgate, poção, revive e setas do
 cavebot no caminho de fallback ficam todos atrás dela. **Este é o maior lock de
 teclado do sistema hoje**, e ele não aparece em nenhuma métrica.
 
-Correção: pagar o gap em Elixir, entre chamadas curtas ao barramento, nunca
-dentro do script.
+Corrigido: `Commands.press_many/2` deu lugar a `Commands.burst/2`, que devolve
+a rajada como **passos** (`{:press, combo}` / `{:pause, ms}`). O `Rig.Mac` paga
+a pausa no processo do próprio chamador, entre comandos curtos, e cada tecla
+toma a rota que lhe cabe — CGEvent nativo quando é mapeada e sem modificador,
+um osascript curto quando não. Nenhum script do barramento carrega mais de uma
+tecla, então não há entre-teclas para esperar dentro dele.
 
 ### 3.3 A vaga de despacho é o processo que dorme
 
@@ -157,8 +161,8 @@ Armadilhas para quem for dividir em duas pistas:
 | Fase | O quê | Prova |
 |---|---|---|
 | **0** | Varrer `combat_skill_gap_ms` em 500 / 200 / 60 e ler `Tally.keys/1` | **Zero código** — o `gap_ms` já viaja em cada recibo e o `/sim` já renderiza a tabela. Só é honesto **depois** da 3.1 |
-| **1** | §3.1 — o relógio do recibo (esta PR) | teste do worker: um quadro do meio da rajada não vira "não saiu" |
-| **2** | §3.2 — o gap sai de dentro do script osascript | teste do `OsaBus`: uma rajada com modificador não segura o barramento por (n−1)×gap |
+| **1** | §3.1 — o relógio do recibo ✅ | teste do worker: um quadro do meio da rajada não vira "não saiu" |
+| **2** | §3.2 — o gap sai de dentro do script osascript ✅ | teste do `Commands`: um comando de rajada carrega no máximo uma tecla |
 | **3** | §3.3 — plano com timer, rajada cancelável | teste: mudança de mundo no meio muda a cauda |
 | **4** | §3.4 — duas pistas no Body + `Body.abort/0` | teste com `SlowRig`: um `:critical` de tecla responde durante uma sequência de mouse em voo |
 

@@ -92,29 +92,36 @@ defmodule Pokex.Rig.Mac.Commands do
     end
   end
 
-  def press_many(combos, opts \\ []) do
+  @doc """
+  A burst as STEPS: one key per command, and the gap as a step of its own.
+
+  The pacing is paid by the CALLER, between commands — never as a `delay` line
+  inside a script. An osascript runs inside `OsaBus.handle_call`, so a burst
+  that composed its gaps into one script parked the global key queue for
+  `(n-1) x gap`: three keys at his 300ms held it for 600ms with the rescue, the
+  potion and the fallback arrows all waiting behind. The jitter is drawn here,
+  once per pause, so a burst never lands on a perfectly even cadence.
+  """
+  @spec burst([String.t()], keyword) :: [{:press, String.t()} | {:pause, non_neg_integer}]
+  def burst(combos, opts \\ []) do
     tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
     gap_ms = opts |> Keyword.get(:gap_ms, 0) |> max(0)
     jitter_ms = opts |> Keyword.get(:jitter_ms, 0) |> max(0)
 
-    actions =
-      combos
-      |> Enum.flat_map(fn combo -> List.duplicate(combo, tap_count) end)
-      |> Enum.map(&key_action/1)
+    taps = Enum.flat_map(combos, fn combo -> List.duplicate(combo, tap_count) end)
+    last = length(taps) - 1
 
-    lines =
-      actions
-      |> Enum.with_index()
-      |> Enum.flat_map(fn {action, idx} ->
-        if idx == length(actions) - 1 do
-          ["  #{action}"]
-        else
-          ["  #{action}", "  delay #{delay_expr(gap_ms, jitter_ms)}"]
-        end
-      end)
-
-    build_key_script(lines, opts)
+    taps
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {combo, idx} ->
+      if idx == last,
+        do: [{:press, combo}],
+        else: [{:press, combo}, {:pause, gap_ms + jitter(jitter_ms)}]
+    end)
   end
+
+  defp jitter(0), do: 0
+  defp jitter(ms), do: :rand.uniform(ms + 1) - 1
 
   # A single guardless action keeps the battle-tested one-liner form; anything more (multiple
   # actions and/or the focus guard) becomes a tell-block script.
@@ -173,19 +180,6 @@ defmodule Pokex.Rig.Mac.Commands do
 
   defp using(mods),
     do: " using {" <> Enum.map_join(mods, ", ", &Map.fetch!(@modifiers, &1)) <> "}"
-
-  defp format_delay(seconds) do
-    if seconds == trunc(seconds),
-      do: Integer.to_string(trunc(seconds)),
-      else: :erlang.float_to_binary(seconds, decimals: 3)
-  end
-
-  defp delay_expr(gap_ms, 0), do: format_delay(gap_ms / 1000)
-  defp delay_expr(0, jitter_ms), do: "(random number from 0 to #{format_delay(jitter_ms / 1000)})"
-
-  defp delay_expr(gap_ms, jitter_ms),
-    do:
-      "(#{format_delay(gap_ms / 1000)} + (random number from 0 to #{format_delay(jitter_ms / 1000)}))"
 
   def click(:left, {x, y}), do: {"cliclick", ["c:#{x},#{y}"]}
   def click(:right, {x, y}), do: {"cliclick", ["rc:#{x},#{y}"]}

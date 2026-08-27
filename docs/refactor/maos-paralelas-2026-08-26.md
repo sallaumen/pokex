@@ -130,7 +130,7 @@ justificativa que sobra é a surdez (6 decisões descartadas por abertura), e es
 ainda não tem preço medido — precisa de um predicado melhor que "campo vazio",
 provavelmente "o alvo travado morreu".
 
-### 3.4 O Body tem uma pista só para dois atuadores
+### 3.4 O Body tinha uma pista só para dois atuadores — CORRIGIDO
 
 `busy?` cobre a sequência inteira, inclusive os ~65ms de
 `with_mouse_restore/2`. Uma sequência só-de-tecla espera atrás de uma
@@ -156,6 +156,22 @@ Armadilhas para quem for dividir em duas pistas:
   em voo") vira o **máximo** das duas pistas. Precisa de um `Body.abort/0`
   entre ações — e de `{:wait, ms}` fatiado, senão a fuga de 5s continua sendo
   o teto.
+
+Corrigido: o estado do Body virou `lanes: %{keys: _, mouse: _}`, uma sequência
+toma **todas** as pistas que seus atuadores usam e as toma juntas, e a fila
+passa a escolher o primeiro item **cujas pistas estão livres** (a ordem do
+resto é mantida). `perform/3` não mudou de assinatura: a classificação é
+derivada das ações.
+
+As armadilhas acima foram todas respeitadas — o clique do meio toma as DUAS
+pistas (sai pelo ajudante nativo das teclas E move o ponteiro), `tap`/
+`focus_click` seguem ungated como estavam, `Body.cursor/1` segue furando a
+fila, e o `flee_to_escape` continua travando o GenServer do PlayerSupport (o
+bloqueio ACIMA do Body, que duas pistas não resolvem — segue em aberto).
+
+**Fica em aberto o `Body.abort/0` e o `{:wait, ms}` fatiado.** A janela do
+pânico agora é o MÁXIMO das duas pistas, e o texto do `guardian.ex` foi
+corrigido para dizer isso — inclusive que a fuga de 5s é o teto real.
 
 ---
 
@@ -187,7 +203,7 @@ Armadilhas para quem for dividir em duas pistas:
 | **1** | §3.1 — o relógio do recibo ✅ | teste do worker: um quadro do meio da rajada não vira "não saiu" |
 | **2** | §3.2 — o gap sai de dentro do script osascript ✅ | teste do `Commands`: um comando de rajada carrega no máximo uma tecla |
 | **3** | §3.3 — cada tecla sai na sua vez no simulador ✅ · o plano cancelável fica **em aberto** (a bancada não paga por ele) | teste: a segunda tecla sai quando chega a vez dela, sem ordem nova |
-| **4** | §3.4 — duas pistas no Body + `Body.abort/0` | teste com `SlowRig`: um `:critical` de tecla responde durante uma sequência de mouse em voo |
+| **4** | §3.4 — duas pistas no Body ✅ · `Body.abort/0` + `{:wait}` fatiado ficam **em aberto** | teste com `SlowMouseRig`: um `:critical` de tecla responde durante uma sequência de mouse em voo |
 
 Constantes órfãs a medir junto (nenhuma tem medição, comentário, teste ou
 commit que a justifique): `usleep(12_000)` entre down e up, `usleep(80_000)`

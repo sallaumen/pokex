@@ -53,10 +53,19 @@ defmodule Pokex.Bots.Guardian do
   reads the cursor through the shared Rig, which in the suite is the same
   `Rig.Fake` other tests assert on. Test Guardians opt in with `auto_poll: true`.
 
-  Bound on the panic guarantee: panic is delivered promptly but is bounded
-  by whatever `Body` action is currently in flight — a worker blocked
-  mid-action is halted once that action returns (actions are short: one
-  osascript/cliclick).
+  Bound on the panic guarantee: panic is delivered promptly but is bounded by
+  whatever `Body` SEQUENCE is currently in flight — a worker blocked in
+  `perform/3` is halted once that sequence returns. The `InputGate` closes at
+  once (`set_panic_latch/1` is written before anything is halted, and
+  `Rig.Mac.gated/1` reads it per primitive), so what the sequence can still do
+  after the panic is nothing; what it costs is the WAIT.
+
+  Two things stretch that wait, and both are named here rather than papered
+  over: `{:wait, ms}` is one `Process.sleep` and is not chunked, so the flee's
+  `escape_walk_wait_ms` (5s by default) is the real ceiling; and since the body
+  runs one sequence per ACTUATOR lane, the bound is the longer of the two in
+  flight, not the single one it used to be. Shortening it needs an abort flag
+  read between actions plus a chunked wait — neither exists yet.
   """
   use GenServer
   require Logger

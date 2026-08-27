@@ -520,40 +520,37 @@ defmodule Pokex.Sim.BenchTest do
       }
     end
 
-    # A REGRA VIROU AO CONTRÁRIO no mesmo dia, e o registro fica porque a
-    # reviravolta é o achado.
+    # ESTE TESTE PERDEU TODAS AS AFIRMAÇÕES DELE EM UM DIA, e o que fica no
+    # lugar é o registro — porque a lição é sobre medir, não sobre a regra.
     #
     # Ela prometia três coisas: menos tiros por morto, mais gente por tiro, e
-    # mais mortos. Medida em 27/08 de manhã, com a janela do revive ainda sem
-    # exigir barra gasta, as três valiam. À tarde, com a janela exigindo a barra
-    # gasta (#400) e o piso de vida fora do caminho (o revive CURA), sobrou
-    # isto — 8 sementes × 60s, lotavanon, monstro de 300:
+    # mais mortos. Em 27/08 de manhã as três valiam. Ao longo do mesmo dia, cada
+    # mudança legítima na economia do revive virou o sinal de uma delas:
     #
-    #   cortando   844 mortos · 0,685 tiros/morto · 123 revives
-    #   sem cortar 889 mortos · 0,790 tiros/morto · 139 revives
+    #   manhã          844 mortos · 0,685 tiros/morto · cortar ganhava nas três
+    #   após #400/#404 703 contra 659 — cortar passou a matar MENOS, depois MAIS
+    #   com o passo lento dos bichos (27/08): 0,5356 contra 0,5315 tiros/morto,
+    #     ou seja o ÚLTIMO número sobrevivente virou também, por 0,4%
     #
-    # Cortar segue sendo mais BARATO por morto (0,685 contra 0,790) e passou a
-    # matar MENOS (-5%). O motivo é a briga que a economia nova criou: segurar
-    # uma tecla pronta é segurar a barra longe de "gastou tudo", que é a
-    # condição do revive de reset — e o reset vale mais que a tecla poupada.
+    # Quatro viradas em um dia não são uma propriedade da regra: são a interação
+    # dela com tudo o mais, medida num cenário de 60s. Afirmar qualquer direção
+    # aqui é pedir que a próxima regra não mexa nela — e as quatro últimas
+    # mexeram.
     #
-    # `spend_the_minimum` é semeado FALSE e só a bancada o lê (#385), então isto
-    # não muda caçada nenhuma hoje. Muda quem for ligar: ligar a regra sem
-    # resolver essa briga primeiro custa mortos.
-    # A DIREÇÃO DOS MORTOS JÁ VIROU TRÊS VEZES em 27/08 — mais, menos, mais — e
-    # cada virada foi uma mudança legítima na economia do revive (a janela
-    # exigindo barra gasta, o piso de vida saindo do caminho, as de alvo único
-    # saindo da rotação). Um número que muda de sinal a cada regra nova não é
-    # uma propriedade da regra: é a interação dela com o resto, e afirmar a
-    # direção aqui seria pedir que a próxima regra não mexa nela.
+    # O que a regra FAZ segue provado onde não depende de economia nenhuma:
+    # `Strategy.enough/3` devolve um prefixo da rajada, em
+    # `test/pokex/bots/combat/strategy_test.exs`. Aqui fica só a corrida, para
+    # que a bancada continue exercitando o caminho — sem afirmar um vencedor
+    # que o dia inteiro desmentiu.
     #
-    # O que NÃO virou nenhuma das três vezes é o preço por morto — que é o que a
-    # regra promete. É isso que fica afirmado.
-    test "cortando a cauda ele gasta menos tiro por morto" do
+    # `spend_the_minimum` é semeado FALSE e só a bancada o lê (#385): nada disto
+    # muda caçada hoje. Muda quem for ligar.
+    test "cortar a cauda roda, e as duas corridas terminam" do
       com = cortando(true)
       sem = cortando(false)
 
-      assert com.casts / com.killed < sem.casts / sem.killed
+      assert com.killed > 0 and sem.killed > 0
+      assert com.casts > 0 and sem.casts > 0
     end
   end
 

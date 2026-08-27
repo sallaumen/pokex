@@ -366,6 +366,38 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert Worker.status(worker).counters.rescues >= 1
   end
 
+  # UMA MENSAGEM PERDIDA NÃO PODE DESLIGAR UMA VIA DE SEGURANÇA PRA SEMPRE.
+  # `rescuing?` é ligado ao despachar o combo e só volta a false quando o
+  # `{:rescue_done, _, _}` chega — e a tarefa que manda essa mensagem é um
+  # `spawn` sem link, sem monitor e sem `try`. Se ela morre (o Body cai
+  # enquanto ela está parada dentro do `perform`, que espera `:infinity`), a
+  # mensagem nunca chega, a flag latcha, e o resgate por vida baixa não sai
+  # NUNCA MAIS — nem Parar+Iniciar recupera, porque a flag é estado do
+  # processo e o supervisor é `:one_for_one`. Poção e cura seguem saindo, o
+  # painel parece saudável, e cada emergência seguinte custa uma morte.
+  @tag :tmp_dir
+  test "um resgate cuja tarefa morre não desliga o resgate pro resto da noite", %{tmp: tmp} do
+    low = hp_png(tmp, "low_latch.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
+    Settings.put(:rescue_cooldown_ms, 1)
+
+    {:ok, blocking} = BlockingBody.start_link(self())
+    Process.unlink(blocking)
+
+    worker = start_worker(blocking)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performing, :critical, _}, 1_000
+    assert Worker.status(worker).counters.rescues == 1
+
+    # o corpo morre com a tarefa do resgate parada dentro dele
+    Process.exit(blocking, :kill)
+
+    assert wait_until(fn -> Worker.status(worker).counters.rescues >= 2 end),
+           "o resgate travou: `rescuing?` nunca voltou a false"
+  end
+
   # "ele não está usando a skill 1, que seria a skill guardada para reviver, e
   # a skill de stun (…) eu morri já por culpa disso!" (Lucas, 2026-08-14).
   # Combat RESERVES the control keys for this exact moment, and plain "direto"
@@ -899,6 +931,43 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert Worker.status(worker).last_action.text == "revive do caído"
     end
 
+    # O F4 RECOLHE O POKÉMON — e os tiques de barra ilegível logo depois são o
+    # RESULTADO do revive, não uma morte. `maybe_revive_fallen` precisa só de
+    # dois tiques ilegíveis (240ms) mais um `last_seen_hp` abaixo de 35, e
+    # `fire_rescue` não limpava esse rastro: o revive que DEU CERTO virava um
+    # segundo revive, este SEM prefixo de stun — recolhendo o pokémon de novo na
+    # frente de uma pilha acordada, que é o que `rescue_stun_first` existe para
+    # impedir. `maybe_revive_fallen` já limpa o rastro depois de si mesma, pelo
+    # mesmo motivo e com o mesmo comentário.
+    @tag :tmp_dir
+    test "o revive que deu certo não é lido como morte dois tiques depois", %{
+      tmp: tmp,
+      body: body
+    } do
+      low = hp_png(tmp, "low_then_ball.png", 6)
+      gone = world_png(tmp, "ball.png")
+
+      {:ok, _} =
+        Fake.start_link(%{
+          capture: [{:ok, low}, {:ok, gone}, {:ok, gone}, {:ok, gone}, {:ok, gone}]
+        })
+
+      # o cérebro manda reviver: é a porta do RESGATE que abre primeiro
+      orders!(:now)
+      # e sem segunda chance por ela — o que se mede aqui é a porta do caído
+      Settings.put(:rescue_cooldown_ms, 60_000)
+      # a carência É o assunto deste teste: fixada, nunca herdada da semente
+      Settings.put(:engine_revive_confirm_ms, 3_000)
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :critical, _}, 1_000
+      refute_receive {:performed, :critical, _}, 600
+
+      assert Worker.status(worker).counters.rescues == 1
+    end
+
     @tag :tmp_dir
     test "single-key mode: the fallen revive is the same one press, no cursor", %{
       tmp: tmp,
@@ -961,6 +1030,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       body: body
     } do
       Settings.put(:fainted_revive_cooldown_ms, 1)
+      # a carência do revive fresco não é o assunto deste teste: aqui o revive
+      # PROVADAMENTE não saiu, e o que se mede é o cérebro pedindo de novo
+      Settings.put(:engine_revive_confirm_ms, 500)
       dying_then_gone(tmp)
       orders!(:now)
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())

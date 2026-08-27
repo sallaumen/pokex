@@ -407,6 +407,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # tick after a combo has already been dispatched (measured 2026-08-17
       # writing this PR's tests: without this, the escalation/stun tests fired
       # the combo twice, mid-sequence).
+      state = unlatch_stale_rescue(state)
+
       if not state.rescuing? and revive_decision(state) == :rescue do
         fire_rescue(%{state | gate: nil})
       else
@@ -429,8 +431,28 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # `last_seen_hp: nil` afterwards is the anti-loop: the next revive costs a
   # fresh sighting of a LIVE bar, so a pokémon simply stored in its ball can
   # never drain the stock.
+  # THE F4 PUTS THE POKÉMON IN ITS BALL, so the unreadable ticks right after a
+  # revive are the RESULT of that revive, not a death. Two of them (240ms) plus
+  # the sub-35 reading that ORDERED this very revive were enough for the fallen
+  # path to declare a death and fire a SECOND revive — this one with no stun
+  # prefix, recalling the pokémon again in front of a wide-awake pile, which is
+  # exactly what `rescue_stun_first` exists to prevent.
+  #
+  # The two cases are indistinguishable on screen, so this does not decide
+  # between them: it WAITS. The number is the engine's own
+  # `engine_revive_confirm_ms` on purpose, not a new one — "the ordinary reason
+  # to be off the field is a revive already in flight, and how long one takes to
+  # show itself" is a question the brain already answered, and hands that keep a
+  # different clock from the brain is the bug behind every wrong number in this
+  # subsystem so far. Past that window the bar is STILL gone, the revive
+  # provably did not land, and the fallen path is right to fire.
+  defp fresh_rescue?(%{last_rescue_at: at}) when is_integer(at),
+    do: now() - at < Settings.get(:engine_revive_confirm_ms)
+
+  defp fresh_rescue?(_never_rescued), do: false
+
   defp maybe_revive_fallen(state) do
-    if InputGate.allowed?() and Logic.fainted?(faint_input(state)) do
+    if InputGate.allowed?() and not fresh_rescue?(state) and Logic.fainted?(faint_input(state)) do
       at = now()
       dispatch_fallen(state.body)
 
@@ -857,6 +879,25 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # Mark the attempt time BEFORE dispatching, so the cooldown holds even if the combo errors —
   # a dying-Pokémon loop must never re-fire and burn the expensive revives.
   #
+  # The belt to the task's suspenders: a rescue still marked in-flight this long
+  # after it was dispatched is not coming back, whatever swallowed its report.
+  # The combo is a stun receipt (`rescue_confirm_ms`) plus a settle plus one
+  # `Body.perform`; a minute is far past every one of them and still far below
+  # "the night is over".
+  @rescue_latch_max_ms 60_000
+
+  defp unlatch_stale_rescue(%{rescuing?: true, last_rescue_at: at} = state)
+       when is_integer(at) do
+    if now() - at > @rescue_latch_max_ms do
+      broadcast_log(:macro, "🚑 resgate sem resposta há um minuto — destravando")
+      %{state | rescuing?: false}
+    else
+      state
+    end
+  end
+
+  defp unlatch_stale_rescue(state), do: state
+
   # The HANDS are a spawned task's, never this GenServer's: the stun receipt
   # sleeps up to `rescue_confirm_ms` and the Body call waits `:infinity`, and
   # run inside the tick they made the worker deaf for longer than safe_halt's
@@ -882,13 +923,29 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # Unlinked on purpose: a Body crash mid-rescue must not take the monitor
   # down with it — the next tick still reads the bar, and the cooldown
   # already stamped keeps the loop from re-firing.
+  #
+  # And it ALWAYS reports. `{:rescue_done, _, _}` is the only thing that
+  # clears `rescuing?`, so a task that dies without sending it turns the
+  # low-HP rescue off FOREVER: the flag is process state, nothing else writes
+  # it, and the supervisor is `:one_for_one`, so neither Parar+Iniciar nor the
+  # panic corner recovers. The way it dies is ordinary — the task parks inside
+  # `Body.perform` (`:infinity`) and the Body goes down, so the `GenServer.call`
+  # exits. Potion and heal keep firing, the panel looks healthy, and every
+  # emergency after that costs a pokémon. A lost message must never be able to
+  # switch off a safety path.
   defp dispatch_rescue(body, stun_steps) do
     worker = self()
 
     spawn(fn ->
-      {notes, settle_ms} = crowd_control(body, stun_steps)
-      actions = Logic.revive(Map.put(revive_config(), :settle_ms, settle_ms))
-      outcome = Body.perform(actions, :critical, body)
+      {notes, outcome} =
+        try do
+          {notes, settle_ms} = crowd_control(body, stun_steps)
+          actions = Logic.revive(Map.put(revive_config(), :settle_ms, settle_ms))
+          {notes, Body.perform(actions, :critical, body)}
+        catch
+          kind, reason -> {[], {:error, {:crashed, kind, reason}}}
+        end
+
       send(worker, {:rescue_done, notes, outcome})
     end)
   end

@@ -122,6 +122,14 @@ defmodule Pokex.Bots.Guardian do
       on_panic: on_panic,
       body: body,
       poll_ms: poll_ms,
+      # A ceiling on the cursor read, because a timeout is an EXIT and the
+      # `case` below cannot catch one: past it this poller DIED, and with it the
+      # only production writer of `corner_ok`. The restart then reads as a fresh
+      # session — counters back to zero, `last_activity_at: nil` — so the
+      # stagnation rule mis-fires on a run that was hours old. One second is ten
+      # poll windows; anything slower is congestion, and the answer to
+      # congestion is to look again, not to die.
+      cursor_timeout_ms: Keyword.get(opts, :cursor_timeout_ms, 1_000),
       auto_poll?: auto_poll?,
       session_rules?: session_rules?,
       logout_fun: Keyword.get(opts, :logout_fun, &Logout.request/1),
@@ -163,10 +171,18 @@ defmodule Pokex.Bots.Guardian do
     {:ok, state}
   end
 
+  # A slow Body must cost this poll, never the poller. `{:error, _}` lands in the
+  # same branch a bad read already had: skip and look again next tick.
+  defp safe_cursor(state) do
+    Body.cursor(state.body, state.cursor_timeout_ms)
+  catch
+    :exit, _reason -> {:error, :body_sem_resposta}
+  end
+
   @impl true
   def handle_info(:poll, state) do
     state =
-      case Body.cursor(state.body) do
+      case safe_cursor(state) do
         {:ok, point} ->
           in_corner? = Corner.in_kill_corner?(point)
           # The gate closes the moment the cursor enters the corner, so it ALSO suppresses the

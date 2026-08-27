@@ -121,6 +121,29 @@ defmodule Pokex.Sim.RunnerTest do
     assert is_list(battle.enemies_detail)
   end
 
+  # A PERNA DE MOBADA NÃO É INVENÇÃO DESTE ARQUIVO: ela está gravada na rota, e
+  # a bancada já a lê (`Route.lure_leg?/2`). O runner respondia `luring?: false`
+  # cravado — e o cérebro usa esse campo pra saber que NÃO é hora de atacar
+  # ("se não tá lutando, ele tá no modo mobado, onde ele não deveria atacar
+  # NUNCA"). Cravado em false, o simulador media a aba que ele joga como se a
+  # mobada não existisse.
+  test "numa perna de mobada o fato :hunt diz que está mobando", %{server: server} do
+    rota = %{route() | waypoints: mobando()}
+    Runner.load(server, rota, seed: 1)
+    Runner.play(server)
+    Runner.tick_now(server)
+
+    assert {:ok, %{luring?: true, state: :walking}} =
+             WorldState.get(:hunt, :infinity, now())
+  end
+
+  defp mobando do
+    [
+      %{Enum.at(route().waypoints, 0) | action: :lure_start},
+      %{Enum.at(route().waypoints, 1) | action: :walk}
+    ]
+  end
+
   test "it publishes no mini game fact — a hunt never sees the capsule", %{server: server} do
     Runner.play(server)
     Runner.tick_now(server)
@@ -271,6 +294,29 @@ defmodule Pokex.Sim.RunnerTest do
     Runner.tick_now(server)
 
     assert Enum.map(Runner.world(server).mobs, & &1.hp) == Enum.map(before, & &1.hp)
+  end
+
+  # A IDADE MÁXIMA DE UMA ORDEM TEM DONO, e não é este arquivo: os três workers
+  # leem `engine_orders_max_age_ms` (1500). Aqui estava cravado 2000, então o
+  # simulador obedecia uma ordem meio segundo mais velha do que o bot obedeceria
+  # — e meio segundo é a diferença entre o cérebro mandando atacar a pilha que
+  # existe e a que existia.
+  test "uma ordem velha demais pro bot também é velha demais aqui", %{
+    server: server,
+    advance: advance
+  } do
+    Pokex.Settings.put(:engine_orders_max_age_ms, 1_500)
+    Runner.auto(server, true)
+    Runner.play(server)
+
+    # carimbada 1800ms atrás: passa dos 1500 do bot, cabia nos 2000 cravados
+    WorldState.put(:orders, orders(%{fire: :free, opening: ["3"]}), now() - 1_800)
+
+    advance.(200)
+    Runner.tick_now(server)
+
+    assert "3" in Pokex.Sim.World.observe(Runner.world(server), :skill_bar).ready_keys,
+           "obedeceu uma ordem que o bot teria descartado"
   end
 
   test "handed over, a free-fire order spends the keys it names", %{

@@ -75,7 +75,8 @@ defmodule Pokex.Bots.Engine.Config do
     # `Strategy.enough/3` implements it and the bench can apply it because the
     # simulated world already knows what each key takes. The brain cannot: the
     # measured damage per key lives in the `SkillMeter` and never reaches
-    # `Engine.Worker.hands/2`. Landing it there is what retires this entry.
+    # `Engine.Inputs.hands/2`, which is where both the worker and the bench now
+    # compose the decision's hands. Landing it there is what retires this entry.
     spend_the_minimum: "o dano medido por tecla (SkillMeter) não chega ao cérebro"
   }
 

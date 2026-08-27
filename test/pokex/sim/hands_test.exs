@@ -155,19 +155,19 @@ defmodule Pokex.Sim.HandsTest do
     test "N teclas ocupam o corpo por (N-1) intervalos" do
       {_world, hands} = soltando(["3", "4", "5"], %{skill_gap_ms: 500})
 
-      assert hands.busy_until == 1_000
+      assert Hands.busy_until(hands) == 1_000
     end
 
     test "uma tecla só não custa intervalo nenhum" do
       {_world, hands} = soltando(["3"], %{skill_gap_ms: 500})
 
-      assert hands.busy_until == 0
+      assert Hands.busy_until(hands) == 0
     end
 
     test "sem intervalo configurado, a rajada segue de graça" do
       {_world, hands} = soltando(["3", "4", "5"], %{})
 
-      assert hands.busy_until == 0
+      assert Hands.busy_until(hands) == 0
     end
 
     test "enquanto a rajada sai, o corpo não anda nem aperta" do
@@ -187,6 +187,34 @@ defmodule Pokex.Sim.HandsTest do
 
       assert hd(depois.mobs).hp == antes, "nenhuma tecla saiu enquanto a anterior ainda saía"
       assert depois.held == [], "as teclas de andar são soltas"
+    end
+
+    # E o preço tem uma segunda metade que o `busy_until` sozinho não cobrava:
+    # a tecla não sai AGORA, ela sai quando chega a vez dela. Uma rajada de sete
+    # teclas com o intervalo dele em 300ms tem a última saindo 1,8s depois da
+    # primeira — e nesse intervalo o bicho pode já ter morrido. Cobrar o tempo e
+    # entregar o dano todo no instante zero mede um bot que acerta o passado.
+    defp gastas(world) do
+      for {key, %{ready_at: at}} <- world.keys, at > world.clock, do: key
+    end
+
+    test "as teclas saem uma a cada intervalo, não todas no primeiro instante" do
+      {world, _hands} = soltando(["3", "4", "5"], %{skill_gap_ms: 500})
+
+      assert gastas(world) == ["3"]
+    end
+
+    test "a segunda tecla sai quando chega a vez dela, sem ordem nova" do
+      config = Map.merge(@stun, %{skill_gap_ms: 500})
+      {world, hands} = soltando(["3", "4", "5"], %{skill_gap_ms: 500})
+
+      {no_meio, hands} = Hands.obey(%{world | clock: world.clock + 500}, ordens(), hands, config)
+      assert Enum.sort(gastas(no_meio)) == ["3", "4"]
+
+      {no_fim, _hands} =
+        Hands.obey(%{no_meio | clock: no_meio.clock + 500}, ordens(), hands, config)
+
+      assert Enum.sort(gastas(no_fim)) == ["3", "4", "5"]
     end
 
     test "passada a rajada, o corpo volta a andar" do

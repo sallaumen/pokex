@@ -503,12 +503,19 @@ defmodule Pokex.Sim.BenchTest do
       }
     end
 
-    test "cortando a cauda ele dá MENOS tiros e mata MAIS" do
+    # POR MORTO, não no total. A regra é "gastar o mínimo PRA MATAR", e o total
+    # tem outro dono: quantos bichos a caçada alcança. Com o caminhante
+    # destravado (ele empurrava pedra e vagava fora da rota) a mesma janela
+    # encontra mais gente, então o total de tiros SOBE dos dois lados enquanto o
+    # preço de cada morto cai — que é a coisa que a regra promete. Medido:
+    # 0,73 tiros/morto cortando contra 0,77 sem cortar, com 879 mortos contra
+    # 823.
+    test "cortando a cauda ele gasta MENOS tiros por morto, e mata MAIS" do
       com = cortando(true)
       sem = cortando(false)
 
       assert com.killed > sem.killed
-      assert com.casts < sem.casts
+      assert com.casts / com.killed < sem.casts / sem.killed
     end
 
     test "e cada tiro pega mais gente, que é de onde o ganho vem" do

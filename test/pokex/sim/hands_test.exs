@@ -321,6 +321,43 @@ defmodule Pokex.Sim.HandsTest do
       end
     end
 
+    # PARADO PORQUE MANDARAM PARAR NÃO É TRAVADO. `advance/3` rodava no fim de
+    # `obeying/4` sem NUNCA ver as ordens, então um `route: :hold` — que é o que
+    # o cérebro faz em toda luta — contava como travamento. Quando a rota
+    # voltava, o primeiro passo saía perpendicular, fora da rota: exatamente o
+    # instante pós-luta em que o Catcher está mirando a bola, que é o dano que o
+    # #383 foi consertar.
+    test "a estrada segura pelo cérebro não conta como travamento" do
+      world = %{encostado_na_pedra() | blocked: MapSet.new()}
+      config = Map.merge(@stun, %{walk_timeout_ms: 3_000})
+
+      {_world, hands} = parado(world, Hands.new(), config, 5_000)
+
+      assert hands.sidestep == nil, "uma luta longa armou um desvio"
+    end
+
+    defp parado(world, hands, config, ate) do
+      if world.clock >= ate do
+        {world, hands}
+      else
+        {world, hands} = Hands.obey(world, ordens(%{route: :hold}), hands, config)
+        parado(World.step(world, 100), hands, config, ate)
+      end
+    end
+
+    # E O DESVIO ALTERNA. Uma direção só nunca contorna nada: se o perpendicular
+    # também está bloqueado, ele empurra a parede pro resto da corrida.
+    test "com o desvio também bloqueado, ele tenta o outro lado" do
+      pedra = MapSet.new([{1001, 1000, 7}, {1000, 1001, 7}])
+
+      world = %{encostado_na_pedra() | blocked: pedra}
+      config = Map.merge(@stun, %{walk_timeout_ms: 3_000})
+
+      {depois, _hands} = andando(world, Hands.new(), config, 30_000)
+
+      refute depois.pos == world.pos, "só tentou um lado e ficou empurrando a pedra"
+    end
+
     test "uma parede inteira no caminho não deixa a caçada parada a noite toda" do
       world = encostado_na_pedra()
       config = Map.merge(@stun, %{walk_timeout_ms: 3_000})

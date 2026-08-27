@@ -62,8 +62,11 @@ defmodule Pokex.Sim.Hands do
             # reportando mortos/min — de uma caçada que nunca andou.
             last_pos: nil,
             moved_at: 0,
-            # a direção do desvio enquanto ele está travado (nil = seguir a rota)
-            sidestep: nil
+            # a direção do desvio enquanto ele está travado (nil = seguir a rota),
+            # e quantas vezes ele já desviou sem sair do lugar — é o que faz o
+            # lado alternar em vez de empurrar a mesma pedra
+            sidestep: nil,
+            sidestep_try: 0
 
   @type t :: %__MODULE__{}
 
@@ -115,7 +118,7 @@ defmodule Pokex.Sim.Hands do
     {world, hands} = rescue_combo(world, orders, hands, config)
     {world, hands} = support(world, hands, config)
 
-    {world, %{advance(hands, world, config) | prev_hp: world.own.hp_pct}}
+    {world, %{advance(hands, world, orders, config) | prev_hp: world.own.hp_pct}}
   end
 
   @doc """
@@ -168,7 +171,7 @@ defmodule Pokex.Sim.Hands do
   # `walk_timeout_ms` — o mesmo teto que o cavebot usa antes do `unstick` —
   # pula pro waypoint seguinte, que é o equivalente barato do que ele faz na
   # parede. Sem isto o simulador media uma noite inteira de uma caçada travada.
-  defp advance(hands, world, config) do
+  defp advance(hands, world, orders, config) do
     cond do
       world.pos != hands.last_pos ->
         %{
@@ -176,16 +179,28 @@ defmodule Pokex.Sim.Hands do
           | last_pos: world.pos,
             moved_at: world.clock,
             sidestep: nil,
+            sidestep_try: 0,
             leg: next_leg(world, hands.leg)
         }
 
+      # PARADO PORQUE MANDARAM PARAR NÃO É TRAVADO. O relógio do travamento só
+      # corre enquanto ele está TENTANDO andar; sem isto um `route: :hold` — o
+      # que o cérebro faz em toda luta — armava um desvio, e o primeiro passo
+      # depois da luta saía fora da rota, justo quando o Catcher está mirando a
+      # bola.
+      not tentando_andar?(orders, hands) ->
+        %{hands | moved_at: world.clock, leg: next_leg(world, hands.leg)}
+
       travado?(hands, world, config) ->
-        %{hands | moved_at: world.clock, sidestep: sidestep(world, hands.leg)}
+        desviar(hands, world)
 
       true ->
         %{hands | leg: next_leg(world, hands.leg)}
     end
   end
+
+  defp tentando_andar?(orders, hands),
+    do: Map.get(orders, :route) == :go and not busy?(hands)
 
   defp travado?(hands, world, config) do
     case Map.get(config, :walk_timeout_ms) do
@@ -199,11 +214,30 @@ defmodule Pokex.Sim.Hands do
   # personagem do alinhamento, e daí o escorregão do próprio mundo (`slides/1`,
   # a reta e depois cada eixo sozinho) volta a ter candidato. Pular o waypoint
   # não serve: o seguinte costuma estar do outro lado da MESMA pedra.
-  defp sidestep(world, leg) do
+  #
+  # E ALTERNA. Uma direção só é meio desvio: com o perpendicular também
+  # bloqueado — duas pedras em L, que é o canto comum de uma caverna — ele
+  # empurrava a parede o resto da corrida. O contador zera assim que um tile é
+  # andado, então uma parede longa custa idas e voltas, não um lado só.
+  defp desviar(hands, world) do
+    tentativa = hands.sidestep_try + 1
+
+    %{
+      hands
+      | moved_at: world.clock,
+        sidestep_try: tentativa,
+        sidestep: sidestep(world, hands.leg, tentativa)
+    }
+  end
+
+  defp sidestep(world, leg, tentativa) do
     target = Enum.at(world.route.waypoints, leg)
     {x, _y, _z} = world.pos
 
-    if axis(target.x - x, "right", "left"), do: "down", else: "right"
+    {um, outro} =
+      if axis(target.x - x, "right", "left"), do: {"down", "up"}, else: {"right", "left"}
+
+    if rem(tentativa, 2) == 1, do: um, else: outro
   end
 
   # A waypoint counts as reached inside one tile, the same tolerance the cavebot

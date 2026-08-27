@@ -50,6 +50,7 @@ defmodule Pokex.Bots.Engine.Config do
     gather_target: :engine_gather_target,
     spend_the_minimum: :engine_spend_the_minimum,
     stun_window_ms: :engine_stun_window_ms,
+    stun_wait_ms: :engine_stun_wait_ms,
     reset_needs_control: :engine_reset_needs_control,
     band_yellow_pct: :engine_band_yellow_pct,
     band_red_pct: :engine_band_red_pct,

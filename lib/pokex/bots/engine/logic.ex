@@ -670,7 +670,7 @@ defmodule Pokex.Bots.Engine.Logic do
            "sem cooldown com #{count(t.s)} na frente — controle primeiro, revive na sequência"
          )}
 
-      reset_revive?(t) and not t.config.reset_needs_control ->
+      reset_revive?(t) and (not t.config.reset_needs_control or controle_longe?(t)) ->
         # R3b SEM CONTROLE PRONTO, que é o único jeito de chegar aqui agora: um
         # reset atrasado ainda vale mais que um reset que nunca vem, e esperar o
         # cooldown do controle seria trocar a barra inteira por um prefixo.
@@ -714,10 +714,28 @@ defmodule Pokex.Bots.Engine.Logic do
   # monotônico, então "andou" é uma subtração — nada de histórico de posição.
   # Só com a pilha grande, só com a tecla PRONTA (a barra responde isso), e só
   # com um pokémon em campo pra apertá-la.
+  # …E NÃO COM A BARRA GASTA. Com `crowd_from: 1` o controle saía em qualquer
+  # bolo, quase toda vez que voltava — e o cooldown dele (40s no time dele) é da
+  # ordem do da barra inteira. Resultado, visto por ele em 27/08: "eu precisava
+  # da minha skill de stun ali e ele já tinha usado". Com a barra gasta o
+  # trabalho do controle é ser o prefixo do revive (R10), e gastá-lo antes disso
+  # é trocar o reset da barra inteira por um stun solto.
+  #
+  # Não se perde o uso ofensivo: com a barra gasta e a pilha grande, o controle
+  # sai do mesmo jeito — por `stun_before_reset?`, com o revive atrás.
   defp stun_now?(t) do
-    control_ready?(t) and is_integer(t.s.enemies) and t.s.enemies >= t.config.crowd_from and
-      elapsed?(t, :stunned, t.config.stun_window_ms)
+    control_ready?(t) and controle_livre?(t) and is_integer(t.s.enemies) and
+      t.s.enemies >= t.config.crowd_from and elapsed?(t, :stunned, t.config.stun_window_ms)
   end
+
+  # O controle está livre pro uso ofensivo? Com a R3b desligada, sempre — não há
+  # revive nenhum esperando por ele, e a regra dele de 26/08 vale inteira ("tento
+  # ir usando o 1 pra quando tem muito monstro, pra eu não morrer"). Com ela
+  # ligada, a barra gasta é o sinal de que o próximo trabalho dessa tecla é ser
+  # prefixo — e o piso entre dois revives não entra na conta de propósito: se
+  # entrasse, o controle sairia no meio da espera e não estaria lá quando o piso
+  # passasse, que é exatamente o buraco que isto fecha.
+  defp controle_livre?(t), do: not t.config.reset_revive or t.s.spent? != true
 
   # O PREFIXO DO REVIVE, não uma segunda R10: a pilha não precisa ser grande pra
   # justificar o controle aqui, porque quem está sendo comprado é a barra, não a
@@ -725,6 +743,26 @@ defmodule Pokex.Bots.Engine.Logic do
   defp stun_before_reset?(t) do
     reset_revive?(t) and control_ready?(t) and
       elapsed?(t, :stunned, t.config.stun_window_ms)
+  end
+
+  # ESPERAR O CONTROLE É UMA APOSTA COM PRAZO. `reset_needs_control` ligado
+  # (27/08, depois de ele quase perder o pokémon num revive sem stun) virou uma
+  # trava sem saída: com o controle em 40s de cooldown e a barra gasta, a caçada
+  # ficava parada até o `fight_timeout_ms` estourar — "ele fica travado nesse bug
+  # de a caçada tropeçou (…) e ele não está usando o Resurrect".
+  #
+  # Então a trava passa a ser uma ESPERA: se o controle volta dentro de
+  # `stun_wait_ms`, vale segurar o revive por ele; se falta mais que isso, a
+  # barra vazia na frente da pilha é o perigo maior, e o revive sai sem prefixo.
+  #
+  # Sem leitura do relógio (tecla sem cooldown escrito e sem carimbo) a resposta
+  # é LONGE: é o comportamento que existia antes desta trava, e recusar pra
+  # sempre por falta de informação é o travamento de volta.
+  defp controle_longe?(t) do
+    case Map.get(t.s, :control_back_in_ms) do
+      ms when is_integer(ms) -> ms > t.config.stun_wait_ms
+      _sem_relogio -> true
+    end
   end
 
   defp control_ready?(t) do

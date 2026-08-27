@@ -1311,20 +1311,51 @@ defmodule Pokex.Bots.Engine.LogicTest do
                 bunch_ms: 0
               })
 
-    defp barra_vazia_sem_controle do
+    defp barra_vazia_sem_controle(volta_em \\ 2_000) do
       world(%{
         situation:
-          situation(%{enemies: 4, spent?: true, prepared?: false, ready_keys: [], own_hp: 95}),
+          situation(%{
+            enemies: 4,
+            spent?: true,
+            prepared?: false,
+            ready_keys: [],
+            own_hp: 95,
+            control_back_in_ms: volta_em
+          }),
         hunt: hunt(%{state: :fighting}),
         hands: %{opening: ~w(3 4), single: [], crowd: ["1"]}
       })
     end
 
-    test "com a barra vazia e o controle em cooldown, o revive NÃO sai" do
+    test "com o controle voltando logo, o revive ESPERA por ele" do
       {logic, _} = Logic.step(Logic.new(), barra_vazia_sem_controle(), @sem_stun, 1_000)
       {_logic, orders} = Logic.step(logic, barra_vazia_sem_controle(), @sem_stun, 2_000)
 
       assert orders.revive == :hold
+    end
+
+    # A TRAVA SEM SAÍDA que isto conserta: com o controle a 40s e a barra gasta,
+    # a caçada ficava parada até o `fight_timeout_ms` estourar — "ele fica
+    # travado nesse bug de a caçada tropeçou (…) e ele não está usando o
+    # Resurrect" (27/08).
+    test "com o controle longe, o revive sai sem prefixo — parado é pior" do
+      longe = barra_vazia_sem_controle(38_000)
+
+      {logic, _} = Logic.step(Logic.new(), longe, @sem_stun, 1_000)
+      {_logic, orders} = Logic.step(logic, longe, @sem_stun, 2_000)
+
+      assert orders.revive == :now
+    end
+
+    # Sem relógio nenhum a resposta é a de antes da trava existir: recusar pra
+    # sempre por falta de informação é o travamento de volta.
+    test "sem saber quando o controle volta, ele revive" do
+      sem_relogio = barra_vazia_sem_controle(nil)
+
+      {logic, _} = Logic.step(Logic.new(), sem_relogio, @sem_stun, 1_000)
+      {_logic, orders} = Logic.step(logic, sem_relogio, @sem_stun, 2_000)
+
+      assert orders.revive == :now
     end
 
     test "desligada a trava, ele volta a gastar o revive sem prefixo" do

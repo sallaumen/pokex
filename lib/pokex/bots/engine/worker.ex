@@ -238,6 +238,18 @@ defmodule Pokex.Bots.Engine.Worker do
   defp cooldowns(%Loadout{cooldowns: cooldowns}), do: cooldowns
   defp cooldowns(_no_loadout), do: %{}
 
+  # O CONTROLE MAIS PERTO DE VOLTAR. Zero quer dizer pronto; nil, que este
+  # pokémon não tem controle classificado — e aí não há o que esperar.
+  defp control_back_in_ms(%Loadout{crowd: []}, _now), do: nil
+
+  defp control_back_in_ms(%Loadout{crowd: crowd} = loadout, now) do
+    crowd
+    |> Enum.map(&SkillClock.assumed_cooling_ms(&1, loadout.cooldowns, now))
+    |> Enum.min()
+  end
+
+  defp control_back_in_ms(_no_loadout, _now), do: nil
+
   defp inputs(state, now, config) do
     %{
       battle: battle(now),
@@ -256,6 +268,7 @@ defmodule Pokex.Bots.Engine.Worker do
           now
         ),
       damage_keys: damage_keys(state.loadout, config),
+      control_back_in_ms: control_back_in_ms(state.loadout, now),
       prev: state.picture
     }
   end

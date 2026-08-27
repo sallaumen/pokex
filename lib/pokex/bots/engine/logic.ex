@@ -411,6 +411,26 @@ defmodule Pokex.Bots.Engine.Logic do
   # the thirty-second freeze R5 exists to end.
   defp recovering(t) do
     cond do
+      # DE VOLTA COM BICHO NA TELA: a luta continua, e continua AGORA.
+      #
+      # "Quando ele acaba de usar o combo e não mata, ele anda um pouco antes de
+      # reusar o combo depois que ele revive — não faz muito sentido quando a
+      # gente está usando um revive como reset de cooldown: a gente está no meio
+      # de uma luta agressiva, então continua na luta" (27/08).
+      #
+      # `reset/1` zera os relógios e a régua recomeçava do zero: juntar de novo,
+      # andar os cinco passos, esperar os seis segundos. No meio de uma luta
+      # aberta isso é o combo chegando tarde — e o revive foi gasto justamente
+      # pra ele chegar cedo.
+      is_integer(hp(t)) and hp(t) >= t.config.resume_pct and some?(t.s) ->
+        {%{reset(t.logic) | state: :engaged},
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           opening(t),
+           "de volta com a barra cheia e #{count(t.s)} na frente — a luta continua"
+         )}
+
       is_integer(hp(t)) and hp(t) >= t.config.resume_pct ->
         normal(%{t | logic: reset(t.logic)})
 

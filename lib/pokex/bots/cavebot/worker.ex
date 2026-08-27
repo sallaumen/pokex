@@ -489,6 +489,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
       %{
         engine?: true,
         route_hold?: Map.get(orders, :route) == :hold,
+        # ESPERAR COOLDOWN NÃO É TRAVAR: com a barra gasta a tela fica idêntica
+        # por dezenas de segundos, e o relógio do empate não pode contar isso
+        # como luta parada — ver `Logic.stall_or_wait/5`.
+        bar_spent?: Map.get(picture, :spent?) == true,
         reset_worth?: reset_worth?(picture),
         reset_note: reset_note(picture)
       }

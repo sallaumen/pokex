@@ -72,7 +72,11 @@ defmodule Pokex.Sim.ScoreTest do
       # `reset_revive: false` pelo mesmo motivo do teste irmão na bancada: com a
       # R3b ligada o prefixo de controle dorme a pilha e o pokémon não cai, e
       # este teste é sobre o TEMPO NO CHÃO — sem chão não há o que medir.
-      card = card("morte", config: %{engage_from: 1, reset_revive: false})
+      # …e `crowd_from: 99` pelo mesmo motivo do `reset_revive: false`: desde
+      # 27/08 o limiar do controle é UM, então a pilha dorme em qualquer
+      # engajamento e o pokémon não cai. Este teste é sobre o TEMPO NO CHÃO —
+      # sem chão não há o que medir.
+      card = card("morte", config: %{engage_from: 1, reset_revive: false, crowd_from: 99})
 
       assert card.deaths == 1
       assert card.down_pct > 50, "o revive está quebrado neste cenário: ele não volta"

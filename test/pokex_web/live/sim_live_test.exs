@@ -76,12 +76,17 @@ defmodule PokexWeb.SimLiveTest do
     assert html =~ "linha 1"
   end
 
-  test "armed, every panel renders — the map, the combo and the calibration table", %{conn: conn} do
+  # O RACK NO LUGAR DO COMBO: ele pediu, em 27/08, ver o cooldown de cada tecla
+  # correndo em vez de marcar quais matam juntas.
+  test "armed, every panel renders — the map, the key rack and the calibration table", %{
+    conn: conn
+  } do
     {:ok, live, _html} = live(conn, ~p"/sim")
 
-    html = live |> element("button", "Armar simulação") |> render_click()
+    html = live |> element("button", "Armar") |> render_click()
 
-    assert html =~ "O combo que mata"
+    refute html =~ "O combo que mata"
+    assert html =~ "A barra, agora"
     assert html =~ "Mesa de calibragem"
     assert html =~ "seu pokémon"
   end
@@ -91,7 +96,7 @@ defmodule PokexWeb.SimLiveTest do
   test "rodar TODOS renders one row per scenario, with the knobs it used", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/sim")
 
-    html = live |> element("button", "Rodar TODOS") |> render_click()
+    html = live |> element("button", "Todos") |> render_click()
 
     assert html =~ "Todos os cenários"
     assert html =~ "engaja a partir de"
@@ -160,7 +165,7 @@ defmodule PokexWeb.SimLiveTest do
   # o que cada tecla faz. "Não tá se adequando ao meu pokémon" (Lucas, 25/08).
   test "a mesa mostra a barra do pokémon, com o trabalho de cada tecla", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/sim")
-    live |> element("button", "Armar simulação") |> render_click()
+    live |> element("button", "Armar") |> render_click()
 
     html = live |> element("button", "Mesa de calibragem") |> render_click()
 
@@ -173,7 +178,7 @@ defmodule PokexWeb.SimLiveTest do
 
   test "opening the calibration table renders every field it offers", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/sim")
-    live |> element("button", "Armar simulação") |> render_click()
+    live |> element("button", "Armar") |> render_click()
 
     html = live |> element("button", "Mesa de calibragem") |> render_click()
 
@@ -182,14 +187,17 @@ defmodule PokexWeb.SimLiveTest do
     end
   end
 
-  test "the close-up and the whole-route view both render", %{conn: conn} do
+  # TRÊS GRAUS, não dois: "hoje o zoom já seria o alto (…) seria legal um
+  # intermediário" (27/08). Cada um redesenha a mesma cena com outro viewBox.
+  test "os três graus de aproximação desenham o mundo", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/sim")
-    live |> element("button", "Armar simulação") |> render_click()
+    live |> element("button", "Armar") |> render_click()
 
-    perto = live |> element("button", "aproximar") |> render_click()
-    assert perto =~ "perto"
-
-    assert live |> element("button", "perto") |> render_click() =~ "aproximar"
+    for nivel <- ~w(perto médio rota) do
+      html = live |> element("button", nivel) |> render_click()
+      assert html =~ ~s(viewBox=), "o grau #{nivel} não desenhou o mapa"
+      assert html =~ ~s(aria-pressed="true")
+    end
   end
 
   # O PLACAR DA NOITE: as mesmas perguntas do placar simulado, feitas ao rastro
@@ -457,7 +465,66 @@ defmodule PokexWeb.SimLiveTest do
       html = view |> form("#sim-cenario", %{"scenario" => "lotavanon"}) |> render_change()
 
       # A cor da parede — o que ele não atravessa, desenhado antes da rota.
-      assert html =~ "rgb(63 63 70)"
+      # Vem do token, não de um literal: o mapa é pintado com a paleta do
+      # console como o resto da página.
+      assert html =~ "var(--color-pk-raised)"
+    end
+  end
+
+  # O RACK DAS TECLAS — o pedido de 27/08: "quero ver ali, individualmente, o
+  # cooldown das skills sendo usadas, carregando em contagem regressiva quando
+  # foram usadas, recuperando quando o revive for usado, com um identificador
+  # claro que brilha".
+  describe "a barra, agora" do
+    # O mundo é empurrado pelo mesmo broadcast que o Runner usa: é o caminho de
+    # verdade, e evita ter que armar a engine inteira só pra ver uma contagem.
+    defp empurra(world) do
+      Phoenix.PubSub.broadcast(Pokex.PubSub, Pokex.Sim.Runner.topic(), {:sim, world})
+      Process.sleep(10)
+    end
+
+    defp mundo do
+      Pokex.Sim.World.new(route(),
+        loadout: Pokex.Sim.Loadout.fallback(),
+        knobs: %{skill_cooldown_ms: 45_000}
+      )
+    end
+
+    test "tecla pronta diz pronta; tecla apertada vira contagem regressiva", %{conn: conn} do
+      {:ok, live, _html} = live(conn, ~p"/sim")
+
+      empurra(mundo())
+      html = render(live)
+
+      assert html =~ "A barra, agora"
+      assert html =~ "pronta"
+
+      gasta = Pokex.Sim.World.press(mundo(), {:press, "3"})
+      empurra(Pokex.Sim.World.step(gasta, 3_000))
+      html = render(live)
+
+      assert html =~ "42s", "faltou a contagem regressiva da tecla que saiu"
+    end
+
+    # "Com um identificador claro que brilha, algo assim, dizendo que revive foi
+    # usado" (27/08).
+    test "o revive acende o rack e diz por quê", %{conn: conn} do
+      {:ok, live, _html} = live(conn, ~p"/sim")
+
+      empurra(mundo())
+      refute render(live) =~ "revive — barra zerada"
+
+      revivido =
+        mundo()
+        |> Pokex.Sim.World.press({:press, "3"})
+        |> Pokex.Sim.World.revive()
+        |> Pokex.Sim.World.step(600)
+
+      empurra(revivido)
+      html = render(live)
+
+      assert html =~ "revive — barra zerada", "o revive tem que se anunciar"
+      refute html =~ "42s", "e a barra tem que voltar inteira"
     end
   end
 end

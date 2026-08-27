@@ -103,16 +103,24 @@ defmodule Pokex.Sim.ScoreTest do
     test "com a R3b ligada, o mesmo mundo passa a ter revives proativos" do
       # `crowd_from: 99` dos dois lados: a pergunta é sobre a barra vazia, não
       # sobre a pilha grande — a R10 tem o teste dela.
+      # E O RENASCIMENTO FIXADO, porque a pergunta é sobre UMA pilha que fecha.
+      # Este número era o padrão inventado do `hunt/2` (45s); agora que o padrão
+      # é o do dono (`sim_respawn_ms`, 20s) o cenário vira um fluxo contínuo e a
+      # pilha deixa de ser uma. Um teste que depende do mundo declara o mundo.
+      mundo = [minutes: 5, respawn_ms: 45_000]
+
       %{card: sem} =
-        Score.hunt(Scenario.get("pilha-que-fecha"),
-          minutes: 5,
-          config: %{engage_from: 1, reset_revive: false, crowd_from: 99, skill_gap_ms: 0}
+        Score.hunt(
+          Scenario.get("pilha-que-fecha"),
+          mundo ++
+            [config: %{engage_from: 1, reset_revive: false, crowd_from: 99, skill_gap_ms: 0}]
         )
 
       %{card: com} =
-        Score.hunt(Scenario.get("pilha-que-fecha"),
-          minutes: 5,
-          config: %{engage_from: 1, reset_revive: true, crowd_from: 99, skill_gap_ms: 0}
+        Score.hunt(
+          Scenario.get("pilha-que-fecha"),
+          mundo ++
+            [config: %{engage_from: 1, reset_revive: true, crowd_from: 99, skill_gap_ms: 0}]
         )
 
       assert sem.revives.proactive == 0
@@ -160,5 +168,20 @@ defmodule Pokex.Sim.ScoreTest do
       assert is_integer(card.pile_ms.median)
       assert card.pile_ms.worst >= card.pile_ms.median
     end
+  end
+
+  # O RENASCIMENTO TEM DONO. `hunt/2` inventava 45s de padrão enquanto
+  # `sim_respawn_ms` — o número que o /sim mostra e que o `Sim.Runner` obedece —
+  # é 20s. O placar é a coisa com que dois cérebros são comparados, e ele estava
+  # comparando os dois num mundo mais vazio do que o simulado.
+  test "a caçada do placar renasce no ritmo do dono do número, não num inventado" do
+    # um cenário SEM `respawn_ms` próprio — dos doze, só três têm, e nos outros
+    # nove o padrão inventado era o que valia
+    cenario = Scenario.get("pilha-que-pinga")
+
+    a = Score.hunt(cenario, minutes: 1)
+    b = Score.hunt(cenario, minutes: 1, respawn_ms: Pokex.Sim.Knobs.respawn_ms(:seeds))
+
+    assert a.card == b.card
   end
 end

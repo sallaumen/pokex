@@ -74,6 +74,7 @@ defmodule Pokex.Sim.Score do
   under a pile of N, and how long F4 leaves the pokemon off the field.
   """
 
+  alias Pokex.Sim.Knobs
   alias Pokex.Sim.Bench
   alias Pokex.Sim.Scenario
 
@@ -158,7 +159,12 @@ defmodule Pokex.Sim.Score do
   @spec hunt(Scenario.t(), keyword) :: map
   def hunt(%Scenario{} = scenario, opts \\ []) do
     minutes = Keyword.get(opts, :minutes, 5)
-    respawn_ms = Keyword.get(opts, :respawn_ms, 45_000)
+    # O RENASCIMENTO TEM DONO, e não é este arquivo: `sim_respawn_ms` é o número
+    # que a tela mostra e que o `Sim.Runner` obedece. Inventados aqui, 45s
+    # faziam o placar — a coisa com que dois cérebros são comparados — medir os
+    # dois num mundo mais vazio do que o simulado. Só três dos doze cenários
+    # trazem o seu; nos outros nove valia o número inventado.
+    respawn_ms = Keyword.get(opts, :respawn_ms, Knobs.respawn_ms(:seeds))
 
     scenario = %{scenario | knobs: Map.put_new(scenario.knobs, :respawn_ms, respawn_ms)}
 

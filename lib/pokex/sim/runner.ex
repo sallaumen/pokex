@@ -291,7 +291,11 @@ defmodule Pokex.Sim.Runner do
   defp obey(%{auto?: false} = state, _now), do: state
 
   defp obey(state, now) do
-    case WorldState.get(:orders, 2_000, now) do
+    # A IDADE MÁXIMA TEM DONO, e não é este arquivo: os três workers leem
+    # `engine_orders_max_age_ms`. Cravados aqui, 2000 faziam o simulador
+    # obedecer uma ordem meio segundo mais velha do que o bot obedeceria — e
+    # meio segundo é a diferença entre atacar a pilha que existe e a que existia.
+    case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now) do
       {:ok, orders} ->
         {world, hands} = Hands.obey(state.world, orders, state.hands, Knobs.support(:live))
         %{state | world: world, hands: hands}
@@ -331,7 +335,7 @@ defmodule Pokex.Sim.Runner do
         end
       end)
 
-    publish_hunt(state.world, now)
+    publish_hunt(state.world, state.hands.leg, now)
     %{state | published: published}
   end
 
@@ -342,21 +346,37 @@ defmodule Pokex.Sim.Runner do
   # on a nest is `:fighting`, which is what makes the ruler run; walking between
   # them is `:walking`.
   #
-  # It says `luring?: false` on purpose. The gathering leg is a cavebot decision
-  # about a recorded route, and claiming it here would put words in its mouth.
-  defp publish_hunt(world, now) do
+  # E A PERNA DE MOBADA VEM DA ROTA, não de um `false` cravado. Ela está GRAVADA
+  # (`Route.lure_leg?/2`) e a bancada já a lia; aqui a resposta era sempre
+  # "não". O cérebro usa esse campo pra saber que não é hora de atacar — "se não
+  # tá lutando, ele tá no modo mobado, onde ele não deveria atacar NUNCA" — e
+  # uma perna de mobada anunciada como luta é o oposto exato do que a perna
+  # existe pra fazer. Mesma regra da bancada, inclusive o estado: mobando é
+  # ANDAR, esteja o que estiver na tela.
+  #
+  # E o `wp_index` é a perna em que a mão está, não zero: quem lê esse campo
+  # conta esquinas com ele.
+  defp publish_hunt(world, leg, now) do
+    luring? = luring?(world, leg)
+
     WorldState.put(
       :hunt,
       %{
-        state: if(on_nest?(world), do: :fighting, else: :walking),
-        luring?: false,
+        state: if(not luring? and on_nest?(world), do: :fighting, else: :walking),
+        luring?: luring?,
         gathering?: false,
-        wp_index: 0,
+        wp_index: leg,
         waypoints: length(world.route.waypoints),
         recovering?: false
       },
       now
     )
+  end
+
+  defp luring?(world, leg) do
+    count = length(world.route.waypoints)
+
+    count > 0 and Route.lure_leg?(world.route.waypoints, Integer.mod(leg - 1, count))
   end
 
   defp on_nest?(world) do

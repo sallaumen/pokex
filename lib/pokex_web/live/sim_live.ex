@@ -273,8 +273,16 @@ defmodule PokexWeb.SimLive do
 
     rows =
       Enum.map(Scenario.all(), fn scenario ->
-        %{card: without} = Score.hunt(scenario, minutes: minutes, config: config)
-        %{card: with_tuning} = Score.hunt(scenario, minutes: minutes, config: tuned)
+        # A MESA DELE VAI JUNTO, como já vai no "Rodar todos" logo acima. Sem
+        # isto o placar jogava fora a tabela de calibração inteira — e a
+        # própria tela invalida o placar quando ela muda, ou seja, ela já sabia
+        # que o placar depende dela.
+        knobs = extra_knobs(socket)
+
+        %{card: without} = Score.hunt(scenario, minutes: minutes, config: config, knobs: knobs)
+
+        %{card: with_tuning} =
+          Score.hunt(scenario, minutes: minutes, config: tuned, knobs: knobs)
 
         %{scenario: scenario, without: without, with: with_tuning}
       end)

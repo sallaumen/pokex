@@ -39,7 +39,11 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
              {1466, 211},
              {1466, 241},
              {1466, 271},
-             {1466, 301}
+             {1466, 301},
+             {1466, 331},
+             {1466, 361},
+             {1466, 391},
+             {1466, 421}
            ]
   end
 
@@ -57,7 +61,7 @@ defmodule Pokex.Bots.Fisher.ConfigTest do
     # a partial map — no battle_max_rows / battle_row_height / tile_px
     config = Config.build(calib, %{skill_keys: ["1"]})
 
-    assert length(config.battle_rows) == 6
+    assert length(config.battle_rows) == 10
     assert config.player_point == {500, 350}
   end
 end

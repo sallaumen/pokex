@@ -43,10 +43,18 @@ defmodule Pokex.Bots.Engine.Situation do
   order is the game's business, and a rule that trusts "row 0 is mine" breaks
   the day it isn't.
 
-  The name comes from `enemies_detail`, which only exists once the layout has
-  been located (`interpret.ex:120`). Without it the count stays RAW and
-  `own_row_seen?` is `nil` — because a guessed subtraction here is exactly the
-  difference between attacking a pile and walking away from it.
+  The name comes from `enemies_detail`, which needs the located layout he does
+  not run with. So there are two more ways to find his row, in order of how much
+  they know:
+
+    * **By health.** His health is read twice by two readers that know nothing
+      of each other — the Pokebar and the row's own track — and when exactly one
+      unreadable row matches, that agreement names the row without a glyph.
+    * **By position.** The first unreadable row, which his own measurement of
+      2026-08-18 puts at row 0 in 134 of 140 readings.
+
+  `own_row_seen?` says WHICH of the four answered, because a discount made on a
+  guess must never look like one made on a name.
 
   ## The measurement is closed, and he was right
 
@@ -74,7 +82,7 @@ defmodule Pokex.Bots.Engine.Situation do
           rows: non_neg_integer | nil,
           enemies: non_neg_integer | nil,
           named: [map],
-          own_row_seen?: boolean | :unnamed | nil,
+          own_row_seen?: boolean | :unnamed | :by_hp | nil,
           worth_fighting?: boolean,
           growing?: boolean,
           stable_since: integer,
@@ -107,12 +115,7 @@ defmodule Pokex.Bots.Engine.Situation do
   """
   @spec build(map, map, integer) :: t
   def build(inputs, config, now) do
-    battle =
-      read_battle(
-        Map.get(inputs, :battle),
-        Map.get(inputs, :own_name),
-        Map.get(inputs, :own_out?, :unknown)
-      )
+    battle = read_battle(Map.get(inputs, :battle), inputs)
 
     prev = Map.get(inputs, :prev)
     {growing?, stable_since} = settle(battle.enemies, prev, now)
@@ -155,10 +158,10 @@ defmodule Pokex.Bots.Engine.Situation do
   end
 
   # No reading at all: everything about the screen is unknown. Not zero.
-  defp read_battle(nil, _own_name, _own_out?),
+  defp read_battle(nil, _inputs),
     do: %{rows: nil, enemies: nil, named: [], own_row_seen?: nil}
 
-  defp read_battle(battle, own_name, own_out?) do
+  defp read_battle(battle, inputs) do
     rows = length(Map.get(battle, :enemies, []))
     detail = Map.get(battle, :enemies_detail, [])
 
@@ -167,33 +170,39 @@ defmodule Pokex.Bots.Engine.Situation do
         %{rows: 0, enemies: 0, named: [], own_row_seen?: false}
 
       detail == [] ->
-        # The layout is not located, so no row has a name and the own row cannot
-        # be told from an enemy. Raw count, unknown stated.
+        # No description of the rows at all, so the own row cannot be told from
+        # an enemy. Raw count, unknown stated.
         %{rows: rows, enemies: rows, named: [], own_row_seen?: nil}
 
       true ->
-        {mine, theirs} = Enum.split_with(detail, &mine?(&1, own_name))
-        by_name_or_by_absence(rows, mine, theirs, own_out?)
+        {mine, theirs} = Enum.split_with(detail, &mine?(&1, Map.get(inputs, :own_name)))
+        by_name_or_by_absence(rows, mine, theirs, inputs)
     end
   end
 
   # Found by name: the precise way, and the only one that works when his pokémon
   # is not the first row.
-  defp by_name_or_by_absence(rows, mine, theirs, _own_out?) when mine != [],
+  defp by_name_or_by_absence(rows, mine, theirs, _inputs) when mine != [],
     do: %{rows: rows, enemies: length(theirs), named: theirs, own_row_seen?: true}
 
   # Nothing matched by name, but his pokémon IS on the field — so one of these
-  # rows is his and the reader could not spell it. The first unreadable one is
-  # the candidate, and if every row is legible nothing is taken away: a legible
-  # list that does not contain him means he really is not in it.
-  defp by_name_or_by_absence(rows, _none, theirs, true) do
+  # rows is his and the reader could not spell it. If every row is legible
+  # nothing is taken away: a legible list that does not contain him means he
+  # really is not in it.
+  defp by_name_or_by_absence(rows, _none, theirs, %{own_out?: true} = inputs) do
     case Enum.split_with(theirs, &(&1.name == nil)) do
       {[], _all_legible} ->
         %{rows: rows, enemies: rows, named: theirs, own_row_seen?: false}
 
-      {[_first_unreadable | rest_unreadable], legible} ->
-        others = legible ++ rest_unreadable
-        %{rows: rows, enemies: length(others), named: others, own_row_seen?: :unnamed}
+      {unreadable, legible} ->
+        {how, others} = own_among(unreadable, Map.get(inputs, :own_hp))
+
+        %{
+          rows: rows,
+          enemies: length(legible ++ others),
+          named: legible ++ others,
+          own_row_seen?: how
+        }
     end
   end
 
@@ -202,6 +211,38 @@ defmodule Pokex.Bots.Engine.Situation do
   # would be walking away from something real.
   defp by_name_or_by_absence(rows, _none, theirs, _not_out),
     do: %{rows: rows, enemies: rows, named: theirs, own_row_seen?: false}
+
+  # WHICH unreadable row is his, when no name can say it.
+  #
+  # His health is read twice, from two places that do not know about each other:
+  # the Pokebar (`own_hp`) and the row's own track. They agree — measured on his
+  # capture of 2026-08-27, the single remaining row read 67% while the Pokebar
+  # read 69 — and that agreement names the row without a single glyph. It is
+  # used only to CHOOSE among rows already known to be unreadable, and only when
+  # exactly one of them matches: two rows at the same health is a coin toss, and
+  # the fallback (the first, his own measurement of 2026-08-18: row 0 in 134 of
+  # 140 readings) is what a coin toss should defer to.
+  #
+  # The slack is wide because the two readings are two different CAPTURES: the
+  # battle feed and the party bar are read on their own clocks, and a pokémon
+  # losing health fast is a different number in each. It only has to be narrow
+  # enough to tell one row from another, and it never decides the COUNT — his
+  # pokémon takes a row whether or not this says which one.
+  @hp_slack 8
+
+  defp own_among([first | rest], own_hp) when is_integer(own_hp) do
+    case Enum.filter([first | rest], &hp_near?(&1, own_hp)) do
+      [only] -> {:by_hp, Enum.reject([first | rest], &(&1 == only))}
+      _none_or_many -> {:unnamed, rest}
+    end
+  end
+
+  defp own_among([_first | rest], _no_hp), do: {:unnamed, rest}
+
+  defp hp_near?(%{hp_pct: pct}, own_hp) when is_number(pct),
+    do: abs(round(pct * 100) - own_hp) <= @hp_slack
+
+  defp hp_near?(_row_without_bar, _own_hp), do: false
 
   defp mine?(_row, nil), do: false
 

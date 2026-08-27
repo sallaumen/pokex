@@ -30,8 +30,19 @@ defmodule Pokex.Bots.Engine.NarrationTest do
       assert linha == "2 inimigos na tela — Rattata, ?"
     end
 
-    test "sem layout localizado, diz que não tem nomes" do
-      assert ["1 inimigo na tela (sem nomes — layout não localizado)"] =
+    # A frase antiga era "sem nomes — layout não localizado", e ela cobria a
+    # vida que o painel estava mostrando o tempo todo (ele, 27/08: "a gente já
+    # poderia saber um monte de coisa, como a vida de cada monstro").
+    test "sem nome legível, diz a vida — que é o que a linha realmente mostra" do
+      atual =
+        picture(%{enemies: 2, named: [%{name: nil, hp_pct: 1.0}, %{name: nil, hp_pct: 0.34}]})
+
+      assert ["2 inimigos na tela — 100%, 34%"] =
+               Narration.lines(tick(picture(%{enemies: 0})), tick(atual))
+    end
+
+    test "sem nome e sem barra, sobra a contagem" do
+      assert ["1 inimigo na tela"] =
                Narration.lines(tick(picture(%{enemies: 0})), tick(picture(%{enemies: 1})))
     end
 

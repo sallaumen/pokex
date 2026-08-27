@@ -720,6 +720,113 @@ defmodule Pokex.Vision do
   end
 
   @doc """
+  Every HP bar in the panel, WITH the fraction of it still filled.
+
+  `hp_bar_row_positions/2` answers WHERE the bars are and stops there, and that
+  left the panel saying far less than it shows. His battle window carries, per
+  row, a track of a fixed width whose filled part IS the creature's health —
+  the same reading his own pokemon's Pokebar gets. Measured on his capture of
+  2026-08-27: 128px of track, 87 of them filled, against a Pokebar reading 67%.
+
+  Two things follow from counting the SPENT part of the track as bar:
+
+    * **A dying creature stops vanishing.** The run rule needs `min_run` pixels
+      in a line, and a bar that only counts colour shrinks with the health
+      behind it: on his 174px panel the old ¼-of-the-width floor lost every
+      creature below ~34% — the ones about to die, which is exactly when
+      walking away leaves something alive. Track plus fill is the full width at
+      any health.
+    * **The fraction needs no located layout.** The bar measures its own box,
+      so a hand-calibrated region reads health as well as an anchored one.
+
+  Returns one map per bar: `y` (centre, frame pixels), `x`/`w` (the track) and
+  `pct` (0.0–1.0). Options: `:min_run` (¼ of the frame width, min 4), `:gap`
+  (6, the vertical slack that joins a bar's scanlines) and `:blend` (2, how many
+  foreign pixels a run may swallow — the fill/track boundary is antialiased,
+  and one blended pixel there must not split a bar in two).
+  """
+  @spec hp_bars(Frame.t(), keyword) :: [
+          %{y: non_neg_integer, x: non_neg_integer, w: pos_integer, pct: float}
+        ]
+  def hp_bars(frame, opts \\ [])
+
+  def hp_bars(%Frame{width: w, height: h, rgba: rgba}, opts) when w > 0 and h > 0 do
+    min_run = Keyword.get(opts, :min_run, max(div(w, 4), 4))
+    gap = Keyword.get(opts, :gap, 6)
+    blend = Keyword.get(opts, :blend, 2)
+
+    0..(h - 1)
+    |> Enum.map(&{&1, bar_line(binary_part(rgba, &1 * w * 4, w * 4), min_run, blend)})
+    |> Enum.reject(&(elem(&1, 1) == nil))
+    |> cluster_bars(gap)
+  end
+
+  def hp_bars(_empty_frame, _opts), do: []
+
+  # The longest stretch of BAR on one scanline — filled part plus spent track.
+  defp bar_line(line, min_run, blend) do
+    case scan_bar(line, 0, blend, nil, nil) do
+      {x, last, fill} when last - x + 1 >= min_run -> %{x: x, w: last - x + 1, fill: fill}
+      _too_short_or_none -> nil
+    end
+  end
+
+  defp scan_bar(<<>>, _x, _blend, open, best), do: longer(best, open)
+
+  defp scan_bar(<<r, g, b, _a, rest::binary>>, x, blend, open, best) do
+    cond do
+      hp_bar_px?(r, g, b) -> scan_bar(rest, x + 1, blend, grow(open, x, 1), best)
+      hp_track_px?(r, g, b) -> scan_bar(rest, x + 1, blend, grow(open, x, 0), best)
+      open == nil -> scan_bar(rest, x + 1, blend, nil, best)
+      elem(open, 3) >= blend -> scan_bar(rest, x + 1, blend, nil, longer(best, open))
+      true -> scan_bar(rest, x + 1, blend, blank(open), best)
+    end
+  end
+
+  defp grow(nil, x, fill), do: {x, x, fill, 0}
+  defp grow({start, _last, fill, _gaps}, x, hit), do: {start, x, fill + hit, 0}
+
+  defp blank({start, last, fill, gaps}), do: {start, last, fill, gaps + 1}
+
+  defp longer(best, nil), do: best
+  defp longer(nil, {start, last, fill, _gaps}), do: {start, last, fill}
+
+  defp longer({best_start, best_last, _fill} = best, {start, last, fill, _gaps}) do
+    if last - start > best_last - best_start, do: {start, last, fill}, else: best
+  end
+
+  # The SPENT part of a bar: dark slate blue, measured (39, 59, 79) on his panel.
+  # Blue-dominant and dark, with the panel background (13, 16, 19) darker still
+  # and every icon and glyph in the row far away from it.
+  defp hp_track_px?(r, g, b),
+    do: b >= 45 and b <= 110 and b >= g + 10 and g >= r + 10 and r <= 70
+
+  defp cluster_bars([], _gap), do: []
+
+  defp cluster_bars([first | rest], gap) do
+    {done, current} =
+      Enum.reduce(rest, {[], [first]}, fn {y, _line} = entry, {done, [{prev, _} | _] = cur} ->
+        if y - prev <= gap, do: {done, [entry | cur]}, else: {[cur | done], [entry]}
+      end)
+
+    [current | done] |> Enum.reverse() |> Enum.map(&bar_of/1)
+  end
+
+  # A bar is ~5 scanlines and its top and bottom ones are blended into the row
+  # behind them; the MIDDLE reading by fill is the one that is all bar.
+  defp bar_of(lines) do
+    {lo, hi} = lines |> Enum.map(&elem(&1, 0)) |> Enum.min_max()
+
+    middle =
+      lines
+      |> Enum.sort_by(fn {_y, line} -> line.fill / line.w end)
+      |> Enum.at(div(length(lines), 2))
+      |> elem(1)
+
+    %{y: div(lo + hi, 2), x: middle.x, w: middle.w, pct: middle.fill / middle.w}
+  end
+
+  @doc """
   How many distinct HP bars the battle body holds — the CREATURE COUNT, derived from
   `hp_bar_row_positions/2`. Kept for /diagnostics; combat itself bounds its scan by the
   bar POSITIONS (deepest occupied row), not this bare count.

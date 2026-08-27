@@ -136,7 +136,7 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     assert {:ok, %{battle_lock: counts}} =
              Sensors.Real.observe([:battle_lock], calib(), Pokex.Settings.defaults())
 
-    assert length(counts) == 6
+    assert length(counts) == 10
     assert Enum.at(counts, 2) > 0
     assert Enum.at(counts, 0) == 0
     assert Enum.at(counts, 1) == 0
@@ -148,11 +148,11 @@ defmodule Pokex.Bots.Fisher.Sensors.RealTest do
     body = Pokex.PngFixtures.write!(Path.join(tmp, "body.png"), rows(20, 20, {20, 20, 20}))
     {:ok, _} = Fake.start_link(%{capture: [{:ok, body}]})
 
-    # empty settings → band/rows fall back to defaults 30/6, list length still 6
+    # empty settings → band/rows fall back to the defaults 30/10
     assert {:ok, %{battle_lock: counts}} =
              Sensors.Real.observe([:battle_lock], calib(), %{})
 
-    assert length(counts) == 6
+    assert length(counts) == 10
     assert Enum.all?(counts, &(&1 == 0))
   end
 

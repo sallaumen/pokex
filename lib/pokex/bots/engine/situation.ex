@@ -87,6 +87,7 @@ defmodule Pokex.Bots.Engine.Situation do
           own_out?: boolean | :unknown,
           ready_keys: [String.t()] | nil,
           spent?: boolean | nil,
+          prepared?: boolean | nil,
           blind?: boolean,
           at: integer
         }
@@ -138,6 +139,11 @@ defmodule Pokex.Bots.Engine.Situation do
           Map.get(inputs, :ready_keys),
           Map.get(config, :spent_keys_left, 0)
         ),
+      # A OUTRA PONTA DO `spent?`: a barra está INTEIRA? É a pergunta que a
+      # regra de chegar preparado no próximo grupo faz, e ela não é a negação de
+      # `spent?` — entre "gastou tudo" e "está inteira" cabe a barra pela
+      # metade, que é onde ele vive.
+      prepared?: prepared?(Map.get(inputs, :damage_keys, []), Map.get(inputs, :ready_keys)),
       blind?: Map.get(inputs, :battle) == nil,
       at: now
     }
@@ -267,6 +273,14 @@ defmodule Pokex.Bots.Engine.Situation do
   # ele tem um certo custo que não é de graça" (27/08). Zero é a regra dele; o
   # knob existe porque a folga de uma tecla pode valer a pena quando a que
   # sobrou é a mais fraca da barra, e isso é medição, não opinião.
+  # Sem tecla classificada, ou sem leitura da barra, é DESCONHECIDO — e quem lê
+  # trata desconhecido como "não mexe", que é o lado barato de errar aqui: um
+  # revive a menos custa alguns segundos de cooldown, um revive a mais no meio
+  # de uma pilha acordada custa o pokémon.
+  defp prepared?([], _ready), do: nil
+  defp prepared?(_damage, nil), do: nil
+  defp prepared?(damage, ready), do: Enum.all?(damage, &(&1 in ready))
+
   defp spent?([], _ready, _left), do: nil
   defp spent?(_damage, nil, _left), do: nil
 

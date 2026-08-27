@@ -93,7 +93,10 @@ defmodule Pokex.Sim.ScoreTest do
     end
 
     test "o revive por vida entra como resgate" do
-      card = card("vermelho", config: %{engage_from: 1})
+      # `prepare_revive: false` pelo mesmo motivo que o resto isola knob: desde
+      # 27/08 existe um revive PROATIVO que não é a R3b — o de chegar preparado
+      # no próximo grupo —, e ele sairia aqui com a tela limpa.
+      card = card("vermelho", config: %{engage_from: 1, prepare_revive: false})
 
       assert card.revives.rescue > 0
       assert card.revives.proactive == 0, "sem a regra R3b, nada é proativo"

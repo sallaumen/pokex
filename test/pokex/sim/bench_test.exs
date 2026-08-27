@@ -352,7 +352,16 @@ defmodule Pokex.Sim.BenchTest do
       # …e a rajada de graça: com ela custando tempo, esta pilha nem chega a
       # machucar o suficiente pra haver poção a beber, e o teste passaria a
       # medir o preço da rajada em vez do canal da poção.
-      seco = %{engage_from: 1, reset_revive: false, crowd_from: 99, skill_gap_ms: 0}
+      # …e sem o revive de PREPARO (R11, 27/08): com a tela limpa ele sai, e
+      # como o revive devolve vida cheia os dois lados terminariam em 100 — o
+      # teste passaria a medir o revive em vez da poção.
+      seco = %{
+        engage_from: 1,
+        reset_revive: false,
+        prepare_revive: false,
+        crowd_from: 99,
+        skill_gap_ms: 0
+      }
 
       drinking =
         Map.merge(seco, %{potion_enabled: true, potion_pct: 95, potion_cooldown_ms: 3_000})

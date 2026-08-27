@@ -516,10 +516,53 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
-  defp normal(t),
-    do:
+  defp normal(t) do
+    if prepare?(t) do
+      {reset_fight(t.logic, :travelling) |> mark(:reset_revive, t.now),
+       Orders.walking(
+         :travelling,
+         t.band,
+         "andando com a barra pela metade — revive agora pra chegar inteiro",
+         revive: :now
+       )}
+    else
       {reset_fight(t.logic, :travelling),
        Orders.walking(:travelling, t.band, travelling_why(t.hunt))}
+    end
+  end
+
+  # R11 — CHEGAR PREPARADO NO PRÓXIMO GRUPO.
+  #
+  # "É raro quando uso todas minhas skills realmente esperar cooldown, eu sempre
+  # uso um revive antes de matar o próximo grupo de monstros (…) mesmo que nem
+  # tenha acabado todos os cooldowns, pra já deixar preparado pro próximo grupo
+  # que logo vai aparecer na tela conforme andarmos" (27/08).
+  #
+  # As outras regras de revive perguntam "a barra ACABOU?". Esta pergunta o
+  # contrário: "a barra está INTEIRA?" — e entre as duas cabe a barra pela
+  # metade, que é onde a caçada dele vive.
+  #
+  # SEM PREFIXO DE CONTROLE, e isso não fura a regra dos 5s: o controle existe
+  # pra proteger um revive dado no meio de uma pilha ACORDADA, e aqui a tela
+  # está limpa. Sem ninguém em campo, o pokémon na bola não custa dano nenhum.
+  #
+  # Ela se limita sozinha: o revive devolve a barra inteira, então na volta
+  # `prepared?` é true e a regra cala até o próximo grupo gastar alguma tecla.
+  # No máximo um revive por grupo, e só se o grupo custou alguma coisa.
+  # `Map.get` e não `t.s.prepared?`: uma foto montada por um chamador (um teste,
+  # um worker no meio de uma atualização) não pode derrubar o cérebro por uma
+  # chave nova — e ausente é DESCONHECIDO, que aqui não mexe.
+  defp prepare?(t) do
+    t.config.prepare_revive and Map.get(t.s, :prepared?) == false and t.s.own_out? == true and
+      quiet?(t) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
+      not t.logic.reset_broken?
+  end
+
+  # A TELA LIMPA de verdade: zero, não "poucos". Um bicho na tela é uma luta que
+  # pode começar no tique seguinte, e recolher o pokémon na frente dele é o
+  # oposto de chegar preparado.
+  defp quiet?(%{s: %{enemies: enemies}}), do: enemies == 0
+  defp quiet?(_unknown), do: false
 
   defp travelling_why(%{state: :walking}), do: "andando a rota"
   defp travelling_why(%{state: :post_fight}), do: "limpando o que ficou no chão"
@@ -549,8 +592,18 @@ defmodule Pokex.Bots.Engine.Logic do
   # nobody on it: holding the route there narrates a fight against nothing and
   # keeps the hunt standing at a spot it has already cleared.
   defp engaged(%{s: %{enemies: 0}} = t) do
-    {reset_fight(t.logic, :travelling),
-     Orders.walking(:travelling, t.band, "pilha limpa — seguindo a rota")}
+    if prepare?(t) do
+      {reset_fight(t.logic, :travelling) |> mark(:reset_revive, t.now),
+       Orders.walking(
+         :travelling,
+         t.band,
+         "pilha limpa — revive agora pra chegar inteiro no próximo grupo",
+         revive: :now
+       )}
+    else
+      {reset_fight(t.logic, :travelling),
+       Orders.walking(:travelling, t.band, "pilha limpa — seguindo a rota")}
+    end
   end
 
   # R7 — A BARRA VAZIA NÃO SEGURA A ROTA.

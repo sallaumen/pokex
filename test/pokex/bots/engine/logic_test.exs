@@ -27,6 +27,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
         own_hp: 90,
         own_out?: true,
         spent?: false,
+        prepared?: true,
         blind?: false,
         ready_keys: nil,
         # a segunda metade da régua (R6): quantos passos já foram andados
@@ -1045,6 +1046,76 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert orders.revive == :hold
       refute orders.why =~ "dentro da janela"
+    end
+  end
+
+  # R11 — CHEGAR PREPARADO NO PRÓXIMO GRUPO (27/08):
+  #
+  #   "é raro quando uso todas minhas skills realmente esperar cooldown, eu
+  #   sempre uso um revive antes de matar o próximo grupo de monstros,
+  #   normalmente dá bem certinho depois de matar um grupo usar um revive, mesmo
+  #   que nem tenha acabado todos os cooldowns, pra já deixar preparado pro
+  #   próximo grupo que logo vai aparecer na tela conforme andarmos"
+  #
+  # As outras regras de revive perguntam "acabou a barra?". Esta pergunta "a
+  # barra está inteira?" — e entre as duas cabe a barra pela metade.
+  describe "chegar preparado no próximo grupo" do
+    @preparo Config.merge(%{prepare_revive: true, reset_revive_cooldown_ms: 3_000})
+
+    defp limpo(overrides \\ %{}) do
+      world(%{
+        situation:
+          situation(Map.merge(%{enemies: 0, prepared?: false, spent?: false}, overrides)),
+        hunt: hunt(%{state: :walking})
+      })
+    end
+
+    test "com a pilha limpa e a barra pela metade, ele revive andando" do
+      {_logic, orders} = Logic.step(Logic.new(), limpo(), @preparo, 5_000)
+
+      assert orders.revive == :now
+      assert orders.route == :go, "o revive é de preparo: ele não para a rota pra isso"
+      assert orders.why =~ "chegar inteiro"
+    end
+
+    # Ela se limita sozinha: o revive devolve a barra inteira, e a condição é
+    # justamente a barra não estar inteira.
+    test "com a barra inteira ele não gasta nada" do
+      {_logic, orders} = Logic.step(Logic.new(), limpo(%{prepared?: true}), @preparo, 5_000)
+
+      assert orders.revive == :hold
+    end
+
+    # O controle existe pra proteger um revive dado no meio de uma pilha
+    # ACORDADA. Com bicho na tela isto vira a R10 e não a R11 — recolher o
+    # pokémon na frente de um monstro é o oposto de chegar preparado.
+    test "com bicho na tela ela não vale — aí a regra é a do controle" do
+      {_logic, orders} = Logic.step(Logic.new(), limpo(%{enemies: 2}), @preparo, 5_000)
+
+      refute orders.why =~ "chegar inteiro"
+    end
+
+    test "sem leitura da barra ela não inventa: desconhecido não é 'gasta'" do
+      {_logic, orders} = Logic.step(Logic.new(), limpo(%{prepared?: nil}), @preparo, 5_000)
+
+      assert orders.revive == :hold
+    end
+
+    test "e o piso entre dois revives continua valendo" do
+      {logic, primeira} = Logic.step(Logic.new(), limpo(), @preparo, 5_000)
+      assert primeira.revive == :now
+
+      {_logic, orders} = Logic.step(logic, limpo(), @preparo, 6_000)
+
+      assert orders.revive == :hold, "1s depois do último revive, ainda não"
+    end
+
+    test "desligada, a caçada volta a só andar" do
+      config = Config.merge(%{prepare_revive: false})
+
+      {_logic, orders} = Logic.step(Logic.new(), limpo(), config, 5_000)
+
+      assert orders.revive == :hold
     end
   end
 end

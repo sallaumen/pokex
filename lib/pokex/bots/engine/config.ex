@@ -67,7 +67,35 @@ defmodule Pokex.Bots.Engine.Config do
 
   @doc "Every knob, by the name the decision calls it, and the setting behind it."
   @spec knobs() :: %{atom => atom}
+  # Knobs the DECISION declares but the brain does not read yet — see
+  # `bench_only/0`.
+  @bench_only %{
+    # "Se ele se identificar aqui com a skill 4 sozinha, ele já mata" (26/08).
+    # `Strategy.enough/3` implements it and the bench can apply it because the
+    # simulated world already knows what each key takes. The brain cannot: the
+    # measured damage per key lives in the `SkillMeter` and never reaches
+    # `Engine.Worker.hands/2`. Landing it there is what retires this entry.
+    spend_the_minimum: "o dano medido por tecla (SkillMeter) não chega ao cérebro"
+  }
+
   def knobs, do: @knobs
+
+  @doc """
+  Knobs the decision declares but the brain does not read yet — a rule that
+  lives only in the bench, and WHY, one line each.
+
+  Declared, never accidental: the bench's baseline comes from the same knob map
+  (`Bench.default_config/0`, and `config_in_force/0`, which documents itself as
+  "the knobs as the bot is running right now"), so a knob only the bench obeys
+  makes every measurement describe a bot that does not exist. `config_test.exs`
+  fails on any orphan not listed here.
+
+  And listed does not mean ON: whatever is here is seeded OFF in `Settings`, so
+  the bench's baseline matches the bot. A sweep asking about the rule passes it
+  explicitly.
+  """
+  @spec bench_only() :: %{atom => String.t()}
+  def bench_only, do: @bench_only
 
   @doc "The knobs as the bot is running them right now."
   @spec in_force() :: t

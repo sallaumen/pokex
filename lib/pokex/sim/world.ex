@@ -246,6 +246,10 @@ defmodule Pokex.Sim.World do
             # baixo dela: a bancada media revives e nunca soube se um stun os
             # precedeu.
             stunned_at: nil,
+            # QUANDO O ÚLTIMO REVIVE CAIU. O mundo já sabia disso e não contava:
+            # é o instante em que a barra inteira volta, e a tela do simulador
+            # precisa poder acender por um momento pra ele VER acontecer.
+            revived_at: nil,
             # AS PAREDES E AS PEDRAS. Um `MapSet` de `{x, y, z}` que o
             # personagem não atravessa — o mesmo caminho que já desviava de
             # criatura desde #348, agora com o cenário dentro dele.
@@ -636,6 +640,7 @@ defmodule Pokex.Sim.World do
       world
       | own: own,
         revive_at: nil,
+        revived_at: world.clock,
         keys: Map.new(world.keys, fn {key, skill} -> {key, %{skill | ready_at: 0}} end)
     }
   end
@@ -667,7 +672,25 @@ defmodule Pokex.Sim.World do
   end
 
   defp spend(world, key) do
-    %{world | keys: put_in(world.keys, [key, :ready_at], world.clock + cooldown_of(world, key))}
+    %{world | keys: put_in(world.keys, [key, :ready_at], world.clock + cooldown_ms(world, key))}
+  end
+
+  @doc """
+  O cooldown desta tecla, em ms — o que a tela precisa pra desenhar a contagem.
+  """
+  @spec cooldown_of(t, String.t()) :: pos_integer
+  def cooldown_of(world, key), do: cooldown_ms(world, key)
+
+  @doc """
+  Quanto falta pra `key` voltar, em ms, e a fração já recuperada (0.0 a 1.0).
+  """
+  @spec cooling(t, String.t()) :: {non_neg_integer, float}
+  def cooling(world, key) do
+    ready_at = get_in(world.keys, [key, :ready_at]) || 0
+    total = cooldown_ms(world, key)
+    falta = max(ready_at - world.clock, 0)
+
+    {falta, if(total > 0, do: 1.0 - falta / total, else: 1.0)}
   end
 
   # O COOLDOWN DESTA TECLA, na ordem em que as fontes mandam: o que ele digitou
@@ -676,7 +699,7 @@ defmodule Pokex.Sim.World do
   # A ordem importa porque a mesa do /sim é o experimento e o time é a verdade:
   # ele mexe na mesa pra perguntar "e se a área voltasse em 12s?", e não quer
   # que isso apague o que ele mediu no jogo.
-  defp cooldown_of(world, key) do
+  defp cooldown_ms(world, key) do
     Map.get(world.knobs.skill_cooldowns, key) ||
       get_in(world.keys, [key, :cooldown_ms]) ||
       world.knobs.skill_cooldown_ms

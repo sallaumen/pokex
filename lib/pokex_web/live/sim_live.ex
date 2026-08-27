@@ -37,9 +37,14 @@ defmodule PokexWeb.SimLive do
     "ArrowDown" => "down"
   }
 
-  # Tibia shows 15x11 tiles around the character. A little wider than that keeps
-  # what is about to walk in on screen too.
-  @close_up_tiles 11
+  # OS TRÊS GRAUS DE APROXIMAÇÃO, em tiles de meia-largura a partir do
+  # personagem. `:perto` é o enquadramento do jogo (Tibia mostra 15x11 em volta
+  # do personagem, e um pouco mais largo mantém na tela o que está prestes a
+  # entrar); `:medio` é o que faltava — longe o bastante pra ver a próxima
+  # esquina chegando, perto o bastante pra contar bicho; `:rota` desenha a volta
+  # inteira e responde "onde estou na lap".
+  @zoom_spans %{perto: 11, medio: 26}
+  @zooms [:rota, :medio, :perto]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -72,9 +77,8 @@ defmodule PokexWeb.SimLive do
        score: nil,
        measured_note: nil,
        setup: saved,
-       kill_combo: Map.get(saved, :kill_combo, []),
        setup_open?: false,
-       close_up?: false,
+       zoom: :rota,
        calib: Calibrate.report(Date.utc_today()),
        noite: Tally.of_day(Date.utc_today()),
        measuring?: Pokex.Settings.get(:cavebot_measure_walk),
@@ -116,7 +120,6 @@ defmodule PokexWeb.SimLive do
     knobs =
       socket.assigns.setup
       |> Map.put(:skill_cooldowns, cooldowns)
-      |> Map.put(:kill_combo, socket.assigns.kill_combo)
 
     Setup.write(knobs)
     {:noreply, socket |> assign(setup: knobs, bench: nil) |> reload_world()}
@@ -158,18 +161,6 @@ defmodule PokexWeb.SimLive do
     {:noreply, socket |> assign(route_name: name) |> load_route()}
   end
 
-  # The one damage fact he actually holds. Every toggle rebuilds the world,
-  # because a combo declared halfway through a fight would be measuring two
-  # different worlds and calling it one.
-  def handle_event("toggle-kill-key", %{"key" => key}, socket) do
-    combo =
-      if key in socket.assigns.kill_combo,
-        do: socket.assigns.kill_combo -- [key],
-        else: Enum.sort(socket.assigns.kill_combo ++ [key])
-
-    socket |> assign(kill_combo: combo, bench: nil, bench_all: nil, score: nil) |> reload_world()
-  end
-
   def handle_event("toggle-setup", _params, socket),
     do: {:noreply, assign(socket, setup_open?: not socket.assigns.setup_open?)}
 
@@ -177,7 +168,7 @@ defmodule PokexWeb.SimLive do
   # does it once. A number he has to retype after every restart is a number he
   # will stop trusting and then stop setting.
   def handle_event("save-setup", params, socket) do
-    knobs = Map.put(parse_setup(params), :kill_combo, socket.assigns.kill_combo)
+    knobs = parse_setup(params)
     Setup.write(knobs)
 
     socket |> assign(setup: knobs, bench: nil) |> reload_world()
@@ -200,11 +191,15 @@ defmodule PokexWeb.SimLive do
   def handle_event("reset-setup", _params, socket) do
     Setup.clear()
 
-    socket |> assign(setup: %{}, kill_combo: [], bench: nil) |> reload_world()
+    socket |> assign(setup: %{}, bench: nil) |> reload_world()
   end
 
-  def handle_event("toggle-close-up", _params, socket),
-    do: {:noreply, assign(socket, close_up?: not socket.assigns.close_up?)}
+  def handle_event("zoom", %{"level" => level}, socket) do
+    case Enum.find(@zooms, &(Atom.to_string(&1) == level)) do
+      nil -> {:noreply, socket}
+      zoom -> {:noreply, assign(socket, zoom: zoom)}
+    end
+  end
 
   def handle_event("reload", _params, socket) do
     if socket.assigns.scenario,
@@ -428,17 +423,12 @@ defmodule PokexWeb.SimLive do
     knobs =
       socket.assigns.setup
       |> Map.put(:skill_damage, damage)
-      |> Map.put(:kill_combo, socket.assigns.kill_combo)
 
     Setup.write(knobs)
     socket |> assign(setup: knobs, bench: nil) |> reload_world()
   end
 
-  defp extra_knobs(socket) do
-    socket.assigns.setup
-    |> Map.drop([:kill_combo])
-    |> Map.put(:kill_combo, socket.assigns.kill_combo)
-  end
+  defp extra_knobs(socket), do: socket.assigns.setup
 
   defp kind_label(:aoe), do: "área"
   defp kind_label(:single), do: "alvo"
@@ -840,9 +830,9 @@ defmodule PokexWeb.SimLive do
   defp ending_text(:clean), do: "limpo"
   defp ending_text(:timeout), do: "ficou gente"
 
-  defp ending_class(:died), do: "font-semibold text-rose-400"
-  defp ending_class(:clean), do: "text-emerald-400"
-  defp ending_class(_still_going), do: "text-amber-400"
+  defp ending_class(:died), do: "font-semibold text-pk-danger"
+  defp ending_class(:clean), do: "text-pk-ok"
+  defp ending_class(_still_going), do: "text-pk-warn"
 
   defp failure_label(:blind), do: "tela ilegível"
   defp failure_label({:dead_key, key}), do: "tecla #{key} não sai"
@@ -904,14 +894,56 @@ defmodule PokexWeb.SimLive do
   # actually asked for — that one is local, and at this zoom a monster is four
   # pixels. The close-up recentres on the character with a fixed span, so a
   # creature becomes a square you can count instead of a speck.
-  defp view_of(%{close_up?: true, world: %{} = world}, _points) do
+  defp view_of(%{zoom: zoom, world: %{} = world}, _points) when is_map_key(@zoom_spans, zoom) do
     {x, y, _z} = world.pos
-    span = @close_up_tiles
+    span = @zoom_spans[zoom]
 
     {x - span, y - div(span * 3, 4), span * 2, div(span * 3, 2)}
   end
 
   defp view_of(assigns, points), do: bounds(points ++ character_point(assigns.world))
+
+  # O RACK, respondido pelo mundo e não por conta na tela: `World.cooling/2` é a
+  # mesma função que a decisão usa pra saber o que está pronto.
+  defp pronta?(world, key), do: elem(World.cooling(world, key), 0) == 0
+
+  defp recuperado_pct(world, key) do
+    {_falta, fracao} = World.cooling(world, key)
+    round(fracao * 100)
+  end
+
+  # Segundo com uma casa até 10s, inteiro depois: o olho lê a contagem final
+  # tique a tique e não precisa de precisão nenhuma num cooldown de 45.
+  defp falta_texto(world, key) do
+    {falta, _fracao} = World.cooling(world, key)
+
+    if falta < 10_000,
+      do: "#{Float.round(falta / 1_000, 1)}s",
+      else: "#{div(falta + 999, 1_000)}s"
+  end
+
+  defp prontas(world), do: Enum.count(bar_order(world), &pronta?(world, &1))
+
+  # A JANELA EM QUE O REVIVE AINDA É NOTÍCIA. Meio segundo é o tempo de ele
+  # perceber a barra inteira voltando; mais que isso vira enfeite aceso.
+  @revive_flash_ms 900
+  defp revive_flash?(%{revived_at: at, clock: clock}) when is_integer(at),
+    do: clock - at <= @revive_flash_ms
+
+  defp revive_flash?(_never_revived), do: false
+
+  defp tone_badge(:good), do: "bg-pk-ok-dim text-pk-ok"
+  defp tone_badge(:paused), do: "bg-pk-raised text-pk-info"
+  defp tone_badge(:bad), do: "bg-pk-danger-dim text-pk-danger"
+  defp tone_badge(:idle), do: "bg-pk-raised text-pk-text-3"
+
+  defp zoom_label(:rota), do: "rota"
+  defp zoom_label(:medio), do: "médio"
+  defp zoom_label(:perto), do: "perto"
+
+  defp zoom_hint(:rota), do: "a volta inteira — onde estou na lap"
+  defp zoom_hint(:medio), do: "meio caminho: dá pra ver a próxima esquina chegando"
+  defp zoom_hint(:perto), do: "o enquadramento do jogo — dá pra contar bicho"
 
   defp bounds(points) do
     xs = Enum.map(points, &elem(&1, 0))
@@ -1054,12 +1086,12 @@ defmodule PokexWeb.SimLive do
   defp brain_hint(nil), do: "ele anda a rota, atira e revive sozinho"
 
   defp brain_hint(orders),
-    do: "🧠 #{orders.why} (rota #{orders.route}, fogo #{orders.fire})"
+    do: "#{orders.why} · rota #{orders.route}, fogo #{orders.fire}"
 
-  defp tone_class(:good), do: "border-emerald-800/70 bg-emerald-950/30 text-emerald-100"
-  defp tone_class(:paused), do: "border-sky-900/70 bg-sky-950/30 text-sky-100"
-  defp tone_class(:bad), do: "border-rose-900/70 bg-rose-950/40 text-rose-100"
-  defp tone_class(:idle), do: "border-zinc-800 bg-zinc-900/60 text-zinc-300"
+  defp tone_class(:good), do: "border-pk-ok-line bg-pk-ok-dim text-pk-text"
+  defp tone_class(:paused), do: "border-pk-line-strong bg-pk-surface text-pk-text"
+  defp tone_class(:bad), do: "border-pk-danger-line bg-pk-danger-dim text-pk-text"
+  defp tone_class(:idle), do: "border-pk-line bg-pk-surface text-pk-text-2"
 
   defp measured_text(nil), do: "a noite não mediu"
 
@@ -1129,10 +1161,10 @@ defmodule PokexWeb.SimLive do
   defp revive_text(nil), do: "não"
   defp revive_text(at), do: "#{at}ms"
 
-  defp band_class(:green), do: "text-emerald-300"
-  defp band_class(:yellow), do: "text-amber-300"
-  defp band_class(:red), do: "text-rose-300"
-  defp band_class(_unknown), do: "text-zinc-400"
+  defp band_class(:green), do: "text-pk-ok"
+  defp band_class(:yellow), do: "text-pk-warn"
+  defp band_class(:red), do: "text-pk-danger"
+  defp band_class(_unknown), do: "text-pk-text-2"
 
   @impl true
   def render(assigns) do
@@ -1143,6 +1175,9 @@ defmodule PokexWeb.SimLive do
       assign(assigns,
         z: z,
         points: points,
+        # atributo de módulo não existe dentro do ~H: quem desenha os três graus
+        # é a lista, e ela precisa chegar como assign
+        zooms: @zooms,
         view_box: view_of(assigns, points),
         blocked: visible_blocked(assigns.world, z),
         mobs: visible_mobs(assigns.world, z),
@@ -1153,18 +1188,28 @@ defmodule PokexWeb.SimLive do
       )
 
     ~H"""
-    <Layouts.app flash={@flash} current_page={:sim} {Layouts.header(assigns)}>
+    <Layouts.app
+      flash={@flash}
+      current_page={:sim}
+      max_width="max-w-[1600px]"
+      {Layouts.header(assigns)}
+    >
       <div
         id="sim-board"
         phx-window-keydown="keydown"
         phx-window-keyup="keyup"
-        class="space-y-4"
+        class="space-y-3"
       >
-        <div class="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-          <form id="sim-rota" phx-change="pick-route" class="flex items-center gap-2">
+        <%!-- A BARRA DE COMANDO. Uma linha, altura fixa, três grupos separados
+              por fio: o que carregar, o que rodar, o que medir. Antes eram doze
+              botões de cores diferentes embrulhando em três linhas — cada um
+              gritando o mesmo tanto. --%>
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-2 rounded-lg border border-pk-line bg-pk-surface px-2 py-2">
+          <form id="sim-rota" phx-change="pick-route" class="flex items-center">
             <select
               name="route"
-              class="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-100"
+              aria-label="Rota"
+              class="h-8 min-h-0 rounded-lg border border-pk-line-strong bg-pk-raised px-2 text-pk-meta text-pk-text focus:border-pk-ok/60 focus:outline-none"
             >
               <option :for={route <- @routes} value={route.name} selected={route.name == @route_name}>
                 {route.name} ({length(route.waypoints)} esquinas)
@@ -1172,10 +1217,11 @@ defmodule PokexWeb.SimLive do
             </select>
           </form>
 
-          <form id="sim-cenario" phx-change="pick-scenario" class="flex items-center gap-2">
+          <form id="sim-cenario" phx-change="pick-scenario" class="flex items-center">
             <select
               name="scenario"
-              class="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-100"
+              aria-label="Cenário"
+              class="h-8 min-h-0 rounded-lg border border-pk-line-strong bg-pk-raised px-2 text-pk-meta text-pk-text focus:border-pk-ok/60 focus:outline-none"
             >
               <option value="">— cenário livre —</option>
               <optgroup
@@ -1193,154 +1239,239 @@ defmodule PokexWeb.SimLive do
             </select>
           </form>
 
+          <span class="h-6 w-px bg-pk-line"></span>
+
           <button
             :if={!@armed?}
             phx-click="arm"
-            class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500"
+            class="flex h-8 items-center gap-1.5 rounded-lg bg-pk-ok px-3 text-pk-meta font-bold text-pk-bg transition hover:brightness-110 active:scale-[0.99]"
           >
-            Armar simulação
+            <.icon name="hero-bolt-solid" class="size-4" /> Armar
           </button>
 
           <button
             :if={@armed?}
             phx-click="disarm"
-            class="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-500"
+            class="flex h-8 items-center gap-1.5 rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 text-pk-meta font-bold text-pk-danger transition hover:bg-pk-danger/15"
           >
-            Desarmar
+            <.icon name="hero-power" class="size-4" /> Desarmar
           </button>
 
           <button
             :if={@armed? and !@playing?}
             phx-click="play"
-            class="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
+            class="flex h-8 items-center gap-1.5 rounded-lg border border-pk-ok-line bg-pk-ok-dim px-3 text-pk-meta font-bold text-pk-ok transition hover:bg-pk-ok/20"
           >
-            <.icon name="hero-play" class="mr-1 h-4 w-4" /> Rodar
+            <.icon name="hero-play-solid" class="size-4" /> Rodar
           </button>
 
           <button
             :if={@armed? and @playing?}
             phx-click="pause"
-            class="rounded-lg bg-zinc-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-600"
+            class="flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 text-pk-meta font-semibold text-pk-text-2 transition hover:bg-pk-raised hover:text-white"
           >
-            <.icon name="hero-pause" class="mr-1 h-4 w-4" /> Pausar
+            <.icon name="hero-pause-solid" class="size-4" /> Pausar
           </button>
 
           <button
             :if={@armed?}
             phx-click="toggle-auto"
-            class={
-              "rounded-lg px-3 py-1.5 text-sm font-medium text-white " <>
-                if(@auto?,
-                  do: "bg-amber-600 hover:bg-amber-500",
-                  else: "bg-indigo-600 hover:bg-indigo-500")
-            }
+            class={[
+              "flex h-8 items-center gap-1.5 rounded-lg border px-3 text-pk-meta font-semibold transition",
+              if(@auto?,
+                do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok hover:bg-pk-ok/20",
+                else: "border-pk-line-strong text-pk-text-2 hover:bg-pk-raised hover:text-white"
+              )
+            ]}
           >
-            {if @auto?, do: "Você joga", else: "Deixar o cérebro jogar"}
+            <.icon name="hero-cpu-chip" class="size-4" />
+            {if @auto?, do: "O cérebro joga", else: "Você joga"}
           </button>
+
+          <span class="h-6 w-px bg-pk-line"></span>
 
           <button
             :if={@scenario}
             phx-click="bench"
-            class="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-500"
+            class="flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 text-pk-meta font-semibold text-pk-text-2 transition hover:bg-pk-raised hover:text-white"
           >
-            <.icon name="hero-forward" class="mr-1 h-4 w-4" /> Rodar rápido (1 min)
+            <.icon name="hero-forward" class="size-4" /> 1 min
           </button>
 
           <button
             phx-click="bench_all"
-            class="rounded-lg border border-violet-700 px-3 py-1.5 text-sm font-medium text-violet-200 hover:bg-violet-900/40"
+            class="flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 text-pk-meta font-semibold text-pk-text-2 transition hover:bg-pk-raised hover:text-white"
           >
-            <.icon name="hero-table-cells" class="mr-1 h-4 w-4" /> Rodar TODOS
+            <.icon name="hero-table-cells" class="size-4" /> Todos
           </button>
 
           <button
             phx-click="score"
-            class="rounded-lg border border-pk-ok-line bg-pk-ok-dim px-3 py-1.5 text-pk-body font-semibold text-pk-ok hover:bg-pk-ok/20"
+            class="flex h-8 items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 text-pk-meta font-semibold text-pk-text-2 transition hover:bg-pk-raised hover:text-white"
           >
-            <.icon name="hero-calculator" class="mr-1 h-4 w-4" /> Placar (5 min por cenário)
+            <.icon name="hero-calculator" class="size-4" /> Placar
           </button>
 
           <button
             phx-click="reload"
-            class="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
+            title="Recomeçar do zero"
+            aria-label="Recomeçar"
+            class="grid size-8 place-items-center rounded-lg border border-pk-line-strong text-pk-text-2 transition hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white"
           >
-            Recomeçar
+            <.icon name="hero-arrow-path" class="size-4" />
           </button>
 
-          <span :if={@armed?} class="ml-auto text-xs text-zinc-400">
-            setas andam · teclas 1–9 disparam skills
-          </span>
+          <p :if={@armed?} class="ml-auto text-pk-meta text-pk-text-3">
+            setas andam · <span class="font-mono text-pk-text-2">1–9</span> disparam
+          </p>
         </div>
 
+        <%!-- O ESTADO, COM GEOMETRIA FIXA. Antes a caixa crescia e encolhia com
+              o tamanho da frase — "isso atrapalha bastante a visibilidade"
+              (27/08) —, e a frase muda a cada tique. Agora a altura é cravada,
+              o título tem largura própria e a explicação é uma linha só que
+              corta no fim. O que muda é o texto, nunca o layout. --%>
+        <div class={[
+          "flex h-14 items-center gap-3 overflow-hidden rounded-lg border px-3",
+          tone_class(status(assigns).tone)
+        ]}>
+          <%!-- ÍCONE LITERAL, não calculado: o gerador do Tailwind lê o
+                template, e um nome montado em runtime (`tone_icon/1`) nunca
+                entra no CSS — o quadrado saía vazio. --%>
+          <span class={[
+            "grid size-8 shrink-0 place-items-center rounded-lg",
+            tone_badge(status(assigns).tone)
+          ]}>
+            <.icon :if={status(assigns).tone == :good} name="hero-signal" class="size-4" />
+            <.icon :if={status(assigns).tone == :paused} name="hero-pause" class="size-4" />
+            <.icon
+              :if={status(assigns).tone == :bad}
+              name="hero-exclamation-triangle"
+              class="size-4"
+            />
+            <.icon :if={status(assigns).tone == :idle} name="hero-minus-small" class="size-4" />
+          </span>
+          <div class="min-w-0">
+            <p class="truncate text-pk-body font-bold">{status(assigns).title}</p>
+            <p class="truncate text-pk-meta opacity-80">{status(assigns).hint}</p>
+          </div>
+          <p class="pk-num ml-auto hidden shrink-0 font-mono text-pk-meta tabular-nums opacity-70 sm:block">
+            {(@world && @world.clock) || 0}ms
+          </p>
+        </div>
+
+        <%!-- O RACK DAS TECLAS. Estava aqui "O combo que mata", que era uma
+              pergunta de calibragem — e ele pediu o contrário: ver o que a barra
+              está fazendo AGORA. Cada tecla mostra o que faz, quanto falta pra
+              voltar e uma barra que drena; quando o revive cai, o rack inteiro
+              acende por um instante e a etiqueta diz por quê.
+              Ver `Pokex.Sim.World.cooling/2`. --%>
         <div
           :if={@world && @world.keys != %{}}
-          class="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+          id="sim-rack"
+          class={[
+            "rounded-lg border bg-pk-surface p-2 transition-colors duration-500",
+            if(revive_flash?(@world),
+              do:
+                "border-pk-ok shadow-[0_0_0_1px_var(--color-pk-ok),0_8px_24px_rgba(55,208,125,0.18)]",
+              else: "border-pk-line"
+            )
+          ]}
         >
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span class="text-sm font-medium text-zinc-200">O combo que mata</span>
-            <span class="text-xs text-zinc-500">
-              marque as teclas que, juntas, derrubam um monstro
+          <div class="mb-1.5 flex items-center gap-2">
+            <h2 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+              A barra, agora
+            </h2>
+            <span
+              :if={revive_flash?(@world)}
+              class="flex items-center gap-1 rounded-full border border-pk-ok-line bg-pk-ok-dim px-2 py-0.5 text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-ok"
+            >
+              <.icon name="hero-arrow-path-rounded-square" class="size-3.5" /> revive — barra zerada
             </span>
-
-            <div class="flex flex-wrap gap-1.5">
-              <button
-                :for={key <- Enum.sort(Map.keys(@world.keys))}
-                phx-click="toggle-kill-key"
-                phx-value-key={key}
-                class={
-                  "rounded-md border px-2 py-1 text-xs font-medium " <>
-                    if(key in @kill_combo,
-                      do: "border-emerald-500 bg-emerald-600/25 text-emerald-200",
-                      else: "border-zinc-700 text-zinc-400 hover:bg-zinc-800")
-                }
-              >
-                {key}
-                <span class="ml-1 text-[10px] font-normal opacity-70">
-                  {kind_label(@world.keys[key].kind)}
-                </span>
-              </button>
-            </div>
-
-            <span :if={@kill_combo == []} class="ml-auto text-xs text-amber-300">
-              nenhuma marcada — a área usa o meu chute: {@world.knobs.aoe_damage_pct}% da vida do bicho
-            </span>
-            <span :if={@kill_combo != []} class="ml-auto text-xs text-emerald-300">
-              {length(@kill_combo)} teclas · {div(100 + length(@kill_combo) - 1, length(@kill_combo))}% por golpe
+            <span class="pk-num ml-auto font-mono text-pk-meta text-pk-text-3">
+              {prontas(@world)}/{length(bar_order(@world))} prontas
             </span>
           </div>
+
+          <ol class="grid grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-1.5">
+            <li
+              :for={chave <- bar_order(@world)}
+              class={[
+                "relative overflow-hidden rounded border px-2 py-1.5",
+                if(pronta?(@world, chave),
+                  do: "border-pk-ok-line bg-pk-ok-dim",
+                  else: "border-pk-line bg-pk-sunken"
+                )
+              ]}
+            >
+              <%!-- O TRILHO QUE ENCHE. Fica ATRÁS do texto, não do lado: a
+                    célula inteira é o medidor, então dá pra ler a barra de longe
+                    sem procurar onde está o número. --%>
+              <span
+                class="absolute inset-y-0 left-0 bg-pk-ok/10 transition-[width] duration-200 ease-linear"
+                style={"width: #{recuperado_pct(@world, chave)}%"}
+                aria-hidden="true"
+              ></span>
+              <span class="relative flex items-baseline gap-1.5">
+                <span class={[
+                  "pk-num font-mono text-pk-title font-bold",
+                  if(pronta?(@world, chave), do: "text-pk-ok", else: "text-pk-text-3")
+                ]}>
+                  {chave}
+                </span>
+                <span class="truncate text-pk-meta text-pk-text-2">
+                  {kind_label(@world.keys[chave].kind)}
+                </span>
+              </span>
+              <span class="relative mt-0.5 block">
+                <span
+                  :if={pronta?(@world, chave)}
+                  class="text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-ok"
+                >
+                  pronta
+                </span>
+                <span
+                  :if={!pronta?(@world, chave)}
+                  class="pk-num font-mono text-pk-body font-bold tabular-nums text-pk-warn"
+                >
+                  {falta_texto(@world, chave)}
+                </span>
+              </span>
+            </li>
+          </ol>
         </div>
 
         <div
           :if={@world}
-          class="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+          class="rounded-lg border border-pk-line bg-pk-surface px-3 py-2"
         >
           <div class="flex items-center gap-3">
             <button
               phx-click="toggle-setup"
-              class="text-sm font-medium text-zinc-200 hover:text-white"
+              class="text-pk-body font-semibold text-pk-text hover:text-white"
             >
               {if @setup_open?, do: "▾", else: "▸"} Mesa de calibragem
             </button>
-            <span class="text-xs text-zinc-500">
+            <span class="text-pk-meta text-pk-text-3">
               os números que eu chutei — troque pelos do seu jogo
             </span>
-            <span :if={@setup != %{}} class="text-xs text-emerald-300">
+            <span :if={@setup != %{}} class="text-pk-meta text-pk-ok">
               salva em ~/.pokex/sim_setup.json
             </span>
           </div>
 
           <form :if={@setup_open?} id="sim-mesa" phx-submit="save-setup" class="mt-3 space-y-3">
             <div :for={{titulo, campos} <- setup_groups()}>
-              <p class="mb-1 text-xs font-medium text-zinc-400">{titulo}</p>
+              <p class="mb-1 text-pk-meta font-semibold text-pk-text-2">{titulo}</p>
               <div class="flex flex-wrap gap-2">
-                <label :for={{chave, rotulo} <- campos} class="text-[11px] text-zinc-500">
+                <label :for={{chave, rotulo} <- campos} class="text-pk-meta text-pk-text-3">
                   {rotulo}
                   <input
                     type="number"
                     min="0"
                     name={chave}
                     value={knob_value(assigns, chave)}
-                    class="ml-1 w-20 rounded border border-zinc-700 bg-zinc-950 px-1.5 py-0.5 text-xs text-zinc-200"
+                    class="ml-1 w-20 h-7 rounded border border-pk-line-strong bg-pk-raised px-1.5 text-pk-meta text-pk-text focus:border-pk-ok/60 focus:outline-none"
                   />
                 </label>
               </div>
@@ -1465,226 +1596,262 @@ defmodule PokexWeb.SimLive do
             <div class="flex items-center gap-2">
               <button
                 type="submit"
-                class="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500"
+                class="h-8 rounded-lg bg-pk-ok px-3 text-pk-meta font-bold text-pk-bg transition hover:brightness-110"
               >
                 Salvar e recomeçar
               </button>
               <button
                 type="button"
                 phx-click="reset-setup"
-                class="rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                class="h-8 rounded-lg border border-pk-line-strong px-3 text-pk-meta font-semibold text-pk-text-2 transition hover:bg-pk-raised hover:text-white"
               >
                 Voltar aos meus chutes
               </button>
-              <span class="text-[11px] text-zinc-600">
+              <span class="text-[11px] text-pk-text-3">
                 a vida do monstro e o dano estão na MESMA unidade
               </span>
             </div>
           </form>
         </div>
 
-        <p :if={@refusal} class="rounded-lg bg-amber-950/60 px-3 py-2 text-sm text-amber-200">
+        <p
+          :if={@refusal}
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+        >
           {@refusal}
         </p>
 
         <div
           :if={@scenario}
-          class="rounded-xl border border-sky-900/60 bg-sky-950/30 px-3 py-2 text-sm text-sky-100"
+          class="rounded-lg border border-pk-line-strong bg-pk-sunken px-3 py-2 text-pk-body text-pk-text"
         >
           <span class="font-semibold">{@scenario.name}</span>
-          <span class="text-sky-300/70">· {Scenario.group_label(@scenario.group)}</span>
-          <p class="mt-1 text-sky-200/90">{@scenario.why}</p>
+          <span class="text-pk-text-3">· {Scenario.group_label(@scenario.group)}</span>
+          <p class="mt-1 text-pk-text-2">{@scenario.why}</p>
         </div>
 
         <p
           :if={failures(@world) != []}
-          class="rounded-lg bg-rose-950/60 px-3 py-2 text-sm font-medium text-rose-200"
+          class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body font-semibold text-pk-danger"
         >
           quebrado de propósito agora: {Enum.join(failures(@world), " · ")}
         </p>
 
         <p
           :if={@world && @world.unsimulated_stairs != []}
-          class="rounded-lg bg-amber-950/60 px-3 py-2 text-sm text-amber-200"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
         >
           Esta rota tem {length(@world.unsimulated_stairs)} passagem(ns) entre andares que não dá
           pra simular: o par de esquinas gravado está sujo, e chutar onde fica o degrau seria pior
           que não atravessar.
         </p>
 
-        <div class={"rounded-xl border px-4 py-3 #{tone_class(status(assigns).tone)}"}>
-          <p class="text-base font-semibold">{status(assigns).title}</p>
-          <p class="mt-0.5 text-sm opacity-90">{status(assigns).hint}</p>
-        </div>
+        <div class="grid gap-3 lg:grid-cols-[minmax(0,3fr)_minmax(300px,1fr)]">
+          <div class="rounded-lg border border-pk-line bg-pk-surface p-3">
+            <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <h2 class="text-pk-title font-bold text-pk-text">O mundo</h2>
+              <p class="pk-num font-mono text-pk-meta text-pk-text-3">
+                andar {@z || "?"} · {length(@mobs)} no chão
+              </p>
 
-        <div class="grid gap-4 lg:grid-cols-[2fr_1fr]">
-          <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-            <div class="mb-2 flex items-baseline justify-between">
-              <h2 class="text-sm font-semibold text-zinc-200">O mundo</h2>
-              <div class="flex items-baseline gap-3">
-                <span class="text-xs text-zinc-500">
-                  andar {@z || "?"} · {length(@mobs)} no chão · relógio {(@world && @world.clock) ||
-                    0}ms
-                </span>
+              <%!-- TRÊS GRAUS, um controle segmentado: a distância de leitura é
+                    uma escolha contínua do olho dele, não um liga-desliga. --%>
+              <div
+                :if={@world}
+                role="group"
+                aria-label="Aproximação"
+                class="ml-auto flex items-center gap-px rounded-lg border border-pk-line-strong p-0.5"
+              >
                 <button
-                  :if={@world}
-                  phx-click="toggle-close-up"
-                  class={
-                    "rounded-md border px-2 py-0.5 text-[11px] font-medium " <>
-                      if(@close_up?,
-                        do: "border-sky-500 bg-sky-600/25 text-sky-200",
-                        else: "border-zinc-700 text-zinc-400 hover:bg-zinc-800")
-                  }
+                  :for={nivel <- @zooms}
+                  phx-click="zoom"
+                  phx-value-level={nivel}
+                  title={zoom_hint(nivel)}
+                  aria-pressed={to_string(@zoom == nivel)}
+                  class={[
+                    "rounded px-2 py-0.5 text-pk-meta font-semibold transition",
+                    if(@zoom == nivel,
+                      do: "bg-pk-ok-dim text-pk-ok",
+                      else: "text-pk-text-3 hover:bg-pk-raised hover:text-white"
+                    )
+                  ]}
                 >
-                  {if @close_up?, do: "🔍 perto", else: "🔍 aproximar"}
+                  {zoom_label(nivel)}
                 </button>
               </div>
             </div>
-            <svg viewBox={view_box(@view_box)} class="h-[26rem] w-full">
-              <%!-- O CHÃO. Um quadriculado sutil atrás de tudo dá a única coisa
+            <div class="relative">
+              <%!-- O VAZIO DIZ O QUE FALTA. Desarmado o mapa é uma grade em
+                    branco do tamanho da tela, e uma grade em branco parece
+                    defeito. --%>
+              <div
+                :if={!@world}
+                class="pointer-events-none absolute inset-0 z-10 grid place-items-center"
+              >
+                <p class="rounded-lg border border-pk-line-strong bg-pk-surface/90 px-3 py-2 text-pk-body text-pk-text-2 backdrop-blur">
+                  sem mundo ainda — <span class="font-semibold text-pk-ok">Armar</span>
+                  acorda o cérebro e desenha a rota
+                </p>
+              </div>
+              <svg
+                viewBox={view_box(@view_box)}
+                class="h-[30rem] w-full rounded border border-pk-line bg-pk-bg lg:h-[38rem] 2xl:h-[46rem]"
+              >
+                <%!-- O CHÃO. Um quadriculado sutil atrás de tudo dá a única coisa
                     que o mapa não tinha: escala. Sem ele, dois monstros a três
                     tiles e a nove desenham a mesma distância no olho. --%>
-              <defs>
-                <pattern id="chao" width="1" height="1" patternUnits="userSpaceOnUse">
-                  <rect width="1" height="1" fill="rgb(24 24 27)" />
-                  <path d="M 1 0 L 0 0 0 1" fill="none" stroke="rgb(39 39 42)" stroke-width="0.04" />
-                </pattern>
-              </defs>
-              <rect
-                x={elem(@view_box, 0)}
-                y={elem(@view_box, 1)}
-                width={elem(@view_box, 2)}
-                height={elem(@view_box, 3)}
-                fill="url(#chao)"
-              />
+                <defs>
+                  <pattern id="chao" width="1" height="1" patternUnits="userSpaceOnUse">
+                    <rect width="1" height="1" fill="var(--color-pk-bg)" />
+                    <path
+                      d="M 1 0 L 0 0 0 1"
+                      fill="none"
+                      stroke="var(--color-pk-line)"
+                      stroke-width="0.04"
+                    />
+                  </pattern>
+                </defs>
+                <rect
+                  x={elem(@view_box, 0)}
+                  y={elem(@view_box, 1)}
+                  width={elem(@view_box, 2)}
+                  height={elem(@view_box, 3)}
+                  fill="url(#chao)"
+                />
 
-              <%!-- PAREDE E PEDRA, o que ele não atravessa. Desenhadas ANTES da
+                <%!-- PAREDE E PEDRA, o que ele não atravessa. Desenhadas ANTES da
                     rota de propósito: quando uma pedra cai em cima de um canto,
                     é isso que a linha do circuito passando por cima mostra — e é
                     exatamente o tropeço que ele quer ver o bot resolver. --%>
-              <rect
-                :for={{x, y, _z} <- @blocked}
-                x={x - 0.5}
-                y={y - 0.5}
-                width="1"
-                height="1"
-                fill="rgb(63 63 70)"
-                stroke="rgb(82 82 91)"
-                stroke-width="0.06"
-                rx="0.12"
-              />
-
-              <polyline
-                points={Enum.map_join(@points, " ", fn {x, y, _n} -> "#{x},#{y}" end)}
-                fill="none"
-                stroke="rgb(63 63 70)"
-                stroke-width="0.25"
-              />
-              <circle
-                :for={{x, y, nest} <- @points}
-                cx={x}
-                cy={y}
-                r={if nest, do: 0.55, else: 0.28}
-                fill={if nest, do: "rgb(251 146 60)", else: "rgb(82 82 91)"}
-              />
-              <%= if @world do %>
                 <rect
-                  x={elem(@world.pos, 0) - div(@world.knobs.screen_w, 2) - 0.5}
-                  y={elem(@world.pos, 1) - div(@world.knobs.screen_h, 2) - 0.5}
-                  width={@world.knobs.screen_w}
-                  height={@world.knobs.screen_h}
-                  fill="rgb(56 189 248 / 0.07)"
-                  stroke="rgb(56 189 248 / 0.35)"
-                  stroke-width="0.3"
+                  :for={{x, y, _z} <- @blocked}
+                  x={x - 0.5}
+                  y={y - 0.5}
+                  width="1"
+                  height="1"
+                  fill="var(--color-pk-raised)"
+                  stroke="var(--color-pk-line-strong)"
+                  stroke-width="0.06"
+                  rx="0.12"
                 />
-                <%!-- DORMINDO tem contorno próprio, não cor própria: a cor já
+
+                <polyline
+                  points={Enum.map_join(@points, " ", fn {x, y, _n} -> "#{x},#{y}" end)}
+                  fill="none"
+                  stroke="var(--color-pk-line-strong)"
+                  stroke-width="0.25"
+                />
+                <circle
+                  :for={{x, y, nest} <- @points}
+                  cx={x}
+                  cy={y}
+                  r={if nest, do: 0.55, else: 0.28}
+                  fill={if nest, do: "var(--color-pk-warn)", else: "var(--color-pk-line-strong)"}
+                />
+                <%= if @world do %>
+                  <rect
+                    x={elem(@world.pos, 0) - div(@world.knobs.screen_w, 2) - 0.5}
+                    y={elem(@world.pos, 1) - div(@world.knobs.screen_h, 2) - 0.5}
+                    width={@world.knobs.screen_w}
+                    height={@world.knobs.screen_h}
+                    fill="var(--color-pk-info)"
+                    fill-opacity="0.06"
+                    stroke="var(--color-pk-info)"
+                    stroke-opacity="0.4"
+                    stroke-width="0.3"
+                  />
+                  <%!-- DORMINDO tem contorno próprio, não cor própria: a cor já
                       carrega a vida, e o sono é o que decide se aquele bicho vai
                       morder no instante em que o campo esvaziar. --%>
-                <rect
-                  :for={mob <- @mobs}
-                  x={elem(mob.pos, 0) - 0.5}
-                  y={elem(mob.pos, 1) - 0.5}
-                  width="1"
-                  height="1"
-                  fill={mob_fill(World.hp_pct(mob))}
-                  fill-opacity={if World.asleep?(mob, @world), do: "0.45", else: "1"}
-                  stroke={
-                    if World.asleep?(mob, @world), do: "rgb(125 211 252)", else: "rgb(24 24 27)"
-                  }
-                  stroke-width={if World.asleep?(mob, @world), do: "0.18", else: "0.08"}
-                  stroke-dasharray={if World.asleep?(mob, @world), do: "0.25 0.2", else: nil}
-                />
-                <line
-                  :if={@world.own.out?}
-                  x1={elem(@world.pos, 0)}
-                  y1={elem(@world.pos, 1)}
-                  x2={elem(@world.own.pos, 0)}
-                  y2={elem(@world.own.pos, 1)}
-                  stroke="rgb(52 211 153)"
-                  stroke-width="0.12"
-                  stroke-dasharray="0.4 0.3"
-                  opacity="0.55"
-                />
-                <rect
-                  :if={@world.own.out?}
-                  x={elem(@world.own.pos, 0) - @world.knobs.aoe_radius - 0.5}
-                  y={elem(@world.own.pos, 1) - @world.knobs.aoe_radius - 0.5}
-                  width={@world.knobs.aoe_radius * 2 + 1}
-                  height={@world.knobs.aoe_radius * 2 + 1}
-                  fill="none"
-                  stroke="rgb(52 211 153)"
-                  stroke-width="0.1"
-                  stroke-dasharray="0.5 0.4"
-                  opacity="0.6"
-                />
-                <rect
-                  x={elem(@world.own.pos, 0) - 0.5}
-                  y={elem(@world.own.pos, 1) - 0.5}
-                  width="1"
-                  height="1"
-                  fill={if @world.own.out?, do: "rgb(52 211 153)", else: "rgb(113 113 122)"}
-                  stroke="rgb(24 24 27)"
-                  stroke-width="0.12"
-                />
-                <rect
-                  x={elem(@world.pos, 0) - 0.5}
-                  y={elem(@world.pos, 1) - 0.5}
-                  width="1"
-                  height="1"
-                  fill="rgb(56 189 248)"
-                  stroke="white"
-                  stroke-width="0.18"
-                />
-              <% end %>
-            </svg>
+                  <rect
+                    :for={mob <- @mobs}
+                    x={elem(mob.pos, 0) - 0.5}
+                    y={elem(mob.pos, 1) - 0.5}
+                    width="1"
+                    height="1"
+                    fill={mob_fill(World.hp_pct(mob))}
+                    fill-opacity={if World.asleep?(mob, @world), do: "0.45", else: "1"}
+                    stroke={
+                      if World.asleep?(mob, @world),
+                        do: "var(--color-pk-info)",
+                        else: "var(--color-pk-bg)"
+                    }
+                    stroke-width={if World.asleep?(mob, @world), do: "0.18", else: "0.08"}
+                    stroke-dasharray={if World.asleep?(mob, @world), do: "0.25 0.2", else: nil}
+                  />
+                  <line
+                    :if={@world.own.out?}
+                    x1={elem(@world.pos, 0)}
+                    y1={elem(@world.pos, 1)}
+                    x2={elem(@world.own.pos, 0)}
+                    y2={elem(@world.own.pos, 1)}
+                    stroke="var(--color-pk-ok)"
+                    stroke-width="0.12"
+                    stroke-dasharray="0.4 0.3"
+                    opacity="0.55"
+                  />
+                  <rect
+                    :if={@world.own.out?}
+                    x={elem(@world.own.pos, 0) - @world.knobs.aoe_radius - 0.5}
+                    y={elem(@world.own.pos, 1) - @world.knobs.aoe_radius - 0.5}
+                    width={@world.knobs.aoe_radius * 2 + 1}
+                    height={@world.knobs.aoe_radius * 2 + 1}
+                    fill="none"
+                    stroke="var(--color-pk-ok)"
+                    stroke-width="0.1"
+                    stroke-dasharray="0.5 0.4"
+                    opacity="0.6"
+                  />
+                  <rect
+                    x={elem(@world.own.pos, 0) - 0.5}
+                    y={elem(@world.own.pos, 1) - 0.5}
+                    width="1"
+                    height="1"
+                    fill={
+                      if @world.own.out?, do: "var(--color-pk-ok)", else: "var(--color-pk-text-3)"
+                    }
+                    stroke="var(--color-pk-bg)"
+                    stroke-width="0.12"
+                  />
+                  <rect
+                    x={elem(@world.pos, 0) - 0.5}
+                    y={elem(@world.pos, 1) - 0.5}
+                    width="1"
+                    height="1"
+                    fill="var(--color-pk-info)"
+                    stroke="var(--color-pk-text)"
+                    stroke-width="0.18"
+                  />
+                <% end %>
+              </svg>
+            </div>
 
-            <ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
+            <ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-pk-meta text-pk-text-2">
               <li class="flex items-center gap-1.5">
-                <span class="inline-block h-3 w-3 bg-sky-400 ring-1 ring-white"></span> você
+                <span class="inline-block size-3 bg-pk-info ring-1 ring-pk-text"></span> você
               </li>
               <li class="flex items-center gap-1.5">
-                <span class="inline-block h-3 w-3 bg-emerald-400"></span> seu pokémon (cinza = caiu)
+                <span class="inline-block size-3 bg-pk-ok"></span> seu pokémon (cinza = caiu)
               </li>
               <li class="flex items-center gap-1.5">
-                <span class="inline-block h-3 w-3 border border-dashed border-emerald-400"></span>
+                <span class="inline-block size-3 border border-dashed border-pk-ok"></span>
                 alcance da área — sai DELE
               </li>
               <li class="flex items-center gap-1.5">
-                <span class="inline-block h-3 w-3 bg-rose-500"></span> monstro
+                <span class="inline-block size-3 bg-pk-danger"></span> monstro
               </li>
               <li class="flex items-center gap-1.5">
-                <span class="inline-block h-3 w-3 rounded-full bg-orange-400"></span>
-                esquina onde nascem
+                <span class="inline-block size-3 rounded-full bg-pk-warn"></span> esquina onde nascem
               </li>
               <li class="flex items-center gap-1.5">
-                <span class="inline-block h-3 w-3 rounded-full bg-zinc-600"></span> esquina comum
+                <span class="inline-block size-3 rounded-full bg-pk-line-strong"></span> esquina comum
               </li>
               <li class="flex items-center gap-1.5">
-                <span class="inline-block h-3 w-3 border border-sky-500/60"></span>
+                <span class="inline-block size-3 border border-pk-info/60"></span>
                 a tela do jogo — o bot só sabe o que cabe aqui
               </li>
             </ul>
-            <p class="mt-1 text-[11px] leading-snug text-zinc-500">
+            <p class="mt-1 text-pk-meta leading-snug text-pk-text-3">
               Cada bicho é um quadrado de UM tile, com o pé no centro exato — é assim que a engine
               do jogo trata criatura. E o alcance é quadrado, não redondo: a distância aqui é
               Chebyshev (a grade tem diagonal), então 3 tiles na diagonal são 3, não 4,24.
@@ -1692,25 +1859,25 @@ defmodule PokexWeb.SimLive do
           </div>
 
           <div class="space-y-4">
-            <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-              <h2 class="mb-2 text-sm font-semibold text-zinc-200">O cérebro</h2>
+            <div class="rounded-lg border border-pk-line bg-pk-surface p-3">
+              <h2 class="mb-2 text-pk-title font-bold text-pk-text">O cérebro</h2>
               <%= if @orders do %>
                 <p class={"text-lg font-semibold #{band_class(@orders.band)}"}>
                   {@orders.phase} · {@orders.band}
                 </p>
-                <p class="mt-1 text-sm text-zinc-300">{@orders.why}</p>
-                <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-zinc-400">
-                  <div>rota: <span class="text-zinc-200">{@orders.route}</span></div>
-                  <div>fogo: <span class="text-zinc-200">{@orders.fire}</span></div>
-                  <div>revive: <span class="text-zinc-200">{@orders.revive}</span></div>
-                  <div>poção: <span class="text-zinc-200">{@orders.potion}</span></div>
+                <p class="mt-1 text-pk-body text-pk-text-2">{@orders.why}</p>
+                <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-pk-meta text-pk-text-2">
+                  <div>rota: <span class="text-pk-text">{@orders.route}</span></div>
+                  <div>fogo: <span class="text-pk-text">{@orders.fire}</span></div>
+                  <div>revive: <span class="text-pk-text">{@orders.revive}</span></div>
+                  <div>poção: <span class="text-pk-text">{@orders.potion}</span></div>
                 </dl>
               <% else %>
-                <p class="text-sm text-zinc-500">
+                <p class="text-pk-body text-pk-text-3">
                   A engine não publicou ordem ainda. Arme a simulação para acordá-la.
                 </p>
               <% end %>
-              <p class="mt-3 border-t border-zinc-800 pt-2 text-xs text-zinc-500">
+              <p class="mt-3 border-t border-pk-line pt-2 text-pk-meta text-pk-text-3">
                 caçada: {(@hunt_fact && @hunt_fact.state) || "sem fato :hunt"}
                 <span class="ml-2">
                   cérebro: {if @orders, do: "decidindo", else: "calado"}
@@ -1718,27 +1885,27 @@ defmodule PokexWeb.SimLive do
               </p>
             </div>
 
-            <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-              <h2 class="mb-1 text-sm font-semibold text-zinc-200">Vida</h2>
-              <p class="text-sm text-zinc-300">
-                <span class="text-emerald-300">pokémon</span>
-                {(@world && @world.own.hp_pct) || "—"}% <span class="text-zinc-600">·</span>
+            <div class="rounded-lg border border-pk-line bg-pk-surface p-3">
+              <h2 class="mb-1 text-pk-title font-bold text-pk-text">Vida</h2>
+              <p class="text-pk-body text-pk-text-2">
+                <span class="text-pk-ok">pokémon</span>
+                {(@world && @world.own.hp_pct) || "—"}% <span class="text-pk-text-3">·</span>
                 lido: {(@pokemon_fact && (@pokemon_fact.hp_pct || "não leu")) || "—"}
-                <span :if={@pokemon_fact && @pokemon_fact.fainted?} class="text-rose-300">
+                <span :if={@pokemon_fact && @pokemon_fact.fainted?} class="text-pk-danger">
                   · caiu
                 </span>
               </p>
-              <p class="mt-1 text-sm text-zinc-300">
-                <span class="text-sky-300">você</span>
+              <p class="mt-1 text-pk-body text-pk-text-2">
+                <span class="text-pk-info">você</span>
                 {(@world && @world.player.hp_pct) || "—"}%
-                <span :if={@world && @world.own.out?} class="ml-1 text-xs text-zinc-500">
+                <span :if={@world && @world.own.out?} class="ml-1 text-pk-meta text-pk-text-3">
                   — intocável enquanto ele está em campo
                 </span>
-                <span :if={@world && not @world.own.out?} class="ml-1 text-xs text-rose-300">
+                <span :if={@world && not @world.own.out?} class="ml-1 text-xs text-pk-danger">
                   — ele caiu, agora é você que apanha
                 </span>
               </p>
-              <p class="mt-2 border-t border-zinc-800 pt-2 text-xs text-zinc-500">
+              <p class="mt-2 border-t border-pk-line pt-2 text-pk-meta text-pk-text-3">
                 a engine não tem fato de vida do personagem: o mundo sabe que você
                 está morrendo e o bot não enxerga.
               </p>
@@ -1747,42 +1914,42 @@ defmodule PokexWeb.SimLive do
         </div>
 
         <div class="grid gap-4 md:grid-cols-2">
-          <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-            <h2 class="mb-2 text-sm font-semibold text-zinc-200">
-              Antes da caçada <span class="font-normal text-zinc-500">— o que grava dado</span>
+          <div class="rounded-lg border border-pk-line bg-pk-surface p-3">
+            <h2 class="mb-2 text-pk-title font-bold text-pk-text">
+              Antes da caçada <span class="font-normal text-pk-text-3">— o que grava dado</span>
             </h2>
             <ul class="space-y-1 text-sm">
-              <li class={if @measuring?, do: "text-emerald-300", else: "text-amber-300"}>
+              <li class={if @measuring?, do: "text-pk-ok", else: "text-pk-warn"}>
                 <span class="font-medium">medir caminhada:</span>
                 {if @measuring?,
                   do: "ligado — a noite vai medir tiles/s",
                   else:
                     "DESLIGADO — sem ele ninguém mede tiles/s. Ligue cavebot_measure_walk em /config"}
               </li>
-              <li class="text-zinc-400">
+              <li class="text-pk-text-2">
                 O cérebro grava sozinho: cada mudança de decisão vira uma linha tipada em
                 ~/.pokex/events/. É de lá que sai o tamanho real das pilhas.
               </li>
             </ul>
           </div>
 
-          <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-            <h2 class="mb-2 text-sm font-semibold text-zinc-200">
-              O que a noite disse <span class="font-normal text-zinc-500">— hoje</span>
+          <div class="rounded-lg border border-pk-line bg-pk-surface p-3">
+            <h2 class="mb-2 text-pk-title font-bold text-pk-text">
+              O que a noite disse <span class="font-normal text-pk-text-3">— hoje</span>
             </h2>
-            <dl class="space-y-1 text-sm text-zinc-300">
+            <dl class="space-y-1 text-pk-body text-pk-text-2">
               <div>
-                ms por tile: <span class="text-zinc-100">{measured_text(@calib.walk)}</span>
+                ms por tile: <span class="text-pk-text">{measured_text(@calib.walk)}</span>
               </div>
               <div>
                 pilha ao abrir:
-                <span class="text-zinc-100">{measured_text(@calib.pile && @calib.pile.engaged)}</span>
+                <span class="text-pk-text">{measured_text(@calib.pile && @calib.pile.engaged)}</span>
               </div>
               <div>
                 parou de chegar em:
-                <span class="text-zinc-100">{measured_text(@calib.pile && @calib.pile.settled_ms)}</span>
+                <span class="text-pk-text">{measured_text(@calib.pile && @calib.pile.settled_ms)}</span>
               </div>
-              <div :if={@calib.pile} class="text-zinc-500">
+              <div :if={@calib.pile} class="text-pk-text-3">
                 {@calib.pile.decisions} decisões · {@calib.pile.engagements} aberturas · {@calib.pile.skipped} pilhas puladas
               </div>
             </dl>
@@ -1966,12 +2133,12 @@ defmodule PokexWeb.SimLive do
           </p>
         </section>
 
-        <div :if={@bench} class="rounded-xl border border-violet-900/60 bg-violet-950/20 p-3">
-          <h2 class="mb-2 text-sm font-semibold text-violet-100">
+        <div :if={@bench} class="rounded-lg border border-pk-line bg-pk-surface p-3">
+          <h2 class="mb-2 text-pk-title font-bold text-pk-text">
             Veredito
-            <span class="font-normal text-violet-300/70">— um minuto simulado, sem processo</span>
+            <span class="font-normal text-pk-text-3">— um minuto simulado, sem processo</span>
           </h2>
-          <dl class="mb-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-violet-100">
+          <dl class="mb-3 flex flex-wrap gap-x-5 gap-y-1 text-pk-body text-pk-text-2">
             <div>mortos: <span class="font-semibold">{@bench.outcome.killed}</span></div>
             <div>sumidos no leash: <span class="font-semibold">{@bench.outcome.vanished}</span></div>
             <div>de pé: <span class="font-semibold">{@bench.outcome.left_alive}</span></div>
@@ -1982,10 +2149,10 @@ defmodule PokexWeb.SimLive do
             <div>caiu: <span class="font-semibold">{revive_text(@bench.outcome.died_at)}</span></div>
           </dl>
           <ol class="max-h-56 space-y-1 overflow-y-auto text-xs">
-            <li :for={line <- @bench.timeline} class="flex gap-2 text-zinc-300">
-              <span class="w-14 shrink-0 tabular-nums text-zinc-500">{line.at}ms</span>
+            <li :for={line <- @bench.timeline} class="flex gap-2 text-pk-text-2">
+              <span class="w-14 shrink-0 tabular-nums text-pk-text-3">{line.at}ms</span>
               <span class={"w-24 shrink-0 font-medium #{band_class(line.band)}"}>{line.phase}</span>
-              <span class="text-zinc-400">{line.why}</span>
+              <span class="text-pk-text-2">{line.why}</span>
             </li>
           </ol>
         </div>
@@ -2175,21 +2342,21 @@ defmodule PokexWeb.SimLive do
           </p>
         </section>
 
-        <div :if={@bench_all} class="rounded-xl border border-violet-900/60 bg-violet-950/20 p-3">
-          <h2 class="mb-1 text-sm font-semibold text-violet-100">
+        <div :if={@bench_all} class="rounded-lg border border-pk-line bg-pk-surface p-3">
+          <h2 class="mb-1 text-pk-title font-bold text-pk-text">
             Todos os cenários
-            <span class="font-normal text-violet-300/70">
+            <span class="font-normal text-pk-text-3">
               — um minuto cada, com os botões que o bot está usando agora
             </span>
           </h2>
-          <p class="mb-2 font-mono text-xs text-violet-300/70">
+          <p class="mb-2 font-mono text-pk-meta text-pk-text-3">
             engaja a partir de {@bench_all.config.engage_from} · {if @bench_all.config.gather_piles,
               do: "juntando pilha",
               else: "sem juntar pilha"} · assenta em {@bench_all.config.pile_settle_ms}ms · teto {@bench_all.config.size_ceiling_ms}ms
           </p>
           <div class="overflow-x-auto">
             <table class="w-full text-left text-xs">
-              <thead class="text-violet-300/70">
+              <thead class="text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
                 <tr>
                   <th class="py-1 pr-3 font-medium">cenário</th>
                   <th class="py-1 pr-3 font-medium">fim</th>
@@ -2201,24 +2368,24 @@ defmodule PokexWeb.SimLive do
                 </tr>
               </thead>
               <tbody>
-                <tr :for={row <- @bench_all.rows} class="border-t border-violet-900/40">
-                  <td class="py-1 pr-3 text-violet-100">{row.name}</td>
+                <tr :for={row <- @bench_all.rows} class="border-t border-pk-line">
+                  <td class="py-1 pr-3 text-pk-text">{row.name}</td>
                   <td class={"py-1 pr-3 #{ending_class(row.outcome.ended)}"}>
                     {ending_text(row.outcome.ended)}
                   </td>
-                  <td class="py-1 pr-3 text-right tabular-nums text-zinc-300">
+                  <td class="py-1 pr-3 text-right tabular-nums text-pk-text-2">
                     {row.outcome.killed}
                   </td>
-                  <td class={"py-1 pr-3 text-right tabular-nums #{if row.outcome.vanished > 0, do: "text-amber-400", else: "text-zinc-500"}"}>
+                  <td class={"py-1 pr-3 text-right tabular-nums #{if row.outcome.vanished > 0, do: "text-pk-warn", else: "text-pk-text-3"}"}>
                     {row.outcome.vanished}
                   </td>
-                  <td class="py-1 pr-3 text-right tabular-nums text-zinc-300">
+                  <td class="py-1 pr-3 text-right tabular-nums text-pk-text-2">
                     {row.outcome.left_alive}
                   </td>
-                  <td class="py-1 pr-3 text-right tabular-nums text-zinc-300">
+                  <td class="py-1 pr-3 text-right tabular-nums text-pk-text-2">
                     {row.outcome.hp_at_end}%
                   </td>
-                  <td class="py-1 font-mono text-[11px] text-zinc-400">
+                  <td class="py-1 font-mono text-[11px] text-pk-text-2">
                     {Enum.join(row.outcome.phases, " › ")}
                   </td>
                 </tr>
@@ -2228,36 +2395,36 @@ defmodule PokexWeb.SimLive do
         </div>
 
         <div class="grid gap-4 md:grid-cols-2">
-          <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-            <h2 class="mb-2 text-sm font-semibold text-zinc-200">
-              O que existe <span class="font-normal text-zinc-500">— verdade do mundo</span>
+          <div class="rounded-lg border border-pk-line bg-pk-surface p-3">
+            <h2 class="mb-2 text-pk-title font-bold text-pk-text">
+              O que existe <span class="font-normal text-pk-text-3">— verdade do mundo</span>
             </h2>
-            <p :if={@truth == []} class="text-sm text-zinc-500">nada no chão</p>
+            <p :if={@truth == []} class="text-pk-body text-pk-text-3">nada no chão</p>
             <ul class="space-y-1 text-sm">
-              <li :for={row <- @truth} class="flex justify-between gap-2 text-zinc-300">
+              <li :for={row <- @truth} class="flex justify-between gap-2 text-pk-text-2">
                 <span>
                   {row.name}
-                  <span :if={row.asleep?} class="text-sky-300">· dormindo</span>
+                  <span :if={row.asleep?} class="text-pk-info">· dormindo</span>
                 </span>
-                <span class="text-zinc-500">
+                <span class="text-pk-text-3">
                   {row.hp_pct}% · leash {row.leash}
                 </span>
               </li>
             </ul>
           </div>
 
-          <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-            <h2 class="mb-2 text-sm font-semibold text-zinc-200">
-              O que o bot leu <span class="font-normal text-zinc-500">— fato :battle</span>
+          <div class="rounded-lg border border-pk-line bg-pk-surface p-3">
+            <h2 class="mb-2 text-pk-title font-bold text-pk-text">
+              O que o bot leu <span class="font-normal text-pk-text-3">— fato :battle</span>
             </h2>
-            <p :if={@perceived == :unread} class="text-sm text-amber-300">
+            <p :if={@perceived == :unread} class="text-pk-body text-pk-warn">
               não estou lendo a lista de batalha
             </p>
-            <p :if={@perceived == []} class="text-sm text-zinc-500">lista vazia</p>
+            <p :if={@perceived == []} class="text-pk-body text-pk-text-3">lista vazia</p>
             <ul :if={is_list(@perceived)} class="space-y-1 text-sm">
-              <li :for={row <- @perceived} class="flex justify-between gap-2 text-zinc-300">
+              <li :for={row <- @perceived} class="flex justify-between gap-2 text-pk-text-2">
                 <span>linha {row.row} · {row.name || "?"}</span>
-                <span class="text-zinc-500">{round((row.hp_pct || 0) * 100)}%</span>
+                <span class="text-pk-text-3">{round((row.hp_pct || 0) * 100)}%</span>
               </li>
             </ul>
           </div>
@@ -2272,7 +2439,10 @@ defmodule PokexWeb.SimLive do
 
   defp view_box({x, y, w, h}), do: "#{x} #{y} #{max(w, 1)} #{max(h, 1)}"
 
-  defp mob_fill(hp) when hp > 66, do: "rgb(244 63 94)"
-  defp mob_fill(hp) when hp > 33, do: "rgb(251 146 60)"
-  defp mob_fill(_low), do: "rgb(161 98 7)"
+  # A VIDA DO BICHO EM TRÊS DEGRAUS, na paleta do console: inteiro é ameaça,
+  # meio é aviso, quase morto some pro fundo. Não é o verde — verde aqui é o que
+  # é DELE.
+  defp mob_fill(hp) when hp > 66, do: "var(--color-pk-danger)"
+  defp mob_fill(hp) when hp > 33, do: "var(--color-pk-warn)"
+  defp mob_fill(_low), do: "var(--color-pk-warn-line)"
 end

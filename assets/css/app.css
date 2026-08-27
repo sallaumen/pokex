@@ -135,6 +135,28 @@
   outline-offset: 2px;
 }
 
+/* O REVIVE SE ANUNCIANDO. Um momento só, e ele existe porque a coisa que o
+   revive faz — devolver a barra inteira — acontece num tique e passa: sem um
+   pulso, ele vê dez contagens sumirem e não sabe por quê. Cai junto com todo o
+   resto no `prefers-reduced-motion` abaixo, e a etiqueta ao lado diz a mesma
+   coisa em palavra pra quem não vê a luz. */
+@keyframes pk-revive-pulse {
+  0% {
+    box-shadow:
+      0 0 0 1px var(--color-pk-ok),
+      0 0 0 0 rgb(55 208 125 / 0.45);
+  }
+  100% {
+    box-shadow:
+      0 0 0 1px var(--color-pk-ok),
+      0 0 0 14px rgb(55 208 125 / 0);
+  }
+}
+
+.pk-revive-flash {
+  animation: pk-revive-pulse 900ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before {

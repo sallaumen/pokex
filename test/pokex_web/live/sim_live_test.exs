@@ -430,4 +430,34 @@ defmodule PokexWeb.SimLiveTest do
       assert html =~ "de HP"
     end
   end
+
+  describe "o mapa desenhado" do
+    @describetag :tmp_dir
+
+    setup %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+      Store.put([route()])
+      :ok = Pokex.Sim.Runner.load(route(), knobs: %{})
+      :ok
+    end
+
+    test "o chão ganha um quadriculado — sem escala, três tiles e nove desenham igual", %{
+      conn: conn
+    } do
+      {:ok, _view, html} = live(conn, ~p"/sim")
+
+      assert html =~ ~s(id="chao")
+      assert html =~ "url(#chao)"
+    end
+
+    test "as paredes e as pedras aparecem quando o cenário tem chão", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/sim")
+
+      html = view |> form("#sim-cenario", %{"scenario" => "lotavanon"}) |> render_change()
+
+      # A cor da parede — o que ele não atravessa, desenhado antes da rota.
+      assert html =~ "rgb(63 63 70)"
+    end
+  end
 end

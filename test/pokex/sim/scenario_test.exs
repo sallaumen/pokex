@@ -121,4 +121,41 @@ defmodule Pokex.Sim.ScenarioTest do
       assert Enum.all?(pts, &(&1.gather_ms || &1.fight_ms))
     end
   end
+
+  describe "o chão, quando ele não é liso" do
+    # "uns pontos de obstáculo no caminho pra ele tropeçar e vermos com ele lida"
+    # (26/08). Um circuito de chão liso responde sobre a régua e sobre o dano;
+    # não responde nada sobre andar, que é onde a caçada de verdade trava.
+    test "chão liso não bloqueia nada — é o que todo cenário sempre foi" do
+      assert Scenario.blocked(Scenario.get("formigueiro")) |> Enum.empty?()
+    end
+
+    test "o anel tem parede por fora, por dentro, e pedras no corredor" do
+      blocked = Scenario.blocked(Scenario.get("lotavanon"))
+
+      raios =
+        Enum.map(blocked, fn {x, y, _z} ->
+          round(:math.sqrt((x - 1000) ** 2 + (y - 1000) ** 2))
+        end)
+
+      assert 14 in raios, "parede externa"
+      assert 6 in raios, "parede interna"
+      assert 11 in raios, "pedra dentro do corredor que ele anda"
+    end
+
+    test "NENHUMA pedra em cima de um canto — isso seria uma armadilha, não um teste" do
+      # Um canto inalcançável não faz o bot tropeçar: faz ele nunca avançar, e o
+      # cenário passa a medir um travamento em vez de um desvio.
+      cenario = Scenario.get("lotavanon")
+      %{waypoints: pts} = Scenario.route(cenario, [])
+      cantos = MapSet.new(pts, &{&1.x, &1.y, &1.z})
+
+      assert MapSet.intersection(cantos, Scenario.blocked(cenario)) |> Enum.empty?()
+    end
+
+    test "as pedras são FIXAS: duas sementes têm que medir o mesmo mapa" do
+      assert Scenario.blocked(Scenario.get("lotavanon")) ==
+               Scenario.blocked(%{Scenario.get("lotavanon") | seed: 99})
+    end
+  end
 end

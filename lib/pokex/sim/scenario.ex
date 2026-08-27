@@ -36,7 +36,16 @@ defmodule Pokex.Sim.Scenario do
             # uma pilha dormindo não morde ninguém. O que o cenário fixa aqui
             # ainda pode ser sobrescrito por quem o roda.
             config: %{},
-            script: []
+            script: [],
+            # A FORMA DO CHÃO. `:liso` é o que todo cenário sempre foi: um plano
+            # infinito onde só criatura atrapalha. `:anel` põe parede em volta do
+            # circuito e pedras no caminho — "uns pontos de obstáculo pra ele
+            # tropeçar e vermos como ele lida" (26/08).
+            #
+            # É a única coisa que pergunta sobre a ROTA. Chão liso responde sobre
+            # a régua e sobre o dano, e não responde nada sobre andar — que é
+            # onde a caçada de verdade trava.
+            chao: :liso
 
   @type action :: {:fail, term} | {:recover, term}
   @type t :: %__MODULE__{}
@@ -104,6 +113,7 @@ defmodule Pokex.Sim.Scenario do
             "quanta gente cada tiro pega: com a mordida quase de graça, o que sobra medindo é " <>
             "a economia de skill.",
         route: :lotavanon,
+        chao: :anel,
         knobs: %{
           # nove ao redor, que é o que ele vê
           nest_sizes: %{7 => 2, 8 => 3, 9 => 4},
@@ -237,6 +247,41 @@ defmodule Pokex.Sim.Scenario do
 
   def route(%__MODULE__{route: name}, available),
     do: Enum.find(available, &(&1.name == name)) || ring()
+
+  @doc """
+  Os tiles que o personagem não atravessa neste cenário.
+
+  Vazio no chão liso, que é o de sempre. No anel, uma parede externa e uma
+  interna formam o corredor que ele anda, e algumas pedras ficam DENTRO do
+  corredor — porque uma parede que só delimita não faz ninguém tropeçar.
+  """
+  @spec blocked(t) :: MapSet.t()
+  def blocked(%__MODULE__{chao: :liso}), do: MapSet.new()
+
+  def blocked(%__MODULE__{chao: :anel} = scenario) do
+    %Route{waypoints: [%{z: z} | _]} = route(scenario, [])
+
+    parede_externa = anel(14, z) |> MapSet.new()
+    parede_interna = anel(6, z) |> MapSet.new()
+
+    # As pedras ficam no raio do circuito (11), espalhadas de forma FIXA: um
+    # obstáculo sorteado a cada corrida faria duas sementes medirem mapas
+    # diferentes, e o cenário deixaria de ser um experimento.
+    pedras =
+      for passo <- [3, 17, 31, 44, 58, 71], into: MapSet.new() do
+        a = 2 * :math.pi() * passo / 80
+        {1_000 + round(11 * :math.cos(a)), 1_000 + round(11 * :math.sin(a)), z}
+      end
+
+    parede_externa |> MapSet.union(parede_interna) |> MapSet.union(pedras)
+  end
+
+  defp anel(raio, z) do
+    for passo <- 0..(8 * raio) do
+      a = 2 * :math.pi() * passo / (8 * raio)
+      {1_000 + round(raio * :math.cos(a)), 1_000 + round(raio * :math.sin(a)), z}
+    end
+  end
 
   @doc "A small square with one nest — enough to see a decision, small enough to read."
   @spec ring() :: Route.t()

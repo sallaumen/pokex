@@ -864,6 +864,13 @@ defmodule PokexWeb.SimLive do
      Enum.max(ys, fn -> 1 end) - Enum.min(ys, fn -> 0 end) + pad * 2}
   end
 
+  # Só o andar que está sendo olhado: uma parede de outro piso desenhada aqui
+  # seria uma parede que não existe pra quem está andando.
+  defp visible_blocked(nil, _z), do: []
+
+  defp visible_blocked(world, z),
+    do: world.blocked |> Enum.filter(fn {_x, _y, tz} -> tz == z end) |> Enum.sort()
+
   defp visible_mobs(nil, _z), do: []
   defp visible_mobs(world, z), do: Enum.filter(world.mobs, fn m -> elem(m.pos, 2) == z end)
 
@@ -1078,6 +1085,7 @@ defmodule PokexWeb.SimLive do
         z: z,
         points: points,
         view_box: view_of(assigns, points),
+        blocked: visible_blocked(assigns.world, z),
         mobs: visible_mobs(assigns.world, z),
         truth: truth_rows(assigns.world),
         perceived: perceived_rows(fact(:battle)),
@@ -1451,6 +1459,39 @@ defmodule PokexWeb.SimLive do
               </div>
             </div>
             <svg viewBox={view_box(@view_box)} class="h-[26rem] w-full">
+              <%!-- O CHÃO. Um quadriculado sutil atrás de tudo dá a única coisa
+                    que o mapa não tinha: escala. Sem ele, dois monstros a três
+                    tiles e a nove desenham a mesma distância no olho. --%>
+              <defs>
+                <pattern id="chao" width="1" height="1" patternUnits="userSpaceOnUse">
+                  <rect width="1" height="1" fill="rgb(24 24 27)" />
+                  <path d="M 1 0 L 0 0 0 1" fill="none" stroke="rgb(39 39 42)" stroke-width="0.04" />
+                </pattern>
+              </defs>
+              <rect
+                x={elem(@view_box, 0)}
+                y={elem(@view_box, 1)}
+                width={elem(@view_box, 2)}
+                height={elem(@view_box, 3)}
+                fill="url(#chao)"
+              />
+
+              <%!-- PAREDE E PEDRA, o que ele não atravessa. Desenhadas ANTES da
+                    rota de propósito: quando uma pedra cai em cima de um canto,
+                    é isso que a linha do circuito passando por cima mostra — e é
+                    exatamente o tropeço que ele quer ver o bot resolver. --%>
+              <rect
+                :for={{x, y, _z} <- @blocked}
+                x={x - 0.5}
+                y={y - 0.5}
+                width="1"
+                height="1"
+                fill="rgb(63 63 70)"
+                stroke="rgb(82 82 91)"
+                stroke-width="0.06"
+                rx="0.12"
+              />
+
               <polyline
                 points={Enum.map_join(@points, " ", fn {x, y, _n} -> "#{x},#{y}" end)}
                 fill="none"

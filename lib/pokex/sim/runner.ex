@@ -184,7 +184,11 @@ defmodule Pokex.Sim.Runner do
 
     state =
       %{state | scenario: scenario}
-      |> load_world(route, seed: scenario.seed, knobs: Map.merge(scenario.knobs, extra))
+      |> load_world(route,
+        seed: scenario.seed,
+        knobs: Map.merge(scenario.knobs, extra),
+        blocked: Scenario.blocked(scenario)
+      )
 
     {:reply, :ok, state}
   end
@@ -231,7 +235,8 @@ defmodule Pokex.Sim.Runner do
       World.new(route,
         seed: Keyword.get(opts, :seed, state.seed),
         knobs: Map.merge(inherited_knobs(), Keyword.get(opts, :knobs, state.knobs)),
-        loadout: Keyword.get(opts, :loadout) || state.loadout || Loadout.current()
+        loadout: Keyword.get(opts, :loadout) || state.loadout || Loadout.current(),
+        blocked: Keyword.get(opts, :blocked, MapSet.new())
       )
 
     %{

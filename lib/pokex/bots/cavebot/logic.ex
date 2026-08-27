@@ -1002,11 +1002,27 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # ela — parada pra estourar a área, andando pra juntar, andando pra não
   # apanhar com a barra vazia. Sem ordem nenhuma, o comportamento é o de sempre:
   # parar e lutar.
+  #
+  # MAS QUEM DECLARA O FIM DA LUTA É A TELA, NUNCA A ORDEM. Com o cérebro ligado
+  # — que é o padrão de produção — toda tela limpa responde `route: :go`, e a
+  # luta ia direto pro `follow_route` sem NUNCA passar pelo `fight_clear/2`, que
+  # é a única porta do `:post_fight`. A caçada latchava em `:fighting` para
+  # sempre: sumia a rodada da esquina (a varredura do Catcher, o revive de
+  # cooldown) e, caro, o `post_kill_dwell_ms` nunca segurava o pé — o
+  # personagem anda debaixo da bola enquanto o Catcher mira num ponto de TELA.
+  #
+  # Limpa é `enemies == 0` com nada engajado, e `nil` NÃO é limpo: "não consigo
+  # ver" e "não tem nada" têm respostas opostas em toda parte deste repo, e aqui
+  # também.
   defp fight(logic, world, now) do
-    if walk_ordered?(world),
-      do: follow_route(fight_clocks(logic, world, now), world, now),
-      else: stand_and_fight(logic, world, now)
+    cond do
+      clear?(world) -> stand_and_fight(logic, world, now)
+      walk_ordered?(world) -> follow_route(fight_clocks(logic, world, now), world, now)
+      true -> stand_and_fight(logic, world, now)
+    end
   end
+
+  defp clear?(world), do: Map.get(world, :enemies) == 0 and not engaged?(world)
 
   # A ordem é uma só e vem com idade: `route_hold?` é `false` tanto quando o
   # cérebro manda andar quanto quando não há cérebro nenhum, e as duas coisas
@@ -1022,8 +1038,18 @@ defmodule Pokex.Bots.Cavebot.Logic do
   #
   # Zerado, e não pausado: quando o cérebro parar a estrada, a janela do
   # travamento começa do instante em que ela realmente parou.
+  # `:clear` sai junto, e por um motivo próprio: só se chega aqui com bicho na
+  # tela (ou sem leitura), e uma tela com bicho não está limpa. Um carimbo velho
+  # sobrevivia à caminhada inteira, e então um tique curto de `:hold` com a tela
+  # limpa caía direto em `:post_fight` numa esquina arbitrária — `next_stop/1` e
+  # `park_spot/1` leem `wp_index - 1`, a esquina onde ela por acaso está, não
+  # onde a pilha morreu.
   defp fight_clocks(logic, world, _now) do
-    %{logic | since: Map.delete(logic.since, :fight), last_enemies: Map.get(world, :enemies)}
+    %{
+      logic
+      | since: logic.since |> Map.delete(:fight) |> Map.delete(:clear),
+        last_enemies: Map.get(world, :enemies)
+    }
   end
 
   defp stand_and_fight(logic, %{enemies: 0} = world, now) do

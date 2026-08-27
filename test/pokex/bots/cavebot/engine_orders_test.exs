@@ -56,6 +56,57 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
     )
   end
 
+  # QUEM DECLARA O FIM DA LUTA É A TELA, NUNCA A ORDEM. Com `engine_active`
+  # (true em produção, false em `config/test.exs` — por isso a suíte inteira
+  # não enxergava isto) toda tela limpa responde `route: :go`, e a luta ia pro
+  # `follow_route` em vez de passar pelo `fight_clear/2` — a ÚNICA porta do
+  # `:post_fight`. A caçada latchava em `:fighting` para sempre: some a rodada
+  # da esquina (varredura, revive de cooldown) e, caro, o `post_kill_dwell_ms`
+  # nunca segura o pé — o personagem anda debaixo da bola enquanto o Catcher
+  # mira num ponto de TELA.
+  describe "com o cérebro ligado" do
+    defp lutando(logic) do
+      {logic, :run_combat} = Logic.step(logic, world(), 0)
+      {logic, _} = Logic.step(logic, world(%{engine?: true, enemies: 1}), 50)
+      assert logic.state == :fighting
+      logic
+    end
+
+    test "a tela limpa encerra a luta mesmo com ordem de andar" do
+      limpo = world(%{engine?: true, enemies: 0})
+
+      # dois tiques porque a tela limpa é carimbada e só então debatida
+      # (`clear_debounce_ms`), como em toda outra luta
+      {logic, _} = Logic.step(lutando(logic()), limpo, 100)
+      {logic, _} = Logic.step(logic, limpo, 200)
+
+      assert logic.state == :post_fight
+    end
+
+    test "mas com bicho na tela a ordem manda: anda pra juntar, sem encerrar" do
+      {logic, _} = Logic.step(lutando(logic()), world(%{engine?: true, enemies: 3}), 100)
+
+      assert logic.state == :fighting
+    end
+
+    test "e cego não é limpo: sem leitura, a luta continua" do
+      {logic, _} = Logic.step(lutando(logic()), world(%{engine?: true, enemies: nil}), 100)
+
+      assert logic.state == :fighting
+    end
+
+    test "travado no alvo também não é limpo, mesmo com a lista vazia" do
+      {logic, _} =
+        Logic.step(
+          lutando(logic()),
+          world(%{engine?: true, enemies: 0, combat_state: :fighting}),
+          100
+        )
+
+      assert logic.state == :fighting
+    end
+  end
+
   # The machine has to be walking before "hold the road" means anything.
   defp walking(logic) do
     {logic, :run_combat} = Logic.step(logic, world(), 0)

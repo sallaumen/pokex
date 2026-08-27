@@ -478,6 +478,9 @@ defmodule Pokex.Sim.Bench do
       own_name: world.own.name,
       ready_keys: World.observe(world, :skill_bar).ready_keys,
       damage_keys: damage_keys(world, config),
+      # …e o mesmo relógio do controle que o worker entrega, lido do mundo: aqui
+      # o cooldown é fato, não carimbo.
+      control_back_in_ms: control_back_in_ms(world),
       prev: previous
     }
   end
@@ -610,6 +613,13 @@ defmodule Pokex.Sim.Bench do
   # entra quando a caçada realmente a usa. Uma tecla que nunca é apertada está
   # sempre pronta, e uma tecla sempre pronta dentro desta lista faz `spent?`
   # nunca ser verdadeiro.
+  defp control_back_in_ms(world) do
+    case keys_of_kind(world, :crowd) do
+      [] -> nil
+      crowd -> crowd |> Enum.map(&elem(World.cooling(world, &1), 0)) |> Enum.min()
+    end
+  end
+
   defp damage_keys(world, config) do
     area = keys_of_kind(world, :aoe)
 

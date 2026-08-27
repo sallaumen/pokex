@@ -88,6 +88,7 @@ defmodule Pokex.Bots.Engine.Situation do
           ready_keys: [String.t()] | nil,
           spent?: boolean | nil,
           prepared?: boolean | nil,
+          control_back_in_ms: non_neg_integer | nil,
           blind?: boolean,
           at: integer
         }
@@ -133,6 +134,10 @@ defmodule Pokex.Bots.Engine.Situation do
       own_hp: Map.get(inputs, :own_hp),
       own_out?: Map.get(inputs, :own_out?, :unknown),
       ready_keys: Map.get(inputs, :ready_keys),
+      # QUANTO FALTA PRO CONTROLE VOLTAR, em ms — nil quando ninguém sabe. É o
+      # que transforma "precisa de controle" numa espera com prazo em vez de uma
+      # trava sem saída, e sai do relógio das teclas (`Pokex.Bots.SkillClock`).
+      control_back_in_ms: Map.get(inputs, :control_back_in_ms),
       spent?:
         spent?(
           Map.get(inputs, :damage_keys, []),

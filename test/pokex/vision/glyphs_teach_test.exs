@@ -64,4 +64,33 @@ defmodule Pokex.Vision.GlyphsTeachTest do
 
     assert Glyphs.unknown_in(Pokex.ScreenFixtures.frame!(f), {x, y, w, h}) == []
   end
+
+  # O buraco de 27/08: o jogo dele em `1088, 1409, 5` e o painel em `1066,
+  # 1409`. O atlas tinha 8 em duas alturas e nenhum na da faixa dele, e um
+  # dígito que não está no atlas não volta como "não sei": volta como o mais
+  # parecido que está. A regra da margem compara o atlas com o atlas — só quem
+  # olha o alfabeto inteiro enxerga um dígito que nunca foi ensinado.
+  describe "o alfabeto que falta" do
+    test "acusa o dígito que falta na altura da fonte, e cala quando ele é ensinado" do
+      assert %{"8" => faltam_em} =
+               Glyphs.missing_digits()
+               |> Enum.reduce(%{}, fn {altura, faltam}, acc ->
+                 Enum.reduce(faltam, acc, &Map.update(&2, &1, [altura], fn a -> [altura | a] end))
+               end)
+
+      altura = Enum.min(faltam_em)
+      oito = for linha <- 1..altura, do: for(coluna <- 1..5, do: rem(linha * coluna, 2))
+
+      assert {:ok, _total} = Glyphs.teach(Glyphs.signature(oito), "8")
+
+      refute "8" in Map.get(Glyphs.missing_digits(), altura, [])
+    end
+
+    test "uma altura sem dígito nenhum não está incompleta, está fora do assunto" do
+      virgula = [[0, 1], [1, 0]]
+      assert {:ok, _total} = Glyphs.teach(Glyphs.signature(virgula), ",")
+
+      refute Map.has_key?(Glyphs.missing_digits(), 2)
+    end
+  end
 end

@@ -89,4 +89,35 @@ defmodule PokexWeb.CavebotFenceTest do
 
     refute render(view) =~ "cavebot-sim-armed"
   end
+
+  describe "os dígitos que o atlas não tem" do
+    # Um dígito ausente não vira "não sei ler": vira OUTRO dígito. A regra da
+    # margem do casador compara o que está no atlas com o que está no atlas, e
+    # não tem como perceber que o certo nunca esteve na disputa.
+    #
+    # Em 27/08 o jogo dele mostrava `1088, 1409, 5` e o painel `1066, 1409`.
+    test "o aviso sai pela fonte que a faixa DELE usa, com o dígito e a altura", %{conn: conn} do
+      publish_minimap(%{pos: {1066, 1409, 5}, coord_gap: %{px: 8, faltam: ["8"]}})
+
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ "não tem"
+      assert html =~ "o número pode vir ERRADO, não vazio"
+      assert html =~ "8px de altura"
+      assert html =~ "o 8 nunca foi ensinado"
+    end
+
+    test "sem buraco na fonte lida, a Central não diz nada", %{conn: conn} do
+      publish_minimap(%{pos: {1088, 1409, 5}, coord_gap: nil})
+
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      refute html =~ "o número pode vir ERRADO, não vazio"
+    end
+
+    defp publish_minimap(obs) do
+      Pokex.Perception.WorldState.put(:minimap, obs, System.monotonic_time(:millisecond))
+      on_exit(fn -> Pokex.Perception.WorldState.clear() end)
+    end
+  end
 end

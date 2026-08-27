@@ -97,15 +97,38 @@ toma a rota que lhe cabe — CGEvent nativo quando é mapeada e sem modificador,
 um osascript curto quando não. Nenhum script do barramento carrega mais de uma
 tecla, então não há entre-teclas para esperar dentro dele.
 
-### 3.3 A vaga de despacho é o processo que dorme
+### 3.3 A vaga de despacho é o processo que dorme — MEDIDO, e a cauda NÃO é o problema
 
 `burst_pid` vivo = "uma rajada está em voo" = "um processo está dormindo". Uma
-abertura de 3,3s deixa o combate surdo por 3,3s (~11 decisões descartadas) e
-**irrevisável**: o mundo pode mudar completamente e a cauda da rajada sai
-mesmo assim.
+abertura de 1,8s (7 teclas a 300ms) deixa o combate surdo por 1,8s (~6 decisões
+descartadas) e **irrevisável**: o mundo pode mudar completamente e a cauda da
+rajada sai mesmo assim.
 
-Correção: plano com timer (`Process.send_after`) em vez de sono; a cauda passa
-a ser cancelável e a vaga deixa de ser consumida por espera.
+A hipótese era que a cauda acerta um corpo. **A bancada diz que não.** Antes de
+medir foi preciso consertar o modelo: desde #367 ela cobrava o TEMPO da rajada
+mas entregava o DANO todo no instante zero — a última tecla de sete saindo 1,8s
+depois da primeira acertava o mundo de 1,8s atrás. Com cada tecla saindo na sua
+vez (12 sementes × 180s):
+
+| cenário | intervalo | modelo antigo | modelo novo | delta |
+|---|---|---|---|---|
+| lotavanon | 300ms | 59,28 | **62,22** | +5,0% |
+| lotavanon | 500ms | 55,92 | 55,92 | 0 |
+| formigueiro | 300ms | 13,14 | **13,89** | +5,7% |
+| formigueiro | 500ms | 13,00 | 13,19 | +1,5% |
+
+O sinal é **positivo**, e o motivo é o oposto da hipótese: enquanto a cauda
+espera, as teclas dela **saem do cooldown**. O modelo antigo apertava as sete de
+uma vez e desperdiçava as que ainda não estavam prontas.
+
+E uma regra de cancelamento ingênua — abandonar a cauda quando o campo esvazia —
+deu **exatamente os mesmos números** nos quatro casos: no cenário desses testes
+o campo praticamente nunca esvazia dentro da janela de uma rajada.
+
+**Conclusão: não construir o plano cancelável com a justificativa de dano.** A
+justificativa que sobra é a surdez (6 decisões descartadas por abertura), e essa
+ainda não tem preço medido — precisa de um predicado melhor que "campo vazio",
+provavelmente "o alvo travado morreu".
 
 ### 3.4 O Body tem uma pista só para dois atuadores
 
@@ -163,7 +186,7 @@ Armadilhas para quem for dividir em duas pistas:
 | **0** | Varrer `combat_skill_gap_ms` em 500 / 200 / 60 e ler `Tally.keys/1` | **Zero código** — o `gap_ms` já viaja em cada recibo e o `/sim` já renderiza a tabela. Só é honesto **depois** da 3.1 |
 | **1** | §3.1 — o relógio do recibo ✅ | teste do worker: um quadro do meio da rajada não vira "não saiu" |
 | **2** | §3.2 — o gap sai de dentro do script osascript ✅ | teste do `Commands`: um comando de rajada carrega no máximo uma tecla |
-| **3** | §3.3 — plano com timer, rajada cancelável | teste: mudança de mundo no meio muda a cauda |
+| **3** | §3.3 — cada tecla sai na sua vez no simulador ✅ · o plano cancelável fica **em aberto** (a bancada não paga por ele) | teste: a segunda tecla sai quando chega a vez dela, sem ordem nova |
 | **4** | §3.4 — duas pistas no Body + `Body.abort/0` | teste com `SlowRig`: um `:critical` de tecla responde durante uma sequência de mouse em voo |
 
 Constantes órfãs a medir junto (nenhuma tem medição, comentário, teste ou

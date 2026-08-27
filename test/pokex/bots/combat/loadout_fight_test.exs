@@ -43,6 +43,9 @@ defmodule Pokex.Bots.Combat.LoadoutFightTest do
     # ela só existe com as de alvo único LIGADAS — por padrão a caçada não as
     # usa ("o que dá dano é a skill em área, praticamente exclusivamente").
     combat_single_target: true,
+    # …e o Tab ligado: este arquivo prova a ORDEM das teclas que chegam ao jogo,
+    # e a máquina que leva a luta até elas aqui é a de travar alvo.
+    combat_tab_target: true,
     max_consecutive_failures: 5
   }
 

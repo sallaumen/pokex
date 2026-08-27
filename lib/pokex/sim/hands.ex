@@ -165,18 +165,45 @@ defmodule Pokex.Sim.Hands do
   # O PREÇO DA RAJADA. As teclas saem uma a cada `combat_skill_gap_ms`, então N
   # teclas ocupam o corpo por (N-1) intervalos — e cada uma sai NA SUA VEZ, não
   # todas no instante em que a rajada foi decidida.
+  #
+  # E SÓ AS PRONTAS ENTRAM NO PLANO. O bot de verdade faz isso desde sempre —
+  # `Combat.Logic.ready_in_priority/2` filtra a ordem pela leitura da barra, e o
+  # moduledoc dele diz "only READY skills fire". Estas mãos foram escritas sem
+  # esse passo, e o resultado foi um bot PARALISADO: com a barra gasta ele pedia
+  # quatro teclas, ocupava o corpo pelos (N-1) intervalos das quatro, nenhuma
+  # saía, e no tique seguinte pedia de novo.
+  #
+  # MEDIDO num traço de 40s (26/08): ocupado em 79% dos tiques, e em 77% ocupado
+  # SEM ter apertado nada. Quis atirar 296 vezes, saiu tecla em 6 — parado no
+  # meio de 21 monstros com a vida caindo trinta pontos em cinco segundos.
+  # Depois do filtro: 9% e 8%.
+  #
+  # A ordem de prioridade é preservada: filtrar não é reordenar.
   defp fire(world, %{fire: :free, opening: keys}, hands, config) when keys != [] do
-    gap = Map.get(config, :skill_gap_ms, 0)
+    case Enum.filter(keys, &ready_key?(world, &1)) do
+      [] ->
+        {world, hands}
 
-    plan =
-      keys
-      |> Enum.with_index()
-      |> Enum.map(fn {key, idx} -> {key, world.clock + idx * gap} end)
+      prontas ->
+        gap = Map.get(config, :skill_gap_ms, 0)
 
-    fire_due(world, %{hands | firing: plan})
+        plan =
+          prontas
+          |> Enum.with_index()
+          |> Enum.map(fn {key, idx} -> {key, world.clock + idx * gap} end)
+
+        fire_due(world, %{hands | firing: plan})
+    end
   end
 
   defp fire(world, _holding, hands, _config), do: {world, hands}
+
+  defp ready_key?(world, key) do
+    case world.keys[key] do
+      nil -> false
+      %{ready_at: at} -> at <= world.clock
+    end
+  end
 
   # THE RESCUE IS A COMBO, NOT A KEY — and modelling only the key made every
   # revive look like an invitation to die. `PlayerSupport` fires the reserved

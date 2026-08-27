@@ -70,7 +70,11 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCombat do
 
     send(test, {:posture_at_run, posture})
     send(test, {:combat_cmd, :run})
-    {:reply, run_reply, state}
+
+    # `:park` takes the call and NEVER answers — what `Preflight.run/1` looks
+    # like from here when `Capture.display_points/1` is queued behind the
+    # capture broker (`GenServer.call(..., :infinity)`).
+    if run_reply == :park, do: {:noreply, state}, else: {:reply, run_reply, state}
   end
 
   def handle_call(:halt, _from, {test, _} = state) do
@@ -668,6 +672,46 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:cavebot_alarm, {:combat_preflight_failed, ["sem calibração"]}}, 1_000
     assert InputGate.panic_latched?()
     assert Worker.status(own).state == :blocked
+  end
+
+  # UM COMBATE LENTO NÃO PODE MATAR A CAÇADA. `Combat.Worker.run/1` era um
+  # `GenServer.call` no timeout padrão de 5s, chamado de dentro do
+  # `handle_info(:tick, ...)` sem catch — e do outro lado o `handle_call(:run,
+  # ...)` roda o `Preflight` inline, que passa por `Capture.display_points/1`:
+  # um `GenServer.call(..., :infinity)` na fila do broker que serializa TODA
+  # captura do app. Estourados os 5s o worker da caçada EXITA de dentro do
+  # tique, o `:one_for_one` o reinicia com `logic: nil`, e o snapshot volta
+  # `:idle` — sem alarme, sem motivo, idêntico a "nunca liguei". Como ninguém
+  # mais atualiza o fato `:posture`, o combate lê postura velha como fogo livre
+  # e passa a noite lutando sozinho, fora da rota.
+  @tag :capture_log
+  test "um combate que demora a arrancar não mata a caçada", %{tmp_dir: _tmp} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    {:ok, slow} = FakeCombat.start_link(self(), :park)
+
+    own =
+      start_supervised!(
+        {Worker,
+         name: :cavebot_slow_combat,
+         body: FakeBody,
+         combat: slow,
+         active: false,
+         combat_run_timeout_ms: 80},
+        id: :cavebot_slow_combat
+      )
+
+    route!()
+    :ok = Worker.run(own)
+    minimap!({100, 100, 7})
+
+    ref = Process.monitor(own)
+    # `send` cru, nunca o `tick!/1`: o `Worker.status` dele é a MESMA barreira
+    # que trava, e o teste mediria a si mesmo
+    send(own, :tick)
+
+    assert_receive {:combat_cmd, :run}, 1_000
+    assert await_log("demorando") =~ "combate"
+    refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 200
   end
 
   # The per-dungeon combo gate reads this fact: run publishes it, halt forgets it.

@@ -490,7 +490,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
 
       # a rajada demora a sair da mão, como a dele demora
-      Agent.update(Fake, &put_in(&1.script[:press_many_sleep_ms], 300))
+      Agent.update(Fake, &put_in(&1.script[:press_many_sleep_ms], 600))
 
       bar!(["1"])
       world!(worker, battle_obs(enemies: [0]))
@@ -499,13 +499,25 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       world!(worker, battle_obs(locked?: true, locked_row: 0))
       assert eventually(fn -> Worker.status(worker).state == :fighting end)
 
-      # Um quadro da barra a cada volta, inclusive ENQUANTO a rajada dorme: a
-      # tecla ainda não saiu, então ela ainda está pronta — e é exatamente essa
-      # leitura do meio da rajada que o recibo antigo aceitava como veredito.
+      # Quadros da barra ENQUANTO a rajada dorme: a tecla ainda não saiu, então
+      # ela ainda está pronta — e é exatamente essa leitura do meio da rajada
+      # que o recibo antigo aceitava como veredito.
+      #
+      # CONTADOS, e não até a tecla aparecer: escrever "ainda pronta" até ver o
+      # press é uma corrida com o próprio recibo. `Fake.press_many` dorme e SÓ
+      # ENTÃO registra, então o instante em que o teste vê a tecla é o mesmo em
+      # que o `confirm_burst` carimba o seu relógio — e um último quadro
+      # `["1"]` escrito nesse mesmo tique de 20ms cai DEPOIS do carimbo, é
+      # aceito com razão, e o refute abaixo falha por um motivo que não é o
+      # defeito (1 corrida em 3, medido). Cinco quadros em 100ms cabem folgados
+      # nos 600ms da rajada; depois disso só o mundo continua sendo empurrado.
+      Enum.each(1..5, fn _ ->
+        bar!(["1"])
+        Process.sleep(20)
+      end)
+
       assert eventually(
                fn ->
-                 bar!(["1"])
-
                  "1" in presses() or
                    (world!(worker, battle_obs(locked?: true, locked_row: 0)) && false)
                end,

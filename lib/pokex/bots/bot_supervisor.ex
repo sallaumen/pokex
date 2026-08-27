@@ -502,12 +502,26 @@ defmodule Pokex.Bots.BotSupervisor do
   the flee result — {:error, :not_calibrated} still stops everything: a
   triggered escape must never leave the hunt running.
   """
-  def emergency_escape(reason) do
+  def emergency_escape(reason, flee_server \\ PlayerSupport.Worker) do
     InputGate.set_panic_latch(true)
-    flee = PlayerSupport.Worker.flee_to_escape()
+    flee = safe_flee(flee_server)
     stop_all("fuga de emergência: #{reason}")
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:escape, reason, flee})
     flee
+  end
+
+  # The flee ANSWERS AT ONCE (its walk runs off PlayerSupport's loop), so a
+  # second is generous — and a flee that does NOT answer must never be able to
+  # keep the fleet hunting. That ordering cost a real escape: with
+  # `escape_walk_wait_ms` at his 5000, the old blocking flee outlived the
+  # caller's own 5s DEFAULT call timeout, the `exit` propagated out of here, and
+  # `stop_all/1` never ran — latch set, fleet still fighting.
+  @flee_timeout_ms 1_000
+
+  defp safe_flee(server) do
+    PlayerSupport.Worker.flee_to_escape(server, @flee_timeout_ms)
+  catch
+    :exit, _reason -> {:error, :sem_resposta}
   end
 
   def stop_all, do: stop_all("parar")

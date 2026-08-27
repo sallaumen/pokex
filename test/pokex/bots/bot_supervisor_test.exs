@@ -25,6 +25,19 @@ defmodule Pokex.Bots.BotSupervisorTest.ParkedWorker do
   def handle_call(:halt, _from, park_ms), do: {:reply, :ok, park_ms}
 end
 
+defmodule Pokex.Bots.BotSupervisorTest.MuteWorker do
+  @moduledoc "A worker that takes a call and NEVER answers it — the caller times out."
+  use GenServer
+
+  def start_link(_opts \\ []), do: GenServer.start_link(__MODULE__, :ok)
+
+  @impl true
+  def init(:ok), do: {:ok, :ok}
+
+  @impl true
+  def handle_call(_msg, _from, state), do: {:noreply, state}
+end
+
 defmodule Pokex.Bots.BotSupervisorTest.EchoWorker do
   @moduledoc "Answers :halt at once and tells the test it was asked."
   use GenServer
@@ -45,7 +58,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.BotSupervisor
-  alias Pokex.Bots.BotSupervisorTest.{EchoWorker, ParkedWorker}
+  alias Pokex.Bots.BotSupervisorTest.{EchoWorker, MuteWorker, ParkedWorker}
   alias Pokex.Bots.Fisher.Sensors
   alias Pokex.Bots.MiniGame.Worker
   alias Pokex.Bots.Session
@@ -390,6 +403,31 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert {:error, :not_calibrated} = BotSupervisor.emergency_escape("teste")
     assert InputGate.panic_latched?()
     assert_receive {:escape, "teste", {:error, :not_calibrated}}, 1_000
+  end
+
+  # A FUGA NÃO PODE IMPEDIR A FROTA DE PARAR. A ordem é latch → fuga → parar, e
+  # a fuga era um `GenServer.call` no timeout padrão de 5s contra um
+  # `handle_call` que ficava parado dentro do `Body.perform` pelo
+  # `escape_walk_wait_ms` inteiro. Com o valor DELE (5000ms) a sequência passa
+  # dos 5s: o `exit` do timeout subia por aqui, `stop_all` nunca rodava, e a
+  # frota seguia caçando ao lado do shiny que disparou a fuga.
+  @tag :tmp_dir
+  test "emergency_escape para a frota mesmo quando a fuga não responde", %{tmp_dir: tmp} do
+    alias Pokex.Bots.InputGate
+
+    Application.put_env(:pokex, :home_dir, tmp)
+
+    on_exit(fn ->
+      Pokex.TestHome.restore()
+      InputGate.set_panic_latch(false)
+    end)
+
+    mudo = start_supervised!(%{id: :flee_mudo, start: {MuteWorker, :start_link, [[]]}})
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    assert {:error, :sem_resposta} = BotSupervisor.emergency_escape("teste", mudo)
+    assert InputGate.panic_latched?()
+    assert_receive {:escape, "teste", {:error, :sem_resposta}}, 1_000
   end
 
   # The single most safety-critical invariant of the whole bot: the Guardian's

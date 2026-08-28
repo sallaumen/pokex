@@ -51,7 +51,7 @@ defmodule Pokex.Bots.MobStretchTest do
 
     on_exit(fn ->
       Pokex.TestHome.restore()
-      Enum.each([:minimap, :battle, :posture, :dungeon], &WorldState.forget/1)
+      Enum.each([:minimap, :battle, :posture], &WorldState.forget/1)
     end)
 
     Pokex.TeamFixtures.ready!()

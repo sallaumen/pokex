@@ -49,7 +49,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
   defp hunt(overrides \\ %{}) do
     Map.merge(
-      %{state: :walking, luring?: false, gathering?: false, wp_index: 12, waypoints: 70},
+      %{state: :walking, luring?: false, wp_index: 12, waypoints: 70},
       overrides
     )
   end

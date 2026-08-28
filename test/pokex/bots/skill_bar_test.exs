@@ -85,6 +85,45 @@ defmodule Pokex.Bots.SkillBarTest do
     assert SkillBar.any_ready?(slots, ["7", "9"]) == false
   end
 
+  # A CONTAGEM ESCRITA VENCE A REFERÊNCIA. A barra real da noite de 27→28/08,
+  # com refs que liam tudo como pronta enquanto o jogo escrevia 32/33/43/44 em
+  # cima das teclas 1, 3, 4 e 5 — o defeito que fez 2.372 recibos mentirem.
+  @tag :tmp_dir
+  test "a tecla com o cooldown escrito pelo jogo é cooldown, digam os refs o que disserem" do
+    {:ok, frame} = Frame.from_file("test/fixtures/skill_bar/quatro_contando.raw")
+    on_field({0, 0, frame.width, frame.height}, 9)
+
+    slots = SkillBar.slots_from_frame(frame, @settings)
+
+    assert Enum.map(slots, & &1.counting?) ==
+             [true, false, true, true, true, false, false, false, false]
+
+    # o que a contagem GARANTE: as quatro teclas com número escrito são
+    # cooldown; as vizinhas legíveis seguem prontas. (8 e 9 dependem de refs,
+    # que este teste não calibra — o fallback de limiar responde por elas.)
+    assert slots |> SkillBar.states() |> Enum.take(7) ==
+             [:cooldown, :ready, :cooldown, :cooldown, :cooldown, :ready, :ready]
+
+    ready = SkillBar.ready_keys(slots)
+    assert ["2", "6", "7"] -- ready == []
+    assert Enum.all?(["1", "3", "4", "5"], &(&1 not in ready))
+  end
+
+  # Um ref tirado com a contagem na tela é um ref envenenado — e agora a
+  # contagem em si diz isso, sem depender do limiar de branco.
+  @tag :tmp_dir
+  test "calibrar com uma tecla contando não guarda o ref dela" do
+    {:ok, frame} = Frame.from_file("test/fixtures/skill_bar/quatro_contando.raw")
+    on_field({0, 0, frame.width, frame.height}, 9)
+
+    refs = frame |> SkillBar.slots_from_frame(@settings) |> SkillBar.slot_refs(@settings)
+
+    assert refs |> Enum.with_index() |> Enum.filter(fn {ref, _} -> ref == nil end) |> length() >=
+             4
+
+    assert [nil, _, nil, nil, nil | _] = refs
+  end
+
   @tag :tmp_dir
   test "keeps the calibrated count even when the frame visually resembles another count" do
     row =

@@ -720,6 +720,7 @@ defmodule PokexWeb.SimLive do
     recovering: "esperando o revive",
     unaided: "ferido, sem revive",
     downed: "no chão",
+    stranded: "no chão, sem estoque — parei",
     handless: "sem teclas",
     blind: "cego",
     idle: "parado",

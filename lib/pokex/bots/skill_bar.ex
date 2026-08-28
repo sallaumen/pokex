@@ -32,17 +32,37 @@ defmodule Pokex.Bots.SkillBar do
   @doc "Reads slot states from an already captured frame using the same rules as `read/2`."
   def slots_from_frame(frame, settings) do
     bar = ActiveBar.current()
+    count = calibrated_count(bar, settings)
 
-    Vision.skill_slots(frame,
-      count: calibrated_count(bar, settings),
-      # the READY references travel with the bar: they are the skill ICONS, so
-      # the calibration's set belongs to whatever pokémon was out that day
-      refs: bar.refs,
-      max_distance: settings[:skill_ref_max_distance],
-      min_saturation: settings[:skill_ready_min_saturation],
-      min_vivid_pct: settings[:skill_ready_min_vivid_pct],
-      min_white_pct: settings[:skill_cooldown_min_white_pct]
-    )
+    slots =
+      Vision.skill_slots(frame,
+        count: count,
+        # the READY references travel with the bar: they are the skill ICONS, so
+        # the calibration's set belongs to whatever pokémon was out that day
+        refs: bar.refs,
+        max_distance: settings[:skill_ref_max_distance],
+        min_saturation: settings[:skill_ready_min_saturation],
+        min_vivid_pct: settings[:skill_ready_min_vivid_pct],
+        min_white_pct: settings[:skill_cooldown_min_white_pct]
+      )
+
+    # A CONTAGEM ESCRITA VENCE A REFERÊNCIA. O jogo escreve os segundos que
+    # faltam em cima da tecla esfriando, e a comparação de cor não sobrevive ao
+    # cooldown do Poké Alliance (que só escurece parte do ícone): na noite de
+    # 27→28/08 os refs recalibrados liam TUDO como pronta, e todo recibo mentiu
+    # 2.372 vezes. O dígito é o jogo falando; o ref vira o desempate de quem não
+    # tem dígito. Só nesta direção — um slot SEM contagem nunca é promovido a
+    # pronto por aqui, porque a ausência do número não prova nada que o ref já
+    # não diga melhor.
+    counting = Vision.SkillDigits.counting(frame, count)
+
+    slots
+    |> Enum.with_index()
+    |> Enum.map(fn {slot, index} ->
+      if index in counting,
+        do: %{slot | state: :cooldown} |> Map.put(:counting?, true),
+        else: Map.put(slot, :counting?, false)
+    end)
   end
 
   @doc "Whether a captured frame still resembles the calibrated skill bar."
@@ -62,7 +82,9 @@ defmodule Pokex.Bots.SkillBar do
     min_white = settings[:skill_cooldown_min_white_pct] || 4
 
     Enum.map(slots, fn slot ->
-      if slot.white_pct >= min_white, do: nil, else: slot.signature
+      if slot.white_pct >= min_white or Map.get(slot, :counting?, false),
+        do: nil,
+        else: slot.signature
     end)
   end
 

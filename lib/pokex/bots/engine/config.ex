@@ -56,6 +56,7 @@ defmodule Pokex.Bots.Engine.Config do
     band_red_pct: :engine_band_red_pct,
     resume_pct: :engine_resume_pct,
     recover_timeout_ms: :engine_recover_timeout_ms,
+    downed_give_up_ms: :engine_downed_give_up_ms,
     closing_timeout_ms: :engine_closing_timeout_ms,
     revive_confirm_ms: :engine_revive_confirm_ms,
     reset_revive: :engine_reset_revive,

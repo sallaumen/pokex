@@ -208,6 +208,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @spec step(t, world, integer) :: {t, action}
   def step(%__MODULE__{state: :blocked} = logic, _world, _now), do: {logic, :none}
 
+  # O CÉREBRO DESISTIU DO REVIVE. Guarda de segurança, como a do andar: vale em
+  # QUALQUER estado, porque andar a rota com o pokémon morto e o estoque vazio
+  # não é caçar — é passear entre mobs (4,9h medidas na noite de 27→28/08). O
+  # bloqueio é perigoso (para a frota, não volta sozinho): o que falta é
+  # estoque, e estoque quem repõe é ele.
+  def step(%__MODULE__{} = logic, %{stranded?: true} = world, _now),
+    do: {%{track_hp(logic, world) | state: :blocked}, {:block, :revive_dead}}
+
   # A floor the route KNOWS is a floor it meant to reach — a hunt with stairs
   # is an ordinary hunt (2026-08-10). Any OTHER floor is what this guard was
   # always really about: a hole, a teleport, a character somewhere the route

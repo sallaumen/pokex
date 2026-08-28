@@ -71,7 +71,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   # Blocks where the character may be somewhere the route does not describe, or
   # fighting with nobody to fight — see `translate/2`.
-  @dangerous_blocks [:floor_changed, :combat_preflight_failed]
+  @dangerous_blocks [:floor_changed, :combat_preflight_failed, :revive_dead]
 
   # The night's tally: corners and steps are progress, the other three are the
   # INCIDENTS — "o que ocorreu" is unanswerable in the morning without them.
@@ -489,6 +489,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
       %{
         engine?: true,
         route_hold?: Map.get(orders, :route) == :hold,
+        # O CÉREBRO DESISTIU DO REVIVE (fase :stranded): não é uma espera, é o
+        # fim da noite — a Logic transforma isso num bloqueio PERIGOSO, que para
+        # a frota e não volta sozinho. Ver `Engine.Logic`, o freio do chão.
+        stranded?: Map.get(orders, :phase) == :stranded,
         # ESPERAR COOLDOWN NÃO É TRAVAR: com a barra gasta a tela fica idêntica
         # por dezenas de segundos, e o relógio do empate não pode contar isso
         # como luta parada — ver `Logic.stall_or_wait/5`.
@@ -861,6 +865,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
   end
 
   defp block_text(:floor_changed), do: "BLOQUEADO: mudou de andar"
+
+  defp block_text(:revive_dead),
+    do:
+      "BLOQUEADO: o revive não devolve o pokémon há minutos — estoque no fim? " <>
+        "Repõe os revives e solta a caçada de novo"
 
   defp block_text({:combat_preflight_failed, messages}) when is_list(messages) and messages != [],
     do: "BLOQUEADO: o combate recusou o arranque — " <> Enum.join(messages, " · ")

@@ -128,7 +128,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                 <input
                   id="rescue-enabled-toggle"
                   type="checkbox"
-                  class="toggle toggle-success toggle-xs shrink-0"
+                  class="toggle toggle-success toggle-sm shrink-0"
                   checked={@rescue_cfg.enabled}
                   phx-click="toggle_rescue"
                   aria-label="Ligar ou desligar o revive automático"
@@ -143,7 +143,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="90"
                   value={@rescue_cfg.pct}
                   phx-debounce="500"
-                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>% · a cada</span>
                 <input
@@ -155,7 +155,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="600"
                   value={@rescue_cfg.cooldown_s}
                   phx-debounce="500"
-                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>s</span>
               </form>
@@ -173,7 +173,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   value={@rescue_cfg.key}
                   aria-label="Tecla do revive"
                   phx-debounce="500"
-                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-16 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
 
                 <%!-- O recibo prova que a TECLA saiu, nunca que o bicho dormiu:
@@ -186,7 +186,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   name="rescue_stun_first"
                   aria-label="Usar as skills de controle do pokémon antes de reviver"
                   checked={@rescue_cfg.stun_first}
-                  class="checkbox checkbox-xs"
+                  class="checkbox checkbox-sm"
                 />
                 <label :if={@rescue_cfg.stun_first} for="stun-settle-ms" class="ml-1">
                   dorme em
@@ -202,7 +202,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   step="100"
                   value={@rescue_cfg.stun_settle_ms}
                   phx-debounce="500"
-                  class="h-6 w-16 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-16 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span :if={@rescue_cfg.stun_first}>ms</span>
               </form>
@@ -225,7 +225,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="100"
                   value={@rescue_cfg.fainted_below_pct}
                   phx-debounce="500"
-                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>% · revive do caído a cada</span>
                 <input
@@ -237,7 +237,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="600"
                   value={@rescue_cfg.fainted_cooldown_s}
                   phx-debounce="500"
-                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>s</span>
               </form>
@@ -251,7 +251,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               <input
                 id="potion-enabled-toggle"
                 type="checkbox"
-                class="toggle toggle-success toggle-xs shrink-0"
+                class="toggle toggle-success toggle-sm shrink-0"
                 checked={@potion_cfg.enabled}
                 phx-click="toggle_potion"
                 aria-label="Ligar ou desligar a poção automática"
@@ -266,7 +266,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                 max="99"
                 value={@potion_cfg.pct}
                 phx-debounce="500"
-                class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
               />
               <span>% · a cada</span>
               <input
@@ -278,7 +278,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                 max="600"
                 value={@potion_cfg.cooldown_s}
                 phx-debounce="500"
-                class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
               />
               <span>s</span>
             </form>
@@ -428,7 +428,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="99"
                   value={@capture_cfg.match_pct}
                   phx-debounce="500"
-                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>% · tecla</span>
                 <input
@@ -438,7 +438,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   aria-label="Atalho da Pokébola"
                   value={@capture_cfg.ball_key}
                   phx-debounce="700"
-                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>· até</span>
                 <input
@@ -450,7 +450,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="9"
                   value={@capture_cfg.max_balls}
                   phx-debounce="500"
-                  class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>bola(s)/corpo · varre</span>
                 <input
@@ -462,7 +462,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="8"
                   value={@capture_cfg.radius_tiles}
                   phx-debounce="500"
-                  class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>tile(s) · alarme após</span>
                 <input
@@ -474,7 +474,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="999"
                   value={@capture_cfg.dry_balls_alarm}
                   phx-debounce="500"
-                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>bola(s) seca(s)</span>
               </form>
@@ -512,14 +512,14 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   value={ball["key"]}
                   aria-label="tecla da pokébola"
                   phx-debounce="500"
-                  class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <input
                   name="name"
                   value={ball["name"]}
                   aria-label="nome da pokébola"
                   phx-debounce="500"
-                  class="h-6 flex-1 rounded border border-pk-line-strong bg-pk-bg px-2 text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 flex-1 rounded border border-pk-line-strong bg-pk-bg px-2 text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span :if={ball["key"] == @capture_cfg.ball_key} class="text-pk-text-3">padrão</span>
                 <button
@@ -561,7 +561,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                 <select
                   name="kind"
                   aria-label="tipo do gatilho"
-                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-text focus:border-pk-ok focus:outline-none"
                 >
                   <option value="species" selected={rule_kind(rule) == "species"}>espécie</option>
                   <option value="element" selected={rule_kind(rule) == "element"}>elemento</option>
@@ -571,13 +571,13 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   value={rule_value(rule)}
                   aria-label="nome da espécie ou do elemento"
                   phx-debounce="500"
-                  class="h-6 flex-1 rounded border border-pk-line-strong bg-pk-bg px-2 text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 flex-1 rounded border border-pk-line-strong bg-pk-bg px-2 text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span class="text-pk-text-3">→</span>
                 <select
                   name="key"
                   aria-label="pokébola da regra"
-                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-text focus:border-pk-ok focus:outline-none"
                 >
                   <option
                     :for={ball <- @ball_types}
@@ -639,7 +639,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="3600"
                   value={@sweep_cfg.interval_s}
                   phx-debounce="500"
-                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>s · raio</span>
                 <input
@@ -651,7 +651,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="8"
                   value={@sweep_cfg.radius_tiles}
                   phx-debounce="500"
-                  class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>tile(s) ·</span>
                 <%!-- His spot has the SEA to the left: half the square is water. --%>
@@ -659,7 +659,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   id="sweep-side"
                   name="sweep_side"
                   aria-label="Lado que a varredura cobre"
-                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 >
                   <option value="square" selected={@sweep_cfg.side == "square"}>
                     quadrado completo
@@ -714,7 +714,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="9999"
                   value={@stock_cfg.f1}
                   phx-debounce="500"
-                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <label for="estoque-f2">· F2 &lt;</label>
                 <input
@@ -726,7 +726,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="9999"
                   value={@stock_cfg.f2}
                   phx-debounce="500"
-                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <label for="estoque-e">· E &lt;</label>
                 <input
@@ -738,7 +738,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="9999"
                   value={@stock_cfg.e}
                   phx-debounce="500"
-                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <label for="estoque-sq">· S/Q &lt;</label>
                 <input
@@ -750,7 +750,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="9999"
                   value={@stock_cfg.s_q}
                   phx-debounce="500"
-                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
               </form>
             </div>
@@ -784,7 +784,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   id="escape-direction"
                   name="escape_direction"
                   aria-label="Direção de entrada na escada"
-                  class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 >
                   <option value="left" selected={@escape_cfg.direction == "left"}>← esquerda</option>
                   <option value="right" selected={@escape_cfg.direction == "right"}>→ direita</option>
@@ -801,7 +801,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   max="10"
                   value={@escape_cfg.steps}
                   phx-debounce="500"
-                  class="h-6 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-10 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>passos · espera a caminhada por</span>
                 <input
@@ -814,7 +814,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
                   step="100"
                   value={@escape_cfg.walk_wait_ms}
                   phx-debounce="500"
-                  class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                  class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                 />
                 <span>ms</span>
               </form>

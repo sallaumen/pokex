@@ -99,6 +99,28 @@ function fallbackCopy(text) {
   try { document.execCommand("copy") } finally { document.body.removeChild(area) }
 }
 
+// The inputs whose typed value is a DRAFT worth protecting across patches.
+// Checkboxes and radios flip state instantly; selects commit on change; hidden
+// inputs belong to the server.
+function draftable(el) {
+  return (
+    (el.tagName === "INPUT" || el.tagName === "TEXTAREA") &&
+    !["checkbox", "radio", "hidden", "file"].includes(el.type) &&
+    !el.readOnly &&
+    !el.disabled
+  )
+}
+
+document.addEventListener("input", e => {
+  if (draftable(e.target)) e.target.dataset.dirty = "true"
+})
+
+document.addEventListener("submit", e => {
+  if (e.target.querySelectorAll) {
+    e.target.querySelectorAll("[data-dirty]").forEach(el => delete el.dataset.dirty)
+  }
+})
+
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
@@ -112,6 +134,27 @@ const liveSocket = new LiveSocket("/live", Socket, {
       if (from.tagName === "DETAILS") {
         if (from.hasAttribute("open")) to.setAttribute("open", "")
         else to.removeAttribute("open")
+      }
+      // A blurred draft must survive a re-render. LiveView only protects the
+      // FOCUSED element, and pages here re-render constantly (the Central has
+      // a 1s heartbeat, the panel re-renders on every game broadcast) — so
+      // typing a number, clicking elsewhere and reaching for "salvar" used to
+      // lose the text within a second ("alguns perdem dados quando tu clica
+      // fora do campo", 2026-08-28).
+      //
+      // The rule: an input the user edited (data-dirty, set by the listener
+      // below) keeps ITS value when a patch disagrees — and the flag clears
+      // itself the moment the server catches up (values match), so a saved
+      // field goes back to accepting server-driven updates (a preset apply,
+      // another tab). Submitting a form clears its flags: after an explicit
+      // save, the server's answer is the truth, even when it rewrites.
+      if (draftable(from)) {
+        if (from.value === to.value) {
+          delete from.dataset.dirty
+        } else if (from.dataset.dirty === "true" && from !== document.activeElement) {
+          to.value = from.value
+          to.dataset.dirty = "true"
+        }
       }
     },
   },

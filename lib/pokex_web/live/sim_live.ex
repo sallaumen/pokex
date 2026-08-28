@@ -1564,7 +1564,7 @@ defmodule PokexWeb.SimLive do
                           value={cooldown_seconds(@setup, @world, chave)}
                           placeholder={cooldown_placeholder(@world)}
                           aria-label={"Cooldown da tecla " <> chave}
-                          class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-right font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+                          class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-right font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
                         />
                       </form>
                     </td>

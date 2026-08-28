@@ -808,7 +808,7 @@ defmodule PokexWeb.TeamLive do
             <select
               name={"skill[" <> key <> "]"}
               aria-label={"Skill " <> key <> " de " <> @row.name}
-              class="h-7 w-full min-w-0 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+              class="h-8 w-full min-w-0 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[12px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
             >
               <option value="none" selected={@row.skills[key] == nil}>—</option>
               <option
@@ -828,10 +828,11 @@ defmodule PokexWeb.TeamLive do
               step="0.5"
               name={"cd[" <> key <> "]"}
               value={SkillProfile.seconds(@row.cooldowns, key)}
+              phx-debounce="400"
               placeholder="s"
               title={"Cooldown da skill " <> key <> ", em segundos"}
               aria-label={"Cooldown da skill " <> key <> " de " <> @row.name}
-              class="h-7 w-12 shrink-0 rounded border border-[#293238] bg-[#090d0f] px-1 text-right font-mono text-[10px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+              class="h-8 w-14 shrink-0 rounded border border-[#293238] bg-[#090d0f] px-1 text-right font-mono text-[12px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
             />
           </label>
         </div>

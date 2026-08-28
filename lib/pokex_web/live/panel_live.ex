@@ -2523,7 +2523,7 @@ defmodule PokexWeb.PanelLive do
               id="shiny-action"
               name="shiny_action"
               aria-label="O que fazer ao ver um shiny"
-              class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+              class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
             >
               <option value="escape" selected={@shiny_action == "escape"}>fugir 🏃</option>
               <option value="alarm" selected={@shiny_action == "alarm"}>
@@ -2631,7 +2631,7 @@ defmodule PokexWeb.PanelLive do
             max="999"
             value={@stop_after_minutes}
             phx-debounce="500"
-            class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            class="h-8 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
           />
           <span>min ·</span>
           <input
@@ -2642,13 +2642,13 @@ defmodule PokexWeb.PanelLive do
             max="9999"
             value={@stop_after_kills}
             phx-debounce="500"
-            class="h-6 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
           />
           <span>kills (0 = nunca) →</span>
           <select
             id="stop-after-action"
             name="stop_after_action"
-            class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
           >
             <option value="stop" selected={@stop_after_action == "stop"}>parar tudo</option>
             <option value="logout" selected={@stop_after_action == "logout"}>
@@ -2672,13 +2672,13 @@ defmodule PokexWeb.PanelLive do
             max="999"
             value={@stagnation_minutes}
             phx-debounce="500"
-            class="h-6 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            class="h-8 w-12 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
           />
           <span>min →</span>
           <select
             id="stagnation-action"
             name="stagnation_action"
-            class="h-6 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+            class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
           >
             <option value="alarm" selected={@stagnation_action == "alarm"}>alarme</option>
             <option value="stop" selected={@stagnation_action == "stop"}>parar tudo</option>
@@ -2692,7 +2692,7 @@ defmodule PokexWeb.PanelLive do
             type="button"
             phx-click="logout_now"
             title="Encerra a sessão no jogo (Ctrl+Q + Enter), para tudo e confere na tela se saiu mesmo. Parar o bot não economiza estamina; deslogar economiza."
-            class="h-6 shrink-0 rounded border border-pk-line-strong px-2 font-mono text-pk-meta text-pk-text-2 hover:border-pk-warn hover:text-pk-warn focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-pk-warn"
+            class="h-8 shrink-0 rounded border border-pk-line-strong px-2 font-mono text-pk-body text-pk-text-2 hover:border-pk-warn hover:text-pk-warn focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-pk-warn"
           >
             🚪 Deslogar agora
           </button>

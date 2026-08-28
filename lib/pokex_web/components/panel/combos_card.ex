@@ -334,7 +334,7 @@ defmodule PokexWeb.Panel.CombosCard do
             <select
               :if={match?({:swap_member, _}, step) and @team != []}
               name="value"
-              class="h-6 w-28 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-meta text-pk-text"
+              class="h-8 w-28 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-meta text-pk-text"
             >
               <option
                 :for={name <- @team}
@@ -349,7 +349,7 @@ defmodule PokexWeb.Panel.CombosCard do
               name="value"
               value={Edit.editable_value(step)}
               phx-debounce="300"
-              class="input input-bordered h-6 w-20 bg-pk-bg px-1 text-center font-mono text-pk-meta"
+              class="input input-bordered h-8 w-20 bg-pk-bg px-1 text-center font-mono text-pk-body"
               aria-label={"Valor do passo #{index + 1}"}
             />
           </form>

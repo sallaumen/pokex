@@ -2733,7 +2733,7 @@ defmodule PokexWeb.CavebotLive do
               max="100"
               inputmode="numeric"
               aria-label="Abandonar a mobada abaixo desta porcentagem de vida"
-              class="pk-num h-7 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+              class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
             />
             <span>% · volta em</span>
             <input
@@ -2744,12 +2744,12 @@ defmodule PokexWeb.CavebotLive do
               max="100"
               inputmode="numeric"
               aria-label="Retomar a rota nesta porcentagem de vida"
-              class="pk-num h-7 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+              class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
             />
             <span>%</span>
             <button
               aria-label="Salvar os limites da guarda de HP"
-              class="h-7 cursor-pointer rounded border border-pk-line-strong px-2 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+              class="h-8 cursor-pointer rounded border border-pk-line-strong px-2.5 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
             >
               salvar
             </button>
@@ -2770,7 +2770,7 @@ defmodule PokexWeb.CavebotLive do
               max="50"
               inputmode="numeric"
               aria-label="Quantas vezes a caçada tenta voltar sozinha"
-              class="pk-num h-7 w-12 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+              class="pk-num h-8 w-12 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
             />
             <span>× a cada</span>
             <input
@@ -2781,12 +2781,12 @@ defmodule PokexWeb.CavebotLive do
               max="600"
               inputmode="numeric"
               aria-label="Quantos segundos ela espera antes de tentar voltar"
-              class="pk-num h-7 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
+              class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
             />
             <span>s</span>
             <button
               aria-label="Salvar as tentativas de volta da caçada"
-              class="h-7 cursor-pointer rounded border border-pk-line-strong px-2 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+              class="h-8 cursor-pointer rounded border border-pk-line-strong px-2.5 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
             >
               salvar
             </button>

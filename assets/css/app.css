@@ -164,3 +164,14 @@
     animation-duration: 0.01ms !important;
   }
 }
+
+/* UM RASCUNHO NÃO É UM SALVO. O app.js preserva o que foi digitado num campo
+   desfocado (data-dirty) através dos re-renders — sem isto, o valor protegido
+   ficava com cara de "em vigor" sendo só um rascunho. Âmbar = digitado e ainda
+   não aceito pelo servidor; a borda volta ao normal sozinha quando o servidor
+   ecoa o valor (salvou), e nos formulários de "salvar" ela fica acesa até o
+   botão. */
+input[data-dirty="true"],
+textarea[data-dirty="true"] {
+  border-color: var(--color-pk-warn) !important;
+}

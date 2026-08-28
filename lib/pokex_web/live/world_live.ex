@@ -156,7 +156,7 @@ defmodule PokexWeb.WorldLive do
           class="rounded-lg border border-pk-line bg-pk-surface p-4"
         >
           <div class="flex items-baseline justify-between">
-            <h2 class="text-sm font-bold uppercase tracking-[0.12em] text-pk-text-2">
+            <h2 class="text-pk-body font-bold uppercase tracking-[0.12em] text-pk-text-2">
               O que a IA vê agora
             </h2>
             <span :if={not @snapshot.layout?} class="font-mono text-pk-meta text-pk-danger">
@@ -167,14 +167,14 @@ defmodule PokexWeb.WorldLive do
           <dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
               <dt class="font-mono text-pk-meta uppercase text-pk-text-3">Pokémon ativo</dt>
-              <dd class="font-mono text-sm text-pk-text">
+              <dd class="font-mono text-pk-body text-pk-text">
                 {hp_text(@snapshot.me.pokemon_hp)}
                 <span class="text-pk-ok">{pct(World.pokemon_hp_pct(@snapshot))}</span>
               </dd>
             </div>
             <div>
               <dt class="font-mono text-pk-meta uppercase text-pk-text-3">Level · pesca</dt>
-              <dd class="font-mono text-sm text-pk-text">
+              <dd class="font-mono text-pk-body text-pk-text">
                 {num(@snapshot.me.level)} · {num(@snapshot.me.fishing)}
               </dd>
             </div>
@@ -184,7 +184,7 @@ defmodule PokexWeb.WorldLive do
                   reading" from "reading, and you are here". --%>
             <div id="world-position">
               <dt class="font-mono text-pk-meta uppercase text-pk-text-3">Posição</dt>
-              <dd class="font-mono text-sm text-pk-text">
+              <dd class="font-mono text-pk-body text-pk-text">
                 {PositionReadout.coords(@snapshot.pos)}
               </dd>
               <p class={[
@@ -199,7 +199,7 @@ defmodule PokexWeb.WorldLive do
             </div>
             <div>
               <dt class="font-mono text-pk-meta uppercase text-pk-text-3">Batalha</dt>
-              <dd class="font-mono text-sm text-pk-text">
+              <dd class="font-mono text-pk-body text-pk-text">
                 {enemies_text(@snapshot)}
               </dd>
             </div>
@@ -208,7 +208,7 @@ defmodule PokexWeb.WorldLive do
           <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div :for={{slot, label} <- [f1: "F1", f2: "F2", e: "E", s_q: "S+Q"]}>
               <dt class="font-mono text-pk-meta uppercase text-pk-text-3">{label}</dt>
-              <dd class="font-mono text-sm text-pk-text">{num(@snapshot.inventory[slot])}</dd>
+              <dd class="font-mono text-pk-body text-pk-text">{num(@snapshot.inventory[slot])}</dd>
             </div>
           </div>
 
@@ -222,18 +222,20 @@ defmodule PokexWeb.WorldLive do
           </ul>
         </section>
 
-        <header>
-          <h1 class="text-xl font-bold">Mundo</h1>
-          <p class="mt-1 text-sm opacity-70">
-            O que a IA vê agora: cada fato no blackboard, com idade e resumo.
-            Fato velho = quem publica está travado ou parado — os consumidores
-            já o ignoram sozinhos (fail-open).
-          </p>
-        </header>
+        <Layouts.page_title icon="hero-globe-alt">
+          Mundo
+          <:aside>
+            <p class="max-w-xl text-pk-body text-pk-text-2">
+              O que a IA vê agora: cada fato no blackboard, com idade e resumo.
+              Fato velho = quem publica está travado ou parado — os consumidores
+              já o ignoram sozinhos (fail-open).
+            </p>
+          </:aside>
+        </Layouts.page_title>
 
         <div
           :if={@entries == []}
-          class="rounded-xl border border-base-content/10 bg-base-200 p-6 text-center text-sm opacity-60"
+          class="rounded-xl border border-pk-line bg-pk-surface p-6 text-center text-pk-body opacity-60"
         >
           nada publicado ainda — ligue o bot (ou um worker) e os fatos aparecem aqui
         </div>
@@ -241,7 +243,7 @@ defmodule PokexWeb.WorldLive do
         <ul :if={@entries != []} id="world-facts" class="space-y-2">
           <li
             :for={entry <- @entries}
-            class="flex items-center gap-3 rounded-xl border border-base-content/10 bg-base-200 px-4 py-3"
+            class="flex items-center gap-3 rounded-xl border border-pk-line bg-pk-surface px-4 py-3"
           >
             <span class={[
               "size-2.5 shrink-0 rounded-full",
@@ -251,10 +253,10 @@ defmodule PokexWeb.WorldLive do
             ]} />
             <div class="min-w-0 flex-1">
               <div class="flex items-baseline gap-2">
-                <span class="font-mono text-sm font-semibold">{entry.key}</span>
-                <span class="font-mono text-xs opacity-50">{format_age(entry.age_ms)}</span>
+                <span class="font-mono text-pk-body font-semibold">{entry.key}</span>
+                <span class="font-mono text-pk-meta opacity-50">{format_age(entry.age_ms)}</span>
               </div>
-              <p class="truncate font-mono text-xs opacity-70">{entry.summary}</p>
+              <p class="truncate font-mono text-pk-meta opacity-70">{entry.summary}</p>
             </div>
           </li>
         </ul>

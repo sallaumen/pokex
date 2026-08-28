@@ -24,25 +24,27 @@ colors:
   pk-info-dim: "#0c1f2e"
   pk-info-line: "#2b6086"
 typography:
-  # Sem `fontSize` de propósito. A escala de três degraus existe e é maioria
-  # (415 usos), mas 128 usos de `text-[Npx]` ainda vivem fora dela — declarar o
-  # ramp aqui acenderia os 128 de uma vez e enterraria a deriva de verdade.
-  # Os degraus estão na seção Typography, em prosa, e voltam pra cá quando a
-  # migração fechar. Ver "A Regra dos Três Degraus".
+  # A migração fechou em 2026-08-28 e o `fontSize` acendeu junto: zero
+  # `text-[Npx]`, zero `text-sm|xs|base|lg|xl|2xl`, zero superfície `base-*` do
+  # daisyUI em `lib/pokex_web`. A cerca é `test/pokex_web/design_drift_test.exs`.
   title:
+    fontSize: "0.9375rem"
     fontFamily: "ui-sans-serif, system-ui, sans-serif"
     fontWeight: 700
     lineHeight: 1.3
   body:
+    fontSize: "0.8125rem"
     fontFamily: "ui-sans-serif, system-ui, sans-serif"
     fontWeight: 400
     lineHeight: 1.5
   label:
+    fontSize: "0.6875rem"
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
     fontWeight: 600
     lineHeight: 1.2
     letterSpacing: "0.12em"
   readout:
+    fontSize: "0.8125rem"
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
     fontWeight: 700
     lineHeight: 1.2
@@ -265,30 +267,32 @@ sistema para alinhar. Texto de leitura nunca abaixo de 12px.
 tabular (`.pk-num` ou `tabular-nums`). Sem isso, uma contagem que vai de 99 pra
 100 empurra a linha inteira de lado a cada leitura.
 
-### Dívida conhecida: a escala ainda não fechou
+### A escala fechou — e a cerca é um teste, não uma promessa
 
-Medido em 2026-08-14, em `lib/`: 415 usos dos três degraus (`text-pk-meta` 247,
-`text-pk-body` 143, `text-pk-title` 25) contra **128 usos de `text-[Npx]` fora
-deles** — `10px` (73), `9px` (28), `11px` (24), `12px` (2), `8px` (1) — mais 140
-usos da escala padrão do Tailwind (`text-sm` 66, `text-xs` 39, `text-base` 19,
-`text-lg` 11, `text-xl` 3, `text-2xl` 2). A concentração é em `team_live.ex`,
-`pokedex_live.ex` e `pokedex_detail_live.ex`, páginas escritas antes dos tokens.
+Em 2026-08-14 a dívida era: 415 usos dos três degraus contra **128 usos de
+`text-[Npx]`** (10px 73, 9px 28, 11px 24, 12px 2, 8px 1) e **140 da escala
+padrão do Tailwind**. As páginas escritas antes dos tokens — `team_live`,
+`pokedex_live`, `pokedex_detail_live`, e as duas de pesca, nascidas no visual
+genérico do daisyUI — carregavam quase tudo.
 
-Por isso o frontmatter **não declara `fontSize`**: a regra `design-system-font-size`
-está deliberadamente dormente. Declarar o ramp de três degraus hoje produz **105
-achados** de uma vez (medido, não estimado: `pokedex_detail_live` 35,
-`team_live` 25, `calibration_overlay` 15, `pokedex_live` 15, `world_live` 9…) —
-ruído que enterra deriva de verdade em vez de revelá-la. Quando essas páginas
-migrarem, acrescente `fontSize` aos quatro papéis e a regra acende sozinha.
+Em 2026-08-28 fechou. Em `lib/pokex_web`: **840 usos dos três degraus**
+(`text-pk-meta` 498, `text-pk-body` 292, `text-pk-title` 50), **zero**
+`text-[Npx]`, **zero** `text-sm|xs|base|lg|xl|2xl`, **zero** superfície
+`base-100|200|300|content` do daisyUI, e **zero** cor em hex cru fora de doze
+exceções nomeadas (os cinco acentos de grupo do overlay de editores e as quatro
+séries do gráfico do mini-game — identificadores categóricos, onde o ponto é
+ser uma cor que nenhum token tem).
 
-Vale saber o que isso custa: `design-system-font-size` é a **única** regra do
-detector que enxerga classe utilitária do Tailwind (`text-[10px]`). As outras
-—`design-system-color` e `design-system-radius`— só leem declaração CSS de
-verdade (`style="color: #…"`, `border-radius: …`), e passam batido por
-`bg-[#090d0f]` / `border-[#8b949d]`, que é a forma que a deriva de cor tem neste
-repositório. Ou seja: o hook cobre o piso mecânico e guarda contra deriva futura
-em CSS, mas a dívida de hex listada abaixo é responsabilidade da revisão humana,
-não da máquina.
+Com a migração fechada, o frontmatter **declara `fontSize`** e a regra
+`design-system-font-size` do detector está acesa.
+
+**A cerca de verdade é `test/pokex_web/design_drift_test.exs`**, e ela existe
+porque o detector não alcança a forma que a deriva tem neste repositório:
+`design-system-color` e `design-system-radius` só leem declaração CSS
+(`style="color: #…"`), e passam batido por `bg-[#090d0f]` — que é como a cor
+crua chega aqui, em classe utilitária. O teste varre `lib/pokex_web/**` e falha
+com a substituição correta escrita na mensagem. Uma página nova nasce dentro do
+sistema ou não passa no CI.
 
 ## Layout
 

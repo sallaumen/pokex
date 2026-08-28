@@ -674,7 +674,7 @@ defmodule PokexWeb.DiagnosticsLive do
 
         <section
           id="key-probe"
-          class="space-y-3 rounded-2xl border border-pk-warn-line/40 bg-pk-surface p-5"
+          class="space-y-3 rounded-lg border border-pk-warn-line/40 bg-pk-surface p-5"
         >
           <div>
             <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-warn">
@@ -731,7 +731,7 @@ defmodule PokexWeb.DiagnosticsLive do
 
         <section
           :if={@calibrated?}
-          class="space-y-3 rounded-2xl border border-pk-line bg-pk-surface p-5"
+          class="space-y-3 rounded-lg border border-pk-line bg-pk-surface p-5"
         >
           <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
             Visão <span class="normal-case text-pk-text-3">— usa a calibração salva</span>
@@ -892,7 +892,7 @@ defmodule PokexWeb.DiagnosticsLive do
           >calibrar</.link>.
         </div>
 
-        <section class="space-y-3 rounded-2xl border border-pk-line bg-pk-surface p-5">
+        <section class="space-y-3 rounded-lg border border-pk-line bg-pk-surface p-5">
           <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
             Ferramentas avulsas
           </h2>
@@ -1022,7 +1022,7 @@ defmodule PokexWeb.DiagnosticsLive do
           <.result_line msg={@tools_msg} />
         </section>
 
-        <section class="space-y-3 rounded-2xl border border-pk-line bg-pk-surface p-5">
+        <section class="space-y-3 rounded-lg border border-pk-line bg-pk-surface p-5">
           <div class="flex items-start justify-between gap-3">
             <div>
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">

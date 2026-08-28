@@ -52,7 +52,7 @@ defmodule PokexWeb.CalibrationReview do
     assigns = assign(assigns, :pending, pending(assigns.scale_proposals))
 
     ~H"""
-    <div id="review-panel" class="space-y-3 rounded-2xl border border-pk-line bg-pk-surface p-4">
+    <div id="review-panel" class="space-y-3 rounded-lg border border-pk-line bg-pk-surface p-4">
       <div class="flex items-center justify-between gap-2">
         <h2 class="text-pk-title font-bold">Áreas que o bot está usando</h2>
         <button

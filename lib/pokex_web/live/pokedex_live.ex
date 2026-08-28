@@ -406,11 +406,11 @@ defmodule PokexWeb.PokedexLive do
               list="species-names"
               placeholder="só estes nomes (vazio = tudo)"
               autocomplete="off"
-              class="input input-bordered h-8 w-52 bg-pk-sunken font-mono text-xs"
+              class="input input-bordered h-8 w-52 bg-pk-sunken font-mono text-pk-meta"
             />
             <button
               disabled={@sync_running?}
-              class="btn h-8 border border-pk-line-strong bg-transparent px-3 text-xs text-pk-text-2 hover:border-pk-ok/60 hover:text-white disabled:opacity-40"
+              class="btn h-8 border border-pk-line-strong bg-transparent px-3 text-pk-meta text-pk-text-2 hover:border-pk-ok/60 hover:text-white disabled:opacity-40"
             >
               {if @sync_running?, do: "⏳ sincronizando…", else: "🔄 Sincronizar wiki"}
             </button>
@@ -427,7 +427,7 @@ defmodule PokexWeb.PokedexLive do
 
         <section
           :if={not @loaded?}
-          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4 text-sm text-pk-warn"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4 text-pk-body text-pk-warn"
         >
           Sem dados ainda — clica em "🔄 Sincronizar wiki" aí em cima (ou roda
           <code class="font-mono">mix pokedex.sync</code>
@@ -449,7 +449,7 @@ defmodule PokexWeb.PokedexLive do
                 value={@form[:name].value}
                 placeholder='ex.: seadra  (atalho: "/")'
                 data-quick-search
-                class="input input-bordered h-9 w-40 bg-pk-bg font-mono text-sm"
+                class="input input-bordered h-9 w-40 bg-pk-bg font-mono text-pk-body"
               />
             </label>
             <label class="flex flex-col gap-1">
@@ -458,7 +458,7 @@ defmodule PokexWeb.PokedexLive do
                 type="number"
                 name="f[min_level]"
                 value={@form[:min_level].value}
-                class="input input-bordered h-9 w-20 bg-pk-bg font-mono text-sm"
+                class="input input-bordered h-9 w-20 bg-pk-bg font-mono text-pk-body"
               />
             </label>
             <label class="flex flex-col gap-1">
@@ -467,7 +467,7 @@ defmodule PokexWeb.PokedexLive do
                 type="number"
                 name="f[max_level]"
                 value={@form[:max_level].value}
-                class="input input-bordered h-9 w-20 bg-pk-bg font-mono text-sm"
+                class="input input-bordered h-9 w-20 bg-pk-bg font-mono text-pk-body"
               />
             </label>
             <label class="flex flex-col gap-1" title="normais, shinies, ou os dois">
@@ -475,7 +475,7 @@ defmodule PokexWeb.PokedexLive do
               <select
                 id="filter-variant"
                 name="f[variant]"
-                class="select select-bordered h-9 w-40 bg-pk-bg font-mono text-sm"
+                class="select select-bordered h-9 w-40 bg-pk-bg font-mono text-pk-body"
               >
                 <option value="" selected={@form[:variant].value == ""}>
                   normais e shinies
@@ -592,7 +592,7 @@ defmodule PokexWeb.PokedexLive do
                     loading="lazy"
                   />
                   <div class="min-w-0">
-                    <p class="truncate text-sm font-semibold">
+                    <p class="truncate text-pk-body font-semibold">
                       {entry.name}<span :if={entry.variant == "shiny"}> ✨</span>
                     </p>
                     <p class="flex flex-wrap items-center gap-1 font-mono text-pk-meta text-pk-text-3">

@@ -164,7 +164,7 @@ defmodule PokexWeb.PokedexDetailLive do
         ]}>
           {move.slot}
         </span>
-        <span class="min-w-0 flex-1 truncate text-sm font-semibold">{move.name}</span>
+        <span class="min-w-0 flex-1 truncate text-pk-body font-semibold">{move.name}</span>
         <.element_chip :if={move.element} element={move.element} class="px-1.5 py-0.5 text-pk-meta" />
         <span
           :if={move.cooldown_s}
@@ -203,12 +203,12 @@ defmodule PokexWeb.PokedexDetailLive do
               placeholder="pular pra outro…"
               autocomplete="off"
               data-quick-search
-              class="input input-bordered h-8 w-44 bg-pk-sunken font-mono text-xs"
+              class="input input-bordered h-8 w-44 bg-pk-sunken font-mono text-pk-meta"
             />
             <datalist id="species-names">
               <option :for={name <- @species_names} value={name} />
             </datalist>
-            <button class="btn h-8 border border-pk-line-strong bg-transparent px-2.5 text-xs text-pk-text-2 hover:border-pk-ok/60 hover:text-white">
+            <button class="btn h-8 border border-pk-line-strong bg-transparent px-2.5 text-pk-meta text-pk-text-2 hover:border-pk-ok/60 hover:text-white">
               ir
             </button>
             <span :if={@jump_msg} id="jump-msg" class="font-mono text-pk-meta text-pk-warn">
@@ -220,7 +220,7 @@ defmodule PokexWeb.PokedexDetailLive do
         <section
           :if={@entry == nil}
           id="entry-missing"
-          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4 text-sm text-pk-warn"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4 text-pk-body text-pk-warn"
         >
           Não achei "{@missing_name}" na Pokédex — confere o nome ou sincroniza a wiki.
         </section>
@@ -236,7 +236,7 @@ defmodule PokexWeb.PokedexDetailLive do
                 class="size-20 shrink-0 object-contain"
               />
               <div class="min-w-0">
-                <h1 class="text-xl font-bold">
+                <h1 class="text-pk-title font-bold">
                   {@entry.name}<span :if={@entry.variant == "shiny"}> ✨</span>
                 </h1>
                 <p class="mt-1 flex flex-wrap gap-1.5 font-mono text-pk-body">
@@ -514,7 +514,7 @@ defmodule PokexWeb.PokedexDetailLive do
                   <span class="font-mono text-pk-meta text-pk-text-3">{label}</span>
                   <.link
                     patch={~p"/pokedex/#{evo.name}"}
-                    class="rounded-lg border border-pk-line bg-pk-raised px-2 py-1 text-xs hover:border-pk-ok/60 hover:text-white"
+                    class="rounded-lg border border-pk-line bg-pk-raised px-2 py-1 text-pk-meta hover:border-pk-ok/60 hover:text-white"
                   >
                     {evo.name}
                     <span :if={evo.level} class="font-mono text-pk-meta text-pk-text-3">
@@ -539,14 +539,14 @@ defmodule PokexWeb.PokedexDetailLive do
               <.link
                 :if={@shiny}
                 patch={~p"/pokedex/#{@shiny.name}"}
-                class="text-sm font-semibold text-pk-warn underline hover:text-pk-warn"
+                class="text-pk-body font-semibold text-pk-warn underline hover:text-pk-warn"
               >
                 ✨ ver {@shiny.name} (lv {@shiny.level || "?"})
               </.link>
               <.link
                 :if={@base}
                 patch={~p"/pokedex/#{@base.name}"}
-                class="text-sm font-semibold text-pk-warn underline hover:text-pk-warn"
+                class="text-pk-body font-semibold text-pk-warn underline hover:text-pk-warn"
               >
                 ver a forma base: {@base.name} (lv {@base.level || "?"})
               </.link>

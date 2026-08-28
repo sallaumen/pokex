@@ -84,17 +84,17 @@ defmodule PokexWeb.MiniGameLive do
     ~H"""
     <Layouts.app flash={@flash} current_page={:mini_game} {Layouts.header(assigns)}>
       <div class="space-y-5">
-        <section class="rounded-2xl border border-base-content/10 bg-base-200 p-5">
+        <section class="rounded-lg border border-pk-line bg-pk-surface p-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 class="text-2xl font-bold tracking-tight">Mini-game da pesca</h1>
-              <p class="mt-1 text-sm text-base-content/70">
+              <h1 class="text-pk-title font-bold tracking-tight">Mini-game da pesca</h1>
+              <p class="mt-1 text-pk-body text-pk-text-2">
                 O quadro abaixo é exatamente o que o código analisou — nenhuma captura extra.
               </p>
             </div>
 
             <form id="mini-game-mode-form" phx-change="set_mode" class="flex items-center gap-2">
-              <label for="mini-game-mode" class="text-xs uppercase tracking-wide text-base-content/50">
+              <label for="mini-game-mode" class="text-pk-meta uppercase tracking-wide text-pk-text-3">
                 modo
               </label>
               <select id="mini-game-mode" name="mode" class="select select-sm select-bordered">
@@ -119,22 +119,22 @@ defmodule PokexWeb.MiniGameLive do
             class="mt-4 rounded-xl border border-warning/40 bg-warning/10 p-4"
             role="status"
           >
-            <p class="text-lg font-semibold text-warning">{@status.manual_text}</p>
-            <p class="mt-1 text-sm text-base-content/70">
+            <p class="text-pk-title font-semibold text-pk-warn">{@status.manual_text}</p>
+            <p class="mt-1 text-pk-body text-pk-text-2">
               Pesca, batalha e captura estão seguradas pelo fato <code>:mini_game</code>
               e voltam sozinhas quando o overlay sumir.
             </p>
           </div>
 
-          <p :if={@msg} class="mt-3 text-sm text-base-content/70">{@msg}</p>
+          <p :if={@msg} class="mt-3 text-pk-body text-pk-text-2">{@msg}</p>
         </section>
 
-        <section class="rounded-2xl border border-base-content/10 bg-base-200 p-5">
-          <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/50">
+        <section class="rounded-lg border border-pk-line bg-pk-surface p-5">
+          <h2 class="text-pk-body font-semibold uppercase tracking-wide text-pk-text-3">
             Quadro analisado
           </h2>
 
-          <p :if={is_nil(@sample)} class="mt-3 text-sm text-base-content/60">
+          <p :if={is_nil(@sample)} class="mt-3 text-pk-body text-pk-text-2">
             Nenhuma partida em andamento. A imagem aparece assim que o overlay for detectado.
           </p>
 
@@ -142,7 +142,7 @@ defmodule PokexWeb.MiniGameLive do
             <%!-- justify-self-start: a grid item stretches by default, and a stretched
                   box would stretch the overlay with it — the lines must sit on the
                   pixels they were read from --%>
-            <div class="relative inline-block justify-self-start self-start overflow-hidden rounded-xl border border-base-content/10 bg-base-300">
+            <div class="relative inline-block justify-self-start self-start overflow-hidden rounded-xl border border-pk-line bg-pk-sunken">
               <%!-- the strip is tall and narrow (~80x950 px): cap the HEIGHT and let the
                     width follow, or it stretches into a several-thousand-pixel column --%>
               <img
@@ -217,7 +217,7 @@ defmodule PokexWeb.MiniGameLive do
             </div>
 
             <div class="space-y-3">
-              <div class="flex flex-wrap gap-3 text-[0.7rem] text-base-content/70">
+              <div class="flex flex-wrap gap-3 text-[0.7rem] text-pk-text-2">
                 <span class="flex items-center gap-1.5">
                   <span class="inline-block h-0.5 w-4 bg-[#94a3b8]" /> bounds do track
                 </span>
@@ -232,7 +232,7 @@ defmodule PokexWeb.MiniGameLive do
                 </span>
               </div>
 
-              <div class="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+              <div class="grid grid-cols-2 gap-2 text-pk-body sm:grid-cols-3">
                 <.stat label="leitura" value={to_string(@sample[:read])} />
                 <.stat label="origem" value={to_string(@sample[:bar_source] || "—")} />
                 <.stat label="captura" value={"#{@sample[:cap_ms]} ms"} />
@@ -258,11 +258,11 @@ defmodule PokexWeb.MiniGameLive do
           </div>
         </section>
 
-        <section :if={@summary} class="rounded-2xl border border-base-content/10 bg-base-200 p-5">
-          <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/50">
+        <section :if={@summary} class="rounded-lg border border-pk-line bg-pk-surface p-5">
+          <h2 class="text-pk-body font-semibold uppercase tracking-wide text-pk-text-3">
             Última partida
           </h2>
-          <div class="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+          <div class="mt-3 grid grid-cols-2 gap-2 text-pk-body sm:grid-cols-4">
             <.stat label="duração" value={"#{@summary.duration_ms} ms"} />
             <.stat label="ticks" value={to_string(@summary.ticks)} />
             <.stat label="fps" value={to_string(@summary.fps)} />
@@ -275,25 +275,25 @@ defmodule PokexWeb.MiniGameLive do
           </div>
         </section>
 
-        <section class="rounded-2xl border border-base-content/10 bg-base-200 p-5">
-          <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/50">
+        <section class="rounded-lg border border-pk-line bg-pk-surface p-5">
+          <h2 class="text-pk-body font-semibold uppercase tracking-wide text-pk-text-3">
             Pacotes de diagnóstico
           </h2>
-          <p class="mt-1 text-xs text-base-content/60">
+          <p class="mt-1 text-pk-meta text-pk-text-2">
             O replay roda offline: só Detector, Track e as contas — nunca captura nem tecla.
           </p>
 
-          <p :if={@bundles == []} class="mt-3 text-sm text-base-content/60">
+          <p :if={@bundles == []} class="mt-3 text-pk-body text-pk-text-2">
             Nenhum pacote ainda. Cada partida terminada grava um.
           </p>
 
           <ul class="mt-3 space-y-2">
             <li
               :for={bundle <- @bundles}
-              class="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-base-300/60 px-3 py-2 text-sm"
+              class="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-pk-sunken/60 px-3 py-2 text-pk-body"
             >
-              <span class="font-mono text-xs">{bundle.name}</span>
-              <span class="text-xs text-base-content/60">{kb(bundle.bytes)}</span>
+              <span class="font-mono text-pk-meta">{bundle.name}</span>
+              <span class="text-pk-meta text-pk-text-2">{kb(bundle.bytes)}</span>
               <span class="flex items-center gap-2">
                 <.link
                   href={~p"/exports/#{bundle.name}/summary.json"}
@@ -309,11 +309,11 @@ defmodule PokexWeb.MiniGameLive do
             </li>
           </ul>
 
-          <div :if={@replay} class="mt-4 rounded-xl border border-base-content/10 p-3 text-sm">
+          <div :if={@replay} class="mt-4 rounded-xl border border-pk-line p-3 text-pk-body">
             <p class="font-semibold">
               replay: {@replay.frames} quadros de {Path.basename(@replay.source)}
             </p>
-            <ul class="mt-2 space-y-1 font-mono text-xs">
+            <ul class="mt-2 space-y-1 font-mono text-pk-meta">
               <li :for={sample <- @replay.samples}>
                 #{sample[:i]} {sample[:tag]} · leitura {sample[:read]} · peixe {num(sample[:fish_y])} · cápsula {num(
                   sample[:bar_y]
@@ -332,9 +332,9 @@ defmodule PokexWeb.MiniGameLive do
 
   defp stat(assigns) do
     ~H"""
-    <div class="rounded-lg bg-base-300/60 px-3 py-2">
-      <p class="text-[0.65rem] uppercase tracking-wide text-base-content/50">{@label}</p>
-      <p class="font-mono text-sm">{@value}</p>
+    <div class="rounded-lg bg-pk-sunken/60 px-3 py-2">
+      <p class="text-[0.65rem] uppercase tracking-wide text-pk-text-3">{@label}</p>
+      <p class="font-mono text-pk-body">{@value}</p>
     </div>
     """
   end

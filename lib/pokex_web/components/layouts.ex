@@ -556,6 +556,34 @@ defmodule PokexWeb.Layouts do
         :machine_first?
       ])
 
+  attr :icon, :string, default: nil, doc: "hero-* opcional à esquerda do nome"
+  slot :inner_block, required: true
+  slot :aside, doc: "o que fica à direita do título, na mesma linha"
+
+  @doc """
+  O NOME DA PÁGINA, com uma voz só.
+
+  Cada tela tinha inventado a sua: `text-base`, `text-lg`, `text-xl`, `text-2xl`
+  e dois degraus do sistema — seis páginas, seis tamanhos, três decisões
+  diferentes sobre caixa alta. A única coisa que deveria mudar ao navegar é o
+  conteúdo, e o cabeçalho estava mudando junto.
+
+  A voz é a do aparelho: o maior degrau que o sistema tem (15px — não existe
+  display aqui), caixa alta e `0.14em` de tracking. Nada de `text-2xl`: uma
+  página que grita o próprio nome rouba a linha de quem tem número pra mostrar.
+  """
+  def page_title(assigns) do
+    ~H"""
+    <header class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+      <h1 class="flex items-center gap-2 text-pk-title font-bold uppercase tracking-[0.14em] text-pk-text">
+        <.icon :if={@icon} name={@icon} class="size-4 shrink-0 text-pk-text-3" />
+        {render_slot(@inner_block)}
+      </h1>
+      {render_slot(@aside)}
+    </header>
+    """
+  end
+
   # The id becomes DOM: `:fishing_lab` -> "app-nav-fishing-lab" (underscores in
   # markup ids are noise, and a test doing `refute html =~ "mini_game"` would
   # match the id).

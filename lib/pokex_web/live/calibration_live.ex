@@ -2149,13 +2149,15 @@ defmodule PokexWeb.CalibrationLive do
       <div class="space-y-3">
         <%!-- Título e regra na MESMA linha: a tela é larga, e um parágrafo de
               aviso ocupando uma faixa inteira só empurra o trabalho pra baixo. --%>
-        <header class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          <h1 class="text-base font-bold text-pk-text">Calibração</h1>
-          <p class="min-w-0 flex-1 text-pk-body text-pk-text-2">
-            Deixe a janela do jogo visível e SEM o navegador na frente. Depois de calibrar,
-            não mova nem redimensione a janela do jogo (senão recalibre).
-          </p>
-        </header>
+        <Layouts.page_title icon="hero-viewfinder-circle">
+          Calibração
+          <:aside>
+            <p class="max-w-2xl text-pk-body text-pk-text-2">
+              Deixe a janela do jogo visível e SEM o navegador na frente. Depois de calibrar,
+              não mova nem redimensione a janela do jogo (senão recalibre).
+            </p>
+          </:aside>
+        </Layouts.page_title>
 
         <p
           :if={@error}
@@ -2430,9 +2432,10 @@ defmodule PokexWeb.CalibrationLive do
                     Usar
                   </button>
                   <button
-                    class="btn btn-ghost btn-xs text-error"
+                    class="btn btn-ghost btn-xs text-pk-danger"
                     phx-click="delete_profile"
                     phx-value-name={profile.name}
+                    aria-label={"Excluir o perfil " <> profile.name}
                     data-confirm={"Excluir o perfil \"#{profile.name}\"?"}
                   >
                     <.icon name="hero-trash" class="size-3.5" />

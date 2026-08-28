@@ -92,8 +92,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     fight_only_at_stops: :cavebot_fight_only_at_stops,
     stair_probe_ms: :cavebot_stair_probe_ms,
     stair_max_probes: :cavebot_stair_max_probes,
-    hp_abort_pct: :cavebot_hp_abort_pct,
-    hp_resume_pct: :cavebot_hp_resume_pct,
     stair_step_ms: :cavebot_stair_step_ms,
     stair_step_taps: :cavebot_stair_step_taps
   }
@@ -1352,11 +1350,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
       nil ->
         nil
 
-      %{hp_pct: nil, resume_pct: pct} ->
-        {:hp, "esperando o pokémon voltar da poké bola — a rota segue com #{pct}% de vida"}
+      %{hp_pct: nil} ->
+        {:hp, "esperando o pokémon voltar da poké bola"}
 
-      %{hp_pct: hp, resume_pct: pct} ->
-        {:hp, "vida em #{hp}% — a rota segue quando voltar a #{pct}%"}
+      %{hp_pct: hp} ->
+        {:hp,
+         "o pokémon está no chão (vida lida em #{hp}%) — a rota espera o revive levantar ele"}
     end
   end
 
@@ -1473,20 +1472,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   # The abandon and the comeback are EDGES worth one line each; the route held
   # in between is the hold reason's job, not the feed's.
-  defp note_recovery(%{logic: %Logic{recovering?: true} = logic} = state, false, now) do
-    log(:macro, "🩸 vida em #{logic.last_hp}% — modo sobrevivência: mato o que veio e espero")
+  defp note_recovery(%{logic: %Logic{recovering?: true}} = state, false, now) do
+    log(:macro, "🩸 o pokémon caiu — segurei a rota até o revive levantar ele")
 
     %{
       state
-      | last_action: %{text: "vida baixa — segurei a rota", at: now},
+      | last_action: %{text: "pokémon no chão — segurei a rota", at: now},
         counters: bump(state.counters, :aborts)
     }
   end
 
   defp note_recovery(%{logic: %Logic{recovering?: false, last_hp: hp}} = state, true, now)
        when is_integer(hp) do
-    log(:macro, "💚 vida em #{hp}% — pokémon recuperado, a caçada segue")
-    %{state | last_action: %{text: "recuperado — rota retomada", at: now}}
+    log(:macro, "💚 pokémon de pé (#{hp}%) — a caçada segue")
+    %{state | last_action: %{text: "de pé — rota retomada", at: now}}
   end
 
   defp note_recovery(state, _same, _now), do: state

@@ -26,6 +26,25 @@ defmodule Pokex.Sim.Scenario do
             name: nil,
             why: nil,
             group: nil,
+            # O SÍMBOLO E A COR, pra achar um cenário sem ler treze nomes.
+            #
+            # O símbolo é a identidade (🥚 é o bicho de papel, 🛡️ é o couraçado)
+            # e não sai do design system: o sistema tem três degraus de texto e
+            # quatro cores semânticas, e nenhuma delas distingue treze coisas.
+            # Um emoji distingue, e é o mesmo alfabeto que o feed da caçada já
+            # usa.
+            icon: "🎯",
+            # …e a cor NÃO repete o grupo. O grupo diz do que o cenário trata; o
+            # aperto diz o que esperar de uma corrida: `:rotina` é o que tem que
+            # dar certo sempre (verde), `:aperto` é o bot sofrendo mas segurando
+            # (âmbar), `:quebrado` é alguma coisa falhando DE PROPÓSITO (vermelho
+            # — e aí morrer não é notícia ruim, é o cenário funcionando).
+            aperto: :rotina,
+            # A PROMESSA, cobrável. Ver `Pokex.Sim.Verdict`: uma lista de nomes
+            # de propriedades que uma corrida deste cenário tem que cumprir. Sem
+            # ela um cenário responde "rodou" e cabe a ele olhar seis números e
+            # lembrar qual era a pergunta.
+            espera: [],
             route: nil,
             seed: 42,
             knobs: %{},
@@ -52,17 +71,60 @@ defmodule Pokex.Sim.Scenario do
 
   @groups %{
     hunt: "A caçada inteira",
+    mundo: "O bicho e o bolo",
     ruler: "A régua e a pilha",
     health: "Vida, revive e morte",
     hands: "Mãos que falham",
     blind: "Rota e cegueira"
   }
 
-  @doc "The groups that are controlled EXPERIMENTS — one pile, one question."
+  # A ORDEM DA TELA, e ela não é a do mapa (que não tem ordem). Começa pela
+  # caçada inteira, passa pelo mundo — as condições que ele nomeou: muito bicho,
+  # bicho duro, bicho de papel — e termina nas peças quebradas.
+  @group_order [:hunt, :mundo, :ruler, :health, :hands, :blind]
+
+  @doc """
+  The groups that are controlled EXPERIMENTS — one pile, one question.
+
+  `:mundo` fica DE FORA, e a lista é o lugar onde a diferença vira contrato:
+  aqueles são caçadas inteiras (circuito com ninho em cada canto, perdidos na
+  estrada, renascimento) rodando com uma FÍSICA diferente — bicho duro, bicho
+  de papel, pilha enorme. Num circuito assim, passar por um canto enquanto se
+  luta em outro é o que uma caçada é, e o contrato "nada some sem luta" (que
+  vale para um experimento de mapa parado) reprovaria a caçada por existir.
+  """
   def experiment_groups, do: [:ruler, :health, :hands, :blind]
+
+  @doc "Os grupos na ordem em que a tela os oferece."
+  @spec group_order() :: [atom]
+  def group_order, do: @group_order
 
   @doc "How the screen names each group."
   def group_label(group), do: Map.get(@groups, group, to_string(group))
+
+  # A COR DO APERTO, com os nomes do design system. Ver o campo `aperto`: verde
+  # é o que tem que dar certo sempre, âmbar é o bot sofrendo mas segurando,
+  # vermelho é uma peça quebrada de propósito.
+  @apertos %{
+    rotina: {"rotina", :ok, "tem que dar certo sempre"},
+    aperto: {"aperto", :warn, "o bot vai sofrer — a pergunta é se segura"},
+    quebrado: {"quebrado de propósito", :danger, "uma peça está falhando aqui"}
+  }
+
+  @doc "O nome curto do aperto de um cenário."
+  @spec aperto_label(atom) :: String.t()
+  def aperto_label(aperto), do: @apertos |> entry(aperto) |> elem(0)
+
+  @doc "O tom do design system que pinta este aperto (`:ok | :warn | :danger`)."
+  @spec aperto_tone(atom) :: :ok | :warn | :danger
+  def aperto_tone(aperto), do: @apertos |> entry(aperto) |> elem(1)
+
+  @doc "O que este aperto quer dizer, em uma frase."
+  @spec aperto_note(atom) :: String.t()
+  def aperto_note(aperto), do: @apertos |> entry(aperto) |> elem(2)
+
+  defp entry(apertos, aperto),
+    do: Map.get(apertos, aperto, {to_string(aperto), :ok, ""})
 
   @doc "Every scenario, in the order the screen offers them."
   @spec all() :: [t]
@@ -71,6 +133,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "cacada",
         group: :hunt,
+        icon: "🌙",
+        aperto: :rotina,
+        espera: [:nao_cai, :mata, :anda, :revive_util],
         name: "A caçada inteira",
         why:
           "Não é uma pergunta, é a NOITE: quatro cantos que renascem, pilhas do tamanho " <>
@@ -84,6 +149,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "formigueiro",
         group: :hunt,
+        icon: "🐜",
+        aperto: :aperto,
+        espera: [:nao_cai, :mata, :anda, :revive_util],
         name: "Formigueiro (cheio de bicho)",
         why:
           "A caçada dele, na densidade que ele descreveu: “esse jogo geralmente se dá uma " <>
@@ -104,6 +172,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "lotavanon",
         group: :hunt,
+        icon: "⚡",
+        aperto: :rotina,
+        espera: [:nao_cai, :mata, :anda, :revive_util],
         name: "Lotavanon (o anel de Electrode)",
         why:
           "O mapa REAL que ele está testando, com os números dele: “é uma área circular " <>
@@ -130,8 +201,154 @@ defmodule Pokex.Sim.Scenario do
         }
       },
       %__MODULE__{
+        id: "a-noite-medida",
+        group: :mundo,
+        icon: "📏",
+        aperto: :rotina,
+        espera: [:nao_cai, :mata, :anda, :revive_util],
+        name: "A tua noite, medida",
+        why:
+          "O CENÁRIO DE REFERÊNCIA: nenhum número aqui foi escolhido por mim. Todos saem da " <>
+            "noite de 28/08 lida por `Sim.Calibrate` — a mordida de 0,41% da vida por segundo " <>
+            "por bicho (n=8.011), a pilha de mediana 6 na hora do engajamento (n=5.840), e as " <>
+            "3,0 teclas por morto (n=4.867). Se o simulador estiver dizendo a verdade, esta " <>
+            "corrida se parece com a tua noite; se não estiver, é AQUI que a diferença " <>
+            "aparece, e não num cenário que eu inventei.",
+        route: :hunt_field,
+        knobs: %{
+          # a distribuição com mediana 6 e teto 9, que é o que a noite mostrou
+          nest_sizes: %{3 => 1, 4 => 2, 5 => 3, 6 => 4, 7 => 3, 8 => 2, 9 => 1},
+          nest_radius: 3,
+          stray_chance_pct: 30,
+          aggro_tiles: 8,
+          leash_tiles: 12,
+          respawn_ms: 30_000,
+          # MEDIDO: 0,41%/s por bicho. A cadência fica em 1s e a medição inteira
+          # vai no tamanho — a mesma escolha que `Calibrate.bite_knobs/1` faz,
+          # porque inventar o segundo número é como um knob medido volta a ser
+          # chute. A mesa dele diz 4 a cada 900ms: dez vezes mais forte.
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          mob_hp: 100,
+          presses_to_kill: 3
+        }
+      },
+      %__MODULE__{
+        id: "enxame",
+        group: :mundo,
+        icon: "🐝",
+        aperto: :aperto,
+        espera: [:nao_cai, :mata, :revive_no_prazo],
+        name: "Enxame (muito bicho de uma vez)",
+        why:
+          "Pilhas de 10 a 14 — ACIMA do que a noite dele já mostrou (o teto medido foi 9). " <>
+            "A pergunta não é se a área acerta todo mundo, é o que ele faz quando a pilha é " <>
+            "maior que a barra: tem que juntar, gastar tudo, controlar e reviver pra voltar " <>
+            "com a barra cheia, sem recuar. Se aparecer revive fora da janela do controle, é " <>
+            "aqui que se vê.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{10 => 3, 11 => 3, 12 => 2, 13 => 1, 14 => 1},
+          nest_radius: 3,
+          stray_chance_pct: 40,
+          aggro_tiles: 9,
+          leash_tiles: 14,
+          respawn_ms: 25_000,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          presses_to_kill: 3
+        }
+      },
+      %__MODULE__{
+        id: "couracado",
+        group: :mundo,
+        icon: "🛡️",
+        aperto: :aperto,
+        espera: [:nao_cai, :mata, :revive_no_prazo, :revive_util],
+        name: "Couraçado (morre em 8 teclas)",
+        why:
+          "O bicho duro que ele pediu: “pra testar como lidamos com monstros com mais ou " <>
+            "menos vida — se sabemos usar corretamente a skill de controle antes de usar " <>
+            "ressurect para resetar os cooldowns, e seguir esse loop até matar”. Oito teclas " <>
+            "por monstro é mais barra do que existe, então o loop controle → gasta tudo → " <>
+            "revive → gasta tudo é a ÚNICA forma de terminar.\n\n" <>
+            "A pilha nasce ACIMA da régua dele de propósito. Com pilhas de 3 a 5 (a primeira " <>
+            "versão deste cenário) a régua responde “não vale” antes de a dureza ter chance " <>
+            "de perguntar alguma coisa: o bot usa a mão pequena, dá um tiro e segue — e a " <>
+            "corrida mede zero mortos em dois minutos, dizendo sobre a régua o que o nome " <>
+            "prometia dizer sobre a vida do bicho.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{6 => 3, 7 => 3, 8 => 2, 9 => 1},
+          nest_radius: 2,
+          aggro_tiles: 10,
+          leash_tiles: 16,
+          respawn_ms: 40_000,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          # A DUREZA EM TECLAS, não em vida: subir `mob_hp` sozinho não deixaria
+          # bicho nenhum mais duro (o dano é % da vida). Ver `World`.
+          presses_to_kill: 8
+        }
+      },
+      %__MODULE__{
+        id: "casca-de-ovo",
+        group: :mundo,
+        icon: "🥚",
+        aperto: :rotina,
+        espera: [:nao_cai, :mata, :anda, :revive_util],
+        name: "Casca de ovo (morre numa tecla)",
+        why:
+          "O oposto do couraçado: uma tecla mata. A pergunta é a ECONOMIA — com tudo " <>
+            "morrendo no primeiro toque, cada tecla que sai a mais é uma tecla que ficou " <>
+            "45 segundos em cooldown por nada, e cada revive é uma bola do bolso dele " <>
+            "gasta numa luta que não precisava de nenhuma.\n\n" <>
+            "Ele ainda gasta revives aqui, e isso NÃO é um defeito: com uma tecla por " <>
+            "monstro a barra esvazia rápido, e a R3b troca o revive pela barra de volta. " <>
+            "O que se cobra é que nenhum deles saia com tecla de dano ainda na mão.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{2 => 3, 3 => 3, 4 => 2, 5 => 1},
+          nest_radius: 2,
+          aggro_tiles: 8,
+          leash_tiles: 12,
+          respawn_ms: 20_000,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          presses_to_kill: 1
+        }
+      },
+      %__MODULE__{
+        id: "mare",
+        group: :mundo,
+        icon: "🌊",
+        aperto: :aperto,
+        espera: [:nao_cai, :mata, :anda],
+        name: "Maré (eles não param de nascer)",
+        why:
+          "O ninho renasce a cada 6 segundos: a pilha volta a crescer enquanto ele ainda " <>
+            "está matando a anterior. É o “toda hora aparece no monte” dele levado ao " <>
+            "extremo, e a pergunta é se a rodada CHEGA A FECHAR — um bot que só sai quando " <>
+            "a tela limpa fica preso aqui pra sempre, e a promessa que cobra isso é “anda”.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{4 => 3, 5 => 3, 6 => 2},
+          nest_radius: 3,
+          stray_chance_pct: 35,
+          aggro_tiles: 9,
+          leash_tiles: 14,
+          respawn_ms: 6_000,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          presses_to_kill: 3
+        }
+      },
+      %__MODULE__{
         id: "pilha-pequena",
         group: :ruler,
+        icon: "🔹",
+        aperto: :rotina,
+        espera: [],
         name: "Pilha pequena",
         why:
           "UM monstro só — que é o que “abaixo da régua” quer dizer desde que ela virou " <>
@@ -143,6 +360,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "pilha-que-fecha",
         group: :ruler,
+        icon: "🎯",
+        aperto: :rotina,
+        espera: [],
         name: "Pilha que fecha",
         why:
           "Cinco chegam e param de chegar. É a janela que o desenho chama de sizing → " <>
@@ -152,6 +372,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "pilha-que-pinga",
         group: :ruler,
+        icon: "💧",
+        aperto: :aperto,
+        espera: [],
         name: "Pilha que pinga (ela PULA)",
         why:
           "Cinco monstros espalhados, chegando um de cada vez. A contagem nunca fica " <>
@@ -163,6 +386,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "ganancia",
         group: :ruler,
+        icon: "🏃",
+        aperto: :aperto,
+        espera: [],
         name: "Ganância: eles somem",
         why:
           "Um monstro e uma corda curta. Com a régua acima dele E a paciência desligada a " <>
@@ -174,6 +400,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "vida-caindo",
         group: :health,
+        icon: "🩸",
+        aperto: :aperto,
+        espera: [],
         name: "Vida caindo até o amarelo",
         why:
           "A mordida é forte. Acompanhe verde → amarelo: a rota deve travar (fecha a " <>
@@ -183,6 +412,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "vermelho",
         group: :health,
+        icon: "🚨",
+        aperto: :aperto,
+        espera: [],
         name: "Vermelho no meio da pilha",
         why:
           "A vida cai para 25% de uma vez, com a pilha em cima. O revive deve sair AGORA, " <>
@@ -193,6 +425,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "morte",
         group: :health,
+        icon: "💀",
+        aperto: :quebrado,
+        espera: [],
         name: "Ele cai (e o revive não sai)",
         why:
           "A barra some junto com o pokémon: o fato vira readable?: false e fainted?: true. " <>
@@ -208,6 +443,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "tecla-morta",
         group: :hands,
+        icon: "🔇",
+        aperto: :quebrado,
+        espera: [],
         name: "A tecla não sai (o bug de hoje)",
         why:
           "A tecla 3 sai da mão, o cooldown corre e o recibo confirma — e o monstro não " <>
@@ -219,6 +457,9 @@ defmodule Pokex.Sim.Scenario do
       %__MODULE__{
         id: "tela-ilegivel",
         group: :blind,
+        icon: "🌫️",
+        aperto: :quebrado,
+        espera: [],
         name: "Tela ilegível",
         why:
           "A lista de batalha para de ser lida: enemies vira nil, não zero. O cérebro deve " <>

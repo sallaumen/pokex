@@ -386,7 +386,7 @@ defmodule Pokex.Sim.Bench do
 
     cond do
       landed?(before, world) ->
-        file_revive(metrics, world, asked_orders, asked_picture, true, asked)
+        file_revive(metrics, world, asked_orders, asked_picture, true)
 
       # The stun went out and the revive is scheduled: the order is IN FLIGHT,
       # not refused. Counting this tick as a refusal filed every rescue twice.
@@ -394,7 +394,7 @@ defmodule Pokex.Sim.Bench do
         metrics
 
       orders.revive in [:now, :prepare] ->
-        file_revive(metrics, world, asked_orders, asked_picture, false, asked)
+        file_revive(metrics, world, asked_orders, asked_picture, false)
 
       true ->
         metrics
@@ -405,23 +405,33 @@ defmodule Pokex.Sim.Bench do
     if landed?(before, world), do: %{state | asked_revive: nil}, else: state
   end
 
-  defp ask_photo(state, orders, picture),
-    do: %{orders: orders, picture: picture, since_stun_ms: since_stun(state.world)}
+  defp ask_photo(_state, orders, picture), do: %{orders: orders, picture: picture}
 
   defp asked_or_now(%{orders: o, picture: p}, _orders, _picture), do: {o, p}
   defp asked_or_now(_never_asked, orders, picture), do: {orders, picture}
 
-  # A JANELA DELE, contada da hora do PEDIDO. `world.stunned_at` é o último
-  # controle que realmente saiu; `nil` quando nenhum saiu ainda.
+  # A JANELA DELE. `world.stunned_at` é o último controle que realmente saiu;
+  # `nil` quando nenhum saiu ainda.
+  #
+  # LIDA NA HORA DO DESPACHO, não na do pedido — e a diferença entre as duas
+  # inverte a resposta. O resgate é um COMBO: no tique do pedido o stun deste
+  # revive ainda não saiu, então uma foto tirada ali mede a idade do controle
+  # ANTERIOR e reporta como desprotegido justamente o revive que o stun estava
+  # protegendo. Medido no cenário do enxame: dez de doze revives apareciam com
+  # 8,2s desde o controle quando o stun de cada um saía 800ms antes de o revive
+  # ir.
+  #
+  # As outras colunas do evento seguem sendo a foto do PEDIDO de propósito
+  # (vida, inimigos, barra gasta): elas julgam a DECISÃO, e julgar a decisão
+  # pela chegada chamava de proativo um resgate pedido no amarelo. Esta julga a
+  # EXECUÇÃO — se a pilha estava dormindo quando o pokémon saiu de campo — e
+  # essa é uma pergunta sobre o instante em que ele sai.
   defp since_stun(%{stunned_at: nil}), do: nil
   defp since_stun(world), do: world.clock - world.stunned_at
 
   defp landed?(before, world), do: before.revive_at == nil and world.revive_at != nil
 
-  defp asked_since_stun(%{since_stun_ms: ms}, _world), do: ms
-  defp asked_since_stun(_never_asked, world), do: since_stun(world)
-
-  defp file_revive(metrics, world, orders, picture, accepted?, asked) do
+  defp file_revive(metrics, world, orders, picture, accepted?) do
     event = %{
       at: world.clock,
       phase: orders.phase,
@@ -435,11 +445,24 @@ defmodule Pokex.Sim.Bench do
       # teclas de DANO e o controle é `:crowd`, então até aqui nada na bancada
       # sabia se o stun tinha saído — a pergunta que ele fez era a única que
       # ninguém podia responder.
-      since_stun_ms: asked_since_stun(asked, world)
+      since_stun_ms: since_stun(world),
+      # …E SE HAVIA CONTROLE PRA GASTAR. Sem isto, dois casos OPOSTOS ficam
+      # idênticos no arquivo: o revive que saiu sem stun porque o controle
+      # estava FRIO — que é a ordem dele, "se não tiver livre, usar o que tem de
+      # cooldown e usa o revive" — e o que saiu sem stun com a tecla de controle
+      # pronta na mão, que é o desperdício de que ele reclamou. Contar os dois
+      # juntos acusa o bot de desobedecer uma regra que ele está cumprindo.
+      #
+      # `nil` quando este pokémon não tem controle classificado: sem tecla não
+      # há escolha, e portanto não há o que cobrar.
+      control_ready?: control_ready?(picture)
     }
 
     %{metrics | revives: [event | metrics.revives]}
   end
+
+  defp control_ready?(%{control_back_in_ms: ms}) when is_integer(ms), do: ms == 0
+  defp control_ready?(_sem_controle_classificado), do: nil
 
   # A pile EPISODE: from the first monster on the list to the list being empty
   # again. How long one takes is the agility number — "matar tudo e ser ágil".

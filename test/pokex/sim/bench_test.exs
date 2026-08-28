@@ -621,4 +621,46 @@ defmodule Pokex.Sim.BenchTest do
              "quatro sementes deram exatamente o resultado do padrão: #{inspect(outras)}"
     end
   end
+
+  # O RECIBO DO RESGATE, e ele já mentiu uma vez.
+  #
+  # O resgate é um COMBO: o stun sai num tique e o revive no seguinte. O evento
+  # era carimbado com a foto do PEDIDO, tirada antes de o stun deste revive
+  # sair — então ele media a idade do controle ANTERIOR e reportava como
+  # desprotegido justamente o revive que o stun estava protegendo. Medido no
+  # cenário do enxame: dez de doze revives apareciam com 8,2s desde o controle
+  # quando cada um tinha um stun 800ms antes.
+  #
+  # Isto importa além da tela: `since_stun_ms` é o único lugar onde a bancada
+  # responde a pergunta que ele fez ("SEMPRE usar o revive dentro de 5 segundos
+  # depois do controle"), e uma resposta invertida vira ajuste na direção errada.
+  describe "a janela do controle é lida quando o revive SAI" do
+    test "um revive com stun na frente conta a idade do stun DELE, não do anterior" do
+      %{metrics: %{revives: revives}} =
+        run("formigueiro",
+          duration_ms: 120_000,
+          seed: 2,
+          config: %{rescue_stun_first: true, rescue_stun_settle_ms: 800}
+        )
+
+      na_pilha =
+        Enum.filter(revives, &(&1.accepted? and is_integer(&1.enemies) and &1.enemies > 0))
+
+      assert na_pilha != [], "a corrida não produziu revive nenhum na pilha"
+
+      for revive <- na_pilha do
+        assert is_integer(revive.since_stun_ms) and revive.since_stun_ms <= 5_000,
+               "revive em #{revive.at}ms diz #{inspect(revive.since_stun_ms)}ms desde o controle"
+      end
+    end
+
+    test "o evento diz se HAVIA controle pra gastar" do
+      %{metrics: %{revives: revives}} = run("formigueiro", duration_ms: 60_000, seed: 2)
+
+      for revive <- revives do
+        assert Map.has_key?(revive, :control_ready?)
+        assert revive.control_ready? in [true, false, nil]
+      end
+    end
+  end
 end

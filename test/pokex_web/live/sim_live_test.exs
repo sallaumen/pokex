@@ -193,8 +193,12 @@ defmodule PokexWeb.SimLiveTest do
     {:ok, live, _html} = live(conn, ~p"/sim")
     live |> element("button", "Armar") |> render_click()
 
-    for nivel <- ~w(perto médio rota) do
-      html = live |> element("button", nivel) |> render_click()
+    # PELO CONTROLE, não pelo texto: "perto" é substring de "aperto", que é o
+    # rótulo de severidade dos cartões do laboratório — o filtro de texto
+    # passou a casar nove botões de uma vez. Um teste que mira o atributo do
+    # próprio controle não quebra quando alguém escreve uma palavra na página.
+    for nivel <- ~w(perto medio rota) do
+      html = live |> element(~s(button[phx-value-level="#{nivel}"])) |> render_click()
       assert html =~ ~s(viewBox=), "o grau #{nivel} não desenhou o mapa"
       assert html =~ ~s(aria-pressed="true")
     end
@@ -525,6 +529,62 @@ defmodule PokexWeb.SimLiveTest do
 
       assert html =~ "revive — barra zerada", "o revive tem que se anunciar"
       refute html =~ "42s", "e a barra tem que voltar inteira"
+    end
+  end
+
+  # O LABORATÓRIO: a gaveta de cenários virou painel. O que estes testes
+  # protegem não é o desenho, é a LEITURA — símbolo, cor e selo existem pra
+  # responder "qual é o difícil" e "como foi da última vez" sem abrir treze
+  # cenários, e qualquer um dos três sumindo devolve a página ao <select>.
+  describe "o laboratório de cenários" do
+    test "mostra todo cenário com símbolo e severidade, agrupado", %{conn: conn} do
+      {:ok, _live, html} = live(conn, ~p"/sim")
+
+      assert html =~ "O laboratório"
+
+      for scenario <- Pokex.Sim.Scenario.all() do
+        assert html =~ scenario.icon, "#{scenario.id} sem símbolo na tela"
+        assert html =~ scenario.name
+      end
+
+      for group <- Pokex.Sim.Scenario.group_order() do
+        assert html =~ Pokex.Sim.Scenario.group_label(group)
+      end
+
+      assert html =~ "quebrado de propósito"
+    end
+
+    test "clicar num cartão carrega o cenário e conta o que ele promete", %{conn: conn} do
+      {:ok, live, _html} = live(conn, ~p"/sim")
+
+      html = live |> element(~s(button[phx-value-scenario="couracado"])) |> render_click()
+
+      assert html =~ "Couraçado"
+      assert html =~ "promete"
+      # a mesa dele não manda num cenário que fixa a dureza, e a tela diz isso
+      assert html =~ "fixa a dureza em 8 teclas"
+    end
+
+    test "rodar um cenário cobra a promessa e carimba o selo", %{conn: conn} do
+      {:ok, live, _html} = live(conn, ~p"/sim")
+
+      live |> element(~s(button[phx-value-scenario="casca-de-ovo"])) |> render_click()
+      html = live |> element("button", "1 min") |> render_click()
+
+      assert html =~ "Veredito"
+      # as promessas do cenário aparecem julgadas, uma a uma
+      assert html =~ "não cai"
+      assert html =~ "✅"
+    end
+
+    test "um cenário de OBSERVAR não finge ter passado", %{conn: conn} do
+      {:ok, live, _html} = live(conn, ~p"/sim")
+
+      live |> element(~s(button[phx-value-scenario="tecla-morta"])) |> render_click()
+      html = live |> element("button", "1 min") |> render_click()
+
+      assert html =~ "cenário de observar"
+      assert html =~ "👁"
     end
   end
 end

@@ -37,7 +37,6 @@ defmodule PokexWeb.Panel.SettingsOverlay do
     doc: "display name of the character owning the per-character keys; nil = editing the base"
 
   attr :mode_overrides, :list, required: true
-  attr :combos, :list, required: true
 
   attr :capture_cfg, :map,
     required: true,
@@ -51,7 +50,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   attr :stock_cfg, :map, required: true, doc: "f1, f2, e, s_q"
 
   slot :inner_block,
-    doc: "the remaining sections (combos, presets, session, advanced) — from the panel's assigns"
+    doc: "the remaining sections (presets, session, advanced) — from the panel's assigns"
 
   def settings_overlay(assigns) do
     ~H"""

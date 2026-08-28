@@ -1,6 +1,6 @@
 defmodule Pokex.Bots.Cavebot.WorkerTest.FakeBody do
   @moduledoc """
-  Module-shaped Body double (the Combos.Runner mold, not the Catcher's pid): the Worker
+  Module-shaped Body double (not the Catcher's pid-shaped one): the Worker
   calls `arrow_step/3` on it, so the step lands here instead of becoming a real key
   press. Every command is sent to the test pid.
   """
@@ -115,7 +115,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     on_exit(fn ->
       Pokex.TestHome.restore()
-      Enum.each([:minimap, :battle, :dungeon, :pokemon], &WorldState.forget/1)
+      Enum.each([:minimap, :battle, :pokemon], &WorldState.forget/1)
       InputGate.set_panic_latch(false)
     end)
 
@@ -689,19 +689,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:combat_cmd, :run}, 1_000
     assert await_log("demorando") =~ "combate"
     refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 200
-  end
-
-  # The per-dungeon combo gate reads this fact: run publishes it, halt forgets it.
-  test "run publishes the route's :dungeon fact; halt forgets it", %{worker: worker} do
-    {:ok, route} = Route.append(Route.new("cavena", "cavena-dg"), {100, 100, 7})
-    :ok = Store.add(route)
-
-    :ok = Worker.run(worker)
-    now = System.monotonic_time(:millisecond)
-    assert {:ok, %{id: "cavena-dg"}} = WorldState.get(:dungeon, :infinity, now)
-
-    :ok = Worker.halt(worker)
-    assert WorldState.get(:dungeon, :infinity, now) == :missing
   end
 
   test "halt turns combat off and returns to idle", %{worker: worker} do

@@ -742,16 +742,6 @@ defmodule Pokex.Settings do
     # Lucas walks, so the minimap is read more often than the rest.
     # The four slots that keep him alive and hunting: alarm ONCE when a stock
     # crosses below its threshold, re-arm when it climbs back. 0 = off.
-    # Combos: a named sequence the bot plays against a specific enemy. The waits
-    # are what make it a combo instead of a key mash — the game needs a beat to
-    # bring a pokémon out, and the sing needs time to land before the counter
-    # comes in.
-    combos_enabled: false,
-    combo_swap_wait_ms: 900,
-    # a beat between the combo's key presses, so the client registers them as
-    # separate actions rather than one blur
-    combo_press_gap_ms: 120,
-    combo_sing_wait_ms: 2_500,
     stock_alerts_enabled: true,
     stock_alert_f1: 30,
     stock_alert_f2: 10,

@@ -21,7 +21,7 @@ defmodule PokexWeb.ConfigLive do
       (`text-pk-title`, tabular), e a explicação inteira mora no `?` de cada
       linha (tooltip nativo) — visível quando perguntada, invisível no resto.
 
-  Os editores COMPOSTOS (combos, bolas por espécie, presets, shiny) continuam
+  Os editores COMPOSTOS (bolas por espécie, presets, shiny) continuam
   no overlay do painel, agora em `/config/editores` — eles são formulários de
   verdade, com estado próprio, e não cabem num schema de linhas.
 
@@ -879,7 +879,7 @@ defmodule PokexWeb.ConfigLive do
             <ul class="divide-y divide-pk-line">
               <li :for={
                 {href, icon, label, sub} <- [
-                  {"/config/editores", "hero-squares-plus", "Combos, presets, bolas e shiny",
+                  {"/config/editores", "hero-squares-plus", "Presets, bolas e shiny",
                    "os formulários compostos, no painel"},
                   {"/time", "hero-users", "Time: skills e cooldowns", "o que cada tecla faz"},
                   {"/calibration", "hero-viewfinder-circle", "Calibração",

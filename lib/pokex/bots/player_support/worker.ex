@@ -20,7 +20,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Focus
-  alias Pokex.Bots.SkillClock
+  alias Pokex.Bots.{ReviveLedger, SkillClock}
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
@@ -553,6 +553,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp dispatch_fallen(body) do
     worker = self()
     actions = Logic.revive(revive_config())
+    ReviveLedger.note()
 
     spawn(fn ->
       send(worker, {:fallen_done, Body.perform(actions, :critical, body)})
@@ -987,6 +988,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     {stun_steps, notes} = rescue_stun_steps()
     dispatch_rescue(state.body, stun_steps)
     drain_notes(notes)
+    ReviveLedger.note()
     broadcast_log(:macro, "🚑 revive — Pokémon com #{state.hp_pct}% de vida")
 
     %{

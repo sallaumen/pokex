@@ -1040,8 +1040,43 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp fight(logic, world, now) do
     cond do
       clear?(world) -> stand_and_fight(logic, world, now)
+      retreat_ordered?(world) -> retreat(fight_clocks(logic, world, now), world, now)
       walk_ordered?(world) -> follow_route(fight_clocks(logic, world, now), world, now)
       true -> stand_and_fight(logic, world, now)
+    end
+  end
+
+  defp retreat_ordered?(world),
+    do: Map.get(world, :engine?, false) and Map.get(world, :route_back?, false)
+
+  # A RETIRADA: a rota andada AO CONTRÁRIO, waypoint a waypoint, enquanto a
+  # ordem `route: :back` estiver de pé. O chão de onde a caçada veio acabou de
+  # ser limpo — recuar por ele mantém o trem colado sem acordar spawn novo, e a
+  # ordem envelhece sozinha: a primeira tecla que volta troca o cérebro pra
+  # `standing_and_firing` e a caçada segue em frente do ponto onde parou.
+  #
+  # SEM escada: recuar só mira o waypoint anterior do MESMO andar. Uma escada
+  # atravessada de costas no meio de uma luta é um andar errado com um trem
+  # atrás — parado no lugar já é a fuga que dava pra ter.
+  defp retreat(logic, %{pos: nil}, _now), do: {logic, :none}
+
+  defp retreat(logic, %{pos: {x, y, z}}, now) do
+    count = length(logic.route.waypoints)
+    prev_index = rem(logic.wp_index - 1 + count, count)
+    wp = Enum.at(logic.route.waypoints, prev_index)
+    tol = logic.config.arrival_tolerance
+
+    cond do
+      wp == nil or wp.z != z ->
+        {logic, :none}
+
+      abs(wp.x - x) <= tol and abs(wp.y - y) <= tol ->
+        # Chegou no anterior: o alvo passa a ser o anterior DELE, e o índice
+        # recuado é o que faz a volta (rota pra frente) recomeçar daqui.
+        {note_progress(%{logic | wp_index: prev_index}, {x, y, z}, now), :none}
+
+      true ->
+        {note_progress(logic, {x, y, z}, now), {:walk, wp.x - x, wp.y - y}}
     end
   end
 

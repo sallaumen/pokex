@@ -20,6 +20,7 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.Cavebot.{HandsRead, Photos, Recording, Route, Store, WalkTest, Worker}
   alias Pokex.Bots.AreaProbe
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.ReviveLedger
   alias Pokex.Bots.SkillClock
   alias Pokex.Bots.SkillMeter
   alias Pokex.Bots.SkillRack
@@ -1591,6 +1592,43 @@ defmodule PokexWeb.CavebotLive do
   # há contagem regressiva pra mostrar, e o relógio cai no assumido de 45s.
   defp unwritten(tiles), do: Enum.count(tiles, &(&1.written_ms == nil))
 
+  # O caderninho: só existe com o estoque digitado (`revive_stock` > 0).
+  defp revive_ledger do
+    case ReviveLedger.remaining() do
+      nil ->
+        nil
+
+      left ->
+        reserve = Settings.get(:engine_revive_reserve)
+
+        cond do
+          left <= 0 ->
+            "revives: acabaram pela conta (#{ReviveLedger.spent()} gastos) — repõe e digita o estoque novo no /config"
+
+          left <= reserve ->
+            "revives: só #{left} na conta — guardando pra emergência (#{ReviveLedger.spent()} gastos)"
+
+          true ->
+            "revives: ~#{left} no bolso · #{ReviveLedger.spent()} gastos desde a última contagem"
+        end
+    end
+  end
+
+  defp ledger_tone do
+    case ReviveLedger.remaining() do
+      nil ->
+        "text-pk-text-3"
+
+      left when left <= 0 ->
+        "text-pk-danger font-bold"
+
+      left ->
+        if left <= Settings.get(:engine_revive_reserve),
+          do: "text-pk-warn",
+          else: "text-pk-text-3"
+    end
+  end
+
   defp burst_line do
     "rajada: #{burst_size()} tecla(s) a cada #{burst_gap_ms()}ms"
   end
@@ -2277,6 +2315,19 @@ defmodule PokexWeb.CavebotLive do
             class="mt-1 font-mono text-pk-meta text-pk-text-3"
           >
             último aperto da luta: {@combat.last_action.text}
+          </p>
+
+          <%!-- O CADERNINHO DO ESTOQUE. 189 revives saíram em menos de 2h na
+                noite de 27→28/08, o estoque acabou e ninguém viu. Digitar o
+                estoque no /config é o botão de repor (a conta zera quando o
+                número muda). --%>
+          <p
+            :if={revive_ledger()}
+            id="cavebot-revive-ledger"
+            class={["mt-1 flex items-center gap-1.5 font-mono text-pk-meta", ledger_tone()]}
+          >
+            <.icon name="hero-heart" class="size-3.5 shrink-0" />
+            <span>{revive_ledger()}</span>
           </p>
         </section>
         <%!-- ONDE ELES ESTÃO. A lista de batalha sempre soube QUANTOS existem;

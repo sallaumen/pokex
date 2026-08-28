@@ -793,6 +793,77 @@ defmodule PokexWeb.CavebotLiveTest do
     assert feed |> String.split("waypoint 7/40") |> length() == 3
   end
 
+  # "Queria conseguir JOGAR o jogo totalmente pela tela do cave bot (…) preciso
+  # da tela me dando um pouco mais de detalhes do que a IA tá vendo sobre o
+  # mundo, até para eu tb ajudar a dar feedbacks sobre pontos que ela tá vendo
+  # errado — já aconteceu antes onde o problema não era no algoritmo da engine
+  # e sim na detecção correta de dados pelas imagens" (28/08).
+  describe "o que ele está vendo" do
+    defp see_world(pokemon_hp, player_hp, rows) do
+      now = System.monotonic_time(:millisecond)
+      WorldState.put(:pokemon, %{hp_pct: pokemon_hp, readable?: true, fainted?: false}, now)
+      WorldState.put(:player, %{hp_pct: player_hp, readable?: true}, now)
+
+      WorldState.put(
+        :battle,
+        %{enemies: Enum.to_list(0..(length(rows) - 1)//1), enemies_detail: rows, locked?: false},
+        now
+      )
+
+      on_exit(fn -> Enum.each([:pokemon, :player, :battle], &WorldState.forget/1) end)
+    end
+
+    test "as duas vidas viram barra: a dele e a do pokémon", %{conn: conn} do
+      see_world(61, 83, [])
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      vision = view |> element("#cavebot-vision") |> render()
+
+      assert vision =~ "você"
+      assert vision =~ "83%"
+      assert vision =~ "61%"
+      assert vision =~ "width: 83%"
+    end
+
+    # Sem leitura NÃO é zero: uma barra vazia com cara de 0% é como uma janela
+    # minimizada vira "meu pokémon está morrendo".
+    test "sem leitura, a barra diz que não sabe em vez de mostrar zero", %{conn: conn} do
+      see_world(nil, nil, [])
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      vision = view |> element("#cavebot-vision") |> render()
+
+      assert vision =~ "sem leitura"
+      assert vision =~ "marque na calibração"
+    end
+
+    # A lista LIDA, linha por linha: é onde um erro de detecção aparece antes
+    # de virar decisão errada.
+    test "cada linha da lista de batalha aparece com a vida que ele leu", %{conn: conn} do
+      see_world(100, 100, [
+        %{row: 0, name: "Magneton", hp_pct: 1.0, shiny?: false},
+        %{row: 1, name: nil, hp_pct: 0.35, shiny?: false}
+      ])
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      vision = view |> element("#cavebot-vision") |> render()
+
+      assert vision =~ "Magneton"
+      assert vision =~ "100%"
+      assert vision =~ "35%"
+      # a linha sem nome legível é dita como tal, nunca inventada
+      assert vision =~ "?"
+    end
+
+    test "tela limpa é dita, não deixada em branco", %{conn: conn} do
+      see_world(100, 100, [])
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#cavebot-vision") |> render() =~ "nada na lista"
+    end
+  end
+
   test "the rehearsal names WHICH link broke, not just 'não andou'", %{conn: conn} do
     route_with([{10, 10, 7}])
     {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")

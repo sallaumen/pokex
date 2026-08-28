@@ -77,14 +77,31 @@ defmodule Pokex.Combos.RunnerTest do
     Runner.status(runner)
   end
 
+  # The runner spaces its steps with send_after, and a fixed sleep is a bet on
+  # the scheduler: under a loaded machine the third press lands late and the
+  # assert reads two presses — or the mid-test reshuffle lands after the press
+  # it meant to precede. Waiting on the COUNT is waiting on the fact itself.
+  defp await_presses(n, tries \\ 300)
+  defp await_presses(_n, 0), do: FakeBody.pressed()
+
+  defp await_presses(n, tries) do
+    pressed = FakeBody.pressed()
+
+    if length(pressed) >= n do
+      pressed
+    else
+      Process.sleep(10)
+      await_presses(n, tries - 1)
+    end
+  end
+
   test "plays the sing combo when a Water enemy engages" do
     world("Magikarp", [row(5, "Jigglypuff"), row(4, "Sceptile")])
     runner = start_runner()
 
     engage(runner)
-    settle(runner)
 
-    assert [{:press, "ctrl+5"}, {:press, "4"}, {:press, "ctrl+4"}] = FakeBody.pressed()
+    assert [{:press, "ctrl+5"}, {:press, "4"}, {:press, "ctrl+4"}] = await_presses(3)
   end
 
   # The bug the whole design is shaped around: the swap itself reshuffles the panel, so
@@ -93,13 +110,17 @@ defmodule Pokex.Combos.RunnerTest do
     world("Magikarp", [row(5, "Jigglypuff"), row(4, "Sceptile")])
     runner = start_runner()
 
+    # the counter step reads the team AT PRESS TIME, `combo_press_gap_ms`
+    # after the attack — the reshuffle below must land inside that gap, and
+    # the 5ms of the suite's default is a coin toss under load
+    SettingsStash.stash!(combo_press_gap_ms: 250)
+
     engage(runner)
-    Process.sleep(15)
+    assert [_swap, _attack] = await_presses(2)
 
     world("Magikarp", [row(2, "Jigglypuff"), row(3, "Sceptile")])
-    settle(runner)
 
-    assert [{:press, "ctrl+5"}, {:press, "4"}, {:press, "ctrl+3"}] = FakeBody.pressed()
+    assert [{:press, "ctrl+5"}, {:press, "4"}, {:press, "ctrl+3"}] = await_presses(3)
   end
 
   test "switched off, it never presses anything" do
@@ -206,8 +227,8 @@ defmodule Pokex.Combos.RunnerTest do
     runner = start_runner()
 
     engage(runner)
-    settle(runner)
-    pressed = FakeBody.pressed()
+    # the first read must catch the combo COMPLETE, not mid-flight
+    pressed = await_presses(3)
 
     engage(runner)
     send(runner, {:combat, %{state: :fighting}})

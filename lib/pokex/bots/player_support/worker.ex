@@ -567,10 +567,12 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # the combo twice, mid-sequence).
       state = unlatch_stale_rescue(state)
 
-      if not state.rescuing? and revive_decision(state) == :rescue do
-        fire_rescue(%{state | gate: nil})
-      else
-        %{state | gate: nil} |> warn_switch_off() |> maybe_heal_skill() |> maybe_potion(calib)
+      case rescue_decision(state) do
+        :hold ->
+          %{state | gate: nil} |> warn_switch_off() |> maybe_heal_skill() |> maybe_potion(calib)
+
+        decision ->
+          fire_rescue(%{state | gate: nil}, decision == :rescue)
       end
     else
       # Everything this worker exists for is blocked here, and until now the ONLY
@@ -1044,12 +1046,21 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # under the engine's own — a real cooldown even if the engine's judgment on
   # WHEN it is worth reviving ever misfires into asking twice too close
   # together.
+  # `:rescue` protects the recall (stun prefix + settle); `:rescue_bare` is the
+  # engine's `:prepare` — a calm-screen revive that must NOT spend the control
+  # key, because a control spent on a calm revive is a control that is cold for
+  # the dangerous one (28/08, the death).
+  # `rescuing?` outranks every decision: the last combo is still in flight.
+  defp rescue_decision(%{rescuing?: true}), do: :hold
+  defp rescue_decision(state), do: revive_decision(state)
+
   defp revive_decision(state) do
     cond do
       not Settings.get(:rescue_enabled) -> :hold
-      engine_revive() != :now -> :hold
-      cooldown_elapsed?(state) -> :rescue
-      true -> :hold
+      engine_revive() not in [:now, :prepare] -> :hold
+      not cooldown_elapsed?(state) -> :hold
+      engine_revive() == :prepare -> :rescue_bare
+      true -> :rescue
     end
   end
 
@@ -1093,10 +1104,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # 1s — a panic mid-rescue timed out halting the one worker guarding the
   # player. The task reports back as {:rescue_done, notes, outcome}, where a
   # refused revive finally gets NAMED instead of burning the cooldown mutely.
-  defp fire_rescue(state) do
+  defp fire_rescue(state, protect?) do
     at = now()
-    {stun_steps, notes} = rescue_stun_steps()
-    dispatch_rescue(state.body, stun_steps)
+    {stun, notes} = if protect?, do: rescue_stun_steps(), else: {:off, []}
+    dispatch_rescue(state.body, stun)
     drain_notes(notes)
     ReviveLedger.note()
     broadcast_log(:macro, "🚑 revive — Pokémon com #{state.hp_pct}% de vida")
@@ -1123,13 +1134,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # exits. Potion and heal keep firing, the panel looks healthy, and every
   # emergency after that costs a pokémon. A lost message must never be able to
   # switch off a safety path.
-  defp dispatch_rescue(body, stun_steps) do
+  defp dispatch_rescue(body, stun) do
     worker = self()
 
     spawn(fn ->
       {notes, outcome} =
         try do
-          {notes, settle_ms} = crowd_control(body, stun_steps)
+          {notes, settle_ms} = crowd_control(body, stun)
           actions = Logic.revive(Map.put(revive_config(), :settle_ms, settle_ms))
           {notes, Body.perform(actions, :critical, body)}
         catch
@@ -1172,9 +1183,24 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # out, so the confirmation came back in ~100ms and the recall stripped the
   # field while the pile was still awake. So the answer carries what is LEFT
   # of the settle, and the revive waits it out (see `Logic.combo/1`).
-  defp crowd_control(_body, []), do: {[], 0}
+  defp crowd_control(_body, :off), do: {[], 0}
 
-  defp crowd_control(body, stun_steps) do
+  # The control is WANTED (the pile may be awake) and it is cold. Until 28/08
+  # this fell through as "revivendo direto" — settle 0, the recall stripping
+  # the field in front of a pile wide awake, and the character died paying it.
+  # Now it is the SAME escalation a missed stun earns (his 2026-08-14
+  # decision): whatever is still ready goes out first — another control puts
+  # the pile down, plain damage may end it — and the settle counts from THAT
+  # press. Nothing ready = recall at once, loudly.
+  defp crowd_control(body, :cold) do
+    {extra_notes, settle} = last_resort(body, [])
+
+    {[
+       alarm: "🚑 controle em cooldown na hora do revive — tentando o que sobrou antes de recolher"
+     ] ++ extra_notes, settle}
+  end
+
+  defp crowd_control(body, {:steps, stun_steps}) do
     keys = for {:press, key} <- stun_steps, do: key
     {verdict, at} = fire_and_confirm(body, stun_steps, keys)
 
@@ -1269,24 +1295,32 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # reserved by everyone and pressed by nobody was the bug. Every failure still
   # falls toward SAVING: no control ready, no prefix, and the revive happens.
   defp rescue_stun_steps do
-    if Settings.get(:rescue_stun_first), do: control_stun(), else: {[], []}
+    if Settings.get(:rescue_stun_first), do: control_stun(), else: {:off, []}
   end
 
+  # Three shapes, because "no control" hides two different situations:
+  #
+  #   * nothing CLASSIFIED (`loadout.crowd == []`) — a permanent fact about
+  #     this pokémon; there was never a stun to wait for, revive direct;
+  #   * classified but COLD — a transient the revive itself caused when it was
+  #     spent on a calm screen (28/08): escalate like a missed stun, never
+  #     recall bare in front of an awake pile.
   defp control_stun do
-    case ready_control_keys() do
-      [] ->
-        {[], [log: "🚑 sem controle pronto no pokémon — revivendo direto"]}
-
-      keys ->
-        {elem(Logic.stun_prefix(Enum.map(keys, &{:skill, &1}), nil), 0),
-         [log: "🚑 stun do resgate: #{Enum.join(keys, ", ")} — o controle guardado no /time"]}
+    case Loadout.current() do
+      nil -> {:off, [log: "🚑 sem controle pronto no pokémon — revivendo direto"]}
+      %{crowd: []} -> {:off, [log: "🚑 sem controle pronto no pokémon — revivendo direto"]}
+      %{crowd: crowd} -> control_stun(crowd)
     end
   end
 
-  defp ready_control_keys do
-    case Loadout.current() do
-      nil -> []
-      loadout -> ready_only(loadout.crowd)
+  defp control_stun(crowd) do
+    case ready_only(crowd) do
+      [] ->
+        {:cold, []}
+
+      keys ->
+        {{:steps, elem(Logic.stun_prefix(Enum.map(keys, &{:skill, &1}), nil), 0)},
+         [log: "🚑 stun do resgate: #{Enum.join(keys, ", ")} — o controle guardado no /time"]}
     end
   end
 

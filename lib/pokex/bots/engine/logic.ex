@@ -540,17 +540,33 @@ defmodule Pokex.Bots.Engine.Logic do
   # Ou seja: parar de marcar é uma escolha legítima e custa isso. Marcar não é
   # mais NECESSÁRIO pra caçada mobar — é uma dianteira opcional.
   defp normal(%{hunt: %{state: :walking, luring?: true}} = t) do
-    if t.config.gather_piles do
-      {reset_fight(t.logic, :gathering),
-       Orders.walking(:gathering, t.band, "mobando: puxando a pilha, sem atacar")}
-    else
-      {reset_fight(t.logic, :travelling),
-       Orders.walking_and_firing(
-         :travelling,
-         t.band,
-         opening(t),
-         "trecho de mobada, mas sem juntar pilha: batendo enquanto ando"
-       )}
+    cond do
+      t.config.gather_piles and pile_payable?(t) ->
+        {reset_fight(t.logic, :gathering),
+         Orders.walking(:gathering, t.band, "mobando: puxando a pilha, sem atacar")}
+
+      # "Não deveria estar andando por aí se eu não tenho nenhum cooldown
+      # disponível" (28/08, depois de morrer). Juntar seis bichos que não há
+      # barra pra matar nem revive pra comprá-la é escolher uma luta sem saída:
+      # a rota segue (R2 — andando eles perdem o interesse) e o fogo fica
+      # livre pra primeira tecla que voltar.
+      t.config.gather_piles ->
+        {reset_fight(t.logic, :travelling),
+         Orders.walking_and_firing(
+           :travelling,
+           t.band,
+           opening(t),
+           "sem barra e sem revive pra comprá-la — não abro pilha: seguindo a rota"
+         )}
+
+      true ->
+        {reset_fight(t.logic, :travelling),
+         Orders.walking_and_firing(
+           :travelling,
+           t.band,
+           opening(t),
+           "trecho de mobada, mas sem juntar pilha: batendo enquanto ando"
+         )}
     end
   end
 
@@ -561,7 +577,7 @@ defmodule Pokex.Bots.Engine.Logic do
          :travelling,
          t.band,
          "andando com a barra pela metade — revive agora pra chegar inteiro",
-         revive: :now
+         revive: :prepare
        )}
     else
       {reset_fight(t.logic, :travelling),
@@ -583,6 +599,12 @@ defmodule Pokex.Bots.Engine.Logic do
   # SEM PREFIXO DE CONTROLE, e isso não fura a regra dos 5s: o controle existe
   # pra proteger um revive dado no meio de uma pilha ACORDADA, e aqui a tela
   # está limpa. Sem ninguém em campo, o pokémon na bola não custa dano nenhum.
+  #
+  # E "sem prefixo" agora é dito na ORDEM (`revive: :prepare`), não só desejado
+  # aqui: até 28/08 o executor prefixava o stun em TODO revive, então o preparo
+  # gastava o controle numa tela limpa — e quando o revive perigoso chegava, o
+  # controle estava gelado e o F4 saía sem proteção nenhuma na cara da pilha
+  # acordada. Foi a cadeia da morte do personagem.
   #
   # Ela se limita sozinha: o revive devolve a barra inteira, então na volta
   # `prepared?` é true e a regra cala até o próximo grupo gastar alguma tecla.
@@ -645,7 +667,7 @@ defmodule Pokex.Bots.Engine.Logic do
          :travelling,
          t.band,
          "pilha limpa — revive agora pra chegar inteiro no próximo grupo",
-         revive: :now
+         revive: :prepare
        )}
     else
       {reset_fight(t.logic, :travelling),
@@ -935,9 +957,20 @@ defmodule Pokex.Bots.Engine.Logic do
       # which is the one thing his own hands never do — "que que custa eu andar
       # mais 5 passos, fechar mais um, andar mais um pouquinho, juntar mais
       # monstros". The pile follows, and the walking is what makes it a pile.
-      t.config.gather_piles ->
+      t.config.gather_piles and pile_payable?(t) ->
         {reset_fight(%{t.logic | state: :gathering}, :gathering),
          Orders.walking(:gathering, t.band, gathering_why(t))}
+
+      # Barra vazia e sem revive que a compre: esta pilha não tem pagamento.
+      # Mesma saída do teto de tempo — seguir a rota — e pelo mesmo motivo:
+      # parado aqui, só um lado bate.
+      t.config.gather_piles ->
+        {%{t.logic | state: :skipping},
+         Orders.walking(
+           :skipping,
+           t.band,
+           "sem barra e sem revive pra comprá-la — deixando essa pilha: seguindo a rota"
+         )}
 
       # …unless gathering is off, and then there is nothing to walk FOR: the
       # count is the whole ruler and the wait is just a wait.
@@ -1161,6 +1194,20 @@ defmodule Pokex.Bots.Engine.Logic do
       nil -> true
       left -> left > t.config.revive_reserve
     end
+  end
+
+  # A pile is PAYABLE while there is a bar to spend on it — or a revive that
+  # buys the bar back (R3b). With neither, gathering is aggro with no answer:
+  # the rule the 25/08 sweep refuted ("não se abre pilha com a barra vazia")
+  # was about the bar ALONE, measured before the real 40-50s cooldowns and
+  # before the reserve existed; this one only closes the door when the revive
+  # is ALSO gone, which is the night the stock ran out.
+  defp pile_payable?(t) do
+    t.s.spent? != true or reset_possible?(t)
+  end
+
+  defp reset_possible?(t) do
+    t.config.reset_revive and not t.logic.reset_broken? and affordable?(t)
   end
 
   defp healthy_enough?(t),

@@ -21,7 +21,11 @@ defmodule Pokex.Bots.Engine.Orders do
     * `standing_and_firing/4` — the fight.
 
   `revive: :now` rides on any of them, because a revive needs no attack key and
-  no particular posture — it is a separate hand.
+  no particular posture — it is a separate hand. `:prepare` is the same hand on
+  a CALM screen (R11, "chegar preparado"): the executor may skip the control
+  prefix and its settle, because there is no awake pile to protect the recall
+  from — and, crucially, because spending the control key on a calm revive is
+  what left it cold for the dangerous one (28/08, the death).
 
   ## `opening: []` is not "do not fight"
 
@@ -56,7 +60,7 @@ defmodule Pokex.Bots.Engine.Orders do
           route: :go | :hold | :back,
           fire: :hold | :free,
           opening: [String.t()],
-          revive: :hold | :now,
+          revive: :hold | :now | :prepare,
           potion: :hold | :now,
           why: String.t()
         }

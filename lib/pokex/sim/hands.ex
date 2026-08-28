@@ -314,7 +314,10 @@ defmodule Pokex.Sim.Hands do
     cond do
       pending?(hands, world) -> {world, hands}
       due?(hands, world) -> {World.revive(world), %{hands | revive_at: nil}}
-      orders.revive != :now -> {world, hands}
+      orders.revive not in [:now, :prepare] -> {world, hands}
+      # :prepare is the calm-screen revive: no stun, no settle — and no control
+      # key spent, which is what keeps it ready for the dangerous revive.
+      orders.revive == :prepare -> {World.revive(world), hands}
       stun_first?(world, config) -> stun(world, hands, config)
       true -> {World.revive(world), hands}
     end

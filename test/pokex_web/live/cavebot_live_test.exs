@@ -1978,6 +1978,193 @@ defmodule PokexWeb.CavebotLiveTest do
 
   # The two defects his real route carries (2026-08-15), told with the corner
   # numbers he can act on — and silent on a route that has neither.
+  # "Algo elegante pra deixar claro quando tá rodando (…) que vai ali
+  # atualizando com o que a gente conseguir de estatística do sistema e da run"
+  # (28/08). A tira responde de longe as duas perguntas que a tela inteira não
+  # respondia: isso ainda está rodando, e está rendendo?
+  describe "o resumo da noite" do
+    defp running!(view, started_ms_ago, counters \\ %{}, extra \\ %{}) do
+      base = %{waypoints: 0, steps: 0, aborts: 0, comebacks: 0, blocks: 0}
+
+      snapshot =
+        Map.merge(
+          %{
+            state: :walking,
+            route: "cavena",
+            wp_index: 1,
+            wp_total: 12,
+            hold_reason: nil,
+            luring?: false,
+            started_at: System.system_time(:millisecond) - started_ms_ago,
+            ended_at: nil,
+            counters: Map.merge(base, counters)
+          },
+          extra
+        )
+
+      send(view.pid, {:cavebot, snapshot})
+      render(view)
+      view |> element("#cavebot-resumo") |> render()
+    end
+
+    test "sem caçada nenhuma o mostrador fica em traços, não em zeros", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      resumo = view |> element("#cavebot-resumo") |> render()
+
+      assert resumo =~ "--:--"
+      assert resumo =~ "sem caçada ainda"
+    end
+
+    test "rodando, ela conta o tempo e diz desde quando", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      # 2h01m de caçada: os segundos andam sozinhos entre o envio e o desenho,
+      # então o que se afirma é a hora e o minuto.
+      resumo = running!(view, 2 * 3_600_000 + 61_000)
+
+      assert resumo =~ "2:01:"
+      assert resumo =~ "rodando"
+      assert resumo =~ "desde "
+    end
+
+    test "a caçada parada congela a duração e diz a que horas parou", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      started = System.system_time(:millisecond) - 5_400_000
+      ended = started + 3_600_000
+
+      send(
+        view.pid,
+        {:cavebot,
+         %{
+           state: :idle,
+           route: nil,
+           wp_index: 0,
+           wp_total: 0,
+           hold_reason: nil,
+           luring?: false,
+           started_at: started,
+           ended_at: ended,
+           counters: %{waypoints: 24, steps: 900, aborts: 0, comebacks: 0, blocks: 0}
+         }}
+      )
+
+      render(view)
+      resumo = view |> element("#cavebot-resumo") |> render()
+
+      # UMA hora, não uma hora e meia: o relógio para no halt em vez de seguir
+      # contando a madrugada inteira depois que a caçada acabou.
+      assert resumo =~ "1:00:00"
+      assert resumo =~ "parada às"
+    end
+
+    test "as voltas saem dos cantos divididos pelo tamanho da rota", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      resumo = running!(view, 600_000, %{waypoints: 40, steps: 1_200})
+
+      assert view |> element("#resumo-voltas") |> render() =~ "3"
+      assert view |> element("#resumo-voltas") |> render() =~ "40 canto(s)"
+
+      # Ponto de milhar: `1200` sem ele é uma parede de dígitos que se lê
+      # contando com o dedo, e ele lê esta tela de óculos.
+      assert resumo =~ "1.200"
+    end
+
+    # O ritmo é o número que diz se a noite está indo bem — e é mentira antes de
+    # a caçada ter tempo suficiente pra dividir.
+    test "o ritmo só aparece depois de cinco minutos de caçada", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      running!(view, 60_000, %{steps: 100})
+      refute view |> element("#resumo-passos") |> render() =~ "/h"
+
+      running!(view, 3_600_000, %{steps: 100})
+      assert view |> element("#resumo-passos") |> render() =~ "100/h"
+    end
+
+    test "as lutas, as capturas e os revives vêm de quem os conta", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(view.pid, {:combat, %{counters: %{fights: 42, captures: 0, failures: 0}}})
+      send(view.pid, {:catcher, %{counters: %{captures: 18, throws: 30, ignored: 2}}})
+      send(view.pid, {:game, %{counters: %{rescues: 7, heals: 3, potions: 1}}})
+      running!(view, 600_000)
+
+      assert view |> element("#resumo-lutas") |> render() =~ "42"
+      assert view |> element("#resumo-capturas") |> render() =~ "18"
+      assert view |> element("#resumo-revives") |> render() =~ "7"
+    end
+
+    test "o estoque de revive no fim fica âmbar ao lado do gasto", %{conn: conn} do
+      Pokex.SettingsStash.stash!(revive_stock: 12)
+      Pokex.Bots.ReviveLedger.reset()
+      Enum.each(1..5, fn _ -> Pokex.Bots.ReviveLedger.note() end)
+      on_exit(&Pokex.Bots.ReviveLedger.reset/0)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      send(view.pid, :health)
+      render(view)
+
+      revives = view |> element("#resumo-revives") |> render()
+      assert revives =~ "7 no bolso"
+      assert revives =~ "text-pk-warn"
+    end
+
+    # As paradas são a má notícia; largar uma mobada por vida e voltar depois de
+    # tropeçar são as boas. Somadas num número só, as três sumiriam.
+    test "as paradas são o número e o resto do estrago vai na linha de baixo", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      running!(view, 600_000, %{blocks: 2, aborts: 3, comebacks: 1})
+      paradas = view |> element("#resumo-paradas") |> render()
+
+      assert paradas =~ "2"
+      assert paradas =~ "3 largada(s)"
+      assert paradas =~ "1 reentro(s)"
+      assert paradas =~ "text-pk-warn"
+    end
+
+    # O mostrador anda com a batida de 1s da página, e não com o broadcast da
+    # caçada: sem isso ele congelaria entre um waypoint e o próximo.
+    test "o relógio anda na batida da página, sem broadcast novo", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(
+        view.pid,
+        {:cavebot,
+         %{
+           state: :walking,
+           route: "cavena",
+           wp_index: 0,
+           wp_total: 4,
+           hold_reason: nil,
+           luring?: false,
+           started_at: System.system_time(:millisecond) - 3_599_000,
+           ended_at: nil,
+           counters: %{waypoints: 0, steps: 0, aborts: 0, comebacks: 0, blocks: 0}
+         }}
+      )
+
+      assert view |> element("#cavebot-resumo") |> render() =~ "59:5"
+
+      Process.sleep(1_100)
+      send(view.pid, :health)
+      render(view)
+
+      assert view |> element("#cavebot-resumo") |> render() =~ "1:00:0"
+    end
+
+    # Assistir e editar querem coisas diferentes: o placar da noite mora na
+    # tira, e o cabeçalho do editor guarda o seu resumo de uma linha.
+    test "a tira é do modo assistir; no editor o placar segue no cabeçalho", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
+
+      refute has_element?(view, "#cavebot-resumo")
+    end
+  end
+
   describe "the route doctor" do
     test "names the corners the hunt cannot walk between", %{conn: conn} do
       {:ok, route} = Route.append(Route.new("cavena"), {2305, 30_014, 5})

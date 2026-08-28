@@ -60,6 +60,9 @@ defmodule PokexWeb.CavebotLive do
       # the engine counts what is on the screen — the number the ruler of three
       # will be measured against, and which nothing recorded until now
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Engine.Worker.topic())
+      # o capturador conta as capturas da noite, e é o único que sabe quando as
+      # bolas acabaram — o resumo lê a primeira, o feed ouve a segunda
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.topic())
       # the minimap feed only captures while someone is attached — the
       # recording page IS that someone, exactly while it is open.
       #
@@ -100,6 +103,17 @@ defmodule PokexWeb.CavebotLive do
        # what the RUNNING fight holds; nil until it says so, and then the page
        # falls back to the configuration and labels it as such
        combat: nil,
+       # os outros dois placares da noite, pro resumo: o capturador conta as
+       # capturas e o suporte conta os revives. Ambos chegam por broadcast; nil
+       # até o primeiro, e o resumo lê nil como zero.
+       catcher: nil,
+       support: nil,
+       # O RELÓGIO DO RESUMO. Ele vem daqui e não do template porque uma tela
+       # que lê a hora sozinha a cada desenho nunca sabe QUANDO redesenhar: com
+       # o valor num assign, a batida de 1s é o que faz o mostrador andar, e o
+       # LiveView só manda o pedaço que mudou.
+       now: System.system_time(:millisecond),
+       revives_left: Pokex.Bots.ReviveLedger.remaining(),
        # what the ENGINE sees and what it would order. Seeded from the facts so
        # a page opened mid-hunt is not blank until the next tick.
        situation: engine_fact(:situation),
@@ -216,7 +230,9 @@ defmodule PokexWeb.CavebotLive do
       {:noreply,
        assign(socket,
          sim_armed?: Fence.armed?(),
-         world: World.snapshot()
+         world: World.snapshot(),
+         now: System.system_time(:millisecond),
+         revives_left: Pokex.Bots.ReviveLedger.remaining()
        )}
 
   def handle_info({:cavebot, snapshot}, socket), do: {:noreply, assign(socket, hunt: snapshot)}
@@ -225,6 +241,17 @@ defmodule PokexWeb.CavebotLive do
 
   def handle_info({:engine, situation, orders}, socket),
     do: {:noreply, assign(socket, situation: situation, orders: orders)}
+
+  # Os dois placares que faltavam pro resumo. Nenhum dos dois desenha nada
+  # sozinho: são contadores que o resumo soma.
+  def handle_info({:catcher, snapshot}, socket), do: {:noreply, assign(socket, catcher: snapshot)}
+
+  def handle_info({:game, snapshot}, socket), do: {:noreply, assign(socket, support: snapshot)}
+
+  # A narração do capturador não é assunto desta página — o feed dela já tem
+  # quatro fontes. O ALARME dele é (as bolas acabaram no meio da noite), e cai
+  # na cláusula de `:rule_alarm` logo abaixo.
+  def handle_info({:catcher_log, _level, _text}, socket), do: {:noreply, socket}
 
   # the fight's log lines ride the same topic and are not this page's business
   def handle_info({:combat_log, _level, _text}, socket), do: {:noreply, socket}
@@ -1958,6 +1985,16 @@ defmodule PokexWeb.CavebotLive do
   # take the whole page down over a progress counter.
   # Corners walked and, when they happened at all, the incidents: a night with
   # zero aborts and zero comebacks says so by staying short.
+  # Quantos cantos fecham uma volta. O snapshot de uma caçada PARADA traz
+  # `wp_total: 0` (ela não tem rota carregada), e sem isto o resumo da noite
+  # que acabou perderia as voltas justamente na hora de ler o resultado.
+  defp summary_wp_total(hunt, active_route) do
+    case hunt && hunt[:wp_total] do
+      total when is_integer(total) and total > 0 -> total
+      _stopped -> (active_route && length(active_route.waypoints)) || 0
+    end
+  end
+
   defp hunt_tally(%{counters: %{} = c}) do
     [
       {Map.get(c, :aborts, 0), "mobada(s) largada(s)"},
@@ -2247,7 +2284,14 @@ defmodule PokexWeb.CavebotLive do
             <%!-- the night in five numbers, where he already looks for the
              route's size — incidents included, because "o que ocorreu"
              needs them (2026-08-15) --%>
-            <span :if={hunt_tally(@hunt)} id="cavebot-tally" class="text-pk-text-2">
+            <%!-- …e só no modo EDITAR: em assistir a tira do resumo passou a ser
+             dona dos números da noite, e o mesmo placar em dois lugares da
+             mesma tela é o que faz um deles envelhecer sem ninguém notar. --%>
+            <span
+              :if={@mode == :edit and hunt_tally(@hunt)}
+              id="cavebot-tally"
+              class="text-pk-text-2"
+            >
               {hunt_tally(@hunt)} ·
             </span>
             {length(@routes)} rota(s) · {(@active_route && length(@active_route.waypoints)) || 0} waypoints · {route_tiles(
@@ -2282,6 +2326,22 @@ defmodule PokexWeb.CavebotLive do
           active_route={@active_route}
           notice={@notice}
           notice_kind={@notice_kind}
+        />
+
+        <%!-- O RESUMO DA NOITE. Fica ACIMA do cockpit e atravessa as duas
+             colunas de propósito: é a única peça desta tela feita pra ser lida
+             sem foco — de longe, de canto de olho, na janela lateral encostada
+             no jogo. Tudo aqui é aritmética sobre fato já publicado; nada custa
+             uma captura. --%>
+        <.hunt_summary
+          :if={@mode == :watch}
+          hunt={@hunt}
+          combat={@combat}
+          catcher={@catcher}
+          support={@support}
+          revives_left={@revives_left}
+          wp_total={summary_wp_total(@hunt, @active_route)}
+          now={@now}
         />
 
         <%!-- ASSISTIR: the map takes the left half whole, and everything that

@@ -135,6 +135,14 @@ defmodule Pokex.Bots.Cavebot.Worker do
       # gives them all back (see note_arrival/3)
       block_retries: 0,
       counters: @zero_counters,
+      # O RELÓGIO DA NOITE, em hora de parede (`system_time`), não monotônica:
+      # quem lê isto é uma tela que quer dizer "desde 22:14" além de "há 6h12",
+      # e a monotônica não sabe que horas são. Um par: `started_at` marca o
+      # `run`, `ended_at` marca o `halt` — e um reentro (`resume_hunt`) não
+      # toca em nenhum dos dois, porque é a MESMA noite, pela mesma razão dos
+      # contadores.
+      started_at: nil,
+      ended_at: nil,
       last_action: nil,
       hold_note: nil,
       logged_holds: []
@@ -169,6 +177,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
           comeback?: boolean,
           luring?: boolean,
           last_action: %{text: String.t(), at: integer} | nil,
+          started_at: integer | nil,
+          ended_at: integer | nil,
           counters: %{
             waypoints: non_neg_integer,
             steps: non_neg_integer,
@@ -211,6 +221,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         state =
           %{cancel_timer(state) | logic: Logic.new(route, config()), block_retries: 0}
           |> reset_session()
+          |> start_clock()
           |> attach()
           |> schedule_tick()
 
@@ -1224,6 +1235,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     luring?: false,
     comeback?: false,
     last_action: nil,
+    started_at: nil,
+    ended_at: nil,
     counters: @zero_counters
   }
 
@@ -1234,7 +1247,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
   @spec idle_snapshot() :: snapshot
   def idle_snapshot, do: @idle_snapshot
 
-  defp snapshot(%{logic: nil} = state), do: %{@idle_snapshot | counters: state.counters}
+  defp snapshot(%{logic: nil} = state),
+    do: %{
+      @idle_snapshot
+      | counters: state.counters,
+        started_at: state.started_at,
+        ended_at: state.ended_at
+    }
 
   defp snapshot(%{logic: logic} = state) do
     now = now()
@@ -1257,6 +1276,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
       # him to go fix something the hunt is about to fix itself
       comeback?: logic.state == :blocked and state.timer != nil,
       last_action: state.last_action,
+      started_at: state.started_at,
+      ended_at: state.ended_at,
       counters: state.counters
     }
   end
@@ -1587,8 +1608,19 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # else that matters.
   defp end_session(state) do
     log(:macro, "📋 a caçada deu: " <> tally(state.counters))
-    %{reset_session(state) | counters: state.counters}
+
+    %{
+      reset_session(state)
+      | counters: state.counters,
+        started_at: state.started_at,
+        ended_at: wall_now()
+    }
   end
+
+  # O relógio começa no `run` e só no `run`: o reentro herda a noite.
+  defp start_clock(state), do: %{state | started_at: wall_now(), ended_at: nil}
+
+  defp wall_now, do: System.system_time(:millisecond)
 
   defp tally(counters) do
     [

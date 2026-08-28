@@ -116,6 +116,13 @@
   --text-pk-meta: 0.6875rem;
   --text-pk-body: 0.8125rem;
   --text-pk-title: 0.9375rem;
+
+  /* …e UM mostrador, que não é texto. O relógio da caçada é lido de longe e de
+     canto de olho, numa janela lateral encostada na tela do jogo — o mesmo uso
+     de um relógio de parede, e 15px não atravessam a sala. Nasce nomeado pelo
+     TRABALHO, e não pelo tamanho, justamente pra não virar o "text-lg" da casa:
+     quem quiser um texto maior não tem onde encaixar isto. Um só lugar usa. */
+  --text-pk-clock: 1.5rem;
 }
 
 /* Números tabulares: sem isso uma contagem que vai de 99 pra 100 empurra a

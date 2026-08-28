@@ -263,6 +263,14 @@ um quarto. Antes deles o painel tinha OITO tamanhos diferentes espalhados pelo
 template, incluindo 8px e 9px, e nada estava desalinhado por acaso — não havia
 sistema para alinhar. Texto de leitura nunca abaixo de 12px.
 
+**A exceção, e por que ela não é um quarto degrau.** `--text-pk-clock` (24px)
+existe para UM elemento: o relógio do resumo da caçada (`#cavebot-resumo`). Ele
+não é texto — é um mostrador, lido de longe e de canto de olho, na janela
+lateral encostada na tela do jogo, e 15px não atravessam a sala. O token nasce
+nomeado pelo TRABALHO e não pelo tamanho justamente para não virar o `text-lg`
+da casa: quem quiser "um texto um pouco maior" não tem onde encaixá-lo. Um
+segundo uso de `text-pk-clock` é a deriva voltando por outra porta.
+
 **A Regra do Número Tabular.** Todo número que se atualiza sozinho é mono e
 tabular (`.pk-num` ou `tabular-nums`). Sem isso, uma contagem que vai de 99 pra
 100 empurra a linha inteira de lado a cada leitura.
@@ -276,7 +284,8 @@ padrão do Tailwind**. As páginas escritas antes dos tokens — `team_live`,
 genérico do daisyUI — carregavam quase tudo.
 
 Em 2026-08-28 fechou. Em `lib/pokex_web`: **840 usos dos três degraus**
-(`text-pk-meta` 498, `text-pk-body` 292, `text-pk-title` 50), **zero**
+(`text-pk-meta` 498, `text-pk-body` 292, `text-pk-title` 50), mais o mostrador
+único de `text-pk-clock`, **zero**
 `text-[Npx]`, **zero** `text-sm|xs|base|lg|xl|2xl`, **zero** superfície
 `base-100|200|300|content` do daisyUI, e **zero** cor em hex cru fora de doze
 exceções nomeadas (os cinco acentos de grupo do overlay de editores e as quatro

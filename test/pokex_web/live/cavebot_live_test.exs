@@ -800,7 +800,11 @@ defmodule PokexWeb.CavebotLiveTest do
   # voz baixa; o selo junta e responde UMA coisa.
   describe "pronto pra noite" do
     test "com tudo armado, o selo diz que pode dormir", %{conn: conn} do
-      Pokex.SettingsStash.stash!(rescue_enabled: true, cavebot_hp_abort_pct: 60, revive_stock: 0)
+      Pokex.SettingsStash.stash!(
+        rescue_enabled: true,
+        engine_band_yellow_pct: 60,
+        revive_stock: 0
+      )
 
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
@@ -809,7 +813,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "o resgate desligado é dito por extenso, não escondido num title", %{conn: conn} do
-      Pokex.SettingsStash.stash!(rescue_enabled: false, cavebot_hp_abort_pct: 60)
+      Pokex.SettingsStash.stash!(rescue_enabled: false, engine_band_yellow_pct: 60)
 
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
@@ -820,7 +824,7 @@ defmodule PokexWeb.CavebotLiveTest do
     test "o estoque zerado entra na conta junto", %{conn: conn} do
       Pokex.SettingsStash.stash!(
         rescue_enabled: false,
-        cavebot_hp_abort_pct: 0,
+        engine_band_yellow_pct: 0,
         revive_stock: 3
       )
 
@@ -833,7 +837,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
       assert view |> element("#cavebot-ready") |> render() =~ "3 coisas antes de dormir"
       assert lista =~ "revives acabaram"
-      assert lista =~ "guarda de vida está desligada"
+      assert lista =~ "faixa amarela está em 0"
     end
   end
 
@@ -2289,9 +2293,7 @@ defmodule PokexWeb.CavebotLiveTest do
       Pokex.SettingsStash.stash!(
         rescue_enabled: false,
         heal_skill_enabled: true,
-        potion_enabled: false,
-        cavebot_hp_abort_pct: 60,
-        cavebot_hp_resume_pct: 85
+        potion_enabled: false
       )
 
       :ok
@@ -2322,18 +2324,6 @@ defmodule PokexWeb.CavebotLiveTest do
 
       assert Pokex.Settings.get(:heal_skill_enabled) == false
       assert view |> element("#safety-heal") |> render() =~ "cura desligada"
-    end
-
-    test "saves the hp guard thresholds", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
-
-      view
-      |> form("#hp-guard-form", %{"abort" => "55", "resume" => "90"})
-      |> render_submit()
-
-      assert Pokex.Settings.get(:cavebot_hp_abort_pct) == 55
-      assert Pokex.Settings.get(:cavebot_hp_resume_pct) == 90
-      assert view |> element("#cavebot-notice") |> render() =~ "55%"
     end
 
     # "a parte de waypoints tem que caber na minha tela com uma caixa que
@@ -2380,18 +2370,6 @@ defmodule PokexWeb.CavebotLiveTest do
       assert Pokex.Settings.get(:cavebot_block_retries) == 3
       assert Pokex.Settings.get(:cavebot_block_retry_ms) == 30_000
       assert view |> element("#cavebot-notice") |> render() =~ "1 a 600"
-    end
-
-    test "a percentage outside the range changes nothing", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
-
-      view
-      |> form("#hp-guard-form", %{"abort" => "150", "resume" => "90"})
-      |> render_submit()
-
-      assert Pokex.Settings.get(:cavebot_hp_abort_pct) == 60
-      assert Pokex.Settings.get(:cavebot_hp_resume_pct) == 85
-      assert view |> element("#cavebot-notice") |> render() =~ "entre 0 e 100"
     end
   end
 

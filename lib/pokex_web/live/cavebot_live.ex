@@ -1019,28 +1019,6 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
-  def handle_event("hp_guard", %{"abort" => abort, "resume" => resume}, socket) do
-    with {:ok, abort} <- PanelForms.parse_int(abort, 0..100),
-         {:ok, resume} <- PanelForms.parse_int(resume, 1..100) do
-      Settings.put(:cavebot_hp_abort_pct, abort)
-      Settings.put(:cavebot_hp_resume_pct, resume)
-
-      {:noreply,
-       assign(socket,
-         safety: safety_snapshot(),
-         notice: hp_guard_notice(abort, resume),
-         notice_kind: :ok
-       )}
-    else
-      :error ->
-        {:noreply,
-         assign(socket,
-           notice: "porcentagens entre 0 e 100 — abandono 0 desliga a guarda",
-           notice_kind: :warn
-         )}
-    end
-  end
-
   def handle_event("clear_route", _params, socket) do
     with_route(socket, fn route ->
       Photos.forget(route.name)
@@ -2091,8 +2069,6 @@ defmodule PokexWeb.CavebotLive do
       rescue?: Settings.get(:rescue_enabled),
       heal?: Settings.get(:heal_skill_enabled),
       potion?: Settings.get(:potion_enabled),
-      abort_pct: Settings.get(:cavebot_hp_abort_pct),
-      resume_pct: Settings.get(:cavebot_hp_resume_pct),
       block_retries: Settings.get(:cavebot_block_retries),
       block_retry_ms: Settings.get(:cavebot_block_retry_ms)
     }
@@ -2128,8 +2104,8 @@ defmodule PokexWeb.CavebotLive do
        "os revives acabaram pela conta — repõe e digita o estoque no /config"},
       {rack != [] and unwritten(rack) > 0,
        "tem tecla sem cooldown escrito — o relógio chuta e o revive de reset erra a hora"},
-      {Settings.get(:cavebot_hp_abort_pct) == 0,
-       "a guarda de vida está desligada — a mobada nunca é abandonada"}
+      {Settings.get(:engine_band_yellow_pct) == 0,
+       "a faixa amarela está em 0 — vida baixa nunca fecha a rodada nem revive"}
     ]
     |> Enum.filter(&elem(&1, 0))
     |> Enum.map(&elem(&1, 1))
@@ -2170,11 +2146,6 @@ defmodule PokexWeb.CavebotLive do
   defp safety_notice(:heal_skill_enabled, false), do: "cura desligada"
   defp safety_notice(:potion_enabled, true), do: "poção armada"
   defp safety_notice(:potion_enabled, false), do: "poção desligada"
-
-  defp hp_guard_notice(0, _resume), do: "guarda de HP desligada — a mobada nunca é abandonada"
-
-  defp hp_guard_notice(abort, resume),
-    do: "abandona a mobada abaixo de #{abort}% e volta em #{resume}% — vale da próxima caçada"
 
   defp comeback_notice(0, _seconds),
     do: "volta automática desligada — um tropeço local encerra a caçada"
@@ -3620,46 +3591,6 @@ defmodule PokexWeb.CavebotLive do
                 off="poção desligada"
               />
             </div>
-
-            <span class="h-5 w-px shrink-0 bg-pk-line" aria-hidden="true"></span>
-
-            <form
-              id="hp-guard-form"
-              phx-submit="hp_guard"
-              title="Abaixo do limite: solta o combo no que juntou, desiste do mob, e só volta a andar com ele recuperado. 0 desliga a guarda. Vale a partir da próxima caçada."
-              class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
-            >
-              <.icon name="hero-heart" class="size-3.5 shrink-0 text-pk-text-3" />
-              <span>larga o mob &lt;</span>
-              <input
-                type="number"
-                name="abort"
-                value={@safety.abort_pct}
-                min="0"
-                max="100"
-                inputmode="numeric"
-                aria-label="Abandonar a mobada abaixo desta porcentagem de vida"
-                class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-              />
-              <span>% · volta em</span>
-              <input
-                type="number"
-                name="resume"
-                value={@safety.resume_pct}
-                min="1"
-                max="100"
-                inputmode="numeric"
-                aria-label="Retomar a rota nesta porcentagem de vida"
-                class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-              />
-              <span>%</span>
-              <button
-                aria-label="Salvar os limites da guarda de HP"
-                class="h-8 cursor-pointer rounded border border-pk-line-strong px-2.5 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white"
-              >
-                salvar
-              </button>
-            </form>
 
             <span class="h-5 w-px shrink-0 bg-pk-line" aria-hidden="true"></span>
 

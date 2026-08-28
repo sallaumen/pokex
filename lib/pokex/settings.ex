@@ -1064,16 +1064,6 @@ defmodule Pokex.Settings do
     cavebot_fight_timeout_ms: 20_000,
     cavebot_combo_timeout_ms: 6000,
     cavebot_cleanup_timeout_ms: 8000,
-    # THE SAFETY LINE. Below this HP the hunt stops gathering, fights what
-    # already came (fire freed, kill spot combo out) and holds the route until
-    # the pokémon recovers — "não podemos morrer. Estar vivo nesse jogo é
-    # muito importante" (2026-08-14). 0 turns the guard off. 60 sits ABOVE the
-    # 50% revive threshold on purpose: killing the pile is the first answer,
-    # the rescue combo is the second.
-    cavebot_hp_abort_pct: 60,
-    # …and the route only resumes here: the gap between the two is what stops
-    # a heal to 70% from walking straight into the next pile at 55%.
-    cavebot_hp_resume_pct: 85,
     # --- Engine ---------------------------------------------------------------------------------
     # HIS RULER. Era três (2026-08-17: "eu realmente mato quando tem uns três") e
     # ele o corrigiu vendo a simulação rodar (2026-08-25): "a gente quer matar
@@ -1659,8 +1649,6 @@ defmodule Pokex.Settings do
     cavebot_record_fight_dwell_ms: 1_000..600_000,
     cavebot_pinned_probe_ms: 200..30_000,
     cavebot_stop_wait_ms: 0..600_000,
-    cavebot_hp_abort_pct: 0..100,
-    cavebot_hp_resume_pct: 1..100,
     # 1 means "fight anything", which is a legal (if greedy) choice; the ceiling
     # is the battle panel's own row count — a ruler above it never engages.
     engine_engage_from: 1..12,

@@ -67,8 +67,13 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # reads, same rule PlayerSupport uses — one garbage frame must not
             # abort a gathering
             last_hp: nil,
-            # latched below `hp_abort_pct`, released at `hp_resume_pct`: while
-            # set, the hunt fights what it has and the route does not advance
+            # o pokémon está NO CHÃO (fainted): a rota espera o revive de
+            # chão levantar ele. A metade PERCENTUAL desta trava (abandonar a
+            # mobada abaixo de X% e voltar em Y%) morreu em 28/08: ela prendia
+            # a rota num limbo sem caminho de recuperação — cura e poção
+            # desligadas, revive proibido até o resgate a 40% — "parado que
+            # nem um idiota". Vida agora é assunto das FAIXAS do cérebro
+            # (amarelo fecha a rodada e revive; vermelho revive já).
             recovering?: false,
             # WHY the last waypoint changed — the Worker turns it into the line
             # that makes a route readable after the fact
@@ -135,10 +140,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
           stair_step_ms: non_neg_integer,
           stair_step_taps: non_neg_integer,
           fight_only_at_stops: boolean,
-          # below this HP the mob is abandoned (0 = guard off); at or above
-          # `hp_resume_pct` the route resumes — the gap is the hysteresis
-          hp_abort_pct: non_neg_integer,
-          hp_resume_pct: non_neg_integer,
           # the hunt's DEFAULT park spot, in tiles from the character — the
           # only pair in here, because it is the only knob that is a place
           park_tiles: {integer, integer} | nil
@@ -482,47 +483,25 @@ defmodule Pokex.Bots.Cavebot.Logic do
     do: %{logic | since: Map.delete(logic.since, :gather), gather_wait: nil}
 
   @doc """
-  Why the route is held by the pokémon's health — `nil` while it is not.
+  Why the route is held by a pokémon on the FLOOR — `nil` while it is not.
 
-  `hp_pct: nil` inside a recovery is the revive itself: the rescue RECALLS the
+  `hp_pct: nil` inside the wait is the revive itself: the rescue RECALLS the
   pokémon, and a recalled pokémon has no readable bar. Waiting through it is
   the point; the Worker turns this into a visible reason either way.
   """
-  @spec recovery(t) :: %{hp_pct: integer | nil, resume_pct: non_neg_integer} | nil
-  def recovery(%__MODULE__{recovering?: true} = logic),
-    do: %{hp_pct: logic.last_hp, resume_pct: Map.get(logic.config, :hp_resume_pct, 100)}
-
+  @spec recovery(t) :: %{hp_pct: integer | nil} | nil
+  def recovery(%__MODULE__{recovering?: true} = logic), do: %{hp_pct: logic.last_hp}
   def recovery(%__MODULE__{}), do: nil
 
-  # The guard trips on two agreeing low reads and releases on two agreeing
-  # recovered ones — symmetric, so neither a garbage frame nor a lucky one
-  # moves the latch. Everything between the thresholds keeps whatever the
-  # latch already says: that gap is what stops a heal to 70% from resuming a
-  # route that will be back at 55% two tiles later.
-  # A FALLEN pokémon outranks every percentage in here, including a guard
-  # turned off: there is nothing on the field, so the route waits whatever the
-  # thresholds would have said. The support's revive is what ends the wait.
+  # ONLY the floor holds the route now: there is nothing on the field, so
+  # walking on would drag the character alone into the next pile. The support's
+  # floor revive is what ends the wait. Health PERCENTAGES stopped holding the
+  # route in 28/08 — that is the engine's job (yellow closes the round and
+  # revives, red revives mid-fight), and the old percentage latch just parked
+  # the hunt in a limbo nothing was going to fix.
   defp track_hp(%__MODULE__{} = logic, world) do
-    hp = Map.get(world, :hp_pct)
-    down? = Map.get(world, :fainted?, false)
-
-    %{logic | last_hp: hp, recovering?: down? or recovering_after(logic, hp)}
+    %{logic | last_hp: Map.get(world, :hp_pct), recovering?: Map.get(world, :fainted?, false)}
   end
-
-  defp recovering_after(%__MODULE__{config: config} = logic, hp) do
-    abort = Map.get(config, :hp_abort_pct, 0)
-    resume = Map.get(config, :hp_resume_pct, 100)
-
-    cond do
-      abort <= 0 -> false
-      both?(logic.last_hp, hp, &(&1 < abort)) -> true
-      logic.recovering? -> not both?(logic.last_hp, hp, &(&1 >= resume))
-      true -> false
-    end
-  end
-
-  defp both?(a, b, check),
-    do: is_integer(a) and is_integer(b) and check.(a) and check.(b)
 
   @doc """
   How many ms the machine has gone without knowing where the character is —
@@ -563,8 +542,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
       # mid-fight) — but an engaged Combat cannot: :tabbing/:fighting hold the
       # road, whatever the subtraction says.
       engaged?(world) -> enter_fight(logic, now)
-      # Walking on with the pokémon this hurt walks it into the NEXT pile:
-      # stand still, let the support heal or revive, resume at hp_resume_pct.
+      # The pokémon is on the FLOOR: walking on drags the character alone
+      # into the next pile. Stand still and let the floor revive lift him.
       # Standing still is the ORDER here, so the walk's patience is held with
       # it — otherwise the wait itself (every revive outlasts walk_timeout_ms)
       # made the FIRST step after recovering read as "não saiu do lugar", and

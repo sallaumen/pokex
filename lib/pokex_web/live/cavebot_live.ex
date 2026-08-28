@@ -1615,13 +1615,33 @@ defmodule PokexWeb.CavebotLive do
   defp enemy_pct(pct) when is_number(pct), do: round(pct * 100)
   defp enemy_pct(_unknown), do: 0
 
+  # QUAL LINHA É A DELE — pela decisão do CÉREBRO, nunca por uma segunda regra
+  # na tela. `Situation.named` é a lista JÁ sem a linha própria (descontada por
+  # nome, por vida ou por posição), então a que sobra é a dele. Sem quadro, a
+  # tela não afirma nada.
+  defp mine?(_row, nil), do: false
+
+  defp mine?(row, %{named: named}) when is_list(named),
+    do: row[:row] not in Enum.map(named, & &1[:row])
+
+  defp mine?(_row, _no_reading), do: false
+
+  # Quantos INIMIGOS, que não é quantas linhas: a linha dele não conta.
+  defp enemies_seen(_world, %{enemies: n}) when is_integer(n), do: n
+  defp enemies_seen(world, _no_reading), do: length(world.enemies)
+
   # A vida do bicho conta a história ao contrário da dele: cheia é ruim (falta
-  # matar), quase vazia é o alvo prestes a cair. Verde e vermelho aqui
-  # confundiriam com as barras de cima — este trilho é neutro, e o COMPRIMENTO
-  # é a informação.
-  defp enemy_fill(pct) when is_number(pct) and pct <= 0.35, do: "bg-pk-warn"
-  defp enemy_fill(pct) when is_number(pct), do: "bg-pk-text-3"
-  defp enemy_fill(_unknown), do: "bg-pk-line-strong"
+  # matar), quase vazia é o alvo prestes a cair. O trilho é neutro e o
+  # COMPRIMENTO é a informação — verde e vermelho aqui competiriam com as
+  # barras de cima, onde as cores significam perigo.
+  defp enemy_fill(row, situation) do
+    cond do
+      mine?(row, situation) -> "bg-pk-ok"
+      is_number(row[:hp_pct]) and row[:hp_pct] <= 0.35 -> "bg-pk-warn"
+      is_number(row[:hp_pct]) -> "bg-pk-text-3"
+      true -> "bg-pk-line-strong"
+    end
+  end
 
   defp active_name(combat) do
     case fighting_as(combat) do
@@ -1991,6 +2011,32 @@ defmodule PokexWeb.CavebotLive do
 
   defp visible_log(log, true), do: log
   defp visible_log(log, _hide), do: Enum.reject(log, &(&1.level == :debug))
+
+  # As quatro vozes do feed. O prefixo já vinha no texto; aqui ele vira coluna,
+  # e o que sobra da frase começa sempre no mesmo x.
+  @sources [
+    {"caçada: ", "caçada", "text-pk-info"},
+    {"quadro: ", "cérebro", "text-pk-ok"},
+    {"combate: ", "luta", "text-pk-warn"}
+  ]
+
+  defp source_label(text) do
+    Enum.find_value(@sources, "suporte", fn {prefix, label, _tone} ->
+      String.starts_with?(text, prefix) && label
+    end)
+  end
+
+  defp source_tone(text) do
+    Enum.find_value(@sources, "text-pk-text-3", fn {prefix, _label, tone} ->
+      String.starts_with?(text, prefix) && tone
+    end)
+  end
+
+  defp strip_source(text) do
+    Enum.find_value(@sources, text, fn {prefix, _label, _tone} ->
+      String.starts_with?(text, prefix) && String.replace_prefix(text, prefix, "")
+    end)
+  end
 
   defp log_tone(%{level: :alarm}), do: "text-pk-warn"
   defp log_tone(%{level: :macro}), do: "text-pk-text"
@@ -2436,31 +2482,59 @@ defmodule PokexWeb.CavebotLive do
                 <.hp_bar label={active_name(@combat) || "pokémon"} pct={@world.me.hp_pct} />
               </div>
 
-              <%!-- A LISTA DE BATALHA COMO ELE A VÊ, linha por linha: é aqui que
-              um erro de leitura aparece antes de virar uma decisão errada —
-              a linha do próprio pokémon contada como inimigo custou uma
-              caçada inteira em 27/08. --%>
+              <%!-- A LISTA DE BATALHA COMO ELE A VÊ. É aqui que um erro de leitura
+              aparece antes de virar decisão errada — a linha do próprio
+              pokémon contada como inimigo custou uma caçada inteira em 27/08.
+
+              ALTURA FIXA: uma lista que cresce e encolhe com a mobada empurra
+              tudo embaixo dela a cada tique, e o que ele estava lendo pula
+              ("está com um tamanho flexível, aumentando e diminuindo",
+              28/08). Duas colunas de peças pequenas, três fileiras
+              reservadas, e o que passar rola dentro da própria caixa. --%>
               <div class="mt-2 border-t border-pk-line pt-1.5">
                 <p class="flex items-baseline gap-1.5 font-mono text-pk-meta">
                   <span class="uppercase tracking-[0.1em] text-pk-text-3">na tela</span>
-                  <span class="pk-num font-bold text-pk-text-2">{length(@world.enemies)}</span>
+                  <span class="pk-num font-bold text-pk-text-2">
+                    {enemies_seen(@world, @situation)}
+                  </span>
                   <span :if={@world.enemies == []} class="text-pk-text-3">— nada na lista</span>
                   <span :if={@world.shiny?} class="ml-auto font-bold text-pk-warn">✨ shiny</span>
                 </p>
 
-                <ul :if={@world.enemies != []} class="mt-1 space-y-1">
-                  <li :for={row <- Enum.take(@world.enemies, 10)} class="flex items-center gap-2">
-                    <span class="w-24 shrink-0 truncate font-mono text-pk-meta text-pk-text-2">
+                <ul
+                  :if={@world.enemies != []}
+                  id="cavebot-battle-rows"
+                  class="mt-1 grid h-[4.5rem] grid-cols-2 content-start gap-x-2 gap-y-1 overflow-y-auto pr-1"
+                >
+                  <li
+                    :for={row <- @world.enemies}
+                    class={[
+                      "flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5",
+                      if(mine?(row, @situation), do: "bg-pk-ok-dim", else: "bg-pk-raised")
+                    ]}
+                  >
+                    <%!-- QUEM É O DELE, dito na peça. O cérebro já decidiu qual
+                    linha descontar; a tela repete a decisão dele em vez de
+                    aplicar uma segunda regra. --%>
+                    <.icon
+                      :if={mine?(row, @situation)}
+                      name="hero-user-circle"
+                      class="size-3 shrink-0 text-pk-ok"
+                    />
+                    <span class={[
+                      "min-w-0 flex-1 truncate font-mono text-pk-meta",
+                      if(mine?(row, @situation), do: "text-pk-ok", else: "text-pk-text-2")
+                    ]}>
                       {row[:name] || "?"}
                     </span>
-                    <span class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-pk-line">
+                    <span class="h-1 w-8 shrink-0 overflow-hidden rounded-full bg-pk-line">
                       <span
-                        class={["block h-full rounded-full", enemy_fill(row[:hp_pct])]}
+                        class={["block h-full rounded-full", enemy_fill(row, @situation)]}
                         style={"width: #{enemy_pct(row[:hp_pct])}%"}
                       ></span>
                     </span>
-                    <span class="pk-num w-9 shrink-0 text-right font-mono text-pk-meta tabular-nums text-pk-text-3">
-                      {if row[:hp_pct], do: "#{enemy_pct(row[:hp_pct])}%", else: "?"}
+                    <span class="pk-num w-6 shrink-0 text-right font-mono text-pk-meta tabular-nums text-pk-text-3">
+                      {if row[:hp_pct], do: enemy_pct(row[:hp_pct]), else: "?"}
                     </span>
                   </li>
                 </ul>
@@ -2582,7 +2656,19 @@ defmodule PokexWeb.CavebotLive do
                   <span class="pk-num shrink-0 tabular-nums text-pk-text-3">
                     {Calendar.strftime(line.at, "%H:%M:%S")}
                   </span>
-                  <span class="min-w-0">{line.text}</span>
+                  <%!-- A ORIGEM VIRA ETIQUETA, em coluna de largura fixa. Ela
+                  vinha como prefixo do texto ("caçada: ", "quadro: ",
+                  "combate: "), o que empurrava cada frase pra um começo
+                  diferente — e uma coluna que não alinha é uma coluna que não
+                  se varre: "tá bem confuso de ler e acompanhar enquanto ele
+                  joga" (28/08). --%>
+                  <span class={[
+                    "w-14 shrink-0 text-right uppercase tracking-[0.08em]",
+                    source_tone(line.text)
+                  ]}>
+                    {source_label(line.text)}
+                  </span>
+                  <span class="min-w-0">{strip_source(line.text)}</span>
                   <span
                     :if={line.times > 1}
                     class="pk-num ml-auto shrink-0 rounded bg-pk-raised px-1 font-bold tabular-nums text-pk-text-3"

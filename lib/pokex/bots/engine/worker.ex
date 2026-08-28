@@ -337,8 +337,8 @@ defmodule Pokex.Bots.Engine.Worker do
     current = %{picture: picture, orders: orders}
 
     previous
-    |> Narration.lines(current, own_label(state))
-    |> Enum.each(&log(:macro, &1))
+    |> Narration.spoken(current, own_label(state))
+    |> Enum.each(fn {level, text} -> log(level, text) end)
 
     if changed_mind?(state, orders), do: file(state, picture, orders)
 

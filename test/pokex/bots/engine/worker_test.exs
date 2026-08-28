@@ -87,12 +87,16 @@ defmodule Pokex.Bots.Engine.WorkerTest do
   end
 
   describe "narrating (the tick is 200ms — only edges may speak)" do
+    # A CONTAGEM DESCEU PRA :debug em 28/08. A Central passou a desenhar a lista
+    # de batalha ao vivo — nome e vida de cada linha — e repetir isso em texto a
+    # cada bicho que entra e sai era o feed contando pela terceira vez o que a
+    # tela mostra melhor. Ela continua sendo dita: com o debug ligado.
     test "says the count once, not once per tick", %{worker: worker} do
       see(~w(Venonat Paras Venomoth))
 
       send(worker, :tick)
       settle(worker)
-      assert_receive {:engine_log, :macro, text}
+      assert_receive {:engine_log, :debug, text}
       assert text =~ "3 inimigos na tela"
       assert text =~ "Venonat 100%, Paras 100%, Venomoth 100%"
       # the own-row measurement rides the same first tick — see its own test
@@ -103,14 +107,14 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       send(worker, :tick)
       settle(worker)
 
-      refute_receive {:engine_log, :macro, _}, 20
+      refute_receive {:engine_log, _level, _}, 20
     end
 
     test "speaks again when the count changes", %{worker: worker} do
       see(~w(Venonat Paras Venomoth))
       send(worker, :tick)
       settle(worker)
-      assert_receive {:engine_log, :macro, _first}
+      assert_receive {:engine_log, :debug, _first}
       assert_receive {:engine_log, :macro, _measurement}
       assert_shadow()
 
@@ -118,15 +122,17 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       send(worker, :tick)
       settle(worker)
 
-      assert_receive {:engine_log, :macro, text}
+      assert_receive {:engine_log, :debug, text}
       assert text =~ "4 inimigos na tela"
     end
 
+    # PERDER A LISTA NÃO É CONTAGEM: é cegueira, e fica no nível que acorda
+    # alguém mesmo com o debug desligado.
     test "says it lost the list rather than reporting an empty screen", %{worker: worker} do
       see(~w(Venonat Paras Venomoth))
       send(worker, :tick)
       settle(worker)
-      assert_receive {:engine_log, :macro, _count}
+      assert_receive {:engine_log, :debug, _count}
       assert_receive {:engine_log, :macro, _measurement}
       assert_shadow()
 
@@ -145,7 +151,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       send(worker, :tick)
       settle(worker)
 
-      assert_receive {:engine_log, :macro, count}
+      assert_receive {:engine_log, :debug, count}
       assert count =~ "2 inimigos"
 
       assert_receive {:engine_log, :macro, measurement}
@@ -163,10 +169,10 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       send(worker, :tick)
       settle(worker)
 
-      assert_receive {:engine_log, :macro, text}
+      assert_receive {:engine_log, :debug, text}
       assert text == "quadro: 3 inimigos na tela"
       assert_shadow()
-      refute_receive {:engine_log, :macro, _}, 20
+      refute_receive {:engine_log, _level, _}, 20
     end
   end
 end

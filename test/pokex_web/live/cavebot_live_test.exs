@@ -855,6 +855,60 @@ defmodule PokexWeb.CavebotLiveTest do
       assert vision =~ "?"
     end
 
+    # "É legal que a UI deixe claro sempre que o primeiro monstro ali é o meu
+    # próprio, para não ficar confuso" (28/08). Quem decide qual linha é dele é
+    # o CÉREBRO (`Situation.named` já vem sem ela); a tela repete a decisão.
+    test "a linha do próprio pokémon é marcada, e não conta como inimigo", %{conn: conn} do
+      see_world(100, 100, [
+        %{row: 0, name: "Steelix", hp_pct: 0.7, shiny?: false},
+        %{row: 1, name: "Magneton", hp_pct: 1.0, shiny?: false}
+      ])
+
+      # O quadro sai do CÉREBRO de verdade, não de um mapa à mão: a tela lê a
+      # decisão dele, e um mapa inventado aqui provaria outra coisa.
+      quadro =
+        Pokex.Bots.Engine.Situation.build(
+          %{
+            battle: %{
+              enemies: [0, 1],
+              enemies_detail: [
+                %{row: 0, name: "Steelix", hp_pct: 0.7, shiny?: false},
+                %{row: 1, name: "Magneton", hp_pct: 1.0, shiny?: false}
+              ]
+            },
+            own_name: "Steelix",
+            own_out?: true,
+            own_hp: 70
+          },
+          %{engage_from: 3},
+          System.monotonic_time(:millisecond)
+        )
+
+      WorldState.put(:situation, quadro, System.monotonic_time(:millisecond))
+
+      on_exit(fn -> WorldState.forget(:situation) end)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      vision = view |> element("#cavebot-vision") |> render()
+
+      # a contagem é a do cérebro (1 inimigo), não o número de linhas (2)
+      assert quadro.enemies == 1
+      assert quadro.own_row_seen? == true
+      # a linha dele tem o marcador; a do Magneton não
+      assert vision =~ "hero-user-circle"
+      assert vision =~ "text-pk-ok"
+    end
+
+    # A caixa não pode pular de altura a cada bicho que entra ou sai: o que ele
+    # estava lendo embaixo dela some do lugar.
+    test "a caixa da lista tem altura fixa, com ou sem mobada", %{conn: conn} do
+      see_world(100, 100, [%{row: 0, name: "Magneton", hp_pct: 1.0, shiny?: false}])
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#cavebot-battle-rows") |> render() =~ "h-[4.5rem]"
+    end
+
     test "tela limpa é dita, não deixada em branco", %{conn: conn} do
       see_world(100, 100, [])
 

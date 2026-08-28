@@ -26,18 +26,33 @@ defmodule Pokex.Bots.Engine.Narration do
   one measurement whose reading only means something with a name attached to it.
   """
   @spec lines(tick, tick, String.t()) :: [String.t()]
-  def lines(previous, current, who \\ "o pokémon em campo") do
+  def lines(previous, current, who \\ "o pokémon em campo"),
+    do: previous |> spoken(current, who) |> Enum.map(&elem(&1, 1))
+
+  @doc """
+  O mesmo que `lines/3`, cada frase com o NÍVEL em que ela merece ser dita.
+
+  A contagem desceu pra `:debug` em 28/08 e o motivo é a Central: ela passou a
+  desenhar a lista de batalha ao vivo, linha por linha e com a vida de cada uma.
+  Repetir isso em texto a cada bicho que entra e sai é o feed contando pela
+  terceira vez o que a tela mostra melhor — "dá uma melhoradinha nos textos ali
+  (…) tá bem confuso de ler e acompanhar enquanto ele joga".
+
+  Perder a lista NÃO é contagem: é cegueira, e sobe com o resto.
+  """
+  @spec spoken(tick, tick, String.t()) :: [{:macro | :debug, String.t()}]
+  def spoken(previous, current, who \\ "o pokémon em campo") do
     Enum.flat_map(
-      [&count/3, &own_row/3, &decision/3],
-      & &1.(previous, current, who)
+      [{&count/3, :debug}, {&blind/3, :macro}, {&own_row/3, :macro}, {&decision/3, :macro}],
+      fn {fun, level} -> Enum.map(fun.(previous, current, who), &{level, &1}) end
     )
   end
 
-  # The count, when it moves. Losing the list is its own sentence: `nil` and
-  # zero are opposite facts and the feed has to be able to tell them apart.
-  defp count(%{picture: %{enemies: same}}, %{picture: %{enemies: same}}, _who), do: []
+  # A cegueira, separada da contagem: `nil` e zero são fatos opostos, e este é o
+  # único que precisa acordar alguém.
+  defp blind(%{picture: %{enemies: nil}}, %{picture: %{enemies: nil}}, _who), do: []
 
-  defp count(previous, %{picture: %{enemies: nil}}, _who) do
+  defp blind(previous, %{picture: %{enemies: nil}}, _who) do
     case previous do
       %{picture: %{enemies: was}} when not is_nil(was) ->
         ["perdi a lista de batalha — não sei quantos são"]
@@ -46,6 +61,14 @@ defmodule Pokex.Bots.Engine.Narration do
         []
     end
   end
+
+  defp blind(_previous, _current, _who), do: []
+
+  # The count, when it moves. Losing the list is its own sentence: `nil` and
+  # zero are opposite facts and the feed has to be able to tell them apart.
+  defp count(%{picture: %{enemies: same}}, %{picture: %{enemies: same}}, _who), do: []
+
+  defp count(_previous, %{picture: %{enemies: nil}}, _who), do: []
 
   defp count(_previous, %{picture: nil}, _who), do: []
 

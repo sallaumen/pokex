@@ -53,6 +53,55 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert l.state == :walking
   end
 
+  # A RETIRADA (R7 cercada): a ordem `route: :back` do cérebro faz a luta andar
+  # a rota AO CONTRÁRIO — chão recém-limpo, sem spawn novo — waypoint a
+  # waypoint, e o índice recuado faz a volta recomeçar dali.
+  describe "a retirada pelo chão limpo" do
+    defp retreating(pos, enemies \\ 5) do
+      world(pos, enemies)
+      |> Map.put(:engine?, true)
+      |> Map.put(:route_back?, true)
+      |> Map.put(:combat_state, :fighting)
+    end
+
+    defp fighting(wp_index) do
+      %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true, wp_index: wp_index}
+    end
+
+    test "recua andando na direção do waypoint anterior" do
+      # alvo atual é o wp 1 (20,10); o anterior é o wp 0 (10,10); ele está em (18,10)
+      assert {%{state: :fighting}, {:walk, dx, dy}} =
+               Logic.step(fighting(1), retreating({18, 10, 7}), 0)
+
+      assert {dx, dy} == {-8, 0}
+    end
+
+    test "chegar no anterior recua o índice — a volta recomeça dali" do
+      {l, :none} = Logic.step(fighting(1), retreating({10, 10, 7}), 0)
+
+      assert l.wp_index == 0
+    end
+
+    test "não recua escada: waypoint anterior de outro andar segura no lugar" do
+      {:ok, r} = Route.append(Route.new("escada"), {10, 10, 6})
+      {:ok, r} = Route.append(r, {20, 10, 7})
+      l = %{Logic.new(r, @cfg) | state: :fighting, combat_running?: true, wp_index: 1}
+
+      assert {_l, :none} = Logic.step(l, retreating({18, 10, 7}), 0)
+    end
+
+    test "sem a ordem, a luta com rota liberada segue pra FRENTE como sempre" do
+      mundo =
+        world({18, 10, 7}, 5)
+        |> Map.put(:engine?, true)
+        |> Map.put(:route_back?, false)
+        |> Map.put(:combat_state, :fighting)
+
+      assert {_l, {:walk, dx, _dy}} = Logic.step(fighting(1), mundo, 0)
+      assert dx > 0
+    end
+  end
+
   # O cérebro desistiu do revive (fase :stranded): não é espera, é o fim da
   # noite — bloqueio PERIGOSO, em qualquer estado da caçada.
   test "o cérebro desistindo do revive bloqueia a caçada, andando ou lutando" do

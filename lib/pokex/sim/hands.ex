@@ -199,8 +199,12 @@ defmodule Pokex.Sim.Hands do
     end
   end
 
+  # `:back` anda como `:go` aqui de propósito: o mundo simulado não tem spawn
+  # geográfico na frente (a mobada persegue de qualquer direção), então recuar e
+  # avançar custam o mesmo — o que a retirada compra no jogo real (não acordar
+  # bicho novo) este mundo não sabe cobrar. Ficar parado é que seria mentir.
   defp tentando_andar?(orders, hands),
-    do: Map.get(orders, :route) == :go and not busy?(hands)
+    do: Map.get(orders, :route) in [:go, :back] and not busy?(hands)
 
   defp travado?(hands, world, config) do
     case Map.get(config, :walk_timeout_ms) do

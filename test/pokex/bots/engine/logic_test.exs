@@ -491,6 +491,25 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert next.route == :hold
     end
 
+    # O ORÇAMENTO NO RESET: comprar a barra de volta é conveniência, e com a
+    # conta na reserva os últimos revives ficam pra emergência e pro caído.
+    test "com o estoque na reserva, o reset não gasta — a fuga responde" do
+      logic = engaged(&reset_step/3)
+
+      {_logic, orders} = reset_step(logic, spent_fight(%{revive_left: 5}), 2_000)
+
+      assert orders.revive == :hold
+      assert orders.why =~ "recuando pelo chão limpo"
+    end
+
+    test "com sobra na conta, o reset gasta como sempre" do
+      logic = engaged(&reset_step/3)
+
+      {_logic, orders} = com_controle(logic, spent_fight(%{revive_left: 6}), 2_000)
+
+      assert orders.revive == :now
+    end
+
     # Sem a R3b, a mesma barra vazia tem a resposta de graça: andar (R7).
     test "desligada, a mesma barra vazia anda em vez de pedir revive" do
       sem = Config.merge(%{reset_revive: false, crowd_from: 99, bunch_ms: 0, gather_target: 1})
@@ -500,7 +519,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {_logic, orders} = sem_step.(logic, spent_fight(), 2_000)
 
       assert orders.revive == :hold
-      assert orders.why =~ "andando até a barra voltar"
+      assert orders.why =~ "recuando pelo chão limpo até a barra voltar"
     end
 
     test "não duas vezes dentro do piso: uma barra que segue vazia não vira tecla presa" do
@@ -680,12 +699,12 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {logic, orders}
     end
 
-    test "com a barra vazia ela anda" do
+    test "com a barra vazia ela anda — recuando, não colecionando spawn" do
       {_logic, orders} = lutando_gasto(200)
 
       assert orders.phase == :engaged
-      assert orders.route == :go
-      assert orders.why =~ "andando até a barra voltar"
+      assert orders.route == :back
+      assert orders.why =~ "recuando pelo chão limpo até a barra voltar"
     end
 
     test "mas se não sair do lugar, ela desiste e volta a lutar parada" do
@@ -697,12 +716,16 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "matando o que já abriu"
     end
 
-    test "e se sair, ela continua" do
+    test "e se sair, ela continua — agora PELO CHÃO LIMPO, de costas" do
       {logic, _} = lutando_gasto(200)
 
       {_logic, orders} = fuga_step(logic, sem_cooldown(4), 5_000)
 
-      assert orders.route == :go
+      # R7 com cerca (28/08): andar pra FRENTE com a barra gasta atravessa
+      # spawn novo e o trem cresce mais rápido que a barra volta. A fuga anda,
+      # mas recua pela rota — chão que a caçada acabou de limpar.
+      assert orders.route == :back
+      assert orders.why =~ "recuando pelo chão limpo"
     end
 
     # A fuga pertence a UMA luta: a próxima não pode herdar o veredito da
@@ -715,7 +738,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {logic, _} = fuga_step(logic, sem_cooldown(0), 7_000)
       {_logic, orders} = fuga_step(logic, sem_cooldown(0), 7_200)
 
-      assert orders.route == :go
+      assert orders.route == :back
     end
   end
 
@@ -1185,13 +1208,52 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.revive == :hold
     end
 
-    # O controle existe pra proteger um revive dado no meio de uma pilha
-    # ACORDADA. Com bicho na tela isto vira a R10 e não a R11 — recolher o
-    # pokémon na frente de um monstro é o oposto de chegar preparado.
-    test "com bicho na tela ela não vale — aí a regra é a do controle" do
+    # A REGRA MUDOU EM 28/08, com a medição da noite: a tela dessa rota NUNCA
+    # limpa (trem de 6-9 o tempo todo), e com o teto em zero o preparo disparou
+    # 18 vezes contra 171 revives no meio do bolo. Na ESTRADA, um ou dois restos
+    # perseguindo de longe são a tela limpa que existe — o teto é
+    # `prepare_max_enemies`. Acima dele a regra volta a ser a do controle.
+    test "na estrada, até dois restos na tela ainda é 'entre grupos'" do
       {_logic, orders} = Logic.step(Logic.new(), limpo(%{enemies: 2}), @preparo, 5_000)
 
+      assert orders.revive == :now
+      assert orders.why =~ "chegar inteiro"
+    end
+
+    test "três já é um grupo chegando — aí não vale" do
+      {_logic, orders} = Logic.step(Logic.new(), limpo(%{enemies: 3}), @preparo, 5_000)
+
       refute orders.why =~ "chegar inteiro"
+    end
+
+    # No `engaged` o teto segue ZERO: os bichos dali estão EM CIMA do pokémon,
+    # e recolher ele na frente deles é o oposto de chegar preparado.
+    test "com a pilha em cima, um resto que seja já cala a regra" do
+      mundo =
+        world(%{
+          situation: situation(%{enemies: 1, prepared?: false, spent?: false}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {_logic, orders} = Logic.step(Logic.new(), mundo, @preparo, 5_000)
+
+      refute orders.why =~ "chegar inteiro"
+    end
+
+    # O ORÇAMENTO: com a conta na reserva, o preparo — que é conveniência —
+    # para de gastar. Os últimos revives pertencem à emergência e ao caído.
+    test "com o estoque na reserva, o preparo não gasta" do
+      {_logic, orders} =
+        Logic.step(Logic.new(), limpo(%{revive_left: 5}), @preparo, 5_000)
+
+      assert orders.revive == :hold
+    end
+
+    test "com estoque sobrando (ou sem conta nenhuma), gasta como sempre" do
+      {_logic, com_sobra} =
+        Logic.step(Logic.new(), limpo(%{revive_left: 6}), @preparo, 5_000)
+
+      assert com_sobra.revive == :now
     end
 
     test "sem leitura da barra ela não inventa: desconhecido não é 'gasta'" do

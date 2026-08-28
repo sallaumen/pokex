@@ -489,6 +489,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       %{
         engine?: true,
         route_hold?: Map.get(orders, :route) == :hold,
+        # A RETIRADA (R7 cercada): a barra gasta recua pelo chão já limpo em vez
+        # de colecionar spawn novo pela frente — ver `Logic.retreat/3`.
+        route_back?: Map.get(orders, :route) == :back,
         # O CÉREBRO DESISTIU DO REVIVE (fase :stranded): não é uma espera, é o
         # fim da noite — a Logic transforma isso num bloqueio PERIGOSO, que para
         # a frota e não volta sozinho. Ver `Engine.Logic`, o freio do chão.
@@ -521,7 +524,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
   #
   # Unknown is never a refusal: a reading we could not take must not be the
   # reason a corner he marked stops working.
-  defp reset_worth?(%{own_hp: hp} = picture) do
+  defp reset_worth?(picture) do
+    # O ORÇAMENTO NA ESQUINA: uma esquina de reset é conveniência, e com a
+    # conta na reserva os últimos revives pertencem à emergência e ao caído.
+    if reserve_reached?(picture), do: false, else: reset_useful?(picture)
+  end
+
+  defp reserve_reached?(picture) do
+    case Map.get(picture, :revive_left) do
+      left when is_integer(left) -> left <= Settings.get(:engine_revive_reserve)
+      _sem_conta -> false
+    end
+  end
+
+  defp reset_useful?(%{own_hp: hp} = picture) do
     prepared? = Map.get(picture, :prepared?, :unknown)
 
     cond do

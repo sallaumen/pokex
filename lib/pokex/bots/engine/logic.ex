@@ -555,7 +555,7 @@ defmodule Pokex.Bots.Engine.Logic do
   end
 
   defp normal(t) do
-    if prepare?(t) do
+    if prepare?(t, t.config.prepare_max_enemies) do
       {reset_fight(t.logic, :travelling) |> mark(:reset_revive, t.now),
        Orders.walking(
          :travelling,
@@ -590,17 +590,25 @@ defmodule Pokex.Bots.Engine.Logic do
   # `Map.get` e não `t.s.prepared?`: uma foto montada por um chamador (um teste,
   # um worker no meio de uma atualização) não pode derrubar o cérebro por uma
   # chave nova — e ausente é DESCONHECIDO, que aqui não mexe.
-  defp prepare?(t) do
+  # `ceiling` é quantos restos na tela ainda contam como "entre grupos". No
+  # `engaged` ele é ZERO — os bichos dali estão EM CIMA do pokémon, e recolher
+  # ele na frente deles é o oposto de chegar preparado. Na estrada (`normal`) o
+  # teto é `prepare_max_enemies`: a análise da noite de 27→28/08 mostrou que a
+  # tela dessa rota NUNCA limpa (trem de 6-9 o tempo todo, `travelling` com 0
+  # inimigos quase não existe), então a regra dele — "eu sempre uso um revive
+  # antes de matar o próximo grupo, mesmo que nem tenha acabado os cooldowns" —
+  # não disparava NUNCA: 18 revives preparados contra 171 no meio do bolo. Um
+  # ou dois restos perseguindo de longe são a tela limpa que essa rota tem.
+  defp prepare?(t, ceiling) do
     t.config.prepare_revive and Map.get(t.s, :prepared?) == false and t.s.own_out? == true and
-      quiet?(t) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
-      not t.logic.reset_broken?
+      quiet?(t, ceiling) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
+      not t.logic.reset_broken? and affordable?(t)
   end
 
-  # A TELA LIMPA de verdade: zero, não "poucos". Um bicho na tela é uma luta que
-  # pode começar no tique seguinte, e recolher o pokémon na frente dele é o
-  # oposto de chegar preparado.
-  defp quiet?(%{s: %{enemies: enemies}}), do: enemies == 0
-  defp quiet?(_unknown), do: false
+  defp quiet?(%{s: %{enemies: enemies}}, ceiling) when is_integer(enemies),
+    do: enemies <= ceiling
+
+  defp quiet?(_unknown, _ceiling), do: false
 
   defp travelling_why(%{state: :walking}), do: "andando a rota"
   defp travelling_why(%{state: :post_fight}), do: "limpando o que ficou no chão"
@@ -631,7 +639,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # nobody on it: holding the route there narrates a fight against nothing and
   # keeps the hunt standing at a spot it has already cleared.
   defp engaged(%{s: %{enemies: 0}} = t) do
-    if prepare?(t) do
+    if prepare?(t, 0) do
       {reset_fight(t.logic, :travelling) |> mark(:reset_revive, t.now),
        Orders.walking(
          :travelling,
@@ -725,12 +733,16 @@ defmodule Pokex.Bots.Engine.Logic do
          )}
 
       kiting?(t) ->
+        # PELO CHÃO LIMPO, não pela rota: andar pra frente aqui atravessa spawn
+        # novo e o trem cresce mais rápido que a barra volta (medido na noite de
+        # 27→28/08, 9+ na tela por minutos a fio). Recuar mantém a pilha colada
+        # e não acorda ninguém — a caçada sabe andar a rota ao contrário.
         {arm_kite(t),
-         Orders.walking_and_firing(
+         Orders.retreating_and_firing(
            :engaged,
            t.band,
            opening(t),
-           "sem cooldown com #{count(t.s)} em cima — andando até a barra voltar"
+           "sem cooldown com #{count(t.s)} em cima — recuando pelo chão limpo até a barra voltar"
          )}
 
       true ->
@@ -1135,7 +1147,20 @@ defmodule Pokex.Bots.Engine.Logic do
   defp reset_revive?(t) do
     t.config.reset_revive and t.s.spent? == true and t.s.own_out? == true and
       is_integer(t.s.enemies) and t.s.enemies >= t.config.engage_from and
-      healthy_enough?(t) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms)
+      healthy_enough?(t) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
+      affordable?(t)
+  end
+
+  # O ORÇAMENTO: as regras que COMPRAM conveniência com revive (chegar
+  # preparado, resetar a barra) só gastam enquanto sobra mais que a reserva.
+  # A emergência, a faixa amarela e o caído NUNCA passam por aqui — os últimos
+  # revives do bolso são deles, que é o que uma reserva é. `nil` é orçamento
+  # desligado (ele não contou o estoque) e não muda nada.
+  defp affordable?(t) do
+    case Map.get(t.s, :revive_left) do
+      nil -> true
+      left -> left > t.config.revive_reserve
+    end
   end
 
   defp healthy_enough?(t),

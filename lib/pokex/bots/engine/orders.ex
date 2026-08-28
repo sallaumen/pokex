@@ -53,7 +53,7 @@ defmodule Pokex.Bots.Engine.Orders do
   @type t :: %{
           phase: phase,
           band: :green | :yellow | :red,
-          route: :go | :hold,
+          route: :go | :hold | :back,
           fire: :hold | :free,
           opening: [String.t()],
           revive: :hold | :now,
@@ -80,6 +80,20 @@ defmodule Pokex.Bots.Engine.Orders do
   @spec standing_and_firing(phase, atom, [String.t()], String.t(), keyword) :: t
   def standing_and_firing(phase, band, keys, why, opts \\ []),
     do: new(phase, band, why, [route: :hold, fire: :free, opening: keys] ++ opts)
+
+  @doc """
+  A RETIRADA: a rota anda PARA TRÁS, pelo chão já limpo, com as mãos livres.
+
+  É a R7 com cerca. Andar pra FRENTE com a barra gasta atravessa spawn novo — e
+  a noite de 27→28/08 mostrou o que isso rende: o trem cresce mais rápido do
+  que a barra volta (9+ na tela por minutos), e o que fica fora do leash é
+  bicho perdido. O chão de onde a caçada veio acabou de ser limpo: recuar por
+  ele mantém o trem colado (eles seguem), não acorda ninguém novo, e a primeira
+  tecla que volta encontra a pilha inteira ainda junta.
+  """
+  @spec retreating_and_firing(phase, atom, [String.t()], String.t(), keyword) :: t
+  def retreating_and_firing(phase, band, keys, why, opts \\ []),
+    do: new(phase, band, why, [route: :back, fire: :free, opening: keys] ++ opts)
 
   # The posture goes FIRST and `Keyword` reads the first match, so what the named
   # builder chose is what stands: a caller's `opts` may add `revive:` but cannot

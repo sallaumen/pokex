@@ -97,6 +97,7 @@ defmodule Pokex.Bots.Engine.Situation do
           spent?: boolean | nil,
           prepared?: boolean | nil,
           control_back_in_ms: non_neg_integer | nil,
+          revive_left: non_neg_integer | nil,
           blind?: boolean,
           at: integer
         }
@@ -141,6 +142,11 @@ defmodule Pokex.Bots.Engine.Situation do
       # que transforma "precisa de controle" numa espera com prazo em vez de uma
       # trava sem saída, e sai do relógio das teclas (`Pokex.Bots.SkillClock`).
       control_back_in_ms: Map.get(inputs, :control_back_in_ms),
+      # O CADERNINHO DO ESTOQUE (`Pokex.Bots.ReviveLedger`): quantos revives
+      # restam pela conta dele, ou nil com o orçamento desligado. É o que separa
+      # "revive é de graça" (o simulador devolve tudo por 500ms) de "revive é um
+      # item que acabou às 23:43" (a noite de 27→28/08).
+      revive_left: Map.get(inputs, :revive_left),
       spent?:
         spent?(
           Map.get(inputs, :damage_keys, []),

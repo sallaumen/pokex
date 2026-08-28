@@ -44,7 +44,7 @@ defmodule Pokex.Bots.Engine.Worker do
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Narration
   alias Pokex.Bots.Engine.Situation
-  alias Pokex.Bots.SkillClock
+  alias Pokex.Bots.{ReviveLedger, SkillClock}
   alias Pokex.Engine.Events
   alias Pokex.Engine.Vitals
   alias Pokex.Perception
@@ -269,6 +269,7 @@ defmodule Pokex.Bots.Engine.Worker do
         ),
       damage_keys: damage_keys(state.loadout, config),
       control_back_in_ms: control_back_in_ms(state.loadout, now),
+      revive_left: ReviveLedger.remaining(),
       prev: state.picture
     }
   end

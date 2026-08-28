@@ -1286,6 +1286,19 @@ defmodule Pokex.Settings do
     # 27→28/08 sem este freio: 4,9 horas apertando uma tecla vazia, a rota
     # andando com o pokémon morto. Zero desliga o freio.
     engine_downed_give_up_ms: 300_000,
+    # R11 na estrada: quantos RESTOS na tela ainda contam como "entre grupos".
+    # A tela dessa rota nunca limpa (trem de 6-9 a noite toda), e com o teto em
+    # zero a regra de chegar preparado disparou 18 vezes contra 171 revives no
+    # meio do bolo. Um ou dois perseguindo de longe são a tela limpa que existe.
+    engine_prepare_max_enemies: 2,
+    # O estoque de revives que ele DIGITOU ter agora — digitar É o botão de
+    # repor (a conta do ReviveLedger zera quando o número muda). 0 = não contei,
+    # orçamento desligado.
+    revive_stock: 0,
+    # Quantos revives ficam GUARDADOS pra emergência: as regras de conveniência
+    # (preparar, resetar) param de gastar quando a conta chega aqui; vermelho e
+    # caído gastam até o fim.
+    engine_revive_reserve: 5,
     # Nor may closing a round wait forever for a pile that stopped coming — the
     # ceiling this same number doubles as, for when to give up and revive.
     engine_closing_timeout_ms: 8_000,
@@ -1694,6 +1707,9 @@ defmodule Pokex.Settings do
     engine_resume_pct: 1..100,
     engine_recover_timeout_ms: 1_000..600_000,
     engine_downed_give_up_ms: 0..7_200_000,
+    engine_prepare_max_enemies: 0..10,
+    revive_stock: 0..10_000,
+    engine_revive_reserve: 0..1_000,
     engine_closing_timeout_ms: 100..600_000,
     engine_revive_confirm_ms: 500..600_000,
     sim_respawn_ms: 1_000..600_000,

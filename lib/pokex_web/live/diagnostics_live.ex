@@ -61,6 +61,10 @@ defmodule PokexWeb.DiagnosticsLive do
 
   @impl true
   def handle_event("probe_keys", _params, socket) do
+    # O key_watch é UM buffer global: a sonda arma os códigos DELA e drena o
+    # que viu. O vigia da caçada (HandWatch) sai da frente até a sonda acabar
+    # — senão cada drain de 150ms dele rouba as sightings que a medição espera.
+    Pokex.Bots.HandWatch.pause()
     Process.send_after(self(), :probe_native, @probe_focus_ms)
 
     {:noreply,
@@ -362,12 +366,14 @@ defmodule PokexWeb.DiagnosticsLive do
           |> Map.put(stage, rows)
           |> Map.merge(%{stage: stage, hint: probe_msg(stage, next), busy?: next != nil})
 
-        if next, do: send(self(), next)
+        if next, do: send(self(), next), else: Pokex.Bots.HandWatch.resume()
         {:noreply, assign(socket, probe: probe)}
 
       # The watcher itself is the instrument; if IT cannot answer, nothing below
       # is a statement about the keys.
       {:error, reason} ->
+        Pokex.Bots.HandWatch.resume()
+
         probe = %{
           socket.assigns.probe
           | stage: :failed,

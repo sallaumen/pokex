@@ -142,6 +142,23 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
+  Solta UMA tecla: apaga o carimbo dela, como se ninguém tivesse apertado.
+
+  É a voz da TELA corrigindo o relógio (`Pokex.Bots.SkillTruth`): quando o jogo
+  mostra uma tecla pronta que o relógio insiste em segurar, uma das duas mentiu
+  — e entre um carimbo (o que a gente ACHA que saiu) e o jogo escrevendo a
+  prontidão na tela, o jogo ganha. Sem isto, um aperto engolido pelo foco, um
+  cooldown escrito maior que o real, ou um revive que o bot não viu (F4 na mão
+  dele) seguram tecla boa por até 50s.
+  """
+  @spec release(String.t()) :: :ok
+  def release(key) when is_binary(key) do
+    ensure_table()
+    :ets.delete(@table, key)
+    :ok
+  end
+
+  @doc """
   As teclas de `keys` que o RELÓGIO considera prontas — com o assumido valendo
   para as que ninguém mediu.
 

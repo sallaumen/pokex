@@ -201,6 +201,28 @@ defmodule Pokex.Bots.BodyTest do
     assert calls == [{:press, "a"}, {:press, "b"}]
   end
 
+  # O `:ok` do rig com o portão fechado é um input ENGOLIDO (Rig.Mac.gated/1
+  # suprime e responde :ok) — carimbar esse :ok inventava 40-50s de cooldown
+  # pra uma tecla que nunca saiu, e a rotação recusava tecla boa depois
+  # ("a IA acha que usou uma skill e marca o cooldown, mas ela não saiu",
+  # 28/08). O carimbo agora pergunta ao portão.
+  test "um press com o portão fechado NÃO carimba o relógio das teclas", %{body: body} do
+    alias Pokex.Bots.SkillClock
+    SkillClock.reset()
+
+    InputGate.set_focus_ok(false)
+    on_exit(fn -> InputGate.set_focus_ok(true) end)
+
+    assert :ok = Body.perform([{:press, "6"}], :normal, body)
+    refute SkillClock.last_press("6")
+
+    InputGate.set_focus_ok(true)
+    assert :ok = Body.perform([{:press, "6"}], :normal, body)
+    assert SkillClock.last_press("6")
+
+    SkillClock.reset()
+  end
+
   test "the cursor restore can be turned off", %{body: body} do
     Pokex.Settings.put(:restore_mouse_after_actions, false)
     on_exit(fn -> Pokex.Settings.put(:restore_mouse_after_actions, true) end)

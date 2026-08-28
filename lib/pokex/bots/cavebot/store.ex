@@ -2,11 +2,11 @@ defmodule Pokex.Bots.Cavebot.Store do
   @moduledoc """
   Where cavebot routes live: `~/.pokex/routes.json`.
 
-  Mirrors `Pokex.Combos.Store` (a route is a user-authored program, not a
-  Settings scalar), with one difference: the seed is EMPTY — no generic route
-  makes sense to demo; every route is born from waypoints recorded on the real
-  map. Impure only in file IO (`File`/`JSON` under `Pokex.Home.dir()`); the
-  rest is pure `%Route{}` transformation.
+  A route is a user-authored program, not a Settings scalar — hence its own
+  file and store. The seed is EMPTY on purpose: no generic route makes sense
+  to demo; every route is born from waypoints recorded on the real map.
+  Impure only in file IO (`File`/`JSON` under `Pokex.Home.dir()`); the rest is
+  pure `%Route{}` transformation.
   """
 
   alias Pokex.Bots.Cavebot.Route

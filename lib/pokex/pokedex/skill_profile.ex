@@ -31,9 +31,9 @@ defmodule Pokex.Pokedex.SkillProfile do
     * `:crowd` (controle) — RESERVED for the moment before an auto-revive, the
       stun that buys the recall its time, "praticamente exclusivamente antes
       do momento de ter que usar revive". Spending it in an ordinary fight is
-      the failure, so it is barred from the combo by construction — the same
-      rule `Pokex.Combos`'s `{:rescue_only}` trigger already enforces on the
-      rescue prefix.
+      the failure, so it is barred from the combo by construction — the brain
+      is the one voice that may put it in a hand (R10), and the rescue prefix
+      presses it with the settle.
 
   So `combo/1` is area-then-target and NOTHING else, and the other three jobs
   are read by whoever owns their moment.

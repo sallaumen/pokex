@@ -53,7 +53,6 @@ defmodule Pokex.Application do
       # The same nights, typed: what the journal keeps as prose for him, this
       # keeps as numbers for the engine to be calibrated against later.
       Pokex.Engine.Events,
-      Pokex.Combos.Runner,
       # Pauses everything when the game window loses focus (and resumes on refocus). After the
       # BotSupervisor so it can halt/resume those workers.
       Pokex.Bots.Focus,

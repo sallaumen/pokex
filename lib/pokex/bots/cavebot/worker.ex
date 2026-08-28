@@ -204,10 +204,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
         log(:macro, "rota \"#{route.name}\": #{length(route.waypoints)} waypoints")
         warn_unarmed_safety()
 
-        # The per-dungeon combo gate reads this fact (Combos.Runner). Published
-        # even with nil dungeon — the Runner treats nil as "global combos only".
-        WorldState.put(:dungeon, %{id: route.dungeon}, now())
-
         state =
           %{cancel_timer(state) | logic: Logic.new(route, config()), block_retries: 0}
           |> reset_session()
@@ -224,7 +220,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def handle_call(:halt, _from, state) do
     state = state |> release_walk() |> free_fire()
     BotSupervisor.safe_halt(state.combat)
-    WorldState.forget(:dungeon)
 
     state =
       %{detach(cancel_timer(state)) | logic: nil, reattach_attempts: 0}
@@ -444,8 +439,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     %{state | posture: :free_fight}
   end
 
-  # The combat snapshot, kept the Combos.Runner way: the Logic receives the
-  # last heard state as world.combat_state.
+  # The combat snapshot, HEARD and remembered: the Logic receives the last
+  # broadcast state as world.combat_state — never a call into Combat.
   defp observe(state, now) do
     pos = position(now)
 
@@ -827,7 +822,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # resets to zero on every hiccup answers nothing in the morning.
   defp resume_hunt(state, route) do
     log(:macro, "🔁 retomando a caçada: reentro pela rota \"#{route.name}\"")
-    WorldState.put(:dungeon, %{id: route.dungeon}, now())
     counters = bump(state.counters, :comebacks)
 
     state =

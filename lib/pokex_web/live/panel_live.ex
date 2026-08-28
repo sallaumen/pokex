@@ -17,9 +17,6 @@ defmodule PokexWeb.PanelLive do
   alias Pokex.Bots.SkillBar
   alias Pokex.Bots.StockAlerts
   alias Pokex.Calibration
-  alias Pokex.Combos.Edit
-  alias Pokex.Combos.Runner
-  alias Pokex.Combos.Store
   alias Pokex.Diagnostics.Report
   alias Pokex.Layout.Sentinel
   alias Pokex.Perception.DisplayFeeds
@@ -100,7 +97,6 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
       Phoenix.PubSub.subscribe(Pokex.PubSub, Sentinel.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, StockAlerts.topic())
-      Phoenix.PubSub.subscribe(Pokex.PubSub, Runner.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Logout.topic())
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Journal.topic())
       # feeds only capture while someone is attached — a watching page IS a
@@ -211,11 +207,6 @@ defmodule PokexWeb.PanelLive do
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
        presets: Settings.list_presets(),
        mode_overrides: mode_override_keys(),
-       combos: Store.all(),
-       combos_enabled: Settings.get(:combos_enabled),
-       combo_skip: combo_skip(),
-       combo_draft: empty_combo_draft(),
-       combo_edit: nil,
        preset_msg: nil
      )}
   end
@@ -227,22 +218,6 @@ defmodule PokexWeb.PanelLive do
   # nothing to subscribe to here.
   @impl true
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
-
-  # The new-combo DRAFT lives here, on the server. The form fields used to
-  # have no server value, and since the panel re-renders on every worker
-  # snapshot (~10x/s), everything typed was erased on blur (2026-07-30) — the
-  # editor was literally unusable.
-  defp empty_combo_draft do
-    %{
-      name: "",
-      trigger_kind: "element",
-      trigger_value: "",
-      dungeon: "",
-      steps: [],
-      step_kind: "skill",
-      step_value: ""
-    }
-  end
 
   defp start_bots(socket) do
     case BotSupervisor.start_all() do
@@ -326,98 +301,6 @@ defmodule PokexWeb.PanelLive do
       mode_overrides: mode_override_keys()
     )
   end
-
-  defp build_trigger("species", value), do: {:enemy_species, String.trim(value || "")}
-  defp build_trigger("any", _value), do: {:any_enemy}
-  defp build_trigger("rescue_only", _value), do: {:rescue_only}
-  defp build_trigger(_element, value), do: {:enemy_element, String.trim(value || "")}
-
-  # The working list of the combo being edited — nothing here touches the file.
-  defp edit_steps(%{assigns: %{combo_edit: %{steps: steps} = edit}} = socket, fun),
-    do: assign(socket, combo_edit: %{edit | steps: fun.(steps)})
-
-  defp edit_steps(socket, _not_editing), do: socket
-
-  defp clear_step_field(socket), do: %{socket.assigns.combo_draft | step_value: ""}
-
-  # The drag hook reports numbers, a click reports a string. Junk becomes an
-  # index that matches no step, which every Edit function treats as a no-op.
-  defp to_index(index) when is_integer(index), do: index
-
-  defp to_index(index) when is_binary(index) do
-    case Integer.parse(index) do
-      {i, _rest} -> i
-      :error -> -1
-    end
-  end
-
-  defp to_index(_junk), do: -1
-
-  # A builder step: the chosen kind + typed value become the step Combos
-  # understands. A skill without a key or a wait without a number becomes no
-  # step at all (`:invalid`) — better not to add than to add broken.
-  defp build_step("skill", value) do
-    case String.trim(value || "") do
-      "" -> :invalid
-      key -> {:skill, key}
-    end
-  end
-
-  defp build_step("wait", value) do
-    case Integer.parse(String.trim(value || "")) do
-      {ms, _rest} when ms >= 0 -> {:wait, ms}
-      _nao_e_numero -> :invalid
-    end
-  end
-
-  defp build_step("swap_member", value) do
-    case String.trim(value || "") do
-      "" -> :invalid
-      name -> {:swap_member, name}
-    end
-  end
-
-  defp build_step("swap_counter", _value), do: {:swap_counter}
-  defp build_step(_unknown, _value), do: :invalid
-
-  # phx-change sends only the fields that EXIST in the DOM right now (the
-  # trigger value disappears when the kind doesn't ask for one, the wait
-  # disappears on a swap step). An absent field means "untouched", never
-  # "cleared".
-  defp merge_draft_field(draft, params, param_key, draft_key) do
-    case Map.fetch(params, param_key) do
-      {:ok, value} when is_binary(value) -> Map.put(draft, draft_key, value)
-      _ausente -> draft
-    end
-  end
-
-  # An empty dungeon field means "applies everywhere" — the combo stays global.
-  defp build_dungeon(value) do
-    case String.trim(value || "") do
-      "" -> nil
-      dungeon -> dungeon
-    end
-  end
-
-  # The runner keeps the last refusal, so a panel opened after the fight still
-  # learns why nothing happened.
-  defp combo_skip do
-    Runner.status().last_skip
-  catch
-    _kind, _reason -> nil
-  end
-
-  # Who is in the hotkeys RIGHT NOW, read from the screen. Only these can be
-  # swap targets: a row with no portrait could be anyone, and a row with no C+N
-  # label has no key to press.
-  defp team_names(%{team: rows}) when is_list(rows) do
-    rows
-    |> Enum.filter(&(is_binary(&1[:name]) and is_integer(&1[:slot])))
-    |> Enum.map(& &1.name)
-    |> Enum.uniq()
-  end
-
-  defp team_names(_no_world), do: []
 
   defp mode_override_keys do
     Settings.get(:player_mode)
@@ -645,17 +528,6 @@ defmodule PokexWeb.PanelLive do
     do: {:noreply, assign(socket, layout_lost?: not ok?, layout_waiting?: false)}
 
   def handle_info({:layout_suspect, _key}, socket), do: {:noreply, socket}
-
-  # A combo that MATCHED and could not run — the difference between "nenhum combo
-  # casou" and "o combo casou e falhou", which used to look identical.
-  def handle_info({:combo_skipped, skip}, socket),
-    do: {:noreply, assign(socket, combo_skip: skip)}
-
-  def handle_info({:combo_started, _info}, socket),
-    do: {:noreply, assign(socket, combo_skip: nil)}
-
-  def handle_info({:combo_done, _info}, socket), do: {:noreply, socket}
-  def handle_info({:combo_aborted, _info}, socket), do: {:noreply, socket}
 
   # The minimap publishes on EVERY capture, readable coordinate or not (`pos:
   # nil` IS the miss) — counting its publishes is the only place the good/bad
@@ -890,136 +762,6 @@ defmodule PokexWeb.PanelLive do
 
       {:error, :unknown_mode} ->
         {:noreply, socket}
-    end
-  end
-
-  def handle_event("toggle_combos_enabled", _params, socket) do
-    value = not Settings.get(:combos_enabled)
-    Settings.put(:combos_enabled, value)
-    {:noreply, assign(socket, combos_enabled: value)}
-  end
-
-  def handle_event("toggle_combo", %{"name" => name}, socket) do
-    enabled? = Enum.find_value(socket.assigns.combos, &(&1.name == name and &1.enabled?))
-    :ok = Store.set_enabled(name, not enabled?)
-    {:noreply, assign(socket, combos: Store.all())}
-  end
-
-  def handle_event("delete_combo", %{"name" => name}, socket) do
-    :ok = Store.delete(name)
-    {:noreply, assign(socket, combos: Store.all(), combo_edit: nil)}
-  end
-
-  # Editing a SAVED combo. The steps are copied into a working list and only
-  # that list changes until he saves — an edit abandoned mid-way (or a hunt that
-  # ends first) leaves the file exactly as it was. One combo open at a time:
-  # the card is read while fights happen, and two open editors on a panel that
-  # re-renders ~10x/s is a way to save the wrong one.
-  def handle_event("edit_combo", %{"name" => name}, socket) do
-    case Enum.find(socket.assigns.combos, &(&1.name == name)) do
-      nil -> {:noreply, socket}
-      combo -> {:noreply, assign(socket, combo_edit: %{name: name, steps: combo.steps})}
-    end
-  end
-
-  def handle_event("cancel_combo_edit", _params, socket),
-    do: {:noreply, assign(socket, combo_edit: nil, combo_draft: clear_step_field(socket))}
-
-  # From the drag hook: it reports two indices and nothing else, so where the
-  # step LANDS stays in Elixir, covered by tests (Pokex.Combos.Edit).
-  def handle_event("move_combo_step", %{"from" => from, "to" => to}, socket),
-    do: {:noreply, edit_steps(socket, &Edit.move(&1, to_index(from), to_index(to)))}
-
-  def handle_event("change_combo_step", %{"index" => index, "value" => value}, socket),
-    do: {:noreply, edit_steps(socket, &Edit.put_value(&1, to_index(index), value))}
-
-  def handle_event("delete_combo_step", %{"index" => index}, socket),
-    do: {:noreply, edit_steps(socket, &Edit.delete(&1, to_index(index)))}
-
-  def handle_event("append_combo_step", _params, socket) do
-    draft = socket.assigns.combo_draft
-
-    case build_step(draft.step_kind, draft.step_value) do
-      :invalid ->
-        {:noreply, socket}
-
-      step ->
-        {:noreply,
-         socket
-         |> edit_steps(&(&1 ++ [step]))
-         |> assign(combo_draft: %{draft | step_value: ""})}
-    end
-  end
-
-  def handle_event("save_combo_edit", _params, socket) do
-    case socket.assigns.combo_edit do
-      %{name: name, steps: steps} ->
-        :ok = Store.replace_steps(name, steps)
-        {:noreply, assign(socket, combos: Store.all(), combo_edit: nil)}
-
-      nil ->
-        {:noreply, socket}
-    end
-  end
-
-  # Every editor keystroke/choice becomes SERVER STATE. It is what keeps the
-  # workers' re-render (~10x/s) from erasing what Lucas is typing — the bug
-  # that made the editor unusable.
-  def handle_event("combo_draft", params, socket) do
-    draft =
-      socket.assigns.combo_draft
-      |> merge_draft_field(params, "name", :name)
-      |> merge_draft_field(params, "trigger_kind", :trigger_kind)
-      |> merge_draft_field(params, "trigger_value", :trigger_value)
-      |> merge_draft_field(params, "dungeon", :dungeon)
-      |> merge_draft_field(params, "step_kind", :step_kind)
-      |> merge_draft_field(params, "step_value", :step_value)
-
-    {:noreply, assign(socket, combo_draft: draft)}
-  end
-
-  def handle_event("add_combo_step", _params, socket) do
-    draft = socket.assigns.combo_draft
-
-    case build_step(draft.step_kind, draft.step_value) do
-      :invalid ->
-        {:noreply, socket}
-
-      step ->
-        draft = %{draft | steps: draft.steps ++ [step], step_value: ""}
-        {:noreply, assign(socket, combo_draft: draft)}
-    end
-  end
-
-  def handle_event("remove_combo_step", %{"index" => index}, socket) do
-    draft = socket.assigns.combo_draft
-    steps = List.delete_at(draft.steps, String.to_integer(index))
-    {:noreply, assign(socket, combo_draft: %{draft | steps: steps})}
-  end
-
-  # Saving just materializes the draft — the sequence is already assembled on
-  # screen, exactly as it will run. A combo with no name or no steps is not
-  # saved (and the draft survives to be completed).
-  def handle_event("save_combo", _params, socket) do
-    draft = socket.assigns.combo_draft
-
-    combo = %Pokex.Combos.Combo{
-      name: String.trim(draft.name),
-      trigger: build_trigger(draft.trigger_kind, draft.trigger_value),
-      steps: draft.steps,
-      dungeon: build_dungeon(draft.dungeon)
-    }
-
-    if draft.steps == [] do
-      {:noreply, socket}
-    else
-      case Store.add(combo) do
-        :ok ->
-          {:noreply, assign(socket, combos: Store.all(), combo_draft: empty_combo_draft())}
-
-        {:error, :invalid_name} ->
-          {:noreply, socket}
-      end
     end
   end
 
@@ -2418,7 +2160,7 @@ defmodule PokexWeb.PanelLive do
     if blind > 0, do: base <> " · #{blind} cega", else: base
   end
 
-  # The sections that MOVED (2026-07-30): combos, presets, shiny, the session
+  # The sections that MOVED (2026-07-30): presets, shiny, the session
   # rules and the advanced block left the dashboard and now live inside the
   # ⚙️. The markup is the SAME — same events, same assigns — just behind a
   # click instead of stacked over what he watches with the bot running. From
@@ -2430,15 +2172,6 @@ defmodule PokexWeb.PanelLive do
   defp settings_sections(assigns) do
     ~H"""
     <div class="space-y-3">
-      <PokexWeb.Panel.CombosCard.combos_card
-        combos={@combos}
-        enabled={@combos_enabled}
-        skip={@combo_skip}
-        team={team_names(@world)}
-        draft={@combo_draft}
-        edit={@combo_edit}
-      />
-
       <section id="presets-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
         <div class="flex items-center justify-between text-pk-body font-semibold">
           <span>Presets por Pokémon</span>
@@ -3678,7 +3411,6 @@ defmodule PokexWeb.PanelLive do
         settings_owner={settings_owner(assigns)}
         player_mode={@player_mode}
         mode_overrides={@mode_overrides}
-        combos={@combos}
         capture_cfg={
           %{
             match_pct: @corpse_match_pct,

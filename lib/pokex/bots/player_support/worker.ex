@@ -567,7 +567,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # the combo twice, mid-sequence).
       state = unlatch_stale_rescue(state)
 
-      case if(state.rescuing?, do: :hold, else: revive_decision(state)) do
+      case rescue_decision(state) do
         :hold ->
           %{state | gate: nil} |> warn_switch_off() |> maybe_heal_skill() |> maybe_potion(calib)
 
@@ -1050,6 +1050,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # engine's `:prepare` — a calm-screen revive that must NOT spend the control
   # key, because a control spent on a calm revive is a control that is cold for
   # the dangerous one (28/08, the death).
+  # `rescuing?` outranks every decision: the last combo is still in flight.
+  defp rescue_decision(%{rescuing?: true}), do: :hold
+  defp rescue_decision(state), do: revive_decision(state)
+
   defp revive_decision(state) do
     cond do
       not Settings.get(:rescue_enabled) -> :hold

@@ -21,6 +21,8 @@ defmodule PokexWeb.ConfigLiveTest do
       :pokemon_hp_rescue_pct,
       :rescue_cooldown_ms,
       :engine_downed_give_up_ms,
+      :engine_engage_from,
+      :pokemon_hp_fainted_below_pct,
       :combat_skill_gap_ms,
       :escape_direction,
       :alarm_muted_categories
@@ -158,5 +160,74 @@ defmodule PokexWeb.ConfigLiveTest do
     {:ok, _view, html} = live(conn, ~p"/config/editores")
 
     assert html =~ "settings-overlay"
+  end
+
+  # "coloca 6, achei que era esse valor que tava (…) 2 é bem baixo, no mapa que
+  # caço lota de monstro, mas é legal ser fácil de editar" (Lucas, 28/08). As
+  # duas existiam no Settings e em lugar nenhum da interface: mexer nelas era
+  # abrir o `settings.json` na mão.
+  describe "as duas que só dava pra editar no arquivo" do
+    test "de quantos bichos o cérebro encara a luta", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/config")
+
+      assert html =~ "cfg-row-engine_engage_from"
+      assert html =~ "Encara a partir de"
+
+      html =
+        view
+        |> element("#cfg-row-engine_engage_from form")
+        |> render_change(%{"engine_engage_from" => "6"})
+
+      assert Settings.get(:engine_engage_from) == 6
+      assert html =~ "hero-check-circle"
+    end
+
+    test "abaixo de quanto a barra lida conta como pokémon no chão", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/config")
+
+      assert html =~ "cfg-row-pokemon_hp_fainted_below_pct"
+      assert html =~ "Caído abaixo de"
+
+      html =
+        view
+        |> element("#cfg-row-pokemon_hp_fainted_below_pct form")
+        |> render_change(%{"pokemon_hp_fainted_below_pct" => "50"})
+
+      assert Settings.get(:pokemon_hp_fainted_below_pct) == 50
+      assert html =~ "hero-check-circle"
+    end
+
+    # A faixa é 1..12: um 0 aqui seria uma caçada que nunca para pra lutar.
+    test "encarar a partir de 0 é recusado, e o ajuste não muda", %{conn: conn} do
+      antes = Settings.get(:engine_engage_from)
+      {:ok, view, _html} = live(conn, ~p"/config")
+
+      html =
+        view
+        |> element("#cfg-row-engine_engage_from form")
+        |> render_change(%{"engine_engage_from" => "0"})
+
+      assert Settings.get(:engine_engage_from) == antes
+      assert html =~ "cfg-error-engine_engage_from"
+    end
+
+    # `settings.json` guarda só overrides — um valor igual ao default é apagado
+    # do arquivo no boot seguinte. A linha tem que continuar mostrando o número,
+    # e não um branco que ele salvaria por cima sem querer.
+    test "voltar ao default deixa a linha mostrando o default, não um branco", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/config")
+
+      view
+      |> element("#cfg-row-engine_engage_from form")
+      |> render_change(%{"engine_engage_from" => "6"})
+
+      html =
+        view
+        |> element("#cfg-row-engine_engage_from form")
+        |> render_change(%{"engine_engage_from" => "2"})
+
+      assert Settings.get(:engine_engage_from) == 2
+      assert html =~ ~s(value="2")
+    end
   end
 end

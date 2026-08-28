@@ -1289,6 +1289,78 @@ defmodule PokexWeb.CavebotLiveTest do
     end
   end
 
+  # "importante na tela de cavebot mostrar de forma clara como se fossem
+  # quadradinhos com os botões, que que tá em cooldown, que que não tá, e
+  # quanto tempo falta em contagem regressiva (…) pra eu ir ajudando a debugar
+  # problemas de leitura do jogo" (Lucas, 2026-08-27).
+  describe "a fileira da barra" do
+    setup do
+      Pokex.Bots.SkillClock.reset()
+      on_exit(&Pokex.Bots.SkillClock.reset/0)
+      :ok
+    end
+
+    defp bar_reads(keys),
+      do: WorldState.put(:skill_bar, %{ready_keys: keys}, System.monotonic_time(:millisecond))
+
+    defp steelix! do
+      classify!("Steelix", %{"1" => :crowd, "3" => :aoe, "4" => :aoe, "6" => :single})
+      Pokex.Pokedex.Team.set_cooldowns("Steelix", %{"3" => 40_000, "4" => 50_000})
+    end
+
+    test "cada tecla é um quadrado, com o que ela faz e se está pronta", %{conn: conn} do
+      steelix!()
+      bar_reads(~w(1 3 4 6))
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      rack = view |> element("#cavebot-rack") |> render()
+      assert rack =~ "4/4 prontas"
+      assert rack =~ "controle"
+      assert rack =~ "pronta"
+      refute rack =~ "barra não lida"
+    end
+
+    test "uma tecla apertada conta o tempo dela pra trás", %{conn: conn} do
+      steelix!()
+      bar_reads(~w(1 6))
+      Pokex.Bots.SkillClock.pressed("4")
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      rack = view |> element("#cavebot-rack") |> render()
+      assert rack =~ "2/4 prontas"
+      assert rack =~ "50s"
+    end
+
+    # O DEFEITO DE 27/08 na tela: a barra oferecendo a tecla que o jogo está
+    # contando. Ele não tinha como ver isso em lugar nenhum.
+    test "quando a tela e o relógio discordam, a peça diz qual das duas", %{conn: conn} do
+      steelix!()
+      bar_reads(~w(1 3 4 6))
+      Pokex.Bots.SkillClock.pressed("3")
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      rack = view |> element("#cavebot-rack") |> render()
+      assert rack =~ "tela × relógio"
+      assert rack =~ "tela diz pronta"
+      # e a contagem obedece o relógio, que é o que a rotação obedece
+      assert rack =~ "40s"
+    end
+
+    test "a tecla sem tempo escrito é contada e o /time é oferecido", %{conn: conn} do
+      steelix!()
+      bar_reads(~w(1 3 4 6))
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      rack = view |> element("#cavebot-rack") |> render()
+      assert rack =~ "2 tecla(s) sem o tempo escrito"
+      assert rack =~ ~s(href="/time")
+    end
+  end
+
   describe "skills e respiro no editor" do
     # `put/1` and not `add/1`: this route has to be the ONLY one, or which of
     # them the page opens as active is luck, and `[route] = Store.all()` in the
@@ -2081,12 +2153,14 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     # Não saber é diferente de estar em cooldown, e sem leitura da barra as duas
-    # coisas se pareciam.
+    # coisas se pareciam. Agora a fileira inteira diz que está cega, e cada
+    # peça diz que o relógio é quem está respondendo.
     @tag :tmp_dir
     test "e sem leitura da barra diz que não sabe, em vez de dizer que esfriou", %{conn: conn} do
       {:ok, _live, html} = live(conn, ~p"/cavebot")
 
-      assert html =~ "sem leitura da barra"
+      assert html =~ "barra não lida"
+      assert html =~ "tela: não sabe"
     end
 
     # UM INTERVALO ALTO não parece nada num arquivo de ajustes e é o teto de dano

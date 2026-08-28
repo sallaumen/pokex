@@ -20,7 +20,9 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.Cavebot.{HandsRead, Photos, Recording, Route, Store, WalkTest, Worker}
   alias Pokex.Bots.AreaProbe
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.SkillClock
   alias Pokex.Bots.SkillMeter
+  alias Pokex.Bots.SkillRack
   alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Calibration
@@ -74,7 +76,10 @@ defmodule PokexWeb.CavebotLive do
       # sat there showing a coordinate from an hour earlier while he walked a
       # whole route that recorded nothing (2026-08-26). A page that can only
       # learn it is blind from the thing that went blind cannot warn about it.
-      :timer.send_interval(2_000, :health)
+      # Um segundo, não dois: a fileira da barra conta o cooldown pra trás em
+      # segundos inteiros, e um pulso de dois faz o número pular de dois em
+      # dois. É a mesma batida que já mantinha os avisos de cegueira vivos.
+      :timer.send_interval(1_000, :health)
     end
 
     routes = Store.all()
@@ -1540,64 +1545,51 @@ defmodule PokexWeb.CavebotLive do
   # A BARRA, tecla por tecla, no estado em que ela está AGORA. `ready_skills`
   # responde `nil` quando a leitura não existe ou envelheceu — e não saber é
   # diferente de estar em cooldown, então tem cara própria.
-  defp skill_slots(combat) do
-    case fighting_as(combat) do
-      nil -> []
-      loadout -> Enum.map(bar_order(loadout), &bar_slot(&1, loadout, Perception.ready_skills()))
-    end
+  # A FILEIRA DA BARRA, com as duas testemunhas. Ver `Pokex.Bots.SkillRack`: a
+  # página não decide nada aqui, e o `state` de cada peça é o mesmo que o
+  # combate vai obedecer.
+  defp skill_rack(combat), do: SkillRack.build(fighting_as(combat), Perception.ready_skills())
+
+  defp tile_class(%{state: :ready, job: "controle" <> _}),
+    do: "border-pk-warn-line bg-pk-warn/10"
+
+  defp tile_class(%{state: :ready}), do: "border-pk-ok-line bg-pk-ok-dim"
+  defp tile_class(%{muted?: true}), do: "border-pk-danger-line bg-pk-danger-dim"
+  defp tile_class(%{disagree?: true}), do: "border-pk-danger-line bg-pk-danger-dim"
+  defp tile_class(_cooling), do: "border-pk-line bg-pk-sunken"
+
+  defp tile_key_class(%{state: :ready, job: "controle" <> _}), do: "text-pk-warn"
+  defp tile_key_class(%{state: :ready}), do: "text-pk-ok"
+  defp tile_key_class(%{muted?: true}), do: "text-pk-danger"
+  defp tile_key_class(%{disagree?: true}), do: "text-pk-danger"
+  defp tile_key_class(_cooling), do: "text-pk-text-3"
+
+  # O NÚMERO QUE ELE PEDIU. Segundos inteiros abaixo de um minuto, porque é a
+  # unidade em que o jogo escreve o cooldown na própria tecla; um traço quando
+  # ninguém sabe quanto falta, que é uma resposta e não um erro.
+  defp countdown(%{left_ms: 0}), do: "—"
+  defp countdown(%{left_ms: ms}) when ms < 60_000, do: "#{max(div(ms + 999, 1_000), 1)}s"
+  defp countdown(%{left_ms: ms}), do: "#{div(ms, 60_000)}min"
+
+  defp tile_title(tile) do
+    "#{tile.key}: #{tile.job} · tela: #{witness_text(tile.screen)} · " <>
+      "relógio: #{witness_text(tile.clock)}"
   end
 
-  # A ordem da FILEIRA, com o zero por último, que é onde ele está na barra.
-  defp bar_order(loadout) do
-    # `single` entra mesmo quando a caçada não a usa: a barra é o que ELE tem,
-    # não o que a rotação vai apertar. Desde 27/08 as de alvo único ficam fora
-    # da rotação por padrão, e uma tecla que some da tela é uma tecla que ele
-    # não sabe que existe — o `job_of/2` diz que ela está fora.
-    keys =
-      loadout.opening ++
-        loadout.reserved ++
-        loadout.buffs ++
-        Map.get(loadout, :single, []) ++
-        loadout.heal
+  # A etiqueta do quadrado é curta porque o quadrado é pequeno; a frase inteira
+  # continua no `title`.
+  defp job_short("controle" <> _), do: "controle"
+  defp job_short("alvo único" <> _), do: "único"
+  defp job_short("sem trabalho"), do: "—"
+  defp job_short(job), do: job
 
-    Enum.sort_by(Enum.uniq(keys), &if(&1 == "0", do: 10, else: String.to_integer(&1)))
-  rescue
-    _nao_numerica -> Enum.uniq(loadout.opening ++ loadout.reserved)
-  end
+  defp witness_text(:ready), do: "pronta"
+  defp witness_text(:cooling), do: "em cooldown"
+  defp witness_text(:unknown), do: "não sabe"
 
-  defp bar_slot(key, loadout, ready) do
-    job = job_of(key, loadout)
-
-    %{
-      key: key,
-      job: job,
-      state: state_of(key, ready),
-      title: "#{key}: #{job} · #{state_text(state_of(key, ready))}"
-    }
-  end
-
-  defp state_of(_key, nil), do: :unknown
-  defp state_of(key, ready), do: if(key in ready, do: :ready, else: :cooling)
-
-  defp state_text(:ready), do: "pronta"
-  defp state_text(:cooling), do: "em cooldown"
-  defp state_text(:unknown), do: "sem leitura da barra"
-
-  defp job_of(key, loadout) do
-    cond do
-      key in loadout.reserved -> "controle (guardado pro revive)"
-      key in loadout.buffs -> "aura"
-      key in loadout.heal -> "cura"
-      key in loadout.opening -> "dano"
-      key in Map.get(loadout, :single, []) -> "alvo único (fora da rotação)"
-      true -> "sem trabalho"
-    end
-  end
-
-  defp slot_class(%{state: :ready, job: "controle" <> _}), do: "bg-pk-warn/20 text-pk-warn"
-  defp slot_class(%{state: :ready}), do: "bg-pk-ok-dim text-pk-ok"
-  defp slot_class(%{state: :cooling}), do: "bg-pk-raised text-pk-text-3 line-through"
-  defp slot_class(%{state: :unknown}), do: "bg-pk-raised text-pk-text-3"
+  # Quantas teclas da barra ainda não têm o tempo escrito no /time. Sem ele não
+  # há contagem regressiva pra mostrar, e o relógio cai no assumido de 45s.
+  defp unwritten(tiles), do: Enum.count(tiles, &(&1.written_ms == nil))
 
   defp burst_line do
     "rajada: #{burst_size()} tecla(s) a cada #{burst_gap_ms()}ms"
@@ -1627,7 +1619,9 @@ defmodule PokexWeb.CavebotLive do
           reserved: Combat.Strategy.reserved(loadout),
           buffs: loadout.buffs,
           single: loadout.single,
-          heal: loadout.heal
+          heal: loadout.heal,
+          shield: loadout.shield,
+          cooldowns: loadout.cooldowns
         }
     end
   end
@@ -1978,6 +1972,11 @@ defmodule PokexWeb.CavebotLive do
 
   @impl true
   def render(assigns) do
+    # A FILEIRA, montada UMA vez. Ela lê o relógio (ETS) e o fato da barra, e o
+    # template pergunta por ela em oito lugares — pedir oito vezes é oito
+    # leituras que podem discordar entre si dentro do mesmo desenho.
+    assigns = assign(assigns, :rack, skill_rack(assigns.combat))
+
     ~H"""
     <%!-- The widest page in the app, deliberately: this one holds a MAP of a
           55-tile route beside a list of 45 corners, and on the default
@@ -2139,28 +2138,116 @@ defmodule PokexWeb.CavebotLive do
             </span>
           </p>
 
-          <%!-- OS COOLDOWNS, VISTOS. Ele desconfiava que a rotação não estava
-                usando algumas skills, e não tinha como olhar: o rastro dizia 6
-                de 8 teclas prontas o tempo todo enquanto a luta apertava só
-                duas. Uma barra que a gente não vê é uma barra sobre a qual a
-                gente só pode ter opinião. --%>
-          <div :if={fighting_as(@combat)} class="mt-1 flex flex-wrap items-center gap-1">
-            <span
-              :for={slot <- skill_slots(@combat)}
-              class={[
-                "rounded px-1.5 py-0.5 font-mono text-pk-meta",
-                slot_class(slot)
-              ]}
-              title={slot.title}
-            >
-              {slot.key}
-            </span>
+          <%!-- A BARRA, AGORA. Ele desconfiava que a rotação não estava usando
+                algumas skills e não tinha como olhar; virou uma fileira de
+                etiquetas com um `title`, que é uma resposta que só existe
+                quando o mouse pergunta. Em 27/08 o jogo escreveu 12, 32 e 32
+                em cima de três teclas enquanto a leitura dizia "prontas", e a
+                luta gastou dezenove segundos nelas — nada em tela nenhuma
+                dizia isso.
 
-            <span :if={skill_slots(@combat) == []} class="text-pk-meta text-pk-text-3">
+                Então cada tecla é um QUADRADO, com quanto falta em contagem
+                regressiva, e as duas testemunhas ficam à vista quando
+                discordam: "importante irmos dando mais esses detalhes (…) pra
+                eu ir ajudando a debugar problemas de leitura do jogo"
+                (27/08). Ver `Pokex.Bots.SkillRack`. --%>
+          <div :if={fighting_as(@combat)} id="cavebot-rack" class="mt-1.5">
+            <div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
+                a barra agora
+              </span>
+              <span class="pk-num font-mono text-pk-meta text-pk-text-2">
+                {SkillRack.ready_count(@rack)}/{length(@rack)} prontas
+              </span>
+              <span
+                :if={Perception.ready_skills() == nil}
+                class="flex items-center gap-1 rounded border border-pk-warn-line bg-pk-warn-dim px-1.5 py-0.5 text-pk-meta font-bold text-pk-warn"
+                title="a barra do jogo não está sendo lida — quem responde é só o relógio das teclas"
+              >
+                <.icon name="hero-eye-slash" class="size-3" /> barra não lida
+              </span>
+              <span
+                :if={Enum.any?(@rack, & &1.disagree?)}
+                class="flex items-center gap-1 rounded border border-pk-danger-line bg-pk-danger-dim px-1.5 py-0.5 text-pk-meta font-bold text-pk-danger"
+                title="a leitura da barra e o relógio das teclas não estão contando a mesma coisa — recalibre a barra com TUDO pronto, fora de combate"
+              >
+                <.icon name="hero-exclamation-triangle" class="size-3" /> tela × relógio
+              </span>
+              <span class="ml-auto text-pk-meta text-pk-text-2">{burst_line()}</span>
+            </div>
+
+            <ol class="grid grid-cols-[repeat(auto-fill,minmax(78px,1fr))] gap-1">
+              <li
+                :for={tile <- @rack}
+                class={["relative overflow-hidden rounded border px-1.5 py-1", tile_class(tile)]}
+                title={tile_title(tile)}
+              >
+                <%!-- O TRILHO QUE ENCHE fica ATRÁS do texto: o quadrado inteiro
+                      é o medidor, então dá pra ler a barra de longe sem
+                      procurar onde está o número. --%>
+                <span
+                  :if={SkillRack.recovered_pct(tile)}
+                  class="absolute inset-y-0 left-0 bg-pk-ok/10 transition-[width] duration-1000 ease-linear"
+                  style={"width: #{SkillRack.recovered_pct(tile)}%"}
+                  aria-hidden="true"
+                ></span>
+
+                <span class="relative flex items-baseline justify-between gap-1">
+                  <span class={["pk-num font-mono text-pk-body font-bold", tile_key_class(tile)]}>
+                    {tile.key}
+                  </span>
+                  <span class="truncate text-pk-meta text-pk-text-3">{job_short(tile.job)}</span>
+                </span>
+
+                <span class="relative mt-0.5 block">
+                  <span
+                    :if={tile.state == :ready}
+                    class="text-pk-meta font-bold uppercase tracking-[0.1em] text-pk-ok"
+                  >
+                    pronta
+                  </span>
+                  <span
+                    :if={tile.state == :cooling}
+                    class="pk-num font-mono text-pk-body font-bold tabular-nums text-pk-warn"
+                  >
+                    {countdown(tile)}
+                  </span>
+                </span>
+
+                <%!-- POR QUE ESTA PEÇA NÃO CONFERE, dito nela mesma. A muda
+                      vem primeiro porque é a causa: "calada" já explica a
+                      discordância, e "a tela diz pronta" sozinho deixaria ele
+                      procurando o motivo. --%>
+                <span
+                  :if={tile.muted?}
+                  class="relative mt-0.5 block truncate text-pk-meta font-bold text-pk-danger"
+                >
+                  o jogo não reagiu
+                </span>
+                <span
+                  :if={!tile.muted? && tile.disagree?}
+                  class="relative mt-0.5 block truncate text-pk-meta text-pk-danger"
+                >
+                  tela diz {witness_text(tile.screen)}
+                </span>
+              </li>
+            </ol>
+
+            <p :if={@rack == []} class="text-pk-meta text-pk-text-3">
               sem barra classificada
-            </span>
+            </p>
 
-            <span class="ml-2 text-pk-meta text-pk-text-2">{burst_line()}</span>
+            <p
+              :if={unwritten(@rack) > 0}
+              class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-text-3"
+            >
+              <.icon name="hero-clock" class="mt-px size-3.5 shrink-0" />
+              <span>
+                {unwritten(@rack)} tecla(s) sem o tempo escrito — sem ele não há
+                contagem, e o relógio chuta {div(SkillClock.assumed_ms(), 1_000)}s.
+                <.link navigate={~p"/time"} class="underline">escrever no /time</.link>
+              </span>
+            </p>
           </div>
 
           <%!-- A RAJADA CUSTA O QUE O INTERVALO MANDA. Um `gap` alto não parece

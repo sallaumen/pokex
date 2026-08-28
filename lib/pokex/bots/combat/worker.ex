@@ -844,7 +844,16 @@ defmodule Pokex.Bots.Combat.Worker do
       opening: Strategy.opening(loadout),
       reserved: Strategy.reserved(loadout),
       buffs: loadout.buffs,
-      heal: loadout.heal
+      heal: loadout.heal,
+      # As duas que faltavam pra uma página desenhar a BARRA em vez da rotação:
+      # as de alvo único existem na barra dele mesmo fora da rotação, e sem os
+      # cooldowns escritos não há contagem regressiva pra mostrar.
+      single: loadout.single,
+      # `reserved` junta controle E escudo (é a lista de EXCLUSÃO da rotação),
+      # e uma tela de diagnóstico que chama o escudo de controle mente sobre a
+      # coisa exata que ela existe pra mostrar.
+      shield: loadout.shield,
+      cooldowns: loadout.cooldowns
     }
 
   # Why combat is quiet, in the ONE slot the panel already reads. A silent

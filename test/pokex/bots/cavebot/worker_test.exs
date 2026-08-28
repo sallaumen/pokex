@@ -269,7 +269,15 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     route!()
     assert :ok = Worker.run(worker)
 
-    assert Worker.status(worker) ==
+    status = Worker.status(worker)
+
+    # O relógio da noite é o único campo que não pode ser comparado por valor:
+    # ele é a hora em que este teste rodou. Que ele COMEÇOU, e que ainda não
+    # acabou, é o que importa aqui.
+    assert is_integer(status.started_at)
+    assert status.ended_at == nil
+
+    assert Map.drop(status, [:started_at, :ended_at]) ==
              %{
                state: :walking,
                route: "cavena",
@@ -696,7 +704,17 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     :ok = Worker.run(worker)
     assert :ok = Worker.halt(worker)
     assert_receive {:combat_cmd, :halt}, 1_000
-    assert Worker.status(worker) == Worker.idle_snapshot()
+
+    status = Worker.status(worker)
+
+    assert Map.drop(status, [:started_at, :ended_at]) ==
+             Map.drop(Worker.idle_snapshot(), [:started_at, :ended_at])
+
+    # …e o relógio da noite fica PARADO, não zerado: a tela mostra a duração
+    # final depois do halt, e uma caçada que sumiu ao acabar não tem resumo.
+    assert is_integer(status.started_at)
+    assert is_integer(status.ended_at)
+    assert status.ended_at >= status.started_at
 
     minimap!({10, 20, 7})
     tick!(worker)
@@ -1059,6 +1077,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              luring?: false,
              comeback?: false,
              last_action: nil,
+             started_at: nil,
+             ended_at: nil,
              counters: %{waypoints: 0, steps: 0, aborts: 0, comebacks: 0, blocks: 0}
            }
   end

@@ -100,6 +100,29 @@ defmodule PokexWeb.DesignDriftTest do
            """
   end
 
+  # O QUARTO TAMANHO EXISTE, E É DE UM ELEMENTO SÓ. `--text-pk-clock` (24px) é o
+  # mostrador do resumo da caçada — não é texto, é um relógio, lido de longe na
+  # janela lateral. Um token com um uso é uma decisão; com três, é o `text-lg`
+  # da casa entrando pela porta dos fundos, e a Regra dos Três Degraus vira
+  # conversa. O DESIGN.md promete isso; este teste é a promessa.
+  test "o mostrador não vira um quarto degrau da escala" do
+    uses =
+      for path <- templates(),
+          source = File.read!(path),
+          # sem o `--` na frente: a variável do tema e a menção no @doc não são uso
+          [full] <- Regex.scan(~r/(?<![-\w])text-pk-clock\b/, source),
+          not comment_line?(source, full),
+          do: Path.relative_to(path, @web)
+
+    assert uses == ["components/cavebot_components.ex"],
+           """
+           `text-pk-clock` é o mostrador do relógio da caçada e de mais nada.
+           Para texto, use os três degraus (pk-meta / pk-body / pk-title):
+
+           #{Enum.join(uses, "\n")}
+           """
+  end
+
   # Um nome de classe citado dentro de comentário ou doc não é uso: este arquivo
   # mesmo cita `text-sm` para explicar a regra.
   defp comment_line?(source, needle) do

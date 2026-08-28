@@ -531,6 +531,251 @@ defmodule PokexWeb.CavebotComponents do
     if length(indexes) > 6, do: shown <> "…", else: shown
   end
 
+  attr :hunt, :any, required: true
+  attr :combat, :any, default: nil
+  attr :catcher, :any, default: nil
+  attr :support, :any, default: nil
+  attr :revives_left, :any, default: nil
+  attr :wp_total, :integer, default: 0
+  attr :now, :integer, required: true
+
+  @doc """
+  O RESUMO DA NOITE: quanto tempo faz que ela roda, e o que ela rendeu.
+
+  A tela inteira responde "o que está acontecendo AGORA" — o mapa, a fileira de
+  cooldowns, a lista de batalha, o feed. Nenhum pedaço dela respondia a pergunta
+  que se faz de longe, encostado na janela lateral: *isso ainda está rodando, e
+  está indo bem?* Era preciso ler o feed rolando pra deduzir a primeira e não
+  havia como responder a segunda.
+
+  Todo número aqui já era fato publicado — os contadores da caçada, do combate,
+  do capturador e do suporte, e o relógio que o worker passou a carimbar no
+  `run`. Nada disto custa uma captura: é aritmética sobre o que já chega por
+  broadcast.
+
+  O relógio é o único elemento da casa fora dos três degraus de texto, e é de
+  propósito (`--text-pk-clock`): ele é um mostrador, não um texto.
+  """
+  def hunt_summary(assigns) do
+    assigns = assign(assigns, :run, run_of(assigns))
+
+    ~H"""
+    <section
+      id="cavebot-resumo"
+      class="rounded-lg border border-pk-line bg-pk-surface px-3 py-2"
+      aria-label="Resumo da caçada"
+    >
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <%!-- O RELÓGIO. Um ponto que respira enquanto ela anda, e a duração em
+             mostrador — a única coisa nesta tela feita pra ser lida de longe. --%>
+        <div class="flex shrink-0 items-center gap-2.5">
+          <span class="relative flex size-2.5 shrink-0" aria-hidden="true">
+            <span
+              :if={@run.live?}
+              class={[
+                "absolute inline-flex size-full rounded-full opacity-70",
+                "motion-safe:animate-ping motion-reduce:hidden",
+                dot_bg(@run.tone)
+              ]}
+            ></span>
+            <span class={["relative inline-flex size-2.5 rounded-full", dot_bg(@run.tone)]}></span>
+          </span>
+
+          <div class="min-w-0">
+            <p class={[
+              "pk-num font-mono text-pk-clock font-bold leading-none tabular-nums",
+              tone_text(@run.tone)
+            ]}>
+              {@run.clock}
+            </p>
+            <%!-- A COR NUNCA SOZINHA: o ponto verde e o ponto cinza são a mesma
+                 mancha pra quem não distingue os dois, e esta é a linha que diz
+                 em qual dos dois estados a noite está. --%>
+            <p class="mt-1 truncate font-mono text-pk-meta text-pk-text-3">{@run.since}</p>
+          </div>
+        </div>
+
+        <div class="grid min-w-0 flex-1 grid-cols-3 gap-1.5 sm:grid-cols-6">
+          <.world_tile
+            id="resumo-voltas"
+            icon="hero-arrow-path"
+            label="voltas"
+            value={num(@run.laps)}
+            note={"#{num(@run.waypoints)} canto(s)"}
+          />
+          <.world_tile
+            id="resumo-passos"
+            icon="hero-map"
+            label="passos"
+            value={num(@run.steps)}
+            note={rate_note(@run.steps, @run.elapsed_ms)}
+          />
+          <.world_tile
+            id="resumo-lutas"
+            icon="hero-bolt-solid"
+            label="lutas"
+            value={num(@run.fights)}
+            note={rate_note(@run.fights, @run.elapsed_ms)}
+          />
+          <.world_tile
+            id="resumo-capturas"
+            icon="hero-inbox-arrow-down"
+            label="capturas"
+            value={num(@run.captures)}
+            note={rate_note(@run.captures, @run.elapsed_ms)}
+          />
+          <%!-- O revive é o item que já acabou no meio de uma noite e deixou o
+               bot moer 4,9 horas com o pokémon no chão (27→28/08). Aqui ele
+               aparece com o que SOBROU do lado, e fica âmbar quando o bolso
+               está no fim. --%>
+          <.world_tile
+            id="resumo-revives"
+            icon="hero-lifebuoy"
+            label="revives"
+            value={num(@run.revives)}
+            note={stock_note(@revives_left)}
+            tone={stock_tone(@revives_left)}
+          />
+          <.world_tile
+            id="resumo-paradas"
+            icon="hero-hand-raised"
+            label="paradas"
+            value={num(@run.blocks)}
+            note={incident_note(@run)}
+            tone={if @run.blocks > 0, do: :warn, else: :neutral}
+          />
+        </div>
+      </div>
+    </section>
+    """
+  end
+
+  # Tudo que o resumo desenha, derivado UMA vez: o template pergunta por dez
+  # números e cada pergunta repetida é uma chance de dois pedaços da mesma tira
+  # discordarem entre si dentro do mesmo desenho.
+  defp run_of(assigns) do
+    hunt = assigns.hunt || %{}
+    counters = Map.get(hunt, :counters) || %{}
+    started = Map.get(hunt, :started_at)
+    ended = Map.get(hunt, :ended_at)
+    elapsed = started && max((ended || assigns.now) - started, 0)
+    live? = is_integer(started) and is_nil(ended)
+    waypoints = Map.get(counters, :waypoints, 0)
+
+    %{
+      live?: live?,
+      tone: run_tone(live?, started, hunt),
+      clock: clock_text(elapsed),
+      since: since_text(live?, started, ended, hunt),
+      elapsed_ms: elapsed,
+      waypoints: waypoints,
+      laps: laps(waypoints, assigns.wp_total),
+      steps: Map.get(counters, :steps, 0),
+      blocks: Map.get(counters, :blocks, 0),
+      aborts: Map.get(counters, :aborts, 0),
+      comebacks: Map.get(counters, :comebacks, 0),
+      fights: counter(assigns.combat, :fights),
+      captures: counter(assigns.catcher, :captures),
+      revives: counter(assigns.support, :rescues)
+    }
+  end
+
+  # Quatro mil trezentos e doze passos é o que uma noite dá, e `4312` sem ponto
+  # é uma parede de dígitos que se lê contando com o dedo. Ponto de milhar como
+  # em português, e só a partir de mil.
+  defp num(n) when is_integer(n) and n >= 1000 do
+    n
+    |> Integer.digits()
+    |> Enum.reverse()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join(".", &Enum.join/1)
+    |> String.reverse()
+  end
+
+  defp num(n), do: to_string(n)
+
+  defp counter(nil, _key), do: 0
+  defp counter(snapshot, key), do: snapshot |> Map.get(:counters, %{}) |> Map.get(key, 0)
+
+  # Uma volta é a rota inteira. Sem saber o tamanho dela, os cantos ainda são um
+  # número honesto — a volta é que não existe.
+  defp laps(_waypoints, total) when not is_integer(total) or total <= 0, do: 0
+  defp laps(waypoints, total), do: div(waypoints, total)
+
+  # Parada é cinza, andando é verde, e presa/bloqueada é âmbar: o mesmo verbo
+  # que a tira de estados já usa. Nunca vermelho — a caçada travada não é um
+  # erro do software, é uma noite que precisa de mão.
+  defp run_tone(false, nil, _hunt), do: :neutral
+  defp run_tone(false, _started, _hunt), do: :neutral
+  defp run_tone(true, _started, %{state: state}) when state in [:blocked, :stuck], do: :warn
+  defp run_tone(true, _started, _hunt), do: :ok
+
+  defp dot_bg(:ok), do: "bg-pk-ok"
+  defp dot_bg(:warn), do: "bg-pk-warn"
+  defp dot_bg(:danger), do: "bg-pk-danger"
+  defp dot_bg(_neutral), do: "bg-pk-line-strong"
+
+  # Sem noite nenhuma o mostrador fica em trações, não em zeros: "00:00" é um
+  # cronômetro parado no zero, e "nunca rodou" é outra coisa.
+  defp clock_text(nil), do: "--:--"
+
+  defp clock_text(ms) do
+    total = div(ms, 1000)
+    {h, m, s} = {div(total, 3600), rem(div(total, 60), 60), rem(total, 60)}
+
+    if h > 0,
+      do: "#{h}:#{pad(m)}:#{pad(s)}",
+      else: "#{pad(m)}:#{pad(s)}"
+  end
+
+  defp pad(n), do: String.pad_leading(to_string(n), 2, "0")
+
+  # A hora de parede, porque a duração sozinha não responde "isso é de ontem?".
+  # Lida do relógio do sistema (`:calendar`), como o resto do app: este projeto
+  # não carrega banco de fuso.
+  defp since_text(true, started, _ended, hunt),
+    do: "#{running_word(hunt)} · desde #{wall_clock(started)}"
+
+  defp since_text(false, nil, _ended, _hunt), do: "sem caçada ainda"
+  defp since_text(false, _started, nil, _hunt), do: "parada"
+  defp since_text(false, _started, ended, _hunt), do: "parada às #{wall_clock(ended)}"
+
+  defp running_word(%{state: state}) when state in [:blocked, :stuck], do: "parada no lugar"
+  defp running_word(%{luring?: true}), do: "mobando"
+  defp running_word(_running), do: "rodando"
+
+  defp wall_clock(ms) do
+    {_date, {h, m, _s}} = :calendar.system_time_to_local_time(ms, :millisecond)
+    "#{pad(h)}:#{pad(m)}"
+  end
+
+  # O RITMO, que é o número que diz se a noite está indo bem — e só depois de
+  # cinco minutos, porque antes disso a divisão inventa "1.800/h" a partir de
+  # dois passos.
+  defp rate_note(_count, ms) when not is_integer(ms) or ms < 300_000, do: nil
+  defp rate_note(0, _ms), do: nil
+  defp rate_note(count, ms), do: "#{num(round(count * 3_600_000 / ms))}/h"
+
+  defp stock_note(nil), do: "sem conta de estoque"
+  defp stock_note(left), do: "#{num(left)} no bolso"
+
+  # A conta do caderninho é de DESPACHOS e erra pro lado seguro: âmbar cedo é o
+  # comportamento certo, porque quem repõe é ele, com o pote na mão.
+  defp stock_tone(nil), do: :neutral
+  defp stock_tone(left) when left <= 10, do: :warn
+  defp stock_tone(_left), do: :neutral
+
+  # As paradas são o número; o resto do estrago vai na linha de baixo, porque
+  # "voltou depois de tropeçar" e "largou a mobada por vida" são BOAS notícias
+  # somadas a uma má, e uma soma só apagaria as três.
+  defp incident_note(%{aborts: 0, comebacks: 0}), do: "nenhum tropeço"
+
+  defp incident_note(run) do
+    [{run.aborts, "largada(s)"}, {run.comebacks, "reentro(s)"}]
+    |> Enum.filter(fn {n, _label} -> n > 0 end)
+    |> Enum.map_join(" · ", fn {n, label} -> "#{n} #{label}" end)
+  end
+
   attr :situation, :any, default: nil
   attr :orders, :any, default: nil
 

@@ -95,6 +95,19 @@ defmodule Pokex.Sim.HandsTest do
       assert depois.revive_at != nil
     end
 
+    # A ordem `:prepare` é o revive de tela limpa (R11): gastar o controle ali
+    # é o que o deixava gelado pro revive PERIGOSO — a cadeia da morte de 28/08.
+    test ":prepare revive na hora, sem gastar o controle" do
+      world = mundo(@com_controle)
+
+      {depois, hands} = Hands.obey(world, ordens(%{revive: :prepare}), Hands.new(), @stun)
+
+      assert hands.revive_at == nil, "preparo não espera settle nenhum"
+      assert depois.revive_at != nil
+      refute depois.own.out?
+      refute Enum.any?(depois.mobs, &World.asleep?(&1, depois)), "o controle ficou guardado"
+    end
+
     test "desligado, o revive é a tecla nua de antes" do
       world = mundo(@com_controle)
       sem_stun = %{@stun | rescue_stun_first: false}

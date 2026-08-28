@@ -1921,4 +1921,54 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       end
     end)
   end
+
+  # 28/08: o personagem MORREU num revive sem stun efetivo. A cadeia: o preparo
+  # (R11, tela limpa) gastava o controle; quando o revive perigoso chegava, o
+  # controle estava gelado e o F4 saía com settle 0 na cara da pilha acordada.
+  describe "o preparo não gasta o controle, e o controle gelado escala" do
+    @tag :tmp_dir
+    test ":prepare é a tecla nua — o controle fica guardado pro revive perigoso",
+         %{tmp: tmp, body: body} do
+      Settings.put(:rescue_stun_first, true)
+      classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
+      bar_stuck_ready(["1", "3"])
+      low = hp_png(tmp, "prepare_bare.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:prepare)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      # o controle está PRONTO — e mesmo assim não sai: a tela está limpa e
+      # gastá-lo aqui é deixá-lo gelado pra quando a pilha estiver acordada
+      assert_receive {:performed, :critical, [{:press, "q"}]}, 1_500
+      refute_receive {:performed, :critical, [{:press, "1"} | _]}, 400
+    end
+
+    @tag :tmp_dir
+    test "controle classificado e GELADO escala o que sobrou, nunca recolhe nu",
+         %{tmp: tmp, body: body} do
+      Settings.put(:rescue_stun_first, true)
+      classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
+      # o "1" em cooldown (o preparo de um minuto atrás), a "3" pronta
+      bar_stuck_ready(["3"])
+      low = hp_png(tmp, "cold_control.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      # a última cartada sai primeiro (a decisão dele de 14/08: "pra tentar dar
+      # aquele último dano, daí recolhe")…
+      assert_receive {:performed, :critical, [{:press, "3"}]}, 2_000
+      # …e o revive vem DEPOIS dela — nunca um F4 nu na frente da pilha
+      assert_receive {:performed, :critical, [{:press, "q"}]}, 2_000
+
+      assert_receive {:rule_alarm, :hp, aviso}, 2_000
+      assert aviso =~ "controle em cooldown"
+    end
+  end
 end

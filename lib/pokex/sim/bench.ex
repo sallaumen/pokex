@@ -323,8 +323,8 @@ defmodule Pokex.Sim.Bench do
         {:fire_without_body, orders.fire == :free and picture.own_out? == false},
         {:hold_while_down, orders.route == :hold and picture.own_out? == false},
         {:wasted_revive,
-         orders.revive == :now and picture.enemies == 0 and picture.own_hp == 100 and
-           Map.get(picture, :prepared?) == true},
+         orders.revive in [:now, :prepare] and picture.enemies == 0 and
+           picture.own_hp == 100 and Map.get(picture, :prepared?) == true},
         {:mute_order, orders.why == ""}
       ]
       |> Enum.filter(&elem(&1, 1))
@@ -373,7 +373,7 @@ defmodule Pokex.Sim.Bench do
       hands.revive_at != nil and state.asked_revive == nil ->
         %{state | asked_revive: ask_photo(state, orders, picture)}
 
-      orders.revive == :now and state.asked_revive == nil ->
+      orders.revive in [:now, :prepare] and state.asked_revive == nil ->
         %{state | asked_revive: ask_photo(state, orders, picture)}
 
       true ->
@@ -393,7 +393,7 @@ defmodule Pokex.Sim.Bench do
       hands.revive_at != nil ->
         metrics
 
-      orders.revive == :now ->
+      orders.revive in [:now, :prepare] ->
         file_revive(metrics, world, asked_orders, asked_picture, false, asked)
 
       true ->
@@ -655,8 +655,9 @@ defmodule Pokex.Sim.Bench do
     |> mark_death(world)
   end
 
-  defp mark_revive(%{revived_at: nil} = state, %{revive: :now}, world),
-    do: %{state | revived_at: world.clock}
+  defp mark_revive(%{revived_at: nil} = state, %{revive: order}, world)
+       when order in [:now, :prepare],
+       do: %{state | revived_at: world.clock}
 
   defp mark_revive(state, _orders, _world), do: state
 

@@ -87,6 +87,51 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
+  # "Não deveria estar andando por aí se eu não tenho nenhum cooldown
+  # disponível" (28/08, depois de o personagem morrer). Juntar seis bichos sem
+  # barra pra matar nem revive pra comprá-la é escolher uma luta sem saída.
+  describe "pilha só se abre com o que pagar" do
+    test "barra gasta mas revive ao alcance: junta como sempre (R3b paga)" do
+      w = world(%{situation: situation(%{spent?: true}), hunt: hunt(%{luring?: true})})
+      {logic, _orders} = step(w, 1_000)
+
+      assert logic.state == :gathering
+    end
+
+    test "barra gasta e revive fora de alcance: não abre pilha, segue atirando" do
+      w =
+        world(%{
+          situation: situation(%{spent?: true, revive_left: 0}),
+          hunt: hunt(%{luring?: true})
+        })
+
+      {logic, orders} = step(w, 1_000)
+
+      assert logic.state == :travelling
+      assert orders.route == :go
+      assert orders.fire == :free
+      assert orders.why =~ "não abro pilha"
+    end
+
+    test "a barra esvaziando NO MEIO da régua larga a pilha, como o teto de tempo" do
+      juntando = world(%{hunt: hunt(%{luring?: true})})
+      {logic, _orders} = step(juntando, 1_000)
+      assert logic.state == :gathering
+
+      esvaziou =
+        world(%{
+          situation:
+            situation(%{enemies: 2, worth_fighting?: false, spent?: true, revive_left: 0}),
+          hunt: hunt(%{luring?: true})
+        })
+
+      {logic, orders} = Logic.step(logic, esvaziou, @config, 2_000)
+
+      assert logic.state == :skipping
+      assert orders.why =~ "deixando essa pilha"
+    end
+  end
+
   describe "the ruler of three (R1)" do
     test "a settled pile of three or more opens fire, area first" do
       {logic, orders} = step(world(%{hunt: hunt(%{state: :fighting})}), 1_000)
@@ -1195,7 +1240,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "com a pilha limpa e a barra pela metade, ele revive andando" do
       {_logic, orders} = Logic.step(Logic.new(), limpo(), @preparo, 5_000)
 
-      assert orders.revive == :now
+      assert orders.revive == :prepare
       assert orders.route == :go, "o revive é de preparo: ele não para a rota pra isso"
       assert orders.why =~ "chegar inteiro"
     end
@@ -1216,7 +1261,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "na estrada, até dois restos na tela ainda é 'entre grupos'" do
       {_logic, orders} = Logic.step(Logic.new(), limpo(%{enemies: 2}), @preparo, 5_000)
 
-      assert orders.revive == :now
+      assert orders.revive == :prepare
       assert orders.why =~ "chegar inteiro"
     end
 
@@ -1253,7 +1298,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {_logic, com_sobra} =
         Logic.step(Logic.new(), limpo(%{revive_left: 6}), @preparo, 5_000)
 
-      assert com_sobra.revive == :now
+      assert com_sobra.revive == :prepare
     end
 
     test "sem leitura da barra ela não inventa: desconhecido não é 'gasta'" do
@@ -1264,7 +1309,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     test "e o piso entre dois revives continua valendo" do
       {logic, primeira} = Logic.step(Logic.new(), limpo(), @preparo, 5_000)
-      assert primeira.revive == :now
+      assert primeira.revive == :prepare
 
       {_logic, orders} = Logic.step(logic, limpo(), @preparo, 6_000)
 

@@ -810,7 +810,13 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  defp plain?(%{action: :walk} = wp), do: Map.get(wp, :stops, []) == [] and wp[:park_point] == nil
+  # `park_tiles` conta como marca pelo mesmo motivo do `park_point`: os dois
+  # são "o pokémon fica AQUI", só ditos em línguas diferentes — e uma esquina
+  # com a distância marcada era encadeável, engolindo exatamente o canto onde
+  # ele mandou o pokémon parar (achado na auditoria de 28/08).
+  defp plain?(%{action: :walk} = wp),
+    do: Map.get(wp, :stops, []) == [] and wp[:park_point] == nil and wp[:park_tiles] == nil
+
   defp plain?(_marked), do: false
 
   # A hunt does not begin at waypoint 1: it begins at the CLOSEST corner of the

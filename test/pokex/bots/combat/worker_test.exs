@@ -588,12 +588,12 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       assert eventually(fn -> Settings.get(:tab_key) in presses() end)
     end
 
-    # The stun stays RESERVED for now. Combat obeying `stun: :now` and the
-    # support obeying `revive: :now` are two halves of one mechanism, and
-    # shipping the first alone is the failure that already killed him once: the
-    # engine spends the control key, the support's own revive arrives seconds
-    # later on its HP ladder, finds it cooling, and recalls the pokémon into a
-    # crowd that is wide awake. They land together or not at all.
+    # The control goes out ONLY when the brain puts it in the hand — and the
+    # two halves of the mechanism exist now: the engine's stun branches put
+    # the crowd key in `opening` exactly one window before `revive: :now`, and
+    # since #429 the support escalates instead of recalling bare when it finds
+    # the control cooling. An ordinary fight (no crowd in the brain's hand)
+    # still never spends it.
     @tag :tmp_dir
     test "an ordinary fight still never spends the control skill", %{worker: worker} do
       with_vespiquen(worker)
@@ -605,6 +605,63 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       assert eventually(fn -> Settings.get(:tab_key) in presses() end)
       # …and the control key stayed in its holster anyway.
       refute "1" in presses()
+    end
+
+    # R10, de verdade: até 28/08 o cérebro carimbava `:stunned` e punha o
+    # controle na abertura — e a recomposição local jogava a lista fora, então
+    # a janela dos 5s abria sobre um stun que nunca saiu.
+    @tag :tmp_dir
+    test "o controle do cérebro sai na BORDA em que entra na mão — uma vez", %{worker: worker} do
+      with_vespiquen(worker)
+
+      orders!(%{fire: :free, opening: ["1", "3"]})
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+      assert eventually(fn -> "1" in presses() end)
+
+      # a mesma ordem repetida (o cérebro republica a cada tique) não re-aperta
+      before = Enum.count(presses(), &(&1 == "1"))
+      orders!(%{fire: :free, opening: ["1", "3"]})
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+      Process.sleep(150)
+      assert Enum.count(presses(), &(&1 == "1")) == before
+
+      # a borda de saída limpa a memória; a próxima entrada aperta de novo
+      orders!(%{fire: :free, opening: ["3"]})
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+      Process.sleep(50)
+      orders!(%{fire: :free, opening: ["1", "3"]})
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+      assert eventually(fn -> Enum.count(presses(), &(&1 == "1")) == before + 1 end)
+    end
+
+    # A mão do cérebro VENCE a recomposição local: a engine compõe o MESMO
+    # Strategy.opening com o que o combate não tem (barra lida, tamanho da
+    # pilha), então descartá-la era jogar informação fora. O loadout tem duas
+    # áreas; o cérebro manda UMA (a mão pequena do bicho bobo) — e é ela que
+    # abre, não a lista local inteira.
+    @tag :tmp_dir
+    test "a abertura obedece a mão do cérebro, não a recomposição local", %{worker: worker} do
+      Pokex.Pokedex.Team.add("Golem")
+
+      Pokex.Pokedex.Team.set_skills("Golem", %{
+        "1" => :crowd,
+        "3" => :aoe,
+        "4" => :aoe,
+        "6" => :single
+      })
+
+      Pokex.Pokedex.Team.set_active("Golem")
+      send(worker, {:team_changed})
+
+      orders!(%{fire: :hold, opening: ["4"]})
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+      Process.sleep(50)
+
+      orders!(%{fire: :free, opening: ["4"]})
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+
+      assert eventually(fn -> "4" in presses() end)
+      refute "3" in presses(), "a recomposição local teria aberto com a 3 também"
     end
   end
 

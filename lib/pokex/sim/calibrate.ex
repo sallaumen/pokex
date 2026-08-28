@@ -289,6 +289,12 @@ defmodule Pokex.Sim.Calibrate do
     verdicts =
       vitals
       |> down_pairs()
+      # O MESMO teto do settle, pelo mesmo motivo: um chão de vinte minutos não
+      # é um F4→volta, é o estoque acabando — e a madrugada de 27→28/08 pôs
+      # exatamente três desses no arquivo. Medir "voltou com a barra?" na
+      # primeira leitura depois de 4,9 HORAS no chão respondeu "kept" duas
+      # vezes e quase desmentiu o reset que o vídeo de 26/08 VIU acontecer.
+      |> Enum.filter(fn {a, b} -> b["at"] - a["at"] <= @max_down_ms end)
       |> Enum.flat_map(&reset_verdict(vitals, &1))
 
     if verdicts == [] do

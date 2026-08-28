@@ -42,7 +42,7 @@ defmodule Pokex.Bots.Engine.InputsTest do
   end
 
   test "sem pokémon em campo não há mão nenhuma" do
-    assert Inputs.hands(nil, picture()) == %{opening: [], single: [], crowd: []}
+    assert Inputs.hands(nil, picture()) == %{opening: [], small: [], single: [], crowd: []}
   end
 
   # `single` É O QUE A FASE `:skipping` GASTA nas teclas baratas — e desde 27/08
@@ -99,5 +99,20 @@ defmodule Pokex.Bots.Engine.InputsTest do
 
       assert Enum.take(opening, 2) == ["2", "9"]
     end
+  end
+
+  # A mão pequena é a primeira tecla de DANO — escudo e aura ficam de fora, e
+  # não por descuido: o bicho bobo que a paciência obriga a limpar não merece a
+  # invulnerabilidade nem o multiplicador, merece uma tecla que o mate.
+  test "small é a primeira tecla de dano, sem escudo e sem aura" do
+    hands = Inputs.hands(loadout(), picture(~w(2 3 4 9), 1))
+
+    assert hands.small == ["3"]
+  end
+
+  test "small respeita o modo alvo-único e a área vazia" do
+    so_single = loadout(%{aoe: []})
+
+    assert Inputs.hands(so_single, picture()).small == ["7"]
   end
 end

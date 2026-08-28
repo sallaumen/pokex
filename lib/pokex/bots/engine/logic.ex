@@ -1020,10 +1020,26 @@ defmodule Pokex.Bots.Engine.Logic do
   defp mark_bunch_from(%{state: :bunching} = logic, _t), do: logic
   defp mark_bunch_from(logic, t), do: put_in(logic.since[:bunch_from], walked(t))
 
+  # A RAJADA DO TAMANHO DA PILHA. A abertura inteira (escudo, aura, todas as
+  # áreas) é da pilha que vale a área; a que a régua já chamou de "não vale"
+  # (abaixo de `engage_from`) só está sendo limpa porque a paciência acabou —
+  # e limpá-la com a barra inteira foi como a barra chegou vazia na pilha de
+  # verdade: "gastei minhas skills num bicho bobo" (28/08). Uma tecla de dano
+  # resolve; desconhecido abre inteiro, como sempre (fail-open pra caçada).
   defp fire_all(t, why),
     do:
       {%{t.logic | state: :engaged},
-       Orders.standing_and_firing(:engaged, t.band, opening(t), why)}
+       Orders.standing_and_firing(:engaged, t.band, hand_for(t), why)}
+
+  defp hand_for(t) do
+    case {Map.get(t.s, :worth_fighting?), small(t)} do
+      {false, [_key | _] = small} -> small
+      _worth_or_unknown_or_empty -> opening(t)
+    end
+  end
+
+  defp small(%{hands: %{small: keys}}), do: keys
+  defp small(_no_hands), do: []
 
   # A ESPERA, em duas metades, e a primeira ANDA.
   #

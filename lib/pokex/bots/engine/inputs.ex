@@ -19,7 +19,12 @@ defmodule Pokex.Bots.Engine.Inputs do
   alias Pokex.Bots.Combat.{Loadout, Strategy}
 
   @typedoc "The `hands` half of the decision world."
-  @type t :: %{opening: [String.t()], single: [String.t()], crowd: [String.t()]}
+  @type t :: %{
+          opening: [String.t()],
+          small: [String.t()],
+          single: [String.t()],
+          crowd: [String.t()]
+        }
 
   @doc """
   The keys the decision may plan with, for `loadout` under the bar in `picture`.
@@ -48,7 +53,7 @@ defmodule Pokex.Bots.Engine.Inputs do
         ) :: t
   def hands(loadout, picture, config \\ %{})
 
-  def hands(nil, _picture, _config), do: %{opening: [], single: [], crowd: []}
+  def hands(nil, _picture, _config), do: %{opening: [], small: [], single: [], crowd: []}
 
   def hands(%Loadout{} = loadout, picture, config) do
     %{
@@ -58,6 +63,14 @@ defmodule Pokex.Bots.Engine.Inputs do
           aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys),
           shield_ready?: shield?(loadout, picture, config)
         ),
+      # A MÃO PEQUENA: a primeira tecla de DANO, sem escudo e sem aura. É o
+      # que uma pilha que a régua já chamou de "não vale a área" merece quando
+      # a paciência obriga a limpá-la mesmo assim — gastar a rajada inteira num
+      # bicho bobo foi como a barra chegou vazia na pilha de verdade (28/08).
+      small:
+        loadout
+        |> Strategy.opening(single_target?: single?(config))
+        |> Enum.take(1),
       # A MESMA REGRA aqui: `single` é o que a fase `:skipping` gasta nas teclas
       # BARATAS, e uma tecla que não machuca não é barata, é perdida. Com a área
       # vazia ela volta, pelo mesmo motivo de sempre.

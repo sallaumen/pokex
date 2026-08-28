@@ -357,5 +357,20 @@ defmodule Pokex.Sim.CalibrateTest do
       assert %{median: 1_200} = Calibrate.revive_settle(vitals)
       assert %{n: 1, resets: 1} = Calibrate.revive_reset(vitals)
     end
+
+    # A madrugada de 27→28/08: 4,9 horas no chão com o estoque zerado, e o
+    # medidor leu essas voltas como "kept" — quase desmentindo o reset que o
+    # vídeo de 26/08 viu. Um chão mais longo que o teto do settle não é um
+    # F4→volta e não responde NADA sobre o reset.
+    @tag :tmp_dir
+    test "um chão de minutos não conta como medida do reset" do
+      vitals = [
+        %{"at" => 0, "out" => true, "ready" => 0, "keys" => 4},
+        %{"at" => 400, "out" => false},
+        %{"at" => 1_200_000, "out" => true, "ready" => 1, "keys" => 4}
+      ]
+
+      assert Calibrate.revive_reset(vitals) == nil
+    end
   end
 end

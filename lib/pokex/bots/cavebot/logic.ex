@@ -44,6 +44,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # the route is ENTERED at the nearest waypoint, once per run
             homed?: false,
             skips: 0,
+            # the tile the last skip happened FROM. A skip means "this corner is
+            # unreachable, the next one is usually reachable from here" — a rule
+            # about corners. Stuck again on the SAME tile refutes it: the corner
+            # was never the problem, the character cannot move at all, and
+            # walking the index around the loop just draws a route abandoning
+            # him on the map (28/08, 1109,1383: waypoints 5, 6, 7 "pulei" from
+            # one tile, ~5s apart). Any actual movement clears this.
+            skip_pos: nil,
             # which of this stop's actions already ran — one each, not one per tick
             stops_done: [],
             # how long to let the pile close in HERE, resolved on arrival by
@@ -111,6 +119,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
         }
 
   @type config :: %{
+          optional(:pinned_probe_ms) => non_neg_integer,
           arrival_tolerance: non_neg_integer,
           walk_timeout_ms: non_neg_integer,
           stuck_max_retries: non_neg_integer,
@@ -144,6 +153,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           retries: non_neg_integer,
           config: config,
           last_pos: {integer, integer, integer} | nil,
+          skip_pos: {integer, integer, integer} | nil,
           last_enemies: non_neg_integer | nil,
           homed?: boolean,
           skips: non_neg_integer,
@@ -665,13 +675,25 @@ defmodule Pokex.Bots.Cavebot.Logic do
       pos != logic.last_pos ->
         {note_progress(logic, pos, now), {:walk, dx, dy}}
 
-      now - Map.get(logic.since, :walk_progress, now) >= logic.config.walk_timeout_ms ->
+      now - Map.get(logic.since, :walk_progress, now) >= walk_timeout(logic, pos) ->
         {%{logic | state: :stuck, retries: 0}, {:walk, dx, dy}}
 
       true ->
         {logic, {:walk, dx, dy}}
     end
   end
+
+  # How long standing still means "stuck". The full timeout is for ordinary
+  # walking; still ON the tile of the last skip, the question is different —
+  # "did skipping free him?" — and every unstick nudge already failed from this
+  # exact tile, so ~1s of walking is all the evidence the answer needs. This is
+  # what turns "preso numa parede" from a 3-minute lap of skipped corners into
+  # a block in about five seconds: timeout (3s) + nudges (~1s) + skip + this
+  # probe (1s).
+  defp walk_timeout(%__MODULE__{skip_pos: pos, config: config}, pos) when pos != nil,
+    do: min(config.walk_timeout_ms, Map.get(config, :pinned_probe_ms, 1_000))
+
+  defp walk_timeout(%__MODULE__{config: config}, _pos), do: config.walk_timeout_ms
 
   # The staircase is only still AHEAD of the character while the floor
   # disagrees with the corner he is heading to. Once it matches, the step is
@@ -932,6 +954,15 @@ defmodule Pokex.Bots.Cavebot.Logic do
       retries = logic.retries + 1
 
       cond do
+        # Stuck on the very tile the last skip gave up FROM: the corner was
+        # never the problem, the CHARACTER cannot move — the full round of
+        # nudges already ran from this exact tile and moved nothing. Skipping
+        # on would walk the index around the whole loop, one corner per ~5s,
+        # while he stands against the wall (28/08). Block now; the comeback is
+        # the recovery, and each attempt re-runs the nudges from scratch.
+        logic.skip_pos == pos ->
+          {%{logic | state: :blocked}, {:block, :pinned}}
+
         retries <= logic.config.stuck_max_retries ->
           {dx, dy} = unstick(logic, pos, retries)
           {%{logic | retries: retries}, {:walk, dx, dy}}
@@ -949,7 +980,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
         # full lap of unreachable corners means the character is somewhere the
         # route cannot describe.
         logic.skips < length(logic.route.waypoints) - 1 ->
-          {skip_waypoint(logic, now), :none}
+          {skip_waypoint(logic, pos, now), :none}
 
         true ->
           {%{logic | state: :blocked}, {:block, :stuck}}
@@ -985,7 +1016,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   #     round: a revive spent on nothing, seconds standing still where no pile
   #     died. The round is marked SPENT instead of
   #     empty, because arriving somewhere new is what arms it again.
-  defp skip_waypoint(logic, now) do
+  defp skip_waypoint(logic, pos, now) do
     next = rem(logic.wp_index + 1, length(logic.route.waypoints))
 
     %{
@@ -995,6 +1026,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
         advance: :skipped,
         retries: 0,
         skips: logic.skips + 1,
+        skip_pos: pos,
         last_pos: nil,
         gather_wait: nil,
         stair_taps: 0,
@@ -1203,10 +1235,16 @@ defmodule Pokex.Bots.Cavebot.Logic do
       rem(retries, 2) == 0 -> {dx, dy}
       abs(dx) >= abs(dy) and dy != 0 -> {0, dy}
       abs(dy) > abs(dx) and dx != 0 -> {dx, 0}
-      # single-axis route leg: nothing to slide onto, keep pushing
-      true -> {dx, dy}
+      # Single-axis leg: the wall is ON the axis, and "keep pushing" was four
+      # presses into the same bricks. Sidestep PERPENDICULAR instead, one side
+      # then the other — one tile off the wall is a new line to the corner.
+      dx == 0 -> {sidestep(retries), 0}
+      true -> {0, sidestep(retries)}
     end
   end
+
+  # retries 1, 3 are the odd (sliding) rounds: first one side, then the other.
+  defp sidestep(retries), do: if(rem(retries, 4) == 1, do: 1, else: -1)
 
   # The nudge exists to unstick a fight that won't end — so it must MOVE the
   # character. `{:nudge, 0, 0}` didn't: the Worker translates a nudge into
@@ -1381,9 +1419,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp current_wp(logic), do: Enum.at(logic.route.waypoints, logic.wp_index)
 
+  # Progress is also the proof the character CAN move, so it clears the pinned
+  # alert a skip leaves behind — but only REAL progress: a skip wipes
+  # `last_pos`, so the first tick after one lands here without a tile walked,
+  # and the alert must survive exactly while he still stands where he skipped.
   defp note_progress(logic, pos, now) do
     since = logic.since |> Map.put(:walk_progress, now) |> Map.delete(:step)
-    %{logic | last_pos: pos, since: since}
+    skip_pos = if pos == logic.skip_pos, do: logic.skip_pos, else: nil
+    %{logic | last_pos: pos, skip_pos: skip_pos, since: since}
   end
 
   # The blindness clock marks the FIRST read without a position and does not

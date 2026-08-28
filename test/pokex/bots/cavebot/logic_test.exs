@@ -402,14 +402,15 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert l.wp_index == 1
     assert l.skips == 1
 
-    # …and a full lap of unreachable corners IS the end
-    # still standing on the same tile (a skip clears last_pos, and a resumed
-    # walk is exactly what SHOULD happen when the character moves)
-    l = %{l | state: :stuck, retries: 99, last_pos: {5, 10, 7}}
-    assert {l, {:block, :stuck}} = Logic.step(l, world({5, 10, 7}), 5000)
+    # …and a full lap of unreachable corners IS the end. The lap only exists
+    # when the character MOVES between skips — same-tile skips are the pinned
+    # block, tested in their own describe — so this stuck comes from a tile
+    # the last skip did not happen on.
+    l = %{l | state: :stuck, retries: 99, last_pos: {6, 11, 7}, skip_pos: nil}
+    assert {l, {:block, :stuck}} = Logic.step(l, world({6, 11, 7}), 5000)
     assert l.state == :blocked
 
-    assert {_l, :none} = Logic.step(l, world({5, 10, 7}), 5100)
+    assert {_l, :none} = Logic.step(l, world({6, 11, 7}), 5100)
   end
 
   test "stuck: position changing again resumes walking and resets retries" do
@@ -418,12 +419,105 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3010)
     assert l.state == :stuck
 
-    {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3100)
+    # retry 1 numa perna de eixo único é o desvio perpendicular — ver o
+    # describe do preso no lugar
+    {l, {:walk, 0, 1}} = Logic.step(l, world({5, 10, 7}), 3100)
     assert l.retries == 1
 
     {l, {:walk, 4, 0}} = Logic.step(l, world({6, 10, 7}), 3200)
     assert l.state == :walking
     assert l.retries == 0
+  end
+
+  # 28/08, 1109,1383 andar 5: preso numa parede, a rota pulou as esquinas 5, 6
+  # e 7 — uma a cada ~5s, o marcador passeando pelo mapa e o personagem parado.
+  # Pular é uma regra sobre ESQUINAS ("a próxima costuma ser alcançável
+  # daqui"); travar de novo na MESMA tile refuta a regra: quem não anda é o
+  # personagem, e a resposta honesta é bloquear em segundos, não dar a volta.
+  describe "preso no lugar (o personagem, não a esquina)" do
+    # anda até travar e pular a primeira esquina, sempre parado em `pos`
+    defp skipped_once_at(pos) do
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world(pos), 0)
+      {l, {:walk, _, _}} = Logic.step(l, world(pos), 10)
+      {l, {:walk, _, _}} = Logic.step(l, world(pos), 3_010)
+      assert l.state == :stuck
+
+      l =
+        Enum.reduce(1..4, l, fn i, acc ->
+          {acc, {:walk, _, _}} = Logic.step(acc, world(pos), 3_010 + i * 100)
+          acc
+        end)
+
+      {l, :none} = Logic.step(l, world(pos), 3_500)
+      assert l.advance == :skipped
+      l
+    end
+
+    test "o segundo tropeço na mesma tile bloqueia em ~5s, sem marchar a rota" do
+      pos = {5, 10, 7}
+      l = skipped_once_at(pos)
+      assert l.skip_pos == pos
+
+      # o tique pós-skip não é andar (o skip apaga last_pos): o alerta fica
+      {l, {:walk, _, _}} = Logic.step(l, world(pos), 3_700)
+      assert l.skip_pos == pos
+
+      # em alerta a sonda é de 1s, não os 3s do timeout cheio…
+      {l, {:walk, _, _}} = Logic.step(l, world(pos), 4_400)
+      assert l.state == :walking
+      {l, {:walk, _, _}} = Logic.step(l, world(pos), 4_750)
+      assert l.state == :stuck
+
+      # …e o stuck da tile já pulada não gasta retries: bloqueia na hora
+      assert {l, {:block, :pinned}} = Logic.step(l, world(pos), 4_950)
+      assert l.state == :blocked
+      assert l.skips == 1, "um pulo só antes do bloqueio — a rota não marchou"
+    end
+
+    test "pular de uma tile e travar NOUTRA é esquina queimada: pula de novo" do
+      l = skipped_once_at({5, 10, 7})
+
+      # andou uma tile (o alerta limpa) e travou de novo mais adiante
+      {l, {:walk, _, _}} = Logic.step(l, world({6, 10, 7}), 3_700)
+      assert l.skip_pos == nil
+
+      {l, {:walk, _, _}} = Logic.step(l, world({6, 10, 7}), 6_710)
+      assert l.state == :stuck
+
+      l =
+        Enum.reduce(1..4, l, fn i, acc ->
+          {acc, {:walk, _, _}} = Logic.step(acc, world({6, 10, 7}), 6_710 + i * 100)
+          acc
+        end)
+
+      # rota de 2 esquinas: skips == 1 já é a volta inteira, então o fim aqui
+      # é o bloqueio de LAP (:stuck), nunca o de preso (:pinned)
+      assert {l, {:block, :stuck}} = Logic.step(l, world({6, 10, 7}), 7_200)
+      assert l.state == :blocked
+    end
+
+    test "chegar de verdade limpa o alerta" do
+      # pulou o canto 1; o alvo agora é o canto 2 (20,10) — e ele chega lá
+      l = skipped_once_at({5, 10, 7})
+
+      {l, _arrival} = Logic.step(l, world({20, 10, 7}), 3_700)
+      assert l.advance == :arrived
+      assert l.skip_pos == nil
+    end
+
+    test "numa perna de eixo único o desvio tenta os DOIS lados da parede" do
+      pos = {5, 10, 7}
+      {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world(pos), 0)
+      {l, {:walk, 5, 0}} = Logic.step(l, world(pos), 10)
+      {l, {:walk, 5, 0}} = Logic.step(l, world(pos), 3_010)
+      assert l.state == :stuck
+
+      # retries 1..4: lado, vetor, outro lado, vetor
+      assert {l, {:walk, 0, 1}} = Logic.step(l, world(pos), 3_100)
+      assert {l, {:walk, 5, 0}} = Logic.step(l, world(pos), 3_200)
+      assert {l, {:walk, 0, -1}} = Logic.step(l, world(pos), 3_300)
+      assert {_l, {:walk, 5, 0}} = Logic.step(l, world(pos), 3_400)
+    end
   end
 
   test "fighting past fight_timeout becomes fight_stalled and then blocks" do
@@ -617,13 +711,15 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert {_l, {:walk, 0, 2}} = Logic.step(l, world({5, 8, 7}), 3_300)
     end
 
-    test "a single-axis leg has nothing to slide onto and keeps pushing" do
-      # standing at {5, 10}, wp 1 is {10, 10}: pure x, dy == 0
+    test "a single-axis leg sidesteps PERPENDICULAR instead of pushing the wall" do
+      # standing at {5, 10}, wp 1 is {10, 10}: pure x, dy == 0. "Keep pushing"
+      # here was four presses into the same bricks (28/08) — the odd retries
+      # now step off the axis, one side then the other.
       {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({5, 10, 7}), 0)
       {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 10)
       {l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3_020)
 
-      assert {_l, {:walk, 5, 0}} = Logic.step(l, world({5, 10, 7}), 3_100)
+      assert {_l, {:walk, 0, 1}} = Logic.step(l, world({5, 10, 7}), 3_100)
     end
 
     test "moving again resumes the route with the retries reset" do

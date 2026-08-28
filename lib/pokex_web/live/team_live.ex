@@ -34,6 +34,12 @@ defmodule PokexWeb.TeamLive do
        # whose skill editor is open — one at a time, or six rows of selects
        # per pokémon turn the list into a wall
        open_skills: nil,
+       # QUEM ESTÁ ARMADO PRA SAIR. Apagar um pokémon era um clique só, num ✕
+       # cinza de 10px colado no botão que abre as skills — e ele apagou
+       # pokémon sem querer, achando que aquilo FECHAVA o painel (28/08). Agora
+       # o ✕ arma, e quem apaga é um botão vermelho que nasce onde não havia
+       # nada pra clicar por engano.
+       removing: nil,
        species_names: Enum.map(Pokedex.search(%{}), & &1.name)
      )
      |> assign_hands()
@@ -60,9 +66,21 @@ defmodule PokexWeb.TeamLive do
     end
   end
 
+  # ARMAR, não apagar. O segundo clique tem que cair em OUTRO lugar da tela,
+  # senão um clique duplo por engano faz o mesmo estrago que o clique único.
+  def handle_event("ask_remove", %{"name" => name}, socket),
+    do: {:noreply, assign(socket, removing: name)}
+
+  def handle_event("cancel_remove", _params, socket),
+    do: {:noreply, assign(socket, removing: nil)}
+
   def handle_event("remove", %{"name" => name}, socket) do
     Team.remove(name)
-    {:noreply, assign_team(socket)}
+
+    {:noreply,
+     socket
+     |> assign(removing: nil, open_skills: nil)
+     |> assign_team("#{name} saiu da lista — cadastra de novo se foi sem querer")}
   end
 
   def handle_event("move", %{"name" => name, "to" => to}, socket) do
@@ -327,78 +345,11 @@ defmodule PokexWeb.TeamLive do
       max_width="max-w-[900px]"
     >
       <div class="space-y-3">
-        <section id="portraits" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <h2 class="text-sm font-bold">Retratos do time</h2>
-              <p class="mt-0.5 text-[11px] leading-relaxed text-[#7f8992]">
-                A ordem dos atalhos C+N muda conforme você joga, então o bot não pode ter o slot
-                configurado — ele LÊ quem está em cada linha, toda vez. Para isso precisa conhecer
-                a carinha de cada um: varra o painel e diga quem é quem. Uma vez só, por pokémon.
-              </p>
-            </div>
-            <button class="btn btn-sm btn-primary shrink-0" phx-click="scan_portraits">
-              Varrer painel
-            </button>
-          </div>
-
-          <p :if={@portrait_msg} class="mt-2 font-mono text-[10px] text-[#e7ca82]">
-            {@portrait_msg}
-          </p>
-
-          <ul :if={@portraits != []} class="mt-3 space-y-2">
-            <li
-              :for={portrait <- @portraits}
-              id={"portrait-#{portrait.slot}"}
-              class="flex flex-wrap items-center gap-2 rounded-lg border border-[#293238] bg-[#101418] px-2.5 py-2"
-            >
-              <span class="font-mono text-xs font-bold text-[#8b949d]">C+{portrait.slot}</span>
-
-              <span :if={portrait.guess} class="font-mono text-[11px] text-[#37d07d]">
-                {portrait.guess.name}
-                <span class="text-[#5d6670]">({round(portrait.guess.score * 100)}%)</span>
-              </span>
-              <span :if={is_nil(portrait.guess)} class="font-mono text-[11px] text-[#f2c45b]">
-                não sei quem é
-              </span>
-
-              <form phx-submit="learn_portrait" class="ml-auto flex items-center gap-1.5">
-                <input type="hidden" name="row" value={portrait.row} />
-                <input
-                  name="name"
-                  list="team-names"
-                  placeholder="quem é?"
-                  autocomplete="off"
-                  class="h-7 w-40 rounded border border-[#293238] bg-[#090d0f] px-2 font-mono text-[11px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
-                />
-                <button class="btn btn-xs h-7">Aprender</button>
-              </form>
-            </li>
-          </ul>
-
-          <datalist id="team-names">
-            <option :for={row <- @team} value={row.name} />
-            <option :for={row <- @bank} value={row.name} />
-          </datalist>
-
-          <p :if={TeamIcons.known() != []} class="mt-2 flex flex-wrap gap-1.5">
-            <button
-              :for={name <- TeamIcons.known()}
-              phx-click="forget_portrait"
-              phx-value-name={name}
-              title="esquecer este retrato"
-              class="cursor-pointer rounded border border-[#293238] px-1.5 py-0.5 font-mono text-[10px] text-[#8b949d] hover:border-[#5f292f] hover:text-[#ff9ca4]"
-            >
-              {name} ✕
-            </button>
-          </p>
-        </section>
-
-        <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+        <section class="rounded-lg border border-pk-line bg-pk-surface p-3">
           <form
             id="hunt-window-form"
             phx-change="save_hunt_window"
-            class="flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-[#77828a]"
+            class="flex flex-wrap items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
           >
             <span>meu level</span>
             <input
@@ -408,7 +359,7 @@ defmodule PokexWeb.TeamLive do
               max="999"
               value={@player_level}
               phx-debounce="500"
-              class="h-8 w-16 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-sm text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+              class="h-8 w-16 rounded border border-pk-line bg-pk-bg px-1 text-center font-mono text-pk-title text-pk-text focus:border-pk-ok focus:outline-none"
             />
             <span>· janela ±</span>
             <input
@@ -418,9 +369,9 @@ defmodule PokexWeb.TeamLive do
               max="300"
               value={@level_margin}
               phx-debounce="500"
-              class="h-8 w-14 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-sm text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+              class="h-8 w-14 rounded border border-pk-line bg-pk-bg px-1 text-center font-mono text-pk-title text-pk-text focus:border-pk-ok focus:outline-none"
             />
-            <span class="text-[#59636b]">
+            <span class="text-pk-text-3">
               — as sugestões miram caças perto da tua força
             </span>
           </form>
@@ -432,47 +383,47 @@ defmodule PokexWeb.TeamLive do
             list="species-names"
             placeholder="ex.: Venusaur"
             autocomplete="off"
-            class="input input-bordered h-9 w-52 bg-[#090d0f] font-mono text-sm"
+            class="input input-bordered h-9 w-52 bg-pk-bg font-mono text-pk-title"
           />
           <datalist id="species-names">
             <option :for={name <- @species_names} value={name} />
           </datalist>
           <select
             name="where"
-            class="select select-bordered h-9 bg-[#090d0f] font-mono text-sm"
+            class="select select-bordered h-9 bg-pk-bg font-mono text-pk-title"
           >
             <option value="team">→ time</option>
             <option value="bank">→ banco</option>
           </select>
-          <button class="btn h-9 border-0 bg-[#37d07d] px-3 text-xs font-bold text-[#06140c] hover:bg-[#45dd88]">
+          <button class="btn h-9 border-0 bg-pk-ok px-3 text-pk-body font-bold text-pk-bg hover:bg-pk-ok/90">
             Adicionar
           </button>
-          <span :if={@team_msg} id="team-msg" class="text-[11px] text-[#e7ca82]">{@team_msg}</span>
+          <span :if={@team_msg} id="team-msg" class="text-pk-body text-pk-warn">{@team_msg}</span>
         </form>
 
-        <section id="team-list" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
-          <h2 class="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+        <section id="team-list" class="rounded-lg border border-pk-line bg-pk-surface p-3">
+          <h2 class="mb-2 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
             🧢 time ({length(@team)})
           </h2>
 
           <%!-- The three places his keys live, named in one paragraph. He came
                 here looking for "o combo de cada um" and found neither the word
                 nor a hint of which screen owns it. --%>
-          <p id="skills-map" class="mb-2 text-[11px] leading-relaxed text-[#7f8992]">
+          <p id="skills-map" class="mb-2 text-pk-body leading-relaxed text-pk-text-2">
             Tuas teclas vivem em três lugares.
-            <.link navigate={~p"/cavebot"} class="text-[#7cc0e8] hover:underline">
+            <.link navigate={~p"/cavebot"} class="text-pk-info hover:underline">
               A rota gravada
             </.link>
             guarda o combo que tuas mãos apertaram em cada matança — as teclas que
-            tu repete são <span id="skills-map-recorded" class="font-mono text-[#dce1e4]">{keys_text(@used_keys)}</span>,
-            e é esse combo que a caçada dispara hoje.
-            <.link navigate={~p"/config"} class="text-[#7cc0e8] hover:underline">
+            tu repete são <span id="skills-map-recorded" class="font-mono text-pk-text">{keys_text(@used_keys)}</span>,
+            e é essa sequência que a caçada dispara hoje.
+            <.link navigate={~p"/config"} class="text-pk-info hover:underline">
               O combate
             </.link>
             aperta
-            <span id="skills-map-combat" class="font-mono text-[#dce1e4]">{keys_text(@combat_keys)}</span>
+            <span id="skills-map-combat" class="font-mono text-pk-text">{keys_text(@combat_keys)}</span>
             sozinho durante a luta. E aqui embaixo tu diz o que cada tecla
-            <b class="font-bold text-[#c3cad0]">faz</b>
+            <b class="font-bold text-pk-text">faz</b>
             — é isso que vai deixar o mesmo plano servir quando tu trocar de pokémon.
           </p>
 
@@ -482,13 +433,13 @@ defmodule PokexWeb.TeamLive do
           <form
             id="active-form"
             phx-change="set_active"
-            class="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[#293238] bg-[#101418] px-2.5 py-2"
+            class="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-pk-line bg-pk-raised px-2.5 py-2"
           >
-            <span class="font-mono text-[10px] text-[#8b949d]">caçando com</span>
+            <span class="font-mono text-pk-meta text-pk-text-2">caçando com</span>
             <select
               name="active"
               aria-label="Pokémon em campo"
-              class="h-8 rounded border border-[#293238] bg-[#090d0f] px-2 font-mono text-[11px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+              class="h-8 rounded border border-pk-line bg-pk-bg px-2 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
             >
               <option value="" selected={is_nil(@active)}>— nenhum —</option>
               <option :for={row <- @team} value={row.name} selected={@active == row.name}>
@@ -500,22 +451,22 @@ defmodule PokexWeb.TeamLive do
             <span
               :if={Loadout.attacks?(@loadout)}
               id="active-opening"
-              class="font-mono text-[10px] text-[#3de083]"
+              class="font-mono text-pk-meta text-pk-ok"
             >
               a luta abre com 💥 {Enum.join(Strategy.opening(@loadout), " ")}
             </span>
-            <span :if={is_nil(@active)} class="font-mono text-[10px] text-[#7f8992]">
+            <span :if={is_nil(@active)} class="font-mono text-pk-meta text-pk-text-2">
               — sem escolha a luta aperta a lista fixa do /config, sem saber o que cada tecla faz
             </span>
             <span
               :if={@active && !Loadout.attacks?(@loadout)}
-              class="font-mono text-[10px] text-[#f2c45b]"
+              class="font-mono text-pk-meta text-pk-warn"
             >
               — sem skill de área nem de alvo único classificada, a luta cai na lista fixa
             </span>
           </form>
 
-          <p :if={@team == []} class="text-[11px] text-[#7f8992]">
+          <p :if={@team == []} class="text-pk-body text-pk-text-2">
             cadastra teus Pokémon e eu te digo quem vale a caçada
           </p>
           <ul class="space-y-1">
@@ -525,6 +476,7 @@ defmodule PokexWeb.TeamLive do
               other="bank"
               other_label="→ banco"
               open?={@open_skills == row.name}
+              removing?={@removing == row.name}
               keys={hotbar_keys(row)}
               used={@used_keys}
               warn?={true}
@@ -532,11 +484,11 @@ defmodule PokexWeb.TeamLive do
           </ul>
         </section>
 
-        <section id="bank-list" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
-          <h2 class="mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+        <section id="bank-list" class="rounded-lg border border-pk-line bg-pk-surface p-3">
+          <h2 class="mb-2 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
             🏦 banco ({length(@bank)})
           </h2>
-          <p :if={@bank == []} class="text-[11px] text-[#7f8992]">
+          <p :if={@bank == []} class="text-pk-body text-pk-text-2">
             o que você tem guardado mas não caça com — pra não perder de vista
           </p>
           <ul class="space-y-1">
@@ -549,6 +501,7 @@ defmodule PokexWeb.TeamLive do
               other="team"
               other_label="→ time"
               open?={@open_skills == row.name}
+              removing?={@removing == row.name}
               keys={hotbar_keys(row)}
               used={@used_keys}
               warn?={false}
@@ -559,15 +512,15 @@ defmodule PokexWeb.TeamLive do
         <section
           :if={@targets != []}
           id="hunt-card"
-          class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+          class="rounded-lg border border-pk-line bg-pk-surface p-3"
         >
-          <h2 class="mb-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+          <h2 class="mb-0.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
             🎯 melhores caçadas pro teu time
           </h2>
           <p
             :if={window_note(@window, @level_margin)}
             id="hunt-window-note"
-            class="mb-1.5 font-mono text-[9px] text-[#8b949d]"
+            class="mb-1.5 font-mono text-pk-meta text-pk-text-2"
           >
             {window_note(@window, @level_margin)}
           </p>
@@ -575,7 +528,7 @@ defmodule PokexWeb.TeamLive do
             <li :for={row <- @targets}>
               <.link
                 navigate={~p"/pokedex/#{row.entry.name}"}
-                class="block rounded-lg border border-[#232b30] bg-[#101418] px-2.5 py-1.5 transition hover:border-[#37d07d]/60"
+                class="block rounded-lg border border-pk-line bg-pk-raised px-2.5 py-1.5 transition hover:border-pk-ok/60"
               >
                 <div class="flex items-center gap-2">
                   <img
@@ -585,30 +538,30 @@ defmodule PokexWeb.TeamLive do
                     onerror="this.style.display='none'"
                     class="size-6 shrink-0 object-contain"
                   />
-                  <p class="min-w-0 flex-1 truncate text-sm font-semibold">
+                  <p class="min-w-0 flex-1 truncate text-pk-title font-semibold">
                     {row.entry.name}
-                    <span class="font-mono text-[9px] font-normal text-[#737d85]">
+                    <span class="font-mono text-pk-meta font-normal text-pk-text-3">
                       lv {row.entry.level || "?"}
                     </span>
                   </p>
-                  <span class="font-mono text-[10px] font-bold text-[#37d07d]">+{row.score}</span>
+                  <span class="font-mono text-pk-meta font-bold text-pk-ok">+{row.score}</span>
                 </div>
-                <p class="mt-0.5 flex flex-wrap gap-1 font-mono text-[9px]">
-                  <span class="rounded bg-[#0d3822] px-1 py-0.5 text-[#3de083]">
+                <p class="mt-0.5 flex flex-wrap gap-1 font-mono text-pk-meta">
+                  <span class="rounded bg-pk-ok-dim px-1 py-0.5 text-pk-ok">
                     {Enum.join(row.hits, "+")} fere ({row.member})
                   </span>
                   <span
                     :if={row.resisted != []}
-                    class="rounded bg-[#241114] px-1 py-0.5 text-[#ff9ca4]"
+                    class="rounded bg-pk-danger-dim px-1 py-0.5 text-pk-danger"
                   >
                     resiste {Enum.join(row.resisted, "+")}
                   </span>
-                  <span :if={row.shiny?} class="rounded bg-[#211b0d] px-1 py-0.5 text-[#f3ba4e]">
+                  <span :if={row.shiny?} class="rounded bg-pk-warn-dim px-1 py-0.5 text-pk-warn">
                     ✨ tem shiny
                   </span>
                   <span
                     :if={row.entry.tier}
-                    class="rounded bg-[#101d24] px-1 py-0.5 text-[#7cc0e8]"
+                    class="rounded bg-pk-info-dim px-1 py-0.5 text-pk-info"
                   >
                     🏅 tier {row.entry.tier}
                   </span>
@@ -617,6 +570,87 @@ defmodule PokexWeb.TeamLive do
             </li>
           </ul>
         </section>
+        <%!-- OS RETRATOS SÃO TRABALHO DE UMA VEZ POR POKÉMON, e ocupavam o
+              topo da página — acima do time, do banco e das caçadas, que são o
+              que ele abre esta tela pra ver. Dobrado e no fim: continua a um
+              clique, sem custar a primeira tela toda vez. --%>
+        <details id="portraits-fold" class="rounded-lg border border-pk-line bg-pk-surface">
+          <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-pk-body font-bold text-pk-text [&::-webkit-details-marker]:hidden">
+            <.icon name="hero-user-circle" class="size-4 shrink-0 text-pk-text-3" /> Retratos do time
+            <span class="font-mono text-pk-meta font-normal text-pk-text-3">
+              ensina o bot a ler quem está em cada C+N · uma vez por pokémon
+            </span>
+            <.icon name="hero-chevron-down" class="ml-auto size-4 shrink-0 text-pk-text-3" />
+          </summary>
+          <div class="border-t border-pk-line p-3">
+            <section id="portraits">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-pk-body font-bold">Retratos do time</h3>
+                  <p class="mt-0.5 text-pk-body leading-relaxed text-pk-text-2">
+                    A ordem dos atalhos C+N muda conforme você joga, então o bot não pode ter o slot
+                    configurado — ele LÊ quem está em cada linha, toda vez. Para isso precisa conhecer
+                    a carinha de cada um: varra o painel e diga quem é quem. Uma vez só, por pokémon.
+                  </p>
+                </div>
+                <button class="btn btn-sm btn-primary shrink-0" phx-click="scan_portraits">
+                  Varrer painel
+                </button>
+              </div>
+
+              <p :if={@portrait_msg} class="mt-2 font-mono text-pk-meta text-pk-warn">
+                {@portrait_msg}
+              </p>
+
+              <ul :if={@portraits != []} class="mt-3 space-y-2">
+                <li
+                  :for={portrait <- @portraits}
+                  id={"portrait-#{portrait.slot}"}
+                  class="flex flex-wrap items-center gap-2 rounded-lg border border-pk-line bg-pk-raised px-2.5 py-2"
+                >
+                  <span class="font-mono text-pk-body font-bold text-pk-text-2">C+{portrait.slot}</span>
+
+                  <span :if={portrait.guess} class="font-mono text-pk-body text-pk-ok">
+                    {portrait.guess.name}
+                    <span class="text-pk-text-3">({round(portrait.guess.score * 100)}%)</span>
+                  </span>
+                  <span :if={is_nil(portrait.guess)} class="font-mono text-pk-body text-pk-warn">
+                    não sei quem é
+                  </span>
+
+                  <form phx-submit="learn_portrait" class="ml-auto flex items-center gap-1.5">
+                    <input type="hidden" name="row" value={portrait.row} />
+                    <input
+                      name="name"
+                      list="team-names"
+                      placeholder="quem é?"
+                      autocomplete="off"
+                      class="h-9 w-40 rounded border border-pk-line bg-pk-bg px-2 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                    />
+                    <button class="btn btn-sm h-9">Aprender</button>
+                  </form>
+                </li>
+              </ul>
+
+              <datalist id="team-names">
+                <option :for={row <- @team} value={row.name} />
+                <option :for={row <- @bank} value={row.name} />
+              </datalist>
+
+              <p :if={TeamIcons.known() != []} class="mt-2 flex flex-wrap gap-1.5">
+                <button
+                  :for={name <- TeamIcons.known()}
+                  phx-click="forget_portrait"
+                  phx-value-name={name}
+                  title="esquecer este retrato"
+                  class="cursor-pointer rounded border border-pk-line px-1.5 py-0.5 font-mono text-pk-meta text-pk-text-2 hover:border-pk-danger-line hover:text-pk-danger"
+                >
+                  {name} ✕
+                </button>
+              </p>
+            </section>
+          </div>
+        </details>
       </div>
     </Layouts.app>
     """
@@ -627,13 +661,14 @@ defmodule PokexWeb.TeamLive do
   attr :other_label, :string, required: true
 
   attr :open?, :boolean, default: false
+  attr :removing?, :boolean, default: false
   attr :keys, :list, default: []
   attr :used, :list, default: []
   attr :warn?, :boolean, default: false
 
   defp member_row(assigns) do
     ~H"""
-    <li class="rounded-lg border border-[#293238] bg-[#101418] px-2.5 py-1.5">
+    <li class="rounded-lg border border-pk-line bg-pk-raised px-2.5 py-1.5">
       <div class="flex items-center gap-2">
         <img
           :if={@row.entry.sprite}
@@ -644,12 +679,12 @@ defmodule PokexWeb.TeamLive do
         />
         <.link
           navigate={~p"/pokedex/#{@row.name}"}
-          class="min-w-0 flex-1 truncate text-sm font-semibold hover:underline"
+          class="min-w-0 flex-1 truncate text-pk-title font-semibold hover:underline"
         >
           {@row.name}<span :if={@row.entry.shiny_of}> ✨</span>
           <span
             :for={el <- @row.entry.elements}
-            class="ml-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 align-middle font-mono text-[9px] font-normal"
+            class="ml-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 align-middle font-mono text-pk-meta font-normal"
             style={PokedexStyle.element_style(el)}
           >
             {el}
@@ -658,7 +693,7 @@ defmodule PokexWeb.TeamLive do
         <form
           id={"level-form-" <> String.replace(@row.name, ~r/\W+/, "-")}
           phx-change="set_level"
-          class="flex items-center gap-1 font-mono text-[9px] text-[#737d85]"
+          class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
         >
           <input type="hidden" name="name" value={@row.name} />
           <span>lv</span>
@@ -669,45 +704,93 @@ defmodule PokexWeb.TeamLive do
             max="999"
             value={@row.level}
             phx-debounce="500"
-            class="h-7 w-14 rounded border border-[#293238] bg-[#090d0f] px-1 text-center font-mono text-[11px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+            class="h-8 w-16 rounded border border-pk-line bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
           />
         </form>
         <button
           phx-click="move"
           phx-value-name={@row.name}
           phx-value-to={@other}
-          class="cursor-pointer font-mono text-[10px] text-[#89939a] hover:text-white"
+          aria-label={@row.name <> " " <> @other_label}
+          class="h-8 shrink-0 cursor-pointer rounded border border-pk-line px-2 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-line-strong hover:text-white"
         >
           {@other_label}
         </button>
-        <%!-- It used to be bare grey 10px text between "→ banco" and "×" — the
-              one control on the row that opens an editor, dressed exactly like
-              the two that do not. A border and his own word for it ("combo")
-              are what make it findable. --%>
+        <%!-- "COMBO" ERA O NOME ERRADO. Aqui não se escreve um combo: aqui se
+              diz o que cada tecla FAZ e quanto ela demora — o combo é o que sai
+              disso, e aparece pronto ali dentro ("essa parte de combos na vdd
+              não é bom, e sim algo como Skill Details", 28/08).
+
+              E o botão diz FECHAR quando está aberto: procurar como fechar o
+              painel foi o que levou o dedo dele até o ✕ de apagar. --%>
         <button
           id={"skills-toggle-" <> String.replace(@row.name, ~r/\W+/, "-")}
           phx-click="toggle_skills"
           phx-value-name={@row.name}
           aria-expanded={to_string(@open?)}
-          aria-label={"Combo de " <> @row.name}
-          title="pra que serve cada skill dele — e o combo que sai disso"
+          aria-label={"Skills de " <> @row.name}
+          title="o que cada tecla dele faz, o cooldown de cada uma, e o combo que sai disso"
           class={[
-            "shrink-0 cursor-pointer rounded border px-2 py-1 font-mono text-[10px] transition",
+            "flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded border px-2 font-mono text-pk-meta transition",
             if(@open?,
-              do: "border-[#37d07d] bg-[#0d3822] text-[#3de083]",
-              else: "border-[#293238] text-[#89939a] hover:border-[#4a565e] hover:text-white"
+              do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
+              else: "border-pk-line text-pk-text-2 hover:border-pk-line-strong hover:text-white"
             )
           ]}
         >
-          💥 combo
+          <.icon
+            name={if(@open?, do: "hero-chevron-up", else: "hero-adjustments-horizontal")}
+            class="size-3.5"
+          />
+          {if(@open?, do: "fechar", else: "skills")}
+        </button>
+
+        <%!-- O DESTRUTIVO, SEPARADO. Ele estava colado no botão de skills, do
+              mesmo tamanho e da mesma cor dos dois vizinhos que não apagam
+              nada. Agora: alvo de 32px, cor de perigo só dele, um traço de
+              separação antes, e um clique que só ARMA. --%>
+        <span class="mx-0.5 h-5 w-px shrink-0 bg-pk-line" aria-hidden="true"></span>
+        <button
+          :if={!@removing?}
+          id={"remove-ask-" <> String.replace(@row.name, ~r/\W+/, "-")}
+          phx-click="ask_remove"
+          phx-value-name={@row.name}
+          aria-label={"Tirar " <> @row.name <> " da lista"}
+          title={"tirar " <> @row.name <> " da lista"}
+          class="grid size-8 shrink-0 cursor-pointer place-items-center rounded text-pk-text-3 transition hover:bg-pk-danger-dim hover:text-pk-danger"
+        >
+          <.icon name="hero-trash" class="size-4" />
+        </button>
+      </div>
+
+      <%!-- A PERGUNTA, na linha do bicho de quem ela fala. Inline e não modal:
+            o "sim" nasce longe de onde o dedo acabou de clicar, cancelar é a
+            saída mais fácil, e clicar em qualquer outro ✕ move a pergunta em
+            vez de empilhar duas. --%>
+      <div
+        :if={@removing?}
+        id={"remove-confirm-" <> String.replace(@row.name, ~r/\W+/, "-")}
+        role="alertdialog"
+        aria-label={"Confirmar a saída de " <> @row.name}
+        class="mt-1.5 flex flex-wrap items-center gap-2 rounded-lg border border-pk-danger-line bg-pk-danger-dim px-2.5 py-2"
+      >
+        <.icon name="hero-exclamation-triangle" class="size-4 shrink-0 text-pk-danger" />
+        <span class="min-w-0 flex-1 text-pk-body text-pk-text">
+          Tirar <b class="font-bold">{@row.name}</b>
+          da lista? As skills e o cooldown que tu escreveu pra ele vão junto.
+        </span>
+        <button
+          phx-click="cancel_remove"
+          class="h-8 shrink-0 cursor-pointer rounded-lg border border-pk-line-strong px-3 text-pk-body font-semibold text-pk-text-2 transition hover:text-white"
+        >
+          cancelar
         </button>
         <button
           phx-click="remove"
           phx-value-name={@row.name}
-          title="remover"
-          class="cursor-pointer text-[#89939a] hover:text-[#ff9ca4]"
+          class="h-8 shrink-0 cursor-pointer rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 text-pk-body font-bold text-pk-danger transition hover:bg-pk-danger hover:text-pk-bg"
         >
-          ×
+          tirar da lista
         </button>
       </div>
 
@@ -716,21 +799,21 @@ defmodule PokexWeb.TeamLive do
             which is exactly the opposite of the truth. --%>
       <p
         :if={!@open? and (@row.skills != %{} or @warn?)}
-        class="mt-1 flex flex-wrap items-center gap-x-2 pl-8 font-mono text-[9px]"
+        class="mt-1 flex flex-wrap items-center gap-x-2 pl-8 font-mono text-pk-meta"
       >
-        <span :if={@row.skills == %{}} class="text-[#f2c45b]">
-          nenhuma skill classificada — abre o 💥 combo e diz o que cada tecla faz
+        <span :if={@row.skills == %{}} class="text-pk-warn">
+          nenhuma skill classificada — abre <b class="font-bold">skills</b> e diz o que cada tecla faz
         </span>
 
-        <span :if={@row.skills != %{} and combo_text(@row.skills)} class="text-[#7f8992]">
+        <span :if={@row.skills != %{} and combo_text(@row.skills)} class="text-pk-text-2">
           💥 {combo_text(@row.skills)}
         </span>
-        <span :if={@row.skills != %{} and is_nil(combo_text(@row.skills))} class="text-[#f2c45b]">
+        <span :if={@row.skills != %{} and is_nil(combo_text(@row.skills))} class="text-pk-warn">
           nada pra matar: falta uma skill de área
         </span>
 
         <%!-- the other moments, dimmer: they are not the kill --%>
-        <span :for={{category, keys} <- off_combo(@row.skills)} class="text-[#69737b]">
+        <span :for={{category, keys} <- off_combo(@row.skills)} class="text-pk-text-3">
           {SkillProfile.icon(category)} {Enum.join(keys, "+")}
         </span>
 
@@ -743,10 +826,10 @@ defmodule PokexWeb.TeamLive do
         <.link
           navigate={~p"/calibration?#{[bar: @row.name]}"}
           class={[
-            "ml-auto shrink-0 rounded border px-2 py-1 font-mono text-[10px] transition",
+            "ml-auto shrink-0 rounded border px-2 py-1 font-mono text-pk-meta transition",
             if(@row.bar,
-              do: "border-[#293238] text-[#89939a] hover:border-[#4a565e] hover:text-white",
-              else: "border-[#5a4a1e] text-[#f2c45b] hover:border-[#f2c45b] hover:bg-[#241d0c]"
+              do: "border-pk-line text-pk-text-2 hover:border-pk-line-strong hover:text-white",
+              else: "border-pk-warn-line text-pk-warn hover:border-pk-warn hover:bg-pk-warn-dim"
             )
           ]}
           title={bar_title(@row.bar)}
@@ -761,23 +844,43 @@ defmodule PokexWeb.TeamLive do
         :if={@open?}
         id={"skills-form-" <> String.replace(@row.name, ~r/\W+/, "-")}
         phx-change="set_skills"
-        class="mt-2 border-t border-[#293238] pt-2"
+        class="mt-2 border-t border-pk-line pt-2"
       >
         <input type="hidden" name="name" value={@row.name} />
 
-        <%!-- The kill, and ONLY the kill. The first cut printed every
-              classified key joined left to right and he threw it back: "eu
-              seleciono, mas o combo não é uma junção". --%>
-        <p class="font-mono text-[10px] text-[#8b949d]">
+        <%!-- O QUE ESTE PAINEL É, dito na abertura dele. Sem cabeçalho, o
+              painel era uma lista de selects começando com a palavra "combo" —
+              e ele lia isso como "a tela do combo", que não é o que ela faz. --%>
+        <div class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h3 class="text-pk-body font-bold text-pk-text">
+            Skills de {@row.name}
+          </h3>
+          <p class="text-pk-meta text-pk-text-3">
+            o que cada tecla faz · quanto ela demora pra voltar
+          </p>
+          <button
+            type="button"
+            phx-click="toggle_skills"
+            phx-value-name={@row.name}
+            aria-label={"Fechar as skills de " <> @row.name}
+            class="ml-auto grid size-8 shrink-0 cursor-pointer place-items-center rounded text-pk-text-3 transition hover:bg-pk-raised hover:text-white"
+          >
+            <.icon name="hero-x-mark" class="size-4" />
+          </button>
+        </div>
+
+        <%!-- The kill, and ONLY the kill — e ele é RESULTADO, não entrada: "eu
+              seleciono, mas o combo não é uma junção" (2026-08-11). --%>
+        <p class="rounded-lg border border-pk-line bg-pk-sunken px-2.5 py-1.5 font-mono text-pk-meta text-pk-text-2">
           na matança:
-          <span :if={combo_text(@row.skills)} class="font-bold text-[#3de083]">
+          <span :if={combo_text(@row.skills)} class="text-pk-body font-bold text-pk-ok">
             💥 {combo_text(@row.skills)}
           </span>
-          <span :if={is_nil(combo_text(@row.skills))} class="text-[#f2c45b]">
+          <span :if={is_nil(combo_text(@row.skills))} class="text-pk-warn">
             ainda nada — classifica pelo menos uma como área
           </span>
         </p>
-        <p class="mb-2 font-mono text-[9px] text-[#69737b]">
+        <p class="mb-2 mt-1 text-pk-meta text-pk-text-3">
           a área abre tudo de uma vez (não precisa de alvo) e o alvo único fecha, depois de
           marcar · salva sozinho
         </p>
@@ -785,8 +888,8 @@ defmodule PokexWeb.TeamLive do
               skill está pronta OLHANDO a barra, então uma leitura ruim virava
               rotação cega e "gastei tudo" era um chute. Com ele o bot conta o
               próprio tempo e só confere a tela. --%>
-        <p class="mb-2 font-mono text-[9px] text-[#69737b]">
-          o <span class="text-[#8b949d]">cooldown</span>
+        <p class="mb-2 text-pk-meta text-pk-text-3">
+          o <span class="text-pk-text-2">cooldown</span>
           é em segundos, do jeito que o jogo escreve em cima do ícone — em branco quer dizer
           "não sei", e aí ele volta a confiar só na barra
         </p>
@@ -794,7 +897,7 @@ defmodule PokexWeb.TeamLive do
         <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           <label
             :for={key <- @keys}
-            class="flex items-center gap-1.5 font-mono text-[10px] text-[#8b949d]"
+            class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
           >
             <%!-- nowrap: the used-key dot pushed "1•" onto a second line and
                   every label in the grid lost its baseline. --%>
@@ -802,13 +905,13 @@ defmodule PokexWeb.TeamLive do
               skill {key}<span
                 :if={key in @used}
                 title="tu aperta esta tecla nas tuas rotas gravadas"
-                class="text-[#3de083]"
+                class="text-pk-ok"
               >•</span>
             </span>
             <select
               name={"skill[" <> key <> "]"}
               aria-label={"Skill " <> key <> " de " <> @row.name}
-              class="h-8 w-full min-w-0 rounded border border-[#293238] bg-[#090d0f] px-1 font-mono text-[12px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+              class="h-8 w-full min-w-0 rounded border border-pk-line bg-pk-bg px-1 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
             >
               <option value="none" selected={@row.skills[key] == nil}>—</option>
               <option
@@ -832,7 +935,7 @@ defmodule PokexWeb.TeamLive do
               placeholder="s"
               title={"Cooldown da skill " <> key <> ", em segundos"}
               aria-label={"Cooldown da skill " <> key <> " de " <> @row.name}
-              class="h-8 w-14 shrink-0 rounded border border-[#293238] bg-[#090d0f] px-1 text-right font-mono text-[12px] text-[#dce1e4] focus:border-[#36d47c] focus:outline-none"
+              class="h-8 w-14 shrink-0 rounded border border-pk-line bg-pk-bg px-1 text-right font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
             />
           </label>
         </div>
@@ -843,15 +946,15 @@ defmodule PokexWeb.TeamLive do
         <ul
           :if={off_combo(@row.skills) != []}
           id={"skills-moments-" <> String.replace(@row.name, ~r/\W+/, "-")}
-          class="mt-2 space-y-0.5 border-t border-[#293238] pt-1.5 font-mono text-[9px] text-[#69737b]"
+          class="mt-2 space-y-0.5 border-t border-pk-line pt-1.5 font-mono text-pk-meta text-pk-text-3"
         >
           <li :for={{category, keys} <- off_combo(@row.skills)}>
             {SkillProfile.icon(category)}
-            <span class="text-[#8b949d]">
+            <span class="text-pk-text-2">
               {SkillProfile.label(category)} {Enum.join(keys, "+")}
             </span>
             — {SkillProfile.moment(category)}
-            <span :if={category == :crowd} class="text-[#e7ca82]">
+            <span :if={category == :crowd} class="text-pk-warn">
               (fora do combo de propósito: gasta na luta e ela não está lá pro revive)
             </span>
           </li>
@@ -859,8 +962,8 @@ defmodule PokexWeb.TeamLive do
 
         <%!-- Ten dropdowns, and his hands use four of them. Which four is not
               a question for this page to ask — the recorded routes answer it. --%>
-        <p :if={@used != []} class="mt-1.5 font-mono text-[9px] text-[#69737b]">
-          <span class="text-[#3de083]">•</span>
+        <p :if={@used != []} class="mt-1.5 font-mono text-pk-meta text-pk-text-3">
+          <span class="text-pk-ok">•</span>
           são as teclas que tu repete nas matanças das tuas rotas ({Enum.join(@used, " ")}) —
           começa por elas
         </p>

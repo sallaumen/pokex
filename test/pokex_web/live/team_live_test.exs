@@ -133,8 +133,61 @@ defmodule PokexWeb.TeamLiveTest do
     view |> form("#team-add-form", %{"member" => "Digimon", "where" => "team"}) |> render_submit()
     assert render(view) =~ "não conheço"
 
-    view |> element(~s(button[phx-click="remove"][phx-value-name="Charizard"])) |> render_click()
+    # TIRAR DA LISTA É DOIS CLIQUES, e o primeiro não apaga nada: ele apagou
+    # pokémon sem querer achando que o ✕ fechava o painel de skills (28/08).
+    view |> element("#remove-ask-Charizard") |> render_click()
+    assert view |> element("#team-list") |> render() =~ "Charizard"
+
+    view |> element("#remove-confirm-Charizard") |> render() =~ "Tirar"
+
+    view
+    |> element(~s(#remove-confirm-Charizard button[phx-click="remove"]))
+    |> render_click()
+
     refute view |> element("#team-list") |> render() =~ "Charizard"
+  end
+
+  @tag :tmp_dir
+  test "o ✕ ARMA a saída; cancelar devolve o pokémon intacto", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/time")
+
+    view
+    |> form("#team-add-form", %{"member" => "Charizard", "where" => "team"})
+    |> render_submit()
+
+    view |> element("#remove-ask-Charizard") |> render_click()
+    assert has_element?(view, "#remove-confirm-Charizard")
+
+    view
+    |> element(~s(#remove-confirm-Charizard button[phx-click="cancel_remove"]))
+    |> render_click()
+
+    refute has_element?(view, "#remove-confirm-Charizard")
+    assert [%{name: "Charizard"}] = Team.members()
+  end
+
+  # O painel de skills tem o próprio jeito de fechar — procurar por um foi o que
+  # levou o dedo dele até o ✕ de apagar.
+  @tag :tmp_dir
+  test "o painel de skills fecha por dentro, sem passar perto do apagar", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/time")
+
+    view
+    |> form("#team-add-form", %{"member" => "Charizard", "where" => "team"})
+    |> render_submit()
+
+    view |> element("#skills-toggle-Charizard") |> render_click()
+    painel = view |> element("#skills-form-Charizard") |> render()
+
+    assert painel =~ "Skills de Charizard"
+    assert painel =~ "o que cada tecla faz"
+
+    view
+    |> element(~s(#skills-form-Charizard button[phx-click="toggle_skills"]))
+    |> render_click()
+
+    refute has_element?(view, "#skills-form-Charizard")
+    assert [%{name: "Charizard"}] = Team.members()
   end
 
   @tag :tmp_dir

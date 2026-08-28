@@ -1610,6 +1610,22 @@ defmodule PokexWeb.CavebotLive do
   # há contagem regressiva pra mostrar, e o relógio cai no assumido de 45s.
   defp unwritten(tiles), do: Enum.count(tiles, &(&1.written_ms == nil))
 
+  # As teclas em conflito, juntas — e o motivo dito UMA vez. Dentro do
+  # quadradinho a frase virava "tela diz em …", que ocupa a peça e não informa.
+  defp conflicted(tiles),
+    do: tiles |> Enum.filter(&(&1.muted? or &1.disagree?)) |> Enum.map(& &1.key)
+
+  # A causa mais forte primeiro: uma tecla CALADA é o jogo tendo ignorado o
+  # aperto, e isso já explica a discordância que vem junto.
+  defp conflict_reason(tiles) do
+    if Enum.any?(tiles, & &1.muted?) do
+      "o jogo não reagiu ao aperto. A barra está oferecendo tecla que não sai — " <>
+        "recalibre a barra com TUDO pronto, fora de combate"
+    else
+      "a leitura da barra e o relógio das teclas discordam — a rotação obedece o relógio"
+    end
+  end
+
   # O caderninho: só existe com o estoque digitado (`revive_stock` > 0).
   defp revive_ledger do
     case ReviveLedger.remaining() do
@@ -1941,10 +1957,19 @@ defmodule PokexWeb.CavebotLive do
     :exit, _journal_down -> []
   end
 
+  # REPETIÇÃO CONSECUTIVA VIRA CONTADOR. Metade das linhas da noite dele eram
+  # a mesma frase duas vezes seguidas no mesmo segundo — 6 de 14 linhas na tela
+  # que ele mandou em 28/08. Colapsar não ESCONDE: o `×2` fica visível, que é o
+  # que permite descobrir de onde vem a repetição em vez de olhar por cima dela.
   defp log_line(socket, level, text) do
-    line = %{level: level, text: text, at: Time.utc_now()}
-    assign(socket, log: Enum.take([line | socket.assigns.log], @log_lines))
+    assign(socket, log: fold(socket.assigns.log, level, text))
   end
+
+  defp fold([%{text: same, level: level} = head | rest], level, same),
+    do: [%{head | times: head.times + 1, at: Time.utc_now()} | rest]
+
+  defp fold(log, level, text),
+    do: Enum.take([%{level: level, text: text, at: Time.utc_now(), times: 1} | log], @log_lines)
 
   defp visible_log(log, true), do: log
   defp visible_log(log, _hide), do: Enum.reject(log, &(&1.level == :debug))
@@ -2219,10 +2244,18 @@ defmodule PokexWeb.CavebotLive do
                   <span class="ml-auto text-pk-meta text-pk-text-2">{burst_line()}</span>
                 </div>
 
-                <ol class="grid grid-cols-[repeat(auto-fill,minmax(78px,1fr))] gap-1">
+                <%!-- 96px e não 78: com 78 o motivo da discordância ("tela diz em
+                cooldown") cabia como "tela diz em …", que é ruído com cara de
+                informação. Agora o motivo sai da peça e vira UMA linha embaixo
+                do rack, e a peça fica com o que dá pra ler de longe: a tecla,
+                o trabalho dela e o tempo. --%>
+                <ol class="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-1.5">
                   <li
                     :for={tile <- @rack}
-                    class={["relative overflow-hidden rounded border px-1.5 py-1", tile_class(tile)]}
+                    class={[
+                      "relative overflow-hidden rounded-lg border px-2 py-1.5",
+                      tile_class(tile)
+                    ]}
                     title={tile_title(tile)}
                   >
                     <%!-- O TRILHO QUE ENCHE fica ATRÁS do texto: o quadrado inteiro
@@ -2236,13 +2269,17 @@ defmodule PokexWeb.CavebotLive do
                     ></span>
 
                     <span class="relative flex items-baseline justify-between gap-1">
-                      <span class={["pk-num font-mono text-pk-body font-bold", tile_key_class(tile)]}>
+                      <span class={["pk-num font-mono text-pk-title font-bold", tile_key_class(tile)]}>
                         {tile.key}
                       </span>
                       <span class="truncate text-pk-meta text-pk-text-3">{job_short(tile.job)}</span>
                     </span>
 
-                    <span class="relative mt-0.5 block">
+                    <%!-- O ESTADO EM UMA PALAVRA, sempre no mesmo lugar: os nove
+                    quadrados se leem numa varredura só quando a linha de baixo
+                    é sempre a mesma pergunta. O traço sozinho ("—") não era
+                    resposta: dizia "esfriando, e ninguém escreveu quanto". --%>
+                    <span class="relative mt-0.5 flex items-baseline gap-1">
                       <span
                         :if={tile.state == :ready}
                         class="text-pk-meta font-bold uppercase tracking-[0.1em] text-pk-ok"
@@ -2250,31 +2287,40 @@ defmodule PokexWeb.CavebotLive do
                         pronta
                       </span>
                       <span
-                        :if={tile.state == :cooling}
-                        class="pk-num font-mono text-pk-body font-bold tabular-nums text-pk-warn"
+                        :if={tile.state == :cooling and tile.left_ms > 0}
+                        class="pk-num font-mono text-pk-title font-bold tabular-nums text-pk-warn"
                       >
                         {countdown(tile)}
                       </span>
-                    </span>
-
-                    <%!-- POR QUE ESTA PEÇA NÃO CONFERE, dito nela mesma. A muda
-                    vem primeiro porque é a causa: "calada" já explica a
-                    discordância, e "a tela diz pronta" sozinho deixaria ele
-                    procurando o motivo. --%>
-                    <span
-                      :if={tile.muted?}
-                      class="relative mt-0.5 block truncate text-pk-meta font-bold text-pk-danger"
-                    >
-                      o jogo não reagiu
-                    </span>
-                    <span
-                      :if={!tile.muted? && tile.disagree?}
-                      class="relative mt-0.5 block truncate text-pk-meta text-pk-danger"
-                    >
-                      tela diz {witness_text(tile.screen)}
+                      <span
+                        :if={tile.state == :cooling and tile.left_ms == 0}
+                        class="text-pk-meta uppercase tracking-[0.1em] text-pk-text-3"
+                      >
+                        esfriando
+                      </span>
+                      <.icon
+                        :if={tile.muted? or tile.disagree?}
+                        name="hero-exclamation-triangle"
+                        class="ml-auto size-3.5 shrink-0 text-pk-danger"
+                      />
                     </span>
                   </li>
                 </ol>
+
+                <%!-- O MOTIVO, UMA VEZ, embaixo do rack — e não truncado dentro de
+                cada peça. Junta as teclas em conflito numa frase que diz o que
+                FAZER: a peça mostra o alerta, esta linha explica. --%>
+                <p
+                  :if={conflicted(@rack) != []}
+                  id="cavebot-rack-conflict"
+                  class="mt-1.5 flex items-start gap-1.5 rounded-lg border border-pk-danger-line bg-pk-danger-dim px-2 py-1.5 text-pk-meta text-pk-danger"
+                >
+                  <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
+                  <span>
+                    <b class="font-bold">{Enum.join(conflicted(@rack), ", ")}</b>
+                    — {conflict_reason(@rack)}
+                  </span>
+                </p>
 
                 <p :if={@rack == []} class="text-pk-meta text-pk-text-3">
                   sem barra classificada
@@ -2446,15 +2492,19 @@ defmodule PokexWeb.CavebotLive do
               >
                 <li
                   :for={line <- visible_log(@log, @show_debug)}
-                  class={[
-                    "flex gap-2 font-mono text-pk-meta",
-                    log_tone(line)
-                  ]}
+                  class={["flex items-baseline gap-2 font-mono text-pk-meta", log_tone(line)]}
                 >
-                  <span class="pk-num shrink-0 text-pk-text-3">
+                  <span class="pk-num shrink-0 tabular-nums text-pk-text-3">
                     {Calendar.strftime(line.at, "%H:%M:%S")}
                   </span>
-                  <span>{line.text}</span>
+                  <span class="min-w-0">{line.text}</span>
+                  <span
+                    :if={line.times > 1}
+                    class="pk-num ml-auto shrink-0 rounded bg-pk-raised px-1 font-bold tabular-nums text-pk-text-3"
+                    title="a mesma linha, repetida"
+                  >
+                    ×{line.times}
+                  </span>
                 </li>
               </ol>
             </section>
@@ -3219,9 +3269,10 @@ defmodule PokexWeb.CavebotLive do
             id="cavebot-safety"
             class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
           >
-            <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-              Segurança
+            <h2 class="flex shrink-0 items-center gap-1.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+              <.icon name="hero-shield-check" class="size-3.5" /> Segurança
             </h2>
+            <span class="h-5 w-px shrink-0 bg-pk-line" aria-hidden="true"></span>
 
             <div class="flex flex-wrap items-center gap-1.5">
               <.safety_toggle
@@ -3250,12 +3301,15 @@ defmodule PokexWeb.CavebotLive do
               />
             </div>
 
+            <span class="h-5 w-px shrink-0 bg-pk-line" aria-hidden="true"></span>
+
             <form
               id="hp-guard-form"
               phx-submit="hp_guard"
               title="Abaixo do limite: solta o combo no que juntou, desiste do mob, e só volta a andar com ele recuperado. 0 desliga a guarda. Vale a partir da próxima caçada."
               class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
             >
+              <.icon name="hero-heart" class="size-3.5 shrink-0 text-pk-text-3" />
               <span>larga o mob &lt;</span>
               <input
                 type="number"
@@ -3281,11 +3335,13 @@ defmodule PokexWeb.CavebotLive do
               <span>%</span>
               <button
                 aria-label="Salvar os limites da guarda de HP"
-                class="h-8 cursor-pointer rounded border border-pk-line-strong px-2.5 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+                class="h-8 cursor-pointer rounded border border-pk-line-strong px-2.5 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white"
               >
                 salvar
               </button>
             </form>
+
+            <span class="h-5 w-px shrink-0 bg-pk-line" aria-hidden="true"></span>
 
             <form
               id="comeback-form"
@@ -3293,6 +3349,7 @@ defmodule PokexWeb.CavebotLive do
               title="Só pra tropeço local — mudar de andar ou o combate recusar continua parando de vez. Chegar num waypoint devolve as tentativas. 0 desliga a volta automática."
               class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
             >
+              <.icon name="hero-arrow-path" class="size-3.5 shrink-0 text-pk-text-3" />
               <span>tropeço:</span>
               <input
                 type="number"

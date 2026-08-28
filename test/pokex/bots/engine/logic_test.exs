@@ -524,11 +524,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
              engage_from: 3,
              crowd_from: 99,
              bunch_ms: 0,
-             gather_target: 1,
-             # a porta "sem controle pronto" é o assunto DESTE bloco: ele mede a
-             # R3b sozinha, e desde 27/08 ela nasce fechada (o revive sem stun
-             # quase matou o pokémon dele numa rota real)
-             reset_needs_control: false
+             gather_target: 1
            })
 
     defp reset_step(logic, world, now), do: Logic.step(logic, world, @reset, now)
@@ -623,7 +619,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # cooldowns, mas não recuperou um". Uma regra que paga um revive e não
     # recebe a barra de volta vai pagar o próximo, e o próximo. Ela se DESARMA
     # na primeira vez que a promessa não é cumprida.
-    test "e se a barra NÃO voltar, ela se desarma em vez de insistir" do
+    test "e se a barra NÃO voltar, ela se desarma — com prazo, não perpétuo" do
       logic = engaged(&reset_step/3)
       {logic, primeira} = com_controle(logic, spent_fight(), 2_000)
       assert primeira.revive == :now
@@ -633,10 +629,20 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {logic, depois} = reset_step(logic, spent_fight(), passou)
 
       assert depois.revive == :hold
-      assert logic.reset_broken?, "o reset foi cobrado e não veio — a regra sai de cena"
+      assert is_integer(logic.reset_broken_at), "o reset foi cobrado e não veio — sai de cena"
 
-      {_logic, nunca_mais} = reset_step(logic, spent_fight(), passou + 600_000)
-      assert nunca_mais.revive == :hold
+      # …e o recuo DIZ o desarme, em vez de parecer covardia
+      {logic, mudo} = reset_step(logic, spent_fight(), passou + 5_000)
+      assert mudo.revive == :hold
+      assert mudo.why =~ "DESARMADO"
+
+      # passado o prazo do rearme, a regra volta pro jogo
+      rearmado = passou + @reset.reset_rearm_ms + 1_000
+      {logic, _} = reset_step(logic, spent_fight(%{spent?: false}), rearmado)
+      assert logic.reset_broken_at == nil
+
+      {_logic, de_novo} = com_controle(logic, spent_fight(), rearmado + 1_000)
+      assert de_novo.revive == :now
     end
 
     test "mas uma barra que VOLTA mantém a regra armada" do
@@ -647,7 +653,30 @@ defmodule Pokex.Bots.Engine.LogicTest do
       passou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
       {logic, _} = reset_step(logic, cheia, passou)
 
-      refute logic.reset_broken?
+      assert logic.reset_broken_at == nil
+
+      {_logic, de_novo} = com_controle(logic, spent_fight(), passou + 1_000)
+      assert de_novo.revive == :now
+    end
+
+    # O FALSO CULPADO de 28/08: numa pilha grande a barra volta cheia e é
+    # despejada DE NOVO dentro da janela de cobrança — o reset funcionando.
+    # O juiz antigo só olhava no fim da janela, via `spent?` de novo, e
+    # condenava: cinco resets perfeitos no minuto um, desarme no segundo, e 39
+    # minutos de "recuando pelo chão limpo" com pilhas de nove na tela.
+    test "a barra que volta e é GASTA dentro da janela é um reset cumprido" do
+      logic = engaged(&reset_step/3)
+      {logic, _} = com_controle(logic, spent_fight(), 2_000)
+
+      # 1,5s depois: o corpo voltou, a barra está CHEIA — a promessa foi vista
+      {logic, _} = reset_step(logic, spent_fight(%{spent?: false}), 3_500)
+
+      # bem depois da janela de cobrança, com a barra gasta DE NOVO pela pilha:
+      # o veredito tem que continuar sendo cumprimento, não quebra
+      passou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
+      {logic, _} = reset_step(logic, spent_fight(%{spent?: false}), passou)
+
+      assert logic.reset_broken_at == nil, "a volta foi vista — o gasto seguinte é caçada"
 
       {_logic, de_novo} = com_controle(logic, spent_fight(), passou + 1_000)
       assert de_novo.revive == :now
@@ -1516,6 +1545,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # A PORTA DO REVIVE SEM STUN, fechada em 27/08: "ele quase morreu porque não
   # tinha o stun de controle disponível para poder usar o revive de forma
   # segura, então ele usou o revive de forma insegura".
+  # "Se não tiver livre, usar o que tem de cooldown e usa o revive, não perde
+  # tempo fugindo (…) e NÃO recuar, continuar em frente batalhando!!!!" (28/08,
+  # depois de 39 minutos de kite). A espera pelo controle morreu: a proteção
+  # mora no executor desde #429 — com o controle frio ele escala o que sobrou,
+  # com settle, e nunca recolhe nu.
   describe "o revive sem controle na frente" do
     @sem_stun Config.merge(%{
                 reset_revive: true,
@@ -1536,22 +1570,19 @@ defmodule Pokex.Bots.Engine.LogicTest do
             control_back_in_ms: volta_em
           }),
         hunt: hunt(%{state: :fighting}),
-        hands: %{opening: ~w(3 4), single: [], crowd: ["1"]}
+        hands: %{opening: ~w(3 4), small: [], single: [], crowd: ["1"]}
       })
     end
 
-    test "com o controle voltando logo, o revive ESPERA por ele" do
+    test "com o controle voltando logo, o revive NÃO espera — sai já" do
       {logic, _} = Logic.step(Logic.new(), barra_vazia_sem_controle(), @sem_stun, 1_000)
       {_logic, orders} = Logic.step(logic, barra_vazia_sem_controle(), @sem_stun, 2_000)
 
-      assert orders.revive == :hold
+      assert orders.revive == :now
+      assert orders.route == :hold
     end
 
-    # A TRAVA SEM SAÍDA que isto conserta: com o controle a 40s e a barra gasta,
-    # a caçada ficava parada até o `fight_timeout_ms` estourar — "ele fica
-    # travado nesse bug de a caçada tropeçou (…) e ele não está usando o
-    # Resurrect" (27/08).
-    test "com o controle longe, o revive sai sem prefixo — parado é pior" do
+    test "com o controle longe, idem — parado esperando é o que ele proibiu" do
       longe = barra_vazia_sem_controle(38_000)
 
       {logic, _} = Logic.step(Logic.new(), longe, @sem_stun, 1_000)
@@ -1560,22 +1591,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.revive == :now
     end
 
-    # Sem relógio nenhum a resposta é a de antes da trava existir: recusar pra
-    # sempre por falta de informação é o travamento de volta.
-    test "sem saber quando o controle volta, ele revive" do
+    test "sem relógio nenhum, idem" do
       sem_relogio = barra_vazia_sem_controle(nil)
 
       {logic, _} = Logic.step(Logic.new(), sem_relogio, @sem_stun, 1_000)
       {_logic, orders} = Logic.step(logic, sem_relogio, @sem_stun, 2_000)
-
-      assert orders.revive == :now
-    end
-
-    test "desligada a trava, ele volta a gastar o revive sem prefixo" do
-      solto = Config.merge(%{@sem_stun | reset_needs_control: false})
-
-      {logic, _} = Logic.step(Logic.new(), barra_vazia_sem_controle(), solto, 1_000)
-      {_logic, orders} = Logic.step(logic, barra_vazia_sem_controle(), solto, 2_000)
 
       assert orders.revive == :now
     end

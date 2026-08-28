@@ -1412,35 +1412,13 @@ defmodule Pokex.Settings do
     # skill de controle". A pilha está dormindo, então o campo vazio não custa
     # nada — e o revive devolve o controle junto com o resto da barra.
     engine_stun_window_ms: 5_000,
-    # QUANTO O REVIVE ESPERA PELO CONTROLE antes de sair sem ele.
-    #
-    # `engine_reset_needs_control` ligado sem prazo virava travamento: com o
-    # controle em 40s de cooldown e a barra gasta, a caçada ficava parada até o
-    # `fight_timeout_ms` estourar — foi o que ele viu em 27/08 ("ele fica travado
-    # nesse bug de a caçada tropeçou"). Seis segundos é o que se paga pra ter o
-    # prefixo; mais que isso, a barra vazia na frente da pilha é o perigo maior.
-    engine_stun_wait_ms: 6_000,
-    # …e o que fazer quando o controle NÃO está pronto e a barra está vazia.
-    # Desligado, a R3b gasta o revive assim mesmo: um reset atrasado vale mais
-    # que um reset que nunca vem. Ligado, ela ESPERA o controle — a regra dele
-    # lida ao pé da letra ("SEMPRE usar o revive dentro da range de 5 segundos
-    # no máximo depois de usar a skill de controle"), ao preço de deixar a barra
-    # vazia por mais tempo.
-    #
-    # MEDIDO em 26/08 com `since_stun_ms`: dos revives que a regra governa (fase
-    # `engaged`), 60% saíam na janela no anel e 40% no formigueiro. Os que
-    # faltam são exatamente estes — o controle em cooldown.
-    #
-    # LIGADO desde 27/08, pelo que ele viu na segunda pilha de uma rota: "ele
-    # quase morreu porque ele não tinha o stun de controle disponível para poder
-    # usar o revive de forma segura, então ele usou o revive de forma insegura".
-    # O revive recolhe o pokémon; sem ninguém dormindo na frente, o que sobra é
-    # o personagem apanhando — e ele tem bicho de ataque à distância na hunt.
-    #
-    # O que NÃO fecha com isto: o resgate do vermelho (é emergência, e emergência
-    # não espera cooldown) e o revive de preparo da R11 (tela limpa, não há bolo
-    # acordado pra proteger).
-    engine_reset_needs_control: true,
+    # QUANTO TEMPO um reset desarmado fica fora do jogo antes de tentar de
+    # novo. O desarme ("paguei um revive e a barra não voltou") era um bool
+    # sem volta: um julgamento de um tique virava prisão perpétua, e a corrida
+    # de 28/08 pagou 39 minutos de recuo por um desarme FALSO no minuto um.
+    # Dez minutos é longo o bastante pra não insistir num jogo que mudou, e
+    # curto o bastante pra uma noite não morrer por uma leitura.
+    engine_reset_rearm_ms: 600_000,
     # How often a plain VITALS reading is filed while nothing is changing. The
     # transitions that carry the four measurements are written the instant they
     # happen (see `Engine.Worker.sample_vitals/4`); this is only the heartbeat
@@ -1693,7 +1671,7 @@ defmodule Pokex.Settings do
     engine_crowd_from: 1..20,
     engine_spent_keys_left: 0..9,
     engine_stun_window_ms: 500..60_000,
-    engine_stun_wait_ms: 0..60_000,
+    engine_reset_rearm_ms: 10_000..3_600_000,
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_bunch_ms: 0..30_000,

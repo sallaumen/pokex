@@ -53,6 +53,20 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     assert l.state == :walking
   end
 
+  # O cérebro desistiu do revive (fase :stranded): não é espera, é o fim da
+  # noite — bloqueio PERIGOSO, em qualquer estado da caçada.
+  test "o cérebro desistindo do revive bloqueia a caçada, andando ou lutando" do
+    andando = Logic.new(route(), @cfg)
+
+    assert {%{state: :blocked}, {:block, :revive_dead}} =
+             Logic.step(andando, Map.put(world({10, 10, 7}), :stranded?, true), 0)
+
+    lutando = %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
+
+    assert {%{state: :blocked}, {:block, :revive_dead}} =
+             Logic.step(lutando, Map.put(world({10, 10, 7}, 5), :stranded?, true), 0)
+  end
+
   test "a z change to a floor the route never visits blocks" do
     l = Logic.new(route(), @cfg)
     assert {_l, {:block, :floor_changed}} = Logic.step(l, world({10, 10, 6}), 0)

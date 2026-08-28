@@ -46,6 +46,7 @@ defmodule Pokex.Bots.Engine.Orders do
           | :recovering
           | :unaided
           | :downed
+          | :stranded
           | :handless
           | :blind
 

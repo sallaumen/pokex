@@ -825,6 +825,51 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert quando |> hd() |> elem(1) |> Map.get(:why) =~ "não está saindo"
     end
 
+    # O FREIO. Medido na noite de 27→28/08: o estoque de revives acabou às
+    # 23:43 e o bot passou 4,9 horas apertando uma tecla vazia, andando a rota
+    # com o pokémon no chão. Um punhado de pedidos sem resposta é um revive que
+    # não vem; horas deles não podem ser uma noite.
+    test "depois do prazo ele desiste: para de andar, para de pedir, e diz por quê" do
+      {logic, _} = step(caido(), 0)
+      {logic, antes} = step(logic, caido(), @config.downed_give_up_ms - 1_000)
+
+      assert antes.phase == :downed
+      assert antes.route == :go
+
+      {logic, orders} = step(logic, caido(), @config.downed_give_up_ms + 1_000)
+
+      assert logic.state == :stranded
+      assert orders.phase == :stranded
+      assert orders.route == :hold
+      assert orders.revive == :hold
+      assert orders.fire == :hold
+      assert orders.why =~ "parando a caçada"
+    end
+
+    test "o freio desligado (0) deixa a insistência lenta de sempre" do
+      sem_freio = Config.merge(%{bunch_ms: 0, gather_target: 1, downed_give_up_ms: 0})
+      logic = Logic.new()
+
+      {logic, _} = Logic.step(logic, caido(), sem_freio, 0)
+      {_logic, orders} = Logic.step(logic, caido(), sem_freio, 3_600_000)
+
+      assert orders.phase == :downed
+    end
+
+    # O freio não é um trilho sem volta no CÉREBRO: se o corpo voltar (ele
+    # repôs o estoque e reviveu na mão), a régua volta a decidir como sempre.
+    # Quem é terminal é o bloqueio da caçada, e o dono de soltar é ele.
+    test "o corpo de volta depois do freio devolve a régua" do
+      {logic, _} = step(caido(), 0)
+      {logic, desistiu} = step(logic, caido(), @config.downed_give_up_ms + 1_000)
+      assert desistiu.phase == :stranded
+
+      {_logic, orders} =
+        step(logic, world(%{hunt: hunt(%{state: :fighting})}), @config.downed_give_up_ms + 5_000)
+
+      refute orders.phase in [:stranded, :downed]
+    end
+
     test "o corpo de volta retoma a caçada" do
       {logic, _} = step(caido(), 1_000)
       {_logic, orders} = step(logic, world(%{hunt: hunt(%{state: :fighting})}), 2_000)

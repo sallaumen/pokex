@@ -1278,8 +1278,14 @@ defmodule Pokex.Settings do
     engine_reset_revive_min_hp: 0,
     # …and the route only walks again above this.
     engine_resume_pct: 80,
-    # A revive that never lands must not end the night standing still.
+    # A revive that never lands must not end the night standing still —
+    # o pedido desacelera pra um por meio minuto…
     engine_recover_timeout_ms: 30_000,
+    # …e DESISTE aqui. Cinco minutos de chão são dez pedidos lentos sem resposta:
+    # o estoque acabou, e ninguém repõe revive às 3 da manhã. Medido na noite de
+    # 27→28/08 sem este freio: 4,9 horas apertando uma tecla vazia, a rota
+    # andando com o pokémon morto. Zero desliga o freio.
+    engine_downed_give_up_ms: 300_000,
     # Nor may closing a round wait forever for a pile that stopped coming — the
     # ceiling this same number doubles as, for when to give up and revive.
     engine_closing_timeout_ms: 8_000,
@@ -1687,6 +1693,7 @@ defmodule Pokex.Settings do
     engine_band_red_pct: 0..100,
     engine_resume_pct: 1..100,
     engine_recover_timeout_ms: 1_000..600_000,
+    engine_downed_give_up_ms: 0..7_200_000,
     engine_closing_timeout_ms: 100..600_000,
     engine_revive_confirm_ms: 500..600_000,
     sim_respawn_ms: 1_000..600_000,

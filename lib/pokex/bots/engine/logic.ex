@@ -292,12 +292,30 @@ defmodule Pokex.Bots.Engine.Logic do
           )
     }
 
-    if elapsed?(t, :downed_asked, asking_every(t)) do
-      {mark(t.logic, :downed_asked, t.now),
-       Orders.walking(:downed, t.band, downed_why(t), revive: :now)}
-    else
-      {t.logic,
-       Orders.walking(:downed, t.band, "sem pokémon em campo — nada a atacar até ele voltar")}
+    cond do
+      # O FIM DA INSISTÊNCIA. Medido na noite de 27→28/08: o estoque de revives
+      # acabou às 23:43 e o bot passou 4,9 HORAS apertando uma tecla vazia — 605
+      # despachos, a rota andando com o pokémon no chão, a estagnação alarmando
+      # 73 vezes sem frear nada. Um punhado de pedidos que não mudaram nada é um
+      # revive que não está vindo; horas deles é uma noite inteira jogada fora.
+      # Daqui a ordem é PARAR: a rota segura, o pedido cala, e a caçada (que lê
+      # esta fase) bloqueia a frota de vez — repor o estoque é trabalho de gente.
+      t.config.downed_give_up_ms > 0 and down_for(t) >= t.config.downed_give_up_ms ->
+        {%{t.logic | state: :stranded},
+         Orders.standing(
+           :stranded,
+           t.band,
+           "#{div(down_for(t), 60_000)}min de revive sem devolver ninguém — " <>
+             "sem estoque não há noite: parando a caçada"
+         )}
+
+      elapsed?(t, :downed_asked, asking_every(t)) ->
+        {mark(t.logic, :downed_asked, t.now),
+         Orders.walking(:downed, t.band, downed_why(t), revive: :now)}
+
+      true ->
+        {t.logic,
+         Orders.walking(:downed, t.band, "sem pokémon em campo — nada a atacar até ele voltar")}
     end
   end
 

@@ -186,7 +186,7 @@ defmodule PokexWeb.CalibrationLibrary do
       >
         <span
           :if={sample["painted"]}
-          class="absolute -left-1 -top-1 z-10 text-[10px] leading-none"
+          class="absolute -left-1 -top-1 z-10 text-pk-meta leading-none"
           title="pintada à mão — troque quando o corpo real aparecer"
         >
           🎨
@@ -198,7 +198,7 @@ defmodule PokexWeb.CalibrationLibrary do
           class="size-10 rounded border border-pk-line bg-pk-bg [image-rendering:pixelated]"
         />
         <button
-          class="absolute -right-1 -top-1 hidden size-4 items-center justify-center rounded-full bg-pk-danger text-[10px] leading-none text-pk-bg group-hover:flex group-focus-within:flex focus-visible:flex"
+          class="absolute -right-1 -top-1 hidden size-4 items-center justify-center rounded-full bg-pk-danger text-pk-meta leading-none text-pk-bg group-hover:flex group-focus-within:flex focus-visible:flex"
           phx-click={@event}
           phx-value-slug={@slug}
           {sample_index(@value_key, idx)}

@@ -319,7 +319,7 @@ defmodule PokexWeb.PokedexLive do
     ~H"""
     <div id={@id} class="flex flex-wrap items-center gap-1" title={@hint}>
       <span class="mr-0.5 w-24 shrink-0">
-        {@label}<span :if={@selected != []} class="text-[#3de083]">({length(@selected)})</span>
+        {@label}<span :if={@selected != []} class="text-pk-ok">({length(@selected)})</span>
       </span>
       <button
         :for={option <- @options}
@@ -329,9 +329,9 @@ defmodule PokexWeb.PokedexLive do
         phx-value-option={option}
         style={@style_fun.(option)}
         class={[
-          "rounded px-1.5 py-0.5 font-mono text-[10px] transition",
+          "rounded px-1.5 py-0.5 font-mono text-pk-meta transition",
           if(option in @selected,
-            do: "ring-1 ring-[#37d07d]/70",
+            do: "ring-1 ring-pk-ok/70",
             else: "opacity-40 hover:opacity-90"
           )
         ]}
@@ -343,7 +343,7 @@ defmodule PokexWeb.PokedexLive do
         type="button"
         phx-click="clear_filter"
         phx-value-key={@param}
-        class="rounded px-1 py-0.5 text-[#89939a] hover:bg-[#161b1f] hover:text-white"
+        class="rounded px-1 py-0.5 text-pk-text-2 hover:bg-pk-raised hover:text-white"
       >
         limpar ×
       </button>
@@ -352,7 +352,7 @@ defmodule PokexWeb.PokedexLive do
   end
 
   attr :element, :string, required: true
-  attr :class, :string, default: "px-1 py-0.5 text-[9px]"
+  attr :class, :string, default: "px-1 py-0.5 text-pk-meta"
 
   defp element_chip(assigns) do
     assigns = assign(assigns, :icon, PokedexStyle.element_icon(assigns.element))
@@ -420,26 +420,26 @@ defmodule PokexWeb.PokedexLive do
         <p
           :if={@sync_msg}
           id="sync-status"
-          class="rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5 font-mono text-[10px] text-pk-text-2"
+          class="rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5 font-mono text-pk-meta text-pk-text-2"
         >
           {@sync_msg}
         </p>
 
         <section
           :if={not @loaded?}
-          class="rounded-lg border border-[#674f20] bg-[#211b0d] p-4 text-sm text-[#e7ca82]"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4 text-sm text-pk-warn"
         >
           Sem dados ainda — clica em "🔄 Sincronizar wiki" aí em cima (ou roda
           <code class="font-mono">mix pokedex.sync</code>
           no terminal) pra popular a base.
         </section>
 
-        <section :if={@loaded?} class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+        <section :if={@loaded?} class="rounded-lg border border-pk-line bg-pk-surface p-3">
           <.form
             for={@form}
             id="pokedex-filter-form"
             phx-change="filter"
-            class="flex flex-wrap items-end gap-2 font-mono text-[10px] text-[#77828a]"
+            class="flex flex-wrap items-end gap-2 font-mono text-pk-meta text-pk-text-2"
           >
             <label class="flex flex-col gap-1">
               nome
@@ -449,7 +449,7 @@ defmodule PokexWeb.PokedexLive do
                 value={@form[:name].value}
                 placeholder='ex.: seadra  (atalho: "/")'
                 data-quick-search
-                class="input input-bordered h-9 w-40 bg-[#090d0f] font-mono text-sm"
+                class="input input-bordered h-9 w-40 bg-pk-bg font-mono text-sm"
               />
             </label>
             <label class="flex flex-col gap-1">
@@ -458,7 +458,7 @@ defmodule PokexWeb.PokedexLive do
                 type="number"
                 name="f[min_level]"
                 value={@form[:min_level].value}
-                class="input input-bordered h-9 w-20 bg-[#090d0f] font-mono text-sm"
+                class="input input-bordered h-9 w-20 bg-pk-bg font-mono text-sm"
               />
             </label>
             <label class="flex flex-col gap-1">
@@ -467,7 +467,7 @@ defmodule PokexWeb.PokedexLive do
                 type="number"
                 name="f[max_level]"
                 value={@form[:max_level].value}
-                class="input input-bordered h-9 w-20 bg-[#090d0f] font-mono text-sm"
+                class="input input-bordered h-9 w-20 bg-pk-bg font-mono text-sm"
               />
             </label>
             <label class="flex flex-col gap-1" title="normais, shinies, ou os dois">
@@ -475,7 +475,7 @@ defmodule PokexWeb.PokedexLive do
               <select
                 id="filter-variant"
                 name="f[variant]"
-                class="select select-bordered h-9 w-40 bg-[#090d0f] font-mono text-sm"
+                class="select select-bordered h-9 w-40 bg-pk-bg font-mono text-sm"
               >
                 <option value="" selected={@form[:variant].value == ""}>
                   normais e shinies
@@ -490,7 +490,7 @@ defmodule PokexWeb.PokedexLive do
             </label>
           </.form>
 
-          <div class="mt-2 space-y-1.5 border-t border-[#1d2429] pt-2 font-mono text-[10px] text-[#77828a]">
+          <div class="mt-2 space-y-1.5 border-t border-pk-raised pt-2 font-mono text-pk-meta text-pk-text-2">
             <.filter_chips
               id="filter-elements"
               label="elemento"
@@ -531,7 +531,7 @@ defmodule PokexWeb.PokedexLive do
 
           <div
             id="pokedex-sort"
-            class="mt-2 flex flex-wrap items-center gap-1 border-t border-[#1d2429] pt-2 font-mono text-[10px] text-[#737d85]"
+            class="mt-2 flex flex-wrap items-center gap-1 border-t border-pk-raised pt-2 font-mono text-pk-meta text-pk-text-3"
           >
             <span class="mr-0.5">ordenar</span>
             <button
@@ -546,8 +546,8 @@ defmodule PokexWeb.PokedexLive do
               class={[
                 "rounded px-1.5 py-0.5 transition",
                 if(@sort == key,
-                  do: "bg-[#17231c] text-[#3de083] ring-1 ring-[#37d07d]/60",
-                  else: "text-[#89939a] hover:bg-[#161b1f] hover:text-white"
+                  do: "bg-pk-ok-dim text-pk-ok ring-1 ring-pk-ok/60",
+                  else: "text-pk-text-2 hover:bg-pk-raised hover:text-white"
                 )
               ]}
             >
@@ -555,7 +555,7 @@ defmodule PokexWeb.PokedexLive do
             </button>
           </div>
 
-          <p id="pokedex-count" class="mt-2 font-mono text-[10px] text-[#737d85]">
+          <p id="pokedex-count" class="mt-2 font-mono text-pk-meta text-pk-text-3">
             {@total} resultado(s){if @cursor, do: " — #{@loaded} carregados"}
             <span :if={@synced_at} id="synced-at">
               · sincronizado {short_stamp(@synced_at)}
@@ -575,10 +575,10 @@ defmodule PokexWeb.PokedexLive do
               <.link
                 navigate={~p"/pokedex/#{entry.name}"}
                 class={[
-                  "block rounded-lg border bg-[#101418] px-2.5 py-2 transition hover:border-[#37d07d]/60",
+                  "block rounded-lg border bg-pk-raised px-2.5 py-2 transition hover:border-pk-ok/60",
                   if(entry.variant == "shiny",
-                    do: "border-[#674f20]",
-                    else: "border-[#232b30]"
+                    do: "border-pk-warn-line",
+                    else: "border-pk-line"
                   )
                 ]}
               >
@@ -595,15 +595,15 @@ defmodule PokexWeb.PokedexLive do
                     <p class="truncate text-sm font-semibold">
                       {entry.name}<span :if={entry.variant == "shiny"}> ✨</span>
                     </p>
-                    <p class="flex flex-wrap items-center gap-1 font-mono text-[9px] text-[#737d85]">
+                    <p class="flex flex-wrap items-center gap-1 font-mono text-pk-meta text-pk-text-3">
                       <span :if={entry.number}>#{entry.number}</span>
-                      <span class="rounded bg-[#161b1f] px-1 py-0.5 text-[#aeb6bd]">
+                      <span class="rounded bg-pk-raised px-1 py-0.5 text-pk-text-2">
                         lv {entry.level || "?"}
                       </span>
-                      <span :if={entry.tier} class="rounded bg-[#161b1f] px-1 py-0.5 text-[#aeb6bd]">
+                      <span :if={entry.tier} class="rounded bg-pk-raised px-1 py-0.5 text-pk-text-2">
                         tier {entry.tier}
                       </span>
-                      <span :if={entry.generation} class="rounded bg-[#161b1f] px-1 py-0.5">
+                      <span :if={entry.generation} class="rounded bg-pk-raised px-1 py-0.5">
                         gen {entry.generation}
                       </span>
                       <.element_chip :for={el <- entry.elements} element={el} />
@@ -612,7 +612,7 @@ defmodule PokexWeb.PokedexLive do
                 </div>
                 <p
                   :if={entry.weak_to != []}
-                  class="mt-1 flex flex-wrap items-center gap-1 font-mono text-[9px] text-[#59636b]"
+                  class="mt-1 flex flex-wrap items-center gap-1 font-mono text-pk-meta text-pk-text-3"
                 >
                   fraco a <.element_chip :for={el <- entry.weak_to} element={el} />
                 </p>
@@ -625,14 +625,14 @@ defmodule PokexWeb.PokedexLive do
               :if={@cursor}
               id="load-more"
               phx-click="load_more"
-              class="btn h-8 border border-[#293238] bg-transparent px-4 font-mono text-[10px] text-[#89939a] hover:border-[#37d07d]/60 hover:text-white"
+              class="btn h-8 border border-pk-line bg-transparent px-4 font-mono text-pk-meta text-pk-text-2 hover:border-pk-ok/60 hover:text-white"
             >
               carregar mais ({@total - @loaded} restantes)
             </button>
             <p
               :if={@cursor == nil and @total > Pokedex.page_size()}
               id="list-end"
-              class="font-mono text-[10px] text-[#59636b]"
+              class="font-mono text-pk-meta text-pk-text-3"
             >
               — fim da lista ({@total}) —
             </p>

@@ -97,7 +97,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute -top-4 right-0 rounded bg-success px-1 text-[10px] font-bold text-success-content"
+          class="overlay-label absolute -top-4 right-0 rounded bg-success px-1 text-pk-meta font-bold text-success-content"
         >
           busca de corpos
         </span>
@@ -112,7 +112,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content"
+          class="overlay-label absolute -top-4 left-0 rounded bg-info px-1 text-pk-meta font-bold text-info-content"
         >
           brilho
         </span>
@@ -128,7 +128,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute -top-4 left-0 rounded bg-primary px-1 text-[10px] font-bold text-primary-content"
+          class="overlay-label absolute -top-4 left-0 rounded bg-primary px-1 text-pk-meta font-bold text-primary-content"
         >
           mini game
         </span>
@@ -143,7 +143,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute -top-4 left-0 rounded bg-info px-1 text-[10px] font-bold text-info-content"
+          class="overlay-label absolute -top-4 left-0 rounded bg-info px-1 text-pk-meta font-bold text-info-content"
         >
           minimapa
         </span>
@@ -158,7 +158,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute -top-4 left-0 rounded bg-error px-1 text-[10px] font-bold text-error-content"
+          class="overlay-label absolute -top-4 left-0 rounded bg-error px-1 text-pk-meta font-bold text-error-content"
         >
           coordenada
         </span>
@@ -173,7 +173,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute -top-4 left-0 rounded bg-warning px-1 text-[10px] font-bold text-warning-content"
+          class="overlay-label absolute -top-4 left-0 rounded bg-warning px-1 text-pk-meta font-bold text-warning-content"
         >
           Battle
         </span>
@@ -188,7 +188,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute -top-4 left-0 rounded bg-secondary px-1 text-[10px] font-bold text-secondary-content"
+          class="overlay-label absolute -top-4 left-0 rounded bg-secondary px-1 text-pk-meta font-bold text-secondary-content"
         >
           skills
         </span>
@@ -203,7 +203,7 @@ defmodule PokexWeb.CalibrationOverlay do
         <span
           :for={{key, i} <- Enum.with_index(Pokex.Bots.SkillBar.keys(@skill_bar_count))}
           :if={!@quiet}
-          class="absolute top-0 bottom-0 flex items-end justify-center border-l border-secondary/60 pb-px text-[9px] font-bold text-secondary first:border-l-0"
+          class="absolute top-0 bottom-0 flex items-end justify-center border-l border-secondary/60 pb-px text-pk-meta font-bold text-secondary first:border-l-0"
           style={"left:#{i * 100 / @skill_bar_count}%;width:#{100 / @skill_bar_count}%"}
         >
           {key}
@@ -219,7 +219,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute -top-4 left-0 rounded bg-accent px-1 text-[10px] font-bold text-accent-content"
+          class="overlay-label absolute -top-4 left-0 rounded bg-accent px-1 text-pk-meta font-bold text-accent-content"
         >
           vida
         </span>
@@ -234,7 +234,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute -top-4 left-0 rounded bg-warning px-1 text-[10px] font-bold text-warning-content"
+          class="overlay-label absolute -top-4 left-0 rounded bg-warning px-1 text-pk-meta font-bold text-warning-content"
         >
           VOCÊ
         </span>
@@ -249,7 +249,7 @@ defmodule PokexWeb.CalibrationOverlay do
       >
         <span
           :if={!@quiet}
-          class="overlay-label absolute left-0 top-1/2 -translate-y-1/2 rounded-r bg-error px-1 text-[10px] font-bold leading-tight text-error-content"
+          class="overlay-label absolute left-0 top-1/2 -translate-y-1/2 rounded-r bg-error px-1 text-pk-meta font-bold leading-tight text-error-content"
         >
           L{i}
         </span>
@@ -293,7 +293,7 @@ defmodule PokexWeb.CalibrationOverlay do
       <div
         :if={@minimap_player_point}
         class={[
-          "absolute -ml-2 -mt-2 grid size-4 place-items-center rounded-full text-[10px] font-black leading-none text-info",
+          "absolute -ml-2 -mt-2 grid size-4 place-items-center rounded-full text-pk-meta font-black leading-none text-info",
           box(@quiet, "border-2 border-info bg-info/30 shadow", "border border-info/80")
         ]}
         style={point_style(@minimap_player_point, @screen)}
@@ -392,12 +392,12 @@ defmodule PokexWeb.CalibrationOverlay do
       <div class="flex flex-wrap gap-3">
         <div :for={{key, label, kind, region} <- @crops} class="space-y-1">
           <div class="flex items-center gap-1.5">
-            <p class="font-mono text-[10px] opacity-70">{label}</p>
+            <p class="font-mono text-pk-meta opacity-70">{label}</p>
             <button
               :if={@adjustable?}
               id={"adjust-#{key}"}
               class={[
-                "btn btn-ghost btn-xs h-5 min-h-0 px-1 text-[10px]",
+                "btn btn-ghost btn-xs h-5 min-h-0 px-1 text-pk-meta",
                 @adjust_target == key && "btn-active text-primary"
               ]}
               phx-click="adjust_target"
@@ -410,7 +410,7 @@ defmodule PokexWeb.CalibrationOverlay do
               :if={key == :minimap_coord_region and @coord_probe != nil}
               id="coord-probe"
               class={[
-                "rounded px-1 font-mono text-[10px] font-bold",
+                "rounded px-1 font-mono text-pk-meta font-bold",
                 match?({:ok, _}, @coord_probe) && "bg-success/20 text-success",
                 @coord_probe == :error && "bg-error/20 text-error"
               ]}
@@ -423,7 +423,7 @@ defmodule PokexWeb.CalibrationOverlay do
             <span
               :if={key == :minimap_player_point and @stray_cross != nil}
               id="stray-cross"
-              class="rounded bg-error/20 px-1 font-mono text-[10px] font-bold text-error"
+              class="rounded bg-error/20 px-1 font-mono text-pk-meta font-bold text-error"
               title={"a cruz foi marcada em #{inspect(@stray_cross)}, fora do mapa — todo passo partiria do canto. Remarca a cruz."}
             >
               cruz fora do mapa — usando o centro

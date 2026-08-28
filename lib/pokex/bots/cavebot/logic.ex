@@ -84,7 +84,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | :run_combat
           | :halt_combat
           | {:nudge, integer, integer}
-          | {:sweep, Route.spot() | nil}
           | :cooldown_revive
           | {:park, Route.spot()}
           | {:skills, [Route.skill()]}
@@ -96,8 +95,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
           :combat_state => atom,
           :capture_pending => non_neg_integer,
           :capture_changed_at => integer | nil,
-          :sweep_pending => non_neg_integer,
-          :sweep_changed_at => integer | nil,
           # own pokémon's HP — nil when the bar is unreadable (recalled into
           # the ball, covered) or the :pokemon fact is stale/absent
           :hp_pct => integer | nil,
@@ -122,7 +119,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
           post_kill_dwell_ms: non_neg_integer,
           blind_kick_ms: non_neg_integer,
           capture_wait_ms: non_neg_integer,
-          sweep_grace_ms: non_neg_integer,
           stop_wait_ms: non_neg_integer,
           gather_wait_ms: non_neg_integer,
           stair_probe_ms: non_neg_integer,
@@ -770,7 +766,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # "ele já sai usando todas as esquinas antes da hora".
   #
   # Only PLAIN corners are chained: a mark (`:lure_start`/`:lure_end`) or a
-  # stop carries side effects — the huddle clock, the sweep, the revive — and
+  # stop carries side effects — the huddle clock, the revive, the wait — and
   # skipping those would trade a cosmetic problem for a real one. The chain
   # stops at the first corner that is either marked or genuinely away from
   # here, which is the first one that needs walking.
@@ -983,11 +979,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
   #   * the probe budget, which is per-STAIRCASE: carried into the next one, the
   #     32 probes `cavebot_stair_max_probes` promises were already half spent on
   #     a staircase nobody is looking for any more;
-  #   * the round of stops, which `next_stop/1` and `park_spot/1` read off "the
-  #     waypoint the hunt last REACHED" — the corner behind the index, which
-  #     after a skip is the one it gave up on. The first fight after a skip ran
-  #     that corner's round: a ball at a pile that died somewhere else, a revive
-  #     spent, seconds standing still. The round is marked SPENT instead of
+  #   * the round of stops, which `next_stop/1` reads off "the waypoint the
+  #     hunt last REACHED" — the corner behind the index, which after a skip is
+  #     the one it gave up on. The first fight after a skip ran that corner's
+  #     round: a revive spent on nothing, seconds standing still where no pile
+  #     died. The round is marked SPENT instead of
   #     empty, because arriving somewhere new is what arms it again.
   defp skip_waypoint(logic, now) do
     next = rem(logic.wp_index + 1, length(logic.route.waypoints))
@@ -1030,8 +1026,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # — que é o padrão de produção — toda tela limpa responde `route: :go`, e a
   # luta ia direto pro `follow_route` sem NUNCA passar pelo `fight_clear/2`, que
   # é a única porta do `:post_fight`. A caçada latchava em `:fighting` para
-  # sempre: sumia a rodada da esquina (a varredura do Catcher, o revive de
-  # cooldown) e, caro, o `post_kill_dwell_ms` nunca segurava o pé — o
+  # sempre: sumia a rodada da esquina (o revive de cooldown, a espera) e,
+  # caro, o `post_kill_dwell_ms` nunca segurava o pé — o
   # personagem anda debaixo da bola enquanto o Catcher mira num ponto de TELA.
   #
   # Limpa é `enemies == 0` com nada engajado, e `nil` NÃO é limpo: "não consigo
@@ -1099,9 +1095,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # `:clear` sai junto, e por um motivo próprio: só se chega aqui com bicho na
   # tela (ou sem leitura), e uma tela com bicho não está limpa. Um carimbo velho
   # sobrevivia à caminhada inteira, e então um tique curto de `:hold` com a tela
-  # limpa caía direto em `:post_fight` numa esquina arbitrária — `next_stop/1` e
-  # `park_spot/1` leem `wp_index - 1`, a esquina onde ela por acaso está, não
-  # onde a pilha morreu.
+  # limpa caía direto em `:post_fight` numa esquina arbitrária — `next_stop/1`
+  # lê `wp_index - 1`, a esquina onde ela por acaso está, não onde a pilha
+  # morreu.
   defp fight_clocks(logic, world, _now) do
     %{
       logic
@@ -1276,11 +1272,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # The corpse belongs to the CAPTURE, and a sweep is seconds of Body time
-  # against a 1.2s dwell: resuming the route on the clock alone walked away
-  # mid-catch and made both workers fight over the same hands. So the dwell
-  # ends when the Catcher has nothing queued — capped, because a stuck Catcher
-  # must never freeze the hunt.
+  # The corpse belongs to the CAPTURE, and picking one up is seconds of Body
+  # time against a 1.2s dwell: resuming the route on the clock alone walked
+  # away mid-catch and made both workers fight over the same hands. So the
+  # dwell ends when the Catcher has nothing queued — capped, because a stuck
+  # Catcher must never freeze the hunt.
   defp post_fight(logic, world, now) do
     dwell_since = Map.get(logic.since, :dwell, now)
 
@@ -1292,7 +1288,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
       # clear again.
       world.enemies > 0 or engaged?(world) -> enter_fight(logic, now)
       capturing?(world, now, logic.config.capture_wait_ms) -> {logic, :none}
-      sweeping?(logic, world, now) -> {logic, :none}
       standing_by?(logic, now) -> {logic, :none}
       next_stop(logic) -> run_stop(logic, next_stop(logic), world, now)
       # The stops above still ran — a :cooldown_revive IS the recovery — but
@@ -1313,12 +1308,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
     wanted = Route.stops_at(waypoints, Integer.mod(logic.wp_index - 1, length(waypoints)))
 
     Enum.find(Route.stops(), &(&1 in wanted and &1 not in logic.stops_done))
-  end
-
-  # The sweep is centred where the corpses ARE: after a gathered fight they lie
-  # around the tile the pokémon was parked on, several tiles from him.
-  defp run_stop(logic, :sweep, _world, now) do
-    {mark_done(logic, :sweep, :sweep, now), {:sweep, park_spot(logic)}}
   end
 
   # Reviving resets every cooldown: the fastest way back to a full bar is to
@@ -1346,13 +1335,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
     {mark_done(logic, :wait, :stop_wait, now), :none}
   end
 
-  defp park_spot(%__MODULE__{route: %Route{waypoints: []}}), do: nil
-
-  defp park_spot(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
-    index = Integer.mod(logic.wp_index - 1, length(waypoints))
-    Route.park_spot(Enum.at(waypoints, index), default_park(logic))
-  end
-
   defp mark_done(logic, stop, since_key, now) do
     since = if since_key, do: Map.put(logic.since, since_key, now), else: logic.since
     %{logic | stops_done: [stop | logic.stops_done], since: since}
@@ -1367,32 +1349,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # Waiting on the sweep follows the same rule as waiting on the capture: a
-  # queue that is not MOVING is a queue nobody is working, and the hunt must
-  # never be held by one. The first tick after the request has no queue yet, so
-  # a short grace lets the Catcher build one before the wait can end.
-  defp sweeping?(logic, world, now) do
-    case Map.get(logic.since, :sweep) do
-      nil ->
-        false
-
-      asked_at ->
-        pending = Map.get(world, :sweep_pending, 0)
-        changed_at = Map.get(world, :sweep_changed_at)
-        cap = logic.config.capture_wait_ms
-
-        cond do
-          now - asked_at < logic.config.sweep_grace_ms -> true
-          pending > 0 and changed_at != nil and now - changed_at < cap -> true
-          true -> false
-        end
-    end
-  end
-
-  # Waiting on a queue that is not MOVING is waiting forever: the sweep is
-  # deferred outside the standing mode, and a corpse the Catcher gave up on
-  # never leaves the count. So the hunt waits while the queue is non-empty AND
-  # still changing — the same rule that told a long fight from a stalled one.
+  # Waiting on a queue that is not MOVING is waiting forever: a corpse the
+  # Catcher gave up on never leaves the count. So the hunt waits while the
+  # queue is non-empty AND still changing — the same rule that told a long
+  # fight from a stalled one.
   defp capturing?(world, now, wait_ms) do
     pending = Map.get(world, :capture_pending, 0)
     changed_at = Map.get(world, :capture_changed_at)
@@ -1404,14 +1364,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
     if now - dwell_since >= logic.config.post_kill_dwell_ms do
       since =
         logic.since
-        |> Map.drop([:dwell, :sweep, :stop_wait])
+        |> Map.drop([:dwell, :stop_wait])
         |> Map.put(:walk_progress, now)
 
       # `stops_done` is NOT cleared here: it belongs to the WAYPOINT, not to
       # this episode. Clearing it on the way out meant a new enemy arriving
       # before he left the corner sent the whole round again — his journal,
-      # 2026-08-11, waypoint 33: sweep+revive at 232370, a fresh mob, and the
-      # same two at 244000. Arriving somewhere new is what arms them again
+      # 2026-08-11, waypoint 33: the whole round at 232370, a fresh mob, and
+      # the same round again at 244000. Arriving somewhere new arms them again
       # (see `arrived/3`).
       {%{logic | state: :walking, since: since, last_pos: nil}, :none}
     else

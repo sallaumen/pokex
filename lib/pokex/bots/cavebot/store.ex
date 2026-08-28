@@ -97,11 +97,14 @@ defmodule Pokex.Bots.Cavebot.Store do
     do:
       raise(ArgumentError, "sem a chave \"routes\": #{inspect(shapeless) |> String.slice(0, 80)}")
 
+  # `"z"` is read past on purpose: routes written before 2026-08-28 carry the
+  # floor they started on, and nothing has read it since `floors/1` started
+  # deriving the whole set from the waypoints. It leaves the file the next time
+  # the route is saved.
   defp decode_route(map) do
     %Route{
       name: map["name"],
       dungeon: map["dungeon"],
-      z: map["z"],
       enabled?: map["enabled"] != false,
       gather_wait_ms: decode_dwell(map["gather_wait_ms"]),
       waypoints: Enum.map(map["waypoints"] || [], &decode_waypoint/1)
@@ -160,14 +163,14 @@ defmodule Pokex.Bots.Cavebot.Store do
   defp decode_dwell(value) when is_integer(value) and value >= 0, do: value
   defp decode_dwell(_absent), do: nil
 
-  # Whitelisted, like the action. `"sweep" => true` is the shape the very first
-  # marked routes were written with, before stops became a list — it reads as
-  # `[:sweep]` forever.
+  # Whitelisted, like the action — which is also what drops `"sweep"` off every
+  # route recorded before 2026-08-28 without touching the file: the stop was
+  # removed from `Route.stops/0`, so the name matches nothing and the waypoint
+  # loads carrying only the stops that still exist.
   defp decode_stops(%{"stops" => list}) when is_list(list) do
     for {name, stop} <- @stop_names, name in list, do: stop
   end
 
-  defp decode_stops(%{"sweep" => true}), do: [:sweep]
   defp decode_stops(_none), do: []
 
   # Whitelisted, never `String.to_atom/1`: the file is user-editable, and a
@@ -181,7 +184,6 @@ defmodule Pokex.Bots.Cavebot.Store do
     %{
       "name" => route.name,
       "dungeon" => route.dungeon,
-      "z" => route.z,
       "enabled" => route.enabled?,
       "gather_wait_ms" => route.gather_wait_ms,
       "waypoints" => Enum.map(route.waypoints, &encode_waypoint/1)

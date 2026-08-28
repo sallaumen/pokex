@@ -29,10 +29,6 @@ defmodule Pokex.Bots.Cavebot.RouteFloorsTest do
       assert Enum.map(route.waypoints, & &1.z) == [7, 7, 6, 6]
     end
 
-    test "the route's z stays the floor it STARTS on — what the screen labels it" do
-      assert route_of([{0, 0, 7}, {5, 0, 6}]).z == 7
-    end
-
     test "floors/1 is the set of floors it visits, in order" do
       assert Route.floors(route_of([{0, 0, 7}, {5, 0, 6}, {9, 0, 7}])) == [6, 7]
       assert Route.floors(route_of([{0, 0, 7}])) == [7]
@@ -44,11 +40,11 @@ defmodule Pokex.Bots.Cavebot.RouteFloorsTest do
       assert Route.validate(route_of([{0, 0, 7}, {5, 0, 6}])) == :ok
     end
 
-    test "clear/1 forgets the floor too, so the next recording starts fresh" do
+    test "clear/1 empties the route, and with it every floor it knew" do
       cleared = Route.clear(route_of([{0, 0, 7}, {5, 0, 6}]))
 
       assert cleared.waypoints == []
-      assert cleared.z == nil
+      assert Route.floors(cleared) == []
     end
   end
 

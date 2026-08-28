@@ -364,7 +364,6 @@ defmodule Pokex.Sim.Runner do
       %{
         state: if(not luring? and on_nest?(world), do: :fighting, else: :walking),
         luring?: luring?,
-        gathering?: false,
         wp_index: leg,
         waypoints: length(world.route.waypoints),
         recovering?: false

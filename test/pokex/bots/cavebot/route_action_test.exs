@@ -97,62 +97,62 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
     end
   end
 
-  # "depois que matar tudo, fazer aquela varredura de captura antes de andar"
-  # (Lucas, 2026-08-10). Sweeping is a SECOND axis, not another job: the
-  # waypoint where the gathered pile dies is exactly the one worth sweeping,
-  # and it is already carrying "até aqui".
+  # A stop is a SECOND axis, not another job: the waypoint where the gathered
+  # pile dies is exactly the one worth reviving at, and it is already carrying
+  # "até aqui".
   describe "what the hunt does when it stops there" do
     test "a recorded waypoint does nothing beyond arriving" do
       assert [%{stops: []} | _rest] = square().waypoints
     end
 
     test "set_stop/4 turns one on, and only on that waypoint" do
-      route = Route.set_stop(square(), 2, :sweep, true)
+      route = Route.set_stop(square(), 2, :wait, true)
 
-      assert Enum.map(route.waypoints, & &1.stops) == [[], [], [:sweep], []]
-      assert Route.set_stop(route, 2, :sweep, false).waypoints |> Enum.all?(&(&1.stops == []))
+      assert Enum.map(route.waypoints, & &1.stops) == [[], [], [:wait], []]
+      assert Route.set_stop(route, 2, :wait, false).waypoints |> Enum.all?(&(&1.stops == []))
     end
 
     # The order is the RUNNING order, not the clicking order: the revive is
-    # instant and resets the bar, the sweep spends time usefully, and the
-    # plain wait is the last resort.
+    # instant and resets the bar, and the plain wait is the last resort.
     test "stops are kept in the order they run, however they were marked" do
       route =
         square()
         |> Route.set_stop(1, :wait, true)
-        |> Route.set_stop(1, :sweep, true)
         |> Route.set_stop(1, :cooldown_revive, true)
 
-      assert Route.stops_at(route.waypoints, 1) == [:cooldown_revive, :sweep, :wait]
+      assert Route.stops_at(route.waypoints, 1) == [:cooldown_revive, :wait]
     end
 
     test "turning one on twice does not double it" do
-      route = square() |> Route.set_stop(1, :sweep, true) |> Route.set_stop(1, :sweep, true)
+      route = square() |> Route.set_stop(1, :wait, true) |> Route.set_stop(1, :wait, true)
 
-      assert Route.stops_at(route.waypoints, 1) == [:sweep]
+      assert Route.stops_at(route.waypoints, 1) == [:wait]
     end
 
+    # `:sweep` is in the second list on purpose: it WAS a stop until
+    # 2026-08-28, and a route saved back then still names it.
     test "an index nobody has, or an action nobody knows, changes nothing" do
       route = square()
 
-      assert Route.set_stop(route, 9, :sweep, true) == route
+      assert Route.set_stop(route, 9, :wait, true) == route
       assert Route.set_stop(route, 1, :teleport, true) == route
+      assert Route.set_stop(route, 1, :sweep, true) == route
     end
 
-    test "a waypoint can gather AND sweep AND revive — they do not compete" do
+    test "a waypoint can gather AND wait AND revive — they do not compete" do
       route =
         square()
         |> Route.set_action(3, :lure_end)
-        |> Route.set_stop(3, :sweep, true)
+        |> Route.set_stop(3, :wait, true)
         |> Route.set_stop(3, :cooldown_revive, true)
 
-      assert %{action: :lure_end, stops: [:cooldown_revive, :sweep]} = Enum.at(route.waypoints, 3)
+      assert %{action: :lure_end, stops: [:cooldown_revive, :wait]} = Enum.at(route.waypoints, 3)
     end
 
     test "stops_at/2 answers for the waypoint the hunt just reached" do
-      waypoints = Route.set_stop(square(), 2, :sweep, true).waypoints
+      waypoints = Route.set_stop(square(), 2, :wait, true).waypoints
 
-      assert Route.stops_at(waypoints, 2) == [:sweep]
+      assert Route.stops_at(waypoints, 2) == [:wait]
       assert Route.stops_at(waypoints, 1) == []
       assert Route.stops_at(waypoints, 99) == []
     end
@@ -323,7 +323,7 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
     setup do
       legacy = %{x: 10, y: 10, z: 5, action: :walk, stops: []}
 
-      %{route: %Route{name: "meganium", z: 5, waypoints: [legacy]}, wp: legacy}
+      %{route: %Route{name: "meganium", waypoints: [legacy]}, wp: legacy}
     end
 
     test "carries no skills instead of blowing up", %{route: route} do
@@ -358,9 +358,9 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
     test "set_stop/4 survives a waypoint missing even the key it toggles", ctx do
       %{route: %Route{} = route} = ctx
       route = %{route | waypoints: Enum.map(route.waypoints, &Map.delete(&1, :stops))}
-      route = Route.set_stop(route, 0, :sweep, true)
+      route = Route.set_stop(route, 0, :wait, true)
 
-      assert Route.stops_at(route.waypoints, 0) == [:sweep]
+      assert Route.stops_at(route.waypoints, 0) == [:wait]
     end
   end
 end

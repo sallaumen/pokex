@@ -11,7 +11,6 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     post_kill_dwell_ms: 1200,
     blind_kick_ms: 1200,
     capture_wait_ms: 20_000,
-    sweep_grace_ms: 1500,
     stop_wait_ms: 5_000,
     gather_wait_ms: 4_000
   }
@@ -640,8 +639,8 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     end
   end
 
-  # The corpse belongs to the CAPTURE: a sweep is seconds of Body time against
-  # a 1.2s dwell, so resuming on the clock alone walked the hunt away
+  # The corpse belongs to the CAPTURE: picking one up is seconds of Body time
+  # against a 1.2s dwell, so resuming on the clock alone walked the hunt away
   # mid-catch and made both workers fight over the same hands.
   describe "post-fight, waiting for the capture" do
     defp fighting_logic do
@@ -649,7 +648,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     end
 
     # the queue's LAST CHANGE is what says the capture is working; a queue
-    # frozen at 2 is work nobody is going to do (the sweep, deferred)
+    # frozen at 2 is work nobody is going to do
     defp world_with_capture(pending, changed_at \\ 0) do
       %{
         pos: {10, 10, 7},
@@ -870,16 +869,16 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     end
   end
 
-  # "depois que matar tudo, fazer aquela varredura de captura antes de andar e
-  # continuar a rota" (Lucas, 2026-08-10).
-  describe "sweeping where the pile died" do
+  # "Cooldown Ressurect ... Q -> Shift + Q na foto do pokemon -> Q, para
+  # reviver, o que faz com que ele recupere os cooldowns" (Lucas, 2026-08-10) —
+  # and its poor relation, the plain "esperar", for a pokémon with no revive to
+  # spend. Two stops, and the round they make together.
+  describe "what the hunt does at a stop" do
     defp stop_route(stops) do
       {:ok, r} = Route.append(Route.new("r"), {10, 10, 7})
       {:ok, r} = Route.append(r, {20, 10, 7})
       Enum.reduce(stops, r, &Route.set_stop(&2, 0, &1, true))
     end
-
-    defp swept_route, do: stop_route([:sweep])
 
     defp after_kill_at(index, route) do
       %{
@@ -892,139 +891,57 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       }
     end
 
-    defp swept_world(pending, changed_at) do
+    # A clear screen with nothing left to capture: whatever holds the hunt
+    # here is the stop round itself, never the Catcher.
+    defp quiet_world do
       %{
         pos: {10, 10, 7},
         enemies: 0,
         combat_state: :hunting,
         capture_pending: 0,
-        capture_changed_at: nil,
-        sweep_pending: pending,
-        sweep_changed_at: changed_at
+        capture_changed_at: nil
       }
     end
 
-    test "the hunt asks for ONE sweep at a marked waypoint, then waits" do
-      logic = after_kill_at(1, swept_route())
-
-      assert {logic, {:sweep, nil}} = Logic.step(logic, swept_world(0, nil), 10)
-      assert logic.state == :post_fight
-
-      # and never asks twice for the same stop
-      assert {logic, :none} = Logic.step(logic, swept_world(8, 20), 20)
-      assert logic.state == :post_fight
-    end
-
-    test "an unmarked waypoint sweeps nothing and leaves on the dwell" do
-      {:ok, plain} = Route.append(Route.new("r"), {10, 10, 7})
-      logic = after_kill_at(0, plain)
-
-      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 10)
-      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_300)
-      assert logic.state == :walking
-    end
-
-    test "the route waits while the sweep is WORKING, and leaves when it stops" do
-      logic = after_kill_at(1, swept_route())
-      {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
-
-      # queue moving: hold, however long the dwell says
-      {logic, :none} = Logic.step(logic, swept_world(8, 2_000), 2_100)
-      assert logic.state == :post_fight
-
-      {logic, :none} = Logic.step(logic, swept_world(3, 9_000), 9_100)
-      assert logic.state == :post_fight
-
-      # queue empty: the stop is over
-      {logic, :none} = Logic.step(logic, swept_world(0, 9_000), 10_000)
-      assert logic.state == :walking
-    end
-
-    # The grace exists for the first tick only: the Catcher has not built the
-    # queue yet, and an empty queue at that instant is not a finished sweep.
-    test "an empty queue right after the request is not a finished sweep" do
-      logic = after_kill_at(1, swept_route())
-      {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
-
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_400)
-      assert logic.state == :post_fight
-
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_600)
-      assert logic.state == :walking
-    end
-
-    # Same rule as every other wait in this machine: a queue that is not
-    # MOVING is a queue nobody is working, and it must never hold the road.
-    test "a frozen queue releases the hunt at the cap" do
-      logic = after_kill_at(1, swept_route())
-      {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
-
-      {logic, :none} = Logic.step(logic, swept_world(9, 1_000), 2_000)
-      assert logic.state == :post_fight
-
-      {logic, :none} = Logic.step(logic, swept_world(9, 1_000), 22_000)
-      assert logic.state == :walking
-    end
-
-    # The latch belongs to the WAYPOINT: leaving the corner does NOT clear it —
-    # a fresh mob arriving before he walks away would replay the whole round
-    # (his journal, 2026-08-11, waypoint 33) — arriving at the next one does.
-    test "the latch survives leaving, and the next arrival arms it again" do
-      logic = after_kill_at(1, swept_route())
-      {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 0)
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
-      assert logic.state == :walking
-      assert logic.stops_done == [:sweep]
-
-      {logic, _walk} = Logic.step(logic, %{swept_world(0, nil) | pos: {15, 10, 7}}, 2_100)
-      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | pos: {20, 10, 7}}, 2_200)
-      assert logic.stops_done == []
-    end
-  end
-
-  # "Cooldown Ressurect ... Q -> Shift + Q na foto do pokemon -> Q, para
-  # reviver, o que faz com que ele recupere os cooldowns" (Lucas, 2026-08-10).
-  describe "what else the hunt does at a stop" do
     test "the revive goes out once, and the route resumes right after" do
       logic = after_kill_at(1, stop_route([:cooldown_revive]))
 
-      assert {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 10)
-      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 20)
-      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_300)
+      assert {logic, :cooldown_revive} = Logic.step(logic, quiet_world(), 10)
+      assert {logic, :none} = Logic.step(logic, quiet_world(), 20)
+      assert {logic, :none} = Logic.step(logic, quiet_world(), 1_300)
       assert logic.state == :walking
     end
 
     test "the plain wait stands still for stop_wait_ms, then leaves" do
       logic = after_kill_at(1, stop_route([:wait]))
 
-      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 0)
-      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 4_000)
+      assert {logic, :none} = Logic.step(logic, quiet_world(), 0)
+      assert {logic, :none} = Logic.step(logic, quiet_world(), 4_000)
       assert logic.state == :post_fight
 
-      assert {logic, :none} = Logic.step(logic, swept_world(0, nil), 5_100)
+      assert {logic, :none} = Logic.step(logic, quiet_world(), 5_100)
       assert logic.state == :walking
     end
 
     # Marked together, they run in the canonical order — never two in one tick,
-    # because each one owns the Body while it lasts.
-    test "all three run in order, one per tick, and only then does it walk" do
-      logic = after_kill_at(1, stop_route([:wait, :sweep, :cooldown_revive]))
+    # because each one owns the Body while it lasts. The revive comes first
+    # precisely because it is instant and resets the bar: the wait after it is
+    # the seconds it saved.
+    test "both run in order, one per tick, and only then does it walk" do
+      logic = after_kill_at(1, stop_route([:wait, :cooldown_revive]))
 
-      assert {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
-      assert {logic, {:sweep, nil}} = Logic.step(logic, swept_world(0, nil), 10)
+      assert {logic, :cooldown_revive} = Logic.step(logic, quiet_world(), 0)
+      assert logic.stops_done == [:cooldown_revive]
 
-      # the sweep holds the road while its queue moves
-      {logic, :none} = Logic.step(logic, swept_world(6, 100), 200)
+      # the wait is next, and it is a wait: it holds the road on its own clock
+      assert {logic, :none} = Logic.step(logic, quiet_world(), 10)
+      assert logic.stops_done == [:wait, :cooldown_revive]
       assert logic.state == :post_fight
 
-      # queue drained: the wait is next, and it is a wait
-      {logic, :none} = Logic.step(logic, swept_world(0, 100), 2_000)
+      {logic, :none} = Logic.step(logic, quiet_world(), 4_900)
       assert logic.state == :post_fight
 
-      {logic, :none} = Logic.step(logic, swept_world(0, 100), 2_100)
-      assert logic.state == :post_fight
-
-      {logic, :none} = Logic.step(logic, swept_world(0, 100), 7_200)
+      {logic, :none} = Logic.step(logic, quiet_world(), 5_100)
       assert logic.state == :walking
     end
 
@@ -1032,116 +949,109 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     # push through: reviving recalls the pokémon, and doing that while
     # something is hitting it is the worst moment there is.
     test "an enemy arriving mid-stop sends the hunt back to fighting" do
-      logic = after_kill_at(1, stop_route([:cooldown_revive, :sweep]))
+      logic = after_kill_at(1, stop_route([:cooldown_revive, :wait]))
 
-      {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
+      {logic, :cooldown_revive} = Logic.step(logic, quiet_world(), 0)
 
-      world = %{swept_world(0, nil) | enemies: 2}
+      world = %{quiet_world() | enemies: 2}
       {logic, :none} = Logic.step(logic, world, 100)
       assert logic.state == :fighting
 
       # and an ENGAGED combat holds it there too, whatever the count says
-      logic = after_kill_at(1, stop_route([:sweep]))
-      world = %{swept_world(0, nil) | combat_state: :fighting}
+      logic = after_kill_at(1, stop_route([:wait]))
+      world = %{quiet_world() | combat_state: :fighting}
       {logic, :none} = Logic.step(logic, world, 100)
       assert logic.state == :fighting
     end
 
     test "what already ran is not run again when the new fight ends" do
-      logic = after_kill_at(1, stop_route([:cooldown_revive, :sweep]))
-      {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
+      logic = after_kill_at(1, stop_route([:cooldown_revive, :wait]))
+      {logic, :cooldown_revive} = Logic.step(logic, quiet_world(), 0)
 
       # interrupted, fought, cleared again
-      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | enemies: 1}, 100)
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 200)
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_100)
+      {logic, :none} = Logic.step(logic, %{quiet_world() | enemies: 1}, 100)
+      {logic, :none} = Logic.step(logic, quiet_world(), 200)
+      {logic, :none} = Logic.step(logic, quiet_world(), 1_100)
       assert logic.state == :post_fight
+      assert logic.stops_done == [:cooldown_revive]
 
-      # the sweep still owed goes out; the revive does NOT happen twice
-      assert {logic, {:sweep, _}} = Logic.step(logic, swept_world(0, nil), 1_200)
-      assert logic.stops_done == [:sweep, :cooldown_revive]
+      # the wait still owed goes out; the revive does NOT happen twice
+      assert {logic, :none} = Logic.step(logic, quiet_world(), 1_200)
+      assert logic.stops_done == [:wait, :cooldown_revive]
     end
 
-    # "esses corpos de pokémons não estão ao redor do meu personagem" (Lucas,
-    # 2026-08-11): he parks the pokémon with a middle click and the pile dies
-    # around IT. Sweeping around the character throws every ball at bare
-    # ground.
-    test "the sweep is centred where the pokémon was parked" do
-      route = Route.set_park_point(stop_route([:sweep]), 0, {2490, 417})
-      logic = after_kill_at(1, route)
-
-      assert {_logic, {:sweep, {:point, {2490, 417}}}} =
-               Logic.step(logic, swept_world(0, nil), 10)
-    end
-
-    # …and the same answer said the other way: a distance from the character,
-    # which is the Worker's job to turn into a point (this module has neither
-    # calibration nor screen).
-    test "a park spot given in tiles reaches the sweep as tiles" do
-      route = Route.set_park_tiles(stop_route([:sweep]), 0, {6, -2})
-      logic = after_kill_at(1, route)
-
-      assert {_logic, {:sweep, {:tiles, {6, -2}}}} = Logic.step(logic, swept_world(0, nil), 10)
-    end
-
-    test "with no parked point the sweep falls back to the character" do
-      logic = after_kill_at(1, stop_route([:sweep]))
-
-      assert {_logic, {:sweep, nil}} = Logic.step(logic, swept_world(0, nil), 10)
-    end
-
-    # From his own journal (2026-08-11), waypoint 33: sweep + revive at
-    # 232370/232702, a new enemy, and the SAME two again at 244000/244308.
+    # From his own journal (2026-08-11), waypoint 33: the whole round at
+    # 232370/232702, a new enemy, and the SAME round again at 244000/244308.
     # The latch was cleared on RESUMING, so a fight that started before he
-    # left the corner sent the whole stop round again. It belongs to the
+    # left the corner sent the stops out a second time. It belongs to the
     # WAYPOINT, not to the episode: arriving is what starts a new one.
     test "a fight after the stops does not run them a second time" do
-      logic = after_kill_at(1, stop_route([:cooldown_revive, :sweep]))
+      logic = after_kill_at(1, stop_route([:cooldown_revive, :wait]))
 
-      {logic, :cooldown_revive} = Logic.step(logic, swept_world(0, nil), 0)
-      {logic, {:sweep, _around}} = Logic.step(logic, swept_world(0, nil), 100)
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
+      {logic, :cooldown_revive} = Logic.step(logic, quiet_world(), 0)
+      {logic, :none} = Logic.step(logic, quiet_world(), 100)
+      assert logic.stops_done == [:wait, :cooldown_revive]
+
+      {logic, :none} = Logic.step(logic, quiet_world(), 5_200)
       assert logic.state == :walking
 
       # an enemy walks in before he has left the corner
-      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | enemies: 2}, 2_100)
+      {logic, :none} = Logic.step(logic, %{quiet_world() | enemies: 2}, 5_300)
       assert logic.state == :fighting
 
       # the screen clears, the debounce runs out, and it is back in post_fight
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 3_000)
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 4_000)
+      {logic, :none} = Logic.step(logic, quiet_world(), 6_000)
+      {logic, :none} = Logic.step(logic, quiet_world(), 7_000)
       assert logic.state == :post_fight
 
-      # and now the ticks that WOULD run the stops again
-      {logic, first} = Logic.step(logic, swept_world(0, nil), 4_100)
-      {_logic, second} = Logic.step(logic, swept_world(0, nil), 4_200)
+      # and now the ticks that WOULD run the round again
+      {logic, first} = Logic.step(logic, quiet_world(), 7_100)
+      {logic, second} = Logic.step(logic, quiet_world(), 7_200)
 
       # nothing to redo: they were done for THIS waypoint
       refute :cooldown_revive in [first, second]
-      refute Enum.any?([first, second], &match?({:sweep, _around}, &1))
+      assert logic.stops_done == [:wait, :cooldown_revive]
+
+      # and the proof the wait did not run either: the hunt leaves on the
+      # dwell, not five seconds later
+      {logic, :none} = Logic.step(logic, quiet_world(), 8_300)
+      assert logic.state == :walking
     end
 
-    test "arriving at the NEXT waypoint arms the stops again" do
+    # The other half of the same rule: the latch survives WALKING AWAY — a
+    # fresh mob at the same corner must not replay the round — and it is
+    # arriving somewhere new that arms it again.
+    test "the latch survives leaving, and the next arrival arms it again" do
       route =
-        stop_route([:sweep])
-        |> Route.set_stop(1, :sweep, true)
+        stop_route([:cooldown_revive])
+        |> Route.set_stop(1, :cooldown_revive, true)
 
       logic = after_kill_at(1, route)
-      {logic, {:sweep, _around}} = Logic.step(logic, swept_world(0, nil), 0)
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 2_000)
+      {logic, :cooldown_revive} = Logic.step(logic, quiet_world(), 0)
+      {logic, :none} = Logic.step(logic, quiet_world(), 1_300)
       assert logic.state == :walking
+      assert logic.stops_done == [:cooldown_revive]
 
-      # walks on and reaches waypoint 2, which asks for a sweep of its own
-      {logic, _walk} = Logic.step(logic, %{swept_world(0, nil) | pos: {15, 10, 7}}, 2_100)
-      {logic, :none} = Logic.step(logic, %{swept_world(0, nil) | pos: {20, 10, 7}}, 2_200)
+      # walks on and reaches waypoint 2, which asks for a round of its own
+      {logic, _walk} = Logic.step(logic, %{quiet_world() | pos: {15, 10, 7}}, 1_400)
+      {logic, :none} = Logic.step(logic, %{quiet_world() | pos: {20, 10, 7}}, 1_500)
       assert logic.stops_done == []
     end
 
     test "a waypoint with no stops leaves on the dwell, as it always did" do
       logic = after_kill_at(1, stop_route([]))
 
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 10)
-      {logic, :none} = Logic.step(logic, swept_world(0, nil), 1_300)
+      {logic, :none} = Logic.step(logic, quiet_world(), 10)
+      {logic, :none} = Logic.step(logic, quiet_world(), 1_300)
+      assert logic.state == :walking
+
+      # and the same on a one-corner route, where "the waypoint the hunt last
+      # REACHED" wraps around to the only one there is
+      {:ok, single} = Route.append(Route.new("r"), {10, 10, 7})
+      logic = after_kill_at(0, single)
+
+      {logic, :none} = Logic.step(logic, quiet_world(), 10)
+      {logic, :none} = Logic.step(logic, quiet_world(), 1_300)
       assert logic.state == :walking
     end
   end
@@ -1568,18 +1478,18 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     end
   end
 
-  # The THIRD thing a skip stranded, found sweeping the class: the round of
-  # stops. `next_stop/1` and `park_spot/1` read the corner BEHIND the index —
-  # "the one the hunt last REACHED" — and after a skip that corner is precisely
-  # the one it could not reach. A ball thrown at a pile that died somewhere
-  # else, and a revive spent for a stop nobody stood at.
+  # The THIRD thing a skip stranded, found going through the class: the round
+  # of stops. `next_stop/1` reads the corner BEHIND the index — "the one the
+  # hunt last REACHED" — and after a skip that corner is precisely the one it
+  # could not reach. A revive spent for a stop nobody stood at, and seconds
+  # standing still where no pile died.
   describe "giving up on a corner also gives up its round of stops" do
     defp skipped_a_kill_spot do
       {:ok, r} = Route.append(Route.new("meganium"), {10, 10, 5})
       {:ok, r} = Route.append(r, {12, 10, 5})
       {:ok, r} = Route.append(r, {14, 10, 5})
 
-      route = r |> Route.set_action(1, :lure_end) |> Route.set_stop(1, :sweep, true)
+      route = r |> Route.set_action(1, :lure_end) |> Route.set_stop(1, :cooldown_revive, true)
 
       logic = Logic.new(route, @cfg)
       {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
@@ -1597,7 +1507,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       end)
     end
 
-    test "a fight after the skip does not sweep the corner nobody reached" do
+    test "a fight after the skip does not run the round of the corner nobody reached" do
       logic = skipped_a_kill_spot()
       assert logic.skips == 1
 
@@ -1611,7 +1521,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
       {_logic, action} = Logic.step(logic, world({10, 10, 5}, 0), 6_300)
 
-      refute match?({:sweep, _spot}, action)
+      refute action == :cooldown_revive
     end
 
     # Arriving somewhere new is what arms a round again — the skip must not
@@ -1701,7 +1611,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     end
 
     test "a corner carrying a stop is never swallowed either" do
-      route = Route.set_stop(tight_route(), 1, :sweep, true)
+      route = Route.set_stop(tight_route(), 1, :wait, true)
       logic = walking_at(route, 0)
 
       {logic, _action} = Logic.step(logic, world_at({2305, 30_014, 5}), 0)

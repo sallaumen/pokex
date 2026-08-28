@@ -24,13 +24,13 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
   defp marks(route), do: Enum.map(route.waypoints, &{&1.action, &1.stops})
 
   describe "a long stop is a kill spot" do
-    test "standing there long enough marks the end of a gathering and a sweep" do
+    test "standing there long enough marks the end of a gathering" do
       route = route_of([200, 300, 30_000])
 
       assert marks(Recording.infer(route, 2, @fight_ms)) == [
                {:lure_start, []},
                {:walk, []},
-               {:lure_end, [:sweep]}
+               {:lure_end, []}
              ]
     end
 
@@ -47,7 +47,7 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
     test "exactly at the threshold counts — the number he tuned is the number" do
       route = route_of([100, @fight_ms])
 
-      assert {:lure_end, [:sweep]} = List.last(marks(Recording.infer(route, 1, @fight_ms)))
+      assert {:lure_end, []} = List.last(marks(Recording.infer(route, 1, @fight_ms)))
     end
   end
 
@@ -68,10 +68,10 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
       # begins where the first pile starts being collected
       assert marks(route) == [
                {:lure_start, []},
-               {:lure_end, [:sweep]},
+               {:lure_end, []},
                {:lure_start, []},
                {:walk, []},
-               {:lure_end, [:sweep]}
+               {:lure_end, []}
              ]
     end
 
@@ -93,8 +93,8 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
 
       # both are kill spots, and NOTHING was marked as a gathering between
       # them — there is no walk in between to gather on
-      assert Enum.at(marks(inferred), 1) == {:lure_end, [:sweep]}
-      assert Enum.at(marks(inferred), 2) == {:lure_end, [:sweep]}
+      assert Enum.at(marks(inferred), 1) == {:lure_end, []}
+      assert Enum.at(marks(inferred), 2) == {:lure_end, []}
 
       starts = for {wp, i} <- Enum.with_index(inferred.waypoints), wp.action == :lure_start, do: i
       assert starts == [0]
@@ -124,7 +124,7 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
 
     defp with_kills(count, kills) do
       Enum.reduce(kills, route_of(List.duplicate(100, count)), fn index, route ->
-        Route.set_stop(route, index, :sweep, true)
+        Route.set_action(route, index, :lure_end)
       end)
     end
 
@@ -170,7 +170,7 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
           acc
         end)
 
-      Enum.reduce(kills, route, &Route.set_stop(&2, &1, :sweep, true))
+      Enum.reduce(kills, route, &Route.set_action(&2, &1, :lure_end))
     end
 
     # The same route WITH a clock, one second per tile: moving a lesson erases
@@ -184,7 +184,7 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
           acc
         end)
 
-      Enum.reduce(kills, route, &Route.set_stop(&2, &1, :sweep, true))
+      Enum.reduce(kills, route, &Route.set_action(&2, &1, :lure_end))
     end
 
     test "a fight closed one tile past the kill spot belongs to the kill spot" do
@@ -368,7 +368,6 @@ defmodule Pokex.Bots.Cavebot.RecordingTest do
 
       assert note =~ "34s parado"
       assert note =~ "até aqui"
-      assert note =~ "varrer"
       assert note =~ ~s("mobar daqui" no waypoint 1)
     end
 

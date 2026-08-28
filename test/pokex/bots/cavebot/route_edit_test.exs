@@ -58,17 +58,16 @@ defmodule Pokex.Bots.Cavebot.RouteEditTest do
       route =
         route_of([{1, 1}, {3, 3}])
         |> Route.set_action(1, :lure_end)
-        |> Route.set_stop(1, :sweep, true)
+        |> Route.set_stop(1, :wait, true)
 
       moved = Route.move_to(route, 1, {4, 9, 6})
 
-      assert %{x: 4, y: 9, z: 6, action: :lure_end, stops: [:sweep]} = Enum.at(moved.waypoints, 1)
+      assert %{x: 4, y: 9, z: 6, action: :lure_end, stops: [:wait]} = Enum.at(moved.waypoints, 1)
     end
 
-    test "correcting the FIRST point does not rewrite the route's floor" do
+    test "correcting the FIRST point moves only that waypoint's floor" do
       route = route_of([{1, 1}, {3, 3}])
 
-      assert Route.move_to(route, 0, {1, 1, 6}).z == 7
       assert Route.floors(Route.move_to(route, 0, {1, 1, 6})) == [6, 7]
     end
 
@@ -79,11 +78,11 @@ defmodule Pokex.Bots.Cavebot.RouteEditTest do
     end
   end
 
-  test "clear/1 empties the waypoints AND the floor" do
+  test "clear/1 empties the waypoints, and with them every floor it knew" do
     cleared = Route.clear(route_of([{1, 1}, {2, 2}]))
 
     assert cleared.waypoints == []
-    assert cleared.z == nil
+    assert Route.floors(cleared) == []
     assert cleared.name == "r"
   end
 end

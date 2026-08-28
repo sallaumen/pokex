@@ -125,6 +125,25 @@ defmodule Pokex.Sim.World do
     # is in the SAME unit, so both numbers move together and neither is a
     # percentage of something invisible.
     mob_hp: 100,
+    # A DUREZA, EM TECLAS — o único eixo honesto de "esse bicho tem muita vida".
+    #
+    # `mob_hp` sozinho NÃO deixa monstro nenhum mais duro: o dano padrão é uma
+    # porcentagem da vida dele (`aoe_damage_pct`), então 500 de vida contra 34%
+    # é a mesma luta de 100 contra 34% — a tecla passa a tirar 170 e tudo morre
+    # no mesmo número de tiros (`Sim.DamageLevel` documenta a armadilha; ela
+    # existia porque a saída era gravar faixa ABSOLUTA em cada tecla à mão, e
+    # esquecer uma tecla estraga o experimento em silêncio).
+    #
+    # Este número diz a coisa que ele quer dizer — "morre em 8 teclas" — e o
+    # mundo deriva o dano de TODAS as teclas de dano a partir dele. É também a
+    # única forma comparável com a realidade: `Sim.Calibrate` mede exatamente
+    # isso na noite (`presses_per_kill`, 3,0 na de 28/08).
+    #
+    # `nil` é o comportamento de sempre. Quando vale, VENCE as faixas gravadas
+    # na mesa — um cenário chamado "Couraçado" que respeita uma faixa antiga de
+    # 60-80 não é um couraçado, é uma mentira com nome bonito. Quem lê a mesa
+    # avisa que este cenário está mandando (`presses_to_kill/1`).
+    presses_to_kill: nil,
     # measured BY HIM — which keys, put together, kill one monster ("com a
     # Vespiquen, 3, 4 e 5 garantem"). A shortcut that DERIVES a damage for
     # every key in it, so he can start from the fact he holds.
@@ -797,16 +816,39 @@ defmodule Pokex.Sim.World do
     end
   end
 
-  # Three sources, most specific first: the range he tuned for THIS key, the
-  # share implied by the combo he declared, or the invented percentage. The
-  # screen says which one every key is running on, so a number he never chose
-  # is never mistaken for one he did.
+  @doc """
+  A dureza que este mundo está impondo, em teclas — `nil` quando ninguém a
+  fixou e o dano vem da mesa/porcentagem de sempre.
+
+  Existe pra tela poder DIZER que um cenário está mandando na mesa, em vez de
+  ele descobrir sozinho que as faixas que gravou não estão valendo.
+  """
+  @spec presses_to_kill(t) :: pos_integer | nil
+  def presses_to_kill(world), do: valid_presses(world.knobs[:presses_to_kill])
+
+  # Quatro fontes, e a DUREZA vem primeiro quando existe: um cenário que fixa
+  # "morre em 8 teclas" tem que valer contra a mesa, ou o nome dele mente. As
+  # outras três seguem da mais específica pra mais genérica — a faixa que ele
+  # gravou pra ESTA tecla, a fatia implicada pelo combo que ele declarou, ou a
+  # porcentagem inventada. A tela diz em qual delas cada tecla está.
   defp band(world, key, fallback_pct) do
-    case world.knobs.skill_damage[key] do
-      {lo, hi} -> {lo, hi}
-      _not_tuned -> spread(world, nominal(world, key, fallback_pct))
+    case {presses_to_kill(world), world.knobs.skill_damage[key]} do
+      {presses, _mesa} when is_integer(presses) ->
+        spread(world, ceil_div(world.knobs.mob_hp, presses))
+
+      {_livre, {lo, hi}} ->
+        {lo, hi}
+
+      _not_tuned ->
+        spread(world, nominal(world, key, fallback_pct))
     end
   end
+
+  # Zero teclas não mata nada e um negativo não quer dizer coisa alguma: os dois
+  # respondem "ninguém fixou", que é o mesmo que a chave ausente. Um cenário com
+  # dureza inválida cai no mundo de sempre em vez de dividir por zero.
+  defp valid_presses(n) when is_integer(n) and n > 0, do: n
+  defp valid_presses(_nao_fixada), do: nil
 
   defp nominal(%{knobs: %{kill_combo: []}} = world, _key, fallback_pct),
     do: div(world.knobs.mob_hp * fallback_pct, 100)

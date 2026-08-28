@@ -28,6 +28,7 @@ defmodule PokexWeb.SimLive do
   alias Pokex.Sim.Scenario
   alias Pokex.Sim.DamageLevel
   alias Pokex.Sim.Setup
+  alias Pokex.Sim.Verdict
   alias Pokex.Sim.World
 
   @directions %{
@@ -73,7 +74,12 @@ defmodule PokexWeb.SimLive do
        scenarios: Scenario.all(),
        scenario: Runner.scenario(),
        bench: nil,
+       bench_verdict: [],
        bench_all: nil,
+       # O SELO DE CADA CENÁRIO já rodado nesta sessão: id => :ok |
+       # :falhou | :sem_promessa. É o que faz a gaveta de cenários virar
+       # um painel — sem ele, saber como cada um foi exige abrir treze.
+       seals: %{},
        score: nil,
        measured_note: nil,
        setup: saved,
@@ -122,7 +128,9 @@ defmodule PokexWeb.SimLive do
       |> Map.put(:skill_cooldowns, cooldowns)
 
     Setup.write(knobs)
-    {:noreply, socket |> assign(setup: knobs, bench: nil) |> reload_world()}
+
+    {:noreply,
+     socket |> assign(setup: knobs, bench: nil, bench_verdict: [], seals: %{}) |> reload_world()}
   end
 
   # A BARRA INTEIRA de uma vez. Ele tem dez teclas, e "facilita pra mim" não
@@ -171,7 +179,7 @@ defmodule PokexWeb.SimLive do
     knobs = parse_setup(params)
     Setup.write(knobs)
 
-    socket |> assign(setup: knobs, bench: nil) |> reload_world()
+    socket |> assign(setup: knobs, bench: nil, bench_verdict: [], seals: %{}) |> reload_world()
   end
 
   # MEDIR → USAR, em um clique. Sem isto, `Calibrate.knobs/1` era um número
@@ -184,14 +192,22 @@ defmodule PokexWeb.SimLive do
     Setup.write(knobs)
 
     socket
-    |> assign(setup: knobs, bench: nil, bench_all: nil, score: nil, measured_note: measured)
+    |> assign(
+      setup: knobs,
+      bench: nil,
+      bench_verdict: [],
+      seals: %{},
+      bench_all: nil,
+      score: nil,
+      measured_note: measured
+    )
     |> reload_world()
   end
 
   def handle_event("reset-setup", _params, socket) do
     Setup.clear()
 
-    socket |> assign(setup: %{}, bench: nil) |> reload_world()
+    socket |> assign(setup: %{}, bench: nil, bench_verdict: [], seals: %{}) |> reload_world()
   end
 
   def handle_event("zoom", %{"level" => level}, socket) do
@@ -212,7 +228,7 @@ defmodule PokexWeb.SimLive do
   end
 
   def handle_event("pick-scenario", %{"scenario" => id}, socket),
-    do: {:noreply, assign(load_scenario(socket, id), bench: nil)}
+    do: {:noreply, assign(load_scenario(socket, id), bench: nil, bench_verdict: [])}
 
   # Runs the scenario through the PURE engine core — no process, no clock, one
   # minute of hunting in a few milliseconds — and answers with a verdict instead
@@ -223,9 +239,16 @@ defmodule PokexWeb.SimLive do
         {:noreply, socket}
 
       scenario ->
+        report = Bench.run(scenario, routes: socket.assigns.routes, knobs: extra_knobs(socket))
+
         {:noreply,
          assign(socket,
-           bench: Bench.run(scenario, routes: socket.assigns.routes, knobs: extra_knobs(socket))
+           bench: report,
+           # …e a PROMESSA cobrada junto. Um relatório sem o veredito devolve
+           # seis números e deixa pra ele lembrar qual era a pergunta daquele
+           # cenário; com treze deles isso é trabalho de arqueólogo.
+           bench_verdict: Verdict.judge(report, scenario.espera),
+           seals: Map.put(socket.assigns.seals, scenario.id, seal_of(report, scenario))
          )}
     end
   end
@@ -240,17 +263,30 @@ defmodule PokexWeb.SimLive do
 
     rows =
       Enum.map(Scenario.all(), fn scenario ->
-        %{outcome: outcome} =
+        report =
           Bench.run(scenario,
             routes: socket.assigns.routes,
             config: config,
             knobs: extra_knobs(socket)
           )
 
-        %{id: scenario.id, name: scenario.name, outcome: outcome}
+        %{
+          id: scenario.id,
+          name: scenario.name,
+          icon: scenario.icon,
+          outcome: report.outcome,
+          verdict: Verdict.judge(report, scenario.espera),
+          seal: seal_of(report, scenario)
+        }
       end)
 
-    {:noreply, assign(socket, bench_all: %{rows: rows, config: config})}
+    {:noreply,
+     assign(socket,
+       bench_all: %{rows: rows, config: config},
+       # OS SELOS DA BIBLIOTECA INTEIRA de uma vez — é o que transforma a
+       # gaveta de cenários num painel que se lê de relance.
+       seals: Map.new(rows, &{&1.id, &1.seal})
+     )}
   end
 
   # THE SCOREBOARD. Every scenario walked for five simulated minutes, twice —
@@ -425,7 +461,7 @@ defmodule PokexWeb.SimLive do
       |> Map.put(:skill_damage, damage)
 
     Setup.write(knobs)
-    socket |> assign(setup: knobs, bench: nil) |> reload_world()
+    socket |> assign(setup: knobs, bench: nil, bench_verdict: [], seals: %{}) |> reload_world()
   end
 
   defp extra_knobs(socket), do: socket.assigns.setup
@@ -1167,6 +1203,58 @@ defmodule PokexWeb.SimLive do
   defp band_class(:red), do: "text-pk-danger"
   defp band_class(_unknown), do: "text-pk-text-2"
 
+  # --- O LABORATÓRIO ----------------------------------------------------------
+  #
+  # O selo de um cenário depois de uma corrida. Três respostas, e a terceira
+  # importa tanto quanto as outras: um cenário sem promessa não "passou" nem
+  # "falhou", ele é de OBSERVAR — e dar-lhe um ✅ diria que uma corrida foi
+  # aprovada quando ninguém perguntou nada a ela.
+  defp seal_of(report, scenario), do: report |> Verdict.judge(scenario.espera) |> Verdict.seal()
+
+  defp seal_icon(:ok), do: "✅"
+  defp seal_icon(:falhou), do: "❌"
+  defp seal_icon(:sem_promessa), do: "👁"
+  defp seal_icon(_nao_rodou), do: "·"
+
+  defp seal_title(:ok), do: "cumpriu tudo que prometeu"
+  defp seal_title(:falhou), do: "quebrou uma promessa — abre o cenário pra ver qual"
+  defp seal_title(:sem_promessa), do: "cenário de observar: leia a linha do tempo"
+  defp seal_title(_nao_rodou), do: "ainda não rodou nesta sessão"
+
+  # A cor do CARTÃO é a do aperto (o que esperar), nunca a do selo (o que
+  # aconteceu): um cenário quebrado de propósito é vermelho antes e depois de
+  # rodar, e pintá-lo de verde ao passar diria que a falha foi consertada.
+  defp aperto_class(:ok), do: "border-pk-ok-line bg-pk-ok-dim"
+  defp aperto_class(:warn), do: "border-pk-warn-line bg-pk-warn-dim"
+  defp aperto_class(:danger), do: "border-pk-danger-line bg-pk-danger-dim"
+
+  defp aperto_text(:ok), do: "text-pk-ok"
+  defp aperto_text(:warn), do: "text-pk-warn"
+  defp aperto_text(:danger), do: "text-pk-danger"
+
+  # Os cenários na ordem da tela, agrupados — e um grupo só aparece com gente
+  # dentro, senão um grupo novo e vazio vira um título órfão.
+  defp lab_groups(scenarios) do
+    by_group = Enum.group_by(scenarios, & &1.group)
+
+    for group <- Scenario.group_order(),
+        items = Map.get(by_group, group, []),
+        items != [],
+        do: {group, items}
+  end
+
+  # A DUREZA que este cenário fixa, em teclas. É a linha que avisa que a mesa
+  # dele NÃO está mandando aqui — sem ela, ele grava uma faixa de dano, roda o
+  # Couraçado e não entende por que nada mudou.
+  defp dureza(%{knobs: knobs}) do
+    case Map.get(knobs, :presses_to_kill) do
+      n when is_integer(n) and n > 0 -> n
+      _livre -> nil
+    end
+  end
+
+  defp dureza(_sem_cenario), do: nil
+
   @impl true
   def render(assigns) do
     z = floor_of(assigns.world)
@@ -1622,13 +1710,100 @@ defmodule PokexWeb.SimLive do
           {@refusal}
         </p>
 
+        <%!-- O LABORATÓRIO. A gaveta de cenários era um <select> com optgroup:
+              treze nomes parecidos, sem dizer qual é o difícil, e sem lembrar
+              como cada um foi da última vez. Aqui cada um tem SÍMBOLO (a
+              identidade), COR (o aperto — o que esperar) e SELO (o que
+              aconteceu), e "Todos" preenche a coluna dos selos de uma vez.
+              O emoji é a única coisa que distingue treze coisas num sistema de
+              quatro cores; a cor segue sendo do design system. --%>
+        <section id="laboratorio" class="rounded-lg border border-pk-line bg-pk-surface p-3">
+          <div class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 class="text-pk-title font-bold text-pk-text">O laboratório</h2>
+            <span class="text-pk-meta text-pk-text-3">
+              {length(@scenarios)} cenários · clique pra carregar · “Todos” roda a biblioteca
+              inteira e preenche os selos
+            </span>
+          </div>
+
+          <div class="space-y-3">
+            <div :for={{group, items} <- lab_groups(@scenarios)}>
+              <h3 class="mb-1.5 text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
+                {Scenario.group_label(group)}
+              </h3>
+
+              <div class="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
+                <button
+                  :for={item <- items}
+                  phx-click="pick-scenario"
+                  phx-value-scenario={item.id}
+                  title={Scenario.aperto_note(item.aperto)}
+                  class={[
+                    "flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition hover:brightness-125",
+                    aperto_class(Scenario.aperto_tone(item.aperto)),
+                    @scenario && @scenario.id == item.id && "ring-1 ring-pk-ok"
+                  ]}
+                >
+                  <span class="text-pk-title leading-none">{item.icon}</span>
+
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-pk-body font-semibold text-pk-text">
+                      {item.name}
+                    </span>
+                    <span class={[
+                      "block text-pk-meta",
+                      aperto_text(Scenario.aperto_tone(item.aperto))
+                    ]}>
+                      {Scenario.aperto_label(item.aperto)}
+                      <span :if={dureza(item)} class="text-pk-text-3">
+                        · morre em {dureza(item)} {if dureza(item) == 1, do: "tecla", else: "teclas"}
+                      </span>
+                    </span>
+                  </span>
+
+                  <span
+                    class="shrink-0 text-pk-body leading-none"
+                    title={seal_title(@seals[item.id])}
+                  >
+                    {seal_icon(@seals[item.id])}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p class="mt-2 text-pk-meta text-pk-text-3">
+            ✅ cumpriu o que prometeu · ❌ quebrou uma promessa · 👁 cenário de observar (leia a
+            linha do tempo) · · ainda não rodou
+          </p>
+        </section>
+
         <div
           :if={@scenario}
           class="rounded-lg border border-pk-line-strong bg-pk-sunken px-3 py-2 text-pk-body text-pk-text"
         >
-          <span class="font-semibold">{@scenario.name}</span>
-          <span class="text-pk-text-3">· {Scenario.group_label(@scenario.group)}</span>
-          <p class="mt-1 text-pk-text-2">{@scenario.why}</p>
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="text-pk-title leading-none">{@scenario.icon}</span>
+            <span class="font-semibold">{@scenario.name}</span>
+            <span class="text-pk-text-3">· {Scenario.group_label(@scenario.group)}</span>
+            <span class={aperto_text(Scenario.aperto_tone(@scenario.aperto))}>
+              · {Scenario.aperto_label(@scenario.aperto)}
+            </span>
+          </div>
+
+          <p class="mt-1 whitespace-pre-line text-pk-text-2">{@scenario.why}</p>
+
+          <p :if={@scenario.espera != []} class="mt-1.5 text-pk-meta text-pk-text-3">
+            <span class="font-semibold uppercase tracking-[0.12em]">promete</span>
+            {Enum.map_join(@scenario.espera, " · ", &Verdict.label/1)}
+          </p>
+
+          <%!-- A mesa dele não manda num cenário que fixa a dureza, e calar
+                sobre isso o deixaria configurando dano sem efeito. --%>
+          <p :if={dureza(@scenario)} class="mt-1.5 text-pk-meta text-pk-warn">
+            este cenário fixa a dureza em {dureza(@scenario)} teclas por monstro — as faixas de dano
+            da tua mesa não valem aqui
+          </p>
         </div>
 
         <p
@@ -2139,6 +2314,33 @@ defmodule PokexWeb.SimLive do
             Veredito
             <span class="font-normal text-pk-text-3">— um minuto simulado, sem processo</span>
           </h2>
+
+          <%!-- A PROMESSA COBRADA, antes dos números: seis contadores não dizem
+                se a corrida foi boa, e lembrar qual era a pergunta de cada um
+                dos treze cenários é trabalho que a tela pode fazer. --%>
+          <ul :if={@bench_verdict != []} class="mb-3 space-y-1">
+            <li :for={item <- @bench_verdict} class="flex items-baseline gap-2 text-pk-body">
+              <span class="w-4 shrink-0 leading-none">
+                {if item.cumpriu?, do: "✅", else: "❌"}
+              </span>
+              <span class={[
+                "font-semibold",
+                if(item.cumpriu?, do: "text-pk-text-2", else: "text-pk-danger")
+              ]}>
+                {item.label}
+              </span>
+              <span class="text-pk-text-3">— {item.porque}</span>
+            </li>
+          </ul>
+
+          <p
+            :if={@bench_verdict == [] and @scenario}
+            class="mb-3 text-pk-body text-pk-text-3"
+          >
+            👁 cenário de observar — este não promete um resultado, ele mostra uma decisão. A
+            resposta está na linha do tempo abaixo.
+          </p>
+
           <dl class="mb-3 flex flex-wrap gap-x-5 gap-y-1 text-pk-body text-pk-text-2">
             <div>mortos: <span class="font-semibold">{@bench.outcome.killed}</span></div>
             <div>sumidos no leash: <span class="font-semibold">{@bench.outcome.vanished}</span></div>
@@ -2359,6 +2561,7 @@ defmodule PokexWeb.SimLive do
             <table class="w-full text-left text-pk-meta">
               <thead class="text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
                 <tr>
+                  <th class="py-1 pr-2 font-medium">selo</th>
                   <th class="py-1 pr-3 font-medium">cenário</th>
                   <th class="py-1 pr-3 font-medium">fim</th>
                   <th class="py-1 pr-3 text-right font-medium">mortos</th>
@@ -2370,7 +2573,18 @@ defmodule PokexWeb.SimLive do
               </thead>
               <tbody>
                 <tr :for={row <- @bench_all.rows} class="border-t border-pk-line">
-                  <td class="py-1 pr-3 text-pk-text">{row.name}</td>
+                  <td class="py-1 pr-2 leading-none" title={seal_title(row.seal)}>
+                    {seal_icon(row.seal)}
+                  </td>
+                  <td class="py-1 pr-3 text-pk-text">
+                    <span class="mr-1">{row.icon}</span>{row.name}
+                    <span
+                      :if={row.seal == :falhou}
+                      class="block text-pk-meta text-pk-danger"
+                    >{row.verdict
+                    |> Enum.reject(& &1.cumpriu?)
+                    |> Enum.map_join(" · ", &"#{&1.label}: #{&1.porque}")}</span>
+                  </td>
                   <td class={"py-1 pr-3 #{ending_class(row.outcome.ended)}"}>
                     {ending_text(row.outcome.ended)}
                   </td>

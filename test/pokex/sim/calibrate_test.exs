@@ -226,6 +226,44 @@ defmodule Pokex.Sim.CalibrateTest do
       refute Map.has_key?(knobs, :single_damage_pct)
       refute Map.has_key?(knobs, :revive_settle_ms)
     end
+
+    # MEDIDO nas noites reais dele: 26/08 deu 0,73 tecla por morto e 27/08 deu
+    # 0,69 — a noite dos 2.372 "não saiu", com o recibo mentindo sobre cada
+    # disparo. A conta devolvia `aoe_damage_pct: 137` e `145`: uma tecla que
+    # mata mais que um monstro inteiro, com cara de medição, e a um clique do
+    # botão "usar o que a noite mediu".
+    @tag :tmp_dir
+    test "menos de uma tecla por morto não vira dano — é defeito, não física", %{tmp_dir: tmp} do
+      # quatro mortes e só duas teclas registradas: meia tecla por morto
+      lutando =
+        for i <- 0..4,
+            do: vital(1_000 + i * 1_000, %{enemies: 4 - i, phase: "engaged"})
+
+      teclas = for i <- 0..1, do: %{kind: "press", at: 1_500 + i * 1_000, keys: ["3"], n: 1}
+
+      write_events(tmp, lutando ++ teclas)
+
+      # a medição crua continua à vista, com o número esquisito e tudo
+      assert Calibrate.report(@date).kill.presses_per_kill == 0.5
+
+      # …mas ela NÃO vira botão
+      knobs = Calibrate.knobs(@date)
+      refute Map.has_key?(knobs, :aoe_damage_pct)
+      refute Map.has_key?(knobs, :single_damage_pct)
+    end
+
+    @tag :tmp_dir
+    test "exatamente uma tecla por morto ainda é medição válida", %{tmp_dir: tmp} do
+      lutando =
+        for i <- 0..4,
+            do: vital(1_000 + i * 1_000, %{enemies: 4 - i, phase: "engaged"})
+
+      teclas = for i <- 0..3, do: %{kind: "press", at: 1_500 + i * 1_000, keys: ["3"], n: 1}
+
+      write_events(tmp, lutando ++ teclas)
+
+      assert Calibrate.knobs(@date).aoe_damage_pct == 100
+    end
   end
 
   @tag :tmp_dir

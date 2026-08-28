@@ -20,7 +20,53 @@ defmodule Pokex.Sim.ScenarioTest do
     groups = Scenario.all() |> Enum.map(& &1.group) |> Enum.uniq() |> Enum.sort()
 
     assert Enum.sort(Scenario.experiment_groups()) == [:blind, :hands, :health, :ruler]
-    assert groups == [:blind, :hands, :health, :hunt, :ruler]
+    assert groups == [:blind, :hands, :health, :hunt, :mundo, :ruler]
+  end
+
+  # A ORDEM DA TELA tem que conhecer todo grupo que existe: um grupo fora dela
+  # some da página em silêncio, que é a pior forma de um cenário deixar de
+  # existir — ele continua no código, passando nos testes, e ninguém o roda.
+  test "a ordem da tela cobre todos os grupos, sem sobra" do
+    grupos = Scenario.all() |> Enum.map(& &1.group) |> Enum.uniq()
+
+    assert Enum.sort(Scenario.group_order()) == Enum.sort(grupos)
+  end
+
+  describe "o símbolo, a cor e a promessa" do
+    test "todo cenário tem símbolo e um aperto conhecido" do
+      for scenario <- Scenario.all() do
+        assert is_binary(scenario.icon) and scenario.icon != "", "#{scenario.id} sem símbolo"
+
+        assert scenario.aperto in [:rotina, :aperto, :quebrado],
+               "#{scenario.id}: aperto #{inspect(scenario.aperto)} não é um dos três"
+
+        assert Scenario.aperto_tone(scenario.aperto) in [:ok, :warn, :danger]
+        assert Scenario.aperto_note(scenario.aperto) != ""
+      end
+    end
+
+    test "todo símbolo é único — dois cenários com o mesmo ícone não se distinguem" do
+      icones = Enum.map(Scenario.all(), & &1.icon)
+
+      assert icones == Enum.uniq(icones)
+    end
+
+    test "toda promessa declarada existe no catálogo do Verdict" do
+      for scenario <- Scenario.all(), promessa <- scenario.espera do
+        assert promessa in Pokex.Sim.Verdict.all(),
+               "#{scenario.id} promete #{inspect(promessa)}, que ninguém sabe cobrar"
+      end
+    end
+
+    # Uma caçada inteira sem promessa nenhuma seria um cenário que roda e não
+    # responde nada. Os experimentos de uma pilha são o caso oposto de
+    # propósito: sem renascimento, 90% da corrida é estrada vazia, e uma
+    # promessa de resultado mediria o vazio.
+    test "toda caçada promete alguma coisa" do
+      for scenario <- Scenario.all(), scenario.group in [:hunt, :mundo] do
+        assert scenario.espera != [], "#{scenario.id} é uma caçada e não promete nada"
+      end
+    end
   end
 
   test "every group has a label for the screen" do

@@ -374,14 +374,31 @@ defmodule Pokex.Sim.Calibrate do
   # in — so "how many presses kill one" IS the damage per press, and the two
   # families (area and single) start from the same measurement until a night
   # can tell them apart.
+  #
+  # (Com `mob_hp` em 100 esta porcentagem JÁ é a dureza: 33% por tecla é o mesmo
+  # que "morre em 3 teclas". O knob `presses_to_kill` existe pro CENÁRIO variar
+  # a dureza por cima da mesa, e de propósito não sai daqui — a mesa vence o
+  # cenário no merge, então uma dureza medida escrita nela apagaria em silêncio
+  # o "Couraçado" e o "Casca de ovo".)
+  #
+  # MENOS DE UMA TECLA POR MORTO NÃO É UMA MEDIÇÃO. Mede-se o dano contando
+  # teclas apertadas contra monstros mortos, e uma noite em que os mortos chegam
+  # sem teclas registradas está descrevendo um defeito, não uma física: a de
+  # 27/08 deu 0,69 (a noite dos 2.372 "não saiu", com o recibo mentindo sobre
+  # cada disparo) e a conta devolvia `aoe_damage_pct: 145` — impossível, com
+  # cara de medido, e pronto pro botão "usar o que a noite mediu" aplicar. Uma
+  # tecla que mata mais que um monstro inteiro é sinal de que a contagem de um
+  # dos dois lados se perdeu; a resposta certa é NÃO SEI.
+  @min_presses_per_kill 1.0
+
   defp damage_knobs(nil), do: %{}
 
-  defp damage_knobs(%{presses_per_kill: per_kill}) when per_kill > 0 do
+  defp damage_knobs(%{presses_per_kill: per_kill}) when per_kill >= @min_presses_per_kill do
     per_press = max(round(100 / per_kill), 1)
     %{single_damage_pct: per_press, aoe_damage_pct: per_press}
   end
 
-  defp damage_knobs(_no_presses), do: %{}
+  defp damage_knobs(_sem_teclas_ou_conta_impossivel), do: %{}
 
   defp put_measured(knobs, _key, nil), do: knobs
   defp put_measured(knobs, key, value), do: Map.put(knobs, key, value)

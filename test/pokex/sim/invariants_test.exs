@@ -15,6 +15,7 @@ defmodule Pokex.Sim.InvariantsTest do
 
   alias Pokex.Sim.Bench
   alias Pokex.Sim.Scenario
+  alias Pokex.Sim.Verdict
 
   @seeds 1..8
   @minutes_ms 180_000
@@ -92,6 +93,31 @@ defmodule Pokex.Sim.InvariantsTest do
           refute o.died_at, "#{@id} semente #{seed}: caiu em #{o.died_at}ms"
           assert o.killed > 0
         end
+      end
+    end
+  end
+
+  # A PROMESSA DE CADA CENÁRIO, cobrada — a outra metade de "está funcionando
+  # bem", e a que ele lê na tela como ✅ ou ❌.
+  #
+  # As invariantes acima dizem que nenhuma ordem é ilegal; esta diz que a
+  # caçada faz o que o cenário PROMETEU que ela faria. Um cenário sem promessa
+  # (os experimentos de uma pilha) é de OBSERVAR e não entra aqui: sem
+  # renascimento, quase toda a corrida é estrada vazia, e uma promessa de
+  # resultado mediria o vazio.
+  describe "cada caçada cumpre o que promete" do
+    for scenario <- Enum.filter(Scenario.all(), &(&1.espera != [])) do
+      @promissor scenario
+
+      test "#{scenario.id}: #{Enum.join(scenario.espera, ", ")}" do
+        quebradas =
+          for seed <- 1..4,
+              report = Bench.run(%{@promissor | seed: seed}, duration_ms: @minutes_ms),
+              veredito <- Verdict.judge(report, @promissor.espera),
+              not veredito.cumpriu?,
+              do: "semente #{seed} — #{veredito.label}: #{veredito.porque}"
+
+        assert quebradas == [], "#{@promissor.id}:\n  " <> Enum.join(quebradas, "\n  ")
       end
     end
   end

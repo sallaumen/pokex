@@ -764,6 +764,35 @@ defmodule PokexWeb.CavebotLiveTest do
     assert html =~ "revive do caído"
   end
 
+  # Na tela que ele mandou em 28/08, SEIS das catorze linhas eram a mesma frase
+  # repetida no mesmo segundo. Colapsar não esconde — o ×N fica visível, que é
+  # o que deixa a repetição diagnosticável em vez de só ilegível.
+  test "a mesma linha repetida vira uma linha com contador", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    for _ <- 1..3, do: send(view.pid, {:cavebot_log, :macro, "caçada: waypoint 7/40 ⏭ pulei"})
+
+    feed = view |> element("#cavebot-log-lines") |> render()
+
+    assert feed =~ "×3"
+
+    assert feed |> String.split("waypoint 7/40") |> length() == 2,
+           "a linha não pode aparecer duas vezes"
+  end
+
+  test "linhas diferentes seguem sendo linhas diferentes", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    send(view.pid, {:cavebot_log, :macro, "caçada: waypoint 7/40"})
+    send(view.pid, {:cavebot_log, :macro, "caçada: waypoint 8/40"})
+    send(view.pid, {:cavebot_log, :macro, "caçada: waypoint 7/40"})
+
+    feed = view |> element("#cavebot-log-lines") |> render()
+
+    refute feed =~ "×"
+    assert feed |> String.split("waypoint 7/40") |> length() == 3
+  end
+
   test "the rehearsal names WHICH link broke, not just 'não andou'", %{conn: conn} do
     route_with([{10, 10, 7}])
     {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
@@ -1372,7 +1401,10 @@ defmodule PokexWeb.CavebotLiveTest do
 
       rack = view |> element("#cavebot-rack") |> render()
       assert rack =~ "tela × relógio"
-      assert rack =~ "tela diz pronta"
+      # O motivo saiu de DENTRO da peça (onde cabia como "tela diz em …") e
+      # virou uma linha embaixo do rack, dizendo o que fazer.
+      assert rack =~ "cavebot-rack-conflict"
+      assert rack =~ "a rotação obedece o relógio"
       # e a contagem obedece o relógio, que é o que a rotação obedece
       assert rack =~ "40s"
     end

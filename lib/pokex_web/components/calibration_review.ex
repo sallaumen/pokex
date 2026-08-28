@@ -134,6 +134,7 @@ defmodule PokexWeb.CalibrationReview do
                 neutral_point={@review.calib.neutral_point}
                 player_point={Calibration.player_point(@review.calib)}
                 pokemon_hp_region={@review.calib.pokemon_hp_region}
+                player_hp_region={@review.calib.player_hp_region}
                 pokemon_photo_point={@review.calib.pokemon_photo_point}
                 mini_game_region={Calibration.mini_game_region(@review.calib)}
                 minimap_region={Calibration.minimap_region(@review.calib)}

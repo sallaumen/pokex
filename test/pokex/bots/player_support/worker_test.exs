@@ -163,6 +163,109 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Pokex.PngFixtures.write!(Path.join(dir, name), rows)
   end
 
+  # A VIDA DO PERSONAGEM — a barra vermelha do painel "Pokémon" do PA, que
+  # apesar do nome é a vida DELE. Até 28/08 ninguém a lia: o personagem apanha
+  # com o pokémon no chão (a noite de 4,9h) e nada media nem avisava.
+  describe "a vida do PERSONAGEM" do
+    setup %{tmp: tmp} do
+      Settings.put(:rescue_enabled, false)
+      Settings.put(:potion_enabled, false)
+      SettingsStash.stash!(player_hp_floor_pct: 50, player_hp_logout: false)
+
+      {:ok, calib} = Calibration.load()
+      :ok = Calibration.save(%{calib | player_hp_region: {0, 100, 20, 4}})
+
+      # a barra vermelha do PA: preenchimento vermelho, trilho azul-ardósia
+      red = fn fill ->
+        rows =
+          for _y <- 1..4 do
+            for x <- 1..20,
+                do: if(x <= fill, do: {211, 52, 53, 255}, else: {56, 71, 71, 255})
+          end
+
+        Pokex.PngFixtures.write!(Path.join(tmp, "player_#{fill}.png"), rows)
+      end
+
+      on_exit(fn -> WorldState.forget(:player) end)
+      %{red: red}
+    end
+
+    @tag :tmp_dir
+    test "a leitura vira o fato :player", %{body: body, red: red} do
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(18)}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert eventually(fn ->
+               match?(
+                 {:ok, %{hp_pct: pct, readable?: true}} when pct >= 85,
+                 WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
+               )
+             end)
+    end
+
+    @tag :tmp_dir
+    test "duas leituras abaixo do piso gritam UMA vez, nomeando o personagem", %{
+      body: body,
+      red: red
+    } do
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(6)}]})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:rule_alarm, :hp, msg}, 1_500
+      assert msg =~ "VOCÊ"
+      assert msg =~ "personagem"
+
+      # uma vez por episódio: a barra segue baixa e a sirene não vira metralhadora
+      refute_receive {:rule_alarm, :hp, _de_novo}, 300
+    end
+
+    @tag :tmp_dir
+    test "acima do piso, silêncio", %{body: body, red: red} do
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(18)}]})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:rule_alarm, :hp, _msg}, 500
+    end
+
+    @tag :tmp_dir
+    test "com player_hp_logout ligado, o aviso diz que o logout foi pedido", %{
+      body: body,
+      red: red
+    } do
+      Settings.put(:player_hp_logout, true)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(6)}]})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:game_log, :macro, log}, 1_500
+      assert log =~ "pedindo LOGOUT"
+    end
+
+    @tag :tmp_dir
+    test "sem a região marcada, nada é lido e nada grita", %{body: body, red: red} do
+      {:ok, calib} = Calibration.load()
+      :ok = Calibration.save(%{calib | player_hp_region: nil})
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(6)}]})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:rule_alarm, :hp, _msg}, 500
+      assert WorldState.get(:player, 5_000, System.monotonic_time(:millisecond)) == :missing
+    end
+  end
+
   # The pokémon's OWN healing skill: the rung above the potion, and the only one
   # that works while it is being hit — a potion is a channel and combat cancels
   # it, so HP falling mid-fight used to have nothing before the revive.

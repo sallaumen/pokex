@@ -55,7 +55,11 @@ defmodule Pokex.Calibration do
     :skill_slot_refs,
     # Optional (PlayerSupport): the main Pokémon's HP bar, and the portrait to aim Shift+Q at.
     :pokemon_hp_region,
-    :pokemon_photo_point
+    :pokemon_photo_point,
+    # Optional: a barra VERMELHA do painel "Pokémon" — que é a vida do
+    # PERSONAGEM, não do pokémon (medido 26/08; o nome do painel é a armadilha).
+    # Sem ela marcada, a vida do personagem simplesmente não é lida.
+    :player_hp_region
   ]
 
   @typedoc "A loaded calibration. Two specs already referenced this type before it existed."
@@ -246,6 +250,7 @@ defmodule Pokex.Calibration do
       "skill_bar_count" => calib.skill_bar_count,
       "skill_slot_refs" => calib.skill_slot_refs && Enum.map(calib.skill_slot_refs, &to_list/1),
       "pokemon_hp_region" => to_list(calib.pokemon_hp_region),
+      "player_hp_region" => to_list(calib.player_hp_region),
       "pokemon_photo_point" => to_list(calib.pokemon_photo_point)
     }
 
@@ -293,6 +298,7 @@ defmodule Pokex.Calibration do
       skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),
       layout: layout_in_force(map["screen_w"], map["screen_h"]),
       pokemon_hp_region: to_tuple(map["pokemon_hp_region"]),
+      player_hp_region: to_tuple(map["player_hp_region"]),
       pokemon_photo_point: to_tuple(map["pokemon_photo_point"])
     }
   end
@@ -617,7 +623,7 @@ defmodule Pokex.Calibration do
   @geometry ~w(water_point glow_region battle_region neutral_point player_point
                mini_game_region minimap_region minimap_player_point minimap_coord_region
                pokemon_spot_point escape_point skill_bar_region pokemon_hp_region
-               pokemon_photo_point)a
+               pokemon_photo_point player_hp_region)a
 
   @doc """
   Re-expresses every marked point in the coordinates of a `{w, h}` screen.

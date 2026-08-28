@@ -20,7 +20,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Focus
-  alias Pokex.Bots.{ReviveLedger, SkillClock}
+  alias Pokex.Bots.{Logout, ReviveLedger, SkillClock}
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
@@ -56,6 +56,12 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       running?: false,
       hp_pct: nil,
       prev_hp_pct: nil,
+      # A VIDA DO PERSONAGEM — a barra vermelha do painel "Pokémon", que apesar
+      # do nome é dele, não do bicho. nil enquanto a região não for marcada na
+      # calibração ou a leitura não reconhecer a barra.
+      player_hp: nil,
+      player_low_streak: 0,
+      player_alarmed?: false,
       last_rescue_at: nil,
       # A ÚLTIMA VEZ QUE O CÉREBRO PEDIU UM REVIVE E A CHAVE DELE ESTAVA
       # DESLIGADA. Sem isto o pedido morre em silêncio: em 27/08 a engine pediu
@@ -308,58 +314,61 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state =
       case Calibration.load() do
         {:ok, calib} ->
-          case read_hp(calib) do
-            {:ok, hp} ->
-              publish_pokemon_fact(%{hp_pct: hp, readable?: true, fainted?: false})
+          watch_player(
+            case read_hp(calib) do
+              {:ok, hp} ->
+                publish_pokemon_fact(%{hp_pct: hp, readable?: true, fainted?: false})
 
-              act(
-                %{
-                  state
-                  | prev_hp_pct: state.hp_pct,
-                    hp_pct: hp,
-                    error: nil,
-                    # a bar that reads again is the proof he is back: the death
-                    # trail resets, and only a NEW live reading can arm it
-                    unreadable_streak: 0,
-                    last_seen_hp: hp,
-                    fainted?: false,
-                    counters: bump(state.counters, :reads)
-                },
-                calib
-              )
+                act(
+                  %{
+                    state
+                    | prev_hp_pct: state.hp_pct,
+                      hp_pct: hp,
+                      error: nil,
+                      # a bar that reads again is the proof he is back: the death
+                      # trail resets, and only a NEW live reading can arm it
+                      unreadable_streak: 0,
+                      last_seen_hp: hp,
+                      fainted?: false,
+                      counters: bump(state.counters, :reads)
+                  },
+                  calib
+                )
 
-            # The region doesn't look like the bar (minimized party window, or no Pokémon
-            # out of the ball): UNKNOWN — clear the reading so nothing can act on a
-            # stale/garbage value, and say why in the panel. The fact says readable?: false,
-            # which is exactly what the fishing gate treats as "sem pokémon ativo".
-            # gate: nil here and below — these branches never reach act/2 (the
-            # only other place that clears it), so a gate from a previous tick
-            # used to survive the whole bad-reading stretch, explaining the
-            # screen with a reason that already passed.
-            :unrecognized ->
-              state =
-                %{
-                  state
-                  | hp_pct: nil,
-                    prev_hp_pct: nil,
-                    gate: nil,
-                    unreadable_streak: state.unreadable_streak + 1,
-                    error: "barra de vida não reconhecida (janela do Pokémon minimizada?)"
-                }
-                |> maybe_revive_fallen()
-                |> maybe_retry_fallen()
+              # The region doesn't look like the bar (minimized party window, or no Pokémon
+              # out of the ball): UNKNOWN — clear the reading so nothing can act on a
+              # stale/garbage value, and say why in the panel. The fact says readable?: false,
+              # which is exactly what the fishing gate treats as "sem pokémon ativo".
+              # gate: nil here and below — these branches never reach act/2 (the
+              # only other place that clears it), so a gate from a previous tick
+              # used to survive the whole bad-reading stretch, explaining the
+              # screen with a reason that already passed.
+              :unrecognized ->
+                state =
+                  %{
+                    state
+                    | hp_pct: nil,
+                      prev_hp_pct: nil,
+                      gate: nil,
+                      unreadable_streak: state.unreadable_streak + 1,
+                      error: "barra de vida não reconhecida (janela do Pokémon minimizada?)"
+                  }
+                  |> maybe_revive_fallen()
+                  |> maybe_retry_fallen()
 
-              publish_pokemon_fact(%{
-                hp_pct: nil,
-                readable?: false,
-                fainted?: state.fainted?
-              })
+                publish_pokemon_fact(%{
+                  hp_pct: nil,
+                  readable?: false,
+                  fainted?: state.fainted?
+                })
 
-              state
+                state
 
-            {:error, reason} ->
-              fail(state, reason)
-          end
+              {:error, reason} ->
+                fail(state, reason)
+            end,
+            calib
+          )
 
         # The file exists but its numbers cannot be read (half-written, hand-edited,
         # an older schema). Says so rather than borrowing "sem calibração": that one
@@ -401,6 +410,107 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
        |> fail({kind, reason})
        |> reschedule(Settings.get(:support_tick_ms))}
   end
+
+  # --- a vida do PERSONAGEM ---------------------------------------------------
+  #
+  # A barra VERMELHA do painel "Pokémon" é a vida DELE, não do bicho — o nome do
+  # painel é a armadilha que já custou dois dias de leitura errada (26/08). Até
+  # 28/08 NINGUÉM olhava pra ela: o personagem apanha com o pokémon no chão (a
+  # noite de 4,9h) e nada media, nada avisava, nada agia.
+  #
+  # A leitura usa os MESMOS leitores da Pokebar (`hp_region_plausible?` +
+  # `hp_fill_pct`): o preenchimento vermelho é "quente" pro leitor de coluna do
+  # mesmo jeito que o verde, o trilho vazio (56,71,71) é apagado, e o texto
+  # 683/720 por cima já é descontado por desenho. Medido na foto real dele:
+  # leitura 95% contra 683/720 = 94,9%.
+  defp watch_player(state, calib) do
+    case calib.player_hp_region do
+      region when is_tuple(region) -> watch_player_at(state, region)
+      _not_marked -> state
+    end
+  end
+
+  defp watch_player_at(state, region) do
+    case read_player_hp(region) do
+      {:ok, hp} ->
+        WorldState.put(:player, %{hp_pct: hp, readable?: true}, now())
+        guard_player(%{state | player_hp: hp})
+
+      _unreadable_or_error ->
+        WorldState.put(:player, %{hp_pct: nil, readable?: false}, now())
+        %{state | player_hp: nil, player_low_streak: 0}
+    end
+  end
+
+  defp read_player_hp(region) do
+    with {:ok, frame} <- Capture.frame(region, "player_hp.raw") do
+      if Vision.hp_region_plausible?(frame,
+           min_brightness: Settings.get(:pokemon_hp_min_brightness),
+           min_saturation: Settings.get(:pokemon_hp_min_saturation),
+           min_known_pct: Settings.get(:pokemon_hp_min_known_pct),
+           min_bright_pct: Settings.get(:pokemon_hp_min_bright_pct),
+           max_track_brightness: Settings.get(:pokemon_hp_max_track_brightness)
+         ) do
+        {:ok, Vision.hp_fill_pct(frame)}
+      else
+        :unrecognized
+      end
+    end
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  # O GUARDIÃO: duas leituras seguidas abaixo do piso — nunca um frame só, a
+  # mesma disciplina que protege o revive — e ele grita UMA vez por episódio.
+  # O episódio fecha quando a vida volta acima do piso com folga de 10 pontos,
+  # pra barra oscilando no piso não virar sirene intermitente.
+  #
+  # A ação forte é opcional (`player_hp_logout`): o logout é o único socorro
+  # que o jogo dá pro personagem — sem pokémon em pé, fugir andando só muda
+  # onde ele apanha.
+  defp guard_player(state) do
+    floor = Settings.get(:player_hp_floor_pct)
+
+    cond do
+      not is_integer(floor) or floor <= 0 ->
+        %{state | player_low_streak: 0, player_alarmed?: false}
+
+      state.player_hp >= floor + 10 ->
+        %{state | player_low_streak: 0, player_alarmed?: false}
+
+      state.player_hp >= floor ->
+        %{state | player_low_streak: 0}
+
+      true ->
+        player_low(%{state | player_low_streak: state.player_low_streak + 1})
+    end
+  end
+
+  defp player_low(%{player_low_streak: streak, player_alarmed?: false} = state)
+       when streak >= 2 do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:rule_alarm, :hp,
+       "⚠️ VOCÊ está com #{state.player_hp}% de vida — o personagem, não o pokémon"}
+    )
+
+    broadcast_log(
+      :macro,
+      "⚠️ a vida do PERSONAGEM caiu a #{state.player_hp}% — " <>
+        if(Settings.get(:player_hp_logout),
+          do: "pedindo LOGOUT agora",
+          else: "confere o jogo (ligue player_hp_logout pra ele sair sozinho)"
+        )
+    )
+
+    if Settings.get(:player_hp_logout),
+      do: Logout.request("vida do personagem em #{state.player_hp}%")
+
+    %{state | player_alarmed?: true}
+  end
+
+  defp player_low(state), do: state
 
   # Uncrashable: this monitor runs forever, so a transient capture failure (the broker or the Rig
   # momentarily down/restarting) must come back as {:error}, not take the whole worker down with it.
@@ -1211,6 +1321,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     do: %{
       state: if(state.running?, do: :monitoring, else: :idle),
       hp_pct: state.hp_pct,
+      player_hp: state.player_hp,
       enabled?: Settings.get(:rescue_enabled),
       last_rescue_at: state.last_rescue_at,
       counters: state.counters,

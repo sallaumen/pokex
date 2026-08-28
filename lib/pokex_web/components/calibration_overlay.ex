@@ -69,6 +69,7 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :neutral_point, :any, default: nil
   attr :player_point, :any, default: nil
   attr :pokemon_hp_region, :any, default: nil
+  attr :player_hp_region, :any, default: nil
   attr :pokemon_photo_point, :any, default: nil
   attr :mini_game_region, :any, default: nil
   attr :minimap_region, :any, default: nil
@@ -221,6 +222,21 @@ defmodule PokexWeb.CalibrationOverlay do
           class="overlay-label absolute -top-4 left-0 rounded bg-accent px-1 text-[10px] font-bold text-accent-content"
         >
           vida
+        </span>
+      </div>
+      <div
+        :if={@player_hp_region}
+        class={[
+          "absolute rounded",
+          box(@quiet, "border-2 border-warning bg-warning/10", "border border-warning/70")
+        ]}
+        style={region_style(@player_hp_region, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 left-0 rounded bg-warning px-1 text-[10px] font-bold text-warning-content"
+        >
+          VOCÊ
         </span>
       </div>
       <div
@@ -507,6 +523,7 @@ defmodule PokexWeb.CalibrationOverlay do
   defp crop_list(calib) do
     [
       {:pokemon_hp_region, "vida do Pokémon", :region, calib.pokemon_hp_region},
+      {:player_hp_region, "vida do PERSONAGEM", :region, calib.player_hp_region},
       {:skill_bar_region, "skills", :region, calib.skill_bar_region},
       {:battle_region, "janela Battle", :region, calib.battle_region},
       {:glow_region, "brilho (isca)", :region, calib.glow_region},

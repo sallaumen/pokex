@@ -1612,6 +1612,24 @@ defmodule PokexWeb.CavebotLive do
 
   # As teclas em conflito, juntas — e o motivo dito UMA vez. Dentro do
   # quadradinho a frase virava "tela diz em …", que ocupa a peça e não informa.
+  defp enemy_pct(pct) when is_number(pct), do: round(pct * 100)
+  defp enemy_pct(_unknown), do: 0
+
+  # A vida do bicho conta a história ao contrário da dele: cheia é ruim (falta
+  # matar), quase vazia é o alvo prestes a cair. Verde e vermelho aqui
+  # confundiriam com as barras de cima — este trilho é neutro, e o COMPRIMENTO
+  # é a informação.
+  defp enemy_fill(pct) when is_number(pct) and pct <= 0.35, do: "bg-pk-warn"
+  defp enemy_fill(pct) when is_number(pct), do: "bg-pk-text-3"
+  defp enemy_fill(_unknown), do: "bg-pk-line-strong"
+
+  defp active_name(combat) do
+    case fighting_as(combat) do
+      %{name: name} -> name
+      _none -> nil
+    end
+  end
+
   defp conflicted(tiles),
     do: tiles |> Enum.filter(&(&1.muted? or &1.disagree?)) |> Enum.map(& &1.key)
 
@@ -2064,10 +2082,21 @@ defmodule PokexWeb.CavebotLive do
           `max-w-3xl` the drawing got 350px — six pixels per tile — while an
           ultrawide screen sat empty around it. Same rule as the dashboard:
           narrow where a phone would need it, wide where there is room. --%>
+    <%!-- A LARGURA LIGA COM O LAYOUT, no mesmo degrau. As onze regras desta
+         página ligam em `lg` (1024px): o cockpit vira duas colunas, o bloco
+         ganha uma tela de altura, o feed passa a rolar por dentro. A largura
+         que acomoda isso liberava só em `xl` (1280) — então entre 1024 e 1279
+         a página montava DUAS COLUNAS DENTRO DE 560px e o conteúdo se
+         atropelava.
+
+         Ele achou isso com o navegador em 90% de zoom (2026-08-28), e zoom é
+         exatamente o que alguém que lê de óculos usa. Uma faixa de 256px de
+         largura onde a página nasce quebrada não é caso raro: é uma janela
+         não-maximizada num monitor grande. --%>
     <Layouts.app
       flash={@flash}
       current_page={:cavebot}
-      max_width="max-w-[560px] xl:max-w-[1600px]"
+      max_width="max-w-[560px] lg:max-w-[1600px]"
       {Layouts.header(assigns)}
     >
       <%!-- TWO MODES, one page. Watching a hunt and editing a route want the
@@ -2244,12 +2273,13 @@ defmodule PokexWeb.CavebotLive do
                   <span class="ml-auto text-pk-meta text-pk-text-2">{burst_line()}</span>
                 </div>
 
-                <%!-- 96px e não 78: com 78 o motivo da discordância ("tela diz em
-                cooldown") cabia como "tela diz em …", que é ruído com cara de
-                informação. Agora o motivo sai da peça e vira UMA linha embaixo
-                do rack, e a peça fica com o que dá pra ler de longe: a tecla,
-                o trabalho dela e o tempo. --%>
-                <ol class="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-1.5">
+                <%!-- 84px: com 78 o motivo da discordância cabia como "tela diz
+                em …" — ruído com cara de informação — e com 96 os nove
+                quadrados comiam a coluna ("tão grande demais", 28/08). O
+                motivo saiu da peça (vira uma linha embaixo do rack), então a
+                peça só precisa do que se lê de longe: a tecla, o trabalho e o
+                tempo. --%>
+                <ol class="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-1">
                   <li
                     :for={tile <- @rack}
                     class={[
@@ -2269,7 +2299,7 @@ defmodule PokexWeb.CavebotLive do
                     ></span>
 
                     <span class="relative flex items-baseline justify-between gap-1">
-                      <span class={["pk-num font-mono text-pk-title font-bold", tile_key_class(tile)]}>
+                      <span class={["pk-num font-mono text-pk-body font-bold", tile_key_class(tile)]}>
                         {tile.key}
                       </span>
                       <span class="truncate text-pk-meta text-pk-text-3">{job_short(tile.job)}</span>
@@ -2288,7 +2318,7 @@ defmodule PokexWeb.CavebotLive do
                       </span>
                       <span
                         :if={tile.state == :cooling and tile.left_ms > 0}
-                        class="pk-num font-mono text-pk-title font-bold tabular-nums text-pk-warn"
+                        class="pk-num font-mono text-pk-body font-bold tabular-nums text-pk-warn"
                       >
                         {countdown(tile)}
                       </span>
@@ -2301,7 +2331,7 @@ defmodule PokexWeb.CavebotLive do
                       <.icon
                         :if={tile.muted? or tile.disagree?}
                         name="hero-exclamation-triangle"
-                        class="ml-auto size-3.5 shrink-0 text-pk-danger"
+                        class="ml-auto size-3 shrink-0 text-pk-danger"
                       />
                     </span>
                   </li>
@@ -2380,6 +2410,61 @@ defmodule PokexWeb.CavebotLive do
                 <.icon name="hero-heart" class="size-3.5 shrink-0" />
                 <span>{revive_ledger()}</span>
               </p>
+            </section>
+
+            <%!-- O QUE ELE ESTÁ VENDO, em barras. Ele pediu pra poder JOGAR pela
+            Central — e disse por que isso vale mais do que conforto: "já
+            aconteceu antes onde o problema não era no algoritmo da engine e
+            sim na detecção correta de dados pelas imagens" (28/08). Uma tela
+            que mostra a DECISÃO só permite discutir a regra; uma que mostra a
+            LEITURA permite ele dizer "isso aí na tela não é o que eu estou
+            vendo no jogo", que é o defeito mais caro de achar.
+
+            CUSTO ZERO de captura: os três números já são fatos publicados (a
+            Pokebar e a barra vermelha pelo suporte, a lista de batalha pelo
+            feed do combate). Isto só desenha o que já estava sendo lido. --%>
+            <section
+              id="cavebot-vision"
+              class="rounded-lg border border-pk-line bg-pk-sunken px-2.5 py-2"
+            >
+              <div class="grid gap-2 sm:grid-cols-2">
+                <.hp_bar
+                  label="você"
+                  pct={@world.me.player_hp}
+                  note={if is_nil(@world.me.player_hp), do: "marque na calibração"}
+                />
+                <.hp_bar label={active_name(@combat) || "pokémon"} pct={@world.me.hp_pct} />
+              </div>
+
+              <%!-- A LISTA DE BATALHA COMO ELE A VÊ, linha por linha: é aqui que
+              um erro de leitura aparece antes de virar uma decisão errada —
+              a linha do próprio pokémon contada como inimigo custou uma
+              caçada inteira em 27/08. --%>
+              <div class="mt-2 border-t border-pk-line pt-1.5">
+                <p class="flex items-baseline gap-1.5 font-mono text-pk-meta">
+                  <span class="uppercase tracking-[0.1em] text-pk-text-3">na tela</span>
+                  <span class="pk-num font-bold text-pk-text-2">{length(@world.enemies)}</span>
+                  <span :if={@world.enemies == []} class="text-pk-text-3">— nada na lista</span>
+                  <span :if={@world.shiny?} class="ml-auto font-bold text-pk-warn">✨ shiny</span>
+                </p>
+
+                <ul :if={@world.enemies != []} class="mt-1 space-y-1">
+                  <li :for={row <- Enum.take(@world.enemies, 10)} class="flex items-center gap-2">
+                    <span class="w-24 shrink-0 truncate font-mono text-pk-meta text-pk-text-2">
+                      {row[:name] || "?"}
+                    </span>
+                    <span class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-pk-line">
+                      <span
+                        class={["block h-full rounded-full", enemy_fill(row[:hp_pct])]}
+                        style={"width: #{enemy_pct(row[:hp_pct])}%"}
+                      ></span>
+                    </span>
+                    <span class="pk-num w-9 shrink-0 text-right font-mono text-pk-meta tabular-nums text-pk-text-3">
+                      {if row[:hp_pct], do: "#{enemy_pct(row[:hp_pct])}%", else: "?"}
+                    </span>
+                  </li>
+                </ul>
+              </div>
             </section>
 
             <%!-- THE WORLD, as the bot sees it. Everything here already existed as

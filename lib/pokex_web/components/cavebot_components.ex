@@ -46,6 +46,63 @@ defmodule PokexWeb.CavebotComponents do
     """
   end
 
+  attr :label, :string, required: true
+  attr :pct, :integer, default: nil
+  attr :note, :string, default: nil
+  attr :tone, :atom, default: :ok
+
+  @doc """
+  Uma vida como BARRA, não como número solto.
+
+  "Queria conseguir JOGAR o jogo totalmente pela tela do cave bot" (28/08) — e
+  uma barra é o que se lê sem ler: de canto de olho ela é comprimento, e o
+  número fica pra quando ele quiser o valor exato.
+
+  `nil` é uma resposta legítima e diferente de zero: sem leitura o trilho fica
+  vazio e o texto diz "sem leitura", porque uma barra vazia com cara de 0% é
+  como uma janela minimizada vira "meu pokémon está morrendo".
+  """
+  def hp_bar(assigns) do
+    ~H"""
+    <div class="min-w-0">
+      <p class="flex items-baseline gap-1.5 font-mono text-pk-meta">
+        <span class="shrink-0 uppercase tracking-[0.1em] text-pk-text-3">{@label}</span>
+        <span :if={@note} class="truncate text-pk-text-3">{@note}</span>
+        <span class={["pk-num ml-auto shrink-0 font-bold tabular-nums", bar_text(@pct, @tone)]}>
+          {if @pct, do: "#{@pct}%", else: "sem leitura"}
+        </span>
+      </p>
+      <div class="mt-0.5 h-1.5 overflow-hidden rounded-full bg-pk-line">
+        <div
+          class={["h-full rounded-full transition-[width] duration-500", bar_fill(@pct, @tone)]}
+          style={"width: #{@pct || 0}%"}
+        >
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # A cor sai da própria vida quando ninguém mandou um tom: vermelho e âmbar
+  # são as faixas que o cérebro usa, e a barra tem que contar a mesma história
+  # que a decisão.
+  defp bar_tone(nil, _tone), do: :unknown
+  defp bar_tone(pct, _tone) when pct < 30, do: :danger
+  defp bar_tone(pct, _tone) when pct < 60, do: :warn
+  defp bar_tone(_pct, tone), do: tone
+
+  defp bar_text(pct, tone), do: tone_text(bar_tone(pct, tone))
+
+  defp bar_fill(pct, tone) do
+    case bar_tone(pct, tone) do
+      :danger -> "bg-pk-danger"
+      :warn -> "bg-pk-warn"
+      :unknown -> "bg-pk-line-strong"
+      _ok -> "bg-pk-ok"
+    end
+  end
+
+  defp tone_text(:unknown), do: "text-pk-text-3"
   defp tone_text(:ok), do: "text-pk-ok"
   defp tone_text(:warn), do: "text-pk-warn"
   defp tone_text(:danger), do: "text-pk-danger"

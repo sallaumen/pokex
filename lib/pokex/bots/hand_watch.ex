@@ -66,6 +66,13 @@ defmodule Pokex.Bots.HandWatch do
   # O Body carimba no despacho e a rajada leva ~35-500ms entre teclas; um
   # aperto visto até aqui depois do carimbo é o nosso próprio CGEvent.
   @own_window_ms 700
+  # O reset do revive do BOT (`:rescue_done`) apaga o carimbo do próprio F4 —
+  # num drain atrasado a sighting dele ficaria sem dono e viraria "mão do
+  # Lucas": item contado duas vezes e um re-reset apagando os carimbos novos
+  # da rajada pós-revive. O caderninho lembra a hora do último despacho, de
+  # qualquer mão — o que também impede o F4 DELE repetido em menos de 5s de
+  # contar dobrado (o item tem cooldown no jogo de qualquer jeito).
+  @bot_revive_window_ms 5_000
 
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
@@ -96,7 +103,16 @@ defmodule Pokex.Bots.HandWatch do
 
   @impl true
   def init(_opts) do
+    # O terminate abaixo é a única chance de desarmar o helper numa queda — sem
+    # trap, um crash deixaria o poll de 8ms lendo onze teclas pra sempre.
+    Process.flag(:trap_exit, true)
     {:ok, %{consumers: %{}, paused_by: %{}, timer: nil, armed?: false}}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    settle(state)
+    :ok
   end
 
   @impl true
@@ -106,7 +122,10 @@ defmodule Pokex.Bots.HandWatch do
   end
 
   def handle_call(:detach, {pid, _tag}, state) do
-    {:reply, :ok, drop_watcher(state, :consumers, pid) |> settle()}
+    # Só o ÚLTIMO a sair apaga a luz — desarmar com outro consumidor vivo
+    # deixaria a caçada dele sem vigia porque outra página se despediu.
+    state = drop_watcher(state, :consumers, pid)
+    {:reply, :ok, if(active?(state), do: poke(state), else: settle(state))}
   end
 
   def handle_call(:pause, {pid, _tag}, state) do
@@ -140,6 +159,11 @@ defmodule Pokex.Bots.HandWatch do
     {:noreply, if(active?(state), do: poke(state), else: settle(state))}
   end
 
+  # Com trap_exit ligado (pelo terminate que desarma o helper), um :EXIT de
+  # qualquer processo vira mensagem — e mensagem sem clause derrubaria o vigia
+  # pelo motivo errado.
+  def handle_info(_msg, state), do: {:noreply, state}
+
   # -- o laço ------------------------------------------------------------------
 
   defp drain(state) do
@@ -161,6 +185,7 @@ defmodule Pokex.Bots.HandWatch do
       focus_ok?: InputGate.focus_ok?(),
       rescue_code: rescue_code(),
       last_press: &SkillClock.last_press/1,
+      revive_noted?: ReviveLedger.noted_within?(@bot_revive_window_ms),
       now: System.monotonic_time(:millisecond)
     }
 
@@ -171,8 +196,9 @@ defmodule Pokex.Bots.HandWatch do
 
   @doc """
   O julgamento de um drain, puro: cada evento vira `{:stamp, key}`, `:revive`
-  ou nada. `ctx` traz o foco, o código do resgate, o relógio (`last_press`) e
-  o agora — tudo injetável, pra mesa de teste.
+  ou nada. `ctx` traz o foco, o código do resgate, o relógio (`last_press`),
+  se o caderninho anotou um revive há pouco (`revive_noted?`) e o agora —
+  tudo injetável, pra mesa de teste.
   """
   @spec judge([map], map) :: [{:stamp, String.t()} | :revive]
   def judge(events, ctx) do
@@ -191,14 +217,19 @@ defmodule Pokex.Bots.HandWatch do
 
   defp verdict(%{code: code}, ctx) do
     cond do
-      code == ctx.rescue_code -> tell(rescue_key(), :revive, ctx)
-      key = hotbar_key(code) -> tell(key, {:stamp, key}, ctx)
+      code == ctx.rescue_code -> rescue_verdict(ctx)
+      key = hotbar_key(code) -> unless_own_press(key, {:stamp, key}, ctx)
       true -> nil
     end
   end
 
+  # Duas testemunhas de que o F4 foi NOSSO: o carimbo do press (que o reset do
+  # :rescue_done pode já ter apagado) e a anotação do caderninho, que fica.
+  defp rescue_verdict(%{revive_noted?: true}), do: nil
+  defp rescue_verdict(ctx), do: unless_own_press(rescue_key(), :revive, ctx)
+
   # O nosso próprio CGEvent voltando pela janela: o carimbo já existe.
-  defp tell(key, action, ctx) do
+  defp unless_own_press(key, action, ctx) do
     case ctx.last_press.(key) do
       at when is_integer(at) and ctx.now - at <= @own_window_ms -> nil
       _mao_dele -> action

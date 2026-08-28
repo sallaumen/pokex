@@ -43,4 +43,21 @@ defmodule Pokex.Bots.ReviveLedgerTest do
     ReviveLedger.note()
     assert ReviveLedger.remaining() == nil
   end
+
+  # A testemunha que o HandWatch consulta: o reset do :rescue_done apaga o
+  # carimbo do F4 do bot, e um drain atrasado precisa de OUTRA prova de que
+  # aquele F4 já tem dono — a hora do último despacho fica no caderninho.
+  test "noted_within? lembra a hora do último despacho, e o reset esquece" do
+    refute ReviveLedger.noted_within?(5_000)
+
+    ReviveLedger.note()
+    assert ReviveLedger.noted_within?(5_000)
+
+    now = System.monotonic_time(:millisecond)
+    refute ReviveLedger.noted_within?(5_000, now + 6_000)
+
+    ReviveLedger.note()
+    ReviveLedger.reset()
+    refute ReviveLedger.noted_within?(5_000)
+  end
 end

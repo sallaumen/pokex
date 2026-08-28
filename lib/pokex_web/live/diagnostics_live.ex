@@ -60,6 +60,12 @@ defmodule PokexWeb.DiagnosticsLive do
   @probe_osa ["1", "shift+1", "shift+3"]
 
   @impl true
+  # Uma sonda por vez: um segundo clique no meio da medição agendaria estágios
+  # entrelaçados E devolveria o HandWatch (o resume da primeira) no meio da
+  # segunda — o pause/resume é por página, não contado.
+  def handle_event("probe_keys", _params, %{assigns: %{probe: %{busy?: true}}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("probe_keys", _params, socket) do
     # O key_watch é UM buffer global: a sonda arma os códigos DELA e drena o
     # que viu. O vigia da caçada (HandWatch) sai da frente até a sonda acabar

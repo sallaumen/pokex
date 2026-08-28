@@ -98,6 +98,11 @@ defmodule Pokex.Bots.Combat.Worker do
        feed_ref: nil,
        reattach_attempts: 0,
        held?: false,
+       # os controles que a ÚLTIMA ordem do cérebro trazia na abertura: o press
+       # do controle é disparado na BORDA em que ele aparece (ver
+       # `press_engine_crowd/2`), e sem memória a mesma ordem repetida a cada
+       # tique viraria um press por tique
+       engine_crowd: [],
        # the ONE in-flight key burst (nil when none): a new burst is SKIPPED while the previous
        # is still landing, instead of piling concurrent osascripts onto System Events
        burst_pid: nil,
@@ -287,7 +292,11 @@ defmodule Pokex.Bots.Combat.Worker do
 
   defp step(state, obs) do
     {posture, combo, orders} = posture()
-    state = open_with_combo(state, state.logic.posture, posture, combo, orders)
+
+    state =
+      state
+      |> press_engine_crowd(combo)
+      |> open_with_combo(state.logic.posture, posture, combo, orders)
 
     logic =
       state.logic
@@ -341,10 +350,23 @@ defmodule Pokex.Bots.Combat.Worker do
   # em área" (2026-08-11). When the pokémon's keys are classified that is a rule
   # the machine can KEEP — area, then single-target, control never.
   #
+  # A MÃO DO CÉREBRO VENCE. A abertura da engine é o MESMO `Strategy.opening`,
+  # composto com o que este módulo não tem: a leitura da barra (aura/escudo
+  # prontos de verdade) e o tamanho da pilha (a mão pequena do bicho bobo).
+  # Recompor aqui era jogar essa informação fora — a auditoria de 28/08 achou o
+  # cérebro carimbando um stun que ninguém apertava porque a lista dele morria
+  # exatamente nesta função. O controle NÃO sai daqui: ele tem via própria, na
+  # borda em que aparece (`press_engine_crowd/2`), porque o momento dele é o da
+  # ordem, não o da liberação do fogo.
+  #
   # The recorded combo stays as the fallback, and it is a worse one on purpose:
   # it presses whatever his hands pressed at that waypoint, which stops being
   # true the moment he swaps pokémon, and can spend a control skill that was
   # supposed to survive for the revive.
+  defp opening_keys(loadout, {:engine, keys}) do
+    {"com a mão do cérebro", Enum.reject(keys, &(&1 in crowd_keys(loadout)))}
+  end
+
   defp opening_keys(loadout, recorded) do
     if Loadout.attacks?(loadout),
       do:
@@ -352,6 +374,49 @@ defmodule Pokex.Bots.Combat.Worker do
          Strategy.opening(loadout, aura_ready?: aura_ready?(loadout))},
       else: {"com o combo da caçada", recorded}
   end
+
+  defp crowd_keys(nil), do: []
+  defp crowd_keys(loadout), do: loadout.crowd
+
+  # R10, DE VERDADE. `stun_now?`/`stun_before_reset?` põem o controle na frente
+  # da abertura e carimbam `:stunned` — e até 28/08 ninguém apertava: a
+  # recomposição local descartava a lista, o moduledoc do Strategy diz "control
+  # never", e a janela dos 5s abria sobre um stun que não aconteceu. O único
+  # stun real era o que o resgate refazia por conta própria, 800ms antes do F4.
+  #
+  # O press é na BORDA em que o controle entra na ordem: o cérebro repete a
+  # mesma ordem a cada tique de 200ms, e stun é UMA tecla, não uma cadência. A
+  # borda de saída limpa a memória; ordem sem mão do cérebro idem.
+  defp press_engine_crowd(state, {:engine, keys}) do
+    crowd = Enum.filter(keys, &(&1 in crowd_keys(state.loadout)))
+
+    case crowd -- state.engine_crowd do
+      [] ->
+        %{state | engine_crowd: crowd}
+
+      fresh ->
+        # Só LATCHA quando a tecla saiu: `try_dispatch` pula rajada com outra
+        # em voo, e uma borda consumida num pulo era um stun perdido em
+        # silêncio. Pulado, a memória fica como estava — e se a ordem seguinte
+        # já não trouxer o controle (a janela abre no tique seguinte), o
+        # resgate re-faz o stun por conta própria, como sempre fez.
+        case try_dispatch(state, Enum.map(fresh, &{:press, &1})) do
+          {state, :skipped} ->
+            state
+
+          {state, _sent_or_nothing} ->
+            Phoenix.PubSub.broadcast(
+              Pokex.PubSub,
+              @topic,
+              {:combat_log, :macro, "combate: 💤 controle do cérebro: #{Enum.join(fresh, ", ")}"}
+            )
+
+            %{state | engine_crowd: crowd}
+        end
+    end
+  end
+
+  defp press_engine_crowd(state, _no_engine_hand), do: %{state | engine_crowd: []}
 
   # What the hunt is asking of us, read as a FACT with an age — the same
   # contract as every other reading on the blackboard. Stale, missing or
@@ -372,10 +437,20 @@ defmodule Pokex.Bots.Combat.Worker do
     fact = posture_fact()
 
     case engine_fire() do
-      nil -> fact
-      {fire, opening} -> {fire, opening_or(opening, elem(fact, 1)), elem(fact, 2)}
+      nil ->
+        fact
+
+      {fire, opening} ->
+        {fire, tag_engine(opening_or(opening, elem(fact, 1)), opening), elem(fact, 2)}
     end
   end
+
+  # A mão que veio DO CÉREBRO carrega a marca: `opening_keys/2` a obedece
+  # inteira, enquanto o combo gravado num canto continua sendo só o fallback de
+  # quem não tem loadout. Sem a marca as duas listas eram indistinguíveis — e a
+  # do cérebro morria na recomposição local.
+  defp tag_engine(keys, []), do: keys
+  defp tag_engine(keys, _engine_opening), do: {:engine, keys}
 
   defp posture_fact do
     case WorldState.get(:posture, Settings.get(:posture_max_age_ms), now()) do

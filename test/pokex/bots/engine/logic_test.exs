@@ -87,6 +87,48 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
+  # "Gastei minhas skills num bicho bobo" (28/08): a pilha que a régua já
+  # chamou de "não vale a área" só está sendo limpa porque a paciência acabou —
+  # ela merece a MÃO PEQUENA (uma tecla de dano), não a rajada inteira.
+  describe "a rajada do tamanho da pilha" do
+    defp small_world(overrides) do
+      world(%{
+        situation:
+          situation(
+            Map.merge(
+              %{enemies: 1, worth_fighting?: false, walked: 99, walked_total: 99},
+              overrides
+            )
+          ),
+        hunt: hunt(%{state: :fighting}),
+        hands: %{opening: ~w(2 3 4), small: ["3"], single: [], crowd: ["1"]}
+      })
+    end
+
+    test "paciência esgotada num bicho bobo abre com UMA tecla" do
+      {logic, orders} = step(small_world(%{}), 10_000)
+
+      assert logic.state == :engaged
+      assert orders.fire == :free
+      assert orders.opening == ["3"]
+    end
+
+    test "a pilha que vale a área segue abrindo inteira" do
+      {_logic, orders} =
+        step(small_world(%{enemies: 6, worth_fighting?: true, stable_for_ms: 9_999}), 10_000)
+
+      assert orders.opening == ~w(2 3 4)
+    end
+
+    test "sem mão pequena composta, o desconhecido abre inteiro (fail-open)" do
+      w = small_world(%{})
+      w = %{w | hands: Map.put(w.hands, :small, [])}
+      {_logic, orders} = step(w, 10_000)
+
+      assert orders.opening == ~w(2 3 4)
+    end
+  end
+
   # "Não deveria estar andando por aí se eu não tenho nenhum cooldown
   # disponível" (28/08, depois de o personagem morrer). Juntar seis bichos sem
   # barra pra matar nem revive pra comprá-la é escolher uma luta sem saída.

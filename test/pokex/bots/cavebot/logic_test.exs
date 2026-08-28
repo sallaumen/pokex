@@ -1715,6 +1715,17 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.wp_index == 1
     end
 
+    # `park_tiles` é "o pokémon fica AQUI" dito em distância — engolir essa
+    # esquina engolia exatamente o canto onde ele mandou o pokémon parar.
+    test "a corner with park_tiles is never swallowed either" do
+      route = Route.set_park_tiles(tight_route(), 1, {6, -2})
+      logic = walking_at(route, 0)
+
+      {logic, _action} = Logic.step(logic, world_at({2305, 30_014, 5}), 0)
+
+      assert logic.wp_index == 1
+    end
+
     test "a corner that needs walking still costs a walk" do
       logic = walking_at(tight_route(), 3)
 

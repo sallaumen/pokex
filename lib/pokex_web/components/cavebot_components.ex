@@ -264,10 +264,6 @@ defmodule PokexWeb.CavebotComponents do
         Sem rota e sem posição pra desenhar — grave uma rota andando e ela aparece aqui.
       </p>
 
-      <p class="pointer-events-none absolute bottom-2 left-3 font-mono text-pk-meta text-pk-text-3">
-        {if @view, do: "#{round(elem(@view.box, 2))} tiles de ponta a ponta", else: ""}
-      </p>
-
       <p
         :if={@floor && Enum.any?(@waypoints, &(!on_floor?(&1, @floor)))}
         id="map-floor-legend"
@@ -276,15 +272,25 @@ defmodule PokexWeb.CavebotComponents do
         andar {@floor} · outros apagados
       </p>
 
-      <p
-        :if={Enum.any?(@legs, & &1.luring?) or Enum.any?(@waypoints, &(&1.action == :lure_end))}
-        id="map-lure-legend"
-        class="pointer-events-none absolute bottom-2 right-3 flex items-center gap-1.5 font-mono text-pk-meta text-pk-info"
-      >
-        <span class="h-0.5 w-4 rounded-full bg-pk-info"></span>
-        trecho de mob <span class="ml-1.5 size-2 rounded-full bg-pk-info"></span>
-        matança
-      </p>
+      <%!-- ONE bottom row, not two corners. Pinned left and right, the scale and
+           the mob legend ran into each other the moment the drawing was drawn
+           smaller than the sentence — which is every time the map shares its
+           column with the corner being edited. --%>
+      <div class="pointer-events-none absolute inset-x-3 bottom-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 font-mono text-pk-meta">
+        <p class="text-pk-text-3">
+          {if @view, do: "#{round(elem(@view.box, 2))} tiles de ponta a ponta", else: ""}
+        </p>
+
+        <p
+          :if={Enum.any?(@legs, & &1.luring?) or Enum.any?(@waypoints, &(&1.action == :lure_end))}
+          id="map-lure-legend"
+          class="flex items-center gap-1.5 text-pk-info"
+        >
+          <span class="h-0.5 w-4 rounded-full bg-pk-info"></span>
+          trecho de mob <span class="ml-1.5 size-2 rounded-full bg-pk-info"></span>
+          matança
+        </p>
+      </div>
     </div>
     """
   end

@@ -61,7 +61,7 @@ defmodule PokexWeb.CavebotFenceTest do
   test "recording REFUSES to arm while the fence is up", %{conn: conn} do
     raise_fence()
 
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
     html = view |> element(~s([phx-click="toggle_recording"])) |> render_click()
 
     # The refusal has to name the fix, and must NOT look like it started.

@@ -16,7 +16,13 @@ defmodule Pokex.Bots.HandWatchTest do
     {:ok, f4} = Commands.keycode("f4")
 
     Map.merge(
-      %{focus_ok?: true, rescue_code: f4, last_press: fn _key -> nil end, now: @now},
+      %{
+        focus_ok?: true,
+        rescue_code: f4,
+        last_press: fn _key -> nil end,
+        revive_noted?: false,
+        now: @now
+      },
       overrides
     )
   end
@@ -35,6 +41,14 @@ defmodule Pokex.Bots.HandWatchTest do
     test "a tecla do resgate vira o efeito inteiro de um revive" do
       events = [%{code: code!("f4"), shift?: false, at: 1_000}]
       assert HandWatch.judge(events, ctx()) == [:revive]
+    end
+
+    # O reset do :rescue_done apaga o carimbo do F4 do próprio bot — num drain
+    # atrasado a sighting ficaria sem dono. O caderninho é a testemunha que
+    # sobra: revive anotado há pouco = aquele F4 já tem dono.
+    test "F4 logo depois de um revive anotado não conta duas vezes" do
+      events = [%{code: code!("f4"), shift?: false, at: 1_000}]
+      assert HandWatch.judge(events, ctx(%{revive_noted?: true})) == []
     end
 
     test "jogo fora de foco: um '4' é ele digitando em outro lugar, não skill" do
@@ -156,6 +170,33 @@ defmodule Pokex.Bots.HandWatchTest do
 
       assert HandWatch.resume(watch) == :ok
       await(fn -> SkillClock.last_press("8") end, "o resume não voltou a drenar")
+    end
+
+    test "sair UM consumidor não apaga a luz do outro", %{watch: watch} do
+      parent = self()
+
+      other =
+        spawn(fn ->
+          HandWatch.attach(watch)
+          send(parent, :attached)
+
+          receive do
+            :die -> :ok
+          end
+        end)
+
+      assert_receive :attached, 1_000
+      assert HandWatch.attach(watch) == :ok
+      assert HandWatch.detach(watch) == :ok
+
+      # o outro consumidor segue vivo: o laço tem que continuar drenando
+      :ets.insert(
+        :hand_watch_test_script,
+        {:events, [%{code: code!("9"), shift?: false, at: 1}]}
+      )
+
+      await(fn -> SkillClock.last_press("9") end, "o detach de um matou o vigia do outro")
+      send(other, :die)
     end
   end
 

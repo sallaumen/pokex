@@ -51,7 +51,26 @@ defmodule Pokex.Bots.ReviveLedger do
     stock = Settings.get(:revive_stock)
     {_stock, spent} = current(stock)
     :ets.insert(@table, {:ledger, stock, spent + 1})
+    :ets.insert(@table, {:last_note_at, System.monotonic_time(:millisecond)})
     :ok
+  end
+
+  @doc """
+  Saiu um revive nos últimos `window_ms`? É a pergunta do `HandWatch`: o
+  `SkillClock.reset/0` do revive do bot apaga o carimbo do F4 dele mesmo, então
+  uma sighting de F4 num drain atrasado ficaria SEM DONO — e viraria "mão do
+  Lucas", contando o mesmo item duas vezes e re-zerando um relógio que já tem
+  carimbos novos da rajada pós-revive. O caderninho sabe a hora do último
+  despacho, de qualquer mão, e responde por ele.
+  """
+  @spec noted_within?(pos_integer, integer) :: boolean
+  def noted_within?(window_ms, now \\ System.monotonic_time(:millisecond)) do
+    ensure_table()
+
+    case :ets.lookup(@table, :last_note_at) do
+      [{:last_note_at, at}] -> now - at <= window_ms
+      [] -> false
+    end
   end
 
   @doc "Quantos já saíram desde a última vez que ele digitou o estoque."
@@ -80,6 +99,7 @@ defmodule Pokex.Bots.ReviveLedger do
   def reset do
     ensure_table()
     :ets.delete(@table, :ledger)
+    :ets.delete(@table, :last_note_at)
     :ok
   end
 

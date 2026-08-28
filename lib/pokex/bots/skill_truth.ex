@@ -81,8 +81,9 @@ defmodule Pokex.Bots.SkillTruth do
   def observe(%{ready_keys: ready}, now) when is_list(ready) do
     ensure_table()
 
-    freed = Enum.filter(ready, &judge(&1, now))
-    Enum.each(freed, &free(&1, now))
+    # `judge` condena, `free` executa — e o free RECONFERE o carimbo, porque
+    # entre os dois o Body pode ter apertado a mesma tecla de novo.
+    freed = Enum.filter(ready, fn key -> judge(key, now) and free(key, now) end)
 
     # Uma tecla que a tela mostra ESFRIANDO está de acordo com qualquer carimbo
     # — a discordância dela morreu, e o streak morre junto.
@@ -106,22 +107,35 @@ defmodule Pokex.Bots.SkillTruth do
     end
   end
 
+  # Solta de verdade — e diz se soltou. A idade é RELIDA aqui: entre o
+  # julgamento e este apagar, o Body pode ter carimbado um aperto NOVO na
+  # mesma tecla, e soltá-lo seria apagar um disparo legítimo. Carimbo mais
+  # novo que a carência = mudou de mãos; o streak zera e o julgamento
+  # recomeça do primeiro frame.
   defp free(key, now) do
-    age = now - (SkillClock.last_press(key) || now)
-    SkillClock.release(key)
     :ets.delete(@table, key)
+    age = now - (SkillClock.last_press(key) || now)
 
-    # Carimbo que ainda seguraria a tecla é notícia; carimbo já expirado é
-    # faxina, e faxina narrada em loop enterraria o feed.
-    if age < SkillClock.assumed_ms() do
-      Phoenix.PubSub.broadcast(
-        Pokex.PubSub,
-        Pokex.Bots.Combat.Worker.topic(),
-        {:combat_log, :macro,
-         "combate: 🧭 o jogo mostra a #{key} pronta e o relógio a segurava " <>
-           "(aperto de #{div(age, 1_000)}s atrás que não deve ter chegado) — soltei"}
-      )
+    if age > @grace_ms do
+      SkillClock.release(key)
+
+      # Carimbo que ainda seguraria a tecla é notícia; carimbo já expirado é
+      # faxina, e faxina narrada em loop enterraria o feed.
+      if age < SkillClock.assumed_ms(), do: narrate(key, age)
+      true
+    else
+      false
     end
+  end
+
+  defp narrate(key, age) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      Pokex.Bots.Combat.Worker.topic(),
+      {:combat_log, :macro,
+       "combate: 🧭 o jogo mostra a #{key} pronta e o relógio a segurava " <>
+         "(aperto de #{div(age, 1_000)}s atrás que não deve ter chegado) — soltei"}
+    )
   end
 
   defp bump(key) do

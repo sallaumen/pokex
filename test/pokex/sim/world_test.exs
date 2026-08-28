@@ -238,6 +238,21 @@ defmodule Pokex.Sim.WorldTest do
     assert World.new(straight()).mobs == []
   end
 
+  # "Até aqui" é onde a pilha morre — a marca da mão dele É um ninho, mesmo
+  # sem os timings gravados. A rota do magneton tem três lure_end contra dois
+  # corners com fight_ms: ignorar a marca simulava uma estrada mais vazia que
+  # o mapa que ela nomeia (28/08: 5,9 mortos/min no sim contra 9,1 medidos).
+  test "um 'até aqui' é um ninho, mesmo sem timings" do
+    nest =
+      [{100, 200, 5}, {110, 200, 5}]
+      |> route()
+      |> Map.update!(:waypoints, fn wps ->
+        List.update_at(wps, 1, &Map.put(&1, :action, :lure_end))
+      end)
+
+    assert length(World.new(nest, knobs: %{nest_size: 2}).mobs) == 2
+  end
+
   test "a fight mark is a nest too" do
     nest =
       [{100, 200, 5}, {110, 200, 5}]

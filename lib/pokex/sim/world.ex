@@ -418,8 +418,15 @@ defmodule Pokex.Sim.World do
   # Two different questions, one per corner. A corner his hand marked draws its
   # size from his distribution; an unmarked one rolls a much smaller chance of
   # holding a single stray. That is what fills the road between the piles.
+  # A corner is a NEST when his hand said a pile lives there — the recorded
+  # timings, or the "até aqui" mark itself: `lure_end` is literally "the
+  # gathering ends here, this is where everything dies", and the magneton
+  # route carries three of them against two timed corners. Ignoring the mark
+  # simulated a road emptier than the map it names (28/08: 5,9 mortos/min no
+  # sim contra 9,1 medidos na noite).
   defp population_of(world, waypoint) do
-    nest? = !!(waypoint[:gather_ms] || waypoint[:fight_ms])
+    nest? =
+      !!(waypoint[:gather_ms] || waypoint[:fight_ms]) or waypoint[:action] == :lure_end
 
     case {world.knobs.nest_size, nest?} do
       {nil, true} -> draw_weighted(world.knobs.nest_sizes, world.rand)
